@@ -9,11 +9,14 @@
  *     explosion is what makes shader-compile hitches in browser engines; the branches here are
  *     uniform-derived, so they are coherent per draw and free on every GPU we target.
  *
- * Conventions (docs/RENDERING.md#conventions): right-handed, +Y up, camera looks down local +Z,
- * NDC z in [0,1], positions in render-local float32, linear colour, sRGB only at output.
+ * Conventions (docs/RENDERING.md §5): +Y up, camera looks down local +Z (left-handed view
+ * space), NDC z in [0,1], positions in render-local float32, linear colour throughout. The sRGB
+ * encode happens either here (LDR path, `perFrame.flags` bit 1 clear) or in the post chain's
+ * tonemap pass (HDR path, bit 1 set) — never both.
  */
 
-import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
+import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
+import { WGSL_COLOR } from "./common.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
 export const BINDINGS = {
@@ -82,34 +85,7 @@ fn fresnelSchlick(u: f32, f0: vec3<f32>) -> vec3<f32> {
   return f0 + (1.0 - f0) * pow(1.0 - u, 5.0);
 }
 
-fn linearToSrgb(c: vec3<f32>) -> vec3<f32> {
-  let lo = c * 12.92;
-  let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
-  return select(hi, lo, c <= vec3<f32>(0.0031308));
-}
-
-fn tonemap(c: vec3<f32>, mode: f32) -> vec3<f32> {
-  if (mode < 0.5) {
-    return c;
-  }
-  if (mode < 1.5) {
-    // Reinhard (luminance-preserving variant).
-    let l = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
-    return c / (1.0 + l);
-  }
-  if (mode < 2.5) {
-    // ACES filmic (Narkowicz fit) — the engine default: keeps highlights rolloff smooth.
-    let a = 2.51;
-    let b = 0.03;
-    let cc = 2.43;
-    let d = 0.59;
-    let e = 0.14;
-    return clamp((c * (a * c + b)) / (c * (cc * c + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
-  }
-  // Filmic (Hable-ish) approximation.
-  let x = max(c, vec3<f32>(0.0));
-  return clamp(((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)) - vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(1.0));
-}
+${WGSL_COLOR}
 
 fn unpackTint(packed: u32) -> vec4<f32> {
   let a = f32((packed >> 24u) & 0xffu) / 255.0;
@@ -121,29 +97,86 @@ fn unpackTint(packed: u32) -> vec4<f32> {
 `;
 
 const SHADOW_HELPERS = /* wgsl */ `
-fn shadowAttenuation(point: vec3<f32>, cascade: i32) -> f32 {
-  if (uniforms_shadow.enabled == 0i || cascade < 0i) {
-    return 1.0;
-  }
-  let proj = uniforms_shadow.cascadeViewProj[cascade];
-  var sc = proj * vec4<f32>(point, 1.0);
+// Cascade whose slice contains this view depth (0-based); 'count' when past the last split.
+fn shadowCascadeFor(viewDepth: f32) -> i32 {
+  let splits = uniforms_shadow.cascadeSplits;
+  var c = 0i;
+  if (viewDepth > splits.x) { c = 1i; }
+  if (viewDepth > splits.y) { c = 2i; }
+  if (viewDepth > splits.z) { c = 3i; }
+  if (viewDepth > splits.w) { c = 4i; }
+  return c;
+}
+
+fn cascadeTexelWorld(cascade: i32) -> f32 {
+  let t = uniforms_shadow.cascadeTexelWorld;
+  if (cascade == 0i) { return t.x; }
+  if (cascade == 1i) { return t.y; }
+  if (cascade == 2i) { return t.z; }
+  return t.w;
+}
+
+// Coverage in [0,1] (1 = fully lit) from one cascade with 3x3 PCF over a comparison sampler. The
+// receiver is pushed along its normal by 'normalBias' shadow texels first (normal-offset shadows),
+// which removes acne on low-poly surfaces without the peter-panning a large constant bias causes.
+fn shadowCascadeCoverage(point: vec3<f32>, normal: vec3<f32>, cascade: i32) -> f32 {
+  let offset = normal * (cascadeTexelWorld(cascade) * uniforms_shadow.normalBias);
+  var sc = uniforms_shadow.cascadeViewProj[cascade] * vec4<f32>(point + offset, 1.0);
   sc = sc / sc.w;
-  let uv = sc.xy * vec2<f32>(0.5, 0.5) + vec2<f32>(0.5, 0.5);
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || sc.z > 1.0) {
+  let uv = sc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || sc.z > 1.0 || sc.z < 0.0) {
     return 1.0;
   }
   let depth = sc.z - uniforms_shadow.depthBias;
   var lit = 0.0;
   let texel = uniforms_shadow.texelSize;
-  // 3x3 PCF. textureSampleCompareLevel already returns coverage in [0,1] for a depth texture
-  // bound with a comparison sampler, so the taps average instead of majority-voting.
+  // textureSampleCompareLevel returns coverage in [0,1] per tap (bilinear PCF when the sampler
+  // filters), so the taps average instead of majority-voting.
   for (var y = -1; y <= 1; y = y + 1) {
     for (var x = -1; x <= 1; x = x + 1) {
       let o = vec2<f32>(f32(x), f32(y)) * texel;
-      lit = lit + textureSampleCompareLevel(shadowMap, shadowSampler, uv + o, depth);
+      lit = lit + textureSampleCompareLevel(shadowMap, shadowSampler, uv + o, cascade, depth);
     }
   }
   return lit / 9.0;
+}
+
+// Shadow factor for the directional caster: picks the cascade by view depth, blends across the
+// last 15% of a cascade so the resolution step is not a visible line, and fades out entirely at
+// the shadow distance.
+fn shadowAttenuation(point: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
+  if (uniforms_shadow.enabled == 0i) {
+    return 1.0;
+  }
+  let count = uniforms_shadow.count;
+  let c = shadowCascadeFor(viewDepth);
+  if (c >= count) {
+    return 1.0;
+  }
+  var lit = shadowCascadeCoverage(point, normal, c);
+  let splits = uniforms_shadow.cascadeSplits;
+  var far = splits.x;
+  if (c == 1i) { far = splits.y; }
+  if (c == 2i) { far = splits.z; }
+  if (c == 3i) { far = splits.w; }
+  let blendStart = far * 0.85;
+  if (viewDepth > blendStart && c + 1i < count) {
+    let t = (viewDepth - blendStart) / max(far - blendStart, 1e-4);
+    lit = mix(lit, shadowCascadeCoverage(point, normal, c + 1i), clamp(t, 0.0, 1.0));
+  }
+  let fadeStart = uniforms_shadow.fadeStart;
+  let fadeEnd = perFrame.shadowDistance;
+  let fade = clamp((viewDepth - fadeStart) / max(fadeEnd - fadeStart, 1e-4), 0.0, 1.0);
+  return mix(lit, 1.0, fade);
+}
+
+fn cascadeDebugTint(viewDepth: f32) -> vec3<f32> {
+  let c = shadowCascadeFor(viewDepth);
+  if (c == 0i) { return vec3<f32>(1.0, 0.55, 0.55); }
+  if (c == 1i) { return vec3<f32>(0.55, 1.0, 0.55); }
+  if (c == 2i) { return vec3<f32>(0.55, 0.55, 1.0); }
+  if (c == 3i) { return vec3<f32>(1.0, 1.0, 0.55); }
+  return vec3<f32>(1.0);
 }
 `;
 
@@ -155,7 +188,7 @@ ${COMMON}
 @group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
 @group(0) @binding(1) var<uniform> lights: LightBlock;
 @group(0) @binding(2) var<uniform> uniforms_shadow: ShadowUniforms;
-@group(0) @binding(3) var shadowMap: texture_depth_2d;
+@group(0) @binding(3) var shadowMap: texture_depth_2d_array;
 @group(0) @binding(4) var shadowSampler: sampler_comparison;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
@@ -283,9 +316,8 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
       }
       var power = L.directionIntensity.w * attenuation;
       if (L.shadowIndex >= 0i) {
-        // Only the directional caster reaches here in phase 1; point shadows land with phase 2.
-        let lit = shadowAttenuation(in.worldPos, L.shadowIndex);
-        power = power * mix(1.0, lit, 0.85);
+        // Only the directional caster has a shadow map (cascaded); point/spot shadows are deferred.
+        power = power * shadowAttenuation(in.worldPos, N, in.viewDepth);
       }
       let H = normalize(V + lightDir);
       let nl = max(dot(N, lightDir), 0.0);
@@ -301,18 +333,26 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
     let irradiance = ambient * (1.0 - F0);
     color = color + irradiance;
   }
-  color = color + material.emissiveFactor * material.emissiveStrength * albedo.rgb;
+  // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark
+  // base colour with a bright emissive factor is exactly how a glowing core is authored).
+  color = color + material.emissiveFactor * material.emissiveStrength;
   color = color * in.tint.rgb;
-  color = color * perFrame.exposure;
-  color = tonemap(color, perFrame.toneMapping);
-  if ((perFrame.flags & 2u) == 0u) {
-    // No separate encode pass: encode here so the swapchain (non-sRGB format) shows correct colour.
-    color = linearToSrgb(color);
+  if ((uniforms_shadow.flags & 1u) != 0u) {
+    color = color * cascadeDebugTint(in.viewDepth);
   }
   let alpha = albedo.a * material.opacity * in.tint.a;
   if (material.opacity < 0.999 && alpha < 0.004) {
     discard;
   }
+  if ((perFrame.flags & 2u) != 0u) {
+    // HDR path: the target is a float texture and the post chain applies exposure, bloom, the tone
+    // curve and the sRGB encode. Output scene-referred linear radiance untouched.
+    return vec4<f32>(color, alpha);
+  }
+  // LDR path straight into the (non-sRGB) swapchain: same operators as the post chain, in-shader.
+  color = color * perFrame.exposure;
+  color = tonemap(color, perFrame.toneMapping);
+  color = linearToSrgb(color);
   return vec4<f32>(color, alpha);
 }
 `;
@@ -322,11 +362,13 @@ export const STANDARD_FRAGMENT = STANDARD_DEFINES + STANDARD_FRAGMENT_BODY;
 
 /** Depth-only program for the shadow pass: no colour targets, so the fragment stage is empty. */
 export const DEPTH_VERTEX = /* wgsl */ `
-${PerFrameUniforms.toWgsl("uniform")}
+${ShadowPassUniforms.toWgsl("uniform")}
 ${ObjectUniforms.toWgsl("uniform")}
 ${InstanceStruct.toWgsl("storage")}
 
-@group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
+// Group 0 is the *cascade* block, not the camera's per-frame block: the shadow pass renders from
+// the light, so its view-projection comes from the cascade fit (rendering/shadows.ts).
+@group(0) @binding(0) var<uniform> shadowPass: ShadowPassUniforms;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 
@@ -341,7 +383,7 @@ struct Out {
 @vertex
 fn vertexMain(input: In) -> Out {
   var out: Out;
-  out.clip = perFrame.viewProj * objectData.model * vec4<f32>(input.position, 1.0);
+  out.clip = shadowPass.viewProj * objectData.model * vec4<f32>(input.position, 1.0);
   return out;
 }
 
@@ -350,7 +392,7 @@ fn vertexMainInstanced(input: In, @builtin(instance_index) instanceIndex: u32) -
   var out: Out;
   let i = instances[instanceIndex];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
-  out.clip = perFrame.viewProj * model * vec4<f32>(input.position, 1.0);
+  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
   return out;
 }
 

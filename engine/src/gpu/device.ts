@@ -365,12 +365,15 @@ export class GraphicsDevice {
    * Cached samplers by semantic name. The engine uses a small fixed set; creating a sampler per
    * material would blow the per-frame bind-group cost budget.
    */
-  sampler(kind: "point-clamp" | "linear-clamp" | "linear-repeat" | "anisotropic" | "shadow" | "comparison"): GPUSampler {
+  sampler(kind: "point-clamp" | "linear-clamp" | "linear-repeat" | "anisotropic" | "shadow" | "shadow-pcf" | "comparison"): GPUSampler {
     const cached = this.samplerCache.get(kind);
     if (cached) return cached;
     const desc: GPUSamplerDescriptor =
       kind === "shadow" || kind === "comparison"
         ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "nearest", minFilter: "nearest", compare: kind === "shadow" ? "less" : "less-equal" }
+        : kind === "shadow-pcf"
+          ? // Linear filtering on a comparison sampler is hardware 2x2 PCF per tap (core WebGPU, no feature).
+            { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear", compare: "less-equal" }
         : kind === "point-clamp"
           ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "nearest", minFilter: "nearest" }
           : kind === "linear-repeat"

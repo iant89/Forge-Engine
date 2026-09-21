@@ -11,28 +11,39 @@
  * `setBindGroup(index, shared, [offset])` instead of a bind-group creation. That is the difference
  * between "10k draws is slow" and "10k draws is possible", and it is why the arena is aligned to 256.
  *
- * Pipelines are keyed on exactly the state that changes them (technique, maps present, blend/cull,
- * depth format, MSAA, instancing). Adding a colour variation must not create a pipeline — if it
- * ever does, the key is wrong and `test('pipeline cache does not explode')` will catch it.
+ * The post-process chain (group 0 only: `PostUniforms` with a dynamic offset, two textures, a
+ * sampler) uses the same factory with `technique: "post"` and an explicit fragment entry point.
+ *
+ * Pipelines are keyed on exactly the state that changes them (technique, entry point, blend/cull,
+ * colour + depth format, MSAA, instancing). Adding a colour variation must not create a pipeline —
+ * if it ever does, the key is wrong and the "pipeline cache is stable across frames" test catches it.
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
+import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
 import { InternalError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 
+export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fsTonemap";
+
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
+  /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
   transparent: boolean;
   doubleSided: boolean;
   instanced: boolean;
   sampleCount?: number;
   writeDepth?: boolean;
+  /** Fragment entry point for techniques that expose several (`post`). */
+  fragmentEntry?: PostEntryPoint;
+  /** Additive blending (one / one) — the bloom upsample accumulates into the finer mip. */
+  additive?: boolean;
 }
 
 export interface RenderPipelineBundle {
@@ -52,6 +63,8 @@ export class PipelineFactory {
   private depthOnlyLayout: GPUPipelineLayout | null = null;
   private debugLayout: GPUPipelineLayout | null = null;
   private blitLayout: GPUPipelineLayout | null = null;
+  private postBindGroupLayout: GPUBindGroupLayout | null = null;
+  private postLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -59,17 +72,19 @@ export class PipelineFactory {
     this.shaders = new ShaderCache(device);
   }
 
-  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout } {
+  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout } {
     this.ensureLayouts();
-    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout! };
+    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout! };
   }
 
   private ensureLayouts(): void {
     if (this.frameLayout) return;
     const d = this.device.device;
+    // Shadow passes bind one `ShadowPassUniforms` record per cascade through a dynamic offset.
     this.depthFrameLayout = d.createBindGroupLayout({
+      label: "shadowpass.layout",
       entries: [
-        { binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX, buffer: { type: "uniform", hasDynamicOffset: false, minBindingSize: PerFrameUniforms.byteSize("uniform") } },
+        { binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: ShadowPassUniforms.byteSize("uniform") } },
       ],
     });
     this.frameLayout = d.createBindGroupLayout({
@@ -77,7 +92,7 @@ export class PipelineFactory {
         { binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: false, minBindingSize: PerFrameUniforms.byteSize("uniform") } },
         { binding: BINDINGS.lights.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: LightBlock.byteSize("uniform") } },
         { binding: BINDINGS.shadow.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: ShadowUniforms.byteSize("uniform") } },
-        { binding: BINDINGS.shadowMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d", multisampled: false } },
+        { binding: BINDINGS.shadowMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d-array", multisampled: false } },
         { binding: BINDINGS.shadowSampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "comparison" } },
       ],
     });
@@ -106,9 +121,19 @@ export class PipelineFactory {
     this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout] });
     this.debugLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout] });
     this.blitLayout = d.createPipelineLayout({ bindGroupLayouts: [d.createBindGroupLayout({ entries: [{ binding: 0, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } }, { binding: 1, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }, { binding: 2, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } }] })] });
+    this.postBindGroupLayout = d.createBindGroupLayout({
+      label: "post.layout",
+      entries: [
+        { binding: POST_BINDINGS.uniforms.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: PostUniforms.byteSize("uniform") } },
+        { binding: POST_BINDINGS.source.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+        { binding: POST_BINDINGS.second.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+        { binding: POST_BINDINGS.sampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      ],
+    });
+    this.postLayout = d.createPipelineLayout({ bindGroupLayouts: [this.postBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean } {
     switch (key.technique) {
       case "depth":
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
@@ -116,6 +141,10 @@ export class PipelineFactory {
         return { vertex: this.shaders.get("debug.wgsl", DEBUG_SHADER), fragment: this.shaders.get("debug.wgsl", DEBUG_SHADER), vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", debug: true };
       case "blit":
         return { vertex: this.shaders.get("blit.wgsl", BLIT_SHADER), fragment: this.shaders.get("blit.wgsl", BLIT_SHADER), vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", blit: true };
+      case "post": {
+        const module = this.shaders.get("post.wgsl", POST_SHADER);
+        return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: key.fragmentEntry ?? "fsTonemap", post: true };
+      }
       default: {
         // One module for both stages: drivers accept multiple entry points per module, and one
         // compile instead of two is measurably faster on scene load. The fragment stage's defines are
@@ -137,6 +166,8 @@ export class PipelineFactory {
       options.instanced ? "inst" : "static",
       options.sampleCount ?? 1,
       options.writeDepth === false ? "nodepthwrite" : "depthwrite",
+      options.fragmentEntry ?? "-",
+      options.additive ? "add" : "-",
     ].join("|");
   }
 
@@ -155,16 +186,28 @@ export class PipelineFactory {
   }
 
   private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit } = this.moduleFor(options);
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
     const isDepthOnly = options.technique === "depth";
+    const fullscreen = blit || post;
+    const blend: GPUBlendState | undefined = options.additive
+      ? {
+          color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+          alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+        }
+      : options.transparent
+        ? {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          }
+        : undefined;
     const pipelineDesc: GPURenderPipelineDescriptor = {
       label: `pipeline.${key}`,
-      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
+      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
       vertex: {
         module: vertex,
         entryPoint: vertexEntry,
-        buffers: blit || options.technique === "blit" ? [] : debug ? [debugVertexBuffer()] : [VERTEX_LAYOUT],
+        buffers: fullscreen ? [] : debug ? [debugVertexBuffer()] : [VERTEX_LAYOUT],
       },
       fragment: isDepthOnly
         ? undefined
@@ -175,12 +218,7 @@ export class PipelineFactory {
               ? [
                   {
                     format: options.colorFormat,
-                    blend: options.transparent
-                      ? {
-                          color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-                          alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-                        }
-                      : undefined,
+                    blend,
                     writeMask: 0xf,
                   },
                 ]
@@ -192,8 +230,9 @@ export class PipelineFactory {
         // / `setPerspective`), and primitives wind so that `cross(e1, e2)` is the outward normal. Under
         // that projection an outward-facing triangle lands *clockwise* on screen, so "cw" is front.
         // (With "ccw" every camera-facing triangle is culled and only the far/inner faces survive.)
+        // Fullscreen triangles are emitted counter-clockwise in NDC and must never be culled.
         frontFace: "cw",
-        cullMode: options.doubleSided ? "none" : "back",
+        cullMode: options.doubleSided || fullscreen ? "none" : "back",
       },
       depthStencil: options.depthFormat
         ? {
@@ -231,11 +270,13 @@ export class PipelineFactory {
     this.depthOnlyLayout = null;
     this.debugLayout = null;
     this.blitLayout = null;
+    this.postBindGroupLayout = null;
+    this.postLayout = null;
     this.shaders.clear();
   }
 
   stats(): { pipelines: number; creates: number; cacheHits: number; layouts: number } {
-    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 5 };
+    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 6 };
   }
 }
 

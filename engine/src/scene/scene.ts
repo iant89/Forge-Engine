@@ -44,11 +44,28 @@ export interface SceneShadowSettings {
   enabled: boolean;
   /** Directional cascade count (1..4). More cascades = more shadow passes = more cost. */
   cascades: number;
+  /** Requested resolution per cascade; the engine's quality profile caps it. */
   mapSize: number;
   /** Maximum distance from the camera that receives shadows. */
   distance: number;
   /** Re-render the shadow map only when the scene's shadow-relevant state changed. */
   adaptive: boolean;
+  /** Cascade split scheme: 0 = uniform, 1 = logarithmic (practical split blend). */
+  splitLambda: number;
+  /** Tint surfaces by the cascade that shadows them (red, green, blue, yellow). */
+  debugCascades: boolean;
+}
+
+export interface SceneBloomSettings {
+  enabled: boolean;
+  /** Brightness (after exposure) above which light bleeds; 1 = display white. */
+  threshold: number;
+  /** Soft-knee width as a fraction of the threshold (0 = hard cut). */
+  softKnee: number;
+  /** Strength of the bloom added at composite. */
+  intensity: number;
+  /** Upsample filter radius in source texels (1 = classic tent). */
+  radius: number;
 }
 
 export interface SceneSettings {
@@ -65,8 +82,15 @@ export interface SceneSettings {
   iblIntensity: number;
   /** 0.5-1.0; below 1 the 3D pass renders at reduced resolution into an HDR target. */
   renderScale: number;
+  /**
+   * Render into a float HDR target and resolve through the post chain (exposure, bloom, tone curve,
+   * sRGB encode). When false the forward pass writes the swapchain directly and applies exposure +
+   * tone mapping in-shader; bloom is unavailable on that path.
+   */
   hdr: boolean;
+  /** Master switch for the post chain's effects (bloom); HDR resolve still runs when `hdr` is set. */
   postProcessing: boolean;
+  bloom: SceneBloomSettings;
   /** Vertical sync / frame pacing hint for the engine loop. */
   vsync: boolean;
   /**
@@ -89,7 +113,7 @@ export function defaultSceneSettings(): SceneSettings {
       heightFalloff: 0.28,
       heightBase: 0,
     },
-    shadow: { enabled: true, cascades: 2, mapSize: 2048, distance: 160, adaptive: true },
+    shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, adaptive: true, splitLambda: 0.6, debugCascades: false },
     exposure: 1,
     toneMapping: "aces",
     backgroundColor: new Color(0.02, 0.03, 0.05),
@@ -98,6 +122,7 @@ export function defaultSceneSettings(): SceneSettings {
     renderScale: 1,
     hdr: true,
     postProcessing: true,
+    bloom: { enabled: true, threshold: 1, softKnee: 0.5, intensity: 0.06, radius: 1 },
     vsync: true,
     recenterDistance: 0,
   };
@@ -578,6 +603,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
     recenterDistance: s.recenterDistance,
     fog: { mode: s.fog.mode, color: [s.fog.color.r, s.fog.color.g, s.fog.color.b], density: s.fog.density, start: s.fog.start, end: s.fog.end },
     shadow: { ...s.shadow },
+    bloom: { ...s.bloom },
   };
 }
 
@@ -612,6 +638,16 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.shadow.cascades = Math.min(4, Math.max(1, num(shadow["cascades"], target.shadow.cascades)));
     target.shadow.mapSize = num(shadow["mapSize"], target.shadow.mapSize);
     target.shadow.distance = num(shadow["distance"], target.shadow.distance);
+    target.shadow.splitLambda = num(shadow["splitLambda"], target.shadow.splitLambda);
+    if (typeof shadow["debugCascades"] === "boolean") target.shadow.debugCascades = shadow["debugCascades"];
+  }
+  const bloom = data["bloom"] as Record<string, unknown> | undefined;
+  if (bloom) {
+    if (typeof bloom["enabled"] === "boolean") target.bloom.enabled = bloom["enabled"];
+    target.bloom.threshold = num(bloom["threshold"], target.bloom.threshold);
+    target.bloom.softKnee = num(bloom["softKnee"], target.bloom.softKnee);
+    target.bloom.intensity = num(bloom["intensity"], target.bloom.intensity);
+    target.bloom.radius = num(bloom["radius"], target.bloom.radius);
   }
   changed("exposure");
 }

@@ -153,8 +153,10 @@ export {
   type SphereOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
-export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, RENDERING_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, structSize } from "./rendering/uniforms.js";
+export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, PostUniforms, RENDERING_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, structSize } from "./rendering/uniforms.js";
 export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
+export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
+export { WGSL_COLOR, WGSL_FULLSCREEN_VERTEX } from "./rendering/shaders/common.js";
 
 // Debug + testing
 export { Profiler, ProfileScope, profile, type ProfilerOptions, type ScopeStats, type FrameRecord } from "./debug/profiler.js";

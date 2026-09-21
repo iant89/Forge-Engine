@@ -73,6 +73,10 @@ export interface EngineStats {
    * phone can read back to you.
    */
   lastError: string | null;
+  /** Render-graph passes that executed last frame, in order (e.g. `forge.shadow.0`, `forge.main`, `forge.tonemap`). */
+  renderPasses: readonly string[];
+  /** Renderer counters for the last frame (shadow cascades, bloom mips, graph aliasing, ...). */
+  render: Readonly<RenderStats>;
 }
 
 export type RenderMode = "always" | "dirty" | "manual";
@@ -135,7 +139,14 @@ export class Engine {
       maxQueue: init.config.taskQueueLimit,
       logger: init.logger.child("tasks"),
     });
-    this.renderer = new Renderer(init.gpu, { shadowMapSize: init.config.shadowMapSize });
+    // The quality profile caps what a scene may ask for (a scene requesting 4 cascades at 4096 on
+    // the "minimal" profile gets 1 at 512); it never raises a scene setting.
+    this.renderer = new Renderer(init.gpu, {
+      shadowMapSize: init.config.shadowMapSize,
+      shadowCascades: init.config.shadowCascades,
+      shadows: init.config.shadowCascades > 0,
+      bloom: init.config.bloom,
+    });
     this.services.set("resources", this.resources);
     this.services.set("tasks", this.tasks);
     this.services.set("config", this.config);
@@ -444,6 +455,8 @@ export class Engine {
       deviceLost: this.gpu.lost,
       gpuErrors: this.gpu.totalErrorCount,
       lastError: this.gpu.lastError ?? this.lastRenderError,
+      renderPasses: this.renderer.passNames,
+      render,
     };
   }
 

@@ -14,6 +14,7 @@ import {
   BLIT_SHADER,
   DEBUG_SHADER,
   DEPTH_VERTEX,
+  POST_SHADER,
   RENDERING_STRUCTS,
   STANDARD_FRAGMENT_BODY,
   STANDARD_INSTANCED_VERTEX,
@@ -50,7 +51,11 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles")).toBe(48);
     expect(RENDERING_STRUCTS.LightBlock.byteSize("uniform")).toBe(1296);
     expect(RENDERING_STRUCTS.LightBlock.offsetOf("lights")).toBe(16);
-    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(304);
+    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(320);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("cascadeTexelWorld")).toBe(272);
+    expect(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform")).toBe(80);
+    expect(RENDERING_STRUCTS.PostUniforms.byteSize("uniform")).toBe(48);
+    expect(RENDERING_STRUCTS.PostUniforms.offsetOf("flags")).toBe(40);
     expect(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform")).toBe(80);
     expect(RENDERING_STRUCTS.MaterialUniforms.offsetOf("tiling")).toBe(48);
     expect(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform")).toBe(176);
@@ -59,7 +64,17 @@ describe("generated uniform structs are legal in every browser's uniform address
   });
 
   it("every shipped shader variant passes the strict validator", () => {
-    const sources = { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER };
+    const sources = {
+      STANDARD_VERTEX,
+      STANDARD_INSTANCED_VERTEX,
+      STANDARD_FRAGMENT_BODY,
+      STANDARD_FORWARD: `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`,
+      STANDARD_FORWARD_INSTANCED: `${STANDARD_INSTANCED_VERTEX}\n${STANDARD_FRAGMENT_BODY}`,
+      DEPTH_VERTEX,
+      DEBUG_SHADER,
+      BLIT_SHADER,
+      POST_SHADER,
+    };
     for (const [name, source] of Object.entries(sources)) {
       for (const defines of [
         { QUALITY: 0, SHADOW_MODE: 0 },
