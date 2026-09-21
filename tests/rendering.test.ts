@@ -140,6 +140,32 @@ describe("Renderer with mock WebGPU device", () => {
     await device.dispose();
   });
 
+  it("derives camera projection aspect ratio from device surface when aspectOverride is 0", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    device.resize(800, 600);
+    expect(device.aspect).toBeCloseTo(4 / 3, 5);
+
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "aspect-test" });
+
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -5));
+    const camera = new Camera();
+    camera.fovY = Math.PI / 3;
+    expect(camera.aspectOverride).toBe(0);
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+    renderer.renderScene(scene);
+
+    // In setPerspective, m[0] = f / aspect and m[5] = f, so m[5] / m[0] == aspect
+    const computedAspect = camera.projection.m[5]! / camera.projection.m[0]!;
+    expect(computedAspect).toBeCloseTo(4 / 3, 4);
+
+    scene.dispose();
+    renderer.dispose();
+    await device.dispose();
+  });
+
   it("handles empty scenes by clearing the frame without errors", async () => {
     const device = await GraphicsDevice.create({ forceMock: true });
     const mock = device.mock;
