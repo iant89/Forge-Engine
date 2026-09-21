@@ -1,0 +1,37 @@
+{
+  "name": "forge-engine-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Forge \u2014 a browser-native WebGPU 3D game & real-time simulation engine",
+  "type": "module",
+  "workspaces": [
+    "engine"
+  ],
+  "scripts": {
+    "build": "tsc -b engine --pretty false",
+    "typecheck": "tsc -b engine --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:gpu": "vitest run --config vitest.gpu.config.ts",
+    "bench": "node benchmarks/run.mjs",
+    "demo": "vite --host 0.0.0.0",
+    "demo:mars": "vite --host 0.0.0.0",
+    "lint:arch": "node tools/lint-arch.mjs",
+    "docs:check": "node tools/docs-check.mjs",
+    "verify": "npm run typecheck && npm run test && npm run check:wgsl",
+    "check:wgsl": "node tools/wgsl-check.mjs",
+    "check:browser": "node tools/browser-check.mjs",
+    "demo:build": "npm run build -w @forge/examples",
+    "bench:build": "tsc -p benchmarks/tsconfig.json"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@webgpu/types": "^0.1.52",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

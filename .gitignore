@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.cache/
+coverage/
+bench-results/
+assets-generated/
+.DS_Store
