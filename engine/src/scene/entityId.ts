@@ -15,9 +15,11 @@
 
 import { makeHandle } from "../core/pool.js";
 
-export const SLOT_BITS = 16;
+export const SLOT_BITS = 20;
 export const SLOT_MASK = (1 << SLOT_BITS) - 1;
 export const MAX_SLOTS = SLOT_MASK;
+export const GEN_BITS = 32 - SLOT_BITS;
+export const GEN_MASK = (1 << GEN_BITS) - 1;
 export const MAX_COMPONENT_TYPES = 64;
 
 export type EntityId = number;
@@ -25,7 +27,7 @@ export type EntityId = number;
 export const NULL_ENTITY: EntityId = 0;
 
 export function makeEntityId(slot: number, generation: number): EntityId {
-  return (((slot & SLOT_MASK) | ((generation & SLOT_MASK) << SLOT_BITS)) >>> 0) as EntityId;
+  return (((slot & SLOT_MASK) | ((generation & GEN_MASK) << SLOT_BITS)) >>> 0) as EntityId;
 }
 
 export function entitySlot(id: EntityId): number {
@@ -33,7 +35,7 @@ export function entitySlot(id: EntityId): number {
 }
 
 export function entityGeneration(id: EntityId): number {
-  return (id >>> SLOT_BITS) & SLOT_MASK;
+  return (id >>> SLOT_BITS) & GEN_MASK;
 }
 
 /** Packs (slot, generation) into the 32-bit handle form used by the resource layer. */
