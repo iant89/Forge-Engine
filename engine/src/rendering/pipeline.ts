@@ -45,6 +45,7 @@ export class PipelineFactory {
   readonly shaders: ShaderCache;
   private readonly pipelines = new Map<string, RenderPipelineBundle>();
   private frameLayout: GPUBindGroupLayout | null = null;
+  private depthFrameLayout: GPUBindGroupLayout | null = null;
   private drawLayout: GPUBindGroupLayout | null = null;
   private materialLayout: GPUBindGroupLayout | null = null;
   private layout: GPUPipelineLayout | null = null;
@@ -58,14 +59,19 @@ export class PipelineFactory {
     this.shaders = new ShaderCache(device);
   }
 
-  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout } {
+  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout } {
     this.ensureLayouts();
-    return { frame: this.frameLayout!, draw: this.drawLayout!, material: this.materialLayout! };
+    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout! };
   }
 
   private ensureLayouts(): void {
     if (this.frameLayout) return;
     const d = this.device.device;
+    this.depthFrameLayout = d.createBindGroupLayout({
+      entries: [
+        { binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX, buffer: { type: "uniform", hasDynamicOffset: false, minBindingSize: PerFrameUniforms.byteSize("uniform") } },
+      ],
+    });
     this.frameLayout = d.createBindGroupLayout({
       entries: [
         { binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: false, minBindingSize: PerFrameUniforms.byteSize("uniform") } },
@@ -81,7 +87,7 @@ export class PipelineFactory {
         {
           binding: BINDINGS.instances.binding,
           visibility: ShaderStage.VERTEX,
-          buffer: { type: "storage", hasDynamicOffset: true, minBindingSize: InstanceStruct.byteSize("storage") },
+          buffer: { type: "read-only-storage", hasDynamicOffset: true, minBindingSize: InstanceStruct.byteSize("storage") },
         },
       ],
     });
@@ -95,9 +101,9 @@ export class PipelineFactory {
       ],
     });
     this.layout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout] });
-    // The depth pass has no material group, so it needs its own layout: sharing one layout would
-    // force a bind group to be provided (and validated) for a group the shader never reads.
-    this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout] });
+    // The depth pass has no material group and cannot bind the shadow map (which is the pass target),
+    // so it uses depthFrameLayout containing only the per-frame uniform buffer.
+    this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout] });
     this.debugLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout] });
     this.blitLayout = d.createPipelineLayout({ bindGroupLayouts: [d.createBindGroupLayout({ entries: [{ binding: 0, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } }, { binding: 1, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }, { binding: 2, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } }] })] });
   }
@@ -214,6 +220,7 @@ export class PipelineFactory {
   invalidate(): void {
     this.pipelines.clear();
     this.frameLayout = null;
+    this.depthFrameLayout = null;
     this.drawLayout = null;
     this.materialLayout = null;
     this.layout = null;

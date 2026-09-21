@@ -13,7 +13,7 @@
  * NDC z in [0,1], positions in render-local float32, linear colour, sRGB only at output.
  */
 
-import { PerFrameUniforms, LightBlock, ShadowUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
+import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
 export const BINDINGS = {
@@ -31,9 +31,15 @@ export const BINDINGS = {
   sampler: { group: 2, binding: 4 },
 } as const;
 
-const STRUCTS = [PerFrameUniforms.toWgsl("uniform"), LightBlock.toWgsl("uniform"), ShadowUniforms.toWgsl("uniform"), MaterialUniforms.toWgsl("uniform"), ObjectUniforms.toWgsl("uniform"), InstanceStruct.toWgsl("storage")].join(
-  "\n\n",
-);
+const STRUCTS = [
+  PerFrameUniforms.toWgsl("uniform"),
+  LightUniforms.toWgsl("uniform"),
+  LightBlock.toWgsl("uniform"),
+  ShadowUniforms.toWgsl("uniform"),
+  MaterialUniforms.toWgsl("uniform"),
+  ObjectUniforms.toWgsl("uniform"),
+  InstanceStruct.toWgsl("storage"),
+].join("\n\n");
 
 const COMMON = /* wgsl */ `
 struct VertexInput {
@@ -221,7 +227,7 @@ ${SHADOW_HELPERS}
 
 fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   var base = material.baseColorFactor;
-  if (material.flags & FLAGS_ALBEDO != 0u) {
+  if ((material.flags & FLAGS_ALBEDO) != 0u) {
     base = base * textureSample(albedoMap, materialSampler, uv * material.tiling + material.offset);
   }
   return base;
@@ -232,9 +238,9 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   let albedo = materialAlbedo(in.uv);
   var N = normalize(in.normal);
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
-  if (perFrame.flags & 4u != 0u) {
+  if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
-    if (material.flags & FLAGS_NORMAL != 0u) {
+    if ((material.flags & FLAGS_NORMAL) != 0u) {
       let sampled = textureSample(normalMap, materialSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
       let T = normalize(in.tangent.xyz);
       let B = cross(N, T) * in.tangent.w;
@@ -244,7 +250,7 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   }
   var metallic = material.metallic;
   var roughness = material.roughness;
-  if (material.flags & FLAGS_MR != 0u) {
+  if ((material.flags & FLAGS_MR) != 0u) {
     let mr = textureSample(mrMap, materialSampler, in.uv * material.tiling + material.offset);
     metallic = metallic * mr.b;
     roughness = roughness * mr.g;
@@ -252,7 +258,7 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   roughness = clamp(roughness, 0.045, 1.0);
 
   var color = vec3<f32>(0.0);
-  if (material.flags & FLAGS_UNLIT != 0u) {
+  if ((material.flags & FLAGS_UNLIT) != 0u) {
     color = albedo.rgb;
   } else {
     let F0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
@@ -275,7 +281,7 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
           attenuation = attenuation * smoothstep(L.spotAngles.y, L.spotAngles.x, sc);
         }
       }
-      let power = L.directionIntensity.w * attenuation;
+      var power = L.directionIntensity.w * attenuation;
       if (L.shadowIndex >= 0i) {
         // Only the directional caster reaches here in phase 1; point shadows land with phase 2.
         let lit = shadowAttenuation(in.worldPos, L.shadowIndex);
@@ -299,7 +305,7 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   color = color * in.tint.rgb;
   color = color * perFrame.exposure;
   color = tonemap(color, perFrame.toneMapping);
-  if (perFrame.flags & 2u == 0u) {
+  if ((perFrame.flags & 2u) == 0u) {
     // No separate encode pass: encode here so the swapchain (non-sRGB format) shows correct colour.
     color = linearToSrgb(color);
   }

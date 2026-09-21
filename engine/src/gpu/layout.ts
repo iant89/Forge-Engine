@@ -204,16 +204,16 @@ export class StructDef {
     let prevEnd = 0;
     for (const f of this.layouts(space)) {
       if (f.offset > prevEnd) {
-        lines.push(`  __pad${prevEnd}: array<u32, ${(f.offset - prevEnd) / 4}>; // alignment padding`);
+        lines.push(`  pad${prevEnd}: array<u32, ${(f.offset - prevEnd) / 4}>, // alignment padding`);
       }
       const def = this.fields.find((x) => x.name === f.name)!;
       const type = wgslType(f.type, space);
       const comment = def.comment ? ` // ${def.comment}` : "";
-      lines.push(`  ${f.name}: ${type};${comment}`);
+      lines.push(`  ${f.name}: ${type},${comment}`);
       prevEnd = f.offset + f.size;
     }
     const pad = this.size(space) - prevEnd;
-    if (pad > 0) lines.push(`  __pad${prevEnd}: array<u32, ${pad / 4}>; // trailing padding`);
+    if (pad > 0) lines.push(`  pad${prevEnd}: array<u32, ${pad / 4}>, // trailing padding`);
     lines.push("}");
     return lines.join("\n");
   }
@@ -257,7 +257,7 @@ function wgslType(type: FieldType, space: AddressSpace): string {
 export function diffWgslStruct(wgslFields: { name: string; type: string }[], def: StructDef, space: AddressSpace = "uniform"): string[] {
   const problems: string[] = [];
   const ours = def.layouts(space);
-  const theirs = wgslFields.filter((f) => !f.name.startsWith("__pad"));
+  const theirs = wgslFields.filter((f) => !f.name.startsWith("__pad") && !f.name.startsWith("pad"));
   if (ours.length !== theirs.length) {
     problems.push(`${def.name}: WGSL declares ${theirs.length} fields, TS layout declares ${ours.length}`);
   }

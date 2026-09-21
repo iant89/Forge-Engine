@@ -559,7 +559,7 @@ export class MockGPUBindGroupLayout {
       const kinds = [e.buffer, e.sampler, e.texture, e.storageTexture].filter(Boolean).length;
       if (kinds !== 1) device.reportError(`createBindGroupLayout: binding ${e.binding} must declare exactly one resource type`);
       if (e.buffer) {
-        if (e.buffer.hasDynamicOffset && e.buffer.type !== "uniform" && e.buffer.type !== "storage") {
+        if (e.buffer.hasDynamicOffset && e.buffer.type !== "uniform" && e.buffer.type !== "storage" && e.buffer.type !== "read-only-storage") {
           device.reportError(`createBindGroupLayout: binding ${e.binding} dynamic offsets only for uniform/storage`);
         }
         if (e.buffer.minBindingSize !== undefined && e.buffer.minBindingSize > (e.buffer.type === "uniform" ? device.limitsDict.maxUniformBufferBindingSize! : device.limitsDict.maxStorageBufferBindingSize!)) {
@@ -700,12 +700,12 @@ export class MockGPUBindGroup {
         }
       }
       if (exp.sampler) {
-        const s = res.sampler as MockGPUSampler | undefined;
+        const s = (res instanceof MockGPUSampler ? res : (res as { sampler?: MockGPUSampler }).sampler) as MockGPUSampler | undefined;
         if (!s) device.reportError(`createBindGroup: binding ${entry.binding} expected a sampler`);
         else if ((s as { destroyed?: boolean }).destroyed) device.reportError(`createBindGroup: binding ${entry.binding} uses a destroyed sampler`);
       }
       if (exp.texture || exp.storageTexture) {
-        const view = res.texture as MockGPUTextureView | undefined;
+        const view = (res instanceof MockGPUTextureView ? res : (res as { texture?: MockGPUTextureView }).texture) as MockGPUTextureView | undefined;
         if (!view) {
           device.reportError(`createBindGroup: binding ${entry.binding} expected a texture view`);
           continue;
@@ -877,7 +877,8 @@ export class MockGPURenderPipeline {
     this.frontFace = desc.primitive?.frontFace ?? "ccw";
     this.indexFormat = (desc.primitive?.stripIndexFormat as GPUIndexFormat) ?? null;
     if (this.layout === null && desc.layout !== "auto") device.reportError("createRenderPipeline: layout must be 'auto' or a pipeline layout");
-    if (this.colorTargets.length === 0) device.reportError("createRenderPipeline: fragment state requires at least one color target");
+    if (desc.fragment && this.colorTargets.length === 0 && !desc.depthStencil) device.reportError("createRenderPipeline: fragment state requires at least one color target");
+    if (!desc.fragment && !desc.depthStencil) device.reportError("createRenderPipeline: pipeline must have fragment targets or depthStencil");
     if (this.colorTargets.length > (device.limitsDict.maxColorAttachments ?? 8)) device.reportError("createRenderPipeline: too many color targets");
     let locations = 0;
     const seenLoc = new Set<number>();
@@ -1574,7 +1575,19 @@ export class MockGPURenderPassEncoder extends MockPassBase {
         this.err(`drawIndexed: [${firstIndex}, ${firstIndex + indexCount}) exceeds ${this.indexBuffer.count} indices in the bound range`);
       }
     }
-    this.checkVertexCoverage(indexCount, instanceCount, 0, baseVertex);
+    let maxIndex = 0;
+    if (this.indexBuffer) {
+      const ib = this.indexBuffer;
+      const view = ib.format === "uint32"
+        ? new Uint32Array(ib.buffer.data, ib.offset)
+        : new Uint16Array(ib.buffer.data, ib.offset);
+      const end = Math.min(firstIndex + indexCount, view.length);
+      for (let i = firstIndex; i < end; i++) {
+        const val = view[i]!;
+        if (val > maxIndex) maxIndex = val;
+      }
+    }
+    this.checkVertexCoverage(maxIndex + 1, instanceCount, 0, baseVertex);
     this.countDraw(indexCount, instanceCount);
     this.encoder.device.record({ type: "drawIndexed", label: this.label, indexCount, instanceCount, firstIndex, baseVertex, firstInstance });
   }
@@ -1856,11 +1869,8 @@ export class MockGPUQueue {
     const offset = dataLayout.offset ?? 0;
     if (offset % 4 !== 0) device.reportError("writeTexture: offset must be a multiple of 4");
     const bpp = Math.max(1, mockBytesPerTexel(tex.format));
-    const bytesPerRow = dataLayout.bytesPerRow ?? 0;
-    if (bytesPerRow % COPY_BYTES_PER_ROW_ALIGNMENT !== 0) {
-      device.reportError(`writeTexture: bytesPerRow ${bytesPerRow} must be a multiple of ${COPY_BYTES_PER_ROW_ALIGNMENT}`);
-    }
-    if (bytesPerRow < dims.width * bpp) device.reportError(`writeTexture: bytesPerRow ${bytesPerRow} < row bytes ${dims.width * bpp}`);
+    const bytesPerRow = dataLayout.bytesPerRow ?? dims.width * bpp;
+    if (dims.height > 1 && bytesPerRow < dims.width * bpp) device.reportError(`writeTexture: bytesPerRow ${bytesPerRow} < row bytes ${dims.width * bpp}`);
     const src = asUint8(data);
     const rowsPerImage = dataLayout.rowsPerImage ?? dims.height;
     const needed = offset + bytesPerRow * (dims.height + (dims.depthOrArrayLayers - 1) * rowsPerImage);

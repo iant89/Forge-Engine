@@ -111,7 +111,7 @@ export { Scene, SceneObject, defaultSceneSettings, type SceneSettings, type Scen
 export { EntityWorld, Entity, TransformHandle, setComponentErrorHandler } from "./scene/world.js";
 export { Component, registerComponent, componentInfo, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
-export { System, FixedSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
+export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
 export { Query, ObjectStore, StructStore, type ComponentStorage, type QueryWorld } from "./scene/stores.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";

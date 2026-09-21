@@ -4,47 +4,11 @@
  * Public API only (`@forge/engine`), plus a small `window.__forge` handle so `npm run check:browser`
  * can assert on real numbers (frames presented, draw calls, backend) instead of eyeballing a picture.
  */
-import { Camera, Color, Engine, Geometry, Light, Material, Quat, Renderable, Scene, Vec3 } from "@forge/engine";
+import { Camera, Color, Engine, Light, Material, Quat, Renderable, Scene, Vec3, createBox, createPlane } from "@forge/engine";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const errorBox = document.getElementById("error") as HTMLDivElement;
-
-function planeGeometry(size: number) {
-  const h = size / 2;
-  return {
-    positions: new Float32Array([-h, 0, -h, h, 0, -h, h, 0, h, -h, 0, h]),
-    normals: new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]),
-    indices: new Uint16Array([0, 2, 1, 0, 3, 2]),
-  };
-}
-
-/** Six-quad box with flat normals; matches how the engine's own tests build primitive geometry. */
-function boxGeometry(extent: number) {
-  const e = extent / 2;
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const indices: number[] = [];
-  const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
-  for (const d of dirs) {
-    const n = new Vec3(d[0]!, d[1]!, d[2]!);
-    const side = Math.abs(n.x) > 0.5 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
-    const up = n.cross(side).normalize();
-    const right = up.cross(n).normalize();
-    const base = positions.length / 3;
-    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-      const p = n.clone().add(right.scale(sx * e)).add(up.scale(sy * e));
-      positions.push(p.x, p.y, p.z);
-      normals.push(n.x, n.y, n.z);
-    }
-    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  }
-  return {
-    positions: new Float32Array(positions),
-    normals: new Float32Array(normals),
-    indices: new Uint16Array(indices),
-  };
-}
 
 async function main(): Promise<void> {
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info" });
@@ -53,18 +17,18 @@ async function main(): Promise<void> {
 
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
   const groundRenderable = new Renderable();
-  groundRenderable.geometry = Geometry.create(engine.gpu, planeGeometry(48));
+  groundRenderable.geometry = createPlane(engine.gpu, { width: 48, depth: 48 });
   groundRenderable.material = new Material({ label: "ground", color: 0x2b3340, roughness: 0.9 });
   groundRenderable.castShadow = false;
   scene.world.addComponent(ground.id, groundRenderable);
 
-  const box = boxGeometry(1.2);
+  const boxMesh = createBox(engine.gpu, { width: 1.2, height: 1.2, depth: 1.2 });
   const palette = [0xc2703d, 0x9aa5b1, 0x4d7c8f, 0x8f4d6b, 0x6b8f4d, 0xd9b382];
   const spinners: { id: number; axis: Vec3; rate: number; quat: Quat }[] = [];
   for (let i = 0; i < palette.length; i++) {
     const entity = scene.createTransformedEntity(`cube-${i}`, new Vec3((i - 2.5) * 2.1, 0.9, Math.sin(i) * 1.5));
     const renderable = new Renderable();
-    renderable.geometry = Geometry.create(engine.gpu, box);
+    renderable.geometry = boxMesh;
     renderable.material = new Material({ label: `cube-${i}`, color: palette[i]!, roughness: 0.3 + i * 0.09, metallic: 0.2 });
     scene.world.addComponent(entity.id, renderable);
     spinners.push({ id: entity.id, axis: new Vec3(0.3, 1, 0.15).normalize(), rate: 0.35 + i * 0.13, quat: new Quat() });

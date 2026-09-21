@@ -19,7 +19,7 @@
 import { UnsupportedPlatformError, CapabilityError, ResourceLifecycleError, UsageError } from "../core/errors.js";
 import { getNavigatorGpu } from "../core/platform.js";
 import type { Logger } from "../core/log.js";
-import { OPTIONAL_FEATURES, describeFeature, type FeatureKey } from "./constants.js";
+import { OPTIONAL_FEATURES, describeFeature, type FeatureKey, TextureUsage } from "./constants.js";
 import { preferredSwapchainFormats, pickHdrFormat, isKnownFormat, formatInfo } from "./formats.js";
 import { createMockGpu, type MockGPUDevice, type MockGPUAdapter } from "../testing/mockGpu.js";
 
@@ -99,19 +99,26 @@ export class GraphicsDevice {
     this.configureCanvas(this.pixelWidth, this.pixelHeight);
     // Tolerate devices that do not expose `lost` as a promise (older shells, and the mock, which
     // keeps a boolean `lost` flag): construction must not depend on that member's shape.
-    const maybeLost: unknown = (this.device as { lost?: unknown }).lost;
-    const lostPromise = maybeLost instanceof Promise ? maybeLost as Promise<GPUDeviceLostInfo> : undefined;
-    this.lostPromise = (lostPromise ?? Promise.resolve(undefined as unknown as GPUDeviceLostInfo)).then((info) => {
-      this._lost = true;
-      this._lostReason = info?.reason ?? "unknown";
-      for (const fn of this.lostHandlers) {
-        try {
-          fn(this._lostReason);
-        } catch {
-          /* a lost-device listener must not break the others */
-        }
-      }
-    });
+    const rawLost: unknown = (this.device as { lost?: unknown }).lost;
+    const dev = this.device as unknown as { lostPromise?: unknown };
+    const lostPromise: Promise<GPUDeviceLostInfo> | undefined = rawLost instanceof Promise
+      ? (rawLost as Promise<GPUDeviceLostInfo>)
+      : dev.lostPromise instanceof Promise
+        ? (dev.lostPromise as Promise<GPUDeviceLostInfo>)
+        : undefined;
+    this.lostPromise = lostPromise
+      ? lostPromise.then((info) => {
+          this._lost = true;
+          this._lostReason = info?.reason ?? "unknown";
+          for (const fn of this.lostHandlers) {
+            try {
+              fn(this._lostReason);
+            } catch {
+              /* a lost-device listener must not break the others */
+            }
+          }
+        })
+      : new Promise<void>(() => {});
     if (this.isMock) {
       this.logger?.info("gpu: using mock device (headless; validation is strict, rasterization is not)");
     }
@@ -286,7 +293,12 @@ export class GraphicsDevice {
     this.swapchain.format = this.format;
     if (!this.context) return;
     try {
-      this.context.configure({ device: this.device, format: this.format, alphaMode: this.options.alphaMode ?? "opaque" } as never);
+      this.context.configure({
+        device: this.device,
+        format: this.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+        alphaMode: this.options.alphaMode ?? "opaque",
+      } as never);
     } catch (e) {
       throw new ResourceLifecycleError(`failed to configure the WebGPU canvas context: ${describeError(e)}`, { width: w, height: h });
     }
