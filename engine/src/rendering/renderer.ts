@@ -441,7 +441,7 @@ export class Renderer implements RenderFrameContext {
     a.setF32("ambientIntensity", scene.settings.ambientIntensity);
     writeVec3(a, "ambientColor", scene.settings.ambientColor.r, scene.settings.ambientColor.g, scene.settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[scene.settings.toneMapping] ?? 2);
-    const flags = (scene.settings.skyEnabled ? 1 : 0) | (scene.settings.hdr ? 2 : 0) | (scene.settings.shadow.enabled ? 8 : 0);
+    const flags = (scene.settings.skyEnabled ? 1 : 0) | (scene.settings.hdr ? 2 : 0) | 4 | (scene.settings.shadow.enabled ? 8 : 0);
     a.setU32("flags", flags);
     this.device.device.queue.writeBuffer(this.frameBuffer!, 0, gpuSource(this.frameBytes.bytes.subarray(0, this.frameBytes.byteLength)));
     void camera;

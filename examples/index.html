@@ -3,21 +3,133 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Forge — spinning cubes</title>
+    <title>Forge Engine — PBR Showcase</title>
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; background: #05070a; color: #cbd5e1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      html, body { margin: 0; height: 100%; background: #05070a; color: #cbd5e1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: none; }
       #wrap { position: fixed; inset: 0; }
-      canvas { display: block; width: 100%; height: 100%; }
-      #hud { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); padding: 8px 10px; background: rgb(5 7 10 / 0.66); border: 1px solid rgb(148 163 184 / 0.25); border-radius: 6px; white-space: pre; pointer-events: none; }
-      /* Errors sit under the HUD, not at the bottom: on iOS the bottom edge is behind Safari's toolbar. */
-      #error { position: fixed; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 96px); max-height: 60vh; overflow: auto; padding: 8px 10px; background: rgb(5 7 10 / 0.8); border: 1px solid rgb(252 165 165 / 0.4); border-radius: 6px; color: #fca5a5; white-space: pre-wrap; word-break: break-word; display: none; }
+      canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      #hud {
+        position: fixed;
+        left: max(10px, env(safe-area-inset-left));
+        top: max(10px, env(safe-area-inset-top));
+        padding: 8px 12px;
+        background: rgb(5 7 10 / 0.75);
+        border: 1px solid rgb(148 163 184 / 0.25);
+        border-radius: 6px;
+        white-space: pre;
+        pointer-events: none;
+        backdrop-filter: blur(4px);
+        font-size: 11.5px;
+        line-height: 1.5;
+        z-index: 10;
+      }
+      #toolbar {
+        position: fixed;
+        right: max(10px, env(safe-area-inset-right));
+        top: max(10px, env(safe-area-inset-top));
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 10;
+      }
+      .panel {
+        background: rgb(5 7 10 / 0.8);
+        border: 1px solid rgb(148 163 184 / 0.25);
+        border-radius: 6px;
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        backdrop-filter: blur(4px);
+      }
+      .panel-title {
+        font-weight: 600;
+        color: #94a3b8;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .btn-group {
+        display: flex;
+        gap: 4px;
+      }
+      button {
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      button:hover {
+        background: #334155;
+        border-color: #64748b;
+      }
+      button.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: #ffffff;
+      }
+      #controls-hint {
+        position: fixed;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 6px 14px;
+        background: rgb(5 7 10 / 0.7);
+        border: 1px solid rgb(148 163 184 / 0.2);
+        border-radius: 20px;
+        font-size: 11px;
+        color: #94a3b8;
+        pointer-events: none;
+        backdrop-filter: blur(4px);
+        z-index: 10;
+      }
+      #error {
+        position: fixed;
+        left: max(10px, env(safe-area-inset-left));
+        right: max(10px, env(safe-area-inset-right));
+        top: calc(max(10px, env(safe-area-inset-top)) + 120px);
+        max-height: 60vh;
+        overflow: auto;
+        padding: 8px 10px;
+        background: rgb(5 7 10 / 0.9);
+        border: 1px solid rgb(252 165 165 / 0.5);
+        border-radius: 6px;
+        color: #fca5a5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        display: none;
+        z-index: 20;
+      }
     </style>
   </head>
   <body>
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
+    <div id="toolbar">
+      <div class="panel">
+        <div class="panel-title">Demo Scene</div>
+        <div class="btn-group">
+          <button id="btn-scene-pbr" class="active">PBR Showcase (P2)</button>
+          <button id="btn-scene-cubes">Cubes (P1)</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Tone Mapping</div>
+        <div class="btn-group">
+          <button id="btn-tm-aces" class="active">ACES</button>
+          <button id="btn-tm-reinhard">Reinhard</button>
+          <button id="btn-tm-none">None</button>
+        </div>
+      </div>
+    </div>
+    <div id="controls-hint">Drag to orbit · Right-drag to pan · Scroll to zoom</div>
     <div id="error"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
