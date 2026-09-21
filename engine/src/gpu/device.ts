@@ -97,20 +97,20 @@ export class GraphicsDevice {
     this.hdrFormat = options.preferHdr ? pickHdrFormat((f) => isKnownFormat(f) && formatInfo(f).renderable).format : null;
     this.depthFormat = "depth24plus";
     this.configureCanvas(this.pixelWidth, this.pixelHeight);
-    // Tolerate devices that do not expose `lost` (older shells, and the mock before `lose()`), so that
-    // construction never depends on that member being present.
-    const lostPromise: Promise<GPUDeviceLostInfo> | undefined = (this.device as { lost?: Promise<GPUDeviceLostInfo> }).lost;
+    // Tolerate devices that do not expose `lost` as a promise (older shells, and the mock, which
+    // keeps a boolean `lost` flag): construction must not depend on that member's shape.
+    const maybeLost: unknown = (this.device as { lost?: unknown }).lost;
+    const lostPromise = maybeLost instanceof Promise ? maybeLost as Promise<GPUDeviceLostInfo> : undefined;
     this.lostPromise = (lostPromise ?? Promise.resolve(undefined as unknown as GPUDeviceLostInfo)).then((info) => {
       this._lost = true;
       this._lostReason = info?.reason ?? "unknown";
       for (const fn of this.lostHandlers) {
         try {
           fn(this._lostReason);
-        } catch (e) {
-          this.reportError("device-lost handler", e);
+        } catch {
+          /* a lost-device listener must not break the others */
         }
       }
-      this.options.onLost?.(this._lostReason);
     });
     if (this.isMock) {
       this.logger?.info("gpu: using mock device (headless; validation is strict, rasterization is not)");
@@ -307,7 +307,16 @@ export class GraphicsDevice {
   }
 
   createTexture(descriptor: GPUTextureDescriptor): GPUTexture {
-    const dims = descriptor.size as { width: number; height?: number; depthOrArrayLayers?: number };
+    // `GPUExtent3D` is a union: `{width,height,depthOrArrayLayers}` or `[w, h?, d?]` or a bare
+    // number. Callers legitimately use either, so normalise here instead of forcing one shape on
+    // everyone (and instead of the confusing "size.width must be a positive integer" for a perfectly
+    // valid array form).
+    const raw = descriptor.size as unknown;
+    const dims = Array.isArray(raw)
+      ? { width: Number(raw[0]), height: raw[1] === undefined ? undefined : Number(raw[1]), depthOrArrayLayers: raw[2] === undefined ? undefined : Number(raw[2]) }
+      : typeof raw === "number"
+        ? { width: raw, height: undefined, depthOrArrayLayers: undefined }
+        : (raw as { width: number; height?: number; depthOrArrayLayers?: number });
     if (typeof dims.width !== "number" || dims.width <= 0) throw new UsageError("createTexture: size.width must be a positive integer");
     if (!isKnownFormat(descriptor.format)) throw new CapabilityError(`createTexture: unsupported format "${descriptor.format}"`);
     if (descriptor.mipLevelCount !== undefined && descriptor.mipLevelCount < 1) throw new UsageError("createTexture: mipLevelCount must be at least 1");
