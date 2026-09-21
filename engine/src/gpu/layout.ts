@@ -13,10 +13,19 @@
  *            matNx2 = 8 | matNx3 = 16 | matNx4 = 16
  *   size:   scalars = 4 | vec2 = 8 | vec3 = 12 | vec4 = 16
  *            mat2x2 = 16 | mat3x3 = 48 | mat4x4 = 64 (column stride = align)
- *   struct: align = max(member align) (≥ 8 in uniform), size = roundUp(last member end, align)
+ *   struct: align = max(member align) (≥ 8 in uniform), size = roundUp(last member end, align);
+ *           as a *member* in uniform space it is 16-aligned and followed by roundUp(16, size) bytes
  *   array:  in uniform/storage, element stride = roundUp(element size, 16);
  *           struct members in an array are 16-aligned
  * Padding between members is inserted by rounding the running offset up to the member alignment.
+ *
+ * Padding is emitted into the generated WGSL as individual `u32` scalars, never as
+ * `array<u32, N>`: the uniform address space requires every array stride to be a multiple of 16
+ * bytes (WGSL "Address Space Layout Constraints"). Chromium's compiler accepts the relaxed layout
+ * silently, WebKit rejects the whole shader module — so a struct that violates the rule renders in
+ * Chrome and produces a black canvas on iOS/macOS Safari. `toWgsl("uniform")` therefore refuses to
+ * emit a struct that breaks those rules (`uniformLayoutProblems()`), so the mistake fails
+ * `check:wgsl` and the unit tests instead of shipping.
  */
 
 import { UsageError } from "../core/errors.js";
@@ -90,8 +99,12 @@ export function alignOf(type: FieldType, space: AddressSpace): number {
       const inner = alignOf(type.element, space);
       return space === "uniform" ? Math.max(16, inner) : inner;
     }
-    case "struct":
-      return type.struct.align(space);
+    case "struct": {
+      // Uniform space: struct members start on 16-byte boundaries (RequiredAlignOf), whatever the
+      // struct's own alignment is.
+      const inner = type.struct.align(space);
+      return space === "uniform" ? Math.max(16, inner) : inner;
+    }
   }
 }
 
@@ -165,6 +178,9 @@ export class StructDef {
       }
       out.push(layout);
       offset += size;
+      // Uniform space: whatever follows a struct-typed member starts at least roundUp(16, size)
+      // bytes after it (WGSL "Address Space Layout Constraints"); the gap becomes explicit padding.
+      if (space === "uniform" && field.type.kind === "struct") offset = alignUp(offset, 16);
     }
     this.cache.set(space, out);
     return out;
@@ -198,14 +214,26 @@ export class StructDef {
     return this.size(space);
   }
 
-  /** Emit the WGSL struct. Used by the layout checker as the reference to compare against. */
+  /**
+   * Emit the WGSL struct. Used by the layout checker as the reference to compare against.
+   *
+   * Padding is written as one `u32` per 4 bytes (`pad228: u32, pad232: u32, ...`) rather than a
+   * single `array<u32, N>`: scalars never shift an offset, whereas an array with a 4-byte stride is
+   * illegal in the uniform address space and fails shader compilation on WebKit. For uniform space
+   * this also throws if the definition itself breaks a uniform layout rule (see
+   * `uniformLayoutProblems`), because the CPU-side writer and the shader would disagree silently.
+   */
   toWgsl(space: AddressSpace = "uniform"): string {
+    if (space === "uniform") {
+      const problems = this.uniformLayoutProblems();
+      if (problems.length > 0) {
+        throw new UsageError(`${this.name} cannot be used in the uniform address space:\n  ${problems.join("\n  ")}`);
+      }
+    }
     const lines: string[] = [`struct ${this.name} {`];
     let prevEnd = 0;
     for (const f of this.layouts(space)) {
-      if (f.offset > prevEnd) {
-        lines.push(`  pad${prevEnd}: array<u32, ${(f.offset - prevEnd) / 4}>, // alignment padding`);
-      }
+      if (f.offset > prevEnd) lines.push(...paddingMembers(prevEnd, f.offset - prevEnd, "alignment padding"));
       const def = this.fields.find((x) => x.name === f.name)!;
       const type = wgslType(f.type, space);
       const comment = def.comment ? ` // ${def.comment}` : "";
@@ -213,11 +241,74 @@ export class StructDef {
       prevEnd = f.offset + f.size;
     }
     const pad = this.size(space) - prevEnd;
-    if (pad > 0) lines.push(`  pad${prevEnd}: array<u32, ${pad / 4}>, // trailing padding`);
+    if (pad > 0) lines.push(...paddingMembers(prevEnd, pad, "trailing padding"));
     lines.push("}");
     return lines.join("\n");
   }
 
+  /**
+   * Rules the uniform address space imposes on top of natural alignment (WGSL "Address Space
+   * Layout Constraints"): array element strides must be multiples of 16, array/struct members
+   * must start at multiples of 16, and a struct-typed member must be followed by at least
+   * `roundUp(16, size)` bytes before the next member. WebKit enforces all of them at
+   * `createShaderModule`; Chromium accepts the relaxed layout (`uniform_buffer_standard_layout`)
+   * without being asked, so a violation renders in Chrome and compiles to nothing in Safari. The
+   * list is empty for a struct that is legal everywhere.
+   */
+  uniformLayoutProblems(): string[] {
+    const problems: string[] = [];
+    const fields = this.layouts("uniform");
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i]!;
+      const required = requiredUniformAlign(f.type);
+      if (f.offset % required !== 0) {
+        problems.push(`${this.name}.${f.name}: offset ${f.offset} is not a multiple of ${required} (required for ${f.type.kind} members in uniform space)`);
+      }
+      collectUniformArrayProblems(`${this.name}.${f.name}`, f.type, problems);
+      if (f.type.kind === "struct") {
+        const next = fields[i + 1];
+        const needed = f.offset + alignUp(f.size, 16);
+        if (next && next.offset < needed) {
+          problems.push(`${this.name}.${next.name}: must start at or after byte ${needed} (a struct member in uniform space is padded to a multiple of 16), got ${next.offset}`);
+        }
+      }
+    }
+    return problems;
+  }
+}
+
+/** One `u32` member per 4 bytes; scalars have a 4-byte alignment so they never move a neighbour. */
+function paddingMembers(offset: number, bytes: number, why: string): string[] {
+  if (bytes % 4 !== 0) throw new UsageError(`padding of ${bytes} bytes at offset ${offset} is not a multiple of 4`);
+  const out: string[] = [];
+  for (let at = offset; at < offset + bytes; at += 4) out.push(`  pad${at}: u32, // ${why}`);
+  return out;
+}
+
+/** WGSL's own stride for an array of `type`: `roundUp(AlignOf(T), SizeOf(T))`, with no 16-byte rounding. */
+function naturalStrideOf(type: FieldType, space: AddressSpace): number {
+  if (type.kind === "vec3") return 16;
+  return alignUp(sizeOf(type, space), alignOf(type, space));
+}
+
+/** `RequiredAlignOf(T, uniform)`: 16 for arrays and structs, the natural alignment otherwise. */
+function requiredUniformAlign(type: FieldType): number {
+  const natural = alignOf(type, "uniform");
+  return type.kind === "array" || type.kind === "struct" ? Math.max(16, natural) : natural;
+}
+
+function collectUniformArrayProblems(path: string, type: FieldType, problems: string[]): void {
+  if (type.kind === "array") {
+    const stride = naturalStrideOf(type.element, "uniform");
+    if (stride % 16 !== 0) {
+      problems.push(
+        `${path}: array<${wgslType(type.element, "uniform")}, ${type.count}> has a ${stride}-byte element stride; uniform arrays need a multiple of 16 (use vec4 elements, a 16-byte struct, or scalar members)`,
+      );
+    }
+    collectUniformArrayProblems(`${path}[]`, type.element, problems);
+  } else if (type.kind === "struct") {
+    for (const p of type.struct.uniformLayoutProblems()) problems.push(`${path} -> ${p}`);
+  }
 }
 
 function wgslType(type: FieldType, space: AddressSpace): string {

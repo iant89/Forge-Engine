@@ -1,13 +1,16 @@
 /**
  * Uniform layouts shared by the CPU writes and the WGSL declarations.
  *
- * Every struct here has a matching `struct` in `rendering/shaders/*.ts`, and `tools/wgsl-check.mjs`
- * fails the build when a field's offset/size/type disagrees (`diffWgslStruct`). That check exists
- * because a mismatched uniform layout is the most expensive class of WebGPU bug: it renders
- * *something* — usually plausible garbage — while validating cleanly on most drivers.
+ * The shaders in `rendering/shaders/*.ts` embed `StructDef.toWgsl()` output directly, so the WGSL
+ * declaration and the CPU writer cannot drift apart. `tools/wgsl-check.mjs` and `tests/wgsl.test.ts`
+ * additionally fail the build when a definition is illegal in the uniform address space (an array
+ * with a stride below 16 bytes, a struct member off a 16-byte boundary). That matters because
+ * Chromium compiles such a struct anyway while WebKit rejects the module: the bug renders fine in
+ * Chrome and is a black canvas on Safari. A *mismatched* layout is worse still — it renders
+ * plausible garbage while validating cleanly — which is why nothing here is a hand-written number.
  *
- * Offsets and sizes are computed from the WGSL layout rules by `gpu/layout.ts`; they are never
- * hand-written numbers in this file.
+ * Offsets and sizes are computed from the WGSL layout rules by `gpu/layout.ts`; padding is emitted
+ * as `u32` scalars, never as arrays.
  */
 
 import { StructDef, f32, i32, u32, vec2, vec3, vec4, mat4x4, arrayOf, ofStruct, type AddressSpace } from "../gpu/layout.js";

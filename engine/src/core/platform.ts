@@ -110,9 +110,12 @@ function detectOs(ua: string): PlatformInfo["os"] {
 
 function detectBrowser(ua: string): PlatformInfo["browser"] {
   if (/Edg\//i.test(ua)) return "edge";
-  if (/Firefox\//i.test(ua)) return "firefox";
-  if (/Apple Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return "safari";
-  if (/Chrome\//i.test(ua) || /Chromium\//i.test(ua)) return "chrome";
+  if (/Firefox\/|FxiOS\//i.test(ua)) return "firefox";
+  // Every iOS browser carries "Safari/" (WebKit is mandatory there); Chrome/Edge/Firefox for iOS add
+  // their own token, so only a UA without one is Safari proper. Desktop Safari reads
+  // "Version/x Safari/y" with no "Chrome/".
+  if (/Safari\//i.test(ua) && !/Chrome\/|Chromium\/|CriOS\/|EdgiOS\/|FxiOS\//i.test(ua)) return "safari";
+  if (/Chrome\/|Chromium\/|CriOS\//i.test(ua)) return "chrome";
   return typeof (globalThis as unknown as { process?: unknown }).process !== "undefined" ? "node" : "unknown";
 }
 

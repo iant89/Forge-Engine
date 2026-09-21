@@ -3,15 +3,25 @@
  *
  * Public API only (`@forge/engine`), plus a small `window.__forge` handle so `npm run check:browser`
  * can assert on real numbers (frames presented, draw calls, backend) instead of eyeballing a picture.
+ *
+ * Every failure the engine can see is put on the page, not just in the console: the demo is opened
+ * on phones, where a black canvas with a ticking frame counter is otherwise all there is to report.
  */
-import { Camera, Color, Engine, Light, Material, Quat, Renderable, Scene, Vec3, createBox, createPlane } from "@forge/engine";
+import { Camera, Color, Engine, Light, Material, Quat, Renderable, Scene, Vec3, createBox, createPlane, detectPlatform } from "@forge/engine";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const errorBox = document.getElementById("error") as HTMLDivElement;
 
+function showError(text: string): void {
+  errorBox.style.display = "block";
+  errorBox.textContent = text;
+}
+
 async function main(): Promise<void> {
+  const platform = detectPlatform();
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info" });
+  const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
   const scene = new Scene({ name: "cubes" });
   scene.setBackgroundColor(Color.fromSrgbHex(0x070b12));
 
@@ -65,10 +75,26 @@ async function main(): Promise<void> {
       t.rotation = delta.multiply(t.rotation).normalize();
     }
   };
+  let firstError: string | null = null;
+  let shownError: string | null = null;
   const hudTick = (): void => {
     spin();
     const st = engine.stats();
-    hud.textContent = `frame ${st.frame}  fps ${st.fps.toFixed(1)}\ndraws ${st.drawCalls}  tris ${st.triangles}\nsim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms`;
+    const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
+    hud.textContent =
+      `frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
+      `draws ${st.drawCalls}  tris ${st.triangles}\n` +
+      `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
+      `${where}  ${canvas.width}x${canvas.height}  ${health}`;
+    // GPU errors arrive asynchronously (shader compile, pipeline validation, submit). The first one
+    // is the diagnosis and the rest are usually consequences, so pin the first on screen and keep
+    // the latest next to it instead of letting either scroll past in a console nobody sees.
+    if (st.lastError && st.lastError !== shownError) {
+      firstError ??= st.lastError;
+      shownError = st.lastError;
+      const latest = st.lastError === firstError ? "" : `\n\nlatest:\n${st.lastError}`;
+      showError(`GPU errors: ${st.gpuErrors}\n\nfirst:\n${firstError}${latest}`);
+    }
     requestAnimationFrame(hudTick);
   };
   requestAnimationFrame(hudTick);
@@ -90,8 +116,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  errorBox.style.display = "block";
-  errorBox.textContent = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  showError(error instanceof Error ? (error.stack ?? error.message) : String(error));
   hud.textContent = "engine failed to start";
   (window as unknown as { __forgeError: string }).__forgeError = String(error instanceof Error ? error.message : error);
 });

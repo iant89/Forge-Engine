@@ -3,8 +3,15 @@
  * structural validator (the same one the ShaderCache runs before `createShaderModule`).
  *
  * This is a cheap gate against the classic failure mode where a shader is edited by hand and stops
- * matching the generated layout structs. It does not replace a real `naga` compile: WGSL validation on
- * a browser GPU is stricter, so a green run here means "no structural errors found", not "compiles".
+ * matching the generated layout structs. It does not replace a real compile: WGSL validation on a
+ * browser GPU is stricter, so a green run here means "no structural errors found", not "compiles".
+ *
+ * What it does enforce is the uniform address-space layout (array strides and struct/array member
+ * offsets that are multiples of 16). That rule is the one browsers disagree on: Chromium accepts a
+ * relaxed layout without being asked, WebKit rejects the shader module, and `check:browser` runs on
+ * Chromium — so this check is the only thing standing between "renders in Chrome" and "black canvas
+ * in Safari". Every generated struct is checked both through its TypeScript layout
+ * (`uniformLayoutProblems`) and through the WGSL text it emits.
  *
  * Exit code is non-zero when any module fails, and the offending lines are printed with their cause.
  */
@@ -12,7 +19,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const engine = await import(pathToFileURL(resolve("engine/dist/index.js")).href);
-const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, RENDERING_STRUCTS, diffWgslStruct, structSize, MaterialUniforms, ObjectUniforms, PerFrameUniforms, LightUniforms, ShadowUniforms, InstanceStruct } = engine;
+const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, RENDERING_STRUCTS } = engine;
 
 const modules = {
   "shaders/standard.ts:STANDARD_VERTEX": STANDARD_VERTEX,
@@ -43,21 +50,38 @@ for (const [name, source] of Object.entries(modules)) {
   }
 }
 
-// Layout/shader agreement is enforced where it matters: PipelineFactory compares the struct text it
-// embeds in each generated variant against the JS definition with `diffWgslStruct` and throws on a
-// mismatch. This tool only checks that the shipped hand-written WGSL is structurally valid.
+// The shaders embed `StructDef.toWgsl()` output directly, so the shader text and the CPU writer
+// cannot drift apart by construction. What can go wrong is the definition itself being illegal in
+// the uniform address space; check every registered struct as if it were bound with `var<uniform>`,
+// both via the layout engine and via the emitted text, exactly as a strict compiler would see it.
 for (const [label, def] of Object.entries(RENDERING_STRUCTS ?? {})) {
-  if (!def || typeof def.byteSize !== "function") {
+  if (!def || typeof def.byteSize !== "function" || typeof def.uniformLayoutProblems !== "function") {
     console.error(`RENDERING_STRUCTS.${label}: not a StructDef (layout registry broken)`);
     failed++;
     continue;
   }
   const size = def.byteSize("uniform");
-  if (!(size > 0) || size % 16 !== 0) {
-    console.error(`RENDERING_STRUCTS.${label}: size ${size} is not a positive multiple of 16`);
+  const problems = def.uniformLayoutProblems();
+  let wgsl = "";
+  try {
+    wgsl = def.toWgsl("uniform");
+  } catch (error) {
+    problems.push(`toWgsl("uniform") threw: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (wgsl) {
+    const probe = `${wgsl}\n@group(0) @binding(0) var<uniform> probe: ${def.name};\n@vertex fn vs() -> @builtin(position) vec4<f32> { return vec4<f32>(0.0); }\n`;
+    for (const issue of validateWgsl(probe)) problems.push(`${issue.kind}: ${issue.message}`);
+    if (/array<\s*(?:f32|i32|u32|bool|f16|vec2<[^>]*>)\s*,/.test(wgsl)) {
+      problems.push("emitted WGSL contains an array whose stride is below 16 bytes (illegal in var<uniform>; padding must be scalar members)");
+    }
+  }
+  if (!(size > 0) || size % 16 !== 0) problems.push(`size ${size} is not a positive multiple of 16`);
+  if (problems.length > 0) {
     failed++;
+    console.error(`RENDERING_STRUCTS.${label}: ${problems.length} uniform-layout problem(s)`);
+    for (const p of problems) console.error(`   ${p}`);
   } else {
-    console.log(`RENDERING_STRUCTS.${label}: ${size} B`);
+    console.log(`RENDERING_STRUCTS.${label}: ${size} B, uniform layout ok`);
   }
 }
 
@@ -65,4 +89,4 @@ if (failed > 0) {
   console.error(`\ncheck:wgsl FAILED (${failed} problem(s))`);
   process.exit(1);
 }
-console.log("\ncheck:wgsl passed (structural validation only — real GPU compile is stricter).");
+console.log("\ncheck:wgsl passed (structural validation + strict uniform layout — a real GPU compile can still be stricter).");

@@ -126,6 +126,9 @@ try {
   if (!(after.drawCalls >= 1)) throw new Error(`no draw calls after ${after.frame} frames`);
   if (!(after.triangles >= 12)) throw new Error(`suspiciously few triangles: ${after.triangles}`);
   if (!(after.entities >= 8)) throw new Error(`scene entities missing: ${after.entities}`);
+  // Shader compile diagnostics and uncaptured validation errors are recorded by the device; a frame
+  // can look right on Chromium's lenient compiler and still carry an error another browser rejects.
+  if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU errors recorded (${after.gpuErrors}): ${after.lastError}`);
 
   // Pixels: copy the WebGPU canvas into a 2D surface in-page and require real variation (a black
   // clear colour with no geometry would otherwise pass a "non-blank" byte-size check).
