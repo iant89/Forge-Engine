@@ -131,6 +131,7 @@ export {
   type RenderGraphStats,
   type RenderGraphOptions,
 } from "./rendering/renderGraph.js";
+export { computeCascadeSplits, frustumSliceCorners, computeCascades, type Cascade, type CascadeCameraParams, type CascadeOptions } from "./rendering/shadows.js";
 export { PipelineFactory, type PipelineKeyOptions } from "./rendering/pipeline.js";
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, computeNormalsAndTangents, type GeometrySource } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding } from "./rendering/mesh.js";
