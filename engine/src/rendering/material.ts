@@ -1,7 +1,7 @@
 /**
  * Materials: PBR parameters + the GPU uniform buffer and bind group they own.
  *
- * Design points that are load-bearing (see docs/RENDERING.md#materials):
+ * Design points that are load-bearing (see docs/RENDERING.md §6):
  *  - A material is *shared* by many renderables. Its uniform buffer is written only when `dirty`
  *    is set, and its bind group is created once and reused — so "set the cube's colour" costs one
  *    64-byte write, not a pipeline rebuild.

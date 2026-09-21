@@ -34,7 +34,7 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 
 ```sh
 npm run typecheck        # tsc -b engine (strict) + examples tsconfig
-npm test                 # vitest: tests/math.test.ts + tests/rendering.test.ts (mock GPU device) + tests/wgsl.test.ts
+npm test                 # vitest: math, renderGraph, shadows, pipeline, frame + rendering (mock GPU device), wgsl
 npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, asserts on pixels
@@ -54,16 +54,18 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   core/              Engine loop, config, time, events, logging, task scheduler + worker entry
   gpu/               GraphicsDevice, buffer/struct writers, formats, shader cache, constants
   math/              Vec/Mat/Quat, Double3 (large worlds), geometry (AABB/Frustum/Ray), noise, rng
-  rendering/         Renderer (one frame in/out), PipelineFactory, Material, Geometry, primitives,
-                     uniforms (single source of truth for WGSL structs), shaders/standard.ts
+  rendering/         Renderer (one frame in/out), RenderGraph (validation, culling, aliasing, pooling),
+                     shadows.ts (cascade fit), PipelineFactory, Material, Geometry, primitives,
+                     uniforms (single source of truth for WGSL structs), shaders/{standard,post,common}.ts
   scene/             Scene, EntityWorld (ECS-ish), component stores, Transform/Camera/Light/Renderable
   resources/         ResourceRegistry, textures + defaults
-  testing/           MockGPUDevice (strict validation, leak tracking) used by tests/rendering.test.ts
-examples/            Vite demo (src/main.ts) — also the fixture `check:browser` drives
-tests/               vitest suites (math, rendering-on-mock-GPU)
+  testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
+examples/            Vite demo (src/main.ts, scenes/pbrScene.ts + cubesScene.ts) — also the fixture `check:browser` drives
+tests/               vitest suites (math, renderGraph, shadows, pipeline, frame, rendering, wgsl)
 tools/               wgsl-check.mjs, browser-check.mjs
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
+docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, how to add a pass
 ARCHITECTURE.md      Design + rationale; ROADMAP.md — phases; many listed subsystems are not built yet
 ```
 
@@ -83,9 +85,15 @@ no build step between editing engine source and seeing it in the browser.
   `sun.transform.lookAt(x)` shines at `x`; the renderer refreshes `Light.direction` from the world
   matrix every frame while `followRotation` is true.
 * **Matrices are column-major `Float32Array(16)`** and are uploaded as-is. Never transpose on upload.
+* **`Mat4.transformPoint(v, out)` and friends must stay alias-safe** (`out === v` is how the scratch
+  vectors are used). Read the inputs into locals before writing `out`; `tests/math.test.ts` pins it.
+* **Every GPU pass goes through the `RenderGraph`.** Declare what a pass reads and attaches (per
+  mip/layer where it matters); never call `encoder.beginRenderPass` on a texture the graph does not
+  know about. The graph validates before recording and pools textures by descriptor — a steady frame
+  must report `texturesCreated: 0` (asserted by `tests/frame.test.ts` and `check:browser`).
 * **WGSL uniform structs are generated from `engine/src/rendering/uniforms.ts`.** Do not hand-edit
-  struct declarations in `shaders/standard.ts`; change the TS definition and `check:wgsl` will confirm
-  the 16-byte alignment. Hand-written WGSL must still pass `check:wgsl`.
+  struct declarations in `shaders/standard.ts` or `shaders/post.ts`; change the TS definition and
+  `check:wgsl` will confirm the 16-byte alignment. Hand-written WGSL must still pass `check:wgsl`.
 * **The strictest browser decides what is valid WGSL, and it is not the one `check:browser` runs.**
   Chromium accepts uniform structs with a relaxed layout (`array<u32, 3>` padding, arrays with a
   stride below 16 bytes, struct members off 16-byte boundaries) without being asked; WebKit rejects
@@ -95,7 +103,9 @@ no build step between editing engine source and seeing it in the browser.
   applies the same rules to every `var<uniform>` in hand-written WGSL. Do not weaken either to make
   a shader "work" in Chrome.
 * **Colour is linear inside the shader; sRGB encode happens at output** (the swapchain format is not
-  an sRGB format). The clear colour is encoded on the CPU to match — keep them in step.
+  an sRGB format). In HDR mode "output" is the tonemap pass and the forward pass writes linear
+  radiance to `rgba16float` (`perFrame.flags` bit 1); in LDR mode the standard shader encodes. The
+  clear colour is encoded on the CPU to match whichever target it clears — keep them in step.
 * **Hot data lives in typed arrays** (`TransformStore`, instance/object arenas). No per-frame object
   allocation in `Renderer.renderScene`, `collectBatches`, or the transform update; use the scratch
   fields that already exist on the class.
@@ -120,7 +130,10 @@ no build step between editing engine source and seeing it in the browser.
    that string is the bug report from a device you cannot attach devtools to. `engine.stats().lastError`
    carries the same text.
 1. `npm run check:browser` and open `tools/.browser-check.png`. Black frame with HUD only means the
-   camera/culling path, not the shader — *on Chromium*. A black frame on Safari with a green
+   camera/culling path, not the shader — *on Chromium*. The HUD's `graph N passes (M culled)` line
+   and `engine.stats().renderPasses` tell you which passes actually ran: a missing `forge.bloom.*`
+   or `forge.shadow.*` is a settings/quality gate or a culled pass (nothing consumed its output),
+   not a shader problem; a `UsageError` naming a pass is a wrong `reads`/`color`/`depth` declaration. A black frame on Safari with a green
    `check:browser` is a WebKit-only shader rejection until proven otherwise: run `npm run check:wgsl`
    and look for uniform-layout issues first.
 2. Reproduce the camera/light math in a throwaway vitest file against `Mat4`/`Frustum` directly
