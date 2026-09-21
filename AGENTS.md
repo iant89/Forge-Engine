@@ -34,8 +34,8 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 
 ```sh
 npm run typecheck        # tsc -b engine (strict) + examples tsconfig
-npm test                 # vitest: tests/math.test.ts + tests/rendering.test.ts (mock GPU device)
-npm run check:wgsl       # structural WGSL validation + 16-byte layout sizing of every shipped shader
+npm test                 # vitest: tests/math.test.ts + tests/rendering.test.ts (mock GPU device) + tests/wgsl.test.ts
+npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, asserts on pixels
 npm run demo             # Vite dev server for examples/ (binds 0.0.0.0, allowedHosts: true)
@@ -86,6 +86,14 @@ no build step between editing engine source and seeing it in the browser.
 * **WGSL uniform structs are generated from `engine/src/rendering/uniforms.ts`.** Do not hand-edit
   struct declarations in `shaders/standard.ts`; change the TS definition and `check:wgsl` will confirm
   the 16-byte alignment. Hand-written WGSL must still pass `check:wgsl`.
+* **The strictest browser decides what is valid WGSL, and it is not the one `check:browser` runs.**
+  Chromium accepts uniform structs with a relaxed layout (`array<u32, 3>` padding, arrays with a
+  stride below 16 bytes, struct members off 16-byte boundaries) without being asked; WebKit rejects
+  the shader module, and the result on iOS/macOS Safari is a black canvas with a live HUD and no
+  error in the page. `StructDef.toWgsl("uniform")` emits padding as `u32` scalars and throws on a
+  definition that breaks the uniform rules; `validateWgsl` (run by `ShaderCache` and `check:wgsl`)
+  applies the same rules to every `var<uniform>` in hand-written WGSL. Do not weaken either to make
+  a shader "work" in Chrome.
 * **Colour is linear inside the shader; sRGB encode happens at output** (the swapchain format is not
   an sRGB format). The clear colour is encoded on the CPU to match — keep them in step.
 * **Hot data lives in typed arrays** (`TransformStore`, instance/object arenas). No per-frame object
@@ -107,8 +115,14 @@ no build step between editing engine source and seeing it in the browser.
 
 ## 5. Debugging rendering problems — the order that works
 
+0. Read the page. The demo HUD shows `gpu ok` / `gpu errors N` and pins the first GPU error (shader
+   compile diagnostics, uncaptured validation errors, render exceptions) in the red box under it —
+   that string is the bug report from a device you cannot attach devtools to. `engine.stats().lastError`
+   carries the same text.
 1. `npm run check:browser` and open `tools/.browser-check.png`. Black frame with HUD only means the
-   camera/culling path, not the shader.
+   camera/culling path, not the shader — *on Chromium*. A black frame on Safari with a green
+   `check:browser` is a WebKit-only shader rejection until proven otherwise: run `npm run check:wgsl`
+   and look for uniform-layout issues first.
 2. Reproduce the camera/light math in a throwaway vitest file against `Mat4`/`Frustum` directly
    (fast, no GPU) before touching the renderer.
 3. For lighting: temporarily raise `scene.settings.ambientIntensity` or the light `intensity` in the

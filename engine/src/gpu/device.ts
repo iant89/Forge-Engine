@@ -11,7 +11,11 @@
  *     ever needs a cast to survive the test double (and mock-only fields cannot leak into real code).
  *  3. **Error scopes.** Validation errors are collected per frame and surfaced through the logger +
  *     `device.consumeErrors()`, because WebGPU reports them asynchronously and a silent error scope
- *     leak is the classic "why is nothing rendering" trap.
+ *     leak is the classic "why is nothing rendering" trap. Errors that no scope captures
+ *     (`uncapturederror`: a pipeline built from a module the browser's compiler rejected, an
+ *     invalid submit) and shader compile diagnostics are recorded through the same channel, so
+ *     `lastError` always names the first thing that went wrong — on a phone with no devtools that
+ *     string is the whole bug report.
  *  4. **Device loss.** `lost` flips, listeners run, and everything that renders checks the flag —
  *     a lost device must degrade to a paused canvas, not a stream of exceptions.
  */
@@ -119,6 +123,20 @@ export class GraphicsDevice {
           }
         })
       : new Promise<void>(() => {});
+    // Errors outside any scope would otherwise only reach the browser console. Recording them keeps
+    // `stats().gpuErrors`/`lastError` truthful on every browser, including ones with no console.
+    const target = this.device as unknown as { addEventListener?: (type: string, listener: (event: unknown) => void) => void };
+    if (typeof target.addEventListener === "function") {
+      try {
+        target.addEventListener("uncapturederror", (event) => {
+          const error = (event as { error?: { message?: string; constructor?: { name?: string } } }).error;
+          const kind = error?.constructor?.name ?? "GPUError";
+          this.recordError("uncaptured error", `${kind}: ${error?.message ?? String(error)}`);
+        });
+      } catch {
+        /* a device that cannot register listeners still works; it just reports less */
+      }
+    }
     if (this.isMock) {
       this.logger?.info("gpu: using mock device (headless; validation is strict, rasterization is not)");
     }
@@ -142,6 +160,7 @@ export class GraphicsDevice {
   private openScopes = 0;
   private errorCount = 0;
   private readonly collectedErrors: string[] = [];
+  private _lastError: string | null = null;
   private buffersCreated = 0;
   private texturesCreated = 0;
 
@@ -398,12 +417,27 @@ export class GraphicsDevice {
     this.openScopes--;
     const error = await this.device.popErrorScope();
     if (!error) return null;
-    this.errorCount++;
     const message = `${(error as GPUError).constructor?.name ?? "GPUError"}: ${error.message}`;
+    this.recordError("error scope", message);
+    return message;
+  }
+
+  /**
+   * Record a GPU-side failure that did not come through an error scope: uncaptured validation
+   * errors, shader compiler diagnostics, anything asynchronous the engine learns about later. It
+   * counts towards `totalErrorCount`, is drained by `consumeErrors()` and is kept as `lastError`.
+   */
+  recordError(context: string, message: string): void {
+    this.errorCount++;
+    this._lastError = message;
     this.collectedErrors.push(message);
     if (this.collectedErrors.length > 64) this.collectedErrors.shift();
-    this.reportError("gpu error scope", message);
-    return message;
+    this.reportError(context, message);
+  }
+
+  /** The most recent GPU error message, or `null` if the device has never reported one. */
+  get lastError(): string | null {
+    return this._lastError;
   }
 
   /** Wrap an action in an error scope and throw if it produced one (used in tests + init paths). */

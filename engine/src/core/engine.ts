@@ -67,6 +67,12 @@ export interface EngineStats {
   resources: { entries: number; bytes: number; pending: number };
   deviceLost: boolean;
   gpuErrors: number;
+  /**
+   * The most recent failure the engine knows about — a GPU validation/compile error or a render
+   * exception — or `null`. Meant to be shown on screen: it is the only diagnostic a user on a
+   * phone can read back to you.
+   */
+  lastError: string | null;
 }
 
 export type RenderMode = "always" | "dirty" | "manual";
@@ -94,6 +100,7 @@ export class Engine {
   private lastFrameTimeMs = 0;
   private lastSimMs = 0;
   private lastRenderMs = 0;
+  private lastRenderError: string | null = null;
   private fpsEwma = 0;
   private presentationMode: RenderMode = "always";
   private readonly frameContext: EngineFrameContext;
@@ -296,6 +303,7 @@ export class Engine {
       try {
         if (this.scene) this.renderer.renderScene(this.scene, this.frameContext);
       } catch (e) {
+        this.lastRenderError = `render failed: ${e instanceof Error ? e.message : String(e)}`;
         this.logger.error("render failed", e);
       }
       this.profiler.end("Render");
@@ -435,6 +443,7 @@ export class Engine {
       resources: { entries: this.resources.size, bytes: this.resources.bytes, pending: this.resources.stats().pending },
       deviceLost: this.gpu.lost,
       gpuErrors: this.gpu.totalErrorCount,
+      lastError: this.gpu.lastError ?? this.lastRenderError,
     };
   }
 
