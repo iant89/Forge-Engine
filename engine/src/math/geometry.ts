@@ -337,6 +337,8 @@ export class Ray {
    */
   intersectsAABB(box: AABB, hit: RayHit): boolean {
     const t = hitT;
+    t[0] = 0;
+    t[1] = this.maxDistance;
     if (!box.intersectsRay(this.origin, this.invDirection, t, hit)) return false;
     let best = t[0]!;
     let inside = false;

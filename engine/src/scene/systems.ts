@@ -112,7 +112,7 @@ export abstract class System implements ISystem {
  */
 export abstract class FixedSystem implements ISystem {
   abstract readonly name: string;
-  readonly order = 100;
+  readonly order: number = 100;
   readonly before?: readonly string[];
   readonly after?: readonly string[];
   enabled = true;
