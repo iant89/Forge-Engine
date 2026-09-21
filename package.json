@@ -2,12 +2,14 @@
   "name": "forge-engine-monorepo",
   "private": true,
   "version": "0.1.0",
-  "description": "Forge \u2014 a browser-native WebGPU 3D game & real-time simulation engine",
+  "description": "Forge — a browser-native WebGPU 3D game & real-time simulation engine",
   "type": "module",
   "workspaces": [
     "engine"
   ],
   "scripts": {
+    "setup": "bash scripts/setup-deps.sh",
+    "setup:check": "bash scripts/setup-deps.sh --check",
     "build": "tsc -b engine --pretty false",
     "typecheck": "tsc -b engine --pretty false && tsc -p examples/tsconfig.json --noEmit --pretty false",
     "test": "vitest run",

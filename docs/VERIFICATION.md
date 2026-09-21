@@ -3,6 +3,13 @@
 Phase 1 rendering and core engine foundations are **verified** through automated tests and headless real-WebGPU checks.
 This file states exactly which claims are backed by an automated check, so nothing in `ROADMAP.md` has to be taken on faith.
 
+## Setting up
+
+`npm run setup` (`scripts/setup-deps.sh`) installs or verifies every prerequisite below — Node, npm,
+the locked packages, and the headless Chromium + SwiftShader build that `check:browser` drives —
+checking versions first and only installing what is missing or wrong. `npm run setup:check` verifies
+without changing anything.
+
 ## Runs green today
 
 | Command | Checks | Status |
