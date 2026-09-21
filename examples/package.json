@@ -1,0 +1,9 @@
+{
+  "name": "@forge/examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "vite --host 0.0.0.0 --config vite.config.ts",
+    "build": "vite build --config vite.config.ts"
+  }
+}
