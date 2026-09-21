@@ -146,6 +146,25 @@ describe("vectors and matrices", () => {
     expect(back.x).toBeCloseTo(1, 6);
     expect(back.y).toBeCloseTo(0, 6);
   });
+
+  it("point/direction transforms accept the input as the output (in-place is how scratch vectors are used)", () => {
+    // Regression: transformPoint wrote out.x before reading v.y/v.z, so in-place calls silently
+    // mixed transformed and untransformed components — the cascade fit was the first caller to notice.
+    const m = Mat4.compose(new Vec3(3, -2, 5), new Quat().setEulerComponents(0.4, 1.3, -0.7), new Vec3(1, 1, 1));
+    const q = new Quat().setEulerComponents(0.9, -0.2, 0.5);
+    for (const [name, apply] of [
+      ["transformPoint", (v: Vec3, out: Vec3) => m.transformPoint(v, out)],
+      ["transformDirection", (v: Vec3, out: Vec3) => m.transformDirection(v, out)],
+      ["rotateVector", (v: Vec3, out: Vec3) => q.rotateVector(v, out)],
+    ] as const) {
+      const separate = apply(new Vec3(1.5, -0.25, 2), new Vec3());
+      const inPlace = new Vec3(1.5, -0.25, 2);
+      apply(inPlace, inPlace);
+      expect(inPlace.x, name).toBeCloseTo(separate.x, 6);
+      expect(inPlace.y, name).toBeCloseTo(separate.y, 6);
+      expect(inPlace.z, name).toBeCloseTo(separate.z, 6);
+    }
+  });
 });
 
 describe("transform store", () => {
