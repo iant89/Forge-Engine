@@ -119,6 +119,18 @@ export type { RenderFrameContext, PickResult, SkyParams } from "./scene/renderCo
 
 // Rendering
 export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
+export {
+  RenderGraph,
+  type RenderGraphHandle,
+  type RenderGraphTextureDesc,
+  type RenderGraphViewDesc,
+  type RenderGraphColorAttachment,
+  type RenderGraphDepthAttachment,
+  type RenderGraphPassContext,
+  type RenderGraphPassDesc,
+  type RenderGraphStats,
+  type RenderGraphOptions,
+} from "./rendering/renderGraph.js";
 export { PipelineFactory, type PipelineKeyOptions } from "./rendering/pipeline.js";
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, computeNormalsAndTangents, type GeometrySource } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding } from "./rendering/mesh.js";
