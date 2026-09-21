@@ -31,8 +31,20 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 export function buildPbrScene(engine: Engine): DemoSceneHandle {
   const scene = new Scene({ name: "pbr-showcase" });
   scene.setBackgroundColor(Color.fromSrgbHex(0x050810));
-  scene.settings.hdr = false;
+  // Phase 2 rendering path: forward pass into an rgba16float target, bloom on everything brighter
+  // than display white after exposure, ACES tone curve and sRGB encode in the resolve pass.
+  scene.settings.hdr = true;
   scene.settings.exposure = 1.2;
+  scene.settings.bloom.enabled = true;
+  scene.settings.bloom.threshold = 1.0;
+  scene.settings.bloom.softKnee = 0.5;
+  scene.settings.bloom.intensity = 0.08;
+  // Three cascades over the first 60 m: the grid sits in cascade 0/1, the ground's horizon in 2.
+  scene.settings.shadow.enabled = true;
+  scene.settings.shadow.cascades = 3;
+  scene.settings.shadow.mapSize = 2048;
+  scene.settings.shadow.distance = 60;
+  scene.settings.shadow.splitLambda = 0.6;
 
   const allocatedGeometries: Geometry[] = [];
   const allocatedTextures: PbrTextureSet[] = [];

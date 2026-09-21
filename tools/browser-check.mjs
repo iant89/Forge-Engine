@@ -6,6 +6,12 @@
  * calls, or on a frame that is blank. This is the only gate that proves the engine presents pixels: the
  * mock device and `check:wgsl` cannot.
  *
+ * Phase 2 additions (docs/VERIFICATION.md#browser): the frame must have run the cascaded-shadow, HDR
+ * forward, bloom and tonemap passes, and readbacks bracketing each toggle must move the way the
+ * physics says — bloom adds light, shadows remove it — with zero GPU errors across the HDR, LDR and
+ * cascade-debug shader variants. A pass list alone would not catch a shadow map sampled at the wrong
+ * coordinates (that renders, validates, and shadows nothing).
+ *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
  * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
@@ -106,6 +112,48 @@ page.on("console", (msg) => {
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("requestfailed", (r) => problems.push(`requestfailed: ${r.url()} ${r.failure()?.errorText ?? ""}`));
 
+/** Wait for `frames` animation frames in-page (the engine renders on its own rAF loop). */
+const settle = (frames = 4) =>
+  page.evaluate(
+    (n) =>
+      new Promise((resolve) => {
+        let i = 0;
+        const step = () => (++i >= n ? resolve(undefined) : requestAnimationFrame(step));
+        requestAnimationFrame(step);
+      }),
+    frames,
+  );
+
+// Pixels: copy the WebGPU canvas into a 2D surface in-page and measure it. Sampling the WebGPU canvas
+// via 2D drawImage must happen inside requestAnimationFrame, before presentation clears the buffer.
+const samplePixels = () =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          const src = document.querySelector("canvas");
+          const c = document.createElement("canvas");
+          c.width = 160;
+          c.height = 90;
+          const g = c.getContext("2d", { willReadFrequently: true });
+          g.drawImage(src, 0, 0, c.width, c.height);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          let min = 255;
+          let max = 0;
+          let sum = 0;
+          const seen = new Set();
+          for (let i = 0; i < d.length; i += 4) {
+            const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
+            min = Math.min(min, l);
+            max = Math.max(max, l);
+            sum += l;
+            seen.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`);
+          }
+          resolve({ min, max, mean: sum / (d.length / 4), distinct: seen.size });
+        });
+      }),
+  );
+
 let exitCode = 0;
 try {
   await page.goto(URL, { waitUntil: "load", timeout: 60000 });
@@ -130,34 +178,20 @@ try {
   // can look right on Chromium's lenient compiler and still carry an error another browser rejects.
   if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU errors recorded (${after.gpuErrors}): ${after.lastError}`);
 
-  // Pixels: copy the WebGPU canvas into a 2D surface in-page and require real variation (a black
-  // clear colour with no geometry would otherwise pass a "non-blank" byte-size check).
-  // Sampling the WebGPU canvas via 2D drawImage must be done within requestAnimationFrame before presentation clears the buffer.
-  const pixels = await page.evaluate(async () => {
-    return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        const src = document.querySelector("canvas");
-        const c = document.createElement("canvas");
-        c.width = 160;
-        c.height = 90;
-        const g = c.getContext("2d", { willReadFrequently: true });
-        g.drawImage(src, 0, 0, c.width, c.height);
-        const d = g.getImageData(0, 0, c.width, c.height).data;
-        let min = 255;
-        let max = 0;
-        let sum = 0;
-        const seen = new Set();
-        for (let i = 0; i < d.length; i += 4) {
-          const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
-          min = Math.min(min, l);
-          max = Math.max(max, l);
-          sum += l;
-          seen.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`);
-        }
-        resolve({ min, max, mean: sum / (d.length / 4), distinct: seen.size });
-      });
-    });
-  });
+  // Frame structure: the render graph must have executed the Phase 2 chain, not just "a pass".
+  const passes = after.renderPasses ?? [];
+  const count = (prefix) => passes.filter((p) => p.startsWith(prefix)).length;
+  console.log(`passes: ${passes.join(" → ")}`);
+  if (!after.render?.hdr) throw new Error("the demo is not rendering through the HDR path");
+  if (count("forge.shadow.") < 1) throw new Error(`no shadow cascade pass executed: ${passes.join(", ")}`);
+  if (count("forge.main") !== 1 || count("forge.tonemap") !== 1) throw new Error(`expected one forward pass and one tonemap resolve: ${passes.join(", ")}`);
+  if (count("forge.bloom.") < 3) throw new Error(`bloom chain missing (prefilter + downsample + upsample): ${passes.join(", ")}`);
+  if (!(after.render.shadowsDrawn >= 1)) throw new Error("shadow passes ran but drew nothing (no casters reached the cascades)");
+  if (!(after.render.texturesCreated === 0)) throw new Error(`render graph allocated ${after.render.texturesCreated} texture(s) on a steady-state frame (pool is not stable)`);
+
+  // Pixels: require real variation (a black clear colour with no geometry would otherwise pass a
+  // "non-blank" byte-size check).
+  const pixels = await samplePixels();
   console.log(`pixels: min=${pixels.min} max=${pixels.max} mean=${pixels.mean.toFixed(1)} distinct=${pixels.distinct}`);
   if (pixels.max <= pixels.min + 2) throw new Error("canvas is a single flat colour — nothing was drawn");
   if (pixels.distinct < 8) throw new Error(`only ${pixels.distinct} distinct colours; the scene is not rendering`);
@@ -166,6 +200,51 @@ try {
   // frame with a sliver of cube tops along the bottom edge — which still passed the two checks above).
   if (pixels.mean < 6) throw new Error(`frame is almost entirely black (mean luminance ${pixels.mean.toFixed(1)}); the camera is not looking at the scene`);
   await page.screenshot({ path: "tools/.browser-check.png" });
+
+  // Readback A/B around each toggle, with the animation frozen so only the toggle differs.
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await settle();
+  const base = await samplePixels();
+
+  await page.evaluate(() => window.__forge.setBloom(false));
+  await settle();
+  const noBloom = await samplePixels();
+  const noBloomStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => window.__forge.setBloom(true));
+  console.log(`bloom: mean ${base.mean.toFixed(2)} (on) vs ${noBloom.mean.toFixed(2)} (off); passes off=${noBloomStats.renderPasses.length}`);
+  if (noBloomStats.renderPasses.some((p) => p.startsWith("forge.bloom."))) throw new Error("bloom passes still ran with bloom disabled (graph did not re-plan)");
+  if (!(base.mean > noBloom.mean)) throw new Error(`bloom added no light: mean ${base.mean.toFixed(2)} with bloom vs ${noBloom.mean.toFixed(2)} without`);
+
+  await page.evaluate(() => window.__forge.setShadows(false));
+  await settle();
+  const noShadows = await samplePixels();
+  const noShadowStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => window.__forge.setShadows(true));
+  console.log(`shadows: mean ${base.mean.toFixed(2)} (on) vs ${noShadows.mean.toFixed(2)} (off)`);
+  if (noShadowStats.renderPasses.some((p) => p.startsWith("forge.shadow."))) throw new Error("shadow passes still ran with shadows disabled");
+  if (!(noShadows.mean > base.mean)) throw new Error(`disabling shadows did not brighten the frame (${noShadows.mean.toFixed(2)} vs ${base.mean.toFixed(2)}): the cascades are not landing on the receivers`);
+
+  // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
+  await page.evaluate(() => window.__forge.setHdr(false));
+  await settle();
+  const ldr = await samplePixels();
+  const ldrStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => window.__forge.setHdr(true));
+  console.log(`ldr: mean ${ldr.mean.toFixed(2)} distinct=${ldr.distinct}; passes=${ldrStats.renderPasses.join(",")}`);
+  if (ldrStats.render.hdr || ldrStats.renderPasses.includes("forge.tonemap")) throw new Error("LDR toggle did not switch the frame off the post chain");
+  if (ldr.distinct < 8 || ldr.mean < 6) throw new Error("LDR path rendered a blank frame");
+
+  // Cascade debug tint is a distinct shader path; it must compile and run clean on real WebGPU.
+  await page.evaluate(() => window.__forge.setCascadeDebug(true));
+  await settle();
+  const tinted = await samplePixels();
+  await page.evaluate(() => window.__forge.setCascadeDebug(false));
+  await page.evaluate(() => window.__forge.setAnimating(true));
+  await settle();
+  const restored = await page.evaluate(() => window.__forge.stats());
+  console.log(`cascade tint: distinct=${tinted.distinct}; after toggles: gpuErrors=${restored.gpuErrors} passes=${restored.renderPasses.length}`);
+  if (restored.gpuErrors !== 0 || restored.lastError) throw new Error(`GPU errors after toggling render paths (${restored.gpuErrors}): ${restored.lastError}`);
+  if (!restored.render.hdr || restored.render.bloomMips < 1 || restored.render.shadowCascades < 1) throw new Error("render state did not restore after the toggles");
 
   // Resize must keep presenting (the swapchain/recreate path).
   await page.setViewportSize({ width: 900, height: 500 });
