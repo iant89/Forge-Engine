@@ -36,7 +36,7 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "cascadeCount", type: i32 },
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
-  { name: "flags", type: u32, comment: "bit0 sky, bit1 post, bit2 hdr, bit3 shadows" },
+  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows" },
 ]);
 
 /** One light. Directional lights sort first; index 0 is the cascade caster. */
@@ -50,16 +50,35 @@ export const LightUniforms = new StructDef("LightUniforms", [
   { name: "_pad", type: vec2 },
 ]);
 
-/** Cascade matrices for the shadow pass and the depth pass that samples it. */
+/**
+ * Cascaded shadow state for the directional caster. `cascadeViewProj[c]` maps render-local space
+ * into cascade `c` of the shadow atlas (a `texture_depth_2d_array`, layer = cascade); the fragment
+ * stage picks the cascade by view depth against `cascadeSplits` (see `rendering/shadows.ts`).
+ */
 export const ShadowUniforms = new StructDef("ShadowUniforms", [
-  { name: "cascadeViewProj", type: arrayOf(mat4x4, 4) },
-  { name: "cascadeSplits", type: vec4 },
-  { name: "texelSize", type: f32 },
-  { name: "depthBias", type: f32 },
-  { name: "normalBias", type: f32 },
+  { name: "cascadeViewProj", type: arrayOf(mat4x4, MAX_CASCADES) },
+  { name: "cascadeSplits", type: vec4, comment: "far view-depth of each cascade; unused entries are +large" },
+  { name: "cascadeTexelWorld", type: vec4, comment: "render-local size of one shadow texel per cascade (normal-offset bias)" },
+  { name: "texelSize", type: f32, comment: "1 / map size" },
+  { name: "depthBias", type: f32, comment: "constant bias in NDC depth units" },
+  { name: "normalBias", type: f32, comment: "normal offset in texels" },
+  { name: "fadeStart", type: f32, comment: "view depth where shadows start fading to unshadowed" },
   { name: "enabled", type: i32 },
   { name: "size", type: i32 },
-  { name: "_pad", type: i32 },
+  { name: "count", type: i32, comment: "cascades in use (1..MAX_CASCADES)" },
+  { name: "flags", type: u32, comment: "bit0 tint fragments by cascade (debug)" },
+]);
+
+/**
+ * Group 0 of the shadow (depth-only) passes: the light view-projection of one cascade. One record
+ * per cascade lives in a small dynamic-offset arena, so all cascades share a single bind group.
+ */
+export const ShadowPassUniforms = new StructDef("ShadowPassUniforms", [
+  { name: "viewProj", type: mat4x4, comment: "render-local -> cascade clip space" },
+  { name: "cascade", type: i32 },
+  { name: "_pad0", type: i32 },
+  { name: "_pad1", type: i32 },
+  { name: "_pad2", type: i32 },
 ]);
 
 /**
@@ -117,6 +136,24 @@ export const InstanceStruct = new StructDef("InstanceData", [
   { name: "materialIndex", type: u32 },
 ]);
 
+/**
+ * Post-process pass parameters (bloom prefilter/downsample/upsample and the tonemap resolve). One
+ * record per pass invocation lives in a dynamic-offset arena, so the whole HDR chain shares one
+ * buffer and one bind group layout.
+ */
+export const PostUniforms = new StructDef("PostUniforms", [
+  { name: "texelSize", type: vec2, comment: "1 / source size" },
+  { name: "outputSize", type: vec2 },
+  { name: "threshold", type: f32, comment: "bloom prefilter threshold (after exposure)" },
+  { name: "knee", type: f32, comment: "soft-knee width as a fraction of threshold" },
+  { name: "intensity", type: f32, comment: "bloom strength at composite" },
+  { name: "exposure", type: f32 },
+  { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
+  { name: "radius", type: f32, comment: "upsample tent radius in source texels" },
+  { name: "flags", type: u32, comment: "bit0 composite bloom, bit1 Karis average, bit2 skip tonemap (debug)" },
+  { name: "_pad", type: u32 },
+]);
+
 /** Debug line vertex (position + packed RGBA8 colour). */
 export const DebugVertexStruct = new StructDef("DebugVertex", [
   { name: "position", type: vec3 },
@@ -128,10 +165,12 @@ export const RENDERING_STRUCTS = {
   LightBlock,
   LightUniforms,
   ShadowUniforms,
+  ShadowPassUniforms,
   MaterialUniforms,
   ObjectUniforms,
   InstanceStruct,
   DebugVertexStruct,
+  PostUniforms,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
@@ -140,6 +179,4 @@ export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
 export function structSize(name: RenderingStructName, space: AddressSpace = "uniform"): number {
   return RENDERING_STRUCTS[name].byteSize(space);
 }
-
-/** Max lights the per-frame struct can carry (kept in sync with the WGSL array length). */
 

@@ -182,12 +182,15 @@ export class Quat {
     const qy = this.y;
     const qz = this.z;
     const qw = this.w;
-    const tx = 2 * (qy * v.z - qz * v.y);
-    const ty = 2 * (qz * v.x - qx * v.z);
-    const tz = 2 * (qx * v.y - qy * v.x);
-    out.x = v.x + qw * tx + (qy * tz - qz * ty);
-    out.y = v.y + qw * ty + (qz * tx - qx * tz);
-    out.z = v.z + qw * tz + (qx * ty - qy * tx);
+    const vx = v.x;
+    const vy = v.y;
+    const vz = v.z;
+    const tx = 2 * (qy * vz - qz * vy);
+    const ty = 2 * (qz * vx - qx * vz);
+    const tz = 2 * (qx * vy - qy * vx);
+    out.x = vx + qw * tx + (qy * tz - qz * ty);
+    out.y = vy + qw * ty + (qz * tx - qx * tz);
+    out.z = vz + qw * tz + (qx * ty - qy * tx);
     return out;
   }
 
@@ -430,11 +433,15 @@ export class Mat3 {
     return this.invert().transpose();
   }
 
+  /** `out` may be `v` (all transforms read their input fully before writing). */
   transformVector(v: Vec3Ops, out: Vec3): Vec3 {
     const m = this.m;
-    out.x = m[0]! * v.x + m[3]! * v.y + m[6]! * v.z;
-    out.y = m[1]! * v.x + m[4]! * v.y + m[7]! * v.z;
-    out.z = m[2]! * v.x + m[5]! * v.y + m[8]! * v.z;
+    const x = v.x;
+    const y = v.y;
+    const z = v.z;
+    out.x = m[0]! * x + m[3]! * y + m[6]! * z;
+    out.y = m[1]! * x + m[4]! * y + m[7]! * z;
+    out.z = m[2]! * x + m[5]! * y + m[8]! * z;
     return out;
   }
 }
@@ -824,22 +831,29 @@ export class Mat4 {
     return true;
   }
 
+  /** Point transform with the perspective divide. `out` may be `v` (the input is read before any write). */
   transformPoint(v: Vec3Ops, out: Vec3): Vec3 {
     const m = this.m;
-    const w = m[3]! * v.x + m[7]! * v.y + m[11]! * v.z + m[15]!;
+    const x = v.x;
+    const y = v.y;
+    const z = v.z;
+    const w = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!;
     const iw = Math.abs(w) < EPSILON ? 1 : 1 / w;
-    out.x = (m[0]! * v.x + m[4]! * v.y + m[8]! * v.z + m[12]!) * iw;
-    out.y = (m[1]! * v.x + m[5]! * v.y + m[9]! * v.z + m[13]!) * iw;
-    out.z = (m[2]! * v.x + m[6]! * v.y + m[10]! * v.z + m[14]!) * iw;
+    out.x = (m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) * iw;
+    out.y = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) * iw;
+    out.z = (m[2]! * x + m[6]! * y + m[10]! * z + m[14]!) * iw;
     return out;
   }
 
-  /** Direction/matrix transform without translation (w = 0 row). */
+  /** Direction/matrix transform without translation (w = 0 row). `out` may be `v`. */
   transformDirection(v: Vec3Ops, out: Vec3): Vec3 {
     const m = this.m;
-    out.x = m[0]! * v.x + m[4]! * v.y + m[8]! * v.z;
-    out.y = m[1]! * v.x + m[5]! * v.y + m[9]! * v.z;
-    out.z = m[2]! * v.x + m[6]! * v.y + m[10]! * v.z;
+    const x = v.x;
+    const y = v.y;
+    const z = v.z;
+    out.x = m[0]! * x + m[4]! * y + m[8]! * z;
+    out.y = m[1]! * x + m[5]! * y + m[9]! * z;
+    out.z = m[2]! * x + m[6]! * y + m[10]! * z;
     return out;
   }
 

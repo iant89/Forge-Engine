@@ -397,7 +397,9 @@ export class MockGPUTextureView {
     const layerCount = desc.arrayLayerCount ?? texture.depthOrArrayLayers - baseLayer;
     if (baseLayer + layerCount > texture.depthOrArrayLayers) device.reportError("createView: layer range exceeds texture");
     const dim = desc.dimension ?? "2d";
-    if (dim === "2d-array" && texture.depthOrArrayLayers < 2) device.reportError("createView: 2d-array requires >= 2 layers");
+    // A 2d-array view of a single-layer 2d texture is valid WebGPU (arrayLayerCount 1); only the
+    // texture dimension matters. A one-cascade shadow atlas relies on this.
+    if (dim === "2d-array" && texture.dimension !== "2d") device.reportError("createView: 2d-array view of a non-2d texture");
     if ((dim === "cube" || dim === "cube-array") && layerCount % 6 !== 0) device.reportError("createView: cube views need a multiple of 6 layers");
     if (dim === "3d" && texture.dimension !== "3d") device.reportError("createView: 3d view of a non-3d texture");
     texture.viewCount++;
@@ -1918,6 +1920,7 @@ export class MockGPUQueue {
   submit(commandBuffers: readonly MockGPUCommandBuffer[]): void {
     const device = this.device;
     this.submitCount++;
+    device.submitCount++;
     if (device.lost) {
       device.reportError("submit: device lost");
       return;

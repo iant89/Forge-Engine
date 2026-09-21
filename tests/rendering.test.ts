@@ -77,11 +77,18 @@ describe("Renderer with mock WebGPU device", () => {
     expect(mock.errors).toHaveLength(0);
     mock.assertClean();
 
-    // Verify both shadow and main color passes were executed
+    // Default settings: HDR on, three cascades. The frame is one shadow pass per cascade, the
+    // forward pass into the HDR target and the tonemap resolve into the swapchain (the 1x1 mock
+    // surface is too small for a bloom chain, so none is declared).
     const passLabels = mock.passes.map((p) => p.label);
-    expect(passLabels).toHaveLength(2);
-    expect(mock.passes[0]!.label).toBe("forge.shadow");
-    expect(mock.passes[1]!.label).toBe("forge.main");
+    expect(passLabels).toEqual(["forge.shadow.0", "forge.shadow.1", "forge.shadow.2", "forge.main", "forge.tonemap"]);
+    expect(renderer.passNames).toEqual(passLabels);
+    expect(renderer.stats.shadowCascades).toBe(3);
+    expect(renderer.stats.shadowsDrawn).toBe(3); // the cube, once per cascade (the ground does not cast)
+    expect(renderer.stats.hdr).toBe(true);
+    expect(mock.passes[0]!.depthTarget).toContain("depth24plus");
+    expect(mock.passes[3]!.colorTargets[0]).toContain("rgba16float");
+    expect(mock.passes[4]!.colorTargets[0]).toBe("swapchain");
 
     // Clean teardown and leak check
     scene.dispose();
@@ -137,6 +144,32 @@ describe("Renderer with mock WebGPU device", () => {
     renderer.dispose();
     box.geometry.dispose();
     box.material.dispose();
+    await device.dispose();
+  });
+
+  it("derives camera projection aspect ratio from device surface when aspectOverride is 0", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    device.resize(800, 600);
+    expect(device.aspect).toBeCloseTo(4 / 3, 5);
+
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "aspect-test" });
+
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -5));
+    const camera = new Camera();
+    camera.fovY = Math.PI / 3;
+    expect(camera.aspectOverride).toBe(0);
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+    renderer.renderScene(scene);
+
+    // In setPerspective, m[0] = f / aspect and m[5] = f, so m[5] / m[0] == aspect
+    const computedAspect = camera.projection.m[5]! / camera.projection.m[0]!;
+    expect(computedAspect).toBeCloseTo(4 / 3, 4);
+
+    scene.dispose();
+    renderer.dispose();
     await device.dispose();
   });
 

@@ -133,8 +133,15 @@ shadow.cascade(N=4) → depth.prepass → gbuffer(opaque forward, velocity)
 ```
 
 Passes are individually enabled/disabled by quality profile and by feature
-availability; the graph is rebuilt only when the pass set or resource formats change,
-never per frame.
+availability. The pass *description* is cheap and is rebuilt every frame from the scene
+settings; the GPU resources behind it are pooled by descriptor and survive across frames,
+so a steady frame allocates nothing (asserted by the tests and the browser gate).
+
+**Built today (Phase 2, see `docs/RENDERING.md`):**
+`shadow.cascade(N≤4) → main(forward, HDR rgba16float) → bloom(prefilter, down×n, up×n)
+→ tonemap → present`, with an LDR path (`main` straight to the swapchain) when `hdr` is
+off. Depth prepass, clustered lighting, SSAO, atmosphere, volumetrics, particles,
+reflections, DoF, motion blur and FXAA are not built yet.
 
 ---
 
@@ -157,6 +164,14 @@ Typed pass description: each pass declares `read`/`write` resources (transient o
 Chosen over a per-frame barrier model because WebGPU infers barriers, so the graph's job is
 memory planning and pass ordering, not synchronization. See ADR-004.
 
+As built (`engine/src/rendering/renderGraph.ts`): producers are tracked per subresource
+(mip/array layer) so one cascade array can be written by N passes and sampled by one; dead
+passes are culled unless they have a side effect or write an imported texture; same-shaped
+transients with disjoint live ranges share a physical texture; physical textures are pooled
+across frames and retired after two idle frames; misuse (read-before-write, load of undefined
+contents, self-sampling, stale handles) throws `UsageError` with the pass name before anything
+is recorded. Timestamp queries are not wired up yet.
+
 ### 5.3 Materials, shaders, caching
 A `Material` is a data record + a `ShaderKey`. The key is
 `hash(shaderSourceHash | vertexLayoutHash | defines | blendState | depthState | textureFlags)`.
@@ -165,6 +180,11 @@ live in a bind group + uniform buffer. Consequence: `ShaderCache` hit rate is do
 *feature combinations*, not material count. Pipeline creation is async and never stalls a
 frame: if a pipeline is not ready, the renderable is drawn with the previous frame's
 pipeline or skipped (documented, visible in stats as `pipelinesPending`).
+
+As built: `PipelineFactory` keys on technique × colour/depth format × blend × cull ×
+instancing × fragment entry, shares six bind group layouts, and creates pipelines
+synchronously (`createRenderPipeline`); the async path and `pipelinesPending` are not built.
+`invalidate()` is the device-loss hook.
 
 ### 5.4 Graceful degradation
 Feature matrix checked at init and expressed as booleans that the graph reads
@@ -179,6 +199,12 @@ Forward+ with a 16×8×24 CPU-built cluster list (built in a worker when lights 
 use dedicated 1024 atlased maps; point lights use 6-face atlased cube maps with
 single-face-per-frame amortized updates. Contact shadows are a short-range depth-test pass
 in the SSAO buffer (documented as an approximation).
+
+As built: plain forward lighting over a fixed light list (no clustering); directional CSM
+with up to 4 cascades (3 in the default profile) fitted as texel-snapped bounding spheres
+over practical-split slices into a `depth24plus` 2d-array, normal-offset bias + 3×3 PCF,
+cascade blending and distance fade (`engine/src/rendering/shadows.ts`, `docs/RENDERING.md`
+§4). Spot/point shadows and contact shadows are not built.
 
 ---
 

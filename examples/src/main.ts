@@ -1,17 +1,40 @@
 /**
- * Phase 1 demo: a lit row of cubes over a ground plane, driven by the engine's own loop.
+ * Forge Engine — Interactive Demo & Verification Host.
  *
- * Public API only (`@forge/engine`), plus a small `window.__forge` handle so `npm run check:browser`
- * can assert on real numbers (frames presented, draw calls, backend) instead of eyeballing a picture.
- *
- * Every failure the engine can see is put on the page, not just in the console: the demo is opened
- * on phones, where a black canvas with a ticking frame counter is otherwise all there is to report.
+ * Supports:
+ * - Phase 1: Spinning Cubes Demo.
+ * - Phase 2: PBR Showcase Demo (Metallic x Roughness, Normal maps, Point/Spot/Sun lights, Emissive)
+ *   rendered through the Phase 2 frame: cascaded shadow maps, HDR target, bloom, tone-map resolve.
+ * - Orbit camera controls (mouse drag, wheel zoom, touch).
+ * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
+ *   rendering toggles (HDR, bloom, shadows, cascade tint).
+ * - `window.__forge` interface for automated headless verification (`npm run check:browser`): the
+ *   gate flips the toggles and reads pixels back, so every switch here must be reachable from it.
  */
-import { Camera, Color, Engine, Light, Material, Quat, Renderable, Scene, Vec3, createBox, createPlane, detectPlatform } from "@forge/engine";
+import {
+  Engine,
+  detectPlatform,
+  type Scene,
+  type ToneMapping,
+} from "@forge/engine";
+import { OrbitControls } from "./controls/orbitControls.js";
+import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
+import { buildPbrScene } from "./scenes/pbrScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const errorBox = document.getElementById("error") as HTMLDivElement;
+
+const btnScenePbr = document.getElementById("btn-scene-pbr") as HTMLButtonElement | null;
+const btnSceneCubes = document.getElementById("btn-scene-cubes") as HTMLButtonElement | null;
+const btnTmAces = document.getElementById("btn-tm-aces") as HTMLButtonElement | null;
+const btnTmFilmic = document.getElementById("btn-tm-filmic") as HTMLButtonElement | null;
+const btnTmReinhard = document.getElementById("btn-tm-reinhard") as HTMLButtonElement | null;
+const btnTmNone = document.getElementById("btn-tm-none") as HTMLButtonElement | null;
+const btnHdr = document.getElementById("btn-hdr") as HTMLButtonElement | null;
+const btnBloom = document.getElementById("btn-bloom") as HTMLButtonElement | null;
+const btnShadows = document.getElementById("btn-shadows") as HTMLButtonElement | null;
+const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 
 function showError(text: string): void {
   errorBox.style.display = "block";
@@ -22,90 +45,173 @@ async function main(): Promise<void> {
   const platform = detectPlatform();
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info" });
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
-  const scene = new Scene({ name: "cubes" });
-  scene.setBackgroundColor(Color.fromSrgbHex(0x070b12));
 
-  const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
-  const groundRenderable = new Renderable();
-  groundRenderable.geometry = createPlane(engine.gpu, { width: 48, depth: 48 });
-  groundRenderable.material = new Material({ label: "ground", color: 0x5b6470, roughness: 0.9 });
-  groundRenderable.castShadow = false;
-  scene.world.addComponent(ground.id, groundRenderable);
+  let currentHandle: DemoSceneHandle | null = null;
+  let controls: OrbitControls | null = null;
+  let activeSceneName = "pbr";
 
-  const boxMesh = createBox(engine.gpu, { width: 1.2, height: 1.2, depth: 1.2 });
-  const palette = [0xc2703d, 0x9aa5b1, 0x4d7c8f, 0x8f4d6b, 0x6b8f4d, 0xd9b382];
-  const spinners: { id: number; axis: Vec3; rate: number; quat: Quat }[] = [];
-  for (let i = 0; i < palette.length; i++) {
-    const entity = scene.createTransformedEntity(`cube-${i}`, new Vec3((i - 2.5) * 2.1, 0.9, Math.sin(i) * 1.5));
-    const renderable = new Renderable();
-    renderable.geometry = boxMesh;
-    renderable.material = new Material({ label: `cube-${i}`, color: palette[i]!, roughness: 0.3 + i * 0.09, metallic: 0.2 });
-    scene.world.addComponent(entity.id, renderable);
-    spinners.push({ id: entity.id, axis: new Vec3(0.3, 1, 0.15).normalize(), rate: 0.35 + i * 0.13, quat: new Quat() });
+  // Check query parameter (?scene=cubes or ?scene=pbr)
+  const params = new URLSearchParams(window.location.search);
+  const requestedScene = params.get("scene");
+  if (requestedScene === "cubes") {
+    activeSceneName = "cubes";
   }
 
-  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 3.4, -9.5));
-  const camera = new Camera();
-  camera.fovY = Math.PI / 3;
-  camera.near = 0.1;
-  camera.far = 200;
-  scene.world.addComponent(cameraEntity.id, camera);
-  cameraEntity.transform.lookAt(new Vec3(0, 0.8, 0));
+  function loadScene(name: "pbr" | "cubes"): void {
+    if (currentHandle) {
+      currentHandle.dispose?.();
+    }
 
-  const sunEntity = scene.createTransformedEntity("sun", new Vec3(7, 13, -7));
-  const sun = new Light();
-  sun.intensity = 5;
-  scene.world.addComponent(sunEntity.id, sun);
-  sunEntity.transform.lookAt(new Vec3(0, 0, 0));
+    activeSceneName = name;
+    if (name === "pbr") {
+      currentHandle = buildPbrScene(engine);
+      btnScenePbr?.classList.add("active");
+      btnSceneCubes?.classList.remove("active");
+    } else {
+      currentHandle = buildCubesScene(engine);
+      btnSceneCubes?.classList.add("active");
+      btnScenePbr?.classList.remove("active");
+    }
 
-  engine.setScene(scene);
+    engine.setScene(currentHandle.scene);
+    controls = new OrbitControls(currentHandle.cameraEntity, canvas);
+
+    if (name === "pbr") {
+      controls.target.set(0, 1.0, 0);
+      controls.distance = 12.0;
+      controls.azimuth = 0.2;
+      controls.elevation = 0.4;
+    } else {
+      controls.target.set(0, 0.8, 0);
+      controls.distance = 10.5;
+      controls.azimuth = 0.0;
+      controls.elevation = 0.28;
+    }
+    controls.update();
+  }
+
+  loadScene(activeSceneName as "pbr" | "cubes");
   engine.start();
 
-  // Rotation is applied between engine ticks; the transform store's dirty tracking picks it up, which
-  // is the same path a game's animation system would use.
+  // Toolbar event listeners
+  btnScenePbr?.addEventListener("click", () => loadScene("pbr"));
+  btnSceneCubes?.addEventListener("click", () => loadScene("cubes"));
+
+  function setToneMapping(mode: ToneMapping): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.toneMapping = mode;
+    btnTmAces?.classList.toggle("active", mode === "aces");
+    btnTmFilmic?.classList.toggle("active", mode === "filmic");
+    btnTmReinhard?.classList.toggle("active", mode === "reinhard");
+    btnTmNone?.classList.toggle("active", mode === "none");
+  }
+
+  btnTmAces?.addEventListener("click", () => setToneMapping("aces"));
+  btnTmFilmic?.addEventListener("click", () => setToneMapping("filmic"));
+  btnTmReinhard?.addEventListener("click", () => setToneMapping("reinhard"));
+  btnTmNone?.addEventListener("click", () => setToneMapping("none"));
+
+  // Rendering toggles. Each writes scene settings only; the renderer re-plans the frame graph from
+  // them next frame (no engine restart, no pipeline rebuild beyond the first use of a variant).
+  function syncRenderButtons(): void {
+    const s = currentHandle?.scene.settings;
+    if (!s) return;
+    btnHdr?.classList.toggle("active", s.hdr);
+    btnBloom?.classList.toggle("active", s.bloom.enabled);
+    if (btnBloom) btnBloom.disabled = !s.hdr;
+    btnShadows?.classList.toggle("active", s.shadow.enabled);
+    btnCascades?.classList.toggle("active", s.shadow.debugCascades);
+    if (btnCascades) btnCascades.disabled = !s.shadow.enabled;
+  }
+  function setHdr(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.hdr = on;
+    syncRenderButtons();
+  }
+  function setBloom(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.bloom.enabled = on;
+    syncRenderButtons();
+  }
+  function setShadows(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.shadow.enabled = on;
+    syncRenderButtons();
+  }
+  function setCascadeDebug(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.shadow.debugCascades = on;
+    syncRenderButtons();
+  }
+  btnHdr?.addEventListener("click", () => setHdr(!currentHandle?.scene.settings.hdr));
+  btnBloom?.addEventListener("click", () => setBloom(!currentHandle?.scene.settings.bloom.enabled));
+  btnShadows?.addEventListener("click", () => setShadows(!currentHandle?.scene.settings.shadow.enabled));
+  btnCascades?.addEventListener("click", () => setCascadeDebug(!currentHandle?.scene.settings.shadow.debugCascades));
+  syncRenderButtons();
+
+  // The browser gate freezes the animation so two readbacks differ only by the toggle between them.
+  let animating = true;
+
+  // Animation & HUD loop
   let last = performance.now();
-  const spin = (): void => {
+  let firstError: string | null = null;
+  let shownError: string | null = null;
+
+  const frameLoop = (): void => {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    for (const s of spinners) {
-      const t = scene.world.facade(s.id)?.transform;
-      if (!t) continue;
-      const delta = Quat.fromAxisAngle(s.axis, s.rate * dt);
-      t.rotation = delta.multiply(t.rotation).normalize();
+
+    if (currentHandle && animating) {
+      currentHandle.update(dt);
     }
-  };
-  let firstError: string | null = null;
-  let shownError: string | null = null;
-  const hudTick = (): void => {
-    spin();
+
     const st = engine.stats();
     const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
+    const r = st.render;
+    const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
+    const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     hud.textContent =
-      `frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
-      `draws ${st.drawCalls}  tris ${st.triangles}\n` +
+      `scene [${activeSceneName.toUpperCase()}]  frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
+      `draws ${st.drawCalls}  tris ${st.triangles}  instances ${st.instances}\n` +
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
+      `${path}  ·  ${shadows}\n` +
+      `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
-    // GPU errors arrive asynchronously (shader compile, pipeline validation, submit). The first one
-    // is the diagnosis and the rest are usually consequences, so pin the first on screen and keep
-    // the latest next to it instead of letting either scroll past in a console nobody sees.
+
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
       shownError = st.lastError;
       const latest = st.lastError === firstError ? "" : `\n\nlatest:\n${st.lastError}`;
       showError(`GPU errors: ${st.gpuErrors}\n\nfirst:\n${firstError}${latest}`);
     }
-    requestAnimationFrame(hudTick);
-  };
-  requestAnimationFrame(hudTick);
 
+    requestAnimationFrame(frameLoop);
+  };
+  requestAnimationFrame(frameLoop);
+
+  // Interface for browser check and dev tooling
   (window as unknown as { __forge: Record<string, unknown> }).__forge = {
     backend: (engine.gpu as unknown as { caps?: { backend?: string } }).caps?.backend ?? "webgpu",
     stats: () => engine.stats(),
-    scene,
+    get scene(): Scene {
+      return currentHandle!.scene;
+    },
     engine,
+    loadScene,
+    setToneMapping,
+    setHdr,
+    setBloom,
+    setShadows,
+    setCascadeDebug,
+    setAnimating: (on: boolean) => {
+      animating = on;
+    },
+    /** Pass names the render graph executed last frame (what the gate asserts against). */
+    renderPasses: () => engine.stats().renderPasses,
     dispose: () => {
       engine.stop();
+      currentHandle?.dispose?.();
       engine.dispose();
     },
     resize: (w: number, h: number) => {
