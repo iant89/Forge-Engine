@@ -69,6 +69,7 @@ interface Batch {
   objectOffset: number;
 }
 
+const FORWARD_Z = new Vec3(0, 0, 1);
 const ZERO_MATRIX = new Float32Array(16);
 {
   const z = ZERO_MATRIX;
@@ -122,6 +123,7 @@ export class Renderer implements RenderFrameContext {
   private readonly scratchBox = new AABB();
   private readonly scratchWorldBox = new AABB();
   private readonly scratchVec = new Vec3();
+  private readonly scratchDir = new Vec3();
   private readonly scratchMat = new Mat4();
   private lost = false;
   private pendingSky: Partial<SkyParams> | null = null;
@@ -456,6 +458,13 @@ export class Renderer implements RenderFrameContext {
     for (let i = 0; i < count; i++) {
       const l = lights[i]!;
       const e = a.element("lights", i) as StructAccessor;
+      if (l.followRotation) {
+        // Direction = the entity's world +Z (same axis `Transform.lookAt` aims), read straight from
+        // the composed world matrix so parented lights and scaled rigs behave.
+        scene.world.getWorldMatrix(l.entity, this.scratchMat);
+        this.scratchMat.transformDirection(FORWARD_Z, this.scratchDir);
+        l.setDirectionFromForward(this.scratchDir);
+      }
       const pos = scene.world.worldPosition(l.entity, this.scratchVec);
       writeVec4(e, "positionRange", pos.x, pos.y, pos.z, l.kind === "directional" ? 0 : l.range);
       writeVec4(e, "directionIntensity", l.direction.x, l.direction.y, l.direction.z, l.intensity);

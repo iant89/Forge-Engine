@@ -335,11 +335,19 @@ export class Light extends Component {
 
   /** @internal */
   computeDirectionFromRotation(transform: Transform): void {
-    // Convention: a light points along its own -Z, matching `Transform.forward()`'s +Z camera rule.
     const f = transform.forward(SCRATCH_DIR);
-    this.direction.set(-f.x, -f.y, -f.z);
-    const len = this.direction.length() || 1;
-    this.direction.scale(1 / len);
+    this.setDirectionFromForward(f);
+  }
+
+  /**
+   * @internal Light travels along the entity's local +Z — the same axis `Transform.forward()` and
+   * `Transform.lookAt()` use — so `sun.transform.lookAt(target)` shines *at* `target`. The renderer
+   * calls this each frame while `followRotation` is set.
+   */
+  setDirectionFromForward(forward: Vec3): void {
+    const len = forward.length();
+    if (len < 1e-8) return;
+    this.direction.set(forward.x / len, forward.y / len, forward.z / len);
   }
 }
 

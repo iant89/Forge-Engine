@@ -188,7 +188,11 @@ export class PipelineFactory {
           },
       primitive: {
         topology: debug ? "line-list" : "triangle-list",
-        frontFace: "ccw",
+        // The engine's view space is left-handed (+X right, +Y up, +Z forward — see `Mat4.setLookAt`
+        // / `setPerspective`), and primitives wind so that `cross(e1, e2)` is the outward normal. Under
+        // that projection an outward-facing triangle lands *clockwise* on screen, so "cw" is front.
+        // (With "ccw" every camera-facing triangle is culled and only the far/inner faces survive.)
+        frontFace: "cw",
         cullMode: options.doubleSided ? "none" : "back",
       },
       depthStencil: options.depthFormat

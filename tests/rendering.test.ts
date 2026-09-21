@@ -96,6 +96,50 @@ describe("Renderer with mock WebGPU device", () => {
     expect(mock.outstanding.textures).toHaveLength(0);
   });
 
+  it("camera and light lookAt reach the frame: view faces the target, sun direction points at it", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "lookat" });
+
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 3.4, -9.5));
+    const camera = new Camera();
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0.8, 0));
+
+    const sunEntity = scene.createTransformedEntity("sun", new Vec3(7, 13, -7));
+    const sun = new Light();
+    scene.world.addComponent(sunEntity.id, sun);
+    sunEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+    const boxEntity = scene.createTransformedEntity("cube", new Vec3(0, 0.9, 0));
+    const box = new Renderable();
+    box.geometry = createBox(device);
+    box.material = new Material({ label: "m", color: 0xffffff });
+    scene.world.addComponent(boxEntity.id, box);
+
+    renderer.renderScene(scene);
+
+    // The cube sits at the camera's target: it must be in front of the camera, centred, not culled.
+    const inView = camera.view.transformPoint(new Vec3(0, 0.8, 0), new Vec3());
+    expect(Math.abs(inView.x)).toBeLessThan(1e-4);
+    expect(Math.abs(inView.y)).toBeLessThan(1e-4);
+    expect(inView.z).toBeCloseTo(Math.hypot(3.4 - 0.8, 9.5), 3);
+    expect(renderer.stats.culled).toBe(0);
+    expect(renderer.stats.drawCalls).toBeGreaterThanOrEqual(1);
+
+    // The light's travel direction is from the sun toward its lookAt target (downward, toward -X/+Z).
+    const expected = new Vec3(-7, -13, 7).normalize();
+    expect(sun.direction.x).toBeCloseTo(expected.x, 4);
+    expect(sun.direction.y).toBeCloseTo(expected.y, 4);
+    expect(sun.direction.z).toBeCloseTo(expected.z, 4);
+
+    scene.dispose();
+    renderer.dispose();
+    box.geometry.dispose();
+    box.material.dispose();
+    await device.dispose();
+  });
+
   it("handles empty scenes by clearing the frame without errors", async () => {
     const device = await GraphicsDevice.create({ forceMock: true });
     const mock = device.mock;

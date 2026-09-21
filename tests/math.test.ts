@@ -80,6 +80,65 @@ describe("vectors and matrices", () => {
     expect(Math.abs(targetInView.x)).toBeLessThan(1e-6);
   });
 
+  it("setLookAt is a VIEW matrix: the eye maps to the origin and the target to (0, 0, +distance)", () => {
+    // Regression: an earlier version built the camera's *world* matrix (basis in columns, eye as
+    // translation). With an off-axis eye that sent the whole scene behind/below the frustum — the
+    // demo rendered a black screen with only the HUD visible. The trivial eye=origin case above
+    // cannot catch that, so this one uses the demo's actual camera placement.
+    const eye = new Vec3(0, 3.4, -9.5);
+    const target = new Vec3(0, 0.8, 0);
+    const view = new Mat4().setLookAt(eye, target, new Vec3(0, 1, 0));
+    const e = view.transformPoint(eye, new Vec3());
+    expect(Math.abs(e.x)).toBeLessThan(1e-5);
+    expect(Math.abs(e.y)).toBeLessThan(1e-5);
+    expect(Math.abs(e.z)).toBeLessThan(1e-5);
+    const t = view.transformPoint(target, new Vec3());
+    expect(Math.abs(t.x)).toBeLessThan(1e-5);
+    expect(Math.abs(t.y)).toBeLessThan(1e-5);
+    expect(t.z).toBeCloseTo(eye.clone().sub(target).length(), 4);
+    // Something above the target should appear above the centre of the frame, and to the camera's
+    // right (+X world, since the camera looks down +Z) should stay on the right.
+    const up = view.transformPoint(new Vec3(0, 3, 0), new Vec3());
+    expect(up.y).toBeGreaterThan(0);
+    const right = view.transformPoint(new Vec3(2, 0.8, 0), new Vec3());
+    expect(right.x).toBeGreaterThan(0);
+    // And the whole demo layout projects inside the frustum.
+    const proj = new Mat4().setPerspective(Math.PI / 3, 16 / 9, 0.1, 200);
+    const vp = new Mat4().multiplyMatrices(proj, view);
+    const clip = new Float32Array(4);
+    for (let i = 0; i < 6; i++) {
+      vp.transformVec4((i - 2.5) * 2.1, 0.9, Math.sin(i) * 1.5, 1, clip);
+      expect(clip[3]).toBeGreaterThan(0);
+      expect(Math.abs(clip[0]! / clip[3]!)).toBeLessThan(1);
+      expect(Math.abs(clip[1]! / clip[3]!)).toBeLessThan(1);
+      expect(clip[2]! / clip[3]!).toBeGreaterThan(0);
+      expect(clip[2]! / clip[3]!).toBeLessThan(1);
+    }
+  });
+
+  it("outward-facing primitive triangles wind clockwise on screen (pipeline frontFace must be 'cw')", () => {
+    // The projection is left-handed (+Z forward, +Y up, +X right) and primitives wind CCW as seen
+    // from outside in a right-handed sense; under this projection that appears *clockwise*. The
+    // pipeline's frontFace has to agree or back-face culling removes every camera-facing triangle.
+    const view = new Mat4().setLookAt(new Vec3(0, 3.4, -9.5), new Vec3(0, 0.8, 0), new Vec3(0, 1, 0));
+    const proj = new Mat4().setPerspective(Math.PI / 3, 16 / 9, 0.1, 200);
+    const vp = new Mat4().multiplyMatrices(proj, view);
+    // Ground plane tri (+Y normal) from planeGeometrySource's index order: a, c, b with
+    // a=(-w,0,-d) c=(-w,0,+d) b=(+w,0,-d).
+    const tri = [
+      [-1, 0, -1],
+      [-1, 0, 1],
+      [1, 0, -1],
+    ];
+    const ndc = tri.map(([x, y, z]) => {
+      const o = new Float32Array(4);
+      vp.transformVec4(x!, y!, z!, 1, o);
+      return [o[0]! / o[3]!, o[1]! / o[3]!];
+    });
+    const signedArea = (ndc[1]![0]! - ndc[0]![0]!) * (ndc[2]![1]! - ndc[0]![1]!) - (ndc[2]![0]! - ndc[0]![0]!) * (ndc[1]![1]! - ndc[0]![1]!);
+    expect(signedArea).toBeLessThan(0); // negative = clockwise in NDC (+Y up)
+  });
+
   it("quaternion rotate + invert are inverses", () => {
     const q = new Quat().setEulerComponents(0.3, -0.6, 1.1);
     const v = q.rotateVector(new Vec3(1, 0, 0), new Vec3());
