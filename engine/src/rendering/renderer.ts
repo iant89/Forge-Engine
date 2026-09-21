@@ -410,7 +410,7 @@ export class Renderer implements RenderFrameContext {
 
   private computeProjection(camera: Camera): Mat4 {
     const p = new Mat4();
-    const aspect = camera.aspect;
+    const aspect = camera.aspectOverride > 0 ? camera.aspectOverride : this.device.aspect;
     if (camera.orthographic) {
       const halfH = camera.orthoHeight / 2;
       const halfW = halfH * aspect;
