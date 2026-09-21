@@ -611,6 +611,14 @@ export class Mat4 {
     return this;
   }
 
+  /**
+   * **View** matrix (world → view) for a camera at `eye` looking at `target`: the view-space +Z axis
+   * points at the target, +Y is `up` projected orthogonal to it, +X is to the right.
+   *
+   * This is the inverse of the camera's world transform, so the rotation block is the *transpose* of
+   * the (x, y, z) basis and the translation is `-basis · eye`. Callers that want the camera's world
+   * orientation (`Transform.lookAt`) invert it; the renderer feeds it straight into `viewProj`.
+   */
   setLookAt(eye: Vec3Ops, target: Vec3Ops, up: Vec3Ops): this {
     const zAxis = scratchVec();
     zAxis.copyFrom(target).sub(eye);
@@ -619,29 +627,30 @@ export class Mat4 {
     const xAxis = scratchVecB();
     Vec3.crossInto(up, zAxis, xAxis);
     if (xAxis.lengthSq() < EPSILON) {
-      // up parallel to forward: perturb
+      // up parallel to forward: pick any perpendicular so the basis stays orthonormal.
       xAxis.set(zAxis.z, 0, -zAxis.x);
-      Vec3.crossInto(up, zAxis, xAxis);
+      if (xAxis.lengthSq() < EPSILON) xAxis.set(1, 0, 0);
     }
     xAxis.normalize();
     const yAxis = scratchVecC();
     Vec3.crossInto(zAxis, xAxis, yAxis);
     const m = this.m;
+    // Rows of the basis go into the columns of the matrix (rotation transposed = inverted).
     m[0] = xAxis.x;
-    m[1] = xAxis.y;
-    m[2] = xAxis.z;
+    m[1] = yAxis.x;
+    m[2] = zAxis.x;
     m[3] = 0;
-    m[4] = yAxis.x;
+    m[4] = xAxis.y;
     m[5] = yAxis.y;
-    m[6] = yAxis.z;
+    m[6] = zAxis.y;
     m[7] = 0;
-    m[8] = zAxis.x;
-    m[9] = zAxis.y;
+    m[8] = xAxis.z;
+    m[9] = yAxis.z;
     m[10] = zAxis.z;
     m[11] = 0;
-    m[12] = eye.x;
-    m[13] = eye.y;
-    m[14] = eye.z;
+    m[12] = -(xAxis.x * eye.x + xAxis.y * eye.y + xAxis.z * eye.z);
+    m[13] = -(yAxis.x * eye.x + yAxis.y * eye.y + yAxis.z * eye.z);
+    m[14] = -(zAxis.x * eye.x + zAxis.y * eye.y + zAxis.z * eye.z);
     m[15] = 1;
     return this;
   }

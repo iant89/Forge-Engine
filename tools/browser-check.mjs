@@ -158,6 +158,10 @@ try {
   console.log(`pixels: min=${pixels.min} max=${pixels.max} mean=${pixels.mean.toFixed(1)} distinct=${pixels.distinct}`);
   if (pixels.max <= pixels.min + 2) throw new Error("canvas is a single flat colour — nothing was drawn");
   if (pixels.distinct < 8) throw new Error(`only ${pixels.distinct} distinct colours; the scene is not rendering`);
+  // The demo's lit ground plane fills the lower half of the frame. A mean this low means the camera is
+  // not looking at the scene (this is exactly what the setLookAt world-vs-view bug produced: a black
+  // frame with a sliver of cube tops along the bottom edge — which still passed the two checks above).
+  if (pixels.mean < 6) throw new Error(`frame is almost entirely black (mean luminance ${pixels.mean.toFixed(1)}); the camera is not looking at the scene`);
   await page.screenshot({ path: "tools/.browser-check.png" });
 
   // Resize must keep presenting (the swapchain/recreate path).

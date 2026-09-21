@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
   const groundRenderable = new Renderable();
   groundRenderable.geometry = createPlane(engine.gpu, { width: 48, depth: 48 });
-  groundRenderable.material = new Material({ label: "ground", color: 0x2b3340, roughness: 0.9 });
+  groundRenderable.material = new Material({ label: "ground", color: 0x5b6470, roughness: 0.9 });
   groundRenderable.castShadow = false;
   scene.world.addComponent(ground.id, groundRenderable);
 
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(7, 13, -7));
   const sun = new Light();
-  sun.intensity = 3.2;
+  sun.intensity = 5;
   scene.world.addComponent(sunEntity.id, sun);
   sunEntity.transform.lookAt(new Vec3(0, 0, 0));
 
@@ -76,6 +76,8 @@ async function main(): Promise<void> {
   (window as unknown as { __forge: Record<string, unknown> }).__forge = {
     backend: (engine.gpu as unknown as { caps?: { backend?: string } }).caps?.backend ?? "webgpu",
     stats: () => engine.stats(),
+    scene,
+    engine,
     dispose: () => {
       engine.stop();
       engine.dispose();

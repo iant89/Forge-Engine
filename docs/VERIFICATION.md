@@ -8,7 +8,7 @@ This file states exactly which claims are backed by an automated check, so nothi
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 27 tests: `tests/math.test.ts` (23 math tests) and `tests/rendering.test.ts` (4 mock-GPU renderer tests) | passing |
+| `npm test` | 30 tests: `tests/math.test.ts` (25 math tests) and `tests/rendering.test.ts` (5 mock-GPU renderer tests) | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader + 16-byte layout sizing | passing |
 | `npm run check:browser` | Headless Chromium + SwiftShader: real WebGPU loop, shadow + main passes, frame advancement, pixel variation, resize resilience | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
@@ -29,7 +29,7 @@ validation errors occur, and all GPU buffers/textures are cleanly released upon 
 (`google/swiftshader` with Vulkan backing), and asserts that:
 - Frames advance continuously (`frame > before.frame`, ~50-60 fps).
 - Draw calls are active (`drawCalls >= 14`, `triangles >= 74`).
-- Real geometry and lighting render to the canvas (evaluated across animation frames with >20 distinct pixel colors).
+- Real geometry and lighting render to the canvas (>8 distinct pixel colours, and a mean luminance high enough to prove the camera is actually aimed at the lit scene rather than at black sky).
 - Resizing the viewport recreates the swapchain/depth buffers and presentation continues seamlessly without stalling.
 
 Run it with `npm run check:browser`.
