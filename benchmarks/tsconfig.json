@@ -8,7 +8,7 @@
       "@webgpu/types",
       "node"
     ],
-    "composite": true,
+    "composite": false,
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false

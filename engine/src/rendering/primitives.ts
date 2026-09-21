@@ -186,11 +186,11 @@ export function sphereGeometrySource(options: SphereOptions = {}): GeometrySourc
       const c = a + ws + 1;
       const d = c + 1;
       indices[k++] = a;
-      indices[k++] = c;
-      indices[k++] = b;
       indices[k++] = b;
       indices[k++] = c;
+      indices[k++] = b;
       indices[k++] = d;
+      indices[k++] = c;
     }
   }
   const tangents = computeNormalsAndTangents(positions, indices, uvs).tangents;
@@ -261,8 +261,8 @@ export function cylinderGeometrySource(options: CylinderOptions = {}): GeometryS
       }
       for (let i = 0; i < rs; i++) {
         const ring = center + 1 + i;
-        if (cap === 0) indices.push(center, ring, ring + 1);
-        else indices.push(center, ring + 1, ring);
+        if (cap === 0) indices.push(center, ring + 1, ring);
+        else indices.push(center, ring, ring + 1);
       }
     }
   }
@@ -321,11 +321,11 @@ export function torusGeometrySource(options: { radius?: number; tube?: number; r
       const c = a + ts + 1;
       const d = c + 1;
       indices[k++] = a;
-      indices[k++] = c;
-      indices[k++] = b;
       indices[k++] = b;
       indices[k++] = c;
+      indices[k++] = b;
       indices[k++] = d;
+      indices[k++] = c;
     }
   }
   const tangents = computeNormalsAndTangents(positions, indices, uvs).tangents;

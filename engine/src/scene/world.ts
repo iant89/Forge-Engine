@@ -486,20 +486,22 @@ export class EntityWorld {
   setParent(child: EntityId, parent: EntityId | null): void {
     const cSlot = this.slotOf(child);
     if (cSlot < 0) throw new UsageError("setParent: child is stale");
-    let pSlot = 0;
+    let pSlot = -1;
     if (parent !== null) {
       pSlot = this.slotOf(parent);
       if (pSlot < 0) throw new UsageError("setParent: parent entity is stale or destroyed");
     }
     if (pSlot === cSlot) throw new UsageError("setParent: an entity cannot be its own parent");
-    let walk = pSlot;
-    let guard = 0;
-    while (walk > 0 && guard++ < 256) {
-      if (walk === cSlot) throw new UsageError("setParent: cycle detected");
-      walk = this.parentOfSlot.get(walk) ?? 0;
+    if (pSlot >= 0) {
+      let walk: number | undefined = pSlot;
+      let guard = 0;
+      while (walk !== undefined && guard++ < 256) {
+        if (walk === cSlot) throw new UsageError("setParent: cycle detected");
+        walk = this.parentOfSlot.get(walk);
+      }
     }
-    const old = this.parentOfSlot.get(cSlot) ?? 0;
-    if (old !== 0) {
+    const old = this.parentOfSlot.get(cSlot);
+    if (old !== undefined) {
       const list = this.childrenOfSlot.get(old);
       if (list) {
         const i = list.indexOf(cSlot);
@@ -507,7 +509,7 @@ export class EntityWorld {
       }
       this.parentOfSlot.delete(cSlot);
     }
-    if (pSlot > 0) {
+    if (pSlot >= 0) {
       this.parentOfSlot.set(cSlot, pSlot);
       let kids = this.childrenOfSlot.get(pSlot);
       if (!kids) this.childrenOfSlot.set(pSlot, (kids = []));
@@ -515,7 +517,7 @@ export class EntityWorld {
     }
     const t = this.transformSlotOf[cSlot]!;
     if (t > 0) {
-      const parentTransform = pSlot > 0 ? this.transformSlot(this.idForSlot(pSlot), true) : 0;
+      const parentTransform = pSlot >= 0 ? this.transformSlot(this.idForSlot(pSlot), true) : 0;
       this.transforms.setParent(t, parentTransform);
     }
     this.generationCounter++;

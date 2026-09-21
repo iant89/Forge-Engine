@@ -1,10 +1,15 @@
 # What is verified, and how
 
-Phase 1 (core engine) and Phase 2 (rendering foundation: render graph, HDR + bloom + tone mapping,
-cascaded shadow maps, pipeline cache) are **verified** through automated tests and headless
-real-WebGPU checks. This file states exactly which claims are backed by an automated check, so nothing
-in `ROADMAP.md` has to be taken on faith. `docs/RENDERING.md` describes what the renderer does; this
-file says which assertion proves each part of it.
+Phase 1 (core engine), Phase 2 (rendering foundation: render graph, HDR + bloom + tone mapping,
+cascaded shadow maps, pipeline cache), Phase 3 (scene/ECS: entity lifecycle, component stores,
+system scheduler, hierarchy, visibility culling, import boundaries), Phase 4 (terrain + procedural
+worlds: chunks, heightmaps, quadtree LOD, geomorphing, streaming, generators, 10 km+ visible world),
+and Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
+Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism)
+are **verified** through automated tests, benchmarks, and headless real-WebGPU checks. This file states
+exactly which claims are backed by an automated check, so nothing in `ROADMAP.md` has to be taken
+on faith. `docs/RENDERING.md` describes what the renderer does; this file says which assertion proves
+each part of it.
 
 ## Setting up
 
@@ -18,9 +23,10 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 73 tests in 7 files: `math` (26), `renderGraph` (14), `shadows` (7), `pipeline` (4), `frame` (7), `rendering` (6), `wgsl` (9) — see the per-suite notes below | passing |
+| `npm test` | 105 tests in 12 files: `math` (26), `renderGraph` (14), `ecs` (11), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct and every `var<uniform>` in the shader text | passing |
 | `npm run check:browser` | Headless Chromium + SwiftShader: real WebGPU loop with the full Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), pass-structure and steady-state-allocation assertions, bloom and shadow A/B readbacks, LDR fallback, cascade debug view, resize resilience, zero recorded GPU errors | passing |
+| `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
 ### `tests/math.test.ts` — conventions the engine silently depends on

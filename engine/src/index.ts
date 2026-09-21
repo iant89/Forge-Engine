@@ -117,6 +117,12 @@ export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";
 export type { RenderFrameContext, PickResult, SkyParams } from "./scene/renderContext.js";
 
+// Terrain
+export * from "./terrain/index.js";
+
+// Physics
+export * from "./physics/index.js";
+
 // Rendering
 export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
 export {
