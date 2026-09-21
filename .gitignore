@@ -6,3 +6,6 @@ coverage/
 bench-results/
 assets-generated/
 .DS_Store
+tools/.*.png
+tools/*.png
+

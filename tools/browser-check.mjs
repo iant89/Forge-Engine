@@ -34,7 +34,7 @@ function httpOk(url, timeoutMs = 1500) {
   });
 }
 
-const vite = spawn("npx", ["vite", "--config", "examples/vite.config.ts", "--port", String(PORT), "--strictPort"], {
+const vite = spawn("npx", ["vite", "--config", "examples/vite.config.ts", "--port", String(PORT), "--strictPort", "--force"], {
   stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT) },
 });
@@ -83,6 +83,7 @@ try {
       "--enable-unsafe-swiftshader",
       "--use-gl=angle",
       "--use-angle=swiftshader",
+      "--enable-features=Vulkan",
     ],
     timeout: 90000,
   });
@@ -118,6 +119,8 @@ try {
   const before = await page.evaluate(() => window.__forge.stats());
   await sleep(2500);
   const after = await page.evaluate(() => window.__forge.stats());
+  console.log("BEFORE STATS:", JSON.stringify(before));
+  console.log("AFTER STATS:", JSON.stringify(after));
   console.log(`backend=${backend} frame ${before.frame} -> ${after.frame}, drawCalls=${after.drawCalls}, tris=${after.triangles}, fps=${after.fps.toFixed(1)}`);
   if (!(after.frame > before.frame)) throw new Error(`loop stalled at frame ${after.frame}`);
   if (!(after.drawCalls >= 1)) throw new Error(`no draw calls after ${after.frame} frames`);
@@ -126,26 +129,31 @@ try {
 
   // Pixels: copy the WebGPU canvas into a 2D surface in-page and require real variation (a black
   // clear colour with no geometry would otherwise pass a "non-blank" byte-size check).
-  const pixels = await page.evaluate(() => {
-    const src = document.querySelector("canvas");
-    const c = document.createElement("canvas");
-    c.width = 160;
-    c.height = 90;
-    const g = c.getContext("2d", { willReadFrequently: true });
-    g.drawImage(src, 0, 0, c.width, c.height);
-    const d = g.getImageData(0, 0, c.width, c.height).data;
-    let min = 255;
-    let max = 0;
-    let sum = 0;
-    const seen = new Set();
-    for (let i = 0; i < d.length; i += 4) {
-      const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
-      min = Math.min(min, l);
-      max = Math.max(max, l);
-      sum += l;
-      seen.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`);
-    }
-    return { min, max, mean: sum / (d.length / 4), distinct: seen.size };
+  // Sampling the WebGPU canvas via 2D drawImage must be done within requestAnimationFrame before presentation clears the buffer.
+  const pixels = await page.evaluate(async () => {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        const src = document.querySelector("canvas");
+        const c = document.createElement("canvas");
+        c.width = 160;
+        c.height = 90;
+        const g = c.getContext("2d", { willReadFrequently: true });
+        g.drawImage(src, 0, 0, c.width, c.height);
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let min = 255;
+        let max = 0;
+        let sum = 0;
+        const seen = new Set();
+        for (let i = 0; i < d.length; i += 4) {
+          const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
+          min = Math.min(min, l);
+          max = Math.max(max, l);
+          sum += l;
+          seen.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`);
+        }
+        resolve({ min, max, mean: sum / (d.length / 4), distinct: seen.size });
+      });
+    });
   });
   console.log(`pixels: min=${pixels.min} max=${pixels.max} mean=${pixels.mean.toFixed(1)} distinct=${pixels.distinct}`);
   if (pixels.max <= pixels.min + 2) throw new Error("canvas is a single flat colour — nothing was drawn");

@@ -152,6 +152,7 @@ export class TransformStore {
   private maxDepth = 0;
   private nextSlot = 1;
   private freeHead = 0;
+  private dirtyCount = 0;
 
   constructor(initialCapacity = 256) {
     this.capacity = Math.max(16, initialCapacity);
@@ -226,6 +227,7 @@ export class TransformStore {
     this.worldVersion[slot] = -1;
     this.worldParentVersion[slot] = -1;
     this.count++;
+    this.dirtyCount++;
     return slot;
   }
 
@@ -242,6 +244,7 @@ export class TransformStore {
     this.parent[slot] = this.freeHead;
     this.freeHead = slot;
     this.count--;
+    this.dirtyCount++;
   }
 
   isAllocated(slot: number): boolean {
@@ -325,6 +328,7 @@ export class TransformStore {
 
   markDirty(slot: number): void {
     this.localVersion[slot] = (this.localVersion[slot] ?? 0) + 1;
+    this.dirtyCount++;
     // Children are not eagerly marked: the depth-ordered pass compares worldVersion and
     // worldParentVersion, which is cheaper than a subtree walk for wide trees.
   }
@@ -385,7 +389,7 @@ export class TransformStore {
   updateWorld(changedSlots: number[], force = false): void {
     // Nothing dirty and no force: skip the whole pass. Static scenes spend ~0 here, which is the
     // point of the version counters (the alternative is a full recompose every frame).
-    if (!force && changedSlots.length === 0) return;
+    if (!force && this.dirtyCount === 0 && changedSlots.length === 0) return;
     this.epoch++;
     const maxDepth = this.maxDepth;
     if (this.bucketCounts.length <= maxDepth) {
@@ -435,6 +439,7 @@ export class TransformStore {
         changedSlots.push(slot);
       }
     }
+    this.dirtyCount = 0;
   }
 
   private composeLocalToWorld(slot: number, w: number): void {

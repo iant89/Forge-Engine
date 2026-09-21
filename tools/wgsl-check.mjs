@@ -33,7 +33,7 @@ for (const [name, source] of Object.entries(modules)) {
   const pre = preprocessWgsl(source, { QUALITY: 2, SHADOW_MODE: 1 });
   const prepped = typeof pre === "string" ? pre : pre?.source ?? source;
   const result = validateWgsl(prepped);
-  const errs = result.errors ?? [];
+  const errs = Array.isArray(result) ? result : (result.errors ?? []);
   if (errs.length) {
     failed++;
     console.error(`${name}: ${errs.length} issue(s)`);

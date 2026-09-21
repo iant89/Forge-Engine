@@ -66,6 +66,7 @@ interface Batch {
   indexCount: number;
   indexStart: number;
   depthSort: number;
+  objectOffset: number;
 }
 
 const ZERO_MATRIX = new Float32Array(16);
@@ -93,6 +94,7 @@ export class Renderer implements RenderFrameContext {
   private lightBuffer: GPUBuffer | null = null;
   private shadowBuffer: GPUBuffer | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
+  private depthFrameBindGroup: GPUBindGroup | null = null;
   private objectArena = new BufferBuilder(64 * 1024);
   private instanceArena = new BufferBuilder(64 * 1024);
   private objectBuffer: GPUBuffer | null = null;
@@ -179,6 +181,7 @@ export class Renderer implements RenderFrameContext {
   renderScene(scene: Scene, context?: SystemContext): void {
     if (this.deviceLost) return;
     this.currentFrameContext = context ?? null;
+    scene.world.updateTransforms([]);
     const device = this.device.device;
     this.defaults.ensure(this.device);
     this.ensureBuffers();
@@ -207,7 +210,6 @@ export class Renderer implements RenderFrameContext {
     this.batchIndex.clear();
     this.objectArena.reset();
     this.instanceArena.reset();
-    this.debugLineCount = 0;
     this.stats = { drawCalls: 0, triangles: 0, instances: 0, batches: 0, culled: 0, shadowsDrawn: 0, debugLines: 0 };
     this.instanceCount = 0;
     this.collectBatches(scene, camera);
@@ -217,6 +219,10 @@ export class Renderer implements RenderFrameContext {
       return;
     }
 
+    for (const b of this.batches) {
+      b.objectOffset = this.reserveObject(b.count > 1 ? ZERO_MATRIX : this.lastMatrixFor(b), b.count);
+    }
+    this.ensureArenas();
     this.uploadArenas();
 
     // Shadow pass.
@@ -231,22 +237,22 @@ export class Renderer implements RenderFrameContext {
       });
       const encoder = device.createCommandEncoder({ label: "forge.shadow" });
       const pass = encoder.beginRenderPass({
+        label: "forge.shadow",
         colorAttachments: [],
         depthStencilAttachment: {
           view: this.ensureShadowMap(Math.max(this.options.shadowMapSize ?? 1024, 256)),
           depthClearValue: 1,
           depthLoadOp: "clear",
-          depthStoreOp: "discard",
+          depthStoreOp: "store",
         },
       });
       pass.setPipeline(shadowPipeline.pipeline);
-      pass.setBindGroup(0, this.frameBindGroup!);
+      pass.setBindGroup(0, this.depthFrameBindGroup!);
       let drawn = 0;
       for (const b of this.batches) {
         if (b.overlay || b.transparent) continue;
         if (!b.geometry.indexBuffer && !b.geometry.vertexBuffer) continue;
-        const objectOffset = this.reserveObject(ZERO_MATRIX, 1);
-        pass.setBindGroup(1, this.drawBindGroup!, [objectOffset, 0]);
+        pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, 0]);
         pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -268,6 +274,7 @@ export class Renderer implements RenderFrameContext {
     const encoder = device.createCommandEncoder({ label: "forge.main" });
     const clearColor = this.clearColorFor(scene);
     const pass = encoder.beginRenderPass({
+      label: "forge.main",
       colorAttachments: [
         {
           view: colorView,
@@ -303,8 +310,7 @@ export class Renderer implements RenderFrameContext {
         this.stats.drawCalls++;
       }
       pass.setPipeline(pipeline.pipeline);
-      const objectOffset = this.reserveObject(b.count > 1 ? ZERO_MATRIX : this.lastMatrixFor(b), b.count);
-      pass.setBindGroup(1, this.drawBindGroup!, [objectOffset, b.instanceOffset]);
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
@@ -557,6 +563,7 @@ export class Renderer implements RenderFrameContext {
           indexCount: r.geometry.indexCount > 0 ? r.geometry.indexCount : r.geometry.vertexCount,
           indexStart: 0,
           depthSort: -Vec3.distanceSqBetween(camPos, this.scratchWorldBox.getCenter(this.scratchVec)),
+          objectOffset: 0,
         });
       } else {
         // Instances must be contiguous to share one draw: the arena cursor is exactly one record
@@ -576,6 +583,7 @@ export class Renderer implements RenderFrameContext {
             indexCount: r.geometry.indexCount > 0 ? r.geometry.indexCount : r.geometry.vertexCount,
             indexStart: 0,
             depthSort: -Vec3.distanceSqBetween(camPos, this.scratchWorldBox.getCenter(this.scratchVec)),
+            objectOffset: 0,
           });
         }
       }
@@ -613,7 +621,12 @@ export class Renderer implements RenderFrameContext {
     this.frameBuffer ??= d.createBuffer({ label: "perframe.uniforms", size: this.frameBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.lightBuffer ??= d.createBuffer({ label: "lights.uniforms", size: this.lightBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.shadowBuffer ??= d.createBuffer({ label: "shadow.uniforms", size: this.shadowBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
-    const { frame } = this.pipelines.bindGroupLayouts;
+    const { frame, depthFrame } = this.pipelines.bindGroupLayouts;
+    this.depthFrameBindGroup ??= d.createBindGroup({
+      label: "depthframe.bindgroup",
+      layout: depthFrame,
+      entries: [{ binding: 0, resource: { buffer: this.frameBuffer } }],
+    });
     this.frameBindGroup ??= d.createBindGroup({
       label: "perframe.bindgroup",
       layout: frame,
@@ -721,6 +734,7 @@ export class Renderer implements RenderFrameContext {
     pass.setVertexBuffer(0, this.debugBuffer);
     pass.draw(this.debugLineCount * 2);
     this.stats.debugLines = this.debugLineCount;
+    this.debugLineCount = 0;
   }
 
   // ------------------------------------------------------------------ debug API
@@ -861,6 +875,7 @@ export class Renderer implements RenderFrameContext {
     this.depthView = null;
     this.shadowView = null;
     this.frameBindGroup = null;
+    this.depthFrameBindGroup = null;
     this.drawBindGroup = null;
     this.pipelines.invalidate();
     this.defaults.dispose();

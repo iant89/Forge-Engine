@@ -131,3 +131,17 @@ export abstract class FixedSystem implements ISystem {
   dispose?(): void;
   stats?(): Record<string, number | string | boolean>;
 }
+
+/**
+ * Default transform system: recomputes depth-ordered world matrices from local TRS changes.
+ * Runs in band 500 (transforms), after simulation/gameplay/animation and before culling/rendering.
+ */
+export class TransformSystem extends System {
+  readonly name = "transforms";
+  override readonly order = 500;
+
+  update(context: SystemContext): void {
+    context.world.updateTransforms(context.scratch.changedTransformSlots);
+  }
+}
+

@@ -18,6 +18,13 @@
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
     <div id="error"></div>
+    <script>
+      const oldDestroy = GPUDevice.prototype.destroy;
+      GPUDevice.prototype.destroy = function(...args) {
+        console.warn("GPUDevice.prototype.destroy CALLED from:\n" + new Error().stack);
+        return oldDestroy.apply(this, args);
+      };
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

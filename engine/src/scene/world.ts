@@ -28,7 +28,7 @@ import { AABB } from "../math/geometry.js";
 import { componentInfo, componentTypeById, type Component, type ComponentTypeInfo } from "./components.js";
 import { entityGeneration, entitySlot, makeEntityId, NULL_ENTITY, type EntityId } from "./entityId.js";
 import { ObjectStore, Query, type ComponentStorage } from "./stores.js";
-import type { ISystem, SystemContext } from "./systems.js";
+import { TransformSystem, type ISystem, type SystemContext } from "./systems.js";
 
 export interface EntityWorldOptions {
   initialCapacity?: number;
@@ -77,6 +77,7 @@ export class EntityWorld {
   constructor(options: EntityWorldOptions = {}) {
     this.freeList = new FreeList(options.initialCapacity ?? 256);
     this.maxEntities = options.maxEntities ?? 0;
+    this.registerSystem(new TransformSystem());
   }
 
   /**

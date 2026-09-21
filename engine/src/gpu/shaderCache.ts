@@ -169,9 +169,14 @@ export function validateWgsl(source: string): WgslIssue[] {
   if (/var<storage>[^,]*;/.test(source)) {
     issues.push({ kind: "layout", message: "storage buffers need an access mode: var<storage, read> or var<storage, read_write>" });
   }
-  if (/\btextureSample\s*\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*,\s*[^,)]+\)/.test(source) && /var\s+\w+:\s*texture_depth_2d/.test(source)) {
-    // textureSample on a depth texture is invalid; only comparison sampling is allowed.
-    issues.push({ kind: "layout", message: "texture_depth_2d must be sampled with textureSampleCompareLevel, not textureSample" });
+  const depthTextureRe = /var\s+(\w+)\s*:\s*texture_depth_2d\b/g;
+  let dm: RegExpExecArray | null;
+  while ((dm = depthTextureRe.exec(source))) {
+    const depthVar = dm[1]!;
+    const sampleRe = new RegExp(`\\btextureSample\\s*\\(\\s*${depthVar}\\b`);
+    if (sampleRe.test(source)) {
+      issues.push({ kind: "layout", message: `texture_depth_2d "${depthVar}" must be sampled with textureSampleCompareLevel, not textureSample` });
+    }
   }
   if (/^\s*#(?:define|include)\b/m.test(source)) {
     issues.push({ kind: "unknown", message: "raw preprocessor directive found — shaders must go through the engine's preprocessor" });
