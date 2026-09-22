@@ -140,11 +140,16 @@ const problems = [];
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const page = await context.newPage();
 page.on("console", (msg) => {
-  if (msg.type() === "error") problems.push(`console.error: ${msg.text()}`);
-  else if (msg.type() === "warning") problems.push(`console.warn: ${msg.text()}`);
+  // The source URL matters: "Failed to load resource: 404" without it cost a CI round trip.
+  const where = msg.location()?.url ? ` @ ${msg.location().url}` : "";
+  if (msg.type() === "error") problems.push(`console.error: ${msg.text()}${where}`);
+  else if (msg.type() === "warning") problems.push(`console.warn: ${msg.text()}${where}`);
 });
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("requestfailed", (r) => problems.push(`requestfailed: ${r.url()} ${r.failure()?.errorText ?? ""}`));
+page.on("response", (r) => {
+  if (r.status() >= 400) problems.push(`http ${r.status()}: ${r.url()}`);
+});
 
 /** Wait for `frames` animation frames in-page (the engine renders on its own rAF loop). */
 const settle = (frames = 4) =>
