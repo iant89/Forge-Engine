@@ -88,6 +88,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: false,
     ssao: false,
     bloom: false,
+    skyQuality: "low",
     motionBlur: false,
     depthOfField: false,
     volumetrics: false,
@@ -103,6 +104,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: false,
     ssao: false,
     bloom: true,
+    skyQuality: "low",
     motionBlur: false,
     depthOfField: false,
     volumetrics: false,
@@ -117,6 +119,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: false,
     ssao: true,
     bloom: true,
+    skyQuality: "medium",
     motionBlur: false,
     depthOfField: false,
     volumetrics: true,
@@ -131,6 +134,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: true,
     ssao: true,
     bloom: true,
+    skyQuality: "high",
     motionBlur: true,
     depthOfField: true,
     volumetrics: true,
@@ -146,6 +150,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: true,
     ssao: true,
     bloom: true,
+    skyQuality: "high",
     motionBlur: true,
     depthOfField: true,
     volumetrics: true,
@@ -162,6 +167,8 @@ export interface EngineConfigExtras {
   contactShadows: boolean;
   ssao: boolean;
   bloom: boolean;
+  /** Cap on the sky pass's ray-march tier (`SceneSkySettings.quality` asks, this caps). */
+  skyQuality: "low" | "medium" | "high";
   motionBlur: boolean;
   depthOfField: boolean;
   volumetrics: boolean;
@@ -222,6 +229,7 @@ const DEFAULTS: FullConfig = {
   contactShadows: true,
   ssao: true,
   bloom: true,
+  skyQuality: "high",
   motionBlur: true,
   depthOfField: true,
   volumetrics: true,
@@ -334,7 +342,7 @@ export function describeConfig(config: FullConfig): string {
   const lines: string[] = [];
   lines.push(`quality=${config.quality} backend=${config.backend} renderScale=${config.renderScale}`);
   lines.push(
-    `shadows=${config.shadowCascades}x${config.shadowMapSize} ssao=${config.ssao} bloom=${config.bloom} volumetrics=${config.volumetrics} refl=${config.reflections}`,
+    `shadows=${config.shadowCascades}x${config.shadowMapSize} ssao=${config.ssao} bloom=${config.bloom} sky<=${config.skyQuality} volumetrics=${config.volumetrics} refl=${config.reflections}`,
   );
   lines.push(`fixedDt=${config.fixedDeltaTime.toFixed(5)} substeps<=${config.maxSubSteps} particles<=${config.maxParticles}`);
   lines.push(`terrain: visible=${config.terrainVisibleDistance}m resident<=${config.terrainMaxResidentChunks}/frame=${config.terrainChunksPerFrame}`);

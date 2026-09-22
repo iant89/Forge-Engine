@@ -1,9 +1,9 @@
-# Rendering — as built (Phase 2)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
 and by `npm run check:browser` on real WebGPU; `docs/VERIFICATION.md` says which assertion covers
-which claim.
+which claim. The sky pass and the fog are summarised here and described in `docs/ENVIRONMENT.md`.
 
 ## 1. One frame
 
@@ -18,10 +18,11 @@ camera + lights from the scene               forge.shadow.0  ─┐
 computeCascades()  (engine/src/rendering/    forge.shadow.1   ├─ depth24plus 2d-array, 1 layer each
   shadows.ts)                                forge.shadow.2  ─┘
 collectBatches()   (frustum cull, sort,      forge.main        rgba16float "hdr" + depth24plus "depth"
-  instance merge — no allocation)            forge.bloom.prefilter    hdr        → bloom.1 (½ res)
-per-frame / light / shadow / object /        forge.bloom.down.2..5    bloom.n    → bloom.n+1
-  instance uniform uploads                   forge.bloom.up.4..1      bloom.n+1  +→ bloom.n (additive tent)
-buildFrame() → graph.execute()               forge.tonemap     hdr + bloom.1 → swapchain (sRGB encoded)
+  instance merge — no allocation)            forge.sky         hdr (load) + depth (read-only): far-plane triangle
+per-frame / light / shadow / sky / object /  forge.bloom.prefilter    hdr        → bloom.1 (½ res)
+  instance uniform uploads                   forge.bloom.down.2..5    bloom.n    → bloom.n+1
+buildFrame() → graph.execute()               forge.bloom.up.4..1      bloom.n+1  +→ bloom.n (additive tent)
+                                             forge.tonemap     hdr + bloom.1 → swapchain (sRGB encoded)
 ```
 
 Which passes exist is decided per frame from `scene.settings` capped by the renderer's quality
@@ -35,6 +36,8 @@ options:
 | `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | edge size of every cascade layer. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options. |
 | `settings.renderScale` (HDR only) | the HDR target and depth buffer are allocated at `round(size × scale)`; tonemap upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
+| `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth bound **read-only**, so only pixels no geometry covered are shaded and there is no overdraw behind terrain. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
+| `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 
 A scene with no camera clears the swapchain in a single `forge.clear` pass and still counts as a
@@ -42,8 +45,8 @@ rendered frame, so the HUD keeps ticking while a scene loads.
 
 `Renderer.stats` (also `engine.stats().render`) reports the frame that just ran: `drawCalls`,
 `triangles`, `instances`, `batches`, `culled`, `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
-`hdr`, `bloomMips`, `passes`, `culledPasses`, `transientTextures`, `physicalTextures`, `aliasedBytes`,
-`texturesCreated`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
+`hdr`, `bloomMips`, `sky`, `skySamples`, `passes`, `culledPasses`, `transientTextures`,
+`physicalTextures`, `aliasedBytes`, `texturesCreated`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
 order; the demo HUD prints a summary and `tools/browser-check.mjs` asserts on both.
 
 ## 2. Render graph (`engine/src/rendering/renderGraph.ts`)
@@ -178,8 +181,10 @@ The rules every module above assumes (pinned by `tests/math.test.ts`; the long f
 * Column-major matrices, uploaded as-is. `transformPoint`/`transformDirection`/`rotateVector` are
   alias-safe (`out === v` is allowed).
 * Colour is linear from vertex fetch to the final encode. In HDR mode only `forge.tonemap` encodes;
-  in LDR mode only `standard.ts` does (`perFrame.flags` bit 1 says which). Clear colours are
-  pre-encoded on the CPU for the target they clear.
+  in LDR mode only `standard.ts` and `sky.ts` do (`perFrame.flags` bit 1 says which). Clear colours
+  are pre-encoded on the CPU for the target they clear. Fog is applied scene-referred (before
+  exposure and the tone curve) so both paths agree.
+* Compass: north is +Z, east is +X (`environment/solar.ts`); azimuth is clockwise from north.
 * Uniform structs are generated from `uniforms.ts` — scalar `u32` padding, 16-byte aligned struct and
   array members — because WebKit rejects the relaxed layouts Chromium accepts.
 
@@ -197,11 +202,13 @@ colour costs one uniform write and no pipeline. Emissive is `emissiveFactor × e
 
 `PipelineFactory.get(key)` returns a `{ pipeline, key, layout }` bundle; identical keys are identical
 objects and never touch the device. The key covers everything that changes the GPU pipeline:
-`technique` (`standard` / `unlit` / `depth` / `debug` / `post`), `colorFormat` (`null` for depth-only),
-`depthFormat` (`null` for post), `transparent` (blend + no depth write), `doubleSided`, `instanced`,
-`additive` (bloom upsample) and `fragmentEntry` (post entry point). Bind group layouts — six of them
-(frame, light, shadow, material, draw, post) — are created once and shared; `stats()` reports
-`{ pipelines, creates, cacheHits, layouts }`. `invalidate()` drops pipelines *and* layouts, which is
+`technique` (`standard` / `unlit` / `depth` / `debug` / `post` / `sky`), `colorFormat` (`null` for
+depth-only), `depthFormat` (`null` for post), `transparent` (blend + no depth write), `doubleSided`,
+`instanced`, `additive` (bloom upsample) and `fragmentEntry` (post entry point). Bind group layouts —
+seven of them (frame, shadow-pass frame, draw, material, blit, post, sky) — are created once and
+shared; `stats()` reports `{ pipelines, creates, cacheHits, layouts }`. The `sky` technique forces
+`depthWriteEnabled: false` (its pass binds the depth attachment read-only) and binds one group:
+`PerFrameUniforms` (vertex + fragment, for `invViewProj`) and `SkyUniforms`. `invalidate()` drops pipelines *and* layouts, which is
 what device-loss recovery calls; the next `get` rebuilds lazily. All post entry points live in one
 WGSL module (one compile for four pipelines), and every module goes through `ShaderCache`, which
 runs `validateWgsl` so a WebKit-illegal uniform layout is rejected here rather than on Safari.
@@ -219,8 +226,14 @@ To add a pass:
 3. Add its name to the `passNames` assertions in `tests/frame.test.ts` and, if it is user visible,
    to `tools/browser-check.mjs`; update `docs/VERIFICATION.md`.
 
+A pass that only *tests* against the scene depth (the sky is the example) declares
+`depth: { texture, depthReadOnly: true }` — the graph treats it as a read, the mock enforces the
+spec's rule that a read-only attachment carries no load/store ops, and the producing pass must then
+`store` its depth rather than discard it (`forge.main` switches per frame).
+
 New WGSL uniform structs go in `uniforms.ts` and are generated, never hand-written; `npm run
-check:wgsl` enforces the uniform layout rules WebKit applies.
+check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules are added to
+`tools/wgsl-check.mjs` and `tests/wgsl.test.ts` (the sky module is the template).
 
 ## 9. Limitations (honest list)
 

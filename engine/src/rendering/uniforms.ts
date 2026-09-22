@@ -37,6 +37,36 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
   { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows" },
+  { name: "fogParams", type: vec4, comment: "(mode: 0 none 1 linear 2 exp2 3 height, height falloff, height base, pad)" },
+]);
+
+/**
+ * The analytic sky (`shaders/sky.ts`), bound as group 0 binding 1 of the `forge.sky` pass. Every
+ * physical constant the shader marches with is delivered here from `environment/atmosphere.ts` so
+ * the CPU reference model and the GPU never disagree on a coefficient. Lengths in metres,
+ * coefficients in 1/m, radiance in scene units.
+ */
+export const SkyUniforms = new StructDef("SkyUniforms", [
+  { name: "sunDirection", type: vec3, comment: "unit vector toward the sun, render axes" },
+  { name: "sunIntensity", type: f32, comment: "top-of-atmosphere irradiance × sky exposure" },
+  { name: "rayleighScattering", type: vec3 },
+  { name: "rayleighScaleHeight", type: f32 },
+  { name: "mieScattering", type: vec3 },
+  { name: "mieScaleHeight", type: f32 },
+  { name: "mieExtinction", type: vec3 },
+  { name: "mieAnisotropy", type: f32 },
+  { name: "ozoneAbsorption", type: vec3 },
+  { name: "ozoneCenter", type: f32 },
+  { name: "groundAlbedo", type: vec3 },
+  { name: "ozoneWidth", type: f32 },
+  { name: "planetRadius", type: f32 },
+  { name: "atmosphereHeight", type: f32 },
+  { name: "observerHeight", type: f32, comment: "camera altitude above sea level" },
+  { name: "sunAngularRadius", type: f32 },
+  { name: "sunDiscIntensity", type: f32, comment: "disc radiance relative to sunIntensity × transmittance" },
+  { name: "starBrightness", type: f32, comment: "0 disables the star field" },
+  { name: "viewSamples", type: i32 },
+  { name: "lightSamples", type: i32 },
 ]);
 
 /** One light. Directional lights sort first; index 0 is the cascade caster. */
@@ -171,6 +201,7 @@ export const RENDERING_STRUCTS = {
   InstanceStruct,
   DebugVertexStruct,
   PostUniforms,
+  SkyUniforms,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;

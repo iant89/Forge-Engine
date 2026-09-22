@@ -46,6 +46,8 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/physics/          fixed-step rigid bodies, broadphase, narrowphase, solver, queries
   src/vehicles/         raycast vehicle, tires, suspension, engine, transmission, differentials
   src/particles/        CPU simulation (emit, modules, trails) + compute integrator; no render-graph pass
+  src/environment/      sun position (NOAA/Meeus), atmosphere model + presets, fog reference, DayNightCycle (8a);
+                        weather, clouds, water, lightning join here in 8b
   src/animation/        clips, states, graphs, IK, skinning
   src/audio/            WebAudio graph, spatialization, procedural engine audio
   src/input/            devices + action mapping
@@ -56,7 +58,8 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/gpu/              WebGPU helpers (buffer/texture builders, formats, sync)
 editor/                 @forge/editor — browser dev tools. Depends on engine's public API only.
 examples/               vite apps: spinning-cube (P1), pbr-scene (P2), terrain (P4),
-                        vehicle-playground (P6), particles (P7). Mars (P14) is not built.
+                        vehicle-playground (P6), particles (P7), sky / day-night (P8a).
+                        Mars (P14) is not built.
 tests/                  cross-subsystem integration tests + real-WebGPU browser tests
 benchmarks/             measured performance suites (math, ECS, terrain, physics, particles)
 docs/                   documentation + ADRs in docs/decisions/
@@ -72,7 +75,7 @@ core  <-  gpu  <-  rendering
 resources - + -> assets |
   ^         ^           |
   |         |           v
-  +---------+------ scene <- { terrain, physics, vehicles, particles, animation,
+  +---------+------ scene <- { terrain, physics, vehicles, particles, environment, animation,
                                audio, input, scripting, world }
                                          ^
                                          |
@@ -80,7 +83,9 @@ resources - + -> assets |
 ```
 
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
-subsystems (composition root).
+subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
+uploads the atmosphere presets and the fog mode table); `environment` never imports `rendering`,
+and `scene` knows the environment's *types* only (the `sky` settings block).
 
 ---
 
@@ -137,11 +142,12 @@ availability. The pass *description* is cheap and is rebuilt every frame from th
 settings; the GPU resources behind it are pooled by descriptor and survive across frames,
 so a steady frame allocates nothing (asserted by the tests and the browser gate).
 
-**Built today (Phase 2, see `docs/RENDERING.md`):**
-`shadow.cascade(N≤4) → main(forward, HDR rgba16float) → bloom(prefilter, down×n, up×n)
-→ tonemap → present`, with an LDR path (`main` straight to the swapchain) when `hdr` is
-off. Depth prepass, clustered lighting, SSAO, atmosphere, volumetrics, particles,
-reflections, DoF, motion blur and FXAA are not built yet.
+**Built today (Phase 2 + 8a, see `docs/RENDERING.md`):**
+`shadow.cascade(N≤4) → main(forward, HDR rgba16float, fog in-shader) → sky(analytic, far
+plane, depth read-only) → bloom(prefilter, down×n, up×n) → tonemap → present`, with an LDR
+path (`main` + `sky` straight to the swapchain) when `hdr` is off. Depth prepass, clustered
+lighting, SSAO, clouds, volumetrics, particles, reflections, DoF, motion blur and FXAA are
+not built yet.
 
 ---
 

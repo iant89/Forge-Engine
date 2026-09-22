@@ -2,7 +2,7 @@
  * `Scene` — the thing you put in an `Engine`.
  *
  * It owns an `EntityWorld` (entities/components/systems), a `CoordinateSpace` (large-world origin),
- * scene-level settings the renderer reads (ambient, fog, shadows, exposure), and a list of
+ * scene-level settings the renderer reads (ambient, fog, sky, shadows, exposure), and a list of
  * `SceneObject`s: subsystems that are not entities (a terrain world, a particle simulation, a
  * vehicle controller group). The distinction matters: an entity is *in* the scene and gets
  * transform/culling treatment, while a scene object *runs part of the scene* and manages its own
@@ -24,6 +24,7 @@ import { Camera, Light, Renderable, Transform } from "./components/index.js";
 import type { SystemContext } from "./systems.js";
 import type { Query } from "./stores.js";
 import type { Component } from "./components.js";
+import type { AtmosphereParams } from "../environment/atmosphere.js";
 
 export type FogMode = "none" | "linear" | "exp2" | "height";
 export type ToneMapping = "none" | "reinhard" | "aces" | "filmic";
@@ -68,15 +69,53 @@ export interface SceneBloomSettings {
   radius: number;
 }
 
+export type SkyQuality = "low" | "medium" | "high";
+
+/**
+ * The analytic sky (Phase 8a). Rendered by the `forge.sky` pass when `SceneSettings.skyEnabled` is
+ * true; the atmosphere constants come from `atmosphere` (Earth when `null`) and the knobs below
+ * scale them. `DayNightCycle` writes `sunDirection` every frame; without a cycle the renderer takes
+ * the sun from the first directional light.
+ */
+export interface SceneSkySettings {
+  /** Unit vector *toward* the sun in render axes; `null` = derive from the first directional light. */
+  sunDirection: Vec3 | null;
+  /** Sun irradiance at the top of the atmosphere in scene units (drives the sky's brightness). */
+  sunIntensity: number;
+  /** Extra multiplier on the sky radiance (not on the lights). */
+  exposure: number;
+  /** Preetham-style haze: 2 = very clear, 10 = hazy. Scales the Mie coefficients by `turbidity / 2`. */
+  turbidity: number;
+  /** Multipliers on the preset's Rayleigh / Mie coefficients. */
+  rayleigh: number;
+  mie: number;
+  /** Angular radius of the sun disc, radians (the real sun is 0.00465). */
+  sunAngularRadius: number;
+  /** Disc radiance relative to `sunIntensity × transmittance`; the physical value (~14 700) would bloom the frame. */
+  sunDiscIntensity: number;
+  /** Star field brightness (0 disables) — only visible when the sky is dark. */
+  starBrightness: number;
+  /** Render stars and the night sky when the sun is down. */
+  nightEnabled: boolean;
+  /** Render-local height of the planet's surface (the camera's altitude is measured from it). */
+  seaLevel: number;
+  /** Ray-march sample counts: low 8×4, medium 16×8, high 32×16 (view × light). */
+  quality: SkyQuality;
+  /** Planet + atmosphere constants; `null` uses `EARTH_ATMOSPHERE`. */
+  atmosphere: AtmosphereParams | null;
+}
+
 export interface SceneSettings {
   ambientColor: Color;
   ambientIntensity: number;
   fog: SceneFogSettings;
   shadow: SceneShadowSettings;
+  sky: SceneSkySettings;
   exposure: number;
   toneMapping: ToneMapping;
   /** Background: solid colour when `skyEnabled` is false. */
   backgroundColor: Color;
+  /** Draw the analytic sky (`forge.sky`) behind the geometry instead of `backgroundColor`. */
   skyEnabled: boolean;
   /** Image-based lighting intensity multiplier (0 disables IBL contribution). */
   iblIntensity: number;
@@ -104,8 +143,9 @@ export function defaultSceneSettings(): SceneSettings {
   return {
     ambientColor: new Color(0.18, 0.2, 0.24),
     ambientIntensity: 1,
+    // Fog is opt-in (`setFog`); the other values are a sensible preset for when it is turned on.
     fog: {
-      mode: "exp2",
+      mode: "none",
       color: new Color(0.42, 0.52, 0.62),
       density: 0.0035,
       start: 40,
@@ -114,6 +154,7 @@ export function defaultSceneSettings(): SceneSettings {
       heightBase: 0,
     },
     shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, adaptive: true, splitLambda: 0.6, debugCascades: false },
+    sky: defaultSkySettings(),
     exposure: 1,
     toneMapping: "aces",
     backgroundColor: new Color(0.02, 0.03, 0.05),
@@ -125,6 +166,24 @@ export function defaultSceneSettings(): SceneSettings {
     bloom: { enabled: true, threshold: 1, softKnee: 0.5, intensity: 0.06, radius: 1 },
     vsync: true,
     recenterDistance: 0,
+  };
+}
+
+export function defaultSkySettings(): SceneSkySettings {
+  return {
+    sunDirection: null,
+    sunIntensity: 20,
+    exposure: 1,
+    turbidity: 2,
+    rayleigh: 1,
+    mie: 1,
+    sunAngularRadius: 0.00465,
+    sunDiscIntensity: 100,
+    starBrightness: 1,
+    nightEnabled: true,
+    seaLevel: 0,
+    quality: "medium",
+    atmosphere: null,
   };
 }
 
@@ -190,7 +249,14 @@ export class Scene {
   constructor(options: { name?: string; initialCapacity?: number; maxEntities?: number; settings?: Partial<SceneSettings> } = {}) {
     this.name = options.name ?? "Scene";
     this.world = new EntityWorld({ initialCapacity: options.initialCapacity, maxEntities: options.maxEntities });
-    this.settings = { ...defaultSceneSettings(), ...options.settings, fog: { ...defaultSceneSettings().fog, ...options.settings?.fog }, shadow: { ...defaultSceneSettings().shadow, ...options.settings?.shadow } };
+    const defaults = defaultSceneSettings();
+    this.settings = {
+      ...defaults,
+      ...options.settings,
+      fog: { ...defaults.fog, ...options.settings?.fog },
+      shadow: { ...defaults.shadow, ...options.settings?.shadow },
+      sky: { ...defaults.sky, ...options.settings?.sky },
+    };
     this.coordinateSpace = new CoordinateSpace({ recenterDistance: this.settings.recenterDistance });
     this.coordinateSpace.bind(this.world);
   }
@@ -315,11 +381,23 @@ export class Scene {
     return this;
   }
 
+  /** Solid background colour; turns the sky pass off (`setSky` turns it back on). */
   setBackgroundColor(color: Color | number): this {
     if (typeof color === "number") this.settings.backgroundColor.setSrgbHex(color);
     else this.settings.backgroundColor.copyFrom(color);
     this.settings.skyEnabled = false;
     this.onSettingsChanged("backgroundColor");
+    return this;
+  }
+
+  /** Enable the analytic sky and adjust its parameters. `sunDirection` is copied. */
+  setSky(options: Partial<SceneSkySettings> = {}): this {
+    const sky = this.settings.sky;
+    const { sunDirection, ...rest } = options;
+    Object.assign(sky, rest);
+    if (sunDirection !== undefined) sky.sunDirection = sunDirection ? sunDirection.clone().normalize() : null;
+    this.settings.skyEnabled = true;
+    this.onSettingsChanged("sky");
     return this;
   }
 
@@ -601,9 +679,22 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
     renderScale: s.renderScale,
     iblIntensity: s.iblIntensity,
     recenterDistance: s.recenterDistance,
-    fog: { mode: s.fog.mode, color: [s.fog.color.r, s.fog.color.g, s.fog.color.b], density: s.fog.density, start: s.fog.start, end: s.fog.end },
+    fog: {
+      mode: s.fog.mode,
+      color: [s.fog.color.r, s.fog.color.g, s.fog.color.b],
+      density: s.fog.density,
+      start: s.fog.start,
+      end: s.fog.end,
+      heightFalloff: s.fog.heightFalloff,
+      heightBase: s.fog.heightBase,
+    },
     shadow: { ...s.shadow },
     bloom: { ...s.bloom },
+    sky: {
+      ...s.sky,
+      sunDirection: s.sky.sunDirection ? [s.sky.sunDirection.x, s.sky.sunDirection.y, s.sky.sunDirection.z] : null,
+      atmosphere: s.sky.atmosphere ? { ...s.sky.atmosphere } : null,
+    },
   };
 }
 
@@ -631,6 +722,28 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.fog.density = num(fog["density"], target.fog.density);
     target.fog.start = num(fog["start"], target.fog.start);
     target.fog.end = num(fog["end"], target.fog.end);
+    target.fog.heightFalloff = num(fog["heightFalloff"], target.fog.heightFalloff);
+    target.fog.heightBase = num(fog["heightBase"], target.fog.heightBase);
+  }
+  const sky = data["sky"] as Record<string, unknown> | undefined;
+  if (sky) {
+    const t = target.sky;
+    const dir = vec(sky["sunDirection"]);
+    if (dir) t.sunDirection = new Vec3(dir[0]!, dir[1]!, dir[2]!).normalize();
+    else if (sky["sunDirection"] === null) t.sunDirection = null;
+    t.sunIntensity = num(sky["sunIntensity"], t.sunIntensity);
+    t.exposure = num(sky["exposure"], t.exposure);
+    t.turbidity = num(sky["turbidity"], t.turbidity);
+    t.rayleigh = num(sky["rayleigh"], t.rayleigh);
+    t.mie = num(sky["mie"], t.mie);
+    t.sunAngularRadius = num(sky["sunAngularRadius"], t.sunAngularRadius);
+    t.sunDiscIntensity = num(sky["sunDiscIntensity"], t.sunDiscIntensity);
+    t.starBrightness = num(sky["starBrightness"], t.starBrightness);
+    t.seaLevel = num(sky["seaLevel"], t.seaLevel);
+    if (typeof sky["nightEnabled"] === "boolean") t.nightEnabled = sky["nightEnabled"];
+    if (sky["quality"] === "low" || sky["quality"] === "medium" || sky["quality"] === "high") t.quality = sky["quality"];
+    if (sky["atmosphere"] && typeof sky["atmosphere"] === "object") t.atmosphere = { ...(sky["atmosphere"] as AtmosphereParams) };
+    else if (sky["atmosphere"] === null) t.atmosphere = null;
   }
   const shadow = data["shadow"] as Record<string, unknown> | undefined;
   if (shadow) {

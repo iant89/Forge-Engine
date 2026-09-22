@@ -11,6 +11,7 @@ import type { Vec3 } from "../math/vec.js";
 import type { Double3 } from "../math/double3.js";
 import type { AABB } from "../math/geometry.js";
 import type { EntityId } from "./entityId.js";
+import type { SceneSkySettings } from "./scene.js";
 
 export interface RenderFrameContext {
   readonly width: number;
@@ -27,7 +28,10 @@ export interface RenderFrameContext {
   /** Register a shadow-casting light for the current frame. */
   addShadowCaster(direction: Vec3, color: Vec3, intensity: number): void;
 
-  /** Override the sky/atmosphere parameters for this frame (used by the planet demo). */
+  /**
+   * Override the sky parameters for the frame being built (merged over `scene.settings.sky`, then
+   * cleared). Lets a system steer the sun or the haze without touching the scene's settings.
+   */
   setSkyOverride(params: Partial<SkyParams>): void;
 
   /** Draw debug geometry (valid only during the frame in which it is called). */
@@ -53,16 +57,5 @@ export interface PickResult {
   triangleIndex: number;
 }
 
-export interface SkyParams {
-  sunDirection: Vec3;
-  sunIntensity: number;
-  turbidity: number;
-  albedo: number;
-  rayleigh: number;
-  mie: number;
-  exposure: number;
-  nightEnabled: boolean;
-  starBrightness: number;
-  moonDirection: Vec3;
-  moonIntensity: number;
-}
+/** The per-frame sky override shares the scene's sky settings shape. */
+export type SkyParams = SceneSkySettings;

@@ -12,11 +12,12 @@
  *      therefore `setBindGroup(dynamic offsets) + drawIndexed`, with no per-draw object creation.
  *      Off-screen shadow casters that still fall inside a cascade land in shadow-only batches.
  *   4. uniform upload: one `writeBuffer` each for the frame block, lights, shadow block, cascade
- *      view-projections, post parameters and the two draw arenas.
+ *      view-projections, sky block (when the sky is on), post parameters and the two draw arenas.
  *   5. frame description: the passes are declared on the `RenderGraph` — `forge.shadow.<n>` per
  *      cascade into a depth array, `forge.main` into the HDR target (or the swapchain in LDR mode),
- *      the bloom chain, and `forge.tonemap` into the swapchain. The graph validates, culls, aliases,
- *      records everything into one command buffer and submits it.
+ *      `forge.sky` over the same target where the depth buffer is still clear, the bloom chain, and
+ *      `forge.tonemap` into the swapchain. The graph validates, culls, aliases, records everything
+ *      into one command buffer and submits it.
  *
  * The renderer is deliberately *not* a scene owner: it reads through `Scene`'s public surface and
  * holds no entity references between frames, so a scene swap costs only the renderable list.
@@ -31,16 +32,18 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
 import { computeCascades, type Cascade } from "./shadows.js";
+import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
+import { FOG_MODE_ID } from "../environment/fog.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
 import { Camera, Light, Renderable } from "../scene/components/index.js";
 import type { GraphicsDevice } from "../gpu/device.js";
-import type { Scene } from "../scene/scene.js";
+import type { Scene, SceneSkySettings, SkyQuality } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import type { RenderFrameContext, SkyParams, PickResult } from "../scene/renderContext.js";
 import { InternalError, UsageError } from "../core/errors.js";
@@ -55,6 +58,10 @@ export interface RendererOptions {
   /** Master switches from the quality profile. `false` disables regardless of scene settings. */
   shadows?: boolean;
   bloom?: boolean;
+  /** `false` skips the `forge.sky` pass even when `scene.settings.skyEnabled` is set. */
+  sky?: boolean;
+  /** Cap on the sky's ray-march tier; the scene's `sky.quality` asks, this caps. */
+  skyQuality?: SkyQuality;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -73,6 +80,10 @@ export interface RenderStats {
   debugLines: number;
   hdr: boolean;
   bloomMips: number;
+  /** True when the `forge.sky` pass ran this frame. */
+  sky: boolean;
+  /** View samples the sky pass marched with (after the quality cap); 0 when the pass did not run. */
+  skySamples: number;
   /** Render-graph outcome for the frame. */
   passes: number;
   culledPasses: number;
@@ -124,6 +135,8 @@ const MAX_POST_PASSES = 24;
 const MAX_BLOOM_MIPS = 6;
 const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const SHADOW_FORMAT: GPUTextureFormat = "depth24plus";
+/** Sun direction when neither the sky settings nor a directional light provide one. */
+const DEFAULT_SUN = new Vec3(0.3, 0.8, 0.5).normalize();
 
 export class Renderer implements RenderFrameContext {
   readonly pipelines: PipelineFactory;
@@ -141,6 +154,8 @@ export class Renderer implements RenderFrameContext {
     debugLines: 0,
     hdr: false,
     bloomMips: 0,
+    sky: false,
+    skySamples: 0,
     passes: 0,
     culledPasses: 0,
     transientTextures: 0,
@@ -162,6 +177,25 @@ export class Renderer implements RenderFrameContext {
   private readonly postBytes = new WriteBuffer(MAX_POST_PASSES * UNIFORM_SLOT);
   private readonly postAccessor = new StructAccessor(PostUniforms, this.postBytes, 0, "uniform");
   private postSlots = 0;
+  private readonly skyBytes = new WriteBuffer(SkyUniforms.byteSize("uniform"));
+  private readonly skyAccessor = new StructAccessor(SkyUniforms, this.skyBytes, 0, "uniform");
+  /** The frame's effective sky settings: `scene.settings.sky` with the per-frame override merged. */
+  private readonly skyFrame: SceneSkySettings = {
+    sunDirection: null,
+    sunIntensity: 20,
+    exposure: 1,
+    turbidity: 2,
+    rayleigh: 1,
+    mie: 1,
+    sunAngularRadius: 0.00465,
+    sunDiscIntensity: 100,
+    starBrightness: 1,
+    nightEnabled: true,
+    seaLevel: 0,
+    quality: "medium",
+    atmosphere: null,
+  };
+  private readonly skySunDirection = new Vec3();
 
   // GPU buffers and bind groups.
   private frameBuffer: GPUBuffer | null = null;
@@ -169,6 +203,8 @@ export class Renderer implements RenderFrameContext {
   private shadowBuffer: GPUBuffer | null = null;
   private cascadeBuffer: GPUBuffer | null = null;
   private postBuffer: GPUBuffer | null = null;
+  private skyBuffer: GPUBuffer | null = null;
+  private skyBindGroup: GPUBindGroup | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
@@ -349,6 +385,9 @@ export class Renderer implements RenderFrameContext {
     this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive);
     this.writeLights(scene, lights, shadowsActive ? sun : null);
     this.writeShadowUniforms(scene, sun, shadowsActive ? cascadeCount : 0, shadowSize, shadowDistance);
+    const skyEnabled = settings.skyEnabled && this.options.sky !== false;
+    if (skyEnabled) this.writeSky(this.resolveSky(scene, lights));
+    else this.pendingSky = null;
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
       b.objectOffset = this.reserveObject(b.count > 1 ? IDENTITY : this.lastMatrixFor(b), b.count);
@@ -364,6 +403,7 @@ export class Renderer implements RenderFrameContext {
       cascadeCount: shadowsActive ? cascadeCount : 0,
       shadowSize,
       bloom: hdr && settings.postProcessing && settings.bloom.enabled && this.options.bloom !== false,
+      sky: skyEnabled,
     });
     this.finishFrame();
   }
@@ -397,7 +437,7 @@ export class Renderer implements RenderFrameContext {
 
   // ------------------------------------------------------------------ frame description
 
-  private buildFrame(scene: Scene, frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean }): void {
+  private buildFrame(scene: Scene, frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean }): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
     const g = this.graph;
@@ -436,10 +476,22 @@ export class Renderer implements RenderFrameContext {
       name: "forge.main",
       reads: shadowAtlas !== null ? [shadowAtlas] : [],
       color: [{ texture: sceneColor, clearValue: [clear[0], clear[1], clear[2], 1] }],
-      depth: { texture: sceneDepth, depthStoreOp: "discard" },
+      // The sky pass depth-tests against this buffer, so it must survive the pass when the sky runs.
+      depth: { texture: sceneDepth, depthStoreOp: frame.sky ? "store" : "discard" },
       execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas),
     });
+    if (frame.sky) {
+      // Sky: fullscreen triangle on the far plane into the same colour target; the depth buffer is
+      // bound read-only (a graph *read*), so only pixels the geometry left at depth 1 are shaded.
+      g.addPass({
+        name: "forge.sky",
+        color: [{ texture: sceneColor, loadOp: "load" }],
+        depth: { texture: sceneDepth, depthReadOnly: true },
+        execute: (ctx) => this.executeSkyPass(ctx, colorFormat),
+      });
+    }
     this.stats.hdr = frame.hdr;
+    this.stats.sky = frame.sky;
     if (!frame.hdr) {
       this.applyGraphStats(g.execute());
       return;
@@ -524,6 +576,31 @@ export class Renderer implements RenderFrameContext {
     }
     this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
     this.applyGraphStats(g.execute());
+  }
+
+  private executeSkyPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat): void {
+    const pass = ctx.beginRenderPass();
+    const bundle = this.pipelines.get({ technique: "sky", colorFormat, depthFormat: this.device.depthFormat, transparent: false, doubleSided: true, instanced: false, writeDepth: false });
+    pass.setPipeline(bundle.pipeline);
+    pass.setBindGroup(0, this.ensureSkyBindGroup());
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+    this.stats.drawCalls++;
+    this.stats.triangles += 1;
+  }
+
+  private ensureSkyBindGroup(): GPUBindGroup {
+    if (this.skyBindGroup) return this.skyBindGroup;
+    const { sky } = this.pipelines.bindGroupLayouts;
+    this.skyBindGroup = this.device.device.createBindGroup({
+      label: "sky.bindgroup",
+      layout: sky,
+      entries: [
+        { binding: 0, resource: { buffer: this.frameBuffer! } },
+        { binding: 1, resource: { buffer: this.skyBuffer! } },
+      ],
+    });
+    return this.skyBindGroup;
   }
 
   private applyGraphStats(stats: { passes: number; culledPasses: number; transientTextures: number; physicalTextures: number; aliasedBytes: number; texturesCreated: number }): void {
@@ -649,6 +726,8 @@ export class Renderer implements RenderFrameContext {
     s.debugLines = 0;
     s.hdr = false;
     s.bloomMips = 0;
+    s.sky = false;
+    s.skySamples = 0;
     s.passes = 0;
     s.culledPasses = 0;
     s.transientTextures = 0;
@@ -733,7 +812,80 @@ export class Renderer implements RenderFrameContext {
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
     const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0);
     a.setU32("flags", flags);
+    a.setVec4("fogParams", FOG_MODE_ID[fog.mode] ?? 0, fog.heightFalloff, fog.heightBase, 0);
     this.device.device.queue.writeBuffer(this.frameBuffer!, 0, gpuSource(this.frameBytes.bytes.subarray(0, this.frameBytes.byteLength)));
+  }
+
+  /**
+   * Resolve the frame's sky: scene settings with the one-frame override merged on top, the sun
+   * taken from (in order) the override, the settings, the first directional light, a default.
+   * Returns the settings the pass will render with; the override is consumed here.
+   */
+  private resolveSky(scene: Scene, lights: readonly Light[]): SceneSkySettings {
+    const out = this.skyFrame;
+    const base = scene.settings.sky;
+    const override = this.pendingSky;
+    this.pendingSky = null;
+    out.sunIntensity = pickSky(base, override, "sunIntensity");
+    out.exposure = pickSky(base, override, "exposure");
+    out.turbidity = pickSky(base, override, "turbidity");
+    out.rayleigh = pickSky(base, override, "rayleigh");
+    out.mie = pickSky(base, override, "mie");
+    out.sunAngularRadius = pickSky(base, override, "sunAngularRadius");
+    out.sunDiscIntensity = pickSky(base, override, "sunDiscIntensity");
+    out.starBrightness = pickSky(base, override, "starBrightness");
+    out.nightEnabled = pickSky(base, override, "nightEnabled");
+    out.seaLevel = pickSky(base, override, "seaLevel");
+    out.quality = pickSky(base, override, "quality");
+    out.atmosphere = pickSky(base, override, "atmosphere");
+    const dir = this.skySunDirection;
+    const explicit = pickSky(base, override, "sunDirection");
+    if (explicit) dir.copyFrom(explicit);
+    else {
+      let sun: Light | null = null;
+      for (const l of lights) {
+        if (l.kind === "directional") {
+          sun = l;
+          break;
+        }
+      }
+      if (sun) dir.set(-sun.direction.x, -sun.direction.y, -sun.direction.z);
+      else dir.copyFrom(DEFAULT_SUN);
+    }
+    if (dir.lengthSq() < 1e-12) dir.copyFrom(DEFAULT_SUN);
+    dir.normalize();
+    out.sunDirection = dir;
+    return out;
+  }
+
+  private writeSky(sky: SceneSkySettings): void {
+    const a = this.skyAccessor;
+    const atmo: Readonly<AtmosphereParams> = sky.atmosphere ?? EARTH_ATMOSPHERE;
+    const dir = sky.sunDirection!;
+    const mieScale = sky.mie * (sky.turbidity / 2);
+    const [viewSamples, lightSamples] = SKY_QUALITY_SAMPLES[capSkyQuality(sky.quality, this.options.skyQuality)];
+    this.stats.skySamples = viewSamples;
+    a.setVec3("sunDirection", dir.x, dir.y, dir.z);
+    a.setF32("sunIntensity", sky.sunIntensity * sky.exposure);
+    a.setVec3("rayleighScattering", atmo.rayleighScattering[0] * sky.rayleigh, atmo.rayleighScattering[1] * sky.rayleigh, atmo.rayleighScattering[2] * sky.rayleigh);
+    a.setF32("rayleighScaleHeight", atmo.rayleighScaleHeight);
+    a.setVec3("mieScattering", atmo.mieScattering[0] * mieScale, atmo.mieScattering[1] * mieScale, atmo.mieScattering[2] * mieScale);
+    a.setF32("mieScaleHeight", atmo.mieScaleHeight);
+    a.setVec3("mieExtinction", atmo.mieExtinction[0] * mieScale, atmo.mieExtinction[1] * mieScale, atmo.mieExtinction[2] * mieScale);
+    a.setF32("mieAnisotropy", atmo.mieAnisotropy);
+    a.setVec3("ozoneAbsorption", atmo.ozoneAbsorption[0], atmo.ozoneAbsorption[1], atmo.ozoneAbsorption[2]);
+    a.setF32("ozoneCenter", atmo.ozoneCenter);
+    a.setVec3("groundAlbedo", atmo.groundAlbedo[0], atmo.groundAlbedo[1], atmo.groundAlbedo[2]);
+    a.setF32("ozoneWidth", atmo.ozoneWidth);
+    a.setF32("planetRadius", atmo.planetRadius);
+    a.setF32("atmosphereHeight", atmo.atmosphereHeight);
+    a.setF32("observerHeight", Math.max(0, this.lastCameraPos.y - sky.seaLevel));
+    a.setF32("sunAngularRadius", sky.sunAngularRadius);
+    a.setF32("sunDiscIntensity", sky.sunDiscIntensity);
+    a.setF32("starBrightness", sky.nightEnabled ? sky.starBrightness : 0);
+    a.setI32("viewSamples", viewSamples);
+    a.setI32("lightSamples", lightSamples);
+    this.device.device.queue.writeBuffer(this.skyBuffer!, 0, gpuSource(this.skyBytes.bytes.subarray(0, this.skyBytes.byteLength)));
   }
 
   private writeLights(scene: Scene, lights: Light[], caster: Light | null): void {
@@ -937,6 +1089,7 @@ export class Renderer implements RenderFrameContext {
     this.shadowBuffer ??= d.createBuffer({ label: "shadow.uniforms", size: this.shadowBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.cascadeBuffer ??= d.createBuffer({ label: "shadowpass.uniforms", size: this.cascadeBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.postBuffer ??= d.createBuffer({ label: "post.uniforms", size: this.postBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.skyBuffer ??= d.createBuffer({ label: "sky.uniforms", size: this.skyBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     const { depthFrame } = this.pipelines.bindGroupLayouts;
     this.cascadeBindGroup ??= d.createBindGroup({
       label: "shadowpass.bindgroup",
@@ -1208,12 +1361,14 @@ export class Renderer implements RenderFrameContext {
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
-    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
     this.shadowBuffer = null;
     this.cascadeBuffer = null;
     this.postBuffer = null;
+    this.skyBuffer = null;
+    this.skyBindGroup = null;
     this.objectBuffer = null;
     this.instanceBuffer = null;
     this.debugBuffer = null;
@@ -1231,6 +1386,21 @@ export class Renderer implements RenderFrameContext {
     this.pipelines.invalidate();
     this.defaults.dispose();
   }
+}
+
+/** One sky field: the per-frame override wins when it is set (`null` is a valid override value). */
+function pickSky<K extends keyof SceneSkySettings>(base: SceneSkySettings, override: Partial<SceneSkySettings> | null, key: K): SceneSkySettings[K] {
+  const v = override?.[key];
+  return (v === undefined ? base[key] : v) as SceneSkySettings[K];
+}
+
+const SKY_TIER_RANK: Record<SkyQuality, number> = { low: 0, medium: 1, high: 2 };
+
+/** The lower of the scene's requested sky tier and the quality profile's cap. */
+function capSkyQuality(requested: SkyQuality, cap: SkyQuality | undefined): SkyQuality {
+  const wanted = SKY_TIER_RANK[requested] === undefined ? "medium" : requested;
+  if (!cap || SKY_TIER_RANK[cap] === undefined) return wanted;
+  return SKY_TIER_RANK[cap] < SKY_TIER_RANK[wanted] ? cap : wanted;
 }
 
 /** Shadow map sizes are powers of two between 256 and 4096 (texel snapping assumes it). */

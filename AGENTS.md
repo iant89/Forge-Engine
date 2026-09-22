@@ -56,24 +56,27 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   math/              Vec/Mat/Quat, Double3 (large worlds), geometry (AABB/Frustum/Ray), noise, rng
   rendering/         Renderer (one frame in/out), RenderGraph (validation, culling, aliasing, pooling),
                      shadows.ts (cascade fit), PipelineFactory, Material, Geometry, primitives,
-                     uniforms (single source of truth for WGSL structs), shaders/{standard,post,common}.ts
+                     uniforms (single source of truth for WGSL structs), shaders/{standard,post,sky,common}.ts
   scene/             Scene, EntityWorld (ECS-ish), component stores, Transform/Camera/Light/Renderable
   physics/           fixed-step rigid bodies (Phase 5). Vehicles are not in this solver.
   vehicles/          raycast car: Pacejka, suspension, engine/gearbox/diff, aero, TC/ABS (docs/VEHICLES.md)
   particles/         CPU simulation + a compute integrator for the same gravity/drag/life step (docs/PARTICLES.md)
+  environment/       sun position (NOAA/Meeus), AtmosphereModel (CPU twin of the sky shader), fog formulas,
+                     DayNightCycle (docs/ENVIRONMENT.md). Phase 8b (weather/clouds/water) goes here too.
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
-examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles.
+examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky.
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
-tests/               vitest suites (math, ecs, vehicles, particles, terrain, physics, renderGraph, wgsl, …)
+tests/               vitest suites (math, ecs, vehicles, particles, environment, terrain, physics, renderGraph, wgsl, …)
 benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)
-tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER), browser-check.mjs (includes the real-GPU gravity check)
+tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B)
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
-docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, how to add a pass
+docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, sky pass, how to add a pass
 docs/VEHICLES.md     Phase 6 as built, including what the chassis test actually asserts
 docs/PARTICLES.md    Phase 7 as built: CPU is the reference, the compute shader is the integrator only
-ARCHITECTURE.md      Design + rationale; ROADMAP.md — phases 8–14 are not built
+docs/ENVIRONMENT.md  Phase 8a as built: solar model, atmosphere, fog, day/night — and what 8b still owes
+ARCHITECTURE.md      Design + rationale; ROADMAP.md — phase 8b and phases 9–14 are not built
 ```
 
 The demo aliases `@forge/engine` to `engine/src/index.ts` (see `examples/vite.config.ts`), so there is
@@ -99,8 +102,12 @@ no build step between editing engine source and seeing it in the browser.
   know about. The graph validates before recording and pools textures by descriptor — a steady frame
   must report `texturesCreated: 0` (asserted by `tests/frame.test.ts` and `check:browser`).
 * **WGSL uniform structs are generated from `engine/src/rendering/uniforms.ts`.** Do not hand-edit
-  struct declarations in `shaders/standard.ts` or `shaders/post.ts`; change the TS definition and
-  `check:wgsl` will confirm the 16-byte alignment. Hand-written WGSL must still pass `check:wgsl`.
+  struct declarations in `shaders/standard.ts`, `shaders/post.ts` or `shaders/sky.ts`; change the TS
+  definition and `check:wgsl` will confirm the 16-byte alignment. Hand-written WGSL must still pass
+  `check:wgsl`.
+* **The sky shader and `environment/atmosphere.ts` are twins.** Same integral, same constants (via
+  `SkyUniforms`), same cubic sample spacing. A change to one is a change to both, and
+  `tests/environment.test.ts` is where the CPU side is pinned against closed forms.
 * **The strictest browser decides what is valid WGSL, and it is not the one `check:browser` runs.**
   Chromium accepts uniform structs with a relaxed layout (`array<u32, 3>` padding, arrays with a
   stride below 16 bytes, struct members off 16-byte boundaries) without being asked; WebKit rejects

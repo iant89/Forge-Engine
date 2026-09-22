@@ -146,6 +146,7 @@ export class Engine {
       shadowCascades: init.config.shadowCascades,
       shadows: init.config.shadowCascades > 0,
       bloom: init.config.bloom,
+      skyQuality: init.config.skyQuality,
     });
     this.services.set("resources", this.resources);
     this.services.set("tasks", this.tasks);

@@ -25,10 +25,11 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Terrain & demo (Phase 4)
 
-* **The loaded disc has a visible edge.** `maxChunksLoaded` caps the resident set (the demo uses 220
+* **The loaded disc still ends at ~1 km.** `maxChunksLoaded` caps the resident set (the demo uses 220
   chunks of 128 m ≈ a 1 km radius), and the eviction pass can never drop a chunk the camera still
-  selects, so the resident radius is `min(viewDistance, budget)`. Zooming out to the camera's maximum
-  distance shows where the world stops. There is no backdrop, horizon skirt or fade yet.
+  selects, so the resident radius is `min(viewDistance, budget)`. Since Phase 8a the exp² dust haze
+  (85 % fog at 1 km) and the sky pass's own fogged planet ground hide the edge from most viewpoints;
+  from high above it can still be read as a change in texture. There is no horizon skirt.
 * **`viewDistance` is advisory.** The chunk selection is capped by the budget (nearest first), not by
   the radius alone: the terrain scene's 2 km view distance would have selected ~900 chunks and
   generated them in scan order — nearest chunks (including the one under the camera) could starve while
@@ -40,9 +41,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **The terrain mesh ignores `chunk.lod`.** LOD selection and geomorph alpha are computed and stored,
   but every chunk is generated at `chunkResolution` (33), so distant chunks cost the same vertices as
   near ones and there is no geomorphing in the mesh.
-* **No atmosphere.** `scene.setFog` stores settings and the forward pass uploads
-  `fogColor`/`fogDensity`/`fogRange`, but no shipped shader samples them (ROADMAP Phase 8), so the
-  terrain demo renders with no haze or aerial perspective — part of why the disc edge reads as a cliff.
 
 ## Core (Phase 1)
 
@@ -78,9 +76,36 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **One owner per simulation.** `ParticleWorld` and `ParticleSystem` both call `step`. Attaching both
   to the same sim double-integrates. The particle scene uses `ParticleWorld` only.
 
+## Environment (Phase 8a)
+
+* **Single scattering only.** The sky pass and `AtmosphereModel` integrate one scattering event per
+  path (Rayleigh + Mie + ozone absorption) with no multiple scattering, so the sky is ~3× darker than
+  a real one relative to the sun and the horizon reads yellow rather than white on Earth. The demo
+  compensates by rendering the sky at `sky.sunIntensity` 20 against a light of 4.2; `ambientScale`
+  trims the derived ambient. A multiple-scattering LUT is the natural 8b/13 follow-up.
+* **The sky pass is not affected by linear or exp² fog.** Only height fog (whose path integral is
+  finite for upward rays) fogs sky pixels; linear/exp² fog would erase the whole sky over an infinite
+  path. The planet ground the pass draws below the horizon *is* fogged in every mode, and
+  `DayNightCycle.driveFog` keeps the fog colour equal to the sky just above the horizon, so seams
+  only appear when a scene sets a fog colour that disagrees with its sky. (`docs/ENVIRONMENT.md` §4)
+* **Sample-count truncation is visible at the horizon.** With `quality: "low"` (8×4) the horizon sky
+  is up to ~35 % darker in blue than the converged integral (`tests/environment.test.ts` pins the
+  bound); `medium` halves that. The cubic view-ray spacing is what makes even `low` usable.
+* **No moon, no twilight glow from below the horizon, no aerial perspective on geometry.** Nights are
+  stars over an ambient floor (`nightAmbient`). Geometry gets fog, not the sky's in-scattering.
+* **The sun disc is not a physical radiance.** `sunDiscIntensity` (default 100× the sun's
+  transmitted irradiance) is a look control; the real disc (~14 700×) would bloom the whole frame.
+* **Mars' blue sunset aureole is not modelled.** It needs a wavelength-dependent Mie lobe; the preset
+  has one `g`. The daytime butterscotch sky and the bright forward aureole are there.
+* **`DayNightCycle` drives one directional light.** Point/spot lights, emissive materials and the
+  fog *density* are untouched; only the light's direction/colour/intensity, `ambientColor`,
+  `fog.color` and `sky.sunDirection` are written.
+* **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
+  the view direction (the sky's horizon average is used).
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet
 (`PERFORMANCE.md`, `ASSETS.md`, ADRs). Sections marked "As built" in `ARCHITECTURE.md` and
-`docs/RENDERING.md` describe what is real today. `ROADMAP.md` marks phases 8–14 as not started;
-an earlier revision had marked them done without the code.
+`docs/RENDERING.md` describe what is real today. `ROADMAP.md` marks phase 8b and phases 9–14 as not
+started; an earlier revision had marked them done without the code.

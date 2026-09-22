@@ -6,26 +6,29 @@
  * - Impact craters with uplifted rims, excavated bowls, and central rebound peaks.
  * - Continuous bicubic elevation sampling that agrees with the drawn mesh, used as the camera's
  *   surface constraint (`camera.groundHeight`): the orbit camera glides over ridges instead of
- *   passing through them, and can zoom from 6 m to 1.1 km away (just past the streaming radius —
- *   fog is a Phase 8 feature and nothing hides the loaded disc's edge yet, see KNOWN-ISSUES).
+ *   passing through them, and can zoom from 6 m to 1.1 km away (just past the streaming radius).
+ * - The Phase 8a Martian sky (`MARS_ATMOSPHERE` through the `forge.sky` pass, sun taken from the
+ *   directional light) and exp² dust haze whose colour is the model's own horizon radiance, so the
+ *   loaded disc's edge fades into the sky instead of reading as a cliff.
  * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
  * - A full PBR texture set (albedo + tangent-space normal + metallic-roughness) tiled over the
  *   chunks — iron-oxide regolith with basalt patches and pebble grain, generated procedurally so
  *   the demo needs no external assets (`createMarsRegolithTextures`).
  *
- * `scene.setFog` is authored below for the eventual haze pass, but no shipped shader samples the fog
- * uniforms yet (Phase 8); the terrain is drawn with no atmospheric falloff.
  */
 import {
+  AtmosphereModel,
   Camera,
   Color,
   type Engine,
   Light,
+  MARS_ATMOSPHERE,
   Material,
   Scene,
   Vec3,
   TerrainWorld,
+  createAtmosphere,
 } from "@forge/engine";
 import {
   createMarsRegolithTextures,
@@ -36,9 +39,7 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 
 export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   const scene = new Scene({ name: "terrain-demo" });
-  scene.setBackgroundColor(Color.fromSrgbHex(0x1a0f0d));
 
-  // HDR, tone mapping and the fog settings the Phase 8 atmosphere pass will read
   scene.settings.hdr = true;
   scene.settings.exposure = 1.1;
   scene.settings.toneMapping = "aces";
@@ -46,9 +47,19 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   scene.settings.bloom.threshold = 1.0;
   scene.settings.bloom.intensity = 0.05;
 
+  // Martian sky: the dust-laden preset rendered by `forge.sky`; the sun direction comes from the
+  // directional light below. Low quality (8×4 samples) — the terrain pass is the expensive one here.
+  const marsAtmosphere = createAtmosphere({}, MARS_ATMOSPHERE);
+  scene.setSky({ atmosphere: marsAtmosphere, quality: "low", sunIntensity: 20 });
+
+  // Dust haze. exp² at this density leaves ~75 % of the terrain colour at 400 m and ~15 % at 1 km
+  // (the streaming radius), so the disc's edge dissolves. The colour is the model's own horizon
+  // radiance for this sun, which is what keeps the terrain/sky seam invisible.
+  const sunDirection = new Vec3(200, 300, 200).normalize();
+  const horizon = new AtmosphereModel(marsAtmosphere).horizonColor(sunDirection, 0, new Float64Array(3));
   scene.setFog("exp2", {
-    density: 0.0003,
-    color: Color.fromSrgbHex(0xb56345),
+    density: 0.0014,
+    color: new Color(horizon[0]!, horizon[1]!, horizon[2]!),
   });
 
   scene.settings.shadow.enabled = true;
