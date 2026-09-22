@@ -93,6 +93,29 @@ jobs:
           PW_VERSION=$(node -p "require('playwright-core/package.json').version")
           npx --yes "playwright@$PW_VERSION" install --with-deps chromium
 
+      # The engine asks Dawn for a Vulkan device; on a bare runner that needs a Vulkan loader, and
+      # SwiftShader (Chromium's own ICD, when it ships one) or Mesa's lavapipe to answer as the
+      # implementation. Without this the browser has navigator.gpu but requestAdapter() returns null,
+      # and the gate correctly reports "did not run" instead of pretending it checked anything.
+      - name: Give the browser a Vulkan loader and a software ICD
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvulkan1 mesa-vulkan-drivers
+          CHROME=$(node -p "require('playwright-core').chromium.executablePath()")
+          DIR=$(dirname "$CHROME")
+          echo "chromium: $CHROME"
+          ls "$DIR" | grep -iE "vulkan|swiftshader|egl|gles" || true
+          ICD=$(find "$DIR" -maxdepth 2 -name 'vk_swiftshader_icd.json' 2>/dev/null | head -1)
+          echo "bundled SwiftShader ICD: ${ICD:-none (falling back to the system one)}"
+          if [ -n "$ICD" ]; then
+            {
+              echo "VK_ICD_FILENAMES=$ICD"
+              echo "VK_DRIVER_FILES=$ICD"
+              echo "LD_LIBRARY_PATH=$DIR:${LD_LIBRARY_PATH:-}"
+            } >> "$GITHUB_ENV"
+          fi
+          ls -la /usr/share/vulkan/icd.d 2>/dev/null || true
+
       # No `PIPESTATUS`, no `tee`-in-a-pipeline: the exit code has to survive whatever shell this
       # runner hands the script, and the log is needed as a file for the report step below anyway.
       - name: Real-WebGPU gate (SwiftShader)
