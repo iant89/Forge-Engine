@@ -6,8 +6,9 @@ import {
   planeGeometrySource,
   torusGeometrySource,
   coneGeometrySource,
-} from "../engine/src/rendering/primitives.js";
-import { Mat4, Vec3 } from "../engine/src/math/index.js";
+  Mat4,
+  Vec3,
+} from "@forge/engine";
 
 function analyzeGeometry(geo: ReturnType<typeof boxGeometrySource>, name: string) {
   const p = geo.positions;
@@ -50,7 +51,8 @@ function analyzeGeometry(geo: ReturnType<typeof boxGeometrySource>, name: string
     else zero++;
   }
 
-  return { outward, inward, zero, total: idx.length / 3 };
+  // `name` is part of the returned record so a failing assertion says which primitive it was.
+  return { name, outward, inward, zero, total: idx.length / 3 };
 }
 
 describe("Primitive face normal vs vertex normal", () => {

@@ -12,7 +12,11 @@ CURRENT CODEBASE BASELINE:
     Phases 0-7: IMPLEMENTED / VERIFIED
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
-    Phase 9+:   NOT YET IMPLEMENTED
+    Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
+    Phase 10+:  NOT STARTED
+
+    Phase status lines are cross-checked against engine/src/core/capabilities.ts and
+    docs/KNOWN-ISSUES.md by `npm run docs:check`.
 
 IMPORTANT:
     This roadmap reflects the actual implementation state of the repository,
@@ -89,7 +93,10 @@ PHASE 8A - Environment / Atmosphere
 PHASE 8B - Weather / Clouds / Water / Lightning
     [x]
 
-PHASE 9+:
+PHASE 9 - ENGINE HARDENING
+    [~] IN PROGRESS
+
+PHASE 10+
     [ ] NOT STARTED
 
 
@@ -121,9 +128,9 @@ than simply adding features.
 
 9.1 Worker Execution
 
-    [ ] Add real worker round-trip tests.
+    [x] Add real worker round-trip tests.   (tests/tasks.test.ts, tests/support/workerThreads.ts)
 
-    [ ] Test:
+    [x] Test:
 
         Task submission
         Worker execution
@@ -134,18 +141,27 @@ than simply adding features.
         Multiple workers
         Deterministic results
 
-    [ ] Verify terrain generation can execute outside the main thread.
+    [x] Verify terrain generation can execute outside the main thread.
+        (terrain.cell reproduces inline generation bit-for-bit on a real worker thread)
 
-    [ ] Verify BVH/LBVH generation can execute outside the main thread.
+    [x] Verify BVH/LBVH generation can execute outside the main thread.
+        (engine/src/math/bvh.ts + the geometry.bvh task; a worker-built tree is byte-identical to
+        the inline build and answers the same rays — tests/tasks.test.ts, tests/bvh.test.ts.
+        Wiring it into raycasts and culling is later work: capability: physics.spatialIndex)
 
     [ ] Verify mesh decoding can execute outside the main thread.
+        No glTF/GLB decoder exists yet (capability: assets.meshDecoding, Phase 15.1).
+
+    The remaining open bullet is why 9.1 stays [~]: mesh decoding has nothing to run because no
+    asset decoder exists yet, and a browser-side worker round-trip is still not asserted
+    (capability: workers.browserThreads).
 
 
 9.2 Resource Cache
 
-    [ ] Add resource eviction tests.
+    [x] Add resource eviction tests.   (tests/resources.test.ts)
 
-    [ ] Test:
+    [x] Test:
 
         LRU behavior
         memory pressure
@@ -157,9 +173,9 @@ than simply adding features.
 
 9.3 Resource Statistics
 
-    [ ] Add GPU memory accounting.
+    [x] Add GPU memory accounting.   (tests/gpuMemory.test.ts)
 
-    [ ] Add:
+    [x] Add:
 
         textureBytes
         bufferBytes
@@ -172,7 +188,7 @@ than simply adding features.
 
 9.4 Coordinate Space API
 
-    [ ] Formalize coordinate spaces.
+    [x] Formalize coordinate spaces.   (engine/src/scene/spaces.ts, tests/coordinateSpaces.test.ts)
 
     Required concepts:
 
@@ -185,7 +201,8 @@ than simply adding features.
 
 9.5 Capability Registry
 
-    [ ] Add machine-readable feature status.
+    [x] Add machine-readable feature status.
+        (engine/src/core/capabilities.ts, tests/capabilities.test.ts)
 
     Example:
 
@@ -201,11 +218,19 @@ than simply adding features.
 
 9.6 Known-Issue Enforcement
 
-    [ ] Every known limitation must link to a roadmap item.
+    [x] Every known limitation must link to a roadmap item.
+        (capability: core.knownIssueEnforcement — notes and roadmap references are parsed and
+        resolved by tools/docs-check.mjs; dangling or unknown references fail the gate)
 
-    [ ] Remove stale limitations after their implementation.
+    [x] Remove stale limitations after their implementation.
+        The two Core entries about untested worker round-trips and eviction were deleted when
+        Phase 9 landed; a limitation that references a now-verified capability fails docs:check.
 
-    [ ] Prevent "green CI" from implying production readiness.
+    [x] Prevent "green CI" from implying production readiness.
+        (.github/workflows/ci.yml runs the CPU gates and prints what they do not cover; the
+        real-WebGPU gate runs as a separate advisory job on SwiftShader and mirrors its output
+        onto the pull request, so it can inform without ever implying a merge was validated —
+        capability: testing.browserGateInCi)
 
 
 EXIT CRITERIA:

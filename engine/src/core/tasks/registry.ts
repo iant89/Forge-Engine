@@ -13,6 +13,12 @@
 import { UsageError } from "../errors.js";
 import type { Logger } from "../log.js";
 
+/**
+ * A handler that cannot run on a worker thread re-throws this (or throws it directly) and the task is
+ * re-run inline. Re-exported here so a handler imports one module, not two.
+ */
+export { InlineOnlyError } from "../errors.js";
+
 export interface TaskContext {
   /** Cooperative cancellation. Long-running handlers must poll this between chunks. */
   readonly cancelled: boolean;
@@ -24,7 +30,32 @@ export interface TaskContext {
 export type TaskHandler<P = unknown, R = unknown> = (payload: P, ctx: TaskContext) => R | Promise<R>;
 
 const handlers = new Map<string, TaskHandler<unknown, unknown>>();
+/** Result → transferables, so a worker posts big grids without a structured-clone copy. */
+const resultTransfers = new Map<string, (result: unknown) => Transferable[]>();
 let builtinsRegistered = false;
+
+/**
+ * Declare which buffers a task's result owns and can hand over. The worker scope applies it when
+ * posting a result; the main thread uses nothing here today (it receives) but keeps the table so a
+ * host worker and the engine agree on one description.
+ */
+export function registerTaskResultTransfer(name: string, fn: (result: unknown) => Transferable[]): void {
+  resultTransfers.set(name, fn);
+}
+
+export function taskResultTransferables(name: string, result: unknown): Transferable[] {
+  const fn = resultTransfers.get(name);
+  if (!fn) return [];
+  try {
+    return fn(result);
+  } catch {
+    return [];
+  }
+}
+
+export function hasTaskResultTransfer(name: string): boolean {
+  return resultTransfers.has(name);
+}
 
 export function registerTaskHandler<P, R>(name: string, fn: TaskHandler<P, R>): void {
   if (handlers.has(name)) {

@@ -39,12 +39,28 @@
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
- * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
- * pass.
+ * Playwright-managed install — launched as `channel: "chromium"`, the *full* build. Playwright's
+ * default headless launch uses `chromium-headless-shell`, and that binary has no WebGPU at all: with it
+ * the page boots into "no adapter" and this gate reports a product bug that is really a browser choice.
+ * The full build in new headless mode (with the flags below) is the only configuration that presents
+ * pixels here.
+ *
+ * WebGPU needs a Vulkan device on top of that, and `tools/gpu-env.mjs` is what supplies it: the ICD
+ * bundled next to the browser when the build has one (VK_ICD_FILENAMES/VK_DRIVER_FILES, plus the
+ * binary's own directory on LD_LIBRARY_PATH), otherwise nothing at all and the system loader finds
+ * Mesa's lavapipe, which `scripts/setup-deps.sh` installs. Both are printed before the adapter probe,
+ * so "no adapter here" can be told apart from "the engine failed".
+ *
+ * Exits 2 when nothing can be launched or the browser has no WebGPU adapter at all, so `verify` never
+ * implies a browser pass and a GPU-less runner is not blamed on the change.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { gpuLaunchEnv, ICD_SOURCE_TEXT, LOADER_SOURCE_TEXT } from "./gpu-env.mjs";
 
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
@@ -88,23 +104,34 @@ if (!ready) {
 }
 
 const { chromium } = await import("playwright-core");
+// The browser this gate launches, in the order the setup script provisions them: an explicit
+// PLAYWRIGHT_CHROMIUM, the @sparticuz payload extracted into the temp dir, then Playwright's own
+// build. Asking for `channel: "chromium"` is not decoration — Playwright's default headless launch is
+// `chromium-headless-shell`, which has no WebGPU at all (tools/gpu-env.mjs resolves the same path, so
+// what it reports is what gets launched).
 const spartan = process.env.PLAYWRIGHT_CHROMIUM ?? (existsSync("/tmp/chromium") ? "/tmp/chromium" : null);
-const useEnv = spartan
-  ? {
-      env: {
-        ...process.env,
-        LD_LIBRARY_PATH: ["/tmp/al2023/lib", "/tmp", process.env.LD_LIBRARY_PATH].filter(Boolean).join(":"),
-        VK_DRIVER_FILES: existsSync("/tmp/vk_swiftshader_icd.json") ? "/tmp/vk_swiftshader_icd.json" : process.env.VK_DRIVER_FILES,
-        VK_ICD_FILENAMES: existsSync("/tmp/vk_swiftshader_icd.json") ? "/tmp/vk_swiftshader_icd.json" : process.env.VK_ICD_FILENAMES,
-      },
-    }
-  : {};
+const managedChromium = () => {
+  try {
+    return chromium.executablePath(); // the full build, not the headless shell
+  } catch {
+    return null;
+  }
+};
+const launchEnvironment = gpuLaunchEnv({
+  executablePath: spartan ?? managedChromium(),
+  extraLibraryPaths: [join(tmpdir(), "al2023", "lib")],
+});
 
 let browser;
 try {
   browser = await chromium.launch({
-    ...(spartan ? { executablePath: spartan } : {}),
-    ...useEnv,
+    // `executablePath` and `channel` are mutually exclusive; when we have our own binary, use it.
+    ...(spartan ? { executablePath: spartan } : { channel: "chromium" }),
+    env: launchEnvironment.env,
+    // Playwright also passes `--headless`, which on Chromium 131 selects the *old* headless mode.
+    // Whether the last duplicate wins is not something to bet the gate on, so drop it and pass the
+    // new mode ourselves.
+    ignoreDefaultArgs: ["--headless"],
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -118,10 +145,17 @@ try {
     ],
     timeout: 90000,
   });
+  // Print what the browser was given, next to the adapter probe below: "no adapter" with an ICD that
+  // does not exist and "no adapter" with a valid one mean very different things.
+  console.log(
+    `gpu: ICD ${launchEnvironment.icd ?? "(none — the loader picks)"} (${ICD_SOURCE_TEXT[launchEnvironment.icdSource]})` +
+      `; loader ${launchEnvironment.loader ?? "(not found)"} (${LOADER_SOURCE_TEXT[launchEnvironment.loaderSource]})`,
+  );
 } catch (error) {
   console.error(
     `check:browser NOT RUN — no launchable browser (${String(error).split("\n")[0]}).\n` +
-      "  install once: npm i -D playwright && npx playwright install chromium --with-deps",
+      "  install the build that matches the installed playwright-core, then retry:\n" +
+      "  npx playwright@$(node -p \"require('playwright-core/package.json').version\") install --with-deps chromium",
   );
   vite.kill("SIGKILL");
   process.exit(2);
@@ -131,11 +165,16 @@ const problems = [];
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const page = await context.newPage();
 page.on("console", (msg) => {
-  if (msg.type() === "error") problems.push(`console.error: ${msg.text()}`);
-  else if (msg.type() === "warning") problems.push(`console.warn: ${msg.text()}`);
+  // The source URL matters: "Failed to load resource: 404" without it cost a CI round trip.
+  const where = msg.location()?.url ? ` @ ${msg.location().url}` : "";
+  if (msg.type() === "error") problems.push(`console.error: ${msg.text()}${where}`);
+  else if (msg.type() === "warning") problems.push(`console.warn: ${msg.text()}${where}`);
 });
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("requestfailed", (r) => problems.push(`requestfailed: ${r.url()} ${r.failure()?.errorText ?? ""}`));
+page.on("response", (r) => {
+  if (r.status() >= 400) problems.push(`http ${r.status()}: ${r.url()}`);
+});
 
 /** Wait for `frames` animation frames in-page (the engine renders on its own rAF loop). */
 const settle = (frames = 4) =>
@@ -179,15 +218,75 @@ const samplePixels = () =>
       }),
   );
 
+/**
+ * Ask the *browser* whether a WebGPU adapter exists at all, independently of the engine. This is the
+ * question that tells the two failure modes apart: "`navigator.gpu` exists but `requestAdapter()`
+ * returns null" is the signature of a headless-shell launch or a missing SwiftShader (a browser
+ * choice), while an engine that fails its own adapter request on a machine where this probe succeeds
+ * is a product bug and must fail the gate. Either way the text goes into the log.
+ */
+const probeGpu = () =>
+  page
+    .evaluate(async () => {
+      if (!navigator.gpu) return { ok: false, text: "gpu: navigator.gpu is undefined (this browser has no WebGPU at all)" };
+      const adapter = await navigator.gpu.requestAdapter().catch(() => null);
+      if (!adapter) {
+        return {
+          ok: false,
+          text: "gpu: navigator.gpu exists but requestAdapter() returned null (the headless shell, or SwiftShader is not enabled)",
+        };
+      }
+      const info = adapter.info ?? {};
+      return {
+        ok: true,
+        text: `gpu: adapter ok (${info.vendor ?? "?"} / ${info.architecture ?? "?"}${info.description ? ` — ${info.description}` : ""})`,
+      };
+    })
+    .catch((error) => ({ ok: false, text: `gpu: probe failed (${String(error).split("\n")[0]})` }));
+
+const describeGpu = async () => (await probeGpu()).text;
+
+/** Stop the run the way the "cannot run here" path does: report, tear the harness down, exit 2. */
+async function notRun(headline, lines) {
+  console.error(`check:browser NOT RUN — ${headline}\n${lines.map((l) => `  ${l}`).join("\n")}`);
+  await browser.close();
+  vite.kill("SIGKILL");
+  process.exit(2);
+}
+
+const GPU_HINT =
+  'the gate needs the full Chromium build (channel: "chromium") launched with --headless=new ' +
+  "--enable-unsafe-webgpu --enable-unsafe-swiftshader --enable-features=Vulkan.";
+
 let exitCode = 0;
 try {
   await page.goto(URL, { waitUntil: "load", timeout: 60000 });
-  await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
-  const boot = await page.evaluate(() => window.__forgeError ?? null);
+  let boot;
+  try {
+    await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
+    boot = await page.evaluate(() => window.__forgeError ?? null);
+  } catch (waitError) {
+    boot = `the demo never signalled a boot result (${String(waitError.message).split("\n")[0]})`;
+  }
+
+  // Ask the browser, not the engine, whether WebGPU exists at all. A missing adapter is a browser
+  // choice (headless shell, no SwiftShader) and the gate can prove nothing about rendering without
+  // one, so it reports "did not run" (exit 2). An engine that fails its own adapter request on a
+  // machine where this probe succeeds is a product bug and falls through to the normal failure path.
+  const gpu = await probeGpu();
+  if (boot !== null && !gpu.ok) {
+    await notRun("the demo did not start and this browser cannot present WebGPU, so the failure cannot be attributed to the engine.", [
+      `the engine said: ${boot.split("\n")[0]}`,
+      gpu.text,
+      GPU_HINT,
+    ]);
+  }
+  console.log(gpu.text);
   if (boot) throw new Error(`engine failed to start:\n${boot}`);
+  if (!gpu.ok) await notRun("this browser cannot present WebGPU.", [gpu.text, GPU_HINT]);
 
   const backend = await page.evaluate(() => window.__forge.backend);
-  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"`);
+  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
 
   const before = await page.evaluate(() => window.__forge.stats());
   await sleep(2500);
@@ -697,7 +796,7 @@ if (exitCode === 0 && fatal.length > 0) {
   console.error(`\ncheck:browser FAILED (${fatal.length} console/page error(s))`);
   exitCode = 1;
 } else if (exitCode === 0) {
-  console.log("\ncheck:browser passed (real WebGPU, headless Chromium + SwiftShader)");
+  console.log(`\ncheck:browser passed (real WebGPU, headless Chromium + SwiftShader) — ${await describeGpu()}`);
 }
 await browser.close();
 vite.kill("SIGKILL");

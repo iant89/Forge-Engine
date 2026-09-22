@@ -95,6 +95,10 @@ export interface RenderStats {
   culledPasses: number;
   transientTextures: number;
   physicalTextures: number;
+  /** Bytes this frame's transient textures occupy after live-range aliasing. */
+  transientBytes: number;
+  /** Bytes resident in the graph's texture pool (idle textures included). */
+  pooledBytes: number;
   aliasedBytes: number;
   texturesCreated: number;
 }
@@ -168,6 +172,8 @@ export class Renderer implements RenderFrameContext {
     culledPasses: 0,
     transientTextures: 0,
     physicalTextures: 0,
+    transientBytes: 0,
+    pooledBytes: 0,
     aliasedBytes: 0,
     texturesCreated: 0,
   };
@@ -640,11 +646,22 @@ export class Renderer implements RenderFrameContext {
     return this.waterBindGroup;
   }
 
-  private applyGraphStats(stats: { passes: number; culledPasses: number; transientTextures: number; physicalTextures: number; aliasedBytes: number; texturesCreated: number }): void {
+  private applyGraphStats(stats: {
+    passes: number;
+    culledPasses: number;
+    transientTextures: number;
+    physicalTextures: number;
+    transientBytes: number;
+    pooledBytes: number;
+    aliasedBytes: number;
+    texturesCreated: number;
+  }): void {
     this.stats.passes = stats.passes;
     this.stats.culledPasses = stats.culledPasses;
     this.stats.transientTextures = stats.transientTextures;
     this.stats.physicalTextures = stats.physicalTextures;
+    this.stats.transientBytes = stats.transientBytes;
+    this.stats.pooledBytes = stats.pooledBytes;
     this.stats.aliasedBytes = stats.aliasedBytes;
     this.stats.texturesCreated = stats.texturesCreated;
   }

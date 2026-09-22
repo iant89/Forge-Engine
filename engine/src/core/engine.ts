@@ -23,8 +23,8 @@ import { Logger, type LogLevel } from "../core/log.js";
 import { Clock, ManualClock, type TickResult } from "../core/time.js";
 import { DisposableGroup, type Disposable } from "../core/events.js";
 import { ObjectDisposedError, UsageError, assert } from "../core/errors.js";
-import { TaskScheduler, type TaskDescriptor } from "../core/tasks/scheduler.js";
-import { GraphicsDevice, type DeviceCaps } from "../gpu/device.js";
+import { TaskScheduler, type TaskDescriptor, type TaskStats } from "../core/tasks/scheduler.js";
+import { GraphicsDevice, type DeviceCaps, type GpuMemoryStats } from "../gpu/device.js";
 import { ResourceRegistry } from "../resources/registry.js";
 import { Profiler, type ScopeStats } from "../debug/profiler.js";
 import { Renderer, type RenderStats } from "../rendering/renderer.js";
@@ -49,6 +49,33 @@ export interface EngineOptions {
   forceMock?: boolean;
   /** Fixed timestep override; defaults to `config.fixedTimestep`. */
   fixedDt?: number;
+}
+
+/**
+ * The frame's GPU memory picture, assembled from the three owners of GPU memory (Phase 9.3):
+ * the device knows what exists, the render graph knows what this frame reserved, and the resource
+ * registry knows what it threw away. One record so a HUD, a benchmark or a leak assertion does not
+ * have to reach into three subsystems.
+ */
+export interface GpuMemoryReport {
+  /** Live bytes held by GPUTextures on the device. */
+  textureBytes: number;
+  /** Live bytes held by GPUBuffers on the device. */
+  bufferBytes: number;
+  textureCount: number;
+  bufferCount: number;
+  /** Render + compute pipelines created (cumulative: WebGPU has no pipeline destroy). */
+  pipelineCount: number;
+  /** Bind groups created (cumulative). */
+  bindGroupCount: number;
+  /** Bytes the graph's transients occupy this frame after aliasing. */
+  transientBytes: number;
+  /** Bytes resident in the graph's texture pool (idle textures included). */
+  pooledBytes: number;
+  /** Bytes the resource registry has evicted since it was created. */
+  evictedBytes: number;
+  /** Allocations since the last frame boundary — zeros on a steady frame. */
+  sinceFrameStart: GpuMemoryStats["sinceFrameStart"];
 }
 
 export interface EngineStats {
@@ -77,6 +104,10 @@ export interface EngineStats {
   renderPasses: readonly string[];
   /** Renderer counters for the last frame (shadow cascades, bloom mips, graph aliasing, ...). */
   render: Readonly<RenderStats>;
+  /** GPU memory accounting (Phase 9.3). */
+  gpuMemory: GpuMemoryReport;
+  /** Background task scheduler state — the worker pool the engine is actually running with. */
+  tasks: Readonly<TaskStats>;
 }
 
 export type RenderMode = "always" | "dirty" | "manual";
@@ -286,6 +317,8 @@ export class Engine {
    */
   step(manualDt?: number): TickResult {
     if (this.disposed) throw new ObjectDisposedError("Engine");
+    // A new allocation window: `gpuMemory.sinceFrameStart` must describe *this* frame.
+    this.gpu.beginFrame();
     this.profiler.beginFrame(this.frameCounter);
     this.scratch.beginFrame();
     const tick = manualDt === undefined ? this.clock.tick() : this.manualTick(manualDt);
@@ -458,6 +491,29 @@ export class Engine {
       lastError: this.gpu.lastError ?? this.lastRenderError,
       renderPasses: this.renderer.passNames,
       render,
+      gpuMemory: this.gpuMemoryReport(),
+      tasks: this.tasks.stats,
+    };
+  }
+
+  /**
+   * Assemble the GPU memory report from the device, the render graph and the resource registry.
+   * Cheap enough to call per frame (a handful of field reads); no allocation on the hot path because
+   * the HUD asks for it, not `step()`.
+   */
+  gpuMemoryReport(): GpuMemoryReport {
+    const device = this.gpu.gpuMemory;
+    return {
+      textureBytes: device.textureBytes,
+      bufferBytes: device.bufferBytes,
+      textureCount: device.textureCount,
+      bufferCount: device.bufferCount,
+      pipelineCount: device.pipelineCount,
+      bindGroupCount: device.bindGroupCount,
+      transientBytes: this.renderer.stats.transientBytes,
+      pooledBytes: this.renderer.stats.pooledBytes,
+      evictedBytes: this.resources.evictedBytes,
+      sinceFrameStart: device.sinceFrameStart,
     };
   }
 

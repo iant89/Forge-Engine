@@ -72,6 +72,19 @@ export class ObjectDisposedError extends ForgeError {
 }
 
 /**
+ * A task handler that cannot run in a worker (it needs the DOM, a live `GraphicsDevice`, or other
+ * main-thread state). Throwing this from a handler is the *supported* way to say so: the worker
+ * reports it back, and the scheduler re-runs the task inline instead of failing it. Handlers that
+ * simply are not installed in the worker are treated the same way, so a partially registered
+ * worker degrades instead of breaking a streaming pipeline.
+ */
+export class InlineOnlyError extends ForgeError {
+  constructor(message = "task handler requires the main thread") {
+    super(message, "E_INLINE_ONLY");
+  }
+}
+
+/**
  * Invariants are checked in development and reported (not thrown) in production builds, since
  * a released engine should prefer a dropped frame over taking down the page.
  */

@@ -14,7 +14,9 @@ cloud deck, Gerstner water, lightning) are **verified** through automated tests,
 benchmarks, and headless real-WebGPU checks. This file states exactly which claims are backed by an
 automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHICLES.md`,
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
-which assertion proves each part. Phases 9–14 are not built (`ROADMAP.md`).
+which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
+resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
+built and covered below; Phases 10+ are not built (`ROADMAP.md`).
 
 ## Setting up
 
@@ -27,12 +29,16 @@ without changing anything.
 
 | Command | Checks | Status |
 | --- | --- | --- |
-| `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 237 tests in 20 files: `environment` (28), `environment8b` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
+| `npm test` | 318 tests in 27 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `resources` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (8), `gpuEnv` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
+| `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
+| `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
 | `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
+| `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
+| `npm run test:gpu` | Suites named `tests/**\/*.gpu.test.ts` against a real adapter; none exist yet (`passWithNoTests`), real-adapter validation is `check:browser` | no-op by design |
 
 ### `tests/math.test.ts` — conventions the engine silently depends on
 
@@ -282,6 +288,115 @@ throws for a sub-16-byte array stride, that struct-typed members sit on 16-byte 
 `validateWgsl` flags the exact pattern that shipped (`pad68: array<u32, 3>`), nested-struct
 strides, root-level uniform arrays and unpadded struct members while accepting legal layouts.
 
+### `tests/physics.test.ts` — the solver, and the heightfield it stands on
+
+Parabolic integration, restitution without micro-jitter, Coulomb friction on an incline, a stable
+3-box stack, identical trajectories at 15/30/60/144 Hz, and raycasts against sphere and plane. Phase 9
+added the heightfield contract (`collideSphereHeightfield` / `collideBoxHeightfield`, the contact type
+every terrain-physics claim rests on): a sphere's penetration is measured from the sampled height with
+the normal pointing *into* the field, a flat field contacting nothing above the surface, a box
+generating one contact per penetrating corner only (four of eight for a box resting through a plane),
+and a ball settling exactly one radius above a sloped field. It also pins shape-argument validation:
+`new BoxShape(new Vec3(1, 1, 1))` used to produce NaN half-extents that surfaced much later as NaN
+contacts; it now throws `UsageError` at the constructor, while finite degenerate sizes still clamp.
+
+### `tests/tasks.test.ts` — worker execution (Phase 9.1)
+
+Two layers against the same shipping code. The worker-scope protocol is driven in-process over a fake
+scope: messages posted before the handlers exist are queued and replayed, a missing handler answers
+`inlineFallback: true`, `InlineOnlyError` asks for the main thread, a cancel is acknowledged and a
+result that arrives afterwards is discarded, and installing the scope twice is a no-op. The scheduler
+is checked on the main thread: dedupe by key shares one promise, priority and FIFO order decide which
+task runs first, `cancel`/`cancelGroup` reject with `TaskCancelledError`, `queueTimeoutMs` drops a task
+that never starts, failures reject the submitter and count `failed++`, `(priority, key)` resolution
+order holds, `dispose()` drains, and `stats()` reports workers/queued/running/completed counters.
+Then a **real second thread** (`tests/support/workerThreads.ts` bundles the engine's own worker entry
+with esbuild and runs it on `node:worker_threads`): a task reports the worker's `threadId`, three
+workers run concurrently, terrain generated in a worker is **bit-identical** to inline generation
+(including `pipelineHash`), progress messages are applied, two submits with one key across different
+workers deliver the same object, cancellation while running works, a handler that only exists on the
+main thread falls back inline, a throwing handler surfaces its message, and a worker killed mid-task
+(`worker_threads` error) is retried inline while `workerFailures++` and the pool shrinks. The
+`geometry.bvh` task is exercised the same way: the tree built on another thread is byte-identical to
+the inline build (node arrays *and* hash) and answers the same ray, with the payload copied rather
+than transferred so the caller keeps its geometry.
+
+### `tests/bvh.test.ts` — the mesh BVH (Phase 9.1)
+
+The index the worker builds is only useful if it is correct and deterministic, so the suite pins
+both: every triangle appears exactly once in `triOrder`, leaves never exceed `leafSize`, internal
+nodes always have two children, the root bounds contain every vertex, and `maxDepth` is honoured.
+400 deterministic rays are then answered by the BVH and by `raycastTriangles` (the brute-force
+reference in the same module) and must agree *exactly* — same hit or miss, same triangle, same
+distance — which is the strongest available check that the traversal preserves the query. Rebuilding
+the same geometry yields byte-identical node arrays and the same FNV-1a `hash`, while a different
+`leafSize` yields a different tree and a different hash. Degenerate inputs (no triangles, one
+triangle, a zero-area triangle, every triangle co-located so the centroid extent is zero) must not
+throw, must not recurse forever and must not report hits. Frustum/bounds queries are checked as
+*candidate* sets: a superset of the brute-force per-triangle AABB test, and strictly smaller than the
+whole mesh for a narrow view. The `geometry.bvh` payload round trip is covered here (structured
+clone, `MeshBvh.fromData`) and on a real thread in `tests/tasks.test.ts`.
+
+`tests/math.test.ts` gained the companion regression: `Mat4.multiply` used to corrupt the matrix it
+was multiplying into (writing a column clobbers the columns later iterations still read), so the most
+natural call in the API — `proj.multiply(view)` — produced a matrix with garbage translation
+columns. The old frustum test hid it by passing a second argument that never existed and only
+checking points on the axis; it now uses `multiplyMatrices` and the new case asserts in-place and
+three-operand forms agree, including `m.multiply(m)`.
+
+### `tests/gpuEnv.test.ts` — which Vulkan ICD the gate launches with
+
+`tools/gpu-env.mjs` is asked, before any browser exists, which ICD a headless Chromium should use, and
+the suite pins that answer by driving the tool as a CLI — the same way `scripts/setup-deps.sh` drives
+it, so the shell script's contract is covered too. A directory shaped like a browser that bundles its
+own stack must yield `VK_ICD_FILENAMES`/`VK_DRIVER_FILES` pointing at that file and its directory on
+`LD_LIBRARY_PATH`; an ICD the caller already named must win; a build with no bundled ICD must set no
+`VK_*` variable at all (the loader's own list is then the decision) while still searching the binary's
+directory; payload libraries (the @sparticuz `al2023/lib`) must come first and no path may repeat; a
+browser that does not exist must produce an answer, not a crash. This is the failure mode that costs
+the most time, because the browser still starts: `navigator.gpu` exists, `requestAdapter()` returns
+null, and the gate reports "did not run" while the engine is fine.
+
+### `tests/resources.test.ts` — the resource cache (Phase 9.2)
+
+Acquire/release refcounting, one load per id (a second acquire while a load is in flight joins it), a
+disposer that runs exactly once when the last lease goes, `bytes` accounting reconciled against
+`stats()`, pinned entries surviving eviction, and the eviction contract itself: `evictIdle()` collects
+only entries idle past the grace period, `evictIdle(target)` evicts least-recently-used entries until
+the byte target is met (ignoring the grace period, which is what memory pressure means), eviction
+disposes the value and invalidates outstanding handles so a later `release()` is safe, an in-flight
+load that gets evicted rejects its acquirer with `ResourceLifecycleError`, a failed load is retried on
+the next acquire, and `stats().evictedBytes` grows by the evicted bytes.
+
+### `tests/gpuMemory.test.ts` — GPU memory accounting (Phase 9.3)
+
+`GraphicsDevice` instruments the *raw* device's allocation entry points, so a buffer created through
+`device.device.createBuffer` is counted even when it bypasses the wrapper (which is how the renderer's
+internal allocations are made). The suite pins: a fresh mock device reports zero bytes; a raw buffer
+plus an engine buffer report exactly their sizes and counts; `describeTextureBytes` matches a mip
+chain's byte sum; `device.beginFrame()` resets the per-frame counters; a steady rendered frame adds no
+bytes and no allocations; a resize shows a bounded one-off texture cost; and `engine.gpuMemoryReport()`
+assembles device bytes, render-graph transient/pooled bytes and registry evicted bytes into one
+`GpuMemoryReport` with `tasks` visibility (`sum.bytes === sum.textureBytes + sum.bufferBytes`).
+
+### `tests/coordinateSpaces.test.ts` — world, render, chunk and terrain spaces (Phase 9.4)
+
+`worldToRender`/`renderToWorld` round-trip in float64, and a point 500 km from the origin survives the
+round trip with < 1 mm of error while still narrowing to a float32 render coordinate (the point of
+having an origin at all); `ChunkCoordinate` conversion floors negative world coordinates into the
+right cell and rejects a non-positive chunk size with `RangeError`; chunk origins and offsets
+reconstruct the world point; terrain coordinates and `CoordinateSpace.chunkOf`/`offsetOf` agree with
+the standalone helpers, and `renderSpaceOf` reflects the live origin after a recenter.
+
+### `tests/capabilities.test.ts` — the registry cannot lie (Phase 9.5 / 9.6)
+
+Registry contract (unique ids, evidence for `verified`, a closer for `partial`, resolvable roadmap
+references, every Phase 9 item claimed, `ROADMAP.md`'s engine-state block equal to the registry's phase
+markers, JSON-safe snapshots and frozen entries) plus the two document cross-checks that give 9.6 its
+teeth: every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified, and the
+stale Core entries about untested worker round-trips and untested eviction are gone. One test runs
+`tools/docs-check.mjs` itself, so the gate cannot rot silently.
+
 ## A real browser + real WebGPU runs here
 
 `tools/browser-check.mjs` starts the Vite demo (the `PBR Showcase` scene: 19 instanced batches, an
@@ -371,8 +486,21 @@ Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
 are crisp and the bloom halo is where the emissive cube is remains an eyeball check.
 
-The browser it drives is Chromium. WebKit (Safari, every iOS browser) is stricter about uniform
-address-space layout, and that difference is enforced statically instead: `StructDef.toWgsl("uniform")`
+Provisioning is part of the gate's contract, not a prerequisite left to the reader:
+`scripts/setup-deps.sh` installs the Vulkan loader and a software ICD (Mesa's lavapipe) when the machine
+has none, and `tools/gpu-env.mjs` — the one place that decides — points `VK_ICD_FILENAMES` at the ICD
+bundled next to the browser when the build ships one, otherwise leaves the system list to the loader
+and says so. Both choices are printed before the adapter probe, so a run that cannot present WebGPU is
+never mistaken for a broken engine. `npm run setup` also writes that environment to
+`$TMPDIR/forge-gpu-env.sh` for launching the same browser by hand.
+
+The browser it drives is Chromium, and specifically the *full* build (`channel: "chromium"`).
+Playwright's default headless launch uses `chromium-headless-shell`, which has no WebGPU at all — under
+it the page boots with no adapter and the gate reports an engine failure that is really a browser
+choice (this is how the CI job first failed). The pass line prints the adapter it found
+(`gpu: adapter ok (google / swiftshader)`), and a failure prints the same probe, so the log says
+whether the browser or the engine was at fault. WebKit (Safari, every iOS browser) is stricter about
+uniform address-space layout, and that difference is enforced statically instead: `StructDef.toWgsl("uniform")`
 refuses illegal definitions, `validateWgsl` applies the same rules to shader text at module creation,
 and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles the shaders on WebKit.
 
@@ -405,6 +533,21 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   What is *not* checked is colorimetric accuracy against a reference sky image or a spectral model —
   `docs/ENVIRONMENT.md` §6 lists the approximations.
 
+* **Worker execution on real threads.** `tests/tasks.test.ts` runs the shipping worker scope on
+  `node:worker_threads`: results, cancellation, progress, deterministic terrain identical to inline
+  generation, and crash recovery. A *browser* worker round-trip is still not asserted
+  (`capability: workers.browserThreads`), because neither the demo nor the gate submits a task.
+* **A mesh BVH, built on any thread.** `tests/bvh.test.ts` pins correctness (parity with brute force
+  over 400 rays), determinism (byte-identical rebuilds and a stable hash) and degenerate input;
+  `tests/tasks.test.ts` proves the same tree is produced by a real worker thread. Nothing *uses* it
+  yet — raycasts, culling and the broadphase are unchanged (`capability: physics.spatialIndex`).
+* **GPU memory accounting and resource eviction.** `tests/gpuMemory.test.ts` counts bytes through the
+  raw device's own entry points; `tests/resources.test.ts` pins eviction, refcounts and stale handles.
+* **Coordinate spaces.** `tests/coordinateSpaces.test.ts` is the reference for `docs/COORDINATES.md`.
+* **The project's own claims.** `npm run docs:check` fails when the capability registry, `ROADMAP.md`'s
+  status block and `docs/KNOWN-ISSUES.md` disagree — a limitation cannot outlive its implementation,
+  and a phase cannot be advertised as verified while a capability inside it is not.
+
 ## Not verified yet
 
 * **A WebKit compile.** Uniform-layout strictness is enforced by the static validator and unit tests
@@ -414,8 +557,14 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   against a reference image. Aliasing in the default frame is 0 bytes by design (nothing shares a
   shape yet), so the aliasing path is exercised only by `tests/renderGraph.test.ts`.
 * **GPU timings.** No timestamp queries yet; `renderTimeMs` is CPU time.
-* **Multi-threaded task scheduler and worker round-trips.** Worker entry and scheduler are
-  implemented, but worker execution across threads has no test suite yet.
+* **A browser-side worker round-trip.** The Node suites drive the shipping worker scope on real
+  threads, but no test starts a module worker in a browser and submits a task through it
+  (`capability: workers.browserThreads`).
+* **Mesh decoding off-thread.** There is no glTF/GLB decoder to run anywhere yet
+  (`capability: assets.meshDecoding`), so Phase 9.1's third bullet stays open.
+* **Using the BVH.** The tree exists, is deterministic and can be built in a worker; grid-marched
+  terrain raycasts, the pairwise broadphase and per-batch AABB culling do not consult it
+  (`capability: physics.spatialIndex`). Nothing measures a speed-up yet.
 * **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the
@@ -430,5 +579,18 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **Sky *appearance*.** The gates prove the sky pass runs, darkens at night and swaps presets; the
   colours are validated numerically against the CPU model's closed forms, not against photographs or
   a spectral reference renderer. Multiple scattering is absent (`docs/KNOWN-ISSUES.md`).
-* **Resource cache eviction.** Texture/mesh registry LRU behaviour under memory pressure is not
-  covered.
+* **The limits of a green CI run.** CI executes the CPU gates, prints in the job log what it does not
+  cover (`capability: testing.browserGateInCi`), and runs the WebGPU browser gate as a separate
+  *advisory* job. Making that job real needed three things a sandbox with a prepared browser gets for
+  free: the full Chromium build (`channel: "chromium"` — the bundled headless shell has no WebGPU at
+  all), a Vulkan loader with a software ICD (Playwright never installs `libvulkan1`, so without it
+  `navigator.gpu` exists and `requestAdapter()` still returns null), and a page that does not request a
+  favicon it does not have (a 404 is a console error, and console errors fail the gate). The middle
+  one is now `scripts/setup-deps.sh`, run by the job exactly as a developer runs it locally, so the two
+  cannot drift; the job pins the browser it provisions through `PLAYWRIGHT_CHROMIUM` and attaches the
+  setup script's output to the pull request next to the gate's.
+  Its log is mirrored onto the pull request as a comment, because job logs cannot be downloaded from
+  every environment. If that runner cannot launch a WebGPU browser the script exits 2, the job
+  says so and passes with a warning — it proves nothing about rendering, which is exactly what an
+  advisory check should admit. WebKit, mobile browsers and GPU timings are still not run anywhere in
+  CI; a failing advisory job never blocks a merge, so a green PR is not a rendering verdict.

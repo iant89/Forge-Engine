@@ -45,7 +45,7 @@ async function fixture(options: { width?: number; height?: number; renderer?: Re
   scene.world.addComponent(sunEntity.id, sun);
   sunEntity.transform.lookAt(new Vec3(0, 0, 0));
 
-  const geometries = [createPlane(device, { width: 40, depth: 40 }), createBox(device, { size: 1.5 })];
+  const geometries = [createPlane(device, { width: 40, depth: 40 }), createBox(device, { width: 1.5, height: 1.5, depth: 1.5 })];
   const materials = [new Material({ label: "ground", color: 0x334455 }), new Material({ label: "box", color: 0xff8800 })];
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
   const groundR = new Renderable();
@@ -182,11 +182,14 @@ describe("frame structure", () => {
     const f = await fixture();
     f.scene.settings.shadow.cascades = 2;
     f.renderer.renderScene(f.scene);
-    const created = f.mock.texturesCreated;
-    const buffers = f.mock.buffersCreated;
+    // The device's own accounting (Phase 9.3) counts every allocation, including the raw
+    // `device.device.create*` calls the renderer makes internally. (The old assertions read
+    // `mock.texturesCreated`, which never existed — they compared `undefined` to `undefined`.)
+    const created = f.device.gpuMemory.texturesCreated;
+    const buffers = f.device.gpuMemory.buffersCreated;
     for (let i = 0; i < 4; i++) f.renderer.renderScene(f.scene);
-    expect(f.mock.texturesCreated).toBe(created);
-    expect(f.mock.buffersCreated).toBe(buffers);
+    expect(f.device.gpuMemory.texturesCreated).toBe(created);
+    expect(f.device.gpuMemory.buffersCreated).toBe(buffers);
     expect(f.renderer.stats.texturesCreated).toBe(0);
 
     // Resize: frame-sized transients (hdr, depth, bloom mips) are re-planned, the shadow atlas is not.
@@ -257,11 +260,11 @@ describe("frame structure", () => {
     expect(s.passes).toBe(9);
 
     // Steady state: nothing is (re)created for the sky.
-    const created = f.mock.texturesCreated;
-    const buffers = f.mock.buffersCreated;
+    const created = f.device.gpuMemory.texturesCreated;
+    const buffers = f.device.gpuMemory.buffersCreated;
     for (let i = 0; i < 3; i++) f.renderer.renderScene(f.scene);
-    expect(f.mock.texturesCreated).toBe(created);
-    expect(f.mock.buffersCreated).toBe(buffers);
+    expect(f.device.gpuMemory.texturesCreated).toBe(created);
+    expect(f.device.gpuMemory.buffersCreated).toBe(buffers);
     expect(f.renderer.stats.texturesCreated).toBe(0);
 
     // LDR: the sky writes the swapchain directly, after the forward pass.

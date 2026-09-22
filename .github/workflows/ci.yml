@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: CPU gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (engine + examples)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: WGSL validation
+        run: npm run check:wgsl
+
+      - name: Architecture boundaries
+        run: npm run lint:arch
+
+      - name: Documentation honesty (capability registry, roadmap, known issues)
+        run: npm run docs:check
+
+      - name: Benchmarks (regression thresholds)
+        run: npm run bench
+
+      - name: Build the demo
+        run: npm run demo:build
+
+      # Phase 9.6: a green run here must not be read as "production ready". This step is the
+      # conspicuous statement of what has not been verified, and it is covered by
+      # docs:check (capability: testing.browserGateInCi).
+      - name: State what CI does not cover
+        run: |
+          cat <<'EOF'
+          ::notice title=Not covered by CI::WebGPU browser gate (npm run check:browser) — no GPU in this
+          runner. Also not covered: WebKit/Safari (there is no Safari here), mobile browsers, GPU
+          timings, and the soak tests. A green job means the CPU gates passed, nothing more.
+          EOF
+
+  browser-gate:
+    name: WebGPU browser gate (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # `pull-requests: write` is for the report step below: job logs are not reachable from every
+    # environment (the sandbox this workflow was written in could not download them at all), so the
+    # gate's verdict is mirrored onto the pull request where it can actually be read.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The gate launches the full Chromium build (`channel: "chromium"`), because Playwright's default
+      # headless launch is chromium-headless-shell, which has no WebGPU at all. Install the revision the
+      # installed playwright-core asks for, so a dependency bump cannot fetch a different one, and pin
+      # the environment to that binary: without PLAYWRIGHT_CHROMIUM the setup script below would extract
+      # the @sparticuz payload into the temp dir, and CI would test a different browser than the gate
+      # launches on a developer machine.
+      - name: Install the Chromium build the gate launches
+        run: |
+          PW_VERSION=$(node -p "require('playwright-core/package.json').version")
+          npx --yes "playwright@$PW_VERSION" install --with-deps chromium
+          PW_CHROME=$(node -p "require('playwright-core').chromium.executablePath()")
+          echo "PLAYWRIGHT_CHROMIUM=$PW_CHROME" >> "$GITHUB_ENV"
+          ls "$(dirname "$PW_CHROME")" | grep -iE "vulkan|swiftshader" || true
+
+      # The same script a developer runs: it verifies the toolchain, the locked packages and the
+      # browser, installs the Vulkan loader and a software ICD (libvulkan1 + Mesa's lavapipe), and
+      # reports which ICD tools/gpu-env.mjs will hand the gate. Its output is attached to the pull
+      # request below, so a rendering failure can be told apart from a provisioning one.
+      - name: Provision the gate's environment
+        run: bash scripts/setup-deps.sh --browser --verbose 2>&1 | tee "$RUNNER_TEMP/setup.log"
+
+      # No `PIPESTATUS`, no `tee`-in-a-pipeline: the exit code has to survive whatever shell this
+      # runner hands the script, and the log is needed as a file for the report step below anyway.
+      - name: Real-WebGPU gate (SwiftShader)
+        run: |
+          set +e
+          npm run check:browser > "$RUNNER_TEMP/browser-gate.log" 2>&1
+          CODE=$?
+          set -e
+          cat "$RUNNER_TEMP/browser-gate.log"
+          # Exit 2 is the gate's own "nothing to run here" (no launchable browser, or no WebGPU
+          # adapter): it proves nothing about rendering, which is what a warning should say. Exit 1
+          # means the gate ran and something failed, and stays a failure of this job.
+          if [ "$CODE" -eq 2 ]; then
+            echo "::warning title=Browser gate did not run::The gate found no WebGPU browser here, so this job proves nothing about rendering. Run npm run check:browser on a machine that has one."
+            exit 0
+          fi
+          exit "$CODE"
+
+      - name: Report the gate's verdict on the pull request
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.number }}
+        run: |
+          LOG="$RUNNER_TEMP/browser-gate.log"
+          [ -f "$LOG" ] || exit 0
+          {
+            echo '<!-- browser-gate-report -->'
+            echo "Browser gate (\`${{ github.sha }}\`, advisory)."
+            echo
+            echo 'Provisioning the environment:'
+            echo
+            echo '```'
+            tail -c 1200 "$RUNNER_TEMP/setup.log" 2>/dev/null || echo "(no setup log)"
+            echo '```'
+            echo
+            echo "Gate output (last 3 kB):"
+            echo
+            echo '```'
+            tail -c 3000 "$LOG"
+            echo '```'
+          } > "$RUNNER_TEMP/body.md"
+          gh pr comment "$PR" --body-file "$RUNNER_TEMP/body.md" --edit-last ||
+            gh pr comment "$PR" --body-file "$RUNNER_TEMP/body.md"
+
+      - name: Upload the gate's screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-check
+          path: tools/.browser-check.png
+          if-no-files-found: ignore
