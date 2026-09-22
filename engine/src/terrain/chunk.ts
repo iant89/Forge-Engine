@@ -19,6 +19,48 @@ export function chunkKey(cx: number, cz: number, lod = 0): string {
   return `${cx}:${cz}:${lod}`;
 }
 
+/**
+ * Tangent for a heightfield vertex: UV.u increases along world +X, so project +X onto the
+ * surface's tangent plane. `w = -1` makes `cross(N, T) * w` (the shader's bitangent) point along
+ * +V = world +Z on a Y-up ground plane. Falls back to projecting +Z when N ≈ ±X (degenerate).
+ */
+function writeHeightfieldTangent(tangents: Float32Array, vertexIndex: number, n: Vec3): void {
+  let tx = 1 - n.x * n.x;
+  let ty = -n.x * n.y;
+  let tz = -n.x * n.z;
+  let len = Math.hypot(tx, ty, tz);
+  if (len < 1e-5) {
+    // Normal is parallel to +X (a vertical east-facing wall): any direction in the plane works;
+    // +Z keeps the frame continuous with the rest of the chunk.
+    tx = -n.z * n.x;
+    ty = -n.z * n.y;
+    tz = 1 - n.z * n.z;
+    len = Math.hypot(tx, ty, tz) || 1;
+  }
+  const o = vertexIndex * 4;
+  tangents[o] = tx / len;
+  tangents[o + 1] = ty / len;
+  tangents[o + 2] = tz / len;
+  tangents[o + 3] = -1;
+}
+
+/** Skirt side tangent: U still runs along the shared edge axis; pick the in-plane axis by facing. */
+function writeSkirtTangent(tangents: Float32Array, vertexIndex: number, nx: number, nz: number): void {
+  // Facing ±Z → U is +X (same as the grid). Facing ±X → U is +Z.
+  const o = vertexIndex * 4;
+  if (nz !== 0) {
+    tangents[o] = 1;
+    tangents[o + 1] = 0;
+    tangents[o + 2] = 0;
+    tangents[o + 3] = nz > 0 ? -1 : 1;
+  } else {
+    tangents[o] = 0;
+    tangents[o + 1] = 0;
+    tangents[o + 2] = 1;
+    tangents[o + 3] = nx > 0 ? -1 : 1;
+  }
+}
+
 export interface TerrainTileOptions {
   cx: number;
   cz: number;
@@ -88,6 +130,10 @@ export class TerrainTile {
     const positions = new Float32Array(totalVertexCount * 3);
     const normals = new Float32Array(totalVertexCount * 3);
     const uvs = new Float32Array(totalVertexCount * 2);
+    // xyzw tangent for normal mapping: +U of the chunk UV grid runs along world +X, w = handedness
+    // so that `cross(N, T) * w` points along +V (world +Z). See the skirt note below for the
+    // side-facing normals where the +X projection degenerates.
+    const tangents = new Float32Array(totalVertexCount * 4);
 
     const norm = new Vec3();
 
@@ -112,6 +158,8 @@ export class TerrainTile {
         const uvOff = idx * 2;
         uvs[uvOff] = i / (res - 1);
         uvs[uvOff + 1] = j / (res - 1);
+
+        writeHeightfieldTangent(tangents, idx, norm);
       }
     }
 
@@ -129,6 +177,7 @@ export class TerrainTile {
       normals[sIdx * 3 + 2] = -1;
       uvs[sIdx * 2] = uvs[gIdx * 2]!;
       uvs[sIdx * 2 + 1] = 0;
+      writeSkirtTangent(tangents, sIdx, 0, -1);
     }
 
     // Bottom edge (j = res - 1)
@@ -142,6 +191,7 @@ export class TerrainTile {
       normals[sIdx * 3 + 2] = 1;
       uvs[sIdx * 2] = uvs[gIdx * 2]!;
       uvs[sIdx * 2 + 1] = 1;
+      writeSkirtTangent(tangents, sIdx, 0, 1);
     }
 
     // Left edge (i = 0)
@@ -155,6 +205,7 @@ export class TerrainTile {
       normals[sIdx * 3 + 2] = 0;
       uvs[sIdx * 2] = 0;
       uvs[sIdx * 2 + 1] = uvs[gIdx * 2 + 1]!;
+      writeSkirtTangent(tangents, sIdx, -1, 0);
     }
 
     // Right edge (i = res - 1)
@@ -168,6 +219,7 @@ export class TerrainTile {
       normals[sIdx * 3 + 2] = 0;
       uvs[sIdx * 2] = 1;
       uvs[sIdx * 2 + 1] = uvs[gIdx * 2 + 1]!;
+      writeSkirtTangent(tangents, sIdx, 1, 0);
     }
 
     // 3. Triangle indices with CW winding
@@ -269,6 +321,7 @@ export class TerrainTile {
       positions,
       normals,
       uvs,
+      tangents,
       indices,
       bounds: this.bounds,
       label: `terrain-chunk-${this.cx}-${this.cz}-lod${this.lod}`,
