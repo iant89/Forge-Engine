@@ -79,11 +79,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Chromium for the gate
-        run: npx --yes playwright@1.49.1 install --with-deps chromium
+      # The gate launches `channel: "chromium"` (the full build) because Playwright's default headless
+      # launch uses chromium-headless-shell, which has no WebGPU. Install the revision that the
+      # installed playwright-core asks for, so a dependency bump cannot silently fetch a different one.
+      - name: Install the Chromium build the gate launches
+        run: |
+          PW_VERSION=$(node -p "require('playwright-core/package.json').version")
+          npx --yes "playwright@$PW_VERSION" install --with-deps chromium
 
+      # Exit 2 means "nothing launchable" — that is this runner's problem, not the change's, and the
+      # script says so itself. Anything else (exit 1: the gate ran and something failed) stays a
+      # failure of this job. Either way the job is advisory: `continue-on-error` keeps it from
+      # blocking a merge, and the notice below is the record of what did not happen.
       - name: Real-WebGPU gate (SwiftShader)
-        run: npm run check:browser
+        run: |
+          set +e
+          npm run check:browser
+          CODE=$?
+          set -e
+          if [ "$CODE" -eq 2 ]; then
+            echo "::warning title=Browser gate did not run::The gate found no launchable WebGPU browser, so this job proves nothing about rendering. Run npm run check:browser on a machine with one."
+            exit 0
+          fi
+          exit "$CODE"
 
       - name: Upload the gate's screenshot
         if: always()

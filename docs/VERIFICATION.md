@@ -472,8 +472,13 @@ Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
 are crisp and the bloom halo is where the emissive cube is remains an eyeball check.
 
-The browser it drives is Chromium. WebKit (Safari, every iOS browser) is stricter about uniform
-address-space layout, and that difference is enforced statically instead: `StructDef.toWgsl("uniform")`
+The browser it drives is Chromium, and specifically the *full* build (`channel: "chromium"`).
+Playwright's default headless launch uses `chromium-headless-shell`, which has no WebGPU at all — under
+it the page boots with no adapter and the gate reports an engine failure that is really a browser
+choice (this is how the CI job first failed). The pass line prints the adapter it found
+(`gpu: adapter ok (google / swiftshader)`), and a failure prints the same probe, so the log says
+whether the browser or the engine was at fault. WebKit (Safari, every iOS browser) is stricter about
+uniform address-space layout, and that difference is enforced statically instead: `StructDef.toWgsl("uniform")`
 refuses illegal definitions, `validateWgsl` applies the same rules to shader text at module creation,
 and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles the shaders on WebKit.
 
@@ -552,6 +557,10 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **Sky *appearance*.** The gates prove the sky pass runs, darkens at night and swaps presets; the
   colours are validated numerically against the CPU model's closed forms, not against photographs or
   a spectral reference renderer. Multiple scattering is absent (`docs/KNOWN-ISSUES.md`).
-* **The limits of a green CI run.** CI executes the CPU gates and prints, in the job log, that the
-  WebGPU browser gate, the benchmarks, WebKit and mobile browsers are *not* run there
-  (`capability: testing.browserGateInCi`). `npm run check:browser` remains a local/sandbox gate.
+* **The limits of a green CI run.** CI executes the CPU gates, prints in the job log what it does not
+  cover (`capability: testing.browserGateInCi`), and runs the WebGPU browser gate as a separate
+  *advisory* job: it installs the Chromium revision the installed `playwright-core` asks for and runs
+  the same SwiftShader gate. If that runner cannot launch a WebGPU browser the script exits 2, the job
+  says so and passes with a warning — it proves nothing about rendering, which is exactly what an
+  advisory check should admit. WebKit, mobile browsers and GPU timings are still not run anywhere in
+  CI; a failing advisory job never blocks a merge, so a green PR is not a rendering verdict.

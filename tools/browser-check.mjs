@@ -39,8 +39,11 @@
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
- * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
- * pass.
+ * Playwright-managed install — launched as `channel: "chromium"`, the *full* build. Playwright's
+ * default headless launch uses `chromium-headless-shell`, and that binary has no WebGPU at all: with it
+ * the page boots into "no adapter" and this gate reports a product bug that is really a browser choice.
+ * The full build in new headless mode (with the flags below) is the only configuration that presents
+ * pixels here. Exits 2 when nothing can be launched, so `verify` never implies a browser pass.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -103,7 +106,8 @@ const useEnv = spartan
 let browser;
 try {
   browser = await chromium.launch({
-    ...(spartan ? { executablePath: spartan } : {}),
+    // `executablePath` and `channel` are mutually exclusive; when we have our own binary, use it.
+    ...(spartan ? { executablePath: spartan } : { channel: "chromium" }),
     ...useEnv,
     args: [
       "--no-sandbox",
@@ -121,7 +125,8 @@ try {
 } catch (error) {
   console.error(
     `check:browser NOT RUN — no launchable browser (${String(error).split("\n")[0]}).\n` +
-      "  install once: npm i -D playwright && npx playwright install chromium --with-deps",
+      "  install the build that matches the installed playwright-core, then retry:\n" +
+      "  npx playwright@$(node -p \"require('playwright-core/package.json').version\") install --with-deps chromium",
   );
   vite.kill("SIGKILL");
   process.exit(2);
@@ -179,15 +184,33 @@ const samplePixels = () =>
       }),
   );
 
+/**
+ * One line that tells the next reader whether a failure here is the engine's or the browser's. The
+ * "`navigator.gpu` exists but `requestAdapter()` is null" case is the signature of a headless-shell
+ * launch or a missing SwiftShader, and it has cost someone an afternoon before.
+ */
+const describeGpu = () =>
+  page
+    .evaluate(async () => {
+      if (!navigator.gpu) return "gpu: navigator.gpu is undefined (this browser has no WebGPU at all)";
+      const adapter = await navigator.gpu.requestAdapter().catch(() => null);
+      if (!adapter) {
+        return "gpu: navigator.gpu exists but requestAdapter() returned null (headless shell, or SwiftShader not enabled)";
+      }
+      const info = adapter.info ?? {};
+      return `gpu: adapter ok (${info.vendor ?? "?"} / ${info.architecture ?? "?"}${info.description ? ` — ${info.description}` : ""})`;
+    })
+    .catch((error) => `gpu: probe failed (${String(error).split("\n")[0]})`);
+
 let exitCode = 0;
 try {
   await page.goto(URL, { waitUntil: "load", timeout: 60000 });
   await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
   const boot = await page.evaluate(() => window.__forgeError ?? null);
-  if (boot) throw new Error(`engine failed to start:\n${boot}`);
+  if (boot) throw new Error(`engine failed to start:\n${boot}\n${await describeGpu()}`);
 
   const backend = await page.evaluate(() => window.__forge.backend);
-  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"`);
+  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
 
   const before = await page.evaluate(() => window.__forge.stats());
   await sleep(2500);
@@ -697,7 +720,7 @@ if (exitCode === 0 && fatal.length > 0) {
   console.error(`\ncheck:browser FAILED (${fatal.length} console/page error(s))`);
   exitCode = 1;
 } else if (exitCode === 0) {
-  console.log("\ncheck:browser passed (real WebGPU, headless Chromium + SwiftShader)");
+  console.log(`\ncheck:browser passed (real WebGPU, headless Chromium + SwiftShader) — ${await describeGpu()}`);
 }
 await browser.close();
 vite.kill("SIGKILL");
