@@ -23,6 +23,7 @@ import { OrbitControls } from "./controls/orbitControls.js";
 import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
 import { buildPbrScene } from "./scenes/pbrScene.js";
 import { buildTerrainScene } from "./scenes/terrainScene.js";
+import { buildRealisticTerrainScene } from "./scenes/realisticTerrainScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -31,6 +32,7 @@ const errorBox = document.getElementById("error") as HTMLDivElement;
 const btnScenePbr = document.getElementById("btn-scene-pbr") as HTMLButtonElement | null;
 const btnSceneCubes = document.getElementById("btn-scene-cubes") as HTMLButtonElement | null;
 const btnSceneTerrain = document.getElementById("btn-scene-terrain") as HTMLButtonElement | null;
+const btnSceneRealistic = document.getElementById("btn-scene-realistic") as HTMLButtonElement | null;
 const btnTmAces = document.getElementById("btn-tm-aces") as HTMLButtonElement | null;
 const btnTmFilmic = document.getElementById("btn-tm-filmic") as HTMLButtonElement | null;
 const btnTmReinhard = document.getElementById("btn-tm-reinhard") as HTMLButtonElement | null;
@@ -54,16 +56,20 @@ async function main(): Promise<void> {
   let controls: OrbitControls | null = null;
   let activeSceneName = "pbr";
 
-  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain)
+  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic)
   const params = new URLSearchParams(window.location.search);
   const requestedScene = params.get("scene");
   if (requestedScene === "cubes") {
     activeSceneName = "cubes";
   } else if (requestedScene === "terrain") {
     activeSceneName = "terrain";
+  } else if (requestedScene === "realistic" || requestedScene === "realistic-terrain") {
+    activeSceneName = "realistic";
   }
 
-  function loadScene(name: "pbr" | "cubes" | "terrain"): void {
+  type SceneName = "pbr" | "cubes" | "terrain" | "realistic";
+
+  function loadScene(name: SceneName): void {
     if (currentHandle) {
       currentHandle.dispose?.();
     }
@@ -76,11 +82,14 @@ async function main(): Promise<void> {
     btnScenePbr?.classList.toggle("active", name === "pbr");
     btnSceneCubes?.classList.toggle("active", name === "cubes");
     btnSceneTerrain?.classList.toggle("active", name === "terrain");
+    btnSceneRealistic?.classList.toggle("active", name === "realistic");
 
     if (name === "pbr") {
       currentHandle = buildPbrScene(engine);
     } else if (name === "terrain") {
       currentHandle = buildTerrainScene(engine);
+    } else if (name === "realistic") {
+      currentHandle = buildRealisticTerrainScene(engine, { preset: "alpine" });
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -90,13 +99,14 @@ async function main(): Promise<void> {
     controls = new OrbitControls(currentHandle.cameraEntity, canvas).configure(currentHandle.camera ?? {});
   }
 
-  loadScene(activeSceneName as "pbr" | "cubes" | "terrain");
+  loadScene(activeSceneName as SceneName);
   engine.start();
 
   // Toolbar event listeners
   btnScenePbr?.addEventListener("click", () => loadScene("pbr"));
   btnSceneCubes?.addEventListener("click", () => loadScene("cubes"));
   btnSceneTerrain?.addEventListener("click", () => loadScene("terrain"));
+  btnSceneRealistic?.addEventListener("click", () => loadScene("realistic"));
 
   function setToneMapping(mode: ToneMapping): void {
     if (!currentHandle) return;
