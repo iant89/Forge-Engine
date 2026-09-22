@@ -8,7 +8,7 @@
  */
 
 import { Heightmap } from "./heightmap.js";
-import { GeneratorPipeline, type WorldCell } from "./generators.js";
+import { GeneratorPipeline, createWorldCell, type WorldCell } from "./generators.js";
 import { Geometry, type GeometrySource } from "../rendering/geometry.js";
 import { AABB } from "../math/geometry.js";
 import { Vec3 } from "../math/vec.js";
@@ -51,18 +51,7 @@ export class TerrainTile {
     this.lod = options.lod ?? 0;
     this.skirtDepth = options.skirtDepth ?? 8.0;
 
-    const count = this.resolution * this.resolution;
-    this.cell = {
-      cx: this.cx,
-      cz: this.cz,
-      size: this.size,
-      resolution: this.resolution,
-      seed,
-      heights: new Float32Array(count),
-      slopes: new Float32Array(count),
-      biomes: new Float32Array(count * 4),
-      scatters: [],
-    };
+    this.cell = createWorldCell(this.cx, this.cz, this.size, this.resolution, seed);
 
     // Execute generation pipeline
     pipeline.execute(this.cell);

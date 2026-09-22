@@ -2,20 +2,27 @@
  * `TerrainWorld` — chunk manager, procedural streaming, LOD, and height query engine.
  *
  * Implements:
- *  - Infinite procedural streaming centered around the camera / focus position
- *  - Guaranteed continuous height & normal sampling anywhere in the world
- *  - Budgeted chunk generation with LRU memory eviction
+ *  - Procedural streaming centred on the camera / focus position
+ *  - Guaranteed continuous height & normal sampling anywhere in the world, matching the drawn mesh
+ *  - Nearest-first generation and LRU eviction bounded by `maxChunksLoaded`, so the resident set and
+ *    the per-frame generation cost stay inside the configured budget
  *  - Seamless integration with `Scene` and `EntityWorld`
+ *
+ * `viewDistance` is advisory: the selection is capped at `maxChunksLoaded` chunks by distance from
+ * the focus, so a budget smaller than the view distance shows a smaller loaded radius instead of
+ * growing without bound.
  */
 
 import { SceneObject, type Scene } from "../scene/scene.js";
 import { type SystemContext } from "../scene/systems.js";
 import { TerrainChunk, chunkKey } from "./chunk.js";
-import { TerrainLOD } from "./lod.js";
-import { GeneratorPipeline, HeightGenerator, type HeightGeneratorOptions } from "./generators.js";
+import { Heightmap } from "./heightmap.js";
+import { TerrainLOD, type LODSelection } from "./lod.js";
+import { GeneratorPipeline, HeightGenerator, createWorldCell, type HeightGeneratorOptions } from "./generators.js";
 import { Material } from "../rendering/material.js";
 import { Transform, Renderable, Camera } from "../scene/components/index.js";
 import { Vec3 } from "../math/vec.js";
+import { clamp } from "../math/scalar.js";
 import { Color } from "../math/color.js";
 import { Ray, RayHit } from "../math/geometry.js";
 import type { EntityId } from "../scene/entityId.js";
@@ -33,6 +40,9 @@ export interface TerrainWorldOptions {
   heightOptions?: HeightGeneratorOptions;
   material?: Material;
 }
+
+/** How many non-resident cells `sampledHeightmap` keeps cached. */
+const SAMPLED_CELL_CACHE_SIZE = 12;
 
 export class TerrainWorld extends SceneObject {
   readonly name = "TerrainWorld";
@@ -54,7 +64,13 @@ export class TerrainWorld extends SceneObject {
 
   readonly focusPosition = new Vec3();
   material: Material | null = null;
-  private pendingQueue: { cx: number; cz: number; lod: number }[] = [];
+
+  /**
+   * Heightmaps for chunks that are not resident, so an elevation query outside the resident set
+   * still answers with the surface that would be drawn there (see `sampledHeightmap`). LRU-capped:
+   * a query far away costs one cell generation and is then cached.
+   */
+  private readonly sampledCells = new Map<string, Heightmap>();
 
   constructor(options: TerrainWorldOptions = {}) {
     super();
@@ -118,29 +134,45 @@ export class TerrainWorld extends SceneObject {
       }
     }
 
-    // 2. Select chunks in view
+    // 2. Select chunks in view, nearest first, and stop at the memory budget.
+    //
+    //    The budget is what keeps the "view distance" honest: the candidate set grows with the square
+    //    of the view distance (2048 m over 128 m chunks selects ~900 chunks), and eviction can never
+    //    drop a *selected* chunk, so without a cap the resident set grew without bound — every frame
+    //    spending its generation budget on chunks that were queued in scan order rather than in the
+    //    order the camera needed them, including the chunk directly under the camera.
     const selections = this.lod.selectVisibleChunks(this.focusPosition, this.viewDistance);
-    const visibleKeys = new Set<string>();
+    const focus = this.focusPosition;
+    selections.sort((a, b) => {
+      const ax = clamp(focus.x, a.bounds.min.x, a.bounds.max.x) - focus.x;
+      const az = clamp(focus.z, a.bounds.min.z, a.bounds.max.z) - focus.z;
+      const bx = clamp(focus.x, b.bounds.min.x, b.bounds.max.x) - focus.x;
+      const bz = clamp(focus.z, b.bounds.min.z, b.bounds.max.z) - focus.z;
+      return ax * ax + az * az - (bx * bx + bz * bz);
+    });
 
-    for (const sel of selections) {
+    const budget = Math.min(this.maxChunksLoaded, selections.length);
+    const visibleKeys = new Set<string>();
+    const needed: LODSelection[] = [];
+    for (let i = 0; i < budget; i++) {
+      const sel = selections[i]!;
       const key = chunkKey(sel.cx, sel.cz, 0); // Level 0 resolution for main geometry
       visibleKeys.add(key);
+      needed.push(sel);
 
       let chunk = this.chunks.get(key);
       if (!chunk) {
         chunk = new TerrainChunk(sel.cx, sel.cz, this.chunkSize, this.chunkResolution, sel.lod);
         this.chunks.set(key, chunk);
-        this.pendingQueue.push({ cx: sel.cx, cz: sel.cz, lod: sel.lod });
       }
       chunk.lastAccessed = performance.now();
     }
 
-    // 3. Process budgeted generations
+    // 3. Process budgeted generations — the nearest pending chunk is always the next one generated.
     let generatedThisFrame = 0;
-    while (this.pendingQueue.length > 0 && generatedThisFrame < this.maxGenerationsPerFrame) {
-      const next = this.pendingQueue.shift()!;
-      const key = chunkKey(next.cx, next.cz, 0);
-      const chunk = this.chunks.get(key);
+    for (const sel of needed) {
+      if (generatedThisFrame >= this.maxGenerationsPerFrame) break;
+      const chunk = this.chunks.get(chunkKey(sel.cx, sel.cz, 0));
       if (chunk && chunk.state === "pending") {
         chunk.generate(this.pipeline, this.seed);
         this.attachChunkEntity(chunk, context);
@@ -206,46 +238,62 @@ export class TerrainWorld extends SceneObject {
   /**
    * Continuous elevation query at world coordinates (worldX, worldZ).
    *
-   * If the corresponding chunk is loaded, samples its bicubic heightmap.
-   * If outside loaded chunks, evaluates the pure deterministic generator function.
+   * Samples the resident chunk's bicubic heightmap when there is one; otherwise runs the generation
+   * pipeline for the chunk that contains the point (cached, see `sampledHeightmap`). Either way the
+   * answer is the surface the meshes are built from, so a caller that stands a camera or a physics
+   * body on it lands on what is drawn — the pipeline's crater and erosion stages used to be skipped
+   * by this query, which put the answer up to ~20 m away from the mesh in a crater.
    */
   getHeightAt(worldX: number, worldZ: number): number {
-    const cx = Math.floor(worldX / this.chunkSize);
-    const cz = Math.floor(worldZ / this.chunkSize);
-    const key = chunkKey(cx, cz, 0);
-    const chunk = this.chunks.get(key);
-
-    if (chunk?.tile) {
-      return chunk.tile.heightmap.getHeight(worldX, worldZ);
-    }
-    return this.heightGenerator.sampleHeight(worldX, worldZ, this.seed);
+    return this.surfaceAt(worldX, worldZ).getHeight(worldX, worldZ);
   }
 
   /**
    * Continuous surface normal query at world coordinates (worldX, worldZ).
    */
   getNormalAt(worldX: number, worldZ: number, out = new Vec3()): Vec3 {
+    return this.surfaceAt(worldX, worldZ).getNormal(worldX, worldZ, out);
+  }
+
+  /** Resident chunk heightmap when there is one, otherwise the generated-on-demand cell. */
+  private surfaceAt(worldX: number, worldZ: number): Heightmap {
+    const key = chunkKey(Math.floor(worldX / this.chunkSize), Math.floor(worldZ / this.chunkSize), 0);
+    return this.chunks.get(key)?.tile?.heightmap ?? this.sampledHeightmap(worldX, worldZ);
+  }
+
+  /**
+   * Heightmap of the chunk containing `worldX/worldZ`, generated on demand with the same pipeline and
+   * grid resolution the mesh uses. Cells are cached (LRU) because this costs a cell generation; a
+   * streaming chunk replaces them as soon as it is resident.
+   */
+  private sampledHeightmap(worldX: number, worldZ: number): Heightmap {
     const cx = Math.floor(worldX / this.chunkSize);
     const cz = Math.floor(worldZ / this.chunkSize);
     const key = chunkKey(cx, cz, 0);
-    const chunk = this.chunks.get(key);
 
-    if (chunk?.tile) {
-      return chunk.tile.heightmap.getNormal(worldX, worldZ, out);
+    const cached = this.sampledCells.get(key);
+    if (cached) {
+      // Re-insert to mark it as the most recently used entry.
+      this.sampledCells.delete(key);
+      this.sampledCells.set(key, cached);
+      return cached;
     }
 
-    // Finite difference on pure generator function
-    const eps = 1.0;
-    const hL = this.heightGenerator.sampleHeight(worldX - eps, worldZ, this.seed);
-    const hR = this.heightGenerator.sampleHeight(worldX + eps, worldZ, this.seed);
-    const hD = this.heightGenerator.sampleHeight(worldX, worldZ - eps, this.seed);
-    const hU = this.heightGenerator.sampleHeight(worldX, worldZ + eps, this.seed);
-
-    const dx = (hR - hL) / (2 * eps);
-    const dz = (hU - hD) / (2 * eps);
-
-    out.set(-dx, 1, -dz);
-    return out.normalize();
+    const cell = createWorldCell(cx, cz, this.chunkSize, this.chunkResolution, this.seed);
+    this.pipeline.execute(cell);
+    const map = new Heightmap({
+      originX: cx * this.chunkSize,
+      originZ: cz * this.chunkSize,
+      size: this.chunkSize,
+      resolution: this.chunkResolution,
+      heights: cell.heights,
+    });
+    this.sampledCells.set(key, map);
+    if (this.sampledCells.size > SAMPLED_CELL_CACHE_SIZE) {
+      const oldest = this.sampledCells.keys().next().value;
+      if (oldest !== undefined) this.sampledCells.delete(oldest);
+    }
+    return map;
   }
 
   /**
@@ -289,7 +337,7 @@ export class TerrainWorld extends SceneObject {
     }
     this.chunks.clear();
     this.activeEntities.clear();
-    this.pendingQueue.length = 0;
+    this.sampledCells.clear();
     if (this.material) {
       this.material.dispose();
       this.material = null;

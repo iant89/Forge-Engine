@@ -2,11 +2,17 @@
  * Phase 4 Scene: Procedural Martian Landscape.
  *
  * Demonstrates:
- * - 10 km+ visible procedural world with multi-octave fBm and mountain ridges.
+ * - A procedural world of multi-octave fBm and mountain ridges, streamed in 128 m chunks.
  * - Impact craters with uplifted rims, excavated bowls, and central rebound peaks.
- * - Continuous bicubic elevation sampling for camera elevation and ground clamping.
- * - Dynamic quadtree chunk streaming and distance LOD.
+ * - Continuous bicubic elevation sampling that agrees with the drawn mesh, used as the camera's
+ *   surface constraint (`camera.groundHeight`): the orbit camera glides over ridges instead of
+ *   passing through them, and can zoom from 6 m to 1.1 km away (just past the streaming radius —
+ *   fog is a Phase 8 feature and nothing hides the loaded disc's edge yet, see KNOWN-ISSUES).
+ * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
+ *
+ * `scene.setFog` is authored below for the eventual haze pass, but no shipped shader samples the fog
+ * uniforms yet (Phase 8); the terrain is drawn with no atmospheric falloff.
  */
 import {
   Camera,
@@ -24,7 +30,7 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
   const scene = new Scene({ name: "terrain-demo" });
   scene.setBackgroundColor(Color.fromSrgbHex(0x1a0f0d));
 
-  // Enable HDR, tone-mapping, and atmospheric fog
+  // HDR, tone mapping and the fog settings the Phase 8 atmosphere pass will read
   scene.settings.hdr = true;
   scene.settings.exposure = 1.1;
   scene.settings.toneMapping = "aces";
@@ -51,14 +57,18 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
     metallic: 0.04,
   });
 
+  // Streaming budget: 128 m chunks at 33x33 (4 m cells) cost ~7 ms each to generate on a desktop
+  // CPU, so the resident set and the per-frame budget are what decide whether the demo is smooth.
+  // 220 chunks cover the full 1 km disc that `viewDistance` asks for; asking for more (the previous
+  // 2048 m with a 120 chunk cap) selected ~900 chunks and never evicted them.
   const terrain = new TerrainWorld({
     seed: 42137,
     chunkSize: 128,
     chunkResolution: 33,
-    viewDistance: 2048,
+    viewDistance: 1024,
     maxLOD: 3,
-    maxChunksLoaded: 120,
-    maxGenerationsPerFrame: 8,
+    maxChunksLoaded: 220,
+    maxGenerationsPerFrame: 2,
     material: terrainMat,
     heightOptions: {
       amplitude: 55,
@@ -90,11 +100,10 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
   scene.world.addComponent(ambientEntity.id, ambient);
   ambientEntity.transform.lookAt(new Vec3(0, 0, 0));
 
-  // Camera placed on high ridge overlooking crater valley
-  const initialCamX = 0;
-  const initialCamZ = 0;
-  const groundY = terrain.getHeightAt(initialCamX, initialCamZ);
-  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(initialCamX, groundY + 25, initialCamZ));
+  // Camera overlooking a crater valley. The controller (see `camera` below) owns the position from
+  // here on: it clamps the eye and the orbit target to `groundClearance` above the terrain.
+  const groundY = terrain.getHeightAt(0, 0);
+  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, groundY + 25, 0));
   const camera = new Camera();
   camera.fovY = Math.PI / 3.2;
   camera.near = 0.5;
@@ -104,13 +113,22 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
   return {
     scene,
     cameraEntity,
+    camera: {
+      target: new Vec3(0, groundY, 0),
+      distance: 420,
+      azimuth: 0.4,
+      elevation: 0.34,
+      // 6 m from a surface point up to 1.1 km away — the old fixed 2..50 m range was smaller than the
+      // view distance, so the first wheel event yanked the camera to the ground. The cap stays near
+      // `viewDistance` so the loaded disc's edge does not dominate the frame.
+      minDistance: 6,
+      maxDistance: 1100,
+      groundClearance: 4,
+      groundHeight: (x, z) => terrain.getHeightAt(x, z),
+    },
     update: (_dt: number) => {
-      // Keep camera above ground as it moves
-      const camPos = cameraEntity.getPosition();
-      const minAltitude = terrain.getHeightAt(camPos.x, camPos.z) + 4.0;
-      if (camPos.y < minAltitude) {
-        cameraEntity.setPosition(camPos.x, minAltitude, camPos.z);
-      }
+      // Nothing per-frame: the orbit controller applies the surface constraint from `groundHeight`,
+      // so the camera and the controller never disagree about where the eye is.
     },
     dispose: () => {
       terrainMat.dispose();

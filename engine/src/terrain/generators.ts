@@ -37,6 +37,28 @@ export interface TerrainStage {
   process(cell: WorldCell): void;
 }
 
+/**
+ * Allocate an empty cell grid for chunk `(cx, cz)`.
+ *
+ * Every consumer of the pipeline (the tile that becomes a mesh, the heightmap behind an elevation
+ * query on a chunk that is not resident yet) has to agree on the grid it samples, so the cell shape
+ * lives here rather than being re-derived at each call site.
+ */
+export function createWorldCell(cx: number, cz: number, size: number, resolution: number, seed: number): WorldCell {
+  const count = resolution * resolution;
+  return {
+    cx,
+    cz,
+    size,
+    resolution,
+    seed,
+    heights: new Float32Array(count),
+    slopes: new Float32Array(count),
+    biomes: new Float32Array(count * 4),
+    scatters: [],
+  };
+}
+
 // ------------------------------------------------------------------ Height Generator
 
 export interface HeightGeneratorOptions {

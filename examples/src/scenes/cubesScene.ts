@@ -14,12 +14,18 @@ import {
   createBox,
   createPlane,
 } from "@forge/engine";
+import type { OrbitCameraSetup } from "../controls/orbitControls.js";
 
 export interface DemoSceneHandle {
   scene: Scene;
   cameraEntity: ReturnType<Scene["createTransformedEntity"]>;
   update: (dt: number) => void;
   dispose?: () => void;
+  /**
+   * How the orbit camera should behave in this scene: where it starts, how far it may zoom, and
+   * (terrain) the surface it must stay above. Scenes that leave it out keep the controller defaults.
+   */
+  camera?: OrbitCameraSetup;
 }
 
 export function buildCubesScene(engine: Engine): DemoSceneHandle {
@@ -76,5 +82,20 @@ export function buildCubesScene(engine: Engine): DemoSceneHandle {
     scene.dispose();
   };
 
-  return { scene, cameraEntity, update, dispose };
+  return {
+    scene,
+    cameraEntity,
+    update,
+    dispose,
+    camera: {
+      target: new Vec3(0, 0.8, 0),
+      distance: 10.5,
+      azimuth: 0,
+      elevation: 0.28,
+      // The ground plane is all there is to collide with, but orbiting below it is still "under the
+      // map", so the same surface constraint the terrain scene uses applies here.
+      groundHeight: () => 0,
+      groundClearance: 0.5,
+    },
+  };
 }

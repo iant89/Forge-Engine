@@ -5,7 +5,8 @@
  * - Phase 1: Spinning Cubes Demo.
  * - Phase 2: PBR Showcase Demo (Metallic x Roughness, Normal maps, Point/Spot/Sun lights, Emissive)
  *   rendered through the Phase 2 frame: cascaded shadow maps, HDR target, bloom, tone-map resolve.
- * - Orbit camera controls (mouse drag, wheel zoom, touch).
+ * - Orbit camera controls (mouse drag, wheel zoom, pan, touch pinch); each scene supplies its own
+ *   framing, zoom range and (terrain) the surface the camera must stay above.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
  *   rendering toggles (HDR, bloom, shadows, cascade tint).
  * - `window.__forge` interface for automated headless verification (`npm run check:browser`): the
@@ -16,6 +17,7 @@ import {
   detectPlatform,
   type Scene,
   type ToneMapping,
+  type TerrainWorld,
 } from "@forge/engine";
 import { OrbitControls } from "./controls/orbitControls.js";
 import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
@@ -65,6 +67,10 @@ async function main(): Promise<void> {
     if (currentHandle) {
       currentHandle.dispose?.();
     }
+    // Drop the previous controller with its scene: an undisposed one keeps orbiting the old camera
+    // (and re-applying every wheel event) for the lifetime of the page.
+    controls?.dispose();
+    controls = null;
 
     activeSceneName = name;
     btnScenePbr?.classList.toggle("active", name === "pbr");
@@ -80,25 +86,8 @@ async function main(): Promise<void> {
     }
 
     engine.setScene(currentHandle.scene);
-    controls = new OrbitControls(currentHandle.cameraEntity, canvas);
-
-    if (name === "pbr") {
-      controls.target.set(0, 1.0, 0);
-      controls.distance = 12.0;
-      controls.azimuth = 0.2;
-      controls.elevation = 0.4;
-    } else if (name === "terrain") {
-      controls.target.set(0, 10.0, 0);
-      controls.distance = 120.0;
-      controls.azimuth = 0.4;
-      controls.elevation = 0.35;
-    } else {
-      controls.target.set(0, 0.8, 0);
-      controls.distance = 10.5;
-      controls.azimuth = 0.0;
-      controls.elevation = 0.28;
-    }
-    controls.update();
+    // Scene modules own their camera policy (starting framing, zoom range, surface constraint).
+    controls = new OrbitControls(currentHandle.cameraEntity, canvas).configure(currentHandle.camera ?? {});
   }
 
   loadScene(activeSceneName as "pbr" | "cubes" | "terrain");
@@ -177,6 +166,9 @@ async function main(): Promise<void> {
     if (currentHandle && animating) {
       currentHandle.update(dt);
     }
+    // Recomputed every frame so the surface constraint tracks terrain that streams in under a
+    // stationary camera; it is a few trig ops plus (on the terrain scene) two height samples.
+    controls?.update();
 
     const st = engine.stats();
     const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
@@ -221,6 +213,13 @@ async function main(): Promise<void> {
     },
     /** Pass names the render graph executed last frame (what the gate asserts against). */
     renderPasses: () => engine.stats().renderPasses,
+    /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */
+    camera: () => controls?.state() ?? null,
+    /** Terrain surface height at a world XZ (null outside the terrain demo). */
+    terrainHeightAt: (x: number, z: number) => {
+      const terrain = currentHandle?.scene.object<TerrainWorld>("TerrainWorld");
+      return terrain ? terrain.getHeightAt(x, z) : null;
+    },
     dispose: () => {
       engine.stop();
       currentHandle?.dispose?.();

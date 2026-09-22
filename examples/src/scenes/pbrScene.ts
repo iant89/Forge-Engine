@@ -265,5 +265,18 @@ export function buildPbrScene(engine: Engine): DemoSceneHandle {
     scene.dispose();
   };
 
-  return { scene, cameraEntity, update, dispose };
+  return {
+    scene,
+    cameraEntity,
+    update,
+    dispose,
+    camera: {
+      target: new Vec3(0, 1.0, 0),
+      distance: 12,
+      azimuth: 0.2,
+      elevation: 0.4,
+      groundHeight: () => 0, // keeps the camera from orbiting under the ground plane
+      groundClearance: 0.5,
+    },
+  };
 }
