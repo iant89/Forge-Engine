@@ -21,6 +21,7 @@ import {
   STANDARD_INSTANCED_VERTEX,
   STANDARD_VERTEX,
   StructDef,
+  WATER_SHADER,
   arrayOf,
   f32,
   ofStruct,
@@ -66,6 +67,11 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.SkyUniforms.byteSize("uniform")).toBe(128);
     expect(RENDERING_STRUCTS.SkyUniforms.offsetOf("planetRadius")).toBe(96);
     expect(RENDERING_STRUCTS.SkyUniforms.offsetOf("viewSamples")).toBe(120);
+    expect(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform")).toBe(96);
+    expect(RENDERING_STRUCTS.CloudUniforms.offsetOf("wind")).toBe(80);
+    expect(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform")).toBe(224);
+    expect(RENDERING_STRUCTS.WaterUniforms.offsetOf("wavesB")).toBe(64);
+    expect(RENDERING_STRUCTS.WaterUniforms.offsetOf("sunDirection")).toBe(208);
   });
 
   it("every shipped shader variant passes the strict validator", () => {
@@ -80,6 +86,7 @@ describe("generated uniform structs are legal in every browser's uniform address
       BLIT_SHADER,
       POST_SHADER,
       SKY_SHADER,
+      WATER_SHADER,
     };
     for (const [name, source] of Object.entries(sources)) {
       for (const defines of [

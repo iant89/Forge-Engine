@@ -107,7 +107,7 @@ export { ResourceRegistry, ResourceHandle, type ResourceDescriptor, type Resourc
 export { Texture, TextureDefaults, type TextureDesc } from "./resources/texture.js";
 
 // Scene / ECS
-export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";
+export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";
 export { EntityWorld, Entity, TransformHandle, setComponentErrorHandler } from "./scene/world.js";
 export { Component, registerComponent, componentInfo, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
@@ -127,7 +127,7 @@ export * from "./physics/index.js";
 export * from "./vehicles/index.js";
 export * from "./particles/index.js";
 
-// Environment (phase 8a): sun position, atmosphere model, fog reference, day/night cycle.
+// Environment (phases 8a + 8b): sun/sky/fog/day-night plus weather, clouds, water, lightning.
 export * from "./environment/index.js";
 
 // Rendering
@@ -166,10 +166,12 @@ export {
   type SphereOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
-export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, RENDERING_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, structSize } from "./rendering/uniforms.js";
+export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, RENDERING_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, structSize } from "./rendering/uniforms.js";
 export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";
+export { WGSL_CLOUD } from "./rendering/shaders/cloudLayer.js";
+export { WATER_SHADER, WATER_BINDINGS } from "./rendering/shaders/water.js";
 export { WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX } from "./rendering/shaders/common.js";
 
 // Debug + testing

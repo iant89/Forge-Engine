@@ -8,12 +8,13 @@ Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential im
 Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism),
 Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS),
 Phase 7 (particles: CPU simulation as the reference, a compute integrator for the same gravity/drag/life
-step, modules, trails, budgets), and Phase 8a (environment I: sun position, single-scattering sky
-pass, fog in the forward shader, day/night cycle) are **verified** through automated tests,
+step, modules, trails, budgets), Phase 8a (environment I: sun position, single-scattering sky
+pass, fog in the forward shader, day/night cycle), and Phase 8b (environment II: weather state,
+cloud deck, Gerstner water, lightning) are **verified** through automated tests,
 benchmarks, and headless real-WebGPU checks. This file states exactly which claims are backed by an
 automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHICLES.md`,
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
-which assertion proves each part. Phase 8b and phases 9–14 are not built (`ROADMAP.md`).
+which assertion proves each part. Phases 9–14 are not built (`ROADMAP.md`).
 
 ## Setting up
 
@@ -27,9 +28,9 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 193 tests in 17 files: `environment` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
-| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (11, including `SkyUniforms`) and every `var<uniform>` in the shader text | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors | passing |
+| `npm test` | 221 tests in 18 files: `environment` (28), `environment8b` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
@@ -211,15 +212,45 @@ Pure numbers against published references, no GPU:
   years in both directions, is idempotent per instant, and honours an explicit light and the
   `drive*` switches.
 
+### `tests/environment8b.test.ts` — weather, clouds, water and lightning (Phase 8b)
+
+CPU behaviour plus mock-device integration:
+
+* **Weather state** orders the presets clear → storm, drifts exponentially (1 − 1/e of the gap per
+  tau, path-independent down to float dust), turns the wind along the shortest arc, and drives fog
+  density / sky turbidity / cloud cover + deck wind into the scene (or nothing, with the `drive*`
+  switches off), advancing by exactly the fixed-step budget through `update()`.
+* **Weather fields** are pure in (x, z, t, seed): zero gust samples exactly the mean wind,
+  turbulence stays under `gust·(2 + 0.3·speed)` per component, temperature falls at the lapse rate,
+  and a dry state rains nowhere.
+* **Cloud deck**: coverage 0 is clear and 1 is overcast at `density`, the large-area mean rises
+  monotonically with the slider, the CPU shading reproduces the documented formula (silver lobe
+  toward the sun, dense cores transmitting less, linearity in the sun, horizon fade, noon brighter
+  and bluer than sunset for the same deck), lit by `AtmosphereModel` transmittance + ambient — and
+  `SkyLightingCache` re-evaluates only when the sun moves.
+* **Water**: the Gerstner sampler reproduces single-wave closed forms (height, analytic normal,
+  crest, `steepness/k` horizontal displacement), stays in its amplitude budget with unit normals and
+  0..1 crests, foams past the threshold with a smoothstep shoulder; the grid source is a valid
+  indexed plane with amplitude-padded bounds; `WaterSurface` owns the clock and the queries.
+* **Lightning**: the flash envelope is a double stroke below 1 % after `flashDuration`, bolts are
+  deterministic cloud-to-ground polylines of `2^subdivisions + 1` points, the Poisson scheduler
+  replays identically for a seed and goes quiet with the tap closed, and `present()` drives the
+  flash light, the sky exposure override and the bolt lines.
+* **Mock-device rendering**: the `water` technique and the cloud deck (coverage 0.55) draw with zero
+  validation errors and `stats.clouds === true`; a camera below `water.level` takes the underwater
+  path (`stats.underwater`, no `forge.sky`, scene fog untouched); clouds/water/wind survive
+  `serialize()` → JSON → `applySerialized()`.
+
 ### `tests/wgsl.test.ts` — the layout rules browsers disagree on
 
 Chromium's compiler accepts uniform structs with a relaxed layout; WebKit rejects the module, which
 on Safari is a black canvas with a live HUD. The suite asserts that every generated struct emits
 scalar padding (never `array<u32, N>`), reports no `uniformLayoutProblems()`, keeps its byte
 offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 320,
-`ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B), that every
-shipped shader variant — including the depth-only and post modules added in Phase 2 and the sky
-module added in Phase 8a — passes `validateWgsl`, that `toWgsl("uniform")`
+`ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 96 B,
+`Water` 224 B), that every
+shipped shader variant — including the depth-only and post modules added in Phase 2, the sky
+module added in Phase 8a and the water module added in Phase 8b — passes `validateWgsl`, that `toWgsl("uniform")`
 throws for a sub-16-byte array stride, that struct-typed members sit on 16-byte boundaries, and that
 `validateWgsl` flags the exact pattern that shipped (`pad68: array<u32, 3>`), nested-struct
 strides, root-level uniform arrays and unpadded struct members while accepting legal layouts.
@@ -276,6 +307,16 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `setSky(false)` must drop the pass (the graph re-plans) and `setSky(true)` + `setPlanet("mars")`
   must bring it back with zero GPU errors. Screenshots: `tools/.browser-check-sky-noon.png`,
   `-night.png`, `-mars.png` — the sun colour, ambient and fog colour the cycle derived are in the HUD.
+- **Weather, water, lightning (Phase 8b)**: `loadScene("weather")`, then at noon `setWeather("clear")`
+  (coverage < 0.2) vs `setWeather("storm")` (coverage > 0.9, `clouds` flag set): the overcast frame
+  must be > 5 % brighter than the clear frame (measured 201 vs 148 — the deck whitens the sky while
+  the sun still lights the ground, `docs/KNOWN-ISSUES.md`), with `forge.sky` in the pass list and
+  `gpuErrors === 0` (the new water program and cloud bind group compiled on the real adapter); at
+  night with the weather held clear, `setCoverage(1)` must darken the frame vs `setCoverage(0)` (the
+  unlit deck occludes the stars); `triggerLightning()` must register a strike;
+  `setUnderwater(true)` must drop `forge.sky` from the pass list with `underwater` set, and
+  `setUnderwater(false)` must bring it back. Screenshots:
+  `tools/.browser-check-weather-clear.png`, `-storm.png`, `-night.png`, `-underwater.png`.
 
 Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**: the automated
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows

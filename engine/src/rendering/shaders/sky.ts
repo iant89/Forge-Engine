@@ -7,7 +7,8 @@
  * integral (Rayleigh + Mie + ozone, midpoint rule on cubically spaced view segments, a light ray per
  * sample), the same constants (delivered through `SkyUniforms`, never retyped), the same lit-ground
  * term below the horizon. On top of that it adds what only a per-pixel pass can: the limb-darkened
- * sun disc and a hashed star field that fades in as the scattered light goes away. The scene fog
+ * sun disc, a hashed star field that fades in as the scattered light goes away, and (Phase 8b) one
+ * procedural cloud deck (`WGSL_CLOUD`, lit by the same sun/ambient the CPU derives). The scene fog
  * (`WGSL_FOG`) is applied to the planet ground in every mode and to the sky in height mode, so the
  * horizon meets the fogged geometry in front of it (see docs/ENVIRONMENT.md §3).
  *
@@ -19,13 +20,15 @@
  * (`perFrame.flags` bit 1 set), otherwise exposure + tone map + sRGB in-shader.
  */
 
-import { PerFrameUniforms, SkyUniforms } from "../uniforms.js";
+import { PerFrameUniforms, SkyUniforms, CloudUniforms } from "../uniforms.js";
 import { WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { WGSL_CLOUD } from "./cloudLayer.js";
 
 /** Group/binding map of the sky pass (its own bind-group layout; see `PipelineFactory`). */
 export const SKY_BINDINGS = {
   perFrame: { group: 0, binding: 0 },
   sky: { group: 0, binding: 1 },
+  cloud: { group: 0, binding: 2 },
 } as const;
 
 export const SKY_SHADER = /* wgsl */ `
@@ -33,11 +36,15 @@ ${PerFrameUniforms.toWgsl("uniform")}
 
 ${SkyUniforms.toWgsl("uniform")}
 
+${CloudUniforms.toWgsl("uniform")}
+
 @group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
 @group(0) @binding(1) var<uniform> sky: SkyUniforms;
+@group(0) @binding(2) var<uniform> cloud: CloudUniforms;
 
 ${WGSL_COLOR}
 ${WGSL_FOG}
+${WGSL_CLOUD}
 
 const PI: f32 = 3.141592653589793;
 // Path length the height fog is integrated over for sky pixels (long enough to converge).
@@ -253,6 +260,14 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       let horizonFade = smoothstep(-0.05, 0.12, dir.y);
       radiance += vec3<f32>(0.9, 0.95, 1.0) * (stars(dir) * 0.03 * sky.starBrightness * (1.0 - daylight) * horizonFade);
     }
+  }
+
+  if (!hitsGround) {
+    // The cloud deck (Phase 8b): one noise-textured plane above the observer, occluding the sky
+    // (and the disc and stars behind it) with its own opacity. Fog applies after, so a fogged
+    // horizon veils the deck's base exactly like any distant geometry.
+    let deck = cloudDeck(dir, sunDir);
+    radiance = mix(radiance, deck.rgb, deck.a);
   }
 
   // Scene fog. The planet ground is geometry at a known distance and is fogged in every mode, so

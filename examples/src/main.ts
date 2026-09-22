@@ -34,6 +34,7 @@ import { buildRealisticTerrainScene } from "./scenes/realisticTerrainScene.js";
 import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js";
 import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
+import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -80,9 +81,11 @@ async function main(): Promise<void> {
     activeSceneName = "particles";
   } else if (requestedScene === "sky") {
     activeSceneName = "sky";
+  } else if (requestedScene === "weather") {
+    activeSceneName = "weather";
   }
 
-  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky";
+  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky" | "weather";
 
   function loadScene(name: SceneName): void {
     if (currentHandle) {
@@ -109,6 +112,8 @@ async function main(): Promise<void> {
       currentHandle = buildParticleScene(engine);
     } else if (name === "sky") {
       currentHandle = buildSkyScene(engine);
+    } else if (name === "weather") {
+      currentHandle = buildWeatherScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -142,7 +147,8 @@ async function main(): Promise<void> {
       next === "realistic" ||
       next === "vehicle" ||
       next === "particles" ||
-      next === "sky"
+      next === "sky" ||
+      next === "weather"
     ) {
       loadScene(next);
     }
@@ -288,6 +294,47 @@ async function main(): Promise<void> {
       if (!scene) return;
       if (on) scene.setSky();
       else scene.settings.skyEnabled = false;
+    },
+    /** Weather scene: snap + hold a preset; null on other scenes. */
+    setWeather: (preset: "clear" | "overcast" | "rain" | "storm") => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      handle?.setWeather?.(preset);
+    },
+    /** Weather scene: pin the deck coverage (0..1) without changing the weather. */
+    setCoverage: (coverage: number) => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      handle?.setCoverage?.(coverage);
+    },
+    /** Weather scene: schedule a strike now; returns the strike count. */
+    triggerLightning: () => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      handle?.triggerLightning?.();
+      return handle?.lightning.strikeCount ?? 0;
+    },
+    /** Weather scene: flood the camera (true) or drain the lake (false). */
+    setUnderwater: (on: boolean) => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      handle?.setUnderwater?.(on);
+    },
+    /** Weather scene: live weather/water/lightning state; null on other scenes. */
+    weatherState: () => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      if (!handle?.weather) return null;
+      const s = handle.scene.settings;
+      return {
+        windSpeed: handle.weather.state.windSpeed,
+        temperatureC: handle.weather.state.temperatureC,
+        precipitation: handle.weather.state.precipitation01,
+        storm: handle.weather.state.storm01,
+        coverage: s.clouds.coverage,
+        deckWind: [s.clouds.windX, s.clouds.windZ],
+        waterTime: s.water.time,
+        waterLevel: s.water.level,
+        strikes: handle.lightning.strikeCount,
+        flash: handle.lightning.flashTotal,
+        underwater: engine.stats().render.underwater,
+        clouds: engine.stats().render.clouds,
+      };
     },
     environmentState: () => {
       const cycle = currentHandle?.scene.object<DayNightCycle>("dayNight");

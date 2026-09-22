@@ -13,8 +13,10 @@
  *
  * The post-process chain (group 0 only: `PostUniforms` with a dynamic offset, two textures, a
  * sampler) uses the same factory with `technique: "post"` and an explicit fragment entry point.
- * The sky pass (`technique: "sky"`) binds `PerFrameUniforms` + `SkyUniforms` as its only group and
- * draws a fullscreen triangle on the far plane with depth testing but no depth writes.
+ * The sky pass (`technique: "sky"`) binds `PerFrameUniforms` + `SkyUniforms` + `CloudUniforms`
+ * as its only group and draws a fullscreen triangle on the far plane with depth testing but no
+ * depth writes. The water program (`technique: "water"`) reuses the frame + draw groups and adds
+ * `WaterUniforms` as group 2 in place of the material group.
  *
  * Pipelines are keyed on exactly the state that changes them (technique, entry point, blend/cull,
  * colour + depth format, MSAA, instancing). Adding a colour variation must not create a pipeline —
@@ -22,11 +24,12 @@
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
+import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
 import { InternalError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -34,7 +37,7 @@ import type { GraphicsDevice } from "../gpu/device.js";
 export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fsTonemap";
 
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post" | "sky";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post" | "sky" | "water";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
   /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
@@ -70,6 +73,8 @@ export class PipelineFactory {
   private postLayout: GPUPipelineLayout | null = null;
   private skyBindGroupLayout: GPUBindGroupLayout | null = null;
   private skyLayout: GPUPipelineLayout | null = null;
+  private waterBindGroupLayout: GPUBindGroupLayout | null = null;
+  private waterLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -77,9 +82,9 @@ export class PipelineFactory {
     this.shaders = new ShaderCache(device);
   }
 
-  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout; sky: GPUBindGroupLayout } {
+  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout; sky: GPUBindGroupLayout; water: GPUBindGroupLayout } {
     this.ensureLayouts();
-    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout!, sky: this.skyBindGroupLayout! };
+    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout!, sky: this.skyBindGroupLayout!, water: this.waterBindGroupLayout! };
   }
 
   private ensureLayouts(): void {
@@ -141,16 +146,29 @@ export class PipelineFactory {
       entries: [
         { binding: SKY_BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } },
         { binding: SKY_BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
+        { binding: SKY_BINDINGS.cloud.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: CloudUniforms.byteSize("uniform") } },
       ],
     });
     this.skyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.skyBindGroupLayout] });
+    // The water program reuses the frame + draw groups and binds its own block as group 2.
+    this.waterBindGroupLayout = d.createBindGroupLayout({
+      label: "water.layout",
+      entries: [
+        { binding: WATER_BINDINGS.water.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: WaterUniforms.byteSize("uniform") } },
+      ],
+    });
+    this.waterLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.waterBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean } {
     switch (key.technique) {
       case "sky": {
         const module = this.shaders.get("sky.wgsl", SKY_SHADER);
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", sky: true };
+      }
+      case "water": {
+        const module = this.shaders.get("water.wgsl", WATER_SHADER);
+        return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", water: true };
       }
       case "depth":
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
@@ -203,7 +221,7 @@ export class PipelineFactory {
   }
 
   private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky } = this.moduleFor(options);
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
     const isDepthOnly = options.technique === "depth";
     const fullscreen = blit || post || sky;
@@ -220,7 +238,7 @@ export class PipelineFactory {
         : undefined;
     const pipelineDesc: GPURenderPipelineDescriptor = {
       label: `pipeline.${key}`,
-      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : sky ? this.skyLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
+      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : sky ? this.skyLayout! : water ? this.waterLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
       vertex: {
         module: vertex,
         entryPoint: vertexEntry,
@@ -293,11 +311,13 @@ export class PipelineFactory {
     this.postLayout = null;
     this.skyBindGroupLayout = null;
     this.skyLayout = null;
+    this.waterBindGroupLayout = null;
+    this.waterLayout = null;
     this.shaders.clear();
   }
 
   stats(): { pipelines: number; creates: number; cacheHits: number; layouts: number } {
-    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 7 };
+    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 8 };
   }
 }
 

@@ -103,9 +103,28 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
   the view direction (the sky's horizon average is used).
 
+## Environment (Phase 8b)
+
+* **One flat cloud layer, not a volume.** The deck is a single noise-textured plane at a fixed
+  height with no vertical structure and no self-shadowing; `thickness` in `CloudUniforms` is
+  reserved for a volumetric follow-up. The CPU and GPU noise bases differ (Perlin vs value-noise
+  fbm), so the twins agree on formulas and statistics, never bit-exactly.
+* **Weather does not dim the sun.** Storms whiten the sky and thicken the fog, but the directional
+  light and the ambient keep their clear-day values — the browser gate's "overcast noon is brighter
+  than clear noon" direction depends on this. A storm-darkened sun (and rain streaks) are later work.
+* **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
+  the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
+  submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
+  The vertex normals ignore the horizontal displacement's Jacobian (exact for `steepness = 0`), and
+  the GPU evaluates 4 waves while the CPU sums any number.
+* **Lightning has no thunder and one shared light.** Strikes are silent (a sound system can read
+  time/position/energy); the flash light sits at the brightest live strike, so two simultaneous
+  bolts share one light; bolts draw as debug lines only (no emissive mesh, no bloom seeding beyond
+  the sky flash).
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet
 (`PERFORMANCE.md`, `ASSETS.md`, ADRs). Sections marked "As built" in `ARCHITECTURE.md` and
-`docs/RENDERING.md` describe what is real today. `ROADMAP.md` marks phase 8b and phases 9–14 as not
-started; an earlier revision had marked them done without the code.
+`docs/RENDERING.md` describe what is real today. `ROADMAP.md` marks phases 9–14 as not started;
+an earlier revision had marked them done without the code.

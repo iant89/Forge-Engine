@@ -32,12 +32,14 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
 import { computeCascades, type Cascade } from "./shadows.js";
 import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
+import { SkyLightingCache } from "../environment/clouds.js";
+import { isUnderwater } from "../environment/water.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
@@ -84,6 +86,10 @@ export interface RenderStats {
   sky: boolean;
   /** View samples the sky pass marched with (after the quality cap); 0 when the pass did not run. */
   skySamples: number;
+  /** True when the cloud deck shaded pixels this frame (sky ran, deck enabled, coverage > 0). */
+  clouds: boolean;
+  /** True when the camera is below the water's mean level (sky skipped, murk fog). */
+  underwater: boolean;
   /** Render-graph outcome for the frame. */
   passes: number;
   culledPasses: number;
@@ -156,6 +162,8 @@ export class Renderer implements RenderFrameContext {
     bloomMips: 0,
     sky: false,
     skySamples: 0,
+    clouds: false,
+    underwater: false,
     passes: 0,
     culledPasses: 0,
     transientTextures: 0,
@@ -179,6 +187,12 @@ export class Renderer implements RenderFrameContext {
   private postSlots = 0;
   private readonly skyBytes = new WriteBuffer(SkyUniforms.byteSize("uniform"));
   private readonly skyAccessor = new StructAccessor(SkyUniforms, this.skyBytes, 0, "uniform");
+  private readonly cloudBytes = new WriteBuffer(CloudUniforms.byteSize("uniform"));
+  private readonly cloudAccessor = new StructAccessor(CloudUniforms, this.cloudBytes, 0, "uniform");
+  private readonly waterBytes = new WriteBuffer(WaterUniforms.byteSize("uniform"));
+  private readonly waterAccessor = new StructAccessor(WaterUniforms, this.waterBytes, 0, "uniform");
+  /** Shared sun/ambient/horizon tints for the cloud deck and the water surface. */
+  private readonly skyLight = new SkyLightingCache();
   /** The frame's effective sky settings: `scene.settings.sky` with the per-frame override merged. */
   private readonly skyFrame: SceneSkySettings = {
     sunDirection: null,
@@ -205,6 +219,9 @@ export class Renderer implements RenderFrameContext {
   private postBuffer: GPUBuffer | null = null;
   private skyBuffer: GPUBuffer | null = null;
   private skyBindGroup: GPUBindGroup | null = null;
+  private cloudBuffer: GPUBuffer | null = null;
+  private waterBuffer: GPUBuffer | null = null;
+  private waterBindGroup: GPUBindGroup | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
@@ -382,12 +399,16 @@ export class Renderer implements RenderFrameContext {
     const scale = Math.min(2, Math.max(0.25, settings.renderScale || 1));
     const renderWidth = hdr ? Math.max(1, Math.round(this.width * scale)) : this.width;
     const renderHeight = hdr ? Math.max(1, Math.round(this.height * scale)) : this.height;
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive);
+    const underwater = isUnderwater(positionRender.y, settings.water);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater);
     this.writeLights(scene, lights, shadowsActive ? sun : null);
     this.writeShadowUniforms(scene, sun, shadowsActive ? cascadeCount : 0, shadowSize, shadowDistance);
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
-    if (skyEnabled) this.writeSky(this.resolveSky(scene, lights));
+    const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
+    if (skySettings) this.writeSky(skySettings);
     else this.pendingSky = null;
+    this.writeClouds(scene, skySettings, lights);
+    this.writeWater(scene, skySettings, lights);
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
       b.objectOffset = this.reserveObject(b.count > 1 ? IDENTITY : this.lastMatrixFor(b), b.count);
@@ -403,7 +424,8 @@ export class Renderer implements RenderFrameContext {
       cascadeCount: shadowsActive ? cascadeCount : 0,
       shadowSize,
       bloom: hdr && settings.postProcessing && settings.bloom.enabled && this.options.bloom !== false,
-      sky: skyEnabled,
+      sky: skyEnabled && !underwater,
+      underwater,
     });
     this.finishFrame();
   }
@@ -437,7 +459,7 @@ export class Renderer implements RenderFrameContext {
 
   // ------------------------------------------------------------------ frame description
 
-  private buildFrame(scene: Scene, frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean }): void {
+  private buildFrame(scene: Scene, frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean }): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
     const g = this.graph;
@@ -492,6 +514,8 @@ export class Renderer implements RenderFrameContext {
     }
     this.stats.hdr = frame.hdr;
     this.stats.sky = frame.sky;
+    this.stats.underwater = frame.underwater;
+    this.stats.clouds = frame.sky && scene.settings.clouds.enabled && scene.settings.clouds.coverage > 0.001;
     if (!frame.hdr) {
       this.applyGraphStats(g.execute());
       return;
@@ -598,9 +622,22 @@ export class Renderer implements RenderFrameContext {
       entries: [
         { binding: 0, resource: { buffer: this.frameBuffer! } },
         { binding: 1, resource: { buffer: this.skyBuffer! } },
+        { binding: 2, resource: { buffer: this.cloudBuffer! } },
       ],
     });
     return this.skyBindGroup;
+  }
+
+  /** Group 2 for the water program: the single water block, shared by all water draws. */
+  private ensureWaterBindGroup(): GPUBindGroup {
+    if (this.waterBindGroup) return this.waterBindGroup;
+    const { water } = this.pipelines.bindGroupLayouts;
+    this.waterBindGroup = this.device.device.createBindGroup({
+      label: "water.bindgroup",
+      layout: water,
+      entries: [{ binding: 0, resource: { buffer: this.waterBuffer! } }],
+    });
+    return this.waterBindGroup;
   }
 
   private applyGraphStats(stats: { passes: number; culledPasses: number; transientTextures: number; physicalTextures: number; aliasedBytes: number; texturesCreated: number }): void {
@@ -665,8 +702,9 @@ export class Renderer implements RenderFrameContext {
     }
     sorted.sort((a, b) => (a.transparent === b.transparent ? a.depthSort - b.depthSort : a.transparent ? 1 : -1));
     for (const b of sorted) {
+      const isWater = b.material.technique === "water";
       const pipeline = this.pipelines.get({
-        technique: b.material.technique === "unlit" ? "unlit" : "standard",
+        technique: isWater ? "water" : b.material.technique === "unlit" ? "unlit" : "standard",
         colorFormat,
         depthFormat: this.device.depthFormat,
         transparent: b.transparent,
@@ -675,7 +713,7 @@ export class Renderer implements RenderFrameContext {
       });
       pass.setPipeline(pipeline.pipeline);
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
-      pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
+      pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -728,6 +766,8 @@ export class Renderer implements RenderFrameContext {
     s.bloomMips = 0;
     s.sky = false;
     s.skySamples = 0;
+    s.clouds = false;
+    s.underwater = false;
     s.passes = 0;
     s.culledPasses = 0;
     s.transientTextures = 0;
@@ -788,7 +828,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -800,8 +840,12 @@ export class Renderer implements RenderFrameContext {
     const ctx = this.currentFrameContext;
     a.setVec4("time", ctx?.elapsed ?? 0, ctx?.dt ?? 0, ctx?.frame ?? 0, 0);
     const fog = settings.fog;
-    a.setVec3("fogColor", fog.color.r, fog.color.g, fog.color.b);
-    a.setF32("fogDensity", fog.mode === "none" ? 0 : fog.density);
+    // Underwater: murk replaces the fog colour, and the density is the worse of the configured
+    // fog and the water's own murk — the scene's `fog` settings are never mutated.
+    const murk = underwater && settings.water.enabled ? settings.water : null;
+    const fogColor = murk ? murk.murkColor : fog.color;
+    a.setVec3("fogColor", fogColor.r, fogColor.g, fogColor.b);
+    a.setF32("fogDensity", murk ? Math.max(fog.mode === "none" ? 0 : fog.density, murk.murkDensity) : fog.mode === "none" ? 0 : fog.density);
     a.setVec2("fogRange", fog.start, fog.end);
     a.setVec2("renderExtent", renderWidth, renderHeight);
     a.setF32("shadowDistance", settings.shadow.distance);
@@ -812,7 +856,9 @@ export class Renderer implements RenderFrameContext {
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
     const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0);
     a.setU32("flags", flags);
-    a.setVec4("fogParams", FOG_MODE_ID[fog.mode] ?? 0, fog.heightFalloff, fog.heightBase, 0);
+    // With the scene fog off but the camera submerged, exp² carries the murk.
+    const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
+    a.setVec4("fogParams", FOG_MODE_ID[fogMode] ?? 0, fog.heightFalloff, fog.heightBase, 0);
     this.device.device.queue.writeBuffer(this.frameBuffer!, 0, gpuSource(this.frameBytes.bytes.subarray(0, this.frameBytes.byteLength)));
   }
 
@@ -886,6 +932,103 @@ export class Renderer implements RenderFrameContext {
     a.setI32("viewSamples", viewSamples);
     a.setI32("lightSamples", lightSamples);
     this.device.device.queue.writeBuffer(this.skyBuffer!, 0, gpuSource(this.skyBytes.bytes.subarray(0, this.skyBytes.byteLength)));
+  }
+
+  /**
+   * The frame's sun for the systems that need one without a sky pass (cloud lighting when the
+   * sky is off is skipped, but the water always shades): the sky override first, then the first
+   * directional light, then the same default the sky uses.
+   */
+  private frameSunDirection(sky: SceneSkySettings | null, lights: readonly Light[], out: Vec3): Vec3 {
+    if (sky?.sunDirection) return out.copyFrom(sky.sunDirection);
+    for (const l of lights) {
+      if (l.kind === "directional") return out.set(-l.direction.x, -l.direction.y, -l.direction.z).normalize();
+    }
+    return out.copyFrom(DEFAULT_SUN);
+  }
+
+  private writeClouds(scene: Scene, sky: SceneSkySettings | null, lights: readonly Light[]): void {
+    const a = this.cloudAccessor;
+    const clouds = scene.settings.clouds;
+    // The lighting integrals run only when the deck can shade a pixel; otherwise the buffer
+    // carries the art parameters with the previous tints (harmless — the shader early-outs).
+    if (sky && clouds.enabled && clouds.coverage > 0.001) {
+      const atmo = sky.atmosphere ?? EARTH_ATMOSPHERE;
+      this.frameSunDirection(sky, lights, this.scratchDir);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - sky.seaLevel), sky.sunIntensity * sky.exposure);
+    }
+    a.setF32("coverage", clouds.coverage);
+    a.setF32("density", clouds.density);
+    a.setF32("height", clouds.height);
+    a.setF32("thickness", 400);
+    a.setF32("scale", clouds.scale);
+    a.setF32("silverLining", clouds.silverLining);
+    a.setF32("seed", clouds.seed);
+    a.setF32("enabled", clouds.enabled ? 1 : 0);
+    a.setVec3("sunTint", this.skyLight.sunTint[0]!, this.skyLight.sunTint[1]!, this.skyLight.sunTint[2]!);
+    a.setVec3("ambientTint", this.skyLight.ambientTint[0]!, this.skyLight.ambientTint[1]!, this.skyLight.ambientTint[2]!);
+    a.setVec3("cloudAlbedo", clouds.albedo.r, clouds.albedo.g, clouds.albedo.b);
+    a.setVec2("wind", clouds.windX, clouds.windZ);
+    this.device.device.queue.writeBuffer(this.cloudBuffer!, 0, gpuSource(this.cloudBytes.bytes.subarray(0, this.cloudBytes.byteLength)));
+  }
+
+  private writeWater(scene: Scene, sky: SceneSkySettings | null, lights: readonly Light[]): void {
+    const a = this.waterAccessor;
+    const water = scene.settings.water;
+    const skySettings = scene.settings.sky;
+    if (water.enabled) {
+      const atmo = sky?.atmosphere ?? skySettings.atmosphere ?? EARTH_ATMOSPHERE;
+      this.frameSunDirection(sky, lights, this.scratchDir);
+      const sunIntensity = (sky?.sunIntensity ?? skySettings.sunIntensity) * (sky?.exposure ?? skySettings.exposure);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - skySettings.seaLevel), sunIntensity);
+      this.frameSunDirection(sky, lights, this.scratchVec);
+    } else {
+      this.scratchVec.copyFrom(DEFAULT_SUN);
+    }
+    // Waves as the vertex shader consumes them: (dirX, dirZ, k, speed) + (amplitude, Q, phase, 0)
+    // with Q = steepness/(k·A·4) — the same normalisation `sampleGerstner` uses over 4 waves.
+    const baseA = a.offsetOf("wavesA");
+    const baseB = a.offsetOf("wavesB");
+    const strideA = a.arrayStride("wavesA");
+    const strideB = a.arrayStride("wavesB");
+    const f32 = this.waterBytes.f32;
+    for (let i = 0; i < 4; i++) {
+      const w = water.waves[i];
+      const oA = (baseA + i * strideA) >> 2;
+      const oB = (baseB + i * strideB) >> 2;
+      if (!w || !(w.amplitude > 0) || !(w.wavelength > 0)) {
+        f32[oA] = 0;
+        f32[oA + 1] = 0;
+        f32[oA + 2] = 0;
+        f32[oA + 3] = 0;
+        f32[oB] = 0;
+        f32[oB + 1] = 0;
+        f32[oB + 2] = 0;
+        f32[oB + 3] = 0;
+        continue;
+      }
+      const len = Math.hypot(w.directionX, w.directionZ) || 1;
+      const k = (2 * Math.PI) / w.wavelength;
+      f32[oA] = w.directionX / len;
+      f32[oA + 1] = w.directionZ / len;
+      f32[oA + 2] = k;
+      f32[oA + 3] = w.speed;
+      f32[oB] = w.amplitude;
+      f32[oB + 1] = w.steepness / (k * w.amplitude * 4);
+      f32[oB + 2] = w.phase;
+      f32[oB + 3] = 0;
+    }
+    a.setVec3("deepColor", water.deepColor.r, water.deepColor.g, water.deepColor.b);
+    a.setF32("time", water.time);
+    a.setVec3("shallowColor", water.shallowColor.r, water.shallowColor.g, water.shallowColor.b);
+    a.setF32("opacity", water.opacity);
+    a.setVec3("foamColor", water.foamColor.r, water.foamColor.g, water.foamColor.b);
+    a.setF32("foamThreshold", water.foamThreshold);
+    a.setVec3("sunTint", this.skyLight.sunTint[0]!, this.skyLight.sunTint[1]!, this.skyLight.sunTint[2]!);
+    a.setF32("sunGlint", water.sunGlint);
+    a.setVec3("skyTint", this.skyLight.horizonTint[0]!, this.skyLight.horizonTint[1]!, this.skyLight.horizonTint[2]!);
+    a.setVec3("sunDirection", this.scratchVec.x, this.scratchVec.y, this.scratchVec.z);
+    this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 
   private writeLights(scene: Scene, lights: Light[], caster: Light | null): void {
@@ -1090,6 +1233,8 @@ export class Renderer implements RenderFrameContext {
     this.cascadeBuffer ??= d.createBuffer({ label: "shadowpass.uniforms", size: this.cascadeBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.postBuffer ??= d.createBuffer({ label: "post.uniforms", size: this.postBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.skyBuffer ??= d.createBuffer({ label: "sky.uniforms", size: this.skyBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.cloudBuffer ??= d.createBuffer({ label: "cloud.uniforms", size: this.cloudBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.waterBuffer ??= d.createBuffer({ label: "water.uniforms", size: this.waterBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     const { depthFrame } = this.pipelines.bindGroupLayouts;
     this.cascadeBindGroup ??= d.createBindGroup({
       label: "shadowpass.bindgroup",
@@ -1361,14 +1506,17 @@ export class Renderer implements RenderFrameContext {
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
-    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
     this.shadowBuffer = null;
     this.cascadeBuffer = null;
     this.postBuffer = null;
     this.skyBuffer = null;
+    this.cloudBuffer = null;
+    this.waterBuffer = null;
     this.skyBindGroup = null;
+    this.waterBindGroup = null;
     this.objectBuffer = null;
     this.instanceBuffer = null;
     this.debugBuffer = null;

@@ -23,6 +23,12 @@
  * the eye is. The assertions are directional (the wheel must move the distance the way it was
  * scrolled), and the eye is checked against the terrain height the meshes are built from.
  *
+ * Phase 8b addition: the weather scene must present the cloud deck, the water and lightning on real
+ * WebGPU. Overcast noon is brighter than clear noon (the deck whitens the sky while the sun still
+ * lights the ground), pinning the deck coverage to 1 on a clear night darkens the frame (the unlit
+ * deck occludes the stars — the storm preset cannot prove this because its fog outshines the deck),
+ * the underwater toggle removes `forge.sky` from the graph, and a triggered strike registers.
+ *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
  * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
@@ -423,6 +429,86 @@ try {
   if (!marsStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not come back after re-enabling");
   if (marsStats.gpuErrors !== 0 || marsStats.lastError) throw new Error(`mars sky GPU errors: ${marsStats.lastError}`);
   await page.evaluate(() => window.__forge.setPlanet("earth"));
+
+  // Phase 8b: weather, clouds, water, lightning. The deck is presence + direction: overcast noon
+  // whitens the sky (brighter than clear noon), a stormy night occludes the stars (darker than a
+  // clear night), and the deck flag tracks the coverage. The lake renders inside forge.main (zero
+  // GPU errors covers the new program + bind groups), the underwater toggle re-plans the graph,
+  // and a triggered strike registers synchronously.
+  await page.evaluate(() => window.__forge.loadScene("weather"));
+  await settle(8);
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await page.evaluate(() => window.__forge.setTimeOfDay(12));
+  await page.evaluate(() => window.__forge.setWeather("clear"));
+  await settle(6);
+  const wxClear = await samplePixels();
+  const wxClearState = await page.evaluate(() => window.__forge.weatherState());
+  const wxClearStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-weather-clear.png" });
+  console.log(
+    `weather clear noon: mean ${wxClear.mean.toFixed(2)} distinct=${wxClear.distinct} cover=${wxClearState?.coverage} ` +
+      `clouds=${wxClearState?.clouds} gpuErrors=${wxClearStats.gpuErrors}`,
+  );
+  if (!wxClearState) throw new Error("weather scene did not expose state");
+  if (!(wxClearState.coverage < 0.2)) throw new Error(`clear preset did not clear the deck (coverage ${wxClearState.coverage})`);
+  if (!wxClearStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not run on the weather scene");
+  if (wxClearStats.gpuErrors !== 0 || wxClearStats.lastError) throw new Error(`weather scene GPU errors: ${wxClearStats.lastError}`);
+
+  await page.evaluate(() => window.__forge.setWeather("storm"));
+  await settle(6);
+  const wxStorm = await samplePixels();
+  const wxStormState = await page.evaluate(() => window.__forge.weatherState());
+  const wxStormStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-weather-storm.png" });
+  console.log(
+    `weather storm noon: mean ${wxStorm.mean.toFixed(2)} distinct=${wxStorm.distinct} cover=${wxStormState?.coverage} ` +
+      `clouds=${wxStormState?.clouds} deckWind=${wxStormState?.deckWind} gpuErrors=${wxStormStats.gpuErrors}`,
+  );
+  if (!(wxStormState.coverage > 0.9)) throw new Error(`storm preset did not overcast the deck (coverage ${wxStormState.coverage})`);
+  if (!wxStormState.clouds) throw new Error("cloud deck did not report as shading under full overcast");
+  if (wxStormStats.gpuErrors !== 0 || wxStormStats.lastError) throw new Error(`storm weather GPU errors: ${wxStormStats.lastError}`);
+  if (!(wxStorm.mean > wxClear.mean * 1.05)) {
+    throw new Error(`overcast noon was not brighter than clear noon (${wxStorm.mean.toFixed(1)} vs ${wxClear.mean.toFixed(1)}): the deck is not drawing`);
+  }
+
+  // Night, with the weather held clear so only the deck moves: coverage 1 occludes the star field
+  // the clear frame shows, and the deck itself is unlit (no sun, no ambient), so the frame darkens.
+  await page.evaluate(() => window.__forge.setTimeOfDay(0));
+  await page.evaluate(() => window.__forge.setWeather("clear"));
+  await page.evaluate(() => window.__forge.setCoverage(0));
+  await settle(6);
+  const wxNightClear = await samplePixels();
+  await page.evaluate(() => window.__forge.setCoverage(1));
+  await settle(6);
+  const wxNightStorm = await samplePixels();
+  await page.screenshot({ path: "tools/.browser-check-weather-night.png" });
+  console.log(`weather night: clear mean ${wxNightClear.mean.toFixed(2)} vs overcast mean ${wxNightStorm.mean.toFixed(2)}`);
+  if (!(wxNightStorm.mean < wxNightClear.mean)) {
+    throw new Error(`overcast night was not darker than clear night (${wxNightStorm.mean.toFixed(1)} vs ${wxNightClear.mean.toFixed(1)}): the deck is not occluding the stars`);
+  }
+
+  // Lightning registers synchronously (the flash itself decays in half a second — the count pins it).
+  const strikes = await page.evaluate(() => window.__forge.triggerLightning());
+  const wxFlash = await page.evaluate(() => window.__forge.weatherState());
+  console.log(`weather lightning: strikes=${strikes} flash=${wxFlash?.flash?.toFixed(3)}`);
+  if (!(strikes >= 1 && wxFlash.strikes >= 1)) throw new Error("triggered lightning did not register a strike");
+
+  // Underwater: the graph drops the sky pass and the renderer flags the murk path.
+  await page.evaluate(() => window.__forge.setTimeOfDay(12));
+  await page.evaluate(() => window.__forge.setWeather("overcast"));
+  await page.evaluate(() => window.__forge.setUnderwater(true));
+  await settle(6);
+  const wxWet = await page.evaluate(() => window.__forge.weatherState());
+  const wxWetStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-weather-underwater.png" });
+  console.log(`weather underwater: underwater=${wxWet?.underwater} passes=${wxWetStats.renderPasses.join(",")} gpuErrors=${wxWetStats.gpuErrors}`);
+  if (!wxWet.underwater) throw new Error("flooding the camera did not enter the underwater path");
+  if (wxWetStats.renderPasses.includes("forge.sky")) throw new Error("sky pass still ran underwater (graph did not re-plan)");
+  if (wxWetStats.gpuErrors !== 0 || wxWetStats.lastError) throw new Error(`underwater GPU errors: ${wxWetStats.lastError}`);
+  await page.evaluate(() => window.__forge.setUnderwater(false));
+  await settle(6);
+  const wxDryStats = await page.evaluate(() => window.__forge.stats());
+  if (!wxDryStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not come back after draining");
   await page.evaluate(() => window.__forge.setAnimating(true));
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));

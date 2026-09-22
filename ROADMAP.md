@@ -13,7 +13,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done (built + tes
 | 6 | **Vehicles**: suspension, tires (Pacejka), engine/transmission/diff, aero, terrain contact, TC/ABS | torque→RPM, shift points, stopping distance, slope traversal, wheel-load transfer tests; `vehicle-playground` demo | `[x]` |
 | 7 | **Particles**: GPU compute emitters, modules, trails, CPU fallback, budgets | state-buffer math vs analytic gravity in mock GPU + real GPU test; 100k particle benchmark | `[x]` |
 | 8a | **Environment I — sky, fog, day/night**: analytic sky pass (single-scattering Rayleigh/Mie/ozone, sun disc, stars, Earth + Mars presets), fog in the forward shader (linear/exp²/height) that meets the sky, `DayNightCycle` (NOAA/Meeus sun position driving the sun light, ambient, fog colour) | sun position vs Meeus worked examples + NOAA facts, atmosphere vs closed forms (β·H, horizon air mass, phase normalisation), height-fog closed form vs brute-force integral, frame tests for the `forge.sky` pass, browser gate: sky compiles on real WebGPU, noon ≫ night, Earth/Mars swap | `[x]` |
-| 8b | **Environment II — weather, clouds, water, lightning**: weather state sim (wind/precipitation/temperature fields), volumetric or layered clouds lit by the 8a sky, water (Gerstner + foam + refraction), lightning | weather state integration tests, cloud coverage/lighting checks against the sky model, underwater path test | `[ ]` |
+| 8b | **Environment II — weather, clouds, water, lightning**: weather state sim (wind/precipitation/temperature fields), volumetric or layered clouds lit by the 8a sky, water (Gerstner + foam + refraction), lightning | weather state integration tests, cloud coverage/lighting checks against the sky model, underwater path test | `[x]` |
 | 9 | **Scripting**: Script lifecycle, timers, coroutines, events, error isolation, sandbox boundary | lifecycle-order tests, fault-injection (broken script cannot corrupt ECS), coroutine timing | `[ ]` |
 | 10 | **Animation**: clips, blending, states/graphs, two-bone IK + FABRIK, skinning, wheel/suspension binding | keyframe sampling vs analytic, weight normalization, IK convergence tests, glTF animation import test | `[ ]` |
 | 11 | **Streaming + large world**: origin rebasing, double-precision coords, budgets, hitching tests, texture streaming | 10^6 m offset precision tests, streaming stall benchmark, no-artifact readback check | `[ ]` |
@@ -45,19 +45,24 @@ Phase 8 was one row covering two different kinds of work, so it is delivered in 
   like, how far you can see. It lands as `engine/src/environment/` (`solar.ts`, `atmosphere.ts`,
   `fog.ts`, `dayNight.ts`), the `forge.sky` render pass, fog in the forward shader, and the `sky`
   demo scene. `docs/ENVIRONMENT.md` is the as-built description.
-- **8b (next)** is everything that *reacts* to that light and has its own simulation state: weather,
-  clouds, water, lightning. It builds on 8a's `AtmosphereModel` (clouds and water need the sky's
-  radiance and the sun's transmittance) and joins the same module.
+- **8b (done)** is everything that *reacts* to that light and has its own simulation state:
+  `WeatherSystem` (wind/temperature/precipitation fields on the fixed-step clock), one procedural
+  cloud deck inside `forge.sky` lit by the 8a sky, a Gerstner `WaterSurface` with foam and an
+  underwater path, and a Poisson-scheduled `LightningSystem`. It builds on 8a's `AtmosphereModel`
+  (clouds and water read the sky's radiance and the sun's transmittance) and joins the same module,
+  with the `weather` demo scene. `docs/ENVIRONMENT.md` §7 is the as-built description.
 
 ## Known limitations right now
 
-Phases 0–7 and 8a are built, tested, and demoed. Phase 8b and phases 9–14 are not started — the
+Phases 0–7, 8a and 8b are built, tested, and demoed. Phases 9–14 are not started — the
 directories those rows name (`animation`, `scripting`, `editor`, a Mars scene) are not in the tree.
 Marking them done was a documentation error; the `[ ]` above is the status.
 
-Phase 6, 7 and 8a limitations that a green test does not erase are in `docs/KNOWN-ISSUES.md` (no
-mesh collision on the car, no GPU particle emit or trail draw, no particle pass in the render graph,
-single-scattering sky with no multiple scattering or moon, sky not affected by linear/exp² fog).
+Phase 6, 7, 8a and 8b limitations that a green test does not erase are in `docs/KNOWN-ISSUES.md`
+(no mesh collision on the car, no GPU particle emit or trail draw, no particle pass in the render
+graph, single-scattering sky with no multiple scattering or moon, sky not affected by linear/exp²
+fog, one flat cloud layer, water without scene reflection/refraction or shore foam, lightning
+without thunder).
 `docs/VEHICLES.md`, `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` are the as-built descriptions.
 
 See `docs/KNOWN-ISSUES.md` (kept current at every phase).

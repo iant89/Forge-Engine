@@ -1,15 +1,17 @@
-# Environment — as built (Phase 8a)
+# Environment — as built (Phases 8a + 8b)
 
-Phase 8 of `ROADMAP.md` was split in two. This document describes the first half — **where the sun
-is, what the sky looks like, how far you can see** — as it exists in the tree today, and ends with
-what the second half (weather, clouds, water, lightning) still owes. `docs/VERIFICATION.md` says
-which assertion proves each claim; `docs/KNOWN-ISSUES.md` lists the approximations a green run does
-not remove.
+Phase 8 of `ROADMAP.md` was split in two. This document describes both halves as they exist in the
+tree today: §1–§6 are the first half — **where the sun is, what the sky looks like, how far you
+can see** — and §7 is the second half — **weather, clouds, water, lightning**, everything that
+reacts to that light with simulation state of its own. `docs/VERIFICATION.md` says which assertion
+proves each claim; `docs/KNOWN-ISSUES.md` lists the approximations a green run does not remove.
 
 Everything lives in `engine/src/environment/` (`solar.ts`, `atmosphere.ts`, `fog.ts`,
-`dayNight.ts`), plus one render pass (`rendering/shaders/sky.ts`, `forge.sky`) and fog in the
-forward shader (`rendering/shaders/common.ts`, `WGSL_FOG`). The module depends on `scene`, `math`
-and `core` only; `rendering` imports it (never the reverse) and `scene` sees its types only.
+`dayNight.ts`, plus the 8b `weather.ts`, `clouds.ts`, `water.ts`, `lightning.ts`), plus the sky
+pass (`rendering/shaders/sky.ts`, `forge.sky`), the water program (`rendering/shaders/water.ts`,
+technique `"water"` inside `forge.main`) and fog in the forward shader
+(`rendering/shaders/common.ts`, `WGSL_FOG`). The module depends on `scene`, `math` and `core`
+only; `rendering` imports it (never the reverse) and `scene` sees its types only.
 
 ## 1. Sun position (`solar.ts`)
 
@@ -219,11 +221,63 @@ runs under the Mars preset with exp² dust haze coloured by the model's horizon.
 * **`DayNightCycle` drives one directional light** and does not touch fog density, point/spot lights
   or materials.
 
-## 7. What Phase 8b owes
+## 7. Weather, clouds, water, lightning (Phase 8b)
 
-Weather state (wind / precipitation / temperature fields that other systems read), clouds lit by
-this sky (coverage, a scattering approximation using `AtmosphereModel.sunTransmittance` and the
-ambient), water (Gerstner waves, foam, refraction, an underwater path), and lightning (flash light +
-sky flash). Their natural hooks are already here: `setSkyOverride` for per-frame steering,
-`SceneSkySettings.turbidity` for haze, `fog.color`/`density` for precipitation visibility, and the
-`environment` module for the state simulation.
+### 7.1 `WeatherSystem`: the state everything else reads
+
+`environment/weather.ts` holds eight scalars — wind speed + direction, gust factor, temperature,
+humidity, precipitation, storm intensity, cloud coverage — and drifts them toward a target with
+exact exponential integration (`approachExponential`, one time constant per channel, so the path
+never matters), on the fixed-step clock. Four frozen presets (`clear`, `overcast`, `rain`, `storm`)
+are the demo keys and the gate's vocabulary. The fields are frozen turbulence advected by the mean
+wind: `sampleWindAt` (gust-bounded), `sampleTemperatureAt` (lapse rate + patch field),
+`samplePrecipitationAt` (patch-modulated, dry states dry everywhere) — all pure in
+(x, z, t, seed). `apply` pushes the driven settings: fog density from precipitation, sky turbidity
+from humidity/storm, and cloud coverage + deck wind from cover/mean wind (each behind a `drive*`
+switch; the day/night cycle writes fog *colour* and the sun direction, so the two never fight).
+
+### 7.2 Clouds: one deck inside the sky pass
+
+`environment/clouds.ts` is a horizontal plane at `clouds.height` whose density is fbm noise
+remapped by the coverage: 0 is clear, 1 is overcast at `density`, and the large-area mean rises
+monotonically with the slider. The shading is the documented formula — dense cores transmit less
+sun, everything receives the ambient, a `(cos θ)^6` lobe silvers the lining — lit by the 8a sky,
+not by new constants: `SkyLightingCache` derives the sun/ambient/horizon tints from the live
+`AtmosphereModel` and re-evaluates only when the sun moves (~0.05°) or the atmosphere changes, so
+the deck tracks the day/night cycle for free. The same remap and shading run on the CPU and in
+WGSL (`rendering/shaders/cloudLayer.ts`, evaluated once per sky pixel before fog), but the noise
+bases differ on purpose (Perlin fbm on the CPU, value-noise fbm on the GPU): the tests pin the CPU
+statistics, the browser gate pins the GPU's presence and direction. The shader advects the field by
+the weather's deck wind over the frame clock.
+
+### 7.3 Water: one Gerstner sum, sampled twice
+
+`environment/water.ts` evaluates the Gerstner sum — vertical `A·sin(f)` plus horizontal
+`Q·A·cos(f)` travel with `Q = steepness/(k·A·N)` — with analytic normals and a crest factor that
+drives `foamFromCrest`. The water *vertex shader* evaluates the same sum from the same waves
+(`WaterUniforms` carries `k` and `Q` precomputed), so gameplay queries
+(`WaterSurface.sampleHeight`, buoyancy, soundings) agree with the rendered surface. The fragment
+stage shades from the 8a sky: Schlick fresnel toward the horizon tint, a two-lobe sun glint,
+noise-broken whitecap foam, standard fog. `WaterSurface` owns the entity and advances `water.time`
+on the fixed clock; the mesh is a static grid from `waterGridSource`, assigned (with the `water`
+material) by the host, because the environment/rendering boundary runs one way. When the camera
+drops below `water.level` the renderer skips `forge.sky` and swaps the frame fog for the murk —
+scene settings untouched, `stats.underwater` set.
+
+### 7.4 Lightning: scheduled strikes, one shared flash
+
+`environment/lightning.ts` schedules strikes as a Poisson process at `rate × storm` (storm from the
+`WeatherSystem`, else an override), each with a midpoint-displaced bolt grown deterministically
+from the seeded stream. The flash is a double stroke (attack/decay + return stroke); while it lives
+it drives a point light at the brightest strike, a one-frame sky exposure boost through
+`setSkyOverride` (so the clouds flash), and the bolt polylines as debug lines. Thunder is a sound
+system's job — the strike's time/position/energy are all it needs.
+
+### 7.5 The `weather` demo
+
+`examples/src/scenes/weatherScene.ts` puts the four together: a lake under the deck with the cycle
+running the sun. Keys `1–4` snap the presets, `L` calls a strike, `U` floods the camera (the sea
+level rises over the eye — the orbit controller owns the camera, the scene owns the sea),
+`[`/`]`/`T` drive the clock. `window.__forge` exposes `setWeather`, `setCoverage` (pins the deck
+without touching the weather, for the night A/B), `triggerLightning`, `setUnderwater` and
+`weatherState` for the gate.
