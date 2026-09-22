@@ -8,3 +8,5 @@ export * from "./chunk.js";
 export * from "./lod.js";
 export * from "./material.js";
 export * from "./world.js";
+export * from "./realistic.js";
+export * from "./realisticMaterial.js";
