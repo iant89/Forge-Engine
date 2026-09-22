@@ -12,6 +12,12 @@
  * cascade-debug shader variants. A pass list alone would not catch a shadow map sampled at the wrong
  * coordinates (that renders, validates, and shadows nothing).
  *
+ * Phase 4 addition: the terrain scene is driven through the real camera controls (wheel, right-drag,
+ * scene switching). Nothing else in this repo can catch "the camera cannot zoom or pan and ends up
+ * under the terrain": the unit suites never generate a mesh, and a pass list says nothing about where
+ * the eye is. The assertions are directional (the wheel must move the distance the way it was
+ * scrolled), and the eye is checked against the terrain height the meshes are built from.
+ *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
  * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
@@ -252,6 +258,86 @@ try {
   const resized = await page.evaluate(() => window.__forge.stats());
   if (!(resized.frame > after.frame)) throw new Error(`loop stalled after resize (frame ${resized.frame})`);
   console.log(`after resize: frame ${resized.frame}`);
+
+  // ---------------------------------------------------------------- terrain scene, real camera input
+  // The orbit controller is the only way a user reaches the terrain, so drive it: the wheel must
+  // change the distance in the direction it was scrolled (and must not be dead because the preset
+  // started outside the controller's limits), a right-drag must move the orbit target, and the eye
+  // must stay above the terrain the meshes are built from — `camera().altitude` is eye height minus
+  // the terrain query at the eye's XZ.
+  await page.setViewportSize({ width: 900, height: 520 }); // software rasteriser: keep this cheap
+  await page.evaluate(() => window.__forge.loadScene("terrain"));
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await settle(8) // the streaming budget generates a couple of chunks per frame
+
+  const WHEEL_STEPS = 4;
+  const wheelAtCentre = async (deltaY, clientX, clientY) => {
+    for (let i = 0; i < WHEEL_STEPS; i++) {
+      await page.mouse.move(clientX, clientY);
+      await page.mouse.wheel(0, deltaY);
+      await settle(2);
+    }
+  };
+  const camState = () => page.evaluate(() => window.__forge.camera());
+
+  const terrainStart = await camState();
+  if (!terrainStart) throw new Error("terrain scene has no camera state");
+  if (!(terrainStart.altitude > 1)) throw new Error(`camera starts under the terrain (altitude ${terrainStart.altitude})`);
+  if (!(terrainStart.distance <= terrainStart.maxDistance && terrainStart.distance >= terrainStart.minDistance)) {
+    throw new Error(`the scene's starting framing is outside its own zoom range (${terrainStart.distance} not in [${terrainStart.minDistance}, ${terrainStart.maxDistance}])`);
+  }
+  console.log(`terrain camera: eye=(${terrainStart.eye.map((v) => v.toFixed(1)).join(", ")}) distance=${terrainStart.distance.toFixed(1)} altitude=${terrainStart.altitude.toFixed(1)}`);
+
+  // Wheel away from the target: the camera must actually get further away.
+  await wheelAtCentre(200, 450, 300);
+  const zoomedOut = await camState();
+  console.log(`  wheel out x${WHEEL_STEPS}: distance ${terrainStart.distance.toFixed(1)} -> ${zoomedOut.distance.toFixed(1)}`);
+  if (!(zoomedOut.distance <= terrainStart.maxDistance + 1e-3)) throw new Error(`zoom out passed the scene's maximum (${zoomedOut.distance})`);
+  if (!(zoomedOut.distance > terrainStart.distance * 1.2)) {
+    throw new Error(`scrolling away did not zoom out (${terrainStart.distance} -> ${zoomedOut.distance})`);
+  }
+
+  // Wheel toward the target: closer, and the eye must still be above the surface.
+  await wheelAtCentre(-200, 450, 300);
+  const zoomedIn = await camState();
+  console.log(`  wheel in  x${WHEEL_STEPS}: distance ${zoomedOut.distance.toFixed(1)} -> ${zoomedIn.distance.toFixed(1)}, altitude ${zoomedIn.altitude.toFixed(1)}`);
+  if (!(zoomedIn.distance < zoomedOut.distance)) throw new Error("scrolling toward the target did not zoom in");
+  if (!(zoomedIn.altitude > 1)) throw new Error(`zoom-in drove the camera under the terrain (altitude ${zoomedIn.altitude})`);
+
+  // Right-drag pans the orbit target across the landscape.
+  await page.mouse.move(450, 300);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(250, 340, { steps: 8 });
+  await page.mouse.up({ button: "right" });
+  await settle(3);
+  const panned = await camState();
+  const targetDelta = Math.hypot(
+    panned.target[0] - zoomedIn.target[0],
+    panned.target[2] - zoomedIn.target[2],
+  );
+  console.log(`  right-drag pan: target moved ${targetDelta.toFixed(1)} m, altitude ${panned.altitude.toFixed(1)}`);
+  if (!(targetDelta > 1)) throw new Error("right-drag did not pan the camera");
+  if (!(panned.altitude > 1)) throw new Error(`panning drove the camera under the terrain (altitude ${panned.altitude})`);
+
+  // Zoom in past the point where the eye would meet the ground: the clamp must hold it above the
+  // surface instead of letting it ride through (the original "stuck at ground level, under the map").
+  await wheelAtCentre(-400, 450, 300);
+  const floor = await camState();
+  console.log(`  zoom to the floor: distance ${floor.distance.toFixed(1)}, altitude ${floor.altitude.toFixed(1)}`);
+  if (!(floor.distance >= floor.minDistance - 1e-3)) throw new Error(`zoom went below the scene's minimum distance (${floor.distance} < ${floor.minDistance})`);
+  if (!(floor.altitude > 1)) throw new Error(`camera ended up under the terrain at the closest zoom (${floor.altitude})`);
+  await page.screenshot({ path: "tools/.browser-check-terrain.png" });
+
+  // Switching scenes rebuilds whole worlds; the new scene must not inherit the previous scene's
+  // component slots ("already has a Transform component" here means component stores leak across
+  // worlds, which is how the demo's scene buttons used to break).
+  await page.evaluate(() => window.__forge.loadScene("pbr"));
+  await settle(6);
+  const switched = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => window.__forge.loadScene("terrain"));
+  const backToTerrain = await page.evaluate(() => window.__forge.stats());
+  console.log(`  scene switch: pbr frame ${switched.frame} gpuErrors ${switched.gpuErrors}, terrain again frame ${backToTerrain.frame}`);
+  if (switched.gpuErrors !== 0 || backToTerrain.gpuErrors !== 0) throw new Error("scene switching recorded GPU errors");
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;

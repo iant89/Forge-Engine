@@ -345,6 +345,45 @@ describe("Scene/ECS - System Scheduler", () => {
     world.dispose();
   });
 
+  it("keeps component storage per world, not per component type", () => {
+    // Regression: `ComponentTypeInfo` used to hand every world the *same* store instance. Entity slots
+    // restart at 0 in each world, so a second scene aliased slot 0 of the first: adding a Transform to
+    // its own entity #0 threw "already has a Transform component", and `world.dispose()` cleared the
+    // other world's components. Two live scenes in one process (the demo's scene switcher) hit both.
+    const first = new EntityWorld();
+    const second = new EntityWorld();
+
+    const a = first.createEntity("a");
+    a.add(new TagA()).value = 11;
+    const b = second.createEntity("b");
+    b.add(new TagA()).value = 22;
+
+    expect(first.getComponent(a.id, TagA)?.value).toBe(11);
+    expect(second.getComponent(b.id, TagA)?.value).toBe(22);
+    expect(first.store(TagA).count).toBe(1);
+    expect(second.store(TagA).count).toBe(1);
+
+    // Disposing one world must leave the other's components alone.
+    first.dispose();
+    expect(second.getComponent(b.id, TagA)?.value).toBe(22);
+    expect(second.liveEntityCount).toBe(1);
+
+    second.dispose();
+  });
+
+  it("lets a scene be built while another is still live", () => {
+    const first = new Scene({ name: "first" });
+    const second = new Scene({ name: "second" });
+    first.createTransformedEntity("camera", new Vec3(0, 0, 0));
+    second.createTransformedEntity("ground", new Vec3(0, 1, 0));
+
+    expect(first.entityCount).toBe(1);
+    expect(second.entityCount).toBe(1);
+
+    first.dispose();
+    second.dispose();
+  });
+
   it("runs FixedSystem with exact number of fixed steps", () => {
     const world = new EntityWorld();
     let stepsCounted = 0;

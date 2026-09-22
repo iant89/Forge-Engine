@@ -269,8 +269,7 @@ export class EntityWorld {
     } catch (e) {
       reportComponentError(`onDetach ${info.name}`, e);
     }
-    info.store.remove(slot);
-    // (the store instance in `info` and the one in `this.stores` are identical by construction)
+    this.storeFor(info).remove(slot);
     this.componentCount--;
     this.generationCounter++;
     component.entity = NULL_ENTITY;
@@ -324,11 +323,11 @@ export class EntityWorld {
     return out;
   }
 
-  /** @internal */
+  /** @internal One store per component type *per world* — see `ComponentTypeInfo.createStore`. */
   storeFor(info: ComponentTypeInfo): ComponentStorage<Component> {
     let s = this.stores.get(info.id);
     if (!s) {
-      s = info.store;
+      s = info.createStore();
       this.stores.set(info.id, s);
     }
     return s;
@@ -352,8 +351,7 @@ export class EntityWorld {
   /** Object store for a component type, for systems that want raw array access. */
   store<T extends Component>(ctor: new (...args: never[]) => T): ObjectStore<T> {
     const info = componentInfo(ctor as unknown as new (...args: never[]) => Component);
-    this.storeFor(info);
-    return info.store as unknown as ObjectStore<T>;
+    return this.storeFor(info) as unknown as ObjectStore<T>;
   }
 
   // ------------------------------------------------------------------ queries
@@ -613,7 +611,7 @@ export class EntityWorld {
         }
         case "remove": {
           const info = this.typeInfo(op.typeId!);
-          const c = info.store.get(slot);
+          const c = this.storeFor(info).get(slot);
           if (c) this.detachComponent(slot, info.id, c);
           break;
         }
@@ -673,7 +671,7 @@ export class EntityWorld {
       depth = Math.max(depth, d);
     }
     const byComponent: { name: string; count: number }[] = [];
-    for (const info of this.registeredTypes()) byComponent.push({ name: info.name, count: info.store.count });
+    for (const info of this.registeredTypes()) byComponent.push({ name: info.name, count: this.storeFor(info).count });
     return {
       entities: this.liveEntities,
       components: this.componentCount,

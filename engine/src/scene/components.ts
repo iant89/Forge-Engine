@@ -1,7 +1,7 @@
 /**
  * Component base + registry.
  *
- * A component is a plain object; its *storage* is per-type and owned by the world. The base class
+ * A component is a plain object; its *storage* is per-type and owned by the world (`createStore`). The base class
  * keeps only what every subsystem needs:
  *  - `entity` (back-reference, validated through the world, never a raw pointer)
  *  - `enabled` (cheap per-component gate respected by systems)
@@ -71,7 +71,12 @@ export interface ComponentTypeInfo {
   name: string;
   /** Constructor signature — used by the editor + scene loader to rebuild components. */
   create?: (data: Record<string, unknown>) => Component;
-  store: ComponentStorage<Component>;
+  /**
+   * Storage *factory*. Each `EntityWorld` owns its own store: entity slots restart at 0 in every
+   * world, so a store shared between worlds aliases slot 0 of one onto slot 0 of another (a second
+   * scene inherited the first scene's components, and disposing either wiped both).
+   */
+  createStore(): ComponentStorage<Component>;
   /** Serialize to plain JSON-ish data (default: own enumerable fields, skipping objects). */
   serialize?: (c: Component) => Record<string, unknown>;
   deserialize?: (c: Component, data: Record<string, unknown>, ctx: DeserializationContext) => void;
@@ -117,14 +122,13 @@ export function registerComponent<T extends Component>(ctor: new (...args: never
     throw new UsageError(`Too many component types (${MAX_COMPONENT_TYPES} max). Group related state into one component.`);
   }
   const id = registry.length;
-  const store = new ObjectStore<Component>(id, name) as unknown as ComponentStorage<Component>;
   const info: ComponentTypeInfo = {
     id,
     name,
     create: options.create,
     serialize: options.serialize,
     deserialize: options.deserialize,
-    store,
+    createStore: () => new ObjectStore<Component>(id, name) as unknown as ComponentStorage<Component>,
     singleton: options.singleton,
     editorGroup: options.editorGroup ?? name,
     allowMultiple: options.allowMultiple ?? true,

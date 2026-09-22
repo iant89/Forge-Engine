@@ -23,9 +23,9 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 105 tests in 12 files: `math` (26), `renderGraph` (14), `ecs` (11), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm test` | 123 tests in 13 files: `math` (26), `orbitControls` (16), `renderGraph` (14), `ecs` (13), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct and every `var<uniform>` in the shader text | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: real WebGPU loop with the full Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), pass-structure and steady-state-allocation assertions, bloom and shadow A/B readbacks, LDR fallback, cascade debug view, resize resilience, zero recorded GPU errors | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: real WebGPU loop with the full Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), pass-structure and steady-state-allocation assertions, bloom and shadow A/B readbacks, LDR fallback, cascade debug view, resize resilience, the Phase 4 terrain scene driven through real wheel/right-drag camera input with the eye checked against the terrain height, scene switching, zero recorded GPU errors | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
@@ -38,6 +38,40 @@ float64-pair and `Double3.writeRelativeFloat32` precision, and `TransformStore` 
 Phase 2 added an alias-safety case: `Mat4.transformPoint/transformDirection` and `Quat.rotateVector`
 must give the same answer when the output vector *is* the input, because that is how the scratch
 vectors in the cascade fit are used (the bug it guards against shifted every cascade centre).
+
+### `tests/orbitControls.test.ts` — the demo camera controls
+
+`OrbitControls` is the only path a user has to the scene, so its contract is tested where it can be
+seen: `configure()` clamps a preset distance into the scene's range (the regression — a 120 m terrain
+preset under a hard-coded 50 m cap, which made the first wheel event a teleport to the ground);
+zoom is exponential in wheel pixels and saturates at `minDistance`/`maxDistance` in both directions;
+panning moves the target along the camera's own right/up axes by exactly
+`dragged pixels × 2·distance·tan(fovY/2) / viewportHeight` (asserted at two azimuths and two viewport
+heights); elevation clamps; the surface constraint holds the target *and* the eye above
+`groundHeight + groundClearance` across a full zoom sweep, both elevation extremes and a pan that
+would bury the target; and the camera's world matrix looks at the orbit target. The terrain demo's own
+preset is asserted too: it starts inside its declared range, can zoom out, stays above the terrain at
+every zoom level, and its elevation queries match an independently generated tile of the same cell
+(the bare `HeightGenerator` disagrees by up to 26 m on that seed, which is how the camera used to sink
+through crater rims).
+
+### `tests/ecs.test.ts` — scene/entity lifecycle
+
+Component storage is per *world*: two live scenes each hold their own store for a component type,
+adding a component in one world does not show up in the other, and disposing one world leaves the
+other's components intact. The regression this pins is what the demo's scene buttons hit — one store
+instance per component *type*, shared by every world, aliased entity slot 0 of one scene onto slot 0
+of the next, so the second scene built in a session threw `Entity "ground" already has a Transform
+component` (and disposing either scene cleared the other's components).
+
+### `tests/terrain.test.ts` — procedural generation, sampling and the streaming budget
+
+Bit-for-bit deterministic tiles for a seed, seamless elevation continuity across chunk edges, crater
+excavation plus uplifted rims, scatters on acceptable slopes, bicubic height/normal interpolation and
+grid-marching raycasts, LOD bands with geomorph alpha, and the resident-chunk budget: after moving the
+focus 5 km the world still holds no more than `maxChunksLoaded` chunks (`maxGenerationsPerFrame` also
+progresses at least one chunk per frame, which the old scan-order queue could silently fail to do when
+the budget was already full of far chunks).
 
 ### `tests/renderGraph.test.ts` — the graph's contracts (mock device)
 
@@ -140,6 +174,18 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
 - No GPU error was recorded: shader compile diagnostics (`getCompilationInfo`), `uncapturederror`
   events and render exceptions all land in `engine.stats().gpuErrors`/`lastError`, and any engine
   `console.error` fails the run.
+- **Terrain camera controls (Phase 4)**: the gate then switches to the terrain scene with the
+  animation frozen and drives the real controller — `page.mouse.wheel` at the canvas centre and a
+  right-button drag. It asserts the starting framing is inside the scene's own zoom range, that
+  scrolling away increases `distance` (bounded by `maxDistance`) and scrolling back decreases it,
+  that a right-drag moves the orbit target, and that after every one of those the reported
+  `altitude` (eye height minus `terrain.getHeightAt(eye.x, eye.z)`) stays above the surface — the
+  exact failure that started this: a controller with a hard-coded 2..50 m range under a scene framed
+  at 120 m, which clamped the eye to the ground and left it under ridge lines. `tools/.browser-check-terrain.png`
+  captures the closest-zoom frame for eyeballing.
+- **Scene switching**: `pbr → terrain → pbr → terrain` must leave `gpuErrors` at 0, which it cannot
+  if component stores leak between worlds (see the ECS note above) or the previous controller was
+  left attached.
 
 Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**: the automated
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
@@ -176,5 +222,12 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **GPU timings.** No timestamp queries yet; `renderTimeMs` is CPU time.
 * **Multi-threaded task scheduler and worker round-trips.** Worker entry and scheduler are
   implemented, but worker execution across threads has no test suite yet.
-* **Terrain generation and streaming, resource cache eviction.** Later phases; the code that exists
-  compiles and is not otherwise exercised.
+* **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
+  the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
+  and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the
+  loaded disc looks, or how long a hitch a chunk takes to generate on a given machine.
+* **Fog / atmosphere.** `scene.setFog` stores settings and the forward pass uploads
+  `fogColor`/`fogDensity`/`fogRange`, but no shipped shader samples them yet (ROADMAP Phase 8), so a
+  scene that configures fog renders without haze.
+* **Resource cache eviction.** Texture/mesh registry LRU behaviour under memory pressure is not
+  covered.
