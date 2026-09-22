@@ -142,7 +142,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "CI runs typecheck, unit tests, shader validation, architecture and docs gates on every push",
     evidence: [".github/workflows/ci.yml"],
-    notes: "The real-WebGPU browser gate is not part of CI — see testing.browserGateInCi",
+    notes: "The real-WebGPU gate is a separate advisory job (SwiftShader + a Vulkan loader and ICD) — see testing.browserGateInCi",
   },
 
   // ---------------------------------------------------------------- workers / resources
@@ -237,10 +237,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "testing.browserGateInCi",
     phase: "28.5",
-    status: "planned",
-    summary: "The real-WebGPU browser gate running in CI",
+    status: "partial",
+    summary: "The real-WebGPU browser gate runs in CI as an advisory SwiftShader job",
+    evidence: [".github/workflows/ci.yml"],
     closesWith: "28.5",
-    notes: "CI prints that it does not run the browser gate; a green CI run is not a WebGPU validation",
+    notes: "It cannot block a merge, a runner without a WebGPU adapter reports \"did not run\", and WebKit/mobile browsers still run nowhere",
   },
   {
     id: "platform.webkitCompile",

@@ -227,8 +227,10 @@ than simply adding features.
         Phase 9 landed; a limitation that references a now-verified capability fails docs:check.
 
     [x] Prevent "green CI" from implying production readiness.
-        (.github/workflows/ci.yml runs the CPU gates and prints what CI does not cover; the
-        real-WebGPU browser gate is not run in CI — capability: testing.browserGateInCi)
+        (.github/workflows/ci.yml runs the CPU gates and prints what they do not cover; the
+        real-WebGPU gate runs as a separate advisory job on SwiftShader and mirrors its output
+        onto the pull request, so it can inform without ever implying a merge was validated —
+        capability: testing.browserGateInCi)
 
 
 EXIT CRITERIA:

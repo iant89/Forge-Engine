@@ -315,6 +315,8 @@ console.log(
       : ""),
 );
 console.log(
-  "  NOT covered by CI: the real-WebGPU browser gate (npm run check:browser), the benchmarks" +
-    " (npm run bench) and any mobile/WebKit run. A green CI run means the CPU gates passed.",
+  "  NOT covered by CI: WebKit/Safari and mobile browsers (nothing compiles the shaders there)," +
+    " GPU timings, and any soak run. The real-WebGPU gate runs as an advisory job that cannot block" +
+    " a merge, and a runner with no WebGPU adapter reports that it did not run. A green CI run" +
+    " means the CPU gates passed.",
 );

@@ -559,8 +559,14 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   a spectral reference renderer. Multiple scattering is absent (`docs/KNOWN-ISSUES.md`).
 * **The limits of a green CI run.** CI executes the CPU gates, prints in the job log what it does not
   cover (`capability: testing.browserGateInCi`), and runs the WebGPU browser gate as a separate
-  *advisory* job: it installs the Chromium revision the installed `playwright-core` asks for and runs
-  the same SwiftShader gate. If that runner cannot launch a WebGPU browser the script exits 2, the job
+  *advisory* job. Making that job real needed three things a sandbox with a prepared browser gets for
+  free: the full Chromium build (`channel: "chromium"` — the bundled headless shell has no WebGPU at
+  all), a Vulkan loader with a software ICD (Playwright never installs `libvulkan1`, so without it
+  `navigator.gpu` exists and `requestAdapter()` still returns null — the job installs it plus Mesa's
+  lavapipe and points `VK_ICD_FILENAMES` at Chromium's bundled SwiftShader ICD), and a page that does
+  not request a favicon it does not have (a 404 is a console error, and console errors fail the gate).
+  Its log is mirrored onto the pull request as a comment, because job logs cannot be downloaded from
+  every environment. If that runner cannot launch a WebGPU browser the script exits 2, the job
   says so and passes with a warning — it proves nothing about rendering, which is exactly what an
   advisory check should admit. WebKit, mobile browsers and GPU timings are still not run anywhere in
   CI; a failing advisory job never blocks a merge, so a green PR is not a rendering verdict.
