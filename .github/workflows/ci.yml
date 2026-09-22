@@ -85,36 +85,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The gate launches `channel: "chromium"` (the full build) because Playwright's default headless
-      # launch uses chromium-headless-shell, which has no WebGPU. Install the revision that the
-      # installed playwright-core asks for, so a dependency bump cannot silently fetch a different one.
+      # The gate launches the full Chromium build (`channel: "chromium"`), because Playwright's default
+      # headless launch is chromium-headless-shell, which has no WebGPU at all. Install the revision the
+      # installed playwright-core asks for, so a dependency bump cannot fetch a different one, and pin
+      # the environment to that binary: without PLAYWRIGHT_CHROMIUM the setup script below would extract
+      # the @sparticuz payload into the temp dir, and CI would test a different browser than the gate
+      # launches on a developer machine.
       - name: Install the Chromium build the gate launches
         run: |
           PW_VERSION=$(node -p "require('playwright-core/package.json').version")
           npx --yes "playwright@$PW_VERSION" install --with-deps chromium
+          PW_CHROME=$(node -p "require('playwright-core').chromium.executablePath()")
+          echo "PLAYWRIGHT_CHROMIUM=$PW_CHROME" >> "$GITHUB_ENV"
+          ls "$(dirname "$PW_CHROME")" | grep -iE "vulkan|swiftshader" || true
 
-      # The engine asks Dawn for a Vulkan device; on a bare runner that needs a Vulkan loader, and
-      # SwiftShader (Chromium's own ICD, when it ships one) or Mesa's lavapipe to answer as the
-      # implementation. Without this the browser has navigator.gpu but requestAdapter() returns null,
-      # and the gate correctly reports "did not run" instead of pretending it checked anything.
-      - name: Give the browser a Vulkan loader and a software ICD
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvulkan1 mesa-vulkan-drivers
-          CHROME=$(node -p "require('playwright-core').chromium.executablePath()")
-          DIR=$(dirname "$CHROME")
-          echo "chromium: $CHROME"
-          ls "$DIR" | grep -iE "vulkan|swiftshader|egl|gles" || true
-          ICD=$(find "$DIR" -maxdepth 2 -name 'vk_swiftshader_icd.json' 2>/dev/null | head -1)
-          echo "bundled SwiftShader ICD: ${ICD:-none (falling back to the system one)}"
-          if [ -n "$ICD" ]; then
-            {
-              echo "VK_ICD_FILENAMES=$ICD"
-              echo "VK_DRIVER_FILES=$ICD"
-              echo "LD_LIBRARY_PATH=$DIR:${LD_LIBRARY_PATH:-}"
-            } >> "$GITHUB_ENV"
-          fi
-          ls -la /usr/share/vulkan/icd.d 2>/dev/null || true
+      # The same script a developer runs: it verifies the toolchain, the locked packages and the
+      # browser, installs the Vulkan loader and a software ICD (libvulkan1 + Mesa's lavapipe), and
+      # reports which ICD tools/gpu-env.mjs will hand the gate. Its output is attached to the pull
+      # request below, so a rendering failure can be told apart from a provisioning one.
+      - name: Provision the gate's environment
+        run: bash scripts/setup-deps.sh --browser --verbose 2>&1 | tee "$RUNNER_TEMP/setup.log"
 
       # No `PIPESTATUS`, no `tee`-in-a-pipeline: the exit code has to survive whatever shell this
       # runner hands the script, and the log is needed as a file for the report step below anyway.
@@ -145,7 +135,15 @@ jobs:
           [ -f "$LOG" ] || exit 0
           {
             echo '<!-- browser-gate-report -->'
-            echo "Browser gate (\`${{ github.sha }}\`, advisory). Last 3 kB of the gate's output:"
+            echo "Browser gate (\`${{ github.sha }}\`, advisory)."
+            echo
+            echo 'Provisioning the environment:'
+            echo
+            echo '```'
+            tail -c 1200 "$RUNNER_TEMP/setup.log" 2>/dev/null || echo "(no setup log)"
+            echo '```'
+            echo
+            echo "Gate output (last 3 kB):"
             echo
             echo '```'
             tail -c 3000 "$LOG"

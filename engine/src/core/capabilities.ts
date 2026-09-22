@@ -235,6 +235,14 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["tools/browser-check.mjs"],
   },
   {
+    id: "testing.browserProvisioning",
+    phase: "2",
+    status: "verified",
+    summary: "One script provisions the headless browser and the Vulkan ICD the gate needs, and says which",
+    evidence: ["scripts/setup-deps.sh", "tools/gpu-env.mjs", "tests/gpuEnv.test.ts"],
+    notes: "Installing the loader and a software ICD needs root; without it the script reports the exact command and stays a warning",
+  },
+  {
     id: "testing.browserGateInCi",
     phase: "28.5",
     status: "partial",

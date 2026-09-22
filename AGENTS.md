@@ -25,9 +25,18 @@ checkout it finishes in well under a second and prints a status table. It provis
 | npm | lockfile v3 → npm ≥ 7 | reports (npm ships with Node) |
 | npm packages | exact versions in `package-lock.json` | `npm ci` (never `npm install`) |
 | Headless Chromium + SwiftShader | `@sparticuz/chromium` major version | extracts the bundled binary to `$TMPDIR` (where `tools/browser-check.mjs` looks); falls back to Playwright's download when its CDN is reachable |
+| Vulkan loader + software ICD | the loader on disk, and the ICDs in `/usr/share/vulkan/icd.d` | `libvulkan1` + Mesa's lavapipe via the distro's package manager (`sudo`, only when it will not prompt). A browser that bundles its own ICD (`vk_swiftshader_icd.json` next to the binary) does not need them, and then this is a warning, not a failure |
 
-Flags: `--check` (verify only), `--no-browser` (skip the browser step), `--browser` (fail instead of
-warn when no browser can be provisioned), `--verbose`. In sandboxes where the public CDNs are blocked
+Flags: `--check` (verify only), `--no-browser` (skip the browser and Vulkan steps), `--browser` (fail
+instead of warn when no browser can be provisioned), `--verbose`.
+
+Which ICD the headless gate is launched with is decided by `tools/gpu-env.mjs` (and pinned by
+`tests/gpuEnv.test.ts`): the one bundled next to the browser when it has one — then `VK_ICD_FILENAMES`
+and `VK_DRIVER_FILES` point at it and its directory goes on `LD_LIBRARY_PATH` — otherwise nothing at
+all and the system loader picks. `npm run setup` writes that environment to
+`$TMPDIR/forge-gpu-env.sh` so you can `source` it before launching the same browser by hand. Chrome
+starts with no such ICD look healthy (`navigator.gpu` exists) and then `requestAdapter()` returns null,
+which is what the gate reports as "did not run" rather than a failure. In sandboxes where the public CDNs are blocked
 the bundled-Chromium path is the one that works; do not spend time trying to `playwright install`.
 
 ## 1. Commands you will actually run

@@ -30,13 +30,14 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 310 tests in 26 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `resources` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm test` | 318 tests in 27 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `resources` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (8), `gpuEnv` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
 | `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
+| `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
 | `npm run test:gpu` | Suites named `tests/**\/*.gpu.test.ts` against a real adapter; none exist yet (`passWithNoTests`), real-adapter validation is `check:browser` | no-op by design |
 
 ### `tests/math.test.ts` — conventions the engine silently depends on
@@ -343,6 +344,19 @@ columns. The old frustum test hid it by passing a second argument that never exi
 checking points on the axis; it now uses `multiplyMatrices` and the new case asserts in-place and
 three-operand forms agree, including `m.multiply(m)`.
 
+### `tests/gpuEnv.test.ts` — which Vulkan ICD the gate launches with
+
+`tools/gpu-env.mjs` is asked, before any browser exists, which ICD a headless Chromium should use, and
+the suite pins that answer by driving the tool as a CLI — the same way `scripts/setup-deps.sh` drives
+it, so the shell script's contract is covered too. A directory shaped like a browser that bundles its
+own stack must yield `VK_ICD_FILENAMES`/`VK_DRIVER_FILES` pointing at that file and its directory on
+`LD_LIBRARY_PATH`; an ICD the caller already named must win; a build with no bundled ICD must set no
+`VK_*` variable at all (the loader's own list is then the decision) while still searching the binary's
+directory; payload libraries (the @sparticuz `al2023/lib`) must come first and no path may repeat; a
+browser that does not exist must produce an answer, not a crash. This is the failure mode that costs
+the most time, because the browser still starts: `navigator.gpu` exists, `requestAdapter()` returns
+null, and the gate reports "did not run" while the engine is fine.
+
 ### `tests/resources.test.ts` — the resource cache (Phase 9.2)
 
 Acquire/release refcounting, one load per id (a second acquire while a load is in flight joins it), a
@@ -472,6 +486,14 @@ Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
 are crisp and the bloom halo is where the emissive cube is remains an eyeball check.
 
+Provisioning is part of the gate's contract, not a prerequisite left to the reader:
+`scripts/setup-deps.sh` installs the Vulkan loader and a software ICD (Mesa's lavapipe) when the machine
+has none, and `tools/gpu-env.mjs` — the one place that decides — points `VK_ICD_FILENAMES` at the ICD
+bundled next to the browser when the build ships one, otherwise leaves the system list to the loader
+and says so. Both choices are printed before the adapter probe, so a run that cannot present WebGPU is
+never mistaken for a broken engine. `npm run setup` also writes that environment to
+`$TMPDIR/forge-gpu-env.sh` for launching the same browser by hand.
+
 The browser it drives is Chromium, and specifically the *full* build (`channel: "chromium"`).
 Playwright's default headless launch uses `chromium-headless-shell`, which has no WebGPU at all — under
 it the page boots with no adapter and the gate reports an engine failure that is really a browser
@@ -562,9 +584,11 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   *advisory* job. Making that job real needed three things a sandbox with a prepared browser gets for
   free: the full Chromium build (`channel: "chromium"` — the bundled headless shell has no WebGPU at
   all), a Vulkan loader with a software ICD (Playwright never installs `libvulkan1`, so without it
-  `navigator.gpu` exists and `requestAdapter()` still returns null — the job installs it plus Mesa's
-  lavapipe and points `VK_ICD_FILENAMES` at Chromium's bundled SwiftShader ICD), and a page that does
-  not request a favicon it does not have (a 404 is a console error, and console errors fail the gate).
+  `navigator.gpu` exists and `requestAdapter()` still returns null), and a page that does not request a
+  favicon it does not have (a 404 is a console error, and console errors fail the gate). The middle
+  one is now `scripts/setup-deps.sh`, run by the job exactly as a developer runs it locally, so the two
+  cannot drift; the job pins the browser it provisions through `PLAYWRIGHT_CHROMIUM` and attaches the
+  setup script's output to the pull request next to the gate's.
   Its log is mirrored onto the pull request as a comment, because job logs cannot be downloaded from
   every environment. If that runner cannot launch a WebGPU browser the script exits 2, the job
   says so and passes with a warning — it proves nothing about rendering, which is exactly what an

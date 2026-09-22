@@ -43,11 +43,24 @@
  * default headless launch uses `chromium-headless-shell`, and that binary has no WebGPU at all: with it
  * the page boots into "no adapter" and this gate reports a product bug that is really a browser choice.
  * The full build in new headless mode (with the flags below) is the only configuration that presents
- * pixels here. Exits 2 when nothing can be launched, so `verify` never implies a browser pass.
+ * pixels here.
+ *
+ * WebGPU needs a Vulkan device on top of that, and `tools/gpu-env.mjs` is what supplies it: the ICD
+ * bundled next to the browser when the build has one (VK_ICD_FILENAMES/VK_DRIVER_FILES, plus the
+ * binary's own directory on LD_LIBRARY_PATH), otherwise nothing at all and the system loader finds
+ * Mesa's lavapipe, which `scripts/setup-deps.sh` installs. Both are printed before the adapter probe,
+ * so "no adapter here" can be told apart from "the engine failed".
+ *
+ * Exits 2 when nothing can be launched or the browser has no WebGPU adapter at all, so `verify` never
+ * implies a browser pass and a GPU-less runner is not blamed on the change.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { gpuLaunchEnv, ICD_SOURCE_TEXT, LOADER_SOURCE_TEXT } from "./gpu-env.mjs";
 
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
@@ -91,28 +104,34 @@ if (!ready) {
 }
 
 const { chromium } = await import("playwright-core");
+// The browser this gate launches, in the order the setup script provisions them: an explicit
+// PLAYWRIGHT_CHROMIUM, the @sparticuz payload extracted into the temp dir, then Playwright's own
+// build. Asking for `channel: "chromium"` is not decoration — Playwright's default headless launch is
+// `chromium-headless-shell`, which has no WebGPU at all (tools/gpu-env.mjs resolves the same path, so
+// what it reports is what gets launched).
 const spartan = process.env.PLAYWRIGHT_CHROMIUM ?? (existsSync("/tmp/chromium") ? "/tmp/chromium" : null);
-const useEnv = spartan
-  ? {
-      env: {
-        ...process.env,
-        LD_LIBRARY_PATH: ["/tmp/al2023/lib", "/tmp", process.env.LD_LIBRARY_PATH].filter(Boolean).join(":"),
-        VK_DRIVER_FILES: existsSync("/tmp/vk_swiftshader_icd.json") ? "/tmp/vk_swiftshader_icd.json" : process.env.VK_DRIVER_FILES,
-        VK_ICD_FILENAMES: existsSync("/tmp/vk_swiftshader_icd.json") ? "/tmp/vk_swiftshader_icd.json" : process.env.VK_ICD_FILENAMES,
-      },
-    }
-  : {};
+const managedChromium = () => {
+  try {
+    return chromium.executablePath(); // the full build, not the headless shell
+  } catch {
+    return null;
+  }
+};
+const launchEnvironment = gpuLaunchEnv({
+  executablePath: spartan ?? managedChromium(),
+  extraLibraryPaths: [join(tmpdir(), "al2023", "lib")],
+});
 
 let browser;
 try {
   browser = await chromium.launch({
     // `executablePath` and `channel` are mutually exclusive; when we have our own binary, use it.
     ...(spartan ? { executablePath: spartan } : { channel: "chromium" }),
+    env: launchEnvironment.env,
     // Playwright also passes `--headless`, which on Chromium 131 selects the *old* headless mode.
     // Whether the last duplicate wins is not something to bet the gate on, so drop it and pass the
     // new mode ourselves.
     ignoreDefaultArgs: ["--headless"],
-    ...useEnv,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -126,6 +145,12 @@ try {
     ],
     timeout: 90000,
   });
+  // Print what the browser was given, next to the adapter probe below: "no adapter" with an ICD that
+  // does not exist and "no adapter" with a valid one mean very different things.
+  console.log(
+    `gpu: ICD ${launchEnvironment.icd ?? "(none — the loader picks)"} (${ICD_SOURCE_TEXT[launchEnvironment.icdSource]})` +
+      `; loader ${launchEnvironment.loader ?? "(not found)"} (${LOADER_SOURCE_TEXT[launchEnvironment.loaderSource]})`,
+  );
 } catch (error) {
   console.error(
     `check:browser NOT RUN — no launchable browser (${String(error).split("\n")[0]}).\n` +
