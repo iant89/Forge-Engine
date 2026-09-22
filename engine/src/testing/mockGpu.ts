@@ -84,6 +84,8 @@ export interface MockPassRecord {
   instances: number;
   colorTargets: string[];
   depthTarget: string | null;
+  /** Depth store op of a render pass (`"read-only"` when the attachment was bound read-only). */
+  depthStoreOp: "store" | "discard" | "read-only" | null;
   dispatches: number;
 }
 
@@ -1393,19 +1395,25 @@ export class MockGPURenderPassEncoder extends MockPassBase {
           this.encoder.device.reportError(`render pass "${this.label}": depth texture "${tex.label}" lacks RENDER_ATTACHMENT usage`);
         }
         if (!DEPTH_FORMATS.has(tex.format)) this.encoder.device.reportError(`render pass "${this.label}": "${tex.label}" format ${tex.format} is not a depth format`);
-        if (dsa.depthLoadOp === undefined) this.encoder.device.reportError(`render pass "${this.label}": depth attachment needs depthLoadOp`);
-        if (dsa.depthStoreOp === undefined) this.encoder.device.reportError(`render pass "${this.label}": depth attachment needs depthStoreOp`);
+        if (dsa.depthReadOnly) {
+          // Spec: a read-only depth aspect must not carry load/store ops (GPURenderPassDepthStencilAttachment validation).
+          if (dsa.depthLoadOp !== undefined || dsa.depthStoreOp !== undefined) {
+            this.encoder.device.reportError(`render pass "${this.label}": depthReadOnly attachment must not set depthLoadOp/depthStoreOp`);
+          }
+        } else {
+          if (dsa.depthLoadOp === undefined) this.encoder.device.reportError(`render pass "${this.label}": depth attachment needs depthLoadOp`);
+          if (dsa.depthStoreOp === undefined) this.encoder.device.reportError(`render pass "${this.label}": depth attachment needs depthStoreOp`);
+        }
         if (dsa.depthLoadOp === "clear" && dsa.depthClearValue !== undefined) {
           if (dsa.depthClearValue < 0 || dsa.depthClearValue > 1) this.encoder.device.reportError(`render pass "${this.label}": depthClearValue ${dsa.depthClearValue} outside [0,1]`);
         }
-        if (dsa.depthReadOnly && dsa.depthLoadOp === "load" && false) this.encoder.device.reportError("unreachable");
         if ((dsa.stencilLoadOp !== undefined) !== (dsa.stencilStoreOp !== undefined)) {
           this.encoder.device.reportError(`render pass "${this.label}": stencilLoadOp and stencilStoreOp must both be present or both absent`);
         }
         if (dsa.stencilLoadOp !== undefined && !STENCIL_FORMATS.has(tex.format)) {
           this.encoder.device.reportError(`render pass "${this.label}": stencil ops need a stencil-capable format, got ${tex.format}`);
         }
-        tex.lastWrittenBy = this.label;
+        if (!dsa.depthReadOnly) tex.lastWrittenBy = this.label;
       }
     }
     if (this.desc.occlusionQuerySet) {
@@ -1684,6 +1692,7 @@ export class MockGPURenderPassEncoder extends MockPassBase {
       instances: this.instances,
       colorTargets: this.colorTextures.map((t) => t.label),
       depthTarget: this.depthTexture?.label ?? null,
+      depthStoreOp: this.depthTexture ? (this.desc.depthStencilAttachment?.depthReadOnly ? "read-only" : (this.desc.depthStencilAttachment?.depthStoreOp ?? null)) : null,
       dispatches: 0,
     });
     this.passesForTesting.push(this);
@@ -1805,6 +1814,7 @@ export class MockGPUComputePassEncoder {
       instances: 0,
       colorTargets: [],
       depthTarget: null,
+      depthStoreOp: null,
       dispatches: this.dispatches,
     });
     if (this.dispatches === 0) device.noteEmptyPass(this.label, "compute");

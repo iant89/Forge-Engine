@@ -16,6 +16,7 @@ import {
   DEPTH_VERTEX,
   POST_SHADER,
   RENDERING_STRUCTS,
+  SKY_SHADER,
   STANDARD_FRAGMENT_BODY,
   STANDARD_INSTANCED_VERTEX,
   STANDARD_VERTEX,
@@ -45,8 +46,9 @@ describe("generated uniform structs are legal in every browser's uniform address
   });
 
   it("keeps the byte layout the CPU writers depend on", () => {
-    expect(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform")).toBe(240);
+    expect(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform")).toBe(256);
     expect(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("flags")).toBe(224);
+    expect(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("fogParams")).toBe(240);
     expect(RENDERING_STRUCTS.LightUniforms.byteSize("uniform")).toBe(80);
     expect(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles")).toBe(48);
     expect(RENDERING_STRUCTS.LightBlock.byteSize("uniform")).toBe(1296);
@@ -61,6 +63,9 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform")).toBe(176);
     expect(RENDERING_STRUCTS.ObjectUniforms.offsetOf("instanceOffset")).toBe(160);
     expect(RENDERING_STRUCTS.InstanceStruct.byteSize("storage")).toBe(80);
+    expect(RENDERING_STRUCTS.SkyUniforms.byteSize("uniform")).toBe(128);
+    expect(RENDERING_STRUCTS.SkyUniforms.offsetOf("planetRadius")).toBe(96);
+    expect(RENDERING_STRUCTS.SkyUniforms.offsetOf("viewSamples")).toBe(120);
   });
 
   it("every shipped shader variant passes the strict validator", () => {
@@ -74,6 +79,7 @@ describe("generated uniform structs are legal in every browser's uniform address
       DEBUG_SHADER,
       BLIT_SHADER,
       POST_SHADER,
+      SKY_SHADER,
     };
     for (const [name, source] of Object.entries(sources)) {
       for (const defines of [

@@ -226,20 +226,24 @@ function defaultTimeSource(): number {
 
 /** Test/replay clock: advances only when told to, with no wall-clock coupling. */
 export class ManualClock extends Clock {
-  private t = 0;
+  // The base constructor samples the time source before `this` exists (it must not touch a
+  // derived field), so the synthetic time lives in a closure the source can read at any point.
+  private readonly state: { t: number };
 
   constructor(options: ClockOptions = {}) {
-    super({ ...options, timeSource: () => (this as ManualClock).t });
+    const state = { t: 0 };
+    super({ ...options, timeSource: () => state.t });
+    this.state = state;
   }
 
   /** Advance synthetic time by `seconds` and return the tick result. */
   advance(seconds: number): TickResult {
-    this.t += seconds;
+    this.state.t += seconds;
     return this.tick();
   }
 
   get manualTime(): number {
-    return this.t;
+    return this.state.t;
   }
 }
 

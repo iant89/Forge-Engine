@@ -376,6 +376,54 @@ try {
   if (!particles || !(particles.alive > 0)) throw new Error("particle fountain did not emit");
   if (particleStats.gpuErrors !== 0 || particleStats.lastError) throw new Error(`particle scene GPU errors: ${particleStats.lastError}`);
   await page.screenshot({ path: "tools/.browser-check-particles.png" });
+
+  // Phase 8a: the sky pass compiles and runs on the real GPU, and the day/night cycle changes what
+  // it draws. Noon must be brighter than midnight (sun disc + scattered light vs stars), the pass
+  // must disappear when the sky is switched off, and the Mars preset must still render cleanly.
+  await page.evaluate(() => window.__forge.loadScene("sky"));
+  await settle(8);
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await page.evaluate(() => window.__forge.setTimeOfDay(12));
+  await settle(6);
+  const noon = await samplePixels();
+  const noonState = await page.evaluate(() => window.__forge.environmentState());
+  const noonStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-sky-noon.png" });
+  console.log(
+    `sky noon: mean ${noon.mean.toFixed(2)} distinct=${noon.distinct} el=${noonState?.elevationDeg?.toFixed(1)}° ` +
+      `light=${noonState?.lightIntensity?.toFixed(2)} passes=${noonStats.renderPasses.join(",")}`,
+  );
+  if (!noonState || !noonState.isDay) throw new Error("day/night cycle did not report daytime at 12:00");
+  if (!noonStats.renderPasses.includes("forge.sky")) throw new Error(`sky pass did not run: ${noonStats.renderPasses.join(", ")}`);
+  if (noonStats.gpuErrors !== 0 || noonStats.lastError) throw new Error(`sky scene GPU errors: ${noonStats.lastError}`);
+  const mainIndex = noonStats.renderPasses.indexOf("forge.main");
+  if (noonStats.renderPasses.indexOf("forge.sky") !== mainIndex + 1) throw new Error("forge.sky must directly follow forge.main");
+
+  await page.evaluate(() => window.__forge.setTimeOfDay(1));
+  await settle(6);
+  const night = await samplePixels();
+  const nightState = await page.evaluate(() => window.__forge.environmentState());
+  await page.screenshot({ path: "tools/.browser-check-sky-night.png" });
+  console.log(`sky night: mean ${night.mean.toFixed(2)} distinct=${night.distinct} el=${nightState?.elevationDeg?.toFixed(1)}° light=${nightState?.lightIntensity}`);
+  if (!nightState || nightState.isDay || nightState.lightIntensity !== 0) throw new Error("day/night cycle did not turn the sun off at 01:00");
+  if (!(noon.mean > night.mean * 2)) throw new Error(`sky did not darken between noon (${noon.mean.toFixed(1)}) and night (${night.mean.toFixed(1)})`);
+
+  await page.evaluate(() => window.__forge.setTimeOfDay(12));
+  await page.evaluate(() => window.__forge.setSky(false));
+  await settle(6);
+  const skyOffStats = await page.evaluate(() => window.__forge.stats());
+  if (skyOffStats.renderPasses.includes("forge.sky")) throw new Error("sky pass still ran with the sky disabled (graph did not re-plan)");
+  await page.evaluate(() => window.__forge.setSky(true));
+  await page.evaluate(() => window.__forge.setPlanet("mars"));
+  await settle(6);
+  const mars = await samplePixels();
+  const marsStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-sky-mars.png" });
+  console.log(`sky mars: mean ${mars.mean.toFixed(2)} distinct=${mars.distinct} gpuErrors=${marsStats.gpuErrors}`);
+  if (!marsStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not come back after re-enabling");
+  if (marsStats.gpuErrors !== 0 || marsStats.lastError) throw new Error(`mars sky GPU errors: ${marsStats.lastError}`);
+  await page.evaluate(() => window.__forge.setPlanet("earth"));
+  await page.evaluate(() => window.__forge.setAnimating(true));
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;

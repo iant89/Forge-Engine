@@ -19,7 +19,7 @@ describe("PipelineFactory cache", () => {
     const a = factory.get(base);
     const b = factory.get({ ...base });
     expect(b).toBe(a);
-    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 6 });
+    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 7 });
     expect(factory.keyOf(base)).toBe(a.key);
     factory.invalidate();
     await device.dispose();
@@ -42,6 +42,8 @@ describe("PipelineFactory cache", () => {
       { ...base, technique: "post", depthFormat: null, doubleSided: true, fragmentEntry: "fsDownsample" },
       { ...base, technique: "post", depthFormat: null, doubleSided: true, fragmentEntry: "fsUpsample", additive: true },
       { ...base, technique: "post", colorFormat: device.format, depthFormat: null, doubleSided: true, fragmentEntry: "fsTonemap" },
+      { ...base, technique: "sky", doubleSided: true, writeDepth: false },
+      { ...base, technique: "sky", colorFormat: device.format, doubleSided: true, writeDepth: false },
     ];
     const bundles = variants.map((v) => factory.get(v));
     expect(new Set(bundles.map((b) => b.key)).size).toBe(variants.length);

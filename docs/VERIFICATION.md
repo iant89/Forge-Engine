@@ -6,13 +6,14 @@ system scheduler, hierarchy, visibility culling, import boundaries), Phase 4 (te
 worlds: chunks, heightmaps, quadtree LOD, geomorphing, streaming, generators, 10 km+ visible world),
 Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
 Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism),
-Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS), and
+Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS),
 Phase 7 (particles: CPU simulation as the reference, a compute integrator for the same gravity/drag/life
-step, modules, trails, budgets) are **verified** through automated tests, benchmarks, and headless
-real-WebGPU checks. This file states exactly which claims are backed by an automated check, so nothing
-in `ROADMAP.md` has to be taken on faith. `docs/VEHICLES.md` and `docs/PARTICLES.md` describe what
-those two phases actually do; this file says which assertion proves each part. Phases 8–14 are not
-built (`ROADMAP.md`).
+step, modules, trails, budgets), and Phase 8a (environment I: sun position, single-scattering sky
+pass, fog in the forward shader, day/night cycle) are **verified** through automated tests,
+benchmarks, and headless real-WebGPU checks. This file states exactly which claims are backed by an
+automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHICLES.md`,
+`docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
+which assertion proves each part. Phase 8b and phases 9–14 are not built (`ROADMAP.md`).
 
 ## Setting up
 
@@ -26,9 +27,9 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 162 tests in 16 files: `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
-| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct and every `var<uniform>` in the shader text | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), and the vehicle playground plus particle fountain loaded with zero GPU errors | passing |
+| `npm test` | 193 tests in 17 files: `environment` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (11, including `SkyUniforms`) and every `var<uniform>` in the shader text | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
@@ -108,9 +109,9 @@ containing matrices; passing an output array reuses the cascade objects.
 
 Identical keys return the identical bundle and count a cache hit without touching the device; every
 axis of the key (technique, colour/depth formats, blending, culling, instancing, additive, fragment
-entry) yields a distinct pipeline; the four post entry points compile from one shader module; all 13
-variants the renderer can ask for pass the mock's validation; `invalidate()` drops pipelines and
-layouts and the next `get` rebuilds them.
+entry) yields a distinct pipeline; the four post entry points compile from one shader module; all 15
+variants the renderer can ask for (including the two `sky` targets) pass the mock's validation;
+`invalidate()` drops pipelines and the 7 layouts and the next `get` rebuilds them.
 
 ### `tests/frame.test.ts` — the frame the renderer builds (mock device)
 
@@ -131,6 +132,16 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   period, and the shadow atlas is untouched.
 * Toggling HDR and shadows through five combinations records zero mock validation errors, and
   every fixture asserts `mock.outstanding` is empty after teardown.
+* **Sky (Phase 8a)**: `scene.setSky()` inserts exactly one `forge.sky` pass directly after `forge.main`,
+  drawing one triangle into the *same* colour target with the scene depth bound read-only
+  (`MockPassRecord.depthStoreOp === "read-only"`, and the mock rejects load/store ops on a read-only
+  depth attachment as the spec does); `forge.main` switches its depth store op from `discard` to
+  `store` while the sky runs and back when it stops; the pass adds no transient texture; a steady frame
+  still creates nothing; the LDR path draws the sky straight into the swapchain; `setBackgroundColor`
+  removes the pass; `RendererOptions.skyQuality: "low"` caps a `high` scene to 8 view samples
+  (`stats.skySamples`) and `RendererOptions.sky: false` vetoes the pass. The sun comes from `sky.sunDirection`
+  (stored normalised), else the first directional light, else a default, and a `setSkyOverride` is
+  consumed by exactly one frame.
 
 The mock validates attachment formats against pipelines, bind-group layouts, dynamic offsets and view
 dimensions, so "no errors" is a statement about the command stream, not just about exceptions.
@@ -164,14 +175,51 @@ the curve; the mock device records the compute dispatch and does **not** set `gp
 not run WGSL); `ParticleSystem` and `ParticleWorld` each step once and pose a sprite. The real-GPU
 half of that check is `check:browser`, not this file.
 
+### `tests/environment.test.ts` — sun, sky, fog and the day/night cycle (Phase 8a)
+
+Pure numbers against published references, no GPU:
+
+* **Sun position** reproduces Meeus' worked examples — 7.a (Julian day of 1957-10-04.81 =
+  2436116.31), 25.a (apparent RA 198.38°, Dec −7.785°, 0.99766 AU on 1992-10-13 0h) and 28.a
+  (equation of time 13.7 min) — plus NOAA facts: declination ±23.44° at the solstices, noon elevation
+  `90° − |φ − δ|` due south (due north at −33.9°), sunrise at 40°N on June 21 between azimuth 56°
+  and 60° with a 14.9–15.2 h day, 18.6–19.1 h of daylight at 60°N, polar night at 80°N in December
+  and midnight sun in June, solar noon 4 min/° of longitude, refraction ≈ 29′ at the horizon and 0
+  at the zenith, and the engine-axis mapping (north = +Z, east = +X) with an exact inverse.
+* **Atmosphere** derives Bruneton's Rayleigh table (5.802/13.558/33.1 ×10⁻⁶ m⁻¹) from the
+  scattering formula to < 1 % in the green, normalises the Rayleigh, Cornette–Shanks and
+  Henyey–Greenstein phase functions over the sphere, matches the closed-form vertical optical depth
+  `β·H` to 1 % (≈ 0.10 Rayleigh-only in the green), gives a horizon air mass within 15 % of
+  `√(πR/2H)` (≈ 35), makes the zenith blue and the sunset horizon red, red-shifts and dims direct sun
+  toward the horizon (blue transmittance < 0.05 at 2°, 0 below), is azimuth-symmetric, dark when the
+  sun is 30° down, shows lit ground below the horizon, and stays within 0.6–1.1× of a 512×32
+  reference at 8×4 samples from 0.5° to 30° elevation (the cubic view-ray spacing; uniform spacing
+  was 10× dark in horizon blue). The hemispherical ambient estimate is within 25 % of a
+  4000-direction reference for Earth *and* the dust-lobed Mars preset, which reads butterscotch by
+  day with a > 5× aureole.
+* **Fog**: linear/exp² match their definitions, `FOG_MODE_ID` is pinned, and the height-fog closed
+  form equals a 20 000-step brute-force integral of `ρ₀·e^{−k(y−b)}` along five camera→surface
+  segments (including a near-horizontal one that exercises the small-`k` branch) to 6 decimals;
+  the same formula lives in `WGSL_FOG`.
+* **Scene settings**: fog defaults to `none` (opt-in), `setSky` stores a normalised sun direction and
+  turns the sky on, `setBackgroundColor` turns it off, and the fog/sky blocks (including a custom
+  atmosphere) survive `serialize()` → JSON → `applySerialized()`.
+* **`DayNightCycle`** finds the directional light on attach, points it at the computed sun with the
+  transmittance colour, turns it off at night with an ambient floor, tints the fog to the horizon,
+  advances by *exactly* the fixed steps the clock executed (a 120 × 1/60 run and a 60 × 1/30 run land
+  within one step, via `ManualClock`, whose constructor is fixed in this phase), wraps days and
+  years in both directions, is idempotent per instant, and honours an explicit light and the
+  `drive*` switches.
+
 ### `tests/wgsl.test.ts` — the layout rules browsers disagree on
 
 Chromium's compiler accepts uniform structs with a relaxed layout; WebKit rejects the module, which
 on Safari is a black canvas with a live HUD. The suite asserts that every generated struct emits
 scalar padding (never `array<u32, N>`), reports no `uniformLayoutProblems()`, keeps its byte
-offsets/sizes (`PerFrame` 240, `Light` 80, `LightBlock` 1296, `Shadow` 320, `ShadowPass` 80, `Post`
-48, `Material` 80, `Object` 176, `Instance` 80 B), that every shipped shader variant — including the
-depth-only and post modules added in Phase 2 — passes `validateWgsl`, that `toWgsl("uniform")`
+offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 320,
+`ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B), that every
+shipped shader variant — including the depth-only and post modules added in Phase 2 and the sky
+module added in Phase 8a — passes `validateWgsl`, that `toWgsl("uniform")`
 throws for a sub-16-byte array stride, that struct-typed members sit on 16-byte boundaries, and that
 `validateWgsl` flags the exact pattern that shipped (`pad68: array<u32, 3>`), nested-struct
 strides, root-level uniform arrays and unpadded struct members while accepting legal layouts.
@@ -221,6 +269,13 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   must present with `gpuErrors === 0`. The fountain must report `alive > 0` after a short settle.
   The car is not driven here — stopping distance and the 12° climb are unit tests. Screenshots:
   `tools/.browser-check-vehicle.png`, `tools/.browser-check-particles.png`.
+- **Sky and day/night (Phase 8a)**: `loadScene("sky")`, then `setTimeOfDay(12)`: the cycle must report
+  daytime, `forge.sky` must be in the executed pass list *directly after* `forge.main` (the sky shader
+  compiled and ran on the real adapter with `gpuErrors === 0`); `setTimeOfDay(1)` must report the sun
+  off (`lightIntensity === 0`) and a mean luminance below half of noon's (measured 172 vs 6);
+  `setSky(false)` must drop the pass (the graph re-plans) and `setSky(true)` + `setPlanet("mars")`
+  must bring it back with zero GPU errors. Screenshots: `tools/.browser-check-sky-noon.png`,
+  `-night.png`, `-mars.png` — the sun colour, ambient and fog colour the cycle derived are in the HUD.
 
 Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**: the automated
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
@@ -253,6 +308,12 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   including a 100k × 30 step budget. The same curve on a real device is the `runParticleGravityCheck`
   assertion in `check:browser`. Emission, modules, and trails are CPU and covered by the unit suite
   only.
+* **A sun, a sky and fog.** The sun position is checked against Meeus/NOAA numbers, the atmosphere
+  against closed forms and published coefficients, the fog against a brute-force integral
+  (`tests/environment.test.ts`); the `forge.sky` pass structure is pinned on the mock
+  (`tests/frame.test.ts`) and compiled + A/B'd (noon vs night) on real WebGPU in `check:browser`.
+  What is *not* checked is colorimetric accuracy against a reference sky image or a spectral model —
+  `docs/ENVIRONMENT.md` §6 lists the approximations.
 
 ## Not verified yet
 
@@ -276,8 +337,8 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   shifts, and TC slip. The browser gate only proves the playground loads. Nobody asserts that the
   ramp mesh and the ground query stay coincident after a camera-follow frame, or that the car is
   pleasant to drive.
-* **Fog / atmosphere.** `scene.setFog` stores settings and the forward pass uploads
-  `fogColor`/`fogDensity`/`fogRange`, but no shipped shader samples them yet (ROADMAP Phase 8), so a
-  scene that configures fog renders without haze.
+* **Sky *appearance*.** The gates prove the sky pass runs, darkens at night and swaps presets; the
+  colours are validated numerically against the CPU model's closed forms, not against photographs or
+  a spectral reference renderer. Multiple scattering is absent (`docs/KNOWN-ISSUES.md`).
 * **Resource cache eviction.** Texture/mesh registry LRU behaviour under memory pressure is not
   covered.

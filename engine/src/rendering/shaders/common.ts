@@ -61,6 +61,44 @@ fn tonemap(c: vec3<f32>, mode: f32) -> vec3<f32> {
 `;
 
 /**
+ * Fog transmittance — the fraction of a surface's colour that survives the air between it and the
+ * camera. Expects the `PerFrameUniforms` fields `fogParams` (mode, height falloff, height base),
+ * `fogDensity` and `fogRange`. Keep in step with `environment/fog.ts`, which is the same formula on
+ * the CPU and what the tests check against a brute-force integral.
+ */
+export const WGSL_FOG = /* wgsl */ `
+fn fogTransmittance(distance: f32, cameraY: f32, surfaceY: f32) -> f32 {
+  let mode = perFrame.fogParams.x;
+  if (mode < 0.5) {
+    return 1.0;
+  }
+  if (mode < 1.5) {
+    let start = perFrame.fogRange.x;
+    let end = perFrame.fogRange.y;
+    if (end <= start) {
+      return select(0.0, 1.0, distance < end);
+    }
+    return clamp((end - distance) / (end - start), 0.0, 1.0);
+  }
+  if (mode < 2.5) {
+    let x = distance * perFrame.fogDensity;
+    return exp(-x * x);
+  }
+  // Height fog: density * exp(-falloff * (y - base)) integrated along the camera->surface segment.
+  let falloff = perFrame.fogParams.y;
+  let base = perFrame.fogParams.z;
+  let dy = surfaceY - cameraY;
+  let startDensity = perFrame.fogDensity * exp(-falloff * (cameraY - base));
+  let k = falloff * dy;
+  var factor = 1.0 - 0.5 * k;
+  if (abs(k) > 1e-4) {
+    factor = (1.0 - exp(-k)) / k;
+  }
+  return exp(-startDensity * factor * distance);
+}
+`;
+
+/**
  * Fullscreen-triangle vertex stage: three vertices, no vertex buffer. `uv` has (0,0) at the top-left
  * of the target, matching texture space, so a fragment can sample the source at `in.uv` directly.
  */

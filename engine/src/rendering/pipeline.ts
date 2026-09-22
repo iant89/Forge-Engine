@@ -13,6 +13,8 @@
  *
  * The post-process chain (group 0 only: `PostUniforms` with a dynamic offset, two textures, a
  * sampler) uses the same factory with `technique: "post"` and an explicit fragment entry point.
+ * The sky pass (`technique: "sky"`) binds `PerFrameUniforms` + `SkyUniforms` as its only group and
+ * draws a fullscreen triangle on the far plane with depth testing but no depth writes.
  *
  * Pipelines are keyed on exactly the state that changes them (technique, entry point, blend/cull,
  * colour + depth format, MSAA, instancing). Adding a colour variation must not create a pipeline —
@@ -20,10 +22,11 @@
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
+import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
 import { InternalError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -31,7 +34,7 @@ import type { GraphicsDevice } from "../gpu/device.js";
 export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fsTonemap";
 
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post" | "sky";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
   /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
@@ -65,6 +68,8 @@ export class PipelineFactory {
   private blitLayout: GPUPipelineLayout | null = null;
   private postBindGroupLayout: GPUBindGroupLayout | null = null;
   private postLayout: GPUPipelineLayout | null = null;
+  private skyBindGroupLayout: GPUBindGroupLayout | null = null;
+  private skyLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -72,9 +77,9 @@ export class PipelineFactory {
     this.shaders = new ShaderCache(device);
   }
 
-  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout } {
+  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout; sky: GPUBindGroupLayout } {
     this.ensureLayouts();
-    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout! };
+    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout!, sky: this.skyBindGroupLayout! };
   }
 
   private ensureLayouts(): void {
@@ -131,10 +136,22 @@ export class PipelineFactory {
       ],
     });
     this.postLayout = d.createPipelineLayout({ bindGroupLayouts: [this.postBindGroupLayout] });
+    this.skyBindGroupLayout = d.createBindGroupLayout({
+      label: "sky.layout",
+      entries: [
+        { binding: SKY_BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } },
+        { binding: SKY_BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
+      ],
+    });
+    this.skyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.skyBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean } {
     switch (key.technique) {
+      case "sky": {
+        const module = this.shaders.get("sky.wgsl", SKY_SHADER);
+        return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", sky: true };
+      }
       case "depth":
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
       case "debug":
@@ -186,10 +203,10 @@ export class PipelineFactory {
   }
 
   private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post } = this.moduleFor(options);
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
     const isDepthOnly = options.technique === "depth";
-    const fullscreen = blit || post;
+    const fullscreen = blit || post || sky;
     const blend: GPUBlendState | undefined = options.additive
       ? {
           color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -203,7 +220,7 @@ export class PipelineFactory {
         : undefined;
     const pipelineDesc: GPURenderPipelineDescriptor = {
       label: `pipeline.${key}`,
-      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
+      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : sky ? this.skyLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
       vertex: {
         module: vertex,
         entryPoint: vertexEntry,
@@ -237,7 +254,9 @@ export class PipelineFactory {
       depthStencil: options.depthFormat
         ? {
             format: options.depthFormat,
-            depthWriteEnabled: options.writeDepth !== false,
+            // The sky is depth-tested against the opaque scene but never writes (its pass binds the
+            // depth attachment read-only).
+            depthWriteEnabled: sky ? false : options.writeDepth !== false,
             // The depth pass uses a bias + "less" so caster triangles cannot win the tie against
             // themselves; the colour pass uses "less-equal" so coplanar decals behave.
             depthCompare: isDepthOnly ? "less" : "less-equal",
@@ -272,11 +291,13 @@ export class PipelineFactory {
     this.blitLayout = null;
     this.postBindGroupLayout = null;
     this.postLayout = null;
+    this.skyBindGroupLayout = null;
+    this.skyLayout = null;
     this.shaders.clear();
   }
 
   stats(): { pipelines: number; creates: number; cacheHits: number; layouts: number } {
-    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 6 };
+    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 7 };
   }
 }
 

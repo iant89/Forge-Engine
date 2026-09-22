@@ -7,6 +7,8 @@
  *   rendered through the Phase 2 frame: cascaded shadow maps, HDR target, bloom, tone-map resolve.
  * - Phase 6: vehicle playground. Input is written in the scene `update`; `VehicleSystem` is the only stepper.
  * - Phase 7: particle fountain via `ParticleWorld` only (do not also attach `ParticleSystem`).
+ * - Phase 8a: sky / day-night scene — `DayNightCycle` drives the sun, ambient, fog and the
+ *   `forge.sky` pass; `[`/`]` scrub the clock, `M` swaps Earth for Mars.
  * - Orbit camera controls (mouse drag, wheel zoom, pan, touch pinch); each scene supplies its own
  *   framing, zoom range and (terrain) the surface the camera must stay above.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
@@ -15,6 +17,7 @@
  *   gate flips the toggles and reads pixels back, so every switch here must be reachable from it.
  */
 import {
+  type DayNightCycle,
   Engine,
   detectPlatform,
   runParticleGravityCheck,
@@ -30,6 +33,7 @@ import { buildTerrainScene } from "./scenes/terrainScene.js";
 import { buildRealisticTerrainScene } from "./scenes/realisticTerrainScene.js";
 import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js";
 import { buildParticleScene } from "./scenes/particleScene.js";
+import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -61,7 +65,7 @@ async function main(): Promise<void> {
   let controls: OrbitControls | null = null;
   let activeSceneName = "pbr";
 
-  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle, ?scene=particles)
+  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle, ?scene=particles, ?scene=sky)
   const params = new URLSearchParams(window.location.search);
   const requestedScene = params.get("scene");
   if (requestedScene === "cubes") {
@@ -74,9 +78,11 @@ async function main(): Promise<void> {
     activeSceneName = "vehicle";
   } else if (requestedScene === "particles") {
     activeSceneName = "particles";
+  } else if (requestedScene === "sky") {
+    activeSceneName = "sky";
   }
 
-  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles";
+  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky";
 
   function loadScene(name: SceneName): void {
     if (currentHandle) {
@@ -101,6 +107,8 @@ async function main(): Promise<void> {
       currentHandle = buildVehiclePlaygroundScene(engine);
     } else if (name === "particles") {
       currentHandle = buildParticleScene(engine);
+    } else if (name === "sky") {
+      currentHandle = buildSkyScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -133,7 +141,8 @@ async function main(): Promise<void> {
       next === "terrain" ||
       next === "realistic" ||
       next === "vehicle" ||
-      next === "particles"
+      next === "particles" ||
+      next === "sky"
     ) {
       loadScene(next);
     }
@@ -218,11 +227,12 @@ async function main(): Promise<void> {
     const r = st.render;
     const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
     const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
+    const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     hud.textContent =
       `scene [${activeSceneName.toUpperCase()}]  frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
       `draws ${st.drawCalls}  tris ${st.triangles}  instances ${st.instances}\n` +
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
-      `${path}  ·  ${shadows}\n` +
+      `${path}  ·  ${shadows}  ·  ${sky}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
     const extra = currentHandle?.overlay?.();
@@ -264,6 +274,37 @@ async function main(): Promise<void> {
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
     /** Fountain counts while the particle scene is loaded; null otherwise. */
     particleState: () => currentHandle?.particleState?.() ?? null,
+    /** Sky scene: scrub the day/night clock (hours) and read the sun back; null on other scenes. */
+    setTimeOfDay: (hours: number) => {
+      const handle = currentHandle as SkySceneHandle | null;
+      handle?.setTimeOfDay?.(hours);
+    },
+    setPlanet: (planet: "earth" | "mars") => {
+      const handle = currentHandle as SkySceneHandle | null;
+      handle?.setPlanet?.(planet);
+    },
+    setSky: (on: boolean) => {
+      const scene = currentHandle?.scene;
+      if (!scene) return;
+      if (on) scene.setSky();
+      else scene.settings.skyEnabled = false;
+    },
+    environmentState: () => {
+      const cycle = currentHandle?.scene.object<DayNightCycle>("dayNight");
+      if (!cycle) return null;
+      const s = currentHandle!.scene.settings;
+      return {
+        time: cycle.timeOfDay,
+        elevationDeg: cycle.elevationDeg,
+        azimuthDeg: cycle.azimuthDeg,
+        isDay: cycle.isDay,
+        lightIntensity: cycle.sunLightIntensity,
+        ambient: [s.ambientColor.r, s.ambientColor.g, s.ambientColor.b],
+        fog: [s.fog.color.r, s.fog.color.g, s.fog.color.b],
+        skyEnabled: s.skyEnabled,
+        sky: engine.stats().render.sky,
+      };
+    },
     /**
      * Analytic gravity check on this page's GPUDevice. The mock device records the dispatch and
      * returns `gpuExecuted: false`; a real adapter that ran the compute shader returns true.

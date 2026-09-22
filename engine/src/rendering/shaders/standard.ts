@@ -16,7 +16,7 @@
  */
 
 import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
-import { WGSL_COLOR } from "./common.js";
+import { WGSL_COLOR, WGSL_FOG } from "./common.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
 export const BINDINGS = {
@@ -86,6 +86,7 @@ fn fresnelSchlick(u: f32, f0: vec3<f32>) -> vec3<f32> {
 }
 
 ${WGSL_COLOR}
+${WGSL_FOG}
 
 fn unpackTint(packed: u32) -> vec4<f32> {
   let a = f32((packed >> 24u) & 0xffu) / 255.0;
@@ -344,6 +345,11 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   if (material.opacity < 0.999 && alpha < 0.004) {
     discard;
   }
+  // Fog: blend toward the fog colour by the transmittance of the air between camera and surface.
+  // Scene-referred (before exposure/tone mapping) so the HDR and LDR paths agree; the sky pass is
+  // not fogged, so fogColor should match the horizon (DayNightCycle keeps them in step).
+  let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
+  color = mix(perFrame.fogColor, color, fogT);
   if ((perFrame.flags & 2u) != 0u) {
     // HDR path: the target is a float texture and the post chain applies exposure, bloom, the tone
     // curve and the sRGB encode. Output scene-referred linear radiance untouched.

@@ -111,6 +111,31 @@ describe("Architecture - Import Boundaries", () => {
     }
   });
 
+  it("environment depends on scene, math and core only (rendering imports it, never the reverse)", () => {
+    const files = getAllFiles(path.join(engineSrc, "environment"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const imports = parseImports(file);
+      for (const imp of imports) {
+        if (!imp.specifier.startsWith(".")) continue;
+        const resolved = path.normalize(path.join(path.dirname(file), imp.specifier));
+        const rel = path.relative(engineSrc, resolved);
+        const topLevel = rel.split(path.sep)[0];
+        expect(
+          ["core", "math", "scene", "environment"].includes(topLevel ?? ""),
+          `environment file ${path.relative(engineSrc, file)} illegally imports from ${topLevel}: "${imp.specifier}"`,
+        ).toBe(true);
+      }
+    }
+    // The scene layer may only know the environment's *types* (the sky settings block).
+    for (const file of getAllFiles(path.join(engineSrc, "scene"))) {
+      for (const imp of parseImports(file)) {
+        if (!imp.specifier.includes("environment")) continue;
+        expect(imp.isTypeOnly, `scene file ${path.relative(engineSrc, file)} must not import environment at runtime: "${imp.specifier}"`).toBe(true);
+      }
+    }
+  });
+
   it("examples only import from @forge/engine or relative local files", () => {
     const exampleFiles = getAllFiles(path.join(rootDir, "examples", "src"));
     for (const file of exampleFiles) {

@@ -2,9 +2,11 @@
  * Frame structure produced by `Renderer` over the mock device (docs/VERIFICATION.md#tests).
  *
  * What these prove: the scene settings select the pass chain (HDR + bloom + tonemap, LDR direct,
- * shadows on/off) and each chain runs with zero validation errors; off-screen casters still reach the
- * cascades; a steady frame allocates no GPU textures; a resize re-plans and retires the old shapes;
- * everything the renderer created is released by dispose(). The mock validates attachment formats,
+ * shadows on/off, the analytic sky) and each chain runs with zero validation errors; off-screen
+ * casters still reach the cascades; the sky pass depth-tests against a depth buffer the main pass
+ * stored (and reverts to discarding it when the sky is off); a steady frame allocates no GPU
+ * textures; a resize re-plans and retires the old shapes; everything the renderer created is
+ * released by dispose(). The mock validates attachment formats,
  * bind-group signatures, dynamic offsets and view dimensions, so "no errors" is a real statement.
  */
 
@@ -219,6 +221,107 @@ describe("frame structure", () => {
       expect(f.mock.errors, `hdr=${hdr} shadows=${shadows}`).toEqual([]);
     }
     expect(f.renderer.passNames).toContain("forge.tonemap");
+    await f.dispose();
+  });
+
+  it("sky: a fullscreen pass after forge.main over the same target, depth bound read-only", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.cascades = 1;
+    f.scene.setSky({ quality: "low" });
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual([
+      "forge.shadow.0",
+      "forge.main",
+      "forge.sky",
+      "forge.bloom.prefilter",
+      "forge.bloom.down.2",
+      "forge.bloom.down.3",
+      "forge.bloom.up.2",
+      "forge.bloom.up.1",
+      "forge.tonemap",
+    ]);
+    const main = f.mock.passes[1]!;
+    const sky = f.mock.passes[2]!;
+    // The sky depth-tests against the scene depth, so forge.main must keep it (it discards otherwise).
+    expect(main.depthStoreOp).toBe("store");
+    expect(sky.depthStoreOp).toBe("read-only");
+    expect(sky.depthTarget).toBe(main.depthTarget);
+    expect(sky.colorTargets).toEqual(main.colorTargets);
+    expect(sky.drawCalls).toBe(1);
+    expect(sky.triangles).toBe(1);
+    const s = f.renderer.stats;
+    expect(s.sky).toBe(true);
+    expect(s.drawCalls).toBe(2 + 1 + 6);
+    expect(s.transientTextures).toBe(6); // the sky adds no texture: it draws into scene.hdr
+    expect(s.passes).toBe(9);
+
+    // Steady state: nothing is (re)created for the sky.
+    const created = f.mock.texturesCreated;
+    const buffers = f.mock.buffersCreated;
+    for (let i = 0; i < 3; i++) f.renderer.renderScene(f.scene);
+    expect(f.mock.texturesCreated).toBe(created);
+    expect(f.mock.buffersCreated).toBe(buffers);
+    expect(f.renderer.stats.texturesCreated).toBe(0);
+
+    // LDR: the sky writes the swapchain directly, after the forward pass.
+    f.mock.passes.length = 0;
+    f.scene.settings.hdr = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main", "forge.sky"]);
+    expect(f.mock.passes[2]!.colorTargets).toEqual(["swapchain"]);
+    expect(f.mock.passes[1]!.depthStoreOp).toBe("store");
+
+    // Off again (a solid background): no sky pass, and the depth buffer goes back to being discarded.
+    f.mock.passes.length = 0;
+    f.scene.setBackgroundColor(0x102030);
+    f.renderer.renderScene(f.scene);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main"]);
+    expect(f.mock.passes[1]!.depthStoreOp).toBe("discard");
+    expect(f.renderer.stats.sky).toBe(false);
+
+    // The quality profile can cap the march or veto the pass regardless of the scene.
+    f.scene.setSky({ quality: "high" });
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.skySamples).toBe(32);
+    const capped = new Renderer(f.device, { shadowMapSize: 256, skyQuality: "low" });
+    capped.renderScene(f.scene);
+    expect(capped.stats.sky).toBe(true);
+    expect(capped.stats.skySamples).toBe(8);
+    capped.dispose();
+    const vetoed = new Renderer(f.device, { shadowMapSize: 256, sky: false });
+    f.mock.passes.length = 0;
+    vetoed.renderScene(f.scene);
+    expect(labels(f)).not.toContain("forge.sky");
+    expect(vetoed.stats.skySamples).toBe(0);
+    vetoed.dispose();
+    expect(f.mock.errors).toEqual([]);
+    await f.dispose();
+  });
+
+  it("sky: the sun comes from the settings, then the per-frame override, then the directional light", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.enabled = false;
+    f.scene.settings.hdr = false;
+    f.scene.setSky({ sunDirection: new Vec3(0, 2, 0) });
+    expect(f.scene.settings.sky.sunDirection!.y).toBe(1); // normalised copy
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.main", "forge.sky"]);
+    // A one-frame override is consumed by the next frame and does not persist.
+    f.renderer.setSkyOverride({ exposure: 0.5, quality: "high" });
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.skyOverride).toBeNull();
+    expect(f.scene.settings.sky.exposure).toBe(1);
+    // Without an explicit direction the first directional light is the sun; without any light a
+    // default is used — both must render cleanly.
+    f.scene.settings.sky.sunDirection = null;
+    f.renderer.renderScene(f.scene);
+    f.scene.world.removeComponent(f.sun.entity, Light);
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.passNames).toContain("forge.sky");
     await f.dispose();
   });
 
