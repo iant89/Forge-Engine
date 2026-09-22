@@ -3,11 +3,16 @@ import {
   PhysicsWorld,
   RigidBody,
   SphereShape,
+  CapsuleShape,
+  CylinderShape,
+  UsageError,
   BoxShape,
+  HeightfieldShape,
   PlaneShape,
   Vec3,
   Ray,
   RayHit,
+  collideBodies,
 } from "@forge/engine";
 
 describe("Physics - Free Fall & Dynamics Integration", () => {
@@ -231,5 +236,99 @@ describe("Physics - Spatial Queries & Raycast", () => {
     expect(world.raycast(rayGround, hitGround)).toBe(true);
     expect(hitGround.distance).toBeCloseTo(10.0, 2);
     expect(hitGround.point.y).toBeCloseTo(0.0, 2);
+  });
+});
+
+/**
+ * Phase 9 evidence for the heightfield collider (docs/VERIFICATION.md).
+ *
+ * Terrain collision is the contact type Phase 11 builds on ("visual terrain = terrain collision =
+ * vehicle contact"), and it is generated from a *function* rather than from triangles, so these
+ * cases pin the parts that can silently disagree with the height field: the contact normal's sign,
+ * the penetration measured from the sampled height, and the cornerwise box test.
+ */
+describe("Physics - Heightfield Contacts", () => {
+  /** A flat field at y = 0 with an analytic +Y normal: nothing to interpolate, nothing to fudge. */
+  const flatField = (): HeightfieldShape => new HeightfieldShape({ sampleHeight: () => 0 });
+
+  it("measures sphere penetration from the sampled height, with an inward normal", () => {
+    const sphereBody = new RigidBody({ type: "dynamic", shape: new SphereShape(1), position: new Vec3(3, 0.9, -2) });
+    const fieldBody = new RigidBody({ type: "static", shape: flatField() });
+
+    // Clear of the surface: no contact (the query must be depth-tested, not proximity-tested).
+    sphereBody.position.y = 1.5;
+    expect(collideBodies(sphereBody, fieldBody)).toBeNull();
+
+    // 0.1 m into the surface.
+    sphereBody.position.y = 0.9;
+    const manifold = collideBodies(sphereBody, fieldBody);
+    expect(manifold).not.toBeNull();
+    expect(manifold!.contacts).toHaveLength(1);
+    const contact = manifold!.contacts[0]!;
+    expect(contact.penetration).toBeCloseTo(0.1, 6);
+    // Points from the sphere (A) into the height field (B) — downward for a +Y surface normal.
+    expect(contact.normal.y).toBeCloseTo(-1, 6);
+    expect(contact.point.y).toBeCloseTo(0, 6);
+    expect(manifold!.bodyA).toBe(sphereBody);
+    expect(manifold!.bodyB).toBe(fieldBody);
+  });
+
+  it("generates one contact per penetrating box corner", () => {
+    const boxBody = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(1, 1, 1),
+      position: new Vec3(0, 0.5, 0),
+    });
+    const fieldBody = new RigidBody({ type: "static", shape: flatField() });
+    // Half-extent 1 about y = 0.5 puts the four lower corners 0.5 m under the surface and the four
+    // upper ones 1.5 m above it; only the penetrating corners may generate contacts.
+    const manifold = collideBodies(boxBody, fieldBody);
+    expect(manifold).not.toBeNull();
+    expect(manifold!.contacts).toHaveLength(4);
+    for (const contact of manifold!.contacts) {
+      expect(contact.penetration).toBeCloseTo(0.5, 6);
+      expect(contact.point.y).toBeCloseTo(0, 6);
+      expect(contact.point.x).not.toBeCloseTo(0, 3); // lower corners only, no centre contact
+      expect(contact.point.z).not.toBeCloseTo(0, 3);
+    }
+
+    // Raised so the box just touches (bottom face at y = 0): touching is not penetrating.
+    boxBody.position.y = 1.0;
+    expect(collideBodies(boxBody, fieldBody)).toBeNull();
+  });
+
+  it("holds a resting sphere on a sloped height field without sinking", () => {
+    // A shallow ramp: height = 0.1 * x, so the analytic normal is (-0.1, 1, 0) normalised.
+    const slope = new HeightfieldShape({ sampleHeight: (x) => 0.1 * x });
+    const world = new PhysicsWorld();
+    world.addBody(new RigidBody({ type: "static", shape: slope }));
+    const ball = new RigidBody({ type: "dynamic", shape: new SphereShape(0.5), position: new Vec3(0, 2, 0), friction: 1 });
+    world.addBody(ball);
+
+    for (let i = 0; i < 240; i++) world.step(1 / 60);
+    const surface = slope.sampleHeight(ball.position.x, ball.position.z);
+    // Resting contact: the centre sits one radius above the sampled surface (within the solver's
+    // slop), and never passes through it.
+    expect(ball.position.y).toBeGreaterThan(surface + 0.5 - 0.05);
+    expect(ball.position.y).toBeLessThan(surface + 0.5 + 0.05);
+  });
+});
+
+/**
+ * Shape construction is the one place a dimension mistake can be caught cheaply: shapes are built
+ * once, and a NaN half-extent used to surface much later as NaN contacts (or an invisible body).
+ */
+describe("Physics - Shape Validation", () => {
+  it("rejects non-finite dimensions at the constructor instead of producing NaN geometry", () => {
+    // The classic mistake: every neighbouring API takes vectors, these take components.
+    expect(() => new BoxShape(new Vec3(1, 1, 1) as unknown as number)).toThrow(UsageError);
+    expect(() => new BoxShape(new Vec3(1, 1, 1) as unknown as number)).toThrow(/finite number/);
+    expect(() => new SphereShape(NaN)).toThrow(/SphereShape\.radius/);
+    expect(() => new CapsuleShape(1, Number.POSITIVE_INFINITY)).toThrow(/CapsuleShape\.halfHeight/);
+    expect(() => new CylinderShape(0.5, NaN)).toThrow(/CylinderShape\.halfHeight/);
+
+    // Finite dimensions are still clamped, and the clamp stays visible in the shape:
+    expect(new SphereShape(-5).radius).toBe(0.001);
+    expect(new BoxShape(2, 0, 1).halfExtents.y).toBe(0.001);
   });
 });

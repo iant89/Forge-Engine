@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: CPU gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (engine + examples)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: WGSL validation
+        run: npm run check:wgsl
+
+      - name: Architecture boundaries
+        run: npm run lint:arch
+
+      - name: Documentation honesty (capability registry, roadmap, known issues)
+        run: npm run docs:check
+
+      - name: Benchmarks (regression thresholds)
+        run: npm run bench
+
+      - name: Build the demo
+        run: npm run demo:build
+
+      # Phase 9.6: a green run here must not be read as "production ready". This step is the
+      # conspicuous statement of what has not been verified, and it is covered by
+      # docs:check (capability: testing.browserGateInCi).
+      - name: State what CI does not cover
+        run: |
+          cat <<'EOF'
+          ::notice title=Not covered by CI::WebGPU browser gate (npm run check:browser) — no GPU in this
+          runner. Also not covered: WebKit/Safari (there is no Safari here), mobile browsers, GPU
+          timings, and the soak tests. A green job means the CPU gates passed, nothing more.
+          EOF
+
+  browser-gate:
+    name: WebGPU browser gate (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for the gate
+        run: npx --yes playwright@1.49.1 install --with-deps chromium
+
+      - name: Real-WebGPU gate (SwiftShader)
+        run: npm run check:browser
+
+      - name: Upload the gate's screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-check
+          path: tools/.browser-check.png
+          if-no-files-found: ignore

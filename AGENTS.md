@@ -33,10 +33,12 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 ## 1. Commands you will actually run
 
 ```sh
-npm run typecheck        # tsc -b engine (strict) + examples tsconfig
-npm test                 # vitest: math, renderGraph, shadows, pipeline, frame + rendering (mock GPU device), wgsl
+npm run typecheck        # tsc -b engine (strict) + examples tsconfig + tests tsconfig
+npm test                 # vitest: math, bvh, renderGraph, shadows, pipeline, frame + rendering (mock GPU device), tasks, wgsl
 npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
+npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
+npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, asserts on pixels
 npm run demo             # Vite dev server for examples/ (binds 0.0.0.0, allowedHosts: true)
 ```

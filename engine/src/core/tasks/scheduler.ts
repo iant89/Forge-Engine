@@ -7,9 +7,13 @@
  *  - `submit()` shares an existing pending promise when the key is already queued or running —
  *    terrain streaming relies on this (many chunks request the same neighbour data).
  *  - `cancelGroup(prefix)` drops queued work; running work cannot be preempted in JS, so it is
- *    *flagged* cancelled and its result is discarded, which is safe because handlers are pure.
+ *    *flagged* cancelled and its result is discarded, which is safe because handlers are pure. A
+ *    cancelled running task settles immediately and leaves the running count; the worker itself is
+ *    released when it finally reports (or when it is terminated and leaves the pool).
  *  - When workers are unavailable (Node tests, blocked CSP, failed spawn) the *same* code path
  *    executes inline via microtask, so behaviour never diverges between environments.
+ *  - A worker that cannot run a task (handler not installed there, or the handler threw
+ *    `InlineOnlyError`) hands it back and the main thread runs it inline, exactly once.
  *  - `setOrderedResolution(true)` resolves completions in (priority, key) order instead of
  *    arrival order, which is what replays/CI need when a task's result is applied to shared
  *    state (default off, since it adds latency).
@@ -18,7 +22,7 @@
 import { EventTarget2, type Disposable } from "../events.js";
 import { UsageError } from "../errors.js";
 import { Logger, LogLevel } from "../log.js";
-import { runTask, hasTaskHandler, registerBuiltinTaskHandlers, type TaskContext } from "./registry.js";
+import { runTask, registerBuiltinTaskHandlers, type TaskContext } from "./registry.js";
 
 export const TaskPriority = {
   Critical: 0,
@@ -63,6 +67,8 @@ interface TaskRecord {
   progress: ProgressChannel | null;
   /** Set when a running task is cancelled: handlers poll it, results are dropped. */
   cancelRequested: boolean;
+  /** Set once a worker has handed the task back to the main thread (no ping-pong). */
+  inlineRetry: boolean;
   resolve: (v: unknown) => void;
   reject: (e: unknown) => void;
   promise: Promise<unknown>;
@@ -85,11 +91,29 @@ class ProgressChannel {
 }
 
 interface WorkerEntry {
-  worker: Worker;
+  worker: TaskWorkerLike;
   index: number;
   busy: boolean;
   currentId: number;
   dead: boolean;
+}
+
+/**
+ * The slice of the `Worker` interface the scheduler uses. A browser `Worker` satisfies it directly;
+ * `TaskSchedulerOptions.createWorker` lets a host (or a Node test) supply its own — a
+ * `worker_threads` adapter, a pool wrapper, or an instrumented worker for benchmarks.
+ */
+export interface TaskWorkerLike {
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+  /** `MessageEvent.data` carries the protocol message; `ErrorEvent` is a thread-level crash. */
+  addEventListener(type: "message", listener: (event: MessageEventLike) => void): void;
+  addEventListener(type: "error", listener: (event: { message?: string }) => void): void;
+  terminate(): void;
+}
+
+/** The only part of `MessageEvent` the protocol reads — keeps the seam free of DOM types. */
+export interface MessageEventLike {
+  data: WorkerMessage;
 }
 
 export interface TaskSchedulerOptions {
@@ -102,6 +126,13 @@ export interface TaskSchedulerOptions {
   /** Never spawn workers even if available (tests). */
   inline?: boolean;
   workerUrl?: string | URL;
+  /**
+   * Host-provided worker factory, one call per worker. Overrides the default
+   * `new Worker(workerUrl, { type: "module" })`, which is what a browser host uses. This is the seam
+   * for custom worker modules (a host installing extra handler packages), for `worker_threads` in
+   * Node, and for tests that need real cross-thread execution.
+   */
+  createWorker?: (index: number) => TaskWorkerLike;
 }
 
 export interface TaskStats {
@@ -116,6 +147,10 @@ export interface TaskStats {
   workMs: number;
   lastTaskMs: number;
   dedupHits: number;
+  /** Workers that died (thread crash / `terminate()`) and were removed from the pool. */
+  workerFailures: number;
+  /** Tasks a worker handed back to the main thread ("no handler here" / `InlineOnlyError`). */
+  inlineFallbacks: number;
 }
 
 const now = (): number =>
@@ -137,7 +172,17 @@ export class TaskScheduler implements Disposable {
   private orderedResolution = false;
   private pendingResolve: { rec: TaskRecord; value: unknown }[] = [];
   private flushQueued = false;
-  private readonly counters = { completed: 0, cancelled: 0, failed: 0, dedupHits: 0, queuedMs: 0, workMs: 0, lastTaskMs: 0 };
+  private readonly counters = {
+    completed: 0,
+    cancelled: 0,
+    failed: 0,
+    dedupHits: 0,
+    queuedMs: 0,
+    workMs: 0,
+    lastTaskMs: 0,
+    workerFailures: 0,
+    inlineFallbacks: 0,
+  };
 
   constructor(options: TaskSchedulerOptions = {}) {
     this.logger = (options.logger ?? Logger.createRoot({ level: LogLevel.Info })).child("tasks");
@@ -145,9 +190,10 @@ export class TaskScheduler implements Disposable {
     this.maxConcurrent = options.maxConcurrent ?? (workerCount > 0 ? workerCount * 2 : 8);
     this.maxQueue = options.maxQueue ?? 4096;
     registerBuiltinTaskHandlers();
-    if (!options.inline && workerCount > 0 && typeof Worker !== "undefined") this.spawnWorkers(workerCount, options.workerUrl);
+    const canSpawn = options.createWorker !== undefined || typeof Worker !== "undefined";
+    if (!options.inline && workerCount > 0 && canSpawn) this.spawnWorkers(workerCount, options);
     if (this.workers.length === 0 && workerCount > 0) {
-      this.logger.info(`running ${workerCount} requested worker(s) inline (Worker API unavailable)`);
+      this.logger.info(`running ${workerCount} requested worker(s) inline (no Worker API${options.inline ? ", scheduler.inline" : ""})`);
     }
   }
 
@@ -159,14 +205,16 @@ export class TaskScheduler implements Disposable {
     this.orderedResolution = on;
   }
 
-  private spawnWorkers(count: number, url?: string | URL): void {
-    const workerUrl = url ?? new URL("./worker-entry.js", import.meta.url).href;
+  private spawnWorkers(count: number, options: TaskSchedulerOptions): void {
+    const workerUrl = options.workerUrl ?? new URL("./worker-entry.js", import.meta.url).href;
     for (let i = 0; i < count; i++) {
       try {
-        const worker = new Worker(workerUrl, { type: "module", name: `forge-task-${i}` });
+        const worker = options.createWorker
+          ? options.createWorker(i)
+          : (new Worker(workerUrl, { type: "module", name: `forge-task-${i}` }) as unknown as TaskWorkerLike);
         const entry: WorkerEntry = { worker, index: i, busy: false, currentId: -1, dead: false };
-        worker.addEventListener("message", (e: MessageEvent) => this.onWorkerMessage(entry, e.data));
-        worker.addEventListener("error", (e: ErrorEvent) => this.onWorkerError(entry, e));
+        worker.addEventListener("message", (e: MessageEventLike) => this.onWorkerMessage(entry, e.data));
+        worker.addEventListener("error", (e: { message?: string }) => this.onWorkerError(entry, e));
         this.workers.push(entry);
       } catch (e) {
         this.logger.warn(`worker ${i} failed to start (${String(e)}); falling back to inline`);
@@ -175,16 +223,18 @@ export class TaskScheduler implements Disposable {
     }
   }
 
-  private onWorkerError(entry: WorkerEntry, e: ErrorEvent): void {
+  private onWorkerError(entry: WorkerEntry, e: { message?: string }): void {
     entry.dead = true;
     entry.busy = false;
+    this.counters.workerFailures++;
     this.logger.error(`worker ${entry.index} crashed: ${e.message ?? "unknown"}`);
     const rec = entry.currentId >= 0 ? this.byId.get(entry.currentId) : undefined;
     if (rec && rec.state === "running") {
       rec.entry = null;
       this.runInline(rec); // retry once inline so a dead worker never wedges the stream
     }
-    this.workers.splice(this.workers.indexOf(entry), 1);
+    const at = this.workers.indexOf(entry);
+    if (at >= 0) this.workers.splice(at, 1);
     this.pump();
   }
 
@@ -195,7 +245,16 @@ export class TaskScheduler implements Disposable {
       return;
     }
     const rec = this.byId.get(msg.id);
-    if (!rec) return; // cancelled: result already discarded
+    if (!rec) {
+      // Cancelled or unknown id: the result is discarded, but the worker that produced it is idle
+      // again — without this, every cancelled running task would burn a worker for the session.
+      if ((msg.type === "result" || msg.type === "error") && entry.currentId === msg.id) {
+        entry.busy = false;
+        entry.currentId = -1;
+        this.pump();
+      }
+      return;
+    }
     switch (msg.type) {
       case "progress":
         rec.progress?.emit(Number(msg.value ?? 0), msg.detail);
@@ -211,10 +270,17 @@ export class TaskScheduler implements Disposable {
         rec.entry = null;
         entry.busy = false;
         entry.currentId = -1;
-        if (hasTaskHandler(rec.name)) {
-          this.complete(rec, msg.value); // worker may lack a lazily-registered handler → run inline
+        // Two distinct outcomes share this message: "this worker cannot run the task" (retry on the
+        // main thread) and "the handler threw" (fail the task, with the worker's own message). Only
+        // the worker knows which one it is — it checks its own registry and reports `inlineFallback`
+        // — so the flag decides. A retried task is marked so it cannot ping-pong between threads.
+        if (msg.inlineFallback === true && !rec.inlineRetry) {
+          rec.inlineRetry = true;
+          this.counters.inlineFallbacks++;
+          rec.startedAt = now(); // the inline attempt gets its own timing, not the worker's
+          this.runInline(rec);
         } else {
-          this.fail(rec, new Error(msg.error ?? "worker task failed"));
+          this.fail(rec, new Error(msg.error ?? msg.message ?? "worker task failed"));
         }
         this.pump();
         return;
@@ -250,6 +316,8 @@ export class TaskScheduler implements Disposable {
       workMs: this.counters.workMs,
       lastTaskMs: this.counters.lastTaskMs,
       dedupHits: this.counters.dedupHits,
+      workerFailures: this.counters.workerFailures,
+      inlineFallbacks: this.counters.inlineFallbacks,
     };
   }
 
@@ -290,6 +358,7 @@ export class TaskScheduler implements Disposable {
       entry: null,
       progress: null,
       cancelRequested: false,
+      inlineRetry: false,
       resolve,
       reject,
       promise,
@@ -336,10 +405,14 @@ export class TaskScheduler implements Disposable {
       return true;
     }
     if (rec.state === "running") {
-      // Cannot preempt; flag it so the result is dropped and tell the worker to stop early.
+      // Cannot preempt: JS has no thread interruption. The promise settles here, the result is
+      // discarded when it arrives, and the worker is told to stop early. The running count must drop
+      // with the promise (otherwise a session of cancelled streaming work deadlocks the pool), while
+      // the worker stays marked busy until it reports back — a spinning handler really is lost.
       rec.cancelRequested = true;
       rec.state = "cancelled";
       this.counters.cancelled++;
+      this.running = Math.max(0, this.running - 1);
       this.byId.delete(rec.id);
       this.byKey.delete(rec.key);
       rec.entry?.worker.postMessage({ type: "cancel", id: rec.id });
@@ -482,11 +555,16 @@ export class TaskScheduler implements Disposable {
   }
 }
 
-interface WorkerMessage {
+export interface WorkerMessage {
   type: "ready" | "task" | "result" | "error" | "progress" | "cancel";
   id: number;
   value?: unknown;
+  /** Failure text for `type: "error"` (see `workerScope.ts`). */
   error?: string;
+  /** `type: "error"` only: this worker cannot run the handler; retry on the main thread. */
+  inlineFallback?: boolean;
+  /** Accepted as a fallback for `error` so a host worker posting the older shape still works. */
+  message?: string;
   detail?: unknown;
 }
 

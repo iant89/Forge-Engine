@@ -8,8 +8,10 @@
  *     the last handle is released *or* the registry evicts it while unpinned. Reading `handle.value`
  *     after release throws instead of returning a destroyed GPU object.
  *  3. **A byte budget that evicts LRU.** Only *unpinned* entries are evictable; pinned entries
- *     (default textures, the active scene's atlas) never are. `evict()` runs on frame boundaries
- *     from the engine, not inside `acquire`, so a load cannot invalidate its own budget.
+ *     (default textures, the active scene's atlas) never are, and neither is anything with an
+ *     outstanding handle. Eviction is *requested* on a frame boundary (`evictIdle`) rather than done
+ *     inside `acquire`, so a load cannot invalidate its own budget; under budget pressure the idle
+ *     grace period is ignored (see `evictIdle`).
  *  4. **Deterministic failure.** A failed load is cached as a failed entry: `acquire` rejects with
  *     the original error and `retry()` re-attempts. No infinite reload storms.
  */
@@ -153,6 +155,7 @@ export class ResourceRegistry {
   private loads = 0;
   private deduped = 0;
   private evictions = 0;
+  private evictedBytesTotal = 0;
   private disposed = false;
   readonly events = {
     loaded: new EventTarget2<string>(),
@@ -245,7 +248,8 @@ export class ResourceRegistry {
       this.totalBytes += entry.bytes;
       entry.state = "ready";
       this.events.loaded.emit(descriptor.id);
-      if (this.maxBytes > 0 && this.totalBytes > this.maxBytes) this.evictIdle(0);
+      // Over budget: `evictIdle()` picks the target up from `maxBytes` and ignores the grace period.
+      if (this.maxBytes > 0 && this.totalBytes > this.maxBytes) this.evictIdle();
       return value;
     })().catch((error: unknown) => {
       entry.state = "failed";
@@ -276,14 +280,27 @@ export class ResourceRegistry {
   }
 
   /**
-   * Drop unreferenced entries: first any that have been idle longer than `idleGraceMs`, then LRU
-   * until the budget is satisfied. `force` ignores the grace period.
+   * Collect unreferenced, unpinned entries. Two modes, one rule each:
+   *
+   *  - **No byte target** (`evictIdle()`, and the registry is inside its budget): collect what has
+   *    been idle for at least `idleGraceMs`. A resource released this frame survives, so a camera
+   *    that re-acquires the same texture next frame does not pay for a reload.
+   *  - **Byte target** (an explicit argument, or the registry being over `maxBytes`): evict
+   *    least-recently-used entries until the total is at or under the target, *ignoring* the grace
+   *    period. Budget pressure is not negotiable, which is what makes the budget a budget.
+   *
+   * Returns the number of entries evicted; `evictedBytes`/`stats().evictedBytes` report their size.
    */
-  evictIdle(forceBytes = this.maxBytes): number {
+  evictIdle(targetBytes = 0): number {
+    const overBudget = this.maxBytes > 0 && this.totalBytes > this.maxBytes;
+    const target = targetBytes > 0 ? targetBytes : overBudget ? this.maxBytes : 0;
+    // A byte target that is already satisfied frees nothing: "be under 64 bytes" must not evict a
+    // 64-byte cache down to zero.
+    if (target > 0 && this.totalBytes <= target) return 0;
     const candidates: Entry<unknown>[] = [];
     for (const e of this.entries.values()) {
       if (e.refCount > 0 || e.pinned) continue;
-      if (forceBytes <= 0 && nowMs() - e.lastUse < this.idleGraceMs) continue;
+      if (target === 0 && nowMs() - e.lastUse < this.idleGraceMs) continue;
       candidates.push(e);
     }
     if (candidates.length === 0) return 0;
@@ -291,10 +308,13 @@ export class ResourceRegistry {
     let freed = 0;
     let freedCount = 0;
     for (const e of candidates) {
+      // Read the size *before* releasing: `releaseEntry` zeroes `e.bytes`, and an eviction report
+      // that always says 0 MB is worse than no report.
+      const bytes = e.bytes;
       this.releaseEntry(e);
       freedCount++;
-      freed += e.bytes;
-      if (forceBytes > 0 && this.totalBytes <= forceBytes) break;
+      freed += bytes;
+      if (target > 0 && this.totalBytes <= target) break;
     }
     if (freedCount > 0) this.logger?.debug(`resources: evicted ${freedCount} entries (${(freed / 1048576).toFixed(1)} MB)`);
     return freedCount;
@@ -311,6 +331,7 @@ export class ResourceRegistry {
       }
     }
     e.abort.aborted = true;
+    this.evictedBytesTotal += e.bytes;
     this.totalBytes -= e.bytes;
     e.bytes = 0;
     e.state = "released";
@@ -361,14 +382,37 @@ export class ResourceRegistry {
     return out.sort();
   }
 
-  stats(): { entries: number; bytes: number; loads: number; deduped: number; evictions: number; pending: number; unreferenced: number } {
+  /** Bytes evicted since construction (Phase 9.3: `evictedBytes` in the memory report). */
+  get evictedBytes(): number {
+    return this.evictedBytesTotal;
+  }
+
+  stats(): {
+    entries: number;
+    bytes: number;
+    loads: number;
+    deduped: number;
+    evictions: number;
+    evictedBytes: number;
+    pending: number;
+    unreferenced: number;
+  } {
     let pending = 0;
     let unreferenced = 0;
     for (const e of this.entries.values()) {
       if (e.state === "loading") pending++;
       if (e.refCount <= 0 && !e.pinned) unreferenced++;
     }
-    return { entries: this.entries.size, bytes: this.totalBytes, loads: this.loads, deduped: this.deduped, evictions: this.evictions, pending, unreferenced };
+    return {
+      entries: this.entries.size,
+      bytes: this.totalBytes,
+      loads: this.loads,
+      deduped: this.deduped,
+      evictions: this.evictions,
+      evictedBytes: this.evictedBytesTotal,
+      pending,
+      unreferenced,
+    };
   }
 
   /** Await every in-flight load (used by tests + the "warm up" phase of a demo). */

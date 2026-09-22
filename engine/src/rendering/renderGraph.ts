@@ -110,6 +110,8 @@ export interface RenderGraphStats {
   transientTextures: number;
   /** Physical textures backing the transients (≤ transientTextures when aliasing kicked in). */
   physicalTextures: number;
+  /** Bytes the frame's transients occupy after aliasing (what the pool has to hold for this frame). */
+  transientBytes: number;
   /** Bytes the transients would have needed without aliasing minus what was allocated. */
   aliasedBytes: number;
   /** Bytes currently held by the pool (including idle textures not yet retired). */
@@ -178,6 +180,7 @@ export class RenderGraph {
     executed: [],
     transientTextures: 0,
     physicalTextures: 0,
+    transientBytes: 0,
     aliasedBytes: 0,
     pooledBytes: 0,
     texturesCreated: 0,
@@ -452,6 +455,7 @@ export class RenderGraph {
     for (const s of slots) allocated += s.bytes;
     this.stats.transientTextures = transients.length;
     this.stats.physicalTextures = slots.length;
+    this.stats.transientBytes = allocated;
     this.stats.aliasedBytes = requested - allocated;
     return slots;
   }

@@ -311,10 +311,32 @@ describe("bounds", () => {
     expect(new Vec2(1, 2).scale(3).toArray()).toEqual([3, 6]);
   });
 
+  it("Mat4.multiply is alias-safe, so the natural proj.multiply(view) call is correct", () => {
+    const proj = new Mat4().setPerspective(Math.PI / 3, 16 / 9, 0.5, 60);
+    const view = new Mat4().setLookAt(new Vec3(3, 4, 5), new Vec3(0, 0, 0), new Vec3(0, 1, 0));
+
+    // this = this * b, computed in place, must equal the three-operand form.
+    const inPlace = proj.clone().multiply(view);
+    const explicit = new Mat4().multiplyMatrices(proj, view);
+    expect(Array.from(inPlace.m)).toEqual(Array.from(explicit.m));
+
+    // And the result has to be a usable matrix, not garbage: the camera-space origin maps to the
+    // same clip position either way.
+    const originClip = explicit.transformPoint(new Vec3(0, 0, 0), new Vec3());
+    const inPlaceClip = inPlace.transformPoint(new Vec3(0, 0, 0), new Vec3());
+    expect(inPlaceClip.x).toBeCloseTo(originClip.x, 5);
+    expect(inPlaceClip.z).toBeCloseTo(originClip.z, 5);
+
+    // Self-multiplication is the other aliasing case (b === this).
+    const squared = proj.clone().multiply(proj);
+    const squaredExplicit = new Mat4().multiplyMatrices(proj, proj);
+    expect(Array.from(squared.m)).toEqual(Array.from(squaredExplicit.m));
+  });
+
   it("frustum extraction matches the projection convention (this pair has to agree)", () => {
     const proj = new Mat4().setPerspective(Math.PI / 3, 16 / 9, 0.5, 60);
     const view = new Mat4().setLookAt(new Vec3(0, 0, 0), new Vec3(0, 0, 10), new Vec3(0, 1, 0));
-    const frustum = new Frustum().setFromViewProjection(proj.multiply(view, new Mat4()));
+    const frustum = new Frustum().setFromViewProjection(new Mat4().multiplyMatrices(proj, view));
     const p = new Vec3();
     // Dead ahead, mid range: inside.
     p.set(0, 0, 20);

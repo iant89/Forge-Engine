@@ -10,10 +10,11 @@
  * tests/tasks.test.ts; that is the contract the worker protocol speaks.
  */
 
-import { type TaskContext } from "./registry.js";
+import { registerTaskResultTransfer, type TaskContext } from "./registry.js";
 import { NoiseField, valueNoise2 } from "../../math/noise.js";
 import { Rng, chunkSeed } from "../../math/rng.js";
 import { alignUp } from "../../math/scalar.js";
+import { MeshBvh } from "../../math/bvh.js";
 
 // ---------------------------------------------------------------- heightfield
 
@@ -247,10 +248,80 @@ export function installTaskHandlers(register: <P, R>(name: string, fn: (payload:
   register<SlopeFieldTaskPayload, SlopeFieldTaskResult>("terrain.slope", (p, ctx) => bakeSlopeField(p, ctx));
   register<ScatterTaskPayload, ScatterTaskResult>("terrain.scatter", (p) => scatterPoints(p));
   register<NoiseTileTaskPayload, NoiseTileTaskResult>("texture.noiseTile", (p, ctx) => generateNoiseTile(p, ctx));
+  register<BvhTaskPayload, BvhTaskResult>("geometry.bvh", (p) => buildBvhTask(p));
+  // Results own fresh buffers, so they cross the thread boundary as transfers rather than copies.
+  for (const name of BUILTIN_TASK_NAMES) registerTaskResultTransfer(name, (result) => transferablesFor(name, result));
+}
+
+// ---------------------------------------------------------------- bvh (Phase 9.1)
+
+/**
+ * Build a mesh BVH off the main thread.
+ *
+ * The payload is plain typed arrays (`positions`/`indices`) plus the build options, so the result is
+ * a pure function of the input: the same payload produces the same `hash` on the main thread and in
+ * a worker, which is what `tests/tasks.test.ts` asserts. The result carries only the *structure* —
+ * the geometry stays where it already is — plus the hash that identifies the tree.
+ */
+export interface BvhTaskPayload {
+  /** xyz per vertex. */
+  positions: Float32Array;
+  /** Triangle triples into `positions`. */
+  indices: Uint32Array;
+  leafSize?: number;
+  maxDepth?: number;
+}
+
+export interface BvhTaskResult {
+  nodeBounds: Float32Array;
+  nodeLeftFirst: Int32Array;
+  nodeTriCount: Int32Array;
+  triOrder: Uint32Array;
+  nodeCount: number;
+  leafCount: number;
+  maxDepth: number;
+  triangleCount: number;
+  hash: number;
+  /** Root bounds as [minX, minY, minZ, maxX, maxY, maxZ]. */
+  bounds: Float32Array;
+}
+
+/** Pure build: the handler body, exported so tests and hosts can call it inline. */
+export function buildBvhTask(payload: BvhTaskPayload): BvhTaskResult {
+  const bvh = MeshBvh.build(payload.positions, payload.indices, {
+    leafSize: payload.leafSize,
+    maxDepth: payload.maxDepth,
+  });
+  const data = bvh.data();
+  const bounds = new Float32Array(6);
+  bounds[0] = data.bounds.min.x;
+  bounds[1] = data.bounds.min.y;
+  bounds[2] = data.bounds.min.z;
+  bounds[3] = data.bounds.max.x;
+  bounds[4] = data.bounds.max.y;
+  bounds[5] = data.bounds.max.z;
+  return {
+    nodeBounds: data.nodeBounds,
+    nodeLeftFirst: data.nodeLeftFirst,
+    nodeTriCount: data.nodeTriCount,
+    triOrder: data.triOrder,
+    nodeCount: data.nodeCount,
+    leafCount: data.leafCount,
+    maxDepth: data.maxDepth,
+    triangleCount: data.triangleCount,
+    hash: data.hash,
+    bounds,
+  };
 }
 
 /** The task names this module provides (tests assert each is registered after warm-up). */
-export const BUILTIN_TASK_NAMES = ["terrain.heightfield", "terrain.slope", "terrain.scatter", "texture.noiseTile"] as const;
+export const BUILTIN_TASK_NAMES = [
+  "terrain.heightfield",
+  "terrain.slope",
+  "terrain.scatter",
+  "texture.noiseTile",
+  "geometry.bvh",
+] as const;
 
 /**
  * Buffers a result owns and can hand to the main thread without copying. The scheduler posts these
@@ -267,6 +338,16 @@ export function transferablesFor(name: string, result: unknown): ArrayBuffer[] {
       return [(result as ScatterTaskResult).points.buffer as ArrayBuffer];
     case "texture.noiseTile":
       return [(result as NoiseTileTaskResult).rgba.buffer as ArrayBuffer];
+    case "geometry.bvh": {
+      const bvh = result as BvhTaskResult;
+      return [
+        bvh.nodeBounds.buffer as ArrayBuffer,
+        bvh.nodeLeftFirst.buffer as ArrayBuffer,
+        bvh.nodeTriCount.buffer as ArrayBuffer,
+        bvh.triOrder.buffer as ArrayBuffer,
+        bvh.bounds.buffer as ArrayBuffer,
+      ];
+    }
     default:
       return [];
   }

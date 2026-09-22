@@ -17,6 +17,7 @@
 
 import { Double3 } from "../math/double3.js";
 import { Vec3 } from "../math/vec.js";
+import { asWorldPosition, chunkLocalOffset, worldToChunk, type ChunkCoordinate, type LocalPosition, type RenderPosition, type RenderSpace, type WorldPosition } from "./spaces.js";
 import type { EntityWorld } from "./world.js";
 import type { EntityId } from "./entityId.js";
 
@@ -57,6 +58,39 @@ export class CoordinateSpace {
 
   get hasPendingRecenter(): boolean {
     return this.pending !== null;
+  }
+
+  /**
+   * The formal coordinate-space view of this object: the origin as a `WorldPosition`, for the
+   * helpers in `spaces.ts`. Reading it is free (it is the live origin, not a copy).
+   */
+  get renderSpace(): RenderSpace {
+    return { origin: this.origin as WorldPosition };
+  }
+
+  /** The world origin as a `WorldPosition` (the authoritative large-world value). */
+  get worldOrigin(): WorldPosition {
+    return asWorldPosition(this.origin);
+  }
+
+  /** Which chunk a world position falls in, at the given chunk size (Phase 9.4). */
+  chunkOf(worldPosition: WorldPosition | Double3, chunkSize: number): ChunkCoordinate {
+    return worldToChunk(asWorldPosition(worldPosition as Double3), chunkSize);
+  }
+
+  /** Position inside its chunk, in metres (Phase 9.4). */
+  chunkOffsetOf(worldPosition: WorldPosition | Double3, chunkSize: number, out: Vec3): LocalPosition {
+    return chunkLocalOffset(asWorldPosition(worldPosition as Double3), chunkSize, out);
+  }
+
+  /** World → render-local (float32), typed as a `RenderPosition`. */
+  renderPositionOf(worldPosition: WorldPosition | Double3, out: Vec3): RenderPosition {
+    return this.toRenderLocal(worldPosition as Double3, out) as RenderPosition;
+  }
+
+  /** Render-local → world, typed as a `WorldPosition`. */
+  worldPositionOf(renderPosition: RenderPosition | Vec3, out: Double3): WorldPosition {
+    return asWorldPosition(this.toWorld(renderPosition, out));
   }
 
   /** World → render-local (float32). */

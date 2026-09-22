@@ -19,6 +19,12 @@
 import type { Vec3Ops } from "./vec.js";
 import { Vec3 } from "./vec.js";
 import { EPSILON, PI, clamp } from "./scalar.js";
+/**
+ * Staging buffer for `multiplyMatrices` when the receiver is also the left operand. Module-level so
+ * the guard costs no allocation; `multiplyMatrices` never yields to other code, so a single buffer
+ * cannot be re-entered.
+ */
+const MULTIPLY_SCRATCH = new Float32Array(16);
 
 export class Quat {
   constructor(public x = 0, public y = 0, public z = 0, public w = 1) {}
@@ -510,10 +516,17 @@ export class Mat4 {
 
   // ---------------------------------------------------------------- composition
 
-  /** this = a * b (b applied first). */
+  /** this = a * b (b applied first). `a` may be `this` (staged through scratch); `b` may be too. */
   multiplyMatrices(a: Mat4, b: Mat4): this {
     const out = this.m;
-    const am = a.m;
+    // Writing column c overwrites the columns of `a` that later iterations still read, so an aliased
+    // `a` has to be staged first. (The bug this guards against: `proj.multiply(view)` — the most
+    // natural call in the API — produced a matrix with garbage translation columns.)
+    let am = a.m;
+    if (am === out) {
+      MULTIPLY_SCRATCH.set(a.m);
+      am = MULTIPLY_SCRATCH;
+    }
     const bm = b.m;
     for (let c = 0; c < 4; c++) {
       const b0 = bm[c * 4]!;
@@ -528,6 +541,7 @@ export class Mat4 {
     return this;
   }
 
+  /** this = this * b. Alias-safe: `b` may be `this`, and `b` may not share storage with `this`. */
   multiply(b: Mat4): this {
     return this.multiplyMatrices(this, b);
   }

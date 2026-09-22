@@ -13,7 +13,7 @@
 export * from "./math/index.js";
 
 // Core
-export { Engine, type EngineOptions, type EngineStats, type RenderMode, installEngineErrorBridge } from "./core/engine.js";
+export { Engine, type EngineOptions, type EngineStats, type GpuMemoryReport, type RenderMode, installEngineErrorBridge } from "./core/engine.js";
 export {
   QUALITY_PROFILES,
   resolveConfig,
@@ -35,6 +35,7 @@ export {
   ResourceLifecycleError,
   InternalError,
   ObjectDisposedError,
+  InlineOnlyError,
   assert,
   assertDefined,
   assertPositive,
@@ -48,14 +49,52 @@ export { Logger, LogLevel, parseLogLevel, ConsoleSink, LogBuffer, type LogLevel 
 export { EventTarget2, EventBus, Signal, DisposableGroup, type Disposable, type Listener } from "./core/events.js";
 export { ObjectPool, FreeList, IntStack, FloatArena, FloatBuffer, Uint16Buffer, Uint32Buffer, growTyped, makeHandle, handleSlot, handleGeneration, type Poolable, type PoolOptions } from "./core/pool.js";
 export { detectPlatform, probeWebGPU, getNavigatorGpu, createLogger, type PlatformInfo } from "./core/platform.js";
-export { TaskScheduler, TaskPriority, TaskCancelledError, type TaskDescriptor, type TaskSchedulerOptions, type TaskStats } from "./core/tasks/scheduler.js";
-export { registerTaskHandler, registerBuiltinTaskHandlers, listTaskHandlers, hasTaskHandler, type TaskContext, type TaskHandler } from "./core/tasks/registry.js";
+export {
+  capabilityRegistry,
+  capabilityStatus,
+  capabilityMarker,
+  ROADMAP_MARKER,
+  ROADMAP_PHASE_STATUS,
+  ROADMAP_STATUS_LABEL,
+  type CapabilityEntry,
+  type CapabilityStatus,
+} from "./core/capabilities.js";
+export {
+  TaskScheduler,
+  TaskPriority,
+  TaskCancelledError,
+  type TaskDescriptor,
+  type TaskSchedulerOptions,
+  type TaskStats,
+  type TaskWorkerLike,
+  type WorkerMessage,
+} from "./core/tasks/scheduler.js";
+export {
+  registerTaskHandler,
+  registerBuiltinTaskHandlers,
+  registerTaskResultTransfer,
+  taskResultTransferables,
+  hasTaskHandler,
+  hasTaskResultTransfer,
+  listTaskHandlers,
+  clearTaskHandlers,
+  builtinTaskHandlersReady,
+  builtinTaskHandlersInstalled,
+  getTaskHandler,
+  runTask,
+  type TaskContext,
+  type TaskHandler,
+} from "./core/tasks/registry.js";
+export { installWorkerScope, type WorkerScopeLike, type WorkerScopeOptions, type WorkerIncomingMessage } from "./core/tasks/workerScope.js";
 export {
   generateHeightfield,
   bakeSlopeField,
   scatterPoints,
   generateNoiseTile,
   BUILTIN_TASK_NAMES,
+  buildBvhTask,
+  type BvhTaskPayload,
+  type BvhTaskResult,
   type HeightfieldTaskPayload,
   type HeightfieldTaskResult,
   type ScatterTaskPayload,
@@ -115,6 +154,29 @@ export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type
 export { Query, ObjectStore, StructStore, type ComponentStorage, type QueryWorld } from "./scene/stores.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";
+export {
+  asWorldPosition,
+  asLocalPosition,
+  asRenderPosition,
+  worldToRender,
+  renderToWorld,
+  writeRenderPosition,
+  worldToChunk,
+  chunkOrigin,
+  chunkLocalOffset,
+  chunkCoordinateKey,
+  worldToTerrain,
+  terrainToWorld,
+  horizontalDistance,
+  worldDistance,
+  renderSpaceOf,
+  type WorldPosition,
+  type LocalPosition,
+  type RenderPosition,
+  type ChunkCoordinate,
+  type TerrainCoordinate,
+  type RenderSpace,
+} from "./scene/spaces.js";
 export type { RenderFrameContext, PickResult, SkyParams } from "./scene/renderContext.js";
 
 // Terrain

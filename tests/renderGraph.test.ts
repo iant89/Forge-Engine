@@ -243,13 +243,13 @@ describe("RenderGraph memory planning", () => {
     const first = frame((t) => textures.push(t));
     expect(first.texturesCreated).toBe(2);
     const epoch = graph.allocationEpoch;
-    const createdBefore = mock.texturesCreated;
+    const createdBefore = device.gpuMemory.texturesCreated;
     for (let i = 0; i < 5; i++) {
       const s = frame((t) => textures.push(t));
       expect(s.texturesCreated).toBe(0);
       expect(s.texturesDestroyed).toBe(0);
     }
-    expect(mock.texturesCreated).toBe(createdBefore);
+    expect(device.gpuMemory.texturesCreated).toBe(createdBefore);
     expect(graph.allocationEpoch).toBe(epoch);
     expect(new Set(textures).size).toBe(1);
     expect(mock.errors).toEqual([]);

@@ -5,6 +5,27 @@
 import { Vec3 } from "../math/vec.js";
 import { Quat } from "../math/mat.js";
 import { AABB } from "../math/geometry.js";
+import { UsageError } from "../core/errors.js";
+
+/**
+ * Validates a shape dimension and clamps it to a minimum.
+ *
+ * The clamp is intentional (a degenerate body still needs volume), but it used to be the *only*
+ * thing that happened: `new BoxShape(new Vec3(1, 1, 1))` — an easy mistake, since every other
+ * engine API takes vectors — produced `Math.max(0.001, object)` = NaN half-extents, and NaN then
+ * propagated quietly into AABBs, mass properties and solver impulses. Failing at the call site
+ * costs nothing measurable (shapes are constructed once) and turns a distant, confusing failure
+ * into a local one.
+ */
+function dimension(value: number, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new UsageError(
+      `${name} must be a finite number, got ` +
+        (typeof value === "object" ? "an object (pass its x/y/z components, not a Vec3)" : String(value)),
+    );
+  }
+  return Math.max(0.001, value);
+}
 
 export type ShapeType = "sphere" | "box" | "capsule" | "cylinder" | "plane" | "heightfield";
 
@@ -31,7 +52,7 @@ export class SphereShape extends Shape {
 
   constructor(radius = 0.5) {
     super();
-    this.radius = Math.max(0.001, radius);
+    this.radius = dimension(radius, "SphereShape.radius");
   }
 
   computeAABB(position: Vec3, _rotation: Quat, out: AABB): void {
@@ -57,7 +78,11 @@ export class BoxShape extends Shape {
 
   constructor(halfX = 0.5, halfY = 0.5, halfZ = 0.5) {
     super();
-    this.halfExtents = new Vec3(Math.max(0.001, halfX), Math.max(0.001, halfY), Math.max(0.001, halfZ));
+    this.halfExtents = new Vec3(
+      dimension(halfX, "BoxShape.halfX"),
+      dimension(halfY, "BoxShape.halfY"),
+      dimension(halfZ, "BoxShape.halfZ"),
+    );
   }
 
   computeAABB(position: Vec3, rotation: Quat, out: AABB): void {
@@ -108,8 +133,8 @@ export class CapsuleShape extends Shape {
 
   constructor(radius = 0.5, halfHeight = 0.5) {
     super();
-    this.radius = Math.max(0.001, radius);
-    this.halfHeight = Math.max(0.001, halfHeight);
+    this.radius = dimension(radius, "CapsuleShape.radius");
+    this.halfHeight = dimension(halfHeight, "CapsuleShape.halfHeight");
   }
 
   computeAABB(position: Vec3, rotation: Quat, out: AABB): void {
@@ -147,8 +172,8 @@ export class CylinderShape extends Shape {
 
   constructor(radius = 0.5, halfHeight = 0.5) {
     super();
-    this.radius = Math.max(0.001, radius);
-    this.halfHeight = Math.max(0.001, halfHeight);
+    this.radius = dimension(radius, "CylinderShape.radius");
+    this.halfHeight = dimension(halfHeight, "CylinderShape.halfHeight");
   }
 
   computeAABB(position: Vec3, rotation: Quat, out: AABB): void {

@@ -6,7 +6,6 @@ import {
   ValleyCarvingGenerator,
   DetailNoiseGenerator,
   ClimateBiomeGenerator,
-  RealisticScatterGenerator,
   createRealisticTerrainPipeline,
   createRealisticPipelinePreset,
   TerrainTile,

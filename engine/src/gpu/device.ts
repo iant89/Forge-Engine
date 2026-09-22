@@ -24,8 +24,34 @@ import { UnsupportedPlatformError, CapabilityError, ResourceLifecycleError, Usag
 import { getNavigatorGpu } from "../core/platform.js";
 import type { Logger } from "../core/log.js";
 import { OPTIONAL_FEATURES, describeFeature, type FeatureKey, TextureUsage } from "./constants.js";
-import { preferredSwapchainFormats, pickHdrFormat, isKnownFormat, formatInfo } from "./formats.js";
+import { preferredSwapchainFormats, pickHdrFormat, isKnownFormat, formatInfo, textureSizeBytes } from "./formats.js";
 import { createMockGpu, type MockGPUDevice, type MockGPUAdapter } from "../testing/mockGpu.js";
+
+/**
+ * Bytes a texture descriptor will allocate, from either `size` form (`GPUExtent3D` union) and any
+ * mip/layer count. Returns 0 for a descriptor this build cannot size rather than throwing: the count
+ * of allocations still has to be right when the byte estimate is not.
+ */
+function describeTextureBytes(descriptor: GPUTextureDescriptor): number {
+  const raw = descriptor.size as unknown;
+  const dims = Array.isArray(raw)
+    ? { width: Number(raw[0]), height: raw[1] === undefined ? 1 : Number(raw[1]), depthOrArrayLayers: raw[2] === undefined ? 1 : Number(raw[2]) }
+    : typeof raw === "number"
+      ? { width: raw, height: 1, depthOrArrayLayers: 1 }
+      : (raw as { width: number; height?: number; depthOrArrayLayers?: number });
+  if (!Number.isFinite(dims.width) || dims.width <= 0) return 0;
+  try {
+    return textureSizeBytes({
+      format: descriptor.format,
+      width: dims.width,
+      height: dims.height ?? 1,
+      depthOrArrayLayers: dims.depthOrArrayLayers ?? 1,
+      mipLevelCount: descriptor.mipLevelCount ?? 1,
+    });
+  } catch {
+    return 0;
+  }
+}
 
 function this0Format(): GPUTextureFormat | undefined {
   const gpu = (globalThis as unknown as { navigator?: { gpu?: { getPreferredCanvasFormat?(): GPUTextureFormat } } }).navigator?.gpu;
@@ -86,6 +112,45 @@ export interface SwapchainInfo {
   format: GPUTextureFormat;
 }
 
+/**
+ * Live GPU allocation accounting for this device (Phase 9.3 / Rule 11).
+ *
+ * Counters are maintained by intercepting the *raw* device's creation entry points
+ * (`createTexture`/`createBuffer`/`createRenderPipeline`/…), so a subsystem that bypasses
+ * `GraphicsDevice.createBuffer` is counted too — the numbers describe the device, not the engine's
+ * good intentions. Textures and buffers are counted when created and uncounted when destroyed; a
+ * leaked object therefore shows up as a permanent `textureBytes`/`bufferBytes` floor, which is what
+ * the resource-leak tests and the demo HUD read.
+ *
+ * Pipelines, bind groups and shader modules have no `destroy()` in WebGPU: their counts are
+ * cumulative and are only meaningful as "how many exist", not as a leak signal on their own.
+ */
+export interface GpuMemoryStats {
+  /** Live bytes of every GPUTexture created on this device (all mips/layers). */
+  textureBytes: number;
+  /** Live bytes of every GPUBuffer created on this device. */
+  bufferBytes: number;
+  textureCount: number;
+  bufferCount: number;
+  /** Render + compute pipelines created (no destroy; count is cumulative). */
+  pipelineCount: number;
+  bindGroupCount: number;
+  bindGroupLayoutCount: number;
+  pipelineLayoutCount: number;
+  shaderModuleCount: number;
+  texturesCreated: number;
+  texturesDestroyed: number;
+  buffersCreated: number;
+  buffersDestroyed: number;
+  /** Allocations observed since the previous `beginFrame()` — a steady frame reports zeros. */
+  sinceFrameStart: {
+    texturesCreated: number;
+    buffersCreated: number;
+    bytesCreated: number;
+    bytesDestroyed: number;
+  };
+}
+
 export class GraphicsDevice {
   private constructor(
     readonly adapter: GPUAdapter | null,
@@ -137,9 +202,103 @@ export class GraphicsDevice {
         /* a device that cannot register listeners still works; it just reports less */
       }
     }
+    this.instrumentAllocation();
     if (this.isMock) {
       this.logger?.info("gpu: using mock device (headless; validation is strict, rasterization is not)");
     }
+  }
+
+  /**
+   * Wrap the device's creation entry points so every GPU object is accounted for, whoever created
+   * it. Wrapping the *raw* device (rather than only `GraphicsDevice.create*`) is deliberate: the
+   * renderer, materials and geometry create buffers through it directly, and an accounting that
+   * misses those paths would be worse than none.
+   */
+  private instrumentAllocation(): void {
+    const raw = this.device as unknown as Record<string, unknown>;
+    const memory = this.memory;
+
+    const wrapTexture = (original: (descriptor: GPUTextureDescriptor) => GPUTexture): ((descriptor: GPUTextureDescriptor) => GPUTexture) =>
+      (descriptor) => {
+        const texture = original.call(this.device, descriptor);
+        const bytes = describeTextureBytes(descriptor);
+        memory.texturesCreated++;
+        memory.textureBytes += bytes;
+        memory.textureCount++;
+        memory.sinceFrameStart.texturesCreated++;
+        memory.sinceFrameStart.bytesCreated += bytes;
+        // `destroy()` is the only signal that a texture's memory is gone.
+        if (texture && typeof texture.destroy === "function") {
+          const destroy = texture.destroy.bind(texture);
+          (texture as unknown as { destroy(): void }).destroy = () => {
+            destroy();
+            memory.texturesDestroyed++;
+            memory.textureBytes -= bytes;
+            memory.textureCount--;
+            memory.sinceFrameStart.bytesDestroyed += bytes;
+          };
+        }
+        return texture;
+      };
+
+    const wrapBuffer = (original: (descriptor: GPUBufferDescriptor) => GPUBuffer): ((descriptor: GPUBufferDescriptor) => GPUBuffer) =>
+      (descriptor) => {
+        const buffer = original.call(this.device, descriptor);
+        const bytes = Math.max(0, descriptor.size | 0);
+        memory.buffersCreated++;
+        memory.bufferBytes += bytes;
+        memory.bufferCount++;
+        memory.sinceFrameStart.buffersCreated++;
+        memory.sinceFrameStart.bytesCreated += bytes;
+        if (buffer && typeof buffer.destroy === "function") {
+          const destroy = buffer.destroy.bind(buffer);
+          (buffer as unknown as { destroy(): void }).destroy = () => {
+            destroy();
+            memory.buffersDestroyed++;
+            memory.bufferBytes -= bytes;
+            memory.bufferCount--;
+            memory.sinceFrameStart.bytesDestroyed += bytes;
+          };
+        }
+        return buffer;
+      };
+
+    /** Wrap one device method and increment the counter it feeds. */
+    const countMethod = (method: string, field: "pipelineCount" | "bindGroupCount" | "bindGroupLayoutCount" | "pipelineLayoutCount" | "shaderModuleCount"): void => {
+      const original = raw[method] as ((...args: never[]) => unknown) | undefined;
+      if (typeof original !== "function") return;
+      raw[method] = (...args: never[]): unknown => {
+        const value = original.apply(this.device, args);
+        memory[field]++;
+        return value;
+      };
+    };
+
+    const originalTexture = raw.createTexture as ((descriptor: GPUTextureDescriptor) => GPUTexture) | undefined;
+    if (typeof originalTexture === "function") raw.createTexture = wrapTexture(originalTexture);
+    const originalBuffer = raw.createBuffer as ((descriptor: GPUBufferDescriptor) => GPUBuffer) | undefined;
+    if (typeof originalBuffer === "function") raw.createBuffer = wrapBuffer(originalBuffer);
+    countMethod("createBindGroup", "bindGroupCount");
+    countMethod("createBindGroupLayout", "bindGroupLayoutCount");
+    countMethod("createPipelineLayout", "pipelineLayoutCount");
+    countMethod("createShaderModule", "shaderModuleCount");
+    // Render and compute pipelines land in one count: both are "pipelines", and no code path cares
+    // which is which (`PipelineFactory` keys them separately).
+    countMethod("createRenderPipeline", "pipelineCount");
+    countMethod("createComputePipeline", "pipelineCount");
+  }
+
+  /** Live allocation accounting (see `GpuMemoryStats`). Copy on read: callers keep snapshots. */
+  get gpuMemory(): GpuMemoryStats {
+    return { ...this.memory, sinceFrameStart: { ...this.memory.sinceFrameStart } };
+  }
+
+  /** Start a new frame's allocation window (`sinceFrameStart`). Called by the engine each frame. */
+  beginFrame(): void {
+    this.memory.sinceFrameStart.texturesCreated = 0;
+    this.memory.sinceFrameStart.buffersCreated = 0;
+    this.memory.sinceFrameStart.bytesCreated = 0;
+    this.memory.sinceFrameStart.bytesDestroyed = 0;
   }
 
   readonly caps: DeviceCaps;
@@ -161,8 +320,23 @@ export class GraphicsDevice {
   private errorCount = 0;
   private readonly collectedErrors: string[] = [];
   private _lastError: string | null = null;
-  private buffersCreated = 0;
-  private texturesCreated = 0;
+  /** Live allocation accounting; the fields are mutated by the instrumented device methods. */
+  private readonly memory: GpuMemoryStats = {
+    textureBytes: 0,
+    bufferBytes: 0,
+    textureCount: 0,
+    bufferCount: 0,
+    pipelineCount: 0,
+    bindGroupCount: 0,
+    bindGroupLayoutCount: 0,
+    pipelineLayoutCount: 0,
+    shaderModuleCount: 0,
+    texturesCreated: 0,
+    texturesDestroyed: 0,
+    buffersCreated: 0,
+    buffersDestroyed: 0,
+    sinceFrameStart: { texturesCreated: 0, buffersCreated: 0, bytesCreated: 0, bytesDestroyed: 0 },
+  };
 
   get lost(): boolean {
     return this._lost;
@@ -332,9 +506,7 @@ export class GraphicsDevice {
   createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer {
     if (descriptor.size <= 0) throw new UsageError(`createBuffer: size must be > 0 (got ${descriptor.size})`);
     if (descriptor.size % 4 !== 0) throw new UsageError(`createBuffer: size ${descriptor.size} is not a multiple of 4`);
-    const buffer = this.device.createBuffer(descriptor);
-    this.buffersCreated++;
-    return buffer;
+    return this.device.createBuffer(descriptor);
   }
 
   createTexture(descriptor: GPUTextureDescriptor): GPUTexture {
@@ -351,9 +523,7 @@ export class GraphicsDevice {
     if (typeof dims.width !== "number" || dims.width <= 0) throw new UsageError("createTexture: size.width must be a positive integer");
     if (!isKnownFormat(descriptor.format)) throw new CapabilityError(`createTexture: unsupported format "${descriptor.format}"`);
     if (descriptor.mipLevelCount !== undefined && descriptor.mipLevelCount < 1) throw new UsageError("createTexture: mipLevelCount must be at least 1");
-    const texture = this.device.createTexture(descriptor);
-    this.texturesCreated++;
-    return texture;
+    return this.device.createTexture(descriptor);
   }
 
   /** Renderability check used by format picking (the mock validates this too). */
@@ -468,19 +638,29 @@ export class GraphicsDevice {
     return this.errorCount;
   }
 
-  /** Mock-only leak accounting; on a real device these are the engine's own counters. */
+  /**
+   * Leak accounting for the mock device's fixtures (names of live objects) plus the engine's own
+   * live counts, which are now tracked on every device by `instrumentAllocation()`.
+   */
   memoryStats(): { buffers: number; textures: number; buffersCreated: number; texturesCreated: number; bytes: number } {
+    const memory = this.memory;
     if (this.isMock) {
       const m = this.mock.memoryStats as { buffers?: number; textures?: number; bytes?: number } | undefined;
       return {
-        buffers: m?.buffers ?? 0,
-        textures: m?.textures ?? 0,
-        buffersCreated: this.buffersCreated,
-        texturesCreated: this.texturesCreated,
-        bytes: m?.bytes ?? 0,
+        buffers: m?.buffers ?? memory.bufferCount,
+        textures: m?.textures ?? memory.textureCount,
+        buffersCreated: memory.buffersCreated,
+        texturesCreated: memory.texturesCreated,
+        bytes: m?.bytes ?? memory.bufferBytes + memory.textureBytes,
       };
     }
-    return { buffers: 0, textures: 0, buffersCreated: this.buffersCreated, texturesCreated: this.texturesCreated, bytes: 0 };
+    return {
+      buffers: memory.bufferCount,
+      textures: memory.textureCount,
+      buffersCreated: memory.buffersCreated,
+      texturesCreated: memory.texturesCreated,
+      bytes: memory.bufferBytes + memory.textureBytes,
+    };
   }
 
   /**

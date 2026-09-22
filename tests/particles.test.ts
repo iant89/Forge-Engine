@@ -18,7 +18,6 @@ import {
   P_VY,
   P_X,
   P_Y,
-  P_Z,
   PARTICLE_FLOATS,
   PARTICLE_SIM_SHADER,
   PARTICLE_STRIDE,
