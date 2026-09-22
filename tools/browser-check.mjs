@@ -29,6 +29,12 @@
  * deck occludes the stars — the storm preset cannot prove this because its fog outshines the deck),
  * the underwater toggle removes `forge.sky` from the graph, and a triggered strike registers.
  *
+ * Demo-UI addition: the weather scene's on-screen buttons (what a phone has instead of `1..4`, `L`,
+ * `U`, `[`/`]`, `T`) are driven at a phone-width viewport — each one must move the scene state the
+ * way its key does and mark itself pressed (the panel is painted from that state, and the two can
+ * only disagree if the buttons were wired to something else). At a desktop width the panel must be
+ * hidden again.
+ *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
  * Playwright-managed install. Exits 2 when nothing can be launched, so `verify` never implies a browser
@@ -510,6 +516,114 @@ try {
   const wxDryStats = await page.evaluate(() => window.__forge.stats());
   if (!wxDryStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not come back after draining");
   await page.evaluate(() => window.__forge.setAnimating(true));
+
+  // The weather scene's shortcuts are keys, and a phone has none: at a phone-width viewport the
+  // same five actions must be reachable as buttons, and they must drive the same state as the keys
+  // (`4` -> storm, `L` -> a strike, `U` -> flooded, `]` -> an hour later, `T` -> stopped clock)
+  // rather than a parallel path that drifts. The pressed buttons are asserted too: they are painted
+  // from the scene's own state, so a button that fires but never marks itself is a panel bug.
+  await page.setViewportSize({ width: 390, height: 780 });
+  await settle(4);
+  const panel = await page.evaluate(() => {
+    const el = document.getElementById("weather-touch");
+    const hint = document.getElementById("controls-hint");
+    return {
+      display: el ? getComputedStyle(el).display : "missing",
+      hint: hint ? getComputedStyle(hint).display : "missing",
+      buttons: el ? [...el.querySelectorAll("button")].map((b) => b.id) : [],
+    };
+  });
+  console.log(`weather touch @390px: display=${panel.display} hint=${panel.hint} buttons=${panel.buttons.join(",")}`);
+  if (panel.display !== "block") throw new Error(`weather touch panel is not shown at phone width (display ${panel.display})`);
+  if (panel.hint !== "none") throw new Error("the keyboard-only hint is still shown over the touch panel");
+  for (const id of ["wx-clear", "wx-overcast", "wx-rain", "wx-storm", "wx-strike", "wx-dive", "wx-time-fwd", "wx-time-back", "wx-pause"]) {
+    if (!panel.buttons.includes(id)) throw new Error(`weather touch panel is missing #${id}`);
+  }
+  const pressed = (id) => page.evaluate((sel) => document.getElementById(sel)?.classList.contains("active") ?? false, id);
+  await page.screenshot({ path: "tools/.browser-check-weather-touch.png" });
+
+  // A change made anywhere else (a key, `window.__forge`, the weather drifting) must reach the
+  // buttons too, so the panel never advertises a preset the scene is not on.
+  await page.evaluate(() => window.__forge.setWeather("rain"));
+  await settle(4);
+  if (!(await pressed("wx-rain"))) throw new Error("the panel did not follow setWeather(\"rain\") from the frame loop");
+  if (await pressed("wx-storm")) throw new Error("two preset buttons are pressed at once");
+
+  await page.click("#wx-storm");
+  await settle(4);
+  const tappedStorm = await page.evaluate(() => window.__forge.weatherState());
+  console.log(`  tap Storm: coverage=${tappedStorm?.coverage} storm=${tappedStorm?.storm}`);
+  if (!(tappedStorm.coverage > 0.9)) throw new Error(`the Storm button did not overcast the deck (coverage ${tappedStorm.coverage})`);
+  if (!(await pressed("wx-storm"))) throw new Error("the Storm button did not mark itself pressed");
+
+  // Exactly one strike per tap: with the deck clear `storm01` is 0, and the lightning scheduler
+  // stops drawing inter-arrivals while it is (`lightning.ts`), so nothing here is a coincidence.
+  await page.evaluate(() => window.__forge.setWeather("clear"));
+  await settle(4);
+  const beforeStrike = await page.evaluate(() => window.__forge.weatherState());
+  await page.click("#wx-strike");
+  const afterStrike = await page.evaluate(() => window.__forge.weatherState());
+  if (beforeStrike.storm !== 0) throw new Error(`the strike check needs a storm-free sky (storm01 ${beforeStrike.storm})`);
+  if (afterStrike.strikes !== beforeStrike.strikes + 1) {
+    throw new Error(`the Strike button registered ${afterStrike.strikes - beforeStrike.strikes} strikes, expected 1`);
+  }
+
+  await page.click("#wx-dive");
+  await settle(4);
+  const dived = await page.evaluate(() => ({ state: window.__forge.weatherState(), stats: window.__forge.stats() }));
+  if (!dived.state.underwater) throw new Error("the Dive button did not flood the camera");
+  if (dived.stats.renderPasses.includes("forge.sky")) throw new Error("the sky pass still ran after the Dive button (graph did not re-plan)");
+  if (!(await pressed("wx-dive"))) throw new Error("the Dive button did not mark itself pressed");
+  await page.click("#wx-dive");
+  await settle(4);
+  const drained = await page.evaluate(() => window.__forge.weatherState());
+  if (drained.underwater) throw new Error("the second Dive tap did not drain the lake");
+
+  const clockBefore = await page.evaluate(() => window.__forge.environmentState().time);
+  await page.click("#wx-time-fwd");
+  const clockAfter = await page.evaluate(() => window.__forge.environmentState().time);
+  console.log(`  tap +1h: ${clockBefore.toFixed(2)}h -> ${clockAfter.toFixed(2)}h`);
+  if (!(clockAfter >= clockBefore + 0.9)) throw new Error(`the +1h button did not scrub the clock (${clockBefore} -> ${clockAfter})`);
+
+  // Pause is bracketed against this machine's own clock drift, measured first: the fixed clock is
+  // catch-up limited, and SwiftShader presents a heavy weather frame a few times a second, so the
+  // day runs far slower here than the demo's 60x wall-clock rate. What must hold is not a rate but
+  // the order — frozen while paused, moving again after the second tap.
+  const sampleClock = () => page.evaluate(() => ({ time: window.__forge.environmentState().time, frame: window.__forge.stats().frame }));
+  // Count frames from *now*: the counter is sampled after any click, so a wait cannot be satisfied by
+  // frames that were already in flight when the button was pressed.
+  const waitFrames = async (count) => {
+    const from = (await sampleClock()).frame;
+    await page.waitForFunction((f) => window.__forge.stats().frame >= f, from + count, { polling: 250, timeout: 60000 });
+  };
+
+  const driftStart = await sampleClock();
+  await waitFrames(2); // two presented frames: a drift sample, not a wall-clock guess
+  const driftEnd = await sampleClock();
+  const drift = driftEnd.time - driftStart.time;
+  console.log(`  clock drift: ${drift.toFixed(5)}h over ${driftEnd.frame - driftStart.frame} frames`);
+
+  await page.click("#wx-pause");
+  const frozenStart = await sampleClock();
+  await waitFrames(2); // same two frames the drift sample used, so the two are comparable
+  const frozenEnd = await sampleClock();
+  if (!(await pressed("wx-pause"))) throw new Error("the Pause button did not mark itself pressed");
+  if (!(frozenEnd.time - frozenStart.time <= Math.max(1e-4, drift * 0.2))) {
+    throw new Error(`the clock kept running while Pause was on (${frozenStart.time} -> ${frozenEnd.time})`);
+  }
+
+  await page.click("#wx-pause");
+  await waitFrames(2);
+  const resumed = await sampleClock();
+  console.log(`  pause: ${frozenStart.time.toFixed(4)}h frozen over ${frozenEnd.frame - frozenStart.frame} frames (drift was ${drift.toFixed(5)}h), resumed to ${resumed.time.toFixed(4)}h`);
+  if (!(resumed.time > frozenEnd.time)) throw new Error(`the clock did not resume (${frozenEnd.time} -> ${resumed.time})`);
+  if (await pressed("wx-pause")) throw new Error("the Pause button stayed pressed after resuming");
+
+  // A desktop-width window keeps the keyboard: the panel must be gone (or it eats the view).
+  await page.setViewportSize({ width: 900, height: 520 });
+  await settle(4);
+  const desktopPanel = await page.evaluate(() => getComputedStyle(document.getElementById("weather-touch")).display);
+  if (desktopPanel !== "none") throw new Error(`the weather touch panel is still shown at desktop width (display ${desktopPanel})`);
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;
