@@ -190,6 +190,55 @@ export const DebugVertexStruct = new StructDef("DebugVertex", [
   { name: "color", type: u32 },
 ]);
 
+/**
+ * The cloud deck (`environment/clouds.ts`), bound as group 0 binding 2 of the `forge.sky` pass.
+ * Art parameters come from `scene.settings.clouds`; the lighting (`sunTint`, `ambientTint`) is
+ * derived per frame from the 8a atmosphere by `SkyLightingCache`, so the deck tracks the
+ * day/night cycle. The shader advects the coverage field by `wind × perFrame.time`.
+ */
+export const CloudUniforms = new StructDef("CloudUniforms", [
+  { name: "coverage", type: f32 },
+  { name: "density", type: f32 },
+  { name: "height", type: f32, comment: "deck altitude above sea level, metres" },
+  { name: "thickness", type: f32, comment: "reserved (vertical extent for a future volumetric pass)" },
+  { name: "scale", type: f32, comment: "world metres per noise unit" },
+  { name: "silverLining", type: f32 },
+  { name: "seed", type: f32 },
+  { name: "enabled", type: f32, comment: "0 disables the layer (the shader early-outs)" },
+  { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
+  { name: "_pad0", type: f32 },
+  { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
+  { name: "_pad1", type: f32 },
+  { name: "cloudAlbedo", type: vec3 },
+  { name: "_pad2", type: f32 },
+  { name: "wind", type: vec2, comment: "mean wind m/s (+x east, +y north→+z); advects the deck" },
+  { name: "_pad3", type: vec2 },
+]);
+
+/**
+ * The water surface (`environment/water.ts`), bound as group 2 of the `water` technique (which
+ * reuses the frame + draw groups of the standard program). The four waves are the scene's
+ * `water.waves` with `k = 2π/λ` and `Q = steepness/(k·A·4)` precomputed, so the vertex shader
+ * evaluates exactly the `sampleGerstner` sum. `skyTint` is the atmosphere's horizon colour — the
+ * reflection/refraction approximation samples it, not the scene.
+ */
+export const WaterUniforms = new StructDef("WaterUniforms", [
+  { name: "wavesA", type: arrayOf(vec4, 4), comment: "(dirX, dirZ, k, speed) × 4" },
+  { name: "wavesB", type: arrayOf(vec4, 4), comment: "(amplitude, q, phase, 0) × 4" },
+  { name: "deepColor", type: vec3 },
+  { name: "time", type: f32, comment: "simulated water time, seconds" },
+  { name: "shallowColor", type: vec3 },
+  { name: "opacity", type: f32 },
+  { name: "foamColor", type: vec3 },
+  { name: "foamThreshold", type: f32 },
+  { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
+  { name: "sunGlint", type: f32 },
+  { name: "skyTint", type: vec3, comment: "horizon colour the surface reflects (linear RGB)" },
+  { name: "_pad0", type: f32 },
+  { name: "sunDirection", type: vec3, comment: "unit vector toward the sun, render axes" },
+  { name: "_pad1", type: f32 },
+]);
+
 export const RENDERING_STRUCTS = {
   PerFrameUniforms,
   LightBlock,
@@ -202,6 +251,8 @@ export const RENDERING_STRUCTS = {
   DebugVertexStruct,
   PostUniforms,
   SkyUniforms,
+  CloudUniforms,
+  WaterUniforms,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;

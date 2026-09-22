@@ -105,12 +105,84 @@ export interface SceneSkySettings {
   atmosphere: AtmosphereParams | null;
 }
 
+/**
+ * One procedural cloud deck, drawn inside the `forge.sky` pass (Phase 8b). The density field is a
+ * pure function of world XZ (`environment/clouds.ts`); the lighting (sun/ambient/horizon tints)
+ * is derived per frame from the 8a atmosphere by the renderer, so clouds track the day/night
+ * cycle with no extra wiring. `WeatherSystem` writes `coverage` when its `driveClouds` is on.
+ */
+export interface SceneCloudSettings {
+  /** Master switch (when false the shader early-outs and the lighting cache is not evaluated). */
+  enabled: boolean;
+  /** Fraction of the sky covered, 0..1 (0 = clear). */
+  coverage: number;
+  /** Vertical optical thickness 0..1 (thin cirrus → thunderhead). */
+  density: number;
+  /** Deck altitude above sea level, metres. */
+  height: number;
+  /** World metres per noise unit (smaller = larger clouds). */
+  scale: number;
+  /** Deterministic seed of the coverage field. */
+  seed: number;
+  /** Forward-scattering (silver lining) strength around the sun, 0..2. */
+  silverLining: number;
+  /** Mean wind advecting the deck, m/s (+x east, +z north); written by `WeatherSystem`. */
+  windX: number;
+  windZ: number;
+  /** Cloud albedo (linear RGB). */
+  albedo: Color;
+}
+
+/** One Gerstner component of the water surface (see `environment/water.ts`). */
+export interface WaterWaveParams {
+  directionX: number;
+  directionZ: number;
+  wavelength: number;
+  amplitude: number;
+  speed: number;
+  steepness: number;
+  phase: number;
+}
+
+/**
+ * The water surface (Phase 8b). `WaterSurface` owns the mesh and advances `time`; the renderer
+ * reads this block for the water program's uniforms and for the underwater path (camera below
+ * `level` skips the sky pass and swaps the fog for the murk).
+ */
+export interface SceneWaterSettings {
+  /** Master switch (set by `WaterSurface` on attach; without it there is no water mesh). */
+  enabled: boolean;
+  /** Mean water level in render-local Y. */
+  level: number;
+  /** Edge length of the water plane in metres (informational for tools; the mesh owns it). */
+  size: number;
+  /** Simulated water time in seconds (advanced on the fixed-step clock). */
+  time: number;
+  /** Deep/shallow/foam/murk colours (linear RGB). */
+  deepColor: Color;
+  shallowColor: Color;
+  foamColor: Color;
+  murkColor: Color;
+  /** Fog density applied while the camera is underwater. */
+  murkDensity: number;
+  /** Surface opacity 0..1. */
+  opacity: number;
+  /** Sun-glint strength multiplier. */
+  sunGlint: number;
+  /** Crest value where whitecap foam starts (0..1). */
+  foamThreshold: number;
+  /** Gerstner components (up to 4 reach the shader; amplitude 0 disables). */
+  waves: WaterWaveParams[];
+}
+
 export interface SceneSettings {
   ambientColor: Color;
   ambientIntensity: number;
   fog: SceneFogSettings;
   shadow: SceneShadowSettings;
   sky: SceneSkySettings;
+  clouds: SceneCloudSettings;
+  water: SceneWaterSettings;
   exposure: number;
   toneMapping: ToneMapping;
   /** Background: solid colour when `skyEnabled` is false. */
@@ -155,6 +227,8 @@ export function defaultSceneSettings(): SceneSettings {
     },
     shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, adaptive: true, splitLambda: 0.6, debugCascades: false },
     sky: defaultSkySettings(),
+    clouds: defaultCloudSettings(),
+    water: defaultWaterSettings(),
     exposure: 1,
     toneMapping: "aces",
     backgroundColor: new Color(0.02, 0.03, 0.05),
@@ -184,6 +258,50 @@ export function defaultSkySettings(): SceneSkySettings {
     seaLevel: 0,
     quality: "medium",
     atmosphere: null,
+  };
+}
+
+/** A clear sky: the deck is enabled but covers nothing, so existing scenes render unchanged. */
+export function defaultCloudSettings(): SceneCloudSettings {
+  return {
+    enabled: true,
+    coverage: 0,
+    density: 0.8,
+    height: 1500,
+    scale: 0.0008,
+    seed: 4242,
+    silverLining: 0.8,
+    windX: 2,
+    windZ: 1,
+    albedo: new Color(1, 1, 1),
+  };
+}
+
+export function defaultWaterWave(): WaterWaveParams {
+  return { directionX: 1, directionZ: 0.3, wavelength: 28, amplitude: 0.22, speed: 3.2, steepness: 0.35, phase: 0 };
+}
+
+/** Still, switched-off water: a gentle two-wave swell that `WaterSurface` enables on attach. */
+export function defaultWaterSettings(): SceneWaterSettings {
+  return {
+    enabled: false,
+    level: 0,
+    size: 500,
+    time: 0,
+    deepColor: new Color(0.015, 0.09, 0.13),
+    shallowColor: new Color(0.06, 0.28, 0.3),
+    foamColor: new Color(0.9, 0.95, 0.95),
+    murkColor: new Color(0.02, 0.12, 0.14),
+    murkDensity: 0.08,
+    opacity: 0.92,
+    sunGlint: 1,
+    foamThreshold: 0.72,
+    waves: [
+      { directionX: 1, directionZ: 0.3, wavelength: 28, amplitude: 0.22, speed: 3.2, steepness: 0.35, phase: 0 },
+      { directionX: 0.7, directionZ: -0.7, wavelength: 13, amplitude: 0.1, speed: 2.4, steepness: 0.3, phase: 1.7 },
+      { directionX: 0.2, directionZ: 1, wavelength: 6, amplitude: 0.045, speed: 1.8, steepness: 0.25, phase: 4.1 },
+      { directionX: -0.5, directionZ: 0.8, wavelength: 2.8, amplitude: 0.02, speed: 1.3, steepness: 0.2, phase: 2.3 },
+    ],
   };
 }
 
@@ -404,6 +522,30 @@ export class Scene {
   setShadowSettings(options: Partial<SceneShadowSettings>): this {
     Object.assign(this.settings.shadow, options);
     this.onSettingsChanged("shadow");
+    return this;
+  }
+
+  /** Adjust the cloud deck (`coverage` 0 = clear sky; the deck renders inside `forge.sky`). */
+  setClouds(options: Partial<SceneCloudSettings> = {}): this {
+    const clouds = this.settings.clouds;
+    const { albedo, ...rest } = options;
+    Object.assign(clouds, rest);
+    if (albedo !== undefined) clouds.albedo.copyFrom(albedo);
+    this.onSettingsChanged("clouds");
+    return this;
+  }
+
+  /** Adjust the water surface (colours are copied; `waves` is replaced as a whole). */
+  setWater(options: Partial<SceneWaterSettings> = {}): this {
+    const water = this.settings.water;
+    const { deepColor, shallowColor, foamColor, murkColor, waves, ...rest } = options;
+    Object.assign(water, rest);
+    if (deepColor !== undefined) water.deepColor.copyFrom(deepColor);
+    if (shallowColor !== undefined) water.shallowColor.copyFrom(shallowColor);
+    if (foamColor !== undefined) water.foamColor.copyFrom(foamColor);
+    if (murkColor !== undefined) water.murkColor.copyFrom(murkColor);
+    if (waves !== undefined) water.waves = waves.map((w) => ({ ...w }));
+    this.onSettingsChanged("water");
     return this;
   }
 
@@ -695,6 +837,18 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
       sunDirection: s.sky.sunDirection ? [s.sky.sunDirection.x, s.sky.sunDirection.y, s.sky.sunDirection.z] : null,
       atmosphere: s.sky.atmosphere ? { ...s.sky.atmosphere } : null,
     },
+    clouds: {
+      ...s.clouds,
+      albedo: [s.clouds.albedo.r, s.clouds.albedo.g, s.clouds.albedo.b],
+    },
+    water: {
+      ...s.water,
+      deepColor: [s.water.deepColor.r, s.water.deepColor.g, s.water.deepColor.b],
+      shallowColor: [s.water.shallowColor.r, s.water.shallowColor.g, s.water.shallowColor.b],
+      foamColor: [s.water.foamColor.r, s.water.foamColor.g, s.water.foamColor.b],
+      murkColor: [s.water.murkColor.r, s.water.murkColor.g, s.water.murkColor.b],
+      waves: s.water.waves.map((w) => ({ ...w })),
+    },
   };
 }
 
@@ -761,6 +915,52 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.bloom.softKnee = num(bloom["softKnee"], target.bloom.softKnee);
     target.bloom.intensity = num(bloom["intensity"], target.bloom.intensity);
     target.bloom.radius = num(bloom["radius"], target.bloom.radius);
+  }
+  const clouds = data["clouds"] as Record<string, unknown> | undefined;
+  if (clouds) {
+    const t = target.clouds;
+    if (typeof clouds["enabled"] === "boolean") t.enabled = clouds["enabled"];
+    t.coverage = num(clouds["coverage"], t.coverage);
+    t.density = num(clouds["density"], t.density);
+    t.height = num(clouds["height"], t.height);
+    t.scale = num(clouds["scale"], t.scale);
+    t.seed = num(clouds["seed"], t.seed);
+    t.silverLining = num(clouds["silverLining"], t.silverLining);
+    t.windX = num(clouds["windX"], t.windX);
+    t.windZ = num(clouds["windZ"], t.windZ);
+    const albedo = vec(clouds["albedo"]);
+    if (albedo) t.albedo.set(albedo[0]!, albedo[1]!, albedo[2]!);
+  }
+  const water = data["water"] as Record<string, unknown> | undefined;
+  if (water) {
+    const t = target.water;
+    if (typeof water["enabled"] === "boolean") t.enabled = water["enabled"];
+    t.level = num(water["level"], t.level);
+    t.size = num(water["size"], t.size);
+    t.time = num(water["time"], t.time);
+    const deep = vec(water["deepColor"]);
+    if (deep) t.deepColor.set(deep[0]!, deep[1]!, deep[2]!);
+    const shallow = vec(water["shallowColor"]);
+    if (shallow) t.shallowColor.set(shallow[0]!, shallow[1]!, shallow[2]!);
+    const foam = vec(water["foamColor"]);
+    if (foam) t.foamColor.set(foam[0]!, foam[1]!, foam[2]!);
+    const murk = vec(water["murkColor"]);
+    if (murk) t.murkColor.set(murk[0]!, murk[1]!, murk[2]!);
+    t.murkDensity = num(water["murkDensity"], t.murkDensity);
+    t.opacity = num(water["opacity"], t.opacity);
+    t.sunGlint = num(water["sunGlint"], t.sunGlint);
+    t.foamThreshold = num(water["foamThreshold"], t.foamThreshold);
+    if (Array.isArray(water["waves"])) {
+      t.waves = (water["waves"] as Record<string, unknown>[]).map((w) => ({
+        directionX: num(w["directionX"], 1),
+        directionZ: num(w["directionZ"], 0),
+        wavelength: num(w["wavelength"], 10),
+        amplitude: num(w["amplitude"], 0),
+        speed: num(w["speed"], 1),
+        steepness: num(w["steepness"], 0),
+        phase: num(w["phase"], 0),
+      }));
+    }
   }
   changed("exposure");
 }

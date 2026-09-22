@@ -19,7 +19,7 @@ describe("PipelineFactory cache", () => {
     const a = factory.get(base);
     const b = factory.get({ ...base });
     expect(b).toBe(a);
-    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 7 });
+    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 8 });
     expect(factory.keyOf(base)).toBe(a.key);
     factory.invalidate();
     await device.dispose();

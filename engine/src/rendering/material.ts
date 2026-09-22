@@ -20,7 +20,7 @@ import { Vec2 } from "../math/vec.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { Texture } from "../resources/texture.js";
 
-export type MaterialTechnique = "standard" | "unlit" | "emissive" | "debug-line" | "blit";
+export type MaterialTechnique = "standard" | "unlit" | "emissive" | "debug-line" | "blit" | "water";
 
 export interface MaterialOptions {
   label?: string;
