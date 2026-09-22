@@ -5,11 +5,15 @@
  * Runs the Phase 3 100k-entity benchmarks and prints throughput / timing stats.
  */
 import { runEcsBenchmark } from "./src/ecs.bench.ts";
+import { runParticleBenchmark } from "./src/particles.bench.ts";
 
 console.log("=== Forge Engine Benchmarks ===");
 console.log("Running ECS 100k-entity benchmark...");
 
 const results = runEcsBenchmark(100_000);
+console.log("Running 100k-particle integrator benchmark...");
+const particles = runParticleBenchmark(100_000, 30);
+results.push(...particles.results);
 
 console.log("\nBenchmark Results:");
 console.log("--------------------------------------------------------------------------------");
@@ -24,4 +28,16 @@ for (const res of results) {
   );
 }
 console.log("--------------------------------------------------------------------------------");
-console.log("ECS benchmarks passed successfully.\n");
+console.log(
+  `particle analytic error ${particles.analyticError.toExponential(2)}  alive ${particles.alive}`,
+);
+const integrate = particles.results[1];
+if (!integrate || integrate.durationMs >= 1000) {
+  console.error(`100k particle integrate exceeded 1s (${integrate?.durationMs.toFixed(1) ?? "missing"} ms)`);
+  process.exit(1);
+}
+if (!(particles.analyticError < 1e-3) || particles.alive !== 100_000) {
+  console.error("100k particle benchmark diverged from the analytic gravity curve");
+  process.exit(1);
+}
+console.log("ECS and particle benchmarks passed successfully.\n");

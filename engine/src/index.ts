@@ -123,6 +123,10 @@ export * from "./terrain/index.js";
 // Physics
 export * from "./physics/index.js";
 
+// Vehicles (phase 6) and particles (phase 7). Imported here so their components register once.
+export * from "./vehicles/index.js";
+export * from "./particles/index.js";
+
 // Rendering
 export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
 export {

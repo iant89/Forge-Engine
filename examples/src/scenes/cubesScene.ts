@@ -26,6 +26,14 @@ export interface DemoSceneHandle {
    * (terrain) the surface it must stay above. Scenes that leave it out keep the controller defaults.
    */
   camera?: OrbitCameraSetup;
+  /** Replaces the bottom control hint while this scene is active. */
+  controlsHint?: string;
+  /** Extra HUD lines under the engine stats. */
+  overlay?: () => string;
+  /** World point the orbit target should track each frame (the vehicle playground follows the chassis). */
+  followTarget?: () => { x: number; y: number; z: number };
+  vehicleState?: () => { speed: number; rpm: number; gear: number; x: number; y: number; z: number };
+  particleState?: () => { alive: number; capacity: number; emitted: number };
 }
 
 export function buildCubesScene(engine: Engine): DemoSceneHandle {

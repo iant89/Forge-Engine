@@ -51,8 +51,36 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **Resource cache eviction is untested.** Texture/mesh registries compile; LRU behaviour under
   memory pressure is not covered.
 
+## Vehicles (Phase 6)
+
+* **Ground contact is a height query, not the physics world.** The car does not collide with meshes,
+  props, terrain triangles, or Phase 5 rigid bodies. `docs/VEHICLES.md`.
+* **Pitch and roll are kinematic.** They are rewritten from the axle heights each substep. A kink in
+  the heightfield snaps the pose; it does not conserve angular momentum.
+* **Longitudinal slip is solved, not freely integrated, while the tire can balance the demand.**
+  Past the peak, and only when TC/ABS are not clamping, the residual torque spins the wheel. Do not
+  expect a stable explicit-Euler wheel at 120 Hz — that path limit-cycles, which is why it was removed.
+* **Wheel visuals are boxes.** Spin is an euler on that box. No tyre mesh, no steered geometry beyond
+  the yaw, no suspension-arm skinning.
+* **Reverse is a ratio, not a control.** Set `transmission.gear = -1`. The automatic only shifts
+  forward gears, and the playground has no reverse key.
+
+## Particles (Phase 7)
+
+* **The compute shader integrates. It does not emit, shade modules, or write trails.** Emission,
+  colour, size, and trails are CPU. There is no particle pass in the render graph (`ARCHITECTURE.md`
+  already lists that pass as not built).
+* **The demo draws a few hundred boxes, not the buffer.** Per-particle colour is stored and not
+  applied to the shared material. Trails are recorded and not drawn. The 100k figure is an integrator
+  benchmark (`npm run bench`), not a frame of sprites.
+* **`ParticleSystem` is variable-rate.** One step per frame, not per physics substep. A fountain will
+  not match across frame rates the way the vehicle will. The analytic check passes an explicit `dt`.
+* **One owner per simulation.** `ParticleWorld` and `ParticleSystem` both call `step`. Attaching both
+  to the same sim double-integrates. The particle scene uses `ParticleWorld` only.
+
 ## Documentation debt
 
-`ARCHITECTURE.md` and `ROADMAP.md` describe the target design and refer to documents that do not
-exist yet (`PERFORMANCE.md`, `ASSETS.md`, ADRs). Sections marked "As built" in `ARCHITECTURE.md` and
-`docs/RENDERING.md` describe what is real today.
+`ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet
+(`PERFORMANCE.md`, `ASSETS.md`, ADRs). Sections marked "As built" in `ARCHITECTURE.md` and
+`docs/RENDERING.md` describe what is real today. `ROADMAP.md` marks phases 8–14 as not started;
+an earlier revision had marked them done without the code.
