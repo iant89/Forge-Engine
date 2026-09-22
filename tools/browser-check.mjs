@@ -108,6 +108,10 @@ try {
   browser = await chromium.launch({
     // `executablePath` and `channel` are mutually exclusive; when we have our own binary, use it.
     ...(spartan ? { executablePath: spartan } : { channel: "chromium" }),
+    // Playwright also passes `--headless`, which on Chromium 131 selects the *old* headless mode.
+    // Whether the last duplicate wins is not something to bet the gate on, so drop it and pass the
+    // new mode ourselves.
+    ignoreDefaultArgs: ["--headless"],
     ...useEnv,
     args: [
       "--no-sandbox",
@@ -185,29 +189,71 @@ const samplePixels = () =>
   );
 
 /**
- * One line that tells the next reader whether a failure here is the engine's or the browser's. The
- * "`navigator.gpu` exists but `requestAdapter()` is null" case is the signature of a headless-shell
- * launch or a missing SwiftShader, and it has cost someone an afternoon before.
+ * Ask the *browser* whether a WebGPU adapter exists at all, independently of the engine. This is the
+ * question that tells the two failure modes apart: "`navigator.gpu` exists but `requestAdapter()`
+ * returns null" is the signature of a headless-shell launch or a missing SwiftShader (a browser
+ * choice), while an engine that fails its own adapter request on a machine where this probe succeeds
+ * is a product bug and must fail the gate. Either way the text goes into the log.
  */
-const describeGpu = () =>
+const probeGpu = () =>
   page
     .evaluate(async () => {
-      if (!navigator.gpu) return "gpu: navigator.gpu is undefined (this browser has no WebGPU at all)";
+      if (!navigator.gpu) return { ok: false, text: "gpu: navigator.gpu is undefined (this browser has no WebGPU at all)" };
       const adapter = await navigator.gpu.requestAdapter().catch(() => null);
       if (!adapter) {
-        return "gpu: navigator.gpu exists but requestAdapter() returned null (headless shell, or SwiftShader not enabled)";
+        return {
+          ok: false,
+          text: "gpu: navigator.gpu exists but requestAdapter() returned null (the headless shell, or SwiftShader is not enabled)",
+        };
       }
       const info = adapter.info ?? {};
-      return `gpu: adapter ok (${info.vendor ?? "?"} / ${info.architecture ?? "?"}${info.description ? ` — ${info.description}` : ""})`;
+      return {
+        ok: true,
+        text: `gpu: adapter ok (${info.vendor ?? "?"} / ${info.architecture ?? "?"}${info.description ? ` — ${info.description}` : ""})`,
+      };
     })
-    .catch((error) => `gpu: probe failed (${String(error).split("\n")[0]})`);
+    .catch((error) => ({ ok: false, text: `gpu: probe failed (${String(error).split("\n")[0]})` }));
+
+const describeGpu = async () => (await probeGpu()).text;
+
+/** Stop the run the way the "cannot run here" path does: report, tear the harness down, exit 2. */
+async function notRun(headline, lines) {
+  console.error(`check:browser NOT RUN — ${headline}\n${lines.map((l) => `  ${l}`).join("\n")}`);
+  await browser.close();
+  vite.kill("SIGKILL");
+  process.exit(2);
+}
+
+const GPU_HINT =
+  'the gate needs the full Chromium build (channel: "chromium") launched with --headless=new ' +
+  "--enable-unsafe-webgpu --enable-unsafe-swiftshader --enable-features=Vulkan.";
 
 let exitCode = 0;
 try {
   await page.goto(URL, { waitUntil: "load", timeout: 60000 });
-  await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
-  const boot = await page.evaluate(() => window.__forgeError ?? null);
-  if (boot) throw new Error(`engine failed to start:\n${boot}\n${await describeGpu()}`);
+  let boot;
+  try {
+    await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
+    boot = await page.evaluate(() => window.__forgeError ?? null);
+  } catch (waitError) {
+    boot = `the demo never signalled a boot result (${String(waitError.message).split("\n")[0]})`;
+  }
+
+  // Ask the browser, not the engine, whether WebGPU exists at all. A missing adapter is a browser
+  // choice (headless shell, no SwiftShader) and the gate can prove nothing about rendering without
+  // one, so it reports "did not run" (exit 2). An engine that fails its own adapter request on a
+  // machine where this probe succeeds is a product bug and falls through to the normal failure path.
+  const gpu = await probeGpu();
+  if (boot !== null && !gpu.ok) {
+    await notRun("the demo did not start and this browser cannot present WebGPU, so the failure cannot be attributed to the engine.", [
+      `the engine said: ${boot.split("\n")[0]}`,
+      gpu.text,
+      GPU_HINT,
+    ]);
+  }
+  console.log(gpu.text);
+  if (boot) throw new Error(`engine failed to start:\n${boot}`);
+  if (!gpu.ok) await notRun("this browser cannot present WebGPU.", [gpu.text, GPU_HINT]);
 
   const backend = await page.evaluate(() => window.__forge.backend);
   if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);

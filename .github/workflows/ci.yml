@@ -94,12 +94,19 @@ jobs:
       - name: Real-WebGPU gate (SwiftShader)
         run: |
           set +e
-          npm run check:browser
-          CODE=$?
+          npm run check:browser 2>&1 | tee "$RUNNER_TEMP/browser-gate.log"
+          CODE=${PIPESTATUS[0]}
           set -e
+          # The log artifact host is not reachable from every environment (the sandbox this workflow was
+          # written in could not download job logs at all), so the verdict has to be readable from the
+          # check page: re-emit the tail as an annotation with the newlines escaped.
+          SUMMARY=$(tail -c 900 "$RUNNER_TEMP/browser-gate.log" | sed -e "s/%/%25/g" -e "s/\r/%0D/g" | awk '{printf "%s%0A", $0}')
           if [ "$CODE" -eq 2 ]; then
-            echo "::warning title=Browser gate did not run::The gate found no launchable WebGPU browser, so this job proves nothing about rendering. Run npm run check:browser on a machine with one."
+            echo "::warning title=Browser gate did not run::The gate found no launchable WebGPU browser, so this job proves nothing about rendering.${SUMMARY}"
             exit 0
+          fi
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error title=Browser gate failed::${SUMMARY}"
           fi
           exit "$CODE"
 
