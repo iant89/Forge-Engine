@@ -10,6 +10,9 @@
  *   fog is a Phase 8 feature and nothing hides the loaded disc's edge yet, see KNOWN-ISSUES).
  * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
+ * - A full PBR texture set (albedo + tangent-space normal + metallic-roughness) tiled over the
+ *   chunks — iron-oxide regolith with basalt patches and pebble grain, generated procedurally so
+ *   the demo needs no external assets (`createMarsRegolithTextures`).
  *
  * `scene.setFog` is authored below for the eventual haze pass, but no shipped shader samples the fog
  * uniforms yet (Phase 8); the terrain is drawn with no atmospheric falloff.
@@ -24,9 +27,14 @@ import {
   Vec3,
   TerrainWorld,
 } from "@forge/engine";
+import {
+  createMarsRegolithTextures,
+  disposePbrTextureSet,
+  type PbrTextureSet,
+} from "../textures/procedural.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 
-export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
+export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   const scene = new Scene({ name: "terrain-demo" });
   scene.setBackgroundColor(Color.fromSrgbHex(0x1a0f0d));
 
@@ -49,12 +57,27 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
   scene.settings.shadow.distance = 250;
   scene.settings.shadow.splitLambda = 0.7;
 
-  // Terrain material: Martian basalt & iron oxide regolith
+  // Terrain material: Martian basalt & iron oxide regolith. With a GPU available the maps carry
+  // the surface detail and the factors are left at neutral (white tint, roughness = 1 so the MR
+  // map is absolute); without one (unit tests build this scene against a null engine) the flat
+  // colour stands in for the albedo.
+  const gpu = engine?.gpu ?? null;
+  let marsMaps: PbrTextureSet | null = null;
+  if (gpu) {
+    marsMaps = createMarsRegolithTextures(gpu, 512);
+  }
   const terrainMat = new Material({
     label: "mars-regolith",
-    color: Color.fromSrgbHex(0x9c482b),
-    roughness: 0.88,
+    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0x9c482b),
+    roughness: marsMaps ? 1.0 : 0.88,
     metallic: 0.04,
+    // 16 tiles × 128 m chunk = one 8 m repeat; integer tiling keeps chunk borders seamless
+    // under the material's repeat sampler.
+    tiling: marsMaps ? [16, 16] : undefined,
+    albedoMap: marsMaps?.albedo ?? null,
+    normalMap: marsMaps?.normal ?? null,
+    metallicRoughnessMap: marsMaps?.metallicRoughness ?? null,
+    normalScale: 1.0,
   });
 
   // Streaming budget: 128 m chunks at 33x33 (4 m cells) cost ~7 ms each to generate on a desktop
@@ -133,6 +156,7 @@ export function buildTerrainScene(_engine: Engine): DemoSceneHandle {
     dispose: () => {
       terrainMat.dispose();
       terrain.dispose();
+      disposePbrTextureSet(marsMaps);
     },
   };
 }

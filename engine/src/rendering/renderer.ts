@@ -1053,7 +1053,10 @@ export class Renderer implements RenderFrameContext {
       white: this.defaults.white,
       normal: this.defaults.normal,
       mr: this.defaults.mr,
-      sampler: this.device.sampler("linear-clamp"),
+      // Repeat (not clamp): materials address their maps as `uv * tiling + offset`, and terrain
+      // (and any tiled surface) relies on integer tilings wrapping seamlessly at uv = 1. A clamp
+      // sampler would smear the texture's last texel across every tile past the first.
+      sampler: this.device.sampler("linear-repeat"),
     });
     const upload = material.takePendingUpload();
     if (upload) this.device.device.queue.writeBuffer(upload.buffer, 0, gpuSource(upload.bytes));

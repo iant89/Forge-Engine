@@ -128,6 +128,9 @@ export class Material {
     if ("albedo" in maps) this.albedoMap = maps.albedo ?? null;
     if ("normal" in maps) this.normalMap = maps.normal ?? null;
     if ("metallicRoughness" in maps) this.metallicRoughnessMap = maps.metallicRoughness ?? null;
+    // The bind group holds the previous texture views; drop it so `ensureGpu` rebuilds with the
+    // new maps (and the new pipeline flags land on the next draw).
+    this.bindGroup = null;
     return this.markChanged();
   }
 
