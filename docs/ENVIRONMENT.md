@@ -281,3 +281,13 @@ level rises over the eye — the orbit controller owns the camera, the scene own
 `[`/`]`/`T` drive the clock. `window.__forge` exposes `setWeather`, `setCoverage` (pins the deck
 without touching the weather, for the night A/B), `triggerLightning`, `setUnderwater` and
 `weatherState` for the gate.
+
+A phone has no keyboard, so the same five actions also exist as buttons along the bottom of the
+page: the four presets, `Strike`, `Dive`, `-1h`, `+1h`, `Pause`. `examples/src/controls/weatherTouch.ts`
+binds the panel in `examples/index.html` to the very callbacks the keys call — one action per path,
+two inputs — fires them on `click` (a touch tap's `pointerdown` + `pointerup` + `click` must not run
+a toggle twice), holds the clock buttons (repeat after 400 ms, ~10 h/s) and paints the pressed
+preset/toggles from the scene's own state, immediately on a press and every frame after. CSS decides
+whether it is visible: `body.scene-weather` plus a coarse pointer or a viewport ≤ 820 px, the same
+rule as the vehicle pad, so a desktop mouse keeps the keys and the whole view. `npm run check:browser`
+drives the panel at a phone-width viewport (see `docs/VERIFICATION.md`).

@@ -5,8 +5,11 @@
  * runs the sun so the deck and the water track noon → dusk.
  *
  * Keys: `1..4` snap clear/overcast/rain/storm, `L` calls a strike, `U` raises the lake over the
- * camera (the underwater path), `[` / `]` scrub the clock, `T` pauses it. The `window.__forge`
- * hooks (`setWeather`, `triggerLightning`, `setUnderwater`, `weatherState`) do the same for the gate.
+ * camera (the underwater path), `[` / `]` scrub the clock, `T` pauses it. On a touch device (or a
+ * phone-sized viewport) the same actions are buttons along the bottom of the page: the panel in
+ * `examples/index.html` is bound by `controls/weatherTouch.ts` to the very callbacks the keys call.
+ * The `window.__forge` hooks (`setWeather`, `triggerLightning`, `setUnderwater`, `weatherState`) do
+ * the same for the gate.
  */
 
 import {
@@ -30,6 +33,7 @@ import {
   createSphere,
   waterGridSource,
 } from "@forge/engine";
+import { attachWeatherTouch } from "../controls/weatherTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 
 export interface WeatherSceneHandle extends DemoSceneHandle {
@@ -46,6 +50,9 @@ export interface WeatherSceneHandle extends DemoSceneHandle {
 }
 
 const PRESETS: WeatherPresetName[] = ["clear", "overcast", "rain", "storm"];
+
+/** 1 real second = 1 simulated minute, and the rate `T` restores when the clock resumes. */
+const TIME_SCALE = 60;
 
 export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   const scene = new Scene({ name: "weather" });
@@ -120,7 +127,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     latitude: 47,
     dayOfYear: 172,
     timeOfDay: 11,
-    timeScale: 60,
+    timeScale: TIME_SCALE,
     sun,
     sunIntensity: 4.2,
     ambientScale: 0.6,
@@ -152,31 +159,65 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   const lightning = new LightningSystem({ name: "lightning", weatherName: "weather", rate: 0.5, areaRadius: 300, cloudHeight: 1200 });
   scene.add(lightning);
 
-  const setWeather = (preset: WeatherPresetName): void => {
+  // One action per shortcut, shared by the keyboard and the touch panel below. `preset` tracks the
+  // last requested one (the weather itself only knows where it is drifting), so the panel can mark
+  // the pressed button without waiting for the drift to arrive.
+  let preset: WeatherPresetName = "overcast";
+  const setWeather = (name: WeatherPresetName): void => {
+    preset = name;
     weather.driveClouds = true;
-    weather.snapTo(preset);
-    weather.setTarget(preset);
+    weather.snapTo(name);
+    weather.setTarget(name);
   };
   const setCoverage = (coverage: number): void => {
     // The weather would overwrite the coverage on its next update; hold the drive while pinned.
     weather.driveClouds = false;
     scene.setClouds({ coverage });
   };
+  const isUnderwater = (): boolean => scene.settings.water.level >= 1;
   const setUnderwater = (on: boolean): void => {
     // Flood the camera instead of moving it: the orbit controller owns the eye, but the sea
     // level is ours. 30 m submerges the 8 m camera with margin for the swell.
     scene.setWater({ level: on ? 30 : 0 });
   };
+  const toggleUnderwater = (): boolean => {
+    setUnderwater(!isUnderwater());
+    return isUnderwater();
+  };
+  const scrubHours = (hours: number): void => {
+    cycle.setTime(cycle.timeOfDay + hours).apply();
+  };
+  const togglePause = (): boolean => {
+    cycle.timeScale = cycle.timeScale === 0 ? TIME_SCALE : 0;
+    return cycle.timeScale === 0;
+  };
+
+  const panelState = (): { preset: WeatherPresetName; underwater: boolean; paused: boolean } => ({
+    preset,
+    underwater: isUnderwater(),
+    paused: cycle.timeScale === 0,
+  });
 
   const onKey = (event: KeyboardEvent): void => {
     if (event.key >= "1" && event.key <= "4") setWeather(PRESETS[Number(event.key) - 1]!);
     else if (event.key === "l" || event.key === "L") lightning.trigger();
-    else if (event.key === "u" || event.key === "U") setUnderwater(scene.settings.water.level < 1);
-    else if (event.key === "[") cycle.setTime(cycle.timeOfDay - 1).apply();
-    else if (event.key === "]") cycle.setTime(cycle.timeOfDay + 1).apply();
-    else if (event.key === "t" || event.key === "T") cycle.timeScale = cycle.timeScale === 0 ? 60 : 0;
+    else if (event.key === "u" || event.key === "U") setUnderwater(!isUnderwater());
+    else if (event.key === "[") scrubHours(-1);
+    else if (event.key === "]") scrubHours(1);
+    else if (event.key === "t" || event.key === "T") togglePause();
   };
   window.addEventListener("keydown", onKey);
+
+  // The same five actions as buttons, for the devices with no keyboard to press. Hidden by CSS on
+  // a desktop viewport (see examples/index.html); wired either way.
+  const touch = attachWeatherTouch(document.getElementById("weather-touch"), {
+    setWeather,
+    triggerLightning: () => lightning.trigger(),
+    toggleUnderwater,
+    scrubHours,
+    togglePause,
+    currentState: panelState,
+  });
 
   return {
     scene,
@@ -198,7 +239,10 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       groundHeight: () => 2,
     },
     update(): void {
-      // Weather, water, lightning and the cycle all step from the engine's fixed clock.
+      // Weather, water, lightning and the cycle all step from the engine's fixed clock. The touch
+      // panel is only painted — the keyboard and `window.__forge` change the same state without
+      // going through it — and a frame whose state did not move writes nothing.
+      touch.sync(panelState());
     },
     overlay(): string {
       const s = weather.state;
@@ -221,6 +265,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     },
     dispose(): void {
       window.removeEventListener("keydown", onKey);
+      touch.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();
       scene.dispose();

@@ -95,6 +95,8 @@
       @media (pointer: coarse), (max-width: 820px) {
         body.scene-vehicle #vehicle-touch { display: block; }
         body.scene-vehicle #controls-hint { display: none; }
+        body.scene-weather #weather-touch { display: block; }
+        body.scene-weather #controls-hint { display: none; }
         #toolbar { max-width: min(220px, 54vw); max-height: 42vh; overflow: auto; }
         #hud { max-width: calc(100vw - 230px); overflow: hidden; font-size: 10px; }
       }
@@ -170,6 +172,49 @@
       }
       button.veh-gas.pressed { background: rgb(21 128 61 / 0.92); transform: scale(0.94); }
       button.veh-brake.pressed { background: rgb(185 28 28 / 0.92); transform: scale(0.94); }
+      /* Weather touch controls. The scene's shortcuts are keys (1-4 / L / U / [ ] / T); the same
+         actions have to exist as buttons where there is no keyboard. Hidden on desktop for the same
+         reason as the vehicle pad: a mouse keeps the keys and must not lose the bottom of the view. */
+      #weather-touch {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 12;
+        pointer-events: none;
+      }
+      .wx-panel {
+        position: fixed;
+        left: max(10px, env(safe-area-inset-left));
+        right: max(10px, env(safe-area-inset-right));
+        bottom: max(10px, env(safe-area-inset-bottom));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .wx-row {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+        max-width: 460px;
+      }
+      button.wx-btn {
+        pointer-events: auto;
+        flex: 1 1 0;
+        min-height: 44px;
+        padding: 8px 4px;
+        background: rgb(5 7 10 / 0.8);
+        border: 1px solid rgb(148 163 184 / 0.35);
+        color: #e2e8f0;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        touch-action: manipulation;
+        -webkit-touch-callout: none;
+        backdrop-filter: blur(4px);
+      }
+      button.wx-btn:active { transform: scale(0.96); }
+      button.wx-btn.active { background: #2563eb; border-color: #60a5fa; color: #ffffff; }
       button {
         background: #1e293b;
         color: #e2e8f0;
@@ -267,6 +312,23 @@
       <div class="veh-face">
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
+      </div>
+    </div>
+    <div id="weather-touch">
+      <div class="wx-panel">
+        <div class="wx-row" role="group" aria-label="Weather preset">
+          <button type="button" id="wx-clear" class="wx-btn">Clear</button>
+          <button type="button" id="wx-overcast" class="wx-btn">Overcast</button>
+          <button type="button" id="wx-rain" class="wx-btn">Rain</button>
+          <button type="button" id="wx-storm" class="wx-btn">Storm</button>
+        </div>
+        <div class="wx-row" role="group" aria-label="Weather actions">
+          <button type="button" id="wx-strike" class="wx-btn">Strike</button>
+          <button type="button" id="wx-dive" class="wx-btn" aria-pressed="false">Dive</button>
+          <button type="button" id="wx-time-back" class="wx-btn" aria-label="One hour earlier">-1h</button>
+          <button type="button" id="wx-time-fwd" class="wx-btn" aria-label="One hour later">+1h</button>
+          <button type="button" id="wx-pause" class="wx-btn" aria-pressed="false">Pause</button>
+        </div>
       </div>
     </div>
     <div id="controls-hint">Drag to orbit · Right-drag or arrows to pan · Scroll to zoom</div>
