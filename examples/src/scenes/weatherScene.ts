@@ -4,12 +4,13 @@
  * Gerstner swells, and a `LightningSystem` that flashes the sky on stormy days. A `DayNightCycle`
  * runs the sun so the deck and the water track noon → dusk.
  *
- * Keys: `1..4` snap clear/overcast/rain/storm, `L` calls a strike, `U` raises the lake over the
- * camera (the underwater path), `[` / `]` scrub the clock, `T` pauses it. On a touch device (or a
- * phone-sized viewport) the same actions are buttons along the bottom of the page: the panel in
- * `examples/index.html` is bound by `controls/weatherTouch.ts` to the very callbacks the keys call.
- * The `window.__forge` hooks (`setWeather`, `triggerLightning`, `setUnderwater`, `weatherState`) do
- * the same for the gate.
+ * Controls: the buttons along the bottom of the page are the interface, shown on every device —
+ * the panel in `examples/index.html` is bound by `controls/weatherTouch.ts` to the scene's actions
+ * (presets, a strike, the flooded camera, the clock, pause). The keys stay as shortcuts on those
+ * very same callbacks: `1..4` snap clear/overcast/rain/storm, `L` calls a strike, `U` raises the
+ * lake over the camera (the underwater path), `[` / `]` scrub the clock, `T` pauses it. The
+ * `window.__forge` hooks (`setWeather`, `triggerLightning`, `setUnderwater`, `weatherState`) do the
+ * same for the gate.
  */
 
 import {
@@ -159,9 +160,9 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   const lightning = new LightningSystem({ name: "lightning", weatherName: "weather", rate: 0.5, areaRadius: 300, cloudHeight: 1200 });
   scene.add(lightning);
 
-  // One action per shortcut, shared by the keyboard and the touch panel below. `preset` tracks the
-  // last requested one (the weather itself only knows where it is drifting), so the panel can mark
-  // the pressed button without waiting for the drift to arrive.
+  // One action per shortcut, shared by the on-screen panel (the interface) and the keys (kept as
+  // shortcuts). `preset` tracks the last requested one (the weather itself only knows where it is
+  // drifting), so the panel can mark the pressed button without waiting for the drift to arrive.
   let preset: WeatherPresetName = "overcast";
   const setWeather = (name: WeatherPresetName): void => {
     preset = name;
@@ -208,8 +209,8 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   };
   window.addEventListener("keydown", onKey);
 
-  // The same five actions as buttons, for the devices with no keyboard to press. Hidden by CSS on
-  // a desktop viewport (see examples/index.html); wired either way.
+  // The panel is the interface for this scene on every device (CSS shows it whenever the scene is
+  // up, see examples/index.html); the keys above are shortcuts onto these same callbacks.
   const touch = attachWeatherTouch(document.getElementById("weather-touch"), {
     setWeather,
     triggerLightning: () => lightning.trigger(),
@@ -226,7 +227,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     water,
     lightning,
     cycle,
-    controlsHint: "Drag to orbit · Scroll to zoom · 1-4 weather · L lightning · U dive · [ ] time · T pause",
+    controlsHint: "Drag to orbit · Scroll to zoom · Use the on-screen weather buttons",
     camera: {
       target: new Vec3(0, 4, 0),
       distance: 28,

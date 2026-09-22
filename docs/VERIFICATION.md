@@ -28,9 +28,9 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 229 tests in 19 files: `environment` (28), `environment8b` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `weatherTouch` (8), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm test` | 237 tests in 20 files: `environment` (28), `environment8b` (28), `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (8), `shadows` (7), `architecture` (6), `physics` (6), `rendering` (6), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — and that scene's on-screen buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel gone at desktop width | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) | passing |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
@@ -62,19 +62,30 @@ through crater rims).
 
 ### `tests/weatherTouch.test.ts` — the weather demo's on-screen buttons
 
-The weather scene's shortcuts are keys, so the phone panel is a *second* entrance to the same five
-actions (`1..4`, `L`, `U`, `[`/`]`, `T`), and every way that can go wrong is a disagreement between
-the two. Driving a stub root (the `orbitControls` pattern — the module only touches listeners,
-classes, attributes and pointer capture) the suite pins: each button sends its own action and no
-neighbour's; a tap runs it exactly once even though a touch tap is `pointerdown` + `pointerup` +
-`click` (a double-fired `Dive`/`Pause` is a no-op that reads as a dead button); a right-press starts
-no hold, because that gesture is the orbit pan; holding `±1h` steps after `HOLD_DELAY_MS`, repeats
-every `HOLD_REPEAT_MS`, applies the hour the tap would have applied, and the `click` that ends the
-press is swallowed exactly once (the next tap still lands); `dispose()` stops a hold in flight and
-unhooks every listener; `sync()` paints the pressed preset and the two toggles from the scene's state
-but writes nothing when the state has not moved (it runs every frame), while a press repaints
-immediately from the scene instead of waiting for the loop; and a missing panel is a no-op rather
-than a crash.
+The weather scene's interface is its button panel (shown on every device), with the keys as
+shortcuts onto the same five actions (`1..4`, `L`, `U`, `[`/`]`, `T`), so every way that can go
+wrong is a disagreement between the two. Driving a stub root (the `orbitControls` pattern — the
+module only touches listeners, classes, attributes and pointer capture) the suite pins: each button
+sends its own action and no neighbour's; a tap runs it exactly once even though a touch tap is
+`pointerdown` + `pointerup` + `click` (a double-fired `Dive`/`Pause` is a no-op that reads as a dead
+button); a right-press starts no hold, because that gesture is the orbit pan; holding `±1h` steps
+after `HOLD_DELAY_MS`, repeats every `HOLD_REPEAT_MS`, applies the hour the tap would have applied,
+and the `click` that ends the press is swallowed exactly once (the next tap still lands); `dispose()`
+stops a hold in flight and unhooks every listener; `sync()` paints the pressed preset and the two
+toggles from the scene's state but writes nothing when the state has not moved (it runs every
+frame), while a press repaints immediately from the scene instead of waiting for the loop; and a
+missing panel is a no-op rather than a crash.
+
+### `tests/skyTouch.test.ts` — the sky demo's on-screen buttons
+
+The sky scene used to be keys-only (`[`/`]`, `T`, `M`); its button panel (`-1h`/`+1h`/`Pause`/`Mars`)
+is now the interface on every device, bound to the very callbacks the keys call. The suite pins the
+same contract as the weather panel against a stub root: each button sends its own action; a tap runs
+once even though it is `pointerdown` + `pointerup` + `click` (a double-fired `Pause` would read as a
+dead button); a right-press starts no hold; holding `±1h` repeats after `HOLD_DELAY_MS`, applies the
+hold's own hour, and the release `click` is swallowed exactly once; `dispose()` stops a hold in
+flight and unhooks every listener; `sync()` paints `Pause`/`Mars` from the scene's state, writes
+nothing when the state has not moved, and a press repaints immediately; a missing panel is a no-op.
 
 ### `tests/ecs.test.ts` — scene/entity lifecycle
 
@@ -323,6 +334,14 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `setSky(false)` must drop the pass (the graph re-plans) and `setSky(true)` + `setPlanet("mars")`
   must bring it back with zero GPU errors. Screenshots: `tools/.browser-check-sky-noon.png`,
   `-night.png`, `-mars.png` — the sun colour, ambient and fog colour the cycle derived are in the HUD.
+- **The sky demo's on-screen buttons**: the scene's actions used to be keys-only (`[`/`]`, `T`,
+  `M`); the buttons are the interface now, on every device. At the desktop width the panel must be
+  `display: block` with all four buttons and the keyboard hint hidden, and a real `page.click` on
+  each must move the state its key moves — `+1h` a clock hour forward, `Pause` stopping the clock
+  (`timeScale === 0`) with the button marked pressed and the second tap restarting it and unmarking
+  it, `Mars` swapping the planet (read back through `window.__forge.skyPlanet()`) with the button
+  marked pressed and the second tap swapping back. Presses repaint synchronously, so these hold
+  while the frame loop is frozen for the pixel A/Bs above.
 - **Weather, water, lightning (Phase 8b)**: `loadScene("weather")`, then at noon `setWeather("clear")`
   (coverage < 0.2) vs `setWeather("storm")` (coverage > 0.9, `clouds` flag set): the overcast frame
   must be > 5 % brighter than the clear frame (measured 201 vs 148 — the deck whitens the sky while
@@ -333,9 +352,10 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `setUnderwater(true)` must drop `forge.sky` from the pass list with `underwater` set, and
   `setUnderwater(false)` must bring it back. Screenshots:
   `tools/.browser-check-weather-clear.png`, `-storm.png`, `-night.png`, `-underwater.png`.
-- **The weather demo's on-screen buttons**: the same scene is then resized to a phone (390 × 780),
-  where the keyboard shortcuts do not exist. The panel must be `display: block` with all nine buttons
-  and the keyboard hint hidden; `window.__forge.setWeather("rain")` (a change from outside the panel)
+- **The weather demo's on-screen buttons**: the buttons are this scene's interface on every device
+  (the keys are only shortcuts), so the panel must be up at a phone width (390 × 780) too:
+  `display: block` with all nine buttons and the keyboard hint hidden;
+  `window.__forge.setWeather("rain")` (a change from outside the panel)
   must move the pressed marker to `Rain`; and a real `page.click` on each button must move the state
   its key moves — `Storm` > 0.9 coverage with the button marked pressed, `Strike` exactly +1 strike
   (`storm01` is 0 at that point, so the scheduler contributes nothing), `Dive` into the underwater
@@ -344,7 +364,7 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   bracketed against the drift measured in the same run rather than wall-clock rate: the fixed clock
   is catch-up limited and SwiftShader presents the weather frame a couple of times a second, so the
   demo's 60× day runs far slower here (measured ~0.0028 h per 2 frames). Finally the viewport goes
-  back to desktop width, where the panel must be gone again. Screenshot:
+  back to desktop width, where the panel must still be shown with the hint hidden. Screenshot:
   `tools/.browser-check-weather-touch.png` (the panel as a phone sees it).
 
 Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**: the automated

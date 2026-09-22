@@ -198,8 +198,9 @@ of time (±16 min) of the sun's highest point.
 
 A 2 km ground plane, a ring of spheres and a gnomon under a `DayNightCycle` running June 21 at 47°N
 at 240× (a day in six minutes), HDR + bloom + 3 cascades, height fog (density 0.003, falloff 0.08)
-whose colour tracks the horizon. Keys: `[` / `]` scrub by an hour, `T` pauses the clock, `M` swaps
-Earth for Mars (sky preset, cycle atmosphere and ground colour together). The HUD prints the clock,
+whose colour tracks the horizon. The on-screen panel is the interface: `-1h` / `+1h` scrub by an
+hour, `Pause` stops/starts the clock, `Mars` swaps Earth for Mars (sky preset, cycle atmosphere and
+ground colour together); the keys `[` / `]`, `T` and `M` are shortcuts on the same actions. The HUD prints the clock,
 sun elevation/azimuth, light intensity and colour, and the derived ambient and fog colours.
 `window.__forge.setTimeOfDay(h)`, `setPlanet("earth" | "mars")`, `setSky(on)` and
 `environmentState()` are what `check:browser` drives: noon must be brighter than 01:00, the pass
@@ -276,18 +277,21 @@ system's job — the strike's time/position/energy are all it needs.
 ### 7.5 The `weather` demo
 
 `examples/src/scenes/weatherScene.ts` puts the four together: a lake under the deck with the cycle
-running the sun. Keys `1–4` snap the presets, `L` calls a strike, `U` floods the camera (the sea
-level rises over the eye — the orbit controller owns the camera, the scene owns the sea),
-`[`/`]`/`T` drive the clock. `window.__forge` exposes `setWeather`, `setCoverage` (pins the deck
+running the sun. The buttons along the bottom of the page are the interface on every device — the
+four presets, `Strike`, `Dive`, `-1h`, `+1h`, `Pause` — with the keys `1–4` (presets), `L` (a
+strike), `U` (floods the camera: the sea level rises over the eye — the orbit controller owns the
+camera, the scene owns the sea) and `[`/`]`/`T` (the clock) as shortcuts onto the very same
+callbacks. `window.__forge` exposes `setWeather`, `setCoverage` (pins the deck
 without touching the weather, for the night A/B), `triggerLightning`, `setUnderwater` and
 `weatherState` for the gate.
 
-A phone has no keyboard, so the same five actions also exist as buttons along the bottom of the
-page: the four presets, `Strike`, `Dive`, `-1h`, `+1h`, `Pause`. `examples/src/controls/weatherTouch.ts`
-binds the panel in `examples/index.html` to the very callbacks the keys call — one action per path,
-two inputs — fires them on `click` (a touch tap's `pointerdown` + `pointerup` + `click` must not run
-a toggle twice), holds the clock buttons (repeat after 400 ms, ~10 h/s) and paints the pressed
-preset/toggles from the scene's own state, immediately on a press and every frame after. CSS decides
-whether it is visible: `body.scene-weather` plus a coarse pointer or a viewport ≤ 820 px, the same
-rule as the vehicle pad, so a desktop mouse keeps the keys and the whole view. `npm run check:browser`
-drives the panel at a phone-width viewport (see `docs/VERIFICATION.md`).
+`examples/src/controls/weatherTouch.ts` binds the panel in `examples/index.html` to those
+callbacks — one action per path, two inputs — fires them on `click` (a touch tap's `pointerdown` +
+`pointerup` + `click` must not run a toggle twice), holds the clock buttons (repeat after 400 ms,
+~10 h/s) and paints the pressed preset/toggles from the scene's own state, immediately on a press
+and every frame after. CSS decides whether it is visible: `body.scene-weather`, any pointer, any
+width. The sky demo (`7.x`/Phase 8a) follows the same pattern: its `-1h`/`+1h`/`Pause`/`Mars` panel
+(`examples/src/controls/skyTouch.ts`) is the interface, with `[`/`]`/`T`/`M` as shortcuts. Only the
+vehicle demo keeps keyboard-first controls (its pad stays touch-only). `npm run check:browser`
+drives both panels, at a phone width for weather and a desktop width for sky (see
+`docs/VERIFICATION.md`).

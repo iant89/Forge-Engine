@@ -1,54 +1,49 @@
 /**
- * On-screen weather controls for the weather demo.
+ * On-screen sky controls for the sky / day-night demo.
  *
- * This panel is the interface to the scene on every device — the keys (`1..4` presets, `L` a strike,
- * `U` the flooded camera, `[`/`]` the clock, `T` pause) remain only as shortcuts. This binds the
- * panel in `examples/index.html` to the *same* callbacks the keys call, so the two inputs cannot
- * drift: the scene owns the actions, the panel only names them.
+ * The scene's actions used to be keys only — `[`/`]` the clock, `T` pause, `M` Earth/Mars — which
+ * made the demo unplayable without a keyboard. The panel in `examples/index.html` is now the
+ * interface on every device (visibility is CSS on `body.scene-sky`); the keys remain as shortcuts
+ * and this module binds the buttons to the *same* callbacks the keys call, so the two inputs
+ * cannot drift: the scene owns the actions, the panel only names them.
  *
- * Actions run on `click`, never on `pointerdown`. A tap produces both, and for `Dive`/`Pause` (and
- * for a re-tapped preset) running the action twice is a no-op that reads as a dead button. `click`
- * is also what Enter/Space on a focused button sends, so the keyboard path works too. The clock
- * buttons *hold*: a press that outlives `HOLD_DELAY_MS` starts stepping like a held-down key, and
- * the `click` that ends that press is swallowed — the total is the hours the user asked for.
+ * Actions run on `click`, never on `pointerdown`. A tap produces both, and for `Pause`/`Mars`
+ * running the action twice is a no-op that reads as a dead button. `click` is also what
+ * Enter/Space on a focused button sends, so the keyboard path works too. The clock buttons *hold*:
+ * a press that outlives `HOLD_DELAY_MS` starts stepping like a held-down key, and the `click` that
+ * ends that press is swallowed — the total is the hours the user asked for (same contract as the
+ * weather panel's clock buttons, which these were modelled on).
  *
- * Visibility is CSS, not this module: `body.scene-weather`, any pointer, any width (see
+ * Visibility is CSS, not this module: `body.scene-sky`, any pointer, any width (see
  * `examples/index.html`). Wiring a hidden panel is harmless, and a missing one is not an error
  * either, which is what lets a stub root drive this in the unit tests.
  */
 
-import type { WeatherPresetName } from "@forge/engine";
-
 /** The scene actions the buttons stand in for. Each one is a keyboard shortcut's own path. */
-export interface WeatherTouchActions {
-  /** `1..4` — snap and hold a preset. */
-  setWeather(preset: WeatherPresetName): void;
-  /** `L` — schedule a strike now. */
-  triggerLightning(): void;
-  /** `U` — flood/drain the lake over the camera; returns the new value. */
-  toggleUnderwater(): boolean;
+export interface SkyTouchActions {
   /** `[` / `]` — scrub the day/night clock by `hours` (negative goes back). */
   scrubHours(hours: number): void;
   /** `T` — pause/resume the clock; returns true when the clock is now paused. */
   togglePause(): boolean;
+  /** `M` — swap Earth for Mars and back; returns the planet that is now active. */
+  togglePlanet(): "earth" | "mars";
   /**
    * The scene's current panel state. Read once after every action, so a press repaints itself then
    * instead of waiting for the next frame: the frame loop is not guaranteed to be running (the
    * browser gate freezes it to compare pixels), and a press that never paints reads as a dead button.
    */
-  currentState(): WeatherTouchState;
+  currentState(): SkyTouchState;
 }
 
-/** What the panel paints: the scene's current preset, flood state and clock state. */
-export interface WeatherTouchState {
-  preset: WeatherPresetName;
-  underwater: boolean;
+/** What the panel paints: the scene's current planet and clock state. */
+export interface SkyTouchState {
+  planet: "earth" | "mars";
   paused: boolean;
 }
 
-export interface WeatherTouchHandle {
+export interface SkyTouchHandle {
   /** Repaint the pressed buttons. Safe to call every frame; an unchanged state writes nothing. */
-  sync(state: WeatherTouchState): void;
+  sync(state: SkyTouchState): void;
   dispose(): void;
 }
 
@@ -58,21 +53,14 @@ export const HOLD_DELAY_MS = 400;
 export const HOLD_REPEAT_MS = 100;
 
 /** The panel's buttons by id, in the order they appear in `examples/index.html`. */
-const PRESET_BUTTONS: ReadonlyArray<readonly [string, WeatherPresetName]> = [
-  ["#wx-clear", "clear"],
-  ["#wx-overcast", "overcast"],
-  ["#wx-rain", "rain"],
-  ["#wx-storm", "storm"],
-];
-const STRIKE_BUTTON = "#wx-strike";
-const DIVE_BUTTON = "#wx-dive";
-const PAUSE_BUTTON = "#wx-pause";
+const PAUSE_BUTTON = "#sk-pause";
+const MARS_BUTTON = "#sk-mars";
 const CLOCK_BUTTONS: ReadonlyArray<readonly [string, number]> = [
-  ["#wx-time-back", -1],
-  ["#wx-time-fwd", 1],
+  ["#sk-time-back", -1],
+  ["#sk-time-fwd", 1],
 ];
 
-export function attachWeatherTouch(root: HTMLElement | null, actions: WeatherTouchActions): WeatherTouchHandle {
+export function attachSkyTouch(root: HTMLElement | null, actions: SkyTouchActions): SkyTouchHandle {
   const find = (selector: string): HTMLElement | null => root?.querySelector<HTMLElement>(selector) ?? null;
 
   const bound: Array<[EventTarget, string, EventListener]> = [];
@@ -84,18 +72,12 @@ export function attachWeatherTouch(root: HTMLElement | null, actions: WeatherTou
   const asPointer = (event: Event): PointerEvent => event as PointerEvent;
 
   // ---------------------------------------------------------------- painting
-  const dive = find(DIVE_BUTTON);
   const pause = find(PAUSE_BUTTON);
-  const presetButtons: Array<[HTMLElement, WeatherPresetName]> = [];
-  for (const [selector, preset] of PRESET_BUTTONS) {
-    const el = find(selector);
-    if (el) presetButtons.push([el, preset]);
-  }
+  const mars = find(MARS_BUTTON);
 
   // The last painted state: the scene calls `sync` every frame, and a frame that changed nothing
   // must not touch the DOM (nor, on a phone, force a style recalculation).
-  let lastPreset: WeatherPresetName | null = null;
-  let lastUnderwater: boolean | null = null;
+  let lastPlanet: "earth" | "mars" | null = null;
   let lastPaused: boolean | null = null;
 
   const setPressed = (el: HTMLElement | null, pressed: boolean): void => {
@@ -103,13 +85,11 @@ export function attachWeatherTouch(root: HTMLElement | null, actions: WeatherTou
     el.classList.toggle("active", pressed);
     el.setAttribute("aria-pressed", pressed ? "true" : "false");
   };
-  const paint = (state: WeatherTouchState): void => {
-    if (state.preset === lastPreset && state.underwater === lastUnderwater && state.paused === lastPaused) return;
-    lastPreset = state.preset;
-    lastUnderwater = state.underwater;
+  const paint = (state: SkyTouchState): void => {
+    if (state.planet === lastPlanet && state.paused === lastPaused) return;
+    lastPlanet = state.planet;
     lastPaused = state.paused;
-    for (const [el, preset] of presetButtons) el.classList.toggle("active", preset === state.preset);
-    setPressed(dive, state.underwater);
+    setPressed(mars, state.planet === "mars");
     setPressed(pause, state.paused);
   };
   /** Run an action, then paint the state it produced (the next frame may be a long way off). */
@@ -191,31 +171,26 @@ export function attachWeatherTouch(root: HTMLElement | null, actions: WeatherTou
   };
 
   // ---------------------------------------------------------------- bindings
-  for (const [el, preset] of presetButtons) on(el, "click", () => run(() => actions.setWeather(preset)));
-  // A strike changes nothing the panel paints, so it has no repaint of its own.
-  on(find(STRIKE_BUTTON), "click", () => actions.triggerLightning());
-  on(dive, "click", () => run(() => actions.toggleUnderwater()));
   on(pause, "click", () => run(() => actions.togglePause()));
+  on(mars, "click", () => run(() => actions.togglePlanet()));
   for (const [selector, hours] of CLOCK_BUTTONS) bindClock(find(selector), hours);
   on(view, "pointerup", endHold);
   on(view, "pointercancel", endHold);
 
   return {
-    sync(state: WeatherTouchState): void {
+    sync(state: SkyTouchState): void {
       paint(state);
     },
     dispose(): void {
       stopRepeat();
       for (const [el, type, fn] of bound) el.removeEventListener(type, fn);
       bound.length = 0;
-      presetButtons.length = 0;
-      dive?.classList.remove("active");
       pause?.classList.remove("active");
+      mars?.classList.remove("active");
       holdPointer = null;
       holdFired = false;
       suppressClick = false;
-      lastPreset = null;
-      lastUnderwater = null;
+      lastPlanet = null;
       lastPaused = null;
     },
   };

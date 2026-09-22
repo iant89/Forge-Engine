@@ -5,8 +5,11 @@
  * the ambient (from the sky's hemispherical radiance), the fog colour (from the horizon), and the
  * sky pass itself (sun disc, scattered light, stars after dusk).
  *
- * Keys: `[` / `]` scrub the clock by an hour, `T` pauses/resumes it, `M` swaps the Earth preset for
- * Mars (dust: butterscotch day sky). `window.__forge.setTimeOfDay(h)` does the same for the gate.
+ * Controls: the on-screen panel (`examples/index.html`, bound by `controls/skyTouch.ts`) is the
+ * interface — `-1h` / `+1h` scrub the clock, `Pause` stops/starts it, `Mars` swaps the Earth preset
+ * for Mars (dust: butterscotch day sky) and back. The panel is shown on every device; the keys
+ * (`[` / `]`, `T`, `M`) remain as shortcuts on the very same actions. `window.__forge.setTimeOfDay(h)`
+ * does the same for the gate.
  */
 
 import {
@@ -27,13 +30,19 @@ import {
   createPlane,
   createSphere,
 } from "@forge/engine";
+import { attachSkyTouch } from "../controls/skyTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 
 export interface SkySceneHandle extends DemoSceneHandle {
   cycle: DayNightCycle;
   setTimeOfDay(hours: number): void;
   setPlanet(planet: "earth" | "mars"): void;
+  /** The planet the panel/key currently has active (the browser gate reads it after a tap). */
+  planetState(): "earth" | "mars";
 }
+
+/** 1 real second = 4 simulated minutes, and the rate `Pause`/`T` restores when the clock resumes. */
+const TIME_SCALE = 240;
 
 export function buildSkyScene(engine: Engine): SkySceneHandle {
   const scene = new Scene({ name: "sky" });
@@ -112,7 +121,7 @@ export function buildSkyScene(engine: Engine): SkySceneHandle {
     latitude: 47,
     dayOfYear: 172,
     timeOfDay: 9.5,
-    timeScale: 240,
+    timeScale: TIME_SCALE,
     sun,
     // Light units are not sky units: the single-scattering sky is ~3× darker than a real one, so the
     // sky renders at `sky.sunIntensity` 20 while the light gets 4.2 — that ratio reproduces the real
@@ -135,19 +144,47 @@ export function buildSkyScene(engine: Engine): SkySceneHandle {
     materials.ground.setColor(Color.fromSrgbHex(next === "mars" ? 0x9a5a3a : 0x6b7a5a));
   };
 
+  // One action per shortcut, shared by the on-screen panel and the keys. The panel is the
+  // interface (shown on every device); the keys stay as shortcuts on the very same path, so the
+  // two inputs cannot drift. `panelState` is what the panel paints — the panel repaints itself
+  // after every press, and `update()` below re-syncs it for changes that came from anywhere else.
+  const scrubHours = (hours: number): void => {
+    cycle.setTime(cycle.timeOfDay + hours).apply();
+  };
+  const togglePause = (): boolean => {
+    cycle.timeScale = cycle.timeScale === 0 ? TIME_SCALE : 0;
+    return cycle.timeScale === 0;
+  };
+  const togglePlanet = (): "earth" | "mars" => {
+    setPlanet(planet === "earth" ? "mars" : "earth");
+    return planet;
+  };
+  const panelState = (): { planet: "earth" | "mars"; paused: boolean } => ({
+    planet,
+    paused: cycle.timeScale === 0,
+  });
+
   const onKey = (event: KeyboardEvent): void => {
-    if (event.key === "[") cycle.setTime(cycle.timeOfDay - 1).apply();
-    else if (event.key === "]") cycle.setTime(cycle.timeOfDay + 1).apply();
-    else if (event.key === "t" || event.key === "T") cycle.timeScale = cycle.timeScale === 0 ? 240 : 0;
-    else if (event.key === "m" || event.key === "M") setPlanet(planet === "earth" ? "mars" : "earth");
+    if (event.key === "[") scrubHours(-1);
+    else if (event.key === "]") scrubHours(1);
+    else if (event.key === "t" || event.key === "T") togglePause();
+    else if (event.key === "m" || event.key === "M") togglePlanet();
   };
   window.addEventListener("keydown", onKey);
+
+  // The panel is wired whether or not its markup exists; visibility is CSS on `body.scene-sky`.
+  const touch = attachSkyTouch(document.getElementById("sky-touch"), {
+    scrubHours,
+    togglePause,
+    togglePlanet,
+    currentState: panelState,
+  });
 
   return {
     scene,
     cameraEntity,
     cycle,
-    controlsHint: "Drag to orbit · Scroll to zoom · [ ] scrub time · T pause clock · M Earth/Mars",
+    controlsHint: "Drag to orbit · Scroll to zoom · Use the on-screen clock & planet buttons",
     camera: {
       target: new Vec3(0, 3, 0),
       distance: 26,
@@ -160,7 +197,10 @@ export function buildSkyScene(engine: Engine): SkySceneHandle {
       groundHeight: () => 0,
     },
     update(): void {
-      // The cycle is stepped by Scene.update from the engine's fixed steps; nothing to do per frame.
+      // The cycle is stepped by Scene.update from the engine's fixed steps; the only per-frame
+      // work here is keeping the panel's pressed markers level with the scene's own state (a key
+      // or `window.__forge` call changes it without going through the panel).
+      touch.sync(panelState());
     },
     overlay(): string {
       const a = scene.settings.ambientColor;
@@ -176,8 +216,10 @@ export function buildSkyScene(engine: Engine): SkySceneHandle {
       cycle.setTime(hours).apply();
     },
     setPlanet,
+    planetState: () => planet,
     dispose(): void {
       window.removeEventListener("keydown", onKey);
+      touch.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();
       scene.dispose();
