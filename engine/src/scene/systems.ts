@@ -94,7 +94,8 @@ export interface ISystem {
 /** Base class giving a system a name, a band, and enable/disable plumbing. */
 export abstract class System implements ISystem {
   abstract readonly name: string;
-  readonly order = 500;
+  /** Coarse band. Widened from a literal so a subclass can sit in an earlier band (particles at 400). */
+  readonly order: number = 500;
   readonly before?: readonly string[];
   readonly after?: readonly string[];
   enabled = true;

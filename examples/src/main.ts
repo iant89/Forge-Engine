@@ -5,6 +5,8 @@
  * - Phase 1: Spinning Cubes Demo.
  * - Phase 2: PBR Showcase Demo (Metallic x Roughness, Normal maps, Point/Spot/Sun lights, Emissive)
  *   rendered through the Phase 2 frame: cascaded shadow maps, HDR target, bloom, tone-map resolve.
+ * - Phase 6: vehicle playground. Input is written in the scene `update`; `VehicleSystem` is the only stepper.
+ * - Phase 7: particle fountain via `ParticleWorld` only (do not also attach `ParticleSystem`).
  * - Orbit camera controls (mouse drag, wheel zoom, pan, touch pinch); each scene supplies its own
  *   framing, zoom range and (terrain) the surface the camera must stay above.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
@@ -15,6 +17,8 @@
 import {
   Engine,
   detectPlatform,
+  runParticleGravityCheck,
+  type ParticleGravityCheckOptions,
   type Scene,
   type ToneMapping,
   type TerrainWorld,
@@ -24,15 +28,16 @@ import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
 import { buildPbrScene } from "./scenes/pbrScene.js";
 import { buildTerrainScene } from "./scenes/terrainScene.js";
 import { buildRealisticTerrainScene } from "./scenes/realisticTerrainScene.js";
+import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js";
+import { buildParticleScene } from "./scenes/particleScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const errorBox = document.getElementById("error") as HTMLDivElement;
 
-const btnScenePbr = document.getElementById("btn-scene-pbr") as HTMLButtonElement | null;
-const btnSceneCubes = document.getElementById("btn-scene-cubes") as HTMLButtonElement | null;
-const btnSceneTerrain = document.getElementById("btn-scene-terrain") as HTMLButtonElement | null;
-const btnSceneRealistic = document.getElementById("btn-scene-realistic") as HTMLButtonElement | null;
+const sceneSelect = document.getElementById("scene-select") as HTMLSelectElement | null;
+const controlsHint = document.getElementById("controls-hint");
+const DEFAULT_HINT = "Drag to orbit · Right-drag or arrows to pan · Scroll to zoom";
 const btnTmAces = document.getElementById("btn-tm-aces") as HTMLButtonElement | null;
 const btnTmFilmic = document.getElementById("btn-tm-filmic") as HTMLButtonElement | null;
 const btnTmReinhard = document.getElementById("btn-tm-reinhard") as HTMLButtonElement | null;
@@ -56,7 +61,7 @@ async function main(): Promise<void> {
   let controls: OrbitControls | null = null;
   let activeSceneName = "pbr";
 
-  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic)
+  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle, ?scene=particles)
   const params = new URLSearchParams(window.location.search);
   const requestedScene = params.get("scene");
   if (requestedScene === "cubes") {
@@ -65,9 +70,13 @@ async function main(): Promise<void> {
     activeSceneName = "terrain";
   } else if (requestedScene === "realistic" || requestedScene === "realistic-terrain") {
     activeSceneName = "realistic";
+  } else if (requestedScene === "vehicle" || requestedScene === "vehicle-playground") {
+    activeSceneName = "vehicle";
+  } else if (requestedScene === "particles") {
+    activeSceneName = "particles";
   }
 
-  type SceneName = "pbr" | "cubes" | "terrain" | "realistic";
+  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles";
 
   function loadScene(name: SceneName): void {
     if (currentHandle) {
@@ -79,10 +88,8 @@ async function main(): Promise<void> {
     controls = null;
 
     activeSceneName = name;
-    btnScenePbr?.classList.toggle("active", name === "pbr");
-    btnSceneCubes?.classList.toggle("active", name === "cubes");
-    btnSceneTerrain?.classList.toggle("active", name === "terrain");
-    btnSceneRealistic?.classList.toggle("active", name === "realistic");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle");
+    if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
 
     if (name === "pbr") {
       currentHandle = buildPbrScene(engine);
@@ -90,11 +97,27 @@ async function main(): Promise<void> {
       currentHandle = buildTerrainScene(engine);
     } else if (name === "realistic") {
       currentHandle = buildRealisticTerrainScene(engine, { preset: "alpine" });
+    } else if (name === "vehicle") {
+      currentHandle = buildVehiclePlaygroundScene(engine);
+    } else if (name === "particles") {
+      currentHandle = buildParticleScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
+    if (controlsHint) controlsHint.textContent = currentHandle.controlsHint ?? DEFAULT_HINT;
 
     engine.setScene(currentHandle.scene);
+    const settings = currentHandle.scene.settings;
+    btnHdr?.classList.toggle("active", settings.hdr);
+    btnBloom?.classList.toggle("active", settings.bloom.enabled);
+    if (btnBloom) btnBloom.disabled = !settings.hdr;
+    btnShadows?.classList.toggle("active", settings.shadow.enabled);
+    btnCascades?.classList.toggle("active", settings.shadow.debugCascades);
+    if (btnCascades) btnCascades.disabled = !settings.shadow.enabled;
+    btnTmAces?.classList.toggle("active", settings.toneMapping === "aces");
+    btnTmFilmic?.classList.toggle("active", settings.toneMapping === "filmic");
+    btnTmReinhard?.classList.toggle("active", settings.toneMapping === "reinhard");
+    btnTmNone?.classList.toggle("active", settings.toneMapping === "none");
     // Scene modules own their camera policy (starting framing, zoom range, surface constraint).
     controls = new OrbitControls(currentHandle.cameraEntity, canvas).configure(currentHandle.camera ?? {});
   }
@@ -102,11 +125,19 @@ async function main(): Promise<void> {
   loadScene(activeSceneName as SceneName);
   engine.start();
 
-  // Toolbar event listeners
-  btnScenePbr?.addEventListener("click", () => loadScene("pbr"));
-  btnSceneCubes?.addEventListener("click", () => loadScene("cubes"));
-  btnSceneTerrain?.addEventListener("click", () => loadScene("terrain"));
-  btnSceneRealistic?.addEventListener("click", () => loadScene("realistic"));
+  sceneSelect?.addEventListener("change", () => {
+    const next = sceneSelect.value;
+    if (
+      next === "pbr" ||
+      next === "cubes" ||
+      next === "terrain" ||
+      next === "realistic" ||
+      next === "vehicle" ||
+      next === "particles"
+    ) {
+      loadScene(next);
+    }
+  });
 
   function setToneMapping(mode: ToneMapping): void {
     if (!currentHandle) return;
@@ -175,6 +206,8 @@ async function main(): Promise<void> {
 
     if (currentHandle && animating) {
       currentHandle.update(dt);
+      const follow = currentHandle.followTarget?.();
+      if (follow && controls) controls.target.set(follow.x, follow.y, follow.z);
     }
     // Recomputed every frame so the surface constraint tracks terrain that streams in under a
     // stationary camera; it is a few trig ops plus (on the terrain scene) two height samples.
@@ -192,6 +225,8 @@ async function main(): Promise<void> {
       `${path}  ·  ${shadows}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
+    const extra = currentHandle?.overlay?.();
+    if (extra) hud.textContent += `\n${extra}`;
 
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
@@ -225,6 +260,15 @@ async function main(): Promise<void> {
     renderPasses: () => engine.stats().renderPasses,
     /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */
     camera: () => controls?.state() ?? null,
+    /** Chassis speed/rpm while the vehicle playground is loaded; null otherwise. */
+    vehicleState: () => currentHandle?.vehicleState?.() ?? null,
+    /** Fountain counts while the particle scene is loaded; null otherwise. */
+    particleState: () => currentHandle?.particleState?.() ?? null,
+    /**
+     * Analytic gravity check on this page's GPUDevice. The mock device records the dispatch and
+     * returns `gpuExecuted: false`; a real adapter that ran the compute shader returns true.
+     */
+    runParticleGravityCheck: (options?: ParticleGravityCheckOptions) => runParticleGravityCheck(engine.gpu.device, options ?? {}),
     /** Terrain surface height at a world XZ (null outside the terrain demo). */
     terrainHeightAt: (x: number, z: number) => {
       const terrain = currentHandle?.scene.object<TerrainWorld>("TerrainWorld");

@@ -58,15 +58,22 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      shadows.ts (cascade fit), PipelineFactory, Material, Geometry, primitives,
                      uniforms (single source of truth for WGSL structs), shaders/{standard,post,common}.ts
   scene/             Scene, EntityWorld (ECS-ish), component stores, Transform/Camera/Light/Renderable
+  physics/           fixed-step rigid bodies (Phase 5). Vehicles are not in this solver.
+  vehicles/          raycast car: Pacejka, suspension, engine/gearbox/diff, aero, TC/ABS (docs/VEHICLES.md)
+  particles/         CPU simulation + a compute integrator for the same gravity/drag/life step (docs/PARTICLES.md)
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
-examples/            Vite demo (src/main.ts, scenes/pbrScene.ts + cubesScene.ts) — also the fixture `check:browser` drives
-tests/               vitest suites (math, renderGraph, shadows, pipeline, frame, rendering, wgsl)
-tools/               wgsl-check.mjs, browser-check.mjs
+examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles.
+                     Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
+tests/               vitest suites (math, ecs, vehicles, particles, terrain, physics, renderGraph, wgsl, …)
+benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)
+tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER), browser-check.mjs (includes the real-GPU gravity check)
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
 docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, how to add a pass
-ARCHITECTURE.md      Design + rationale; ROADMAP.md — phases; many listed subsystems are not built yet
+docs/VEHICLES.md     Phase 6 as built, including what the chassis test actually asserts
+docs/PARTICLES.md    Phase 7 as built: CPU is the reference, the compute shader is the integrator only
+ARCHITECTURE.md      Design + rationale; ROADMAP.md — phases 8–14 are not built
 ```
 
 The demo aliases `@forge/engine` to `engine/src/index.ts` (see `examples/vite.config.ts`), so there is

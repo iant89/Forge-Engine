@@ -53,8 +53,123 @@
       }
       .btn-group {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
+        max-width: 220px;
       }
+      #scene-select {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 100%;
+        min-width: 168px;
+        max-width: 220px;
+        margin: 0;
+        padding: 8px 28px 8px 10px;
+        background-color: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        font: inherit;
+        font-size: 16px;
+        line-height: 1.2;
+        cursor: pointer;
+        background-image: linear-gradient(45deg, transparent 50%, #94a3b8 50%), linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+        background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+      }
+      #scene-select:focus-visible {
+        outline: 2px solid #60a5fa;
+        outline-offset: 1px;
+      }
+      /* Vehicle touch drive. Hidden until the vehicle scene is up and the pointer is coarse or the
+         viewport is phone-sized — a desktop mouse keeps the keyboard and must not lose the view to
+         a stick it will never use. */
+      #vehicle-touch {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 12;
+        pointer-events: none;
+      }
+      @media (pointer: coarse), (max-width: 820px) {
+        body.scene-vehicle #vehicle-touch { display: block; }
+        body.scene-vehicle #controls-hint { display: none; }
+        #toolbar { max-width: min(220px, 54vw); max-height: 42vh; overflow: auto; }
+        #hud { max-width: calc(100vw - 230px); overflow: hidden; font-size: 10px; }
+      }
+      .veh-stick {
+        pointer-events: auto;
+        position: fixed;
+        left: max(16px, env(safe-area-inset-left));
+        bottom: max(16px, env(safe-area-inset-bottom));
+        width: 128px;
+        height: 128px;
+        border-radius: 50%;
+        background: rgb(226 232 240 / 0.14);
+        border: 2px solid rgb(226 232 240 / 0.38);
+        touch-action: none;
+        backdrop-filter: blur(2px);
+      }
+      .veh-knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        margin: 0;
+        border-radius: 50%;
+        background: rgb(226 232 240 / 0.72);
+        border: 2px solid rgb(255 255 255 / 0.85);
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        pointer-events: none;
+      }
+      .veh-knob.shown { opacity: 1; }
+      .veh-face {
+        position: fixed;
+        right: max(14px, env(safe-area-inset-right));
+        bottom: max(14px, env(safe-area-inset-bottom));
+        width: 156px;
+        height: 148px;
+        pointer-events: none;
+      }
+      button.veh-pad {
+        pointer-events: auto;
+        position: absolute;
+        width: 72px;
+        height: 72px;
+        padding: 0;
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        touch-action: none;
+        -webkit-touch-callout: none;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        backdrop-filter: blur(2px);
+      }
+      button.veh-pad .veh-letter { font-size: 16px; line-height: 1; }
+      button.veh-pad .veh-caption { font-size: 9px; font-weight: 600; letter-spacing: 0.08em; opacity: 0.85; }
+      button.veh-gas {
+        top: 0;
+        left: 8px;
+        background: rgb(22 101 52 / 0.55);
+        border-color: rgb(74 222 128 / 0.7);
+        color: #ecfdf5;
+      }
+      button.veh-brake {
+        right: 0;
+        bottom: 0;
+        background: rgb(127 29 29 / 0.55);
+        border-color: rgb(252 165 165 / 0.75);
+        color: #fef2f2;
+      }
+      button.veh-gas.pressed { background: rgb(21 128 61 / 0.92); transform: scale(0.94); }
+      button.veh-brake.pressed { background: rgb(185 28 28 / 0.92); transform: scale(0.94); }
       button {
         background: #1e293b;
         color: #e2e8f0;
@@ -114,13 +229,15 @@
     <div id="hud">starting…</div>
     <div id="toolbar">
       <div class="panel">
-        <div class="panel-title">Demo Scene</div>
-        <div class="btn-group">
-          <button id="btn-scene-pbr" class="active">PBR Showcase (P2)</button>
-          <button id="btn-scene-cubes">Cubes (P1)</button>
-          <button id="btn-scene-terrain">Terrain (P4)</button>
-          <button id="btn-scene-realistic">Realistic (Alpine)</button>
-        </div>
+        <label class="panel-title" for="scene-select">Demo Scene</label>
+        <select id="scene-select" autocomplete="off">
+          <option value="pbr">PBR Showcase (P2)</option>
+          <option value="cubes">Cubes (P1)</option>
+          <option value="terrain">Terrain (P4)</option>
+          <option value="realistic">Realistic (Alpine)</option>
+          <option value="vehicle">Vehicle (P6)</option>
+          <option value="particles">Particles (P7)</option>
+        </select>
       </div>
       <div class="panel">
         <div class="panel-title">Tone Mapping</div>
@@ -139,6 +256,15 @@
           <button id="btn-shadows" class="active">Shadows</button>
           <button id="btn-cascades">Cascade tint</button>
         </div>
+      </div>
+    </div>
+    <div id="vehicle-touch">
+      <div id="veh-stick" class="veh-stick" role="application" aria-label="Steering stick. Drag to steer, push up for gas, pull down to brake.">
+        <div id="veh-stick-knob" class="veh-knob"></div>
+      </div>
+      <div class="veh-face">
+        <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
+        <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
       </div>
     </div>
     <div id="controls-hint">Drag to orbit · Right-drag or arrows to pan · Scroll to zoom</div>

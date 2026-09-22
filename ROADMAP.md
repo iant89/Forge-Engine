@@ -12,13 +12,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done (built + tes
 | 5 | **Physics**: fixed timestep, rigid bodies, broad/narrowphase, solver, queries, interpolation | bounce/friction/stacking tests, 15/30/60/144 Hz identical-trajectory determinism, penetration tolerances | `[x]` |
 | 6 | **Vehicles**: suspension, tires (Pacejka), engine/transmission/diff, aero, terrain contact, TC/ABS | torque→RPM, shift points, stopping distance, slope traversal, wheel-load transfer tests; `vehicle-playground` demo | `[x]` |
 | 7 | **Particles**: GPU compute emitters, modules, trails, CPU fallback, budgets | state-buffer math vs analytic gravity in mock GPU + real GPU test; 100k particle benchmark | `[x]` |
-| 8 | **Environment**: analytic sky + scattering, fog, clouds, day/night, weather state sim, water (Gerstner + foam + refraction), lightning | sun-position/atmosphere numeric checks vs reference tables, weather state integration tests, underwater path test | `[x]` |
-| 9 | **Scripting**: Script lifecycle, timers, coroutines, events, error isolation, sandbox boundary | lifecycle-order tests, fault-injection (broken script cannot corrupt ECS), coroutine timing | `[x]` |
-| 10 | **Animation**: clips, blending, states/graphs, two-bone IK + FABRIK, skinning, wheel/suspension binding | keyframe sampling vs analytic, weight normalization, IK convergence tests, glTF animation import test | `[x]` |
-| 11 | **Streaming + large world**: origin rebasing, double-precision coords, budgets, hitching tests, texture streaming | 10^6 m offset precision tests, streaming stall benchmark, no-artifact readback check | `[x]` |
-| 12 | **Editor + tools**: hierarchy, inspector, transform gizmo, material/terrain/lighting/camera panels, asset browser, console, profiler overlay | editor works against public API only (enforced by test), gizmo drag math tests, dev-console command tests | `[x]` |
-| 13 | **Optimization + profiling**: profiler, GPU timestamps, stats HUD, quality profiles, batch sort, allocator audit | benchmark deltas recorded in PERFORMANCE.md, zero-leak stress (1000 scene switches) | `[x]` |
-| 14 | **Mars demonstration** | headless run: renders, 0 console/WebGPU errors, interactive loop, seed change, dust, day/night | `[x]` |
+| 8 | **Environment**: analytic sky + scattering, fog, clouds, day/night, weather state sim, water (Gerstner + foam + refraction), lightning | sun-position/atmosphere numeric checks vs reference tables, weather state integration tests, underwater path test | `[ ]` |
+| 9 | **Scripting**: Script lifecycle, timers, coroutines, events, error isolation, sandbox boundary | lifecycle-order tests, fault-injection (broken script cannot corrupt ECS), coroutine timing | `[ ]` |
+| 10 | **Animation**: clips, blending, states/graphs, two-bone IK + FABRIK, skinning, wheel/suspension binding | keyframe sampling vs analytic, weight normalization, IK convergence tests, glTF animation import test | `[ ]` |
+| 11 | **Streaming + large world**: origin rebasing, double-precision coords, budgets, hitching tests, texture streaming | 10^6 m offset precision tests, streaming stall benchmark, no-artifact readback check | `[ ]` |
+| 12 | **Editor + tools**: hierarchy, inspector, transform gizmo, material/terrain/lighting/camera panels, asset browser, console, profiler overlay | editor works against public API only (enforced by test), gizmo drag math tests, dev-console command tests | `[ ]` |
+| 13 | **Optimization + profiling**: profiler, GPU timestamps, stats HUD, quality profiles, batch sort, allocator audit | benchmark deltas recorded in PERFORMANCE.md, zero-leak stress (1000 scene switches) | `[ ]` |
+| 14 | **Mars demonstration** | headless run: renders, 0 console/WebGPU errors, interactive loop, seed change, dust, day/night | `[ ]` |
 
 ## Cross-cutting tracks (run continuously)
 
@@ -37,5 +37,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done (built + tes
 - Networking/replay via deterministic sim snapshots.
 
 ## Known limitations right now
+
+Phases 0–7 are built, tested, and demoed. Phases 8–14 are not started — the directories those rows
+name (`animation`, `scripting`, `editor`, a Mars scene) are not in the tree. Marking them done was
+a documentation error; the `[ ]` above is the status.
+
+Phase 6 and 7 limitations that a green test does not erase are in `docs/KNOWN-ISSUES.md` (no mesh
+collision on the car, no GPU particle emit or trail draw, no particle pass in the render graph).
+`docs/VEHICLES.md` and `docs/PARTICLES.md` are the as-built descriptions.
 
 See `docs/KNOWN-ISSUES.md` (kept current at every phase).

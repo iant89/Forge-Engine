@@ -45,7 +45,7 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/terrain/          TerrainWorld/Chunk/Tile/LOD/Material/Generator
   src/physics/          fixed-step rigid bodies, broadphase, narrowphase, solver, queries
   src/vehicles/         raycast vehicle, tires, suspension, engine, transmission, differentials
-  src/particles/        GPU compute emitters + CPU fallback, modules
+  src/particles/        CPU simulation (emit, modules, trails) + compute integrator; no render-graph pass
   src/animation/        clips, states, graphs, IK, skinning
   src/audio/            WebAudio graph, spatialization, procedural engine audio
   src/input/            devices + action mapping
@@ -56,7 +56,7 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/gpu/              WebGPU helpers (buffer/texture builders, formats, sync)
 editor/                 @forge/editor — browser dev tools. Depends on engine's public API only.
 examples/               vite apps: spinning-cube (P1), pbr-scene (P2), terrain (P4),
-                        vehicle-playground (P6), mars (P14)
+                        vehicle-playground (P6), particles (P7). Mars (P14) is not built.
 tests/                  cross-subsystem integration tests + real-WebGPU browser tests
 benchmarks/             measured performance suites (math, ECS, terrain, physics, particles)
 docs/                   documentation + ADRs in docs/decisions/

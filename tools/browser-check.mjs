@@ -12,6 +12,11 @@
  * cascade-debug shader variants. A pass list alone would not catch a shadow map sampled at the wrong
  * coordinates (that renders, validates, and shadows nothing).
  *
+ * Phase 6/7 addition: `runParticleGravityCheck` must execute the compute shader on this device and match
+ * the analytic curve, and the vehicle playground plus the particle fountain must load with zero GPU
+ * errors (the fountain must actually emit). Driving the car is not scripted — the unit suite covers
+ * the chassis; this only proves the worlds present.
+ *
  * Phase 4 addition: the terrain scene is driven through the real camera controls (wheel, right-drag,
  * scene switching). Nothing else in this repo can catch "the camera cannot zoom or pan and ends up
  * under the terrain": the unit suites never generate a mesh, and a pass list says nothing about where
@@ -338,6 +343,39 @@ try {
   const backToTerrain = await page.evaluate(() => window.__forge.stats());
   console.log(`  scene switch: pbr frame ${switched.frame} gpuErrors ${switched.gpuErrors}, terrain again frame ${backToTerrain.frame}`);
   if (switched.gpuErrors !== 0 || backToTerrain.gpuErrors !== 0) throw new Error("scene switching recorded GPU errors");
+
+  // Phase 7: the compute integrator on this page's real device, compared to the closed-form curve.
+  // The mock device records the dispatch and returns gpuExecuted: false; a shader that did not run
+  // on SwiftShader does the same, so this is the check that distinguishes "dispatched" from "executed".
+  const gravity = await page.evaluate(async () =>
+    window.__forge.runParticleGravityCheck({ steps: 30, dt: 1 / 60, count: 64, gravityY: -9.81, y0: 2 }),
+  );
+  console.log(
+    `particle gravity: gpuExecuted=${gravity.gpuExecuted} gpuError=${gravity.gpuError} cpuError=${gravity.cpuError} dispatches=${gravity.dispatches}`,
+  );
+  if (!gravity.gpuExecuted) throw new Error("particle compute shader did not execute on the real GPU");
+  if (!(gravity.gpuError < 1e-2)) throw new Error(`particle GPU gravity error ${gravity.gpuError}`);
+  if (!(gravity.cpuError < 1e-4)) throw new Error(`particle CPU gravity error ${gravity.cpuError}`);
+
+  // Phase 6/7 scenes must load, present, and (particles) actually emit. Driving input is the
+  // playground's job; this only proves the worlds build and the GPU stays quiet.
+  await page.evaluate(() => window.__forge.loadScene("vehicle"));
+  await settle(8);
+  const vehicle = await page.evaluate(() => window.__forge.vehicleState());
+  const vehicleStats = await page.evaluate(() => window.__forge.stats());
+  console.log(`vehicle playground: speed=${vehicle?.speed} gear=${vehicle?.gear} gpuErrors=${vehicleStats.gpuErrors}`);
+  if (!vehicle) throw new Error("vehicle scene did not expose state");
+  if (vehicleStats.gpuErrors !== 0 || vehicleStats.lastError) throw new Error(`vehicle scene GPU errors: ${vehicleStats.lastError}`);
+  await page.screenshot({ path: "tools/.browser-check-vehicle.png" });
+
+  await page.evaluate(() => window.__forge.loadScene("particles"));
+  await settle(20);
+  const particles = await page.evaluate(() => window.__forge.particleState());
+  const particleStats = await page.evaluate(() => window.__forge.stats());
+  console.log(`particles: alive=${particles?.alive} emitted=${particles?.emitted} gpuErrors=${particleStats.gpuErrors}`);
+  if (!particles || !(particles.alive > 0)) throw new Error("particle fountain did not emit");
+  if (particleStats.gpuErrors !== 0 || particleStats.lastError) throw new Error(`particle scene GPU errors: ${particleStats.lastError}`);
+  await page.screenshot({ path: "tools/.browser-check-particles.png" });
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;

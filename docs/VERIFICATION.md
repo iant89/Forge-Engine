@@ -4,12 +4,15 @@ Phase 1 (core engine), Phase 2 (rendering foundation: render graph, HDR + bloom 
 cascaded shadow maps, pipeline cache), Phase 3 (scene/ECS: entity lifecycle, component stores,
 system scheduler, hierarchy, visibility culling, import boundaries), Phase 4 (terrain + procedural
 worlds: chunks, heightmaps, quadtree LOD, geomorphing, streaming, generators, 10 km+ visible world),
-and Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
-Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism)
-are **verified** through automated tests, benchmarks, and headless real-WebGPU checks. This file states
-exactly which claims are backed by an automated check, so nothing in `ROADMAP.md` has to be taken
-on faith. `docs/RENDERING.md` describes what the renderer does; this file says which assertion proves
-each part of it.
+Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
+Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism),
+Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS), and
+Phase 7 (particles: CPU simulation as the reference, a compute integrator for the same gravity/drag/life
+step, modules, trails, budgets) are **verified** through automated tests, benchmarks, and headless
+real-WebGPU checks. This file states exactly which claims are backed by an automated check, so nothing
+in `ROADMAP.md` has to be taken on faith. `docs/VEHICLES.md` and `docs/PARTICLES.md` describe what
+those two phases actually do; this file says which assertion proves each part. Phases 8–14 are not
+built (`ROADMAP.md`).
 
 ## Setting up
 
@@ -23,10 +26,10 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`) and examples tsconfig | passing |
-| `npm test` | 123 tests in 13 files: `math` (26), `orbitControls` (16), `renderGraph` (14), `ecs` (13), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
-| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct and every `var<uniform>` in the shader text | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: real WebGPU loop with the full Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), pass-structure and steady-state-allocation assertions, bloom and shadow A/B readbacks, LDR fallback, cascade debug view, resize resilience, the Phase 4 terrain scene driven through real wheel/right-drag camera input with the eye checked against the terrain height, scene switching, zero recorded GPU errors | passing |
-| `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark | passing |
+| `npm test` | 162 tests in 16 files: `math` (26), `orbitControls` (16), `vehicles` (15), `renderGraph` (14), `ecs` (13), `particles` (13), `realisticTerrain` (11), `wgsl` (9), `terrain` (8), `frame` (7), `shadows` (7), `physics` (6), `rendering` (6), `architecture` (5), `pipeline` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct and every `var<uniform>` in the shader text | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), and the vehicle playground plus particle fountain loaded with zero GPU errors | passing |
+| `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, plus the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 
 ### `tests/math.test.ts` — conventions the engine silently depends on
@@ -138,6 +141,29 @@ Draw calls issued, `lookAt` reaches the frame (view faces the target, sun direct
 projection aspect derives from the surface, empty scenes clear without errors, frustum culling,
 debug lines, and zero leaked GPU buffers/textures on disposal.
 
+### `tests/vehicles.test.ts` — the raycast car
+
+Pins the claims in `docs/VEHICLES.md`: Pacejka is odd and peaks where the sampled slip says it does;
+a constant torque produces `I·α = τ` and the rev limiter holds; upshift and downshift RPM fire;
+an open diff splits equally and an LSD biases toward the slower wheel; aero drag is `½ρCdAv²`;
+static load transfer follows the sign of `ax`. On the chassis: a 1000 kg, μ = 1 stop from 20 m/s
+lands between 75% and 115% of `v²/(2μg)`; a 12° slope is climbed when μ exceeds `tan θ`; acceleration
+shifts load rearward and braking shifts it forward; a short gearbox upshifts within 2.5 s; TC holds
+peak driven |κ| under 0.35 and at least 0.15 below the same launch with TC off; identical inputs
+repeat the pose; `VehicleSystem` steps once per fixed step and writes the chassis transform. The
+playground's keyboard and camera follow are not in this suite — `check:browser` only proves that
+scene loads without a GPU error.
+
+### `tests/particles.test.ts` — the buffer, not a draw
+
+Pins the claims in `docs/PARTICLES.md`: `integrateParticle` matches `analyticGravity` (semi-implicit,
+not `½gt²` on the first step); drag damps and an expired life clears the slot; the compute shader
+passes `validateWgsl`; cone emission, colour/size modules, the emit budget, and trails are
+deterministic for a seed; 100k particles × 30 steps (drag 0) finish under 1 s and particle 0 matches
+the curve; the mock device records the compute dispatch and does **not** set `gpuExecuted` (it does
+not run WGSL); `ParticleSystem` and `ParticleWorld` each step once and pose a sprite. The real-GPU
+half of that check is `check:browser`, not this file.
+
 ### `tests/wgsl.test.ts` — the layout rules browsers disagree on
 
 Chromium's compiler accepts uniform structs with a relaxed layout; WebKit rejects the module, which
@@ -186,6 +212,15 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
 - **Scene switching**: `pbr → terrain → pbr → terrain` must leave `gpuErrors` at 0, which it cannot
   if component stores leak between worlds (see the ECS note above) or the previous controller was
   left attached.
+- **Particle compute on this device (Phase 7)**: `window.__forge.runParticleGravityCheck` uploads a
+  rest state, dispatches `PARTICLE_SIM_SHADER` 30 times, and reads it back. `gpuExecuted` must be
+  true (the mock device, and a shader that dispatched but did not write, both return false) and
+  `gpuError` must be under `1e-2` against `analyticGravity`. `cpuError` must be under `1e-4`.
+  The SwiftShader run recorded here measured `gpuError ≈ 2.5e-7`.
+- **Vehicle playground and particle fountain**: `loadScene("vehicle")` and `loadScene("particles")`
+  must present with `gpuErrors === 0`. The fountain must report `alive > 0` after a short settle.
+  The car is not driven here — stopping distance and the 12° climb are unit tests. Screenshots:
+  `tools/.browser-check-vehicle.png`, `tools/.browser-check-particles.png`.
 
 Run it with `npm run check:browser`, then **look at `tools/.browser-check.png`**: the automated
 thresholds prove the passes ran and changed the pixels in the right direction; whether the shadows
@@ -210,6 +245,14 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **GPU resource lifecycle.** Steady frames allocate nothing; resizes retire what they replace; clean
   teardown with zero leaked GPU buffers or textures asserted by `MockGPUDevice.outstanding` in every
   renderer fixture.
+* **A raycast vehicle.** Torque→RPM, shift points, the analytic stop, a 12° climb, load transfer,
+  and TC slip are numeric tests in `tests/vehicles.test.ts`. The playground is a scene the browser
+  gate loads; it is not a handling-quality test. See `docs/VEHICLES.md` for what is kinematic rather
+  than simulated.
+* **A particle buffer.** The CPU integrator matches `analyticGravity` in `tests/particles.test.ts`,
+  including a 100k × 30 step budget. The same curve on a real device is the `runParticleGravityCheck`
+  assertion in `check:browser`. Emission, modules, and trails are CPU and covered by the unit suite
+  only.
 
 ## Not verified yet
 
@@ -226,6 +269,13 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the
   loaded disc looks, or how long a hitch a chunk takes to generate on a given machine.
+* **Particle *rendering*.** The browser gate proves the compute integrator matches analytic gravity
+  on SwiftShader and that 200 sprite boxes present. It does not prove a billboard pass, per-particle
+  colour on the material, or a trail draw — none of those exist (`docs/PARTICLES.md`).
+* **Vehicle handling quality.** The unit suite proves the analytic stop, the slope, load transfer,
+  shifts, and TC slip. The browser gate only proves the playground loads. Nobody asserts that the
+  ramp mesh and the ground query stay coincident after a camera-follow frame, or that the car is
+  pleasant to drive.
 * **Fog / atmosphere.** `scene.setFog` stores settings and the forward pass uploads
   `fogColor`/`fogDensity`/`fogRange`, but no shipped shader samples them yet (ROADMAP Phase 8), so a
   scene that configures fog renders without haze.

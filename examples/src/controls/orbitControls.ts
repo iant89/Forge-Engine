@@ -39,6 +39,11 @@ export interface OrbitCameraSetup {
   maxElevation?: number;
   /** Metres kept between the camera (and orbit target) and `groundHeight`. */
   groundClearance?: number;
+  /**
+   * Arrow keys / WASD pan the orbit target. Disable this when the scene binds those keys itself
+   * (the vehicle playground) — both listeners sit on `window`, so leaving it on steals the drive input.
+   */
+  keyboard?: boolean;
   /** World surface height at an XZ position. Set it to stop the camera going under the surface. */
   groundHeight?: ((x: number, z: number) => number) | null;
 }
@@ -81,6 +86,8 @@ export class OrbitControls {
   /** Surface query; when set, the target and the eye are held above it. */
   groundHeight: ((x: number, z: number) => number) | null = null;
   groundClearance = 3;
+  /** When false, keydown is ignored. Pointer orbit/pan/zoom still work. */
+  keyboard = true;
 
   private mode: "orbit" | "pan" = "orbit";
   private lastX = 0;
@@ -124,6 +131,7 @@ export class OrbitControls {
     if (setup.maxElevation !== undefined) this.maxElevation = setup.maxElevation;
     if (setup.groundClearance !== undefined) this.groundClearance = setup.groundClearance;
     if (setup.groundHeight !== undefined) this.groundHeight = setup.groundHeight;
+    if (setup.keyboard !== undefined) this.keyboard = setup.keyboard;
     if (setup.target) this.target.set(setup.target.x, setup.target.y, setup.target.z);
     if (setup.azimuth !== undefined) this.azimuth = setup.azimuth;
     if (setup.elevation !== undefined) this.elevation = setup.elevation;
@@ -343,6 +351,7 @@ export class OrbitControls {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    if (!this.keyboard) return;
     const pan = (dx: number, dy: number): void => {
       e.preventDefault();
       this.panBy(dx * KEY_PAN_PIXELS, dy * KEY_PAN_PIXELS, this.viewportHeight());
