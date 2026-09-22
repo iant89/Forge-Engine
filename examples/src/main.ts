@@ -11,9 +11,11 @@
  *   `forge.sky` pass; `[`/`]` scrub the clock, `M` swaps Earth for Mars.
  * - Orbit camera controls (mouse drag, wheel zoom, pan, touch pinch); each scene supplies its own
  *   framing, zoom range and (terrain) the surface the camera must stay above.
- * - On-screen touch controls where a keyboard is not available: the vehicle stick/pads and the
- *   weather preset/action buttons. CSS hides them on a desktop pointer; the modules always bind the
- *   same actions as the keys, so there is one path per action either way.
+ * - On-screen buttons for every demo whose actions used to need keys: the sky clock/planet panel
+ *   and the weather preset/action buttons are the interface on all devices (CSS shows them whenever
+ *   their scene is up); the vehicle stick/pads stay touch-only because that demo keeps its keyboard
+ *   controls. The modules always bind the same actions as the keys, so there is one path per action
+ *   either way.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
  *   rendering toggles (HDR, bloom, shadows, cascade tint).
  * - `window.__forge` interface for automated headless verification (`npm run check:browser`): the
@@ -100,9 +102,11 @@ async function main(): Promise<void> {
     controls = null;
 
     activeSceneName = name;
-    // The vehicle pad and the weather buttons are shown by CSS on `body.scene-*` (coarse pointer or
-    // phone-sized viewport only); their modules always bind the same paths as the keys.
+    // The sky and weather buttons are the interface for their scenes on every device, shown by CSS
+    // on `body.scene-sky` / `body.scene-weather`; the vehicle pad stays touch-only on
+    // `body.scene-vehicle`. Each module binds the same paths as the keys, whichever is visible.
     document.body.classList.toggle("scene-vehicle", name === "vehicle");
+    document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
 
@@ -295,6 +299,11 @@ async function main(): Promise<void> {
       const handle = currentHandle as SkySceneHandle | null;
       handle?.setPlanet?.(planet);
     },
+    /** Sky scene: the planet the panel/keys currently have active; null on other scenes. */
+    skyPlanet: () => {
+      const handle = currentHandle as SkySceneHandle | null;
+      return handle?.planetState?.() ?? null;
+    },
     setSky: (on: boolean) => {
       const scene = currentHandle?.scene;
       if (!scene) return;
@@ -348,6 +357,8 @@ async function main(): Promise<void> {
       const s = currentHandle!.scene.settings;
       return {
         time: cycle.timeOfDay,
+        timeScale: cycle.timeScale,
+        paused: cycle.timeScale === 0,
         elevationDeg: cycle.elevationDeg,
         azimuthDeg: cycle.azimuthDeg,
         isDay: cycle.isDay,

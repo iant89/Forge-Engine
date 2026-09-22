@@ -29,11 +29,13 @@
  * deck occludes the stars — the storm preset cannot prove this because its fog outshines the deck),
  * the underwater toggle removes `forge.sky` from the graph, and a triggered strike registers.
  *
- * Demo-UI addition: the weather scene's on-screen buttons (what a phone has instead of `1..4`, `L`,
- * `U`, `[`/`]`, `T`) are driven at a phone-width viewport — each one must move the scene state the
- * way its key does and mark itself pressed (the panel is painted from that state, and the two can
- * only disagree if the buttons were wired to something else). At a desktop width the panel must be
- * hidden again.
+ * Demo-UI addition: every demo whose actions used to need keys shows buttons instead (the vehicle
+ * keeps its keyboard). The sky panel (`-1h`/`+1h`/`Pause`/`Mars`) must be shown at a desktop width
+ * and each button must move the scene state the way its key does and mark itself pressed. The
+ * weather panel is driven at a phone width too — each of its buttons must move the state its key
+ * moves (`1..4`, `L`, `U`, `[`/`]`, `T`) and mark itself pressed (the panel is painted from that
+ * state, and the two can only disagree if the buttons were wired to something else) — and it must
+ * still be shown when the window goes back to a desktop width.
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
@@ -436,6 +438,56 @@ try {
   if (marsStats.gpuErrors !== 0 || marsStats.lastError) throw new Error(`mars sky GPU errors: ${marsStats.lastError}`);
   await page.evaluate(() => window.__forge.setPlanet("earth"));
 
+  // The sky scene's actions used to be keys only (`[`/`]`, `T`, `M`); the buttons are the interface
+  // now, on every device. At this desktop width the panel must be up (the hint gone), and each
+  // button must move the state its key moves — `+1h` scrubs the clock, `Pause` stops it (and the
+  // second tap restarts it), `Mars` swaps the planet — while marking itself pressed. A press paints
+  // itself synchronously, so these hold even though the frame loop is frozen above.
+  const skyPanel = await page.evaluate(() => {
+    const el = document.getElementById("sky-touch");
+    const hint = document.getElementById("controls-hint");
+    return {
+      display: el ? getComputedStyle(el).display : "missing",
+      hint: hint ? getComputedStyle(hint).display : "missing",
+      buttons: el ? [...el.querySelectorAll("button")].map((b) => b.id) : [],
+    };
+  });
+  console.log(`sky touch @desktop: display=${skyPanel.display} hint=${skyPanel.hint} buttons=${skyPanel.buttons.join(",")}`);
+  if (skyPanel.display !== "block") throw new Error(`sky button panel is not shown at desktop width (display ${skyPanel.display})`);
+  if (skyPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the sky button panel");
+  for (const id of ["sk-time-back", "sk-time-fwd", "sk-pause", "sk-mars"]) {
+    if (!skyPanel.buttons.includes(id)) throw new Error(`sky button panel is missing #${id}`);
+  }
+  const skyButtonActive = (id) => page.evaluate((sel) => document.getElementById(sel)?.classList.contains("active") ?? false, id);
+
+  const skyClockBefore = await page.evaluate(() => window.__forge.environmentState().time);
+  await page.click("#sk-time-fwd");
+  const skyClockAfter = await page.evaluate(() => window.__forge.environmentState().time);
+  console.log(`  tap +1h: ${skyClockBefore.toFixed(2)}h -> ${skyClockAfter.toFixed(2)}h`);
+  if (!(skyClockAfter >= skyClockBefore + 0.9)) {
+    throw new Error(`the sky +1h button did not scrub the clock (${skyClockBefore} -> ${skyClockAfter})`);
+  }
+
+  await page.click("#sk-pause");
+  const skyPaused = await page.evaluate(() => window.__forge.environmentState());
+  if (!(skyPaused.paused && skyPaused.timeScale === 0)) {
+    throw new Error(`the sky Pause button did not stop the clock (timeScale ${skyPaused.timeScale})`);
+  }
+  if (!(await skyButtonActive("sk-pause"))) throw new Error("the sky Pause button did not mark itself pressed");
+  await page.click("#sk-pause");
+  const skyResumed = await page.evaluate(() => window.__forge.environmentState());
+  if (skyResumed.paused || skyResumed.timeScale === 0) throw new Error("the second sky Pause tap did not resume the clock");
+  if (await skyButtonActive("sk-pause")) throw new Error("the sky Pause button stayed pressed after resuming");
+
+  await page.click("#sk-mars");
+  const tappedMars = await page.evaluate(() => window.__forge.skyPlanet());
+  if (tappedMars !== "mars") throw new Error(`the Mars button did not switch the planet (planet ${tappedMars})`);
+  if (!(await skyButtonActive("sk-mars"))) throw new Error("the Mars button did not mark itself pressed");
+  await page.click("#sk-mars");
+  const tappedEarth = await page.evaluate(() => window.__forge.skyPlanet());
+  if (tappedEarth !== "earth") throw new Error(`the second Mars tap did not switch back to Earth (planet ${tappedEarth})`);
+  if (await skyButtonActive("sk-mars")) throw new Error("the Mars button stayed pressed after switching back");
+
   // Phase 8b: weather, clouds, water, lightning. The deck is presence + direction: overcast noon
   // whitens the sky (brighter than clear noon), a stormy night occludes the stars (darker than a
   // clear night), and the deck flag tracks the coverage. The lake renders inside forge.main (zero
@@ -517,11 +569,12 @@ try {
   if (!wxDryStats.renderPasses.includes("forge.sky")) throw new Error("sky pass did not come back after draining");
   await page.evaluate(() => window.__forge.setAnimating(true));
 
-  // The weather scene's shortcuts are keys, and a phone has none: at a phone-width viewport the
-  // same five actions must be reachable as buttons, and they must drive the same state as the keys
-  // (`4` -> storm, `L` -> a strike, `U` -> flooded, `]` -> an hour later, `T` -> stopped clock)
-  // rather than a parallel path that drifts. The pressed buttons are asserted too: they are painted
-  // from the scene's own state, so a button that fires but never marks itself is a panel bug.
+  // The weather scene's interface is its button panel, on every device; the keys are only
+  // shortcuts now. At a phone-width viewport the same five actions must still be reachable as
+  // buttons, and they must drive the same state as the keys (`4` -> storm, `L` -> a strike,
+  // `U` -> flooded, `]` -> an hour later, `T` -> stopped clock) rather than a parallel path that
+  // drifts. The pressed buttons are asserted too: they are painted from the scene's own state, so
+  // a button that fires but never marks itself is a panel bug.
   await page.setViewportSize({ width: 390, height: 780 });
   await settle(4);
   const panel = await page.evaluate(() => {
@@ -619,11 +672,20 @@ try {
   if (!(resumed.time > frozenEnd.time)) throw new Error(`the clock did not resume (${frozenEnd.time} -> ${resumed.time})`);
   if (await pressed("wx-pause")) throw new Error("the Pause button stayed pressed after resuming");
 
-  // A desktop-width window keeps the keyboard: the panel must be gone (or it eats the view).
+  // Buttons are this scene's interface on every device: the panel must stay up at a desktop width
+  // too (the keys are only shortcuts now), with the keyboard hint out of the way.
   await page.setViewportSize({ width: 900, height: 520 });
   await settle(4);
-  const desktopPanel = await page.evaluate(() => getComputedStyle(document.getElementById("weather-touch")).display);
-  if (desktopPanel !== "none") throw new Error(`the weather touch panel is still shown at desktop width (display ${desktopPanel})`);
+  const desktopPanel = await page.evaluate(() => {
+    const el = document.getElementById("weather-touch");
+    const hint = document.getElementById("controls-hint");
+    return {
+      display: el ? getComputedStyle(el).display : "missing",
+      hint: hint ? getComputedStyle(hint).display : "missing",
+    };
+  });
+  if (desktopPanel.display !== "block") throw new Error(`the weather button panel is not shown at desktop width (display ${desktopPanel.display})`);
+  if (desktopPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the weather button panel at desktop width");
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;
