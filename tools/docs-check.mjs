@@ -158,9 +158,13 @@ for (const entry of capabilityRegistry.entries) {
     }
   } else if (entry.status === "partial" || entry.status === "inProgress") {
     if (!entry.closesWith) fail(1, `${where} is "${entry.status}" but names no closesWith`);
-  } else if (entry.status === "planned") {
+  } else if (entry.status === "planned" || entry.status === "deferred") {
+    // A capability may be unmapped only if the deferral itself is documented: either a roadmap
+    // item/phase that will close it, or a note explaining why the roadmap schedules nothing (for
+    // example networking, which the roadmap gates behind the Phase 29 prerequisites). Silence is
+    // what this rule exists to prevent.
     if (!entry.closesWith && !entry.notes) {
-      fail(1, `${where} is "planned" but names neither closesWith nor notes`);
+      fail(1, `${where} is "${entry.status}" but names neither closesWith nor notes`);
     }
   }
   for (const plan of [entry.closesWith]) {
@@ -296,7 +300,20 @@ console.log(
       .join(", ")}), ${knownIssueBullets.length} known limitations, ` +
     `${phase9Items.length} Phase 9 items claimed, roadmap state block matches the registry.`,
 );
-console.log(`  unfinished work: ${gaps.length} entries; ${gaps.filter((g) => !g.closesWith).length} without a roadmap item`);
+// Two different things hide behind "no closesWith": work that is scheduled but has no roadmap
+// pointer (a defect in this registry) and work the roadmap deliberately schedules nothing for. Both
+// stay visible here — the second by name, with its decision in the entry's `notes`.
+const unmapped = gaps.filter((g) => !g.closesWith);
+const deferredByDecision = unmapped.filter((g) => g.status === "deferred");
+const unmappedUnscheduled = unmapped.filter((g) => g.status !== "deferred");
+console.log(
+  `  unfinished work: ${gaps.length} entries; ${unmappedUnscheduled.length} without a roadmap item` +
+    (deferredByDecision.length > 0
+      ? `; ${deferredByDecision.length} deferred by decision (${deferredByDecision
+          .map((g) => g.id)
+          .join(", ")})`
+      : ""),
+);
 console.log(
   "  NOT covered by CI: the real-WebGPU browser gate (npm run check:browser), the benchmarks" +
     " (npm run bench) and any mobile/WebKit run. A green CI run means the CPU gates passed.",
