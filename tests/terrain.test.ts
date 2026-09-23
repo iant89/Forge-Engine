@@ -405,6 +405,64 @@ describe("Terrain - Phase 10 cache, priority, workers, horizon, materials", () =
     world.dispose();
   });
 
+  it("warm-up with scheduler fills the disc without dozens of uploadsPerFrame=4 frames", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0 });
+    const world = new EntityWorld();
+    const warmUpChunks = 12;
+    const uploadsPerFrame = 4;
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 200,
+      maxChunksLoaded: 16,
+      generationsPerFrame: 2,
+      uploadsPerFrame,
+      warmUpChunks,
+      horizonSkirt: false,
+      syncGeneration: false,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "warmup-upload-budget" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+    terrain.focusPosition.set(0, 0, 0);
+
+    // Frame 1: schedule the warm-up burst on the worker path (not sync).
+    terrain.update(ctx, 0.016);
+    expect(terrain.streamingStats.scheduledThisFrame).toBeGreaterThanOrEqual(warmUpChunks);
+    expect([...terrain.chunks.values()].some((c) => c.state === "generating")).toBe(true);
+
+    await scheduler.drain();
+
+    // Decision B: elevated upload budget drains the warm-up disc in a few frames, not warmUp/4.
+    const steadyFramesNeeded = Math.ceil(warmUpChunks / uploadsPerFrame); // 3 at these numbers
+    let ready = 0;
+    let frames = 0;
+    const maxFrames = Math.max(2, Math.floor(steadyFramesNeeded / 2)); // must beat gradual fill
+    while (frames < maxFrames && ready < warmUpChunks) {
+      terrain.update(ctx, 0.016);
+      frames++;
+      ready = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    }
+    expect(ready).toBeGreaterThanOrEqual(warmUpChunks);
+    expect(frames).toBeLessThan(steadyFramesNeeded);
+
+    // After warm-up, steady upload budget returns.
+    terrain.update(ctx, 0.016);
+    expect(terrain.streamingStats.uploadedThisFrame).toBeLessThanOrEqual(uploadsPerFrame);
+
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
   it("cancels in-flight generation when a chunk leaves the visible set", async () => {
     installTerrainTaskHandlers();
     const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 1 });

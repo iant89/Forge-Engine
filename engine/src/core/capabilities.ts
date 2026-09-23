@@ -414,6 +414,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Priority chunk streaming with memory/generation/upload/visible-chunk budgets",
     evidence: ["tests/terrain.test.ts"],
+    notes: "warmUpChunks elevates generation (one-shot) and upload budgets until the opening disc is resident, so worker demos fill quickly without sync-only warm-up",
   },
   {
     id: "terrain.lod",

@@ -51,8 +51,10 @@ export interface TerrainWorldOptions extends TerrainBudgetOptions {
   viewDistance?: number;
   maxLOD?: number;
   /**
-   * Chunks the very first update may generate above the steady generation budget, so the opening
-   * view shows a full terrain disc instead of a two-chunk seed patch.
+   * Opening-disc warm-up: the first update may start this many generations above the steady
+   * generation budget, and upload budget stays elevated until those tiles are resident (or the
+   * warm-up work queue drains). Keeps the async worker path real while filling the disc in a
+   * few frames instead of dripping in at `uploadsPerFrame`.
    */
   warmUpChunks?: number;
   pipeline?: GeneratorPipeline;
@@ -101,7 +103,12 @@ export class TerrainWorld extends SceneObject {
   /** @deprecated Prefer `budgets.generationsPerFrame`. */
   readonly maxGenerationsPerFrame: number;
   readonly warmUpChunks: number;
-  private warmUpDone = false;
+  /** One-shot: elevated generation budget spent on the first update. */
+  private warmUpGenerationDone = false;
+  /** Elevated upload budget until the warm-up disc is resident (or warm-up work is gone). */
+  private warmUpUploadsActive = false;
+  /** Per-frame upload cap (steady or warm-up elevated); set at the start of `update`. */
+  private frameUploadBudget = 0;
   readonly horizonEnabled: boolean;
   readonly horizonExtent: number;
   readonly syncGeneration: boolean;
@@ -151,6 +158,7 @@ export class TerrainWorld extends SceneObject {
     this.maxChunksLoaded = this.budgets.visibleChunks;
     this.maxGenerationsPerFrame = this.budgets.generationsPerFrame;
     this.warmUpChunks = options.warmUpChunks ?? 0;
+    this.warmUpUploadsActive = this.warmUpChunks > 0;
     this.horizonEnabled = options.horizonSkirt !== false;
     this.horizonExtent = options.horizonExtent ?? this.chunkSize * 2;
     this.syncGeneration = options.syncGeneration ?? false;
@@ -210,6 +218,10 @@ export class TerrainWorld extends SceneObject {
     this.streamingStats.scheduledThisFrame = 0;
     this.streamingStats.inlineThisFrame = 0;
 
+    this.frameUploadBudget = this.warmUpUploadsActive
+      ? Math.max(this.budgets.uploadsPerFrame, this.warmUpChunks)
+      : this.budgets.uploadsPerFrame;
+
     const scheduler = this.schedulerOf(context);
 
     // 1. Focus + facing from the active camera.
@@ -265,7 +277,7 @@ export class TerrainWorld extends SceneObject {
       ) {
         // Geomorph bake drifted — remesh from the resident cell (no regen) so seams stay closed.
         // Share the upload budget with drainCompletions; defer remainder to later frames.
-        if (this.streamingStats.uploadedThisFrame < this.budgets.uploadsPerFrame) {
+        if (this.streamingStats.uploadedThisFrame < this.frameUploadBudget) {
           const cell = chunk.tile.cell;
           this.detachChunkEntity(key, context);
           chunk.lod = req.sel.lod;
@@ -309,11 +321,13 @@ export class TerrainWorld extends SceneObject {
     }
 
     // 5. Budgeted generation — nearest/highest priority first.
+    // Warm-up generation is one-shot; upload elevation may continue across a few frames while
+    // worker completions drain (Decision B).
     let started = 0;
-    const frameBudget = this.warmUpDone
+    const frameBudget = this.warmUpGenerationDone
       ? this.budgets.generationsPerFrame
       : Math.max(this.budgets.generationsPerFrame, this.warmUpChunks);
-    this.warmUpDone = true;
+    this.warmUpGenerationDone = true;
 
     for (const req of needed) {
       if (started >= frameBudget) break;
@@ -337,6 +351,8 @@ export class TerrainWorld extends SceneObject {
     if (this.horizonEnabled) {
       this.updateHorizonSkirt(context, visibleKeys);
     }
+
+    this.maybeFinishWarmUpUploads();
 
     this.streamingStats.cacheHits = this.cache.hits;
     this.streamingStats.cacheMisses = this.cache.misses;
@@ -533,9 +549,27 @@ export class TerrainWorld extends SceneObject {
     this.cache.set(key, this.resultFromChunk(chunk));
   }
 
+  private maybeFinishWarmUpUploads(): void {
+    if (!this.warmUpUploadsActive) return;
+    let ready = 0;
+    let generating = 0;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.state === "ready") ready++;
+      else if (chunk.state === "generating") generating++;
+    }
+    if (ready >= this.warmUpChunks) {
+      this.warmUpUploadsActive = false;
+      return;
+    }
+    // Generation burst already spent and nothing left to drain — stop elevating even if short.
+    if (this.warmUpGenerationDone && generating === 0 && this.completed.length === 0) {
+      this.warmUpUploadsActive = false;
+    }
+  }
+
   private drainCompletions(context: SystemContext): void {
     let uploads = 0;
-    while (this.completed.length > 0 && uploads < this.budgets.uploadsPerFrame) {
+    while (this.completed.length > 0 && uploads < this.frameUploadBudget) {
       const item = this.completed.shift()!;
       const chunk = this.chunks.get(item.key);
       if (!chunk || chunk.state === "disposed") continue;
