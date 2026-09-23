@@ -165,11 +165,18 @@ export class GpuParticleSystem {
   private emitAccumulator = 0;
   private time = 0;
   private disposed = false;
-  /** Identity fill so an un-culled draw can use instance_index directly. */
-  private readonly identityVisible: Uint32Array;
+  /** True when running on the headless mock (no WGSL execution). */
+  private readonly isMock: boolean;
 
   constructor(gpu: GraphicsDevice | GPUDevice, options: GpuParticleSystemOptions) {
-    this.device = "device" in gpu && (gpu as GraphicsDevice).device ? (gpu as GraphicsDevice).device : (gpu as GPUDevice);
+    const asGd = gpu as GraphicsDevice;
+    if (asGd && typeof asGd === "object" && "isMock" in asGd && asGd.device) {
+      this.device = asGd.device;
+      this.isMock = Boolean(asGd.isMock);
+    } else {
+      this.device = gpu as GPUDevice;
+      this.isMock = typeof (this.device as { record?: unknown }).record === "function";
+    }
     this.capacity = Math.max(PARTICLE_WORKGROUP, options.capacity | 0);
     this.seed = (options.seed ?? 7) >>> 0;
     this.maxEmitsPerFrame = Math.max(1, options.maxEmitsPerFrame ?? 4096);
@@ -179,12 +186,10 @@ export class GpuParticleSystem {
     this.softScale = options.softScale ?? 40;
     this.emitter = defaultEmitter(options.emitter);
     this.modules = defaultModules(options.modules);
-    this.identityVisible = new Uint32Array(this.capacity);
-    this.identityVisible.fill(0xffffffff);
   }
 
-  /** Allocate buffers and compile pipelines. Safe to call more than once. */
-  init(): void {
+  /** Allocate buffers and compile pipelines. Safe to call more than once. Awaits shader validation before ready. */
+  async init(): Promise<void> {
     if (this.ready || this.disposed) return;
     const d = this.device;
     const storageBytes = this.capacity * PARTICLE_STRIDE;
@@ -231,11 +236,22 @@ export class GpuParticleSystem {
       usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST,
     });
 
-    // Clear particle + trail storage; seed visible with 0xFFFFFFFF (draw by instance index).
+    // Clear particle + trail storage.
+    // Real GPU: visible starts as 0xFFFFFFFF (culled sentinel); cull compact fills [0,V) and drawIndirect uses V.
+    // Mock: sequential visible[i]=i + instanceCount=capacity (WGSL cull does not run).
     d.queue.writeBuffer(this.particleBuffer, 0, gpuSource(new Float32Array(this.capacity * PARTICLE_FLOATS)));
     d.queue.writeBuffer(this.trailBuffer, 0, gpuSource(new Float32Array(this.capacity * 4 * 4)));
-    d.queue.writeBuffer(this.visibleBuffer, 0, gpuSource(this.identityVisible));
-    d.queue.writeBuffer(this.indirectBuffer, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
+    if (this.isMock) {
+      const sequential = new Uint32Array(this.capacity);
+      for (let i = 0; i < this.capacity; i++) sequential[i] = i;
+      d.queue.writeBuffer(this.visibleBuffer, 0, gpuSource(sequential));
+      d.queue.writeBuffer(this.indirectBuffer, 0, gpuSource(new Uint32Array([6, this.capacity, 0, 0])));
+    } else {
+      const sentinels = new Uint32Array(this.capacity);
+      sentinels.fill(0xffffffff);
+      d.queue.writeBuffer(this.visibleBuffer, 0, gpuSource(sentinels));
+      d.queue.writeBuffer(this.indirectBuffer, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
+    }
 
     this.emitLayout = d.createBindGroupLayout({
       label: "gpuParticles.emit",
@@ -279,7 +295,7 @@ export class GpuParticleSystem {
     const simMod = d.createShaderModule({ label: "gpuParticles.fullSim", code: PARTICLE_FULL_SIM_SHADER });
     const cullMod = d.createShaderModule({ label: "gpuParticles.cull", code: PARTICLE_CULL_SHADER });
     const resolveMod = d.createShaderModule({ label: "gpuParticles.resolve", code: PARTICLE_RESOLVE_SHADER });
-    void Promise.all([this.assertShader(emitMod), this.assertShader(simMod), this.assertShader(cullMod), this.assertShader(resolveMod)]);
+    await Promise.all([this.assertShader(emitMod), this.assertShader(simMod), this.assertShader(cullMod), this.assertShader(resolveMod)]);
 
     this.emitPipeline = d.createComputePipeline({
       label: "gpuParticles.emit",
@@ -362,18 +378,22 @@ export class GpuParticleSystem {
     if (budget > this.capacity) budget = this.capacity;
     this.emitAccumulator -= budget;
     this.lastEmitBudget = budget;
+    const emitBase = this.emitted >>> 0;
     this.emitted += budget;
-    this.writeEmitUniforms(budget);
+    this.writeEmitUniforms(budget, emitBase);
     this.writeSimUniforms(dt);
     this.writeCullUniforms(frame);
     this.writeRenderUniforms(frame);
-    // Reset indirect instanceCount before cull; keep vertexCount=6.
-    this.device.queue.writeBuffer(this.indirectBuffer!, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
-    // Restore identity visible list so a mock (no WGSL) still draws by instance index.
-    this.device.queue.writeBuffer(this.visibleBuffer!, 0, gpuSource(this.identityVisible));
+    // Reset indirect instanceCount before cull; keep vertexCount=6. Do not rewrite visible[] —
+    // cull compact owns [0,V); drawIndirect uses the compacted count (mock keeps capacity).
+    if (this.isMock) {
+      this.device.queue.writeBuffer(this.indirectBuffer!, 0, gpuSource(new Uint32Array([6, this.capacity, 0, 0])));
+    } else {
+      this.device.queue.writeBuffer(this.indirectBuffer!, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
+    }
   }
 
-  private writeEmitUniforms(budget: number): void {
+  private writeEmitUniforms(budget: number, emitBase: number): void {
     const buf = new ArrayBuffer(EMIT_UNIFORM_BYTES);
     const f = new Float32Array(buf);
     const u = new Uint32Array(buf);
@@ -401,6 +421,7 @@ export class GpuParticleSystem {
     u[20] = this.writeHead >>> 0;
     u[21] = budget >>> 0;
     u[22] = this.capacity >>> 0;
+    u[23] = emitBase >>> 0;
     this.device.queue.writeBuffer(this.emitUniform!, 0, gpuSource(new Uint8Array(buf)));
     this.writeHead = (this.writeHead + budget) % this.capacity;
   }
@@ -587,10 +608,8 @@ export class GpuParticleSystem {
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
-    // Draw capacity instances from the storage buffer. Dead / culled slots emit degenerate clips in
-    // the vertex shader. Indirect compaction feeds `visible[]` when the cull pass ran on a real GPU;
-    // the mock does not execute WGSL, so identity 0xFFFFFFFF entries keep instance_index addressing.
-    pass.draw(6, this.capacity);
+    // Compacted instance count from cull (or capacity on the mock). 0xFFFFFFFF visible slots are degenerate.
+    pass.drawIndirect(this.indirectBuffer!, 0);
     pass.end();
   }
 

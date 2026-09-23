@@ -41,7 +41,7 @@ and colour/size/rotation over life.
 - a 4-sample trail history buffer (ribbon draw deferred)
 - emit / full-sim / frustum+distance cull / billboard+soft render / resolve pipelines
 
-Emission is a ring-buffer compute write hashed from `(seed, emitIndex)` — deterministic for a seed.
+Emission is a ring-buffer compute write hashed from `(seed, emitBase + i)` (monotonic across ring wraps) — deterministic for a seed. Draw uses `drawIndirect` over the frustum/distance compacted list.
 Soft particles sample the scene depth attachment; stretched billboards elongate along velocity.
 
 ## CPU path (Phase 7 reference)

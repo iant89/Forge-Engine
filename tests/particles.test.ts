@@ -326,7 +326,7 @@ describe("particles — Phase 12 GPU system", () => {
         maxEmitsPerFrame: 4096,
         softParticles: true,
       });
-      system.init();
+      await system.init();
       expect(system.ready).toBe(true);
       expect(system.entityCount()).toBe(0);
       expect(system.capacity).toBe(100_000);
@@ -394,7 +394,7 @@ describe("particles — Phase 12 GPU system", () => {
     try {
       for (const capacity of [10_000, 50_000, 100_000]) {
         const system = new GpuParticleSystem(gpu, { capacity, seed: capacity, maxEmitsPerFrame: 1024 });
-        system.init();
+        await system.init();
         const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
         system.prepare({
           dt: 1 / 60,
@@ -419,7 +419,7 @@ describe("particles — Phase 12 GPU system", () => {
     try {
       const scene = new Scene({ name: "gpu-particles" });
       const world = new GpuParticleWorld({ capacity: 100_000, seed: 3, name: "gpu" });
-      world.attachDevice(gpu);
+      await world.attachDevice(gpu);
       scene.add(world);
       expect(world.system?.ready).toBe(true);
       expect(world.system?.entityCount()).toBe(0);
@@ -453,5 +453,103 @@ describe("particles — Phase 12 GPU system", () => {
     const c = hash2(seed, 1);
     expect(a).toBe(b);
     expect(a).not.toBe(c);
+  });
+
+  it("soft-particle fade samples framebuffer pixel coords, not clip/NDC", () => {
+    // Fragment @builtin(position) is pixel xy + depth z; dividing by w collapses UVs to a corner.
+    expect(PARTICLE_RENDER_SHADER).toContain("vec2<i32>(in.clip.xy)");
+    expect(PARTICLE_RENDER_SHADER).toContain("let particleZ = in.clip.z;");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/in\.clip\.xy\s*\/\s*max\(in\.clip\.w/);
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/particleZ\s*=\s*in\.clip\.z\s*\/\s*max\(in\.clip\.w/);
+  });
+
+  it("cull draw uses compacted visible list + drawIndirect (no instance_index identity fallback)", async () => {
+    expect(PARTICLE_RENDER_SHADER).toContain("particleIndex == 0xffffffffu");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/select\(\s*inst\s*,\s*particleIndex/);
+    expect(PARTICLE_EMIT_SHADER).toContain("params.emitBase + want");
+
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 256, seed: 1, maxEmitsPerFrame: 32 });
+      await system.init();
+      const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap-cull",
+        size: { width: 32, height: 16 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth-cull",
+        size: { width: 32, height: 16 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (ctx) => {
+          ctx.beginRenderPass().end();
+        },
+      });
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      graph.execute();
+      const draws = gpu.mock.commandLog.filter((r) => r.type === "draw" && (r as { indirect?: boolean }).indirect);
+      expect(draws.length).toBeGreaterThan(0);
+      expect(gpu.mock.errors).toEqual([]);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("attachDevice latches failure and does not dispose/recreate every frame", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 9, name: "fail-latch" });
+      const originalInit = GpuParticleSystem.prototype.init;
+      let initCalls = 0;
+      GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+        initCalls++;
+        throw new Error("forced init failure");
+      };
+      try {
+        await world.attachDevice(gpu);
+        expect(world.attachFailed).toBe(true);
+        expect(world.system?.ready).toBe(false);
+        const firstSystem = world.system;
+        await world.attachDevice(gpu);
+        await world.attachDevice(gpu);
+        expect(initCalls).toBe(1);
+        expect(world.system).toBe(firstSystem);
+        world.clearAttachFailure();
+        await world.attachDevice(gpu);
+        expect(initCalls).toBe(2);
+      } finally {
+        GpuParticleSystem.prototype.init = originalInit;
+      }
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
   });
 });

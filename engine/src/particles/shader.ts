@@ -5,7 +5,7 @@
  * {@link runParticleGravityCheck} — it must remain lockstep with {@link integrateParticle}.
  *
  * The Phase 12 path uses emit + full sim + cull + billboard/soft render shaders. Vertex pulling
- * draws from the storage buffer (`draw(6, N)`); there are no per-particle ECS entities.
+ * draws from the storage buffer via `drawIndirect` over the compacted visible list; there are no per-particle ECS entities.
  */
 
 /** Workgroup size shared by every particle compute pass. */
@@ -118,7 +118,7 @@ fn valueNoise3(p: vec3<f32>, seed: u32) -> f32 {
 
 /**
  * GPU emission. Ring-buffer write: invocation `i` writes slot `(writeHead + i) % capacity`.
- * Spawn parameters are hashed from `(seed, frameEmitIndex)` so a seed is deterministic.
+ * Spawn parameters are hashed from `(seed, emitBase + i)` (monotonic) so a seed is deterministic across ring wraps.
  */
 export const PARTICLE_EMIT_SHADER = /* wgsl */ `
 ${PARTICLE_COMMON_WGSL}
@@ -138,6 +138,7 @@ struct EmitParams {
   writeHead: u32,
   emitBudget: u32,
   capacity: u32,
+  emitBase: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
@@ -173,7 +174,8 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
     return;
   }
   let slot = (params.writeHead + want) % params.capacity;
-  let emitIndex = params.writeHead + want;
+  // Monotonic emit base keeps the hash stream unique across ring wraps.
+  let emitIndex = params.emitBase + want;
   let h0 = hash2(params.seed, emitIndex * 6u + 1u);
   let h1 = hash2(params.seed, emitIndex * 6u + 2u);
   let h2 = hash2(params.seed, emitIndex * 6u + 3u);
@@ -358,9 +360,15 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
 @vertex fn vsMain(@builtin(vertex_index) vid: u32, @builtin(instance_index) inst: u32) -> VSOut {
   var out: VSOut;
   let particleIndex = visible[inst];
-  let idx = select(inst, particleIndex, particleIndex != 0xffffffffu);
-  let p = particles[idx];
   out.softEnabled = params.flags & 1u;
+  // 0xFFFFFFFF = compacted-list sentinel (culled / unused). Never fall back to instance_index.
+  if (particleIndex == 0xffffffffu) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.color = vec4<f32>(0.0);
+    out.uv = vec2<f32>(0.0);
+    return out;
+  }
+  let p = particles[particleIndex];
   if (p.flags < 0.5 || p.life <= 0.0) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.color = vec4<f32>(0.0);
@@ -402,13 +410,12 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   let edge = smoothstep(0.5, 0.35, r);
   var alpha = in.color.a * edge;
   if (in.softEnabled != 0u && params.softScale > 0.0) {
-    let dims = vec2<f32>(textureDimensions(depthTex));
-    let ndc = in.clip.xy / max(in.clip.w, 1e-6);
-    let uv = ndc * 0.5 + vec2<f32>(0.5);
-    let px = vec2<i32>(i32(clamp(uv.x, 0.0, 1.0) * (dims.x - 1.0)), i32(clamp(1.0 - uv.y, 0.0, 1.0) * (dims.y - 1.0)));
+    // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
+    let dims = vec2<i32>(textureDimensions(depthTex));
+    let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
     let sceneDepth = textureLoad(depthTex, px, 0);
-    let particleZ = in.clip.z / max(in.clip.w, 1e-6);
-    let soft = saturate((sceneDepth - particleZ) * params.softScale * dims.y);
+    let particleZ = in.clip.z;
+    let soft = saturate((sceneDepth - particleZ) * params.softScale * f32(dims.y));
     alpha = alpha * max(soft, 0.05);
   }
   if (alpha < 0.004) {

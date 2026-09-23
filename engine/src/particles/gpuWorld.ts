@@ -26,6 +26,11 @@ export class GpuParticleWorld extends SceneObject {
   private readonly scratchRight = new Vec3();
   private readonly scratchUp = new Vec3();
   private lastDt = 1 / 60;
+  /** Latched when init throws; stops per-frame attachDevice from dispose/recreate forever. */
+  private initFailed = false;
+  /** True while an async init is in flight. */
+  private initPending = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(options: GpuParticleWorldOptions) {
     super();
@@ -38,18 +43,45 @@ export class GpuParticleWorld extends SceneObject {
     return this._system;
   }
 
-  /** Bind the engine GPU device and kick off async pipeline creation. */
-  attachDevice(gpu: GraphicsDevice): void {
-    if (this.gpu === gpu && this._system?.ready) return;
+  /** True after a failed init until {@link clearAttachFailure} or a different device is attached. */
+  get attachFailed(): boolean {
+    return this.initFailed;
+  }
+
+  /**
+   * Bind the engine GPU device and kick off pipeline creation.
+   * On failure, latches an error state and does not retry on subsequent calls for the same device
+   * (the renderer invokes this every frame). Call {@link clearAttachFailure} to allow a retry.
+   * Returns a promise that settles when init finishes (callers may ignore it).
+   */
+  attachDevice(gpu: GraphicsDevice): Promise<void> {
+    if (this.gpu === gpu && this._system?.ready) return Promise.resolve();
+    if (this.gpu === gpu && this.initFailed) return Promise.resolve();
+    if (this.gpu === gpu && this.initPending && this.initPromise) return this.initPromise;
+    if (this.gpu !== gpu) {
+      this.initFailed = false;
+    }
     this.gpu = gpu;
     if (this._system) this._system.dispose();
     const system = new GpuParticleSystem(gpu, this.options);
     this._system = system;
-    try {
-      system.init();
-    } catch (err) {
-      console.error("GpuParticleWorld init failed", err);
-    }
+    this.initPending = true;
+    this.initFailed = false;
+    this.initPromise = system
+      .init()
+      .catch((err) => {
+        this.initFailed = true;
+        console.error("GpuParticleWorld init failed", err);
+      })
+      .finally(() => {
+        this.initPending = false;
+      });
+    return this.initPromise;
+  }
+
+  /** Allow the next {@link attachDevice} call to retry after a latched failure. */
+  clearAttachFailure(): void {
+    this.initFailed = false;
   }
 
   override update(_context: SystemContext, dt: number): void {
