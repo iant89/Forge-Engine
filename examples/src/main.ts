@@ -42,6 +42,7 @@ import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
+import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -68,6 +69,13 @@ async function main(): Promise<void> {
   const platform = detectPlatform();
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info" });
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
+
+  // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
+  // Mars Showcase is not buried under three panels; panels stay in the DOM for `__forge`/gates.
+  const toolbarMenu = attachToolbarMenu({
+    toolbar: document.getElementById("toolbar"),
+    toggle: document.getElementById("toolbar-toggle"),
+  });
 
   let currentHandle: DemoSceneHandle | null = null;
   let controls: OrbitControls | null = null;
@@ -129,7 +137,8 @@ async function main(): Promise<void> {
     btnTmReinhard?.classList.toggle("active", settings.toneMapping === "reinhard");
     btnTmNone?.classList.toggle("active", settings.toneMapping === "none");
     // Scene modules own their camera policy (starting framing, zoom range, surface constraint).
-    controls = new OrbitControls(currentHandle.cameraEntity, canvas).configure(currentHandle.camera ?? {});
+    // Pass the setup into the constructor so the first pose is the scene's, not the defaults.
+    controls = new OrbitControls(currentHandle.cameraEntity, canvas, currentHandle.camera ?? {});
   }
 
   loadScene(activeSceneName);
@@ -377,7 +386,15 @@ async function main(): Promise<void> {
       const terrain = currentHandle?.scene.object<TerrainWorld>("TerrainWorld");
       return terrain ? terrain.getHeightAt(x, z) : null;
     },
+    /** Toolbar hamburger: open/close the DEMO SCENE / TONE MAPPING / RENDERING panels. */
+    toolbarMenu: {
+      isOpen: () => toolbarMenu.isOpen(),
+      open: () => toolbarMenu.open(),
+      close: () => toolbarMenu.close(),
+      toggle: () => toolbarMenu.toggle(),
+    },
     dispose: () => {
+      toolbarMenu.dispose();
       engine.stop();
       currentHandle?.dispose?.();
       engine.dispose();

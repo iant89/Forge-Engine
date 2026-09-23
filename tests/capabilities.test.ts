@@ -212,7 +212,10 @@ describe("Phase 9.6 — known-issue enforcement", () => {
   });
 
   it("runs the docs:check gate itself clean", () => {
-    const output = execFileSync(process.execPath, [path.join(root, "tools/docs-check.mjs")], {
+    // `tools/docs-check.mjs` imports the TypeScript capability registry; plain `node` cannot load
+    // `.ts` here, so we drive it the same way `npm run docs:check` does (`vite-node`).
+    const viteNode = path.join(root, "node_modules", "vite-node", "vite-node.mjs");
+    const output = execFileSync(process.execPath, [viteNode, path.join(root, "tools/docs-check.mjs")], {
       cwd: root,
       encoding: "utf-8",
     });

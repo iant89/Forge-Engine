@@ -267,14 +267,20 @@ export async function loadGlb(device: GraphicsDevice, url: string): Promise<Load
     material.setColor(new Color(base[0] ?? 1, base[1] ?? 1, base[2] ?? 1, base[3] ?? 1));
     materials.push(material);
     const promise = (async () => {
-      if (pbr.baseColorTexture) {
-        material.albedoMap = await textureFor(pbr.baseColorTexture.index, true, `${material.label}.albedo`);
-      }
-      if (src.normalTexture) {
-        material.normalMap = await textureFor(src.normalTexture.index, false, `${material.label}.normal`);
-      }
-      if (pbr.metallicRoughnessTexture) {
-        material.metallicRoughnessMap = await textureFor(pbr.metallicRoughnessTexture.index, false, `${material.label}.mr`);
+      // `setMaps` clears the bind group and bumps revision — assigning the fields directly would
+      // leave a stale group bound if `ensureGpu` had already run (Safari WebGPU is especially
+      // unforgiving about sampling a 1×1 white default after the real albedo was swapped in).
+      const albedo = pbr.baseColorTexture
+        ? await textureFor(pbr.baseColorTexture.index, true, `${material.label}.albedo`)
+        : undefined;
+      const normal = src.normalTexture
+        ? await textureFor(src.normalTexture.index, false, `${material.label}.normal`)
+        : undefined;
+      const metallicRoughness = pbr.metallicRoughnessTexture
+        ? await textureFor(pbr.metallicRoughnessTexture.index, false, `${material.label}.mr`)
+        : undefined;
+      if (albedo !== undefined || normal !== undefined || metallicRoughness !== undefined) {
+        material.setMaps({ albedo, normal, metallicRoughness });
       }
       return material;
     })();

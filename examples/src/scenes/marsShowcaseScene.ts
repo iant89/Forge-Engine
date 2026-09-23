@@ -271,13 +271,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   // Camera: chase framing; `followTarget` tracks the chassis and the surface clamp glides over
   // the terrain (keyboard pan off — the scene binds WASD to the rover).
   const groundY = terrain.getHeightAt(SPAWN_X, SPAWN_Z);
+  // Pin the sky's observer height to the surface the rover stands on. With `seaLevel` left at 0 the
+  // atmosphere treats the camera as tens of metres above the virtual planet ground while the mesh
+  // sits at `groundY`, and on tall phone viewports that mismatch reads as a flat beige disc with
+  // the rover lost in the haze.
+  scene.settings.sky.seaLevel = groundY;
+  // Seed streaming focus on the spawn before the first engine update copies the camera — warm-up
+  // then fills the disc under the rover instead of whatever default eye the orbit controller had.
+  terrain.focusPosition.set(SPAWN_X, groundY, SPAWN_Z);
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(SPAWN_X - 8, groundY + 5, SPAWN_Z - 10));
   const camera = new Camera();
   camera.fovY = Math.PI / 3;
-  camera.near = 0.4;
-  camera.far = 12000;
+  camera.near = 0.35;
+  camera.far = 8000;
   scene.world.addComponent(cameraEntity.id, camera);
-
   // ---------------------------------------------------------------- rover (six wheels)
   const ground = heightFunctionGround((x, z) => terrain.getHeightAt(x, z));
   const config = {
@@ -458,20 +465,26 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     cameraEntity,
     controlsHint: "WASD / arrows drive · Space handbrake · Drag to orbit · Scroll zoom",
     camera: {
-      target: new Vec3(SPAWN_X, groundY + 1.2, SPAWN_Z),
+      target: new Vec3(SPAWN_X, groundY + 1.35, SPAWN_Z),
       // Keep the rover large enough to read immediately on laptop/phone-sized canvases; users can
-      // still zoom out for a wider terrain view.
-      distance: 9.5,
-      minDistance: 4,
+      // still zoom out for a wider terrain view. Elevation stays modest so tall (portrait) viewports
+      // show ground under the chassis instead of a sky-only beige slab.
+      distance: 8.5,
+      minDistance: 3.5,
       maxDistance: 120,
       azimuth: 0.55,
-      elevation: 0.34,
-      groundClearance: 2,
+      elevation: 0.28,
+      // Follow-cam clearance: 2 m used to hoist the orbit target above the chassis every frame and
+      // tip the eye toward the horizon haze on phone aspect ratios.
+      groundClearance: 0.85,
       groundHeight: (x, z) => terrain.getHeightAt(x, z),
       keyboard: false,
     },
-    followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1.1, z: vehicle.position.z }),
+    followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1.35, z: vehicle.position.z }),
     update(): void {
+      // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
+      // leaving the spawn height in place while the camera follows across a changing landscape.
+      scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;

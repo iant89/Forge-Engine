@@ -20,7 +20,7 @@
     "demo:mars": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=terrain\"",
     "demo:showcase": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=mars-showcase\"",
     "lint:arch": "node tools/lint-arch.mjs",
-    "docs:check": "node tools/docs-check.mjs",
+    "docs:check": "vite-node tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",
     "check:browser": "node tools/browser-check.mjs",

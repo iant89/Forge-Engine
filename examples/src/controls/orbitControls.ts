@@ -114,11 +114,16 @@ export class OrbitControls {
   constructor(
     private readonly cameraEntity: Entity,
     canvas: HTMLElement,
+    initial?: OrbitCameraSetup,
   ) {
     this.handle = cameraEntity.transform;
     this.canvas = canvas;
     this.bindEvents();
-    this.update();
+    // Apply the scene's framing *before* the first `update`, so we never park the camera on the
+    // default target (0, 1.2, 0) for a frame — that flash used to steal TerrainWorld's warm-up
+    // focus and leave the opening Mars Showcase looking at empty sky.
+    if (initial) this.configure(initial);
+    else this.update();
   }
 
   // ------------------------------------------------------------------ configuration
