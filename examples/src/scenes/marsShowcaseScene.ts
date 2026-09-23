@@ -25,6 +25,12 @@ import {
   Color,
   type Engine,
   type Entity,
+  GeneratorPipeline,
+  HeightGenerator,
+  CraterGenerator,
+  ErosionGenerator,
+  BiomeGenerator,
+  ScatterGenerator,
   Light,
   MARS_ATMOSPHERE,
   Material,
@@ -74,8 +80,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
 }
 
 /** Rover spawn on the terrain heightfield (placeOnGround drops it onto the surface). */
-const SPAWN_X = 0;
-const SPAWN_Z = 0;
+const SPAWN_X = -16;
+const SPAWN_Z = 18;
 
 /**
  * Hub centres measured from the converted GLB (`scripts/convert-perseverance.mjs` prints them):
@@ -205,15 +211,28 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let marsMaps: PbrTextureSet | null = createMarsRegolithTextures(gpu, 512);
   const terrainMat = new Material({
     label: "showcase-regolith",
-    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0x9c482b),
+    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0xc25127),
     roughness: marsMaps ? 1.0 : 0.88,
     metallic: 0.04,
     tiling: marsMaps ? [16, 16] : undefined,
     albedoMap: marsMaps?.albedo ?? null,
     normalMap: marsMaps?.normal ?? null,
     metallicRoughnessMap: marsMaps?.metallicRoughness ?? null,
-    normalScale: 1.0,
+    normalScale: 1.6,
   });
+  const heightOptions = {
+    amplitude: 65,
+    frequency: 1 / 260,
+    octaves: 6,
+    ridgeWeight: 0.45,
+  };
+  const pipeline = new GeneratorPipeline()
+    .addStage(new HeightGenerator(heightOptions))
+    .addStage(new CraterGenerator({ density: 0.5, minRadius: 18, maxRadius: 55, depthRatio: 0.32, rimRatio: 0.16 }))
+    .addStage(new CraterGenerator({ density: 0.7, minRadius: 6, maxRadius: 16, depthRatio: 0.25, rimRatio: 0.12 }))
+    .addStage(new ErosionGenerator({ iterations: 2, talusAngle: 0.65 }))
+    .addStage(new BiomeGenerator())
+    .addStage(new ScatterGenerator());
   const terrain = new TerrainWorld({
     seed: 42137,
     chunkSize: 128,
@@ -224,12 +243,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     maxGenerationsPerFrame: 2,
     warmUpChunks: 48,
     material: terrainMat,
-    heightOptions: {
-      amplitude: 55,
-      frequency: 1 / 384,
-      octaves: 5,
-      ridgeWeight: 0.4,
-    },
+    pipeline,
+    heightOptions,
   });
   scene.add(terrain);
 
@@ -296,7 +311,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   vehicle.position.z = SPAWN_Z;
   vehicle.placeOnGround(ground);
   // Local Y that puts the model's ground plane on the terrain at equilibrium (≈ radius + rest − sag).
-  const bodyOffsetY = vehicle.position.y - terrain.getHeightAt(SPAWN_X, SPAWN_Z);
+  const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
 
   scene.world.registerSystem(new VehicleSystem());
 

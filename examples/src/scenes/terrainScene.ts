@@ -79,7 +79,7 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   }
   const terrainMat = new Material({
     label: "mars-regolith",
-    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0x9c482b),
+    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0xc25127),
     roughness: marsMaps ? 1.0 : 0.88,
     metallic: 0.04,
     // 16 tiles × 128 m chunk = one 8 m repeat; integer tiling keeps chunk borders seamless
@@ -88,7 +88,7 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
     albedoMap: marsMaps?.albedo ?? null,
     normalMap: marsMaps?.normal ?? null,
     metallicRoughnessMap: marsMaps?.metallicRoughness ?? null,
-    normalScale: 1.0,
+    normalScale: 1.6,
   });
 
   // Streaming budget: 128 m chunks at 33x33 (4 m cells) cost ~7 ms each to generate on a desktop

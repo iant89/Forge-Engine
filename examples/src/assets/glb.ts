@@ -197,18 +197,22 @@ export async function loadGlb(device: GraphicsDevice, url: string): Promise<Load
         const bitmap = await createImageBitmap(new Blob([bytes.slice()], { type: image.mimeType ?? "image/png" }));
         const { width, height } = bitmap;
         if (!readbackCanvas) {
-          readbackCanvas = new OffscreenCanvas(width, height);
-          readbackCtx = readbackCanvas.getContext("2d", { willReadFrequently: true });
+          readbackCanvas =
+            typeof OffscreenCanvas !== "undefined"
+              ? new OffscreenCanvas(width, height)
+              : (document.createElement("canvas") as unknown as OffscreenCanvas);
+          readbackCtx = readbackCanvas.getContext("2d", { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D | null;
         } else if (readbackCanvas.width < width || readbackCanvas.height < height) {
           readbackCanvas.width = Math.max(readbackCanvas.width, width);
           readbackCanvas.height = Math.max(readbackCanvas.height, height);
+          readbackCtx = readbackCanvas.getContext("2d", { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D | null;
         }
         if (!readbackCtx || !readbackCanvas) throw new Error("OffscreenCanvas 2d context unavailable");
         readbackCtx.clearRect(0, 0, readbackCanvas.width, readbackCanvas.height);
         readbackCtx.drawImage(bitmap, 0, 0);
         const imageData = readbackCtx.getImageData(0, 0, width, height);
         bitmap.close();
-        return { width, height, pixels: new Uint8Array(imageData.data.buffer.slice(0, imageData.data.length)) };
+        return { width, height, pixels: new Uint8Array(imageData.data) };
       } catch (error) {
         console.warn(`loadGlb: image "${image.name ?? sourceIndex}" failed, using factors`, error);
         return null;
