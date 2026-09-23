@@ -275,6 +275,8 @@ export class Vehicle {
   private readonly yawQuat = new Quat();
   private readonly pitchQuat = new Quat();
   private readonly rollQuat = new Quat();
+  /** Scratch for shared body-axis → world ω mapping (writeAngularVelocity / hubVelocity). */
+  private readonly scratchOmega = new Vec3();
   private prevVx = 0;
   private prevVy = 0;
   private prevVz = 0;
@@ -379,13 +381,23 @@ export class Vehicle {
 
   /**
    * World-space angular velocity from body-axis Euler rates (rad/s).
-   * After {@link rebuildBasis}: ω = pitchRate·right + yawRate·up + rollRate·forward.
+   * After {@link rebuildBasis}: ω = −pitchRate·right + yawRate·up + rollRate·forward.
+   * Pitch is negated so positive pitchRate (nose-up) matches {@link writeRotation}'s −pitch Euler
+   * (local +X RH spin is nose-down in Y-up / +Z-forward).
    */
   writeAngularVelocity(out: Vec3): Vec3 {
     this.rebuildBasis();
-    out.x = this.pitchRate * this.right.x + this.yawRate * this.up.x + this.rollRate * this.forward.x;
-    out.y = this.pitchRate * this.right.y + this.yawRate * this.up.y + this.rollRate * this.forward.y;
-    out.z = this.pitchRate * this.right.z + this.yawRate * this.up.z + this.rollRate * this.forward.z;
+    return this.writeBodyAngularVelocity(out);
+  }
+
+  /**
+   * Map body-axis Euler rates to world ω (basis must already be current).
+   * Shared by chassis sync and hubVelocity so the pitch sign cannot drift.
+   */
+  private writeBodyAngularVelocity(out: Vec3): Vec3 {
+    out.x = -this.pitchRate * this.right.x + this.yawRate * this.up.x + this.rollRate * this.forward.x;
+    out.y = -this.pitchRate * this.right.y + this.yawRate * this.up.y + this.rollRate * this.forward.y;
+    out.z = -this.pitchRate * this.right.z + this.yawRate * this.up.z + this.rollRate * this.forward.z;
     return out;
   }
 
@@ -629,7 +641,8 @@ export class Vehicle {
     // plus a critically-damped spring toward the geometric axle orientation while >= 3 wheels plant.
     // Airborne / sparse contact: spring is off so rates carry momentum (jump / unload / rollover).
     const torqueScale = 0.35;
-    this.pitchRate = f32(this.pitchRate + ((pitchTorque * torqueScale) / c.inertiaPitch) * dt);
+    // Negate pitch torque: τ·right > 0 is nose-down RH about +right; pitchRate is nose-up.
+    this.pitchRate = f32(this.pitchRate + ((-pitchTorque * torqueScale) / c.inertiaPitch) * dt);
     this.rollRate = f32(this.rollRate + ((rollTorque * torqueScale) / c.inertiaRoll) * dt);
     if (contactCount >= 3) {
       const target = this.estimateGroundOrientation(ground);
@@ -842,10 +855,11 @@ export class Vehicle {
     const rx = w.contactX - this.position.x;
     const ry = w.contactY - this.position.y;
     const rz = w.contactZ - this.position.z;
-    // Full ω×r with body-axis rates mapped to world (same basis as writeAngularVelocity).
-    const wx = this.pitchRate * this.right.x + this.yawRate * this.up.x + this.rollRate * this.forward.x;
-    const wy = this.pitchRate * this.right.y + this.yawRate * this.up.y + this.rollRate * this.forward.y;
-    const wz = this.pitchRate * this.right.z + this.yawRate * this.up.z + this.rollRate * this.forward.z;
+    // Full ω×r via the shared body-axis → world mapping (pitch sign matches chassis sync).
+    const omega = this.writeBodyAngularVelocity(this.scratchOmega);
+    const wx = omega.x;
+    const wy = omega.y;
+    const wz = omega.z;
     return {
       x: this.velocity.x + (wy * rz - wz * ry),
       z: this.velocity.z + (wx * ry - wy * rx),

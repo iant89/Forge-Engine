@@ -137,8 +137,8 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     vehicle.yawRate = 0;
     vehicle.rollRate = 0;
     syncVehicleChassis(vehicle, chassis);
-    // Facing +Z, right ≈ +X: pitchRate · right → world +X (nose-up rate about right).
-    expect(chassis.angularVelocity.x).toBeCloseTo(2, 5);
+    // Facing +Z, right ≈ +X: −pitchRate · right → world −X (nose-up; +X RH spin is nose-down).
+    expect(chassis.angularVelocity.x).toBeCloseTo(-2, 5);
     expect(Math.abs(chassis.angularVelocity.y)).toBeLessThan(1e-6);
     expect(Math.abs(chassis.angularVelocity.z)).toBeLessThan(1e-6);
   });
@@ -180,8 +180,8 @@ describe("adversarial auto-fix — raycast exclude / hubVelocity", () => {
     // rebuildBasis via a zero-length-safe path: writeAngularVelocity
     vehicle.writeAngularVelocity({ x: 0, y: 0, z: 0 } as any);
     const hub = (vehicle as any).hubVelocity(w) as { x: number; z: number };
-    // ω ≈ (3,0,0), r ≈ (0,-0.5,1) → ω×r = (0, -3, -1.5) so vz = -1.5
-    expect(hub.z).toBeCloseTo(-1.5, 5);
+    // ω ≈ (−3,0,0) for pitchRate=3 (nose-up), r ≈ (0,-0.5,1) → ω×r z = wx·ry = (−3)·(−0.5) = 1.5
+    expect(hub.z).toBeCloseTo(1.5, 5);
     expect(Math.abs(hub.x)).toBeLessThan(1e-6);
   });
 });
