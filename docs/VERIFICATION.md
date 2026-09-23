@@ -62,8 +62,8 @@ heights); elevation clamps; the surface constraint holds the target *and* the ey
 `groundHeight + groundClearance` across a full zoom sweep, both elevation extremes and a pan that
 would bury the target; and the camera's world matrix looks at the orbit target. The terrain demo's own
 preset is asserted too: it starts inside its declared range, can zoom out, stays above the terrain at
-every zoom level, keeps a modest far/near depth ratio with a non-zero sky `seaLevel` (fe-14 iOS orbit
-moiré), and its elevation queries match an independently generated tile of the same cell (the bare
+every zoom level, keeps a modest far/near depth ratio with sky `seaLevel` pinned to the orbit
+look-at (fe-14 iOS orbit moiré), and its elevation queries match an independently generated tile of the same cell (the bare
 `HeightGenerator` disagrees by up to 26 m on that seed, which is how the camera used to sink through
 crater rims).
 
@@ -71,7 +71,8 @@ crater rims).
 
 `Texture.fromRgba8(..., { mipmaps: true })` must upload every level, not just level 0: empty higher
 mips turn tiled terrain albedo/normals into grazing-angle sparkle on mobile. The suite pins the
-box-filter average and that an 8×8 upload accounts for the full 8²+4²+2²+1² chain.
+box-filter average (linear bytes, sRGB→linear→sRGB for albedo, unpack/average/renormalize for
+normals) and that an 8×8 upload accounts for the full 8²+4²+2²+1² chain.
 
 ### `tests/demoSceneSelection.test.ts` — first scene and deep links
 

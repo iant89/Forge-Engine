@@ -12,6 +12,7 @@
 import { TextureUsage, gpuSource } from "../gpu/constants.js";
 import { formatInfo, maxMipLevels, textureSizeBytes } from "../gpu/formats.js";
 import { ResourceLifecycleError, UsageError } from "../core/errors.js";
+import { linearToSrgb, srgbToLinear } from "../math/scalar.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 
 export interface TextureDesc {
@@ -92,9 +93,18 @@ export class Texture {
   }
 
   /** 8-bit RGBA texture from CPU pixels (procedural textures, editor thumbnails, LUTs). */
-  static fromRgba8(device: GraphicsDevice, width: number, height: number, pixels: Uint8Array, options: { label?: string; srgb?: boolean; mipmaps?: boolean } = {}): Texture {
+  static fromRgba8(
+    device: GraphicsDevice,
+    width: number,
+    height: number,
+    pixels: Uint8Array,
+    options: { label?: string; srgb?: boolean; mipmaps?: boolean; normal?: boolean } = {},
+  ): Texture {
     const expected = width * height * 4;
     if (pixels.length < expected) throw new UsageError(`fromRgba8: expected at least ${expected} bytes, got ${pixels.length}`);
+    if (options.srgb && options.normal) {
+      throw new UsageError("fromRgba8: a normal map cannot be sRGB (tangent vectors must average in linear XYZ)");
+    }
     const format: GPUTextureFormat = options.srgb ? "rgba8unorm-srgb" : "rgba8unorm";
     const mips = options.mipmaps === false ? 1 : maxMipLevels(width, height);
     const texture = Texture.create(device, {
@@ -105,11 +115,12 @@ export class Texture {
       usage: TextureUsage.TEXTURE_BINDING | TextureUsage.COPY_DST | TextureUsage.COPY_SRC,
       label: options.label ?? "rgba8",
     });
-    texture.writeRgba8(device, pixels, mips);
+    const filter: Rgba8MipFilter = options.normal ? "normal" : options.srgb ? "srgb" : "linear";
+    texture.writeRgba8(device, pixels, mips, filter);
     return texture;
   }
 
-  private writeRgba8(device: GraphicsDevice, pixels: Uint8Array, mips: number): void {
+  private writeRgba8(device: GraphicsDevice, pixels: Uint8Array, mips: number, filter: Rgba8MipFilter): void {
     let level = pixels.subarray(0, this.desc.width * this.desc.height * 4);
     let width = this.desc.width;
     let height = this.desc.height;
@@ -124,7 +135,7 @@ export class Texture {
       if (mip + 1 >= mips) break;
       const nextW = Math.max(1, width >> 1);
       const nextH = Math.max(1, height >> 1);
-      level = boxFilterRgba8(level, width, height, nextW, nextH);
+      level = boxFilterRgba8(level, width, height, nextW, nextH, filter);
       width = nextW;
       height = nextH;
     }
@@ -250,11 +261,19 @@ export class TextureDefaults {
   }
 }
 
+/** How `boxFilterRgba8` averages a 2×2 block into the next mip texel. */
+export type Rgba8MipFilter = "linear" | "srgb" | "normal";
+
 /**
  * Box-filter one rgba8 mip into the next. Averages 2×2 blocks (with clamp on odd edges) so
  * `fromRgba8(..., { mipmaps: true })` uploads a full chain instead of leaving higher mips
  * undefined — undefined mips read as garbage on some GPUs and as black on others, and either
  * way a tiled terrain albedo/normal without mips sparkles into moiré at grazing angles.
+ *
+ * Filter modes:
+ * - `linear` — average stored bytes (metallic-roughness, masks, generic rgba8unorm).
+ * - `srgb` — decode to linear light, average, re-encode (albedo / baseColor).
+ * - `normal` — unpack tangent-space XYZ, average, renormalize, pack (normal maps).
  */
 export function boxFilterRgba8(
   src: Uint8Array,
@@ -262,6 +281,7 @@ export function boxFilterRgba8(
   srcH: number,
   dstW: number,
   dstH: number,
+  filter: Rgba8MipFilter = "linear",
 ): Uint8Array {
   const dst = new Uint8Array(dstW * dstH * 4);
   for (let y = 0; y < dstH; y++) {
@@ -275,8 +295,37 @@ export function boxFilterRgba8(
       const i01 = (y1 * srcW + x0) * 4;
       const i11 = (y1 * srcW + x1) * 4;
       const o = (y * dstW + x) * 4;
-      for (let c = 0; c < 4; c++) {
-        dst[o + c] = ((src[i00 + c]! + src[i10 + c]! + src[i01 + c]! + src[i11 + c]!) + 2) >> 2;
+      if (filter === "srgb") {
+        for (let c = 0; c < 3; c++) {
+          const lin =
+            srgbToLinear(src[i00 + c]! / 255) +
+            srgbToLinear(src[i10 + c]! / 255) +
+            srgbToLinear(src[i01 + c]! / 255) +
+            srgbToLinear(src[i11 + c]! / 255);
+          dst[o + c] = Math.round(linearToSrgb(lin * 0.25) * 255);
+        }
+        dst[o + 3] = ((src[i00 + 3]! + src[i10 + 3]! + src[i01 + 3]! + src[i11 + 3]!) + 2) >> 2;
+      } else if (filter === "normal") {
+        let nx = 0;
+        let ny = 0;
+        let nz = 0;
+        for (const i of [i00, i10, i01, i11]) {
+          nx += src[i]! / 255 * 2 - 1;
+          ny += src[i + 1]! / 255 * 2 - 1;
+          nz += src[i + 2]! / 255 * 2 - 1;
+        }
+        nx *= 0.25;
+        ny *= 0.25;
+        nz *= 0.25;
+        const len = Math.hypot(nx, ny, nz) || 1;
+        dst[o] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+        dst[o + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+        dst[o + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+        dst[o + 3] = ((src[i00 + 3]! + src[i10 + 3]! + src[i01 + 3]! + src[i11 + 3]!) + 2) >> 2;
+      } else {
+        for (let c = 0; c < 4; c++) {
+          dst[o + c] = ((src[i00 + c]! + src[i10 + c]! + src[i01 + c]! + src[i11 + c]!) + 2) >> 2;
+        }
       }
     }
   }

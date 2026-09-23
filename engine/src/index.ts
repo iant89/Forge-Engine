@@ -143,7 +143,7 @@ export {
 
 // Resources
 export { ResourceRegistry, ResourceHandle, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
-export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc } from "./resources/texture.js";
+export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
 
 // Scene / ECS
 export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";

@@ -244,6 +244,23 @@ describe("Terrain demo camera preset", () => {
     handle.dispose?.();
   });
 
+  it("pins sky.seaLevel to terrain under the orbit look-at, not the eye", () => {
+    const { handle, controls } = terrainHarness();
+    const terrain = handle.scene.object<TerrainWorld>("TerrainWorld")!;
+    // Share the scene's target Vec3 with OrbitControls (configure assigns the reference).
+    expect(controls.target).toBe(handle.camera!.target);
+    // Move the look-at onto a different XZ; the eye stays offset by distance/elevation.
+    controls.target.set(180, terrain.getHeightAt(180, -90), -90);
+    controls.update();
+    handle.update(1 / 60);
+    const expected = terrain.getHeightAt(controls.target.x, controls.target.z);
+    expect(handle.scene.settings.sky.seaLevel).toBeCloseTo(expected, 5);
+    const eye = controls.eyePosition();
+    // Eye XZ differs from the look-at on a non-nadir orbit — that is the pumping case we avoid.
+    expect(Math.hypot(eye.x - controls.target.x, eye.z - controls.target.z)).toBeGreaterThan(10);
+    handle.dispose?.();
+  });
+
   it("answers elevation queries with the surface the mesh is built from, not the bare noise", () => {
     const { handle } = terrainHarness();
     const terrain = handle.scene.object<TerrainWorld>("TerrainWorld")!;

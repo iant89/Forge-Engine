@@ -107,6 +107,8 @@ export function buildRealisticTerrainScene(
 
   // Camera — start over a valley with good view of mountains
   const groundY = terrain.getHeightAt(0, 0);
+  // Shared with OrbitControls so seaLevel tracks the look-at, not eye XZ over ridges (fe-14).
+  const orbitTarget = new Vec3(0, groundY, 0);
   scene.settings.sky.seaLevel = groundY;
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, groundY + 30, 0));
   const camera = new Camera();
@@ -121,7 +123,7 @@ export function buildRealisticTerrainScene(
     scene,
     cameraEntity,
     camera: {
-      target: new Vec3(0, groundY, 0),
+      target: orbitTarget,
       distance: 500,
       azimuth: 0.6,
       elevation: 0.38,
@@ -131,8 +133,7 @@ export function buildRealisticTerrainScene(
       groundHeight: (x, z) => terrain.getHeightAt(x, z),
     },
     update: (_dt: number) => {
-      const eye = cameraEntity.transform.position;
-      scene.settings.sky.seaLevel = terrain.getHeightAt(eye.x, eye.z);
+      scene.settings.sky.seaLevel = terrain.getHeightAt(orbitTarget.x, orbitTarget.z);
     },
     dispose: () => {
       terrainMat.dispose();
