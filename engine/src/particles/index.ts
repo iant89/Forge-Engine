@@ -24,12 +24,23 @@ export {
   analyticGravity,
   type ParticleGravity,
 } from "./layout.js";
-export { PARTICLE_SIM_SHADER, PARTICLE_WORKGROUP } from "./shader.js";
+export {
+  PARTICLE_SIM_SHADER,
+  PARTICLE_WORKGROUP,
+  PARTICLE_EMIT_SHADER,
+  PARTICLE_FULL_SIM_SHADER,
+  PARTICLE_CULL_SHADER,
+  PARTICLE_RENDER_SHADER,
+  PARTICLE_RESOLVE_SHADER,
+} from "./shader.js";
 export {
   GravityModule,
   DragModule,
   ColorOverLifeModule,
   SizeOverLifeModule,
+  VelocityModule,
+  AttractorModule,
+  RotationOverLifeModule,
   sampleCone,
   type ParticleModule,
   type ColorStop,
@@ -39,6 +50,15 @@ export { ParticleEmitter, type EmitterOptions } from "./emitter.js";
 export { ParticleTrails } from "./trails.js";
 export { ParticleSimulation, type ParticleSimulationOptions } from "./simulation.js";
 export { runParticleGravityCheck, type ParticleGravityCheck, type ParticleGravityCheckOptions } from "./gpu.js";
+export {
+  GpuParticleSystem,
+  GPU_PARTICLE_DEPTH_USAGE,
+  type GpuParticleSystemOptions,
+  type GpuParticleEmitterConfig,
+  type GpuParticleModulesConfig,
+  type GpuParticleFrameInput,
+} from "./gpuSystem.js";
+export { GpuParticleWorld, findGpuParticleWorld, type GpuParticleWorldOptions } from "./gpuWorld.js";
 export { ParticleComponent, createParticleComponent } from "./components.js";
 export { ParticleSystem } from "./system.js";
 export { ParticleWorld } from "./world.js";
