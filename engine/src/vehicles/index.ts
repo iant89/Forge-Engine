@@ -22,7 +22,14 @@ export {
   type AeroConfig,
 } from "./drivetrain.js";
 export { flatGround, slopeGround, heightFunctionGround, type GroundQuery, type GroundSample } from "./ground.js";
-export { computeWheelLoads, axleLoad, type WheelLoadInput, type WheelLoads } from "./loads.js";
+export {
+  computeWheelLoads,
+  axleLoad,
+  distributeWheelLoads,
+  type WheelLoadInput,
+  type WheelLoads,
+  type NWheelLoadInput,
+} from "./loads.js";
 export {
   Vehicle,
   createVehicleConfig,

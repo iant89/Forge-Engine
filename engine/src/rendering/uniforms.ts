@@ -153,7 +153,8 @@ export const ObjectUniforms = new StructDef("ObjectUniforms", [
 /**
  * Instance stream element: a 4x4 matrix as four rows (a mat4x4 in a storage array would be
  * column-strided identically, and rows read better in the shader's `transpose`-free multiply) plus
- * per-instance tint/emissive/bone-batch fields. 96 bytes per instance.
+ * per-instance tint/emissive/flags/material fields. 80 bytes per instance — the renderer's
+ * arena records use this as their stride (see INSTANCE_STRIDE in renderer.ts).
  */
 export const InstanceStruct = new StructDef("InstanceData", [
   { name: "row0", type: vec4 },

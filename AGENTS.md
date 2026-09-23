@@ -76,7 +76,7 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      DayNightCycle (docs/ENVIRONMENT.md). Phase 8b (weather/clouds/water) goes here too.
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
-examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky.
+examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase.
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/               vitest suites (math, ecs, vehicles, particles, environment, terrain, physics, renderGraph, wgsl, …)
 benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)

@@ -37,6 +37,13 @@
  * state, and the two can only disagree if the buttons were wired to something else) — and it must
  * still be shown when the window goes back to a desktop width.
  *
+ * Rain/showcase addition: the storm preset must spawn visible rain (`weatherState().rainDrops >
+ * 0`), and the Mars showcase must load the Perseverance GLB with its six wheels found, settle them
+ * into terrain contact, and drive forward under W far enough to prove the drivetrain and kick up
+ * dust — all with no new GPU errors. Those waits poll state with wall-clock caps, because the
+ * showcase presents well under 1 fps on the software rasteriser and a frame-count settle would
+ * either race the model fetch or stall the gate for minutes.
+ *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
  * Playwright-managed install — launched as `channel: "chromium"`, the *full* build. Playwright's
@@ -619,10 +626,11 @@ try {
   await page.screenshot({ path: "tools/.browser-check-weather-storm.png" });
   console.log(
     `weather storm noon: mean ${wxStorm.mean.toFixed(2)} distinct=${wxStorm.distinct} cover=${wxStormState?.coverage} ` +
-      `clouds=${wxStormState?.clouds} deckWind=${wxStormState?.deckWind} gpuErrors=${wxStormStats.gpuErrors}`,
+      `clouds=${wxStormState?.clouds} deckWind=${wxStormState?.deckWind} rainDrops=${wxStormState?.rainDrops} gpuErrors=${wxStormStats.gpuErrors}`,
   );
   if (!(wxStormState.coverage > 0.9)) throw new Error(`storm preset did not overcast the deck (coverage ${wxStormState.coverage})`);
   if (!wxStormState.clouds) throw new Error("cloud deck did not report as shading under full overcast");
+  if (!(wxStormState.rainDrops > 0)) throw new Error("storm preset spawned no rain (weatherState().rainDrops is 0)");
   if (wxStormStats.gpuErrors !== 0 || wxStormStats.lastError) throw new Error(`storm weather GPU errors: ${wxStormStats.lastError}`);
   if (!(wxStorm.mean > wxClear.mean * 1.05)) {
     throw new Error(`overcast noon was not brighter than clear noon (${wxStorm.mean.toFixed(1)} vs ${wxClear.mean.toFixed(1)}): the deck is not drawing`);
@@ -785,6 +793,74 @@ try {
   });
   if (desktopPanel.display !== "block") throw new Error(`the weather button panel is not shown at desktop width (display ${desktopPanel.display})`);
   if (desktopPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the weather button panel at desktop width");
+
+  // Mars showcase: the Perseverance GLB must load (a fetch that 404s or a bad magic number used
+  // to leave the placeholder driving around), the six model wheels must be found and settle into
+  // terrain contact, and W must actually drive it — with the kick dust that proves the wheels are
+  // spinning, and zero new GPU errors. Everything here polls against *states* with wall-clock caps
+  // instead of counting frames: SwiftShader presents the showcase at well under 1 fps, so a fixed
+  // frame budget would either crawl for minutes or race the model fetch. The viewport is the
+  // 900×520 the panel check above just left us on — the heaviest scene runs ~4× slower at 1280×720.
+  await page.evaluate(() => window.__forge.loadScene("mars-showcase"));
+  const pollMars = async (label, predicate, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    let last = null;
+    while (Date.now() < deadline) {
+      last = await page.evaluate(() => window.__forge.marsState());
+      if (last && predicate(last)) return last;
+      await page.waitForTimeout(400);
+    }
+    throw new Error(`${label} (last state ${JSON.stringify(last)})`);
+  };
+  const marsLoaded = await pollMars(
+    "mars showcase: rover GLB did not load in 20s",
+    (s) => s.modelLoaded === true || s.modelError !== null,
+    20000,
+  );
+  console.log(
+    `mars showcase: modelLoaded=${marsLoaded.modelLoaded} wheels=${marsLoaded.wheelCount} contact=${marsLoaded.contactWheels}`,
+  );
+  if (!marsLoaded.modelLoaded) throw new Error(`mars showcase: rover model failed to load (${marsLoaded.modelError})`);
+  if (marsLoaded.wheelCount !== 6) throw new Error(`mars showcase: expected 6 model wheels, found ${marsLoaded.wheelCount}`);
+  const marsSettled = await pollMars(
+    "mars showcase: wheels never reached terrain contact (≥4 of 6) in 45s",
+    (s) => s.contactWheels >= 4,
+    45000,
+  );
+  const marsStatsBefore = await page.evaluate(() => window.__forge.stats());
+  if (marsStatsBefore.gpuErrors !== 0 || marsStatsBefore.lastError) {
+    throw new Error(`mars showcase GPU errors before driving: ${marsStatsBefore.lastError}`);
+  }
+  const zStart = marsSettled.z;
+  await page.keyboard.down("KeyW");
+  let maxSpeed = 0;
+  let maxKick = 0;
+  let marsDriven = null;
+  try {
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      marsDriven = await page.evaluate(() => window.__forge.marsState());
+      maxSpeed = Math.max(maxSpeed, marsDriven.speed ?? 0);
+      maxKick = Math.max(maxKick, marsDriven.kickDust ?? 0);
+      if (Math.abs(marsDriven.z - zStart) > 0.5) break;
+      await page.waitForTimeout(500);
+    }
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  const marsDz = marsDriven ? marsDriven.z - zStart : 0;
+  console.log(
+    `mars showcase drive: dz=${marsDz.toFixed(2)}m maxSpeed=${maxSpeed.toFixed(2)}m/s maxKickDust=${maxKick} ` +
+      `contact=${marsDriven?.contactWheels}`,
+  );
+  if (!(Math.abs(marsDz) > 0.5)) throw new Error(`mars showcase: W did not drive the rover (dz ${marsDz.toFixed(3)}m in 45s)`);
+  if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
+  if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
+  const marsStatsAfter = await page.evaluate(() => window.__forge.stats());
+  if (marsStatsAfter.gpuErrors !== marsStatsBefore.gpuErrors || marsStatsAfter.lastError) {
+    throw new Error(`mars showcase GPU errors while driving: ${marsStatsAfter.lastError}`);
+  }
+  await page.screenshot({ path: "tools/.browser-check-showcase.png" });
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;

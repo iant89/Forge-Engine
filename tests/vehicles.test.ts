@@ -15,6 +15,7 @@ import {
   axleLoad,
   computeWheelLoads,
   createVehicleConfig,
+  distributeWheelLoads,
   flatGround,
   pacejka,
   pacejkaPeakSlip,
@@ -138,6 +139,48 @@ describe("vehicles — Pacejka, drivetrain, loads", () => {
     expect(lift.fl).toBeGreaterThan(0);
   });
 
+  it("fits six-wheel loads through the hardpoints: sum = weight, transfer, non-negative", () => {
+    // Perseverance-style layout: front / middle / rear axles, +Z forward, +X right.
+    const mass = 1025;
+    const gravity = 3.72;
+    const weight = mass * gravity;
+    const wheels = [
+      { x: -1.1, z: 1.1 },
+      { x: 1.1, z: 1.1 },
+      { x: -1.2, z: -0.09 },
+      { x: 1.2, z: -0.09 },
+      { x: -1.1, z: -1.17 },
+      { x: 1.1, z: -1.17 },
+    ];
+    const cgHeight = 0.55;
+    const rest = distributeWheelLoads(wheels, { mass, gravity, cgHeight, ax: 0, ay: 0 });
+    expect(rest).toHaveLength(6);
+    let sum = 0;
+    for (const l of rest) {
+      expect(Number.isFinite(l)).toBe(true);
+      expect(l).toBeGreaterThanOrEqual(0);
+      sum += l;
+    }
+    expect(sum).toBeCloseTo(weight, 6);
+
+    // Accel (ax > 0) unloads the front axle pair; braking reverses it.
+    const accel = distributeWheelLoads(wheels, { mass, gravity, cgHeight, ax: 3, ay: 0 });
+    const frontA = accel[0]! + accel[1]!;
+    const rearA = accel[4]! + accel[5]!;
+    expect(rearA).toBeGreaterThan(frontA);
+    expect(accel.reduce((a, b) => a + b, 0)).toBeCloseTo(weight, 6);
+    const brake = distributeWheelLoads(wheels, { mass, gravity, cgHeight, ax: -3, ay: 0 });
+    expect(brake[0]! + brake[1]!).toBeGreaterThan(brake[4]! + brake[5]!);
+
+    // Lateral (+ay, accel right) loads the left wheels; hard transfers clamp at zero, never below.
+    const lat = distributeWheelLoads(wheels, { mass, gravity, cgHeight, ax: 0, ay: 3 });
+    const left = lat[0]! + lat[2]! + lat[4]!;
+    const right = lat[1]! + lat[3]! + lat[5]!;
+    expect(left).toBeGreaterThan(right);
+    const hard = distributeWheelLoads(wheels, { mass, gravity, cgHeight, ax: 0, ay: 60 });
+    for (const l of hard) expect(l).toBeGreaterThanOrEqual(0);
+  });
+
   it("scales drive torque down once slip exceeds the TC threshold", () => {
     expect(tractionControlScale(0.05, 0.12, 6)).toBe(1);
     expect(tractionControlScale(0.3, 0.12, 6)).toBeLessThan(0.2);
@@ -212,6 +255,52 @@ describe("vehicles — chassis", () => {
     expect(vehicle.ax).toBeLessThan(-1);
     const braking = vehicle.wheelLoads();
     expect(axleLoad(braking, "front")).toBeGreaterThan(axleLoad(braking, "rear"));
+  });
+
+  it("drives a six-wheel rover config with finite, non-negative per-wheel loads", () => {
+    const base = createVehicleConfig({ aero: null, mass: 1025, gravity: 3.72, wheelRadius: 0.264 });
+    const sixWheels = [
+      { x: -1.1, z: 1.1, driven: true, steered: true, handbrake: false },
+      { x: 1.1, z: 1.1, driven: true, steered: true, handbrake: false },
+      { x: -1.2, z: -0.09, driven: true, steered: false, handbrake: false },
+      { x: 1.2, z: -0.09, driven: true, steered: false, handbrake: false },
+      { x: -1.1, z: -1.17, driven: true, steered: true, handbrake: true },
+      { x: 1.1, z: -1.17, driven: true, steered: true, handbrake: true },
+    ];
+    const vehicle = new Vehicle({
+      ...base,
+      wheels: sixWheels,
+      wheelbase: 2.27,
+      track: 2.2,
+      cgToFront: 1.1,
+      cgHeight: 0.55,
+      springRate: (1025 * 3.72) / (6 * 0.05),
+    });
+    const ground = flatGround(0);
+    vehicle.placeOnGround(ground);
+    // The equilibrium sits on the six-wheel share of the weight, inside the travel.
+    expect(vehicle.equilibriumCompression()).toBeGreaterThan(0);
+    expect(vehicle.equilibriumCompression()).toBeLessThanOrEqual(vehicle.config.suspensionTravel);
+
+    vehicle.input.throttle = 1;
+    run(vehicle, ground, 2);
+    expect(vehicle.position.z).toBeGreaterThan(0.5);
+    expect(Number.isFinite(vehicle.position.y)).toBe(true);
+    let restingSum = 0;
+    for (const w of vehicle.wheels) {
+      expect(Number.isFinite(w.normalLoad)).toBe(true);
+      expect(w.normalLoad).toBeGreaterThanOrEqual(0);
+      restingSum += w.normalLoad;
+    }
+    // Contact wheels between them carry the (possibly transferred) weight.
+    expect(restingSum).toBeGreaterThan(1025 * 3.72 * 0.5);
+    expect(restingSum).toBeLessThanOrEqual(1025 * 3.72 * 1.5);
+
+    // Handbrake + throttle-free settle still leaves sane loads.
+    vehicle.input.throttle = 0;
+    vehicle.input.handbrake = 1;
+    run(vehicle, ground, 0.5);
+    for (const w of vehicle.wheels) expect(w.normalLoad).toBeGreaterThanOrEqual(0);
   });
 
   it("upshifts under throttle within two seconds", () => {

@@ -138,7 +138,12 @@ interface PostParams {
 const FORWARD_Z = new Vec3(0, 0, 1);
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const TONE_MAP_MODE: Record<string, number> = { none: 0, reinhard: 1, aces: 2, filmic: 3 };
-const INSTANCE_STRIDE = 96;
+/**
+ * Bytes between instance records — the WGSL `InstanceData` array stride, *not* the arena spacing.
+ * A batch's window is relocated with a dynamic offset (256-aligned by WebGPU), so only the first
+ * record of a batch carries that alignment; the shader walks the rest at this stride.
+ */
+const INSTANCE_STRIDE = InstanceStruct.byteSize("storage");
 /** Dynamic-offset stride for uniform records (`minUniformBufferOffsetAlignment` baseline). */
 const UNIFORM_SLOT = 256;
 const MAX_POST_PASSES = 24;
@@ -178,6 +183,16 @@ export class Renderer implements RenderFrameContext {
     texturesCreated: 0,
   };
   instanceCount = 0;
+
+  /** Max instances one batch may share (`collectBatches` splits beyond it). */
+  private get maxInstancesPerBatch(): number {
+    return Math.max(1, this.options.maxInstancesPerBatch ?? 1024);
+  }
+
+  /** Bytes one instance window covers: the dynamic-offset binding size and the arena slack. */
+  private get instanceWindowBytes(): number {
+    return this.maxInstancesPerBatch * INSTANCE_STRIDE;
+  }
 
   // CPU-side uniform staging.
   private readonly frameBytes = new WriteBuffer(PerFrameUniforms.byteSize("uniform"));
@@ -1127,7 +1142,7 @@ export class Renderer implements RenderFrameContext {
     this.instanceArena.reset();
     const store = scene.world.store(Renderable);
     const camPos = camera.positionRender;
-    const maxInstances = Math.max(1, this.options.maxInstancesPerBatch ?? 1024);
+    const maxInstances = this.maxInstancesPerBatch;
     for (let i = 0; i < store.count; i++) {
       const r = store.valueAt(i) as Renderable;
       if (!r.visible || !r.geometry || !r.material) continue;
@@ -1149,7 +1164,20 @@ export class Renderer implements RenderFrameContext {
         shadowOnly = true;
       }
       const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}`;
-      const instanceOffset = this.instanceArena.reserve(INSTANCE_STRIDE, 256);
+      // Merge only when this record lands exactly at the previous batch's end — instances must
+      // be contiguous to share one draw, which is why batches are emitted in one pass. A new
+      // batch starts 256-aligned (the WebGPU dynamic-offset rule for the window in setBindGroup);
+      // continuation records sit at exactly +INSTANCE_STRIDE so the shader's
+      // `array<InstanceData>` walk reads them. Reserving *every* record at 256 made
+      // `offset + count * stride` never match, so each renderable became its own batch (the rain
+      // field alone turned a 24-draw scene into 1245).
+      const previousIndex = this.batchIndex.get(key);
+      const previous = previousIndex === undefined ? null : this.batchPool[previousIndex]!;
+      const canMerge =
+        previous !== null &&
+        previous.count < maxInstances &&
+        previous.instanceOffset + previous.count * INSTANCE_STRIDE === this.instanceArena.usedBytes;
+      const instanceOffset = canMerge ? this.instanceArena.reserve(INSTANCE_STRIDE, 1) : this.instanceArena.reserve(INSTANCE_STRIDE, 256);
       const base = instanceOffset >> 2;
       const f32 = this.instanceArena.target.f32;
       const u32 = this.instanceArena.target.u32;
@@ -1158,11 +1186,9 @@ export class Renderer implements RenderFrameContext {
       f32[base + 17] = r.emissive;
       u32[base + 18] = 0;
       u32[base + 19] = 0;
-      let index = this.batchIndex.get(key);
-      const existing = index === undefined ? null : this.batchPool[index]!;
-      // Instances must be contiguous to share one draw: the arena cursor is exactly one record
-      // past the previous instance of this batch, which is why batches are emitted in one pass.
-      if (existing && existing.instanceOffset + existing.count * INSTANCE_STRIDE === instanceOffset && existing.count < maxInstances) {
+      let index = previousIndex;
+      const existing = previous;
+      if (canMerge && existing) {
         existing.count++;
         existing.bounds.union(box);
         continue;
@@ -1331,7 +1357,10 @@ export class Renderer implements RenderFrameContext {
 
   private ensureArenas(): void {
     const needObject = alignUp(Math.max(this.objectArena.target.byteLength, 64 * 1024), 256);
-    const needInstance = alignUp(Math.max(this.instanceArena.target.byteLength, 64 * 1024), 256);
+    // One full instance window of slack past the written region: every batch start `o` then
+    // satisfies `o + instanceWindowBytes <= capacity`, which is exactly the WebGPU rule for a
+    // dynamic-offset binding of that size (see the draw bind group above).
+    const needInstance = alignUp(Math.max(this.instanceArena.usedBytes + this.instanceWindowBytes, 64 * 1024), 256);
     let rebuilt = false;
     if (needObject > this.objectBufferCapacity) {
       this.objectBuffer?.destroy();
@@ -1352,7 +1381,12 @@ export class Renderer implements RenderFrameContext {
         layout: draw,
         entries: [
           { binding: 0, resource: { buffer: this.objectBuffer!, size: ObjectUniforms.byteSize("uniform") } },
-          { binding: 1, resource: { buffer: this.instanceBuffer!, size: InstanceStruct.byteSize("storage") } },
+          // The instance binding is a dynamic-offset window: the shader walks up to
+          // `maxInstancesPerBatch` records past the offset, so the declared size is one full
+          // window (not the struct's 80 bytes — that made instance 1+ an OOB read). WebGPU also
+          // requires `dynamicOffset + size <= bufferSize`, which ensureArenas upholds by always
+          // leaving one window of slack past the written region.
+          { binding: 1, resource: { buffer: this.instanceBuffer!, size: this.instanceWindowBytes } },
         ],
       });
     }

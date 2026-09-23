@@ -28,7 +28,7 @@ import {
   type DrivetrainLayout,
 } from "./drivetrain.js";
 import type { GroundQuery, GroundSample } from "./ground.js";
-import { computeWheelLoads, type WheelLoads } from "./loads.js";
+import { computeWheelLoads, distributeWheelLoads, type WheelLoads } from "./loads.js";
 import { DEFAULT_LATERAL, DEFAULT_LONGITUDINAL, pacejka, pacejkaDerivative, pacejkaPeakSlip, type PacejkaCoefficients } from "./pacejka.js";
 
 export interface VehicleInput {
@@ -299,10 +299,10 @@ export class Vehicle {
     return this.config.transmission.gear;
   }
 
-  /** Equilibrium spring compression if all four wheels share the static weight. */
+  /** Equilibrium spring compression if every wheel shares the static weight equally. */
   equilibriumCompression(): number {
     const c = this.config;
-    return clamp((c.mass * c.gravity) / (WHEEL_COUNT * c.springRate), 0, c.suspensionTravel);
+    return clamp((c.mass * c.gravity) / (c.wheels.length * c.springRate), 0, c.suspensionTravel);
   }
 
   /**
@@ -374,8 +374,23 @@ export class Vehicle {
     this.alignToGround(ground);
     this.sampleWheels(ground, dt);
 
-    const loads = this.wheelLoads();
-    const loadArr = [loads.fl, loads.fr, loads.rl, loads.rr];
+    // Four wheels use the calibrated axle model; other layouts (six-wheel rocker rovers) get the
+    // generic N-wheel fit over the actual hardpoints. Out-of-contact wheels zero below either way.
+    let loadArr: number[];
+    if (this.wheels.length === 4) {
+      const loads = this.wheelLoads();
+      loadArr = [loads.fl, loads.fr, loads.rl, loads.rr];
+    } else {
+      const down = aeroLoads(this.speed, c.aero).downforce;
+      loadArr = distributeWheelLoads(this.wheels, {
+        mass: c.mass,
+        gravity: c.gravity,
+        cgHeight: c.cgHeight,
+        ax: this.ax,
+        ay: this.ay,
+        downforce: down,
+      });
+    }
     let contactCount = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;

@@ -36,6 +36,12 @@ export interface TerrainWorldOptions {
   maxLOD?: number;
   maxChunksLoaded?: number;
   maxGenerationsPerFrame?: number;
+  /**
+   * Chunks the very first update may generate above `maxGenerationsPerFrame`, so the opening
+   * view shows a full terrain disc instead of the two-chunk seed patch that streams in later.
+   * One-shot (the flag flips after the first generation pass); 0 keeps the steady budget only.
+   */
+  warmUpChunks?: number;
   pipeline?: GeneratorPipeline;
   heightOptions?: HeightGeneratorOptions;
   material?: Material;
@@ -54,6 +60,9 @@ export class TerrainWorld extends SceneObject {
   readonly maxLOD: number;
   readonly maxChunksLoaded: number;
   readonly maxGenerationsPerFrame: number;
+  /** One-shot first-update generation allowance (see `TerrainWorldOptions.warmUpChunks`). */
+  readonly warmUpChunks: number;
+  private warmUpDone = false;
 
   readonly pipeline: GeneratorPipeline;
   readonly heightGenerator: HeightGenerator;
@@ -81,6 +90,7 @@ export class TerrainWorld extends SceneObject {
     this.maxLOD = options.maxLOD ?? 3;
     this.maxChunksLoaded = options.maxChunksLoaded ?? 64;
     this.maxGenerationsPerFrame = options.maxGenerationsPerFrame ?? 4;
+    this.warmUpChunks = options.warmUpChunks ?? 0;
 
     this.heightGenerator = new HeightGenerator(options.heightOptions);
     this.pipeline = options.pipeline ?? GeneratorPipeline.createDefault(this.seed, options.heightOptions);
@@ -169,9 +179,15 @@ export class TerrainWorld extends SceneObject {
     }
 
     // 3. Process budgeted generations — the nearest pending chunk is always the next one generated.
+    //    The first update draws from the warm-up allowance as well, so the opening frame shows a
+    //    full disc of terrain instead of the budget's two-or-four-chunk seed patch.
     let generatedThisFrame = 0;
+    const frameBudget = this.warmUpDone
+      ? this.maxGenerationsPerFrame
+      : Math.max(this.maxGenerationsPerFrame, this.warmUpChunks);
+    this.warmUpDone = true;
     for (const sel of needed) {
-      if (generatedThisFrame >= this.maxGenerationsPerFrame) break;
+      if (generatedThisFrame >= frameBudget) break;
       const chunk = this.chunks.get(chunkKey(sel.cx, sel.cz, 0));
       if (chunk && chunk.state === "pending") {
         chunk.generate(this.pipeline, this.seed);
