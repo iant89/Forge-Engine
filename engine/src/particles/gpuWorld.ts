@@ -28,6 +28,8 @@ export class GpuParticleWorld extends SceneObject {
   /** True while an async init is in flight. */
   private initPending = false;
   private initPromise: Promise<void> | null = null;
+  /** Bumped on every attach that starts a new init; stale finally/catch must not clear newer state. */
+  private attachGeneration = 0;
 
   constructor(options: GpuParticleWorldOptions) {
     super();
@@ -62,16 +64,24 @@ export class GpuParticleWorld extends SceneObject {
     if (this._system) this._system.dispose();
     const system = new GpuParticleSystem(gpu, this.options);
     this._system = system;
+    const generation = ++this.attachGeneration;
     this.initPending = true;
     this.initFailed = false;
     this.initPromise = system
       .init()
       .catch((err) => {
+        // Ignore stale attaches that were superseded by a later attachDevice call.
+        if (generation !== this.attachGeneration) return;
         this.initFailed = true;
+        // Free any buffers allocated before the rejection; keep _system for latch identity.
+        system.dispose();
         console.error("GpuParticleWorld init failed", err);
       })
       .finally(() => {
-        this.initPending = false;
+        // Only the matching attach clears pending — a superseded init must not unlock a newer one.
+        if (generation === this.attachGeneration) {
+          this.initPending = false;
+        }
       });
     return this.initPromise;
   }

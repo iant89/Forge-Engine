@@ -305,6 +305,8 @@ export class GpuParticleSystem {
       this.assertShader(resolveMod),
       this.assertShader(renderMod),
     ]);
+    // dispose() may have run while we awaited shader validation — do not create pipelines or latch ready.
+    if (this.disposed) return;
     this.renderModule = renderMod;
 
     this.emitPipeline = d.createComputePipeline({
@@ -328,6 +330,7 @@ export class GpuParticleSystem {
       compute: { module: resolveMod, entryPoint: "csResolve" },
     });
 
+    if (this.disposed) return;
     this.ready = true;
   }
 

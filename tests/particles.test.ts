@@ -625,6 +625,95 @@ describe("particles — Phase 12 GPU system", () => {
     }
   });
 
+
+  it("attachDevice attach generation: stale finally does not clear newer initPending", async () => {
+    const gpuA = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const gpuB = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const originalInit = GpuParticleSystem.prototype.init;
+    let initCalls = 0;
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    const gateA = new Promise<void>((r) => {
+      releaseA = r;
+    });
+    const gateB = new Promise<void>((r) => {
+      releaseB = r;
+    });
+    GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+      const n = ++initCalls;
+      if (n === 1) await gateA;
+      else if (n === 2) await gateB;
+    };
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 11, name: "attach-gen" });
+      const pA = world.attachDevice(gpuA);
+      // Let attach A enter its hanging init.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(1);
+
+      const pB = world.attachDevice(gpuB);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(2);
+      const systemB = world.system;
+
+      // Stale A settles; its finally must NOT clear B's initPending.
+      releaseA();
+      await pA;
+
+      // Same device B while B is still pending: must reuse, not dispose/recreate mid-init.
+      const pB2 = world.attachDevice(gpuB);
+      expect(initCalls).toBe(2);
+      expect(world.system).toBe(systemB);
+      expect(pB2).toBe(pB);
+
+      releaseB();
+      await pB;
+      await pB2;
+      world.dispose();
+    } finally {
+      GpuParticleSystem.prototype.init = originalInit;
+      await gpuA.dispose();
+      await gpuB.dispose();
+    }
+  });
+
+  it("init does not set ready if dispose ran during shader await", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 13 });
+      type AssertFn = (module: GPUShaderModule) => Promise<void>;
+      const proto = GpuParticleSystem.prototype as unknown as { assertShader: AssertFn };
+      const originalAssert = proto.assertShader;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      let entered = 0;
+      proto.assertShader = async function (this: GpuParticleSystem, module: GPUShaderModule) {
+        entered++;
+        if (entered === 1) await gate;
+        return originalAssert.call(this, module);
+      };
+      try {
+        const initPromise = system.init();
+        // Wait until init is blocked inside assertShader await.
+        for (let i = 0; i < 50 && entered === 0; i++) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        expect(entered).toBeGreaterThan(0);
+        system.dispose();
+        release();
+        await initPromise;
+        expect(system.ready).toBe(false);
+        expect(system.stats().ready).toBe(false);
+      } finally {
+        proto.assertShader = originalAssert;
+      }
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   it("attachDevice latches failure and does not dispose/recreate every frame", async () => {
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {
@@ -640,6 +729,9 @@ describe("particles — Phase 12 GPU system", () => {
         expect(world.attachFailed).toBe(true);
         expect(world.system?.ready).toBe(false);
         const firstSystem = world.system;
+        // Failed init must dispose allocated GPU buffers (not leave a ready=false leak).
+        expect((firstSystem as unknown as { disposed: boolean }).disposed).toBe(true);
+        expect((firstSystem as unknown as { particleBuffer: GPUBuffer | null }).particleBuffer).toBeNull();
         await world.attachDevice(gpu);
         await world.attachDevice(gpu);
         expect(initCalls).toBe(1);
