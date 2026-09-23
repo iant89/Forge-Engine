@@ -163,6 +163,15 @@ export class GpuParticleSystem {
   private resolveLayout: GPUBindGroupLayout | null = null;
   private renderLayout: GPUBindGroupLayout | null = null;
 
+  /** Cached bind groups — recreated on dispose/re-init or when bound resources change. */
+  private emitBindGroup: GPUBindGroup | null = null;
+  private simBindGroup: GPUBindGroup | null = null;
+  private cullBindGroup: GPUBindGroup | null = null;
+  private resolveBindGroup: GPUBindGroup | null = null;
+  private renderBindGroup: GPUBindGroup | null = null;
+  /** Physical depth texture last bound into {@link renderBindGroup} (soft-particle sample). */
+  private renderBindDepth: GPUTexture | null = null;
+
   private writeHead = 0;
   private emitAccumulator = 0;
   private time = 0;
@@ -557,23 +566,87 @@ export class GpuParticleSystem {
     this.stepCount++;
   }
 
+  private ensureEmitBindGroup(): GPUBindGroup {
+    if (!this.emitBindGroup) {
+      this.emitBindGroup = this.device.createBindGroup({
+        layout: this.emitLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.emitUniform! } },
+          { binding: 1, resource: { buffer: this.particleBuffer! } },
+        ],
+      });
+    }
+    return this.emitBindGroup;
+  }
+
+  private ensureSimBindGroup(): GPUBindGroup {
+    if (!this.simBindGroup) {
+      this.simBindGroup = this.device.createBindGroup({
+        layout: this.simLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.simUniform! } },
+          { binding: 1, resource: { buffer: this.particleBuffer! } },
+          { binding: 2, resource: { buffer: this.trailBuffer! } },
+        ],
+      });
+    }
+    return this.simBindGroup;
+  }
+
+  private ensureCullBindGroup(): GPUBindGroup {
+    if (!this.cullBindGroup) {
+      this.cullBindGroup = this.device.createBindGroup({
+        layout: this.cullLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.cullUniform! } },
+          { binding: 1, resource: { buffer: this.particleBuffer! } },
+          { binding: 2, resource: { buffer: this.visibleBuffer! } },
+          { binding: 3, resource: { buffer: this.indirectBuffer! } },
+        ],
+      });
+    }
+    return this.cullBindGroup;
+  }
+
+  private ensureResolveBindGroup(): GPUBindGroup {
+    if (!this.resolveBindGroup) {
+      this.resolveBindGroup = this.device.createBindGroup({
+        layout: this.resolveLayout!,
+        entries: [{ binding: 0, resource: { buffer: this.indirectBuffer! } }],
+      });
+    }
+    return this.resolveBindGroup;
+  }
+
+  /** Recreate when the soft-particle depth texture changes (graph pool epoch / resize). */
+  private ensureRenderBindGroup(depthTex: GPUTexture): GPUBindGroup {
+    if (!this.renderBindGroup || this.renderBindDepth !== depthTex) {
+      this.renderBindDepth = depthTex;
+      this.renderBindGroup = this.device.createBindGroup({
+        layout: this.renderLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.renderUniform! } },
+          { binding: 1, resource: { buffer: this.particleBuffer! } },
+          { binding: 2, resource: { buffer: this.visibleBuffer! } },
+          { binding: 3, resource: depthTex.createView({ aspect: "depth-only" }) },
+        ],
+      });
+    }
+    return this.renderBindGroup;
+  }
+
+  private clearBindGroups(): void {
+    this.emitBindGroup = null;
+    this.simBindGroup = null;
+    this.cullBindGroup = null;
+    this.resolveBindGroup = null;
+    this.renderBindGroup = null;
+    this.renderBindDepth = null;
+  }
+
   private encodeSim(ctx: RenderGraphPassContext): void {
-    const d = this.device;
-    const emitGroup = d.createBindGroup({
-      layout: this.emitLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this.emitUniform! } },
-        { binding: 1, resource: { buffer: this.particleBuffer! } },
-      ],
-    });
-    const simGroup = d.createBindGroup({
-      layout: this.simLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this.simUniform! } },
-        { binding: 1, resource: { buffer: this.particleBuffer! } },
-        { binding: 2, resource: { buffer: this.trailBuffer! } },
-      ],
-    });
+    const emitGroup = this.ensureEmitBindGroup();
+    const simGroup = this.ensureSimBindGroup();
     const pass = ctx.encoder.beginComputePass({ label: "particle.sim" });
     if (this.lastEmitBudget > 0) {
       pass.setPipeline(this.emitPipeline!);
@@ -587,16 +660,7 @@ export class GpuParticleSystem {
   }
 
   private encodeCull(ctx: RenderGraphPassContext): void {
-    const d = this.device;
-    const group = d.createBindGroup({
-      layout: this.cullLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this.cullUniform! } },
-        { binding: 1, resource: { buffer: this.particleBuffer! } },
-        { binding: 2, resource: { buffer: this.visibleBuffer! } },
-        { binding: 3, resource: { buffer: this.indirectBuffer! } },
-      ],
-    });
+    const group = this.ensureCullBindGroup();
     const pass = ctx.encoder.beginComputePass({ label: "particle.sort" });
     pass.setPipeline(this.cullPipeline!);
     pass.setBindGroup(0, group);
@@ -613,15 +677,7 @@ export class GpuParticleSystem {
     const pipeline = this.ensureRenderPipeline(colorFormat, depthFormat);
     const depthTex = ctx.texture(depthHandle);
     const pass = ctx.beginRenderPass("particle.render");
-    const group = this.device.createBindGroup({
-      layout: this.renderLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this.renderUniform! } },
-        { binding: 1, resource: { buffer: this.particleBuffer! } },
-        { binding: 2, resource: { buffer: this.visibleBuffer! } },
-        { binding: 3, resource: depthTex.createView({ aspect: "depth-only" }) },
-      ],
-    });
+    const group = this.ensureRenderBindGroup(depthTex);
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
     // Compacted instance count from cull (or capacity on the mock). 0xFFFFFFFF visible slots are degenerate.
@@ -630,10 +686,7 @@ export class GpuParticleSystem {
   }
 
   private encodeResolve(ctx: RenderGraphPassContext): void {
-    const group = this.device.createBindGroup({
-      layout: this.resolveLayout!,
-      entries: [{ binding: 0, resource: { buffer: this.indirectBuffer! } }],
-    });
+    const group = this.ensureResolveBindGroup();
     const pass = ctx.encoder.beginComputePass({ label: "particle.resolve" });
     pass.setPipeline(this.resolvePipeline!);
     pass.setBindGroup(0, group);
@@ -706,6 +759,7 @@ export class GpuParticleSystem {
     this.cullLayout = null;
     this.resolveLayout = null;
     this.renderLayout = null;
+    this.clearBindGroups();
     this.lastEnqueuedPasses = [];
   }
 }

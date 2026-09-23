@@ -517,7 +517,12 @@ export class Renderer implements RenderFrameContext {
       : swapchain;
     const gpuParticleWorld = findGpuParticleWorld(scene);
     if (gpuParticleWorld) gpuParticleWorld.attachDevice(this.device);
-    const wantGpuParticles = Boolean(gpuParticleWorld);
+    // Depth TEXTURE_BINDING + store only while particles can/will run — not after a latched attach failure.
+    const wantGpuParticles = Boolean(
+      gpuParticleWorld &&
+        !gpuParticleWorld.attachFailed &&
+        (gpuParticleWorld.ready || gpuParticleWorld.initPending),
+    );
     const sceneDepth = g.createTexture("scene.depth", {
       width: frame.renderWidth,
       height: frame.renderHeight,

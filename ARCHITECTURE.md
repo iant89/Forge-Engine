@@ -58,7 +58,7 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/gpu/              WebGPU helpers (buffer/texture builders, formats, sync)
 editor/                 @forge/editor — browser dev tools. Depends on engine's public API only.
 examples/               vite apps: spinning-cube (P1), pbr-scene (P2), terrain (P4),
-                        vehicle-playground (P6), particles (P7), sky / day-night (P8a).
+                        vehicle-playground (P6), particles / Phase 12 GPU, sky / day-night (P8a).
                         Mars (P14) is not built.
 tests/                  cross-subsystem integration tests + real-WebGPU browser tests
 benchmarks/             measured performance suites (math, ECS, terrain, physics, particles)

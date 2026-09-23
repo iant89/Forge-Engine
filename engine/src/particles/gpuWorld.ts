@@ -26,7 +26,7 @@ export class GpuParticleWorld extends SceneObject {
   /** Latched when init throws; stops per-frame attachDevice from dispose/recreate forever. */
   private initFailed = false;
   /** True while an async init is in flight. */
-  private initPending = false;
+  private _initPending = false;
   private initPromise: Promise<void> | null = null;
   /** Bumped on every attach that starts a new init; stale finally/catch must not clear newer state. */
   private attachGeneration = 0;
@@ -40,6 +40,16 @@ export class GpuParticleWorld extends SceneObject {
   /** The live GPU system once {@link attachDevice} has completed init; null beforehand. */
   get system(): GpuParticleSystem | null {
     return this._system;
+  }
+
+  /** True once the GPU system has finished init successfully. */
+  get ready(): boolean {
+    return Boolean(this._system?.ready);
+  }
+
+  /** True while an async {@link attachDevice} init is in flight. */
+  get initPending(): boolean {
+    return this._initPending;
   }
 
   /** True after a failed init until {@link clearAttachFailure} or a different device is attached. */
@@ -56,7 +66,7 @@ export class GpuParticleWorld extends SceneObject {
   attachDevice(gpu: GraphicsDevice): Promise<void> {
     if (this.gpu === gpu && this._system?.ready) return Promise.resolve();
     if (this.gpu === gpu && this.initFailed) return Promise.resolve();
-    if (this.gpu === gpu && this.initPending && this.initPromise) return this.initPromise;
+    if (this.gpu === gpu && this._initPending && this.initPromise) return this.initPromise;
     if (this.gpu !== gpu) {
       this.initFailed = false;
     }
@@ -65,7 +75,7 @@ export class GpuParticleWorld extends SceneObject {
     const system = new GpuParticleSystem(gpu, this.options);
     this._system = system;
     const generation = ++this.attachGeneration;
-    this.initPending = true;
+    this._initPending = true;
     this.initFailed = false;
     this.initPromise = system
       .init()
@@ -80,7 +90,7 @@ export class GpuParticleWorld extends SceneObject {
       .finally(() => {
         // Only the matching attach clears pending — a superseded init must not unlock a newer one.
         if (generation === this.attachGeneration) {
-          this.initPending = false;
+          this._initPending = false;
         }
       });
     return this.initPromise;
@@ -146,7 +156,7 @@ export class GpuParticleWorld extends SceneObject {
     // Invalidate any in-flight attach so a later attachDevice(same device) cannot early-return
     // the stale initPromise while _system is already null.
     this.attachGeneration++;
-    this.initPending = false;
+    this._initPending = false;
     this.initPromise = null;
     this.initFailed = false;
     this.gpu = null;
