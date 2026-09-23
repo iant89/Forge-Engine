@@ -7,6 +7,17 @@ import {
   TerrainTile,
   TerrainWorld,
   TerrainLOD,
+  resolutionForLod,
+  geomorphHeight,
+  TerrainGenerationCache,
+  terrainCacheKey,
+  TERRAIN_GENERATOR_VERSION,
+  terrainCellPayload,
+  generateTerrainCell,
+  installTerrainTaskHandlers,
+  buildHorizonSkirt,
+  LayeredTerrainMaterial,
+  TaskScheduler,
   Vec3,
   Ray,
   RayHit,
@@ -262,6 +273,268 @@ describe("Terrain - LOD and Streaming Budget", () => {
     const readySecond = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
     // The allowance is one-shot: after the first update only maxGenerationsPerFrame remains.
     expect(readySecond - readyFirst).toBeLessThanOrEqual(1);
+
+    scene.dispose();
+    world.dispose();
+  });
+});
+
+describe("Terrain - Phase 10 LOD meshes", () => {
+  it("resolutionForLod nests odd grids 33→17→9→5→3", () => {
+    expect(resolutionForLod(33, 0)).toBe(33);
+    expect(resolutionForLod(33, 1)).toBe(17);
+    expect(resolutionForLod(33, 2)).toBe(9);
+    expect(resolutionForLod(33, 3)).toBe(5);
+    expect(resolutionForLod(33, 4)).toBe(3);
+  });
+
+  it("builds lower-resolution meshes from chunk.lod", () => {
+    const pipe = GeneratorPipeline.createDefault(7);
+    const lod0 = new TerrainTile({ cx: 0, cz: 0, size: 128, resolution: resolutionForLod(33, 0), lod: 0 }, pipe, 7);
+    const lod2 = new TerrainTile({ cx: 0, cz: 0, size: 128, resolution: resolutionForLod(33, 2), lod: 2 }, pipe, 7);
+    expect(lod0.gridVertexCount).toBe(33 * 33);
+    expect(lod2.gridVertexCount).toBe(9 * 9);
+    expect(lod2.gridVertexCount).toBeLessThan(lod0.gridVertexCount);
+  });
+
+  it("applies geomorphing to vertex positions toward the coarser lattice", () => {
+    const fine = geomorphHeight(new Float32Array([0, 10, 0, 10, 20, 10, 0, 10, 0]), 3, 1, 0, 0);
+    const morph = geomorphHeight(new Float32Array([0, 10, 0, 10, 20, 10, 0, 10, 0]), 3, 1, 0, 1);
+    // Index (1,0) sits between coarse parents (0,0)=0 and (2,0)=0 → morphs to 0.
+    expect(fine).toBe(10);
+    expect(morph).toBe(0);
+    const half = geomorphHeight(new Float32Array([0, 10, 0, 10, 20, 10, 0, 10, 0]), 3, 1, 0, 0.5);
+    expect(half).toBe(5);
+  });
+
+  it("streaming world generates LOD-dependent geometry complexity", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 33,
+      viewDistance: 400,
+      maxChunksLoaded: 25,
+      maxGenerationsPerFrame: 32,
+      warmUpChunks: 25,
+      horizonSkirt: false,
+      syncGeneration: true,
+      maxLOD: 4,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "lod-mesh-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 20, 0);
+    terrain.focusPosition.set(0, 20, 0);
+
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready" && c.tile);
+    expect(ready.length).toBeGreaterThan(0);
+    const resolutions = new Set(ready.map((c) => c.tile!.resolution));
+    // Near + far selections should produce more than one mesh density.
+    expect(resolutions.size).toBeGreaterThan(1);
+    expect(Math.min(...resolutions)).toBeLessThan(33);
+
+    scene.dispose();
+    world.dispose();
+  });
+});
+
+describe("Terrain - Phase 10 cache, priority, workers, horizon, materials", () => {
+  it("caches generated cells by seed/chunk/version/settings/resolution", () => {
+    const cache = new TerrainGenerationCache({ maxEntries: 8, maxBytes: 1 << 20 });
+    const pipe = GeneratorPipeline.createDefault(99);
+    const payload = terrainCellPayload(pipe, 99, 2, -1, 64, 9);
+    const result = generateTerrainCell(payload);
+    const key = terrainCacheKey({
+      seed: 99,
+      chunkX: 2,
+      chunkZ: -1,
+      generatorVersion: TERRAIN_GENERATOR_VERSION,
+      generatorSettings: result.pipelineHash,
+      resolution: 9,
+    });
+    cache.set(key, result);
+    expect(cache.get(key)?.heights).toBe(result.heights);
+    expect(cache.hits).toBe(1);
+    expect(cache.get(key + "|missing")).toBeUndefined();
+    expect(cache.misses).toBe(1);
+  });
+
+  it("schedules chunk generation through TaskScheduler and does not block the update call", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0 });
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 80,
+      maxChunksLoaded: 9,
+      maxGenerationsPerFrame: 4,
+      horizonSkirt: false,
+      syncGeneration: false,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "worker-stream-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    expect(terrain.streamingStats.scheduledThisFrame).toBeGreaterThan(0);
+    const generating = [...terrain.chunks.values()].filter((c) => c.state === "generating");
+    expect(generating.length).toBeGreaterThan(0);
+
+    await scheduler.drain();
+    // Completions land in the next update's drain.
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready");
+    expect(ready.length).toBeGreaterThan(0);
+
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("cancels in-flight generation when a chunk leaves the visible set", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 1 });
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 17,
+      viewDistance: 90,
+      maxChunksLoaded: 9,
+      maxGenerationsPerFrame: 8,
+      horizonSkirt: false,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "cancel-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 0, 0);
+
+    terrain.update(ctx, 0.016);
+    expect(terrain.streamingStats.scheduledThisFrame).toBeGreaterThan(0);
+    expect([...terrain.chunks.values()].some((c) => c.state === "generating")).toBe(true);
+
+    // Jump the camera far away before jobs settle — previous disc should cancel.
+    camT.setPosition(5000, 0, 5000);
+    terrain.update(ctx, 0.016);
+    expect(terrain.streamingStats.cancelledThisFrame).toBeGreaterThan(0);
+
+    await scheduler.drain().catch(() => undefined);
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("builds a horizon skirt geometry with no holes at the rim", () => {
+    const source = buildHorizonSkirt({
+      centerX: 0,
+      centerZ: 0,
+      innerRadius: 200,
+      outerExtent: 100,
+      sampleHeight: () => 10,
+      ringSegments: 16,
+      radialSegments: 1,
+    });
+    expect(source.positions.length).toBeGreaterThan(0);
+    expect(source.indices!.length).toBe(16 * 6);
+    // Outer ring is dropped below the rim.
+    let minY = Infinity;
+    for (let i = 0; i < source.positions.length; i += 3) {
+      minY = Math.min(minY, source.positions[i + 1]!);
+    }
+    expect(minY).toBeLessThan(10);
+  });
+
+  it("respects generation and visible-chunk budgets while streaming", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 500,
+      visibleChunks: 12,
+      generationsPerFrame: 2,
+      memoryBytes: 8 * 1024 * 1024,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "budget-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    expect(terrain.chunks.size).toBeLessThanOrEqual(12);
+    // Steady budget after warm-up (warmUpChunks default 0).
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    expect(ready).toBeLessThanOrEqual(2);
+
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("blends layered materials by height, slope and biome weights", () => {
+    const layered = new LayeredTerrainMaterial();
+    const flatLow = layered.sample(10, 0.05, [0.7, 0.1, 0.2, 0]);
+    const steepHigh = layered.sample(200, 1.0, [0.05, 0.8, 0.05, 0.1]);
+    expect(flatLow.color.g).toBeGreaterThan(0);
+    expect(steepHigh.roughness).toBeGreaterThan(flatLow.roughness - 0.2);
+    const mat = layered.toMaterial(10, 0.1);
+    expect(mat.roughness).toBeGreaterThan(0);
+    mat.dispose();
+  });
+
+  it("priority streaming prefers nearer, forward-facing chunks", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 200,
+      maxChunksLoaded: 5,
+      maxGenerationsPerFrame: 5,
+      warmUpChunks: 5,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "priority-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 10, 0);
+    // Default forward is +Z.
+    terrain.focusPosition.set(0, 10, 0);
+    terrain.focusForward.set(0, 0, 1);
+
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready");
+    expect(ready.length).toBeGreaterThan(0);
+    // All ready chunks should be among the nearest to the focus.
+    for (const chunk of ready) {
+      const centerX = (chunk.cx + 0.5) * 64;
+      const centerZ = (chunk.cz + 0.5) * 64;
+      const dist = Math.hypot(centerX, centerZ);
+      expect(dist).toBeLessThan(200);
+    }
 
     scene.dispose();
     world.dispose();

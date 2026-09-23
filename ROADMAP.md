@@ -13,7 +13,8 @@ CURRENT CODEBASE BASELINE:
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
-    Phase 10+:  NOT STARTED
+    Phase 10:   IMPLEMENTED / VERIFIED
+    Phase 11+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -76,7 +77,7 @@ PHASE 3 - Scene / ECS
     [x]
 
 PHASE 4 - Terrain / Procedural Worlds
-    [!] IMPLEMENTED BUT REQUIRES HARDENING
+    [x]
 
 PHASE 5 - Physics
     [x]
@@ -96,7 +97,10 @@ PHASE 8B - Weather / Clouds / Water / Lightning
 PHASE 9 - ENGINE HARDENING
     [~] IN PROGRESS
 
-PHASE 10+
+PHASE 10 - Terrain 2.0 / Streaming
+    [x]
+
+PHASE 11+
     [ ] NOT STARTED
 
 
@@ -251,19 +255,19 @@ GOAL:
     Turn the existing procedural terrain system into a true scalable terrain
     system.
 
-CURRENT PROBLEMS:
+CURRENT PROBLEMS (addressed in this phase):
 
-    - Terrain LOD is calculated but not reflected in mesh resolution.
-    - Loaded radius is limited by current chunk budget.
-    - Chunk generation occurs synchronously on the main thread.
-    - Streaming can still hitch.
-    - No horizon skirt.
-    - viewDistance is advisory rather than authoritative.
+    - Terrain LOD is calculated but not reflected in mesh resolution. → fixed (10.1)
+    - Loaded radius is limited by current chunk budget. → budgets (10.7)
+    - Chunk generation occurs synchronously on the main thread. → workers (10.2)
+    - Streaming can still hitch. → priority + cancel (10.4 / 10.5)
+    - No horizon skirt. → fixed (10.6)
+    - viewDistance is advisory rather than authoritative. → visible-chunk + memory budgets (10.7)
 
 
 10.1 Real Terrain LOD
 
-    [ ] Generate actual lower-resolution meshes for distant chunks.
+    [x] Generate actual lower-resolution meshes for distant chunks.
 
     Example:
 
@@ -273,18 +277,18 @@ CURRENT PROBLEMS:
         LOD 3 = 5x5
         LOD 4 = 3x3
 
-    [ ] Use chunk.lod during mesh generation.
+    [x] Use chunk.lod during mesh generation.
 
-    [ ] Implement geomorphing in the actual vertex positions.
+    [x] Implement geomorphing in the actual vertex positions.
 
-    [ ] Prevent cracks between neighboring LOD levels.
+    [x] Prevent cracks between neighboring LOD levels.
 
 
 10.2 Worker Terrain Generation
 
-    [ ] Move terrain generation into TaskScheduler workers.
+    [x] Move terrain generation into TaskScheduler workers.
 
-    [ ] Generate:
+    [x] Generate:
 
         height
         erosion
@@ -293,12 +297,13 @@ CURRENT PROBLEMS:
         scatter
         mesh
 
-        off the main thread where practical.
+        off the main thread where practical
+        (cell grids via TaskScheduler; mesh build stays on the main thread).
 
 
 10.3 Terrain Generation Cache
 
-    [ ] Cache deterministic generated chunks.
+    [x] Cache deterministic generated chunks.
 
     Cache key:
 
@@ -311,7 +316,7 @@ CURRENT PROBLEMS:
 
 10.4 Priority Streaming
 
-    [ ] Priority based on:
+    [x] Priority based on:
 
         camera distance
         camera direction
@@ -322,19 +327,19 @@ CURRENT PROBLEMS:
 
 10.5 Streaming Cancellation
 
-    [ ] Cancel terrain work when a chunk becomes irrelevant.
+    [x] Cancel terrain work when a chunk becomes irrelevant.
 
 
 10.6 Horizon Handling
 
-    [ ] Add terrain horizon skirt / fallback representation.
+    [x] Add terrain horizon skirt / fallback representation.
 
-    [ ] Prevent visible terrain edge.
+    [x] Prevent visible terrain edge.
 
 
 10.7 Terrain Budgeting
 
-    [ ] Replace arbitrary chunk limits with:
+    [x] Replace arbitrary chunk limits with:
 
         memory budget
         generation budget
@@ -344,12 +349,12 @@ CURRENT PROBLEMS:
 
 10.8 Terrain Material Improvements
 
-    [ ] Layered materials
-    [ ] Macro variation
-    [ ] Micro detail
-    [ ] Slope blending
-    [ ] Height blending
-    [ ] Material-specific surface properties
+    [x] Layered materials
+    [x] Macro variation
+    [x] Micro detail
+    [x] Slope blending
+    [x] Height blending
+    [x] Material-specific surface properties
 
 
 EXIT CRITERIA:

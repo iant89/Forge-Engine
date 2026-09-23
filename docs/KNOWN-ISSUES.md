@@ -23,25 +23,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **WebKit is not run.** Uniform layout strictness is enforced statically (`check:wgsl`,
   `tests/wgsl.test.ts`); no Safari build exists in the sandbox. (capability: platform.webkitCompile)
 
-## Terrain & demo (Phase 4)
-
-* **The loaded disc still ends at ~1 km.** `maxChunksLoaded` caps the resident set (the demo uses 220
-  chunks of 128 m ≈ a 1 km radius), and the eviction pass can never drop a chunk the camera still
-  selects, so the resident radius is `min(viewDistance, budget)`. Since Phase 8a the exp² dust haze
-  (85 % fog at 1 km) and the sky pass's own fogged planet ground hide the edge from most viewpoints;
-  from high above it can still be read as a change in texture. There is no horizon skirt. (capability: terrain.streaming, capability: terrain.horizonSkirt)
-* **`viewDistance` is advisory.** The chunk selection is capped by the budget (nearest first), not by
-  the radius alone: the terrain scene's 2 km view distance would have selected ~900 chunks and
-  generated them in scan order — nearest chunks (including the one under the camera) could starve while
-  far ones were built, which is fixed — but the *drawn* radius is still the budget, not the setting. (capability: terrain.streaming)
-* **Chunk generation is synchronous on the main thread.** 33×33 samples through the crater + erosion
-  stages costs ~8 ms per chunk on a desktop CPU; the demo budgets 2 per frame, so streaming shows up
-  as a hitched frame rather than a fluid crank. The worker/cached pipelines in `GeneratorPipeline` are
-  built for this but the streaming path does not use them. (capability: terrain.workerGeneration)
-* **The terrain mesh ignores `chunk.lod`.** LOD selection and geomorph alpha are computed and stored,
-  but every chunk is generated at `chunkResolution` (33), so distant chunks cost the same vertices as
-  near ones and there is no geomorphing in the mesh. (capability: terrain.lod)
-
 ## Core (Phase 1)
 
 Two entries left this section when Phase 9 landed: the worker round-trip and resource-eviction test gaps

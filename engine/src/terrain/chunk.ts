@@ -3,12 +3,14 @@
  *
  * Implements:
  *  - Deterministic chunk geometry construction with outward CW winding
+ *  - LOD-dependent grid resolution (Phase 10.1) with geomorphing in vertex Y
  *  - Edge skirts to completely eliminate cracks between chunks of differing LODs
  *  - AABB bounding box for frustum culling and raycast acceleration
  */
 
 import { Heightmap } from "./heightmap.js";
 import { GeneratorPipeline, createWorldCell, type WorldCell } from "./generators.js";
+import { geomorphHeight } from "./lod.js";
 import { Geometry, type GeometrySource } from "../rendering/geometry.js";
 import { AABB } from "../math/geometry.js";
 import { Vec3 } from "../math/vec.js";
@@ -17,6 +19,11 @@ import type { EntityId } from "../scene/entityId.js";
 
 export function chunkKey(cx: number, cz: number, lod = 0): string {
   return `${cx}:${cz}:${lod}`;
+}
+
+/** Streaming identity ignores LOD so a chunk can remesh in place when LOD changes. */
+export function chunkCoordKey(cx: number, cz: number): string {
+  return `${cx}:${cz}`;
 }
 
 /**
@@ -30,8 +37,6 @@ function writeHeightfieldTangent(tangents: Float32Array, vertexIndex: number, n:
   let tz = -n.x * n.z;
   let len = Math.hypot(tx, ty, tz);
   if (len < 1e-5) {
-    // Normal is parallel to +X (a vertical east-facing wall): any direction in the plane works;
-    // +Z keeps the frame continuous with the rest of the chunk.
     tx = -n.z * n.x;
     ty = -n.z * n.y;
     tz = 1 - n.z * n.z;
@@ -46,7 +51,6 @@ function writeHeightfieldTangent(tangents: Float32Array, vertexIndex: number, n:
 
 /** Skirt side tangent: U still runs along the shared edge axis; pick the in-plane axis by facing. */
 function writeSkirtTangent(tangents: Float32Array, vertexIndex: number, nx: number, nz: number): void {
-  // Facing ±Z → U is +X (same as the grid). Facing ±X → U is +Z.
   const o = vertexIndex * 4;
   if (nz !== 0) {
     tangents[o] = 1;
@@ -68,6 +72,10 @@ export interface TerrainTileOptions {
   resolution: number;
   lod?: number;
   skirtDepth?: number;
+  /** Geomorph factor baked into vertex Y (0 = fine, 1 = fully coarse). */
+  geomorphAlpha?: number;
+  /** Pre-built cell (worker / cache path); skips pipeline.execute when provided. */
+  cell?: WorldCell;
 }
 
 export class TerrainTile {
@@ -77,6 +85,7 @@ export class TerrainTile {
   readonly resolution: number;
   readonly lod: number;
   readonly skirtDepth: number;
+  readonly geomorphAlpha: number;
 
   readonly cell: WorldCell;
   readonly heightmap: Heightmap;
@@ -85,20 +94,28 @@ export class TerrainTile {
 
   gpuGeometry: Geometry | null = null;
 
-  constructor(options: TerrainTileOptions, pipeline: GeneratorPipeline, seed: number) {
+  constructor(options: TerrainTileOptions, pipeline?: GeneratorPipeline, seed = 0) {
     this.cx = options.cx;
     this.cz = options.cz;
     this.size = options.size;
     this.resolution = Math.max(2, Math.floor(options.resolution));
     this.lod = options.lod ?? 0;
     this.skirtDepth = options.skirtDepth ?? 8.0;
+    this.geomorphAlpha = options.geomorphAlpha ?? 0;
 
-    this.cell = createWorldCell(this.cx, this.cz, this.size, this.resolution, seed);
+    if (options.cell) {
+      if (options.cell.resolution !== this.resolution) {
+        throw new Error(
+          `TerrainTile cell resolution ${options.cell.resolution} does not match options.resolution ${this.resolution}`,
+        );
+      }
+      this.cell = options.cell;
+    } else {
+      if (!pipeline) throw new Error("TerrainTile requires a pipeline when no cell is provided");
+      this.cell = createWorldCell(this.cx, this.cz, this.size, this.resolution, seed);
+      pipeline.execute(this.cell);
+    }
 
-    // Execute generation pipeline
-    pipeline.execute(this.cell);
-
-    // Build heightmap for continuous sampling & physics
     this.heightmap = new Heightmap({
       originX: this.cx * this.size,
       originZ: this.cz * this.size,
@@ -112,8 +129,18 @@ export class TerrainTile {
       new Vec3(this.heightmap.originX + this.size, this.heightmap.maxHeight, this.heightmap.originZ + this.size),
     );
 
-    // Build mesh geometry source with skirts
     this.geometrySource = this.buildGeometrySource();
+  }
+
+  /** Build a tile from a worker/cache cell without re-running the pipeline. */
+  static fromCell(
+    options: Omit<TerrainTileOptions, "cell" | "resolution"> & { cell: WorldCell },
+  ): TerrainTile {
+    return new TerrainTile({
+      ...options,
+      resolution: options.cell.resolution,
+      cell: options.cell,
+    });
   }
 
   private buildGeometrySource(): GeometrySource {
@@ -121,29 +148,25 @@ export class TerrainTile {
     const originX = this.cx * this.size;
     const originZ = this.cz * this.size;
     const step = this.size / (res - 1);
+    const alpha = this.geomorphAlpha;
 
     const gridVertexCount = res * res;
-    // Skirt: 4 borders * res vertices
     const skirtVertexCount = 4 * res;
     const totalVertexCount = gridVertexCount + skirtVertexCount;
 
     const positions = new Float32Array(totalVertexCount * 3);
     const normals = new Float32Array(totalVertexCount * 3);
     const uvs = new Float32Array(totalVertexCount * 2);
-    // xyzw tangent for normal mapping: +U of the chunk UV grid runs along world +X, w = handedness
-    // so that `cross(N, T) * w` points along +V (world +Z). See the skirt note below for the
-    // side-facing normals where the +X projection degenerates.
     const tangents = new Float32Array(totalVertexCount * 4);
 
     const norm = new Vec3();
 
-    // 1. Grid vertices
     for (let j = 0; j < res; j++) {
       for (let i = 0; i < res; i++) {
         const idx = j * res + i;
         const wx = originX + i * step;
         const wz = originZ + j * step;
-        const h = this.cell.heights[idx]!;
+        const h = geomorphHeight(this.cell.heights, res, i, j, alpha);
 
         const pOff = idx * 3;
         positions[pOff] = wx;
@@ -163,10 +186,8 @@ export class TerrainTile {
       }
     }
 
-    // 2. Skirt vertices (drop Y by skirtDepth)
     let sIdx = gridVertexCount;
 
-    // Top edge (j = 0)
     for (let i = 0; i < res; i++, sIdx++) {
       const gIdx = i;
       positions[sIdx * 3] = positions[gIdx * 3]!;
@@ -180,7 +201,6 @@ export class TerrainTile {
       writeSkirtTangent(tangents, sIdx, 0, -1);
     }
 
-    // Bottom edge (j = res - 1)
     for (let i = 0; i < res; i++, sIdx++) {
       const gIdx = (res - 1) * res + i;
       positions[sIdx * 3] = positions[gIdx * 3]!;
@@ -194,7 +214,6 @@ export class TerrainTile {
       writeSkirtTangent(tangents, sIdx, 0, 1);
     }
 
-    // Left edge (i = 0)
     for (let j = 0; j < res; j++, sIdx++) {
       const gIdx = j * res;
       positions[sIdx * 3] = positions[gIdx * 3]!;
@@ -208,7 +227,6 @@ export class TerrainTile {
       writeSkirtTangent(tangents, sIdx, -1, 0);
     }
 
-    // Right edge (i = res - 1)
     for (let j = 0; j < res; j++, sIdx++) {
       const gIdx = j * res + (res - 1);
       positions[sIdx * 3] = positions[gIdx * 3]!;
@@ -222,14 +240,12 @@ export class TerrainTile {
       writeSkirtTangent(tangents, sIdx, 1, 0);
     }
 
-    // 3. Triangle indices with CW winding
     const gridQuads = (res - 1) * (res - 1);
     const skirtQuads = 4 * (res - 1);
     const totalQuads = gridQuads + skirtQuads;
     const indices = new Uint32Array(totalQuads * 6);
     let iOff = 0;
 
-    // Grid triangles (CW winding: i00 -> i11 -> i10, i00 -> i01 -> i11)
     for (let j = 0; j < res - 1; j++) {
       for (let i = 0; i < res - 1; i++) {
         const i00 = j * res + i;
@@ -247,10 +263,8 @@ export class TerrainTile {
       }
     }
 
-    // Skirt triangles (CW winding outward facing)
     let skirtBase = gridVertexCount;
 
-    // Top skirt (facing -Z)
     for (let i = 0; i < res - 1; i++) {
       const g0 = i;
       const g1 = i + 1;
@@ -267,7 +281,6 @@ export class TerrainTile {
     }
     skirtBase += res;
 
-    // Bottom skirt (facing +Z)
     for (let i = 0; i < res - 1; i++) {
       const g0 = (res - 1) * res + i;
       const g1 = (res - 1) * res + i + 1;
@@ -284,7 +297,6 @@ export class TerrainTile {
     }
     skirtBase += res;
 
-    // Left skirt (facing -X)
     for (let j = 0; j < res - 1; j++) {
       const g0 = j * res;
       const g1 = (j + 1) * res;
@@ -301,7 +313,6 @@ export class TerrainTile {
     }
     skirtBase += res;
 
-    // Right skirt (facing +X)
     for (let j = 0; j < res - 1; j++) {
       const g0 = j * res + (res - 1);
       const g1 = (j + 1) * res + (res - 1);
@@ -335,6 +346,11 @@ export class TerrainTile {
     return this.gpuGeometry;
   }
 
+  /** Vertex count of the grid (skirts excluded) — used by LOD tests. */
+  get gridVertexCount(): number {
+    return this.resolution * this.resolution;
+  }
+
   dispose(): void {
     if (this.gpuGeometry) {
       this.gpuGeometry.dispose();
@@ -343,23 +359,28 @@ export class TerrainTile {
   }
 }
 
-export type ChunkState = "pending" | "ready" | "disposed";
+export type ChunkState = "pending" | "generating" | "ready" | "disposed";
 
 export class TerrainChunk {
   readonly key: string;
   readonly cx: number;
   readonly cz: number;
   readonly size: number;
-  readonly resolution: number;
-  readonly lod: number;
+  resolution: number;
+  lod: number;
+  geomorphAlpha = 0;
 
   state: ChunkState = "pending";
   tile: TerrainTile | null = null;
   entityId: EntityId | null = null;
   lastAccessed = 0;
+  /** TaskScheduler key while a generation is in flight (Phase 10.5). */
+  taskKey: string | null = null;
+  /** Estimated resident bytes once ready. */
+  residentBytes = 0;
 
   constructor(cx: number, cz: number, size: number, resolution: number, lod = 0) {
-    this.key = chunkKey(cx, cz, lod);
+    this.key = chunkCoordKey(cx, cz);
     this.cx = cx;
     this.cz = cz;
     this.size = size;
@@ -368,7 +389,8 @@ export class TerrainChunk {
     this.lastAccessed = performance.now();
   }
 
-  generate(pipeline: GeneratorPipeline, seed: number): void {
+  generate(pipeline: GeneratorPipeline, seed: number, geomorphAlpha = this.geomorphAlpha): void {
+    this.tile?.dispose();
     this.tile = new TerrainTile(
       {
         cx: this.cx,
@@ -376,15 +398,35 @@ export class TerrainChunk {
         size: this.size,
         resolution: this.resolution,
         lod: this.lod,
+        geomorphAlpha,
       },
       pipeline,
       seed,
     );
+    this.geomorphAlpha = geomorphAlpha;
     this.state = "ready";
+    this.taskKey = null;
+  }
+
+  applyCell(cell: WorldCell, geomorphAlpha = this.geomorphAlpha): void {
+    this.tile?.dispose();
+    this.resolution = cell.resolution;
+    this.tile = TerrainTile.fromCell({
+      cx: this.cx,
+      cz: this.cz,
+      size: this.size,
+      lod: this.lod,
+      geomorphAlpha,
+      cell,
+    });
+    this.geomorphAlpha = geomorphAlpha;
+    this.state = "ready";
+    this.taskKey = null;
   }
 
   dispose(): void {
     this.state = "disposed";
+    this.taskKey = null;
     if (this.tile) {
       this.tile.dispose();
       this.tile = null;

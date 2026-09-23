@@ -107,3 +107,37 @@ export class TerrainLOD {
     return selections;
   }
 }
+
+/**
+ * Grid resolution for a LOD level. Nested odd grids so every coarser vertex sits on a finer one:
+ *   LOD0 = base (e.g. 33), LOD1 = 17, LOD2 = 9, LOD3 = 5, LOD4 = 3.
+ */
+export function resolutionForLod(baseResolution: number, lod: number): number {
+  const base = Math.max(3, Math.floor(baseResolution));
+  const level = Math.max(0, Math.floor(lod));
+  return Math.max(3, Math.floor((base - 1) / (1 << level)) + 1);
+}
+
+/**
+ * Morph a fine-grid height toward the next-coarser nested sample. Vertices that already sit on the
+ * coarser lattice are unchanged; odd-index vertices slide toward the bilinear of their coarse parents.
+ * `alpha = 0` → fine mesh, `alpha = 1` → fully morphing to the coarser LOD.
+ */
+export function geomorphHeight(heights: Float32Array, resolution: number, i: number, j: number, alpha: number): number {
+  const fine = heights[j * resolution + i]!;
+  if (alpha <= 0) return fine;
+  const i0 = i & ~1;
+  const j0 = j & ~1;
+  const i1 = Math.min(i0 + 2, resolution - 1);
+  const j1 = Math.min(j0 + 2, resolution - 1);
+  if (i0 === i && j0 === j) return fine;
+  const fx = i1 === i0 ? 0 : (i - i0) / (i1 - i0);
+  const fz = j1 === j0 ? 0 : (j - j0) / (j1 - j0);
+  const h00 = heights[j0 * resolution + i0]!;
+  const h10 = heights[j0 * resolution + i1]!;
+  const h01 = heights[j1 * resolution + i0]!;
+  const h11 = heights[j1 * resolution + i1]!;
+  const coarse = h00 * (1 - fx) * (1 - fz) + h10 * fx * (1 - fz) + h01 * (1 - fx) * fz + h11 * fx * fz;
+  const t = alpha > 1 ? 1 : alpha;
+  return fine + (coarse - fine) * t;
+}
