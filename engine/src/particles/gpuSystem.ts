@@ -689,6 +689,24 @@ export class GpuParticleSystem {
     this.trailBuffer = null;
     this.visibleBuffer = null;
     this.indirectBuffer = null;
+    this.emitUniform = null;
+    this.simUniform = null;
+    this.cullUniform = null;
+    this.renderUniform = null;
+    this.emitPipeline = null;
+    this.simPipeline = null;
+    this.cullPipeline = null;
+    this.resolvePipeline = null;
+    this.renderPipeline = null;
+    this.renderPipelineFormat = null;
+    this.renderDepthFormat = null;
+    this.renderModule = null;
+    this.emitLayout = null;
+    this.simLayout = null;
+    this.cullLayout = null;
+    this.resolveLayout = null;
+    this.renderLayout = null;
+    this.lastEnqueuedPasses = [];
   }
 }
 

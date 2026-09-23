@@ -1,13 +1,14 @@
 /**
- * CPU particle modules (Phase 12 reference path). Each one mutates a slice of the state buffer
- * and nothing else. GPU full-sim is authoritative for the live particle path; these classes remain
- * as the analytic/reference and CPU fallback implementation. Do not remove them without an
- * explicit keep-or-remove decision (Velocity/Attractor/RotationOverLife included).
+ * CPU particle modules (Phase 7 / Phase 12 reference path). Each one mutates a slice of the state
+ * buffer and nothing else. GPU full-sim (`PARTICLE_FULL_SIM_SHADER` / GpuParticleModulesConfig) is
+ * authoritative for the live particle path — including velocity boost, attractor, and rotation-over-
+ * life, which have no CPU module ports. Remaining classes (gravity, drag, colour/size over life,
+ * cone sampling) are the analytic/reference and CPU fallback implementation.
  */
 
 import { clamp, lerp } from "../math/scalar.js";
 import { Rng } from "../math/rng.js";
-import { P_A, P_AGE, P_B, P_FLAGS, P_G, P_LIFE, P_MAX_LIFE, P_R, P_SEED, P_SIZE, P_VX, P_VY, P_VZ, P_X, P_Y, P_Z, PARTICLE_FLOATS } from "./layout.js";
+import { P_A, P_AGE, P_B, P_FLAGS, P_G, P_LIFE, P_MAX_LIFE, P_R, P_SIZE, P_VX, P_VY, P_VZ, PARTICLE_FLOATS } from "./layout.js";
 
 export interface ParticleModule {
   readonly name: string;
@@ -125,58 +126,4 @@ export function sampleCone(cone: ConeEmission, rng: Rng, out: { x: number; y: nu
   out.x = (dx * ct + tx * st * cp + bx * st * sp) * speed;
   out.y = (dy * ct + ty * st * cp + by * st * sp) * speed;
   out.z = (dz * ct + tz * st * cp + bz * st * sp) * speed;
-}
-
-/** Constant velocity boost (wind / local force). Applied before gravity in the GPU full sim. */
-export class VelocityModule implements ParticleModule {
-  readonly name = "velocity";
-  constructor(
-    public x = 0,
-    public y = 0,
-    public z = 0,
-  ) {}
-  apply(state: Float32Array, index: number, dt: number): void {
-    const o = index * PARTICLE_FLOATS;
-    if (state[o + P_FLAGS]! < 0.5) return;
-    state[o + P_VX] = state[o + P_VX]! + this.x * dt;
-    state[o + P_VY] = state[o + P_VY]! + this.y * dt;
-    state[o + P_VZ] = state[o + P_VZ]! + this.z * dt;
-  }
-}
-
-/** Soft point attractor (inverse-square). Mirrors the GPU full-sim attractor term. */
-export class AttractorModule implements ParticleModule {
-  readonly name = "attractor";
-  constructor(
-    public x = 0,
-    public y = 0,
-    public z = 0,
-    public strength = 0,
-  ) {}
-  apply(state: Float32Array, index: number, dt: number): void {
-    const o = index * PARTICLE_FLOATS;
-    if (state[o + P_FLAGS]! < 0.5 || this.strength === 0) return;
-    const dx = this.x - state[o + P_X]!;
-    const dy = this.y - state[o + P_Y]!;
-    const dz = this.z - state[o + P_Z]!;
-    const distSq = Math.max(dx * dx + dy * dy + dz * dz, 0.25);
-    const s = (this.strength * dt) / distSq;
-    state[o + P_VX] = state[o + P_VX]! + dx * s;
-    state[o + P_VY] = state[o + P_VY]! + dy * s;
-    state[o + P_VZ] = state[o + P_VZ]! + dz * s;
-  }
-}
-
-/** Rotation-over-life: advances `P_SEED` as a phase, matching the GPU full sim. */
-export class RotationOverLifeModule implements ParticleModule {
-  readonly name = "rotation-over-life";
-  constructor(public speed = 0.6) {}
-  apply(state: Float32Array, index: number, dt: number): void {
-    const o = index * PARTICLE_FLOATS;
-    if (state[o + P_FLAGS]! < 0.5) return;
-    const maxLife = state[o + P_MAX_LIFE]!;
-    const t = maxLife > 1e-6 ? clamp(state[o + P_AGE]! / maxLife, 0, 1) : 1;
-    const phase = state[o + P_SEED]! + this.speed * dt * (0.1 + t);
-    state[o + P_SEED] = phase - Math.floor(phase);
-  }
 }

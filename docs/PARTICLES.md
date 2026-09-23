@@ -49,6 +49,17 @@ Soft particles sample the scene depth attachment; stretched billboards elongate 
 `ParticleWorld` / `ParticleSimulation` / `ParticleSystem` still exist for tests and as the fallback
 reference. Do not attach both `ParticleWorld` and `ParticleSystem` to the same simulation.
 
+CPU module ports kept for the reference path: gravity, drag, colour-over-life, size-over-life, and
+cone sampling. Velocity boost, attractor, and rotation-over-life are **GPU-only** (configured via
+`GpuParticleModulesConfig` / `PARTICLE_FULL_SIM_SHADER`); the matching CPU classes were removed.
+
+## Accounting (no fake alive)
+
+`GpuParticleSystem` / the particles demo expose `emitted` (cumulative spawn count from the CPU emit
+budget) and `capacity`. There is **no** GPU readback of concurrent live particles, so APIs must not
+report a fake `alive` count derived from `emitted`. The CPU `ParticleSimulation.alive` field remains
+honest for the Phase 7 reference path only.
+
 ## GPU gravity check
 
 `runParticleGravityCheck(device, options)` still verifies the tight integrator against

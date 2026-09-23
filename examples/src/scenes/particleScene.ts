@@ -68,7 +68,8 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
       rotationSpeed: 0.8,
     },
   });
-  fountain.attachDevice(engine.gpu);
+  // Awaitable so callers / browser-check can wait for init instead of racing settle frames.
+  const deviceReady = fountain.attachDevice(engine.gpu);
   scene.add(fountain);
 
   const groundMesh = createPlane(engine.gpu, { width: 24, depth: 24 });
@@ -124,13 +125,14 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
       if (!s) return "gpu particles (initialising)";
       return `gpu particles capacity ${s.capacity}  emitted ${s.emitted}  entities ${s.entityCount()}  lastEmit ${s.lastEmitBudget}`;
     },
+    /** Resolves when GpuParticleSystem.init finishes (or fails/latches). */
+    ready: deviceReady,
     particleState: () => {
       const s = fountain.system;
-      const emitted = s?.emitted ?? 0;
       return {
-        alive: Math.min(emitted, s?.capacity ?? CAPACITY),
         capacity: s?.capacity ?? CAPACITY,
-        emitted,
+        emitted: s?.emitted ?? 0,
+        ready: Boolean(s?.ready),
       };
     },
     dispose(): void {

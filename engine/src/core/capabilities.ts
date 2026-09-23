@@ -578,7 +578,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "particles.gpuSimulation",
     phase: "12.3",
     status: "verified",
-    summary: "GPU storage + emit + full-sim modules (gravity/drag/turbulence/noise/attractor/velocity/colour/size/rotation); CPU remains reference",
+    summary: "GPU storage + emit + full-sim modules (gravity/drag/turbulence/noise/attractor/velocity/colour/size/rotation); CPU reference keeps gravity/drag/colour/size only",
     evidence: ["tests/particles.test.ts", "tools/browser-check.mjs"],
   },
   {

@@ -289,7 +289,7 @@ async function main(): Promise<void> {
     camera: () => controls?.state() ?? null,
     /** Chassis speed/rpm while the vehicle playground is loaded; null otherwise. */
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
-    /** Fountain counts while the particle scene is loaded; null otherwise. */
+    /** Fountain emitted/capacity/ready while the particle scene is loaded; null otherwise (no fake alive). */
     particleState: () => currentHandle?.particleState?.() ?? null,
     /** Mars showcase: rover model state, dust counts and pose; null on other scenes. */
     marsState: () => {

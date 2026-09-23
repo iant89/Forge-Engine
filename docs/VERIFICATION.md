@@ -477,7 +477,7 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `gpuError` must be under `1e-2` against `analyticGravity`. `cpuError` must be under `1e-4`.
   The SwiftShader run recorded here measured `gpuError ≈ 2.5e-7`.
 - **Vehicle playground and particle fountain**: `loadScene("vehicle")` and `loadScene("particles")`
-  must present with `gpuErrors === 0`. The fountain must report `alive > 0` after a short settle.
+  must present with `gpuErrors === 0`. The fountain must become ready, report `emitted > 0` (cumulative spawn counter — there is no concurrent live-count readback), and execute `particle.sim` / `particle.sort` / `particle.render` / `particle.resolve` after settle.
   The car is not driven here — stopping distance and the 12° climb are unit tests. Screenshots:
   `tools/.browser-check-vehicle.png`, `tools/.browser-check-particles.png`.
 - **Sky and day/night (Phase 8a)**: `loadScene("sky")`, then `setTimeOfDay(12)`: the cycle must report

@@ -532,7 +532,9 @@ CURRENT STATE:
 
 12.3 GPU Modules
 
-    Implemented on the GPU full-sim path (CPU modules remain the reference):
+    Implemented on the GPU full-sim path. CPU reference modules remain for gravity / drag /
+    colour-over-life / size-over-life; velocity / attractor / rotation-over-life are GPU-only
+    (CPU ports removed):
 
         [x] gravity
         [x] drag
