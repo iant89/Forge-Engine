@@ -352,8 +352,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   placeholderBody.material = placeholderBodyMaterial;
   scene.world.addComponent(chassis.id, placeholderBody);
 
-  const placeholderWheelMesh = createBox(gpu, { width: 0.45, height: 0.7, depth: 0.7 });
-  const placeholderWheelMaterial = Material.unlit({ label: "rover-wheel-placeholder", color: 0x1a1a22 });
+  const placeholderWheelMesh = createBox(gpu, { width: 0.3, height: 0.5, depth: 0.5 });
+  const placeholderWheelMaterial = new Material({ label: "rover-wheel-placeholder", color: 0x4a4a4e, roughness: 0.8, metallic: 0.05 });
   const wheelRoots: Entity[] = [];
   const wheelIds: number[] = [];
   for (let i = 0; i < WHEELS.length; i++) {

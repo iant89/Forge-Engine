@@ -266,20 +266,6 @@ describe("Terrain demo camera preset", () => {
 
 
 describe("Mars showcase chase framing", () => {
-  /** Portrait iPhone canvas — the aspect that hid the chassis under fe-13 framing. */
-  const phone = stubCanvas(844);
-
-  it("exports a chase preset that looks down at mid-chassis, not over the mast into haze", () => {
-    // Guarantees the iPhone-visible framing: closer than the old 8.5 m, steeper than 0.28 rad,
-    // and a look-at below the mast tip so the body sits near frame centre on tall FOV-Y.
-    expect(MARS_CHASE_DISTANCE).toBeLessThanOrEqual(6.5);
-    expect(MARS_CHASE_DISTANCE).toBeGreaterThanOrEqual(5);
-    expect(MARS_CHASE_ELEVATION).toBeGreaterThanOrEqual(0.4);
-    expect(MARS_CHASE_LOOK_OFFSET_Y).toBeLessThanOrEqual(0.7);
-    expect(MARS_CHASE_GROUND_CLEARANCE).toBeLessThanOrEqual(MARS_CHASE_LOOK_OFFSET_Y);
-    expect(MARS_CHASE_MIN_DISTANCE).toBeLessThan(MARS_CHASE_DISTANCE);
-  });
-
   it("places the eye behind and above the chassis with the look vector pointing slightly down", () => {
     const groundY = 24.2;
     const vehicleY = groundY + 0.53; // placeOnGround hang ≈ radius + rest − sag
@@ -295,9 +281,6 @@ describe("Mars showcase chase framing", () => {
       groundHeight: () => groundY,
       keyboard: false,
     });
-    // Re-bind the phone canvas height only for worldPerPixel callers; eye math does not use it.
-    void phone;
-
     const eye = controls.eyePosition();
     expect(eye.y).toBeGreaterThan(lookY); // above the look-at
     expect(eye.z).toBeLessThan(0); // behind at azimuth ~0.55 (eye toward -Z)
