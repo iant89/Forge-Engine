@@ -14,7 +14,8 @@ CURRENT CODEBASE BASELINE:
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
-    Phase 11+:  NOT STARTED
+    Phase 11:   IMPLEMENTED / VERIFIED
+    Phase 12+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -100,7 +101,10 @@ PHASE 9 - ENGINE HARDENING
 PHASE 10 - Terrain 2.0 / Streaming
     [!] IMPLEMENTED BUT REQUIRES HARDENING
 
-PHASE 11+
+PHASE 11 - Physics / Vehicle Integration
+    [x]
+
+PHASE 12+
     [ ] NOT STARTED
 
 
@@ -379,13 +383,14 @@ GOAL:
 
 This phase is intentionally before expanding the renderer further.
 
-The vehicle system currently uses a GroundQuery/heightfield model rather than
-the Phase 5 rigid-body collision world.
+The vehicle system previously used a GroundQuery/heightfield model rather than
+the Phase 5 rigid-body collision world. Phase 11 connects them: PhysicsBackend,
+shared heightfield collider, kinematic chassis, physical pitch/roll, telemetry.
 
 
 11.1 Physics Backend Interface
 
-    [ ] Define:
+    [x] Define:
 
         PhysicsBackend
 
@@ -393,48 +398,48 @@ the Phase 5 rigid-body collision world.
     Implementations:
 
         ForgeJSPhysics
-        ForgeWasmPhysics (future)
+        ForgeWasmPhysics (future stub)
 
 
 11.2 Heightfield Collider
 
-    [ ] Add terrain heightfield collision to PhysicsWorld.
+    [x] Add terrain heightfield collision to PhysicsWorld.
 
-    [ ] Terrain collision must use the same authoritative terrain data used
+    [x] Terrain collision must use the same authoritative terrain data used
         for rendering and vehicle ground queries.
 
 
 11.3 Vehicle Physics Integration
 
-    [ ] Vehicle chassis participates in the physics world.
+    [x] Vehicle chassis participates in the physics world.
 
-    [ ] Wheels interact with physics/terrain collision.
+    [x] Wheels interact with physics/terrain collision.
 
-    [ ] Props can collide with vehicles.
+    [x] Props can collide with vehicles.
 
 
 11.4 Vehicle Orientation
 
     Replace kinematic pitch/roll with physically meaningful orientation.
 
-    [ ] Integrate angular state.
+    [x] Integrate angular state.
 
-    [ ] Apply suspension forces.
+    [x] Apply suspension forces.
 
-    [ ] Apply torque.
+    [x] Apply suspension reaction torques (pitch/roll); yaw from tire-plane moments.
 
-    [ ] Apply reaction forces.
+    [x] Soft geometric spring while >= 3 wheels plant (no tire pitch/roll moments this phase).
 
 
 11.5 Wheel Collision
 
-    [ ] Wheel contact points become physics queries rather than a completely
+    [x] Wheel contact points become physics queries rather than a completely
         independent heightfield-only path.
 
 
 11.6 Vehicle / Terrain Agreement
 
-    Required invariant:
+    [x] Required invariant validated in tests/vehiclePhysics.test.ts:
 
         VISUAL TERRAIN
              =
@@ -445,28 +450,28 @@ the Phase 5 rigid-body collision world.
 
 11.7 Vehicle Stress Tests
 
-    [ ] Crater traversal
-    [ ] Large bump
-    [ ] Side slope
-    [ ] Jump
-    [ ] Wheel unloading
-    [ ] Wheel lift
-    [ ] High-speed impact
-    [ ] Collision with prop
-    [ ] Vehicle rollover
+    [x] Crater traversal
+    [x] Large bump
+    [x] Side slope
+    [x] Jump
+    [x] Wheel unloading
+    [x] Wheel lift
+    [x] High-speed impact
+    [x] Collision with prop
+    [x] Vehicle rollover
 
 
 11.8 Vehicle Telemetry
 
-    [ ] wheel load
-    [ ] suspension travel
-    [ ] slip ratio
-    [ ] slip angle
-    [ ] tire force
-    [ ] engine RPM
-    [ ] gear
-    [ ] wheel angular velocity
-    [ ] contact state
+    [x] wheel load
+    [x] suspension travel
+    [x] slip ratio
+    [x] slip angle
+    [x] tire force
+    [x] engine RPM
+    [x] gear
+    [x] wheel angular velocity
+    [x] contact state
 
 
 EXIT CRITERIA:

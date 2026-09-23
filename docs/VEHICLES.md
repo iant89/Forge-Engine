@@ -1,9 +1,11 @@
-# Vehicles (Phase 6)
+# Vehicles (Phase 6 / 11)
 
-A raycast car: four wheels sample a heightfield, a spring/damper holds each one, and a Pacejka tire
-turns the slip at that contact into a force. It is not a rigid body in the Phase 5 solver. The
-chassis is a point mass plus a yaw inertia; pitch and roll are kinematic, taken from the ground
-under the two axles, and are not integrated.
+A raycast car: four wheels sample a `GroundQuery` (preferably a physics-backed heightfield /
+raycast query — Phase 11), a spring/damper holds each one, and a Pacejka tire turns the slip at that
+contact into a force. The chassis is a point mass plus yaw/pitch/roll inertias; yaw comes from
+tire-plane moments, while pitch and roll integrate from suspension reaction torques plus a soft
+geometric spring (no tire pitch/roll moments this phase). An optional kinematic chassis box in the
+physics world lets props collide with the car.
 
 ## Demo
 
@@ -37,8 +39,10 @@ The scene `update` writes `vehicle.input` and does not step. A second step would
    (`ω = vLong / radius`, κ = 0).
 3. Lateral force is Pacejka in slip angle, combined with the longitudinal force under a friction
    circle of `μ · normalLoad`.
-4. The chassis integrates the summed forces. Yaw comes from the moment about the centre of mass.
-   Pitch and roll are rewritten from the axle heights; they are not a second integrator.
+4. The chassis integrates the summed forces. Yaw comes from tire-plane moments about the CG.
+   Pitch and roll come from suspension support reaction torques about the CG, plus — while three or
+   more wheels plant — a soft spring that tracks the geometric axle orientation so a parked car
+   settles. Sparse contact / airborne wheels keep their angular rates (no tire pitch/roll moments).
 
 While a gear is engaged, reported RPM follows the driven wheels, but it does not stall below idle:
 the crank holds `idleRpm` until wheel speed exceeds it (torque-converter slip). Neutral integrates
@@ -49,9 +53,16 @@ differential (`open`, `locked`, or `lsd`). Layout is `fwd`, `rwd`, or `awd`. Aer
 plus a lift coefficient; pass `aero: null` to turn it off. Reverse is a ratio (`gear = -1`); nothing
 selects it automatically, and the playground has no reverse key.
 
-Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`, or any
-`sample(x, z, out)`). That is the terrain contact. It is not a triangle mesh query against the
-Phase 4 chunks.
+Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`,
+`physicsGroundQuery`, `physicsRaycastGroundQuery`, or any `sample(x, z, out)`). Phase 11 expects
+the vehicle query and the physics heightfield collider to share one sampler so visual terrain,
+collision, and wheel contact agree.
+
+For **heightfield-only / terrain** vehicle contact, use `physicsGroundQuery` (or an equivalent
+heightfield sampler). `physicsRaycastGroundQuery` casts a downward ray from a **fixed world-Y
+origin** at `maxDistance * 0.5` (default origin Y = 32). Heightfields or other colliders that sit
+**above** that origin are outside the ray and can miss or fall back incorrectly — do not use the
+raycast helper as the sole ground query for pure HF terrain.
 
 ## Using it
 
@@ -95,12 +106,94 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 - The same inputs produce the same pose, yaw, RPM, and gear.
 - `VehicleSystem` steps once per fixed step and writes the chassis transform.
 
+## Sharing one PhysicsWorld (Vehicle + ECS)
+
+`ForgeJSPhysics` and `PhysicsSystem` each **create their own** `PhysicsWorld` by default
+(single-owner). That is intentional: a demo that only drives a vehicle never needs an ECS physics
+system, and a prop scene never needs a vehicle backend.
+
+If you register **both** without sharing, you silently get **two worlds**. A heightfield or
+chassis on the vehicle backend is invisible to ECS rigid bodies, and vice versa.
+
+To share one world:
+
+```ts
+import {
+  ForgeJSPhysics,
+  PhysicsSystem,
+  VehicleComponent,
+  VehicleSystem,
+  createVehicleChassis,
+} from "@forge/engine";
+
+const backend = new ForgeJSPhysics(); // owns the world
+// or: const backend = ForgeJSPhysics.wrap(existingWorld);
+
+scene.world.registerSystem(new VehicleSystem());
+scene.world.registerSystem(new PhysicsSystem({ world: backend.world }));
+// equivalent: new PhysicsSystem({ backend })
+
+backend.setHeightfield(shape);
+const chassis = createVehicleChassis(vehicle, backend);
+// Assign so PhysicsSystem drives the kinematic collider via Transform pose-delta
+// (same path as RigidBodyComponent kinematics). Without this, props collide with a
+// ghost at the spawn pose while the car has already driven away.
+// Record the world so VehicleComponent.onDetach can removeBody (no ghost chassis).
+vehicleComponent.attachChassis(chassis, backend.world);
+// equivalent: chassisBody = chassis; chassisWorld = backend.world;
+// chassis + heightfield are visible to PhysicsSystem.world (same identity)
+```
+
+Rules of thumb:
+
+- Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
+- Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`.
+- When adopting, explicitly provided `gravity` / `fixedDt` / `solverOptions` are **copied onto the
+  shared world** (they are not silently ignored). Omit a field to leave the adopted world's value
+  unchanged. Example: `new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } })`
+  zeros gravity on that shared world.
+- When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
+  both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
+  so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
+- Assign the chassis after `createVehicleChassis` with `attachChassis(chassis, backend.world)`
+  (or set `chassisBody` **and** `chassisWorld`). `VehicleSystem` writes the chassis `Transform`;
+  `PhysicsSystem` distributes that frame's pose delta across its substeps.
+  Do **not** call `syncVehicleChassis` every vehicle fixed step in this recipe — FixedSystems are
+  not interleaved, so snapping the chassis to the end pose/ω before physics runs leaves hitch
+  frames (`fixedSteps>1`) contacting a parked body. (`syncVehicleChassis` remains for manual
+  one-to-one `vehicle.step` / `world.step` loops outside ECS.)
+- `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`). Even
+  when `ownsWorld === false`, it still **removes bodies it spawned** for `RigidBodyComponent`
+  entities (so shared backends do not keep ghost colliders after a scene reload) and **nulls**
+  those components' `body` handles so a replacement `PhysicsSystem` re-adds on the next fixed
+  step. It does not remove bodies it did not create (e.g. manually `addBody`'d props). Vehicle
+  chassis teardown is owned by `VehicleComponent` (see next bullet).
+- Despawning a prop (`destroyEntity` / `removeComponent(RigidBodyComponent)`) removes the
+  system-spawned body from the shared `PhysicsWorld` immediately via the component detach hook
+  — ghosts do not linger until `PhysicsSystem.dispose()`.
+- Despawning a vehicle (`destroyEntity` / `removeComponent(VehicleComponent)`) removes
+  `chassisBody` from `chassisWorld` and nulls both handles via `VehicleComponent.onDetach`.
+  Always set `chassisWorld` (or use `attachChassis`) when assigning a shared-world chassis.
+- `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
+  silently wiped by a non-owner.
+
+
 ## Limitations
 
-- No collision with meshes, props, or other vehicles. Only the ground query.
-- Not in the Phase 5 contact solver. A car and a stack of boxes do not interact.
-- Pitch and roll do not carry angular momentum. A sharp kink in the heightfield snaps the pose to
-  the axles; it does not launch the chassis as a rigid body would.
+- Wheel contact is a physics heightfield / raycast query, not a triangle mesh against Phase 4 chunks.
+- `physicsRaycastGroundQuery` uses a fixed world-Y ray origin (`maxDistance * 0.5`). Prefer
+  `physicsGroundQuery` for heightfield-only / terrain vehicle ground when colliders may sit above
+  that origin.
+- `PhysicsWorld.raycast` / `physicsRaycastGroundQuery` treat non-heightfield `BoxShape` hits as
+  **AABB-only** (axis-aligned bounds), not oriented OBB. Rotated decks / ramps are unsupported for
+  wheel rays in Phase 11 — prefer `physicsGroundQuery` (HF) rather than a rotated box collider as
+  ground. OBB box rays are intentionally out of scope this phase.
+- The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
+  sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
+- Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels
+  settle on slopes. Extreme heightfield kinks can still excite that spring.
 - Wheel visuals are boxes. There is no tyre mesh, no suspension-arm skinning, and no steering wheel.
 - Reverse and neutral are set on `transmission.gear`. The automatic only shifts among forward gears.
-- The playground ramp is a visual plane posed to match the query. If you move the kink, move both.
+- The playground ramp is a visual plane posed to match the query. If you move the kink, move both —
+  or register one `HeightfieldShape` on the physics backend and use `physicsGroundQuery`.
+- Telemetry: call `vehicle.telemetry()` for wheel load, travel, slip, tire force, RPM, gear, ω, contact.

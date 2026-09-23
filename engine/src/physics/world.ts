@@ -12,7 +12,16 @@ import { Ray, RayHit } from "../math/geometry.js";
 import { RigidBody } from "./body.js";
 import { ContactManifold, collideBodies } from "./collision.js";
 import { SequentialImpulseSolver, type SolverOptions } from "./solver.js";
-import { SphereShape, BoxShape, PlaneShape } from "./shapes.js";
+import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js";
+
+export interface RaycastFilter {
+  /** Skip these rigid bodies (e.g. the casting vehicle chassis). */
+  excludeBodies?: ReadonlyArray<RigidBody> | null;
+  /** Skip kinematic bodies (default false on world; ground helpers may enable). */
+  skipKinematic?: boolean;
+  /** Skip static bodies. */
+  skipStatic?: boolean;
+}
 
 export interface PhysicsWorldOptions {
   gravity?: Vec3Ops;
@@ -26,9 +35,14 @@ export class PhysicsWorld {
   private nextBodyId = 1;
 
   readonly gravity = new Vec3(0, -9.81, 0);
-  readonly fixedDt: number;
+  /** Mutable so adopt paths ({@link applyOptions}) can retune without rebuilding the world. */
+  fixedDt: number;
   readonly maxSubsteps: number;
   readonly solver: SequentialImpulseSolver;
+
+  /** Authoritative terrain collider, when registered via setHeightfield. */
+  private heightfieldBody: RigidBody | null = null;
+  private heightfieldShape: HeightfieldShape | null = null;
 
   accumulator = 0;
   time = 0;
@@ -39,6 +53,27 @@ export class PhysicsWorld {
     this.fixedDt = options.fixedDt ?? 1 / 60;
     this.maxSubsteps = options.maxSubsteps ?? 8;
     this.solver = new SequentialImpulseSolver(options.solverOptions);
+  }
+
+  /**
+   * Copy explicitly-provided options onto this world (adopt / share path).
+   * Only defined fields are applied — `undefined` does not clobber existing values.
+   * Used by {@link PhysicsSystem} and {@link ForgeJSPhysics} when constructed with `world`
+   * (or `backend`) plus gravity / fixedDt / solverOptions.
+   */
+  applyOptions(options: PhysicsWorldOptions): void {
+    if (options.gravity !== undefined) this.gravity.copyFrom(options.gravity);
+    if (options.fixedDt !== undefined) this.fixedDt = options.fixedDt;
+    if (options.solverOptions !== undefined) {
+      const s = options.solverOptions;
+      if (s.velocityIterations !== undefined) this.solver.velocityIterations = s.velocityIterations;
+      if (s.positionIterations !== undefined) this.solver.positionIterations = s.positionIterations;
+      if (s.baumgarte !== undefined) this.solver.baumgarte = s.baumgarte;
+      if (s.penetrationSlop !== undefined) this.solver.penetrationSlop = s.penetrationSlop;
+      if (s.velocityRestThreshold !== undefined) {
+        this.solver.velocityRestThreshold = s.velocityRestThreshold;
+      }
+    }
   }
 
   addBody(body: RigidBody): RigidBody {
@@ -56,9 +91,42 @@ export class PhysicsWorld {
     const idx = this.bodies.indexOf(body);
     if (idx >= 0) {
       this.bodies.splice(idx, 1);
+      if (body === this.heightfieldBody) {
+        this.heightfieldBody = null;
+        this.heightfieldShape = null;
+      }
       return true;
     }
     return false;
+  }
+
+  /**
+   * Register a static heightfield collider that uses the same sampleHeight/sampleNormal
+   * as visual terrain and vehicle ground queries (Phase 11.2).
+   */
+  setHeightfield(shape: HeightfieldShape | null): RigidBody | null {
+    if (this.heightfieldBody) {
+      this.removeBody(this.heightfieldBody);
+    }
+    if (!shape) return null;
+    const body = new RigidBody({
+      type: "static",
+      shape,
+      position: { x: 0, y: 0, z: 0 },
+    });
+    this.addBody(body);
+    this.heightfieldBody = body;
+    this.heightfieldShape = shape;
+    return body;
+  }
+
+  getHeightfield(): HeightfieldShape | null {
+    return this.heightfieldShape;
+  }
+
+  /** Height from the registered heightfield, or null. */
+  queryHeight(x: number, z: number): number | null {
+    return this.heightfieldShape ? this.heightfieldShape.sampleHeight(x, z) : null;
   }
 
   /**
@@ -96,6 +164,20 @@ export class PhysicsWorld {
   stepDeterministic(fixedSteps: number): void {
     for (let i = 0; i < fixedSteps; i++) {
       this.fixedStep(this.fixedDt);
+    }
+  }
+
+  /**
+   * Run exactly one solver step with timestep `dt` (defaults to {@link fixedDt}).
+   * Does **not** use the variable-dt accumulator — callers that already own a fixed
+   * clock (e.g. {@link PhysicsSystem} via `context.fixedDt`) get one step per call,
+   * never 0/N from leftover accumulator state. Render poses snap to the post-step pose.
+   */
+  stepOnce(dt: number = this.fixedDt): void {
+    this.fixedStep(dt);
+    // ECS / deterministic callers have no leftover frame alpha — snap render = sim.
+    for (const body of this.bodies) {
+      body.interpolate(1);
     }
   }
 
@@ -143,12 +225,22 @@ export class PhysicsWorld {
 
   /**
    * Raycast against physics colliders in the world.
+   *
+   * **BoxShape hits are AABB-only** (axis-aligned bounds via {@link Ray.intersectsAABB}),
+   * not oriented OBB. Rotated decks / ramps therefore do not produce correct wheel-ray
+   * contact against non-heightfield boxes in Phase 11 — prefer {@link HeightfieldShape}
+   * / `physicsGroundQuery` for vehicle ground. OBB box rays are intentionally out of scope.
    */
-  raycast(ray: Ray, hit: RayHit): boolean {
+  raycast(ray: Ray, hit: RayHit, filter?: RaycastFilter): boolean {
     let closestDist = Infinity;
     let hitFound = false;
+    const scratchHit = PhysicsWorld.rayScratch;
+    const exclude = filter?.excludeBodies;
 
     for (const body of this.bodies) {
+      if (filter?.skipKinematic && body.type === "kinematic") continue;
+      if (filter?.skipStatic && body.type === "static") continue;
+      if (exclude && exclude.length > 0 && exclude.includes(body)) continue;
       const shape = body.shape;
       if (shape instanceof SphereShape) {
         const t = ray.intersectsSphere(body.position, shape.radius);
@@ -178,11 +270,22 @@ export class PhysicsWorld {
           }
         }
       } else if (shape instanceof BoxShape) {
-        if (ray.intersectsAABB(body.aabb, hit)) {
-          if (hit.distance < closestDist) {
-            closestDist = hit.distance;
-            hitFound = true;
-          }
+        if (ray.intersectsAABB(body.aabb, scratchHit) && scratchHit.distance < closestDist) {
+          closestDist = scratchHit.distance;
+          hit.distance = scratchHit.distance;
+          hit.point.copyFrom(scratchHit.point);
+          hit.normal.copyFrom(scratchHit.normal);
+          hit.isValid = true;
+          hitFound = true;
+        }
+      } else if (shape instanceof HeightfieldShape) {
+        if (raycastHeightfield(ray, shape, scratchHit) && scratchHit.distance < closestDist) {
+          closestDist = scratchHit.distance;
+          hit.distance = scratchHit.distance;
+          hit.point.copyFrom(scratchHit.point);
+          hit.normal.copyFrom(scratchHit.normal);
+          hit.isValid = true;
+          hitFound = true;
         }
       }
     }
@@ -192,8 +295,68 @@ export class PhysicsWorld {
 
   clear(): void {
     this.bodies.length = 0;
+    this.heightfieldBody = null;
+    this.heightfieldShape = null;
     this.accumulator = 0;
     this.time = 0;
     this.stepCount = 0;
   }
+
+  private static readonly rayScratch = new RayHit();
+}
+
+/** Scratch for heightfield raycast normals (avoids per-hit Vec3 alloc in default sampler). */
+const heightfieldNormalScratch = new Vec3();
+
+/**
+ * March a ray against a heightfield sampler. Preferential for downward wheel rays;
+ * also works for general directions via uniform steps along the ray.
+ */
+export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, steps = 48): boolean {
+  const maxT = Math.min(ray.maxDistance, 500);
+  if (!(maxT > 0)) return false;
+  const dt = maxT / steps;
+  let prevAbove = true;
+  let prevT = 0;
+  for (let i = 0; i <= steps; i++) {
+    const t = i * dt;
+    const x = ray.origin.x + ray.direction.x * t;
+    const y = ray.origin.y + ray.direction.y * t;
+    const z = ray.origin.z + ray.direction.z * t;
+    const h = hf.sampleHeight(x, z);
+    const above = y > h;
+    if (i > 0 && prevAbove && !above) {
+      // Bisect the crossing for a tighter hit.
+      let lo = prevT;
+      let hi = t;
+      for (let k = 0; k < 8; k++) {
+        const mid = (lo + hi) * 0.5;
+        const mx = ray.origin.x + ray.direction.x * mid;
+        const my = ray.origin.y + ray.direction.y * mid;
+        const mz = ray.origin.z + ray.direction.z * mid;
+        if (my > hf.sampleHeight(mx, mz)) lo = mid;
+        else hi = mid;
+      }
+      const hitT = hi;
+      if (hitT < 0 || hitT > maxT) return false;
+      hit.distance = hitT;
+      ray.at(hitT, hit.point);
+      const n = hf.sampleNormal(hit.point.x, hit.point.z, heightfieldNormalScratch);
+      hit.normal.copyFrom(n);
+      hit.isValid = true;
+      return true;
+    }
+    // Start already below surface: report t=0 contact.
+    if (i === 0 && !above) {
+      hit.distance = 0;
+      hit.point.set(ray.origin.x, h, ray.origin.z);
+      const n = hf.sampleNormal(ray.origin.x, ray.origin.z, heightfieldNormalScratch);
+      hit.normal.copyFrom(n);
+      hit.isValid = true;
+      return true;
+    }
+    prevAbove = above;
+    prevT = t;
+  }
+  return false;
 }

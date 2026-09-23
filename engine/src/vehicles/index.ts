@@ -23,6 +23,17 @@ export {
 } from "./drivetrain.js";
 export { flatGround, slopeGround, heightFunctionGround, type GroundQuery, type GroundSample } from "./ground.js";
 export {
+  physicsGroundQuery,
+  physicsRaycastGroundQuery,
+  assertTerrainAgreement,
+  type PhysicsRaycastGroundOptions,
+} from "./physicsGround.js";
+export {
+  createVehicleChassis,
+  syncVehicleChassis,
+  type VehicleChassisOptions,
+} from "./chassis.js";
+export {
   computeWheelLoads,
   axleLoad,
   distributeWheelLoads,
@@ -38,6 +49,8 @@ export {
   type VehicleInput,
   type VehicleWheelConfig,
   type WheelState,
+  type VehicleTelemetry,
+  type WheelTelemetry,
 } from "./vehicle.js";
 export { VehicleComponent, createVehicleComponent } from "./components.js";
 export { VehicleSystem } from "./system.js";

@@ -6,6 +6,12 @@
  * boxes in the playground (a cylinder's axis is +Y; a box needs no extra basis). Spin is a roll
  * about the axle, composed as yaw (chassis + steer) then a local X rotation — applied as an euler
  * (spin, yaw, 0) which is close enough for a debug wheel and exact for the chassis.
+ *
+ * When {@link VehicleComponent.chassisBody} is set, do **not** snap the kinematic collider here.
+ * FixedSystems are not interleaved: this system finishes all `fixedSteps` before PhysicsSystem
+ * runs. Snapping the chassis to the end pose/ω each vehicle substep leaves hitch frames
+ * (`fixedSteps>1`) contacting a parked body. PhysicsSystem drives `chassisBody` through the same
+ * Transform pose-delta distribution used for RigidBodyComponent kinematics.
  */
 
 import { Quat } from "../math/mat.js";

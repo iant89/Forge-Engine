@@ -13,7 +13,17 @@ export class RigidBodyComponent extends Component {
   restitution = 0.2;
   friction = 0.5;
 
+  /**
+   * Optional release hook installed by {@link PhysicsSystem} when it spawns `body`.
+   * Invoked from {@link onDetach} so shared-world despawn removes the collider immediately
+   * (and drops the body from PhysicsSystem spawned tracking).
+   */
+  onPhysicsDetach: (() => void) | null = null;
+
   override onDetach(): void {
+    const hook = this.onPhysicsDetach;
+    this.onPhysicsDetach = null;
+    hook?.();
     this.body = null;
   }
 }
