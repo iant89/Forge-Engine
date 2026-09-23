@@ -336,19 +336,6 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   // Local Y that puts the model's ground plane on the terrain at equilibrium (≈ radius + rest − sag).
   const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
   const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
-  // Pose the camera entity at the chase eye before OrbitControls takes over, so the first engine
-  // frame (and TerrainWorld focus copy) already looks at the chassis rather than the warm-up seed.
-  {
-    const cosEle = Math.cos(MARS_CHASE_ELEVATION);
-    const sinEle = Math.sin(MARS_CHASE_ELEVATION);
-    const cosAzi = Math.cos(MARS_CHASE_AZIMUTH);
-    const sinAzi = Math.sin(MARS_CHASE_AZIMUTH);
-    cameraEntity.transform.position = new Vec3(
-      SPAWN_X + MARS_CHASE_DISTANCE * cosEle * sinAzi,
-      chaseLookY + MARS_CHASE_DISTANCE * sinEle,
-      SPAWN_Z - MARS_CHASE_DISTANCE * cosEle * cosAzi,
-    );
-  }
 
   scene.world.registerSystem(new VehicleSystem());
 

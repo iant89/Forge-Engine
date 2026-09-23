@@ -139,14 +139,6 @@ async function main(): Promise<void> {
     // Scene modules own their camera policy (starting framing, zoom range, surface constraint).
     // Pass the setup into the constructor so the first pose is the scene's, not the defaults.
     controls = new OrbitControls(currentHandle.cameraEntity, canvas, currentHandle.camera ?? {});
-    // Apply followTarget before the first rendered frame. Without this, OrbitControls holds the
-    // static camera.target for one or more frames while the engine loop runs ahead of this rAF —
-    // on iOS that race was long enough to show the warm-up/haze framing instead of the chassis.
-    const follow = currentHandle.followTarget?.();
-    if (follow) {
-      controls.target.set(follow.x, follow.y, follow.z);
-      controls.update();
-    }
   }
 
   loadScene(activeSceneName);
