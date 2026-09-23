@@ -12,7 +12,7 @@ import { Ray, RayHit } from "../math/geometry.js";
 import { RigidBody } from "./body.js";
 import { ContactManifold, collideBodies } from "./collision.js";
 import { SequentialImpulseSolver, type SolverOptions } from "./solver.js";
-import { SphereShape, BoxShape, PlaneShape } from "./shapes.js";
+import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js";
 
 export interface PhysicsWorldOptions {
   gravity?: Vec3Ops;
@@ -29,6 +29,10 @@ export class PhysicsWorld {
   readonly fixedDt: number;
   readonly maxSubsteps: number;
   readonly solver: SequentialImpulseSolver;
+
+  /** Authoritative terrain collider, when registered via setHeightfield. */
+  private heightfieldBody: RigidBody | null = null;
+  private heightfieldShape: HeightfieldShape | null = null;
 
   accumulator = 0;
   time = 0;
@@ -56,9 +60,42 @@ export class PhysicsWorld {
     const idx = this.bodies.indexOf(body);
     if (idx >= 0) {
       this.bodies.splice(idx, 1);
+      if (body === this.heightfieldBody) {
+        this.heightfieldBody = null;
+        this.heightfieldShape = null;
+      }
       return true;
     }
     return false;
+  }
+
+  /**
+   * Register a static heightfield collider that uses the same sampleHeight/sampleNormal
+   * as visual terrain and vehicle ground queries (Phase 11.2).
+   */
+  setHeightfield(shape: HeightfieldShape | null): RigidBody | null {
+    if (this.heightfieldBody) {
+      this.removeBody(this.heightfieldBody);
+    }
+    if (!shape) return null;
+    const body = new RigidBody({
+      type: "static",
+      shape,
+      position: { x: 0, y: 0, z: 0 },
+    });
+    this.addBody(body);
+    this.heightfieldBody = body;
+    this.heightfieldShape = shape;
+    return body;
+  }
+
+  getHeightfield(): HeightfieldShape | null {
+    return this.heightfieldShape;
+  }
+
+  /** Height from the registered heightfield, or null. */
+  queryHeight(x: number, z: number): number | null {
+    return this.heightfieldShape ? this.heightfieldShape.sampleHeight(x, z) : null;
   }
 
   /**
@@ -147,6 +184,7 @@ export class PhysicsWorld {
   raycast(ray: Ray, hit: RayHit): boolean {
     let closestDist = Infinity;
     let hitFound = false;
+    const scratchHit = PhysicsWorld.rayScratch;
 
     for (const body of this.bodies) {
       const shape = body.shape;
@@ -178,11 +216,22 @@ export class PhysicsWorld {
           }
         }
       } else if (shape instanceof BoxShape) {
-        if (ray.intersectsAABB(body.aabb, hit)) {
-          if (hit.distance < closestDist) {
-            closestDist = hit.distance;
-            hitFound = true;
-          }
+        if (ray.intersectsAABB(body.aabb, scratchHit) && scratchHit.distance < closestDist) {
+          closestDist = scratchHit.distance;
+          hit.distance = scratchHit.distance;
+          hit.point.copyFrom(scratchHit.point);
+          hit.normal.copyFrom(scratchHit.normal);
+          hit.isValid = true;
+          hitFound = true;
+        }
+      } else if (shape instanceof HeightfieldShape) {
+        if (raycastHeightfield(ray, shape, scratchHit) && scratchHit.distance < closestDist) {
+          closestDist = scratchHit.distance;
+          hit.distance = scratchHit.distance;
+          hit.point.copyFrom(scratchHit.point);
+          hit.normal.copyFrom(scratchHit.normal);
+          hit.isValid = true;
+          hitFound = true;
         }
       }
     }
@@ -192,8 +241,65 @@ export class PhysicsWorld {
 
   clear(): void {
     this.bodies.length = 0;
+    this.heightfieldBody = null;
+    this.heightfieldShape = null;
     this.accumulator = 0;
     this.time = 0;
     this.stepCount = 0;
   }
+
+  private static readonly rayScratch = new RayHit();
+}
+
+/**
+ * March a ray against a heightfield sampler. Preferential for downward wheel rays;
+ * also works for general directions via uniform steps along the ray.
+ */
+export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, steps = 48): boolean {
+  const maxT = Math.min(ray.maxDistance, 500);
+  if (!(maxT > 0)) return false;
+  const dt = maxT / steps;
+  let prevAbove = true;
+  let prevT = 0;
+  for (let i = 0; i <= steps; i++) {
+    const t = i * dt;
+    const x = ray.origin.x + ray.direction.x * t;
+    const y = ray.origin.y + ray.direction.y * t;
+    const z = ray.origin.z + ray.direction.z * t;
+    const h = hf.sampleHeight(x, z);
+    const above = y > h;
+    if (i > 0 && prevAbove && !above) {
+      // Bisect the crossing for a tighter hit.
+      let lo = prevT;
+      let hi = t;
+      for (let k = 0; k < 8; k++) {
+        const mid = (lo + hi) * 0.5;
+        const mx = ray.origin.x + ray.direction.x * mid;
+        const my = ray.origin.y + ray.direction.y * mid;
+        const mz = ray.origin.z + ray.direction.z * mid;
+        if (my > hf.sampleHeight(mx, mz)) lo = mid;
+        else hi = mid;
+      }
+      const hitT = hi;
+      if (hitT < 0 || hitT > maxT) return false;
+      hit.distance = hitT;
+      ray.at(hitT, hit.point);
+      const n = hf.sampleNormal(hit.point.x, hit.point.z);
+      hit.normal.copyFrom(n);
+      hit.isValid = true;
+      return true;
+    }
+    // Start already below surface: report t=0 contact.
+    if (i === 0 && !above) {
+      hit.distance = 0;
+      hit.point.set(ray.origin.x, h, ray.origin.z);
+      const n = hf.sampleNormal(ray.origin.x, ray.origin.z);
+      hit.normal.copyFrom(n);
+      hit.isValid = true;
+      return true;
+    }
+    prevAbove = above;
+    prevT = t;
+  }
+  return false;
 }

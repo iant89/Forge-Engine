@@ -52,6 +52,18 @@ export class PhysicsSystem extends FixedSystem {
       }
     }
 
+    // Push kinematic / static poses from ECS into the solver so driven colliders (vehicle chassis)
+    // participate this substep.
+    for (let i = 0; i < q.count; i++) {
+      const rbComp = q.value(0, i) as RigidBodyComponent;
+      const transform = q.value(1, i) as Transform;
+      if (rbComp.body && rbComp.bodyType !== "dynamic") {
+        rbComp.body.position.copyFrom(transform.position);
+        rbComp.body.rotation.copyFrom(transform.rotation);
+        rbComp.body.updateAABB();
+      }
+    }
+
     this.world.step(fixedDt);
   }
 
