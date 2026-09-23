@@ -7,7 +7,7 @@ integration (with modules), culling and billboard/soft rendering through render-
 
 ## Demo
 
-`npm run demo`, then **Particles (P7)**, or open `?scene=particles`.
+`npm run demo`, then **Particles (P12 GPU)**, or open `?scene=particles`.
 
 A GPU fountain at 100k capacity. `GpuParticleWorld` attaches to the engine device; the renderer
 enqueues the particle passes. No sprite entities are created.

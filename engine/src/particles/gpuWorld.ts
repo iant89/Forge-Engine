@@ -143,6 +143,13 @@ export class GpuParticleWorld extends SceneObject {
   }
 
   override dispose(): void {
+    // Invalidate any in-flight attach so a later attachDevice(same device) cannot early-return
+    // the stale initPromise while _system is already null.
+    this.attachGeneration++;
+    this.initPending = false;
+    this.initPromise = null;
+    this.initFailed = false;
+    this.gpu = null;
     this._system?.dispose();
     this._system = null;
   }

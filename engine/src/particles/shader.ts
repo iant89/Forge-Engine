@@ -416,7 +416,7 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
     let sceneDepth = textureLoad(depthTex, px, 0);
     let particleZ = in.clip.z;
     let soft = saturate((sceneDepth - particleZ) * params.softScale * f32(dims.y));
-    alpha = alpha * max(soft, 0.05);
+    alpha = alpha * soft;
   }
   if (alpha < 0.004) {
     discard;

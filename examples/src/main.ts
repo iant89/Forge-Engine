@@ -6,7 +6,7 @@
  * - Phase 2: PBR Showcase Demo (Metallic x Roughness, Normal maps, Point/Spot/Sun lights, Emissive)
  *   rendered through the Phase 2 frame: cascaded shadow maps, HDR target, bloom, tone-map resolve.
  * - Phase 6: vehicle playground. Input is written in the scene `update`; `VehicleSystem` is the only stepper.
- * - Phase 7: particle fountain via `ParticleWorld` only (do not also attach `ParticleSystem`).
+ * - Phase 12: GPU particle fountain via `GpuParticleWorld` (billboard/soft `drawIndirect` path; do not also attach CPU `ParticleSystem`/`ParticleWorld` to the same GPU sim).
  * - Phase 8a: sky / day-night scene — `DayNightCycle` drives the sun, ambient, fog and the
  *   `forge.sky` pass; `[`/`]` scrub the clock, `M` swaps Earth for Mars.
  * - Orbit camera controls (mouse drag, wheel zoom, pan, touch pinch); each scene supplies its own

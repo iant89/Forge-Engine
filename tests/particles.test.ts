@@ -463,6 +463,9 @@ describe("particles — Phase 12 GPU system", () => {
     expect(PARTICLE_RENDER_SHADER).toContain("let particleZ = in.clip.z;");
     expect(PARTICLE_RENDER_SHADER).not.toMatch(/in\.clip\.xy\s*\/\s*max\(in\.clip\.w/);
     expect(PARTICLE_RENDER_SHADER).not.toMatch(/particleZ\s*=\s*in\.clip\.z\s*\/\s*max\(in\.clip\.w/);
+    // Soft fade must not floor alpha (that left ≥5% ghosting through occluders).
+    expect(PARTICLE_RENDER_SHADER).toContain("alpha = alpha * soft;");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/max\(\s*soft\s*,\s*0\.05\s*\)/);
   });
 
   it("cull draw uses compacted visible list + drawIndirect (no instance_index identity fallback)", async () => {
@@ -710,6 +713,46 @@ describe("particles — Phase 12 GPU system", () => {
         proto.assertShader = originalAssert;
       }
     } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("dispose during pending init lets a later attachDevice start clean", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const originalInit = GpuParticleSystem.prototype.init;
+    let initCalls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+      initCalls++;
+      if (initCalls === 1) await gate;
+      return originalInit.call(this);
+    };
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 17, name: "dispose-pending" });
+      const stale = world.attachDevice(gpu);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(1);
+
+      world.dispose();
+      expect(world.system).toBeNull();
+
+      // Same device after dispose must not early-return the stale promise with system=null.
+      const fresh = world.attachDevice(gpu);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(2);
+      expect(fresh).not.toBe(stale);
+      expect(world.system).not.toBeNull();
+
+      release();
+      await stale;
+      await fresh;
+      expect(world.system?.ready).toBe(true);
+      world.dispose();
+    } finally {
+      GpuParticleSystem.prototype.init = originalInit;
       await gpu.dispose();
     }
   });

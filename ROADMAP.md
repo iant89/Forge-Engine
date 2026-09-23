@@ -497,18 +497,24 @@ GOAL:
 
 CURRENT STATE:
 
-    CPU particle simulation is the reference implementation.
+    Honest subset shipped (see checkboxes below). CPU simulation remains the reference.
 
-    Compute shader already reproduces the gravity/drag/lifetime integration.
+        - GPU storage is authoritative (`GpuParticleSystem` / `GpuParticleWorld`); no sprite entities
+          for the GPU fountain demo (100k capacity).
+        - GPU ring-buffer emission with a deterministic seed hash.
+        - Full-sim modules on GPU (gravity, drag, turbulence, velocity, colour/size/rotation over
+          life, noise, attractors).
+        - Frustum + distance cull compact into an indirect draw list.
+        - Render-graph passes `particle.sim` / `particle.sort` / `particle.render` /
+          `particle.resolve` draw billboards, stretched billboards, and soft particles.
+        - Trail history (4 samples per particle) is written on GPU; ribbon mesh draw is deferred.
 
-    However:
+    Still deferred / stretch:
 
-        - GPU emission is not implemented.
-        - GPU module processing is not implemented.
-        - GPU trails are not implemented.
-        - GPU particle rendering is not implemented.
-        - There is no particle render-graph pass.
-        - Current demo renders only a few hundred sprite entities.
+        - Ribbon mesh generation and draw; mesh particles.
+        - HiZ / depth occlusion culling.
+        - Terrain / depth-buffer / SDF particle collision (soft fade samples depth only; no bounce).
+        - 500K / 1M stress gates.
 
 
 12.1 GPU Particle Storage
