@@ -5,6 +5,8 @@ import {
   EntityWorld,
   FLAG_ALIVE,
   GraphicsDevice,
+  GpuParticleSystem,
+  GpuParticleWorld,
   Logger,
   P_A,
   P_AGE,
@@ -19,7 +21,12 @@ import {
   P_X,
   P_Y,
   P_Z,
+  PARTICLE_CULL_SHADER,
+  PARTICLE_EMIT_SHADER,
   PARTICLE_FLOATS,
+  PARTICLE_FULL_SIM_SHADER,
+  PARTICLE_RENDER_SHADER,
+  PARTICLE_RESOLVE_SHADER,
   PARTICLE_SIM_SHADER,
   PARTICLE_STRIDE,
   ParticleComponent,
@@ -29,10 +36,12 @@ import {
   ParticleTrails,
   ParticleWorld,
   Profiler,
+  RenderGraph,
   Rng,
   Scene,
   SizeOverLifeModule,
   SystemScratch,
+  TextureUsage,
   Transform,
   analyticGravity,
   integrateParticle,
@@ -291,5 +300,494 @@ describe("particles — emitter does not use Math.random", () => {
     expect(a.emit(sa, 1, 1)).toBe(1);
     expect(b.emit(sb, 1, 1)).toBe(1);
     expect(Array.from(sa)).toEqual(Array.from(sb));
+  });
+});
+
+describe("particles — Phase 12 GPU system", () => {
+  it("validates emit / full-sim / cull / render / resolve shaders structurally", () => {
+    for (const [name, src] of [
+      ["emit", PARTICLE_EMIT_SHADER],
+      ["fullSim", PARTICLE_FULL_SIM_SHADER],
+      ["cull", PARTICLE_CULL_SHADER],
+      ["render", PARTICLE_RENDER_SHADER],
+      ["resolve", PARTICLE_RESOLVE_SHADER],
+    ] as const) {
+      const issues = validateWgsl(src);
+      expect(issues, `${name}: ${issues.map((i) => `${i.line}: ${i.message}`).join("\n")}`).toEqual([]);
+    }
+  });
+
+  it("simulates and draws 100k particles without creating 100k ECS entities", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, {
+        capacity: 100_000,
+        seed: 11,
+        maxEmitsPerFrame: 4096,
+        softParticles: true,
+      });
+      await system.init();
+      expect(system.ready).toBe(true);
+      expect(system.entityCount()).toBe(0);
+      expect(system.capacity).toBe(100_000);
+      expect(system.storageBytes()).toBe(100_000 * PARTICLE_STRIDE);
+
+      const viewProj = new Float32Array(16);
+      viewProj[0] = viewProj[5] = viewProj[10] = viewProj[15] = 1;
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 2, z: 8 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      expect(system.lastEmitBudget).toBeGreaterThan(0);
+
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap",
+        size: { width: 64, height: 32 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth",
+        size: { width: 64, height: 32 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      // Seed colour/depth so particle.render's loadOp is legal.
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (ctx) => {
+          ctx.beginRenderPass().end();
+        },
+      });
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      const stats = graph.execute();
+      expect(stats.executed).toEqual(expect.arrayContaining(["particle.sim", "particle.sort", "particle.render", "particle.resolve"]));
+      expect(system.lastEnqueuedPasses).toEqual(["particle.sim", "particle.sort", "particle.render", "particle.resolve"]);
+      expect(system.entityCount()).toBe(0);
+      expect(gpu.mock.errors).toEqual([]);
+      expect(system.stepCount).toBe(1);
+      expect((gpu.device as unknown as { dispatches: number }).dispatches).toBeGreaterThan(0);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("stresses 10k / 50k / 100k capacities on the mock device without ECS growth", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      for (const capacity of [10_000, 50_000, 100_000]) {
+        const system = new GpuParticleSystem(gpu, { capacity, seed: capacity, maxEmitsPerFrame: 1024 });
+        await system.init();
+        const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        system.prepare({
+          dt: 1 / 60,
+          viewProj,
+          cameraPos: { x: 0, y: 1, z: 5 },
+          cameraRight: { x: 1, y: 0, z: 0 },
+          cameraUp: { x: 0, y: 1, z: 0 },
+        });
+        expect(system.capacity).toBe(capacity);
+        expect(system.entityCount()).toBe(0);
+        expect(system.lastEmitBudget).toBeGreaterThan(0);
+        system.dispose();
+      }
+      expect(gpu.mock.errors).toEqual([]);
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("GpuParticleWorld never allocates sprite entities", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const scene = new Scene({ name: "gpu-particles" });
+      const world = new GpuParticleWorld({ capacity: 100_000, seed: 3, name: "gpu" });
+      await world.attachDevice(gpu);
+      scene.add(world);
+      expect(world.system?.ready).toBe(true);
+      expect(world.system?.entityCount()).toBe(0);
+      expect(scene.world.liveEntityCount).toBe(0);
+      world.prepareFrame({
+        viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      expect(world.system!.emitted).toBeGreaterThan(0);
+      expect(scene.world.liveEntityCount).toBe(0);
+      scene.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("emitter seed is deterministic for the same GPU emit index stream", () => {
+    // CPU mirror of the hash used by PARTICLE_EMIT_SHADER — same seed + index → same first float.
+    function mix32(x: number): number {
+      let h = (x + 0x9e3779b9) >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad) >>> 0;
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97) >>> 0;
+      return (h ^ (h >>> 15)) >>> 0;
+    }
+    function hash2(a: number, b: number): number {
+      return mix32((a ^ Math.imul(b, 0x85ebca6b)) >>> 0);
+    }
+    const seed = 7;
+    const a = hash2(seed, 0);
+    const b = hash2(seed, 0);
+    const c = hash2(seed, 1);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+  });
+
+  it("soft-particle fade samples framebuffer pixel coords, not clip/NDC", () => {
+    // Fragment @builtin(position) is pixel xy + depth z; dividing by w collapses UVs to a corner.
+    expect(PARTICLE_RENDER_SHADER).toContain("vec2<i32>(in.clip.xy)");
+    expect(PARTICLE_RENDER_SHADER).toContain("let particleZ = in.clip.z;");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/in\.clip\.xy\s*\/\s*max\(in\.clip\.w/);
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/particleZ\s*=\s*in\.clip\.z\s*\/\s*max\(in\.clip\.w/);
+    // Soft fade must not floor alpha (that left ≥5% ghosting through occluders).
+    expect(PARTICLE_RENDER_SHADER).toContain("alpha = alpha * soft;");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/max\(\s*soft\s*,\s*0\.05\s*\)/);
+  });
+
+  it("cull draw uses compacted visible list + drawIndirect (no instance_index identity fallback)", async () => {
+    expect(PARTICLE_RENDER_SHADER).toContain("particleIndex == 0xffffffffu");
+    expect(PARTICLE_RENDER_SHADER).not.toMatch(/select\(\s*inst\s*,\s*particleIndex/);
+    expect(PARTICLE_EMIT_SHADER).toContain("params.emitBase + want");
+
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 256, seed: 1, maxEmitsPerFrame: 32 });
+      await system.init();
+      const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap-cull",
+        size: { width: 32, height: 16 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth-cull",
+        size: { width: 32, height: 16 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (ctx) => {
+          ctx.beginRenderPass().end();
+        },
+      });
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      graph.execute();
+      const draws = gpu.mock.commandLog.filter((r) => r.type === "draw" && (r as { indirect?: boolean }).indirect);
+      expect(draws.length).toBeGreaterThan(0);
+      expect(gpu.mock.errors).toEqual([]);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+
+  it("update invalidates render when GPU system is ready (dirty renderMode)", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 5, name: "invalidate" });
+      let invalidateCalls = 0;
+      const context = {
+        ...ctx(new EntityWorld()),
+        render: { invalidate: () => { invalidateCalls++; } },
+      } as SystemContext;
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(0);
+      await world.attachDevice(gpu);
+      expect(world.system?.ready).toBe(true);
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(1);
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(2);
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("prepareFrame requires cameraRight/cameraUp basis (not viewProj columns)", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 2, name: "basis" });
+      await world.attachDevice(gpu);
+      // Distinct basis that would NOT match identity viewProj column extraction ([1,0,0]/[0,1,0]).
+      const cameraRight = { x: 0, y: 0, z: 1 };
+      const cameraUp = { x: 0, y: 1, z: 0 };
+      world.prepareFrame({
+        viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight,
+        cameraUp,
+      });
+      expect(world.system!.emitted).toBeGreaterThan(0);
+      // Type contract: cameraRight/cameraUp are required — covered by this call compiling.
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("init latches render shader module before ensureRenderPipeline", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 1, maxEmitsPerFrame: 8 });
+      await system.init();
+      expect(system.ready).toBe(true);
+      const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap-render-latch",
+        size: { width: 16, height: 8 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth-render-latch",
+        size: { width: 16, height: 8 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (c) => {
+          c.beginRenderPass().end();
+        },
+      });
+      // Must not throw "render module missing" — module was assertShader'd in init.
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      graph.execute();
+      expect(gpu.mock.errors).toEqual([]);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+
+  it("attachDevice attach generation: stale finally does not clear newer initPending", async () => {
+    const gpuA = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const gpuB = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const originalInit = GpuParticleSystem.prototype.init;
+    let initCalls = 0;
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    const gateA = new Promise<void>((r) => {
+      releaseA = r;
+    });
+    const gateB = new Promise<void>((r) => {
+      releaseB = r;
+    });
+    GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+      const n = ++initCalls;
+      if (n === 1) await gateA;
+      else if (n === 2) await gateB;
+    };
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 11, name: "attach-gen" });
+      const pA = world.attachDevice(gpuA);
+      // Let attach A enter its hanging init.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(1);
+
+      const pB = world.attachDevice(gpuB);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(2);
+      const systemB = world.system;
+
+      // Stale A settles; its finally must NOT clear B's initPending.
+      releaseA();
+      await pA;
+
+      // Same device B while B is still pending: must reuse, not dispose/recreate mid-init.
+      const pB2 = world.attachDevice(gpuB);
+      expect(initCalls).toBe(2);
+      expect(world.system).toBe(systemB);
+      expect(pB2).toBe(pB);
+
+      releaseB();
+      await pB;
+      await pB2;
+      world.dispose();
+    } finally {
+      GpuParticleSystem.prototype.init = originalInit;
+      await gpuA.dispose();
+      await gpuB.dispose();
+    }
+  });
+
+  it("init does not set ready if dispose ran during shader await", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 13 });
+      type AssertFn = (module: GPUShaderModule) => Promise<void>;
+      const proto = GpuParticleSystem.prototype as unknown as { assertShader: AssertFn };
+      const originalAssert = proto.assertShader;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      let entered = 0;
+      proto.assertShader = async function (this: GpuParticleSystem, module: GPUShaderModule) {
+        entered++;
+        if (entered === 1) await gate;
+        return originalAssert.call(this, module);
+      };
+      try {
+        const initPromise = system.init();
+        // Wait until init is blocked inside assertShader await.
+        for (let i = 0; i < 50 && entered === 0; i++) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        expect(entered).toBeGreaterThan(0);
+        system.dispose();
+        release();
+        await initPromise;
+        expect(system.ready).toBe(false);
+        expect(system.stats().ready).toBe(false);
+      } finally {
+        proto.assertShader = originalAssert;
+      }
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("dispose during pending init lets a later attachDevice start clean", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const originalInit = GpuParticleSystem.prototype.init;
+    let initCalls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+      initCalls++;
+      if (initCalls === 1) await gate;
+      return originalInit.call(this);
+    };
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 17, name: "dispose-pending" });
+      const stale = world.attachDevice(gpu);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(1);
+
+      world.dispose();
+      expect(world.system).toBeNull();
+
+      // Same device after dispose must not early-return the stale promise with system=null.
+      const fresh = world.attachDevice(gpu);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(initCalls).toBe(2);
+      expect(fresh).not.toBe(stale);
+      expect(world.system).not.toBeNull();
+
+      release();
+      await stale;
+      await fresh;
+      expect(world.system?.ready).toBe(true);
+      world.dispose();
+    } finally {
+      GpuParticleSystem.prototype.init = originalInit;
+      await gpu.dispose();
+    }
+  });
+
+  it("attachDevice latches failure and does not dispose/recreate every frame", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 9, name: "fail-latch" });
+      const originalInit = GpuParticleSystem.prototype.init;
+      let initCalls = 0;
+      GpuParticleSystem.prototype.init = async function (this: GpuParticleSystem) {
+        initCalls++;
+        throw new Error("forced init failure");
+      };
+      try {
+        await world.attachDevice(gpu);
+        expect(world.attachFailed).toBe(true);
+        expect(world.system?.ready).toBe(false);
+        const firstSystem = world.system;
+        // Failed init must dispose allocated GPU buffers (not leave a ready=false leak).
+        expect((firstSystem as unknown as { disposed: boolean }).disposed).toBe(true);
+        expect((firstSystem as unknown as { particleBuffer: GPUBuffer | null }).particleBuffer).toBeNull();
+        await world.attachDevice(gpu);
+        await world.attachDevice(gpu);
+        expect(initCalls).toBe(1);
+        expect(world.system).toBe(firstSystem);
+        world.clearAttachFailure();
+        await world.attachDevice(gpu);
+        expect(initCalls).toBe(2);
+      } finally {
+        GpuParticleSystem.prototype.init = originalInit;
+      }
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
   });
 });

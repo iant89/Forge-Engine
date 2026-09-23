@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below; Phases 10+ are not built (`ROADMAP.md`).
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13+ is not started.
 
 ## Setting up
 
@@ -477,7 +477,7 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `gpuError` must be under `1e-2` against `analyticGravity`. `cpuError` must be under `1e-4`.
   The SwiftShader run recorded here measured `gpuError ≈ 2.5e-7`.
 - **Vehicle playground and particle fountain**: `loadScene("vehicle")` and `loadScene("particles")`
-  must present with `gpuErrors === 0`. The fountain must report `alive > 0` after a short settle.
+  must present with `gpuErrors === 0`. The fountain must become ready, report `emitted > 0` (cumulative spawn counter — there is no concurrent live-count readback), and execute `particle.sim` / `particle.sort` / `particle.render` / `particle.resolve` after settle.
   The car is not driven here — stopping distance and the 12° climb are unit tests. Screenshots:
   `tools/.browser-check-vehicle.png`, `tools/.browser-check-particles.png`.
 - **Sky and day/night (Phase 8a)**: `loadScene("sky")`, then `setTimeOfDay(12)`: the cycle must report
@@ -607,9 +607,12 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the
   loaded disc looks, or how long a hitch a chunk takes to generate on a given machine.
-* **Particle *rendering*.** The browser gate proves the compute integrator matches analytic gravity
-  on SwiftShader and that 200 sprite boxes present. It does not prove a billboard pass, per-particle
-  colour on the material, or a trail draw — none of those exist (`docs/PARTICLES.md`).
+* **Particle *rendering* completeness.** Unit suites and the browser gate prove the Phase 12 GPU
+  fountain path: GPU emit/sim, frustum+distance compact, and `drawIndirect` billboard / soft-particle
+  render through `particle.sim` / `particle.sort` / `particle.render` / `particle.resolve`. They do
+  not prove mesh particles, ribbon draw, HiZ occlusion cull, or particle/terrain collision — those
+  remain deferred (`docs/PARTICLES.md`, `docs/KNOWN-ISSUES.md`). The Phase 7 CPU path still poses
+  sprite entities for weather/Mars dust demos; that is not the Phase 12 fountain.
 * **Vehicle handling quality.** The unit suite proves the analytic stop, the slope, load transfer,
   shifts, and TC slip. The browser gate only proves the playground loads. Nobody asserts that the
   ramp mesh and the ground query stay coincident after a camera-follow frame, or that the car is

@@ -61,18 +61,20 @@ What remains:
 * **No continuous collision detection.** High-speed impacts use discrete contacts; tunneling a thin
   prop at extreme speed is still possible. (capability: physics.ccd)
 
-## Particles (Phase 7)
+## Particles (Phase 12)
 
-* **The compute shader integrates. It does not emit, shade modules, or write trails.** Emission,
-  colour, size, and trails are CPU. There is no particle pass in the render graph (`ARCHITECTURE.md`
-  already lists that pass as not built). (capability: particles.gpuSimulation, capability: particles.gpuRendering)
-* **The demo draws a few hundred boxes, not the buffer.** Per-particle colour is stored and not
-  applied to the shared material. Trails are recorded and not drawn. The 100k figure is an integrator
-  benchmark (`npm run bench`), not a frame of sprites. (capability: particles.gpuRendering)
-* **`ParticleSystem` is variable-rate.** One step per frame, not per physics substep. A fountain will
-  not match across frame rates the way the vehicle will. The analytic check passes an explicit `dt`. (capability: particles.fixedStep)
-* **One owner per simulation.** `ParticleWorld` and `ParticleSystem` both call `step`. Attaching both
-  to the same sim double-integrates. The particle scene uses `ParticleWorld` only. (roadmap: 12)
+* **Ribbon draw and mesh particles are deferred.** The GPU full-sim writes a 4-sample trail history
+  per particle; billboards / stretched billboards / soft particles draw from the storage buffer.
+  There is no ribbon mesh pass and no mesh-particle path yet. (capability: particles.gpuRendering)
+* **HiZ / depth occlusion culling is deferred.** Frustum + distance cull compact the draw list;
+  hierarchical Z is not built. (capability: particles.gpuRendering)
+* **GPU particle collision is deferred.** Soft particles *sample* the scene depth for a fade; they
+  do not bounce off terrain or the depth buffer. (capability: particles.gpuRendering)
+* **`ParticleSystem` (CPU) is still variable-rate.** One step per frame, not per physics substep.
+  The GPU path is also frame-driven via the render graph. The analytic gravity check passes an
+  explicit `dt`. (capability: particles.fixedStep)
+* **One owner per CPU simulation.** `ParticleWorld` and `ParticleSystem` both call `step`. Attaching
+  both to the same sim double-integrates. The GPU demo uses `GpuParticleWorld` only. (capability: particles.fixedStep)
 
 ## Environment (Phase 8a)
 

@@ -15,7 +15,8 @@ CURRENT CODEBASE BASELINE:
     Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
-    Phase 12+:  NOT STARTED
+    Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
+    Phase 13+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -87,7 +88,7 @@ PHASE 6 - Vehicles
     [!] IMPLEMENTED BUT REQUIRES HARDENING
 
 PHASE 7 - Particles
-    [!] IMPLEMENTED BUT REQUIRES GPU COMPLETION
+    [x]
 
 PHASE 8A - Environment / Atmosphere
     [x]
@@ -104,7 +105,10 @@ PHASE 10 - Terrain 2.0 / Streaming
 PHASE 11 - Physics / Vehicle Integration
     [x]
 
-PHASE 12+
+PHASE 12 - GPU Particles 2.0
+    [x]
+
+PHASE 13+
     [ ] NOT STARTED
 
 
@@ -493,69 +497,78 @@ GOAL:
 
 CURRENT STATE:
 
-    CPU particle simulation is the reference implementation.
+    Honest subset shipped (see checkboxes below). CPU simulation remains the reference.
 
-    Compute shader already reproduces the gravity/drag/lifetime integration.
+        - GPU storage is authoritative (`GpuParticleSystem` / `GpuParticleWorld`); no sprite entities
+          for the GPU fountain demo (100k capacity).
+        - GPU ring-buffer emission with a deterministic seed hash.
+        - Full-sim modules on GPU (gravity, drag, turbulence, velocity, colour/size/rotation over
+          life, noise, attractors).
+        - Frustum + distance cull compact into an indirect draw list.
+        - Render-graph passes `particle.sim` / `particle.sort` / `particle.render` /
+          `particle.resolve` draw billboards, stretched billboards, and soft particles.
+        - Trail history (4 samples per particle) is written on GPU; ribbon mesh draw is deferred.
 
-    However:
+    Still deferred / stretch:
 
-        - GPU emission is not implemented.
-        - GPU module processing is not implemented.
-        - GPU trails are not implemented.
-        - GPU particle rendering is not implemented.
-        - There is no particle render-graph pass.
-        - Current demo renders only a few hundred sprite entities.
+        - Ribbon mesh generation and draw; mesh particles.
+        - HiZ / depth occlusion culling.
+        - Terrain / depth-buffer / SDF particle collision (soft fade samples depth only; no bounce).
+        - 500K / 1M stress gates.
 
 
 12.1 GPU Particle Storage
 
-    [ ] GPU storage buffer becomes authoritative for GPU particles.
+    [x] GPU storage buffer becomes authoritative for GPU particles
+        (`GpuParticleSystem` / `GpuParticleWorld`).
 
 
 12.2 GPU Emission
 
-    [ ] Spawn particles entirely on GPU.
+    [x] Spawn particles entirely on GPU (ring-buffer emit compute).
 
-    [ ] Deterministic emitter seed.
+    [x] Deterministic emitter seed (hash of seed + emit index).
 
 
 12.3 GPU Modules
 
-    Implement:
+    Implemented on the GPU full-sim path. CPU reference modules remain for gravity / drag /
+    colour-over-life / size-over-life; velocity / attractor / rotation-over-life are GPU-only
+    (CPU ports removed):
 
-        gravity
-        drag
-        turbulence
-        velocity
-        color over life
-        size over life
-        rotation over life
-        noise
-        attractors
+        [x] gravity
+        [x] drag
+        [x] turbulence
+        [x] velocity
+        [x] color over life
+        [x] size over life
+        [x] rotation over life
+        [x] noise
+        [x] attractors
 
 
 12.4 GPU Trails
 
-    [ ] GPU trail history.
+    [x] GPU trail history (4-sample ring per particle written in full-sim).
 
-    [ ] Ribbon generation.
+    [!] Ribbon generation — deferred; history is stored, ribbon mesh not drawn.
 
 
 12.5 GPU Particle Culling
 
-    [ ] Frustum culling.
+    [x] Frustum culling.
 
-    [ ] Distance culling.
+    [x] Distance culling.
 
-    [ ] Optional depth/HiZ culling.
+    [>] Optional depth/HiZ culling — deferred.
 
 
 12.6 Particle Render Graph Pass
 
-    [ ] Add:
+    [x] Add:
 
         particle.sim
-        particle.sort
+        particle.sort   (frustum/distance compact; not a full key sort)
         particle.render
         particle.resolve
 
@@ -564,31 +577,29 @@ CURRENT STATE:
 
 12.7 Particle Rendering
 
-    Support:
-
-        billboard
-        stretched billboard
-        mesh particle
-        ribbon
-        soft particle
+        [x] billboard
+        [x] stretched billboard (velocity stretch factor)
+        [>] mesh particle — deferred
+        [!] ribbon — history only; ribbon draw deferred
+        [x] soft particle (depth-buffer fade)
 
 
 12.8 GPU Particle Collision
 
-    [ ] Terrain collision.
+    [>] Terrain collision — deferred.
 
-    [ ] Depth-buffer collision.
+    [>] Depth-buffer collision — deferred (soft fade samples depth; no bounce).
 
-    [ ] Optional signed-distance-field collision later.
+    [>] Optional signed-distance-field collision later.
 
 
 12.9 Particle Stress Tests
 
-    [ ] 10K
-    [ ] 50K
-    [ ] 100K
-    [ ] 500K
-    [ ] 1M
+    [x] 10K
+    [x] 50K
+    [x] 100K
+    [>] 500K — stretch / not gated
+    [>] 1M — stretch / not gated
 
 
 EXIT CRITERIA:

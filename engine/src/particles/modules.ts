@@ -1,7 +1,9 @@
 /**
- * CPU particle modules. Each one mutates a slice of the state buffer and nothing else.
- * The GPU shader covers gravity, drag and life — the subset that has to match the analytic
- * check. Colour, size and emission shape stay on the CPU, which is also the fallback path.
+ * CPU particle modules (Phase 7 / Phase 12 reference path). Each one mutates a slice of the state
+ * buffer and nothing else. GPU full-sim (`PARTICLE_FULL_SIM_SHADER` / GpuParticleModulesConfig) is
+ * authoritative for the live particle path — including velocity boost, attractor, and rotation-over-
+ * life, which have no CPU module ports. Remaining classes (gravity, drag, colour/size over life,
+ * cone sampling) are the analytic/reference and CPU fallback implementation.
  */
 
 import { clamp, lerp } from "../math/scalar.js";

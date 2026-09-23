@@ -33,7 +33,13 @@ export interface DemoSceneHandle {
   /** World point the orbit target should track each frame (the vehicle playground follows the chassis). */
   followTarget?: () => { x: number; y: number; z: number };
   vehicleState?: () => { speed: number; rpm: number; gear: number; x: number; y: number; z: number };
-  particleState?: () => { alive: number; capacity: number; emitted: number };
+  /**
+   * GPU fountain accounting only. `emitted` is the cumulative spawn counter (CPU-side);
+   * there is no concurrent live-count readback. Prefer `ready` + `emitted` over any fake alive.
+   */
+  particleState?: () => { capacity: number; emitted: number; ready: boolean };
+  /** Optional promise that settles when the scene's async GPU init finishes. */
+  ready?: Promise<void>;
 }
 
 export function buildCubesScene(engine: Engine): DemoSceneHandle {

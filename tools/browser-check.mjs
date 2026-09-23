@@ -14,7 +14,7 @@
  *
  * Phase 6/7 addition: `runParticleGravityCheck` must execute the compute shader on this device and match
  * the analytic curve, and the vehicle playground plus the particle fountain must load with zero GPU
- * errors (the fountain must actually emit). Driving the car is not scripted — the unit suite covers
+ * errors (the fountain must become ready, emit, and run particle.sim/sort/render/resolve). Driving the car is not scripted — the unit suite covers
  * the chassis; this only proves the worlds present.
  *
  * Phase 4 addition: the terrain scene is driven through the real camera controls (wheel, right-drag,
@@ -499,11 +499,30 @@ try {
   await page.screenshot({ path: "tools/.browser-check-vehicle.png" });
 
   await page.evaluate(() => window.__forge.loadScene("particles"));
-  await settle(20);
+  // Wait for GpuParticleWorld.attachDevice/init (not fire-and-forget race) then for emission.
+  await page.waitForFunction(
+    () => {
+      const p = window.__forge.particleState();
+      return Boolean(p && p.ready && p.emitted > 0);
+    },
+    null,
+    { timeout: 45000, polling: 100 },
+  );
+  await settle(12);
   const particles = await page.evaluate(() => window.__forge.particleState());
   const particleStats = await page.evaluate(() => window.__forge.stats());
-  console.log(`particles: alive=${particles?.alive} emitted=${particles?.emitted} gpuErrors=${particleStats.gpuErrors}`);
-  if (!particles || !(particles.alive > 0)) throw new Error("particle fountain did not emit");
+  const requiredPasses = ["particle.sim", "particle.sort", "particle.render", "particle.resolve"];
+  console.log(
+    `particles: ready=${particles?.ready} emitted=${particles?.emitted} capacity=${particles?.capacity} ` +
+      `passes=${particleStats.renderPasses?.join(",")} gpuErrors=${particleStats.gpuErrors}`,
+  );
+  if (!particles || !particles.ready) throw new Error("particle fountain system not ready");
+  if (!(particles.emitted > 0)) throw new Error("particle fountain did not emit");
+  for (const pass of requiredPasses) {
+    if (!particleStats.renderPasses?.includes(pass)) {
+      throw new Error(`particle pass missing: ${pass} (ran ${particleStats.renderPasses?.join(", ")})`);
+    }
+  }
   if (particleStats.gpuErrors !== 0 || particleStats.lastError) throw new Error(`particle scene GPU errors: ${particleStats.lastError}`);
   await page.screenshot({ path: "tools/.browser-check-particles.png" });
 
