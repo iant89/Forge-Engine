@@ -11,6 +11,14 @@ import { describe, expect, it } from "vitest";
 import { Camera, Scene, TerrainTile, TerrainWorld, Vec3, type Engine, type Entity } from "@forge/engine";
 import { OrbitControls, type OrbitCameraSetup } from "../examples/src/controls/orbitControls.js";
 import { buildTerrainScene } from "../examples/src/scenes/terrainScene.js";
+import {
+  MARS_CHASE_AZIMUTH,
+  MARS_CHASE_DISTANCE,
+  MARS_CHASE_ELEVATION,
+  MARS_CHASE_GROUND_CLEARANCE,
+  MARS_CHASE_LOOK_OFFSET_Y,
+  MARS_CHASE_MIN_DISTANCE,
+} from "../examples/src/scenes/marsShowcaseScene.js";
 
 /** The controller only touches `addEventListener`/`clientHeight`/pointer capture, so a stub beats jsdom. */
 function stubCanvas(height = 720): HTMLElement {
@@ -253,5 +261,106 @@ describe("Terrain demo camera preset", () => {
     }
     expect(worstGeneratorDelta).toBeGreaterThan(5);
     handle.dispose?.();
+  });
+});
+
+
+describe("Mars showcase chase framing", () => {
+  /** Portrait iPhone canvas — the aspect that hid the chassis under fe-13 framing. */
+  const phone = stubCanvas(844);
+
+  it("exports a chase preset that looks down at mid-chassis, not over the mast into haze", () => {
+    // Guarantees the iPhone-visible framing: closer than the old 8.5 m, steeper than 0.28 rad,
+    // and a look-at below the mast tip so the body sits near frame centre on tall FOV-Y.
+    expect(MARS_CHASE_DISTANCE).toBeLessThanOrEqual(6.5);
+    expect(MARS_CHASE_DISTANCE).toBeGreaterThanOrEqual(5);
+    expect(MARS_CHASE_ELEVATION).toBeGreaterThanOrEqual(0.4);
+    expect(MARS_CHASE_LOOK_OFFSET_Y).toBeLessThanOrEqual(0.7);
+    expect(MARS_CHASE_GROUND_CLEARANCE).toBeLessThanOrEqual(MARS_CHASE_LOOK_OFFSET_Y);
+    expect(MARS_CHASE_MIN_DISTANCE).toBeLessThan(MARS_CHASE_DISTANCE);
+  });
+
+  it("places the eye behind and above the chassis with the look vector pointing slightly down", () => {
+    const groundY = 24.2;
+    const vehicleY = groundY + 0.53; // placeOnGround hang ≈ radius + rest − sag
+    const lookY = vehicleY + MARS_CHASE_LOOK_OFFSET_Y;
+    const { controls } = harness({
+      target: new Vec3(0, lookY, 0),
+      distance: MARS_CHASE_DISTANCE,
+      azimuth: MARS_CHASE_AZIMUTH,
+      elevation: MARS_CHASE_ELEVATION,
+      minDistance: MARS_CHASE_MIN_DISTANCE,
+      maxDistance: 120,
+      groundClearance: MARS_CHASE_GROUND_CLEARANCE,
+      groundHeight: () => groundY,
+      keyboard: false,
+    });
+    // Re-bind the phone canvas height only for worldPerPixel callers; eye math does not use it.
+    void phone;
+
+    const eye = controls.eyePosition();
+    expect(eye.y).toBeGreaterThan(lookY); // above the look-at
+    expect(eye.z).toBeLessThan(0); // behind at azimuth ~0.55 (eye toward -Z)
+    // Looking from eye to chassis CG must pitch down (chassis below look-at would still be in view).
+    const toChassisY = vehicleY - eye.y;
+    expect(toChassisY).toBeLessThan(0);
+    // Surface clamp must not hoist the look-at above the chassis mid-point.
+    controls.update();
+    expect(controls.target.y).toBeCloseTo(lookY, 5);
+    expect(controls.target.y).toBeLessThan(vehicleY + 1.0);
+  });
+
+  it("keeps the chassis CG near the vertical centre of a portrait 60° FOV, not the lower third", () => {
+    const groundY = 24.2;
+    const vehicleY = groundY + 0.53;
+    const lookY = vehicleY + MARS_CHASE_LOOK_OFFSET_Y;
+    const { controls } = harness({
+      target: new Vec3(0, lookY, 0),
+      distance: MARS_CHASE_DISTANCE,
+      azimuth: MARS_CHASE_AZIMUTH,
+      elevation: MARS_CHASE_ELEVATION,
+      minDistance: MARS_CHASE_MIN_DISTANCE,
+      maxDistance: 120,
+      groundClearance: MARS_CHASE_GROUND_CLEARANCE,
+      groundHeight: () => groundY,
+    });
+    const eye = controls.eyePosition();
+    const fovY = Math.PI / 3;
+    // View-space Y of chassis CG relative to look direction, as NDC y (portrait aspect cancels for y).
+    const forwardX = controls.target.x - eye.x;
+    const forwardY = controls.target.y - eye.y;
+    const forwardZ = controls.target.z - eye.z;
+    const fl = Math.hypot(forwardX, forwardY, forwardZ) || 1;
+    const fx = forwardX / fl;
+    const fy = forwardY / fl;
+    const fz = forwardZ / fl;
+    // Camera basis: right = normalize(cross(forward, worldUp))? RH look-at uses z=eye-target.
+    const zx = eye.x - controls.target.x;
+    const zy = eye.y - controls.target.y;
+    const zz = eye.z - controls.target.z;
+    const zl = Math.hypot(zx, zy, zz) || 1;
+    const zX = zx / zl;
+    const zY = zy / zl;
+    const zZ = zz / zl;
+    // right = normalize(cross(worldUp, z))
+    let rX = 1 * zZ - 0 * zY;
+    let rY = 0 * zX - 0 * zZ;
+    let rZ = 0 * zY - 1 * zX;
+    const rl = Math.hypot(rX, rY, rZ) || 1;
+    rX /= rl; rY /= rl; rZ /= rl;
+    // up = cross(z, right)
+    const uX = zY * rZ - zZ * rY;
+    const uY = zZ * rX - zX * rZ;
+    const uZ = zX * rY - zY * rX;
+    const toCgX = 0 - eye.x;
+    const toCgY = vehicleY - eye.y;
+    const toCgZ = 0 - eye.z;
+    const depth = -(toCgX * zX + toCgY * zY + toCgZ * zZ);
+    const vy = toCgX * uX + toCgY * uY + toCgZ * uZ;
+    const ndcY = vy / (depth * Math.tan(fovY / 2));
+    // Old framing put chassis around ndcY ≈ -0.25 (lower third). New framing must be closer to 0.
+    expect(ndcY).toBeGreaterThan(-0.2);
+    expect(ndcY).toBeLessThan(0.05);
+    void fx; void fy; void fz;
   });
 });
