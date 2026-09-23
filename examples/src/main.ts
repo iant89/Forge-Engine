@@ -41,6 +41,7 @@ import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
+import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -70,34 +71,12 @@ async function main(): Promise<void> {
 
   let currentHandle: DemoSceneHandle | null = null;
   let controls: OrbitControls | null = null;
-  let activeSceneName = "pbr";
+  // Open on the rover in its terrain showcase; the other scenes remain one selection away, and a
+  // `?scene=...` query string can still deep-link to any of them.
+  const requestedScene = new URLSearchParams(window.location.search).get("scene");
+  let activeSceneName: DemoSceneName = resolveDemoSceneName(requestedScene);
 
-  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle,
-  // ?scene=particles, ?scene=sky, ?scene=weather, ?scene=mars-showcase — `?scene=mars` is accepted
-  // as an alias of the terrain demo, the Mars landscape the `demo:mars` script opens on).
-  const params = new URLSearchParams(window.location.search);
-  const requestedScene = params.get("scene");
-  if (requestedScene === "cubes") {
-    activeSceneName = "cubes";
-  } else if (requestedScene === "terrain" || requestedScene === "mars") {
-    activeSceneName = "terrain";
-  } else if (requestedScene === "realistic" || requestedScene === "realistic-terrain") {
-    activeSceneName = "realistic";
-  } else if (requestedScene === "vehicle" || requestedScene === "vehicle-playground") {
-    activeSceneName = "vehicle";
-  } else if (requestedScene === "particles") {
-    activeSceneName = "particles";
-  } else if (requestedScene === "sky") {
-    activeSceneName = "sky";
-  } else if (requestedScene === "weather") {
-    activeSceneName = "weather";
-  } else if (requestedScene === "mars-showcase" || requestedScene === "showcase") {
-    activeSceneName = "mars-showcase";
-  }
-
-  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky" | "weather" | "mars-showcase";
-
-  function loadScene(name: SceneName): void {
+  function loadScene(name: DemoSceneName): void {
     if (currentHandle) {
       currentHandle.dispose?.();
     }
@@ -153,7 +132,7 @@ async function main(): Promise<void> {
     controls = new OrbitControls(currentHandle.cameraEntity, canvas).configure(currentHandle.camera ?? {});
   }
 
-  loadScene(activeSceneName as SceneName);
+  loadScene(activeSceneName);
   engine.start();
 
   sceneSelect?.addEventListener("change", () => {
@@ -277,6 +256,10 @@ async function main(): Promise<void> {
   // Interface for browser check and dev tooling
   (window as unknown as { __forge: Record<string, unknown> }).__forge = {
     backend: (engine.gpu as unknown as { caps?: { backend?: string } }).caps?.backend ?? "webgpu",
+    /** Current demo selection, exposed for browser verification and local tooling. */
+    get sceneName(): string {
+      return activeSceneName;
+    },
     stats: () => engine.stats(),
     get scene(): Scene {
       return currentHandle!.scene;

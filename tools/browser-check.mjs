@@ -38,10 +38,11 @@
  * still be shown when the window goes back to a desktop width.
  *
  * Rain/showcase addition: the storm preset must spawn visible rain (`weatherState().rainDrops >
- * 0`), and the Mars showcase must load the Perseverance GLB with its six wheels found, settle them
- * into terrain contact, and drive forward under W far enough to prove the drivetrain and kick up
- * dust — all with no new GPU errors. Those waits poll state with wall-clock caps, because the
- * showcase presents well under 1 fps on the software rasteriser and a frame-count settle would
+ * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
+ * Perseverance GLB, settle its six wheels into terrain contact, then drive forward under W far enough
+ * to prove the drivetrain and produce wheel-kick dust — all with no new GPU errors. These waits
+ * use wall-clock caps because the showcase presents well under 1 fps on the software rasteriser, and
+ * a frame-count settle would
  * either race the model fetch or stall the gate for minutes.
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
@@ -267,7 +268,9 @@ const GPU_HINT =
 
 let exitCode = 0;
 try {
-  await page.goto(URL, { waitUntil: "load", timeout: 60000 });
+  // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
+  // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
+  await page.goto(`${URL}?scene=pbr`, { waitUntil: "load", timeout: 60000 });
   let boot;
   try {
     await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
@@ -294,6 +297,13 @@ try {
 
   const backend = await page.evaluate(() => window.__forge.backend);
   if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
+  const landingOption = await page.evaluate(
+    () => document.querySelector("#scene-select option[selected]")?.getAttribute("value") ?? null,
+  );
+  if (landingOption !== "mars-showcase") throw new Error(`expected Mars Showcase as the landing-page default, got "${landingOption}"`);
+  const requestedScene = await page.evaluate(() => window.__forge.sceneName);
+  if (requestedScene !== "pbr") throw new Error(`?scene=pbr did not select the PBR fixture (active scene "${requestedScene}")`);
+  console.log(`landing default: ${landingOption}; browser fixture: ${requestedScene}`);
 
   const before = await page.evaluate(() => window.__forge.stats());
   await sleep(2500);

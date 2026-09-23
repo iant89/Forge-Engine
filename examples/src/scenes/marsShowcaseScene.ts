@@ -459,7 +459,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     controlsHint: "WASD / arrows drive · Space handbrake · Drag to orbit · Scroll zoom",
     camera: {
       target: new Vec3(SPAWN_X, groundY + 1.2, SPAWN_Z),
-      distance: 13,
+      // Keep the rover large enough to read immediately on laptop/phone-sized canvases; users can
+      // still zoom out for a wider terrain view.
+      distance: 9.5,
       minDistance: 4,
       maxDistance: 120,
       azimuth: 0.55,
