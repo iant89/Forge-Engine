@@ -13,7 +13,7 @@ CURRENT CODEBASE BASELINE:
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
-    Phase 10:   IMPLEMENTED / VERIFIED
+    Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -98,7 +98,7 @@ PHASE 9 - ENGINE HARDENING
     [~] IN PROGRESS
 
 PHASE 10 - Terrain 2.0 / Streaming
-    [x]
+    [!] IMPLEMENTED BUT REQUIRES HARDENING
 
 PHASE 11+
     [ ] NOT STARTED
@@ -286,7 +286,8 @@ CURRENT PROBLEMS (addressed in this phase):
 
 10.2 Worker Terrain Generation
 
-    [x] Move terrain generation into TaskScheduler workers.
+    [x] Move terrain generation into TaskScheduler workers
+        (default worker-entry installs terrain handlers; demos enable workerCount).
 
     [x] Generate:
 
@@ -349,12 +350,13 @@ CURRENT PROBLEMS (addressed in this phase):
 
 10.8 Terrain Material Improvements
 
-    [x] Layered materials
-    [x] Macro variation
-    [x] Micro detail
-    [x] Slope blending
-    [x] Height blending
-    [x] Material-specific surface properties
+    [!] Layered materials — `LayeredTerrainMaterial` helper + CPU blend tests exist;
+        not wired into `TerrainWorld` / demos yet (single `Material` still used).
+    [x] Macro variation (helper)
+    [x] Micro detail (helper)
+    [x] Slope blending (helper)
+    [x] Height blending (helper)
+    [x] Material-specific surface properties (helper)
 
 
 EXIT CRITERIA:

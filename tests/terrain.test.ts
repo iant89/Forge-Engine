@@ -17,6 +17,7 @@ import {
   installTerrainTaskHandlers,
   buildHorizonSkirt,
   LayeredTerrainMaterial,
+  estimateTileBytes,
   TaskScheduler,
   Vec3,
   Ray,
@@ -540,3 +541,251 @@ describe("Terrain - Phase 10 cache, priority, workers, horizon, materials", () =
     world.dispose();
   });
 });
+
+describe("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
+  it("uses one morphed height grid for Heightmap queries and mesh positions/normals", () => {
+    const res = 3;
+    const heights = new Float32Array([0, 10, 0, 10, 20, 10, 0, 10, 0]);
+    const cell = {
+      cx: 0,
+      cz: 0,
+      size: 64,
+      resolution: res,
+      seed: 0,
+      heights,
+      slopes: new Float32Array(res * res),
+      biomes: new Float32Array(res * res * 4),
+      scatters: [] as [],
+    };
+    const alpha = 1;
+    const tile = TerrainTile.fromCell({
+      cx: 0,
+      cz: 0,
+      size: 64,
+      lod: 0,
+      geomorphAlpha: alpha,
+      cell,
+    });
+
+    // Grid vertex Y must match heightmap (drawn surface === physics/camera height).
+    const step = tile.size / (res - 1);
+    for (let j = 0; j < res; j++) {
+      for (let i = 0; i < res; i++) {
+        const wx = i * step;
+        const wz = j * step;
+        const idx = j * res + i;
+        const meshY = tile.geometrySource.positions[idx * 3 + 1]!;
+        const hmY = tile.heightmap.sampleGrid(i, j);
+        expect(meshY).toBeCloseTo(hmY, 5);
+        expect(tile.heightmap.getHeight(wx, wz)).toBeCloseTo(meshY, 4);
+      }
+    }
+
+    // Normals from the same morphed surface.
+    const mid = 1;
+    const wx = mid * step;
+    const wz = mid * step;
+    const nOff = (mid * res + mid) * 3;
+    const normals = tile.geometrySource.normals!;
+    const meshN = {
+      x: normals[nOff]!,
+      y: normals[nOff + 1]!,
+      z: normals[nOff + 2]!,
+    };
+    const hmN = tile.heightmap.getNormal(wx, wz);
+    expect(meshN.x).toBeCloseTo(hmN.x, 5);
+    expect(meshN.y).toBeCloseTo(hmN.y, 5);
+    expect(meshN.z).toBeCloseTo(hmN.z, 5);
+
+    // alpha=1 morphs odd sample (1,0) from 10 → 0 (coarse parents are 0).
+    expect(tile.heightmap.sampleGrid(1, 0)).toBeCloseTo(0, 5);
+    expect(tile.cell.heights[1]).toBe(10);
+  });
+
+  it("stops starting generations when residentBytes alone meets the memory budget", () => {
+    const world = new EntityWorld();
+    // Tiny memory budget with plenty of visible-chunk headroom — the old AND never tripped.
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 17,
+      viewDistance: 400,
+      visibleChunks: 64,
+      generationsPerFrame: 8,
+      memoryBytes: estimateTileBytes(17) * 2, // ~2 resident tiles
+      horizonSkirt: false,
+      syncGeneration: true,
+      warmUpChunks: 0,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "memory-gate-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    // First frame may overshoot slightly (soft cap); subsequent frames must not keep climbing.
+    for (let i = 0; i < 6; i++) terrain.update(ctx, 0.016);
+
+    expect(terrain.streamingStats.residentBytes).toBeGreaterThan(0);
+    expect(terrain.streamingStats.residentBytes).toBeLessThanOrEqual(terrain.budgets.memoryBytes * 1.05);
+    // With visibleChunks=64 headroom, a broken AND gate would keep filling toward dozens of chunks.
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    expect(ready).toBeLessThanOrEqual(4);
+
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("cancels in-flight generation when desired resolution diverges and requeues pending", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 1 });
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 33,
+      viewDistance: 120,
+      maxChunksLoaded: 9,
+      maxGenerationsPerFrame: 4,
+      horizonSkirt: false,
+      syncGeneration: false,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "lod-cancel-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 20, 0);
+    terrain.focusPosition.set(0, 20, 0);
+
+    terrain.update(ctx, 0.016);
+    const generating = [...terrain.chunks.values()].filter((c) => c.state === "generating");
+    expect(generating.length).toBeGreaterThan(0);
+    const target = generating[0]!;
+    const inFlightRes = target.resolution;
+    const taskKeyBefore = target.taskKey;
+    expect(taskKeyBefore).toBeTruthy();
+
+    // Force a divergent desired resolution while the task is still in flight.
+    const newRes = inFlightRes === 33 ? 17 : 33;
+    target.lod = inFlightRes === 33 ? 1 : 0;
+    // Monkey-patch prioritize path: override chunk selection resolution via lod distances.
+    // Move camera far enough that this chunk's LOD (and thus resolution) changes on next select,
+    // OR directly simulate the update branch by calling update after stubbing resolutionForLod via
+    // forcing the chunk to stay selected with a different resolution through focus jump.
+    // Simpler: stub the chunk's desired resolution by temporarily replacing lod.evaluateDistance.
+    const origEval = terrain.lod.evaluateDistance.bind(terrain.lod);
+    terrain.lod.evaluateDistance = (distance: number) => {
+      const base = origEval(distance);
+      // Force LOD that yields newRes for every selection this frame.
+      const lod = newRes === 17 ? 1 : 0;
+      return { lod, alpha: base.alpha };
+    };
+
+    terrain.update(ctx, 0.016);
+
+    // In-flight work at the old resolution must be cancelled and the chunk re-queued.
+    expect(terrain.streamingStats.cancelledThisFrame).toBeGreaterThan(0);
+    expect(target.resolution).toBe(newRes);
+    expect(target.state === "pending" || target.state === "generating").toBe(true);
+    // taskKey is coord-based (same key on resubmit); pending means awaiting a new schedule.
+    if (target.state === "pending") {
+      expect(target.taskKey).toBeNull();
+    } else {
+      expect(target.taskKey).toBeTruthy();
+      expect(target.resolution).toBe(newRes);
+    }
+
+    terrain.lod.evaluateDistance = origEval;
+    await scheduler.drain().catch(() => undefined);
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("remeshes a ready tile when geomorph alpha drifts past the threshold", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 80,
+      maxChunksLoaded: 4,
+      maxGenerationsPerFrame: 4,
+      warmUpChunks: 4,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "geomorph-remesh-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 20, 0);
+    terrain.focusPosition.set(0, 20, 0);
+
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready" && c.tile);
+    expect(ready.length).toBeGreaterThan(0);
+    const chunk = ready[0]!;
+    const baked = chunk.tile!.geomorphAlpha;
+    const cellRef = chunk.tile!.cell;
+
+    // Force a large alpha delta on the next selection.
+    const origEval = terrain.lod.evaluateDistance.bind(terrain.lod);
+    terrain.lod.evaluateDistance = (distance: number) => {
+      const base = origEval(distance);
+      return { lod: base.lod, alpha: baked < 0.5 ? 1 : 0 };
+    };
+    terrain.update(ctx, 0.016);
+    terrain.lod.evaluateDistance = origEval;
+
+    expect(chunk.state).toBe("ready");
+    expect(chunk.tile).not.toBeNull();
+    expect(Math.abs(chunk.tile!.geomorphAlpha - baked)).toBeGreaterThan(0.08);
+    // Remesh reused the cell (no full regen) — same heights buffer identity.
+    expect(chunk.tile!.cell.heights).toBe(cellRef.heights);
+
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("horizon skirt samples resident tiles only (no sync generation for missing cells)", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 90,
+      maxChunksLoaded: 4,
+      maxGenerationsPerFrame: 4,
+      warmUpChunks: 4,
+      horizonSkirt: true,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "horizon-resident-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    // Force horizon rebuild by moving focus.
+    terrain.focusPosition.set(30, 10, 30);
+    terrain.update(ctx, 0.016);
+    // Horizon rebuild must not fill the generation cache for missing rim cells.
+    // (getHeightAt/sampledHeightmap would bump misses or populate sampledCells aggressively.)
+    const sampledAfter = (terrain as unknown as { sampledCells: Map<string, unknown> }).sampledCells.size;
+    // With resident-only sampling, sampledCells should stay empty (never used by horizon).
+    expect(sampledAfter).toBe(0);
+
+    scene.dispose();
+    world.dispose();
+  });
+
+});
+

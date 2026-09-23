@@ -80,7 +80,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "8a": "verified",
   "8b": "verified",
   "9": "inProgress",
-  "10": "verified",
+  "10": "partial",
   "11+": "planned",
 };
 
@@ -167,7 +167,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "No browser-side worker round-trip is asserted",
     closesWith: "9.1",
-    notes: "Node suites drive the same worker scope on node:worker_threads; the demo and the browser gate both run inline",
+    notes: "Node suites drive the same worker scope on node:worker_threads; demos request workerCount>0 (browser gate may still run inline when Worker is unavailable)",
   },
   {
     id: "workers.terrainGeneration",
@@ -175,7 +175,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "The full terrain generator pipeline runs in a worker and matches inline generation bit-for-bit",
     evidence: ["tests/tasks.test.ts"],
-    notes: "TerrainWorld schedules cell generation through TaskScheduler (Phase 10.2); inline fallback when no scheduler is mounted",
+    notes: "Default worker-entry installs installTerrainTaskHandlers (Phase 10.2); demos set workerCount>0; inline fallback when no scheduler is mounted",
   },
   {
     id: "workers.bvhGeneration",
@@ -426,8 +426,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "terrain.workerGeneration",
     phase: "10.2",
     status: "verified",
-    summary: "TerrainWorld schedules cell generation through TaskScheduler; bit-for-bit with inline",
+    summary: "TerrainWorld schedules cell generation through TaskScheduler; default worker entry installs terrain handlers; demos enable workers",
     evidence: ["tests/tasks.test.ts", "tests/terrain.test.ts"],
+    notes: "Inline fallback when no scheduler is mounted or syncGeneration is set; mesh upload stays on the main thread",
   },
   {
     id: "terrain.horizonSkirt",
@@ -439,10 +440,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "terrain.materialLayering",
     phase: "10.8",
-    status: "verified",
-    summary: "Layered terrain materials with macro/micro variation and slope/height/biome blending",
+    status: "partial",
+    summary: "LayeredTerrainMaterial helper blends height/slope/biome weights on the CPU; not wired into TerrainWorld or demos yet",
     evidence: ["tests/terrain.test.ts"],
-    notes: "CPU blend feeds a single Material today; a multi-texture splat shader is later work",
+    closesWith: "10.8",
+    notes: "Helper + unit sample tests exist; TerrainWorld still uses a single Material. Multi-texture splat and world/demo wiring remain.",
   },
 
   // ---------------------------------------------------------------- physics / vehicles

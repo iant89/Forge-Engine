@@ -38,6 +38,14 @@ be verified, plus the index that now exists but is not used.
   renderer culls with per-batch AABBs — so the tree saves nothing at runtime yet.
   (capability: physics.spatialIndex)
 
+
+## Terrain (Phase 10)
+
+* **Layered terrain materials are not wired into the world.** `LayeredTerrainMaterial` blends
+  height/slope/biome weights on the CPU and is covered by unit tests, but `TerrainWorld` and the
+  demos still attach a single `Material`. A multi-texture splat path and world/demo integration are
+  still open under 10.8. (capability: terrain.materialLayering)
+
 ## Vehicles (Phase 6)
 
 * **Ground contact is a height query, not the physics world.** The car does not collide with meshes,

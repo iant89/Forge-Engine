@@ -65,6 +65,19 @@ function writeSkirtTangent(tangents: Float32Array, vertexIndex: number, nx: numb
   }
 }
 
+
+/** Build a height grid with geomorph baked in (alpha<=0 returns the source array). */
+function buildMorphedHeights(heights: Float32Array, resolution: number, alpha: number): Float32Array {
+  if (alpha <= 0) return heights;
+  const out = new Float32Array(resolution * resolution);
+  for (let j = 0; j < resolution; j++) {
+    for (let i = 0; i < resolution; i++) {
+      out[j * resolution + i] = geomorphHeight(heights, resolution, i, j, alpha);
+    }
+  }
+  return out;
+}
+
 export interface TerrainTileOptions {
   cx: number;
   cz: number;
@@ -116,12 +129,15 @@ export class TerrainTile {
       pipeline.execute(this.cell);
     }
 
+    // One surface for mesh Y, normals, and Heightmap queries (vehicles/camera).
+    // When alpha>0, bake geomorph into the grid so physics matches the drawn LOD morph.
+    const surfaceHeights = buildMorphedHeights(this.cell.heights, this.resolution, this.geomorphAlpha);
     this.heightmap = new Heightmap({
       originX: this.cx * this.size,
       originZ: this.cz * this.size,
       size: this.size,
       resolution: this.resolution,
-      heights: this.cell.heights,
+      heights: surfaceHeights,
     });
 
     this.bounds = new AABB(
@@ -148,7 +164,6 @@ export class TerrainTile {
     const originX = this.cx * this.size;
     const originZ = this.cz * this.size;
     const step = this.size / (res - 1);
-    const alpha = this.geomorphAlpha;
 
     const gridVertexCount = res * res;
     const skirtVertexCount = 4 * res;
@@ -166,7 +181,8 @@ export class TerrainTile {
         const idx = j * res + i;
         const wx = originX + i * step;
         const wz = originZ + j * step;
-        const h = geomorphHeight(this.cell.heights, res, i, j, alpha);
+        // Heightmap already holds the morphed surface (or raw when alpha==0).
+        const h = this.heightmap.heights[idx]!;
 
         const pOff = idx * 3;
         positions[pOff] = wx;

@@ -84,6 +84,9 @@ interface CompletedGeneration {
 
 const SAMPLED_CELL_CACHE_SIZE = 12;
 
+/** Remesh when baked geomorph alpha drifts beyond this (avoids LOD seam cracks). */
+const GEOMORPH_REMESH_EPSILON = 0.08;
+
 export class TerrainWorld extends SceneObject {
   readonly name = "TerrainWorld";
 
@@ -247,17 +250,41 @@ export class TerrainWorld extends SceneObject {
       // LOD change that alters mesh density → remesh (resolution is the density signal).
       if (chunk.state === "ready" && chunk.resolution !== resolution) {
         this.detachChunkEntity(key, context);
+        this.streamingStats.residentBytes -= chunk.residentBytes;
         chunk.tile?.dispose();
         chunk.tile = null;
         chunk.resolution = resolution;
         chunk.lod = req.sel.lod;
         chunk.state = "pending";
         chunk.residentBytes = 0;
-      } else if (chunk.state !== "generating") {
+      } else if (
+        chunk.state === "ready" &&
+        chunk.tile &&
+        Math.abs(req.sel.geomorphAlpha - chunk.tile.geomorphAlpha) > GEOMORPH_REMESH_EPSILON
+      ) {
+        // Geomorph bake drifted — remesh from the resident cell (no regen) so seams stay closed.
+        const cell = chunk.tile.cell;
+        this.detachChunkEntity(key, context);
         chunk.lod = req.sel.lod;
         chunk.resolution = resolution;
+        chunk.applyCell(cell, req.sel.geomorphAlpha);
+        chunk.residentBytes = estimateTileBytes(chunk.resolution);
+        this.attachChunkEntity(chunk, context);
+      } else if (chunk.state === "generating") {
+        chunk.lod = req.sel.lod;
+        // In-flight task keeps its submitted resolution; cancel and re-queue if density diverged.
+        if (chunk.resolution !== resolution) {
+          if (scheduler && chunk.taskKey) {
+            scheduler.cancel(chunk.taskKey);
+            this.streamingStats.cancelledThisFrame++;
+          }
+          chunk.taskKey = null;
+          chunk.resolution = resolution;
+          chunk.state = "pending";
+        }
       } else {
         chunk.lod = req.sel.lod;
+        chunk.resolution = resolution;
       }
     }
 
@@ -283,7 +310,8 @@ export class TerrainWorld extends SceneObject {
 
     for (const req of needed) {
       if (started >= frameBudget) break;
-      if (this.streamingStats.residentBytes >= this.budgets.memoryBytes && this.chunks.size >= this.budgets.visibleChunks) {
+      // Memory alone gates new work; visible-chunk count is already applied when building `needed`.
+      if (this.streamingStats.residentBytes >= this.budgets.memoryBytes) {
         break;
       }
       const key = chunkCoordKey(req.sel.cx, req.sel.cz);
@@ -365,6 +393,7 @@ export class TerrainWorld extends SceneObject {
       chunk.applyCell(cellFromResult(cached), req.sel.geomorphAlpha);
       chunk.lod = req.sel.lod;
       chunk.residentBytes = estimateTileBytes(chunk.resolution);
+      this.streamingStats.residentBytes += chunk.residentBytes;
       this.attachChunkEntity(chunk, context);
       this.streamingStats.generatedThisFrame++;
       this.streamingStats.inlineThisFrame++;
@@ -378,6 +407,7 @@ export class TerrainWorld extends SceneObject {
       chunk.generate(this.pipeline, this.seed, req.sel.geomorphAlpha);
       this.cacheGenerated(chunk);
       chunk.residentBytes = estimateTileBytes(chunk.resolution);
+      this.streamingStats.residentBytes += chunk.residentBytes;
       this.attachChunkEntity(chunk, context);
       this.streamingStats.generatedThisFrame++;
       this.streamingStats.inlineThisFrame++;
@@ -582,7 +612,8 @@ export class TerrainWorld extends SceneObject {
       centerZ: cz,
       innerRadius: radius,
       outerExtent: this.horizonExtent,
-      sampleHeight: (x, z) => this.getHeightAt(x, z),
+      // Resident tiles only — never sync-generate missing cells during skirt rebuild (rim hitch).
+      sampleHeight: (x, z) => this.residentHeightAt(x, z),
       dropDepth: Math.max(40, this.chunkSize * 0.5),
       ringSegments: 48,
     });
@@ -662,6 +693,18 @@ export class TerrainWorld extends SceneObject {
     }
     const chunk = this.chunks.get(key);
     if (chunk) chunk.entityId = null;
+  }
+
+
+  /**
+   * Height from a resident ready tile only. Falls back to a cheap approx (focus Y) so horizon
+   * rebuild never triggers synchronous cell generation for missing chunks.
+   */
+  private residentHeightAt(worldX: number, worldZ: number): number {
+    const key = chunkCoordKey(Math.floor(worldX / this.chunkSize), Math.floor(worldZ / this.chunkSize));
+    const hm = this.chunks.get(key)?.tile?.heightmap;
+    if (hm) return hm.getHeight(worldX, worldZ);
+    return this.focusPosition.y;
   }
 
   getHeightAt(worldX: number, worldZ: number): number {
