@@ -673,6 +673,8 @@ export class Vehicle {
     this.yaw = f32(this.yaw + this.yawRate * dt);
     this.distance += Math.hypot(this.position.x - prevX, this.position.z - prevZ);
 
+    // Keep basis in sync with integrated yaw/pitch/roll before penetration lift and body-frame ax/ay.
+    this.rebuildBasis();
     this.correctPenetration(ground);
     // Static friction: a held brake should stop the car, not leave a 1 m/s creep from the slip floor.
     if ((brake > 0.5 || handbrake > 0.5) && this.speed < 0.35 && contactCount > 0) {

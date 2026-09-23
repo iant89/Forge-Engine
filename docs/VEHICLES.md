@@ -138,7 +138,9 @@ const chassis = createVehicleChassis(vehicle, backend);
 // Assign so PhysicsSystem drives the kinematic collider via Transform pose-delta
 // (same path as RigidBodyComponent kinematics). Without this, props collide with a
 // ghost at the spawn pose while the car has already driven away.
-vehicleComponent.chassisBody = chassis;
+// Record the world so VehicleComponent.onDetach can removeBody (no ghost chassis).
+vehicleComponent.attachChassis(chassis, backend.world);
+// equivalent: chassisBody = chassis; chassisWorld = backend.world;
 // chassis + heightfield are visible to PhysicsSystem.world (same identity)
 ```
 
@@ -153,8 +155,9 @@ Rules of thumb:
 - When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
   both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
   so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
-- Assign `VehicleComponent.chassisBody` after `createVehicleChassis`. `VehicleSystem` writes the
-  chassis `Transform`; `PhysicsSystem` distributes that frame's pose delta across its substeps.
+- Assign the chassis after `createVehicleChassis` with `attachChassis(chassis, backend.world)`
+  (or set `chassisBody` **and** `chassisWorld`). `VehicleSystem` writes the chassis `Transform`;
+  `PhysicsSystem` distributes that frame's pose delta across its substeps.
   Do **not** call `syncVehicleChassis` every vehicle fixed step in this recipe — FixedSystems are
   not interleaved, so snapping the chassis to the end pose/ω before physics runs leaves hitch
   frames (`fixedSteps>1`) contacting a parked body. (`syncVehicleChassis` remains for manual
@@ -163,11 +166,14 @@ Rules of thumb:
   when `ownsWorld === false`, it still **removes bodies it spawned** for `RigidBodyComponent`
   entities (so shared backends do not keep ghost colliders after a scene reload) and **nulls**
   those components' `body` handles so a replacement `PhysicsSystem` re-adds on the next fixed
-  step. It does not remove bodies it did not create (e.g. `VehicleComponent.chassisBody` /
-  manually `addBody`'d props).
+  step. It does not remove bodies it did not create (e.g. manually `addBody`'d props). Vehicle
+  chassis teardown is owned by `VehicleComponent` (see next bullet).
 - Despawning a prop (`destroyEntity` / `removeComponent(RigidBodyComponent)`) removes the
   system-spawned body from the shared `PhysicsWorld` immediately via the component detach hook
   — ghosts do not linger until `PhysicsSystem.dispose()`.
+- Despawning a vehicle (`destroyEntity` / `removeComponent(VehicleComponent)`) removes
+  `chassisBody` from `chassisWorld` and nulls both handles via `VehicleComponent.onDetach`.
+  Always set `chassisWorld` (or use `attachChassis`) when assigning a shared-world chassis.
 - `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
   silently wiped by a non-owner.
 

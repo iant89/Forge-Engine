@@ -364,6 +364,88 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     ecs.dispose();
   });
 
+  it("destroyEntity removes VehicleComponent chassisBody from shared world immediately", async () => {
+    const {
+      EntityWorld,
+      Transform,
+      VehicleComponent,
+      createVehicleChassis,
+      createVehicleConfig,
+      Vehicle,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const external = new RigidBody({
+      type: "static",
+      shape: new BoxShape(0.3, 0.3, 0.3),
+      position: { x: 5, y: 0, z: 0 },
+    });
+    shared.addBody(external);
+
+    const backend = ForgeJSPhysics.wrap(shared);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1200, aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    const chassis = createVehicleChassis(vehicle, backend);
+    expect(shared.bodies).toContain(chassis);
+
+    const ecs = new EntityWorld();
+    // Shared-world recipe: PhysicsSystem adopts the same world (does not own chassis teardown).
+    const physics = new PhysicsSystem({ world: shared });
+    ecs.registerSystem(physics);
+
+    const entity = ecs.createEntity("car");
+    const transform = new Transform();
+    transform.setPosition(vehicle.position.x, vehicle.position.y, vehicle.position.z);
+    entity.add(transform);
+    const comp = new VehicleComponent(vehicle, flatGround(0));
+    comp.attachChassis(chassis, shared);
+    entity.add(comp);
+    expect(comp.chassisBody).toBe(chassis);
+    expect(comp.chassisWorld).toBe(shared);
+
+    // Despawn must drop the kinematic chassis now — not leave a ghost until PhysicsSystem.dispose().
+    const removed = ecs.destroyEntity(entity.id);
+    expect(removed).toBe(true);
+    expect(comp.chassisBody).toBeNull();
+    expect(comp.chassisWorld).toBeNull();
+    expect(shared.bodies).not.toContain(chassis);
+    expect(shared.bodies).toContain(external);
+
+    physics.dispose();
+    ecs.dispose();
+  });
+
+  it("removeComponent(VehicleComponent) removes chassisBody and nulls handles", async () => {
+    const {
+      EntityWorld,
+      Transform,
+      VehicleComponent,
+      createVehicleChassis,
+      createVehicleConfig,
+      Vehicle,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const backend = ForgeJSPhysics.wrap(shared);
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    const chassis = createVehicleChassis(vehicle, backend);
+
+    const ecs = new EntityWorld();
+    const entity = ecs.createEntity("car");
+    entity.add(new Transform());
+    const comp = new VehicleComponent(vehicle, flatGround(0));
+    comp.attachChassis(chassis, shared);
+    entity.add(comp);
+
+    expect(entity.remove(VehicleComponent)).toBe(true);
+    expect(comp.chassisBody).toBeNull();
+    expect(comp.chassisWorld).toBeNull();
+    expect(shared.bodies).not.toContain(chassis);
+
+    ecs.dispose();
+  });
+
   it("wrap/adopt backend clear() throws and does not wipe the shared world", () => {
     const world = new PhysicsWorld();
     world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 2 }));
@@ -538,7 +620,7 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     transform.setPosition(vehicle.position.x, vehicle.position.y, vehicle.position.z);
     entity.add(transform);
     const comp = new VehicleComponent(vehicle, ground);
-    comp.chassisBody = chassis; // recipe: assign after createVehicleChassis
+    comp.attachChassis(chassis, backend.world); // recipe: chassisBody + chassisWorld
     entity.add(comp);
 
     // Prop aimed at the LIVE pose (z≈6), not the spawn ghost (z≈0).
@@ -637,6 +719,39 @@ describe("Phase 11.4 — physical orientation", () => {
     vehicle.step(1 / 120, ground);
     expect(Math.abs(vehicle.pitch - p0)).toBeGreaterThan(0.001);
     expect(Math.abs(vehicle.roll - r0)).toBeGreaterThan(0.001);
+  });
+
+  it("basis matches integrated pitch/roll after a high-rate step (rebuildBasis before penetration)", () => {
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(ground);
+    // Large rates so integrate moves angles far from start-of-step basis.
+    vehicle.pitchRate = 4;
+    vehicle.rollRate = -3;
+    vehicle.yawRate = 1.5;
+    vehicle.step(1 / 120, ground);
+    expect(Math.abs(vehicle.pitch)).toBeGreaterThan(0.01);
+    expect(Math.abs(vehicle.roll)).toBeGreaterThan(0.01);
+
+    const fwd = (vehicle as any).forward as { x: number; y: number; z: number };
+    const right = (vehicle as any).right as { x: number; y: number; z: number };
+    const up = (vehicle as any).up as { x: number; y: number; z: number };
+    const fx = fwd.x, fy = fwd.y, fz = fwd.z;
+    const rx = right.x, ry = right.y, rz = right.z;
+    const ux = up.x, uy = up.y, uz = up.z;
+
+    // writeAngularVelocity always rebuilds from current yaw/pitch/roll — idempotent iff
+    // integrate already called rebuildBasis after orientation update.
+    vehicle.writeAngularVelocity({ x: 0, y: 0, z: 0 } as any);
+    expect(fwd.x).toBeCloseTo(fx, 6);
+    expect(fwd.y).toBeCloseTo(fy, 6);
+    expect(fwd.z).toBeCloseTo(fz, 6);
+    expect(right.x).toBeCloseTo(rx, 6);
+    expect(right.y).toBeCloseTo(ry, 6);
+    expect(right.z).toBeCloseTo(rz, 6);
+    expect(up.x).toBeCloseTo(ux, 6);
+    expect(up.y).toBeCloseTo(uy, 6);
+    expect(up.z).toBeCloseTo(uz, 6);
   });
 
   it("settles to a positive pitch on a constant uphill slope", () => {
