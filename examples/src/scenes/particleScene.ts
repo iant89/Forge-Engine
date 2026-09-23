@@ -1,30 +1,29 @@
 /**
- * Phase 7 fountain. `ParticleWorld.update` is the only stepper (it emits, integrates, and poses
- * the sprite entities). Do not also register `ParticleSystem` on this scene — that would step the
- * same simulation a second time.
+ * Phase 12 GPU fountain. `GpuParticleWorld` owns a storage buffer; the renderer runs
+ * particle.sim / particle.sort / particle.render / particle.resolve. No per-particle ECS
+ * sprites — capacity can be 100k without 100k entities.
  *
- * Sprites are a few hundred unlit boxes. The 100k case is a buffer benchmark, not a draw. Color and
- * size modules write the particle buffer; the shared material does not read per-particle color.
+ * The Phase 7 CPU `ParticleWorld` path remains available for reference tests; this demo is the
+ * GPU-authoritative scene the exit criteria require.
  */
 
 import {
   Camera,
   Color,
-  ColorOverLifeModule,
   type Engine,
+  GpuParticleWorld,
   Light,
   Material,
-  ParticleWorld,
   Renderable,
   Scene,
-  SizeOverLifeModule,
   Vec3,
   createBox,
   createPlane,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 
-const SPRITES = 200;
+/** Demo capacity — large enough to prove the no-ECS invariant without starving low-end GPUs. */
+const CAPACITY = 100_000;
 
 export function buildParticleScene(engine: Engine): DemoSceneHandle {
   const scene = new Scene({ name: "particles" });
@@ -36,44 +35,41 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
   scene.settings.bloom.intensity = 0.55;
   scene.settings.shadow.enabled = false;
 
-  const fountain = new ParticleWorld({
-    name: "particles",
-    capacity: SPRITES,
-    gravity: { x: 0, y: -9.81, z: 0 },
-    drag: 0.4,
+  const fountain = new GpuParticleWorld({
+    name: "gpu-particles",
+    capacity: CAPACITY,
     seed: 7,
-    trailLength: 8,
+    maxEmitsPerFrame: 2048,
+    softParticles: true,
+    stretch: 0.35,
+    cullDistance: 60,
+    emitter: {
+      rate: 6000,
+      lifeMin: 1.2,
+      lifeMax: 2.2,
+      size: 0.22,
+      position: { x: 0, y: 0.35, z: 0 },
+      jitter: { x: 0.2, y: 0.05, z: 0.2 },
+      coneDir: { x: 0, y: 1, z: 0 },
+      coneAngle: 0.32,
+      speedMin: 5,
+      speedMax: 9,
+      color: { r: 1, g: 0.78, b: 0.28, a: 1 },
+    },
+    modules: {
+      gravity: { x: 0, y: -9.81, z: 0 },
+      drag: 0.4,
+      turbulence: 2.2,
+      noiseScale: 0.4,
+      sizeStart: 0.28,
+      sizeEnd: 0.04,
+      colorFrom: { r: 1, g: 0.78, b: 0.28, a: 1 },
+      colorTo: { r: 0.75, g: 0.1, b: 0.04, a: 0 },
+      rotationSpeed: 0.8,
+    },
   });
-  fountain.simulation.emitter.rate = 80;
-  fountain.simulation.emitter.lifeMin = 1.4;
-  fountain.simulation.emitter.lifeMax = 2.2;
-  fountain.simulation.emitter.size = 0.22;
-  fountain.simulation.emitter.position.y = 0.35;
-  fountain.simulation.emitter.cone.direction = { x: 0, y: 1, z: 0 };
-  fountain.simulation.emitter.cone.angle = 0.32;
-  fountain.simulation.emitter.cone.speedMin = 5;
-  fountain.simulation.emitter.cone.speedMax = 8;
-  fountain.simulation.modules.push(
-    new ColorOverLifeModule({ r: 1, g: 0.78, b: 0.28, a: 1 }, { r: 0.75, g: 0.1, b: 0.04, a: 0 }),
-    new SizeOverLifeModule(0.28, 0.04),
-  );
+  fountain.attachDevice(engine.gpu);
   scene.add(fountain);
-
-  const sparkMesh = createBox(engine.gpu, { width: 1, height: 1, depth: 1 });
-  const sparkMaterial = Material.unlit({ color: 0xff7722, label: "spark" });
-  const spriteIds: number[] = [];
-  for (let i = 0; i < SPRITES; i++) {
-    const spark = scene.createTransformedEntity(`spark-${i}`, new Vec3(0, -8, 0));
-    const renderable = new Renderable();
-    renderable.geometry = sparkMesh;
-    renderable.material = sparkMaterial;
-    renderable.castShadow = false;
-    renderable.receiveShadow = false;
-    renderable.visible = false;
-    scene.world.addComponent(spark.id, renderable);
-    spriteIds.push(spark.id);
-  }
-  fountain.spriteEntities = spriteIds;
 
   const groundMesh = createPlane(engine.gpu, { width: 24, depth: 24 });
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
@@ -121,19 +117,23 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
       elevation: 0.32,
     },
     update(): void {
-      // ParticleWorld is stepped by Scene.update. Stepping here would emit and integrate twice.
+      // GpuParticleWorld is stepped by the renderer's particle.sim pass.
     },
     overlay(): string {
-      const sim = fountain.simulation;
-      return `particles ${sim.alive} / ${sim.capacity}  emitted ${sim.emitted}  sprites ${fountain.spriteEntities.length}`;
+      const s = fountain.system;
+      if (!s) return "gpu particles (initialising)";
+      return `gpu particles capacity ${s.capacity}  emitted ${s.emitted}  entities ${s.entityCount()}  lastEmit ${s.lastEmitBudget}`;
     },
-    particleState: () => ({
-      alive: fountain.simulation.alive,
-      capacity: fountain.simulation.capacity,
-      emitted: fountain.simulation.emitted,
-    }),
+    particleState: () => {
+      const s = fountain.system;
+      const emitted = s?.emitted ?? 0;
+      return {
+        alive: Math.min(emitted, s?.capacity ?? CAPACITY),
+        capacity: s?.capacity ?? CAPACITY,
+        emitted,
+      };
+    },
     dispose(): void {
-      sparkMesh.dispose();
       groundMesh.dispose();
       pedestalMesh.dispose();
       scene.dispose();

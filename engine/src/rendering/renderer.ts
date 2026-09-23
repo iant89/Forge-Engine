@@ -40,6 +40,8 @@ import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "..
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
+import { findGpuParticleWorld } from "../particles/gpuWorld.js";
+import { GPU_PARTICLE_DEPTH_USAGE } from "../particles/gpuSystem.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
@@ -513,14 +515,22 @@ export class Renderer implements RenderFrameContext {
     const sceneColor = frame.hdr
       ? g.createTexture("scene.hdr", { width: frame.renderWidth, height: frame.renderHeight, format: HDR_FORMAT, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING })
       : swapchain;
-    const sceneDepth = g.createTexture("scene.depth", { width: frame.renderWidth, height: frame.renderHeight, format: this.device.depthFormat, usage: TextureUsage.RENDER_ATTACHMENT });
+    const gpuParticleWorld = findGpuParticleWorld(scene);
+    if (gpuParticleWorld) gpuParticleWorld.attachDevice(this.device);
+    const wantGpuParticles = Boolean(gpuParticleWorld);
+    const sceneDepth = g.createTexture("scene.depth", {
+      width: frame.renderWidth,
+      height: frame.renderHeight,
+      format: this.device.depthFormat,
+      usage: wantGpuParticles ? GPU_PARTICLE_DEPTH_USAGE : TextureUsage.RENDER_ATTACHMENT,
+    });
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
     g.addPass({
       name: "forge.main",
       reads: shadowAtlas !== null ? [shadowAtlas] : [],
       color: [{ texture: sceneColor, clearValue: [clear[0], clear[1], clear[2], 1] }],
       // The sky pass depth-tests against this buffer, so it must survive the pass when the sky runs.
-      depth: { texture: sceneDepth, depthStoreOp: frame.sky ? "store" : "discard" },
+      depth: { texture: sceneDepth, depthStoreOp: frame.sky || wantGpuParticles ? "store" : "discard" },
       execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas),
     });
     if (frame.sky) {
@@ -533,6 +543,26 @@ export class Renderer implements RenderFrameContext {
         execute: (ctx) => this.executeSkyPass(ctx, colorFormat),
       });
     }
+
+    // Phase 12 GPU particles: sim/sort/render/resolve against the authoritative storage buffer.
+    if (gpuParticleWorld?.system?.ready) {
+      const m = this.cameraWorld.m;
+      const rl = Math.hypot(m[0]!, m[1]!, m[2]!) || 1;
+      const ul = Math.hypot(m[4]!, m[5]!, m[6]!) || 1;
+      gpuParticleWorld.prepareFrame({
+        viewProj: this.viewProj,
+        cameraPos: this.lastCameraPos,
+        cameraRight: { x: m[0]! / rl, y: m[1]! / rl, z: m[2]! / rl },
+        cameraUp: { x: m[4]! / ul, y: m[5]! / ul, z: m[6]! / ul },
+      });
+      gpuParticleWorld.enqueue(g, {
+        color: sceneColor,
+        depth: sceneDepth,
+        colorFormat,
+        depthFormat: this.device.depthFormat,
+      });
+    }
+
     this.stats.hdr = frame.hdr;
     this.stats.sky = frame.sky;
     this.stats.underwater = frame.underwater;
