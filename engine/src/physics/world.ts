@@ -278,6 +278,9 @@ export class PhysicsWorld {
   private static readonly rayScratch = new RayHit();
 }
 
+/** Scratch for heightfield raycast normals (avoids per-hit Vec3 alloc in default sampler). */
+const heightfieldNormalScratch = new Vec3();
+
 /**
  * March a ray against a heightfield sampler. Preferential for downward wheel rays;
  * also works for general directions via uniform steps along the ray.
@@ -311,7 +314,7 @@ export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, 
       if (hitT < 0 || hitT > maxT) return false;
       hit.distance = hitT;
       ray.at(hitT, hit.point);
-      const n = hf.sampleNormal(hit.point.x, hit.point.z);
+      const n = hf.sampleNormal(hit.point.x, hit.point.z, heightfieldNormalScratch);
       hit.normal.copyFrom(n);
       hit.isValid = true;
       return true;
@@ -320,7 +323,7 @@ export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, 
     if (i === 0 && !above) {
       hit.distance = 0;
       hit.point.set(ray.origin.x, h, ray.origin.z);
-      const n = hf.sampleNormal(ray.origin.x, ray.origin.z);
+      const n = hf.sampleNormal(ray.origin.x, ray.origin.z, heightfieldNormalScratch);
       hit.normal.copyFrom(n);
       hit.isValid = true;
       return true;

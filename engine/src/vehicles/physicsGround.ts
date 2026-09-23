@@ -59,14 +59,15 @@ export function physicsRaycastGroundQuery(
   const maxDistance = options.maxDistance ?? 64;
   const skipKinematic = options.skipKinematic !== false;
   const excludeBody = options.excludeBody ?? null;
+  // Stable filter for the hot wheel-contact path (no per-sample object/array alloc).
+  const filter = {
+    skipKinematic,
+    excludeBodies: excludeBody ? [excludeBody] : null,
+  };
   return {
     sample(x, z, out) {
       ray.setFrom({ x, y: maxDistance * 0.5, z }, { x: 0, y: -1, z: 0 }, maxDistance);
       hit.reset();
-      const filter = {
-        skipKinematic,
-        excludeBodies: excludeBody ? [excludeBody] : null,
-      };
       if (backend.raycast(ray, hit, filter) && hit.isValid) {
         out.height = hit.point.y;
         out.nx = hit.normal.x;
