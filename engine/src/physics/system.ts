@@ -23,6 +23,8 @@ import { VehicleComponent } from "../vehicles/components.js";
  *
  * Omit `world`/`backend` to create and own a new {@link PhysicsWorld} (default / single-owner).
  * Pass either to adopt a shared world (e.g. the one behind a {@link ForgeJSPhysics} used by vehicles).
+ * When adopting, any explicitly provided `gravity` / `fixedDt` / `solverOptions` are copied onto
+ * the shared world via {@link PhysicsWorld.applyOptions} (not silently ignored).
  */
 export interface PhysicsSystemOptions extends PhysicsWorldOptions {
   /** Adopt this world instead of constructing a new one. */
@@ -77,6 +79,8 @@ export class PhysicsSystem extends FixedSystem {
     if (adopted) {
       this.world = adopted;
       this.ownsWorld = false;
+      // Copy explicitly-passed mutable fields onto the shared world (do not ignore).
+      this.world.applyOptions(options);
     } else {
       this.world = new PhysicsWorld(options);
       this.ownsWorld = true;

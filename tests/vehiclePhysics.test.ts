@@ -79,6 +79,41 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     expect(backend.ownsWorld).toBe(true);
   });
 
+  it("adopt copies explicit gravity/fixedDt/solverOptions onto the shared world", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -9.81, z: 0 }, fixedDt: 1 / 60 });
+    expect(world.gravity.y).toBeCloseTo(-9.81, 5);
+    expect(world.solver.velocityIterations).toBe(8);
+
+    const system = new PhysicsSystem({
+      world,
+      gravity: { x: 0, y: 0, z: 0 },
+      fixedDt: 1 / 120,
+      solverOptions: { velocityIterations: 4 },
+    });
+    expect(system.world).toBe(world);
+    expect(world.gravity.x).toBe(0);
+    expect(world.gravity.y).toBe(0);
+    expect(world.gravity.z).toBe(0);
+    expect(world.fixedDt).toBeCloseTo(1 / 120, 10);
+    expect(world.solver.velocityIterations).toBe(4);
+    // Unspecified solver fields are left alone.
+    expect(world.solver.positionIterations).toBe(2);
+
+    // Omit fields → do not clobber.
+    const world2 = new PhysicsWorld({ gravity: { x: 1, y: 2, z: 3 }, fixedDt: 1 / 30 });
+    new PhysicsSystem({ world: world2 });
+    expect(world2.gravity.x).toBe(1);
+    expect(world2.gravity.y).toBe(2);
+    expect(world2.gravity.z).toBe(3);
+    expect(world2.fixedDt).toBeCloseTo(1 / 30, 10);
+
+    // ForgeJSPhysics adopt path matches.
+    const world3 = new PhysicsWorld({ gravity: { x: 0, y: -9.81, z: 0 } });
+    new ForgeJSPhysics({ world: world3, gravity: { x: 0, y: 0, z: 0 }, fixedDt: 1 / 90 });
+    expect(world3.gravity.y).toBe(0);
+    expect(world3.fixedDt).toBeCloseTo(1 / 90, 10);
+  });
+
   it("shared world: heightfield and chassis are visible to both sides", () => {
     const backend = new ForgeJSPhysics({ gravity: { x: 0, y: -9.81, z: 0 } });
     const system = new PhysicsSystem({ world: backend.world });
@@ -163,7 +198,10 @@ describe("Phase 11.2 / 11.6 — heightfield agreement", () => {
 
     const visual = heightFunctionGround(heightAt);
     const collision = physicsGroundQuery(backend);
-    const vehicle = physicsGroundQuery(backend); // vehicle contact shares the backend sampler
+    // HF-only vehicle contact: physicsGroundQuery (not raycast — see physicsRaycastGroundQuery limits).
+    const vehicle = physicsGroundQuery(backend);
+    // Raycast agreement is supplemental; valid here because heights (~2) sit well below the
+    // default fixed origin (maxDistance*0.5 = 32). Prefer physicsGroundQuery for pure HF.
     const raycast = physicsRaycastGroundQuery(backend);
 
     const pts = [
@@ -273,6 +311,7 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     const world = new EntityWorld();
     world.registerSystem(new VehicleSystem());
     // Documented recipe: shared world — PhysicsSystem drives chassisBody via pose-delta.
+    // Explicit gravity:{0,0,0} is copied onto the adopted world (zero-g for prop contact).
     world.registerSystem(new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } }));
 
     const entity = world.createEntity("car");
@@ -687,6 +726,7 @@ describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
 
     const world = new EntityWorld();
     world.registerSystem(new VehicleSystem());
+    // Explicit gravity:{0,0,0} is copied onto the adopted world (zero-g pose-delta test).
     const physics = new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } });
     world.registerSystem(physics);
 
@@ -841,6 +881,7 @@ describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
     const chassis = createVehicleChassis(vehicle, backend);
 
     const world = new EntityWorld();
+    // Explicit gravity:{0,0,0} is copied onto the adopted world (zero-g stale-velocity test).
     const physics = new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } });
     world.registerSystem(physics);
 

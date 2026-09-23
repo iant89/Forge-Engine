@@ -58,6 +58,12 @@ Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`,
 the vehicle query and the physics heightfield collider to share one sampler so visual terrain,
 collision, and wheel contact agree.
 
+For **heightfield-only / terrain** vehicle contact, use `physicsGroundQuery` (or an equivalent
+heightfield sampler). `physicsRaycastGroundQuery` casts a downward ray from a **fixed world-Y
+origin** at `maxDistance * 0.5` (default origin Y = 32). Heightfields or other colliders that sit
+**above** that origin are outside the ray and can miss or fall back incorrectly — do not use the
+raycast helper as the sole ground query for pure HF terrain.
+
 ## Using it
 
 ```ts
@@ -140,6 +146,10 @@ Rules of thumb:
 
 - Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
 - Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`.
+- When adopting, explicitly provided `gravity` / `fixedDt` / `solverOptions` are **copied onto the
+  shared world** (they are not silently ignored). Omit a field to leave the adopted world's value
+  unchanged. Example: `new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } })`
+  zeros gravity on that shared world.
 - When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
   both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
   so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
@@ -157,6 +167,9 @@ Rules of thumb:
 ## Limitations
 
 - Wheel contact is a physics heightfield / raycast query, not a triangle mesh against Phase 4 chunks.
+- `physicsRaycastGroundQuery` uses a fixed world-Y ray origin (`maxDistance * 0.5`). Prefer
+  `physicsGroundQuery` for heightfield-only / terrain vehicle ground when colliders may sit above
+  that origin.
 - The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
   sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
 - Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels

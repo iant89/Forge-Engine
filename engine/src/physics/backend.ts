@@ -51,6 +51,8 @@ export interface PhysicsBackend {
  * Shared: pass `world` (or use {@link ForgeJSPhysics.wrap}) so demos/`VehicleSystem` and
  * {@link PhysicsSystem} can see the same heightfield and chassis. Pairing both without sharing
  * silently creates two worlds — props and ground will not interact across them.
+ * When adopting, any explicitly provided `gravity` / `fixedDt` / `solverOptions` are copied onto
+ * the shared world via {@link PhysicsWorld.applyOptions} (not silently ignored).
  */
 export interface ForgeJSPhysicsOptions extends PhysicsWorldOptions {
   /** Adopt this world instead of constructing a new one. Caller coordinates stepping/clearing. */
@@ -74,13 +76,18 @@ export class ForgeJSPhysics implements PhysicsBackend {
     if (options.world) {
       this.world = options.world;
       this.ownsWorld = false;
+      // Copy explicitly-passed mutable fields onto the shared world (do not ignore).
+      this.world.applyOptions(options);
     } else {
       this.world = new PhysicsWorld(options);
       this.ownsWorld = true;
     }
   }
 
-  /** Adopt an existing world without copying PhysicsWorldOptions (shared-world helper). */
+  /**
+   * Adopt an existing world. Does not apply PhysicsWorldOptions (pass them on the constructor
+   * if the shared world should be retuned).
+   */
   static wrap(world: PhysicsWorld): ForgeJSPhysics {
     return new ForgeJSPhysics({ world });
   }

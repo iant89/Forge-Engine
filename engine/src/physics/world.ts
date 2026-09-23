@@ -35,7 +35,8 @@ export class PhysicsWorld {
   private nextBodyId = 1;
 
   readonly gravity = new Vec3(0, -9.81, 0);
-  readonly fixedDt: number;
+  /** Mutable so adopt paths ({@link applyOptions}) can retune without rebuilding the world. */
+  fixedDt: number;
   readonly maxSubsteps: number;
   readonly solver: SequentialImpulseSolver;
 
@@ -52,6 +53,27 @@ export class PhysicsWorld {
     this.fixedDt = options.fixedDt ?? 1 / 60;
     this.maxSubsteps = options.maxSubsteps ?? 8;
     this.solver = new SequentialImpulseSolver(options.solverOptions);
+  }
+
+  /**
+   * Copy explicitly-provided options onto this world (adopt / share path).
+   * Only defined fields are applied — `undefined` does not clobber existing values.
+   * Used by {@link PhysicsSystem} and {@link ForgeJSPhysics} when constructed with `world`
+   * (or `backend`) plus gravity / fixedDt / solverOptions.
+   */
+  applyOptions(options: PhysicsWorldOptions): void {
+    if (options.gravity !== undefined) this.gravity.copyFrom(options.gravity);
+    if (options.fixedDt !== undefined) this.fixedDt = options.fixedDt;
+    if (options.solverOptions !== undefined) {
+      const s = options.solverOptions;
+      if (s.velocityIterations !== undefined) this.solver.velocityIterations = s.velocityIterations;
+      if (s.positionIterations !== undefined) this.solver.positionIterations = s.positionIterations;
+      if (s.baumgarte !== undefined) this.solver.baumgarte = s.baumgarte;
+      if (s.penetrationSlop !== undefined) this.solver.penetrationSlop = s.penetrationSlop;
+      if (s.velocityRestThreshold !== undefined) {
+        this.solver.velocityRestThreshold = s.velocityRestThreshold;
+      }
+    }
   }
 
   addBody(body: RigidBody): RigidBody {

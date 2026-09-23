@@ -47,15 +47,16 @@ const hit = new RayHit();
  * Wheel contact via a downward physics raycast (Phase 11.5).
  * Uses the backend raycast so heightfield and other colliders participate.
  * By default skips kinematic bodies and can exclude a specific chassis body.
+ *
+ * **Limits:** the ray origin is fixed at world Y = `maxDistance * 0.5` (not relative to the
+ * sample point or terrain). Colliders / heightfields that sit above that origin are outside the
+ * ray and may miss or fall back incorrectly. For heightfield-only / terrain vehicle ground,
+ * prefer {@link physicsGroundQuery} (or an equivalent HF sampler) instead of this helper.
  */
 export function physicsRaycastGroundQuery(
   backend: PhysicsBackend,
-  maxDistanceOrOptions: number | PhysicsRaycastGroundOptions = 64,
+  options: PhysicsRaycastGroundOptions = {},
 ): GroundQuery {
-  const options: PhysicsRaycastGroundOptions =
-    typeof maxDistanceOrOptions === "number"
-      ? { maxDistance: maxDistanceOrOptions }
-      : maxDistanceOrOptions;
   const maxDistance = options.maxDistance ?? 64;
   const skipKinematic = options.skipKinematic !== false;
   const excludeBody = options.excludeBody ?? null;
