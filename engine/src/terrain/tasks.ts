@@ -123,9 +123,14 @@ export function terrainCellPayload(
   return { seed, cx, cz, size, resolution, pipeline: describePipeline(pipeline) };
 }
 
-/** The default task key for a chunk: streaming cancels/dedupes on this prefix. */
-export function terrainCellKey(cx: number, cz: number): string {
-  return `terrain.cell:${cx},${cz}`;
+/**
+ * Scheduler key for a chunk generation submit.
+ * Includes resolution + epoch so cancel→resubmit cannot reuse the same string identity
+ * (reused keys let a cancelled catch clear the replacement in-flight bookkeeping).
+ * Prefix `terrain.cell:` remains valid for cancelGroup.
+ */
+export function terrainCellKey(cx: number, cz: number, resolution = 0, epoch = 0): string {
+  return `terrain.cell:${cx},${cz}:${resolution}:${epoch}`;
 }
 
 /**

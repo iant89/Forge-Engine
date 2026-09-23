@@ -392,7 +392,9 @@ export class TerrainChunk {
   lastAccessed = 0;
   /** TaskScheduler key while a generation is in flight (Phase 10.5). */
   taskKey: string | null = null;
-  /** Estimated resident bytes once ready. */
+  /** Monotonic submit epoch; folded into taskKey so cancel/resubmit identities never collide. */
+  taskEpoch = 0;
+  /** Estimated resident bytes once ready (also reserved while a worker generation is in flight). */
   residentBytes = 0;
 
   constructor(cx: number, cz: number, size: number, resolution: number, lod = 0) {

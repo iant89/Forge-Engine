@@ -49,7 +49,8 @@ export class TerrainLOD {
       if (distance < dLimit) {
         const dStart = dLimit * (1.0 - this.transitionWidth);
         const alpha = distance > dStart ? clamp((distance - dStart) / (dLimit - dStart), 0, 1) : 0;
-        return { lod: l, alpha };
+        // Clamp so extra distance bands past maxLOD cannot select an unsupported level.
+        return { lod: Math.min(l, this.maxLOD), alpha };
       }
     }
     return { lod: this.maxLOD, alpha: 0 };

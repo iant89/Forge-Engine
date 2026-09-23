@@ -18,6 +18,7 @@ import {
   buildHorizonSkirt,
   LayeredTerrainMaterial,
   estimateTileBytes,
+  terrainCellKey,
   TaskScheduler,
   Vec3,
   Ray,
@@ -692,11 +693,13 @@ describe("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     expect(terrain.streamingStats.cancelledThisFrame).toBeGreaterThan(0);
     expect(target.resolution).toBe(newRes);
     expect(target.state === "pending" || target.state === "generating").toBe(true);
-    // taskKey is coord-based (same key on resubmit); pending means awaiting a new schedule.
+    // Submit identity includes resolution+epoch — resubmit must not reuse the cancelled key.
     if (target.state === "pending") {
       expect(target.taskKey).toBeNull();
     } else {
       expect(target.taskKey).toBeTruthy();
+      expect(target.taskKey).not.toBe(taskKeyBefore);
+      expect(target.taskKey).toContain(`:${newRes}:`);
       expect(target.resolution).toBe(newRes);
     }
 
@@ -750,6 +753,215 @@ describe("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     // Remesh reused the cell (no full regen) — same heights buffer identity.
     expect(chunk.tile!.cell.heights).toBe(cellRef.heights);
 
+    scene.dispose();
+    world.dispose();
+  });
+
+
+  it("cancel then resubmit keeps replacement in-flight (unique submit identity)", async () => {
+    installTerrainTaskHandlers();
+    // maxConcurrent 1 so the first submit is running when we cancel; inline so cancel rejects sync.
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 1 });
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 33,
+      viewDistance: 80,
+      maxChunksLoaded: 4,
+      maxGenerationsPerFrame: 2,
+      generationsPerFrame: 2,
+      horizonSkirt: false,
+      syncGeneration: false,
+      warmUpChunks: 0,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "cancel-resubmit-identity" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 20, 0);
+    terrain.focusPosition.set(0, 20, 0);
+
+    terrain.update(ctx, 0.016);
+    const target = [...terrain.chunks.values()].find((c) => c.state === "generating");
+    expect(target).toBeTruthy();
+    const keyBefore = target!.taskKey!;
+    const epochBefore = target!.taskEpoch;
+    expect(keyBefore).toBe(terrainCellKey(target!.cx, target!.cz, target!.resolution, epochBefore));
+
+    // Divergent resolution → cancel + same-frame resubmit under the generation budget.
+    const newRes = target!.resolution === 33 ? 17 : 33;
+    const origEval = terrain.lod.evaluateDistance.bind(terrain.lod);
+    terrain.lod.evaluateDistance = (distance: number) => {
+      const base = origEval(distance);
+      return { lod: newRes === 17 ? 1 : 0, alpha: base.alpha };
+    };
+    terrain.update(ctx, 0.016);
+
+    expect(terrain.streamingStats.cancelledThisFrame).toBeGreaterThan(0);
+    // Flush cancelled rejection microtasks — the old bug cleared the *new* taskKey here.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(target!.taskKey).not.toBe(keyBefore);
+    if (target!.state === "generating") {
+      expect(target!.taskKey).toBeTruthy();
+      expect(target!.taskEpoch).toBeGreaterThan(epochBefore);
+      expect(target!.taskKey).toBe(
+        terrainCellKey(target!.cx, target!.cz, target!.resolution, target!.taskEpoch),
+      );
+    }
+
+    // Replacement must still be able to complete (mesh not dropped by cancelled catch).
+    await scheduler.drain().catch(() => undefined);
+    terrain.update(ctx, 0.016);
+    // After drain + update, either ready or still generating/pending — but not stuck cleared.
+    expect(["ready", "generating", "pending"]).toContain(target!.state);
+    if (target!.state === "ready") {
+      expect(target!.tile).not.toBeNull();
+    }
+
+    terrain.lod.evaluateDistance = origEval;
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("caps lodDistances at maxLOD so evaluateDistance cannot select above maxLOD", () => {
+    const terrain = new TerrainWorld({
+      chunkSize: 100,
+      maxLOD: 3,
+      horizonSkirt: false,
+    });
+    expect(terrain.lod.lodDistances.length).toBe(4); // indices 0..3
+    expect(terrain.lod.evaluateDistance(0).lod).toBe(0);
+    expect(terrain.lod.evaluateDistance(1e9).lod).toBe(3);
+    // Even if bands were longer, clamp keeps lod <= maxLOD.
+    terrain.lod.lodDistances.push(terrain.chunkSize * 48, terrain.chunkSize * 96);
+    expect(terrain.lod.evaluateDistance(terrain.chunkSize * 30).lod).toBeLessThanOrEqual(3);
+    terrain.dispose();
+  });
+
+  it("writes sync height-query generation into TerrainGenerationCache", () => {
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const cacheKey = terrainCacheKey({
+      seed: terrain.seed,
+      chunkX: 0,
+      chunkZ: 0,
+      generatorVersion: TERRAIN_GENERATOR_VERSION,
+      generatorSettings: terrain.pipelineHash,
+      resolution: terrain.chunkResolution,
+    });
+    expect(terrain.cache.get(cacheKey)).toBeUndefined();
+    const h = terrain.getHeightAt(10, 10);
+    expect(Number.isFinite(h)).toBe(true);
+    const cached = terrain.cache.get(cacheKey);
+    expect(cached).toBeDefined();
+    expect(cached!.resolution).toBe(9);
+    // Second query should hit the generation cache (via sampledCells or cache).
+    const hitsBefore = terrain.cache.hits;
+    (terrain as unknown as { sampledCells: Map<string, unknown> }).sampledCells.clear();
+    terrain.getHeightAt(12, 12);
+    expect(terrain.cache.hits).toBeGreaterThan(hitsBefore);
+    terrain.dispose();
+  });
+
+  it("gates geomorph remeshes on uploadsPerFrame and defers the rest", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 200,
+      maxChunksLoaded: 16,
+      maxGenerationsPerFrame: 16,
+      generationsPerFrame: 16,
+      uploadsPerFrame: 1,
+      warmUpChunks: 16,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "geomorph-upload-budget" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    const camT = cameraEntity.add(new Transform());
+    camT.setPosition(0, 20, 0);
+    terrain.focusPosition.set(0, 20, 0);
+
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready" && c.tile);
+    expect(ready.length).toBeGreaterThan(2);
+
+    // Snapshot baked alphas, then force every tile past the remesh epsilon.
+    const baked = new Map(ready.map((c) => [c.key, c.tile!.geomorphAlpha]));
+    const origEval = terrain.lod.evaluateDistance.bind(terrain.lod);
+    terrain.lod.evaluateDistance = (distance: number) => {
+      const base = origEval(distance);
+      return { lod: base.lod, alpha: 1 };
+    };
+
+    terrain.update(ctx, 0.016);
+    const remeshed = ready.filter((c) => c.tile && Math.abs(c.tile.geomorphAlpha - (baked.get(c.key) ?? 0)) > 0.08);
+    expect(remeshed.length).toBeLessThanOrEqual(terrain.budgets.uploadsPerFrame);
+    expect(terrain.streamingStats.uploadedThisFrame).toBeLessThanOrEqual(terrain.budgets.uploadsPerFrame);
+
+    // A later frame should continue remeshing deferred chunks.
+    terrain.update(ctx, 0.016);
+    const remeshedTotal = ready.filter((c) => c.tile && Math.abs(c.tile.geomorphAlpha - (baked.get(c.key) ?? 0)) > 0.08);
+    expect(remeshedTotal.length).toBeGreaterThanOrEqual(remeshed.length);
+
+    terrain.lod.evaluateDistance = origEval;
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("memory gate counts in-flight worker reservations", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 4 });
+    const world = new EntityWorld();
+    const tileBytes = estimateTileBytes(17);
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 17,
+      viewDistance: 400,
+      visibleChunks: 64,
+      generationsPerFrame: 16,
+      memoryBytes: tileBytes * 2,
+      horizonSkirt: false,
+      syncGeneration: false,
+      warmUpChunks: 0,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "memory-reserve-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    const inFlight = [...terrain.chunks.values()].filter((c) => c.state === "generating").length;
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    // Without reservations, generationsPerFrame=16 would schedule far past a 2-tile memory budget.
+    expect(inFlight + ready).toBeLessThanOrEqual(4);
+    expect(terrain.streamingStats.residentBytes).toBeLessThanOrEqual(terrain.budgets.memoryBytes * 1.05);
+
+    await scheduler.drain().catch(() => undefined);
+    scheduler.dispose();
     scene.dispose();
     world.dispose();
   });

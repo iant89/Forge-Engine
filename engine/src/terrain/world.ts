@@ -164,13 +164,14 @@ export class TerrainWorld extends SceneObject {
         maxBytes: Math.max(8 * 1024 * 1024, Math.floor(this.budgets.memoryBytes * 0.35)),
       });
 
+    // Cap bands at maxLOD+1 so evaluateDistance cannot return a level above maxLOD.
     const lodDistances = [
       this.chunkSize * 1.5,
       this.chunkSize * 3.0,
       this.chunkSize * 6.0,
       this.chunkSize * 12.0,
       this.chunkSize * 24.0,
-    ];
+    ].slice(0, this.maxLOD + 1);
     this.lod = new TerrainLOD({
       baseChunkSize: this.chunkSize,
       maxLOD: this.maxLOD,
@@ -263,13 +264,17 @@ export class TerrainWorld extends SceneObject {
         Math.abs(req.sel.geomorphAlpha - chunk.tile.geomorphAlpha) > GEOMORPH_REMESH_EPSILON
       ) {
         // Geomorph bake drifted — remesh from the resident cell (no regen) so seams stay closed.
-        const cell = chunk.tile.cell;
-        this.detachChunkEntity(key, context);
-        chunk.lod = req.sel.lod;
-        chunk.resolution = resolution;
-        chunk.applyCell(cell, req.sel.geomorphAlpha);
-        chunk.residentBytes = estimateTileBytes(chunk.resolution);
-        this.attachChunkEntity(chunk, context);
+        // Share the upload budget with drainCompletions; defer remainder to later frames.
+        if (this.streamingStats.uploadedThisFrame < this.budgets.uploadsPerFrame) {
+          const cell = chunk.tile.cell;
+          this.detachChunkEntity(key, context);
+          chunk.lod = req.sel.lod;
+          chunk.resolution = resolution;
+          chunk.applyCell(cell, req.sel.geomorphAlpha);
+          chunk.residentBytes = estimateTileBytes(chunk.resolution);
+          this.attachChunkEntity(chunk, context);
+          this.streamingStats.uploadedThisFrame++;
+        }
       } else if (chunk.state === "generating") {
         chunk.lod = req.sel.lod;
         // In-flight task keeps its submitted resolution; cancel and re-queue if density diverged.
@@ -278,6 +283,7 @@ export class TerrainWorld extends SceneObject {
             scheduler.cancel(chunk.taskKey);
             this.streamingStats.cancelledThisFrame++;
           }
+          this.releaseReservedBytes(chunk);
           chunk.taskKey = null;
           chunk.resolution = resolution;
           chunk.state = "pending";
@@ -294,6 +300,7 @@ export class TerrainWorld extends SceneObject {
         if (visibleKeys.has(key)) continue;
         if (chunk.state === "generating" && chunk.taskKey) {
           scheduler.cancel(chunk.taskKey);
+          this.releaseReservedBytes(chunk);
           chunk.taskKey = null;
           chunk.state = "pending";
           this.streamingStats.cancelledThisFrame++;
@@ -427,12 +434,19 @@ export class TerrainWorld extends SceneObject {
       this.chunkSize,
       req.resolution,
     );
-    const taskKey = terrainCellKey(chunk.cx, chunk.cz);
+    // Unique submit identity: resolution + per-chunk epoch so cancel→resubmit never reuses the
+    // scheduler key string. Cancelled catch / then handlers only touch bookkeeping for *this* key.
+    chunk.taskEpoch += 1;
+    const taskKey = terrainCellKey(chunk.cx, chunk.cz, req.resolution, chunk.taskEpoch);
     chunk.state = "generating";
     chunk.taskKey = taskKey;
     chunk.resolution = req.resolution;
     chunk.lod = req.sel.lod;
     chunk.geomorphAlpha = req.sel.geomorphAlpha;
+    // Reserve estimated bytes so the memory gate accounts for in-flight worker generations.
+    const reserved = estimateTileBytes(req.resolution);
+    chunk.residentBytes = reserved;
+    this.streamingStats.residentBytes += reserved;
 
     const priority = Math.max(
       TaskPriority.Critical,
@@ -459,16 +473,19 @@ export class TerrainWorld extends SceneObject {
       })
       .catch((err) => {
         if (err instanceof TaskCancelledError) {
+          // Only clear bookkeeping for *this* submit identity — a replacement may already be in flight.
           if (chunk.taskKey === taskKey) {
+            this.releaseReservedBytes(chunk);
             chunk.taskKey = null;
             if (chunk.state === "generating") chunk.state = "pending";
           }
           return;
         }
         // Fall back to inline so a worker failure does not leave a hole.
-        if (chunk.state === "generating") {
+        if (chunk.state === "generating" && chunk.taskKey === taskKey) {
           chunk.generate(this.pipeline, this.seed, chunk.geomorphAlpha);
           this.cacheGenerated(chunk);
+          // Reservation already counted; keep estimate (recomputeResidentBytes reconciles).
           chunk.residentBytes = estimateTileBytes(chunk.resolution);
           this.completed.push({
             key: chunk.key,
@@ -569,6 +586,12 @@ export class TerrainWorld extends SceneObject {
       c.dispose();
       this.chunks.delete(k);
     }
+  }
+
+  private releaseReservedBytes(chunk: TerrainChunk): void {
+    if (chunk.residentBytes <= 0) return;
+    this.streamingStats.residentBytes = Math.max(0, this.streamingStats.residentBytes - chunk.residentBytes);
+    chunk.residentBytes = 0;
   }
 
   private recomputeResidentBytes(): void {
@@ -749,6 +772,29 @@ export class TerrainWorld extends SceneObject {
       const cell = createWorldCell(cx, cz, this.chunkSize, this.chunkResolution, this.seed);
       this.pipeline.execute(cell);
       heights = cell.heights;
+      // Same key as streaming — avoid regenerating this cell when the tile later streams in.
+      let minHeight = Infinity;
+      let maxHeight = -Infinity;
+      for (let i = 0; i < cell.heights.length; i++) {
+        const h = cell.heights[i]!;
+        if (h < minHeight) minHeight = h;
+        if (h > maxHeight) maxHeight = h;
+      }
+      this.cache.set(cacheKey, {
+        cx,
+        cz,
+        seed: this.seed,
+        size: this.chunkSize,
+        resolution: this.chunkResolution,
+        heights: cell.heights,
+        slopes: cell.slopes,
+        biomes: cell.biomes,
+        scatters: cell.scatters,
+        minHeight: Number.isFinite(minHeight) ? minHeight : 0,
+        maxHeight: Number.isFinite(maxHeight) ? maxHeight : 0,
+        bytes: cell.heights.byteLength + cell.slopes.byteLength + cell.biomes.byteLength,
+        pipelineHash: this.pipelineHash,
+      });
     }
     const map = new Heightmap({
       originX: cx * this.chunkSize,
