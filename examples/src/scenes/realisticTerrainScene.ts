@@ -78,6 +78,7 @@ export function buildRealisticTerrainScene(
     maxLOD: 3,
     maxChunksLoaded: 220,
     maxGenerationsPerFrame: 2,
+    warmUpChunks: 48,
     pipeline,
     material: terrainMat,
   });
