@@ -40,6 +40,7 @@ import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js"
 import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
+import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -71,12 +72,14 @@ async function main(): Promise<void> {
   let controls: OrbitControls | null = null;
   let activeSceneName = "pbr";
 
-  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle, ?scene=particles, ?scene=sky)
+  // Check query parameter (?scene=cubes, ?scene=pbr, ?scene=terrain, ?scene=realistic, ?scene=vehicle,
+  // ?scene=particles, ?scene=sky, ?scene=weather, ?scene=mars-showcase — `?scene=mars` is accepted
+  // as an alias of the terrain demo, the Mars landscape the `demo:mars` script opens on).
   const params = new URLSearchParams(window.location.search);
   const requestedScene = params.get("scene");
   if (requestedScene === "cubes") {
     activeSceneName = "cubes";
-  } else if (requestedScene === "terrain") {
+  } else if (requestedScene === "terrain" || requestedScene === "mars") {
     activeSceneName = "terrain";
   } else if (requestedScene === "realistic" || requestedScene === "realistic-terrain") {
     activeSceneName = "realistic";
@@ -88,9 +91,11 @@ async function main(): Promise<void> {
     activeSceneName = "sky";
   } else if (requestedScene === "weather") {
     activeSceneName = "weather";
+  } else if (requestedScene === "mars-showcase" || requestedScene === "showcase") {
+    activeSceneName = "mars-showcase";
   }
 
-  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky" | "weather";
+  type SceneName = "pbr" | "cubes" | "terrain" | "realistic" | "vehicle" | "particles" | "sky" | "weather" | "mars-showcase";
 
   function loadScene(name: SceneName): void {
     if (currentHandle) {
@@ -104,8 +109,9 @@ async function main(): Promise<void> {
     activeSceneName = name;
     // The sky and weather buttons are the interface for their scenes on every device, shown by CSS
     // on `body.scene-sky` / `body.scene-weather`; the vehicle pad stays touch-only on
-    // `body.scene-vehicle`. Each module binds the same paths as the keys, whichever is visible.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle");
+    // `body.scene-vehicle` (shared with the Mars showcase's rover controls). Each module binds the
+    // same paths as the keys, whichever is visible.
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
@@ -124,6 +130,8 @@ async function main(): Promise<void> {
       currentHandle = buildSkyScene(engine);
     } else if (name === "weather") {
       currentHandle = buildWeatherScene(engine);
+    } else if (name === "mars-showcase") {
+      currentHandle = buildMarsShowcaseScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -158,7 +166,8 @@ async function main(): Promise<void> {
       next === "vehicle" ||
       next === "particles" ||
       next === "sky" ||
-      next === "weather"
+      next === "weather" ||
+      next === "mars-showcase"
     ) {
       loadScene(next);
     }
@@ -290,6 +299,11 @@ async function main(): Promise<void> {
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
     /** Fountain counts while the particle scene is loaded; null otherwise. */
     particleState: () => currentHandle?.particleState?.() ?? null,
+    /** Mars showcase: rover model state, dust counts and pose; null on other scenes. */
+    marsState: () => {
+      const handle = currentHandle as MarsShowcaseSceneHandle | null;
+      return handle?.marsState?.() ?? null;
+    },
     /** Sky scene: scrub the day/night clock (hours) and read the sun back; null on other scenes. */
     setTimeOfDay: (hours: number) => {
       const handle = currentHandle as SkySceneHandle | null;
@@ -340,6 +354,7 @@ async function main(): Promise<void> {
         windSpeed: handle.weather.state.windSpeed,
         temperatureC: handle.weather.state.temperatureC,
         precipitation: handle.weather.state.precipitation01,
+        rainDrops: handle.rainDrops?.() ?? 0,
         storm: handle.weather.state.storm01,
         coverage: s.clouds.coverage,
         deckWind: [s.clouds.windX, s.clouds.windZ],

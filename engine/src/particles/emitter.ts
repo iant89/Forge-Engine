@@ -34,6 +34,12 @@ export interface EmitterOptions {
   lifeMax?: number;
   size?: number;
   position?: { x: number; y: number; z: number };
+  /**
+   * Per-particle spawn offsets drawn uniformly from ±jitter/2 on each axis (rng-driven, so a
+   * whole batch born in one frame fills a volume instead of one point — a per-*frame* position
+   * randomise clumps badly when the frame rate is low).
+   */
+  jitter?: { x: number; y: number; z: number };
   cone?: ConeEmission;
   color?: { r: number; g: number; b: number; a: number };
   seed?: number;
@@ -45,6 +51,7 @@ export class ParticleEmitter {
   lifeMax: number;
   size: number;
   position = { x: 0, y: 0, z: 0 };
+  jitter = { x: 0, y: 0, z: 0 };
   cone: ConeEmission;
   color = { r: 1, g: 0.75, b: 0.3, a: 1 };
   readonly rng: Rng;
@@ -60,6 +67,11 @@ export class ParticleEmitter {
       this.position.x = options.position.x;
       this.position.y = options.position.y;
       this.position.z = options.position.z;
+    }
+    if (options.jitter) {
+      this.jitter.x = options.jitter.x;
+      this.jitter.y = options.jitter.y;
+      this.jitter.z = options.jitter.z;
     }
     this.cone = options.cone ?? {
       direction: { x: 0, y: 1, z: 0 },
@@ -95,9 +107,9 @@ export class ParticleEmitter {
     const o = index * PARTICLE_FLOATS;
     const life = this.lifeMin + (this.lifeMax - this.lifeMin) * this.rng.nextFloat();
     sampleCone(this.cone, this.rng, this.scratch);
-    state[o + P_X] = this.position.x;
-    state[o + P_Y] = this.position.y;
-    state[o + P_Z] = this.position.z;
+    state[o + P_X] = this.position.x + (this.rng.nextFloat() - 0.5) * this.jitter.x;
+    state[o + P_Y] = this.position.y + (this.rng.nextFloat() - 0.5) * this.jitter.y;
+    state[o + P_Z] = this.position.z + (this.rng.nextFloat() - 0.5) * this.jitter.z;
     state[o + P_LIFE] = life;
     state[o + P_VX] = this.scratch.x;
     state[o + P_VY] = this.scratch.y;

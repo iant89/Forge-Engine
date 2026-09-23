@@ -18,6 +18,7 @@ import {
   P_VY,
   P_X,
   P_Y,
+  P_Z,
   PARTICLE_FLOATS,
   PARTICLE_SIM_SHADER,
   PARTICLE_STRIDE,
@@ -115,6 +116,32 @@ describe("particles — modules, budget, trails", () => {
     expect(a).toEqual(b);
     expect(a.y).toBeCloseTo(6, 5);
     expect(Math.hypot(a.x, a.z)).toBeLessThan(1e-6);
+  });
+
+  it("jitters spawn positions inside ±jitter/2 on each axis", () => {
+    const e = new ParticleEmitter({
+      seed: 5,
+      rate: 64,
+      lifeMin: 1,
+      lifeMax: 1,
+      position: { x: 10, y: 20, z: -5 },
+      jitter: { x: 8, y: 4, z: 12 },
+    });
+    const s = new Float32Array(PARTICLE_FLOATS * 8);
+    expect(e.emit(s, 1, 8)).toBe(8);
+    const xs = new Set<number>();
+    for (let i = 0; i < 8; i++) {
+      const o = i * PARTICLE_FLOATS;
+      expect(s[o + P_X]).toBeGreaterThanOrEqual(10 - 4);
+      expect(s[o + P_X]).toBeLessThanOrEqual(10 + 4);
+      expect(s[o + P_Y]).toBeGreaterThanOrEqual(20 - 2);
+      expect(s[o + P_Y]).toBeLessThanOrEqual(20 + 2);
+      expect(s[o + P_Z]).toBeGreaterThanOrEqual(-5 - 6);
+      expect(s[o + P_Z]).toBeLessThanOrEqual(-5 + 6);
+      xs.add(s[o + P_X]);
+    }
+    // A whole batch born in one call must fill the volume, not pile onto the emitter point.
+    expect(xs.size).toBeGreaterThan(1);
   });
 
   it("lerps colour and size across life", () => {

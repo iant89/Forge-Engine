@@ -119,7 +119,7 @@ be verified, plus the index that now exists but is not used.
   fbm), so the twins agree on formulas and statistics, never bit-exactly. (capability: environment.clouds)
 * **Weather does not dim the sun.** Storms whiten the sky and thicken the fog, but the directional
   light and the ambient keep their clear-day values — the browser gate's "overcast noon is brighter
-  than clear noon" direction depends on this. A storm-darkened sun (and rain streaks) are later work. (capability: environment.stormLighting)
+  than clear noon" direction depends on this. A storm-darkened sun is later work. (capability: environment.stormLighting)
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
   the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.

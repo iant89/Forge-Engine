@@ -10,6 +10,9 @@ import {
   Vec3,
   Ray,
   RayHit,
+  Scene,
+  Camera,
+  Transform,
   EntityWorld,
   Clock,
   Logger,
@@ -227,6 +230,40 @@ describe("Terrain - LOD and Streaming Budget", () => {
     expect(terrain.chunks.size).toBeLessThanOrEqual(9);
 
     terrain.dispose();
+    world.dispose();
+  });
+
+  it("warms up the opening view in one burst, then returns to the steady budget", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 80,
+      maxChunksLoaded: 9,
+      maxGenerationsPerFrame: 1,
+      warmUpChunks: 7,
+    });
+    const ctx = createMockContext(world);
+    // `TerrainWorld.update` no-ops until the object is attached to a scene (it needs the scene's
+    // entity world to attach chunk entities), so add it the way a demo does. A camera entity both
+    // registers the component stores the focus query needs and pins the focus at the origin.
+    const scene = new Scene({ name: "warmup-test" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+    terrain.focusPosition.set(0, 0, 0);
+
+    terrain.update(ctx, 0.016);
+    const readyFirst = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    expect(readyFirst).toBeGreaterThanOrEqual(7);
+
+    terrain.update(ctx, 0.016);
+    const readySecond = [...terrain.chunks.values()].filter((c) => c.state === "ready").length;
+    // The allowance is one-shot: after the first update only maxGenerationsPerFrame remains.
+    expect(readySecond - readyFirst).toBeLessThanOrEqual(1);
+
+    scene.dispose();
     world.dispose();
   });
 });
