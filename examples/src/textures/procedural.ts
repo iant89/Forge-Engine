@@ -64,12 +64,12 @@ function periodicFbm(u: number, v: number, basePeriod: number, octaves: number, 
 
 /**
  * Procedural Martian regolith — the terrain demo's PBR set:
- * - Albedo: iron-oxide dust (warm red-orange) over darker basaltic patches, with fine grain and
- *   scattered pebbles. Authored sRGB; the shader multiplies it by the material's base colour factor.
- * - Normal: finite differences of the height field (grain + pebble rims), wrap-around so the map
- *   tiles with the albedo under a repeat sampler.
- * - Metallic-Roughness: dielectric throughout (blue=0), dusty roughness ~0.85–0.97 in green
- *   (the shader multiplies `material.roughness` by this channel, so the material factor is 1).
+ * - Albedo: rich iron-oxide dust (vibrant Martian rust-red and golden ochre) over dark volcanic
+ *   basalt patches, with wind-carved dune drifts, fine pebble grain and scattered rocks.
+ * - Normal: finite differences of the height field (dune slopes + rock edges + pebble relief),
+ *   wrap-around so the map tiles with the albedo under a repeat sampler.
+ * - Metallic-Roughness: dielectric throughout (blue=0), dusty roughness ~0.84–0.96 with smoother
+ *   specular facets on exposed basalt rocks (~0.55–0.68).
  *
  * Everything is generated on a wrapped lattice (`periodicValueNoise`), so an integer material
  * tiling (e.g. 16× over a 128 m chunk) repeats without a seam at the texture edge or at chunk
@@ -85,17 +85,28 @@ export function createMarsRegolithTextures(device: GraphicsDevice, size = 512): 
   const basePeriod = 8;
   const inv = basePeriod / size;
 
-  // 1. Height field: broad dunes + regolith grain + a sparse pebble shell.
+  // 1. Height field: undulating wind dunes + broad regolith swells + scattered rocks & pebbles.
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const u = x * inv;
       const v = y * inv;
+
+      // Broad Martian rolling swells & dune drifts (low frequency, organic shapes)
       const broad = periodicFbm(u, v, basePeriod, 4, 0x4d415253); // "MARS"
+      const duneNoise = periodicValueNoise(u * 2, v * 2, basePeriod * 2, 0x4d415258) * 0.4;
+      // Gentle windward sand drifts (~4–8 m wide per 8 m tile)
+      const duneDrift = Math.sin((u * 1.5 + v * 0.8 + duneNoise) * Math.PI) * 0.35;
+
+      // Medium regolith grain & small surface hollows
       const grain = periodicFbm(u * 4, v * 4, basePeriod * 4, 3, 0x4d415254);
-      // Pebbles: threshold a higher-frequency field into rounded lumps.
-      const pebbleField = periodicFbm(u * 6, v * 6, basePeriod * 6, 2, 0x4d415255);
-      const pebble = Math.max(0, pebbleField - 0.35) * 2.2;
-      height[y * size + x] = broad * 0.55 + grain * 0.28 + Math.min(1, pebble) * 0.45;
+
+      // Rocks and pebbles: thresholded high-frequency fields for distinct surface stones
+      const rockField = periodicFbm(u * 6, v * 6, basePeriod * 6, 2, 0x4d415255);
+      const rock = Math.max(0, rockField - 0.25) * 2.2;
+      const pebbleField = periodicValueNoise(u * 16, v * 16, basePeriod * 16, 0x4d415259);
+      const pebble = Math.max(0, pebbleField - 0.4) * 1.5;
+
+      height[y * size + x] = broad * 0.40 + duneDrift + grain * 0.20 + Math.min(1.0, rock) * 0.35 + pebble * 0.15;
     }
   }
 
@@ -107,41 +118,45 @@ export function createMarsRegolithTextures(device: GraphicsDevice, size = 512): 
       const v = y * inv;
       const h = height[y * size + x]!;
       const dust = periodicFbm(u * 2, v * 2, basePeriod * 2, 3, 0x4d415256); // -1..1
-      const basalt = Math.max(0, -dust - 0.15) * 1.4; // darker volcanic patches
+      const basalt = Math.max(0, -dust - 0.12) * 1.5; // dark volcanic basalt patches
       const grainJitter = periodicValueNoise(u * 16, v * 16, basePeriod * 16, 0x4d415257);
 
-      // Iron-oxide palette: dusty orange-red, brighter on raised dust, darker in basalt hollows.
-      const lift = 0.72 + h * 0.42 + grainJitter * 0.06;
-      let r = 168 * lift;
-      let g = 78 * lift;
-      let b = 48 * lift;
-      // Dust veil: desaturate toward pale ochre where dust accumulates.
-      const dustMix = Math.max(0, dust) * 0.35;
-      r += (198 - r) * dustMix;
-      g += (132 - g) * dustMix;
-      b += (86 - b) * dustMix;
-      // Basalt: pull toward dark grey-brown.
+      // Authentic Mars ferric iron-oxide palette: vibrant rust-red / burnt orange base.
+      const lift = 0.80 + h * 0.32 + grainJitter * 0.06;
+      let r = 212 * lift;
+      let g = 80 * lift;
+      let b = 32 * lift;
+
+      // Golden ochre / butterscotch dust veil on windward dune crests & elevated dust drifts
+      const dustMix = Math.max(0, dust) * 0.40;
+      r += (238 - r) * dustMix;
+      g += (138 - g) * dustMix;
+      b += (58 - b) * dustMix;
+
+      // Volcanic basalt: pull toward deep charcoal-slate rock
       const basaltMix = Math.min(1, basalt);
-      r += (58 - r) * basaltMix;
-      g += (46 - g) * basaltMix;
-      b += (40 - b) * basaltMix;
+      r += (46 - r) * basaltMix;
+      g += (38 - g) * basaltMix;
+      b += (36 - b) * basaltMix;
 
       albedo[idx] = Math.max(0, Math.min(255, Math.round(r)));
       albedo[idx + 1] = Math.max(0, Math.min(255, Math.round(g)));
       albedo[idx + 2] = Math.max(0, Math.min(255, Math.round(b)));
       albedo[idx + 3] = 255;
 
-      // Roughness: powder-fine dust is very rough; exposed pebble tops slightly less so.
-      const rough = 0.86 + (1 - Math.min(1, Math.max(0, h))) * 0.1 + grainJitter * 0.02;
-      mr[idx] = 0; // occlusion channel unused by the standard shader
+      // Roughness: powder-fine dust is matte (~0.92); exposed basalt rock facets are smoother (~0.58)
+      const isBasalt = basaltMix > 0.4;
+      const baseRough = isBasalt ? 0.62 + (1 - basaltMix) * 0.25 : 0.88 + (1 - Math.min(1, Math.max(0, h))) * 0.08;
+      const rough = Math.max(0.48, Math.min(0.96, baseRough + grainJitter * 0.03));
+      mr[idx] = 0; // occlusion channel unused by standard shader
       mr[idx + 1] = Math.max(0, Math.min(255, Math.round(rough * 255)));
-      mr[idx + 2] = 0; // regolith is dielectric
+      mr[idx + 2] = isBasalt ? 10 : 0; // faint metallic sheen on polished volcanic minerals
       mr[idx + 3] = 255;
     }
   }
 
   // 3. Tangent-space normal from the height field (central differences, wrap-around).
-  const strength = 2.5;
+  const strength = 3.8;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const xl = (x - 1 + size) % size;
@@ -150,9 +165,7 @@ export function createMarsRegolithTextures(device: GraphicsDevice, size = 512): 
       const yd = (y + 1) % size;
       const dhdx = (height[y * size + xr]! - height[y * size + xl]!) * strength;
       const dhdy = (height[yd * size + x]! - height[yu * size + x]!) * strength;
-      // Encode: N = normalize(-dhdx, -dhdy, 1) → but +v in the texture points down-image while
-      // the engine's terrain UVs put +v along +Z; the standard TBN (B = cross(N,T)·w) expects
-      // green = +v direction, so we store -dhdy the same way a typical authoring tool would.
+      // Encode: N = normalize(-dhdx, -dhdy, 1); standard TBN expects green = +v direction (-dhdy)
       const nx = -dhdx;
       const ny = -dhdy;
       const nz = 1;
