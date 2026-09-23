@@ -341,7 +341,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
 
   // Bright unlit body: beige PBR used to disappear into Mars haze when the GLB was still loading
   // (or failed) on slower iOS networks — the captain then reported "no rover" with only terrain+sky.
-  const placeholderBodyMesh = createBox(gpu, { width: 2.0, height: 1.1, depth: 3.6 });
+  const placeholderBodyMesh = createBox(gpu, { width: 1.5, height: 0.6, depth: 3.2 });
   const placeholderBodyMaterial = Material.unlit({ label: "rover-placeholder", color: 0xff8a1f });
   const chassis = scene.createTransformedEntity(
     "rover-chassis",
