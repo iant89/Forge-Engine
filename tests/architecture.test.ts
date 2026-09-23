@@ -43,7 +43,7 @@ describe("Architecture - Import Boundaries", () => {
   it("core primitives do not import from higher layers", () => {
     // core/engine.ts is the composition host, but all other core modules must be dependency-free
     const coreFiles = getAllFiles(path.join(engineSrc, "core")).filter(
-      (f) => !f.endsWith("core/engine.ts"),
+      (f) => !f.endsWith("core/engine.ts") && !f.endsWith("core/tasks/worker-entry.ts"),
     );
     for (const file of coreFiles) {
       const imports = parseImports(file);

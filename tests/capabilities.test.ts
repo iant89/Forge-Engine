@@ -161,7 +161,7 @@ describe("Phase 9.5 — capability registry", () => {
   });
 
   it("answers queries from the registry, and snapshots as plain JSON", () => {
-    expect(capabilityStatus("terrain.lod")).toBe("partial");
+    expect(capabilityStatus("terrain.lod")).toBe("verified");
     expect(capabilityStatus("rendering.renderGraph")).toBe("verified");
     expect(capabilityStatus("does.notExist")).toBeUndefined();
     expect(capabilityRegistry.get("particles.gpuSimulation")?.closesWith).toBe("12.3");

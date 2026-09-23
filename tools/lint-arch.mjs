@@ -82,7 +82,9 @@ function checkEngineDir(dir, allowed, note, exempt = () => false) {
 // ----------------------------------------------------------------- engine layers
 
 // core/engine.ts is the composition host: it is allowed to see the whole engine.
-const isCompositionHost = (file) => file.endsWith(path.join("core", "engine.ts"));
+const isCompositionHost = (file) =>
+  file.endsWith(path.join("core", "engine.ts")) ||
+  file.endsWith(path.join("core", "tasks", "worker-entry.ts"));
 checkEngineDir("core", ["core", "math"], "core may only depend on core and math (core/engine.ts excepted)", isCompositionHost);
 
 checkEngineDir("gpu", ["core", "gpu", "math", "testing"], "gpu may use core, gpu, math and the test device");

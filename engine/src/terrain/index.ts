@@ -12,3 +12,6 @@ export * from "./pipelineSpec.js";
 export * from "./tasks.js";
 export * from "./realistic.js";
 export * from "./realisticMaterial.js";
+export * from "./cache.js";
+export * from "./budget.js";
+export * from "./horizon.js";

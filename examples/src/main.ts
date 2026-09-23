@@ -67,7 +67,7 @@ function showError(text: string): void {
 
 async function main(): Promise<void> {
   const platform = detectPlatform();
-  const engine = await Engine.create({ canvas, quality: "high", logLevel: "info" });
+  const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2 } });
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized

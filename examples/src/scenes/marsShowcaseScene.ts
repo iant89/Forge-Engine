@@ -4,7 +4,8 @@
  *
  * Stack, all on the public `@forge/engine` API:
  * - terrain: the terrain demo's `TerrainWorld` preset (seed 42137, regolith textures, exp² dust
- *   haze) plus a one-shot `warmUpChunks` burst so the opening frame is a full disc, not a patch;
+ *   haze) plus `warmUpChunks` (elevated gen + upload budgets) so the async worker path fills the
+ *   opening disc in a few frames instead of dripping in at the steady upload cap;
  * - sky: `MARS_ATMOSPHERE` through `forge.sky` with the horizon-coloured haze (same recipe as the
  *   terrain demo, quality raised to medium — this scene spends its budget on the rover up close);
  * - rover: `Vehicle` with the model's six hub positions (front + rear steer, all six driven, Mars

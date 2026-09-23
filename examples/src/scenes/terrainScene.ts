@@ -103,8 +103,8 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
     maxLOD: 3,
     maxChunksLoaded: 220,
     maxGenerationsPerFrame: 2,
-    // One-shot first-frame burst: without it the opening view is the two-chunk seed patch that
-    // only fills in over the next seconds of streaming (which reads as "no terrain at all").
+    // Warm-up burst: elevate generation + upload budgets so workers fill the opening disc in a
+    // few frames. Without it the view is a two-chunk seed that drips in at uploadsPerFrame.
     warmUpChunks: 48,
     material: terrainMat,
     heightOptions: {
