@@ -179,9 +179,9 @@ export function createMarsRegolithTextures(device: GraphicsDevice, size = 512): 
   }
 
   return {
-    albedo: Texture.fromRgba8(device, size, size, albedo, { label: "mars.albedo", srgb: true, mipmaps: false }),
-    normal: Texture.fromRgba8(device, size, size, normal, { label: "mars.normal", srgb: false, mipmaps: false }),
-    metallicRoughness: Texture.fromRgba8(device, size, size, mr, { label: "mars.mr", srgb: false, mipmaps: false }),
+    albedo: Texture.fromRgba8(device, size, size, albedo, { label: "mars.albedo", srgb: true, mipmaps: true }),
+    normal: Texture.fromRgba8(device, size, size, normal, { label: "mars.normal", srgb: false, mipmaps: true }),
+    metallicRoughness: Texture.fromRgba8(device, size, size, mr, { label: "mars.mr", srgb: false, mipmaps: true }),
   };
 }
 

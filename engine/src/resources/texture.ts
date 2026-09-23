@@ -110,14 +110,24 @@ export class Texture {
   }
 
   private writeRgba8(device: GraphicsDevice, pixels: Uint8Array, mips: number): void {
-    const bytesPerRow = this.desc.width * 4; // unaligned is legal for queue.writeTexture
-    device.device.queue.writeTexture(
-      { texture: this.gpuTexture!, mipLevel: 0, origin: [0, 0, 0] as unknown as GPUOrigin3D },
-      gpuSource(pixels.subarray(0, this.desc.width * this.desc.height * 4)),
-      { bytesPerRow, rowsPerImage: this.desc.height },
-      [this.desc.width, this.desc.height, 1] as unknown as GPUExtent3D,
-    );
-    if (mips > 1) device.logger?.debug(`texture ${this.desc.label}: mips requested; generateMipmaps is a copy-chain op (phase 2)`);
+    let level = pixels.subarray(0, this.desc.width * this.desc.height * 4);
+    let width = this.desc.width;
+    let height = this.desc.height;
+    for (let mip = 0; mip < mips; mip++) {
+      const bytesPerRow = width * 4; // unaligned is legal for queue.writeTexture
+      device.device.queue.writeTexture(
+        { texture: this.gpuTexture!, mipLevel: mip, origin: [0, 0, 0] as unknown as GPUOrigin3D },
+        gpuSource(level),
+        { bytesPerRow, rowsPerImage: height },
+        [width, height, 1] as unknown as GPUExtent3D,
+      );
+      if (mip + 1 >= mips) break;
+      const nextW = Math.max(1, width >> 1);
+      const nextH = Math.max(1, height >> 1);
+      level = boxFilterRgba8(level, width, height, nextW, nextH);
+      width = nextW;
+      height = nextH;
+    }
   }
 
   get width(): number {
@@ -238,4 +248,37 @@ export class TextureDefaults {
     this.mr?.release();
     this.ready = false;
   }
+}
+
+/**
+ * Box-filter one rgba8 mip into the next. Averages 2×2 blocks (with clamp on odd edges) so
+ * `fromRgba8(..., { mipmaps: true })` uploads a full chain instead of leaving higher mips
+ * undefined — undefined mips read as garbage on some GPUs and as black on others, and either
+ * way a tiled terrain albedo/normal without mips sparkles into moiré at grazing angles.
+ */
+export function boxFilterRgba8(
+  src: Uint8Array,
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number,
+): Uint8Array {
+  const dst = new Uint8Array(dstW * dstH * 4);
+  for (let y = 0; y < dstH; y++) {
+    const y0 = Math.min(srcH - 1, y * 2);
+    const y1 = Math.min(srcH - 1, y0 + 1);
+    for (let x = 0; x < dstW; x++) {
+      const x0 = Math.min(srcW - 1, x * 2);
+      const x1 = Math.min(srcW - 1, x0 + 1);
+      const i00 = (y0 * srcW + x0) * 4;
+      const i10 = (y0 * srcW + x1) * 4;
+      const i01 = (y1 * srcW + x0) * 4;
+      const i11 = (y1 * srcW + x1) * 4;
+      const o = (y * dstW + x) * 4;
+      for (let c = 0; c < 4; c++) {
+        dst[o + c] = ((src[i00 + c]! + src[i10 + c]! + src[i01 + c]! + src[i11 + c]!) + 2) >> 2;
+      }
+    }
+  }
+  return dst;
 }

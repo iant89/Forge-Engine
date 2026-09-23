@@ -231,6 +231,19 @@ describe("Terrain demo camera preset", () => {
     handle.dispose?.();
   });
 
+  it("keeps a modest far/near ratio so grazing orbits keep depth on mobile", () => {
+    const { handle } = terrainHarness();
+    const camera = handle.scene.world.getComponent(handle.cameraEntity.id, Camera);
+    expect(camera).toBeDefined();
+    // Standard Z precision ≈ scales with 1/near; the previous 12000/0.5 = 24000 ratio collapsed
+    // grazing heightfield depths into tan moiré on iOS Safari (fe-14).
+    expect(camera!.near).toBeGreaterThanOrEqual(1.5);
+    expect(camera!.far / camera!.near).toBeLessThanOrEqual(2000);
+    expect(camera!.far).toBeGreaterThan(handle.camera!.maxDistance!);
+    expect(handle.scene.settings.sky.seaLevel).not.toBe(0);
+    handle.dispose?.();
+  });
+
   it("answers elevation queries with the surface the mesh is built from, not the bare noise", () => {
     const { handle } = terrainHarness();
     const terrain = handle.scene.object<TerrainWorld>("TerrainWorld")!;

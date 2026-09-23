@@ -271,6 +271,7 @@ fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
 fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   let albedo = materialAlbedo(in.uv);
   var N = normalize(in.normal);
+  let geometricN = N;
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
   if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
@@ -280,6 +281,10 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
       let B = cross(N, T) * in.tangent.w;
       let tbn = mat3x3<f32>(T, B, N);
       N = normalize(tbn * (sampled * vec3<f32>(material.normalScale, material.normalScale, 1.0)));
+      // Grazing views (terrain orbits, phone FOVs) undersample tiled normals into sparkling moiré.
+      // Fade mapped detail back toward the geometric normal as n·v → 0 so the silhouette stays calm.
+      let graze = smoothstep(0.02, 0.2, abs(dot(geometricN, V)));
+      N = normalize(mix(geometricN, N, graze));
     }
   }
   var metallic = material.metallic;
