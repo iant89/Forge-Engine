@@ -285,12 +285,6 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   camera.near = 0.35;
   camera.far = 8000;
   scene.world.addComponent(cameraEntity.id, camera);
-  // A touch more fill so the white rover and rusty regolith separate from the butterscotch sky on
-  // devices that crush HDR highlights (iOS Safari WebGPU has been seen to present a haze-only frame
-  // when the directional response is weak).
-  scene.settings.ambientColor.set(0.22, 0.18, 0.14);
-  scene.settings.ambientIntensity = 1.15;
-
   // ---------------------------------------------------------------- rover (six wheels)
   const ground = heightFunctionGround((x, z) => terrain.getHeightAt(x, z));
   const config = {
@@ -488,6 +482,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     },
     followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1.35, z: vehicle.position.z }),
     update(): void {
+      // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
+      // leaving the spawn height in place while the camera follows across a changing landscape.
+      scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;

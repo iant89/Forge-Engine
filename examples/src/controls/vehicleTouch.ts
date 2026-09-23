@@ -127,33 +127,40 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
     applyStick(event);
   };
 
+  const holdEnders: Array<(event: Event) => void> = [];
   const hold = (el: HTMLElement | null, set: (down: boolean) => void): Array<[HTMLElement, string, EventListener]> => {
     if (!el) return [];
+    let pointerId: number | null = null;
     const down = (event: Event): void => {
       const e = event as PointerEvent;
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (pointerId !== null) return;
       e.preventDefault();
       e.stopPropagation();
+      pointerId = e.pointerId;
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
-        /* Released before capture. pointerup on the element may not arrive; window up covers the stick. */
+        /* Released before capture. pointerup on the element may not arrive; the window up covers it. */
       }
       el.classList.add("pressed");
       set(true);
     };
     const up = (event: Event): void => {
       const e = event as PointerEvent;
+      if (pointerId !== null && e.pointerId !== pointerId) return;
+      pointerId = null;
       el.classList.remove("pressed");
       set(false);
-      void e;
     };
     const pairs: Array<[string, EventListener]> = [
       ["pointerdown", down],
       ["pointerup", up],
       ["pointercancel", up],
+      ["lostpointercapture", up],
     ];
     for (const [type, fn] of pairs) el.addEventListener(type, fn);
+    holdEnders.push(up);
     return pairs.map(([type, fn]) => [el, type, fn]);
   };
 
@@ -177,13 +184,17 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
       listeners.push([stick, type, fn]);
     }
   }
-  // Capture can fail on a browser that already gave the gesture to the page. A window-level up
-  // still recentres the knob if this was our pointer. Guarded so unit tests in Node can bind the pad.
-  const onWindowUp = (event: Event): void => endStick(event as PointerEvent);
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("pointerup", onWindowUp);
-    window.addEventListener("pointercancel", onWindowUp);
-    listeners.push([window as unknown as HTMLElement, "pointerup", onWindowUp], [window as unknown as HTMLElement, "pointercancel", onWindowUp]);
+  // Capture can fail on a browser that already gave the gesture to the page. Window-level endings
+  // still reset the stick and gas/brake holds if the element never sees the terminal event.
+  const view: Window | null = root?.ownerDocument?.defaultView ?? (typeof window !== "undefined" ? window : null);
+  const onWindowEnd = (event: Event): void => {
+    endStick(event as PointerEvent);
+    for (const endHold of holdEnders) endHold(event);
+  };
+  if (view && typeof view.addEventListener === "function") {
+    view.addEventListener("pointerup", onWindowEnd);
+    view.addEventListener("pointercancel", onWindowEnd);
+    listeners.push([view as unknown as HTMLElement, "pointerup", onWindowEnd], [view as unknown as HTMLElement, "pointercancel", onWindowEnd]);
   }
 
   return {

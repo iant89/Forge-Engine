@@ -73,11 +73,12 @@ class StubElement {
   }
 }
 
-function stubRoot(): { root: HTMLElement; gas: StubElement; brake: StubElement; stick: StubElement } {
+function stubRoot(): { root: HTMLElement; gas: StubElement; brake: StubElement; stick: StubElement; view: StubElement } {
   const gas = new StubElement();
   const brake = new StubElement();
   const stick = new StubElement();
   const knob = new StubElement();
+  const view = new StubElement();
   const root = {
     querySelector: (sel: string): StubElement | null => {
       if (sel === "#veh-gas") return gas;
@@ -86,8 +87,9 @@ function stubRoot(): { root: HTMLElement; gas: StubElement; brake: StubElement; 
       if (sel === "#veh-stick-knob") return knob;
       return null;
     },
+    ownerDocument: { defaultView: view },
   };
-  return { root: root as unknown as HTMLElement, gas, brake, stick };
+  return { root: root as unknown as HTMLElement, gas, brake, stick, view };
 }
 
 describe("stickDeflection", () => {
@@ -133,6 +135,26 @@ describe("attachVehicleTouch — iOS selection / hold", () => {
     expect(handle!.sample().throttle).toBe(1);
     expect(gas.classes.has("pressed")).toBe(true);
     gas.fire("pointerup", { pointerType: "touch" });
+    expect(handle!.sample().throttle).toBe(0);
+  });
+
+  it("ends gas and brake holds on window termination or lost pointer capture", () => {
+    const { root, gas, brake, view } = stubRoot();
+    handle = attachVehicleTouch(root);
+
+    gas.fire("pointerdown", { pointerId: 7, pointerType: "touch" });
+    expect(handle!.sample().throttle).toBe(1);
+    view.fire("pointerup", { pointerId: 7, pointerType: "touch" });
+    expect(handle!.sample().throttle).toBe(0);
+    expect(gas.classes.has("pressed")).toBe(false);
+
+    brake.fire("pointerdown", { pointerId: 8, pointerType: "touch" });
+    expect(handle!.sample().brake).toBe(1);
+    view.fire("pointercancel", { pointerId: 8, pointerType: "touch" });
+    expect(handle!.sample().brake).toBe(0);
+
+    gas.fire("pointerdown", { pointerId: 9, pointerType: "touch" });
+    gas.fire("lostpointercapture", { pointerId: 9, pointerType: "touch" });
     expect(handle!.sample().throttle).toBe(0);
   });
 });
