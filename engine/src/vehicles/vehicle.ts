@@ -1,9 +1,9 @@
 /**
  * Raycast vehicle.
  *
- * Four wheels, each a ray against a {@link GroundQuery}. Yaw is the only integrated rotation; pitch
- * and roll are slaved to the ground under the axles so a constant slope keeps every wheel in the
- * suspension travel (a level chassis cannot span a 12° incline). The load-transfer formula still
+ * Four wheels, each a ray against a {@link GroundQuery} (preferably a physics-backed query — see
+ * Phase 11). Yaw, pitch and roll are integrated: suspension and tire forces produce torques about
+ * the CG, and angular rates carry momentum when wheels unload. The load-transfer formula still
  * accounts for accel quasi-statically. Suspension force is applied along the ground normal, so the
  * horizontal component of the support pushes the car downhill; climbing is tire force, not a
  * scripted height snap.
@@ -57,6 +57,12 @@ export interface VehicleConfig {
   gravity: number;
   /** Yaw inertia (kg·m²). */
   inertiaYaw: number;
+  /** Pitch inertia (kg·m²) about the lateral axis. */
+  inertiaPitch: number;
+  /** Roll inertia (kg·m²) about the longitudinal axis. */
+  inertiaRoll: number;
+  /** Angular damping for pitch/roll rates (1/s). */
+  angularDamping: number;
   wheelbase: number;
   track: number;
   cgHeight: number;
@@ -172,6 +178,9 @@ export function createVehicleConfig(options: VehicleOptions = {}): VehicleConfig
     mass,
     gravity,
     inertiaYaw: options.mass ? options.mass * 0.9 : 1200,
+    inertiaPitch: options.mass ? options.mass * 0.55 : 700,
+    inertiaRoll: options.mass ? options.mass * 0.4 : 500,
+    angularDamping: 3.5,
     wheelbase,
     track,
     cgHeight: options.cgHeight ?? 0.5,
@@ -206,6 +215,31 @@ export function createVehicleConfig(options: VehicleOptions = {}): VehicleConfig
   };
 }
 
+
+export interface WheelTelemetry {
+  load: number;
+  suspensionTravel: number;
+  slipRatio: number;
+  slipAngle: number;
+  tireForceLong: number;
+  tireForceLat: number;
+  omega: number;
+  inContact: boolean;
+}
+
+export interface VehicleTelemetry {
+  engineRpm: number;
+  gear: number;
+  speed: number;
+  pitch: number;
+  roll: number;
+  pitchRate: number;
+  rollRate: number;
+  yawRate: number;
+  airborne: boolean;
+  wheels: WheelTelemetry[];
+}
+
 export class Vehicle {
   readonly config: VehicleConfig;
   readonly position = new Vec3();
@@ -213,10 +247,14 @@ export class Vehicle {
   /** Radians. 0 faces +Z. Positive yaw rotates +Z toward +X. */
   yaw = 0;
   yawRate = 0;
-  /** Kinematic, from the ground under the axles. Positive pitch is nose-up. Not integrated. */
+  /** Radians. Positive pitch is nose-up. Integrated from suspension/tire torques (Phase 11.4). */
   pitch = 0;
-  /** Kinematic. Positive roll lifts the right side. Not integrated. */
+  /** Radians. Positive roll lifts the right side. Integrated from suspension/tire torques. */
   roll = 0;
+  /** Pitch rate (rad/s). */
+  pitchRate = 0;
+  /** Roll rate (rad/s). */
+  rollRate = 0;
   readonly input: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
   readonly wheels: WheelState[];
   /** Body-frame acceleration from the previous step. Load transfer uses this, not a guess. */
@@ -313,13 +351,17 @@ export class Vehicle {
     const c = this.config;
     this.pitch = 0;
     this.roll = 0;
-    this.alignToGround(ground);
+    this.pitchRate = 0;
+    this.rollRate = 0;
+    this.snapOrientationToGround(ground);
     ground.sample(this.position.x, this.position.z, this.groundSample);
     const hang = c.wheelRadius + (c.suspensionRest - this.equilibriumCompression());
     this.position.y = this.groundSample.height + hang * Math.max(0.25, this.up.y);
     this.velocity.y = 0;
     this.sampleWheels(ground, 1);
     for (const w of this.wheels) w.compressionRate = 0;
+    this.pitchRate = 0;
+    this.rollRate = 0;
   }
 
   /** Chassis orientation: yaw, then local pitch (nose-up), then local roll. */
@@ -332,6 +374,32 @@ export class Vehicle {
     out.multiply(this.pitchQuat);
     out.multiply(this.rollQuat);
     return out;
+  }
+
+
+  /** Phase 11.8 telemetry snapshot for HUD / tests. */
+  telemetry(): VehicleTelemetry {
+    return {
+      engineRpm: this.rpm,
+      gear: this.gear,
+      speed: this.speed,
+      pitch: this.pitch,
+      roll: this.roll,
+      pitchRate: this.pitchRate,
+      rollRate: this.rollRate,
+      yawRate: this.yawRate,
+      airborne: this.airborne,
+      wheels: this.wheels.map((w) => ({
+        load: w.normalLoad,
+        suspensionTravel: w.compression,
+        slipRatio: w.kappa,
+        slipAngle: w.alpha,
+        tireForceLong: w.longForce,
+        tireForceLat: w.latForce,
+        omega: w.omega,
+        inContact: w.inContact,
+      })),
+    };
   }
 
   wheelLoads(): WheelLoads {
@@ -371,7 +439,7 @@ export class Vehicle {
     const brake = clamp(this.input.brake, 0, 1);
     const handbrake = clamp(this.input.handbrake, 0, 1);
 
-    this.alignToGround(ground);
+    this.rebuildBasis();
     this.sampleWheels(ground, dt);
 
     // Four wheels use the calibrated axle model; other layouts (six-wheel rocker rovers) get the
@@ -441,6 +509,8 @@ export class Vehicle {
     let fy = 0;
     let fz = 0;
     let yawTorque = 0;
+    let pitchTorque = 0;
+    let rollTorque = 0;
 
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
@@ -449,6 +519,20 @@ export class Vehicle {
       fx += w.nx * support;
       fy += w.ny * support;
       fz += w.nz * support;
+      if (w.inContact && support > 0) {
+        // Suspension reaction torque about CG (Phase 11.4).
+        const rx = w.contactX - this.position.x;
+        const ry = w.contactY - this.position.y;
+        const rz = w.contactZ - this.position.z;
+        const sx = w.nx * support;
+        const sy = w.ny * support;
+        const sz = w.nz * support;
+        const tx = ry * sz - rz * sy;
+        const ty = rz * sx - rx * sz;
+        const tz = rx * sy - ry * sx;
+        pitchTorque += tx * this.right.x + ty * this.right.y + tz * this.right.z;
+        rollTorque += tx * this.forward.x + ty * this.forward.y + tz * this.forward.z;
+      }
 
       if (!w.inContact || w.normalLoad <= 0) {
         w.longForce = 0;
@@ -529,6 +613,33 @@ export class Vehicle {
     this.yawRate = f32(this.yawRate + (yawTorque / c.inertiaYaw) * dt);
     this.yawRate *= Math.max(0, 1 - 0.15 * dt);
 
+    // Pitch / roll (Phase 11.4): integrate angular rates from suspension reaction torques,
+    // with a critically-damped spring toward the geometric axle orientation while planted.
+    // Airborne: spring is off so rates carry momentum (jump / unload / rollover).
+    const torqueScale = 0.35;
+    this.pitchRate = f32(this.pitchRate + ((pitchTorque * torqueScale) / c.inertiaPitch) * dt);
+    this.rollRate = f32(this.rollRate + ((rollTorque * torqueScale) / c.inertiaRoll) * dt);
+    if (contactCount >= 2) {
+      const target = this.estimateGroundOrientation(ground);
+      const wn = 18; // natural frequency
+      const zeta = 1.0; // critical damping
+      const kp = wn * wn;
+      const kd = 2 * zeta * wn;
+      this.pitchRate += (kp * (target.pitch - this.pitch) - kd * this.pitchRate) * dt;
+      this.rollRate += (kp * (target.roll - this.roll) - kd * this.rollRate) * dt;
+    } else {
+      const angKeep = Math.max(0, 1 - c.angularDamping * dt);
+      this.pitchRate *= angKeep;
+      this.rollRate *= angKeep;
+    }
+    this.pitch = f32(this.pitch + this.pitchRate * dt);
+    this.roll = f32(this.roll + this.rollRate * dt);
+    const lim = Math.PI * 0.65;
+    if (this.pitch > lim) { this.pitch = lim; this.pitchRate = Math.min(0, this.pitchRate); }
+    if (this.pitch < -lim) { this.pitch = -lim; this.pitchRate = Math.max(0, this.pitchRate); }
+    if (this.roll > lim) { this.roll = lim; this.rollRate = Math.min(0, this.rollRate); }
+    if (this.roll < -lim) { this.roll = -lim; this.rollRate = Math.max(0, this.rollRate); }
+
     const prevX = this.position.x;
     const prevZ = this.position.z;
     this.position.x = f32(this.position.x + this.velocity.x * dt);
@@ -562,6 +673,8 @@ export class Vehicle {
     if (!Number.isFinite(this.position.x) || !Number.isFinite(this.velocity.x)) {
       this.velocity.set(0, 0, 0);
       this.yawRate = 0;
+      this.pitchRate = 0;
+      this.rollRate = 0;
     }
   }
 
@@ -596,10 +709,20 @@ export class Vehicle {
   }
 
   /**
-   * Slave pitch and roll to the ground under the axles. A level chassis with 14 cm of travel cannot
-   * put all four wheels on a 12° slope; the orientation is kinematic, not a second integrator.
+   * One-shot geometric orientation from axle heights (spawn / placeOnGround only).
    */
-  private alignToGround(ground: GroundQuery): void {
+  private snapOrientationToGround(ground: GroundQuery): void {
+    const o = this.estimateGroundOrientation(ground);
+    this.pitch = o.pitch;
+    this.roll = o.roll;
+    this.rebuildBasis();
+  }
+
+  /**
+   * Geometric pitch/roll implied by ground under the hardpoints. Used as a soft target while
+   * wheels are planted; rates still integrate freely when airborne (Phase 11.4).
+   */
+  private estimateGroundOrientation(ground: GroundQuery): { pitch: number; roll: number } {
     this.rebuildBasis();
     let hFront = 0;
     let hRear = 0;
@@ -645,6 +768,8 @@ export class Vehicle {
         nRight++;
       }
     }
+    let pitch = this.pitch;
+    let roll = this.roll;
     if (nFront > 0 && nRear > 0) {
       hFront /= nFront;
       hRear /= nRear;
@@ -653,7 +778,7 @@ export class Vehicle {
       xRear /= nRear;
       zRear /= nRear;
       const axleDist = Math.max(0.2, Math.hypot(xFront - xRear, zFront - zRear));
-      this.pitch = Math.atan2(hFront - hRear, axleDist);
+      pitch = Math.atan2(hFront - hRear, axleDist);
     }
     if (nLeft > 0 && nRight > 0) {
       hLeft /= nLeft;
@@ -663,10 +788,9 @@ export class Vehicle {
       xRight /= nRight;
       zRight /= nRight;
       const trackDist = Math.max(0.2, Math.hypot(xLeft - xRight, zLeft - zRight));
-      // Positive roll lifts the right side: right ground higher → positive roll.
-      this.roll = Math.atan2(hRight - hLeft, trackDist);
+      roll = Math.atan2(hRight - hLeft, trackDist);
     }
-    this.rebuildBasis();
+    return { pitch, roll };
   }
 
   private sampleWheels(ground: GroundQuery, dt: number): void {

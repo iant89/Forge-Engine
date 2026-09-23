@@ -6,12 +6,16 @@
  * boxes in the playground (a cylinder's axis is +Y; a box needs no extra basis). Spin is a roll
  * about the axle, composed as yaw (chassis + steer) then a local X rotation — applied as an euler
  * (spin, yaw, 0) which is close enough for a debug wheel and exact for the chassis.
+ *
+ * When {@link VehicleComponent.chassisBody} is set, the kinematic collider is synced after the
+ * vehicle step so Phase 5 dynamics (props) collide with the car (Phase 11.3).
  */
 
 import { Quat } from "../math/mat.js";
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { VehicleComponent } from "./components.js";
+import { syncVehicleChassis } from "./chassis.js";
 
 export class VehicleSystem extends FixedSystem {
   readonly name = "vehicles";
@@ -26,6 +30,9 @@ export class VehicleSystem extends FixedSystem {
     for (let i = 0; i < vehicles.count; i++) {
       const comp = vehicles.valueAt(i);
       comp.vehicle.step(dt, comp.ground);
+      if (comp.chassisBody) {
+        syncVehicleChassis(comp.vehicle, comp.chassisBody);
+      }
       const id = world.idForSlot(vehicles.slotAt(i));
       const transform = world.getComponent(id, Transform);
       if (!transform) continue;

@@ -5,6 +5,7 @@
 
 import type { EntityId } from "../scene/entityId.js";
 import { Component, registerComponent } from "../scene/components.js";
+import type { RigidBody } from "../physics/body.js";
 import { Vehicle, createVehicleConfig, type VehicleConfig } from "./vehicle.js";
 import type { GroundQuery } from "./ground.js";
 
@@ -14,6 +15,11 @@ export class VehicleComponent extends Component {
   /** Wheel visual entities, in the same order as `vehicle.wheels`. Optional. */
   wheelEntities: EntityId[] = [];
   ground: GroundQuery;
+  /**
+   * Optional kinematic chassis collider in the physics world (Phase 11.3).
+   * When set, {@link VehicleSystem} syncs it after each vehicle step so props can collide.
+   */
+  chassisBody: RigidBody | null = null;
 
   constructor(vehicle: Vehicle = new Vehicle(createVehicleConfig()), ground?: GroundQuery) {
     super();
