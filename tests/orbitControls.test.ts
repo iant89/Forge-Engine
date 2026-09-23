@@ -310,13 +310,6 @@ describe("Mars showcase chase framing", () => {
     const eye = controls.eyePosition();
     const fovY = Math.PI / 3;
     // View-space Y of chassis CG relative to look direction, as NDC y (portrait aspect cancels for y).
-    const forwardX = controls.target.x - eye.x;
-    const forwardY = controls.target.y - eye.y;
-    const forwardZ = controls.target.z - eye.z;
-    const fl = Math.hypot(forwardX, forwardY, forwardZ) || 1;
-    const fx = forwardX / fl;
-    const fy = forwardY / fl;
-    const fz = forwardZ / fl;
     // Camera basis: right = normalize(cross(forward, worldUp))? RH look-at uses z=eye-target.
     const zx = eye.x - controls.target.x;
     const zy = eye.y - controls.target.y;
@@ -344,6 +337,5 @@ describe("Mars showcase chase framing", () => {
     // Old framing put chassis around ndcY ≈ -0.25 (lower third). New framing must be closer to 0.
     expect(ndcY).toBeGreaterThan(-0.2);
     expect(ndcY).toBeLessThan(0.05);
-    void fx; void fy; void fz;
   });
 });
