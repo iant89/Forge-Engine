@@ -159,7 +159,11 @@ Rules of thumb:
   not interleaved, so snapping the chassis to the end pose/ω before physics runs leaves hitch
   frames (`fixedSteps>1`) contacting a parked body. (`syncVehicleChassis` remains for manual
   one-to-one `vehicle.step` / `world.step` loops outside ECS.)
-- `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`).
+- `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`). Even
+  when `ownsWorld === false`, it still **removes bodies it spawned** for `RigidBodyComponent`
+  entities (so shared backends do not keep ghost colliders after a scene reload). It does not
+  remove bodies it did not create (e.g. `VehicleComponent.chassisBody` / manually `addBody`'d
+  props).
 - `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
   silently wiped by a non-owner.
 
@@ -170,6 +174,10 @@ Rules of thumb:
 - `physicsRaycastGroundQuery` uses a fixed world-Y ray origin (`maxDistance * 0.5`). Prefer
   `physicsGroundQuery` for heightfield-only / terrain vehicle ground when colliders may sit above
   that origin.
+- `PhysicsWorld.raycast` / `physicsRaycastGroundQuery` treat non-heightfield `BoxShape` hits as
+  **AABB-only** (axis-aligned bounds), not oriented OBB. Rotated decks / ramps are unsupported for
+  wheel rays in Phase 11 — prefer `physicsGroundQuery` (HF) rather than a rotated box collider as
+  ground. OBB box rays are intentionally out of scope this phase.
 - The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
   sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
 - Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels

@@ -225,6 +225,11 @@ export class PhysicsWorld {
 
   /**
    * Raycast against physics colliders in the world.
+   *
+   * **BoxShape hits are AABB-only** (axis-aligned bounds via {@link Ray.intersectsAABB}),
+   * not oriented OBB. Rotated decks / ramps therefore do not produce correct wheel-ray
+   * contact against non-heightfield boxes in Phase 11 — prefer {@link HeightfieldShape}
+   * / `physicsGroundQuery` for vehicle ground. OBB box rays are intentionally out of scope.
    */
   raycast(ray: Ray, hit: RayHit, filter?: RaycastFilter): boolean {
     let closestDist = Infinity;

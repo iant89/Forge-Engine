@@ -145,6 +145,88 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     expect(backend.world.getHeightfield()).not.toBeNull();
   });
 
+  it("dispose removes system-spawned RigidBodyComponent bodies on shared world, leaves others", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      Profiler,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+      createVehicleChassis,
+      createVehicleConfig,
+      Vehicle,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const hf = new HeightfieldShape({ sampleHeight: () => 0.5 });
+    shared.setHeightfield(hf);
+    const external = new RigidBody({
+      type: "static",
+      shape: new BoxShape(0.3, 0.3, 0.3),
+      position: { x: 5, y: 0, z: 0 },
+    });
+    shared.addBody(external);
+
+    const backend = ForgeJSPhysics.wrap(shared);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1200 }));
+    const chassis = createVehicleChassis(vehicle, backend);
+    expect(shared.bodies).toContain(chassis);
+
+    const ecs = new EntityWorld();
+    const physics = new PhysicsSystem({ world: shared });
+    expect(physics.ownsWorld).toBe(false);
+    ecs.registerSystem(physics);
+
+    const entity = ecs.createEntity("prop");
+    const transform = new Transform();
+    transform.setPosition(0, 2, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "dynamic";
+    rb.mass = 1;
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.25, 0.25, 0.25);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const ctx = {
+      world: ecs,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    };
+    ecs.runSystems(ctx);
+    expect(rb.body).not.toBeNull();
+    const spawned = rb.body!;
+    expect(shared.bodies).toContain(spawned);
+    expect(shared.bodies).toContain(external);
+    expect(shared.bodies).toContain(chassis);
+    expect(shared.getHeightfield()).not.toBeNull();
+
+    // Dispose PhysicsSystem only (shared world stays alive).
+    physics.dispose();
+
+    expect(shared.bodies).not.toContain(spawned);
+    expect(shared.bodies).toContain(external);
+    expect(shared.bodies).toContain(chassis);
+    expect(shared.getHeightfield()).not.toBeNull();
+    expect(backend.queryHeight(0, 0)).toBe(0.5);
+
+    ecs.dispose();
+  });
+
   it("wrap/adopt backend clear() throws and does not wipe the shared world", () => {
     const world = new PhysicsWorld();
     world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 2 }));

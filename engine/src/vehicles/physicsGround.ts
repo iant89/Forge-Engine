@@ -48,10 +48,14 @@ const hit = new RayHit();
  * Uses the backend raycast so heightfield and other colliders participate.
  * By default skips kinematic bodies and can exclude a specific chassis body.
  *
- * **Limits:** the ray origin is fixed at world Y = `maxDistance * 0.5` (not relative to the
- * sample point or terrain). Colliders / heightfields that sit above that origin are outside the
- * ray and may miss or fall back incorrectly. For heightfield-only / terrain vehicle ground,
- * prefer {@link physicsGroundQuery} (or an equivalent HF sampler) instead of this helper.
+ * **Limits:**
+ * - The ray origin is fixed at world Y = `maxDistance * 0.5` (not relative to the sample
+ *   point or terrain). Colliders / heightfields that sit above that origin are outside the
+ *   ray and may miss or fall back incorrectly.
+ * - Non-heightfield {@link BoxShape} hits in the physics world are **AABB-only** (no OBB).
+ *   Rotated decks / ramps are unsupported for wheel rays in Phase 11; do not rely on a
+ *   rotated box collider as ground. Prefer {@link physicsGroundQuery} (or an equivalent HF
+ *   sampler) for heightfield / terrain vehicle ground.
  */
 export function physicsRaycastGroundQuery(
   backend: PhysicsBackend,

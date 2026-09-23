@@ -72,6 +72,13 @@ export class PhysicsSystem extends FixedSystem {
   private readonly scratchTargetP = new Vec3();
   /** Frame kinematic plans keyed by body id — built once per update, consumed per substep. */
   private readonly kinematicPlans = new Map<number, KinematicPlan>();
+  /**
+   * Bodies this system created for {@link RigidBodyComponent} entities via {@link PhysicsWorld.addBody}.
+   * Removed on {@link dispose} even when {@link ownsWorld} is false so a shared long-lived backend
+   * does not keep ghost colliders after a scene reload. Does not include chassisBody / manually
+   * owned bodies the system did not spawn.
+   */
+  private readonly spawnedBodies = new Set<RigidBody>();
 
   constructor(options: PhysicsSystemOptions = {}) {
     super();
@@ -120,6 +127,7 @@ export class PhysicsSystem extends FixedSystem {
 
         this.world.addBody(body);
         rbComp.body = body;
+        this.spawnedBodies.add(body);
       }
     }
 
@@ -297,7 +305,14 @@ export class PhysicsSystem extends FixedSystem {
   }
 
   override dispose(): void {
-    // Only clear when we own the world — shared worlds are managed by the adopter/owner.
+    // Always remove bodies this system spawned for RigidBodyComponents — even on a shared world —
+    // so scene reload does not leave ghost colliders. Do not remove chassisBody / manually owned
+    // bodies that were never added to spawnedBodies.
+    for (const body of this.spawnedBodies) {
+      this.world.removeBody(body);
+    }
+    this.spawnedBodies.clear();
+    // Only clear the whole world when we own it — shared worlds are managed by the adopter/owner.
     if (this.ownsWorld) {
       this.world.clear();
     }
