@@ -1024,6 +1024,83 @@ describe("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     world.dispose();
   });
 
+  it("counts each chunk attach once toward uploadedThisFrame (single accounting point)", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 200,
+      visibleChunks: 16,
+      generationsPerFrame: 5,
+      uploadsPerFrame: 16,
+      warmUpChunks: 0,
+      horizonSkirt: false,
+      syncGeneration: true,
+    });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "upload-count-once" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    const attached = terrain.activeEntities.size;
+    expect(attached).toBeGreaterThan(0);
+    // attachChunkEntity is the sole incrementer — must match entity attaches, not 2x.
+    expect(terrain.streamingStats.uploadedThisFrame).toBe(attached);
+    expect(terrain.streamingStats.uploadedThisFrame).toBeLessThanOrEqual(terrain.budgets.generationsPerFrame);
+
+    scene.dispose();
+    world.dispose();
+  });
+
+  it("dispose cancels in-flight terrain tasks on the shared scheduler", async () => {
+    installTerrainTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true, workerCount: 0, maxConcurrent: 1 });
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 17,
+      viewDistance: 200,
+      visibleChunks: 16,
+      generationsPerFrame: 8,
+      warmUpChunks: 0,
+      horizonSkirt: false,
+      syncGeneration: false,
+    });
+    const services: SystemContext["services"] = {
+      get: <T>(key: string) => (key === "tasks" ? (scheduler as unknown as T) : undefined),
+      engineConfig: {},
+    };
+    const ctx: SystemContext = { ...createMockContext(world), services };
+    const scene = new Scene({ name: "dispose-cancel-inflight" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+
+    terrain.update(ctx, 0.016);
+    const inFlightKeys = [...terrain.chunks.values()]
+      .filter((c) => c.state === "generating" && c.taskKey)
+      .map((c) => c.taskKey!);
+    expect(inFlightKeys.length).toBeGreaterThan(0);
+
+    const cancelledBefore = scheduler.stats.cancelled;
+    // Dispose while work is still queued/running — must cancel via lastScheduler.
+    terrain.dispose();
+    expect(terrain.chunks.size).toBe(0);
+    expect(scheduler.stats.cancelled).toBeGreaterThanOrEqual(cancelledBefore + inFlightKeys.length);
+    for (const key of inFlightKeys) {
+      expect(scheduler.cancel(key)).toBe(false); // already gone from the scheduler
+    }
+
+    await scheduler.drain().catch(() => undefined);
+    scheduler.dispose();
+    scene.dispose();
+    world.dispose();
+  });
+
   it("horizon skirt samples resident tiles only (no sync generation for missing cells)", () => {
     const world = new EntityWorld();
     const terrain = new TerrainWorld({

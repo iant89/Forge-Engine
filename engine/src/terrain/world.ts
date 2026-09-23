@@ -134,6 +134,8 @@ export class TerrainWorld extends SceneObject {
   private horizonCenterZ = Number.NaN;
   private horizonRadius = 0;
   private handlersInstalled = false;
+  /** Last TaskScheduler seen in update — used by dispose to cancel in-flight work. */
+  private lastScheduler: TaskScheduler | undefined;
 
   /** Stats exposed for tests / HUD. */
   readonly streamingStats = {
@@ -223,6 +225,7 @@ export class TerrainWorld extends SceneObject {
       : this.budgets.uploadsPerFrame;
 
     const scheduler = this.schedulerOf(context);
+    if (scheduler) this.lastScheduler = scheduler;
 
     // 1. Focus + facing from the active camera.
     const camQuery = context.world.query([Camera, Transform]);
@@ -285,7 +288,6 @@ export class TerrainWorld extends SceneObject {
           chunk.applyCell(cell, req.sel.geomorphAlpha);
           chunk.residentBytes = estimateTileBytes(chunk.resolution);
           this.attachChunkEntity(chunk, context);
-          this.streamingStats.uploadedThisFrame++;
         }
       } else if (chunk.state === "generating") {
         chunk.lod = req.sel.lod;
@@ -578,7 +580,6 @@ export class TerrainWorld extends SceneObject {
         if (!this.activeEntities.has(chunk.key)) {
           this.attachChunkEntity(chunk, context);
           uploads++;
-          this.streamingStats.uploadedThisFrame++;
         }
         continue;
       }
@@ -597,7 +598,6 @@ export class TerrainWorld extends SceneObject {
       this.attachChunkEntity(chunk, context);
       uploads++;
       this.streamingStats.generatedThisFrame++;
-      this.streamingStats.uploadedThisFrame++;
     }
   }
 
@@ -726,7 +726,6 @@ export class TerrainWorld extends SceneObject {
 
     if (device) {
       r.geometry = chunk.tile.uploadGpu(device);
-      this.streamingStats.uploadedThisFrame++;
       if (!this.material) {
         this.material = new Material({
           label: "terrain-mat",
@@ -738,6 +737,8 @@ export class TerrainWorld extends SceneObject {
       r.material = this.material;
     }
 
+    // Single upload accounting point for remesh gating / drainCompletions (device or headless).
+    this.streamingStats.uploadedThisFrame++;
     chunk.entityId = entity.id;
     this.activeEntities.set(chunk.key, entity.id);
   }
@@ -886,14 +887,19 @@ export class TerrainWorld extends SceneObject {
     };
   }
 
-    override dispose(): void {
+  override dispose(): void {
+    const scheduler = this.lastScheduler;
     for (const chunk of this.chunks.values()) {
+      if (scheduler && chunk.taskKey) {
+        scheduler.cancel(chunk.taskKey);
+      }
       chunk.dispose();
     }
     this.chunks.clear();
     this.activeEntities.clear();
     this.sampledCells.clear();
     this.completed.length = 0;
+    this.lastScheduler = undefined;
     if (this.horizonGeometry) {
       this.horizonGeometry.dispose();
       this.horizonGeometry = null;
