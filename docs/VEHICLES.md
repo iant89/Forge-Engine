@@ -100,6 +100,39 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 - The same inputs produce the same pose, yaw, RPM, and gear.
 - `VehicleSystem` steps once per fixed step and writes the chassis transform.
 
+## Sharing one PhysicsWorld (Vehicle + ECS)
+
+`ForgeJSPhysics` and `PhysicsSystem` each **create their own** `PhysicsWorld` by default
+(single-owner). That is intentional: a demo that only drives a vehicle never needs an ECS physics
+system, and a prop scene never needs a vehicle backend.
+
+If you register **both** without sharing, you silently get **two worlds**. A heightfield or
+chassis on the vehicle backend is invisible to ECS rigid bodies, and vice versa.
+
+To share one world:
+
+```ts
+import { ForgeJSPhysics, PhysicsSystem, createVehicleChassis } from "@forge/engine";
+
+const backend = new ForgeJSPhysics(); // owns the world
+// or: const backend = ForgeJSPhysics.wrap(existingWorld);
+
+scene.world.registerSystem(new PhysicsSystem({ world: backend.world }));
+// equivalent: new PhysicsSystem({ backend })
+
+backend.setHeightfield(shape);
+const chassis = createVehicleChassis(vehicle, backend);
+// chassis + heightfield are visible to PhysicsSystem.world (same identity)
+```
+
+Rules of thumb:
+
+- Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
+- Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`.
+- When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
+  both the backend and the system double-integrates.
+- `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`).
+
 ## Limitations
 
 - Wheel contact is a physics heightfield / raycast query, not a triangle mesh against Phase 4 chunks.

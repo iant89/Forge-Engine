@@ -218,7 +218,8 @@ heightfield registered on the world; visual = collision = vehicle contact sample
 chassis collides with dynamic props; pitch/roll carry angular rates from suspension reaction + geometric spring and settle on slopes; wheel
 contact via physics raycast/heightfield queries; crater/bump/side-slope/jump/unload/impact/rollover
 stress cases stay finite; `vehicle.telemetry()` exposes load, travel, slip, tire force, RPM, gear,
-ω, contact.
+ω, contact; `ForgeJSPhysics` / `PhysicsSystem` can adopt a shared `PhysicsWorld` (same identity;
+heightfield + chassis visible to both) while the default remains single-owner.
 
 ### `tests/vehicles.test.ts` — the raycast car
 

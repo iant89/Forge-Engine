@@ -1,9 +1,10 @@
 /**
  * Physics backend interface (Phase 11.1).
  *
- * Gameplay talks to {@link PhysicsBackend}. {@link ForgeJSPhysics} wraps the existing
- * {@link PhysicsWorld}. {@link ForgeWasmPhysics} is a future stub (Phase 25) so callers can
- * select a backend without rewriting vehicle or prop code.
+ * Gameplay talks to {@link PhysicsBackend}. {@link ForgeJSPhysics} wraps a
+ * {@link PhysicsWorld} (creates one by default, or adopts via `{ world }` / {@link ForgeJSPhysics.wrap}).
+ * {@link ForgeWasmPhysics} is a future stub (Phase 25) so callers can select a backend without
+ * rewriting vehicle or prop code.
  */
 
 import { Vec3 } from "../math/vec.js";
@@ -43,15 +44,45 @@ export interface PhysicsBackend {
 }
 
 /**
+ * Options for {@link ForgeJSPhysics}. Extends world construction options and optionally
+ * adopts an existing {@link PhysicsWorld} (shared-world path for Vehicle + ECS).
+ *
+ * Default / single-owner: omit `world` and the backend creates and owns a fresh PhysicsWorld.
+ * Shared: pass `world` (or use {@link ForgeJSPhysics.wrap}) so demos/`VehicleSystem` and
+ * {@link PhysicsSystem} can see the same heightfield and chassis. Pairing both without sharing
+ * silently creates two worlds — props and ground will not interact across them.
+ */
+export interface ForgeJSPhysicsOptions extends PhysicsWorldOptions {
+  /** Adopt this world instead of constructing a new one. Caller coordinates stepping/clearing. */
+  world?: PhysicsWorld;
+}
+
+/**
  * JavaScript rigid-body backend — thin adapter over {@link PhysicsWorld}.
+ *
+ * By default owns a new world. Pass `{ world }` or call {@link ForgeJSPhysics.wrap} to adopt
+ * an existing world (shared with {@link PhysicsSystem}).
  */
 export class ForgeJSPhysics implements PhysicsBackend {
   readonly kind = "js" as const;
   readonly world: PhysicsWorld;
+  /** True when this instance constructed the world; false when it adopted one. */
+  readonly ownsWorld: boolean;
   private readonly normalScratch = new Vec3();
 
-  constructor(options: PhysicsWorldOptions = {}) {
-    this.world = new PhysicsWorld(options);
+  constructor(options: ForgeJSPhysicsOptions = {}) {
+    if (options.world) {
+      this.world = options.world;
+      this.ownsWorld = false;
+    } else {
+      this.world = new PhysicsWorld(options);
+      this.ownsWorld = true;
+    }
+  }
+
+  /** Adopt an existing world without copying PhysicsWorldOptions (shared-world helper). */
+  static wrap(world: PhysicsWorld): ForgeJSPhysics {
+    return new ForgeJSPhysics({ world });
   }
 
   step(dt: number): number {
@@ -137,7 +168,7 @@ export class ForgeWasmPhysics implements PhysicsBackend {
 
 export function createPhysicsBackend(
   kind: PhysicsBackendKind = "js",
-  options?: PhysicsWorldOptions,
+  options?: ForgeJSPhysicsOptions,
 ): PhysicsBackend {
   if (kind === "wasm") return new ForgeWasmPhysics(options);
   return new ForgeJSPhysics(options);

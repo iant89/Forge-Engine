@@ -2,6 +2,10 @@
  * `PhysicsSystem` — ECS bridge synchronizing Entity Transforms with PhysicsWorld.
  *
  * Runs in band 300 (physics), before band 500 (transforms).
+ *
+ * By default constructs and owns a {@link PhysicsWorld} (single-owner). Pass `world` or
+ * `backend` to adopt an existing world so Vehicle demos / {@link ForgeJSPhysics} and ECS
+ * share one simulation. Without sharing, registering both creates two independent worlds.
  */
 
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
@@ -10,6 +14,23 @@ import { Quat } from "../math/mat.js";
 import { RigidBodyComponent, ColliderComponent } from "./components.js";
 import { PhysicsWorld, type PhysicsWorldOptions } from "./world.js";
 import { RigidBody } from "./body.js";
+import type { PhysicsBackend } from "./backend.js";
+
+/**
+ * Options for {@link PhysicsSystem}.
+ *
+ * Omit `world`/`backend` to create and own a new {@link PhysicsWorld} (default / single-owner).
+ * Pass either to adopt a shared world (e.g. the one behind a {@link ForgeJSPhysics} used by vehicles).
+ */
+export interface PhysicsSystemOptions extends PhysicsWorldOptions {
+  /** Adopt this world instead of constructing a new one. */
+  world?: PhysicsWorld;
+  /**
+   * Adopt `backend.world` when it is a JS backend. Ignored if `world` is also set.
+   * WASM backends have no world yet — falls back to creating a new owned world.
+   */
+  backend?: PhysicsBackend;
+}
 
 export class PhysicsSystem extends FixedSystem {
   readonly name = "physics";
@@ -17,12 +38,21 @@ export class PhysicsSystem extends FixedSystem {
   override readonly before = ["transforms"];
 
   readonly world: PhysicsWorld;
+  /** True when this system constructed the world; false when it adopted one. */
+  readonly ownsWorld: boolean;
   private readonly scratchDeltaQ = new Quat();
   private readonly scratchInvQ = new Quat();
 
-  constructor(options: PhysicsWorldOptions = {}) {
+  constructor(options: PhysicsSystemOptions = {}) {
     super();
-    this.world = new PhysicsWorld(options);
+    const adopted = options.world ?? options.backend?.world ?? null;
+    if (adopted) {
+      this.world = adopted;
+      this.ownsWorld = false;
+    } else {
+      this.world = new PhysicsWorld(options);
+      this.ownsWorld = true;
+    }
   }
 
   override fixedStep(context: SystemContext, _stepIndex: number): void {
@@ -139,6 +169,9 @@ export class PhysicsSystem extends FixedSystem {
   }
 
   override dispose(): void {
-    this.world.clear();
+    // Only clear when we own the world — shared worlds are managed by the adopter/owner.
+    if (this.ownsWorld) {
+      this.world.clear();
+    }
   }
 }

@@ -8,6 +8,8 @@ import {
   ForgeJSPhysics,
   ForgeWasmPhysics,
   HeightfieldShape,
+  PhysicsSystem,
+  PhysicsWorld,
   RigidBody,
   Vehicle,
   assertTerrainAgreement,
@@ -45,6 +47,65 @@ describe("Phase 11.1 — PhysicsBackend", () => {
     const wasm = new ForgeWasmPhysics();
     expect(wasm.kind).toBe("wasm");
     expect(() => wasm.step(1 / 60)).toThrow(/Phase 25/);
+  });
+});
+
+describe("Captain C — shared / adopted PhysicsWorld", () => {
+  it("defaults to single-owner worlds (distinct identities)", () => {
+    const backend = new ForgeJSPhysics();
+    const system = new PhysicsSystem();
+    expect(backend.ownsWorld).toBe(true);
+    expect(system.ownsWorld).toBe(true);
+    expect(backend.world).not.toBe(system.world);
+  });
+
+  it("ForgeJSPhysics.wrap and PhysicsSystem({ world }) share one world identity", () => {
+    const world = new PhysicsWorld();
+    const backend = ForgeJSPhysics.wrap(world);
+    const system = new PhysicsSystem({ world });
+    expect(backend.world).toBe(world);
+    expect(system.world).toBe(world);
+    expect(backend.ownsWorld).toBe(false);
+    expect(system.ownsWorld).toBe(false);
+  });
+
+  it("PhysicsSystem({ backend }) adopts the backend world", () => {
+    const backend = new ForgeJSPhysics();
+    const system = new PhysicsSystem({ backend });
+    expect(system.world).toBe(backend.world);
+    expect(system.ownsWorld).toBe(false);
+    expect(backend.ownsWorld).toBe(true);
+  });
+
+  it("shared world: heightfield and chassis are visible to both sides", () => {
+    const backend = new ForgeJSPhysics({ gravity: { x: 0, y: -9.81, z: 0 } });
+    const system = new PhysicsSystem({ world: backend.world });
+
+    const hf = new HeightfieldShape({ sampleHeight: () => 0 });
+    const hfBody = backend.setHeightfield(hf);
+    expect(hfBody).not.toBeNull();
+    expect(system.world.getHeightfield()).toBe(hf);
+    expect(system.world.bodies).toContain(hfBody);
+
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    vehicle.position.set(0, 1, 0);
+    const chassis = createVehicleChassis(vehicle, backend);
+    syncVehicleChassis(vehicle, chassis);
+
+    expect(system.world.bodies).toContain(chassis);
+    expect(backend.world.bodies).toContain(chassis);
+    // Same world identity ⇒ both sides see the same body list.
+    expect(backend.world.bodies).toBe(system.world.bodies);
+  });
+
+  it("PhysicsSystem.dispose does not clear an adopted world", () => {
+    const backend = new ForgeJSPhysics();
+    backend.setHeightfield(new HeightfieldShape({ sampleHeight: () => 1 }));
+    const system = new PhysicsSystem({ backend });
+    system.dispose();
+    expect(backend.queryHeight(0, 0)).toBe(1);
+    expect(backend.world.getHeightfield()).not.toBeNull();
   });
 });
 
