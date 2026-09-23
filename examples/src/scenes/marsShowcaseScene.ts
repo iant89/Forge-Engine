@@ -85,6 +85,21 @@ const SPAWN_X = -16;
 const SPAWN_Z = 18;
 
 /**
+ * Chase-cam framing tuned so the rover fills a portrait (iPhone) frame with terrain underfoot.
+ * Prior values (distance 8.5 / elevation 0.28 / look-at CG+1.35) put the look-at near the mast tip,
+ * so on tall FOV-Y viewports the chassis sat in the lower third and read as "lost in the haze"
+ * behind on-screen controls — desktop landscape still looked fine, which is why fe-13 screenshots
+ * passed while iPhone Safari did not.
+ */
+export const MARS_CHASE_DISTANCE = 6;
+export const MARS_CHASE_MIN_DISTANCE = 3;
+export const MARS_CHASE_AZIMUTH = 0.55;
+export const MARS_CHASE_ELEVATION = 0.48;
+/** Metres above the vehicle CG — mid-chassis, not the remote-sensing mast. */
+export const MARS_CHASE_LOOK_OFFSET_Y = 0.55;
+export const MARS_CHASE_GROUND_CLEARANCE = 0.5;
+
+/**
  * Hub centres measured from the converted GLB (`scripts/convert-perseverance.mjs` prints them):
  * front/rear track 2.18 m, middle axle slightly wider, radius 0.264 m — the real Perseverance
  * geometry. Front and rear axles steer (the middle pair is fixed), all six are driven.
@@ -320,11 +335,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   vehicle.placeOnGround(ground);
   // Local Y that puts the model's ground plane on the terrain at equilibrium (≈ radius + rest − sag).
   const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
+  const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
 
   scene.world.registerSystem(new VehicleSystem());
 
+  // Bright unlit body: beige PBR used to disappear into Mars haze when the GLB was still loading
+  // (or failed) on slower iOS networks — the captain then reported "no rover" with only terrain+sky.
   const placeholderBodyMesh = createBox(gpu, { width: 1.5, height: 0.6, depth: 3.2 });
-  const placeholderBodyMaterial = new Material({ label: "rover-placeholder", color: 0xd8d2c4, roughness: 0.55, metallic: 0.1 });
+  const placeholderBodyMaterial = Material.unlit({ label: "rover-placeholder", color: 0xff8a1f });
   const chassis = scene.createTransformedEntity(
     "rover-chassis",
     new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z),
@@ -466,22 +484,26 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     cameraEntity,
     controlsHint: "WASD / arrows drive · Space handbrake · Drag to orbit · Scroll zoom",
     camera: {
-      target: new Vec3(SPAWN_X, groundY + 1.35, SPAWN_Z),
-      // Keep the rover large enough to read immediately on laptop/phone-sized canvases; users can
-      // still zoom out for a wider terrain view. Elevation stays modest so tall (portrait) viewports
-      // show ground under the chassis instead of a sky-only beige slab.
-      distance: 8.5,
-      minDistance: 3.5,
+      // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
+      target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
+      // Closer + higher elevation keeps the chassis in the middle of a portrait FOV-Y frame with
+      // terrain underfoot; users can still zoom out for a wider valley view.
+      distance: MARS_CHASE_DISTANCE,
+      minDistance: MARS_CHASE_MIN_DISTANCE,
       maxDistance: 120,
-      azimuth: 0.55,
-      elevation: 0.28,
-      // Follow-cam clearance: 2 m used to hoist the orbit target above the chassis every frame and
-      // tip the eye toward the horizon haze on phone aspect ratios.
-      groundClearance: 0.85,
+      azimuth: MARS_CHASE_AZIMUTH,
+      elevation: MARS_CHASE_ELEVATION,
+      // Must stay below CHASE_LOOK_OFFSET_Y + hang so the surface clamp cannot hoist the look-at
+      // above the chassis (that tip-over-rover-into-haze bug returned whenever clearance was 2 m).
+      groundClearance: MARS_CHASE_GROUND_CLEARANCE,
       groundHeight: (x, z) => terrain.getHeightAt(x, z),
       keyboard: false,
     },
-    followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1.35, z: vehicle.position.z }),
+    followTarget: () => ({
+      x: vehicle.position.x,
+      y: vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y,
+      z: vehicle.position.z,
+    }),
     update(): void {
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
