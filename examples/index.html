@@ -10,7 +10,7 @@
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; background: #05070a; color: #cbd5e1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: none; }
+      html, body { margin: 0; height: 100%; background: #05070a; color: #cbd5e1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       #wrap { position: fixed; inset: 0; }
       canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       #hud {
@@ -34,8 +34,42 @@
         top: max(10px, env(safe-area-inset-top));
         display: flex;
         flex-direction: column;
+        align-items: flex-end;
         gap: 8px;
         z-index: 10;
+      }
+      #toolbar-toggle {
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        line-height: 1;
+        background: rgb(5 7 10 / 0.8);
+        border: 1px solid rgb(148 163 184 / 0.35);
+        border-radius: 6px;
+        color: #e2e8f0;
+        backdrop-filter: blur(4px);
+        touch-action: manipulation;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #toolbar-toggle.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: #ffffff;
+      }
+      #toolbar-panels {
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+      }
+      #toolbar.toolbar-open #toolbar-panels {
+        display: flex;
       }
       .panel {
         background: rgb(5 7 10 / 0.8);
@@ -98,8 +132,9 @@
       @media (pointer: coarse), (max-width: 820px) {
         body.scene-vehicle #vehicle-touch { display: block; }
         body.scene-vehicle #controls-hint { display: none; }
-        #toolbar { max-width: min(220px, 54vw); max-height: 42vh; overflow: auto; }
-        #hud { max-width: calc(100vw - 230px); overflow: hidden; font-size: 10px; }
+        #toolbar { max-width: min(220px, 54vw); }
+        #toolbar.toolbar-open #toolbar-panels { max-height: min(50vh, 360px); overflow: auto; }
+        #hud { max-width: calc(100vw - 64px); overflow: hidden; font-size: 10px; }
       }
       /* Sky and weather button panels. These two scenes' actions are buttons on every device —
          the keys still work as shortcuts, but the panel is the interface, so it is shown whenever
@@ -127,6 +162,9 @@
         background: rgb(226 232 240 / 0.14);
         border: 2px solid rgb(226 232 240 / 0.38);
         touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
         backdrop-filter: blur(2px);
       }
       .veh-knob {
@@ -165,10 +203,18 @@
         justify-content: center;
         gap: 0;
         touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
         -webkit-touch-callout: none;
         font-weight: 700;
         letter-spacing: 0.04em;
         backdrop-filter: blur(2px);
+      }
+      button.veh-pad,
+      button.veh-pad * {
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       button.veh-pad .veh-letter { font-size: 16px; line-height: 1; }
       button.veh-pad .veh-caption { font-size: 9px; font-weight: 600; letter-spacing: 0.08em; opacity: 0.85; }
@@ -281,36 +327,39 @@
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
     <div id="toolbar">
-      <div class="panel">
-        <label class="panel-title" for="scene-select">Demo Scene</label>
-        <select id="scene-select" autocomplete="off">
-          <option value="pbr">PBR Showcase (P2)</option>
-          <option value="cubes">Cubes (P1)</option>
-          <option value="terrain">Terrain (P4)</option>
-          <option value="realistic">Realistic (Alpine)</option>
-          <option value="vehicle">Vehicle (P6)</option>
-          <option value="particles">Particles (P7)</option>
-          <option value="sky">Sky / Day-night (P8a)</option>
-          <option value="weather">Weather / Water (P8b)</option>
-          <option value="mars-showcase" selected>Mars Showcase (Perseverance)</option>
-        </select>
-      </div>
-      <div class="panel">
-        <div class="panel-title">Tone Mapping</div>
-        <div class="btn-group">
-          <button id="btn-tm-aces" class="active">ACES</button>
-          <button id="btn-tm-filmic">Filmic</button>
-          <button id="btn-tm-reinhard">Reinhard</button>
-          <button id="btn-tm-none">None</button>
+      <button type="button" id="toolbar-toggle" aria-label="Demo settings" aria-controls="toolbar-panels" aria-expanded="false" title="Demo settings">☰</button>
+      <div id="toolbar-panels">
+        <div class="panel">
+          <label class="panel-title" for="scene-select">Demo Scene</label>
+          <select id="scene-select" autocomplete="off">
+            <option value="pbr">PBR Showcase (P2)</option>
+            <option value="cubes">Cubes (P1)</option>
+            <option value="terrain">Terrain (P4)</option>
+            <option value="realistic">Realistic (Alpine)</option>
+            <option value="vehicle">Vehicle (P6)</option>
+            <option value="particles">Particles (P7)</option>
+            <option value="sky">Sky / Day-night (P8a)</option>
+            <option value="weather">Weather / Water (P8b)</option>
+            <option value="mars-showcase" selected>Mars Showcase (Perseverance)</option>
+          </select>
         </div>
-      </div>
-      <div class="panel">
-        <div class="panel-title">Rendering</div>
-        <div class="btn-group">
-          <button id="btn-hdr" class="active">HDR</button>
-          <button id="btn-bloom" class="active">Bloom</button>
-          <button id="btn-shadows" class="active">Shadows</button>
-          <button id="btn-cascades">Cascade tint</button>
+        <div class="panel">
+          <div class="panel-title">Tone Mapping</div>
+          <div class="btn-group">
+            <button id="btn-tm-aces" class="active">ACES</button>
+            <button id="btn-tm-filmic">Filmic</button>
+            <button id="btn-tm-reinhard">Reinhard</button>
+            <button id="btn-tm-none">None</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Rendering</div>
+          <div class="btn-group">
+            <button id="btn-hdr" class="active">HDR</button>
+            <button id="btn-bloom" class="active">Bloom</button>
+            <button id="btn-shadows" class="active">Shadows</button>
+            <button id="btn-cascades">Cascade tint</button>
+          </div>
         </div>
       </div>
     </div>

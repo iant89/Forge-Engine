@@ -30,7 +30,7 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 326 tests in 28 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (17), `renderGraph` (14), `resources` (14), `particles` (14), `ecs` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `terrain` (9), `gpuEnv` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `demoSceneSelection` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm test` | 334 tests in 30 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (17), `renderGraph` (14), `resources` (14), `particles` (14), `ecs` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `vehicleTouch` (4), `toolbarMenu` (4), `terrain` (9), `gpuEnv` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `demoSceneSelection` (4), `primitives` (2) — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -99,6 +99,24 @@ dead button); a right-press starts no hold; holding `±1h` repeats after `HOLD_D
 hold's own hour, and the release `click` is swallowed exactly once; `dispose()` stops a hold in
 flight and unhooks every listener; `sync()` paints `Pause`/`Mars` from the scene's state, writes
 nothing when the state has not moved, and a press repaints immediately; a missing panel is a no-op.
+
+
+### `tests/vehicleTouch.test.ts` — A/B gas/brake hold on iOS
+
+The vehicle pad's A/B buttons must survive a long-press on iOS Safari: without `user-select: none`,
+`-webkit-user-select: none`, `touch-action: none` and non-passive `touchstart`/`selectstart`/
+`contextmenu` `preventDefault`, WebKit's selection/callout cancels pointer capture and drops
+throttle mid-hold. The suite drives a stub root (no DOM) and pins that those listeners are
+registered with `{ passive: false }`, that each gesture calls `preventDefault`, and that a
+`pointerdown`→`pointerup` on gas holds throttle at 1 for the duration. Manual check on a phone:
+open Mars Showcase, hold A for several seconds — the label must not select and throttle must stay up.
+
+### `tests/toolbarMenu.test.ts` — hamburger for DEMO SCENE / TONE MAPPING / RENDERING
+
+The three top-right panels stay in the DOM (so `__forge` and the browser gate still reach every
+button) but start collapsed behind a ☰ control. The suite pins: closed by default, toggle opens and
+closes, an outside `pointerdown` collapses, an inside one does not. Manual check: tap ☰ to reveal
+the panels, tap again or the canvas to hide them; scene switching and render toggles still work.
 
 ### `tests/ecs.test.ts` — scene/entity lifecycle
 

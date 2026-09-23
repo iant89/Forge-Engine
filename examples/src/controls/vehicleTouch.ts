@@ -23,6 +23,26 @@ export interface VehicleTouchHandle {
 
 const DEADZONE = 0.14;
 
+/**
+ * iOS Safari selects / callouts the A/B labels on a long press and cancels the pointer capture,
+ * which drops throttle/brake mid-hold. CSS `user-select`/`touch-action` cover most of it; these
+ * listeners are the belt-and-braces for WebKit's selection gesture and the context menu.
+ */
+function suppressTouchChrome(el: HTMLElement | null): Array<[HTMLElement, string, EventListener]> {
+  if (!el) return [];
+  const block = (event: Event): void => {
+    event.preventDefault();
+  };
+  const pairs: Array<[string, EventListener]> = [
+    ["selectstart", block],
+    ["contextmenu", block],
+    // Non-passive touchstart is required for preventDefault to cancel iOS selection/callout.
+    ["touchstart", block],
+  ];
+  for (const [type, fn] of pairs) el.addEventListener(type, fn, { passive: false } as AddEventListenerOptions);
+  return pairs.map(([type, fn]) => [el, type, fn]);
+}
+
 /** Clamp a pointer offset to the stick and return axes in -1..1. Screen +Y is down. */
 export function stickDeflection(dx: number, dy: number, radius: number): { x: number; y: number; px: number; py: number } {
   if (!(radius > 0)) return { x: 0, y: 0, px: 0, py: 0 };
@@ -43,6 +63,12 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
   const knob = root?.querySelector<HTMLElement>("#veh-stick-knob") ?? null;
   const gas = root?.querySelector<HTMLElement>("#veh-gas") ?? null;
   const brake = root?.querySelector<HTMLElement>("#veh-brake") ?? null;
+
+  const listeners: Array<[HTMLElement, string, EventListener]> = [
+    ...suppressTouchChrome(stick),
+    ...suppressTouchChrome(gas),
+    ...suppressTouchChrome(brake),
+  ];
 
   let steer = 0;
   let stickThrottle = 0;
@@ -131,14 +157,14 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
     return pairs.map(([type, fn]) => [el, type, fn]);
   };
 
-  const listeners: Array<[HTMLElement, string, EventListener]> = [
+  listeners.push(
     ...hold(gas, (down) => {
       gasHeld = down;
     }),
     ...hold(brake, (down) => {
       brakeHeld = down;
     }),
-  ];
+  );
   if (stick) {
     const pairs: Array<[string, EventListener]> = [
       ["pointerdown", onStickDown as EventListener],
@@ -152,11 +178,13 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
     }
   }
   // Capture can fail on a browser that already gave the gesture to the page. A window-level up
-  // still recentres the knob if this was our pointer.
+  // still recentres the knob if this was our pointer. Guarded so unit tests in Node can bind the pad.
   const onWindowUp = (event: Event): void => endStick(event as PointerEvent);
-  window.addEventListener("pointerup", onWindowUp);
-  window.addEventListener("pointercancel", onWindowUp);
-  listeners.push([window as unknown as HTMLElement, "pointerup", onWindowUp], [window as unknown as HTMLElement, "pointercancel", onWindowUp]);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("pointerup", onWindowUp);
+    window.addEventListener("pointercancel", onWindowUp);
+    listeners.push([window as unknown as HTMLElement, "pointerup", onWindowUp], [window as unknown as HTMLElement, "pointercancel", onWindowUp]);
+  }
 
   return {
     sample(): VehicleTouchAxes {
