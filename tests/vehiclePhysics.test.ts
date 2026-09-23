@@ -755,4 +755,142 @@ describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
     expect(midZ[2]!).toBeCloseTo(startZ + frameDz, 4);
     world.dispose();
   });
+
+  it("no pose delta zeros stale kinematic linear/angular velocity (RigidBodyComponent)", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      PhysicsSystem,
+      Profiler,
+      Quat,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const world = new EntityWorld();
+    world.registerSystem(new PhysicsSystem({ gravity: { x: 0, y: 0, z: 0 } }));
+
+    const entity = world.createEntity("kin");
+    const transform = new Transform();
+    transform.setPosition(0, 1, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "kinematic";
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.5, 0.5, 0.5);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const makeCtx = () => ({
+      world,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    world.runSystems(makeCtx());
+    expect(rb.body).not.toBeNull();
+
+    // Moving frame writes non-zero chassis ω/v from pose-delta.
+    transform.setPosition(3, 1, 0);
+    transform.setRotation(new Quat().setAxisAngle({ x: 0, y: 1, z: 0 }, 0.3));
+    world.runSystems(makeCtx());
+    expect(rb.body!.linearVelocity.x).toBeCloseTo(3 / dt, 4);
+    expect(rb.body!.angularVelocity.y).toBeCloseTo(0.3 / dt, 2);
+
+    // Brake: Transform matches body — poseMoved/rotMoved false. Must clear stale velocities
+    // so SequentialImpulseSolver does not treat the parked body like a conveyor.
+    world.runSystems(makeCtx());
+    expect(rb.body!.linearVelocity.x).toBeCloseTo(0, 6);
+    expect(rb.body!.linearVelocity.y).toBeCloseTo(0, 6);
+    expect(rb.body!.linearVelocity.z).toBeCloseTo(0, 6);
+    expect(rb.body!.angularVelocity.x).toBeCloseTo(0, 6);
+    expect(rb.body!.angularVelocity.y).toBeCloseTo(0, 6);
+    expect(rb.body!.angularVelocity.z).toBeCloseTo(0, 6);
+    world.dispose();
+  });
+
+  it("no pose delta zeros stale VehicleComponent.chassisBody velocities", async () => {
+    const {
+      Clock,
+      EntityWorld,
+      Logger,
+      Profiler,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const backend = new ForgeJSPhysics({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1400, aero: null }));
+    vehicle.placeOnGround(ground);
+    vehicle.position.set(0, 1, 0);
+    vehicle.velocity.set(0, 0, 0);
+    const chassis = createVehicleChassis(vehicle, backend);
+
+    const world = new EntityWorld();
+    const physics = new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } });
+    world.registerSystem(physics);
+
+    const entity = world.createEntity("car");
+    const transform = new Transform();
+    transform.setPosition(0, 1, 0);
+    entity.add(transform);
+    const comp = new VehicleComponent(vehicle, ground);
+    comp.chassisBody = chassis;
+    entity.add(comp);
+
+    const dt = 1 / 60;
+    const makeCtx = () => ({
+      world,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    physics.update(makeCtx());
+    expect(chassis.position.z).toBeCloseTo(transform.position.z, 5);
+
+    // Drive: pose-delta writes non-zero chassis v/ω.
+    const frameDz = 2;
+    transform.setPosition(0, 1, frameDz);
+    expect(Math.abs(chassis.position.z - frameDz)).toBeGreaterThan(0.5);
+    physics.update(makeCtx());
+    expect(chassis.linearVelocity.z).toBeCloseTo(frameDz / dt, 4);
+    expect(Math.abs(chassis.linearVelocity.z)).toBeGreaterThan(1);
+
+    // Parked: Transform matches body. Inject stale ω/v as if from the last moving frame
+    // (post-captain A VehicleSystem no longer syncVehicleChassis-writes ~0).
+    chassis.linearVelocity.set(5, 0, -8);
+    chassis.angularVelocity.set(0.2, 1.1, -0.4);
+    physics.update(makeCtx());
+
+    expect(chassis.linearVelocity.x).toBeCloseTo(0, 6);
+    expect(chassis.linearVelocity.y).toBeCloseTo(0, 6);
+    expect(chassis.linearVelocity.z).toBeCloseTo(0, 6);
+    expect(chassis.angularVelocity.x).toBeCloseTo(0, 6);
+    expect(chassis.angularVelocity.y).toBeCloseTo(0, 6);
+    expect(chassis.angularVelocity.z).toBeCloseTo(0, 6);
+    world.dispose();
+  });
 });

@@ -255,10 +255,15 @@ export class PhysicsSystem extends FixedSystem {
       body.rotation.copyFrom(this.scratchTargetQ);
       body.updateAABB();
     } else {
+      // No pose delta this frame — clear stale kinematic velocities. After a moving frame,
+      // braking leaves Transform==body so poseMoved/rotMoved stay false; without syncVehicleChassis
+      // writing ~0, the last frame's ω/v would otherwise persist (invMass==0) and shove contacts.
       body.prevPosition.copyFrom(body.position);
       body.prevRotation.copyFrom(body.rotation);
       body.position.copyFrom(transform.position);
       body.rotation.copyFrom(transform.rotation);
+      body.linearVelocity.set(0, 0, 0);
+      body.angularVelocity.set(0, 0, 0);
       body.updateAABB();
     }
   }
