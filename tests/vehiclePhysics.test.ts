@@ -446,6 +446,49 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     ecs.dispose();
   });
 
+  it("attachChassis hot-swap removes prior body; detach removes only the current", async () => {
+    const {
+      EntityWorld,
+      Transform,
+      VehicleComponent,
+      createVehicleChassis,
+      createVehicleConfig,
+      Vehicle,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const backend = ForgeJSPhysics.wrap(shared);
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    const chassisA = createVehicleChassis(vehicle, backend);
+    const chassisB = createVehicleChassis(vehicle, backend);
+    expect(shared.bodies).toContain(chassisA);
+    expect(shared.bodies).toContain(chassisB);
+
+    const ecs = new EntityWorld();
+    const entity = ecs.createEntity("car");
+    entity.add(new Transform());
+    const comp = new VehicleComponent(vehicle, flatGround(0));
+    comp.attachChassis(chassisA, shared);
+    entity.add(comp);
+    expect(comp.chassisBody).toBe(chassisA);
+
+    // Hot-swap / respawn: prior kinematic must leave the world immediately.
+    comp.attachChassis(chassisB, shared);
+    expect(comp.chassisBody).toBe(chassisB);
+    expect(comp.chassisWorld).toBe(shared);
+    expect(shared.bodies).not.toContain(chassisA);
+    expect(shared.bodies).toContain(chassisB);
+
+    expect(entity.remove(VehicleComponent)).toBe(true);
+    expect(comp.chassisBody).toBeNull();
+    expect(comp.chassisWorld).toBeNull();
+    expect(shared.bodies).not.toContain(chassisB);
+    expect(shared.bodies).not.toContain(chassisA);
+
+    ecs.dispose();
+  });
+
   it("wrap/adopt backend clear() throws and does not wipe the shared world", () => {
     const world = new PhysicsWorld();
     world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 2 }));

@@ -40,9 +40,15 @@ export class VehicleComponent extends Component {
 
   /**
    * Shared-world recipe helper: assign the kinematic chassis and record its world so
-   * {@link onDetach} can remove it.
+   * {@link onDetach} can remove it. If a prior chassis/world pair is set and differs,
+   * removes the prior body from its world first (hot-swap / respawn — no ghost kinematic).
    */
   attachChassis(body: RigidBody, world: PhysicsWorld): void {
+    const priorBody = this.chassisBody;
+    const priorWorld = this.chassisWorld;
+    if (priorBody && priorWorld && (priorBody !== body || priorWorld !== world)) {
+      priorWorld.removeBody(priorBody);
+    }
     this.chassisBody = body;
     this.chassisWorld = world;
   }
