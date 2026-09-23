@@ -427,6 +427,8 @@ describe("particles — Phase 12 GPU system", () => {
       world.prepareFrame({
         viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
         cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
       });
       expect(world.system!.emitted).toBeGreaterThan(0);
       expect(scene.world.liveEntityCount).toBe(0);
@@ -513,6 +515,107 @@ describe("particles — Phase 12 GPU system", () => {
       graph.execute();
       const draws = gpu.mock.commandLog.filter((r) => r.type === "draw" && (r as { indirect?: boolean }).indirect);
       expect(draws.length).toBeGreaterThan(0);
+      expect(gpu.mock.errors).toEqual([]);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+
+  it("update invalidates render when GPU system is ready (dirty renderMode)", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 5, name: "invalidate" });
+      let invalidateCalls = 0;
+      const context = {
+        ...ctx(new EntityWorld()),
+        render: { invalidate: () => { invalidateCalls++; } },
+      } as SystemContext;
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(0);
+      await world.attachDevice(gpu);
+      expect(world.system?.ready).toBe(true);
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(1);
+      world.update(context, 1 / 60);
+      expect(invalidateCalls).toBe(2);
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("prepareFrame requires cameraRight/cameraUp basis (not viewProj columns)", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 2, name: "basis" });
+      await world.attachDevice(gpu);
+      // Distinct basis that would NOT match identity viewProj column extraction ([1,0,0]/[0,1,0]).
+      const cameraRight = { x: 0, y: 0, z: 1 };
+      const cameraUp = { x: 0, y: 1, z: 0 };
+      world.prepareFrame({
+        viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight,
+        cameraUp,
+      });
+      expect(world.system!.emitted).toBeGreaterThan(0);
+      // Type contract: cameraRight/cameraUp are required — covered by this call compiling.
+      world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("init latches render shader module before ensureRenderPipeline", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 1, maxEmitsPerFrame: 8 });
+      await system.init();
+      expect(system.ready).toBe(true);
+      const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap-render-latch",
+        size: { width: 16, height: 8 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth-render-latch",
+        size: { width: 16, height: 8 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (c) => {
+          c.beginRenderPass().end();
+        },
+      });
+      // Must not throw "render module missing" — module was assertShader'd in init.
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      graph.execute();
       expect(gpu.mock.errors).toEqual([]);
       swap.destroy();
       depth.destroy();

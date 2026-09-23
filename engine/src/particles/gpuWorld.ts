@@ -11,7 +11,6 @@ import type { SystemContext } from "../scene/systems.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { RenderGraph, RenderGraphHandle } from "../rendering/renderGraph.js";
 import { Mat4 } from "../math/mat.js";
-import { Vec3 } from "../math/vec.js";
 import { GpuParticleSystem, type GpuParticleSystemOptions } from "./gpuSystem.js";
 
 export interface GpuParticleWorldOptions extends GpuParticleSystemOptions {
@@ -23,8 +22,6 @@ export class GpuParticleWorld extends SceneObject {
   private readonly options: GpuParticleWorldOptions;
   private _system: GpuParticleSystem | null = null;
   private gpu: GraphicsDevice | null = null;
-  private readonly scratchRight = new Vec3();
-  private readonly scratchUp = new Vec3();
   private lastDt = 1 / 60;
   /** Latched when init throws; stops per-frame attachDevice from dispose/recreate forever. */
   private initFailed = false;
@@ -84,8 +81,12 @@ export class GpuParticleWorld extends SceneObject {
     this.initFailed = false;
   }
 
-  override update(_context: SystemContext, dt: number): void {
+  override update(context: SystemContext, dt: number): void {
     this.lastDt = dt > 0 ? dt : this.lastDt;
+    // GPU emit/sim/cull/render only run inside renderer.renderScene. Under Engine renderMode
+    // "dirty", finishFrame clears invalidated after the first draw; a static camera then skips
+    // render forever and particle.sim stalls. Keep continuous GPU particle scenes ticking.
+    if (this._system?.ready) context.render?.invalidate();
   }
 
   /**
@@ -96,22 +97,21 @@ export class GpuParticleWorld extends SceneObject {
     dt?: number;
     viewProj: Float32Array | number[] | Mat4;
     cameraPos: { x: number; y: number; z: number };
-    cameraRight?: { x: number; y: number; z: number };
-    cameraUp?: { x: number; y: number; z: number };
+    /** Camera world-space right axis (from camera world/view, not viewProj columns). */
+    cameraRight: { x: number; y: number; z: number };
+    /** Camera world-space up axis (from camera world/view, not viewProj columns). */
+    cameraUp: { x: number; y: number; z: number };
   }): void {
     const system = this._system;
     if (!system?.ready) return;
     const vp = input.viewProj instanceof Mat4 ? input.viewProj.elements() : (input.viewProj as Float32Array);
-    const right =
-      input.cameraRight ??
-      this.scratchRight.set(vp[0]!, vp[4]!, vp[8]!).normalize();
-    const up = input.cameraUp ?? this.scratchUp.set(vp[1]!, vp[5]!, vp[9]!).normalize();
+    // Require explicit basis: viewProj columns are not camera axes under perspective.
     system.prepare({
       dt: input.dt ?? this.lastDt,
       viewProj: vp,
       cameraPos: input.cameraPos,
-      cameraRight: right,
-      cameraUp: up,
+      cameraRight: input.cameraRight,
+      cameraUp: input.cameraUp,
     });
   }
 

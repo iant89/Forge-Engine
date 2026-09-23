@@ -154,6 +154,8 @@ export class GpuParticleSystem {
   private renderPipeline: GPURenderPipeline | null = null;
   private renderPipelineFormat: GPUTextureFormat | null = null;
   private renderDepthFormat: GPUTextureFormat | null = null;
+  /** Render WGSL module, created + latched in init (same assertShader path as compute). */
+  private renderModule: GPUShaderModule | null = null;
 
   private emitLayout: GPUBindGroupLayout | null = null;
   private simLayout: GPUBindGroupLayout | null = null;
@@ -295,7 +297,15 @@ export class GpuParticleSystem {
     const simMod = d.createShaderModule({ label: "gpuParticles.fullSim", code: PARTICLE_FULL_SIM_SHADER });
     const cullMod = d.createShaderModule({ label: "gpuParticles.cull", code: PARTICLE_CULL_SHADER });
     const resolveMod = d.createShaderModule({ label: "gpuParticles.resolve", code: PARTICLE_RESOLVE_SHADER });
-    await Promise.all([this.assertShader(emitMod), this.assertShader(simMod), this.assertShader(cullMod), this.assertShader(resolveMod)]);
+    const renderMod = d.createShaderModule({ label: "gpuParticles.render", code: PARTICLE_RENDER_SHADER });
+    await Promise.all([
+      this.assertShader(emitMod),
+      this.assertShader(simMod),
+      this.assertShader(cullMod),
+      this.assertShader(resolveMod),
+      this.assertShader(renderMod),
+    ]);
+    this.renderModule = renderMod;
 
     this.emitPipeline = d.createComputePipeline({
       label: "gpuParticles.emit",
@@ -336,7 +346,10 @@ export class GpuParticleSystem {
       return this.renderPipeline;
     }
     const d = this.device;
-    const mod = d.createShaderModule({ label: "gpuParticles.render", code: PARTICLE_RENDER_SHADER });
+    const mod = this.renderModule;
+    if (!mod) {
+      throw new Error("gpuParticles.render module missing; call init() before enqueue");
+    }
     this.renderPipeline = d.createRenderPipeline({
       label: "gpuParticles.render",
       layout: d.createPipelineLayout({ bindGroupLayouts: [this.renderLayout!] }),
