@@ -479,7 +479,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "PhysicsBackend interface with ForgeJSPhysics (create or adopt/share a PhysicsWorld) and ForgeWasmPhysics stub; PhysicsSystem can adopt the same world",
     evidence: ["tests/vehiclePhysics.test.ts", "engine/src/physics/backend.ts", "engine/src/physics/system.ts"],
-    notes: "Default is single-owner; pass world/backend or ForgeJSPhysics.wrap to share. Pairing Vehicle + ECS without sharing creates two worlds (docs/VEHICLES.md, docs/KNOWN-ISSUES.md)",
+    notes: "Default is single-owner; pass world/backend or ForgeJSPhysics.wrap to share. Pairing Vehicle + ECS without sharing creates two worlds (docs/VEHICLES.md)",
   },
   {
     id: "physics.spatialIndex",
