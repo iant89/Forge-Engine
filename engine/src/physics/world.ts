@@ -145,6 +145,20 @@ export class PhysicsWorld {
     }
   }
 
+  /**
+   * Run exactly one solver step with timestep `dt` (defaults to {@link fixedDt}).
+   * Does **not** use the variable-dt accumulator — callers that already own a fixed
+   * clock (e.g. {@link PhysicsSystem} via `context.fixedDt`) get one step per call,
+   * never 0/N from leftover accumulator state. Render poses snap to the post-step pose.
+   */
+  stepOnce(dt: number = this.fixedDt): void {
+    this.fixedStep(dt);
+    // ECS / deterministic callers have no leftover frame alpha — snap render = sim.
+    for (const body of this.bodies) {
+      body.interpolate(1);
+    }
+  }
+
   private fixedStep(dt: number): void {
     const n = this.bodies.length;
 

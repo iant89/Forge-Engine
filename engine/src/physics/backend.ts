@@ -101,7 +101,16 @@ export class ForgeJSPhysics implements PhysicsBackend {
     return this.world.raycast(ray, hit, filter);
   }
 
+  /**
+   * Clear all bodies. Throws when this backend adopted the world (`ownsWorld === false`)
+   * so a shared Vehicle/ECS world cannot be silently wiped by the non-owner.
+   */
   clear(): void {
+    if (!this.ownsWorld) {
+      throw new Error(
+        "ForgeJSPhysics.clear() refused: world is adopted (ownsWorld=false); clearing would wipe a shared PhysicsWorld",
+      );
+    }
     this.world.clear();
   }
 

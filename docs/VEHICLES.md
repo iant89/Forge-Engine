@@ -112,7 +112,13 @@ chassis on the vehicle backend is invisible to ECS rigid bodies, and vice versa.
 To share one world:
 
 ```ts
-import { ForgeJSPhysics, PhysicsSystem, createVehicleChassis } from "@forge/engine";
+import {
+  ForgeJSPhysics,
+  PhysicsSystem,
+  VehicleComponent,
+  createVehicleChassis,
+  syncVehicleChassis,
+} from "@forge/engine";
 
 const backend = new ForgeJSPhysics(); // owns the world
 // or: const backend = ForgeJSPhysics.wrap(existingWorld);
@@ -122,7 +128,14 @@ scene.world.registerSystem(new PhysicsSystem({ world: backend.world }));
 
 backend.setHeightfield(shape);
 const chassis = createVehicleChassis(vehicle, backend);
+// Assign so VehicleSystem syncs the kinematic collider after each vehicle step.
+// Without this (or a manual syncVehicleChassis each step), props collide with a
+// ghost at the spawn pose while the car has already driven away.
+vehicleComponent.chassisBody = chassis;
 // chassis + heightfield are visible to PhysicsSystem.world (same identity)
+
+// each fixed step (VehicleSystem does this when chassisBody is set):
+//   syncVehicleChassis(vehicle, chassis);
 ```
 
 Rules of thumb:
@@ -130,8 +143,13 @@ Rules of thumb:
 - Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
 - Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`.
 - When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
-  both the backend and the system double-integrates.
+  both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
+  so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
+- Assign `VehicleComponent.chassisBody` (or call `syncVehicleChassis` yourself every step) after
+  `createVehicleChassis` so prop↔vehicle contact tracks the live pose.
 - `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`).
+- `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
+  silently wiped by a non-owner.
 
 ## Limitations
 

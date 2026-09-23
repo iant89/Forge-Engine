@@ -12,6 +12,8 @@ import {
   PhysicsWorld,
   RigidBody,
   Vehicle,
+  VehicleComponent,
+  VehicleSystem,
   assertTerrainAgreement,
   createPhysicsBackend,
   createVehicleChassis,
@@ -106,6 +108,49 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     system.dispose();
     expect(backend.queryHeight(0, 0)).toBe(1);
     expect(backend.world.getHeightfield()).not.toBeNull();
+  });
+
+  it("wrap/adopt backend clear() throws and does not wipe the shared world", () => {
+    const world = new PhysicsWorld();
+    world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 2 }));
+    const body = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(0.2, 0.2, 0.2),
+      mass: 1,
+      position: { x: 0, y: 1, z: 0 },
+    });
+    world.addBody(body);
+    const wrapped = ForgeJSPhysics.wrap(world);
+    expect(wrapped.ownsWorld).toBe(false);
+    expect(() => wrapped.clear()).toThrow(/ownsWorld=false|adopted/i);
+    expect(world.getHeightfield()).not.toBeNull();
+    expect(world.bodies).toContain(body);
+    expect(wrapped.queryHeight(0, 0)).toBe(2);
+  });
+
+  it("adopted world: exactly one solver step per ECS fixedStep (ignores accumulator)", () => {
+    const shared = new PhysicsWorld({ fixedDt: 1 / 60 });
+    // Leftover accumulator that would make world.step(fixedDt) run TWO fixed steps.
+    shared.accumulator = shared.fixedDt * 0.99;
+    const system = new PhysicsSystem({ world: shared });
+    expect(system.ownsWorld).toBe(false);
+
+    const before = shared.stepCount;
+    // Drive PhysicsSystem through one ECS fixed step without needing entities.
+    const fakeCtx = {
+      world: { query: () => ({ refresh() {}, count: 0, entity: () => 0, value: () => null }) },
+      fixedDt: 1 / 60,
+      fixedSteps: 1,
+    } as any;
+    system.fixedStep(fakeCtx, 0);
+    expect(shared.stepCount).toBe(before + 1);
+
+    // Again with accumulator that would yield ZERO steps under world.step(eps).
+    shared.accumulator = 0;
+    const before2 = shared.stepCount;
+    system.fixedStep({ ...fakeCtx, fixedDt: shared.fixedDt * 0.25 }, 0);
+    // stepOnce still advances exactly once even when dt != world.fixedDt.
+    expect(shared.stepCount).toBe(before2 + 1);
   });
 });
 
@@ -202,6 +247,79 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     expect(chassis.angularVelocity.x).toBeCloseTo(-2, 5);
     expect(Math.abs(chassis.angularVelocity.y)).toBeLessThan(1e-6);
     expect(Math.abs(chassis.angularVelocity.z)).toBeLessThan(1e-6);
+  });
+
+  it("VehicleComponent.chassisBody syncs each step — prop contact uses live pose, not spawn ghost", async () => {
+    const {
+      Clock,
+      EntityWorld,
+      Logger,
+      Profiler,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const backend = new ForgeJSPhysics({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1400, aero: null }));
+    vehicle.placeOnGround(ground);
+    vehicle.position.set(0, 1, 0);
+    const chassis = createVehicleChassis(vehicle, backend);
+    // Leave chassis at spawn; move the vehicle without syncing — classic ghost pose.
+    vehicle.position.set(0, 1, 6);
+    vehicle.velocity.set(0, 0, 0);
+    expect(chassis.position.z).toBeCloseTo(0, 5);
+
+    const world = new EntityWorld();
+    world.registerSystem(new VehicleSystem());
+
+    const entity = world.createEntity("car");
+    const transform = new Transform();
+    transform.setPosition(vehicle.position.x, vehicle.position.y, vehicle.position.z);
+    entity.add(transform);
+    const comp = new VehicleComponent(vehicle, ground);
+    comp.chassisBody = chassis; // recipe: assign after createVehicleChassis
+    entity.add(comp);
+
+    // Prop aimed at the LIVE pose (z≈6), not the spawn ghost (z≈0).
+    const prop = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(0.3, 0.3, 0.3),
+      mass: 40,
+      position: { x: 0, y: 1, z: 9 },
+      linearVelocity: { x: 0, y: 0, z: -14 },
+      restitution: 0.4,
+      friction: 0.2,
+    });
+    backend.addBody(prop);
+
+    const makeCtx = (fixedSteps = 1) => ({
+      world,
+      clock: new Clock(),
+      dt: 1 / 60,
+      fixedDt: 1 / 60,
+      fixedSteps,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    const vz0 = prop.linearVelocity.z;
+    for (let i = 0; i < 90; i++) {
+      // VehicleSystem syncs chassisBody each fixed step; one solver step on the shared world.
+      world.runSystems(makeCtx(1));
+      backend.world.stepOnce(1 / 60);
+    }
+    // Chassis must have been synced off the spawn ghost.
+    expect(chassis.position.z).toBeGreaterThan(4);
+    // Prop should have bounced off the live chassis (not sailed through past a ghost at origin).
+    expect(prop.linearVelocity.z).toBeGreaterThan(vz0);
+    expect(prop.linearVelocity.z).not.toBeCloseTo(vz0, 1);
+    world.dispose();
   });
 });
 
@@ -481,6 +599,69 @@ describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
 
     expect(rb.body!.linearVelocity.x).toBeCloseTo(3 / dt, 4);
     expect(rb.body!.angularVelocity.y).toBeCloseTo(0.3 / dt, 2);
+    world.dispose();
+  });
+
+  it("fixedSteps>1: kinematic pose-delta velocities are per-substep (not ~fixedSteps too high)", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      PhysicsSystem,
+      Profiler,
+      Quat,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const world = new EntityWorld();
+    world.registerSystem(new PhysicsSystem({ gravity: { x: 0, y: 0, z: 0 } }));
+
+    const entity = world.createEntity("kin");
+    const transform = new Transform();
+    transform.setPosition(0, 1, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "kinematic";
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.5, 0.5, 0.5);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const makeCtx = (fixedSteps = 1) => ({
+      world,
+      clock: new Clock(),
+      dt: dt * fixedSteps,
+      fixedDt: dt,
+      fixedSteps,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    world.runSystems(makeCtx(1));
+    expect(rb.body).not.toBeNull();
+
+    // Transform jumps by the full frame delta before PhysicsSystem runs all substeps
+    // (same pattern as VehicleSystem completing its fixedSteps first).
+    const steps = 3;
+    const frameDx = 3;
+    transform.setPosition(frameDx, 1, 0);
+    transform.setRotation(new Quat().setAxisAngle({ x: 0, y: 1, z: 0 }, 0.3));
+    world.runSystems(makeCtx(steps));
+
+    // Velocity must be frameDelta / (fixedSteps * fixedDt), not frameDelta / fixedDt.
+    expect(rb.body!.linearVelocity.x).toBeCloseTo(frameDx / (steps * dt), 4);
+    expect(rb.body!.linearVelocity.x).toBeLessThan((frameDx / dt) * 0.5);
+    expect(rb.body!.angularVelocity.y).toBeCloseTo(0.3 / (steps * dt), 2);
+    expect(rb.body!.position.x).toBeCloseTo(frameDx, 5);
     world.dispose();
   });
 });
