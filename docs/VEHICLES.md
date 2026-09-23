@@ -1,9 +1,10 @@
-# Vehicles (Phase 6)
+# Vehicles (Phase 6 / 11)
 
-A raycast car: four wheels sample a heightfield, a spring/damper holds each one, and a Pacejka tire
-turns the slip at that contact into a force. It is not a rigid body in the Phase 5 solver. The
-chassis is a point mass plus a yaw inertia; pitch and roll are kinematic, taken from the ground
-under the two axles, and are not integrated.
+A raycast car: four wheels sample a `GroundQuery` (preferably a physics-backed heightfield /
+raycast query — Phase 11), a spring/damper holds each one, and a Pacejka tire turns the slip at that
+contact into a force. The chassis is a point mass plus yaw/pitch/roll inertias; pitch and roll
+integrate from suspension and tire torques. An optional kinematic chassis box in the physics world
+lets props collide with the car.
 
 ## Demo
 
@@ -37,8 +38,10 @@ The scene `update` writes `vehicle.input` and does not step. A second step would
    (`ω = vLong / radius`, κ = 0).
 3. Lateral force is Pacejka in slip angle, combined with the longitudinal force under a friction
    circle of `μ · normalLoad`.
-4. The chassis integrates the summed forces. Yaw comes from the moment about the centre of mass.
-   Pitch and roll are rewritten from the axle heights; they are not a second integrator.
+4. The chassis integrates the summed forces. Yaw, pitch and roll come from moments about the
+   centre of mass (suspension support and tire forces). While three or more wheels plant, a soft
+   spring also tracks the geometric axle orientation so a parked car settles; airborne wheels keep
+   their angular rates.
 
 While a gear is engaged, reported RPM follows the driven wheels, but it does not stall below idle:
 the crank holds `idleRpm` until wheel speed exceeds it (torque-converter slip). Neutral integrates
@@ -49,9 +52,10 @@ differential (`open`, `locked`, or `lsd`). Layout is `fwd`, `rwd`, or `awd`. Aer
 plus a lift coefficient; pass `aero: null` to turn it off. Reverse is a ratio (`gear = -1`); nothing
 selects it automatically, and the playground has no reverse key.
 
-Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`, or any
-`sample(x, z, out)`). That is the terrain contact. It is not a triangle mesh query against the
-Phase 4 chunks.
+Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`,
+`physicsGroundQuery`, `physicsRaycastGroundQuery`, or any `sample(x, z, out)`). Phase 11 expects
+the vehicle query and the physics heightfield collider to share one sampler so visual terrain,
+collision, and wheel contact agree.
 
 ## Using it
 
@@ -97,10 +101,13 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 
 ## Limitations
 
-- No collision with meshes, props, or other vehicles. Only the ground query.
-- Not in the Phase 5 contact solver. A car and a stack of boxes do not interact.
-- Pitch and roll do not carry angular momentum. A sharp kink in the heightfield snaps the pose to
-  the axles; it does not launch the chassis as a rigid body would.
+- Wheel contact is a physics heightfield / raycast query, not a triangle mesh against Phase 4 chunks.
+- The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
+  sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
+- Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels
+  settle on slopes. Extreme heightfield kinks can still excite that spring.
 - Wheel visuals are boxes. There is no tyre mesh, no suspension-arm skinning, and no steering wheel.
 - Reverse and neutral are set on `transmission.gear`. The automatic only shifts among forward gears.
-- The playground ramp is a visual plane posed to match the query. If you move the kink, move both.
+- The playground ramp is a visual plane posed to match the query. If you move the kink, move both —
+  or register one `HeightfieldShape` on the physics backend and use `physicsGroundQuery`.
+- Telemetry: call `vehicle.telemetry()` for wheel load, travel, slip, tire force, RPM, gear, ω, contact.

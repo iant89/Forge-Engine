@@ -46,12 +46,11 @@ be verified, plus the index that now exists but is not used.
   demos still attach a single `Material`. A multi-texture splat path and world/demo integration are
   still open under 10.8. (capability: terrain.materialLayering)
 
-## Vehicles (Phase 6)
+## Vehicles (Phase 6 / 11)
 
-* **Ground contact is a height query, not the physics world.** The car does not collide with meshes,
-  props, terrain triangles, or Phase 5 rigid bodies. `docs/VEHICLES.md`. (capability: vehicles.physicsIntegration)
-* **Pitch and roll are kinematic.** They are rewritten from the axle heights each substep. A kink in
-  the heightfield snaps the pose; it does not conserve angular momentum. (capability: vehicles.orientation)
+Phase 11 connected the raycast car to the physics heightfield and a kinematic chassis collider.
+What remains:
+
 * **Longitudinal slip is solved, not freely integrated, while the tire can balance the demand.**
   Past the peak, and only when TC/ABS are not clamping, the residual torque spins the wheel. Do not
   expect a stable explicit-Euler wheel at 120 Hz — that path limit-cycles, which is why it was removed. (capability: vehicles.tireModel)
@@ -59,6 +58,8 @@ be verified, plus the index that now exists but is not used.
   the yaw, no suspension-arm skinning. (capability: vehicles.wheelVisuals)
 * **Reverse is a ratio, not a control.** Set `transmission.gear = -1`. The automatic only shifts
   forward gears, and the playground has no reverse key. (capability: vehicles.transmission)
+* **No continuous collision detection.** High-speed impacts use discrete contacts; tunneling a thin
+  prop at extreme speed is still possible. (capability: physics.ccd)
 
 ## Particles (Phase 7)
 

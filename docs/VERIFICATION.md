@@ -30,7 +30,7 @@ without changing anything.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 334 tests in 30 files: `environment` (28), `environment8b` (28), `math` (27), `tasks` (27), `orbitControls` (16), `vehicles` (17), `renderGraph` (14), `resources` (14), `particles` (14), `ecs` (13), `realisticTerrain` (11), `physics` (10), `capabilities` (9), `frame` (9), `wgsl` (9), `skyTouch` (8), `weatherTouch` (8), `vehicleTouch` (4), `toolbarMenu` (4), `terrain` (9), `gpuEnv` (8), `coordinateSpaces` (7), `shadows` (7), `architecture` (6), `bvh` (6), `rendering` (6), `gpuMemory` (5), `pipeline` (4), `demoSceneSelection` (4), `primitives` (2) — see the per-suite notes below | passing |
+| `npm test` | 349+ tests in 31 files (adds `vehiclePhysics` Phase 11): prior suites plus `vehiclePhysics` (15) covering backend, heightfield agreement, chassis/prop collision, orientation, stress cases, telemetry — see the per-suite notes below | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -210,6 +210,15 @@ dimensions, so "no errors" is a statement about the command stream, not just abo
 Draw calls issued, `lookAt` reaches the frame (view faces the target, sun direction points at it),
 projection aspect derives from the surface, empty scenes clear without errors, frustum culling,
 debug lines, and zero leaked GPU buffers/textures on disposal.
+
+### `tests/vehiclePhysics.test.ts` — Phase 11 physics / vehicle integration
+
+Pins the Phase 11 exit criteria: `PhysicsBackend` / `ForgeJSPhysics` / `ForgeWasmPhysics` stub;
+heightfield registered on the world; visual = collision = vehicle contact samples; kinematic
+chassis collides with dynamic props; pitch/roll carry angular rates and settle on slopes; wheel
+contact via physics raycast/heightfield queries; crater/bump/side-slope/jump/unload/impact/rollover
+stress cases stay finite; `vehicle.telemetry()` exposes load, travel, slip, tire force, RPM, gear,
+ω, contact.
 
 ### `tests/vehicles.test.ts` — the raycast car
 
