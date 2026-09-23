@@ -227,6 +227,143 @@ describe("Captain C — shared / adopted PhysicsWorld", () => {
     ecs.dispose();
   });
 
+  it("dispose nulls RigidBodyComponent.body so a new PhysicsSystem re-adds on shared world", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      Profiler,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const ecs = new EntityWorld();
+    const first = new PhysicsSystem({ world: shared });
+    const firstReg = ecs.registerSystem(first);
+
+    const entity = ecs.createEntity("prop");
+    const transform = new Transform();
+    transform.setPosition(0, 2, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "dynamic";
+    rb.mass = 1;
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.25, 0.25, 0.25);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const ctx = {
+      world: ecs,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    };
+    ecs.runSystems(ctx);
+    expect(rb.body).not.toBeNull();
+    const firstBody = rb.body!;
+    expect(shared.bodies).toContain(firstBody);
+
+    // Hot-swap: dispose removes collider and clears the component handle; unregister so a
+    // replacement PhysicsSystem can register under the same system name.
+    first.dispose();
+    firstReg.dispose();
+    expect(shared.bodies).not.toContain(firstBody);
+    expect(rb.body).toBeNull();
+
+    // Replacement system must re-add (not skip because of a stale non-null body).
+    const second = new PhysicsSystem({ world: shared });
+    ecs.registerSystem(second);
+    ecs.runSystems({ ...ctx, frame: 2 });
+    expect(rb.body).not.toBeNull();
+    expect(rb.body).not.toBe(firstBody);
+    expect(shared.bodies).toContain(rb.body!);
+    expect(shared.bodies).not.toContain(firstBody);
+
+    second.dispose();
+    ecs.dispose();
+  });
+
+  it("destroyEntity removes system-spawned body from shared world immediately", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      Profiler,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const shared = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const external = new RigidBody({
+      type: "static",
+      shape: new BoxShape(0.3, 0.3, 0.3),
+      position: { x: 5, y: 0, z: 0 },
+    });
+    shared.addBody(external);
+
+    const ecs = new EntityWorld();
+    const physics = new PhysicsSystem({ world: shared });
+    ecs.registerSystem(physics);
+
+    const entity = ecs.createEntity("prop");
+    const transform = new Transform();
+    transform.setPosition(0, 2, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "dynamic";
+    rb.mass = 1;
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.25, 0.25, 0.25);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const ctx = {
+      world: ecs,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    };
+    ecs.runSystems(ctx);
+    expect(rb.body).not.toBeNull();
+    const spawned = rb.body!;
+    expect(shared.bodies).toContain(spawned);
+    expect(shared.bodies).toContain(external);
+
+    // Despawn must drop the collider now — not leave a ghost until PhysicsSystem.dispose().
+    const removed = ecs.destroyEntity(entity.id);
+    expect(removed).toBe(true);
+    expect(rb.body).toBeNull();
+    expect(shared.bodies).not.toContain(spawned);
+    expect(shared.bodies).toContain(external);
+
+    physics.dispose();
+    ecs.dispose();
+  });
+
   it("wrap/adopt backend clear() throws and does not wipe the shared world", () => {
     const world = new PhysicsWorld();
     world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 2 }));

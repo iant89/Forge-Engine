@@ -74,11 +74,14 @@ export class PhysicsSystem extends FixedSystem {
   private readonly kinematicPlans = new Map<number, KinematicPlan>();
   /**
    * Bodies this system created for {@link RigidBodyComponent} entities via {@link PhysicsWorld.addBody}.
-   * Removed on {@link dispose} even when {@link ownsWorld} is false so a shared long-lived backend
-   * does not keep ghost colliders after a scene reload. Does not include chassisBody / manually
-   * owned bodies the system did not spawn.
+   * Keyed by component so {@link dispose} can null `body` (allowing a replacement PhysicsSystem to
+   * re-add) and so detach can drop tracking. Removed on dispose / detach even when
+   * {@link ownsWorld} is false so a shared long-lived backend does not keep ghost colliders.
+   * Does not include chassisBody / manually owned bodies the system did not spawn.
    */
-  private readonly spawnedBodies = new Set<RigidBody>();
+  private readonly spawnedBodies = new Map<RigidBodyComponent, RigidBody>();
+  /** Reused across substeps — cleared each fixedStep (avoids `new Set` when fixedSteps>1). */
+  private readonly drivenIds = new Set<number>();
 
   constructor(options: PhysicsSystemOptions = {}) {
     super();
@@ -127,7 +130,10 @@ export class PhysicsSystem extends FixedSystem {
 
         this.world.addBody(body);
         rbComp.body = body;
-        this.spawnedBodies.add(body);
+        this.spawnedBodies.set(rbComp, body);
+        // Shared-world despawn: removeBody + untrack as soon as the component detaches
+        // (destroyEntity / removeComponent), not only on PhysicsSystem.dispose().
+        rbComp.onPhysicsDetach = () => this.releaseSpawned(rbComp, body);
       }
     }
 
@@ -144,7 +150,8 @@ export class PhysicsSystem extends FixedSystem {
     const frameDt = fixedDt * fixedSteps;
     const invFrameDt = frameDt > 1e-12 ? 1 / frameDt : 0;
 
-    const drivenIds = new Set<number>();
+    const drivenIds = this.drivenIds;
+    drivenIds.clear();
     for (let i = 0; i < q.count; i++) {
       const rbComp = q.value(0, i) as RigidBodyComponent;
       const transform = q.value(1, i) as Transform;
@@ -304,12 +311,34 @@ export class PhysicsSystem extends FixedSystem {
     }
   }
 
+  /**
+   * Drop a system-spawned body from the physics world and tracking.
+   * Used by the RigidBodyComponent.onPhysicsDetach hook and by {@link dispose}.
+   */
+  private releaseSpawned(rbComp: RigidBodyComponent, body: RigidBody): void {
+    if (this.spawnedBodies.get(rbComp) === body) {
+      this.spawnedBodies.delete(rbComp);
+      this.world.removeBody(body);
+    }
+    if (rbComp.onPhysicsDetach) {
+      rbComp.onPhysicsDetach = null;
+    }
+    if (rbComp.body === body) {
+      rbComp.body = null;
+    }
+  }
+
   override dispose(): void {
     // Always remove bodies this system spawned for RigidBodyComponents — even on a shared world —
-    // so scene reload does not leave ghost colliders. Do not remove chassisBody / manually owned
-    // bodies that were never added to spawnedBodies.
-    for (const body of this.spawnedBodies) {
+    // so scene reload does not leave ghost colliders. Also null RigidBodyComponent.body so a
+    // replacement PhysicsSystem's `if (!rbComp.body)` path re-adds after hot-swap. Do not remove
+    // chassisBody / manually owned bodies that were never added to spawnedBodies.
+    for (const [rbComp, body] of this.spawnedBodies) {
       this.world.removeBody(body);
+      rbComp.onPhysicsDetach = null;
+      if (rbComp.body === body) {
+        rbComp.body = null;
+      }
     }
     this.spawnedBodies.clear();
     // Only clear the whole world when we own it — shared worlds are managed by the adopter/owner.

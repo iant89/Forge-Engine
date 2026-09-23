@@ -161,9 +161,13 @@ Rules of thumb:
   one-to-one `vehicle.step` / `world.step` loops outside ECS.)
 - `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`). Even
   when `ownsWorld === false`, it still **removes bodies it spawned** for `RigidBodyComponent`
-  entities (so shared backends do not keep ghost colliders after a scene reload). It does not
-  remove bodies it did not create (e.g. `VehicleComponent.chassisBody` / manually `addBody`'d
-  props).
+  entities (so shared backends do not keep ghost colliders after a scene reload) and **nulls**
+  those components' `body` handles so a replacement `PhysicsSystem` re-adds on the next fixed
+  step. It does not remove bodies it did not create (e.g. `VehicleComponent.chassisBody` /
+  manually `addBody`'d props).
+- Despawning a prop (`destroyEntity` / `removeComponent(RigidBodyComponent)`) removes the
+  system-spawned body from the shared `PhysicsWorld` immediately via the component detach hook
+  — ghosts do not linger until `PhysicsSystem.dispose()`.
 - `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
   silently wiped by a non-owner.
 
