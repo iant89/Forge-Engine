@@ -17,7 +17,9 @@ export class VehicleComponent extends Component {
   ground: GroundQuery;
   /**
    * Optional kinematic chassis collider in the physics world (Phase 11.3).
-   * When set, {@link VehicleSystem} syncs it after each vehicle step so props can collide.
+   * When set (shared-world recipe with PhysicsSystem), the collider is driven by
+   * PhysicsSystem's Transform pose-delta path — not snapped each {@link VehicleSystem} step —
+   * so hitch frames (`fixedSteps>1`) distribute mid-frame contact correctly.
    */
   chassisBody: RigidBody | null = null;
 

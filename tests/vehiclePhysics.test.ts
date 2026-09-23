@@ -249,7 +249,7 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     expect(Math.abs(chassis.angularVelocity.z)).toBeLessThan(1e-6);
   });
 
-  it("VehicleComponent.chassisBody syncs each step — prop contact uses live pose, not spawn ghost", async () => {
+  it("VehicleComponent.chassisBody + PhysicsSystem — prop contact uses live pose, not spawn ghost", async () => {
     const {
       Clock,
       EntityWorld,
@@ -272,6 +272,8 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
 
     const world = new EntityWorld();
     world.registerSystem(new VehicleSystem());
+    // Documented recipe: shared world — PhysicsSystem drives chassisBody via pose-delta.
+    world.registerSystem(new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } }));
 
     const entity = world.createEntity("car");
     const transform = new Transform();
@@ -310,11 +312,10 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
 
     const vz0 = prop.linearVelocity.z;
     for (let i = 0; i < 90; i++) {
-      // VehicleSystem syncs chassisBody each fixed step; one solver step on the shared world.
+      // VehicleSystem writes Transform; PhysicsSystem pose-delta + stepOnce on the shared world.
       world.runSystems(makeCtx(1));
-      backend.world.stepOnce(1 / 60);
     }
-    // Chassis must have been synced off the spawn ghost.
+    // Chassis must have been driven off the spawn ghost.
     expect(chassis.position.z).toBeGreaterThan(4);
     // Prop should have bounced off the live chassis (not sailed through past a ghost at origin).
     expect(prop.linearVelocity.z).toBeGreaterThan(vz0);
@@ -662,6 +663,96 @@ describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
     expect(rb.body!.linearVelocity.x).toBeLessThan((frameDx / dt) * 0.5);
     expect(rb.body!.angularVelocity.y).toBeCloseTo(0.3 / (steps * dt), 2);
     expect(rb.body!.position.x).toBeCloseTo(frameDx, 5);
+    world.dispose();
+  });
+
+  it("fixedSteps>1: VehicleComponent.chassisBody uses pose-delta (not parked at end pose/ω)", async () => {
+    const {
+      Clock,
+      EntityWorld,
+      Logger,
+      Profiler,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const backend = new ForgeJSPhysics({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1400, aero: null }));
+    vehicle.placeOnGround(ground);
+    vehicle.position.set(0, 1, 0);
+    vehicle.velocity.set(0, 0, 0);
+    const chassis = createVehicleChassis(vehicle, backend);
+    const startZ = chassis.position.z;
+
+    const world = new EntityWorld();
+    world.registerSystem(new VehicleSystem());
+    const physics = new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } });
+    world.registerSystem(physics);
+
+    const entity = world.createEntity("car");
+    const transform = new Transform();
+    transform.setPosition(0, 1, 0);
+    entity.add(transform);
+    const comp = new VehicleComponent(vehicle, ground);
+    comp.chassisBody = chassis;
+    entity.add(comp);
+
+    const dt = 1 / 60;
+    const makeCtx = (fixedSteps = 1) => ({
+      world,
+      clock: new Clock(),
+      dt: dt * fixedSteps,
+      fixedDt: dt,
+      fixedSteps,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    // Steady frame so Transform/chassis agree at the start pose.
+    world.runSystems(makeCtx(1));
+    expect(chassis.position.z).toBeCloseTo(transform.position.z, 5);
+
+    // Hitch pattern: VehicleSystem has already written Transform to the end pose while
+    // chassisBody still sits at the start. PhysicsSystem must distribute start→end across
+    // its substeps — not contact a parked end pose every step.
+    const steps = 3;
+    const frameDz = 3;
+    vehicle.position.set(0, 1, frameDz);
+    vehicle.velocity.set(0, 0, frameDz / (steps * dt));
+    transform.setPosition(0, 1, frameDz);
+
+    chassis.position.set(0, 1, startZ);
+    chassis.linearVelocity.set(0, 0, 0);
+    chassis.angularVelocity.set(0, 0, 0);
+    chassis.updateAABB();
+    expect(chassis.position.z).toBeCloseTo(startZ, 5);
+
+    const ctx = makeCtx(steps);
+    physics.update(ctx);
+
+    expect(chassis.position.z).toBeCloseTo(frameDz, 4);
+    expect(chassis.linearVelocity.z).toBeCloseTo(frameDz / (steps * dt), 4);
+    expect(chassis.linearVelocity.z).toBeLessThan((frameDz / dt) * 0.5);
+
+    // Mid-frame sweep: rebuild hitch and sample after each fixedStep.
+    chassis.position.set(0, 1, startZ);
+    chassis.linearVelocity.set(0, 0, 0);
+    chassis.angularVelocity.set(0, 0, 0);
+    chassis.updateAABB();
+    const midZ: number[] = [];
+    for (let i = 0; i < steps; i++) {
+      physics.fixedStep(ctx, i);
+      midZ.push(chassis.position.z);
+    }
+    expect(midZ[0]!).toBeCloseTo(startZ + frameDz / steps, 4);
+    expect(midZ[1]!).toBeCloseTo(startZ + (2 * frameDz) / steps, 4);
+    expect(midZ[2]!).toBeCloseTo(startZ + frameDz, 4);
     world.dispose();
   });
 });

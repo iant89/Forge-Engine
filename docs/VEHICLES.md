@@ -116,26 +116,24 @@ import {
   ForgeJSPhysics,
   PhysicsSystem,
   VehicleComponent,
+  VehicleSystem,
   createVehicleChassis,
-  syncVehicleChassis,
 } from "@forge/engine";
 
 const backend = new ForgeJSPhysics(); // owns the world
 // or: const backend = ForgeJSPhysics.wrap(existingWorld);
 
+scene.world.registerSystem(new VehicleSystem());
 scene.world.registerSystem(new PhysicsSystem({ world: backend.world }));
 // equivalent: new PhysicsSystem({ backend })
 
 backend.setHeightfield(shape);
 const chassis = createVehicleChassis(vehicle, backend);
-// Assign so VehicleSystem syncs the kinematic collider after each vehicle step.
-// Without this (or a manual syncVehicleChassis each step), props collide with a
+// Assign so PhysicsSystem drives the kinematic collider via Transform pose-delta
+// (same path as RigidBodyComponent kinematics). Without this, props collide with a
 // ghost at the spawn pose while the car has already driven away.
 vehicleComponent.chassisBody = chassis;
 // chassis + heightfield are visible to PhysicsSystem.world (same identity)
-
-// each fixed step (VehicleSystem does this when chassisBody is set):
-//   syncVehicleChassis(vehicle, chassis);
 ```
 
 Rules of thumb:
@@ -145,11 +143,16 @@ Rules of thumb:
 - When sharing, **one** side should call `step` (typically `PhysicsSystem` in an ECS scene). Stepping
   both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
   so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
-- Assign `VehicleComponent.chassisBody` (or call `syncVehicleChassis` yourself every step) after
-  `createVehicleChassis` so prop↔vehicle contact tracks the live pose.
+- Assign `VehicleComponent.chassisBody` after `createVehicleChassis`. `VehicleSystem` writes the
+  chassis `Transform`; `PhysicsSystem` distributes that frame's pose delta across its substeps.
+  Do **not** call `syncVehicleChassis` every vehicle fixed step in this recipe — FixedSystems are
+  not interleaved, so snapping the chassis to the end pose/ω before physics runs leaves hitch
+  frames (`fixedSteps>1`) contacting a parked body. (`syncVehicleChassis` remains for manual
+  one-to-one `vehicle.step` / `world.step` loops outside ECS.)
 - `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`).
 - `ForgeJSPhysics.clear()` **throws** when `ownsWorld === false` so a shared world cannot be
   silently wiped by a non-owner.
+
 
 ## Limitations
 

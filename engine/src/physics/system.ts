@@ -16,6 +16,7 @@ import { RigidBodyComponent, ColliderComponent } from "./components.js";
 import { PhysicsWorld, type PhysicsWorldOptions } from "./world.js";
 import { RigidBody } from "./body.js";
 import type { PhysicsBackend } from "./backend.js";
+import { VehicleComponent } from "../vehicles/components.js";
 
 /**
  * Options for {@link PhysicsSystem}.
@@ -85,6 +86,10 @@ export class PhysicsSystem extends FixedSystem {
   override fixedStep(context: SystemContext, stepIndex: number): void {
     const fixedDt = context.fixedDt;
     const fixedSteps = Math.max(1, context.fixedSteps | 0);
+    // Ensure RigidBodyComponent store exists so chassisBody-only scenes can query without throwing.
+    if (typeof context.world.store === "function") {
+      context.world.store(RigidBodyComponent);
+    }
     const q = context.world.query([RigidBodyComponent, Transform]);
     q.refresh();
 
@@ -115,117 +120,147 @@ export class PhysicsSystem extends FixedSystem {
     }
 
     // Push kinematic / static poses from ECS into the solver so driven colliders (vehicle chassis)
-    // participate this substep. Derive velocities from the pose delta so props see spin/sweep even
-    // when syncVehicleChassis is not used; if the pose did not change (already synced), keep the
-    // existing linear/angular velocities.
+    // participate this substep. Derive velocities from the pose delta so props see spin/sweep.
     //
     // When context.fixedSteps > 1, other FixedSystems (e.g. VehicleSystem) have already advanced
     // Transform through all substeps before this system runs. Distribute the full frame delta
     // across our substeps so velocities are per-fixedDt, not ~fixedSteps too high.
+    //
+    // VehicleComponent.chassisBody uses the same plan path: VehicleSystem must NOT snap the
+    // chassis to the end pose each vehicle fixed step, or hitch frames leave every physics
+    // substep contacting a parked body that still carries end-of-frame ω.
     const frameDt = fixedDt * fixedSteps;
     const invFrameDt = frameDt > 1e-12 ? 1 / frameDt : 0;
 
+    const drivenIds = new Set<number>();
     for (let i = 0; i < q.count; i++) {
       const rbComp = q.value(0, i) as RigidBodyComponent;
       const transform = q.value(1, i) as Transform;
       if (rbComp.body && rbComp.bodyType !== "dynamic") {
-        const body = rbComp.body;
+        this.driveKinematicBody(rbComp.body, transform, stepIndex, fixedSteps, invFrameDt);
+        drivenIds.add(rbComp.body.id);
+      }
+    }
 
-        // Capture start/end once on the first substep (or when a body appears mid-frame).
-        let plan = this.kinematicPlans.get(body.id);
-        if (!plan) {
-          const dx0 = transform.position.x - body.position.x;
-          const dy0 = transform.position.y - body.position.y;
-          const dz0 = transform.position.z - body.position.z;
-          const poseMoved = dx0 * dx0 + dy0 * dy0 + dz0 * dz0 > 1e-20;
-          const dr0 =
-            Math.abs(transform.rotation.x - body.rotation.x) +
-            Math.abs(transform.rotation.y - body.rotation.y) +
-            Math.abs(transform.rotation.z - body.rotation.z) +
-            Math.abs(transform.rotation.w - body.rotation.w);
-          const rotMoved = dr0 > 1e-10;
-          if (poseMoved || rotMoved) {
-            plan = {
-              sx: body.position.x,
-              sy: body.position.y,
-              sz: body.position.z,
-              srx: body.rotation.x,
-              sry: body.rotation.y,
-              srz: body.rotation.z,
-              srw: body.rotation.w,
-              ex: transform.position.x,
-              ey: transform.position.y,
-              ez: transform.position.z,
-              erx: transform.rotation.x,
-              ery: transform.rotation.y,
-              erz: transform.rotation.z,
-              erw: transform.rotation.w,
-            };
-            this.kinematicPlans.set(body.id, plan);
-          }
-        }
-
-        if (plan) {
-          const t = (stepIndex + 1) / fixedSteps;
-          this.scratchStartP.set(plan.sx, plan.sy, plan.sz);
-          this.scratchEndP.set(plan.ex, plan.ey, plan.ez);
-          Vec3.lerpInto(this.scratchStartP, this.scratchEndP, t, this.scratchTargetP);
-
-          this.scratchStartQ.set(plan.srx, plan.sry, plan.srz, plan.srw);
-          this.scratchEndQ.set(plan.erx, plan.ery, plan.erz, plan.erw);
-          Quat.slerpInto(this.scratchStartQ, this.scratchEndQ, t, this.scratchTargetQ);
-
-          // Constant velocity across substeps = full frame delta / frame time.
-          body.linearVelocity.set(
-            (plan.ex - plan.sx) * invFrameDt,
-            (plan.ey - plan.sy) * invFrameDt,
-            (plan.ez - plan.sz) * invFrameDt,
-          );
-          this.scratchInvQ.copyFrom(this.scratchStartQ).conjugate();
-          this.scratchDeltaQ.copyFrom(this.scratchEndQ).multiply(this.scratchInvQ);
-          if (this.scratchDeltaQ.w < 0) {
-            this.scratchDeltaQ.x = -this.scratchDeltaQ.x;
-            this.scratchDeltaQ.y = -this.scratchDeltaQ.y;
-            this.scratchDeltaQ.z = -this.scratchDeltaQ.z;
-            this.scratchDeltaQ.w = -this.scratchDeltaQ.w;
-          }
-          const qw = Math.min(1, Math.max(-1, this.scratchDeltaQ.w));
-          const sinHalf = Math.sqrt(Math.max(0, 1 - qw * qw));
-          if (sinHalf > 1e-8) {
-            const angle = 2 * Math.acos(qw);
-            const s = (angle * invFrameDt) / sinHalf;
-            body.angularVelocity.set(
-              this.scratchDeltaQ.x * s,
-              this.scratchDeltaQ.y * s,
-              this.scratchDeltaQ.z * s,
-            );
-          } else {
-            body.angularVelocity.set(
-              this.scratchDeltaQ.x * 2 * invFrameDt,
-              this.scratchDeltaQ.y * 2 * invFrameDt,
-              this.scratchDeltaQ.z * 2 * invFrameDt,
-            );
-          }
-
-          body.prevPosition.copyFrom(body.position);
-          body.prevRotation.copyFrom(body.rotation);
-          body.position.copyFrom(this.scratchTargetP);
-          body.rotation.copyFrom(this.scratchTargetQ);
-          body.updateAABB();
-        } else {
-          // Already synced (e.g. syncVehicleChassis) — keep existing velocities, refresh pose.
-          body.prevPosition.copyFrom(body.position);
-          body.prevRotation.copyFrom(body.rotation);
-          body.position.copyFrom(transform.position);
-          body.rotation.copyFrom(transform.rotation);
-          body.updateAABB();
-        }
+    // Documented shared-world recipe: chassisBody on VehicleComponent (often no RigidBodyComponent).
+    // Guard store() — unit-test stubs may only mock query.
+    if (typeof context.world.store === "function") {
+      const vehicles = context.world.store(VehicleComponent);
+      for (let i = 0; i < vehicles.count; i++) {
+        const vComp = vehicles.valueAt(i);
+        const chassis = vComp.chassisBody;
+        if (!chassis || chassis.type === "dynamic") continue;
+        if (drivenIds.has(chassis.id)) continue;
+        const id = context.world.idForSlot(vehicles.slotAt(i));
+        const transform = context.world.getComponent(id, Transform);
+        if (!transform) continue;
+        this.driveKinematicBody(chassis, transform, stepIndex, fixedSteps, invFrameDt);
+        drivenIds.add(chassis.id);
       }
     }
 
     // ECS owns the fixed clock. One deterministic solver step matching context.fixedDt —
     // never the variable-dt accumulator (which can run 0/N steps on an adopted/shared world).
     this.world.stepOnce(fixedDt);
+  }
+
+  /**
+   * Distribute a frame's Transform start→end across physics substeps for one kinematic/static body.
+   * Builds a {@link KinematicPlan} on first sight; applies lerp/slerp + frame-rate velocities each step.
+   */
+  private driveKinematicBody(
+    body: RigidBody,
+    transform: Transform,
+    stepIndex: number,
+    fixedSteps: number,
+    invFrameDt: number,
+  ): void {
+    let plan = this.kinematicPlans.get(body.id);
+    if (!plan) {
+      const dx0 = transform.position.x - body.position.x;
+      const dy0 = transform.position.y - body.position.y;
+      const dz0 = transform.position.z - body.position.z;
+      const poseMoved = dx0 * dx0 + dy0 * dy0 + dz0 * dz0 > 1e-20;
+      const dr0 =
+        Math.abs(transform.rotation.x - body.rotation.x) +
+        Math.abs(transform.rotation.y - body.rotation.y) +
+        Math.abs(transform.rotation.z - body.rotation.z) +
+        Math.abs(transform.rotation.w - body.rotation.w);
+      const rotMoved = dr0 > 1e-10;
+      if (poseMoved || rotMoved) {
+        plan = {
+          sx: body.position.x,
+          sy: body.position.y,
+          sz: body.position.z,
+          srx: body.rotation.x,
+          sry: body.rotation.y,
+          srz: body.rotation.z,
+          srw: body.rotation.w,
+          ex: transform.position.x,
+          ey: transform.position.y,
+          ez: transform.position.z,
+          erx: transform.rotation.x,
+          ery: transform.rotation.y,
+          erz: transform.rotation.z,
+          erw: transform.rotation.w,
+        };
+        this.kinematicPlans.set(body.id, plan);
+      }
+    }
+
+    if (plan) {
+      const t = (stepIndex + 1) / fixedSteps;
+      this.scratchStartP.set(plan.sx, plan.sy, plan.sz);
+      this.scratchEndP.set(plan.ex, plan.ey, plan.ez);
+      Vec3.lerpInto(this.scratchStartP, this.scratchEndP, t, this.scratchTargetP);
+
+      this.scratchStartQ.set(plan.srx, plan.sry, plan.srz, plan.srw);
+      this.scratchEndQ.set(plan.erx, plan.ery, plan.erz, plan.erw);
+      Quat.slerpInto(this.scratchStartQ, this.scratchEndQ, t, this.scratchTargetQ);
+
+      body.linearVelocity.set(
+        (plan.ex - plan.sx) * invFrameDt,
+        (plan.ey - plan.sy) * invFrameDt,
+        (plan.ez - plan.sz) * invFrameDt,
+      );
+      this.scratchInvQ.copyFrom(this.scratchStartQ).conjugate();
+      this.scratchDeltaQ.copyFrom(this.scratchEndQ).multiply(this.scratchInvQ);
+      if (this.scratchDeltaQ.w < 0) {
+        this.scratchDeltaQ.x = -this.scratchDeltaQ.x;
+        this.scratchDeltaQ.y = -this.scratchDeltaQ.y;
+        this.scratchDeltaQ.z = -this.scratchDeltaQ.z;
+        this.scratchDeltaQ.w = -this.scratchDeltaQ.w;
+      }
+      const qw = Math.min(1, Math.max(-1, this.scratchDeltaQ.w));
+      const sinHalf = Math.sqrt(Math.max(0, 1 - qw * qw));
+      if (sinHalf > 1e-8) {
+        const angle = 2 * Math.acos(qw);
+        const s = (angle * invFrameDt) / sinHalf;
+        body.angularVelocity.set(
+          this.scratchDeltaQ.x * s,
+          this.scratchDeltaQ.y * s,
+          this.scratchDeltaQ.z * s,
+        );
+      } else {
+        body.angularVelocity.set(
+          this.scratchDeltaQ.x * 2 * invFrameDt,
+          this.scratchDeltaQ.y * 2 * invFrameDt,
+          this.scratchDeltaQ.z * 2 * invFrameDt,
+        );
+      }
+
+      body.prevPosition.copyFrom(body.position);
+      body.prevRotation.copyFrom(body.rotation);
+      body.position.copyFrom(this.scratchTargetP);
+      body.rotation.copyFrom(this.scratchTargetQ);
+      body.updateAABB();
+    } else {
+      body.prevPosition.copyFrom(body.position);
+      body.prevRotation.copyFrom(body.rotation);
+      body.position.copyFrom(transform.position);
+      body.rotation.copyFrom(transform.rotation);
+      body.updateAABB();
+    }
   }
 
   override update(context: SystemContext): void {
