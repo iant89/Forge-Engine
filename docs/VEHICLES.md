@@ -2,9 +2,10 @@
 
 A raycast car: four wheels sample a `GroundQuery` (preferably a physics-backed heightfield /
 raycast query — Phase 11), a spring/damper holds each one, and a Pacejka tire turns the slip at that
-contact into a force. The chassis is a point mass plus yaw/pitch/roll inertias; pitch and roll
-integrate from suspension and tire torques. An optional kinematic chassis box in the physics world
-lets props collide with the car.
+contact into a force. The chassis is a point mass plus yaw/pitch/roll inertias; yaw comes from
+tire-plane moments, while pitch and roll integrate from suspension reaction torques plus a soft
+geometric spring (no tire pitch/roll moments this phase). An optional kinematic chassis box in the
+physics world lets props collide with the car.
 
 ## Demo
 
@@ -38,10 +39,10 @@ The scene `update` writes `vehicle.input` and does not step. A second step would
    (`ω = vLong / radius`, κ = 0).
 3. Lateral force is Pacejka in slip angle, combined with the longitudinal force under a friction
    circle of `μ · normalLoad`.
-4. The chassis integrates the summed forces. Yaw, pitch and roll come from moments about the
-   centre of mass (suspension support and tire forces). While three or more wheels plant, a soft
-   spring also tracks the geometric axle orientation so a parked car settles; airborne wheels keep
-   their angular rates.
+4. The chassis integrates the summed forces. Yaw comes from tire-plane moments about the CG.
+   Pitch and roll come from suspension support reaction torques about the CG, plus — while three or
+   more wheels plant — a soft spring that tracks the geometric axle orientation so a parked car
+   settles. Sparse contact / airborne wheels keep their angular rates (no tire pitch/roll moments).
 
 While a gear is engaged, reported RPM follows the driven wheels, but it does not stall below idle:
 the crank holds `idleRpm` until wheel speed exceeds it (torque-converter slip). Neutral integrates

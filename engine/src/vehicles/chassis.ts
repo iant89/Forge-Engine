@@ -55,7 +55,8 @@ export function syncVehicleChassis(vehicle: Vehicle, body: RigidBody): void {
   vehicle.writeRotation(scratchRot);
   body.rotation.copyFrom(scratchRot);
   body.linearVelocity.copyFrom(vehicle.velocity);
-  body.angularVelocity.set(vehicle.pitchRate, vehicle.yawRate, vehicle.rollRate);
+  // pitch/yaw/roll rates are body-axis Euler rates — map to world ω for contact spin.
+  vehicle.writeAngularVelocity(body.angularVelocity);
   body.prevPosition.copyFrom(body.position);
   body.prevRotation.copyFrom(body.rotation);
   body.updateAABB();

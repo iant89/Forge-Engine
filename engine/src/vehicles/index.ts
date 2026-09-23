@@ -24,9 +24,9 @@ export {
 export { flatGround, slopeGround, heightFunctionGround, type GroundQuery, type GroundSample } from "./ground.js";
 export {
   physicsGroundQuery,
-  heightfieldGroundQuery,
   physicsRaycastGroundQuery,
   assertTerrainAgreement,
+  type PhysicsRaycastGroundOptions,
 } from "./physicsGround.js";
 export {
   createVehicleChassis,

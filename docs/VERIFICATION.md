@@ -215,7 +215,7 @@ debug lines, and zero leaked GPU buffers/textures on disposal.
 
 Pins the Phase 11 exit criteria: `PhysicsBackend` / `ForgeJSPhysics` / `ForgeWasmPhysics` stub;
 heightfield registered on the world; visual = collision = vehicle contact samples; kinematic
-chassis collides with dynamic props; pitch/roll carry angular rates and settle on slopes; wheel
+chassis collides with dynamic props; pitch/roll carry angular rates from suspension reaction + geometric spring and settle on slopes; wheel
 contact via physics raycast/heightfield queries; crater/bump/side-slope/jump/unload/impact/rollover
 stress cases stay finite; `vehicle.telemetry()` exposes load, travel, slip, tire force, RPM, gear,
 ω, contact.

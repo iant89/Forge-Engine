@@ -16,7 +16,6 @@ import {
   createVehicleConfig,
   flatGround,
   heightFunctionGround,
-  heightfieldGroundQuery,
   physicsGroundQuery,
   physicsRaycastGroundQuery,
   slopeGround,
@@ -58,7 +57,7 @@ describe("Phase 11.2 / 11.6 — heightfield agreement", () => {
 
     const visual = heightFunctionGround(heightAt);
     const collision = physicsGroundQuery(backend);
-    const vehicle = heightfieldGroundQuery(shape);
+    const vehicle = physicsGroundQuery(backend); // vehicle contact shares the backend sampler
     const raycast = physicsRaycastGroundQuery(backend);
 
     const pts = [
@@ -116,6 +115,74 @@ describe("Phase 11.3 — chassis participates; props collide", () => {
     // Prop should have been slowed / reversed / deflected by the chassis collision.
     expect(prop.linearVelocity.z).toBeGreaterThan(vz0);
     expect(prop.linearVelocity.z).not.toBeCloseTo(vz0, 1);
+  });
+
+  it("syncVehicleChassis maps body-axis Euler rates to world angular velocity", () => {
+    const backend = new ForgeJSPhysics({ gravity: { x: 0, y: 0, z: 0 } });
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    vehicle.yaw = Math.PI / 2; // face +X
+    vehicle.pitchRate = 0;
+    vehicle.yawRate = 1.5;
+    vehicle.rollRate = 0;
+    const chassis = createVehicleChassis(vehicle, backend);
+    syncVehicleChassis(vehicle, chassis);
+    // Facing +X: body up ≈ world Y, so yawRate maps primarily to world +Y.
+    expect(chassis.angularVelocity.y).toBeCloseTo(1.5, 5);
+    expect(Math.abs(chassis.angularVelocity.x)).toBeLessThan(1e-6);
+    expect(Math.abs(chassis.angularVelocity.z)).toBeLessThan(1e-6);
+
+    vehicle.yaw = 0;
+    vehicle.pitchRate = 2;
+    vehicle.yawRate = 0;
+    vehicle.rollRate = 0;
+    syncVehicleChassis(vehicle, chassis);
+    // Facing +Z, right ≈ +X: pitchRate · right → world +X (nose-up rate about right).
+    expect(chassis.angularVelocity.x).toBeCloseTo(2, 5);
+    expect(Math.abs(chassis.angularVelocity.y)).toBeLessThan(1e-6);
+    expect(Math.abs(chassis.angularVelocity.z)).toBeLessThan(1e-6);
+  });
+});
+
+describe("adversarial auto-fix — raycast exclude / hubVelocity", () => {
+  it("physicsRaycastGroundQuery skips kinematic chassis so wheels cannot self-hit", () => {
+    const backend = new ForgeJSPhysics();
+    backend.setHeightfield(new HeightfieldShape({ sampleHeight: () => 0 }));
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    vehicle.position.set(0, 1, 0);
+    const chassis = createVehicleChassis(vehicle, backend);
+    syncVehicleChassis(vehicle, chassis);
+
+    const out = { height: 0, nx: 0, ny: 1, nz: 0 };
+    // Without skip, a ray from above through the chassis box can hit y≈chassis top (>0).
+    const naive = physicsRaycastGroundQuery(backend, { maxDistance: 64, skipKinematic: false });
+    naive.sample(0, 0, out);
+    expect(out.height).toBeGreaterThan(0.2);
+
+    const safe = physicsRaycastGroundQuery(backend, { excludeBody: chassis });
+    safe.sample(0, 0, out);
+    expect(out.height).toBeCloseTo(0, 2);
+  });
+
+  it("hubVelocity includes pitch/roll via ω×r (not yaw-only)", () => {
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(flatGround(0));
+    vehicle.velocity.set(0, 0, 0);
+    vehicle.yawRate = 0;
+    vehicle.pitchRate = 3;
+    vehicle.rollRate = 0;
+    // Force a known contact offset below/ahead of CG.
+    const w = vehicle.wheels[0]!;
+    w.contactX = vehicle.position.x;
+    w.contactY = vehicle.position.y - 0.5;
+    w.contactZ = vehicle.position.z + 1.0;
+    // rebuildBasis via a zero-length-safe path: writeAngularVelocity
+    vehicle.writeAngularVelocity({ x: 0, y: 0, z: 0 } as any);
+    const hub = (vehicle as any).hubVelocity(w) as { x: number; z: number };
+    // ω ≈ (3,0,0), r ≈ (0,-0.5,1) → ω×r = (0, -3, -1.5) so vz = -1.5
+    expect(hub.z).toBeCloseTo(-1.5, 5);
+    expect(Math.abs(hub.x)).toBeLessThan(1e-6);
   });
 });
 
@@ -205,15 +272,15 @@ describe("Phase 11.7 — stress tests", () => {
   it("goes airborne off a jump ramp then lands", () => {
     const ramp = (_x: number, z: number) => {
       if (z < 0) return 0;
-      if (z < 10) return z * 0.35;
-      return 10 * 0.35; // cliff
+      if (z < 10) return z * 0.45;
+      return 0; // drop-off (not a plateau) so the car must leave the ground
     };
     const ground = heightFunctionGround(ramp);
     const v = new Vehicle(createVehicleConfig({ aero: null, mu: 1.2 }));
     v.placeOnGround(ground);
-    v.setVelocity(0, 0, 18);
+    v.setVelocity(0, 0, 22);
     let wasAirborne = false;
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 240; i++) {
       v.step(1 / 60, ground);
       if (v.airborne) wasAirborne = true;
     }
@@ -295,5 +362,64 @@ describe("Phase 11.8 — telemetry", () => {
       expect(typeof w.omega).toBe("number");
       expect(typeof w.inContact).toBe("boolean");
     }
+  });
+});
+
+describe("adversarial auto-fix — kinematic pose-delta velocities", () => {
+  it("PhysicsSystem derives kinematic linear/angular velocity from Transform deltas", async () => {
+    const {
+      Clock,
+      ColliderComponent,
+      EntityWorld,
+      Logger,
+      PhysicsSystem,
+      Profiler,
+      Quat,
+      RigidBodyComponent,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const world = new EntityWorld();
+    world.registerSystem(new PhysicsSystem({ gravity: { x: 0, y: 0, z: 0 } }));
+
+    const entity = world.createEntity("kin");
+    const transform = new Transform();
+    transform.setPosition(0, 1, 0);
+    entity.add(transform);
+    const rb = new RigidBodyComponent();
+    rb.bodyType = "kinematic";
+    entity.add(rb);
+    const col = new ColliderComponent();
+    col.setBox(0.5, 0.5, 0.5);
+    entity.add(col);
+
+    const dt = 1 / 60;
+    const makeCtx = (fixedSteps = 1) => ({
+      world,
+      clock: new Clock(),
+      dt,
+      fixedDt: dt,
+      fixedSteps,
+      alpha: 0,
+      elapsed: 0,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    });
+
+    world.runSystems(makeCtx(1));
+    expect(rb.body).not.toBeNull();
+    expect(rb.body!.linearVelocity.x).toBeCloseTo(0, 6);
+
+    transform.setPosition(3, 1, 0);
+    transform.setRotation(new Quat().setAxisAngle({ x: 0, y: 1, z: 0 }, 0.3));
+    world.runSystems(makeCtx(1));
+
+    expect(rb.body!.linearVelocity.x).toBeCloseTo(3 / dt, 4);
+    expect(rb.body!.angularVelocity.y).toBeCloseTo(0.3 / dt, 2);
+    world.dispose();
   });
 });

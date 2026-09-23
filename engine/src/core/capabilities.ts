@@ -514,7 +514,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "vehicles.orientation",
     phase: "11.4",
     status: "verified",
-    summary: "Pitch and roll integrate from suspension/tire torques with angular rates",
+    summary: "Pitch and roll integrate from suspension reaction torques + geometric spring (no tire pitch/roll moments)",
     evidence: ["tests/vehiclePhysics.test.ts", "tests/vehicles.test.ts"],
   },
   {

@@ -9,7 +9,7 @@
 import { Ray, RayHit } from "../math/geometry.js";
 import { Vec3 } from "../math/vec.js";
 import type { PhysicsBackend } from "../physics/backend.js";
-import type { HeightfieldShape } from "../physics/shapes.js";
+import type { RigidBody } from "../physics/body.js";
 import type { GroundQuery } from "./ground.js";
 
 /**
@@ -28,20 +28,15 @@ export function physicsGroundQuery(backend: PhysicsBackend, fallbackHeight = 0):
   };
 }
 
-/**
- * Build a GroundQuery directly from a HeightfieldShape (same object registered on the physics world).
- */
-export function heightfieldGroundQuery(shape: HeightfieldShape): GroundQuery {
-  const normal = new Vec3();
-  return {
-    sample(x, z, out) {
-      out.height = shape.sampleHeight(x, z);
-      const n = shape.sampleNormal(x, z, normal);
-      out.nx = n.x;
-      out.ny = n.y;
-      out.nz = n.z;
-    },
-  };
+export interface PhysicsRaycastGroundOptions {
+  /** Max ray length (also used as half-length origin height). Default 64. */
+  maxDistance?: number;
+  /** Skip the vehicle chassis (or any other body) so wheel rays cannot self-hit. */
+  excludeBody?: RigidBody | null;
+  /**
+   * Skip kinematic bodies. Defaults to true so a kinematic chassis cannot register as ground.
+   */
+  skipKinematic?: boolean;
 }
 
 const rayOrigin = new Vec3();
@@ -51,13 +46,28 @@ const hit = new RayHit();
 /**
  * Wheel contact via a downward physics raycast (Phase 11.5).
  * Uses the backend raycast so heightfield and other colliders participate.
+ * By default skips kinematic bodies and can exclude a specific chassis body.
  */
-export function physicsRaycastGroundQuery(backend: PhysicsBackend, maxDistance = 64): GroundQuery {
+export function physicsRaycastGroundQuery(
+  backend: PhysicsBackend,
+  maxDistanceOrOptions: number | PhysicsRaycastGroundOptions = 64,
+): GroundQuery {
+  const options: PhysicsRaycastGroundOptions =
+    typeof maxDistanceOrOptions === "number"
+      ? { maxDistance: maxDistanceOrOptions }
+      : maxDistanceOrOptions;
+  const maxDistance = options.maxDistance ?? 64;
+  const skipKinematic = options.skipKinematic !== false;
+  const excludeBody = options.excludeBody ?? null;
   return {
     sample(x, z, out) {
       ray.setFrom({ x, y: maxDistance * 0.5, z }, { x: 0, y: -1, z: 0 }, maxDistance);
       hit.reset();
-      if (backend.raycast(ray, hit) && hit.isValid) {
+      const filter = {
+        skipKinematic,
+        excludeBodies: excludeBody ? [excludeBody] : null,
+      };
+      if (backend.raycast(ray, hit, filter) && hit.isValid) {
         out.height = hit.point.y;
         out.nx = hit.normal.x;
         out.ny = hit.normal.y;

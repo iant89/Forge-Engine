@@ -426,9 +426,9 @@ shared heightfield collider, kinematic chassis, physical pitch/roll, telemetry.
 
     [x] Apply suspension forces.
 
-    [x] Apply torque.
+    [x] Apply suspension reaction torques (pitch/roll); yaw from tire-plane moments.
 
-    [x] Apply reaction forces.
+    [x] Soft geometric spring while >= 3 wheels plant (no tire pitch/roll moments this phase).
 
 
 11.5 Wheel Collision

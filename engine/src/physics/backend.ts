@@ -11,7 +11,7 @@ import { Ray, RayHit } from "../math/geometry.js";
 import type { GroundSample } from "../vehicles/ground.js";
 import { RigidBody } from "./body.js";
 import { HeightfieldShape } from "./shapes.js";
-import { PhysicsWorld, type PhysicsWorldOptions } from "./world.js";
+import { PhysicsWorld, type PhysicsWorldOptions, type RaycastFilter } from "./world.js";
 
 export type PhysicsBackendKind = "js" | "wasm";
 
@@ -23,7 +23,7 @@ export interface PhysicsBackend {
   step(dt: number): number;
   addBody(body: RigidBody): RigidBody;
   removeBody(body: RigidBody): boolean;
-  raycast(ray: Ray, hit: RayHit): boolean;
+  raycast(ray: Ray, hit: RayHit, filter?: RaycastFilter): boolean;
   clear(): void;
 
   /**
@@ -66,8 +66,8 @@ export class ForgeJSPhysics implements PhysicsBackend {
     return this.world.removeBody(body);
   }
 
-  raycast(ray: Ray, hit: RayHit): boolean {
-    return this.world.raycast(ray, hit);
+  raycast(ray: Ray, hit: RayHit, filter?: RaycastFilter): boolean {
+    return this.world.raycast(ray, hit, filter);
   }
 
   clear(): void {
@@ -118,7 +118,7 @@ export class ForgeWasmPhysics implements PhysicsBackend {
   removeBody(_body: RigidBody): boolean {
     return this.fail();
   }
-  raycast(_ray: Ray, _hit: RayHit): boolean {
+  raycast(_ray: Ray, _hit: RayHit, _filter?: RaycastFilter): boolean {
     return this.fail();
   }
   clear(): void {

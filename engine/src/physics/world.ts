@@ -14,6 +14,15 @@ import { ContactManifold, collideBodies } from "./collision.js";
 import { SequentialImpulseSolver, type SolverOptions } from "./solver.js";
 import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js";
 
+export interface RaycastFilter {
+  /** Skip these rigid bodies (e.g. the casting vehicle chassis). */
+  excludeBodies?: ReadonlyArray<RigidBody> | null;
+  /** Skip kinematic bodies (default false on world; ground helpers may enable). */
+  skipKinematic?: boolean;
+  /** Skip static bodies. */
+  skipStatic?: boolean;
+}
+
 export interface PhysicsWorldOptions {
   gravity?: Vec3Ops;
   fixedDt?: number;
@@ -181,12 +190,16 @@ export class PhysicsWorld {
   /**
    * Raycast against physics colliders in the world.
    */
-  raycast(ray: Ray, hit: RayHit): boolean {
+  raycast(ray: Ray, hit: RayHit, filter?: RaycastFilter): boolean {
     let closestDist = Infinity;
     let hitFound = false;
     const scratchHit = PhysicsWorld.rayScratch;
+    const exclude = filter?.excludeBodies;
 
     for (const body of this.bodies) {
+      if (filter?.skipKinematic && body.type === "kinematic") continue;
+      if (filter?.skipStatic && body.type === "static") continue;
+      if (exclude && exclude.length > 0 && exclude.includes(body)) continue;
       const shape = body.shape;
       if (shape instanceof SphereShape) {
         const t = ray.intersectsSphere(body.position, shape.radius);

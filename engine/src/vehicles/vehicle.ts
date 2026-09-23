@@ -2,8 +2,9 @@
  * Raycast vehicle.
  *
  * Four wheels, each a ray against a {@link GroundQuery} (preferably a physics-backed query — see
- * Phase 11). Yaw, pitch and roll are integrated: suspension and tire forces produce torques about
- * the CG, and angular rates carry momentum when wheels unload. The load-transfer formula still
+ * Phase 11). Yaw integrates from tire-plane moments; pitch and roll integrate from suspension
+ * reaction torques plus a soft geometric spring while planted. Angular rates carry momentum when
+ * wheels unload. The load-transfer formula still
  * accounts for accel quasi-statically. Suspension force is applied along the ground normal, so the
  * horizontal component of the support pushes the car downhill; climbing is tire force, not a
  * scripted height snap.
@@ -247,9 +248,9 @@ export class Vehicle {
   /** Radians. 0 faces +Z. Positive yaw rotates +Z toward +X. */
   yaw = 0;
   yawRate = 0;
-  /** Radians. Positive pitch is nose-up. Integrated from suspension/tire torques (Phase 11.4). */
+  /** Radians. Positive pitch is nose-up. Integrated from suspension reaction + geometric spring (Phase 11.4). */
   pitch = 0;
-  /** Radians. Positive roll lifts the right side. Integrated from suspension/tire torques. */
+  /** Radians. Positive roll lifts the right side. Integrated from suspension reaction + geometric spring. */
   roll = 0;
   /** Pitch rate (rad/s). */
   pitchRate = 0;
@@ -376,6 +377,17 @@ export class Vehicle {
     return out;
   }
 
+  /**
+   * World-space angular velocity from body-axis Euler rates (rad/s).
+   * After {@link rebuildBasis}: ω = pitchRate·right + yawRate·up + rollRate·forward.
+   */
+  writeAngularVelocity(out: Vec3): Vec3 {
+    this.rebuildBasis();
+    out.x = this.pitchRate * this.right.x + this.yawRate * this.up.x + this.rollRate * this.forward.x;
+    out.y = this.pitchRate * this.right.y + this.yawRate * this.up.y + this.rollRate * this.forward.y;
+    out.z = this.pitchRate * this.right.z + this.yawRate * this.up.z + this.rollRate * this.forward.z;
+    return out;
+  }
 
   /** Phase 11.8 telemetry snapshot for HUD / tests. */
   telemetry(): VehicleTelemetry {
@@ -613,13 +625,13 @@ export class Vehicle {
     this.yawRate = f32(this.yawRate + (yawTorque / c.inertiaYaw) * dt);
     this.yawRate *= Math.max(0, 1 - 0.15 * dt);
 
-    // Pitch / roll (Phase 11.4): integrate angular rates from suspension reaction torques,
-    // with a critically-damped spring toward the geometric axle orientation while planted.
-    // Airborne: spring is off so rates carry momentum (jump / unload / rollover).
+    // Pitch / roll (Phase 11.4): suspension reaction torques only (no tire pitch/roll moments),
+    // plus a critically-damped spring toward the geometric axle orientation while >= 3 wheels plant.
+    // Airborne / sparse contact: spring is off so rates carry momentum (jump / unload / rollover).
     const torqueScale = 0.35;
     this.pitchRate = f32(this.pitchRate + ((pitchTorque * torqueScale) / c.inertiaPitch) * dt);
     this.rollRate = f32(this.rollRate + ((rollTorque * torqueScale) / c.inertiaRoll) * dt);
-    if (contactCount >= 2) {
+    if (contactCount >= 3) {
       const target = this.estimateGroundOrientation(ground);
       const wn = 18; // natural frequency
       const zeta = 1.0; // critical damping
@@ -719,8 +731,8 @@ export class Vehicle {
   }
 
   /**
-   * Geometric pitch/roll implied by ground under the hardpoints. Used as a soft target while
-   * wheels are planted; rates still integrate freely when airborne (Phase 11.4).
+   * Geometric pitch/roll implied by ground under the hardpoints. Soft target while three or more
+   * wheels plant; rates still integrate freely when contact is sparse or airborne (Phase 11.4).
    */
   private estimateGroundOrientation(ground: GroundQuery): { pitch: number; roll: number } {
     this.rebuildBasis();
@@ -828,10 +840,15 @@ export class Vehicle {
 
   private hubVelocity(w: WheelState): { x: number; z: number } {
     const rx = w.contactX - this.position.x;
+    const ry = w.contactY - this.position.y;
     const rz = w.contactZ - this.position.z;
+    // Full ω×r with body-axis rates mapped to world (same basis as writeAngularVelocity).
+    const wx = this.pitchRate * this.right.x + this.yawRate * this.up.x + this.rollRate * this.forward.x;
+    const wy = this.pitchRate * this.right.y + this.yawRate * this.up.y + this.rollRate * this.forward.y;
+    const wz = this.pitchRate * this.right.z + this.yawRate * this.up.z + this.rollRate * this.forward.z;
     return {
-      x: this.velocity.x + this.yawRate * rz,
-      z: this.velocity.z - this.yawRate * rx,
+      x: this.velocity.x + (wy * rz - wz * ry),
+      z: this.velocity.z + (wx * ry - wy * rx),
     };
   }
 
