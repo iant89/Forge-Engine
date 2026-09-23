@@ -201,7 +201,7 @@ for (const entry of capabilityRegistry.entries) {
     continue;
   }
   const key = phaseKey(entry.phase);
-  if (key === "10+" || key === "11+" || key === "12+") continue;
+  if (key === "10+" || key === "11+" || key === "12+" || key === "13+") continue;
   if (!roadmapPhases.has(key)) {
     fail(3, `capability "${entry.id}" claims roadmap phase "${entry.phase}", which does not exist`);
   }
@@ -267,7 +267,7 @@ for (const bullet of knownIssueBullets) {
         }
       } else {
         const key = phaseKey(value);
-        if (key !== "10+" && key !== "11+" && key !== "12+" && !roadmapPhases.has(key) && !ROADMAP_PHASE_STATUS[key]) {
+        if (key !== "10+" && key !== "11+" && key !== "12+" && key !== "13+" && !roadmapPhases.has(key) && !ROADMAP_PHASE_STATUS[key]) {
           fail(6, `${where} references roadmap phase "${value}", which does not exist`);
         } else if (phaseStatus(key) === "verified") {
           fail(6, `${where} references roadmap phase "${value}", which is verified — the limitation is stale`);

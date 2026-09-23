@@ -164,7 +164,8 @@ describe("Phase 9.5 — capability registry", () => {
     expect(capabilityStatus("terrain.lod")).toBe("verified");
     expect(capabilityStatus("rendering.renderGraph")).toBe("verified");
     expect(capabilityStatus("does.notExist")).toBeUndefined();
-    expect(capabilityRegistry.get("particles.gpuSimulation")?.closesWith).toBe("12.3");
+    expect(capabilityRegistry.get("particles.gpuSimulation")?.status).toBe("verified");
+    expect(capabilityRegistry.get("particles.gpuRendering")?.closesWith).toBe("12.7");
     expect(capabilityRegistry.list("deferred").map((entry) => entry.id)).toContain("audio.system");
     expect(capabilityMarker("planned")).toBe("[ ]");
 

@@ -45,7 +45,7 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/terrain/          TerrainWorld/Chunk/Tile/LOD/Material/Generator
   src/physics/          fixed-step rigid bodies, broadphase, narrowphase, solver, queries
   src/vehicles/         raycast vehicle, tires, suspension, engine, transmission, differentials
-  src/particles/        CPU simulation (emit, modules, trails) + compute integrator; no render-graph pass
+  src/particles/        CPU reference + Phase 12 GPU path (emit/sim/cull/billboard+soft render-graph passes)
   src/environment/      sun position (NOAA/Meeus), atmosphere model + presets, fog reference, DayNightCycle (8a);
                         weather, clouds, water, lightning join here in 8b
   src/animation/        clips, states, graphs, IK, skinning

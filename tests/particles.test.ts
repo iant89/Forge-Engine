@@ -5,6 +5,8 @@ import {
   EntityWorld,
   FLAG_ALIVE,
   GraphicsDevice,
+  GpuParticleSystem,
+  GpuParticleWorld,
   Logger,
   P_A,
   P_AGE,
@@ -19,7 +21,12 @@ import {
   P_X,
   P_Y,
   P_Z,
+  PARTICLE_CULL_SHADER,
+  PARTICLE_EMIT_SHADER,
   PARTICLE_FLOATS,
+  PARTICLE_FULL_SIM_SHADER,
+  PARTICLE_RENDER_SHADER,
+  PARTICLE_RESOLVE_SHADER,
   PARTICLE_SIM_SHADER,
   PARTICLE_STRIDE,
   ParticleComponent,
@@ -29,10 +36,12 @@ import {
   ParticleTrails,
   ParticleWorld,
   Profiler,
+  RenderGraph,
   Rng,
   Scene,
   SizeOverLifeModule,
   SystemScratch,
+  TextureUsage,
   Transform,
   analyticGravity,
   integrateParticle,
@@ -291,5 +300,158 @@ describe("particles — emitter does not use Math.random", () => {
     expect(a.emit(sa, 1, 1)).toBe(1);
     expect(b.emit(sb, 1, 1)).toBe(1);
     expect(Array.from(sa)).toEqual(Array.from(sb));
+  });
+});
+
+describe("particles — Phase 12 GPU system", () => {
+  it("validates emit / full-sim / cull / render / resolve shaders structurally", () => {
+    for (const [name, src] of [
+      ["emit", PARTICLE_EMIT_SHADER],
+      ["fullSim", PARTICLE_FULL_SIM_SHADER],
+      ["cull", PARTICLE_CULL_SHADER],
+      ["render", PARTICLE_RENDER_SHADER],
+      ["resolve", PARTICLE_RESOLVE_SHADER],
+    ] as const) {
+      const issues = validateWgsl(src);
+      expect(issues, `${name}: ${issues.map((i) => `${i.line}: ${i.message}`).join("\n")}`).toEqual([]);
+    }
+  });
+
+  it("simulates and draws 100k particles without creating 100k ECS entities", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, {
+        capacity: 100_000,
+        seed: 11,
+        maxEmitsPerFrame: 4096,
+        softParticles: true,
+      });
+      system.init();
+      expect(system.ready).toBe(true);
+      expect(system.entityCount()).toBe(0);
+      expect(system.capacity).toBe(100_000);
+      expect(system.storageBytes()).toBe(100_000 * PARTICLE_STRIDE);
+
+      const viewProj = new Float32Array(16);
+      viewProj[0] = viewProj[5] = viewProj[10] = viewProj[15] = 1;
+      system.prepare({
+        dt: 1 / 60,
+        viewProj,
+        cameraPos: { x: 0, y: 2, z: 8 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      });
+      expect(system.lastEmitBudget).toBeGreaterThan(0);
+
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({
+        label: "swap",
+        size: { width: 64, height: 32 },
+        format: gpu.format,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+      });
+      const depth = gpu.device.createTexture({
+        label: "depth",
+        size: { width: 64, height: 32 },
+        format: gpu.depthFormat,
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      graph.begin();
+      const color = graph.importTexture("swapchain", swap);
+      const depthHandle = graph.importTexture("depth", depth);
+      // Seed colour/depth so particle.render's loadOp is legal.
+      graph.addPass({
+        name: "seed",
+        color: [{ texture: color }],
+        depth: { texture: depthHandle },
+        execute: (ctx) => {
+          ctx.beginRenderPass().end();
+        },
+      });
+      system.enqueue(graph, {
+        color,
+        depth: depthHandle,
+        colorFormat: gpu.format,
+        depthFormat: gpu.depthFormat,
+      });
+      const stats = graph.execute();
+      expect(stats.executed).toEqual(expect.arrayContaining(["particle.sim", "particle.sort", "particle.render", "particle.resolve"]));
+      expect(system.lastEnqueuedPasses).toEqual(["particle.sim", "particle.sort", "particle.render", "particle.resolve"]);
+      expect(system.entityCount()).toBe(0);
+      expect(gpu.mock.errors).toEqual([]);
+      expect(system.stepCount).toBe(1);
+      expect((gpu.device as unknown as { dispatches: number }).dispatches).toBeGreaterThan(0);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("stresses 10k / 50k / 100k capacities on the mock device without ECS growth", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      for (const capacity of [10_000, 50_000, 100_000]) {
+        const system = new GpuParticleSystem(gpu, { capacity, seed: capacity, maxEmitsPerFrame: 1024 });
+        system.init();
+        const viewProj = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        system.prepare({
+          dt: 1 / 60,
+          viewProj,
+          cameraPos: { x: 0, y: 1, z: 5 },
+          cameraRight: { x: 1, y: 0, z: 0 },
+          cameraUp: { x: 0, y: 1, z: 0 },
+        });
+        expect(system.capacity).toBe(capacity);
+        expect(system.entityCount()).toBe(0);
+        expect(system.lastEmitBudget).toBeGreaterThan(0);
+        system.dispose();
+      }
+      expect(gpu.mock.errors).toEqual([]);
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("GpuParticleWorld never allocates sprite entities", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const scene = new Scene({ name: "gpu-particles" });
+      const world = new GpuParticleWorld({ capacity: 100_000, seed: 3, name: "gpu" });
+      world.attachDevice(gpu);
+      scene.add(world);
+      expect(world.system?.ready).toBe(true);
+      expect(world.system?.entityCount()).toBe(0);
+      expect(scene.world.liveEntityCount).toBe(0);
+      world.prepareFrame({
+        viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+        cameraPos: { x: 0, y: 1, z: 4 },
+      });
+      expect(world.system!.emitted).toBeGreaterThan(0);
+      expect(scene.world.liveEntityCount).toBe(0);
+      scene.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("emitter seed is deterministic for the same GPU emit index stream", () => {
+    // CPU mirror of the hash used by PARTICLE_EMIT_SHADER — same seed + index → same first float.
+    function mix32(x: number): number {
+      let h = (x + 0x9e3779b9) >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad) >>> 0;
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97) >>> 0;
+      return (h ^ (h >>> 15)) >>> 0;
+    }
+    function hash2(a: number, b: number): number {
+      return mix32((a ^ Math.imul(b, 0x85ebca6b)) >>> 0);
+    }
+    const seed = 7;
+    const a = hash2(seed, 0);
+    const b = hash2(seed, 0);
+    const c = hash2(seed, 1);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
   });
 });

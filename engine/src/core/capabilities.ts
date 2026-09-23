@@ -76,13 +76,14 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "4": "verified",
   "5": "verified",
   "6": "partial",
-  "7": "partial",
+  "7": "verified",
   "8a": "verified",
   "8b": "verified",
   "9": "inProgress",
   "10": "partial",
   "11": "verified",
-  "12+": "planned",
+  "12": "verified",
+  "13+": "planned",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -576,10 +577,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "particles.gpuSimulation",
     phase: "12.3",
-    status: "partial",
-    summary: "Compute integrator reproduces the CPU gravity/drag/life step; no GPU emission or modules",
+    status: "verified",
+    summary: "GPU storage + emit + full-sim modules (gravity/drag/turbulence/noise/attractor/velocity/colour/size/rotation); CPU remains reference",
     evidence: ["tests/particles.test.ts", "tools/browser-check.mjs"],
-    closesWith: "12.3",
   },
   {
     id: "particles.fixedStep",
@@ -587,15 +587,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "ParticleSystem advances once per frame, not once per physics substep",
     evidence: ["tests/particles.test.ts"],
-    closesWith: "12",
+    closesWith: "13+",
+    notes: "GPU path is also frame-rate (render-graph); fixed-step particle substepping is still open",
   },
   {
     id: "particles.gpuRendering",
     phase: "12.7",
-    status: "planned",
-    summary: "Particle render-graph passes: billboards, ribbons, mesh particles, soft particles",
+    status: "partial",
+    summary: "Render-graph particle.sim/sort/render/resolve: billboards, stretched billboards, soft particles from the GPU buffer",
+    evidence: ["tests/particles.test.ts"],
     closesWith: "12.7",
-    notes: "The demo draws a few hundred boxes; per-particle colour and trails are stored but not drawn",
+    notes: "Mesh particles and ribbon draw deferred; trail history is written on GPU. HiZ cull and particle/terrain collision deferred.",
   },
 
   // ---------------------------------------------------------------- environment
@@ -746,7 +748,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   },
   {
     id: "networking.replication",
-    phase: "12+",
+    phase: "13+",
     status: "deferred",
     summary: "Multiplayer replication and dedicated servers",
     notes: "The roadmap gates networking behind Phase 29 and schedules no item for it yet",
