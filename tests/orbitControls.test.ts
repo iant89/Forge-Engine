@@ -231,6 +231,36 @@ describe("Terrain demo camera preset", () => {
     handle.dispose?.();
   });
 
+  it("keeps a modest far/near ratio so grazing orbits keep depth on mobile", () => {
+    const { handle } = terrainHarness();
+    const camera = handle.scene.world.getComponent(handle.cameraEntity.id, Camera);
+    expect(camera).toBeDefined();
+    // Standard Z precision ≈ scales with 1/near; the previous 12000/0.5 = 24000 ratio collapsed
+    // grazing heightfield depths into tan moiré on iOS Safari (fe-14).
+    expect(camera!.near).toBeGreaterThanOrEqual(1.5);
+    expect(camera!.far / camera!.near).toBeLessThanOrEqual(2000);
+    expect(camera!.far).toBeGreaterThan(handle.camera!.maxDistance!);
+    expect(handle.scene.settings.sky.seaLevel).not.toBe(0);
+    handle.dispose?.();
+  });
+
+  it("pins sky.seaLevel to terrain under the orbit look-at, not the eye", () => {
+    const { handle, controls } = terrainHarness();
+    const terrain = handle.scene.object<TerrainWorld>("TerrainWorld")!;
+    // Share the scene's target Vec3 with OrbitControls (configure assigns the reference).
+    expect(controls.target).toBe(handle.camera!.target);
+    // Move the look-at onto a different XZ; the eye stays offset by distance/elevation.
+    controls.target.set(180, terrain.getHeightAt(180, -90), -90);
+    controls.update();
+    handle.update(1 / 60);
+    const expected = terrain.getHeightAt(controls.target.x, controls.target.z);
+    expect(handle.scene.settings.sky.seaLevel).toBeCloseTo(expected, 5);
+    const eye = controls.eyePosition();
+    // Eye XZ differs from the look-at on a non-nadir orbit — that is the pumping case we avoid.
+    expect(Math.hypot(eye.x - controls.target.x, eye.z - controls.target.z)).toBeGreaterThan(10);
+    handle.dispose?.();
+  });
+
   it("answers elevation queries with the surface the mesh is built from, not the bare noise", () => {
     const { handle } = terrainHarness();
     const terrain = handle.scene.object<TerrainWorld>("TerrainWorld")!;

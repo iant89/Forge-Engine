@@ -535,9 +535,12 @@ export class GraphicsDevice {
    * Cached samplers by semantic name. The engine uses a small fixed set; creating a sampler per
    * material would blow the per-frame bind-group cost budget.
    */
-  sampler(kind: "point-clamp" | "linear-clamp" | "linear-repeat" | "anisotropic" | "shadow" | "shadow-pcf" | "comparison"): GPUSampler {
+  sampler(kind: "point-clamp" | "linear-clamp" | "linear-repeat" | "anisotropic" | "anisotropic-repeat" | "shadow" | "shadow-pcf" | "comparison"): GPUSampler {
     const cached = this.samplerCache.get(kind);
     if (cached) return cached;
+    // Anisotropy must be a power of two in [1, 16]. Prefer 8 — enough to kill grazing sparkle on
+    // tiled terrain without the 16× memory bandwidth hit on mobile GPUs.
+    const aniso = 8;
     const desc: GPUSamplerDescriptor =
       kind === "shadow" || kind === "comparison"
         ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "nearest", minFilter: "nearest", compare: kind === "shadow" ? "less" : "less-equal" }
@@ -547,10 +550,12 @@ export class GraphicsDevice {
         : kind === "point-clamp"
           ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "nearest", minFilter: "nearest" }
           : kind === "linear-repeat"
-            ? { addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "linear" }
+            ? { addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear" }
+            : kind === "anisotropic-repeat"
+              ? { addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: aniso }
             : kind === "anisotropic"
-              ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear", maxAnisotropy: Math.min(8, this.limits.maxTextureDimension2D > 0 ? 16 : 1) }
-              : { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear" };
+              ? { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: aniso }
+              : { addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear" };
     const sampler = this.device.createSampler(desc);
     this.samplerCache.set(kind, sampler);
     return sampler;

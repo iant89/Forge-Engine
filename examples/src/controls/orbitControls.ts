@@ -137,7 +137,9 @@ export class OrbitControls {
     if (setup.groundClearance !== undefined) this.groundClearance = setup.groundClearance;
     if (setup.groundHeight !== undefined) this.groundHeight = setup.groundHeight;
     if (setup.keyboard !== undefined) this.keyboard = setup.keyboard;
-    if (setup.target) this.target.set(setup.target.x, setup.target.y, setup.target.z);
+    // Keep the scene's Vec3 when provided so demos can read the live look-at (e.g. pin sky.seaLevel
+    // to terrain under the orbit target instead of under the eye).
+    if (setup.target) this.target = setup.target;
     if (setup.azimuth !== undefined) this.azimuth = setup.azimuth;
     if (setup.elevation !== undefined) this.elevation = setup.elevation;
     if (setup.distance !== undefined) this.distance = setup.distance;

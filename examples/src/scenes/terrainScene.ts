@@ -140,18 +140,28 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   // Camera overlooking a crater valley. The controller (see `camera` below) owns the position from
   // here on: it clamps the eye and the orbit target to `groundClearance` above the terrain.
   const groundY = terrain.getHeightAt(0, 0);
+  // Shared with OrbitControls: the live look-at so sky.seaLevel can track the pin target, not the eye.
+  const orbitTarget = new Vec3(0, groundY, 0);
+  // Pin sky seaLevel to the surface under the orbit look-at. With seaLevel left at 0 the atmosphere
+  // treats the camera as tens of metres above a virtual planet ground while the mesh sits at
+  // `groundY`; on tall iPhone FOVs that mismatch reads as a flat beige band under a phantom horizon
+  // (fe-14). Pinning to the look-at (not eye XZ) keeps the band stable while the eye pumps over ridges.
+  scene.settings.sky.seaLevel = groundY;
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, groundY + 25, 0));
   const camera = new Camera();
   camera.fovY = Math.PI / 3.2;
-  camera.near = 0.5;
-  camera.far = 12000; // 12 km far plane
+  // Standard (non-reversed) WebGPU depth packs precision near the camera. far/near of 12 km / 0.5 m
+  // collapses grazing-angle heightfield depths into moiré on mobile 24-bit depth; minDistance is 6 m
+  // so a 2 m near plane is safe and recovers ~4× depth resolution at the disc rim.
+  camera.near = 2.0;
+  camera.far = 2800; // past viewDistance (1 km) + fog; sky still draws at z=1
   scene.world.addComponent(cameraEntity.id, camera);
 
   return {
     scene,
     cameraEntity,
     camera: {
-      target: new Vec3(0, groundY, 0),
+      target: orbitTarget,
       distance: 420,
       azimuth: 0.4,
       elevation: 0.34,
@@ -164,8 +174,9 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
       groundHeight: (x, z) => terrain.getHeightAt(x, z),
     },
     update: (_dt: number) => {
-      // Nothing per-frame: the orbit controller applies the surface constraint from `groundHeight`,
-      // so the camera and the controller never disagree about where the eye is.
+      // Keep sky observer height tied to the orbit look-at (shared Vec3 mutated by OrbitControls),
+      // not the eye — otherwise ridges under the camera pump seaLevel every frame.
+      scene.settings.sky.seaLevel = terrain.getHeightAt(orbitTarget.x, orbitTarget.z);
     },
     dispose: () => {
       terrainMat.dispose();
