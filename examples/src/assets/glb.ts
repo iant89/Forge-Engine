@@ -345,6 +345,16 @@ export async function loadGlb(
       indicesRaw instanceof Uint32Array
         ? indicesRaw
         : Uint32Array.from({ length: positions.length / 3 }, (_, i) => i);
+    // Loud failure for corrupt index data: the converter once emitted per-wheel slices with
+    // global (non-rebased) indices, and every wheel but wheel_FL rendered nothing with no error.
+    if (indices.length > 0) {
+      let maxIndex = 0;
+      for (let i = 0; i < indices.length; i++) if (indices[i]! > maxIndex) maxIndex = indices[i]!;
+      const vertCount = positions.length / 3;
+      if (maxIndex >= vertCount) {
+        console.warn(`loadGlb: ${name} has out-of-range indices (max ${maxIndex} for ${vertCount} verts); it will not render correctly`);
+      }
+    }
 
     const material = await materialFor(prim.material ?? 0);
     const source: GeometrySource = {

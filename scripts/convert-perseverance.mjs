@@ -278,9 +278,12 @@ function clusterWheels(prims) {
     for (let i = 0; i < zs.length; i++) { sums[assignZ[i]] += zs[i]; counts[assignZ[i]]++; }
     for (let k = 0; k < 3; k++) if (counts[k]) seeds[k] = sums[k] / counts[k];
   }
-  // Order front → rear: front has the highest Z (+Z is the rover's nose).
+  // Order front → rear: front has the highest Z (+Z is the rover's nose). Rank the converged
+  // seeds explicitly so the axle→name mapping holds even if a k-means run drifts the clusters
+  // out of their initial order (silently mislabelled wheels pose at the wrong hubs).
   const axleOrder = [0, 1, 2].sort((a, b) => seeds[b] - seeds[a]);
-  void axleOrder;
+  const axleRank = new Array(3);
+  axleOrder.forEach((axle, rank) => { axleRank[axle] = rank; }); // 0 front, 1 middle, 2 rear
 
   // Bucket every vertex (across prims) into one of 6 clusters: axle × side.
   const clusterOfPrimVert = prims.map((p) => {
@@ -290,7 +293,7 @@ function clusterWheels(prims) {
       let axle = 0, best = Infinity;
       for (let k = 0; k < 3; k++) { const d = Math.abs(z - seeds[k]); if (d < best) { best = d; axle = k; } }
       const side = x < 0 ? 0 : 1; // -X = left
-      arr[i] = axle * 2 + side; // 0 FL, 1 FR, 2 ML, 3 MR, 4 RL, 5 RR
+      arr[i] = axleRank[axle] * 2 + side; // 0 FL, 1 FR, 2 ML, 3 MR, 4 RL, 5 RR
     }
     return arr;
   });
@@ -338,7 +341,18 @@ function clusterWheels(prims) {
     for (let f = 0; f < p.indices.length; f += 3) {
       const k = assign[p.indices[f]];
       const b = buckets[k];
-      b.indices.push(localIndex[p.indices[f]], localIndex[p.indices[f + 1]], localIndex[p.indices[f + 2]]);
+      const base = globalBase[k];
+      // Each per-wheel slice is emitted as its own mesh with a 0-based vertex array, so the
+      // packed (global) indices must be rebased. Skipping the `- base` shipped once as "only
+      // wheel_FL visible": every other wheel's indices pointed past its own vertices and the GPU
+      // discarded the lot with no error. Triangles never span wheels (metres of air between the
+      // hubs) — fail loudly instead of emitting cross-cluster indices if one ever does.
+      for (let corner = 0; corner < 3; corner++) {
+        if (assign[p.indices[f + corner]] !== k) {
+          throw new Error(`cross-wheel triangle in wheel prim ${c}: corners span clusters, cannot split`);
+        }
+      }
+      b.indices.push(localIndex[p.indices[f]] - base, localIndex[p.indices[f + 1]] - base, localIndex[p.indices[f + 2]] - base);
     }
     for (let k = 0; k < 6; k++) {
       if (!buckets[k].indices.length) continue;
