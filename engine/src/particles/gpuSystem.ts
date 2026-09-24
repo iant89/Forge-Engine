@@ -555,7 +555,12 @@ export class GpuParticleSystem {
       name: "particle.render",
       reads: [opts.depth],
       color: [{ texture: opts.color, loadOp: "load" }],
-      depth: { texture: opts.depth, depthReadOnly: true, depthLoadOp: "load", depthStoreOp: "store" },
+      // Read-only on purpose: this pass SAMPLES the scene depth (soft-particle fade), which WebGPU
+      // only allows while the attachment is read-only. The spec's implicit "load" for read-only
+      // depth is the same primitive the sky pass stopped relying on (WebKit lost the main pass's
+      // depth through it on iOS); here a wrong load only fades soft particles, never paints over
+      // the scene, so the read-only attach stays.
+      depth: { texture: opts.depth, depthReadOnly: true },
       execute: (ctx) => this.encodeRender(ctx, opts.colorFormat, opts.depthFormat, opts.depth),
     });
     graph.addPass({

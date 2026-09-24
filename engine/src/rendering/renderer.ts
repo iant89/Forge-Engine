@@ -575,11 +575,16 @@ export class Renderer implements RenderFrameContext {
     });
     if (frame.sky) {
       // Sky: fullscreen triangle on the far plane into the same colour target; the depth buffer is
-      // bound read-only (a graph *read*), so only pixels the geometry left at depth 1 are shaded.
+      // attached with an explicit load so only pixels the geometry left at depth 1 are shaded.
+      // Deliberately NOT `depthReadOnly`: the spec's read-only attach implies "load", but that
+      // implicit load is the one primitive the sandbox can never verify (no WebKit build), and on
+      // iOS Safari it came back without the main pass's depth — the sky's fogged planet ground
+      // then painted its flat beige disc over terrain and rover alike while every stat read fine.
+      // The explicit load is the portable spelling; the sky pipeline still never writes depth.
       g.addPass({
         name: "forge.sky",
         color: [{ texture: sceneColor, loadOp: "load" }],
-        depth: { texture: sceneDepth, depthReadOnly: true },
+        depth: { texture: sceneDepth, depthLoadOp: "load", depthStoreOp: "store" },
         execute: (ctx) => this.executeSkyPass(ctx, colorFormat),
       });
     }

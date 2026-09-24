@@ -84,6 +84,8 @@ export interface MockPassRecord {
   instances: number;
   colorTargets: string[];
   depthTarget: string | null;
+  /** Depth load op of a render pass (`null` for read-only attachments, which carry none). */
+  depthLoadOp: "load" | "clear" | null;
   /** Depth store op of a render pass (`"read-only"` when the attachment was bound read-only). */
   depthStoreOp: "store" | "discard" | "read-only" | null;
   dispatches: number;
@@ -1692,6 +1694,7 @@ export class MockGPURenderPassEncoder extends MockPassBase {
       instances: this.instances,
       colorTargets: this.colorTextures.map((t) => t.label),
       depthTarget: this.depthTexture?.label ?? null,
+      depthLoadOp: this.depthTexture ? (this.desc.depthStencilAttachment?.depthReadOnly ? null : (this.desc.depthStencilAttachment?.depthLoadOp ?? null)) : null,
       depthStoreOp: this.depthTexture ? (this.desc.depthStencilAttachment?.depthReadOnly ? "read-only" : (this.desc.depthStencilAttachment?.depthStoreOp ?? null)) : null,
       dispatches: 0,
     });
@@ -1814,6 +1817,7 @@ export class MockGPUComputePassEncoder {
       instances: 0,
       colorTargets: [],
       depthTarget: null,
+      depthLoadOp: null,
       depthStoreOp: null,
       dispatches: this.dispatches,
     });

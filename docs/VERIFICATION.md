@@ -43,7 +43,9 @@ device-side diagnostics, loaded on demand (`examples/src/diag/`):
   a plain `npm run demo` only draws the text on screen.
 * `examples/src/diag/rawGpuTests.ts` runs twelve raw-WebGPU probes against the engine's device *and*
   a freshly requested one — rasterisation, the depth test, `depthReadOnly` loading the previous
-  pass's depth, dynamic offsets (uniform slices and a read-only-storage window, the two shapes the
+  pass's depth (kept as a device probe after the renderer moved to the explicit-load spelling its
+  `depth-load` control exercises, so a phone report still names the primitive), dynamic offsets
+  (uniform slices and a read-only-storage window, the two shapes the
   renderer's per-draw and per-instance bindings use), front-facing winding under both `frontFace`
   settings and back-face culling, instancing, rendering into an array layer,
   HDR blit and sRGB sampling. Each probe runs inside a validation error scope and carries its
@@ -228,9 +230,12 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
 * Toggling HDR and shadows through five combinations records zero mock validation errors, and
   every fixture asserts `mock.outstanding` is empty after teardown.
 * **Sky (Phase 8a)**: `scene.setSky()` inserts exactly one `forge.sky` pass directly after `forge.main`,
-  drawing one triangle into the *same* colour target with the scene depth bound read-only
-  (`MockPassRecord.depthStoreOp === "read-only"`, and the mock rejects load/store ops on a read-only
-  depth attachment as the spec does); `forge.main` switches its depth store op from `discard` to
+  drawing one triangle into the *same* colour target with the scene depth attached via an explicit
+  load (`MockPassRecord.depthLoadOp === "load"`, `depthStoreOp === "store"` — the read-only attach's
+  implicit load is not what the renderer relies on, because no check here can run WebKit and on iOS
+  that implicit load lost the main pass's depth; the mock still rejects load/store ops on a
+  read-only depth attachment as the spec does, for any pass that opts into read-only);
+  `forge.main` switches its depth store op from `discard` to
   `store` while the sky runs and back when it stops; the pass adds no transient texture; a steady frame
   still creates nothing; the LDR path draws the sky straight into the swapchain; `setBackgroundColor`
   removes the pass; `RendererOptions.skyQuality: "low"` caps a `high` scene to 8 view samples

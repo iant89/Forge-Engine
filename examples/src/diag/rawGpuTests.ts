@@ -9,8 +9,10 @@
  * |------------------|-----------------------------------------------------------------------------|
  * | basic            | rasterisation of one triangle into one colour target                          |
  * | depth-write      | writable depth attachment: later geometry must fail the depth test            |
- * | depth-readonly   | `depthReadOnly: true` must *load* the previous pass's depth (the sky pass)    |
- * | depth-load       | control for the above with an explicit `depthLoadOp: "load"`                  |
+ * | depth-readonly   | `depthReadOnly: true` must *load* the previous pass's depth (device probe:    |
+ * |                  | the engine now uses the explicit spelling below, after WebKit's implicit      |
+ * |                  | read-only load lost the main pass's depth on iOS)                             |
+ * | depth-load       | the explicit `depthLoadOp: "load"` spelling the sky / particle passes use     |
  * | dynamic-offsets  | uniform buffer with dynamic offsets, three slices, three draws                |
  * | uniform-mat4     | a `mat4x4<f32>` uniform actually moving vertices                              |
  * | instanced        | per-instance vertex attributes, two instances                                 |
