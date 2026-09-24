@@ -21,6 +21,9 @@ import { clamp } from "./scalar.js";
 export const LOCAL_STRIDE = 12; // pos(3) pad(1) quat(4) scale(3) pad(1)
 export const WORLD_STRIDE = 16; // mat4, column-major
 
+/** Deepest tree level the depth-ordered update distinguishes; deeper slots share this bucket. */
+const MAX_DEPTH = 31;
+
 export interface TRSLike {
   readonly position: Vec3;
   readonly rotation: Quat;
@@ -128,8 +131,9 @@ function scratchA(): Vec3 {
  * - `local`  : per-slot TRS (see LOCAL_STRIDE)
  * - `world`  : per-slot world matrix, column-major, ready to upload to a GPU buffer
  * - `parent` : slot index of the parent, or 0 for none
- * - versions : `localVersion` bumped on write; `worldVersion` / `worldParentVersion` record what
- *   produced the current world matrix so unchanged subtrees are skipped.
+ * - versions : `localVersion` bumped on write — and by `updateWorld` when only the parent's world
+ *   moved, so the change is visible one level further down; `worldVersion` / `worldParentVersion`
+ *   record what produced the current world matrix so unchanged subtrees are skipped.
  */
 export class TransformStore {
   capacity: number;
@@ -146,10 +150,9 @@ export class TransformStore {
   /** Bumped every `updateWorld` — lets other systems cache "did anything move this frame". */
   epoch = 0;
 
-  private bucketCounts: Int32Array = new Int32Array(32);
-  private bucketStarts: Int32Array = new Int32Array(32);
+  private readonly bucketCounts: Int32Array = new Int32Array(MAX_DEPTH + 1);
+  private readonly bucketStarts: Int32Array = new Int32Array(MAX_DEPTH + 1);
   private sorted: Int32Array = new Int32Array(1024);
-  private maxDepth = 0;
   private nextSlot = 1;
   private freeHead = 0;
   private dirtyCount = 0;
@@ -220,9 +223,7 @@ export class TransformStore {
     this.resetSlot(slot);
     this.parent[slot] = parent;
     this.owner[slot] = owner;
-    const depth = parent === 0 ? 0 : Math.min(this.depth[parent]! + 1, 31);
-    this.depth[slot] = depth;
-    if (depth > this.maxDepth) this.maxDepth = depth;
+    this.depth[slot] = parent === 0 ? 0 : Math.min(this.depth[parent]! + 1, MAX_DEPTH);
     this.localVersion[slot] = (this.localVersion[slot] ?? 0) + 1;
     this.worldVersion[slot] = -1;
     this.worldParentVersion[slot] = -1;
@@ -310,7 +311,7 @@ export class TransformStore {
       p = this.parent[p]!;
     }
     this.parent[slot] = newParent;
-    const depth = newParent === 0 ? 0 : Math.min(this.depth[newParent]! + 1, 31);
+    const depth = newParent === 0 ? 0 : Math.min(this.depth[newParent]! + 1, MAX_DEPTH);
     this.recomputeDepths(slot, depth);
     this.markDirty(slot);
   }
@@ -322,7 +323,8 @@ export class TransformStore {
     this.depth[slot] = depth;
     this.markDirty(slot);
     for (let s = 1; s < this.nextSlot; s++) {
-      if (s !== slot && this.parent[s] === slot) this.recomputeDepths(s, Math.min(depth + 1, 31));
+      // Released slots keep a free-list link in `parent`, not a parent: skip them.
+      if (s !== slot && this.parent[s] === slot && this.localVersion[s]! > 0) this.recomputeDepths(s, Math.min(depth + 1, MAX_DEPTH));
     }
   }
 
@@ -391,16 +393,20 @@ export class TransformStore {
     // point of the version counters (the alternative is a full recompose every frame).
     if (!force && this.dirtyCount === 0 && changedSlots.length === 0) return;
     this.epoch++;
-    const maxDepth = this.maxDepth;
-    if (this.bucketCounts.length <= maxDepth) {
-      this.bucketCounts = new Int32Array(maxDepth + 2);
-      this.bucketStarts = new Int32Array(maxDepth + 2);
-    }
+    // Bucket by the depths actually live this pass, never by a cached maximum. A depth left out of
+    // the reset + prefix sum keeps a stale count, so its slots are written at indices that creep
+    // up `sorted` every frame: for a few frames they overwrite shallower entries, then they fall
+    // past the processed range and that whole subtree silently stops following its parent (a
+    // child re-parented after allocation — `setParent` deepens it — froze exactly like this).
     const counts = this.bucketCounts;
     const starts = this.bucketStarts;
-    counts.fill(0, 0, maxDepth + 1);
+    counts.fill(0);
+    let maxDepth = 0;
     for (let slot = 1; slot < this.nextSlot; slot++) {
-      if (this.localVersion[slot]! > 0) counts[this.depth[slot]!] = (counts[this.depth[slot]!] ?? 0) + 1;
+      if (this.localVersion[slot]! === 0) continue;
+      const d = this.depth[slot]!;
+      counts[d] = counts[d]! + 1;
+      if (d > maxDepth) maxDepth = d;
     }
     let acc = 0;
     for (let d = 0; d <= maxDepth; d++) {
@@ -424,10 +430,14 @@ export class TransformStore {
         const slot = sorted[k]!;
         const parent = this.parent[slot]!;
         const pv = parent === 0 ? 0 : this.worldVersion[parent]!;
-        const lv = this.localVersion[slot]!;
+        let lv = this.localVersion[slot]!;
         const staleLocal = this.worldVersion[slot] !== lv;
         const staleParent = parent !== 0 && this.worldParentVersion[slot] !== pv;
         if (!force && !staleLocal && !staleParent) continue;
+        // This slot's children detect a moved parent by its `worldVersion`. A world rewritten only
+        // because *our* parent moved would otherwise keep the old version, and every grandchild
+        // below a static joint would stop following the root.
+        if (!staleLocal) this.localVersion[slot] = ++lv;
 
         const w = slot * WORLD_STRIDE;
         this.composeLocalToWorld(slot, w);

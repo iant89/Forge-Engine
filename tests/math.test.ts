@@ -203,6 +203,35 @@ describe("transform store", () => {
     expect(Number.isFinite(t.position.x)).toBe(true);
   });
 
+  it("keeps a subtree re-parented after allocation following its parent (and never skips roots)", () => {
+    // Regression: `setParent` deepened the slot without widening the depth buckets `updateWorld`
+    // sorts by, so a child attached after it was allocated (how the Mars rover's GLB parts join
+    // the chassis) tracked its parent for ~9 frames and then froze where it was — the rover model
+    // stayed at spawn while the vehicle and chase camera drove away. On the way out its stale
+    // bucket also overwrote shallower entries, so unrelated roots skipped updates.
+    const store = new TransformStore(64);
+    const roots: number[] = [];
+    for (let i = 0; i < 20; i++) roots.push(store.allocate());
+    const parent = store.allocate();
+    const child = store.allocate();
+    const grandchild = store.allocate();
+    store.setParent(child, parent);
+    store.setParent(grandchild, child);
+    store.setPosition(child, 0, 1, 0);
+    store.setPosition(grandchild, 0, 0, 2);
+    const changed: number[] = [];
+    const out = new Vec3();
+    for (let frame = 1; frame <= 40; frame++) {
+      store.setPosition(parent, frame, 0, 0);
+      for (const r of roots) store.setPosition(r, 0, frame, 0);
+      changed.length = 0;
+      store.updateWorld(changed);
+      expect(store.getWorldPosition(child, out).toArray()).toEqual([frame, 1, 0]);
+      expect(store.getWorldPosition(grandchild, out).toArray()).toEqual([frame, 1, 2]);
+      for (const r of roots) expect(store.getWorldPosition(r, out).y).toBe(frame);
+    }
+  });
+
   it("cycle attempts in the parent chain are rejected by the store's own guard", () => {
     const store = new TransformStore(8);
     const a = store.allocate(0, 0);
