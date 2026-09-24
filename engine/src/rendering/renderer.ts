@@ -82,6 +82,8 @@ export interface RenderStats {
   shadowsCulled: number;
   shadowCascades: number;
   debugLines: number;
+  /** Wireframe AABBs drawn by `debugBounds` last frame (one per visible Renderable). */
+  debugBounds: number;
   hdr: boolean;
   bloomMips: number;
   /** True when the `forge.sky` pass ran this frame. */
@@ -154,6 +156,23 @@ const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const SHADOW_FORMAT: GPUTextureFormat = "depth24plus";
 /** Sun direction when neither the sky settings nor a directional light provide one. */
 const DEFAULT_SUN = new Vec3(0.3, 0.8, 0.5).normalize();
+/** `debugBounds` box colours (RGBA byte pack, 0xAARRGGBB): cyan in view, magenta frustum-culled. */
+const DEBUG_BOUNDS_IN_VIEW = 0xff00ffff;
+const DEBUG_BOUNDS_CULLED = 0xffff00ff;
+const DEBUG_BOX_EDGES: ReadonlyArray<readonly [number, number]> = [
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 0],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 4],
+  [0, 4],
+  [1, 5],
+  [2, 6],
+  [3, 7],
+];
 
 export class Renderer implements RenderFrameContext {
   readonly pipelines: PipelineFactory;
@@ -169,6 +188,7 @@ export class Renderer implements RenderFrameContext {
     shadowsCulled: 0,
     shadowCascades: 0,
     debugLines: 0,
+    debugBounds: 0,
     hdr: false,
     bloomMips: 0,
     sky: false,
@@ -185,6 +205,14 @@ export class Renderer implements RenderFrameContext {
     texturesCreated: 0,
   };
   instanceCount = 0;
+
+  /**
+   * Debug aid: draw the world-space AABB of every visible Renderable as a wireframe box, including
+   * renderables the frustum culled this frame (magenta = culled, cyan = in view). Unlike meshes,
+   * the boxes are drawn without a depth test, so they stay visible through terrain and haze —
+   * the point is to show *where* geometry is supposed to be when nothing renders there.
+   */
+  debugBounds = false;
 
   /** Max instances one batch may share (`collectBatches` splits beyond it). */
   private get maxInstancesPerBatch(): number {
@@ -280,6 +308,13 @@ export class Renderer implements RenderFrameContext {
   private debugLineCount = 0;
   private debugBuffer: GPUBuffer | null = null;
   private debugBufferCapacity = 0;
+  // Depth-test-free overlay lines (the `debugBounds` boxes): separate buffer so the boxes can be
+  // drawn through geometry while `drawLine`/`drawAabb` callers keep occlusion.
+  private overlayLines = new Float32Array(4096 * 4);
+  private overlayLineCount = 0;
+  private overlayBoxCount = 0;
+  private overlayBuffer: GPUBuffer | null = null;
+  private overlayBufferCapacity = 0;
 
   private invalidated = true;
   private lastUploadCount = 0;
@@ -793,6 +828,7 @@ export class Renderer implements RenderFrameContext {
       this.stats.instances += b.count;
     }
     if (this.debugLineCount > 0) this.drawDebugLines(pass, colorFormat);
+    if (this.overlayLineCount > 0) this.drawOverlayLines(pass, colorFormat);
     pass.end();
   }
 
@@ -829,6 +865,7 @@ export class Renderer implements RenderFrameContext {
     s.shadowsCulled = 0;
     s.shadowCascades = 0;
     s.debugLines = 0;
+    s.debugBounds = 0;
     s.hdr = false;
     s.bloomMips = 0;
     s.sky = false;
@@ -1190,6 +1227,9 @@ export class Renderer implements RenderFrameContext {
       const box = this.scratchWorldBox;
       const inView = this.frustum.intersectsAABB(box) && (r.layer & camera.cullingMask) !== 0;
       r.isVisible = inView;
+      // Debug bounds: record the would-be footprint of everything that *has* a renderable this
+      // frame, culled or not — the boxes are what proves where the model is supposed to sit.
+      if (this.debugBounds) this.queueOverlayAabb(box, inView ? DEBUG_BOUNDS_IN_VIEW : DEBUG_BOUNDS_CULLED);
       const caster = cascadeCount > 0 && r.castShadow && !r.transparent && !r.overlay;
       let shadowOnly = false;
       if (!inView) {
@@ -1466,6 +1506,69 @@ export class Renderer implements RenderFrameContext {
     this.debugLineCount = 0;
   }
 
+  private readonly boundsCornerA = new Vec3();
+  private readonly boundsCornerB = new Vec3();
+
+  private queueOverlayLine(a: Vec3, b: Vec3, color: number): void {
+    const need = (this.overlayLineCount + 1) * 4;
+    if (need > this.overlayLines.length) {
+      const next = new Float32Array(Math.max(need * 2, this.overlayLines.length * 2));
+      next.set(this.overlayLines);
+      this.overlayLines = next;
+    }
+    const f = this.overlayLines;
+    const u = new Uint32Array(f.buffer, f.byteOffset, f.length);
+    const o = this.overlayLineCount * 4;
+    f[o] = a.x;
+    f[o + 1] = a.y;
+    f[o + 2] = a.z;
+    u[o + 3] = color >>> 0;
+    f[o + 4] = b.x;
+    f[o + 5] = b.y;
+    f[o + 6] = b.z;
+    u[o + 7] = color >>> 0;
+    this.overlayLineCount++;
+  }
+
+  private queueOverlayAabb(box: AABB, color: number): void {
+    const min = box.min;
+    const max = box.max;
+    const a = this.boundsCornerA;
+    const b = this.boundsCornerB;
+    // Corner order matches DEBUG_BOX_EDGES (bottom ring 0-3, top ring 4-7).
+    const cx = [min.x, max.x, max.x, min.x, min.x, max.x, max.x, min.x];
+    const cy = [min.y, min.y, min.y, min.y, max.y, max.y, max.y, max.y];
+    const cz = [min.z, min.z, max.z, max.z, min.z, min.z, max.z, max.z];
+    for (const [i, j] of DEBUG_BOX_EDGES) {
+      a.set(cx[i]!, cy[i]!, cz[i]!);
+      b.set(cx[j]!, cy[j]!, cz[j]!);
+      this.queueOverlayLine(a, b, color);
+    }
+    this.overlayBoxCount++;
+  }
+
+  /** Depth-test-free twin of `drawDebugLines` for the `debugBounds` boxes. */
+  private drawOverlayLines(pass: GPURenderPassEncoder, colorFormat: GPUTextureFormat): void {
+    const bytesPerVertex = 16;
+    const size = alignUp(this.overlayLineCount * 2 * bytesPerVertex, 4);
+    if (size > this.overlayBufferCapacity || !this.overlayBuffer) {
+      this.overlayBuffer?.destroy();
+      this.overlayBufferCapacity = Math.max(size, 4096);
+      this.overlayBuffer = this.device.device.createBuffer({ label: "debug.bounds", size: this.overlayBufferCapacity, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+    }
+    this.device.device.queue.writeBuffer(this.overlayBuffer, 0, gpuSource(this.overlayLines.subarray(0, (size / 4) | 0)));
+    // `noDepthTest` keeps the pass's depth attachment (a pipeline without depth state is invalid in
+    // a pass that has one) but compares "always", so the boxes draw through terrain, haze and
+    // meshes — they mark where geometry is, not where it happens to be visible.
+    const pipeline = this.pipelines.get({ technique: "debug", colorFormat, depthFormat: this.device.depthFormat, transparent: true, doubleSided: true, instanced: false, noDepthTest: true });
+    pass.setPipeline(pipeline.pipeline);
+    pass.setVertexBuffer(0, this.overlayBuffer);
+    pass.draw(this.overlayLineCount * 2);
+    this.stats.debugBounds = this.overlayBoxCount;
+    this.overlayLineCount = 0;
+    this.overlayBoxCount = 0;
+  }
+
   // ------------------------------------------------------------------ debug API
 
   drawLine(a: Vec3, b: Vec3, color = 0xff00ff00): void {
@@ -1592,7 +1695,7 @@ export class Renderer implements RenderFrameContext {
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
-    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
     this.shadowBuffer = null;
@@ -1606,6 +1709,7 @@ export class Renderer implements RenderFrameContext {
     this.objectBuffer = null;
     this.instanceBuffer = null;
     this.debugBuffer = null;
+    this.overlayBuffer = null;
     this.objectBufferCapacity = 0;
     this.instanceBufferCapacity = 0;
     this.shadowFallback?.destroy();

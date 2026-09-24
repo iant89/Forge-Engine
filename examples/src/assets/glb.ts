@@ -102,6 +102,14 @@ export interface LoadedGlb {
   dispose(): void;
 }
 
+/** Loading-screen progress: which phase the loader is in and how far the fetch got. */
+export interface GlbLoadProgress {
+  phase: "fetch" | "parse" | "build" | "done";
+  receivedBytes: number;
+  /** From the response's Content-Length when the server sends one; null otherwise. */
+  totalBytes: number | null;
+}
+
 const COMPONENT_BYTES: Record<number, number> = { 5126: 4, 5123: 2, 5125: 4, 5121: 1, 5122: 2 };
 const TYPE_COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 
@@ -167,10 +175,45 @@ async function imageBytesToTexture(
  * Fetch and build a `LoadedGlb`. Rejects on any structural error; image decode failures fall back
  * to the material's factor colour instead of failing the whole model.
  */
-export async function loadGlb(device: GraphicsDevice, url: string): Promise<LoadedGlb> {
+export async function loadGlb(
+  device: GraphicsDevice,
+  url: string,
+  onProgress?: (progress: GlbLoadProgress) => void,
+): Promise<LoadedGlb> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`loadGlb: GET ${url} → ${response.status}`);
-  const { json, bin } = parseGlb(await response.arrayBuffer());
+  const contentLength = Number(response.headers.get("content-length"));
+  const totalBytes = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+  let received = 0;
+  const report = (phase: GlbLoadProgress["phase"]): void => onProgress?.({ phase, receivedBytes: received, totalBytes });
+  // Stream the body (the GLB is several MB) so a loading screen can show real fetch progress;
+  // fall back to the one-shot read where the response has no readable body.
+  let buffer: ArrayBuffer;
+  if (response.body) {
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      received += value.length;
+      report("fetch");
+    }
+    buffer = new Uint8Array(received).buffer;
+    let at = 0;
+    for (const chunk of chunks) {
+      new Uint8Array(buffer, at, chunk.length).set(chunk);
+      at += chunk.length;
+    }
+  } else {
+    buffer = await response.arrayBuffer();
+    received = buffer.byteLength;
+    report("fetch");
+  }
+  report("parse");
+  const { json, bin } = parseGlb(buffer);
+  report("build");
 
   const parts: GlbPart[] = [];
   const wheels = new Map<string, GlbWheel>();
@@ -356,6 +399,7 @@ export async function loadGlb(device: GraphicsDevice, url: string): Promise<Load
   for (const rootIndex of sceneRoots) await visit(rootIndex, null);
 
   const body = parts;
+  report("done");
   return {
     body,
     wheels: [...wheels.values()].sort((a, b) => a.name.localeCompare(b.name)),

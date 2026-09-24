@@ -257,4 +257,47 @@ describe("Renderer with mock WebGPU device", () => {
     expect(mock.outstanding.buffers).toHaveLength(0);
     expect(mock.outstanding.textures).toHaveLength(0);
   });
+
+  it("debugBounds draws AABBs for in-view AND frustum-culled renderables, and cleans up", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const mock = device.mock;
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "bounds-scene" });
+
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -10));
+    const camera = new Camera();
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+    const boxMesh = createBox(device, { width: 1, height: 1, depth: 1 });
+    const mat = new Material({ label: "mat", color: 0x00ff00 });
+    const inFront = scene.createTransformedEntity("in-front", new Vec3(0, 0, 0));
+    const r1 = new Renderable();
+    r1.geometry = boxMesh;
+    r1.material = mat;
+    scene.world.addComponent(inFront.id, r1);
+    // Behind the camera: frustum-culled, but the bounds overlay must still mark where it sits.
+    const behind = scene.createTransformedEntity("behind", new Vec3(0, 0, -30));
+    const r2 = new Renderable();
+    r2.geometry = boxMesh;
+    r2.material = mat;
+    scene.world.addComponent(behind.id, r2);
+
+    renderer.debugBounds = true;
+    renderer.renderScene(scene);
+    expect(renderer.stats.debugBounds).toBe(2);
+
+    renderer.debugBounds = false;
+    renderer.renderScene(scene);
+    expect(renderer.stats.debugBounds).toBe(0);
+    mock.assertClean();
+
+    scene.dispose();
+    renderer.dispose();
+    boxMesh.dispose();
+    mat.dispose();
+    await device.dispose();
+    expect(mock.outstanding.buffers).toHaveLength(0);
+    expect(mock.outstanding.textures).toHaveLength(0);
+  });
 });

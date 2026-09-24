@@ -50,6 +50,11 @@ export interface PipelineKeyOptions {
   fragmentEntry?: PostEntryPoint;
   /** Additive blending (one / one) — the bloom upsample accumulates into the finer mip. */
   additive?: boolean;
+  /**
+   * Keep the pass's depth attachment (WebGPU demands a matching depth state) but never fail on it:
+   * `depthCompare: "always"` + no depth write, for overlays that must draw through the scene.
+   */
+  noDepthTest?: boolean;
 }
 
 export interface RenderPipelineBundle {
@@ -201,6 +206,7 @@ export class PipelineFactory {
       options.instanced ? "inst" : "static",
       options.sampleCount ?? 1,
       options.writeDepth === false ? "nodepthwrite" : "depthwrite",
+      options.noDepthTest ? "nodepthtest" : "depthtest",
       options.fragmentEntry ?? "-",
       options.additive ? "add" : "-",
     ].join("|");
@@ -269,15 +275,16 @@ export class PipelineFactory {
         frontFace: "cw",
         cullMode: options.doubleSided || fullscreen ? "none" : "back",
       },
-      depthStencil: options.depthFormat
-        ? {
-            format: options.depthFormat,
-            // The sky is depth-tested against the opaque scene but never writes (its pass binds the
-            // depth attachment read-only).
-            depthWriteEnabled: sky ? false : options.writeDepth !== false,
-            // The depth pass uses a bias + "less" so caster triangles cannot win the tie against
-            // themselves; the colour pass uses "less-equal" so coplanar decals behave.
-            depthCompare: isDepthOnly ? "less" : "less-equal",
+          depthStencil: options.depthFormat
+            ? {
+                format: options.depthFormat,
+                // The sky is depth-tested against the opaque scene but never writes (its pass binds the
+                // depth attachment read-only).
+                depthWriteEnabled: sky ? false : options.noDepthTest ? false : options.writeDepth !== false,
+                // The depth pass uses a bias + "less" so caster triangles cannot win the tie against
+                // themselves; the colour pass uses "less-equal" so coplanar decals behave. Overlays
+                // (`noDepthTest`) use "always" so they draw through everything rendered before them.
+                depthCompare: isDepthOnly ? "less" : options.noDepthTest ? "always" : "less-equal",
             // Polygon offset keeps shadow casters from self-acne; slope-scaled so grazing angles
             // bias more than facing ones. Both live in GPUDepthStencilState.
             depthBias: isDepthOnly ? 2 : 0,
