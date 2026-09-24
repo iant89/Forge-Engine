@@ -41,3 +41,11 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 - **Lesson:** out-of-bounds index buffers fail silently on the GPU — any future "mesh missing, no
   error" report should dump index ranges first. The debug-bounds overlay (`RoverDebugBounds`) only
   proves the *entity pose*, not that the geometry is drawable.
+
+## 2026-09-24 — change-log.md convention
+
+- `change-log.md` holds the JSON activity history (future interactive history page). One `change`
+  entry per file touched (model/version, file, what/why) + one `pr-merge` summary entry before each
+  PR merge. AGENTS.md §7 points every session at it and at this file.
+- "Model" in log entries = agent identity as known to the session (`"Arena Agent Mode"` unless the
+  specific underlying model is known); the harness does not expose the exact LLM, so don't invent one.
