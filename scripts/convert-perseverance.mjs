@@ -229,6 +229,38 @@ collectDescendants(HEAD_NODE, MAST_HEAD_NODES);
 const hingeWorld = worlds.get(MAST_HINGE_NODE);
 const MAST_PIVOT = [hingeWorld[12], hingeWorld[13], hingeWorld[14]];
 
+// Joint positions for the mast sub-assembly articulation.
+// The mast chain is Cylinder (hinge) → bottom (lower arm) → top (upper arm) →
+// Cylinder.002 (elevation joint) → head (camera assembly).
+// Azimuth joint: world position of the `top` node (lower↔upper arm boundary).
+// Elevation joint: world position of the `Cylinder.002` node (upper↔head boundary).
+const TOP_NODE = mastChain[mastChain.indexOf(mastChain.find((_, i) => gltfJson.nodes[mastChain[i]].name === "top"))];
+const topWorld = worlds.get(TOP_NODE);
+const MAST_AZIMUTH_JOINT = [topWorld[12] - MAST_PIVOT[0], topWorld[13] - MAST_PIVOT[1], topWorld[14] - MAST_PIVOT[2]];
+const CYL002_NODE = mastChain[mastChain.indexOf(mastChain.find((_, i) => gltfJson.nodes[mastChain[i]].name === "Cylinder.002"))];
+const cyl002World = worlds.get(CYL002_NODE);
+const MAST_ELEVATION_JOINT = [cyl002World[12] - MAST_PIVOT[0], cyl002World[13] - MAST_PIVOT[1], cyl002World[14] - MAST_PIVOT[2]];
+
+// Classify mast nodes into sub-groups for articulation.
+// bottom + Cylinder (base) = lower arm; top = upper arm; Cylinder.002 + head + descendants = head assembly.
+const MAST_CHAIN_SET = new Set(mastChain);
+const BOTTOM_NODE = mastChain.find((i) => gltfJson.nodes[i].name === "bottom");
+const MAST_UPPER_NODES = new Set([TOP_NODE]);
+const MAST_HEAD_ASSEMBLY_NODES = new Set();
+for (let i = mastChain.indexOf(mastChain.find((i) => gltfJson.nodes[i].name === "Cylinder.002")); i < mastChain.length; i++) {
+  MAST_HEAD_ASSEMBLY_NODES.add(mastChain[i]);
+  collectDescendants(mastChain[i], MAST_HEAD_ASSEMBLY_NODES);
+}
+// Lower: Cylinder (hinge base) + bottom + their non-mast-chain descendants
+const MAST_LOWER_NODES = new Set();
+for (const i of [MAST_HINGE_NODE, BOTTOM_NODE]) {
+  MAST_LOWER_NODES.add(i);
+  collectDescendants(i, MAST_LOWER_NODES);
+}
+// Remove any nodes that belong to the upper or head groups
+for (const i of MAST_UPPER_NODES) MAST_LOWER_NODES.delete(i);
+for (const i of MAST_HEAD_ASSEMBLY_NODES) MAST_LOWER_NODES.delete(i);
+
 /** Decode node → mesh → primitives, bake to world space. Returns per-prim arrays. */
 function bakeNodePrimitives(nodeIndex) {
   const node = gltfJson.nodes[nodeIndex];
@@ -410,6 +442,18 @@ const WHEEL_NAMES = ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL",
 // ---- mast: bake the deployment assembly world-space, then make it hinge-relative. The head
 // centroid (offset from the hinge) is reported for the demo, which raises the assembly by the
 // quaternion taking that stowed offset onto +Y.
+//
+// Parts are classified into three articulation groups for the sub-pivot hierarchy:
+// - lower: base bracket + lower arm (rotate with deployment hinge)
+// - upper: upper arm (rotate around azimuth joint)
+// - head: camera head + instruments (tilt at elevation joint)
+function classifyMastNode(nodeIndex) {
+  if (MAST_LOWER_NODES.has(nodeIndex)) return "lower";
+  if (MAST_UPPER_NODES.has(nodeIndex)) return "upper";
+  if (MAST_HEAD_ASSEMBLY_NODES.has(nodeIndex)) return "head";
+  return "lower"; // fallback
+}
+
 const mastMeshes = [];
 const headSum = [0, 0, 0];
 let headCount = 0;
@@ -417,6 +461,7 @@ for (const i of MAST_NODES) {
   const node = gltfJson.nodes[i];
   if (node.mesh === undefined) continue;
   const isHead = MAST_HEAD_NODES.has(i);
+  const group = classifyMastNode(i);
   for (const prim of bakeNodePrimitives(i)) {
     const positions = new Float32Array(prim.positions);
     for (let v = 0; v < prim.count; v++) {
@@ -432,6 +477,7 @@ for (const i of MAST_NODES) {
     }
     mastMeshes.push({
       node: node.name,
+      group,
       slot: {
         positions,
         normals: prim.normals,
@@ -588,14 +634,38 @@ for (let w = 0; w < 6; w++) {
   outJson.scenes[0].nodes.push(rootIndex);
 }
 
-// Mast assembly: hinge-relative parts under a root translated to the hinge (assembled model pose
-// is the stowed-flat pose); the demo parents them under a pivot entity and rotates about it.
-const mastChildren = [];
-for (const { node, slot } of mastMeshes) {
+// Mast assembly: hinge-relative parts under a root translated to the hinge. Parts are grouped
+// into sub-nodes (mast_lower, mast_upper, mast_head) so the loader can create the three-tier
+// articulation hierarchy (deployment hinge → azimuth joint → elevation joint).
+const mastLowerChildren = [];
+const mastUpperChildren = [];
+const mastHeadChildren = [];
+for (const { node, group, slot } of mastMeshes) {
   const meshIndex = addMesh(slot, `mast_${node}_${gltfJson.materials[slot.material]?.name ?? slot.material}`);
   const nodeIndex = outJson.nodes.length;
   outJson.nodes.push({ name: "mast_part", mesh: meshIndex });
-  mastChildren.push(nodeIndex);
+  if (group === "upper") mastUpperChildren.push(nodeIndex);
+  else if (group === "head") mastHeadChildren.push(nodeIndex);
+  else mastLowerChildren.push(nodeIndex);
+}
+const mastChildren = [];
+// Lower arm: no extra translation (relative to hinge)
+if (mastLowerChildren.length > 0) {
+  const lowerIndex = outJson.nodes.length;
+  outJson.nodes.push({ name: "mast_lower", children: mastLowerChildren });
+  mastChildren.push(lowerIndex);
+}
+// Upper arm: translated to the azimuth joint (hinge-relative)
+if (mastUpperChildren.length > 0) {
+  const upperIndex = outJson.nodes.length;
+  outJson.nodes.push({ name: "mast_upper", translation: [...MAST_AZIMUTH_JOINT], children: mastUpperChildren });
+  mastChildren.push(upperIndex);
+}
+// Head assembly: translated to the elevation joint (hinge-relative)
+if (mastHeadChildren.length > 0) {
+  const headIndex = outJson.nodes.length;
+  outJson.nodes.push({ name: "mast_head", translation: [...MAST_ELEVATION_JOINT], children: mastHeadChildren });
+  mastChildren.push(headIndex);
 }
 const mastRootIndex = outJson.nodes.length;
 outJson.nodes.push({ name: "mast", translation: [...MAST_PIVOT], children: mastChildren });
@@ -644,8 +714,13 @@ const report = {
   mast: {
     pivot: MAST_PIVOT.map((v) => Number(v.toFixed(4))),
     headOffset: MAST_HEAD_OFFSET.map((v) => Number(v.toFixed(4))),
+    azimuthJoint: MAST_AZIMUTH_JOINT.map((v) => Number(v.toFixed(4))),
+    elevationJoint: MAST_ELEVATION_JOINT.map((v) => Number(v.toFixed(4))),
     nodes: MAST_NODES.map((i) => gltfJson.nodes[i].name),
     parts: mastMeshes.length,
+    lowerParts: mastMeshes.filter((m) => m.group === "lower").length,
+    upperParts: mastMeshes.filter((m) => m.group === "upper").length,
+    headParts: mastMeshes.filter((m) => m.group === "head").length,
   },
   materials: outJson.materials.length,
   images: outJson.images.length,

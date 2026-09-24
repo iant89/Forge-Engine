@@ -98,10 +98,30 @@ export interface GlbWheel {
  * The Remote Sensing Mast assembly: hinge-relative parts (stowed-flat pose as modelled) plus the
  * hinge position the converter recorded on the `mast` root. The scene parents the parts under a
  * pivot entity at the hinge and rotates it to raise/lower the mast.
+ *
+ * Parts are split into three articulation groups matching the real Perseverance joints:
+ * - **lowerParts**: base bracket + lower arm (rotate with the deployment hinge)
+ * - **upperParts**: upper arm + joint cylinder (rotate around the azimuth joint)
+ * - **headParts**: camera head + NavCams + Mastcam-Z + SuperCam + microphones (tilt at the elevation joint)
+ *
+ * `joint` is the azimuth pivot position (hinge-relative); `headPivot` is the elevation pivot
+ * position (also hinge-relative). Both are computed from vertex centroids during loading so they
+ * work with both the current flat-part GLB and any future hierarchical output.
  */
 export interface GlbMast {
   pivot: [number, number, number];
+  /** All parts (backward compat — equals `[...lowerParts, ...upperParts, ...headParts]`). */
   parts: GlbPart[];
+  /** Azimuth joint position in hinge-relative coords (upper mast rotation pivot). */
+  joint: [number, number, number];
+  /** Elevation joint position in hinge-relative coords (head tilt pivot). */
+  headPivot: [number, number, number];
+  /** Lower mast arm + base bracket parts. */
+  lowerParts: GlbPart[];
+  /** Upper mast arm + joint cylinder parts. */
+  upperParts: GlbPart[];
+  /** Camera head + instruments parts. */
+  headParts: GlbPart[];
 }
 
 export interface LoadedGlb {
@@ -390,6 +410,37 @@ export async function loadGlb(
   const nodes = json.nodes ?? [];
   const sceneRoots = json.scenes?.[json.scene ?? 0]?.nodes ?? nodes.map((_, i) => i);
   let mast: GlbMast | null = null;
+  /** Mast sub-group parts and centroid accumulators for joint position computation. */
+  const mastLowerParts: GlbPart[] = [];
+  const mastUpperParts: GlbPart[] = [];
+  const mastHeadParts: GlbPart[] = [];
+  // Centroid accumulators: sum of positions and vertex count per group.
+  const mastAcc = {
+    lower: { sx: 0, sy: 0, sz: 0, n: 0 },
+    upper: { sx: 0, sy: 0, sz: 0, n: 0 },
+    head:  { sx: 0, sy: 0, sz: 0, n: 0 },
+  };
+  // Track the boundary vertices between groups for precise joint computation.
+  // lowerFarthest: vertex in the lower group farthest from the hinge (along the stowed mast).
+  // upperNearest: vertex in the upper group nearest to the hinge.
+  let mastLowerFarthestZ = Infinity; // most negative Z (farthest from hinge in stowed position)
+  let mastLowerFarthest: [number, number, number] = [0, 0, 0];
+  let mastUpperNearestZ = -Infinity; // least negative Z (nearest to hinge)
+  let mastUpperNearest: [number, number, number] = [0, 0, 0];
+  let mastHeadNearestZ = -Infinity; // boundary between upper and head
+  let mastHeadNearest: [number, number, number] = [0, 0, 0];
+  let mastUpperFarthestZ = Infinity;
+  let mastUpperFarthest: [number, number, number] = [0, 0, 0];
+
+  /** Classify a mast mesh into lower/upper/head by its name prefix. */
+  function classifyMastMesh(meshName: string): "lower" | "upper" | "head" {
+    if (/^mast_bottom/.test(meshName)) return "lower";
+    if (meshName === "mast_Cylinder_transparent") return "lower";
+    if (/^mast_top/.test(meshName)) return "upper";
+    if (/^mast_Cylinder\.002/.test(meshName)) return "upper";
+    return "head";
+  }
+
   /** Walk the scene graph: wheel/mast roots are transform-only nodes with mesh children beneath. */
   const visit = async (index: number, wheel: GlbWheel | null, inMast: boolean): Promise<void> => {
     const node = nodes[index];
@@ -410,8 +461,23 @@ export async function loadGlb(
       mast = {
         pivot: [node.translation?.[0] ?? 0, node.translation?.[1] ?? 0, node.translation?.[2] ?? 0],
         parts: [],
+        joint: [0, 0, 0],
+        headPivot: [0, 0, 0],
+        lowerParts: [],
+        upperParts: [],
+        headParts: [],
       };
       effectiveMast = true;
+    }
+    // New converter output: sub-group nodes carry explicit joint positions as translations.
+    // Prefer these over the vertex centroid fallback.
+    if (effectiveMast && mast) {
+      if (node.name === "mast_upper" && node.translation) {
+        mast.joint = [node.translation[0] ?? 0, node.translation[1] ?? 0, node.translation[2] ?? 0];
+      }
+      if (node.name === "mast_head" && node.translation) {
+        mast.headPivot = [node.translation[0] ?? 0, node.translation[1] ?? 0, node.translation[2] ?? 0];
+      }
     }
     if (node.mesh !== undefined) {
       const mesh = json.meshes[node.mesh]!;
@@ -424,13 +490,69 @@ export async function loadGlb(
             : (mesh.name ?? `mesh_${node.mesh}`);
         const part = await buildPrimitive(prim, name);
         if (effectiveWheel) effectiveWheel.parts.push(part);
-        else if (effectiveMast && mast) mast.parts.push(part);
+        else if (effectiveMast && mast) {
+          mast.parts.push(part);
+          // Classify and accumulate centroid data for joint position computation.
+          const group = classifyMastMesh(mesh.name ?? name);
+          const acc = mastAcc[group];
+          if (group === "lower") mastLowerParts.push(part);
+          else if (group === "upper") mastUpperParts.push(part);
+          else mastHeadParts.push(part);
+          // Read position accessor for centroid and boundary tracking.
+          const posIdx = prim.attributes.POSITION;
+          if (posIdx !== undefined) {
+            const positions = readAccessor(json, bin, posIdx);
+            const count = positions.length / 3;
+            for (let v = 0; v < count; v++) {
+              const px = positions[v * 3]!;
+              const py = positions[v * 3 + 1]!;
+              const pz = positions[v * 3 + 2]!;
+              acc.sx += px; acc.sy += py; acc.sz += pz; acc.n++;
+              // Track boundary vertices between groups along the mast axis (Z in stowed frame).
+              if (group === "lower" && pz < mastLowerFarthestZ) {
+                mastLowerFarthestZ = pz;
+                mastLowerFarthest = [px, py, pz];
+              }
+              if (group === "upper") {
+                if (pz > mastUpperNearestZ) { mastUpperNearestZ = pz; mastUpperNearest = [px, py, pz]; }
+                if (pz < mastUpperFarthestZ) { mastUpperFarthestZ = pz; mastUpperFarthest = [px, py, pz]; }
+              }
+              if (group === "head" && pz > mastHeadNearestZ) {
+                mastHeadNearestZ = pz;
+                mastHeadNearest = [px, py, pz];
+              }
+            }
+          }
+        }
         else parts.push(part);
       }
     }
     for (const child of node.children ?? []) await visit(child, effectiveWheel, effectiveMast);
   };
   for (const rootIndex of sceneRoots) await visit(rootIndex, null, false);
+
+  // Compute joint positions from vertex boundary data.
+  // Azimuth joint: boundary between lower and upper mast groups.
+  // Elevation joint: boundary between upper mast and head groups.
+  if (mast) {
+    if (mastAcc.lower.n > 0 && mastAcc.upper.n > 0) {
+      mast.joint = [
+        (mastLowerFarthest[0] + mastUpperNearest[0]) * 0.5,
+        (mastLowerFarthest[1] + mastUpperNearest[1]) * 0.5,
+        (mastLowerFarthest[2] + mastUpperNearest[2]) * 0.5,
+      ];
+    }
+    if (mastAcc.upper.n > 0 && mastAcc.head.n > 0) {
+      mast.headPivot = [
+        (mastUpperFarthest[0] + mastHeadNearest[0]) * 0.5,
+        (mastUpperFarthest[1] + mastHeadNearest[1]) * 0.5,
+        (mastUpperFarthest[2] + mastHeadNearest[2]) * 0.5,
+      ];
+    }
+    mast.lowerParts = mastLowerParts;
+    mast.upperParts = mastUpperParts;
+    mast.headParts = mastHeadParts;
+  }
 
   const body = parts;
   report("done");

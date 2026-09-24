@@ -55,7 +55,10 @@ export class VehicleSystem extends FixedSystem {
       // Wheel centre sits one radius above the contact, not at the chassis origin.
       const y = wheel.inContact ? wheel.contactY + v.config.wheelRadius : v.position.y - (v.config.suspensionRest - wheel.compression);
       t.setPosition(wheel.contactX, y, wheel.contactZ);
-      this.scratchRot.setEulerComponents(wheel.spin, v.yaw + wheel.steerAngle, 0);
+      // Negate spin for left-side wheels (x < 0): their axle points in the opposite direction
+      // from right-side wheels, so the same omega produces the opposite visual rotation.
+      const visualSpin = wheel.x < 0 ? -wheel.spin : wheel.spin;
+      this.scratchRot.setEulerComponents(visualSpin, v.yaw + wheel.steerAngle, 0);
       t.setRotation(this.scratchRot);
     }
   }

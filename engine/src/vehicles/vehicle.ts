@@ -640,13 +640,18 @@ export class Vehicle {
     // Pitch / roll (Phase 11.4): suspension reaction torques only (no tire pitch/roll moments),
     // plus a critically-damped spring toward the geometric axle orientation while >= 3 wheels plant.
     // Airborne / sparse contact: spring is off so rates carry momentum (jump / unload / rollover).
-    const torqueScale = 0.35;
+    //
+    // The geometric spring must be soft enough that suspension forces dominate on rough terrain —
+    // a stiff spring (wn ≈ 18) snaps the chassis to the *averaged* ground orientation and kills
+    // the developing pitch/roll from individual wheel contacts. A softer spring (wn ≈ 5) lets the
+    // suspension articulate the chassis while still settling the pose on flat ground.
+    const torqueScale = 0.65;
     // Negate pitch torque: τ·right > 0 is nose-down RH about +right; pitchRate is nose-up.
     this.pitchRate = f32(this.pitchRate + ((-pitchTorque * torqueScale) / c.inertiaPitch) * dt);
     this.rollRate = f32(this.rollRate + ((rollTorque * torqueScale) / c.inertiaRoll) * dt);
     if (contactCount >= 3) {
       const target = this.estimateGroundOrientation(ground);
-      const wn = 18; // natural frequency
+      const wn = 5; // natural frequency — soft so suspension forces dominate on rough terrain
       const zeta = 1.0; // critical damping
       const kp = wn * wn;
       const kd = 2 * zeta * wn;
@@ -824,7 +829,7 @@ export class Vehicle {
     const c = this.config;
     const uy = this.up.y > 0.2 ? this.up.y : 0.2;
     for (const w of this.wheels) {
-      w.steerAngle = w.steered ? steerAngle(this.input.steer, c.maxSteerAngle, this.speed) : 0;
+      w.steerAngle = w.steered ? steerAngle(this.input.steer, c.maxSteerAngle, this.speed) * (w.z < 0 ? -1 : 1) : 0;
       const hx = this.position.x + this.right.x * w.x + this.forward.x * w.z;
       const hy = this.position.y + this.right.y * w.x + this.forward.y * w.z;
       const hz = this.position.z + this.right.z * w.x + this.forward.z * w.z;
