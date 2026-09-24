@@ -11,6 +11,7 @@ shows in the failure modes of an "invisible rover / invisible terrain" report.
 | `mars-showcase-load-failed.png` | The loading screen after an aborted GLB fetch: `model: FAILED — Failed to fetch` with **Retry model** and **Continue with placeholder** actions. |
 | `mars-showcase-bounds-auto.png` | After skipping a failed load: the scene's *auto* debug bounds — yellow chassis footprint box and green wheel-hub boxes — marking where the model is supposed to sit while the placeholder drives. |
 | `mars-showcase-bounds-renderer.png` | `Renderer.debugBounds` (toolbar **Bounds** button / `?bounds=1`): world-space AABBs of every visible renderable, cyan in view / magenta culled, drawn depth-test-free so they show through terrain — the long cyan streaks are the 128 m terrain-chunk boxes. |
+| `mars-showcase-mast-deployed.png` | The camera-mast feature: RSM raised to vertical by the MAST toggle (M key / C pad button), head box with SuperCam aperture and NavCam/Mastcam-Z eyes on top; HUD reports `mast UP`. |
 
 Reproducing locally:
 

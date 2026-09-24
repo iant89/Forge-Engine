@@ -94,11 +94,23 @@ export interface GlbWheel {
   parts: GlbPart[];
 }
 
+/**
+ * The Remote Sensing Mast assembly: hinge-relative parts (stowed-flat pose as modelled) plus the
+ * hinge position the converter recorded on the `mast` root. The scene parents the parts under a
+ * pivot entity at the hinge and rotates it to raise/lower the mast.
+ */
+export interface GlbMast {
+  pivot: [number, number, number];
+  parts: GlbPart[];
+}
+
 export interface LoadedGlb {
   /** Body meshes in model-root space (converter baked all node transforms). */
   body: GlbPart[];
   /** The six wheels, hub-centred, keyed by `wheel_FL` … `wheel_RR`. */
   wheels: GlbWheel[];
+  /** The RSM assembly, or null when the GLB predates the mast split. */
+  mast: GlbMast | null;
   dispose(): void;
 }
 
@@ -345,6 +357,16 @@ export async function loadGlb(
       indicesRaw instanceof Uint32Array
         ? indicesRaw
         : Uint32Array.from({ length: positions.length / 3 }, (_, i) => i);
+    // Loud failure for corrupt index data: the converter once emitted per-wheel slices with
+    // global (non-rebased) indices, and every wheel but wheel_FL rendered nothing with no error.
+    if (indices.length > 0) {
+      let maxIndex = 0;
+      for (let i = 0; i < indices.length; i++) if (indices[i]! > maxIndex) maxIndex = indices[i]!;
+      const vertCount = positions.length / 3;
+      if (maxIndex >= vertCount) {
+        console.warn(`loadGlb: ${name} has out-of-range indices (max ${maxIndex} for ${vertCount} verts); it will not render correctly`);
+      }
+    }
 
     const material = await materialFor(prim.material ?? 0);
     const source: GeometrySource = {
@@ -367,8 +389,9 @@ export async function loadGlb(
 
   const nodes = json.nodes ?? [];
   const sceneRoots = json.scenes?.[json.scene ?? 0]?.nodes ?? nodes.map((_, i) => i);
-  /** Walk the scene graph: wheel roots are transform-only nodes with mesh children beneath them. */
-  const visit = async (index: number, wheel: GlbWheel | null): Promise<void> => {
+  let mast: GlbMast | null = null;
+  /** Walk the scene graph: wheel/mast roots are transform-only nodes with mesh children beneath. */
+  const visit = async (index: number, wheel: GlbWheel | null, inMast: boolean): Promise<void> => {
     const node = nodes[index];
     if (!node) return;
     const isWheelRoot = node.name !== undefined && /^wheel_[FMR][LR]$/.test(node.name);
@@ -382,27 +405,39 @@ export async function loadGlb(
       wheels.set(node.name, created);
       effectiveWheel = created;
     }
+    let effectiveMast = inMast;
+    if (node.name === "mast") {
+      mast = {
+        pivot: [node.translation?.[0] ?? 0, node.translation?.[1] ?? 0, node.translation?.[2] ?? 0],
+        parts: [],
+      };
+      effectiveMast = true;
+    }
     if (node.mesh !== undefined) {
       const mesh = json.meshes[node.mesh]!;
       for (const prim of mesh.primitives) {
         if (prim.mode !== undefined && prim.mode !== 4) continue;
         const name = effectiveWheel
           ? `${effectiveWheel.name}.${mesh.name ?? "part"}`
-          : (mesh.name ?? `mesh_${node.mesh}`);
+          : effectiveMast
+            ? `mast.${mesh.name ?? "part"}`
+            : (mesh.name ?? `mesh_${node.mesh}`);
         const part = await buildPrimitive(prim, name);
         if (effectiveWheel) effectiveWheel.parts.push(part);
+        else if (effectiveMast && mast) mast.parts.push(part);
         else parts.push(part);
       }
     }
-    for (const child of node.children ?? []) await visit(child, effectiveWheel);
+    for (const child of node.children ?? []) await visit(child, effectiveWheel, effectiveMast);
   };
-  for (const rootIndex of sceneRoots) await visit(rootIndex, null);
+  for (const rootIndex of sceneRoots) await visit(rootIndex, null, false);
 
   const body = parts;
   report("done");
   return {
     body,
     wheels: [...wheels.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    mast,
     dispose(): void {
       for (const g of geometries) g.dispose();
       for (const m of materials) m.dispose();

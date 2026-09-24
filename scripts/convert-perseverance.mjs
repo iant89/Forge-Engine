@@ -9,6 +9,11 @@
  * its own entity (axle along local X, like the box-wheel playground). Everything else is baked
  * into world space (scene-root space) and merged per material.
  *
+ * The Remote Sensing Mast is modelled STOWED (lying flat on the deck, head toward the rear). Its
+ * subtree (`head` up-walked to the scene root, plus all descendants) is likewise kept out of the
+ * body merge and rewritten as pivot-relative `mast_*` parts under a `mast` root translated to the
+ * deployment hinge, so the demo can raise/lower it about that hinge.
+ *
  * Source download (raw.githubusercontent.com is unreachable from some sandboxes; the contents API
  * with `Accept: application/vnd.github.raw` works):
  *   curl -4 -L -H "Accept: application/vnd.github.raw" \
@@ -197,6 +202,33 @@ const WHEEL_NODE = gltfJson.nodes.findIndex((n) => n.name === "Wheels_objs");
 if (WHEEL_NODE < 0) throw new Error("Wheels_objs node not found");
 const hasWheelNode = (i) => i === WHEEL_NODE;
 
+// Mast assembly: the `head` node walked up to its scene root is the hinge chain; the chain plus
+// every descendant is the rigid deployment assembly. Asserted by name — a remodelled source must
+// fail here, not silently merge the mast into the body.
+const parentOf = new Array(gltfJson.nodes.length).fill(-1);
+gltfJson.nodes.forEach((n, i) => { for (const c of n.children ?? []) parentOf[c] = i; });
+const HEAD_NODE = gltfJson.nodes.findIndex((n) => n.name === "head");
+if (HEAD_NODE < 0) throw new Error("head node not found");
+const mastChain = [];
+for (let i = HEAD_NODE; i >= 0; i = parentOf[i]) mastChain.unshift(i);
+const EXPECTED_MAST_CHAIN = ["Cylinder", "bottom", "top", "Cylinder.002", "head"];
+const mastChainNames = mastChain.map((i) => gltfJson.nodes[i].name);
+if (JSON.stringify(mastChainNames) !== JSON.stringify(EXPECTED_MAST_CHAIN)) {
+  throw new Error(`mast chain changed: ${mastChainNames.join(" > ")} (expected ${EXPECTED_MAST_CHAIN.join(" > ")})`);
+}
+const mastSet = new Set(mastChain);
+const collectDescendants = (i, into) => {
+  for (const c of gltfJson.nodes[i].children ?? []) { into.add(c); collectDescendants(c, into); }
+};
+for (const i of mastChain) collectDescendants(i, mastSet);
+const MAST_NODES = [...mastSet].sort((a, b) => a - b);
+const MAST_HINGE_NODE = mastChain[0];
+const MAST_HEAD_NODES = new Set([HEAD_NODE]);
+collectDescendants(HEAD_NODE, MAST_HEAD_NODES);
+// Deployment hinge = world position of the subtree root (the stowed pose's front bracket bolt).
+const hingeWorld = worlds.get(MAST_HINGE_NODE);
+const MAST_PIVOT = [hingeWorld[12], hingeWorld[13], hingeWorld[14]];
+
 /** Decode node → mesh → primitives, bake to world space. Returns per-prim arrays. */
 function bakeNodePrimitives(nodeIndex) {
   const node = gltfJson.nodes[nodeIndex];
@@ -236,12 +268,12 @@ function bakeNodePrimitives(nodeIndex) {
   return prims;
 }
 
-// ---- body: every mesh node except the wheel node, merged per material.
+// ---- body: every mesh node except the wheel node and the mast subtree, merged per material.
 const bodyByMaterial = new Map();
 let bodyPrimCount = 0;
 for (let i = 0; i < gltfJson.nodes.length; i++) {
   const node = gltfJson.nodes[i];
-  if (node.mesh === undefined || hasWheelNode(i)) continue;
+  if (node.mesh === undefined || hasWheelNode(i) || mastSet.has(i)) continue;
   for (const prim of bakeNodePrimitives(i)) {
     bodyPrimCount++;
     let slot = bodyByMaterial.get(prim.material);
@@ -278,9 +310,12 @@ function clusterWheels(prims) {
     for (let i = 0; i < zs.length; i++) { sums[assignZ[i]] += zs[i]; counts[assignZ[i]]++; }
     for (let k = 0; k < 3; k++) if (counts[k]) seeds[k] = sums[k] / counts[k];
   }
-  // Order front → rear: front has the highest Z (+Z is the rover's nose).
+  // Order front → rear: front has the highest Z (+Z is the rover's nose). Rank the converged
+  // seeds explicitly so the axle→name mapping holds even if a k-means run drifts the clusters
+  // out of their initial order (silently mislabelled wheels pose at the wrong hubs).
   const axleOrder = [0, 1, 2].sort((a, b) => seeds[b] - seeds[a]);
-  void axleOrder;
+  const axleRank = new Array(3);
+  axleOrder.forEach((axle, rank) => { axleRank[axle] = rank; }); // 0 front, 1 middle, 2 rear
 
   // Bucket every vertex (across prims) into one of 6 clusters: axle × side.
   const clusterOfPrimVert = prims.map((p) => {
@@ -290,7 +325,7 @@ function clusterWheels(prims) {
       let axle = 0, best = Infinity;
       for (let k = 0; k < 3; k++) { const d = Math.abs(z - seeds[k]); if (d < best) { best = d; axle = k; } }
       const side = x < 0 ? 0 : 1; // -X = left
-      arr[i] = axle * 2 + side; // 0 FL, 1 FR, 2 ML, 3 MR, 4 RL, 5 RR
+      arr[i] = axleRank[axle] * 2 + side; // 0 FL, 1 FR, 2 ML, 3 MR, 4 RL, 5 RR
     }
     return arr;
   });
@@ -338,7 +373,18 @@ function clusterWheels(prims) {
     for (let f = 0; f < p.indices.length; f += 3) {
       const k = assign[p.indices[f]];
       const b = buckets[k];
-      b.indices.push(localIndex[p.indices[f]], localIndex[p.indices[f + 1]], localIndex[p.indices[f + 2]]);
+      const base = globalBase[k];
+      // Each per-wheel slice is emitted as its own mesh with a 0-based vertex array, so the
+      // packed (global) indices must be rebased. Skipping the `- base` shipped once as "only
+      // wheel_FL visible": every other wheel's indices pointed past its own vertices and the GPU
+      // discarded the lot with no error. Triangles never span wheels (metres of air between the
+      // hubs) — fail loudly instead of emitting cross-cluster indices if one ever does.
+      for (let corner = 0; corner < 3; corner++) {
+        if (assign[p.indices[f + corner]] !== k) {
+          throw new Error(`cross-wheel triangle in wheel prim ${c}: corners span clusters, cannot split`);
+        }
+      }
+      b.indices.push(localIndex[p.indices[f]] - base, localIndex[p.indices[f + 1]] - base, localIndex[p.indices[f + 2]] - base);
     }
     for (let k = 0; k < 6; k++) {
       if (!buckets[k].indices.length) continue;
@@ -360,6 +406,45 @@ function clusterWheels(prims) {
 const { hubs, perWheel, seeds: axleZ } = clusterWheels(wheelPrims);
 
 const WHEEL_NAMES = ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"];
+
+// ---- mast: bake the deployment assembly world-space, then make it hinge-relative. The head
+// centroid (offset from the hinge) is reported for the demo, which raises the assembly by the
+// quaternion taking that stowed offset onto +Y.
+const mastMeshes = [];
+const headSum = [0, 0, 0];
+let headCount = 0;
+for (const i of MAST_NODES) {
+  const node = gltfJson.nodes[i];
+  if (node.mesh === undefined) continue;
+  const isHead = MAST_HEAD_NODES.has(i);
+  for (const prim of bakeNodePrimitives(i)) {
+    const positions = new Float32Array(prim.positions);
+    for (let v = 0; v < prim.count; v++) {
+      if (isHead) {
+        headSum[0] += prim.positions[v * 3];
+        headSum[1] += prim.positions[v * 3 + 1];
+        headSum[2] += prim.positions[v * 3 + 2];
+        headCount++;
+      }
+      positions[v * 3] -= MAST_PIVOT[0];
+      positions[v * 3 + 1] -= MAST_PIVOT[1];
+      positions[v * 3 + 2] -= MAST_PIVOT[2];
+    }
+    mastMeshes.push({
+      node: node.name,
+      slot: {
+        positions,
+        normals: prim.normals,
+        uvs: prim.uvs,
+        indices: prim.indices,
+        count: prim.count,
+        material: prim.material,
+      },
+    });
+  }
+}
+if (!headCount) throw new Error("mast head has no vertices");
+const MAST_HEAD_OFFSET = headSum.map((s, k) => s / headCount - MAST_PIVOT[k]);
 
 // ---------------------------------------------------------------- pack a plain GLB
 
@@ -503,6 +588,19 @@ for (let w = 0; w < 6; w++) {
   outJson.scenes[0].nodes.push(rootIndex);
 }
 
+// Mast assembly: hinge-relative parts under a root translated to the hinge (assembled model pose
+// is the stowed-flat pose); the demo parents them under a pivot entity and rotates about it.
+const mastChildren = [];
+for (const { node, slot } of mastMeshes) {
+  const meshIndex = addMesh(slot, `mast_${node}_${gltfJson.materials[slot.material]?.name ?? slot.material}`);
+  const nodeIndex = outJson.nodes.length;
+  outJson.nodes.push({ name: "mast_part", mesh: meshIndex });
+  mastChildren.push(nodeIndex);
+}
+const mastRootIndex = outJson.nodes.length;
+outJson.nodes.push({ name: "mast", translation: [...MAST_PIVOT], children: mastChildren });
+outJson.scenes[0].nodes.push(mastRootIndex);
+
 // Finalise the BIN chunk.
 const binBytes = new Uint8Array(binLength);
 let cursor = 0;
@@ -523,6 +621,10 @@ out.writeUInt32LE(totalLength, 8);
 out.writeUInt32LE(jsonLen, 12);
 out.write("JSON", 16, "ascii");
 jsonBytes.copy(out, 20);
+// glTF requires JSON-chunk padding to be spaces (0x20); the zero-filled allocation is only valid
+// for the BIN chunk. NUL padding makes JSON.parse throw ("non-whitespace character"), which the
+// old output dodged by luck (its JSON length was already a multiple of 4).
+out.fill(0x20, 20 + jsonBytes.length, 20 + jsonLen);
 out.writeUInt32LE(binLen, 20 + jsonLen);
 out.write("BIN\u0000", 24 + jsonLen, "ascii");
 Buffer.from(binBytes).copy(out, 28 + jsonLen);
@@ -539,6 +641,12 @@ const report = {
   axleSeedsZ: axleZ.map((z) => Number(z.toFixed(4))),
   hubs: Object.fromEntries(WHEEL_NAMES.map((n, i) => [n, hubs[i].map((v) => Number(v.toFixed(4)))])),
   wheelMeshes: perWheel.map((w) => w.length),
+  mast: {
+    pivot: MAST_PIVOT.map((v) => Number(v.toFixed(4))),
+    headOffset: MAST_HEAD_OFFSET.map((v) => Number(v.toFixed(4))),
+    nodes: MAST_NODES.map((i) => gltfJson.nodes[i].name),
+    parts: mastMeshes.length,
+  },
   materials: outJson.materials.length,
   images: outJson.images.length,
   textures: outJson.textures.length,

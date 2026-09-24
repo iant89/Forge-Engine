@@ -176,3 +176,15 @@ no build step between editing engine source and seeing it in the browser.
   The setup script's bundled-Chromium route needs no external network once `node_modules` exists.
 * `check:browser` exits `2` (NOT RUN) rather than failing when no browser can launch, so a green
   `verify` never implies the browser gate passed. Run it explicitly and quote its output.
+
+## 7. Session memory & change log (read these first, write to them always)
+
+* **`mnemosyne.md` is the notes system for future sessions.** Read it before starting work. Anything
+  may be placed into it: real bugs found (symptom, root cause, fix), hard-won repo facts, lessons
+  that code comments are the wrong shape for. Append dated entries at the bottom; keep them short
+  and link to files instead of pasting code.
+* **`change-log.md` is the JSON-backed activity history** (future data source for an interactive
+  history page). Append one `change` entry per file you create, modify, or delete — model name
+  (+ version when known), file, and a brief what + why — following the schemas in the file header.
+  Before each PR merge, append a `pr-merge` entry summarising all changes in that PR. Validate the
+  ```json fence still parses after every edit.

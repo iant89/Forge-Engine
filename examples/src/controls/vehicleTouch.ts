@@ -5,6 +5,10 @@
  * tracks that finger and stays inside the circle. Horizontal deflection is steer; up is throttle and
  * down is brake, so the stick works on its own. The A/B pair on the bottom-right is the digital
  * version of the same two axes (gas / brake). Keyboard input is combined by the scene, not here.
+ *
+ * The Mars showcase adds a third pad button, C/MAST: a tap toggles the rover's camera-mast
+ * deployment through `onMastToggle`, and the scene reports the commanded state back via
+ * `setMast` (lit while deployment is commanded). The button only exists on the Mars scene.
  */
 
 export interface VehicleTouchAxes {
@@ -18,7 +22,14 @@ export interface VehicleTouchAxes {
 
 export interface VehicleTouchHandle {
   sample(): VehicleTouchAxes;
+  /** Light (or unlight) the MAST toggle to match the scene's commanded mast state. */
+  setMast(active: boolean): void;
   dispose(): void;
+}
+
+export interface VehicleTouchOptions {
+  /** Fired on every MAST pad tap (Mars showcase). Absent on the vehicle playground. */
+  onMastToggle?: () => void;
 }
 
 const DEADZONE = 0.14;
@@ -58,16 +69,18 @@ export function stickDeflection(dx: number, dy: number, radius: number): { x: nu
   return { x, y, px, py };
 }
 
-export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle {
+export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTouchOptions = {}): VehicleTouchHandle {
   const stick = root?.querySelector<HTMLElement>("#veh-stick") ?? null;
   const knob = root?.querySelector<HTMLElement>("#veh-stick-knob") ?? null;
   const gas = root?.querySelector<HTMLElement>("#veh-gas") ?? null;
   const brake = root?.querySelector<HTMLElement>("#veh-brake") ?? null;
+  const mast = root?.querySelector<HTMLElement>("#veh-mast") ?? null;
 
   const listeners: Array<[HTMLElement, string, EventListener]> = [
     ...suppressTouchChrome(stick),
     ...suppressTouchChrome(gas),
     ...suppressTouchChrome(brake),
+    ...suppressTouchChrome(mast),
   ];
 
   let steer = 0;
@@ -172,6 +185,20 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
       brakeHeld = down;
     }),
   );
+  // MAST is a tap toggle, not a hold: fire on press for immediate feedback (the scene's setMast
+  // lights the button from the commanded state in the same tick).
+  if (mast && options.onMastToggle) {
+    const onMastToggle = options.onMastToggle;
+    const onMastDown = (event: Event): void => {
+      const e = event as PointerEvent;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onMastToggle();
+    };
+    mast.addEventListener("pointerdown", onMastDown);
+    listeners.push([mast, "pointerdown", onMastDown]);
+  }
   if (stick) {
     const pairs: Array<[string, EventListener]> = [
       ["pointerdown", onStickDown as EventListener],
@@ -205,10 +232,15 @@ export function attachVehicleTouch(root: HTMLElement | null): VehicleTouchHandle
         brake: Math.max(stickBrake, brakeHeld ? 1 : 0),
       };
     },
+    setMast(active: boolean): void {
+      mast?.classList.toggle("active", active);
+      mast?.setAttribute("aria-pressed", active ? "true" : "false");
+    },
     dispose(): void {
       for (const [el, type, fn] of listeners) el.removeEventListener(type, fn);
       gas?.classList.remove("pressed");
       brake?.classList.remove("pressed");
+      mast?.classList.remove("active");
       stick?.classList.remove("active");
       placeKnob(0, 0, false);
       steer = 0;
