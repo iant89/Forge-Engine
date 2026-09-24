@@ -46,6 +46,7 @@ import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
+import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -505,6 +506,25 @@ async function main(): Promise<void> {
       canvas.height = Math.floor(h);
     },
   };
+
+  // Device-side diagnostics: `?diag=1`, or any host that injects `window.__forgeDiagEndpoint`
+  // (the sandbox dev server does; `npm run demo` does not). Loaded on demand so the normal demo
+  // path carries none of it — see src/diag/iosReport.ts for what the panel measures and why.
+  const diagParams = new URLSearchParams(window.location.search);
+  const diagEndpoint = (window as unknown as { __forgeDiagEndpoint?: string }).__forgeDiagEndpoint;
+  if (diagParams.get("diag") === "1" || diagEndpoint) {
+    void import("./diag/iosReport.js").then((mod) => {
+      mod.installIosReport(
+        {
+          canvas,
+          forge: (window as unknown as { __forge: DiagForge }).__forge,
+          gpu: engine.gpu as unknown,
+          platform: engine.platform as unknown,
+        },
+        { tag: activeSceneName, toggles: diagParams.get("diagToggles") !== "0" },
+      );
+    });
+  }
 }
 
 main().catch((error: unknown) => {

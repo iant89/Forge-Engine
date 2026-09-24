@@ -25,6 +25,34 @@ the locked packages, and the headless Chromium + SwiftShader build that `check:b
 checking versions first and only installing what is missing or wrong. `npm run setup:check` verifies
 without changing anything.
 
+## Asking a device that CI cannot run
+
+Chromium + SwiftShader is one implementation of WebGPU: a frame that renders in the gate can still
+come out wrong on a phone, and a phone has no console to read. The demo therefore carries its own
+device-side diagnostics, loaded on demand (`examples/src/diag/`):
+
+* `?diag=1` on the demo installs a panel that snapshots the page — user agent, viewport and
+  drawing-buffer sizes, adapter limits and features, engine stats, the render-graph pass list, and
+  the terrain/model state — and captures the presented frame through a 2D canvas as an average
+  colour plus a colour grid per row, so "the frame is only background" is a measurement rather than
+  an impression (`examples/src/diag/iosReport.ts`).
+* The same run then re-captures across a matrix of render settings (sky off, HDR off, shadows off)
+  and across every demo scene, so a background-only frame is attributed to a feature or a scene
+  instead of guessed at. The panel hides behind a `diag` button, and the numbers are POSTed as JSON
+  when the host injects `window.__forgeDiagEndpoint` (the sandbox dev server's scratch config does);
+  a plain `npm run demo` only draws the text on screen.
+* `examples/src/diag/rawGpuTests.ts` runs twelve raw-WebGPU probes against the engine's device *and*
+  a freshly requested one — rasterisation, the depth test, `depthReadOnly` loading the previous
+  pass's depth, dynamic offsets (uniform slices and a read-only-storage window, the two shapes the
+  renderer's per-draw and per-instance bindings use), front-facing winding under both `frontFace`
+  settings and back-face culling, instancing, rendering into an array layer,
+  HDR blit and sRGB sampling. Each probe runs inside a validation error scope and carries its
+  expected colour, so a failure names the primitive and leaves the engine's `gpuErrors` counter
+  meaning what it says ("the engine's own frames failed"), not "a diagnostic ran".
+
+None of this is a verification gate: it is an instrument for a report from hardware nobody here can
+attach a debugger to, and it proves nothing until someone reads the output.
+
 ## Runs green today
 
 | Command | Checks | Status |
