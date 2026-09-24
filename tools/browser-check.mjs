@@ -37,6 +37,15 @@
  * state, and the two can only disagree if the buttons were wired to something else) — and it must
  * still be shown when the window goes back to a desktop width.
  *
+ * Parking-brake addition: on the vehicle playground `P` must latch the parking brake (state 1, and
+ * the pad's P/PARK lamp lit), full throttle with it latched must not move the car — the wheels are
+ * locked, so a parked car whose visual wheels used to keep turning stays put — and a second press
+ * must release it and give the drive back. The lock rule itself is unit-tested in
+ * `tests/vehicles.test.ts`; this is the key/input/lamp wiring on a real device. That section drives
+ * the car through the scene's own `update`, so it resumes the demo loop the earlier pixel A/Bs froze
+ * and asserts `animating()` — a frozen loop applies no input, and the parked half of the check would
+ * pass for the wrong reason (a car that cannot move looks exactly like a car held by a brake).
+ *
  * Rain/showcase addition: the storm preset must spawn visible rain (`weatherState().rainDrops >
  * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
  * Perseverance GLB, settle its six wheels into terrain contact, then drive forward under W far enough
@@ -489,14 +498,78 @@ try {
 
   // Phase 6/7 scenes must load, present, and (particles) actually emit. Driving input is the
   // playground's job; this only proves the worlds build and the GPU stays quiet.
+  //
+  // The render-path and terrain sections above freeze the demo loop for their pixel A/Bs, and that
+  // freeze outlives them: the scene's `update` is where a scene writes its inputs, so a frozen loop
+  // means `vehicle.input` is never written and the car cannot move however hard this gate presses W.
+  // A parked car hides that (it is meant to stand still); the drive back does not. Resume it here,
+  // and assert it, so a failure below can only be about the car.
+  await page.evaluate(() => window.__forge.setAnimating(true));
   await page.evaluate(() => window.__forge.loadScene("vehicle"));
   await settle(8);
+  const demoAnimating = await page.evaluate(() => window.__forge.animating?.() ?? null);
+  if (demoAnimating !== true) {
+    throw new Error("the demo's update loop is frozen; vehicle input would never reach the car");
+  }
   const vehicle = await page.evaluate(() => window.__forge.vehicleState());
   const vehicleStats = await page.evaluate(() => window.__forge.stats());
   console.log(`vehicle playground: speed=${vehicle?.speed} gear=${vehicle?.gear} gpuErrors=${vehicleStats.gpuErrors}`);
   if (!vehicle) throw new Error("vehicle scene did not expose state");
   if (vehicleStats.gpuErrors !== 0 || vehicleStats.lastError) throw new Error(`vehicle scene GPU errors: ${vehicleStats.lastError}`);
   await page.screenshot({ path: "tools/.browser-check-vehicle.png" });
+
+  // Parking brake: `P` (the touch pad's P/PARK button) latches it, and a latched brake has to hold
+  // the car — wheels locked, so full throttle on a flat pad must not move it. Release and the drive
+  // comes back. The unit suites pin the lock rule; this proves the scene/key/input wiring on a real
+  // device, and that the visual odometer is not left turning (a parked car used to creep).
+  const parkFrom = await page.evaluate(() => window.__forge.vehicleState());
+  await page.keyboard.press("KeyP");
+  const parkLatched = await page.evaluate(() => window.__forge.vehicleState());
+  const parkLamp = await page.evaluate(() => document.getElementById("veh-park")?.classList.contains("active"));
+  console.log(`parking brake: latched=${parkLatched?.parkingBrake} lamp=${parkLamp}`);
+  if (parkLatched?.parkingBrake !== 1) throw new Error("P did not latch the parking brake");
+  if (parkLamp !== true) throw new Error("PARK pad button did not light while the brake is engaged");
+  let parkedMaxSpeed = 0;
+  await page.keyboard.down("KeyW");
+  try {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const held = await page.evaluate(() => window.__forge.vehicleState());
+      parkedMaxSpeed = Math.max(parkedMaxSpeed, held?.speed ?? 0);
+      await page.waitForTimeout(500);
+    }
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  const parkedNow = await page.evaluate(() => window.__forge.vehicleState());
+  const parkedDz = Math.abs((parkedNow?.z ?? 0) - (parkFrom?.z ?? 0));
+  console.log(`parking brake hold: maxSpeed=${parkedMaxSpeed.toFixed(4)} dz=${parkedDz.toFixed(4)}m`);
+  if (!(parkedMaxSpeed < 0.05)) {
+    throw new Error(`parking brake let the car move under full throttle (${parkedMaxSpeed.toFixed(3)} m/s)`);
+  }
+  if (!(parkedDz < 0.02)) throw new Error(`parking brake let the car creep (${parkedDz.toFixed(3)}m)`);
+  await page.keyboard.press("KeyP");
+  const parkReleased = await page.evaluate(() => window.__forge.vehicleState());
+  if (parkReleased?.parkingBrake !== 0) throw new Error("P did not release the parking brake");
+  let drove = null;
+  await page.keyboard.down("KeyW");
+  try {
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      drove = await page.evaluate(() => window.__forge.vehicleState());
+      if (Math.abs((drove?.z ?? 0) - (parkFrom?.z ?? 0)) > 0.5) break;
+      await page.waitForTimeout(500);
+    }
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  const droveDz = Math.abs((drove?.z ?? 0) - (parkFrom?.z ?? 0));
+  console.log(`parking brake released: drove ${droveDz.toFixed(2)}m under W`);
+  if (!(droveDz > 0.5)) throw new Error(`released parking brake did not give the drive back (dz ${droveDz.toFixed(3)}m)`);
+  const vehicleStatsAfter = await page.evaluate(() => window.__forge.stats());
+  if (vehicleStatsAfter.gpuErrors !== 0 || vehicleStatsAfter.lastError) {
+    throw new Error(`vehicle scene GPU errors while parking: ${vehicleStatsAfter.lastError}`);
+  }
 
   await page.evaluate(() => window.__forge.loadScene("particles"));
   // Wait for GpuParticleWorld.attachDevice/init (not fire-and-forget race) then for emission.

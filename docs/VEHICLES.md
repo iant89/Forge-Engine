@@ -11,16 +11,21 @@ physics world lets props collide with the car.
 
 `npm run demo`, then **Vehicle (P6)**, or open `?scene=vehicle`.
 
-WASD or the arrow keys drive. Space is the handbrake. On a phone (or a window narrower than 820px)
+WASD or the arrow keys drive. Space is the handbrake. `P` latches the parking brake — a *toggle*,
+not a hold: the car stays parked with the pedal released, the wheels locked, and the HUD reads
+`PARK` until `P` (or the pad button) releases it. On a phone (or a window narrower than 820px)
 a translucent stick sits in the bottom-left — the knob appears when you touch it and stays inside
 the circle — and two round buttons sit bottom-right, A for gas and B for brake, in the same cluster
 a controller uses. Pushing the stick up is also gas and pulling it down is also brake; left and
-right steer. Drag orbits, the scroll wheel zooms, and the orbit target follows the chassis.
-Arrow-key panning is off in this scene: both the orbit controller and the car listen on `window`,
-so leaving keyboard pan on would steer the camera instead of the car (`OrbitControls` `keyboard: false`).
+right steer. The parking brake has its own pad button, P/PARK, in the pad's bottom-left slot, lit
+while the brake is engaged. Drag orbits, the scroll wheel zooms, and the orbit target follows the
+chassis. Arrow-key panning is off in this scene: both the orbit controller and the car listen on
+`window`, so leaving keyboard pan on would steer the camera instead of the car (`OrbitControls`
+`keyboard: false`).
 
 The pad is flat until `z = 18`, then a 12° ramp — the same angle as the slope-traversal test. The
 yellow posts are scenery. The car does not collide with them; contact is the ground query only.
+Park it on the ramp and it stays there: see the lock rule below.
 
 `VehicleSystem` is registered once on that scene's world and is the only caller of `vehicle.step`.
 The scene `update` writes `vehicle.input` and does not step. A second step would double-integrate.
@@ -36,7 +41,8 @@ The scene `update` writes `vehicle.input` and does not step. A second step would
    exceeds the peak is allowed to spin up on the residual torque, so traction control has a higher
    slip to compare against. TC clamps a driven wheel to `tcSlip` (0.12). ABS keeps a braking wheel
    from locking past `absSlip` (the Pacejka peak). An undriven, unbraked wheel is set to free-roll
-   (`ω = vLong / radius`, κ = 0).
+   (`ω = vLong / radius`, κ = 0). A **brake only ever removes wheel speed**: the standstill and
+   past-the-peak rules under "What is tested" are what keep a parked car's wheels still.
 3. Lateral force is Pacejka in slip angle, combined with the longitudinal force under a friction
    circle of `μ · normalLoad`.
 4. The chassis integrates the summed forces. Yaw comes from tire-plane moments about the CG.
@@ -52,6 +58,27 @@ through `Transmission`
 differential (`open`, `locked`, or `lsd`). Layout is `fwd`, `rwd`, or `awd`. Aero is `½ρCdAv²` drag
 plus a lift coefficient; pass `aero: null` to turn it off. Reverse is a ratio (`gear = -1`); nothing
 selects it automatically, and the playground has no reverse key.
+
+## Brakes
+
+Three inputs, all torques on the wheel: `brake` (`maxBrakeTorque`, every wheel), `handbrake`
+(`handbrakeTorque`, the wheels flagged `handbrake` — the rears, and momentary) and `parkingBrake`
+(`parkingBrakeTorque`, every wheel, *latched* by the caller). The parking brake is a state rather
+than a resistance: the pad button and `P` toggle it, the scene keeps it in `vehicle.input`, and
+nothing releases it automatically — holding the throttle with it engaged leaves the car parked.
+ABS modulates the foot brake only; the two mechanical brakes are never released by a driver aid.
+
+Two rules make a parked car behave:
+
+* **Standstill lock.** Below `STATIC_HOLD_SPEED` (0.35 m/s) a brake that out-torques the drive
+  locks every wheel it acts on (`ω = 0`) with κ the slip the ground actually sees. The chassis
+  latch then holds the pose, not just the velocity: the substep's gravity impulse would otherwise
+  creep the car by `a·dt²` per substep — 1.7 cm/s on a 12° slope under a full brake.
+* **Brake torque is one-way.** Demand past the tire's peak drags the wheel to a stop instead of
+  spinning it backwards, and an airborne braked wheel stops rather than winding up. Without this
+  the residual torque ran a wheel backwards for as long as the brake was held: |κ| grew without
+  bound, the force out there is nearly zero, and the car crept at ~0.4 m/s with the brake fully
+  on while `spin` — the odometer `VehicleSystem` poses the visual wheels from — kept advancing.
 
 Ground is a `GroundQuery` (`flatGround`, `slopeGround`, `heightFunctionGround`,
 `physicsGroundQuery`, `physicsRaycastGroundQuery`, or any `sample(x, z, out)`). Phase 11 expects
@@ -81,6 +108,7 @@ body.add(component);
 
 // each frame, input only:
 vehicle.input.throttle = 1;
+vehicle.input.parkingBrake = parkLatched ? 1 : 0; // latched by *you*: tap toggles it
 ```
 
 `VehicleComponent` does not step. `VehicleSystem` (order 110, before `transforms`) calls `step`
@@ -89,7 +117,7 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 
 ## What is tested
 
-`tests/vehicles.test.ts` (15):
+`tests/vehicles.test.ts` (23 tests) covers:
 
 - Pacejka is odd, zero at zero slip, and peaks near the sampled slip.
 - A constant torque produces the analytic RPM (`I·α = τ`); the rev limiter holds.
@@ -105,6 +133,14 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 - With TC, peak driven |κ| stays under 0.35 and at least 0.15 below the same launch with TC off.
 - The same inputs produce the same pose, yaw, RPM, and gear.
 - `VehicleSystem` steps once per fixed step and writes the chassis transform.
+- A car parked on any of the three brakes holds its position exactly, with every wheel at `ω = 0`
+  and `spin` frozen — the parked car's wheels used to keep turning (4.7 rad/s in gear on the
+  flat) for as long as the brake was held.
+- A latched parking brake holds a 12° slope with no creep and does not yield to full throttle.
+- The parking brake locks all four wheels where the handbrake locks the rears only.
+- Braking to a stop leaves the wheels stopped — no reverse rotation and no spin creep afterwards.
+- A braked airborne wheel stops instead of winding backwards.
+- Releasing a brake that was held under full throttle gives the drive straight back.
 
 ## Sharing one PhysicsWorld (Vehicle + ECS)
 

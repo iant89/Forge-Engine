@@ -109,3 +109,39 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `.cache/scratch/shot.mjs` (phone/desktop emulation, `HANDBRAKE=1` to stop the drift, `ORBIT` drags
   chunked to ≤0.8×viewport and centred — azimuth wraps at ±π, and negative drags orbit the wrong way
   for a front-right view; `ZOOM` wheel pixels, positive = out).
+
+## 2026-09-24 — parking brake toggle + "all the wheels spin when brake is applied"
+
+- **Two asks, one code path.** (1) a *toggle* for a parking brake in the vehicle playground, (2) the
+  reported bug: with any brake held on a stationary car every wheel kept turning.
+- **Bug, root cause:** `Vehicle.wheels[].spin` is the odometer `VehicleSystem` poses the visual
+  wheels with (`engine/src/vehicles/system.ts`), and `spin += ω·dt` ran unguarded. The slip solve
+  near a standstill handed back the wheel speed implied by the *holding* slip (measured: κ = 0.398
+  on all four wheels, so κ·slipReference / r = 4.7 rad/s in gear on the flat), and past the peak the
+  residual-torque branch
+  dragged a braked wheel *backwards* — huge |κ|, almost no force, a car creeping at ~0.4 m/s with the
+  brake fully on. Fix (`balanceLongitudinal` + `stepWheelSpeed`): **a brake only ever removes wheel
+  speed** — standstill lock (`ω = 0` below `STATIC_HOLD_SPEED = 0.35 m/s`), past-the-peak lock
+  instead of reversing, an airborne braked wheel stopped, and the substep's pose held (the latch
+  freezes position/yaw while parked: zeroing velocity alone still let the gravity impulse move the
+  car by `a·dt²` per substep, 1.7 cm/s creep on a 12° slope).
+- **Parking brake is a state, not a resistance:** `VehicleInput.parkingBrake` ×
+  `VehicleConfig.parkingBrakeTorque` (7000 N·m, *every* wheel) while `handbrake` stays momentary and
+  rears-only. The demo latches it (`P` / the `#veh-park` pad button, lamp = `.active`), writes it
+  into `vehicle.input` each frame, and nothing releases it automatically. ABS releases the *foot*
+  brake only — a mechanical brake must not be freed by a driver aid.
+- **Pre-fix baselines** for `tests/vehicles.test.ts` (stash `engine/src/vehicles/vehicle.ts` to
+  reproduce; all 6 brake tests fail): parked-in-gear wheel ω **4.676 rad/s** and `spin` 0 → 4.7;
+  12° slope with the parking brake **9.975 m/s** of slide; handbrake rear ω **19.419 rad/s** at
+  12 m/s; brake-to-stop `spin` 38.124 → **40.462** while "stopped"; airborne braked wheel ω
+  **44.117 rad/s**.
+- **Gate trap (cost two full runs): `tools/browser-check.mjs` leaves the demo frozen.** The pixel
+  A/B sections call `setAnimating(false)` and only the weather section resumes it; the vehicle
+  section sits inside that window. The demo's `update` is where a scene writes its inputs, so the
+  car gets *no* input: `P` still latches (`vehicleState()` reads 1, lamp lit, frames advance), the
+  parked half of a check passes for the wrong reason, and "release and drive" fails with dz = 0.0000.
+  The gate now resumes the loop before the vehicle section and asserts `__forge.animating()` (new
+  getter in `examples/src/main.ts`) so this can only be reported as a demo-loop failure.
+- **Flake:** editing `engine/src` or `examples/src` while the gate runs makes vite HMR navigate the
+  page → `page.evaluate: Execution context was destroyed, most likely because of a navigation`.
+  Freeze the tree before `npm run check:browser`.

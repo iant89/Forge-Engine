@@ -23,8 +23,8 @@ the drive pad on touch layouts. The
 scene selector still offers all nine demos: **PBR Showcase** (Phase 2: instanced material grid,
 emissive bloom source, three shadow cascades, HDR / bloom / shadow / cascade-tint toggles in the
 panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze), **Realistic
-(Alpine)** (Phase 4), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp; see
-`docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
+(Alpine)** (Phase 4), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
+handbrake, `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`
 scrub the clock, `T` pauses it, `M` swaps Earth for Mars), and **Weather / Water** (Phase 8b: storm
 presets with rain, lightning, a Gerstner lake and an underwater dive). `?scene=pbr`, `?scene=terrain`,
