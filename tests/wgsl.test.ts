@@ -14,6 +14,7 @@ import {
   BLIT_SHADER,
   DEBUG_SHADER,
   DEPTH_VERTEX,
+  PARTICLE_RENDER_SHADER,
   POST_SHADER,
   RENDERING_STRUCTS,
   SKY_SHADER,
@@ -87,6 +88,9 @@ describe("generated uniform structs are legal in every browser's uniform address
       POST_SHADER,
       SKY_SHADER,
       WATER_SHADER,
+      // Includes the billboard whose reversed-edge smoothstep a strict Tint rejected (PR #32
+      // follow-up): the shader corpus is pinned against every validator rule, not only layout.
+      PARTICLE_RENDER_SHADER,
     };
     for (const [name, source] of Object.entries(sources)) {
       for (const defines of [
@@ -170,5 +174,64 @@ struct Particles { count: u32, data: array<f32, 64> }
 @group(0) @binding(2) var<storage, read_write> particles: Particles;
 ${ENTRY}`;
     expect(layoutIssues(source)).toEqual([]);
+  });
+});
+
+describe("validateWgsl enforces smoothstep edge order", () => {
+  const semantics = (source: string): { message: string; line?: number }[] =>
+    validateWgsl(source).filter((i) => i.kind === "semantics");
+
+  it("flags the reversed-edge idiom a strict Tint rejected in the browser gate", () => {
+    const source = `${ENTRY}
+@fragment fn fsMain() -> @location(0) vec4<f32> {
+  let edge = smoothstep(0.5, 0.35, 0.4);
+  return vec4<f32>(edge);
+}`;
+    const issues = semantics(source);
+    expect(issues.length).toBe(1);
+    expect(issues[0]!.message).toMatch(/smoothstep\(0\.5, 0\.35, …\) has low >= high/);
+    expect(issues[0]!.message).toMatch(/1\.0 - smoothstep\(0\.35, 0\.5, x\)/);
+    expect(issues[0]!.line).toBe(3);
+  });
+
+  it("flags equal edges too (also unspecified), with negative and exponent literals", () => {
+    const source = `${ENTRY}
+@fragment fn fsMain() -> @location(0) vec4<f32> {
+  let a = smoothstep(0.5, 0.5, 0.25);
+  let b = smoothstep(-1e-1, -0.2, 0.0);
+  return vec4<f32>(a + b);
+}`;
+    expect(semantics(source).map((i) => i.line)).toEqual([3, 4]);
+  });
+
+  it("accepts the spec-legal reversed falloff, ordinary calls and runtime edges", () => {
+    const source = `${ENTRY}
+@group(0) @binding(0) var<uniform> lens: f32;
+@fragment fn fsMain() -> @location(0) vec4<f32> {
+  let a = 1.0 - smoothstep(0.35, 0.5, 0.4);
+  let b = smoothstep(0.005, 0.08, a);
+  let c = smoothstep(lens, lens + 0.001, a);
+  return vec4<f32>(a + b + c);
+}`;
+    expect(semantics(source)).toEqual([]);
+  });
+
+  it("ignores reversed edges inside comments, without shifting the reported line", () => {
+    const source = `${ENTRY}
+// let off = smoothstep(0.9, 0.1, 0.5);
+/* let alsoOff = smoothstep(0.7,
+   0.6, 0.5); */
+@fragment fn fsMain() -> @location(0) vec4<f32> {
+  let bad = smoothstep(1.0, 0.0, 0.5);
+  return vec4<f32>(bad);
+}`;
+    const issues = semantics(source);
+    expect(issues.length).toBe(1);
+    expect(issues[0]!.line).toBe(6);
+  });
+
+  it("the shipped particle billboard uses the spec-legal form", () => {
+    expect(validateWgsl(preprocessWgsl(PARTICLE_RENDER_SHADER, { QUALITY: 2, SHADOW_MODE: 1 }))).toEqual([]);
+    expect(PARTICLE_RENDER_SHADER).toContain("1.0 - smoothstep(0.35, 0.5, r)");
   });
 });

@@ -7,11 +7,13 @@
  * browser GPU is stricter, so a green run here means "no structural errors found", not "compiles".
  *
  * What it does enforce is the uniform address-space layout (array strides and struct/array member
- * offsets that are multiples of 16). That rule is the one browsers disagree on: Chromium accepts a
- * relaxed layout without being asked, WebKit rejects the shader module, and `check:browser` runs on
- * Chromium — so this check is the only thing standing between "renders in Chrome" and "black canvas
- * in Safari". Every generated struct is checked both through its TypeScript layout
- * (`uniformLayoutProblems`) and through the WGSL text it emits.
+ * offsets that are multiples of 16) and `smoothstep` literal edge order (`low >= high` is rejected
+ * by strict compilers at shader-module creation and merely tolerated elsewhere). Those rules are
+ * the ones browsers disagree on: Chromium accepts a relaxed layout without being asked, WebKit
+ * rejects the shader module, and `check:browser` runs on Chromium — so this check is the only
+ * thing standing between "renders in Chrome" and "black canvas in Safari". Every generated struct
+ * is checked both through its TypeScript layout (`uniformLayoutProblems`) and through the WGSL
+ * text it emits.
  *
  * Exit code is non-zero when any module fails, and the offending lines are printed with their cause.
  */

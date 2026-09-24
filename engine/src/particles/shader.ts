@@ -407,7 +407,10 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   if (r > 0.5) {
     discard;
   }
-  let edge = smoothstep(0.5, 0.35, r);
+  // Radial falloff of the billboard: opaque inside r = 0.35, fading to 0 at the 0.5 discard rim.
+  // WGSL requires smoothstep's low edge < high edge (strict compilers reject the module
+  // otherwise), so the reversed GLSL idiom smoothstep(0.5, 0.35, r) must be written this way.
+  let edge = 1.0 - smoothstep(0.35, 0.5, r);
   var alpha = in.color.a * edge;
   if (in.softEnabled != 0u && params.softScale > 0.0) {
     // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
