@@ -16,6 +16,11 @@
  *   rear hubs when the rover is moving — each a `ParticleWorld` driven by a SceneObject so the
  *   emitter follows the camera / chassis every engine frame.
  *
+ * - robotic arm: the GLB's five-joint `arm` chain becomes nested pivot entities under the chassis,
+ *   posed every frame from `RoverArmController` (`roverArm.ts`): R / the D·ARM pad button unfolds
+ *   or stows it along a keyframed choreography, and once it is out two thumbsticks (`armTouch.ts`,
+ *   above the drive controls) or T/G F/H + I/K J/L jog the swing, shoulder, elbow and turret.
+ *
  * Controls mirror the vehicle playground: WASD / arrows + the on-screen stick, orbit camera with
  * `keyboard: false` (the scene owns those keys) that tracks the chassis via `followTarget`.
  */
@@ -52,6 +57,7 @@ import {
   Scene,
   SizeOverLifeModule,
   TerrainWorld,
+  type TransformHandle,
   Vec3,
   Vehicle,
   VehicleComponent,
@@ -62,7 +68,9 @@ import {
   heightFunctionGround,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
+import { attachArmTouch } from "../controls/armTouch.js";
 import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js";
+import { ARM_JOINT_COUNT, RoverArmController, type ArmJogInput } from "./roverArm.js";
 import {
   createMarsRegolithTextures,
   disposePbrTextureSet,
@@ -88,6 +96,16 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     mastT: number;
     /** Commanded mast state (the MAST button / `setMast` target). */
     mastDeployed: boolean;
+    /** Robotic arm unfold progress: 0 stowed … 1 unfolded (the choreography's position). */
+    armT: number;
+    /** Commanded arm state (the ARM button / R key / `setArm` target). */
+    armDeployed: boolean;
+    /** Fully unfolded: the arm thumbsticks are showing and jog the joints. */
+    armUnfolded: boolean;
+    /** Arm thumbsticks currently on screen (follows `armUnfolded`). */
+    armSticksVisible: boolean;
+    /** Arm joint angles in degrees, stowed = 0: azimuth, shoulder, elbow, wrist, turret. */
+    armJoints: number[];
     speed: number;
     x: number;
     y: number;
@@ -97,6 +115,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   retryModelLoad(): void;
   /** Raise (true) or stow (false) the Remote Sensing Mast; the spring animates it smoothly. */
   setMast(deployed: boolean): void;
+  /** Unfold (true) or stow (false) the robotic arm; the choreography animates it. */
+  setArm(deployed: boolean): void;
   /**
    * Rover "where it is supposed to be" wireframe boxes. `auto` (default) shows them until the
    * GLB has landed, `on`/`off` force the overlay either way.
@@ -540,6 +560,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const mastAzimuthQ = new Quat();
   const mastElevationQ = new Quat();
 
+  // Robotic arm: `arm` owns the choreography + jog state (commanded by the ARM button / R key /
+  // `setArm`); `armPivots` are the GLB's joint entities, nested like its chain, with cached
+  // transform handles so posing allocates nothing. Like the mast, a toggle before the model lands
+  // only arms the target: the controller does not advance until the pivots exist, so the unfold
+  // still plays once they do.
+  const arm = new RoverArmController();
+  const armPose = new Float64Array(ARM_JOINT_COUNT);
+  const armQ = new Quat();
+  const armInput: ArmJogInput = { swing: 0, shoulder: 0, elbow: 0, turret: 0 };
+  let armPivots: { transform: TransformHandle; axis: Vec3 }[] = [];
+
   const attachGlb = (glb: LoadedGlb): void => {
     // Body: drop the placeholder box, parent the model-root-space parts under the chassis with the
     // ground-plane offset (chassis sits at the CG, the model at its ground-centred origin).
@@ -646,6 +677,36 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       mastHeadPivotEntity = headPivotE;
       writeMastPose();
     }
+    // Robotic arm: one pivot entity per joint, each parented to the previous one at its
+    // parent-relative pivot (the first under the chassis, with the ground-plane offset), carrying
+    // its link's pivot-relative parts at identity. Rotating a pivot about its axis swings
+    // everything outboard of it, exactly like the GLB node hierarchy.
+    if (glb.arm && glb.arm.joints.length === ARM_JOINT_COUNT) {
+      let parent: Entity = chassis;
+      const pivots: { transform: TransformHandle; axis: Vec3 }[] = [];
+      for (const [j, joint] of glb.arm.joints.entries()) {
+        const [ox, oy, oz] = joint.offset;
+        const at = new Vec3(ox, j === 0 ? oy + bodyOffsetY : oy, oz);
+        const pivot = scene.createTransformedEntity(`rover-arm-${joint.joint}`, at);
+        parent.addChild(pivot);
+        pivot.transform.position = at;
+        for (const part of joint.parts) {
+          const child = scene.createTransformedEntity(`rover-${part.name}`, new Vec3(0, 0, 0));
+          pivot.addChild(child);
+          child.transform.position = new Vec3(0, 0, 0);
+          const r = new Renderable();
+          r.geometry = part.geometry;
+          r.material = part.material;
+          r.castShadow = true;
+          r.receiveShadow = true;
+          scene.world.addComponent(child.id, r);
+        }
+        pivots.push({ transform: pivot.transform, axis: new Vec3(joint.axis[0], joint.axis[1], joint.axis[2]) });
+        parent = pivot;
+      }
+      armPivots = pivots;
+      writeArmPose();
+    }
   };
 
   /** Pose all mast pivots from the spring state (no-op until the GLB lands). */
@@ -663,6 +724,24 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const setMast = (deployed: boolean): void => {
     mastTarget = deployed ? 1 : 0;
     touch.setMast(deployed);
+  };
+
+  /** Pose every arm pivot from the controller (no-op until the GLB lands). */
+  const writeArmPose = (): void => {
+    if (armPivots.length === 0) return;
+    arm.pose(armPose);
+    for (let j = 0; j < armPivots.length; j++) {
+      const pivot = armPivots[j]!;
+      pivot.transform.rotation = armQ.setAxisAngle(pivot.axis, armPose[j] ?? 0);
+    }
+  };
+
+  /** Command the arm; the button/keys call this, the controller animates it. */
+  const setArm = (deployed: boolean): void => {
+    arm.setDeployed(deployed);
+    touch.setArm(deployed);
+    // Stowing hides the sticks at once; unfolding shows them only once the arm is fully out.
+    if (!deployed) armTouch.setVisible(false);
   };
 
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
@@ -699,6 +778,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
     // M toggles the mast (keydown, not hold; ignore auto-repeat so it flips once per press).
     if (event.code === "KeyM" && !event.repeat) setMast(mastTarget < 0.5);
+    // R toggles the robotic arm, same rule.
+    if (event.code === "KeyR" && !event.repeat) setArm(!arm.deployed);
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     keys.delete(event.code);
@@ -707,12 +788,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   window.addEventListener("keyup", onKeyUp);
   const touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
     onMastToggle: () => setMast(mastTarget < 0.5),
+    onArmToggle: () => setArm(!arm.deployed),
   });
+  const armTouch = attachArmTouch(document.getElementById("arm-touch"));
+  /** One arm jog axis from the keyboard: +1 / −1 while a key of the pair is held. */
+  const keyAxis = (positive: string, negative: string): number => (keys.has(positive) ? 1 : 0) - (keys.has(negative) ? 1 : 0);
+  const unit = (v: number): number => Math.max(-1, Math.min(1, v));
 
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · M mast · Drag to orbit · Scroll zoom",
+    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm (TFGH / IJKL move it) · Drag to orbit · Scroll zoom",
     camera: {
       // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
       target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
@@ -787,6 +873,16 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       vehicle.input.brake = Math.max(keyBrake, pad.brake);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
+
+      // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded),
+      // pose the pivots when anything moved, and keep the sticks shown exactly while unfolded.
+      const sticks = armTouch.sample();
+      armInput.swing = unit(sticks.swing + keyAxis("KeyH", "KeyF"));
+      armInput.shoulder = unit(sticks.shoulder + keyAxis("KeyT", "KeyG"));
+      armInput.elbow = unit(sticks.elbow + keyAxis("KeyI", "KeyK"));
+      armInput.turret = unit(sticks.turret + keyAxis("KeyL", "KeyJ"));
+      if (armPivots.length > 0 && arm.update(dt, armInput)) writeArmPose();
+      armTouch.setVisible(arm.unfolded);
     },
     overlay(): string {
       const gear = vehicle.gear === 0 ? "N" : String(vehicle.gear);
@@ -809,8 +905,22 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             : mastT < 0.02
               ? "STOWED"
               : `${Math.round(mastT * 100)}%↓`;
+      const jog = (joint: number, tag: string): string => {
+        const d = Math.round(arm.jogDegrees(joint));
+        return d === 0 ? "" : ` ${tag}${d > 0 ? "+" : "−"}${Math.abs(d)}°`;
+      };
+      const armLabel =
+        !modelLoaded || armPivots.length === 0
+          ? "—"
+          : arm.deployed
+            ? arm.unfolded
+              ? `READY${jog(0, "sw")}${jog(1, "sh")}${jog(2, "el")}${jog(4, "tu")}`
+              : `${Math.round(arm.progress * 100)}%↑`
+            : arm.progress <= 0
+              ? "STOWED"
+              : `${Math.round(arm.progress * 100)}%↓`;
       return (
-        `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel}\n` +
+        `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDust.simulation.alive}  NASA/JPL-Caltech (public domain)`
@@ -838,6 +948,11 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       kickDust: kickDust.simulation.alive,
       mastT,
       mastDeployed: mastTarget === 1,
+        armT: arm.progress,
+        armDeployed: arm.deployed,
+        armUnfolded: arm.unfolded,
+        armSticksVisible: armTouch.visible,
+        armJoints: Array.from(arm.pose(armPose), (v) => (v * 180) / Math.PI),
         speed: vehicle.speed,
         x: vehicle.position.x,
         y: vehicle.position.y,
@@ -850,6 +965,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     setMast(deployed: boolean): void {
       if (!disposed) setMast(deployed);
     },
+    setArm(deployed: boolean): void {
+      if (!disposed) setArm(deployed);
+    },
     setDebugBounds(mode: "auto" | "on" | "off"): void {
       debugBoundsMode = mode;
     },
@@ -858,6 +976,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
+      armTouch.dispose();
       keys.clear();
       loaded?.dispose();
       loaded = null;

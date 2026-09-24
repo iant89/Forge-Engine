@@ -12,6 +12,7 @@ shows in the failure modes of an "invisible rover / invisible terrain" report.
 | `mars-showcase-bounds-auto.png` | After skipping a failed load: the scene's *auto* debug bounds — yellow chassis footprint box and green wheel-hub boxes — marking where the model is supposed to sit while the placeholder drives. |
 | `mars-showcase-bounds-renderer.png` | `Renderer.debugBounds` (toolbar **Bounds** button / `?bounds=1`): world-space AABBs of every visible renderable, cyan in view / magenta culled, drawn depth-test-free so they show through terrain — the long cyan streaks are the 128 m terrain-chunk boxes. |
 | `mars-showcase-mast-deployed.png` | The camera-mast feature: RSM raised to vertical by the MAST toggle (M key / C pad button), head box with SuperCam aperture and NavCam/Mastcam-Z eyes on top; HUD reports `mast UP`. |
+| `mars-showcase-arm-unfolded.png` | The robotic-arm feature: five-joint arm unfolded from its folded-across-the-nose stow by the ARM toggle (R key / D pad button) into the ready pose — upper arm up, turret level with the drill toward the ground, clear of the wheels — with the two jog thumbsticks (swing/shoulder, turret/elbow) on screen and the HUD reporting `arm READY`. |
 
 Reproducing locally:
 

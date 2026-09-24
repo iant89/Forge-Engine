@@ -12,7 +12,18 @@
  * The Remote Sensing Mast is modelled STOWED (lying flat on the deck, head toward the rear). Its
  * subtree (`head` up-walked to the scene root, plus all descendants) is likewise kept out of the
  * body merge and rewritten as pivot-relative `mast_*` parts under a `mast` root translated to the
- * deployment hinge, so the demo can raise/lower it about that hinge.
+ * deployment hinge, so the demo can raise/lower it about that hinge. (Its `mast_lower / _upper /
+ * _head` grouping nodes record their joints in `extras.joint`, not `translation`: the parts stay
+ * hinge-relative, so a translation would double-offset them in any spec-following viewer.)
+ *
+ * The robotic arm is modelled STOWED too, folded across the nose. Its five-joint chain
+ * (`arm.003` > `arm.002` > `arm` > `arm.004` > `turret_obj` and the turret's instruments) is
+ * rewritten as a spec-correct nested hierarchy: `arm` (azimuth) > `arm_shoulder` > `arm_elbow` >
+ * `arm_wrist` > `arm_turret`, each node translated to its joint pivot relative to its parent
+ * (the root in model space), holding its link's parts with vertices relative to that pivot, and
+ * tagged `extras: { joint, axis }` (rotation axis in the stowed frame). Rotating each node about
+ * its axis articulates the arm. The mount bracket (`arm.001`), cable harness and stow hardware
+ * stay in the body.
  *
  * Source download (raw.githubusercontent.com is unreachable from some sandboxes; the contents API
  * with `Accept: application/vnd.github.raw` works):
@@ -261,6 +272,52 @@ for (const i of [MAST_HINGE_NODE, BOTTOM_NODE]) {
 for (const i of MAST_UPPER_NODES) MAST_LOWER_NODES.delete(i);
 for (const i of MAST_HEAD_ASSEMBLY_NODES) MAST_LOWER_NODES.delete(i);
 
+// Robotic arm: the source's five-joint chain, root to tip. Each chain node's origin is its joint
+// pivot — circle fits of the actuator housings put every rotation centre within 1 mm of the node
+// origin — and its joint turns about one local axis of the node (`localAxis`: 1 = Y, 2 = Z),
+// exported in the stowed model frame with the sign the demo uses (+ raises / swings forward).
+// Asserted by name, parentage and axis so a remodelled source fails here instead of shipping an
+// arm that folds through itself. Every descendant of a chain node belongs to the innermost link
+// above it (the turret link carries PIXL, WATSON, the drill, covers, …).
+const ARM_CHAIN = [
+  { source: "arm.003", name: "arm", joint: "azimuth", axis: [0, 1, 0], localAxis: 1 },
+  { source: "arm.002", name: "arm_shoulder", joint: "shoulder", axis: [0, 0, -1], localAxis: 2 },
+  { source: "arm", name: "arm_elbow", joint: "elbow", axis: [0, 0, -1], localAxis: 2 },
+  { source: "arm.004", name: "arm_wrist", joint: "wrist", axis: [0, 0, -1], localAxis: 2 },
+  { source: "turret_obj", name: "arm_turret", joint: "turret", axis: [0, 1, 0], localAxis: 1 },
+];
+const armNodes = ARM_CHAIN.map(({ source }) => {
+  const matches = gltfJson.nodes.flatMap((n, i) => (n.name === source ? [i] : []));
+  if (matches.length !== 1) throw new Error(`arm node "${source}": expected exactly one, found ${matches.length}`);
+  return matches[0];
+});
+for (let j = 1; j < ARM_CHAIN.length; j++) {
+  if (parentOf[armNodes[j]] !== armNodes[j - 1]) {
+    throw new Error(`arm chain changed: ${ARM_CHAIN[j].source} is not a child of ${ARM_CHAIN[j - 1].source}`);
+  }
+}
+const ARM_PIVOTS = armNodes.map((i) => {
+  const w = worlds.get(i);
+  return [w[12], w[13], w[14]];
+});
+ARM_CHAIN.forEach(({ source, axis, localAxis }, j) => {
+  const w = worlds.get(armNodes[j]);
+  const col = [w[localAxis * 4], w[localAxis * 4 + 1], w[localAxis * 4 + 2]];
+  const len = Math.hypot(...col);
+  const dot = (col[0] * axis[0] + col[1] * axis[1] + col[2] * axis[2]) / len;
+  if (Math.abs(dot) < 0.999) throw new Error(`arm joint ${source}: local axis ${localAxis} is not along ${axis} (|cos| ${Math.abs(dot).toFixed(4)})`);
+});
+/** Source node index → arm link index (innermost chain ancestor). */
+const armLinkOf = new Map();
+armNodes.forEach((root, j) => {
+  const members = new Set([root]);
+  collectDescendants(root, members);
+  for (const i of members) armLinkOf.set(i, j); // deeper links run later and win
+});
+for (const i of armLinkOf.keys()) {
+  if (mastSet.has(i) || hasWheelNode(i)) throw new Error(`arm subtree overlaps the mast/wheels at ${gltfJson.nodes[i].name}`);
+}
+
 /** Decode node → mesh → primitives, bake to world space. Returns per-prim arrays. */
 function bakeNodePrimitives(nodeIndex) {
   const node = gltfJson.nodes[nodeIndex];
@@ -300,12 +357,12 @@ function bakeNodePrimitives(nodeIndex) {
   return prims;
 }
 
-// ---- body: every mesh node except the wheel node and the mast subtree, merged per material.
+// ---- body: every mesh node except the wheel node and the mast / arm subtrees, merged per material.
 const bodyByMaterial = new Map();
 let bodyPrimCount = 0;
 for (let i = 0; i < gltfJson.nodes.length; i++) {
   const node = gltfJson.nodes[i];
-  if (node.mesh === undefined || hasWheelNode(i) || mastSet.has(i)) continue;
+  if (node.mesh === undefined || hasWheelNode(i) || mastSet.has(i) || armLinkOf.has(i)) continue;
   for (const prim of bakeNodePrimitives(i)) {
     bodyPrimCount++;
     let slot = bodyByMaterial.get(prim.material);
@@ -492,6 +549,30 @@ for (const i of MAST_NODES) {
 if (!headCount) throw new Error("mast head has no vertices");
 const MAST_HEAD_OFFSET = headSum.map((s, k) => s / headCount - MAST_PIVOT[k]);
 
+// ---- arm: bake each link world-space, then make it relative to its own joint pivot.
+const armMeshes = [];
+for (const [i, link] of [...armLinkOf.entries()].sort((a, b) => a[0] - b[0])) {
+  const node = gltfJson.nodes[i];
+  if (node.mesh === undefined) continue;
+  const pivot = ARM_PIVOTS[link];
+  for (const prim of bakeNodePrimitives(i)) {
+    const positions = new Float32Array(prim.positions);
+    for (let v = 0; v < prim.count; v++) {
+      positions[v * 3] -= pivot[0];
+      positions[v * 3 + 1] -= pivot[1];
+      positions[v * 3 + 2] -= pivot[2];
+    }
+    armMeshes.push({
+      node: node.name,
+      link,
+      slot: { positions, normals: prim.normals, uvs: prim.uvs, indices: prim.indices, count: prim.count, material: prim.material },
+    });
+  }
+}
+for (let j = 0; j < ARM_CHAIN.length; j++) {
+  if (!armMeshes.some((m) => m.link === j)) throw new Error(`arm link ${ARM_CHAIN[j].name} has no geometry`);
+}
+
 // ---------------------------------------------------------------- pack a plain GLB
 
 const binChunks = [];
@@ -655,21 +736,45 @@ if (mastLowerChildren.length > 0) {
   outJson.nodes.push({ name: "mast_lower", children: mastLowerChildren });
   mastChildren.push(lowerIndex);
 }
-// Upper arm: translated to the azimuth joint (hinge-relative)
+// Upper arm / head assembly: their joints (hinge-relative) go in `extras`, not `translation` —
+// the parts under them are hinge-relative like the lower group's, so a translation would
+// double-offset them in a spec-following viewer.
 if (mastUpperChildren.length > 0) {
   const upperIndex = outJson.nodes.length;
-  outJson.nodes.push({ name: "mast_upper", translation: [...MAST_AZIMUTH_JOINT], children: mastUpperChildren });
+  outJson.nodes.push({ name: "mast_upper", extras: { joint: [...MAST_AZIMUTH_JOINT] }, children: mastUpperChildren });
   mastChildren.push(upperIndex);
 }
-// Head assembly: translated to the elevation joint (hinge-relative)
 if (mastHeadChildren.length > 0) {
   const headIndex = outJson.nodes.length;
-  outJson.nodes.push({ name: "mast_head", translation: [...MAST_ELEVATION_JOINT], children: mastHeadChildren });
+  outJson.nodes.push({ name: "mast_head", extras: { joint: [...MAST_ELEVATION_JOINT] }, children: mastHeadChildren });
   mastChildren.push(headIndex);
 }
 const mastRootIndex = outJson.nodes.length;
 outJson.nodes.push({ name: "mast", translation: [...MAST_PIVOT], children: mastChildren });
 outJson.scenes[0].nodes.push(mastRootIndex);
+
+// Robotic arm: nested joint nodes, each translated to its pivot relative to the parent joint
+// (the root in model space) and holding its link's pivot-relative parts.
+const armJointNodes = [];
+ARM_CHAIN.forEach(({ name, joint, axis }, j) => {
+  const parentPivot = j > 0 ? ARM_PIVOTS[j - 1] : [0, 0, 0];
+  const index = outJson.nodes.length;
+  outJson.nodes.push({
+    name,
+    translation: ARM_PIVOTS[j].map((v, k) => v - parentPivot[k]),
+    extras: { joint, axis: [...axis] },
+    children: [],
+  });
+  if (j > 0) outJson.nodes[armJointNodes[j - 1]].children.push(index);
+  armJointNodes.push(index);
+});
+for (const { node, link, slot } of armMeshes) {
+  const meshIndex = addMesh(slot, `arm_${ARM_CHAIN[link].joint}_${node}_${gltfJson.materials[slot.material]?.name ?? slot.material}`);
+  const nodeIndex = outJson.nodes.length;
+  outJson.nodes.push({ name: "arm_part", mesh: meshIndex });
+  outJson.nodes[armJointNodes[link]].children.push(nodeIndex);
+}
+outJson.scenes[0].nodes.push(armJointNodes[0]);
 
 // Finalise the BIN chunk.
 const binBytes = new Uint8Array(binLength);
@@ -722,6 +827,15 @@ const report = {
     upperParts: mastMeshes.filter((m) => m.group === "upper").length,
     headParts: mastMeshes.filter((m) => m.group === "head").length,
   },
+  arm: ARM_CHAIN.map(({ name, joint, axis, source }, j) => ({
+    name,
+    joint,
+    source,
+    pivot: ARM_PIVOTS[j].map((v) => Number(v.toFixed(4))),
+    axis,
+    parts: armMeshes.filter((m) => m.link === j).length,
+    nodes: [...armLinkOf].filter(([, link]) => link === j).map(([i]) => gltfJson.nodes[i].name),
+  })),
   materials: outJson.materials.length,
   images: outJson.images.length,
   textures: outJson.textures.length,

@@ -245,7 +245,79 @@
         display: none;
       }
       body.scene-mars #veh-mast { display: flex; }
-      button.veh-mast.active { background: rgb(37 99 235 / 0.92); border-color: #93c5fd; transform: scale(0.94); }
+      /* Lit while deployment is commanded. Keyed on the id (here and for #veh-arm below): a
+         class-only selector loses to the plain id rule, so only the scale ever applied. */
+      #veh-mast.active { background: rgb(37 99 235 / 0.92); border-color: #93c5fd; transform: scale(0.94); }
+      /* D/ARM: the Mars showcase's robotic-arm unfold/stow toggle, in the pad's free top-right
+         slot. Mars-only, like MAST. */
+      #veh-arm {
+        right: 0;
+        top: 0;
+        background: rgb(146 64 14 / 0.55);
+        border-color: rgb(252 211 77 / 0.75);
+        color: #fffbeb;
+        display: none;
+      }
+      body.scene-mars #veh-arm { display: flex; }
+      #veh-arm.active { background: rgb(217 119 6 / 0.92); border-color: #fcd34d; transform: scale(0.94); }
+      /* Robotic-arm thumbsticks (Mars showcase), shown while the arm is fully unfolded
+         (`#arm-touch.shown`, set by the scene) on every device — a desktop mouse can drag them too,
+         the keys being the only other way to move the arm. Desktop: the bottom corners. Touch /
+         phone-sized: lifted above the drive stick (128 px) and the A–D pad (148 px). Short
+         landscape screens have no room above, so the sticks sit beside those controls instead. */
+      #arm-touch {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 12;
+        pointer-events: none;
+      }
+      body.scene-mars #arm-touch.shown { display: block; }
+      .arm-stick {
+        pointer-events: auto;
+        position: fixed;
+        bottom: max(16px, env(safe-area-inset-bottom));
+        width: 116px;
+        height: 116px;
+        border-radius: 50%;
+        background: rgb(251 191 36 / 0.12);
+        border: 2px solid rgb(251 191 36 / 0.55);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        backdrop-filter: blur(2px);
+        animation: arm-stick-in 0.35s ease-out;
+      }
+      .arm-stick-left { left: max(16px, env(safe-area-inset-left)); }
+      .arm-stick-right { right: max(16px, env(safe-area-inset-right)); }
+      .arm-stick.active { border-color: rgb(252 211 77 / 0.9); }
+      .arm-stick .veh-knob { background: rgb(253 230 138 / 0.78); border-color: rgb(255 251 235 / 0.9); }
+      .arm-stick-label {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 5px);
+        transform: translateX(-50%);
+        white-space: nowrap;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #fde68a;
+        text-shadow: 0 1px 2px rgb(0 0 0 / 0.85);
+        pointer-events: none;
+      }
+      @keyframes arm-stick-in {
+        from { opacity: 0; transform: translateY(10px) scale(0.92); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (pointer: coarse), (max-width: 820px) {
+        .arm-stick { bottom: calc(max(16px, env(safe-area-inset-bottom)) + 176px); }
+      }
+      @media (pointer: coarse) and (max-height: 520px), (max-width: 820px) and (max-height: 520px) {
+        .arm-stick { bottom: max(16px, env(safe-area-inset-bottom)); width: 104px; height: 104px; }
+        .arm-stick-left { left: calc(max(16px, env(safe-area-inset-left)) + 144px); }
+        .arm-stick-right { right: calc(max(14px, env(safe-area-inset-right)) + 172px); }
+      }
       /* Shared layout for the sky and weather button panels (markup below). Each panel is a
          fixed, click-through sheet; only the buttons themselves take input. */
       .touch-panel {
@@ -306,6 +378,10 @@
         bottom: max(10px, env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
+        /* A left:50% box shrink-wraps to half the viewport, which broke the longer Mars hint onto
+           two lines; size to the text instead and wrap only when the viewport really is narrower. */
+        width: max-content;
+        max-width: calc(100vw - 32px);
         padding: 6px 14px;
         background: rgb(5 7 10 / 0.7);
         border: 1px solid rgb(148 163 184 / 0.2);
@@ -431,6 +507,17 @@
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
+        <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>
+      </div>
+    </div>
+    <div id="arm-touch" aria-hidden="true">
+      <div id="arm-stick-left" class="arm-stick arm-stick-left" role="application" aria-label="Arm stick. Left and right swing the arm, up and down raise or lower the shoulder.">
+        <span class="arm-stick-label" aria-hidden="true">↔ SWING · ↕ SHOULDER</span>
+        <div class="veh-knob"></div>
+      </div>
+      <div id="arm-stick-right" class="arm-stick arm-stick-right" role="application" aria-label="Arm stick. Up and down raise or lower the elbow, left and right spin the turret.">
+        <span class="arm-stick-label" aria-hidden="true">↔ TURRET · ↕ ELBOW</span>
+        <div class="veh-knob"></div>
       </div>
     </div>
     <div id="sky-touch">

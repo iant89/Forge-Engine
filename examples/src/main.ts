@@ -404,6 +404,11 @@ async function main(): Promise<void> {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       handle?.setMast?.(deployed);
     },
+    /** Mars showcase: unfold (true) or stow (false) the robotic arm; a no-op on other scenes. */
+    setArm: (deployed: boolean) => {
+      const handle = currentHandle as MarsShowcaseSceneHandle | null;
+      handle?.setArm?.(deployed);
+    },
     /** Sky scene: scrub the day/night clock (hours) and read the sun back; null on other scenes. */
     setTimeOfDay: (hours: number) => {
       const handle = currentHandle as SkySceneHandle | null;
