@@ -6,10 +6,15 @@
  * down is brake, so the stick works on its own. The A/B pair on the bottom-right is the digital
  * version of the same two axes (gas / brake). Keyboard input is combined by the scene, not here.
  *
+ * The vehicle playground adds P/PARK, a tap toggle for the latched parking brake
+ * (`onParkToggle`). The scene owns the state and reports it back via `setPark`, which lights the
+ * button for as long as the brake is engaged — like MAST/ARM below.
+ *
  * The Mars showcase adds two more pad buttons, C/MAST and D/ARM: a tap toggles the rover's
  * camera-mast deployment (`onMastToggle`) or robotic-arm unfold (`onArmToggle`), and the scene
  * reports the commanded state back via `setMast` / `setArm` (lit while deployment is commanded).
- * Both buttons only exist on the Mars scene; the arm's own thumbsticks live in `armTouch.ts`.
+ * MAST and ARM only exist on the Mars scene, PARK only on the vehicle playground (it takes the
+ * slot MAST uses there); the arm's own thumbsticks live in `armTouch.ts`.
  */
 
 export interface VehicleTouchAxes {
@@ -27,6 +32,8 @@ export interface VehicleTouchHandle {
   setMast(active: boolean): void;
   /** Light (or unlight) the ARM toggle to match the scene's commanded arm state. */
   setArm(active: boolean): void;
+  /** Light (or unlight) the PARK toggle to match the vehicle's parking-brake state. */
+  setPark(active: boolean): void;
   dispose(): void;
 }
 
@@ -35,6 +42,8 @@ export interface VehicleTouchOptions {
   onMastToggle?: () => void;
   /** Fired on every ARM pad tap (Mars showcase). Absent on the vehicle playground. */
   onArmToggle?: () => void;
+  /** Fired on every PARK pad tap (vehicle playground). Absent on the Mars showcase. */
+  onParkToggle?: () => void;
 }
 
 const DEADZONE = 0.14;
@@ -82,6 +91,7 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
   const brake = root?.querySelector<HTMLElement>("#veh-brake") ?? null;
   const mast = root?.querySelector<HTMLElement>("#veh-mast") ?? null;
   const arm = root?.querySelector<HTMLElement>("#veh-arm") ?? null;
+  const park = root?.querySelector<HTMLElement>("#veh-park") ?? null;
 
   const listeners: Array<[HTMLElement, string, EventListener]> = [
     ...suppressTouchChrome(stick),
@@ -89,6 +99,7 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
     ...suppressTouchChrome(brake),
     ...suppressTouchChrome(mast),
     ...suppressTouchChrome(arm),
+    ...suppressTouchChrome(park),
   ];
 
   let steer = 0;
@@ -193,8 +204,8 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
       brakeHeld = down;
     }),
   );
-  // MAST and ARM are tap toggles, not holds: fire on press for immediate feedback (the scene's
-  // setMast / setArm lights the button from the commanded state in the same tick).
+  // MAST, ARM and PARK are tap toggles, not holds: fire on press for immediate feedback (the
+  // scene's setMast / setArm / setPark lights the button from the commanded state in the same tick).
   const tapToggle = (el: HTMLElement | null, onToggle: (() => void) | undefined): void => {
     if (!el || !onToggle) return;
     const onDown = (event: Event): void => {
@@ -209,6 +220,7 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
   };
   tapToggle(mast, options.onMastToggle);
   tapToggle(arm, options.onArmToggle);
+  tapToggle(park, options.onParkToggle);
   if (stick) {
     const pairs: Array<[string, EventListener]> = [
       ["pointerdown", onStickDown as EventListener],
@@ -250,12 +262,17 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
       arm?.classList.toggle("active", active);
       arm?.setAttribute("aria-pressed", active ? "true" : "false");
     },
+    setPark(active: boolean): void {
+      park?.classList.toggle("active", active);
+      park?.setAttribute("aria-pressed", active ? "true" : "false");
+    },
     dispose(): void {
       for (const [el, type, fn] of listeners) el.removeEventListener(type, fn);
       gas?.classList.remove("pressed");
       brake?.classList.remove("pressed");
       mast?.classList.remove("active");
       arm?.classList.remove("active");
+      park?.classList.remove("active");
       stick?.classList.remove("active");
       placeKnob(0, 0, false);
       steer = 0;

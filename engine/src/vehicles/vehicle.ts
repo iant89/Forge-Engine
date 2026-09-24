@@ -41,6 +41,12 @@ export interface VehicleInput {
   steer: number;
   /** 0..1, extra rear-wheel brake. */
   handbrake: number;
+  /**
+   * 0..1, parking brake — a *latched* state the caller toggles, not a hold. Applied to every
+   * wheel (`parkingBrakeTorque`), not just the rears, so it holds a parked car where an
+   * RWD/AWD handbrake cannot. Any brake at a standstill locks the wheels (docs/VEHICLES.md).
+   */
+  parkingBrake: number;
 }
 
 export interface VehicleWheelConfig {
@@ -81,6 +87,8 @@ export interface VehicleConfig {
   maxSteerAngle: number;
   maxBrakeTorque: number;
   handbrakeTorque: number;
+  /** Per-wheel torque of the latched parking brake. Applied to every wheel, not just the rears. */
+  parkingBrakeTorque: number;
   layout: DrivetrainLayout;
   differential: DifferentialType;
   lsdBias: number;
@@ -118,6 +126,7 @@ export interface VehicleOptions {
   tcEnabled?: boolean;
   absEnabled?: boolean;
   maxBrakeTorque?: number;
+  parkingBrakeTorque?: number;
   springRate?: number;
   damperRate?: number;
   engine?: EngineModel;
@@ -196,6 +205,7 @@ export function createVehicleConfig(options: VehicleOptions = {}): VehicleConfig
     maxSteerAngle: 0.48,
     maxBrakeTorque: options.maxBrakeTorque ?? 4500,
     handbrakeTorque: 6000,
+    parkingBrakeTorque: options.parkingBrakeTorque ?? 7000,
     layout,
     differential: options.differential ?? "lsd",
     lsdBias: 2.5,
@@ -256,7 +266,7 @@ export class Vehicle {
   pitchRate = 0;
   /** Roll rate (rad/s). */
   rollRate = 0;
-  readonly input: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+  readonly input: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0, parkingBrake: 0 };
   readonly wheels: WheelState[];
   /** Body-frame acceleration from the previous step. Load transfer uses this, not a guess. */
   ax = 0;
@@ -462,6 +472,9 @@ export class Vehicle {
     const throttle = clamp(this.input.throttle, 0, 1);
     const brake = clamp(this.input.brake, 0, 1);
     const handbrake = clamp(this.input.handbrake, 0, 1);
+    const parkingBrake = clamp(this.input.parkingBrake, 0, 1);
+    // Any brake holds a standstill; the standstill threshold decides when that becomes a park.
+    const holdBrake = Math.max(brake, handbrake, parkingBrake);
 
     this.rebuildBasis();
     this.sampleWheels(ground, dt);
@@ -519,7 +532,7 @@ export class Vehicle {
       const hub = this.hubVelocity(w);
       const heading = this.yaw + w.steerAngle;
       hubLong[i] = hub.x * Math.sin(heading) + hub.z * Math.cos(heading);
-      this.balanceLongitudinal(w, shares[i] ?? 0, brake, handbrake, hubLong[i]!, dt);
+      this.balanceLongitudinal(w, shares[i] ?? 0, brake, handbrake, parkingBrake, hubLong[i]!, dt);
       if (w.driven) peakDrivenSlip = Math.max(peakDrivenSlip, Math.abs(w.kappa));
     }
     // TC scale is applied on top of the slip clamp: a wheel already held at `tcSlip` is not cut,
@@ -559,10 +572,14 @@ export class Vehicle {
       }
 
       if (!w.inContact || w.normalLoad <= 0) {
+        // Airborne / unloaded: the drive spins the wheel freely and the brake can only stop it —
+        // a held brake in the air must not keep a landing wheel spinning, nor wind it backwards.
         w.longForce = 0;
         w.latForce = 0;
-        const free = (shares[i] ?? 0) / c.wheelInertia;
-        w.omega = f32(w.omega + free * dt);
+        const free = shares[i] ?? 0;
+        const brakeTorque = this.brakeTorqueAt(w, brake, handbrake, parkingBrake);
+        const oppose = Math.abs(w.omega) > 0.25 ? Math.sign(w.omega) : 1;
+        w.omega = stepWheelSpeed(w.omega, free - brakeTorque * oppose, free, brakeTorque, c.wheelInertia, dt);
         w.spin = f32(w.spin + w.omega * dt);
         continue;
       }
@@ -585,7 +602,7 @@ export class Vehicle {
       const absScale = c.absEnabled ? absBrakeScale(w.kappa, c.absSlip, c.absStrength) : 1;
       if (absScale !== 1 && brake > 0) {
         // Re-balance with the cut brake so the force and the wheel speed agree.
-        this.balanceLongitudinal(w, shares[i] ?? 0, brake * absScale, handbrake, vLong, dt);
+        this.balanceLongitudinal(w, shares[i] ?? 0, brake * absScale, handbrake, parkingBrake, vLong, dt);
       }
 
       const D = c.mu * w.normalLoad;
@@ -670,19 +687,25 @@ export class Vehicle {
     if (this.roll > lim) { this.roll = lim; this.rollRate = Math.min(0, this.rollRate); }
     if (this.roll < -lim) { this.roll = -lim; this.rollRate = Math.max(0, this.rollRate); }
 
+    // Static friction: a held brake under the standstill speed is a *park* — it holds the pose, not
+    // just the velocity. Zeroing the velocity alone still lets the substep's gravity impulse move
+    // the car by a·dt² before it is zeroed (1.7 cm/s of creep on a 12° slope under a full brake),
+    // and `balanceLongitudinal` has already locked the wheels for the same condition.
+    const parked = holdBrake > 0.5 && this.speed < STATIC_HOLD_SPEED && contactCount > 0;
     const prevX = this.position.x;
     const prevZ = this.position.z;
-    this.position.x = f32(this.position.x + this.velocity.x * dt);
-    this.position.y = f32(this.position.y + this.velocity.y * dt);
-    this.position.z = f32(this.position.z + this.velocity.z * dt);
-    this.yaw = f32(this.yaw + this.yawRate * dt);
-    this.distance += Math.hypot(this.position.x - prevX, this.position.z - prevZ);
+    if (!parked) {
+      this.position.x = f32(this.position.x + this.velocity.x * dt);
+      this.position.y = f32(this.position.y + this.velocity.y * dt);
+      this.position.z = f32(this.position.z + this.velocity.z * dt);
+      this.yaw = f32(this.yaw + this.yawRate * dt);
+      this.distance += Math.hypot(this.position.x - prevX, this.position.z - prevZ);
+    }
 
     // Keep basis in sync with integrated yaw/pitch/roll before penetration lift and body-frame ax/ay.
     this.rebuildBasis();
     this.correctPenetration(ground);
-    // Static friction: a held brake should stop the car, not leave a 1 m/s creep from the slip floor.
-    if ((brake > 0.5 || handbrake > 0.5) && this.speed < 0.35 && contactCount > 0) {
+    if (parked) {
       this.velocity.x = 0;
       this.velocity.z = 0;
       this.yawRate *= 0.5;
@@ -874,23 +897,62 @@ export class Vehicle {
   }
 
   /**
+   * Brake torque applied to one wheel: the foot brake everywhere, the handbrake on the wheels
+   * flagged `handbrake` (the rears), and the latched parking brake on all of them.
+   */
+  private brakeTorqueAt(w: WheelState, brake: number, handbrake: number, parkingBrake: number): number {
+    const c = this.config;
+    let torque = brake * c.maxBrakeTorque;
+    if (w.handbrake) torque += handbrake * c.handbrakeTorque;
+    return torque + parkingBrake * c.parkingBrakeTorque;
+  }
+
+  /**
    * Quasi-static longitudinal slip. A Pacejka tire at 120 Hz is too stiff to integrate explicitly:
    * wheel speed jumps past the peak and the force reverses on the next step. Solve for the slip
    * whose tire torque balances drive minus brake, and stay on the rising face.
    *
    * TC and ABS tighten that clamp. An unaided wheel whose demand exceeds the peak is allowed to
    * spin up, so traction control has a higher slip to compare against.
+   *
+   * A brake only ever removes wheel speed. Two consequences are load-bearing, and both are about
+   * `spin` — the odometer `VehicleSystem` rotates the visual wheels from:
+   *
+   * - **At a standstill the wheels lock** (`ω = 0`) with the slip the ground actually sees. Solving
+   *   there instead hands back the wheel speed implied by the *holding* slip (`κ·slipReference / r`,
+   *   4.7 rad/s for a car parked in gear: the residual solve lands on κ = 0.4, well past the peak),
+   *   and `spin` integrates it for as long as the brake is held: a parked car whose four wheels
+   *   visibly keep turning. The tire force is what holds the car, and it is not the wheel's rotation
+   *   that produces it.
+   * - **Past the peak the wheel locks instead of reversing.** Brake torque the tire cannot transmit
+   *   drags a wheel to a stop; it cannot spin it backwards, which is what the residual-torque
+   *   branch would otherwise do (and what used to leave a car creeping at ~0.4 m/s with the brake
+   *   fully on: a backwards-spinning wheel has a huge |κ|, and the force there is nearly zero).
    */
-  private balanceLongitudinal(w: WheelState, driveTorque: number, brake: number, handbrake: number, vLong: number, dt: number): void {
+  private balanceLongitudinal(
+    w: WheelState,
+    driveTorque: number,
+    brake: number,
+    handbrake: number,
+    parkingBrake: number,
+    vLong: number,
+    dt: number,
+  ): void {
     const c = this.config;
     const r = c.wheelRadius;
     const ref = Math.max(Math.abs(vLong), c.slipReference);
-    let brakeTorque = brake * c.maxBrakeTorque;
-    if (w.handbrake) brakeTorque += handbrake * c.handbrakeTorque;
+    const brakeTorque = this.brakeTorqueAt(w, brake, handbrake, parkingBrake);
 
     if (!w.driven && brakeTorque < 1) {
       w.omega = vLong / r;
       w.kappa = 0;
+      return;
+    }
+
+    const brakeDominant = brakeTorque > 1 && Math.abs(brakeTorque) >= Math.abs(driveTorque);
+    if (brakeDominant && w.inContact && this.speed < STATIC_HOLD_SPEED) {
+      w.omega = 0;
+      w.kappa = (0 - vLong) / ref;
       return;
     }
 
@@ -903,17 +965,21 @@ export class Vehicle {
     const D = c.mu * Math.max(0, w.normalLoad);
     const peakSlip = Math.max(0.05, c.absSlip);
     if (D < 1) {
-      w.omega = f32(w.omega + (demand / c.wheelInertia) * dt);
+      // Unloaded / airborne wheel: free dynamics, but the brake still only removes speed.
+      w.omega = stepWheelSpeed(w.omega, demand, driveTorque, brakeTorque, c.wheelInertia, dt);
       w.kappa = (w.omega * r - vLong) / ref;
       return;
     }
 
     const peakF = Math.abs(pacejka(peakSlip, { ...c.longitudinal, D }));
     const demandF = demand / r;
-    const aided = (c.tcEnabled && w.driven && Math.abs(driveTorque) > 1) || (c.absEnabled && brakeTorque > 1 && Math.abs(vLong) > 0.4);
+    // ABS modulates the foot brake only: the handbrake and the parking brake are mechanical and
+    // a released hydraulic circuit must not free a locked wheel.
+    const absActive = c.absEnabled && brake * c.maxBrakeTorque > 1 && Math.abs(vLong) > 0.4;
+    const aided = (c.tcEnabled && w.driven && Math.abs(driveTorque) > 1) || absActive;
     if (Math.abs(demandF) > peakF && !aided) {
       const excess = demand - Math.sign(demand || 1) * peakF * r;
-      w.omega = f32(w.omega + (excess / c.wheelInertia) * dt);
+      w.omega = stepWheelSpeed(w.omega, excess, driveTorque, brakeTorque, c.wheelInertia, dt);
       w.kappa = (w.omega * r - vLong) / ref;
       return;
     }
@@ -928,13 +994,15 @@ export class Vehicle {
     }
     if (c.tcEnabled && w.driven && driveTorque > 1) kappa = Math.min(kappa, c.tcSlip);
     if (c.tcEnabled && w.driven && driveTorque < -1) kappa = Math.max(kappa, -c.tcSlip);
-    if (c.absEnabled && brakeTorque > 1 && Math.abs(vLong) > 0.4) {
+    if (absActive) {
       const sign = Math.sign(vLong) || 1;
       const lockSlip = -sign * c.absSlip;
       kappa = sign > 0 ? Math.max(kappa, lockSlip) : Math.min(kappa, lockSlip);
     }
     w.kappa = kappa;
-    w.omega = (vLong + kappa * ref) / r;
+    // The demand is past the peak with ABS not modulating it: the tire slides and the wheel is
+    // dragged to a stop (a skid), so `ω = 0` and κ is the ground slip, not the solved stand-off.
+    w.omega = brakeDominant && !absActive && Math.abs(demandF) > peakF ? 0 : (vLong + kappa * ref) / r;
   }
 
   /** Keep a fully compressed wheel from tunneling. Lift is along vehicle up, not world Y. */
@@ -996,6 +1064,26 @@ const BASIS_FORWARD = new Vec3(0, 0, 1);
 const BASIS_RIGHT = new Vec3(1, 0, 0);
 const AXIS_X = { x: 1, y: 0, z: 0 };
 const AXIS_Z = { x: 0, y: 0, z: 1 };
+
+/**
+ * Chassis speed (m/s) under which a held brake is a *park* rather than braking: the wheels lock
+ * and the chassis latch holds the pose. 1.26 km/h — slow enough that no driving state notices.
+ */
+const STATIC_HOLD_SPEED = 0.35;
+
+/**
+ * Free-wheel speed step (`I·dω = torque`) with the brake as a one-way constraint: it can hold a
+ * wheel stopped, but it can never turn one. When the drive alone would not have carried the wheel
+ * through zero and the full torque does, the brake is what stopped it — clamp at zero (locked)
+ * instead of integrating a wheel spinning backwards at thousands of rad/s². Used for unloaded and
+ * airborne wheels; loaded ones go through the slip solve's standstill lock.
+ */
+function stepWheelSpeed(omega: number, torque: number, driveTorque: number, brakeTorque: number, inertia: number, dt: number): number {
+  const next = omega + (torque / inertia) * dt;
+  if (brakeTorque <= 1) return f32(next);
+  const driveOnly = omega + (driveTorque / inertia) * dt;
+  return next * driveOnly <= 0 ? 0 : f32(next);
+}
 
 function steerAngle(input: number, maxAngle: number, speed: number): number {
   // Soften the lock at speed so the playground doesn't swap ends from a full-lock tap.

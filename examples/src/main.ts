@@ -386,6 +386,8 @@ async function main(): Promise<void> {
     setAnimating: (on: boolean) => {
       animating = on;
     },
+    /** Whether the demo loop is running its scene `update`. A gate that drives input must check it. */
+    animating: () => animating,
     /** Pass names the render graph executed last frame (what the gate asserts against). */
     renderPasses: () => engine.stats().renderPasses,
     /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */

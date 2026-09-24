@@ -142,9 +142,18 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   component.wheelEntities = wheelIds;
   body.add(component);
 
+  // The parking brake is a *state*: tapped on the pad or pressed on P, and it stays engaged until
+  // the same button releases it. The touch pad's lamp is driven from here, not by the button.
+  let parkingBrake = false;
+  const setParkingBrake = (on: boolean): void => {
+    parkingBrake = on;
+    touch.setPark(parkingBrake);
+  };
+
   const keys = new Set<string>();
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
+    if (event.code === "KeyP" && !event.repeat) setParkingBrake(!parkingBrake);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
   };
   const onKeyUp = (event: KeyboardEvent): void => {
@@ -152,7 +161,9 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   };
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
-  const touch = attachVehicleTouch(document.getElementById("vehicle-touch"));
+  const touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
+    onParkToggle: () => setParkingBrake(!parkingBrake),
+  });
 
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(-8, 4.5, -4));
   const camera = new Camera();
@@ -175,7 +186,8 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · Drag to orbit · Scroll zoom · camera follows",
+    controlsHint:
+      "WASD / arrows drive · Space handbrake · P parking brake · Drag to orbit · Scroll zoom · camera follows",
     camera: {
       target: new Vec3(0, 1.6, 6),
       distance: 12,
@@ -198,10 +210,12 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
       vehicle.input.brake = Math.max(keyBrake, pad.brake);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
+      vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
     },
     overlay(): string {
       const gear = vehicle.gear === 0 ? "N" : String(vehicle.gear);
-      return `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}\npos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}`;
+      const park = parkingBrake ? "  PARK" : "";
+      return `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}${park}\npos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}`;
     },
     vehicleState: () => ({
       speed: vehicle.speed,
@@ -210,6 +224,7 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
       x: vehicle.position.x,
       y: vehicle.position.y,
       z: vehicle.position.z,
+      parkingBrake: parkingBrake ? 1 : 0,
     }),
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);

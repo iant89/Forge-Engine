@@ -32,7 +32,16 @@ export interface DemoSceneHandle {
   overlay?: () => string;
   /** World point the orbit target should track each frame (the vehicle playground follows the chassis). */
   followTarget?: () => { x: number; y: number; z: number };
-  vehicleState?: () => { speed: number; rpm: number; gear: number; x: number; y: number; z: number };
+  /** `parkingBrake` is 0/1; the vehicle playground drives it from the PARK toggle / `P`. */
+  vehicleState?: () => {
+    speed: number;
+    rpm: number;
+    gear: number;
+    x: number;
+    y: number;
+    z: number;
+    parkingBrake?: number;
+  };
   /**
    * GPU fountain accounting only. `emitted` is the cumulative spawn counter (CPU-side);
    * there is no concurrent live-count readback. Prefer `ready` + `emitted` over any fake alive.

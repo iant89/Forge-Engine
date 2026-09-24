@@ -383,3 +383,117 @@ describe("vehicles — chassis", () => {
     world.dispose();
   });
 });
+
+describe("vehicles — brakes and the parking brake", () => {
+  function parked(overrides: Parameters<typeof createVehicleConfig>[0] = {}) {
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null, ...overrides }));
+    const ground = flatGround(0);
+    vehicle.placeOnGround(ground);
+    return { vehicle, ground };
+  }
+
+  it("holds a car parked on any brake, with the wheels stopped and locked", () => {
+    // In gear: the idle creep torque that the fix has to beat is present, as it is in the demo.
+    for (const input of ["brake", "handbrake", "parkingBrake"] as const) {
+      const { vehicle, ground } = parked();
+      vehicle.input[input] = 1;
+      run(vehicle, ground, 4);
+      expect(vehicle.speed, input).toBe(0);
+      for (const w of vehicle.wheels) {
+        // `spin` is the odometer VehicleSystem poses the visual wheels with. Regression: a car
+        // parked on the brake had all four wheels turning (4.7 rad/s in gear on the flat) for as
+        // long as it was held.
+        expect(w.omega, input).toBe(0);
+        expect(w.spin, input).toBe(0);
+      }
+    }
+  });
+
+  it("parks on a 12° slope without creeping, and holds against full throttle", () => {
+    const theta = (12 * Math.PI) / 180;
+    const ground = slopeGround(theta, "z");
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null, mass: 1200, mu: 1.1 }));
+    vehicle.placeOnGround(ground);
+    const z0 = vehicle.position.z;
+    const y0 = vehicle.position.y;
+    vehicle.input.parkingBrake = 1;
+    run(vehicle, ground, 5);
+    expect(vehicle.speed).toBe(0);
+    expect(vehicle.position.z).toBe(z0);
+    expect(vehicle.position.y).toBe(y0);
+    for (const w of vehicle.wheels) expect(w.spin).toBe(0);
+
+    // Latching the parking brake is a state, not a rolling resistance: the drive cannot creep out.
+    vehicle.input.throttle = 1;
+    run(vehicle, ground, 4);
+    expect(vehicle.speed).toBe(0);
+    expect(vehicle.position.z).toBe(z0);
+    expect(vehicle.rpm).toBeLessThanOrEqual(vehicle.config.engine.idleRpm + 1);
+  });
+
+  it("brakes a parking brake at every wheel, where the handbrake covers only the rears", () => {
+    function omegas(input: "handbrake" | "parkingBrake"): number[] {
+      const { vehicle, ground } = parked();
+      vehicle.config.transmission.gear = 0;
+      vehicle.setVelocity(0, 0, 12);
+      vehicle.input[input] = 1;
+      run(vehicle, ground, 0.25);
+      return vehicle.wheels.map((w) => w.omega);
+    }
+    // Handbrake: rears (index 2, 3) lock, the undriven fronts keep rolling.
+    const handbrake = omegas("handbrake");
+    expect(handbrake[2]).toBe(0);
+    expect(handbrake[3]).toBe(0);
+    expect(Math.abs(handbrake[0]!)).toBeGreaterThan(1);
+    expect(Math.abs(handbrake[1]!)).toBeGreaterThan(1);
+    // Parking brake: all four.
+    for (const omega of omegas("parkingBrake")) expect(omega).toBe(0);
+  });
+
+  it("stops from speed and leaves the wheels stopped, not spinning backwards", () => {
+    const { vehicle, ground } = parked({ mass: 1400, mu: 1.05 });
+    vehicle.setVelocity(0, 0, 20);
+    vehicle.input.brake = 0.6;
+    run(vehicle, ground, 5);
+    expect(vehicle.speed).toBe(0);
+    const atStop = vehicle.wheels.map((w) => w.spin);
+    run(vehicle, ground, 2);
+    for (let i = 0; i < vehicle.wheels.length; i++) {
+      // Regression: a braked wheel used to be spun backwards by demand the tire cannot transmit —
+      // huge |κ|, nearly no force, and a car creeping at ~0.4 m/s with the brake fully on.
+      expect(vehicle.wheels[i]!.omega).toBe(0);
+      expect(vehicle.wheels[i]!.spin).toBe(atStop[i]);
+    }
+  });
+
+  it("gives the drive back when the brake is released", () => {
+    // A brake held for a long time must not poison the drivetrain for the drive that follows: the
+    // browser gate presses W with the parking brake latched, holds it, then releases and expects the
+    // car to move. Free wheels and free revs are not enough — the car has to leave.
+    for (const input of ["brake", "handbrake", "parkingBrake"] as const) {
+      const { vehicle, ground } = parked();
+      vehicle.input[input] = 1;
+      vehicle.input.throttle = 1;
+      run(vehicle, ground, 8);
+      expect(vehicle.speed, input).toBe(0);
+      const z0 = vehicle.position.z;
+      vehicle.input[input] = 0;
+      run(vehicle, ground, 4);
+      expect(vehicle.speed, input).toBeGreaterThan(1);
+      expect(vehicle.position.z - z0, input).toBeGreaterThan(1);
+    }
+  });
+
+  it("stops an airborne wheel instead of winding it backwards", () => {
+    const { vehicle, ground } = parked({ absEnabled: false });
+    vehicle.setVelocity(0, 0, 15); // spins the wheels up to the rolling speed
+    vehicle.position.y += 60; // airborne for the whole test
+    vehicle.velocity.set(0, 0, 0);
+    vehicle.input.brake = 1;
+    run(vehicle, ground, 1);
+    for (const w of vehicle.wheels) {
+      expect(w.omega).toBe(0);
+      expect(w.spin).toBeGreaterThanOrEqual(0);
+    }
+  });
+});

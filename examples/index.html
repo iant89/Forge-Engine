@@ -260,6 +260,20 @@
       }
       body.scene-mars #veh-arm { display: flex; }
       #veh-arm.active { background: rgb(217 119 6 / 0.92); border-color: #fcd34d; transform: scale(0.94); }
+      /* P/PARK: the vehicle playground's parking-brake toggle, in the pad's free bottom-left slot.
+         The Mars showcase gives that slot to MAST, so PARK is hidden there (and its rover has no
+         parking brake — Space is the handbrake on both scenes). */
+      #veh-park {
+        left: 8px;
+        bottom: 0;
+        background: rgb(51 65 85 / 0.55);
+        border-color: rgb(148 163 184 / 0.75);
+        color: #f8fafc;
+        display: none;
+      }
+      body.scene-vehicle:not(.scene-mars) #veh-park { display: flex; }
+      /* Latched, not held: lit for as long as the brake is engaged. */
+      #veh-park.active { background: rgb(153 27 27 / 0.92); border-color: #fca5a5; transform: scale(0.94); }
       /* Robotic-arm thumbsticks (Mars showcase), shown while the arm is fully unfolded
          (`#arm-touch.shown`, set by the scene) on every device — a desktop mouse can drag them too,
          the keys being the only other way to move the arm. Desktop: the bottom corners. Touch /
@@ -506,6 +520,7 @@
       <div class="veh-face">
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
+        <button type="button" id="veh-park" class="veh-pad veh-park" aria-label="Toggle parking brake" aria-pressed="false"><span class="veh-letter">P</span><span class="veh-caption">PARK</span></button>
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>
       </div>

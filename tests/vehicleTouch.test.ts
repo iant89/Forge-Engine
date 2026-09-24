@@ -85,6 +85,7 @@ function stubRoot(): {
   stick: StubElement;
   mast: StubElement;
   arm: StubElement;
+  park: StubElement;
   view: StubElement;
 } {
   const gas = new StubElement();
@@ -93,6 +94,7 @@ function stubRoot(): {
   const knob = new StubElement();
   const mast = new StubElement();
   const arm = new StubElement();
+  const park = new StubElement();
   const view = new StubElement();
   const root = {
     querySelector: (sel: string): StubElement | null => {
@@ -102,11 +104,12 @@ function stubRoot(): {
       if (sel === "#veh-stick-knob") return knob;
       if (sel === "#veh-mast") return mast;
       if (sel === "#veh-arm") return arm;
+      if (sel === "#veh-park") return park;
       return null;
     },
     ownerDocument: { defaultView: view },
   };
-  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, arm, view };
+  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, arm, park, view };
 }
 
 describe("stickDeflection", () => {
@@ -259,6 +262,50 @@ describe("attachVehicleTouch — ARM toggle (Mars showcase)", () => {
     handle!.setArm(true);
     handle!.dispose();
     expect(arm.classes.has("active")).toBe(false);
+    handle = null;
+  });
+});
+
+describe("attachVehicleTouch — PARK toggle (vehicle playground)", () => {
+  let handle: VehicleTouchHandle | null = null;
+  afterEach(() => {
+    handle?.dispose();
+    handle = null;
+  });
+
+  it("fires onParkToggle once per tap, ignoring non-left mouse buttons", () => {
+    const { root, park } = stubRoot();
+    let toggles = 0;
+    handle = attachVehicleTouch(root, { onParkToggle: () => toggles++ });
+    park.fire("pointerdown", { pointerId: 3, pointerType: "touch" });
+    park.fire("pointerdown", { pointerId: 4, pointerType: "touch" });
+    expect(toggles).toBe(2);
+    park.fire("pointerdown", { pointerId: 5, pointerType: "mouse", button: 2 });
+    expect(toggles).toBe(2);
+  });
+
+  it("guards the PARK button against the iOS selection gestures and binds no toggle without a handler", () => {
+    const { root, park } = stubRoot();
+    handle = attachVehicleTouch(root);
+    expect(park.passiveFlag("touchstart")).toBe(false);
+    expect(park.fire("selectstart").prevented).toBe(true);
+    expect(park.fire("contextmenu").prevented).toBe(true);
+    expect(park.has("pointerdown")).toBe(false);
+  });
+
+  it("setPark lights the latched button from the commanded state and dispose clears it", () => {
+    const { root, park, gas } = stubRoot();
+    handle = attachVehicleTouch(root, { onParkToggle: () => {} });
+    handle!.setPark(true);
+    expect(park.classes.has("active")).toBe(true);
+    expect(park.attrs.get("aria-pressed")).toBe("true");
+    expect(gas.classes.has("active")).toBe(false);
+    handle!.setPark(false);
+    expect(park.classes.has("active")).toBe(false);
+    expect(park.attrs.get("aria-pressed")).toBe("false");
+    handle!.setPark(true);
+    handle!.dispose();
+    expect(park.classes.has("active")).toBe(false);
     handle = null;
   });
 });
