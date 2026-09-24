@@ -96,6 +96,24 @@ interface WorkerEntry {
   busy: boolean;
   currentId: number;
   dead: boolean;
+  /**
+   * Which script produced this worker ("worker-entry.js" for the default entry, or the host's
+   * `workerUrl`). Worker script-load failures surface as `error` events with no message at all —
+   * always in WebKit, and in Chromium for module workers — so this is what a crash log can name.
+   */
+  url?: string;
+}
+
+/**
+ * The subset of `ErrorEvent` the scheduler reads from a crashed worker. All fields are optional:
+ * a worker whose *script* could not load or parse (bad URL, wrong MIME type, bundled TypeScript
+ * source shipped as an asset) reports an event with no `message` — see `onWorkerError`.
+ */
+export interface WorkerErrorEventLike {
+  message?: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
 }
 
 /**
@@ -107,7 +125,7 @@ export interface TaskWorkerLike {
   postMessage(message: unknown, transfer?: Transferable[]): void;
   /** `MessageEvent.data` carries the protocol message; `ErrorEvent` is a thread-level crash. */
   addEventListener(type: "message", listener: (event: MessageEventLike) => void): void;
-  addEventListener(type: "error", listener: (event: { message?: string }) => void): void;
+  addEventListener(type: "error", listener: (event: WorkerErrorEventLike) => void): void;
   terminate(): void;
 }
 
@@ -206,15 +224,40 @@ export class TaskScheduler implements Disposable {
   }
 
   private spawnWorkers(count: number, options: TaskSchedulerOptions): void {
-    const workerUrl = options.workerUrl ?? new URL("./worker-entry.js", import.meta.url).href;
     for (let i = 0; i < count; i++) {
       try {
-        const worker = options.createWorker
-          ? options.createWorker(i)
-          : (new Worker(workerUrl, { type: "module", name: `forge-task-${i}` }) as unknown as TaskWorkerLike);
-        const entry: WorkerEntry = { worker, index: i, busy: false, currentId: -1, dead: false };
+        let worker: TaskWorkerLike;
+        let url: string | undefined;
+        if (options.createWorker) {
+          worker = options.createWorker(i);
+        } else if (options.workerUrl) {
+          // Host-bundled entry: the host's own build pipeline resolves the URL, nothing here has
+          // to be statically analysable.
+          url = String(options.workerUrl);
+          worker = new Worker(options.workerUrl, { type: "module", name: `forge-task-${i}` }) as unknown as TaskWorkerLike;
+        } else {
+          // This literal shape — `new Worker(new URL("./worker-entry.js", import.meta.url), …)` —
+          // is the only one JavaScript bundlers statically recognise as a worker entry (Vite's
+          // worker-import-meta-url plugin, webpack, esbuild all key off the URL inline as the
+          // first argument). Computing the URL into a variable first defeats that detection: the
+          // bundler then treats `new URL(...)` as a plain *asset* reference and inlines the
+          // worker's raw TypeScript source as a `data:` URL (Vite has no `.ts` association beyond
+          // MPEG transport streams, so the URL comes out as `data:video/mp2t;base64,…`). The
+          // worker then dies parsing it — in every browser — reported as an `error` event with no
+          // message ("worker N crashed: unknown" in this scheduler's log; it is a packaging bug,
+          // not a runtime one). With the literal shape Vite emits a real bundled
+          // `worker-entry-*.js` module for production, rewrites the specifier to the transpiled
+          // `.ts` entry in dev, and the plain `tsc` library build resolves it to the compiled
+          // sibling file.
+          url = "worker-entry.js";
+          worker = new Worker(new URL("./worker-entry.js", import.meta.url), {
+            type: "module",
+            name: `forge-task-${i}`,
+          }) as unknown as TaskWorkerLike;
+        }
+        const entry: WorkerEntry = { worker, index: i, busy: false, currentId: -1, dead: false, url };
         worker.addEventListener("message", (e: MessageEventLike) => this.onWorkerMessage(entry, e.data));
-        worker.addEventListener("error", (e: { message?: string }) => this.onWorkerError(entry, e));
+        worker.addEventListener("error", (e: WorkerErrorEventLike) => this.onWorkerError(entry, e));
         this.workers.push(entry);
       } catch (e) {
         this.logger.warn(`worker ${i} failed to start (${String(e)}); falling back to inline`);
@@ -223,11 +266,20 @@ export class TaskScheduler implements Disposable {
     }
   }
 
-  private onWorkerError(entry: WorkerEntry, e: { message?: string }): void {
+  private onWorkerError(entry: WorkerEntry, e: WorkerErrorEventLike): void {
     entry.dead = true;
     entry.busy = false;
     this.counters.workerFailures++;
-    this.logger.error(`worker ${entry.index} crashed: ${e.message ?? "unknown"}`);
+    // Two very different failures land here: an exception *inside* a running worker (carries a
+    // message) and a worker whose script never loaded or parsed at all — a bad URL, an HTML
+    // fallback page served as a script, or source that was never compiled. The second reports an
+    // `error` event with an empty `message` (Safari/WebKit; Chromium for module workers), so the
+    // raw event alone reads "unknown" and is unactionable. Fall back to the script location the
+    // event may carry, then to naming the entry script itself.
+    const where = e.filename ? `${e.filename}:${e.lineno ?? 0}:${e.colno ?? 0}` : "";
+    const detail =
+      e.message || where || `unknown — the worker script failed to load or parse before running (check its URL, MIME type and that a bundler compiled it — serving raw TypeScript or an HTML fallback page as the worker fails exactly this way)`;
+    this.logger.error(`worker ${entry.index}${entry.url ? ` (${entry.url})` : ""} crashed: ${detail}`);
     const rec = entry.currentId >= 0 ? this.byId.get(entry.currentId) : undefined;
     if (rec && rec.state === "running") {
       rec.entry = null;

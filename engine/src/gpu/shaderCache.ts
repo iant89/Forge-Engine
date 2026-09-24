@@ -10,7 +10,8 @@
  * struct with a runtime-sized array — would otherwise only surface in a real browser. These checks
  * catch them at module-creation time, in every environment, and `tools/wgsl-check.mjs` runs the
  * same validator over the shader corpus. The validator also applies the uniform address-space
- * layout rules that WebKit enforces and Chromium relaxes, so a shader that only compiles in Chrome
+ * layout rules that WebKit enforces and Chromium relaxes, plus the `smoothstep` edge-order rule
+ * that strict compilers enforce at module creation, so a shader that only compiles in Chrome
  * is rejected here before it ever reaches a device.
  *
  * Why compile info is reported: `createShaderModule` never throws. A module that fails to compile
@@ -31,7 +32,7 @@ export interface ShaderStats {
 }
 
 export interface WgslIssue {
-  kind: "brace" | "entry-point" | "binding-collision" | "layout" | "unknown";
+  kind: "brace" | "entry-point" | "binding-collision" | "layout" | "semantics" | "unknown";
   message: string;
   line?: number;
 }
@@ -219,6 +220,8 @@ export function validateWgsl(source: string): WgslIssue[] {
     issues.push({ kind: "unknown", message: "raw preprocessor directive found — shaders must go through the engine's preprocessor" });
   }
 
+  issues.push(...reversedSmoothstepIssues(source));
+
   // 5. Uniform address-space layout. Chromium's compiler tolerates arrays with a stride below 16
   //    bytes (and other relaxed layouts) inside `var<uniform>` structs; WebKit rejects the module,
   //    which is a black canvas on Safari with nothing in the page to say why. Apply the strict rules
@@ -240,6 +243,36 @@ interface WgslMember {
 interface WgslLayout {
   size: number;
   align: number;
+}
+
+/**
+ * Reversed-edge `smoothstep(low, high, x)` with `low >= high`. The WGSL spec makes the result
+ * indeterminate and strict compilers (Tint in older Chromium, WebKit) reject the module outright
+ * at `createShaderModule` — which is exactly the "particle scenes fail in CI's browser gate while
+ * newer Chromium shrugs it off" class of failure. GLSL tolerated the reversed idiom as
+ * `1.0 - smoothstep(high, low, x)`, so the fix is mechanical. Only literal numeric edges can be
+ * decided here (identifier/computed edges are runtime values, not a static error); comments are
+ * blanked with their newlines preserved so reported lines match the source.
+ */
+export function reversedSmoothstepIssues(source: string): WgslIssue[] {
+  const num = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
+  const re = new RegExp(String.raw`\bsmoothstep\s*\(\s*(${num})\s*,\s*(${num})\s*,`, "g");
+  const cleaned = source.replace(/\/\*[\s\S]*?\*\//g, (s) => s.replace(/[^\n]/g, " ")).replace(/\/\/[^\n]*/g, " ");
+  const issues: WgslIssue[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned))) {
+    const low = Number(m[1]);
+    const high = Number(m[2]);
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low < high) continue;
+    issues.push({
+      kind: "semantics",
+      message:
+        `smoothstep(${m[1]}, ${m[2]}, …) has low >= high, which strict WGSL compilers reject (the result is unspecified where they do not); ` +
+        `write a reversed falloff as 1.0 - smoothstep(${m[2]}, ${m[1]}, x)`,
+      line: lineAt(cleaned, m.index),
+    });
+  }
+  return issues;
 }
 
 /** Strip line and block comments so member parsing does not trip over prose. */
