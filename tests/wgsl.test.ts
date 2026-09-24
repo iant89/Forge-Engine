@@ -172,3 +172,33 @@ ${ENTRY}`;
     expect(layoutIssues(source)).toEqual([]);
   });
 });
+
+describe("validateWgsl applies the constant-argument rules a strict compiler enforces", () => {
+  const constantIssues = (source: string): string[] =>
+    validateWgsl(source).filter((i) => i.kind === "constant").map((i) => i.message);
+
+  it("flags smoothstep with a constant low >= high — the call that compiled here and failed in CI", () => {
+    const source = `
+${ENTRY}
+@fragment fn fs() -> @location(0) vec4<f32> {
+  let r = 0.4;
+  return vec4<f32>(smoothstep(0.5, 0.35, r));
+}`;
+    const issues = constantIssues(source);
+    expect(issues.some((m) => /smoothstep\(0\.5, 0\.35/.test(m))).toBe(true);
+  });
+
+  it("accepts the ordered call, the variable-argument call, and prose about the bug", () => {
+    const source = `
+${ENTRY}
+// This was smoothstep(0.5, 0.35, r) until a strict compiler rejected it.
+@fragment fn fs() -> @location(0) vec4<f32> {
+  let r = 0.4;
+  let lo = 0.5;
+  let hi = 0.35;
+  let ordered = 1.0 - smoothstep(0.35, 0.5, r);
+  return vec4<f32>(ordered + smoothstep(lo, hi, r));
+}`;
+    expect(constantIssues(source)).toEqual([]);
+  });
+});

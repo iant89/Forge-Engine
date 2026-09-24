@@ -31,7 +31,7 @@ export interface ShaderStats {
 }
 
 export interface WgslIssue {
-  kind: "brace" | "entry-point" | "binding-collision" | "layout" | "unknown";
+  kind: "brace" | "entry-point" | "binding-collision" | "layout" | "constant" | "unknown";
   message: string;
   line?: number;
 }
@@ -215,6 +215,29 @@ export function validateWgsl(source: string): WgslIssue[] {
       issues.push({ kind: "layout", message: `texture_depth_2d "${depthVar}" must be sampled with textureSampleCompareLevel, not textureSample` });
     }
   }
+  // 4b. Constant-argument ranges. A compiler that const-evaluates a builtin call rejects the module
+  //     when the constant arguments violate the builtin's contract, and it does so at
+  //     createShaderModule time — before any pipeline exists. Chromium 130's Tint rejected
+  //     `smoothstep(0.5, 0.35, x)` this way; the pipeline silently never built and the page drew
+  //     nothing while the HUD still said "gpu ok". Newer Chromium accepts it again, so only the
+  //     strictest validator in reach decides, and that has to be this one.
+  // Scan the code, not the prose: blank comment bodies in place so offsets and line numbers survive
+  // (the shader's own comment about the bug would otherwise be reported as the bug).
+  const code = blankComments(source);
+  const constSmoothstep = /\bsmoothstep\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,/g;
+  let cm: RegExpExecArray | null;
+  while ((cm = constSmoothstep.exec(code))) {
+    const low = Number(cm[1]);
+    const high = Number(cm[2]);
+    if (low >= high) {
+      issues.push({
+        kind: "constant",
+        message: `smoothstep(${cm[1]}, ${cm[2]}, …) has low >= high: swap them, or write a falling edge as 1.0 - smoothstep(low, high, x)`,
+        line: lineAt(code, cm.index),
+      });
+    }
+  }
+
   if (/^\s*#(?:define|include)\b/m.test(source)) {
     issues.push({ kind: "unknown", message: "raw preprocessor directive found — shaders must go through the engine's preprocessor" });
   }
@@ -416,6 +439,17 @@ function lineAt(source: string, index: number): number {
   let line = 1;
   for (let i = 0; i < index && i < source.length; i++) if (source[i] === "\n") line++;
   return line;
+}
+
+/**
+ * Replace every comment with spaces, keeping the string's length and newlines. Regex-based checks
+ * run over the result so a shader's prose about a rule cannot trip the rule; offsets and line
+ * numbers stay valid for the original source.
+ */
+function blankComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (match) => " ".repeat(match.length));
 }
 
 /**

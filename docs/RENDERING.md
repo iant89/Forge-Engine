@@ -232,7 +232,7 @@ spec's rule that a read-only attachment carries no load/store ops, and the produ
 `store` its depth rather than discard it (`forge.main` switches per frame).
 
 New WGSL uniform structs go in `uniforms.ts` and are generated, never hand-written; `npm run
-check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules are added to
+check:wgsl` enforces the uniform layout rules WebKit applies, plus the constant-argument rules a strict compiler enforces (`smoothstep` with constant `low >= high`). New shader modules are added to
 `tools/wgsl-check.mjs` and `tests/wgsl.test.ts` (the sky module is the template).
 
 ## 9. Limitations (honest list)

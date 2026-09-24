@@ -20,8 +20,10 @@ the honest detail lives; nothing here is hidden behind a green gate.
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves
   presence and direction (A/B luminance) and the pass structure; visual quality is an eyeball check
   on `tools/.browser-check.png`. (capability: rendering.postFxVerification)
-* **WebKit is not run.** Uniform layout strictness is enforced statically (`check:wgsl`,
-  `tests/wgsl.test.ts`); no Safari build exists in the sandbox. (capability: platform.webkitCompile)
+* **WebKit is not run.** Uniform layout strictness and constant-argument strictness are enforced
+  statically (`check:wgsl`, `tests/wgsl.test.ts`); no Safari build exists in the sandbox, and the
+  Chromium the sandbox runs is newer — and more permissive — than the one the advisory gate
+  downloads. (capability: platform.webkitCompile)
 
 ## Core (Phase 1)
 
