@@ -189,8 +189,22 @@ const MAST_STOWED_HEAD = new Vec3(0.5222, -0.0357, -0.5955);
 /** Deployment spring: ω≈2.2 rad/s settles in ~3 s, ζ≈0.7 gives a small latch overshoot. */
 const MAST_STIFFNESS = 5.0;
 const MAST_DAMPING = 3.2;
+/**
+ * Mast azimuth sweep range (radians). Real Perseverance rotates its upper mast ±180°, but a
+ * narrow ±25° sweep scans the horizon naturally without whipping the cameras around.
+ */
+const MAST_AZIMUTH_RANGE = 0.44;
+/** Azimuth sweep angular speed (rad/s). One full oscillation in ~14 s. */
+const MAST_AZIMUTH_SPEED = 0.44;
+/** Head elevation when deployed (radians). ~15° upward tilt, within Mastcam-Z's −30°/+30° range. */
+const MAST_ELEVATION = 0.26;
+/** Elevation spring natural frequency (rad/s) and damping ratio. */
+const MAST_ELEVATION_WN = 6.0;
+const MAST_ELEVATION_ZETA = 0.8;
 const AMBIENT_DUST_SPRITES = 420;
 const KICK_DUST_SPRITES = 500;
+const AXIS_X = { x: 1, y: 0, z: 0 };
+const AXIS_Y = { x: 0, y: 1, z: 0 };
 
 /** Grows a wheel puff across its life, then shrinks it away — the shared material has no
  * per-particle alpha (see docs/KNOWN-ISSUES.md), so dissipation rides on size instead. */
@@ -381,7 +395,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     ...createVehicleConfig({
       mass: 1025,
       gravity: 3.72,
-      mu: 0.9,
+      mu: 1.1,
       wheelRadius: WHEEL_RADIUS,
       wheelbase: 2.26,
       track: 2.18,
@@ -512,11 +526,19 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let mastT = 0;
   let mastV = 0;
   let mastPivot: Entity | null = null;
+  let mastUpperPivot: Entity | null = null;
+  let mastHeadPivotEntity: Entity | null = null;
+  let mastElapsed = 0;
+  let mastAzimuthAngle = 0;
+  let mastElevationAngle = 0;
+  let mastElevationV = 0;
   const mastIdentity = new Quat();
   const mastDeployedQ = new Quat().fromUnitVectorY(
     new Vec3(MAST_STOWED_HEAD.x, MAST_STOWED_HEAD.y, MAST_STOWED_HEAD.z).normalize(),
   ).invert();
   const mastScratchQ = new Quat();
+  const mastAzimuthQ = new Quat();
+  const mastElevationQ = new Quat();
 
   const attachGlb = (glb: LoadedGlb): void => {
     // Body: drop the placeholder box, parent the model-root-space parts under the chassis with the
@@ -553,37 +575,88 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         scene.world.addComponent(child.id, renderable);
       }
     }
-    // Mast: hinge-relative parts parented under a pivot at the hinge (chassis-local). Identity
-    // pivot rotation is the modelled stowed-flat pose; the update loop slerps it to the deployed
-    // quaternion as the spring runs.
-    if (glb.mast && glb.mast.parts.length > 0) {
+    // Mast: three-tier articulation hierarchy matching the real Perseverance joints.
+    // Lower pivot (hinge) → upper pivot (azimuth) → head pivot (elevation).
+    // Each tier's parts are offset so vertices stay in their original hinge-relative coords
+    // when all rotations are identity, but rotate around their respective joint when animated.
+    if (glb.mast && glb.mast.parts.length > 0 && glb.mast.lowerParts.length > 0) {
       const [px, py, pz] = glb.mast.pivot;
-      const pivot = scene.createTransformedEntity("rover-mast-pivot", new Vec3(px, py + bodyOffsetY, pz));
-      chassis.addChild(pivot);
-      pivot.transform.position = new Vec3(px, py + bodyOffsetY, pz);
-      for (const part of glb.mast.parts) {
+      const [jx, jy, jz] = glb.mast.joint;
+      const [hx, hy, hz] = glb.mast.headPivot;
+
+      // 1. Lower mast pivot at the deployment hinge (chassis-local).
+      const lowerPivot = scene.createTransformedEntity("rover-mast-lower", new Vec3(px, py + bodyOffsetY, pz));
+      chassis.addChild(lowerPivot);
+      lowerPivot.transform.position = new Vec3(px, py + bodyOffsetY, pz);
+      for (const part of glb.mast.lowerParts) {
         const child = scene.createTransformedEntity(`rover-${part.name}`, new Vec3(0, 0, 0));
-        pivot.addChild(child);
+        lowerPivot.addChild(child);
         child.transform.position = new Vec3(0, 0, 0);
-        const renderable = new Renderable();
-        renderable.geometry = part.geometry;
-        renderable.material = part.material;
-        renderable.castShadow = true;
-        renderable.receiveShadow = true;
-        scene.world.addComponent(child.id, renderable);
+        const r = new Renderable();
+        r.geometry = part.geometry; r.material = part.material;
+        r.castShadow = true; r.receiveShadow = true;
+        scene.world.addComponent(child.id, r);
       }
-      mastPivot = pivot;
-      // A toggle that landed while the model was still loading applies from the first frame.
+
+      // 2. Upper mast pivot at the azimuth joint (lower-pivot-local).
+      //    Upper parts are offset by -joint so they stay at hinge-relative coords when identity.
+      const upperPivot = scene.createTransformedEntity("rover-mast-upper", new Vec3(jx, jy, jz));
+      lowerPivot.addChild(upperPivot);
+      upperPivot.transform.position = new Vec3(jx, jy, jz);
+      if (glb.mast.upperParts.length > 0) {
+        const upperOffset = scene.createTransformedEntity("rover-mast-upper-offset", new Vec3(-jx, -jy, -jz));
+        upperPivot.addChild(upperOffset);
+        upperOffset.transform.position = new Vec3(-jx, -jy, -jz);
+        for (const part of glb.mast.upperParts) {
+          const child = scene.createTransformedEntity(`rover-${part.name}`, new Vec3(0, 0, 0));
+          upperOffset.addChild(child);
+          child.transform.position = new Vec3(0, 0, 0);
+          const r = new Renderable();
+          r.geometry = part.geometry; r.material = part.material;
+          r.castShadow = true; r.receiveShadow = true;
+          scene.world.addComponent(child.id, r);
+        }
+      }
+
+      // 3. Head pivot at the elevation joint (upper-pivot-local = headPivot − joint).
+      //    Head parts are offset by -headPivot so they stay at hinge-relative coords when identity.
+      const headPivotRelX = hx - jx;
+      const headPivotRelY = hy - jy;
+      const headPivotRelZ = hz - jz;
+      const headPivotE = scene.createTransformedEntity("rover-mast-head-pivot", new Vec3(headPivotRelX, headPivotRelY, headPivotRelZ));
+      upperPivot.addChild(headPivotE);
+      headPivotE.transform.position = new Vec3(headPivotRelX, headPivotRelY, headPivotRelZ);
+      if (glb.mast.headParts.length > 0) {
+        const headOffset = scene.createTransformedEntity("rover-mast-head-offset", new Vec3(-hx, -hy, -hz));
+        headPivotE.addChild(headOffset);
+        headOffset.transform.position = new Vec3(-hx, -hy, -hz);
+        for (const part of glb.mast.headParts) {
+          const child = scene.createTransformedEntity(`rover-${part.name}`, new Vec3(0, 0, 0));
+          headOffset.addChild(child);
+          child.transform.position = new Vec3(0, 0, 0);
+          const r = new Renderable();
+          r.geometry = part.geometry; r.material = part.material;
+          r.castShadow = true; r.receiveShadow = true;
+          scene.world.addComponent(child.id, r);
+        }
+      }
+
+      mastPivot = lowerPivot;
+      mastUpperPivot = upperPivot;
+      mastHeadPivotEntity = headPivotE;
       writeMastPose();
     }
   };
 
-  /** Pose the pivot from the spring position (no-op until the GLB lands). */
+  /** Pose all mast pivots from the spring state (no-op until the GLB lands). */
   const writeMastPose = (): void => {
     if (!mastPivot) return;
     const t = Math.max(-0.1, Math.min(1.1, mastT));
     Quat.slerpInto(mastIdentity, mastDeployedQ, t, mastScratchQ);
     mastPivot.transform.rotation = mastScratchQ;
+    // Upper and head pivots reset when stowed; the update loop animates them when deployed.
+    if (mastUpperPivot && t < 0.5) mastUpperPivot.transform.rotation = mastIdentity;
+    if (mastHeadPivotEntity && t < 0.5) mastHeadPivotEntity.transform.rotation = mastIdentity;
   };
 
   /** Command the mast; the button/keys call this, the spring does the rest. */
@@ -668,6 +741,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
       // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
       // onto the latch like the real pyro deployment — and a mid-swing toggle reverses smoothly.
+      mastElapsed += dt;
       if (mastPivot && (mastT !== mastTarget || mastV !== 0)) {
         mastV += ((mastTarget - mastT) * MAST_STIFFNESS - mastV * MAST_DAMPING) * dt;
         mastT += mastV * dt;
@@ -676,6 +750,33 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           mastV = 0;
         }
         writeMastPose();
+      }
+      // Upper mast azimuth: sinusoidal sweep once the mast is mostly deployed.
+      // Smoothly fades in as mastT crosses 0.5 (mid-deployment) so the upper assembly
+      // doesn't start rotating before it's clear of the deck.
+      if (mastUpperPivot) {
+        const fade = Math.max(0, Math.min(1, (mastT - 0.5) * 2));
+        if (fade > 0) {
+          mastAzimuthAngle = Math.sin(mastElapsed * MAST_AZIMUTH_SPEED) * MAST_AZIMUTH_RANGE * fade;
+          mastAzimuthQ.setAxisAngle(AXIS_Y, mastAzimuthAngle);
+          mastUpperPivot.transform.rotation = mastAzimuthQ;
+        }
+      }
+      // Camera head elevation: spring toward the deployed tilt angle.
+      // The real Mastcam-Z tilts ±30°; a gentle 15° upward is a natural survey pose.
+      if (mastHeadPivotEntity) {
+        const fade = Math.max(0, Math.min(1, (mastT - 0.5) * 2));
+        const elevTarget = MAST_ELEVATION * fade;
+        const wn = MAST_ELEVATION_WN;
+        const zeta = MAST_ELEVATION_ZETA;
+        mastElevationV += ((elevTarget - mastElevationAngle) * wn * wn - mastElevationV * 2 * zeta * wn) * dt;
+        mastElevationAngle += mastElevationV * dt;
+        if (fade < 0.01 && Math.abs(mastElevationAngle) < 1e-4 && Math.abs(mastElevationV) < 1e-4) {
+          mastElevationAngle = 0;
+          mastElevationV = 0;
+        }
+        mastElevationQ.setAxisAngle(AXIS_X, mastElevationAngle);
+        mastHeadPivotEntity.transform.rotation = mastElevationQ;
       }
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
@@ -703,7 +804,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           ? "—"
           : mastTarget === 1
             ? mastT > 0.98
-              ? "UP"
+              ? `UP pan ${(mastAzimuthAngle * 180 / Math.PI).toFixed(0)}° tilt ${(mastElevationAngle * 180 / Math.PI).toFixed(0)}°`
               : `${Math.round(mastT * 100)}%↑`
             : mastT < 0.02
               ? "STOWED"
