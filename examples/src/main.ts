@@ -17,7 +17,11 @@
  *   controls. The modules always bind the same actions as the keys, so there is one path per action
  *   either way.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
- *   rendering toggles (HDR, bloom, shadows, cascade tint).
+ *   rendering toggles (HDR, bloom, shadows, cascade tint, debug bounds).
+ * - Mars showcase loading screen: live GLB fetch/parse/build progress plus terrain streaming
+ *   state, fading out when both are live, with Retry / Continue when the fetch fails. The
+ *   `Bounds` toggle (`?bounds=1`) draws wireframe AABBs where every renderable — and the rover —
+ *   is supposed to be, for diagnosing invisible-model reports.
  * - `window.__forge` interface for automated headless verification (`npm run check:browser`): the
  *   gate flips the toggles and reads pixels back, so every switch here must be reachable from it.
  */
@@ -59,6 +63,14 @@ const btnHdr = document.getElementById("btn-hdr") as HTMLButtonElement | null;
 const btnBloom = document.getElementById("btn-bloom") as HTMLButtonElement | null;
 const btnShadows = document.getElementById("btn-shadows") as HTMLButtonElement | null;
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
+const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
+const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
+const loadingModel = document.getElementById("loading-model") as HTMLDivElement | null;
+const loadingTerrain = document.getElementById("loading-terrain") as HTMLDivElement | null;
+const loadingBarFill = document.getElementById("loading-bar-fill") as HTMLDivElement | null;
+const loadingActions = document.getElementById("loading-actions") as HTMLDivElement | null;
+const loadingRetry = document.getElementById("loading-retry") as HTMLButtonElement | null;
+const loadingContinue = document.getElementById("loading-continue") as HTMLButtonElement | null;
 
 function showError(text: string): void {
   errorBox.style.display = "block";
@@ -79,6 +91,11 @@ async function main(): Promise<void> {
 
   let currentHandle: DemoSceneHandle | null = null;
   let controls: OrbitControls | null = null;
+  /** Renderer AABB overlay ("Bounds" toolbar button / `?bounds=1`); separate from the scene's auto boxes. */
+  let boundsOn = false;
+  /** Set once the Mars loading screen has been dismissed (model ready, or the user skipped it). */
+  let loadingDismissed = false;
+  let lastLoadingSync = 0;
   // Open on the rover in its terrain showcase; the other scenes remain one selection away, and a
   // `?scene=...` query string can still deep-link to any of them.
   const requestedScene = new URLSearchParams(window.location.search).get("scene");
@@ -103,6 +120,19 @@ async function main(): Promise<void> {
     document.body.classList.toggle("scene-weather", name === "weather");
     if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
 
+    // The loading screen belongs to the Mars showcase (model fetch + terrain warm-up); every
+    // other scene hides it. Re-entering the showcase restarts the overlay with its own load.
+    if (name === "mars-showcase") {
+      loadingDismissed = false;
+      lastLoadingSync = 0;
+      loadingOverlay?.classList.remove("done");
+      loadingOverlay?.removeAttribute("hidden");
+      loadingActions?.setAttribute("hidden", "");
+      loadingModel?.classList.remove("error");
+    } else {
+      loadingOverlay?.setAttribute("hidden", "");
+    }
+
     if (name === "pbr") {
       currentHandle = buildPbrScene(engine);
     } else if (name === "terrain") {
@@ -119,6 +149,7 @@ async function main(): Promise<void> {
       currentHandle = buildWeatherScene(engine);
     } else if (name === "mars-showcase") {
       currentHandle = buildMarsShowcaseScene(engine);
+      if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -143,6 +174,68 @@ async function main(): Promise<void> {
 
   loadScene(activeSceneName);
   engine.start();
+
+  // Debug bounds: the renderer draws every renderable's AABB (culled ones included) and the Mars
+  // scene forces its rover footprint boxes on. `?bounds=1` pre-enables for shareable debug links.
+  function setBounds(on: boolean): void {
+    boundsOn = on;
+    engine.renderer.debugBounds = on;
+    (currentHandle as MarsShowcaseSceneHandle | null)?.setDebugBounds?.(on ? "on" : "off");
+    btnBounds?.classList.toggle("active", on);
+  }
+  btnBounds?.addEventListener("click", () => setBounds(!boundsOn));
+  if (new URLSearchParams(window.location.search).get("bounds") === "1") setBounds(true);
+
+  // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,
+  // fades out once both are live, and offers retry / skip when the fetch fails.
+  const hideLoading = (): void => {
+    loadingDismissed = true;
+    loadingOverlay?.classList.add("done");
+    window.setTimeout(() => loadingOverlay?.setAttribute("hidden", ""), 600);
+  };
+  const mb = (bytes: number): string => (bytes / 1048576).toFixed(1);
+  function updateLoadingOverlay(now: number): void {
+    if (activeSceneName !== "mars-showcase" || loadingDismissed || now - lastLoadingSync < 200) return;
+    lastLoadingSync = now;
+    const mars = (currentHandle as MarsShowcaseSceneHandle | null)?.marsState?.();
+    if (!mars || !loadingOverlay) return;
+    if (mars.modelError) {
+      loadingModel?.classList.add("error");
+      if (loadingModel) loadingModel.textContent = `model: FAILED — ${mars.modelError}`;
+      loadingActions?.removeAttribute("hidden");
+      loadingBarFill?.classList.remove("indeterminate");
+    } else {
+      loadingModel?.classList.remove("error");
+      loadingActions?.setAttribute("hidden", "");
+      const p = mars.modelProgress;
+      if (loadingModel) {
+        if (mars.modelLoaded) loadingModel.textContent = "model: loaded";
+        else if (p?.phase === "fetch")
+          loadingModel.textContent = p.totalBytes ? `model: downloading ${mb(p.receivedBytes)} / ${mb(p.totalBytes)} MB` : `model: downloading ${mb(p.receivedBytes)} MB…`;
+        else if (p?.phase === "parse") loadingModel.textContent = "model: parsing GLB…";
+        else loadingModel.textContent = "model: building geometry…";
+      }
+      if (loadingBarFill) {
+        if (mars.modelLoaded) {
+          loadingBarFill.classList.remove("indeterminate");
+          loadingBarFill.style.width = "100%";
+        } else if (p?.phase === "fetch" && p.totalBytes) {
+          loadingBarFill.classList.remove("indeterminate");
+          loadingBarFill.style.width = `${Math.min(100, (p.receivedBytes / p.totalBytes) * 100).toFixed(1)}%`;
+        } else {
+          loadingBarFill.classList.add("indeterminate");
+        }
+      }
+    }
+    if (loadingTerrain) loadingTerrain.textContent = `terrain: ${mars.terrainChunks} chunks · ${mb(mars.terrainResidentBytes)} MB resident`;
+    if (mars.modelLoaded && mars.terrainResidentBytes > 0) hideLoading();
+  }
+  loadingRetry?.addEventListener("click", () => {
+    (currentHandle as MarsShowcaseSceneHandle | null)?.retryModelLoad?.();
+    loadingActions?.setAttribute("hidden", "");
+    loadingModel?.classList.remove("error");
+  });
+  loadingContinue?.addEventListener("click", hideLoading);
 
   sceneSelect?.addEventListener("change", () => {
     const next = sceneSelect.value;
@@ -231,6 +324,7 @@ async function main(): Promise<void> {
       const follow = currentHandle.followTarget?.();
       if (follow && controls) controls.target.set(follow.x, follow.y, follow.z);
     }
+    updateLoadingOverlay(now);
     // Recomputed every frame so the surface constraint tracks terrain that streams in under a
     // stationary camera; it is a few trig ops plus (on the terrain scene) two height samples.
     controls?.update();
@@ -280,6 +374,13 @@ async function main(): Promise<void> {
     setBloom,
     setShadows,
     setCascadeDebug,
+    /** Debug AABB overlay: renderer-wide renderable bounds + the Mars rover footprint boxes. */
+    setDebugBounds: (on: boolean) => setBounds(!!on),
+    debugBounds: () => boundsOn,
+    /** Mars showcase: re-run the GLB fetch (the loading screen's Retry button). */
+    retryModelLoad: () => {
+      (currentHandle as MarsShowcaseSceneHandle | null)?.retryModelLoad?.();
+    },
     setAnimating: (on: boolean) => {
       animating = on;
     },

@@ -21,11 +21,16 @@
  */
 
 import {
+  AABB,
   AtmosphereModel,
   Camera,
   Color,
   type Engine,
   type Entity,
+  type EntityId,
+  Mat4,
+  System,
+  type SystemContext,
   GeneratorPipeline,
   HeightGenerator,
   CraterGenerator,
@@ -56,7 +61,7 @@ import {
   heightFunctionGround,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
-import { loadGlb, type LoadedGlb } from "../assets/glb.js";
+import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js";
 import {
   createMarsRegolithTextures,
   disposePbrTextureSet,
@@ -69,6 +74,11 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   marsState(): {
     modelLoaded: boolean;
     modelError: string | null;
+    /** Live fetch/parse/build progress for the loading screen; null before the first attempt. */
+    modelProgress: GlbLoadProgress | null;
+    /** Terrain streaming: chunk objects requested and bytes resident on the GPU. */
+    terrainChunks: number;
+    terrainResidentBytes: number;
     wheelCount: number;
     contactWheels: number;
     ambientDust: number;
@@ -78,6 +88,53 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     y: number;
     z: number;
   };
+  /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
+  retryModelLoad(): void;
+  /**
+   * Rover "where it is supposed to be" wireframe boxes. `auto` (default) shows them until the
+   * GLB has landed, `on`/`off` force the overlay either way.
+   */
+  setDebugBounds(mode: "auto" | "on" | "off"): void;
+}
+
+/** Footprint boxes for the rover debug overlay, in each entity's local space (metres). */
+const CHASSIS_DEBUG_MIN = new Vec3(-1.4, -0.4, -1.6);
+const CHASSIS_DEBUG_MAX = new Vec3(1.4, 1.6, 1.6);
+const WHEEL_DEBUG_MIN = new Vec3(-0.2, -0.27, -0.27);
+const WHEEL_DEBUG_MAX = new Vec3(0.2, 0.27, 0.27);
+const CHASSIS_BOUNDS_COLOR = 0xffffff00; // yellow (RGBA byte pack)
+const WHEEL_BOUNDS_COLOR = 0xff00ff00; // green
+
+/**
+ * Debug band (order 900): wireframe boxes where the rover model is supposed to sit — one footprint
+ * box at the chassis origin and one hub box per wheel — through the renderer's debug AABB path.
+ * The boxes are drawn depth-test-free, so they stay visible when the mesh is missing, frustum
+ * culled, or buried under terrain: exactly the failure modes of an "invisible rover" report.
+ */
+class RoverDebugBounds extends System {
+  readonly name = "mars-debug-bounds";
+  override readonly order = 900;
+  private readonly scratchMat = new Mat4();
+  private readonly localBox = new AABB();
+  private readonly worldBox = new AABB();
+
+  constructor(private readonly sample: () => { chassis: EntityId; wheels: readonly EntityId[] } | null) {
+    super();
+  }
+
+  override update(context: SystemContext): void {
+    const render = context.render;
+    if (!render) return; // headless (benchmarks/tests): nothing to draw through
+    const target = this.sample();
+    if (!target) return;
+    const world = context.world;
+    world.getWorldMatrix(target.chassis, this.scratchMat);
+    render.drawAabb(this.localBox.setFrom(CHASSIS_DEBUG_MIN, CHASSIS_DEBUG_MAX).transformByMatrix(this.scratchMat, this.worldBox), CHASSIS_BOUNDS_COLOR);
+    for (const id of target.wheels) {
+      world.getWorldMatrix(id, this.scratchMat);
+      render.drawAabb(this.localBox.setFrom(WHEEL_DEBUG_MIN, WHEEL_DEBUG_MAX).transformByMatrix(this.scratchMat, this.worldBox), WHEEL_BOUNDS_COLOR);
+    }
+  }
 }
 
 /** Rover spawn on the terrain heightfield (placeOnGround drops it onto the surface). */
@@ -371,6 +428,18 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   component.wheelEntities = wheelIds;
   chassis.add(component);
 
+  // "Where the rover is supposed to be" wireframe (loading screen's companion diagnostic). `auto`
+  // keeps the boxes up until the GLB lands so an invisible-model report always has an answer on
+  // screen: the yellow footprint + green hub boxes mark the pose even with no mesh attached.
+  let debugBoundsMode: "auto" | "on" | "off" = "auto";
+  scene.world.registerSystem(
+    new RoverDebugBounds(() => {
+      if (disposed) return null;
+      const active = debugBoundsMode === "on" || (debugBoundsMode === "auto" && !modelLoaded);
+      return active ? { chassis: chassis.id, wheels: wheelIds } : null;
+    }),
+  );
+
   // ---------------------------------------------------------------- dust (ambient + wheel kick)
   const forward = (): { fx: number; fz: number } => ({ fx: Math.sin(vehicle.yaw), fz: Math.cos(vehicle.yaw) });
   const sampleKick = (): { x: number; y: number; z: number; fx: number; fz: number; speed: number } | null => {
@@ -412,6 +481,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let modelError: string | null = null;
   let loaded: LoadedGlb | null = null;
   let disposed = false;
+  let modelProgress: GlbLoadProgress | null = null;
+  let loadAttempt = 0;
 
   const attachGlb = (glb: LoadedGlb): void => {
     // Body: drop the placeholder box, parent the model-root-space parts under the chassis with the
@@ -451,20 +522,31 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   };
 
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
-  loadGlb(gpu, modelUrl)
-    .then((glb) => {
-      if (disposed) {
-        glb.dispose();
-        return;
-      }
-      loaded = glb;
-      modelLoaded = true;
-      attachGlb(glb);
+  /** Fetch+build with progress; a retry bumps the attempt so a stale fetch cannot win. */
+  const startModelLoad = (): void => {
+    const attempt = ++loadAttempt;
+    modelLoaded = false;
+    modelError = null;
+    modelProgress = { phase: "fetch", receivedBytes: 0, totalBytes: null };
+    loadGlb(gpu, modelUrl, (progress) => {
+      if (attempt === loadAttempt) modelProgress = progress;
     })
-    .catch((error: unknown) => {
-      modelError = error instanceof Error ? error.message : String(error);
-      console.error("mars showcase: rover model failed to load, keeping the placeholder", error);
-    });
+      .then((glb) => {
+        if (attempt !== loadAttempt || disposed) {
+          glb.dispose();
+          return;
+        }
+        loaded = glb;
+        modelLoaded = true;
+        attachGlb(glb);
+      })
+      .catch((error: unknown) => {
+        if (attempt !== loadAttempt) return;
+        modelError = error instanceof Error ? error.message : String(error);
+        console.error("mars showcase: rover model failed to load, keeping the placeholder", error);
+      });
+  };
+  startModelLoad();
 
   // ---------------------------------------------------------------- input (playground pattern)
   const keys = new Set<string>();
@@ -521,7 +603,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     overlay(): string {
       const gear = vehicle.gear === 0 ? "N" : String(vehicle.gear);
       const contact = vehicle.wheels.filter((w) => w.inContact).length;
-      const model = modelLoaded ? "GLB ok" : modelError ? `GLB failed: ${modelError}` : "GLB loading…";
+      const mb = (bytes: number): string => (bytes / 1048576).toFixed(1);
+      const model = modelLoaded
+        ? "GLB ok"
+        : modelError
+          ? `GLB failed: ${modelError}`
+          : modelProgress?.phase === "fetch" && modelProgress.totalBytes
+            ? `GLB ${mb(modelProgress.receivedBytes)}/${mb(modelProgress.totalBytes)} MB`
+            : `GLB ${modelProgress?.phase ?? "loading"}…`;
       return (
         `mars showcase · Perseverance 6/6 · ${model}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}  wheels ${contact}/6\n` +
@@ -537,18 +626,30 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       y: vehicle.position.y,
       z: vehicle.position.z,
     }),
-    marsState: () => ({
-      modelLoaded,
-      modelError,
-      wheelCount: vehicle.wheels.length,
+    marsState: () => {
+      const terrainStats = terrain.stats();
+      return {
+        modelLoaded,
+        modelError,
+        modelProgress,
+        terrainChunks: Number(terrainStats.chunks ?? 0),
+        terrainResidentBytes: Number(terrainStats.residentBytes ?? 0),
+        wheelCount: vehicle.wheels.length,
       contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
       ambientDust: ambientDust.simulation.alive,
       kickDust: kickDust.simulation.alive,
-      speed: vehicle.speed,
-      x: vehicle.position.x,
-      y: vehicle.position.y,
-      z: vehicle.position.z,
-    }),
+        speed: vehicle.speed,
+        x: vehicle.position.x,
+        y: vehicle.position.y,
+        z: vehicle.position.z,
+      };
+    },
+    retryModelLoad(): void {
+      if (!disposed) startModelLoad();
+    },
+    setDebugBounds(mode: "auto" | "on" | "off"): void {
+      debugBoundsMode = mode;
+    },
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
