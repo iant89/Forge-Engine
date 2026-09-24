@@ -41,10 +41,11 @@ device-side diagnostics, loaded on demand (`examples/src/diag/`):
   instead of guessed at. The panel hides behind a `diag` button, and the numbers are POSTed as JSON
   when the host injects `window.__forgeDiagEndpoint` (the sandbox dev server's scratch config does);
   a plain `npm run demo` only draws the text on screen.
-* `examples/src/diag/rawGpuTests.ts` runs eleven raw-WebGPU probes against the engine's device *and*
+* `examples/src/diag/rawGpuTests.ts` runs twelve raw-WebGPU probes against the engine's device *and*
   a freshly requested one — rasterisation, the depth test, `depthReadOnly` loading the previous
   pass's depth, dynamic offsets (uniform slices and a read-only-storage window, the two shapes the
-  renderer's per-draw and per-instance bindings use), instancing, rendering into an array layer,
+  renderer's per-draw and per-instance bindings use), front-facing winding under both `frontFace`
+  settings and back-face culling, instancing, rendering into an array layer,
   HDR blit and sRGB sampling. Each probe runs inside a validation error scope and carries its
   expected colour, so a failure names the primitive and leaves the engine's `gpuErrors` counter
   meaning what it says ("the engine's own frames failed"), not "a diagnostic ran".

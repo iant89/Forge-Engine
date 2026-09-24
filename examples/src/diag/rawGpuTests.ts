@@ -152,6 +152,8 @@ fn fs() -> @location(0) vec4<f32> {
 
 /** Full-viewport triangle in NDC. `z` picks the depth the triangle lands at. */
 const QUAD = new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
+/** Full-screen rectangle as two triangles: the storage-window probe tiles three of these across the frame. */
+const RECT = new Float32Array([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]);
 /** Left half only (the instanced probe's left instance). */
 const LEFT = new Float32Array([-1, -1, 0, 0.5, -1, 0, -1, 1.5, 0]);
 /**
@@ -248,8 +250,10 @@ function near(actual: [number, number, number], want: [number, number, number], 
 }
 
 /** Convert `l=…` sample text back into numbers for assertions on named points. */
-function point(data: Uint8Array, which: "l" | "c" | "r" | "t" | "b"): [number, number, number] {
-  const table = { l: [8, 16], c: [16, 16], r: [24, 16], t: [16, 8], b: [16, 24] } as const;
+function point(data: Uint8Array, which: "l" | "c" | "r" | "t" | "b" | "bl" | "tr"): [number, number, number] {
+  // `bl`/`tr` sit off both diagonals: the winding probe's triangles are half-screen wedges whose
+  // hypotenuse runs through the centre pixel, where coverage is decided by the top-left rule.
+  const table = { l: [8, 16], c: [16, 16], r: [24, 16], t: [16, 8], b: [16, 24], bl: [8, 24], tr: [24, 8] } as const;
   const [x, y] = table[which];
   return pixel(data, x, y);
 }
@@ -527,37 +531,63 @@ function cases(): Case[] {
       name: "cull-winding",
       expected: "cgw: front=red back=black (cull order for `frontFace: cw`) · cccw: front=black back=red",
       async run(device) {
-        // Front-facing under `frontFace: "cw"`: NDC (-1,-1) (1,-1) (-1,1) is counter-clockwise with
-        // y up, and framebuffer coordinates have y down, so it is clockwise on screen — front-facing
-        // for "cw" and back-facing for "ccw". The engine's meshes are authored for `frontFace: "cw"`.
-        const frontCw = new Float32Array([-1, -1, 0.5, 1, -1, 0.5, -1, 1, 0.5]);
-        const backCw = new Float32Array([1, -1, 0.5, -1, -1, 0.5, -1, 1, 0.5]);
+        // Both triangles cover the same half-screen wedge and differ only in vertex order, so the
+        // sample point is inside both and only the winding can decide which one survives.
+        //   visually clockwise on screen  = bottom-left -> top-left -> bottom-right
+        //     spec area = -0.5  => front-facing when frontFace is "cw"
+        //   visually counter-clockwise    = bottom-left -> bottom-right -> top-left
+        //     spec area = +0.5  => front-facing when frontFace is "ccw"
+        // The engine's meshes are authored clockwise-seen-from-outside (`frontFace: "cw"`), which
+        // projecting the engine's own box/plane through `Mat4.setLookAt`/`setPerspective` confirms.
+        const frontCw = new Float32Array([-1, -1, 0.5, -1, 1, 0.5, 1, -1, 0.5]);
+        const backCw = new Float32Array([-1, -1, 0.5, 1, -1, 0.5, -1, 1, 0.5]);
 
-        const render = async (verts: Float32Array<ArrayBuffer>, frontFace: GPUFrontFace): Promise<[number, number, number]> => {
-          const module = device.createShaderModule({ label: "diag.color", code: VS_AND_FS });
-          const pipeline = device.createRenderPipeline({
+        // One pass, four quadrants, one readback: the two `frontFace` pipelines are compiled once and
+        // each pair of draws goes through its own viewport. Four compilations and four readbacks
+        // outlived the watchdog under SwiftShader, which says nothing about the device under test.
+        const ub = bufferOf(device, uniformBytes(IDENTITY, RED), "diag.ub");
+        const module = device.createShaderModule({ label: "diag.color", code: VS_AND_FS });
+        const pipelineFor = (frontFace: GPUFrontFace) =>
+          device.createRenderPipeline({
             layout: "auto",
             vertex: { module, entryPoint: "vs", buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }] },
             fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] },
             primitive: { topology: "triangle-list", frontFace, cullMode: "back" },
           });
-          const ub = bufferOf(device, uniformBytes(IDENTITY, RED), "diag.ub");
-          const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ub } }] });
-          const vb = vertexBufferOf(device, verts, "diag.vb.cull");
-          const target = makeTarget(device);
-          const encoder = device.createCommandEncoder();
-          const pass = encoder.beginRenderPass({
-            colorAttachments: [{ view: target.view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
-          });
-          draw(pass, pipeline, vb, bg, 3);
-          pass.end();
-          device.queue.submit([encoder.finish()]);
-          return point(await readback(device, target), "c");
+        const cwPipeline = pipelineFor("cw");
+        const ccwPipeline = pipelineFor("ccw");
+        const groupFor = (pipeline: GPURenderPipeline) =>
+          device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ub } }] });
+        const cwGroup = groupFor(cwPipeline);
+        const ccwGroup = groupFor(ccwPipeline);
+        const frontVb = vertexBufferOf(device, frontCw, "diag.vb.front");
+        const backVb = vertexBufferOf(device, backCw, "diag.vb.back");
+        const target = makeTarget(device);
+        const half = W / 2;
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{ view: target.view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
+        });
+        const shot = (pipeline: GPURenderPipeline, group: GPUBindGroup, vb: GPUBuffer, x: number, y: number): void => {
+          pass.setPipeline(pipeline);
+          pass.setBindGroup(0, group);
+          pass.setViewport(x, y, half, half, 0, 1);
+          pass.setVertexBuffer(0, vb);
+          pass.draw(3);
         };
-        const cwFront = await render(frontCw, "cw");
-        const cwBack = await render(backCw, "cw");
-        const ccwFront = await render(frontCw, "ccw");
-        const ccwBack = await render(backCw, "ccw");
+        shot(cwPipeline, cwGroup, frontVb, 0, 0);
+        shot(cwPipeline, cwGroup, backVb, half, 0);
+        shot(ccwPipeline, ccwGroup, frontVb, 0, half);
+        shot(ccwPipeline, ccwGroup, backVb, half, half);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        const data = await readback(device, target);
+        // NDC (-0.6,-0.6) sits inside the wedge both triangles cover, 1.6 px clear of its hypotenuse.
+        const quadrant = (x: number, y: number) => pixel(data, x + 3, y + 12);
+        const cwFront = quadrant(0, 0);
+        const cwBack = quadrant(half, 0);
+        const ccwFront = quadrant(0, half);
+        const ccwBack = quadrant(half, half);
         const show = (c: [number, number, number]) => (near(c, [255, 0, 0]) ? "red" : near(c, [0, 0, 0]) ? "black" : c.join(","));
         const actual = `cgw: front=${show(cwFront)} back=${show(cwBack)} · cccw: front=${show(ccwFront)} back=${show(ccwBack)}`;
         // Under `frontFace: "cw"` the first triangle is front-facing (drawn) and the reversed one is
@@ -608,7 +638,7 @@ function cases(): Case[] {
         const buffer = device.createBuffer({ size: floats.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         device.queue.writeBuffer(buffer, 0, floats);
         const bindGroup = device.createBindGroup({ layout, entries: [{ binding: 0, resource: { buffer, size: 256 } }] });
-        const quad = vertexBufferOf(device, withZ(QUAD, 0.5), "diag.vb.quad");
+        const quad = vertexBufferOf(device, withZ(RECT, 0.5), "diag.vb.rect");
 
         const render = async (dynamicOffset: number): Promise<string> => {
           const target = makeTarget(device);
