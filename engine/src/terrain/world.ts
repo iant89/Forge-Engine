@@ -234,7 +234,11 @@ export class TerrainWorld extends SceneObject {
       const camId = camQuery.entity(0);
       const camTransform = context.world.getComponent(camId, Transform);
       if (camTransform) {
-        this.focusPosition.copyFrom(camTransform.position);
+        // Position from transform storage, not the component's mirror fields: controls move
+        // cameras through `entity.transform` (TransformHandle), which writes storage only, so
+        // `camTransform.position` stayed at the authored start and streaming never followed the
+        // camera. Both write paths update the stored local position, so it is always current.
+        context.world.transforms.getPosition(camTransform.transformSlot, this.focusPosition);
         camTransform.forward(this.focusForward);
       }
     }

@@ -502,6 +502,31 @@ describe("Terrain - Phase 10 cache, priority, workers, horizon, materials", () =
     world.dispose();
   });
 
+  it("streams around a camera moved through entity.transform (storage-only writes)", () => {
+    // OrbitControls poses the camera through the TransformHandle, which writes transform storage
+    // but not the Transform component's mirror fields. The focus used to read the mirror, so on
+    // the Mars showcase streaming stayed parked at the camera's authored start forever.
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({ chunkSize: 64, chunkResolution: 9, viewDistance: 90, horizonSkirt: false, syncGeneration: true });
+    const scene = new Scene({ name: "focus-follow" });
+    scene.add(terrain);
+    const cameraEntity = world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+    const ctx = createMockContext(world);
+
+    terrain.update(ctx, 0.016);
+    expect(terrain.focusPosition.toArray()).toEqual([0, 0, 0]);
+
+    cameraEntity.transform.position = new Vec3(700, 12, -300);
+    terrain.update(ctx, 0.016);
+    expect(terrain.focusPosition.toArray()).toEqual([700, 12, -300]);
+    expect([...terrain.chunks.values()].some((c) => c.cx === Math.floor(700 / 64) && c.cz === Math.floor(-300 / 64))).toBe(true);
+
+    scene.dispose();
+    world.dispose();
+  });
+
   it("builds a horizon skirt geometry with no holes at the rim", () => {
     const source = buildHorizonSkirt({
       centerX: 0,
