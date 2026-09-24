@@ -67,6 +67,7 @@ export {
   type TaskSchedulerOptions,
   type TaskStats,
   type TaskWorkerLike,
+  type WorkerErrorEventLike,
   type WorkerMessage,
 } from "./core/tasks/scheduler.js";
 export {

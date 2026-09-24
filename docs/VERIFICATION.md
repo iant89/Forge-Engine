@@ -390,7 +390,13 @@ main thread falls back inline, a throwing handler surfaces its message, and a wo
 (`worker_threads` error) is retried inline while `workerFailures++` and the pool shrinks. The
 `geometry.bvh` task is exercised the same way: the tree built on another thread is byte-identical to
 the inline build (node arrays *and* hash) and answers the same ray, with the payload copied rather
-than transferred so the caller keeps its geometry.
+than transferred so the caller keeps its geometry. `tests/workerBundling.test.ts` pins the packaging
+half: the default worker must be constructed in the one shape bundlers statically recognise —
+`new Worker(new URL("./worker-entry.js", import.meta.url), …)` — because computing the URL through a
+variable makes Vite inline the worker's raw TypeScript as a `data:` asset URL instead of emitting a
+compiled worker chunk (the worker then dies on a parse error, logged with an empty message —
+"worker N crashed: unknown"). Crash logs are therefore required to name the entry script and to fall
+back to the event's `filename:line` when there is no `message`.
 
 ### `tests/bvh.test.ts` — the mesh BVH (Phase 9.1)
 
