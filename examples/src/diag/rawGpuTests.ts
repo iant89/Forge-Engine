@@ -524,6 +524,50 @@ function cases(): Case[] {
       },
     },
     {
+      name: "cull-winding",
+      expected: "cgw: front=red back=black (cull order for `frontFace: cw`) · cccw: front=black back=red",
+      async run(device) {
+        // Front-facing under `frontFace: "cw"`: NDC (-1,-1) (1,-1) (-1,1) is counter-clockwise with
+        // y up, and framebuffer coordinates have y down, so it is clockwise on screen — front-facing
+        // for "cw" and back-facing for "ccw". The engine's meshes are authored for `frontFace: "cw"`.
+        const frontCw = new Float32Array([-1, -1, 0.5, 1, -1, 0.5, -1, 1, 0.5]);
+        const backCw = new Float32Array([1, -1, 0.5, -1, -1, 0.5, -1, 1, 0.5]);
+
+        const render = async (verts: Float32Array<ArrayBuffer>, frontFace: GPUFrontFace): Promise<[number, number, number]> => {
+          const module = device.createShaderModule({ label: "diag.color", code: VS_AND_FS });
+          const pipeline = device.createRenderPipeline({
+            layout: "auto",
+            vertex: { module, entryPoint: "vs", buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }] },
+            fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] },
+            primitive: { topology: "triangle-list", frontFace, cullMode: "back" },
+          });
+          const ub = bufferOf(device, uniformBytes(IDENTITY, RED), "diag.ub");
+          const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ub } }] });
+          const vb = vertexBufferOf(device, verts, "diag.vb.cull");
+          const target = makeTarget(device);
+          const encoder = device.createCommandEncoder();
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{ view: target.view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
+          });
+          draw(pass, pipeline, vb, bg, 3);
+          pass.end();
+          device.queue.submit([encoder.finish()]);
+          return point(await readback(device, target), "c");
+        };
+        const cwFront = await render(frontCw, "cw");
+        const cwBack = await render(backCw, "cw");
+        const ccwFront = await render(frontCw, "ccw");
+        const ccwBack = await render(backCw, "ccw");
+        const show = (c: [number, number, number]) => (near(c, [255, 0, 0]) ? "red" : near(c, [0, 0, 0]) ? "black" : c.join(","));
+        const actual = `cgw: front=${show(cwFront)} back=${show(cwBack)} · cccw: front=${show(ccwFront)} back=${show(ccwBack)}`;
+        // Under `frontFace: "cw"` the first triangle is front-facing (drawn) and the reversed one is
+        // culled; under "ccw" it is the other way round. A device that answers both the same way, or
+        // answers them backwards, will cull the engine's geometry.
+        const ok = show(cwFront) === "red" && show(cwBack) === "black" && show(ccwFront) === "black" && show(ccwBack) === "red";
+        return { actual, ok };
+      },
+    },
+    {
       name: "storage-window",
       expected: "A: l=red c=green r=blue · B: l=yellow c=cyan r=magenta (dynamic offset selects the window)",
       async run(device) {
