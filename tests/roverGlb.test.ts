@@ -7,6 +7,8 @@ interface GlbAccessor {
   componentType: number;
   count: number;
   type: string;
+  min?: number[];
+  max?: number[];
 }
 
 interface GlbBufferView {
@@ -76,6 +78,29 @@ describe("Perseverance.glb (mars showcase rover)", () => {
       expect(hub[0]).toBeCloseTo(x, 1);
       expect(hub[2]).toBeCloseTo(z, 1);
     }
+  });
+
+  it("keeps the camera-mast assembly on a hinge-rooted `mast` node", () => {
+    const { json } = parseGlbContainer(fs.readFileSync(GLB_PATH));
+    const roots = (json.nodes ?? []).filter((n) => n.name === "mast");
+    expect(roots.length).toBe(1);
+    // Deployment hinge at the stowed pose's front bracket (converter `mast.pivot`).
+    const pivot = roots[0]!.translation ?? [0, 0, 0];
+    expect(pivot[0]).toBeCloseTo(-0.4754, 2);
+    expect(pivot[1]).toBeCloseTo(1.245, 2);
+    expect(pivot[2]).toBeCloseTo(0.8388, 2);
+    // Hinge-relative parts: nothing ahead of the hinge, the stowed boom reaching back.
+    const mastMeshes = json.meshes.filter((m) => m.name?.startsWith("mast_"));
+    expect(mastMeshes.length).toBeGreaterThan(0);
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const mesh of mastMeshes) {
+      const acc = json.accessors[mesh.primitives[0]!.attributes.POSITION!]!;
+      minZ = Math.min(minZ, acc.min?.[2] ?? Infinity);
+      maxZ = Math.max(maxZ, acc.max?.[2] ?? -Infinity);
+    }
+    expect(maxZ).toBeLessThan(0.1);
+    expect(minZ).toBeLessThan(-0.5);
   });
 
   it("has in-range indices on every mesh (no invisible wheels)", () => {

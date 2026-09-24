@@ -234,6 +234,18 @@
       }
       button.veh-gas.pressed { background: rgb(21 128 61 / 0.92); transform: scale(0.94); }
       button.veh-brake.pressed { background: rgb(185 28 28 / 0.92); transform: scale(0.94); }
+      /* C/MAST: the Mars showcase's camera-mast toggle. Hidden everywhere else — the pad is
+         shared with the vehicle playground, which has no mast to raise. */
+      #veh-mast {
+        left: 8px;
+        bottom: 0;
+        background: rgb(30 58 138 / 0.55);
+        border-color: rgb(147 197 253 / 0.7);
+        color: #eff6ff;
+        display: none;
+      }
+      body.scene-mars #veh-mast { display: flex; }
+      button.veh-mast.active { background: rgb(37 99 235 / 0.92); border-color: #93c5fd; transform: scale(0.94); }
       /* Shared layout for the sky and weather button panels (markup below). Each panel is a
          fixed, click-through sheet; only the buttons themselves take input. */
       .touch-panel {
@@ -418,6 +430,7 @@
       <div class="veh-face">
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
+        <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
       </div>
     </div>
     <div id="sky-touch">

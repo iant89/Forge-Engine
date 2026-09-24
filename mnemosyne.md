@@ -49,3 +49,29 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   PR merge. AGENTS.md §7 points every session at it and at this file.
 - "Model" in log entries = agent identity as known to the session (`"Arena Agent Mode"` unless the
   specific underlying model is known); the harness does not expose the exact LLM, so don't invent one.
+
+## 2026-09-24 — deployable camera mast (Mars showcase)
+
+- **The NASA model ships with the RSM STOWED** (lying flat on the deck, head toward the rear), so
+  the MAST toggle raises it (unfold) by default action and stows it back on second press. There is
+  ONE mast (RSM) — "camera masts" plural in the request meant this assembly.
+- **Mast data (model space, +Z nose):** hinge `[-0.4754, 1.245, 0.8388]` (source `Cylinder` node
+  origin = stowed front bracket), stowed head offset `[0.5222, -0.0357, -0.5955]` (converter
+  `mast.headOffset`), 55 hinge-relative parts. Deployed head ≈ 0.79 m above the hinge (~2.0 m).
+  Converter asserts the hinge chain `Cylinder > bottom > top > Cylinder.002 > head` by name.
+- **Scene:** pivot entity under chassis at hinge + bodyOffsetY; `mastDeployedQ` = inverse of
+  `fromUnitVectorY(stowedDir)`; spring k=5/c=3.2 (~3 s, slight latch overshoot); slerp identity→
+  deployed each frame while moving. M key, C/MAST pad button (Mars-only via `body.scene-mars`),
+  `__forge.setMast`, HUD `mast STOWED/%/UP`, `marsState().mastT/mastDeployed`.
+- **Drive-by fixes:** `Quat.fromUnitVectorY` had negated x/z (returned the inverse rotation; no
+  callers, now fixed + tested); converter JSON chunk must be space-padded (NUL padding throws in
+  JSON.parse — the old file dodged it by luck with %4==0 length).
+- **Screenshot harness:** temp playwright scripts vs `tools/browser-check.mjs` launch recipe
+  (`/tmp/chromium` after `npm run setup`, SwiftShader flags); poll `__forge.marsState()`;
+  `page.keyboard.press("m")` drives the mast; move `#hud` via injected CSS so it never occludes.
+  Phone emulation (`isMobile`, coarse pointer) proves the MAST button shows/toggles; desktop hides
+  the whole pad by design (M key covers desktop).
+- **TOOLING LESSON (important): never send two edits to the SAME file in one parallel block.**
+  Same-file parallel edits race: all but one are silently lost, and one batch actively corrupted
+  `marsShowcaseScene.ts` (duplicated dispose fragment). One edit per file per message; different
+  files may still go together. Verify multi-edit files with `git diff` before moving on.

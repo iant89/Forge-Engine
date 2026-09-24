@@ -13,7 +13,12 @@ type Listener = (event: Event) => void;
 class StubElement {
   readonly listeners = new Map<string, Array<{ fn: Listener; passive?: boolean }>>();
   readonly classes = new Set<string>();
+  readonly attrs = new Map<string, string>();
   style: { transform?: string } = {};
+
+  setAttribute(name: string, value: string): void {
+    this.attrs.set(name, value);
+  }
 
   readonly classList = {
     add: (name: string): void => {
@@ -73,11 +78,19 @@ class StubElement {
   }
 }
 
-function stubRoot(): { root: HTMLElement; gas: StubElement; brake: StubElement; stick: StubElement; view: StubElement } {
+function stubRoot(): {
+  root: HTMLElement;
+  gas: StubElement;
+  brake: StubElement;
+  stick: StubElement;
+  mast: StubElement;
+  view: StubElement;
+} {
   const gas = new StubElement();
   const brake = new StubElement();
   const stick = new StubElement();
   const knob = new StubElement();
+  const mast = new StubElement();
   const view = new StubElement();
   const root = {
     querySelector: (sel: string): StubElement | null => {
@@ -85,11 +98,12 @@ function stubRoot(): { root: HTMLElement; gas: StubElement; brake: StubElement; 
       if (sel === "#veh-brake") return brake;
       if (sel === "#veh-stick") return stick;
       if (sel === "#veh-stick-knob") return knob;
+      if (sel === "#veh-mast") return mast;
       return null;
     },
     ownerDocument: { defaultView: view },
   };
-  return { root: root as unknown as HTMLElement, gas, brake, stick, view };
+  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, view };
 }
 
 describe("stickDeflection", () => {
@@ -156,5 +170,45 @@ describe("attachVehicleTouch — iOS selection / hold", () => {
     gas.fire("pointerdown", { pointerId: 9, pointerType: "touch" });
     gas.fire("lostpointercapture", { pointerId: 9, pointerType: "touch" });
     expect(handle!.sample().throttle).toBe(0);
+  });
+});
+
+describe("attachVehicleTouch — MAST toggle (Mars showcase)", () => {
+  let handle: VehicleTouchHandle | null = null;
+  afterEach(() => {
+    handle?.dispose();
+    handle = null;
+  });
+
+  it("fires onMastToggle once per tap, ignoring non-left mouse buttons", () => {
+    const { root, mast } = stubRoot();
+    let toggles = 0;
+    handle = attachVehicleTouch(root, { onMastToggle: () => toggles++ });
+    mast.fire("pointerdown", { pointerId: 3, pointerType: "touch" });
+    mast.fire("pointerdown", { pointerId: 4, pointerType: "touch" });
+    expect(toggles).toBe(2);
+    mast.fire("pointerdown", { pointerId: 5, pointerType: "mouse", button: 2 });
+    expect(toggles).toBe(2);
+  });
+
+  it("binds nothing when the scene passes no toggle (vehicle playground)", () => {
+    const { root, mast } = stubRoot();
+    handle = attachVehicleTouch(root);
+    expect(mast.has("pointerdown")).toBe(false);
+  });
+
+  it("setMast lights the button from the commanded state and dispose clears it", () => {
+    const { root, mast } = stubRoot();
+    handle = attachVehicleTouch(root, { onMastToggle: () => {} });
+    handle!.setMast(true);
+    expect(mast.classes.has("active")).toBe(true);
+    expect(mast.attrs.get("aria-pressed")).toBe("true");
+    handle!.setMast(false);
+    expect(mast.classes.has("active")).toBe(false);
+    expect(mast.attrs.get("aria-pressed")).toBe("false");
+    handle!.setMast(true);
+    handle!.dispose();
+    expect(mast.classes.has("active")).toBe(false);
+    handle = null;
   });
 });

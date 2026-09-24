@@ -111,8 +111,9 @@ export class Quat {
       this.set(1, 0, 0, 0);
       return this;
     }
+    // Shortest arc: axis Y×dir = (dir.z, 0, -dir.x), scaled by 0.5/(1 + Y·dir).
     const s = 0.5 / r;
-    this.set(-dir.z * s, 0, dir.x * s, 0.5);
+    this.set(dir.z * s, 0, -dir.x * s, 0.5);
     return this.normalize();
   }
 

@@ -147,6 +147,24 @@ describe("vectors and matrices", () => {
     expect(back.y).toBeCloseTo(0, 6);
   });
 
+  it("fromUnitVectorY rotates +Y onto the given direction", () => {
+    // Regression: the x/z terms were negated, so +Y landed on the mirror of dir (e.g. +Z for -Z).
+    for (const dir of [
+      new Vec3(0, 0, -1),
+      new Vec3(0, 0, 1),
+      new Vec3(1, 0, 0),
+      new Vec3(0.6585, -0.045, -0.7512).normalize(),
+    ]) {
+      const out = new Quat().fromUnitVectorY(dir).rotateVector(new Vec3(0, 1, 0), new Vec3());
+      expect(out.x).toBeCloseTo(dir.x, 5);
+      expect(out.y).toBeCloseTo(dir.y, 5);
+      expect(out.z).toBeCloseTo(dir.z, 5);
+    }
+    // Antipodal input takes the 180° branch rather than dividing by ~0.
+    const flip = new Quat().fromUnitVectorY(new Vec3(0, -1, 0)).rotateVector(new Vec3(0, 1, 0), new Vec3());
+    expect(flip.y).toBeCloseTo(-1, 5);
+  });
+
   it("point/direction transforms accept the input as the output (in-place is how scratch vectors are used)", () => {
     // Regression: transformPoint wrote out.x before reading v.y/v.z, so in-place calls silently
     // mixed transformed and untransformed components — the cascade fit was the first caller to notice.

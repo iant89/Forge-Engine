@@ -40,6 +40,7 @@ import {
   Light,
   MARS_ATMOSPHERE,
   Material,
+  Quat,
   type ParticleModule,
   PARTICLE_FLOATS,
   P_AGE,
@@ -83,6 +84,10 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     contactWheels: number;
     ambientDust: number;
     kickDust: number;
+    /** Mast deployment 0 (stowed flat) … 1 (raised); overshoots slightly on the latch. */
+    mastT: number;
+    /** Commanded mast state (the MAST button / `setMast` target). */
+    mastDeployed: boolean;
     speed: number;
     x: number;
     y: number;
@@ -90,6 +95,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   };
   /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
   retryModelLoad(): void;
+  /** Raise (true) or stow (false) the Remote Sensing Mast; the spring animates it smoothly. */
+  setMast(deployed: boolean): void;
   /**
    * Rover "where it is supposed to be" wireframe boxes. `auto` (default) shows them until the
    * GLB has landed, `on`/`off` force the overlay either way.
@@ -172,6 +179,16 @@ const WHEELS = [
 
 const WHEEL_RADIUS = 0.264;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
+
+/**
+ * Stowed head centroid relative to the mast hinge, from the converter report (`mast.headOffset`
+ * in `scripts/convert-perseverance.mjs` output). The deployed pose is the quaternion taking this
+ * offset onto +Y; re-measure from a fresh report if the model is ever reconverted.
+ */
+const MAST_STOWED_HEAD = new Vec3(0.5222, -0.0357, -0.5955);
+/** Deployment spring: ω≈2.2 rad/s settles in ~3 s, ζ≈0.7 gives a small latch overshoot. */
+const MAST_STIFFNESS = 5.0;
+const MAST_DAMPING = 3.2;
 const AMBIENT_DUST_SPRITES = 420;
 const KICK_DUST_SPRITES = 500;
 
@@ -488,6 +505,19 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let modelProgress: GlbLoadProgress | null = null;
   let loadAttempt = 0;
 
+  // Mast deployment: `mastTarget` is the commanded state (MAST button / M key / `setMast`), `mastT`
+  // the spring position the pivot quaternion follows. The pivot exists once the GLB lands; a
+  // toggle before then just arms the target.
+  let mastTarget = 0;
+  let mastT = 0;
+  let mastV = 0;
+  let mastPivot: Entity | null = null;
+  const mastIdentity = new Quat();
+  const mastDeployedQ = new Quat().fromUnitVectorY(
+    new Vec3(MAST_STOWED_HEAD.x, MAST_STOWED_HEAD.y, MAST_STOWED_HEAD.z).normalize(),
+  ).invert();
+  const mastScratchQ = new Quat();
+
   const attachGlb = (glb: LoadedGlb): void => {
     // Body: drop the placeholder box, parent the model-root-space parts under the chassis with the
     // ground-plane offset (chassis sits at the CG, the model at its ground-centred origin).
@@ -523,6 +553,43 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         scene.world.addComponent(child.id, renderable);
       }
     }
+    // Mast: hinge-relative parts parented under a pivot at the hinge (chassis-local). Identity
+    // pivot rotation is the modelled stowed-flat pose; the update loop slerps it to the deployed
+    // quaternion as the spring runs.
+    if (glb.mast && glb.mast.parts.length > 0) {
+      const [px, py, pz] = glb.mast.pivot;
+      const pivot = scene.createTransformedEntity("rover-mast-pivot", new Vec3(px, py + bodyOffsetY, pz));
+      chassis.addChild(pivot);
+      pivot.transform.position = new Vec3(px, py + bodyOffsetY, pz);
+      for (const part of glb.mast.parts) {
+        const child = scene.createTransformedEntity(`rover-${part.name}`, new Vec3(0, 0, 0));
+        pivot.addChild(child);
+        child.transform.position = new Vec3(0, 0, 0);
+        const renderable = new Renderable();
+        renderable.geometry = part.geometry;
+        renderable.material = part.material;
+        renderable.castShadow = true;
+        renderable.receiveShadow = true;
+        scene.world.addComponent(child.id, renderable);
+      }
+      mastPivot = pivot;
+      // A toggle that landed while the model was still loading applies from the first frame.
+      writeMastPose();
+    }
+  };
+
+  /** Pose the pivot from the spring position (no-op until the GLB lands). */
+  const writeMastPose = (): void => {
+    if (!mastPivot) return;
+    const t = Math.max(-0.1, Math.min(1.1, mastT));
+    Quat.slerpInto(mastIdentity, mastDeployedQ, t, mastScratchQ);
+    mastPivot.transform.rotation = mastScratchQ;
+  };
+
+  /** Command the mast; the button/keys call this, the spring does the rest. */
+  const setMast = (deployed: boolean): void => {
+    mastTarget = deployed ? 1 : 0;
+    touch.setMast(deployed);
   };
 
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
@@ -557,18 +624,22 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
+    // M toggles the mast (keydown, not hold; ignore auto-repeat so it flips once per press).
+    if (event.code === "KeyM" && !event.repeat) setMast(mastTarget < 0.5);
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     keys.delete(event.code);
   };
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
-  const touch = attachVehicleTouch(document.getElementById("vehicle-touch"));
+  const touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
+    onMastToggle: () => setMast(mastTarget < 0.5),
+  });
 
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · Drag to orbit · Scroll zoom",
+    controlsHint: "WASD / arrows drive · Space handbrake · M mast · Drag to orbit · Scroll zoom",
     camera: {
       // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
       target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
@@ -590,10 +661,22 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       y: vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y,
       z: vehicle.position.z,
     }),
-    update(): void {
+    update(dt: number): void {
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
+      // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
+      // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
+      // onto the latch like the real pyro deployment — and a mid-swing toggle reverses smoothly.
+      if (mastPivot && (mastT !== mastTarget || mastV !== 0)) {
+        mastV += ((mastTarget - mastT) * MAST_STIFFNESS - mastV * MAST_DAMPING) * dt;
+        mastT += mastV * dt;
+        if (Math.abs(mastTarget - mastT) < 1e-4 && Math.abs(mastV) < 1e-4) {
+          mastT = mastTarget;
+          mastV = 0;
+        }
+        writeMastPose();
+      }
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
@@ -615,8 +698,18 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           : modelProgress?.phase === "fetch" && modelProgress.totalBytes
             ? `GLB ${mb(modelProgress.receivedBytes)}/${mb(modelProgress.totalBytes)} MB`
             : `GLB ${modelProgress?.phase ?? "loading"}…`;
+      const mastLabel =
+        !modelLoaded || !mastPivot
+          ? "—"
+          : mastTarget === 1
+            ? mastT > 0.98
+              ? "UP"
+              : `${Math.round(mastT * 100)}%↑`
+            : mastT < 0.02
+              ? "STOWED"
+              : `${Math.round(mastT * 100)}%↓`;
       return (
-        `mars showcase · Perseverance 6/6 · ${model}\n` +
+        `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDust.simulation.alive}  NASA/JPL-Caltech (public domain)`
@@ -642,6 +735,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
       ambientDust: ambientDust.simulation.alive,
       kickDust: kickDust.simulation.alive,
+      mastT,
+      mastDeployed: mastTarget === 1,
         speed: vehicle.speed,
         x: vehicle.position.x,
         y: vehicle.position.y,
@@ -650,6 +745,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     },
     retryModelLoad(): void {
       if (!disposed) startModelLoad();
+    },
+    setMast(deployed: boolean): void {
+      if (!disposed) setMast(deployed);
     },
     setDebugBounds(mode: "auto" | "on" | "off"): void {
       debugBoundsMode = mode;
@@ -676,3 +774,4 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     },
   };
 }
+

@@ -117,6 +117,7 @@ async function main(): Promise<void> {
     // `body.scene-vehicle` (shared with the Mars showcase's rover controls). Each module binds the
     // same paths as the keys, whichever is visible.
     document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase");
+    document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
@@ -397,6 +398,11 @@ async function main(): Promise<void> {
     marsState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
+    },
+    /** Mars showcase: raise (true) or stow (false) the camera mast; null on other scenes. */
+    setMast: (deployed: boolean) => {
+      const handle = currentHandle as MarsShowcaseSceneHandle | null;
+      handle?.setMast?.(deployed);
     },
     /** Sky scene: scrub the day/night clock (hours) and read the sun back; null on other scenes. */
     setTimeOfDay: (hours: number) => {
