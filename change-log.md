@@ -958,6 +958,33 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append the id 0062–0073 entries for the electric drivetrain, rover speed/suspension fixes and the high-gain antenna.",
     "why": "Per-file history for this session's work."
+  },
+  {
+    "id": "0074",
+    "date": "2026-09-24T22:05:00Z",
+    "type": "pr-merge",
+    "pr": 38,
+    "branch": "arena/01a0d519-forge-engine",
+    "base": "main",
+    "title": "Electric drivetrain; rover speed + wheel-anchoring fixes; automatic Earth-tracking high-gain antenna",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "ElectricMotor (traction envelope: constant torque → constant power → taper, no idle, drag, powerKW) + ReductionDrive (fixed ratio, never shifts) power the Mars rover at ~1 kW through 60:1 — ≈2160 N tractive and a ≈6 km/h no-load cap replacing combustion defaults geared past 200 km/h ('way too fast'); regen braking blends brake × regenTorque into the signed slip solve, faded below 0.5 m/s. VehicleSystem poses wheel entities from Vehicle.wheelCenterPosition (hardpoint − up·(rest − compression), clamped to travel) instead of the terrain ray — the 'wheels fly off at crests then snap back' fix — and the kick-dust cut-in dropped 0.7 → 0.22 m/s to match the electric band. HighGainAntennaController arms on GLB load, unfurls 5 s later at a 40°/s slew, then re-solves Earth in gimbal space every frame at 70°/s with elevation clamped 12°–85°; one-way, no stow control anywhere; the assembly is procedural (post, two pivots, dish, feed) because the NASA GLB ships no HGA. 26 new tests (envelope, reduction, top-speed regression, regen, wheel anchoring, antenna contract); the browser gate drives the rover (dz 0.54 m, kick dust, HGA deploying, 0 GPU errors). 501 tests in 38 files; verify, lint:arch, docs:check, check:browser all green.",
+    "files": [
+      "engine/src/vehicles/electric.ts",
+      "engine/src/vehicles/vehicle.ts",
+      "engine/src/vehicles/system.ts",
+      "engine/src/vehicles/index.ts",
+      "examples/src/scenes/highGainAntenna.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "tests/electricMotor.test.ts",
+      "tests/highGainAntenna.test.ts",
+      "tools/browser-check.mjs",
+      "docs/VEHICLES.md",
+      "README.md",
+      "mnemosyne.md",
+      "change-log.md"
+    ]
   }
 ]
 ```
