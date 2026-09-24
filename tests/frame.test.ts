@@ -227,7 +227,7 @@ describe("frame structure", () => {
     await f.dispose();
   });
 
-  it("sky: a fullscreen pass after forge.main over the same target, depth bound read-only", async () => {
+  it("sky: a fullscreen pass after forge.main over the same target, depth loaded explicitly", async () => {
     const f = await fixture();
     f.scene.settings.shadow.cascades = 1;
     f.scene.setSky({ quality: "low" });
@@ -246,9 +246,12 @@ describe("frame structure", () => {
     ]);
     const main = f.mock.passes[1]!;
     const sky = f.mock.passes[2]!;
-    // The sky depth-tests against the scene depth, so forge.main must keep it (it discards otherwise).
+    // The sky depth-tests against the scene depth, so forge.main must keep it (it discards otherwise),
+    // and the sky pass must load it explicitly — the read-only attach's implicit load is exactly the
+    // primitive that silently lost the depth on WebKit (flat beige sky-ground over the whole scene).
     expect(main.depthStoreOp).toBe("store");
-    expect(sky.depthStoreOp).toBe("read-only");
+    expect(sky.depthLoadOp).toBe("load");
+    expect(sky.depthStoreOp).toBe("store");
     expect(sky.depthTarget).toBe(main.depthTarget);
     expect(sky.colorTargets).toEqual(main.colorTargets);
     expect(sky.drawCalls).toBe(1);

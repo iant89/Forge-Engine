@@ -1,7 +1,9 @@
 /**
  * The analytic sky (Phase 8a), drawn by the `forge.sky` pass as one fullscreen triangle on the far
- * plane after the opaque geometry, with the scene depth bound read-only and `less-equal` testing so
- * only pixels the geometry left untouched are shaded (no overdraw behind terrain).
+ * plane after the opaque geometry, with the scene depth explicitly loaded and `less-equal` testing
+ * so only pixels the geometry left untouched are shaded (no overdraw behind terrain). The pass
+ * never writes depth; the explicit load/store (instead of a read-only attach) is the portable
+ * spelling — see the WebKit note in `renderer.ts`'s `buildFrame`.
  *
  * The fragment stage is the GPU twin of `environment/atmosphere.ts`: the same single-scattering
  * integral (Rayleigh + Mie + ozone, midpoint rule on cubically spaced view segments, a light ray per

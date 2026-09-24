@@ -278,8 +278,9 @@ export class PipelineFactory {
           depthStencil: options.depthFormat
             ? {
                 format: options.depthFormat,
-                // The sky is depth-tested against the opaque scene but never writes (its pass binds the
-                // depth attachment read-only).
+                // The sky is depth-tested against the opaque scene but never writes: its pass loads
+                // and stores the depth attachment explicitly (the portable spelling — a read-only
+                // attach's implicit load is not trustworthy on every driver) while this stays false.
                 depthWriteEnabled: sky ? false : options.noDepthTest ? false : options.writeDepth !== false,
                 // The depth pass uses a bias + "less" so caster triangles cannot win the tie against
                 // themselves; the colour pass uses "less-equal" so coplanar decals behave. Overlays

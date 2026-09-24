@@ -18,7 +18,7 @@ camera + lights from the scene               forge.shadow.0  ─┐
 computeCascades()  (engine/src/rendering/    forge.shadow.1   ├─ depth24plus 2d-array, 1 layer each
   shadows.ts)                                forge.shadow.2  ─┘
 collectBatches()   (frustum cull, sort,      forge.main        rgba16float "hdr" + depth24plus "depth"
-  instance merge — no allocation)            forge.sky         hdr (load) + depth (read-only): far-plane triangle
+  instance merge — no allocation)            forge.sky         hdr (load) + depth (load, never written): far-plane triangle
 per-frame / light / shadow / sky / object /  forge.bloom.prefilter    hdr        → bloom.1 (½ res)
   instance uniform uploads                   forge.bloom.down.2..5    bloom.n    → bloom.n+1
 buildFrame() → graph.execute()               forge.bloom.up.4..1      bloom.n+1  +→ bloom.n (additive tent)
@@ -36,7 +36,7 @@ options:
 | `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | edge size of every cascade layer. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options. |
 | `settings.renderScale` (HDR only) | the HDR target and depth buffer are allocated at `round(size × scale)`; tonemap upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
-| `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth bound **read-only**, so only pixels no geometry covered are shaded and there is no overdraw behind terrain. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
+| `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
 | `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 
@@ -207,7 +207,8 @@ depth-only), `depthFormat` (`null` for post), `transparent` (blend + no depth wr
 `instanced`, `additive` (bloom upsample) and `fragmentEntry` (post entry point). Bind group layouts —
 seven of them (frame, shadow-pass frame, draw, material, blit, post, sky) — are created once and
 shared; `stats()` reports `{ pipelines, creates, cacheHits, layouts }`. The `sky` technique forces
-`depthWriteEnabled: false` (its pass binds the depth attachment read-only) and binds one group:
+`depthWriteEnabled: false` (its pass loads and stores the scene depth explicitly but never writes
+it — see the WebKit note on `forge.sky` above) and binds one group:
 `PerFrameUniforms` (vertex + fragment, for `invViewProj`) and `SkyUniforms`. `invalidate()` drops pipelines *and* layouts, which is
 what device-loss recovery calls; the next `get` rebuilds lazily. All post entry points live in one
 WGSL module (one compile for four pipelines), and every module goes through `ShaderCache`, which
