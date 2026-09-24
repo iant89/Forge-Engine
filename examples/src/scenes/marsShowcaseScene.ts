@@ -8,10 +8,19 @@
  *   opening disc in a few frames instead of dripping in at the steady upload cap;
  * - sky: `MARS_ATMOSPHERE` through `forge.sky` with the horizon-coloured haze (same recipe as the
  *   terrain demo, quality raised to medium — this scene spends its budget on the rover up close);
- * - rover: `Vehicle` with the model's six hub positions (front + rear steer, all six driven, Mars
- *   gravity 3.72 m/s², aero off), posed by `VehicleSystem`; the GLB arrives async — a box-body
- *   placeholder drives until it lands, then the real body/wheel meshes swap in (`assets/glb.ts`
- *   reads `examples/assets/Perseverance.glb`, produced by `scripts/convert-perseverance.mjs`);
+ * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1 kW + `ReductionDrive` 60:1 —
+ *   the real rovers are battery-electric; the no-load motor speed caps the rover near 6 km/h,
+ *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
+ *   driven, Mars gravity 3.72 m/s², aero off), posed by `VehicleSystem`; the GLB arrives async —
+ *   a box-body placeholder drives until it lands, then the real body/wheel meshes swap in
+ *   (`assets/glb.ts` reads `examples/assets/Perseverance.glb`, produced by
+ *   `scripts/convert-perseverance.mjs`);
+ * - high-gain antenna: the NASA model ships without an HGA, so the scene builds one procedurally
+ *   (mount post → azimuth pivot → elevation pivot → dish + feed) on the front-right deck.
+ *   `HighGainAntennaController` (`highGainAntenna.ts`) unfurls it `HGA_DEPLOY_DELAY_SECONDS`
+ *   after the model lands and then keeps the boresight on `EARTH_DIRECTION` in world space —
+ *   driving or turning is compensated by slew-limited gimbals every frame. One-way: there is no
+ *   stow control anywhere.
  * - dust: an ambient field that drifts around the camera and a wheel-kick puff emitted behind the
  *   rear hubs when the rover is moving — each a `ParticleWorld` driven by a SceneObject so the
  *   emitter follows the camera / chassis every engine frame.
@@ -33,6 +42,8 @@ import {
   type Engine,
   type Entity,
   type EntityId,
+  ElectricMotor,
+  ReductionDrive,
   Mat4,
   System,
   type SystemContext,
@@ -64,6 +75,8 @@ import {
   VehicleSystem,
   createAtmosphere,
   createBox,
+  createCylinder,
+  createSphere,
   createVehicleConfig,
   heightFunctionGround,
 } from "@forge/engine";
@@ -71,6 +84,7 @@ import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
 import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js";
 import { ARM_JOINT_COUNT, RoverArmController, type ArmJogInput } from "./roverArm.js";
+import { HighGainAntennaController } from "./highGainAntenna.js";
 import {
   createMarsRegolithTextures,
   disposePbrTextureSet,
@@ -106,6 +120,24 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     armSticksVisible: boolean;
     /** Arm joint angles in degrees, stowed = 0: azimuth, shoulder, elbow, wrist, turret. */
     armJoints: number[];
+    /**
+     * High-gain antenna telemetry. It arms itself when the rover model lands, unfurls
+     * `HGA_DEPLOY_DELAY_SECONDS` later and then tracks Earth — one-way, no stow control.
+     */
+    antenna: {
+      /** stowed → deploying → tracking; never goes back. */
+      phase: "stowed" | "deploying" | "tracking";
+      /** Seconds until the unfurl starts (0 once deploying/tracking). */
+      countdown: number;
+      /** Unfurl clock 0..1. */
+      deployT: number;
+      /** Live gimbal angles in degrees (azimuth about the mount's Y, elevation up from horizontal). */
+      azimuthDeg: number;
+      elevationDeg: number;
+      /** The Earth solution the gimbals are slewing toward, in degrees. */
+      targetAzimuthDeg: number;
+      targetElevationDeg: number;
+    };
     speed: number;
     x: number;
     y: number;
@@ -201,6 +233,25 @@ const WHEEL_RADIUS = 0.264;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
 
 /**
+ * Electric traction — the real rovers are battery-electric, and the old combustion defaults
+ * (340 N·m through a 5-speed gearbox) geared the 1025 kg rover past 200 km/h equivalent, which
+ * is the "way too fast, wheels fly off at hill crests" report. A ~1 kW motor behind a 60:1
+ * reduction gives ≈570 N·m at the wheels (≈2160 N tractive — climbs ~34° regolith at Mars
+ * gravity) and the motor's no-load speed caps the rover at ≈1.75 m/s ≈ 6 km/h. `regenTorque`
+ * blends ≈955 N of regenerative braking in ahead of the friction pads (see `ElectricMotor`).
+ */
+const ROVER_MOTOR = {
+  peakTorque: 9.5,
+  peakPower: 1000,
+  ratedRpm: 1000,
+  maxRpm: 3800,
+  regenTorque: 4.2,
+  dragTorque: 0.12,
+  inertia: 0.02,
+};
+const ROVER_REDUCTION = 60;
+
+/**
  * Stowed head centroid relative to the mast hinge, from the converter report (`mast.headOffset`
  * in `scripts/convert-perseverance.mjs` output). The deployed pose is the quaternion taking this
  * offset onto +Y; re-measure from a fresh report if the model is ever reconverted.
@@ -287,7 +338,10 @@ class WheelKickDust extends ParticleWorld {
   override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
     const kick = this.sampleKick();
     const emitter = this.simulation.emitter;
-    if (kick && kick.speed > 0.7) {
+    // Thresholds are tuned to the electric rover's band (≤ ~1.75 m/s, see ROVER_MOTOR): the old
+    // 0.7 m/s cut-in with a /7 rate ramp was sized for a combustion-default rover ten times
+    // faster, and left the wheels throwing nothing at realistic speeds.
+    if (kick && kick.speed > 0.22) {
       emitter.position.x = kick.x;
       emitter.position.y = kick.y;
       emitter.position.z = kick.z;
@@ -296,7 +350,7 @@ class WheelKickDust extends ParticleWorld {
       emitter.cone.direction.x = -kick.fx / len;
       emitter.cone.direction.y = 1.15 / len;
       emitter.cone.direction.z = -kick.fz / len;
-      emitter.rate = 30 + Math.min(kick.speed / 7, 1) * 280;
+      emitter.rate = 26 + Math.min(kick.speed / 1.6, 1) * 300;
     } else {
       emitter.rate = 0;
     }
@@ -411,6 +465,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   scene.world.addComponent(cameraEntity.id, camera);
   // ---------------------------------------------------------------- rover (six wheels)
   const ground = heightFunctionGround((x, z) => terrain.getHeightAt(x, z));
+  const motor = new ElectricMotor({ ...ROVER_MOTOR });
   const config = {
     ...createVehicleConfig({
       mass: 1025,
@@ -425,6 +480,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       damperRate: 2 * Math.sqrt(WHEEL_SPRING_RATE * (1025 / 6)) * 0.55,
       aero: null,
       maxBrakeTorque: 3600,
+      engine: motor,
+      transmission: new ReductionDrive(ROVER_REDUCTION),
     }),
     wheels: WHEELS.map((w) => ({
       x: w.x,
@@ -559,6 +616,26 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const mastScratchQ = new Quat();
   const mastAzimuthQ = new Quat();
   const mastElevationQ = new Quat();
+
+  // High-gain antenna: armed the moment the rover GLB lands, unfurled HGA_DEPLOY_DELAY_SECONDS
+  // later, then tracking Earth for the life of the scene. Deliberately one-way — the controller
+  // exposes no stow and the scene binds no key or pad button to one ("no way to lay it back
+  // down"). The pivots only exist once the model lands; until then the controller stays stowed.
+  const hga = new HighGainAntennaController();
+  let hgaYawPivot: Entity | null = null;
+  let hgaPitchPivot: Entity | null = null;
+  const hgaYawQ = new Quat();
+  const hgaPitchQ = new Quat();
+  const hgaResources: { dispose(): void }[] = [];
+
+  /** Push the gimbal angles onto the two pivot entities (no-op until the model lands). */
+  const writeHgaPose = (): void => {
+    if (!hgaYawPivot || !hgaPitchPivot) return;
+    // Elevation is negated about +X the same way Vehicle pitch is: positive elevation tilts up.
+    hgaYawPivot.transform.rotation = hgaYawQ.setAxisAngle(AXIS_Y, hga.azimuth);
+    hgaPitchPivot.transform.rotation = hgaPitchQ.setAxisAngle(AXIS_X, -hga.elevation);
+  };
+
 
   // Robotic arm: `arm` owns the choreography + jog state (commanded by the ARM button / R key /
   // `setArm`); `armPivots` are the GLB's joint entities, nested like its chain, with cached
@@ -707,6 +784,63 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       armPivots = pivots;
       writeArmPose();
     }
+    // High-gain antenna: the NASA model ships without one — no `hga` nodes, and a vertex scan of
+    // the body meshes finds nothing above the front-right deck — so the assembly is procedural:
+    // base post → yaw (azimuth) pivot → pitch (elevation) pivot → dish + feed. Both pivots are
+    // chassis children at the same deck point, so the gimbal solve in `highGainAntenna.ts`
+    // (chassis-local angles) lines up with the transform hierarchy exactly.
+    {
+      const HGA_X = 0.62; // front-right deck, clear of the mast (front-left) and arm mount
+      const HGA_Z = 0.55;
+      const HGA_DECK_Y = 1.2; // deck panel boxes top out at y ≈ 1.2 in model space
+      const baseY = HGA_DECK_Y + bodyOffsetY;
+
+      const hgaDishMaterial = new Material({ label: "hga-dish", color: 0xd8d8d2, roughness: 0.38, metallic: 0.7 });
+      const hgaMountMaterial = new Material({ label: "hga-mount", color: 0x3a3d42, roughness: 0.6, metallic: 0.5 });
+      const baseGeo = createCylinder(gpu, { radiusTop: 0.085, radiusBottom: 0.11, height: 0.24, radialSegments: 16, capped: true });
+      const yokeGeo = createBox(gpu, { width: 0.05, height: 0.18, depth: 0.05 });
+      const dishGeo = createCylinder(gpu, { radiusTop: 0.24, radiusBottom: 0.045, height: 0.1, radialSegments: 24, capped: true });
+      const feedGeo = createCylinder(gpu, { radiusTop: 0.014, radiusBottom: 0.014, height: 0.16, radialSegments: 8, capped: true });
+      const feedTipGeo = createSphere(gpu, { radius: 0.03, widthSegments: 12, heightSegments: 8 });
+      hgaResources.push(hgaDishMaterial, hgaMountMaterial, baseGeo, yokeGeo, dishGeo, feedGeo, feedTipGeo);
+
+      const hgaPart = (name: string, parent: Entity, geometry: ReturnType<typeof createBox>, material: Material, at: Vec3, rotation?: Quat): Entity => {
+        const part = scene.createTransformedEntity(`rover-hga-${name}`, at);
+        parent.addChild(part);
+        part.transform.position = at;
+        if (rotation) part.transform.rotation = rotation;
+        const renderable = new Renderable();
+        renderable.geometry = geometry;
+        renderable.material = material;
+        renderable.castShadow = true;
+        renderable.receiveShadow = true;
+        scene.world.addComponent(part.id, renderable);
+        return part;
+      };
+
+      // Static mount post on the deck (no articulation; 0.24 m so the stowed dish clears the deck).
+      hgaPart("base", chassis, baseGeo, hgaMountMaterial, new Vec3(HGA_X, baseY + 0.12, HGA_Z));
+      // Azimuth pivot at the top of the post, carrying the yoke arms.
+      const yawPivot = scene.createTransformedEntity("rover-hga-yaw", new Vec3(HGA_X, baseY + 0.24, HGA_Z));
+      chassis.addChild(yawPivot);
+      yawPivot.transform.position = new Vec3(HGA_X, baseY + 0.24, HGA_Z);
+      hgaPart("yoke-forward", yawPivot, yokeGeo, hgaMountMaterial, new Vec3(0, 0.05, 0.06));
+      hgaPart("yoke-aft", yawPivot, yokeGeo, hgaMountMaterial, new Vec3(0, 0.05, -0.06));
+      // Elevation pivot between the yoke arms, carrying dish + feed, boresight +Z at 0°.
+      const pitchPivot = scene.createTransformedEntity("rover-hga-pitch", new Vec3(0, 0.05, 0));
+      yawPivot.addChild(pitchPivot);
+      pitchPivot.transform.position = new Vec3(0, 0.05, 0);
+      // The dish's cylinder axis is +Y; a +90° X rotation points it along +Z (wide rim forward).
+      const dishQ = new Quat().setAxisAngle(AXIS_X, Math.PI / 2);
+      hgaPart("dish", pitchPivot, dishGeo, hgaDishMaterial, new Vec3(0, 0, 0.06), dishQ);
+      hgaPart("feed", pitchPivot, feedGeo, hgaMountMaterial, new Vec3(0, 0, 0.19), dishQ);
+      hgaPart("feed-tip", pitchPivot, feedTipGeo, hgaDishMaterial, new Vec3(0, 0, 0.3));
+
+      hgaYawPivot = yawPivot;
+      hgaPitchPivot = pitchPivot;
+      writeHgaPose();
+      hga.arm(); // the unfurl countdown starts when the model lands, not at scene load
+    }
   };
 
   /** Pose all mast pivots from the spring state (no-op until the GLB lands). */
@@ -798,7 +932,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm (TFGH / IJKL move it) · Drag to orbit · Scroll zoom",
+    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm (TFGH / IJKL move it) · HGA auto-tracks Earth · Drag to orbit · Scroll zoom",
     camera: {
       // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
       target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
@@ -864,6 +998,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         mastElevationQ.setAxisAngle(AXIS_X, mastElevationAngle);
         mastHeadPivotEntity.transform.rotation = mastElevationQ;
       }
+      // High-gain antenna: unfurls HGA_DEPLOY_DELAY_SECONDS after the model lands, then re-solves
+      // Earth in gimbal space every frame — driving, turning or pitching the rover is compensated
+      // by the slew-limited gimbals, never snapped. One-way: there is no stow path at all.
+      if (hgaYawPivot && hga.update(dt, { yaw: vehicle.yaw, pitch: vehicle.pitch, roll: vehicle.roll })) {
+        writeHgaPose();
+      }
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
@@ -885,7 +1025,6 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       armTouch.setVisible(arm.unfolded);
     },
     overlay(): string {
-      const gear = vehicle.gear === 0 ? "N" : String(vehicle.gear);
       const contact = vehicle.wheels.filter((w) => w.inContact).length;
       const mb = (bytes: number): string => (bytes / 1048576).toFixed(1);
       const model = modelLoaded
@@ -905,6 +1044,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             : mastT < 0.02
               ? "STOWED"
               : `${Math.round(mastT * 100)}%↓`;
+      const deg = (rad: number): string => ((rad * 180) / Math.PI).toFixed(0);
+      const antennaLabel =
+        !modelLoaded || !hgaYawPivot
+          ? "—"
+          : hga.phase === "tracking"
+            ? `EARTH az ${deg(hga.azimuth)}° el ${deg(hga.elevation)}°`
+            : hga.phase === "deploying"
+              ? `DEPLOY ${Math.round(hga.deployT * 100)}%`
+              : `ARMED ${hga.countdown.toFixed(0)}s`;
+      const powerKW = motor.powerKW;
+      const powerLabel = `${Math.abs(powerKW).toFixed(2)} ${powerKW < -0.005 ? "kW regen" : "kW"}`;
       const jog = (joint: number, tag: string): string => {
         const d = Math.round(arm.jogDegrees(joint));
         return d === 0 ? "" : ` ${tag}${d > 0 ? "+" : "−"}${Math.abs(d)}°`;
@@ -920,8 +1070,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
               ? "STOWED"
               : `${Math.round(arm.progress * 100)}%↓`;
       return (
-        `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel}\n` +
-        `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  gear ${gear}  rpm ${vehicle.rpm.toFixed(0)}  wheels ${contact}/6\n` +
+        `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel} · HGA ${antennaLabel}\n` +
+        `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDust.simulation.alive}  NASA/JPL-Caltech (public domain)`
       );
@@ -953,6 +1103,15 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         armUnfolded: arm.unfolded,
         armSticksVisible: armTouch.visible,
         armJoints: Array.from(arm.pose(armPose), (v) => (v * 180) / Math.PI),
+        antenna: {
+          phase: hga.phase,
+          countdown: hga.countdown,
+          deployT: hga.deployT,
+          azimuthDeg: (hga.azimuth * 180) / Math.PI,
+          elevationDeg: (hga.elevation * 180) / Math.PI,
+          targetAzimuthDeg: (hga.targetAzimuth * 180) / Math.PI,
+          targetElevationDeg: (hga.targetElevation * 180) / Math.PI,
+        },
         speed: vehicle.speed,
         x: vehicle.position.x,
         y: vehicle.position.y,
@@ -980,6 +1139,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       keys.clear();
       loaded?.dispose();
       loaded = null;
+      for (const resource of hgaResources) resource.dispose();
+      hgaResources.length = 0;
       placeholderBodyMesh.dispose();
       placeholderBodyMaterial.dispose();
       placeholderWheelMesh.dispose();

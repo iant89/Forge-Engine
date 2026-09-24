@@ -7,6 +7,12 @@
  * about the axle, composed as yaw (chassis + steer) then a local X rotation — applied as an euler
  * (spin, yaw, 0) which is close enough for a debug wheel and exact for the chassis.
  *
+ * Wheel centres hang off the chassis hardpoints along the body up-axis at the current suspension
+ * length ({@link Vehicle.wheelCenterPosition}) — a child of the suspension, never of the terrain.
+ * Anchoring them to the ray contact instead made a wheel stick to the ground over a crest while
+ * the chassis flew on, then teleport back the moment the ray released ("wheels fly off the rover
+ * and snap back").
+ *
  * When {@link VehicleComponent.chassisBody} is set, do **not** snap the kinematic collider here.
  * FixedSystems are not interleaved: this system finishes all `fixedSteps` before PhysicsSystem
  * runs. Snapping the chassis to the end pose/ω each vehicle substep leaves hitch frames
@@ -15,6 +21,7 @@
  */
 
 import { Quat } from "../math/mat.js";
+import { Vec3 } from "../math/vec.js";
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { VehicleComponent } from "./components.js";
@@ -24,6 +31,7 @@ export class VehicleSystem extends FixedSystem {
   override readonly order = 110;
   override readonly before = ["transforms"];
   private readonly scratchRot = new Quat();
+  private readonly scratchPos = new Vec3();
 
   override fixedStep(context: SystemContext, _step: number): void {
     const dt = context.fixedDt;
@@ -52,9 +60,10 @@ export class VehicleSystem extends FixedSystem {
       if (!wheel) continue;
       const t = world.getComponent(id, Transform);
       if (!t) continue;
-      // Wheel centre sits one radius above the contact, not at the chassis origin.
-      const y = wheel.inContact ? wheel.contactY + v.config.wheelRadius : v.position.y - (v.config.suspensionRest - wheel.compression);
-      t.setPosition(wheel.contactX, y, wheel.contactZ);
+      // Wheel centre hangs off the suspension hardpoint along the body up-axis — a child of the
+      // suspension, never of the terrain contact (see Vehicle.wheelCenterPosition).
+      const pos = v.wheelCenterPosition(wheel, this.scratchPos);
+      t.setPosition(pos.x, pos.y, pos.z);
       // Negate spin for left-side wheels (x < 0): their axle points in the opposite direction
       // from right-side wheels, so the same omega produces the opposite visual rotation.
       const visualSpin = wheel.x < 0 ? -wheel.spin : wheel.spin;
