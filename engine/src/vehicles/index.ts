@@ -21,6 +21,7 @@ export {
   type WheelTorqueInput,
   type AeroConfig,
 } from "./drivetrain.js";
+export { ElectricMotor, ReductionDrive, type ElectricMotorOptions } from "./electric.js";
 export { flatGround, slopeGround, heightFunctionGround, type GroundQuery, type GroundSample } from "./ground.js";
 export {
   physicsGroundQuery,

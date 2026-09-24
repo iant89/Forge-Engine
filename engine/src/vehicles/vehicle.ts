@@ -28,6 +28,7 @@ import {
   type DifferentialType,
   type DrivetrainLayout,
 } from "./drivetrain.js";
+import { ElectricMotor } from "./electric.js";
 import type { GroundQuery, GroundSample } from "./ground.js";
 import { computeWheelLoads, distributeWheelLoads, type WheelLoads } from "./loads.js";
 import { DEFAULT_LATERAL, DEFAULT_LONGITUDINAL, pacejka, pacejkaDerivative, pacejkaPeakSlip, type PacejkaCoefficients } from "./pacejka.js";
@@ -411,6 +412,33 @@ export class Vehicle {
     return out;
   }
 
+  /**
+   * World-space wheel-centre pose: the hardpoint (the wheel's config x/z on the body axes) hangs
+   * the current suspension length along the body up-axis, clamped to [rest − travel, rest] so a
+   * wheel never extends past full droop and never retracts past the bump stop.
+   *
+   * The visual wheel is a child of the *suspension*, never of the terrain. Posing it at the ray
+   * contact instead makes it stick to the ground over a crest while the chassis flies on — then,
+   * the moment the ray lets go (`inContact` flips), it teleports back to the body: the "wheels
+   * fly off the rover and snap back" bug. Here an unloaded wheel just droops to full rest and
+   * rides with the chassis until it lands.
+   */
+  wheelCenterPosition(w: WheelState, out: Vec3): Vec3 {
+    this.rebuildBasis();
+    const c = this.config;
+    const len = clamp(
+      c.suspensionRest - w.compression,
+      c.suspensionRest - c.suspensionTravel,
+      c.suspensionRest,
+    );
+    return out.set(
+      this.position.x + this.right.x * w.x + this.forward.x * w.z - this.up.x * len,
+      this.position.y + this.right.y * w.x + this.forward.y * w.z - this.up.y * len,
+      this.position.z + this.right.z * w.x + this.forward.z * w.z - this.up.z * len,
+    );
+  }
+
+
   /** Phase 11.8 telemetry snapshot for HUD / tests. */
   telemetry(): VehicleTelemetry {
     return {
@@ -509,8 +537,17 @@ export class Vehicle {
     // ω is a numerical overshoot, and cutting torque from it makes the tire reaction reverse the wheel.
     c.engine.throttle = throttle;
     const ratio = c.transmission.ratio;
-    const engineTorque = ratio !== 0 ? c.engine.deliveredTorque(0) : 0;
-    const wheelTorqueTotal = engineTorque * ratio * c.efficiency;
+    let motorTorque = ratio !== 0 ? c.engine.deliveredTorque(0) : 0;
+    // Regenerative braking (electric drivetrains): part of the brake demand becomes a negative
+    // motor torque instead of pad torque, riding the same signed-demand slip solve as reverse
+    // drive, so TC, ABS and the friction circle see one consistent picture. It fades out below
+    // REGEN_FADE_SPEED — real blends hand the last bit of braking to the friction pads, and a
+    // negative demand at a standstill would creep the car backwards against the park logic.
+    if (brake > 0 && ratio !== 0 && c.engine instanceof ElectricMotor && c.engine.regenTorque > 0) {
+      const blend = brake * clamp(this.speed / REGEN_FADE_SPEED, 0, 1);
+      motorTorque -= blend * c.engine.regenTorque;
+    }
+    const wheelTorqueTotal = motorTorque * ratio * c.efficiency;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       const input = this.torqueInputs[i]!;
@@ -1070,6 +1107,13 @@ const AXIS_Z = { x: 0, y: 0, z: 1 };
  * and the chassis latch holds the pose. 1.26 km/h — slow enough that no driving state notices.
  */
 const STATIC_HOLD_SPEED = 0.35;
+
+/**
+ * Chassis speed (m/s) at which regenerative braking reaches full authority. Below it the regen
+ * share of the brake demand fades to zero (the friction pads take over), so a stopped car cannot
+ * be pushed backwards by its own regeneration.
+ */
+const REGEN_FADE_SPEED = 0.5;
 
 /**
  * Free-wheel speed step (`I·dω = torque`) with the brake as a one-way constraint: it can hold a

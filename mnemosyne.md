@@ -145,3 +145,27 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 - **Flake:** editing `engine/src` or `examples/src` while the gate runs makes vite HMR navigate the
   page → `page.evaluate: Execution context was destroyed, most likely because of a navigation`.
   Freeze the tree before `npm run check:browser`.
+
+## 2026-09-24 — rover speed, wheels flying off, electric drivetrain, auto HGA
+
+- **"Wheels fly off at hill crests then snap back":** `VehicleSystem.writeWheels` anchored
+  *in-contact* wheels to the ray contact (`contactX/Y/Z + radius`), so over a crest the wheel
+  stayed glued to the terrain while the chassis flew on, then teleported chassis-relative the
+  moment `inContact` flipped. Fix: `Vehicle.wheelCenterPosition` (hardpoint − up·(rest −
+  compression), clamped to [rest−travel, rest]); the visual wheel is a child of the suspension,
+  never of the terrain. Note: in the *fully settled* over-compressed pose, penetration correction
+  makes contact-anchored and suspension-anchored coincide (both touch the ground) — the bug is the
+  transient, so a regression test must assert the helper contract, not a single pose.
+- **"Rover is way too fast":** `createVehicleConfig`'s combustion defaults (340 N·m, 5-speed × 3.7)
+  gear a 1025 kg Mars rover to a 200+ km/h equivalent and ~4 g of 1st-gear force. The fix is the
+  vehicle-appropriate drivetrain, not a throttle clamp: `ElectricMotor` (envelope: constant torque
+  → constant power → taper; no idle) + `ReductionDrive` (fixed ratio). Showcase config: 1 kW,
+  60:1 → ≈1.75 m/s no-load cap, 2160 N tractive.
+- **NASA Perseverance GLB has no HGA** — verified by vertex scan (zero body vertices above the
+  front-right deck). The procedural assembly mounts at model space (0.62, 1.2, 0.55); deck panels
+  top out at y≈1.2. Body meshes are baked to model-root space, so nothing baked can ever be
+  articulated — anything new must be built from primitives.
+- **Gimbal-frame gotcha:** `Vehicle.writeRotation` composes yaw → pitch(−, about local X) →
+  roll(+, about local Z); world→local is the inverse. Earth's elevation (38.6°) rotates mostly
+  with *roll* (its local x-component dominates), not pitch — clamp tests that assume pitch moves
+  elevation will silently pass/fail on the wrong axis.

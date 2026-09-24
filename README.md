@@ -15,11 +15,14 @@ analytic sky pass and fog), `docs/ENVIRONMENT.md` for the sun/sky/fog/day-night 
 `docs/VERIFICATION.md` for what each check proves.
 
 The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
-(the public-domain NASA/JPL GLB) driving over streamed, cratered Mars terrain beneath a Mars sky, with
-wind-blown and wheel-kick dust. Use `WASD` / arrow keys to drive and `Space` for the handbrake, `M`
-to raise the camera mast, and `R` to unfold the front robotic arm — once out, jog its swing,
-shoulder, elbow and turret with `F/H`, `T/G`, `I/K`, `J/L` or the two thumbsticks that appear above
-the drive pad on touch layouts. The
+(the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1
+`ReductionDrive`, ≈6 km/h top speed with regenerative braking) driving over streamed, cratered Mars
+terrain beneath a Mars sky, with wind-blown and wheel-kick dust. Use `WASD` / arrow keys to drive
+and `Space` for the handbrake, `M` to raise the camera mast, and `R` to unfold the front robotic
+arm — once out, jog its swing, shoulder, elbow and turret with `F/H`, `T/G`, `I/K`, `J/L` or the
+two thumbsticks that appear above the drive pad on touch layouts. About five seconds after the
+model lands, the high-gain antenna unfurls by itself and tracks Earth for the life of the scene —
+slew-limited gimbals compensate every rover move, and there is no stow control. The
 scene selector still offers all nine demos: **PBR Showcase** (Phase 2: instanced material grid,
 emissive bloom source, three shadow cascades, HDR / bloom / shadow / cascade-tint toggles in the
 panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze), **Realistic

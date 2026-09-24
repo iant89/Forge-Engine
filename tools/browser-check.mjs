@@ -958,6 +958,22 @@ try {
   if (!(Math.abs(marsDz) > 0.5)) throw new Error(`mars showcase: W did not drive the rover (dz ${marsDz.toFixed(3)}m in 45s)`);
   if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
   if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
+  // High-gain antenna: it arms when the GLB lands and unfurls five seconds of sim time later, so
+  // "deploying" on the real device proves the countdown + pivots are wired. Convergence onto the
+  // Earth target is only ~3 more seconds of sim time — minutes at SwiftShader's showcase frame
+  // rate — so like the robotic arm above, on-target tracking is pinned by tests/highGainAntenna
+  // and the gate asserts the choreography started and the dish left its stowed pose.
+  const hgaMoving = await pollMars(
+    "mars showcase: HGA never started deploying in 300s",
+    (s) =>
+      (s.antenna?.phase === "deploying" || s.antenna?.phase === "tracking") &&
+      Math.abs(((s.antenna.azimuthDeg - 180 + 540) % 360) - 180) > 10, // off the stowed (aft) pose
+    300000,
+  );
+  console.log(
+    `mars showcase HGA: phase=${hgaMoving.antenna.phase} az=${hgaMoving.antenna.azimuthDeg.toFixed(1)}° ` +
+      `el=${hgaMoving.antenna.elevationDeg.toFixed(1)}° (target ${hgaMoving.antenna.targetAzimuthDeg.toFixed(1)}°, ${hgaMoving.antenna.targetElevationDeg.toFixed(1)}°)`,
+  );
   const marsStatsAfter = await page.evaluate(() => window.__forge.stats());
   if (marsStatsAfter.gpuErrors !== marsStatsBefore.gpuErrors || marsStatsAfter.lastError) {
     throw new Error(`mars showcase GPU errors while driving: ${marsStatsAfter.lastError}`);

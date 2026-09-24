@@ -59,6 +59,38 @@ differential (`open`, `locked`, or `lsd`). Layout is `fwd`, `rwd`, or `awd`. Aer
 plus a lift coefficient; pass `aero: null` to turn it off. Reverse is a ratio (`gear = -1`); nothing
 selects it automatically, and the playground has no reverse key.
 
+## Electric drivetrains
+
+`ElectricMotor` (`vehicles/electric.ts`) drops into `createVehicleConfig({ engine, transmission })`
+where an `EngineModel` would: same `throttle` / `omega` / `rpm` surface, but the torque envelope is
+a traction motor's — constant `peakTorque` from stall to `ratedRpm`, constant `peakPower` above it,
+tapering to zero across the last 15% of `maxRpm`. There is no idle (`idleRpm = 0`: the shaft rests
+at 0 rpm and `Vehicle`'s torque-converter idle-hold never engages) and no clutch — pair it with
+`ReductionDrive(ratio)`, a `Transmission` subclass that engages one fixed motor→wheel ratio
+forever: `ratio` is never 0, `update()` never shifts, `shiftCount` stays 0, and `gear = -1`
+reverses the ratio sign like any gearbox.
+
+Regeneration is a chassis-side blend, not a motor mode: while the brake pedal is down, `Vehicle`
+subtracts `brake × regenTorque` from the motor torque before the ratio, so the negative demand
+rides the same signed slip solve as reverse drive — TC, ABS and the friction circle see one
+consistent picture. The blend fades out below 0.5 m/s (real blends hand the last of the braking to
+the friction pads, and a negative demand at a standstill would creep the car backwards against the
+park logic). `ElectricMotor.powerKW` reads the last delivered shaft power — negative while
+regenerating, which is what the Mars showcase HUD shows.
+
+The Mars showcase rover is the reference config: ≈1 kW `ElectricMotor` + `ReductionDrive(60)` on a
+1025 kg six-wheel chassis — ≈2160 N tractive (climbs ~34° at Mars gravity) and a no-load cap near
+1.75 m/s ≈ 6 km/h, which is what the old combustion defaults (geared past 200 km/h) needed to fix.
+
+## Wheel visuals are suspension-anchored
+
+`VehicleSystem` poses each wheel entity with `Vehicle.wheelCenterPosition`: the hardpoint (the
+wheel's config x/z on the body axes) hangs the current suspension length along the body up-axis,
+clamped to `[rest − travel, rest]`. The wheel is a child of the *suspension*, never of the terrain:
+anchoring it to the ray contact made a wheel stick to the ground over a crest while the chassis
+flew on, then teleport back to the body the moment the ray released — the "wheels fly off the
+rover and snap back" bug. An unloaded wheel now droops to full rest and rides with the chassis.
+
 ## Brakes
 
 Three inputs, all torques on the wheel: `brake` (`maxBrakeTorque`, every wheel), `handbrake`
