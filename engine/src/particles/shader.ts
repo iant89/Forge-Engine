@@ -407,7 +407,11 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   if (r > 0.5) {
     discard;
   }
-  let edge = smoothstep(0.5, 0.35, r);
+  // Falling edge, written the way the compiler requires: smoothstep(low, high, x) needs low < high.
+  // This was smoothstep(0.5, 0.35, r), which evaluates the same on drivers that clamp the divide,
+  // but is a module error for a compiler that const-evaluates the call — Chromium 130's Tint
+  // rejected it, the particle pipeline then never built, and the page drew nothing.
+  let edge = 1.0 - smoothstep(0.35, 0.5, r);
   var alpha = in.color.a * edge;
   if (in.softEnabled != 0u && params.softScale > 0.0) {
     // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
