@@ -584,6 +584,40 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Arm-feature entries plus this self-entry for PR #36.",
     "why": "The log must stay complete as the branch grows."
+  },
+  {
+    "id": "0046",
+    "date": "2026-09-24T18:44:32Z",
+    "type": "pr-merge",
+    "pr": 36,
+    "branch": "arena/01a0d44b-forge-engine",
+    "base": "main",
+    "title": "Mars showcase: unfoldable robotic arm with dual-thumbstick jog",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "The Perseverance's front robotic arm unfolds/stows with an acceleration-limited, keyframed choreography (lift, swing, long-path elbow, turret aim) and, once out, is jogged by two thumbsticks above the drive controls (swing/shoulder, turret/elbow) or TFGH/IJKL, with joint limits, wrist auto-level and a ground guard. Converter emits the five-joint chain as a spec-correct nested hierarchy with pivot-relative parts and extras {joint, axis} (mast sub-group joints fixed to extras too); loader gains LoadedGlb.arm; roverArm.ts is the pure tested controller; armTouch.ts + ARM pad button + HUD/HANDLE/gate wiring; keyframes and jog box voxel-swept collision-free; 23 new tests (466 total); real-WebGPU gate checks unfold start + stow-to-zero; docs, README, screenshot, mnemosyne, change-log. Also fixes main's red typecheck (TS never-narrowing in glb.ts).",
+    "files": [
+      "scripts/convert-perseverance.mjs",
+      "examples/assets/Perseverance.glb",
+      "examples/src/assets/glb.ts",
+      "examples/src/scenes/roverArm.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "examples/src/controls/armTouch.ts",
+      "examples/src/controls/vehicleTouch.ts",
+      "examples/src/main.ts",
+      "examples/index.html",
+      "tests/roverGlb.test.ts",
+      "tests/roverArm.test.ts",
+      "tests/armTouch.test.ts",
+      "tests/vehicleTouch.test.ts",
+      "tools/browser-check.mjs",
+      "README.md",
+      "docs/VERIFICATION.md",
+      "docs/screenshots/README.md",
+      "docs/screenshots/mars-showcase-arm-unfolded.png",
+      "mnemosyne.md",
+      "change-log.md"
+    ]
   }
 ]
 ```
