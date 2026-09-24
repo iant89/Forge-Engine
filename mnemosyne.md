@@ -75,3 +75,37 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   Same-file parallel edits race: all but one are silently lost, and one batch actively corrupted
   `marsShowcaseScene.ts` (duplicated dispose fragment). One edit per file per message; different
   files may still go together. Verify multi-edit files with `git diff` before moving on.
+
+## 2026-09-24 — robotic arm unfold + thumbstick jog (Mars showcase)
+
+- Source chain `arm.003 > arm.002 > arm > arm.004 > turret_obj`: all five joint pivots ARE the node
+  world origins (Kasa circle fits on actuator stubs, <1 mm), axes +Y/−Z/−Z/−Z/+Y. The converter now
+  emits a spec-correct nested chain `arm > arm_shoulder > arm_elbow > arm_wrist > arm_turret`
+  (translation = pivot relative to parent joint, pivot-relative verts, `extras {joint, axis}`),
+  asserted by name/parentage/axis. `mast_upper`/`mast_head` joints moved from `translation` to
+  `extras.joint`: their parts are hinge-relative, so a translation double-offsets them in any
+  spec-following viewer (the loader used to paper over it with counter-offset entities).
+- Choreography lives in `examples/src/scenes/roverArm.ts` (pure state, fully unit-tested). Hard-won
+  facts: pitching the shoulder while stowed cuts ~10 cm into the front `lab` housing (voxel sweep)
+  → the lift stage opens only the elbow (wrist compensates, turret rises without tilting); the elbow
+  must open the long way (−242°) — the short +118° path swings the turret through the ground.
+- Jog box verified collision-free by 1–2.5 cm voxel sweeps over the whole limit box + ground guard
+  (turret joint ≥ 0.5 m): azimuth 30–150°, upper arm −20…75°, elbow-rel −120…−10°, turret spin
+  ±180°. Past −125° elbow at the azimuth extremes the turret meets front hazcams / calibration
+  target, or the forearm meets the front-right wheel/rocker.
+- TS trap (main's CI is red on it): `let mast: GlbMast | null = null;` assigned only inside the
+  `visit` closure makes later `if (mast)` narrow to `never` → five phantom TS2339s. Fix:
+  `let mast = null as GlbMast | null;` (same for `arm`).
+- CSS traps: `button.veh-mast.active` loses to `#veh-mast` on specificity, so only the scale ever
+  applied — lit-toggle rules must be id-based (`#veh-mast.active`, `#veh-arm.active`).
+  `#controls-hint` is `left:50%` with no width, so it shrink-wraps to half the viewport and the long
+  Mars hint wrapped; `width:max-content; max-width:calc(100vw - 32px)` fixes it.
+- Arm sticks (`armTouch.ts`) reuse `.veh-knob` (44 px → inset 22); axes are up-positive, so
+  `y = -def.y` must map a dead-zoned 0 to +0 (−0 failed `toBe(0)`). `stickDeflection` and
+  `suppressTouchChrome` are now exported for reuse.
+- SwiftShader renders the showcase at well under 1 fps: a full 6 s unfold is ~4 min of wall time.
+  The gate therefore checks unfold start + stow-to-zero only; the unfolded pose, jog, limits and
+  ground guard live in `tests/roverArm` / `armTouch` / `vehicleTouch`. Headless captures go through
+  `.cache/scratch/shot.mjs` (phone/desktop emulation, `HANDBRAKE=1` to stop the drift, `ORBIT` drags
+  chunked to ≤0.8×viewport and centred — azimuth wraps at ±π, and negative drags orbit the wrong way
+  for a front-right view; `ZOOM` wheel pixels, positive = out).

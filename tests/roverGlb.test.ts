@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+  ARM_JOINTS,
+  ARM_LINKS_UV,
+  ARM_SHOULDER_HEIGHT,
+  ARM_STOWED_FOREARM_DEG,
+  ARM_STOWED_UPPER_ARM_DEG,
+} from "../examples/src/scenes/roverArm.js";
 
 interface GlbAccessor {
   bufferView?: number;
@@ -25,7 +32,14 @@ interface GlbJson {
   accessors: GlbAccessor[];
   bufferViews: GlbBufferView[];
   meshes: GlbMesh[];
-  nodes?: { name?: string; translation?: number[] }[];
+  nodes?: {
+    name?: string;
+    mesh?: number;
+    translation?: number[];
+    children?: number[];
+    extras?: { joint?: unknown; axis?: unknown };
+  }[];
+  scenes?: { nodes?: number[] }[];
 }
 
 const GLB_PATH = fileURLToPath(new URL("../examples/assets/Perseverance.glb", import.meta.url));
@@ -101,6 +115,75 @@ describe("Perseverance.glb (mars showcase rover)", () => {
     }
     expect(maxZ).toBeLessThan(0.1);
     expect(minZ).toBeLessThan(-0.5);
+  });
+
+  it("records the mast sub-group joints in extras, not translations that double-offset its parts", () => {
+    const { json } = parseGlbContainer(fs.readFileSync(GLB_PATH));
+    for (const name of ["mast_upper", "mast_head"]) {
+      const node = (json.nodes ?? []).find((n) => n.name === name);
+      expect(node, name).toBeDefined();
+      expect(node!.translation).toBeUndefined();
+      expect(Array.isArray(node!.extras?.joint) && (node!.extras!.joint as unknown[]).length).toBe(3);
+    }
+  });
+
+  it("ships the robotic arm as a nested, pivot-relative joint chain matching the controller", () => {
+    const { json } = parseGlbContainer(fs.readFileSync(GLB_PATH));
+    const nodes = json.nodes ?? [];
+    const chain = ["arm", "arm_shoulder", "arm_elbow", "arm_wrist", "arm_turret"].map((name) => {
+      const matches = nodes.flatMap((n, i) => (n.name === name ? [i] : []));
+      expect(matches.length, name).toBe(1);
+      return matches[0]!;
+    });
+    // A scene root, each joint hanging directly off the previous one (so it rides along).
+    expect(json.scenes?.[0]?.nodes).toContain(chain[0]);
+    for (let j = 1; j < chain.length; j++) expect(nodes[chain[j - 1]!]!.children).toContain(chain[j]);
+    // Joint roles in the controller's order, and the axes it rotates about.
+    expect(chain.map((i) => nodes[i]!.extras?.joint)).toEqual([...ARM_JOINTS]);
+    expect(chain.map((i) => nodes[i]!.extras?.axis)).toEqual([[0, 1, 0], [0, 0, -1], [0, 0, -1], [0, 0, -1], [0, 1, 0]]);
+    // Azimuth pivot on the front-right mount ring (converter `arm[0].pivot`).
+    const t = chain.map((i) => nodes[i]!.translation ?? [0, 0, 0]);
+    expect(t[0]![0]).toBeCloseTo(0.4515, 3);
+    expect(t[0]![1]).toBeCloseTo(0.9148, 3);
+    expect(t[0]![2]).toBeCloseTo(1.1755, 3);
+    // The planar geometry roverArm.ts hardcodes for its ground guard and ready pose: J2 height,
+    // then each link's stowed (reach = −X, up = +Y) vector — re-derived so a reconversion that
+    // moves a pivot fails here instead of silently mis-aiming the arm.
+    expect(t[0]![1] + t[1]![1]).toBeCloseTo(ARM_SHOULDER_HEIGHT, 3);
+    for (let k = 0; k < 3; k++) {
+      expect(-t[k + 2]![0]).toBeCloseTo(ARM_LINKS_UV[k]![0], 3);
+      expect(t[k + 2]![1]).toBeCloseTo(ARM_LINKS_UV[k]![1], 3);
+    }
+    const planarDeg = (v: number[]): number => (Math.atan2(v[1]!, -v[0]!) * 180) / Math.PI;
+    expect(planarDeg(t[2]!)).toBeCloseTo(ARM_STOWED_UPPER_ARM_DEG, 1);
+    expect(planarDeg(t[3]!)).toBeCloseTo(ARM_STOWED_FOREARM_DEG, 1);
+    // Every link carries pivot-relative geometry that surrounds its own joint housing (world-space
+    // vertices would sit ~1 m away from the origin) and stays within a link length of it.
+    for (const [j, index] of chain.entries()) {
+      const parts = (nodes[index]!.children ?? []).map((c) => nodes[c]!).filter((n) => n.mesh !== undefined);
+      expect(parts.length, ARM_JOINTS[j]).toBeGreaterThan(0);
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+      for (const part of parts) {
+        for (const prim of json.meshes[part.mesh!]!.primitives) {
+          const acc = json.accessors[prim.attributes.POSITION!]!;
+          for (let k = 0; k < 3; k++) {
+            min[k] = Math.min(min[k]!, acc.min?.[k] ?? Infinity);
+            max[k] = Math.max(max[k]!, acc.max?.[k] ?? -Infinity);
+          }
+        }
+      }
+      for (let k = 0; k < 3; k++) {
+        expect(min[k], `${ARM_JOINTS[j]} min[${k}]`).toBeLessThan(0.02);
+        expect(max[k], `${ARM_JOINTS[j]} max[${k}]`).toBeGreaterThan(-0.02);
+        expect(Math.max(-min[k]!, max[k]!), `${ARM_JOINTS[j]} extent[${k}]`).toBeLessThan(1.2);
+      }
+    }
+    // The parent-relative translations compose back to the turret post's model-space pivot.
+    const turretPivot = [0, 1, 2].map((k) => t.reduce((sum, v) => sum + v[k]!, 0));
+    expect(turretPivot[0]).toBeCloseTo(0.4272, 3);
+    expect(turretPivot[1]).toBeCloseTo(1.228, 3);
+    expect(turretPivot[2]).toBeCloseTo(0.9964, 3);
   });
 
   it("has in-range indices on every mesh (no invisible wheels)", () => {

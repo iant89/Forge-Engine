@@ -11,6 +11,9 @@
  * Conventions the converter guarantees and this loader relies on:
  * - body primitives are already baked to model-root space (identity node transforms),
  * - `wheel_*` root nodes translate to their hub centre and their child meshes are hub-centred,
+ * - the `arm` root and its nested `arm_shoulder` > `arm_elbow` > `arm_wrist` > `arm_turret`
+ *   joints translate to their pivot relative to the parent joint (the root in model space), carry
+ *   `extras.axis`, and hold pivot-relative parts — the loader returns them as {@link GlbArm},
  * - +Z is the rover's nose, +Y up, metres — the vehicle convention.
  */
 
@@ -75,7 +78,13 @@ interface GltfJson {
   materials?: GltfMaterial[];
   textures?: { source: number }[];
   images?: GltfImage[];
-  nodes?: { name?: string; mesh?: number; translation?: number[]; children?: number[] }[];
+  nodes?: {
+    name?: string;
+    mesh?: number;
+    translation?: number[];
+    children?: number[];
+    extras?: { joint?: unknown; axis?: unknown };
+  }[];
   scenes?: { nodes?: number[] }[];
   scene?: number;
 }
@@ -124,6 +133,32 @@ export interface GlbMast {
   headParts: GlbPart[];
 }
 
+/** One joint of the robotic arm chain: a pivot, its rotation axis, and the link it carries. */
+export interface GlbArmJoint {
+  /** Node name: `arm`, `arm_shoulder`, `arm_elbow`, `arm_wrist` or `arm_turret`. */
+  name: string;
+  /** Joint role from `extras.joint`: azimuth, shoulder, elbow, wrist or turret. */
+  joint: string;
+  /** Pivot relative to the parent joint's pivot (the first joint's is in model space). */
+  offset: [number, number, number];
+  /** Unit rotation axis in the joint's own frame — the model frame while everything is stowed. */
+  axis: [number, number, number];
+  /** The link's parts, vertices relative to this pivot. */
+  parts: GlbPart[];
+}
+
+/**
+ * The robotic arm as the converter ships it — folded, the NASA model's pose — as a chain of
+ * nested joints, root (azimuth, on the mount ring) to tip (the instrument turret). Parent one pivot
+ * entity per joint under the previous one at `offset` and rotate each about its `axis`.
+ */
+export interface GlbArm {
+  joints: GlbArmJoint[];
+}
+
+/** Arm joint node names in chain order; a GLB with an `arm` root must match exactly. */
+export const GLB_ARM_JOINT_NODES = ["arm", "arm_shoulder", "arm_elbow", "arm_wrist", "arm_turret"] as const;
+
 export interface LoadedGlb {
   /** Body meshes in model-root space (converter baked all node transforms). */
   body: GlbPart[];
@@ -131,6 +166,8 @@ export interface LoadedGlb {
   wheels: GlbWheel[];
   /** The RSM assembly, or null when the GLB predates the mast split. */
   mast: GlbMast | null;
+  /** The robotic arm chain, or null when the GLB predates the arm split. */
+  arm: GlbArm | null;
   dispose(): void;
 }
 
@@ -409,7 +446,28 @@ export async function loadGlb(
 
   const nodes = json.nodes ?? [];
   const sceneRoots = json.scenes?.[json.scene ?? 0]?.nodes ?? nodes.map((_, i) => i);
-  let mast: GlbMast | null = null;
+  // Assigned inside `visit` (a closure). The `as` keeps TypeScript from narrowing these to their
+  // `null` initialiser in this scope — it does not see closure assignments — which made every
+  // post-walk `if (mast)` block type as `never` and failed the typecheck.
+  let mast = null as GlbMast | null;
+  let arm = null as GlbArm | null;
+  /** Build an arm joint from its node, validating the converter's `extras.axis`. */
+  const armJointFrom = (node: NonNullable<GltfJson["nodes"]>[number], name: string): GlbArmJoint => {
+    const axis = node.extras?.axis;
+    if (!Array.isArray(axis) || axis.length !== 3 || !axis.every((v) => typeof v === "number" && Number.isFinite(v))) {
+      throw new Error(`loadGlb: arm joint ${name} has no valid extras.axis`);
+    }
+    const [ax, ay, az] = axis as [number, number, number];
+    const len = Math.hypot(ax, ay, az);
+    if (!(len > 1e-6)) throw new Error(`loadGlb: arm joint ${name} has a zero-length axis`);
+    return {
+      name,
+      joint: typeof node.extras?.joint === "string" ? node.extras.joint : name,
+      offset: [node.translation?.[0] ?? 0, node.translation?.[1] ?? 0, node.translation?.[2] ?? 0],
+      axis: [ax / len, ay / len, az / len],
+      parts: [],
+    };
+  };
   /** Mast sub-group parts and centroid accumulators for joint position computation. */
   const mastLowerParts: GlbPart[] = [];
   const mastUpperParts: GlbPart[] = [];
@@ -441,10 +499,25 @@ export async function loadGlb(
     return "head";
   }
 
-  /** Walk the scene graph: wheel/mast roots are transform-only nodes with mesh children beneath. */
-  const visit = async (index: number, wheel: GlbWheel | null, inMast: boolean): Promise<void> => {
+  /**
+   * Walk the scene graph: wheel/mast/arm roots are transform-only nodes with mesh children beneath.
+   * `armJoint` is the innermost arm joint above `index` (its link owns any meshes found here).
+   */
+  const visit = async (index: number, wheel: GlbWheel | null, inMast: boolean, armJoint: GlbArmJoint | null): Promise<void> => {
     const node = nodes[index];
     if (!node) return;
+    let effectiveArm = armJoint;
+    if (node.name === "arm" && !armJoint) {
+      if (arm) throw new Error("loadGlb: more than one arm root");
+      effectiveArm = armJointFrom(node, node.name);
+      arm = { joints: [effectiveArm] };
+    } else if (armJoint && arm && node.name !== undefined && (GLB_ARM_JOINT_NODES as readonly string[]).includes(node.name)) {
+      const chain: GlbArmJoint[] = arm.joints;
+      // Each joint must hang directly off the previous one, or it would not ride along with it.
+      if (chain[chain.length - 1] !== armJoint) throw new Error(`loadGlb: arm joint ${node.name} is not nested under ${chain[chain.length - 1]?.name}`);
+      effectiveArm = armJointFrom(node, node.name);
+      chain.push(effectiveArm);
+    }
     const isWheelRoot = node.name !== undefined && /^wheel_[FMR][LR]$/.test(node.name);
     let effectiveWheel = wheel;
     if (isWheelRoot && node.name) {
@@ -469,14 +542,16 @@ export async function loadGlb(
       };
       effectiveMast = true;
     }
-    // New converter output: sub-group nodes carry explicit joint positions as translations.
-    // Prefer these over the vertex centroid fallback.
-    if (effectiveMast && mast) {
-      if (node.name === "mast_upper" && node.translation) {
-        mast.joint = [node.translation[0] ?? 0, node.translation[1] ?? 0, node.translation[2] ?? 0];
-      }
-      if (node.name === "mast_head" && node.translation) {
-        mast.headPivot = [node.translation[0] ?? 0, node.translation[1] ?? 0, node.translation[2] ?? 0];
+    // Sub-group nodes record their joint (hinge-relative) in `extras.joint` — older converter
+    // output used `translation`. Seed from it; the vertex-boundary pass below still refines both
+    // joints whenever the neighbouring groups have geometry (always, for the shipped asset).
+    if (effectiveMast && mast && (node.name === "mast_upper" || node.name === "mast_head")) {
+      const extra = node.extras?.joint;
+      const src = Array.isArray(extra) && extra.length === 3 ? (extra as number[]) : node.translation;
+      if (src) {
+        const joint: [number, number, number] = [src[0] ?? 0, src[1] ?? 0, src[2] ?? 0];
+        if (node.name === "mast_upper") mast.joint = joint;
+        else mast.headPivot = joint;
       }
     }
     if (node.mesh !== undefined) {
@@ -487,9 +562,12 @@ export async function loadGlb(
           ? `${effectiveWheel.name}.${mesh.name ?? "part"}`
           : effectiveMast
             ? `mast.${mesh.name ?? "part"}`
-            : (mesh.name ?? `mesh_${node.mesh}`);
+            : effectiveArm
+              ? `arm.${mesh.name ?? "part"}`
+              : (mesh.name ?? `mesh_${node.mesh}`);
         const part = await buildPrimitive(prim, name);
         if (effectiveWheel) effectiveWheel.parts.push(part);
+        else if (effectiveArm) effectiveArm.parts.push(part);
         else if (effectiveMast && mast) {
           mast.parts.push(part);
           // Classify and accumulate centroid data for joint position computation.
@@ -527,9 +605,14 @@ export async function loadGlb(
         else parts.push(part);
       }
     }
-    for (const child of node.children ?? []) await visit(child, effectiveWheel, effectiveMast);
+    for (const child of node.children ?? []) await visit(child, effectiveWheel, effectiveMast, effectiveArm);
   };
-  for (const rootIndex of sceneRoots) await visit(rootIndex, null, false);
+  for (const rootIndex of sceneRoots) await visit(rootIndex, null, false, null);
+  // A partial chain would articulate wrongly (or leave links floating): fail loudly instead.
+  const armChain = arm?.joints.map((j) => j.name);
+  if (armChain && armChain.join(">") !== GLB_ARM_JOINT_NODES.join(">")) {
+    throw new Error(`loadGlb: arm chain is ${armChain.join(" > ")}, expected ${GLB_ARM_JOINT_NODES.join(" > ")}`);
+  }
 
   // Compute joint positions from vertex boundary data.
   // Azimuth joint: boundary between lower and upper mast groups.
@@ -560,6 +643,7 @@ export async function loadGlb(
     body,
     wheels: [...wheels.values()].sort((a, b) => a.name.localeCompare(b.name)),
     mast,
+    arm,
     dispose(): void {
       for (const g of geometries) g.dispose();
       for (const m of materials) m.dispose();

@@ -889,6 +889,33 @@ try {
   if (marsStatsAfter.gpuErrors !== marsStatsBefore.gpuErrors || marsStatsAfter.lastError) {
     throw new Error(`mars showcase GPU errors while driving: ${marsStatsAfter.lastError}`);
   }
+  // Robotic arm: R must start the unfold on the real device — joints leaving the stowed pose proves
+  // the GLB's arm chain is wired to the pivots — and stowing must bring every joint back to exactly
+  // zero with the thumbsticks hidden. A full unfold is 6 s of sim time, minutes at SwiftShader's
+  // showcase frame rate, so the unfolded sticks and jogging are covered by tests/roverArm,
+  // tests/armTouch and tests/vehicleTouch instead.
+  await page.keyboard.press("KeyR");
+  const armMoving = await pollMars(
+    "mars showcase: R did not start the robotic-arm unfold in 60s",
+    (s) => s.armDeployed === true && s.armT > 0.05 && Math.abs(s.armJoints?.[2] ?? 0) > 1,
+    60000,
+  );
+  await page.evaluate(() => window.__forge.setArm(false));
+  const armStowed = await pollMars(
+    "mars showcase: robotic arm did not stow back in 90s",
+    (s) => s.armDeployed === false && s.armT === 0,
+    90000,
+  );
+  console.log(
+    `mars showcase arm: unfold t=${armMoving.armT.toFixed(2)} joints=[${armMoving.armJoints.map((v) => v.toFixed(1)).join(", ")}] ` +
+      `→ stowed joints=[${armStowed.armJoints.map((v) => v.toFixed(1)).join(", ")}] sticks=${armStowed.armSticksVisible}`,
+  );
+  if (armStowed.armJoints.some((v) => v !== 0)) throw new Error(`mars showcase: stowed arm joints not zero: ${armStowed.armJoints}`);
+  if (armStowed.armSticksVisible) throw new Error("mars showcase: arm thumbsticks still shown with the arm stowed");
+  const marsStatsArm = await page.evaluate(() => window.__forge.stats());
+  if (marsStatsArm.gpuErrors !== marsStatsAfter.gpuErrors || marsStatsArm.lastError) {
+    throw new Error(`mars showcase GPU errors while moving the arm: ${marsStatsArm.lastError}`);
+  }
   await page.screenshot({ path: "tools/.browser-check-showcase.png" });
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));

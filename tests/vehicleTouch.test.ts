@@ -84,6 +84,7 @@ function stubRoot(): {
   brake: StubElement;
   stick: StubElement;
   mast: StubElement;
+  arm: StubElement;
   view: StubElement;
 } {
   const gas = new StubElement();
@@ -91,6 +92,7 @@ function stubRoot(): {
   const stick = new StubElement();
   const knob = new StubElement();
   const mast = new StubElement();
+  const arm = new StubElement();
   const view = new StubElement();
   const root = {
     querySelector: (sel: string): StubElement | null => {
@@ -99,11 +101,12 @@ function stubRoot(): {
       if (sel === "#veh-stick") return stick;
       if (sel === "#veh-stick-knob") return knob;
       if (sel === "#veh-mast") return mast;
+      if (sel === "#veh-arm") return arm;
       return null;
     },
     ownerDocument: { defaultView: view },
   };
-  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, view };
+  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, arm, view };
 }
 
 describe("stickDeflection", () => {
@@ -209,6 +212,53 @@ describe("attachVehicleTouch — MAST toggle (Mars showcase)", () => {
     handle!.setMast(true);
     handle!.dispose();
     expect(mast.classes.has("active")).toBe(false);
+    handle = null;
+  });
+});
+
+describe("attachVehicleTouch — ARM toggle (Mars showcase)", () => {
+  let handle: VehicleTouchHandle | null = null;
+  afterEach(() => {
+    handle?.dispose();
+    handle = null;
+  });
+
+  it("fires onArmToggle once per tap, independently of MAST", () => {
+    const { root, arm, mast } = stubRoot();
+    let arms = 0;
+    let masts = 0;
+    handle = attachVehicleTouch(root, { onMastToggle: () => masts++, onArmToggle: () => arms++ });
+    arm.fire("pointerdown", { pointerId: 3, pointerType: "touch" });
+    expect(arms).toBe(1);
+    expect(masts).toBe(0);
+    mast.fire("pointerdown", { pointerId: 4, pointerType: "touch" });
+    expect(arms).toBe(1);
+    expect(masts).toBe(1);
+    arm.fire("pointerdown", { pointerId: 5, pointerType: "mouse", button: 2 });
+    expect(arms).toBe(1);
+  });
+
+  it("guards the ARM button against the iOS selection gestures and binds no toggle without a handler", () => {
+    const { root, arm } = stubRoot();
+    handle = attachVehicleTouch(root);
+    expect(arm.passiveFlag("touchstart")).toBe(false);
+    expect(arm.fire("selectstart").prevented).toBe(true);
+    expect(arm.has("pointerdown")).toBe(false);
+  });
+
+  it("setArm lights the button from the commanded state and dispose clears it", () => {
+    const { root, arm, mast } = stubRoot();
+    handle = attachVehicleTouch(root, { onArmToggle: () => {} });
+    handle!.setArm(true);
+    expect(arm.classes.has("active")).toBe(true);
+    expect(arm.attrs.get("aria-pressed")).toBe("true");
+    expect(mast.classes.has("active")).toBe(false);
+    handle!.setArm(false);
+    expect(arm.classes.has("active")).toBe(false);
+    expect(arm.attrs.get("aria-pressed")).toBe("false");
+    handle!.setArm(true);
+    handle!.dispose();
+    expect(arm.classes.has("active")).toBe(false);
     handle = null;
   });
 });
