@@ -467,6 +467,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       renderable.material = material;
       renderable.castShadow = false;
       renderable.receiveShadow = false;
+      // The renderer picks blending from the Renderable, not the material: without this the dust
+      // drew as solid, depth-writing boxes, and while driving the kick-up and the motes passing
+      // the lens painted flat cream/tan blocks over the view.
+      renderable.transparent = true;
       renderable.visible = false;
       scene.world.addComponent(mote.id, renderable);
       ids.push(mote.id);
