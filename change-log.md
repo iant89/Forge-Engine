@@ -2015,6 +2015,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "HUD lights line names the fill (cpu/gpu); __forge.setLightCulling/lightCulling and ?lightculling=cpu|gpu; setStressLights gained a `tight` mode that stacks the rig into one ball (dimmer, shorter range, distinct intensities) so a cluster overfills by design.",
     "why": "Every switch the demo exposes is what the browser gate flips, and the stacked rig is the only way to put the fill's eviction path in front of a real device from the outside."
+  },
+  {
+    "id": "0156",
+    "date": "2026-09-25T13:49:44Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/gpu/shaderCache.ts",
+    "what": "New validateWgsl rule (mixedOperatorIssues): a nesting level that holds a relational operator and an unparenthesised `&`, `|` or `^` is rejected, which is the shape Tint refuses at createShaderModule with \"mixing '<' and '&' requires parenthesis\". Shifts with comparisons and the logical operators stay legal (checked against Tint), a `->` arrow is not a comparison, and a `<` jammed against identifiers is a type parameter list.",
+    "why": "The Phase 13.4 assignment shader generated exactly that shape from RANGE_KEY_BITS and only the browser gate saw it: the mock recorded the pass, check:wgsl was structurally green and the unit suite passed, while every frame failed to submit on a real device. Same policy as the reserved-word rule after 13.3 — what the browser gate finds becomes a CPU gate."
+  },
+  {
+    "id": "0157",
+    "date": "2026-09-25T13:49:44Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/lightCulling.ts",
+    "what": "The generated packed-range decode is now `((key >> shift) & mask)` — parenthesised as a whole — and the doc comment records why.",
+    "why": "`slice < (key >> 14u) & 31u` is a parse error to Tint; the parentheses are what stops the valid grammar rule from being read as precedence the language does not have."
+  },
+  {
+    "id": "0158",
+    "date": "2026-09-25T13:49:44Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/wgsl.test.ts",
+    "what": "Suite for the mixed-operator rule: the generated-decode shape that shipped, both operator orders, the legal forms (parenthesised bitwise, logical operators, shifts against comparisons) and the type-parameter lists the shipped particle shaders are full of.",
+    "why": "The regression only appeared on a real GPU; without a CPU test the next generated decode can reintroduce it in the same commit that passes every other gate."
+  },
+  {
+    "id": "0159",
+    "date": "2026-09-25T13:49:44Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "mixedOperatorIssues exported alongside the other shader validators.",
+    "why": "tools/wgsl-check.mjs and tests/wgsl.test.ts exercise the validator through the public barrel; the import-boundary lint forbids reaching into engine/src."
   }
 ]
 ```
