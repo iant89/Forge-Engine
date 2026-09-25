@@ -531,6 +531,16 @@ function textureStorageBytes(w: number, h: number, layers: number, mips: number,
   return total;
 }
 
+/**
+ * Read an indirect draw record (`words` × u32 at `offset`) out of the buffer's live bytes. Real
+ * WebGPU defines all of these fields for a zero count — a draw with `instanceCount: 0` is a no-op, not
+ * a validation error — which is exactly the shape the object culler's records rely on.
+ */
+function readIndirectRecord(buffer: MockGPUBuffer, offset: number, words: number): number[] {
+  const view = new Uint32Array(buffer.data, offset, words);
+  return [...view];
+}
+
 function mipRange(t: { width: number; height: number; format: string | undefined }, mip: number, layer: number, layers = 1): { offset: number; bytes: number } {
   const bpp = Math.max(1, mockBytesPerTexel(t.format));
   let offset = 0;
@@ -1608,20 +1618,37 @@ export class MockGPURenderPassEncoder extends MockPassBase {
     this.encoder.device.record({ type: "drawIndexed", label: this.label, indexCount, instanceCount, firstIndex, baseVertex, firstInstance });
   }
 
+  /**
+   * The two indirect draws *read* their record out of the buffer (see {@link readIndirectRecord}) and
+   * log it exactly like a direct draw, with `indirect: true` and the record's offset as well. A mock
+   * that only logged the offset would accept a record nothing ever wrote: a zero instance count is how
+   * the culler skips a batch (Phase 13.6), so the count is the assertion that matters.
+   */
   drawIndirect(buffer: MockGPUBuffer, offset = 0): void {
     if (!this.beginDraw()) return;
     if ((buffer.usage & BufferUsage.INDIRECT) === 0) this.err("drawIndirect: buffer lacks INDIRECT usage");
-    if (offset % 16 !== 0) this.err(`drawIndirect: offset ${offset} must be a multiple of 16`);
+    if (offset % 4 !== 0) this.err(`drawIndirect: offset ${offset} must be a multiple of 4`);
     if (offset + 16 > buffer.size) this.err("drawIndirect: buffer too small for a 4×u32 record");
-    this.encoder.device.record({ type: "draw", label: this.label, indirect: true, offset });
+    const [vertexCount, instanceCount, firstVertex, firstInstance] = readIndirectRecord(buffer, offset, 4);
+    if (this.pipeline?.indexFormat) this.err("drawIndirect() on a pipeline that declares an indexFormat");
+    this.checkVertexCoverage(vertexCount, instanceCount, firstVertex);
+    this.countDraw(vertexCount, instanceCount);
+    this.encoder.device.record({ type: "draw", label: this.label, indirect: true, offset, vertexCount, instanceCount, firstVertex, firstInstance });
   }
 
   drawIndexedIndirect(buffer: MockGPUBuffer, offset = 0): void {
     if (!this.beginDraw()) return;
     if ((buffer.usage & BufferUsage.INDIRECT) === 0) this.err("drawIndexedIndirect: buffer lacks INDIRECT usage");
-    if (offset % 16 !== 0) this.err("drawIndexedIndirect: offset must be a multiple of 16");
+    if (offset % 4 !== 0) this.err(`drawIndexedIndirect: offset ${offset} must be a multiple of 4`);
+    if (offset + 20 > buffer.size) this.err("drawIndexedIndirect: buffer too small for a 5×u32 record");
     if (!this.indexBuffer) this.err("drawIndexedIndirect: no index buffer bound");
-    this.encoder.device.record({ type: "drawIndexed", label: this.label, indirect: true, offset });
+    const [indexCount, instanceCount, firstIndex, baseVertex, firstInstance] = readIndirectRecord(buffer, offset, 5);
+    const ib = this.indexBuffer;
+    if (ib && firstIndex + indexCount > ib.count) {
+      this.err(`drawIndexedIndirect: record [${firstIndex}, ${firstIndex + indexCount}) exceeds ${ib.count} indices in the bound range`);
+    }
+    this.countDraw(indexCount, instanceCount);
+    this.encoder.device.record({ type: "drawIndexed", label: this.label, indirect: true, offset, indexCount, instanceCount, firstIndex, baseVertex, firstInstance });
   }
 
   private beginDraw(): boolean {

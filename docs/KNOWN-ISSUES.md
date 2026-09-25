@@ -16,12 +16,22 @@ the honest detail lives; nothing here is hidden behind a green gate.
   culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
   (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
 * **Object culling is per batch, and the batch still pays for its uploads.** `forge.objects.cull`
-  drops the *draw* of a batch the frame cannot see; `collectBatches` and the instance/object arenas
-  still run for every renderable, one visible instance keeps its whole batch, the CPU twin (the mock
-  device's path) has no depth buffer and therefore no occlusion test, and only the first
-  `MAX_CULLED_BATCHES` (8192) batches of a frame are tested — the rest stay visible rather than being
-  wrongly culled. The device path's counters are one frame late (a readback cannot be known sooner).
-  (`docs/RENDERING.md` §4d) (capability: rendering.cullCoverage)
+  drops the *draw* of a batch the frame cannot see — since 13.6 by writing a zero-instance indirect
+  record, so a culled batch no longer enters the vertex stage at all — but `collectBatches` and the
+  instance/object arenas still run for every renderable, one visible instance keeps its whole batch,
+  the CPU twin (the mock device's path) has no depth buffer and therefore no occlusion test, and only
+  the first `MAX_CULLED_BATCHES` (8192) batches of a frame are tested — the rest stay visible rather
+  than being wrongly culled, and their records keep the count the CPU uploaded. The device path's
+  counters are one frame late (a readback cannot be known sooner). (`docs/RENDERING.md` §4d, §4e)
+  (capability: rendering.cullCoverage)
+* **The compaction list is produced but not yet consumed by the upload path.** `cull.visibleBatches`
+  names the surviving batches in the device's own order, and the records are one per *batch*, so the
+  instance arena is still written and bound for every renderable — a denser arena (a `firstInstance`
+  offset per slot, one record per visible batch) is the next step that would save the upload and is
+  not scheduled. Records are only written when `Renderer.indirectDraws` is on, the shadow cascades
+  keep their own per-cascade AABB test rather than this pass, and a non-perspective or near-plane-
+  straddling camera still skips the occlusion test. (`docs/RENDERING.md` §4e)
+  (capability: rendering.cullCoverage)
 * **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
   transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO

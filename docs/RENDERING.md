@@ -449,12 +449,78 @@ GPU-generated indirect draws are Phase 13.6, and they consume exactly this buffe
 per-batch, so one visible instance keeps its whole batch, and a camera that is neither perspective nor
 free of the near plane simply skips the occlusion test.
 
+## 4e. Indirect draws and compaction (Phase 13.6)
+
+Phase 13.5 stops a culled batch from *shading*: its clip position collapses and the rasteriser drops
+its triangles. It still costs a `setBindGroup` and a `drawIndexed`, and every instance still runs the
+vertex stage. Phase 13.6 removes both: the cull pass writes the draw commands, `forge.main` reads them,
+and a culled batch becomes a record with zero instances — a draw the device skips before any shading.
+
+**One record per batch: 8 words, 32 bytes.** `cull.drawRecords` is `STORAGE | INDIRECT | COPY_DST`,
+sized one record per batch and grown in steps (`DRAW_RECORD_WORDS` 8, `DRAW_RECORD_BYTES` 32, so every
+slot offset is 16-aligned, which is what `drawIndexedIndirect` requires; the 32 bytes leave room for a
+future `firstInstance` without moving a slot). The CPU seeds every record from the batch it came from:
+words 0/1/2 are the index count, the instance count and the index-buffer start (`0` for a non-indexed
+batch), and the pass owns word 1 and nothing else. That split is the point — the index window is the
+frame's business and never changes, the instance count is the culler's verdict — and it makes the
+record legal for both `drawIndexedIndirect` and `drawIndirect`: a non-indexed batch's word 0 is a
+vertex count in the same slot.
+
+**The pass writes the record from the verdict it already had.** `csCull` computes one
+`cullReasonOf(box)`, writes `visibility[index]`, `atomicAdd`s the matching counter, and either writes
+`drawRecords[index * 8 + 1] = box.max.w` (the batch's instance count, uploaded as the bounds entry's
+`max.w`) or `= 0` plus `recordZeroed`. Nothing in the frame decides twice: the word the vertex stage
+reads and the word the draw reads come from the same branch. The `CULL_FLAG_RECORDS` flag gates the
+writes, so a caller that submits direct draws does not pay for a record it will not read; the twin
+(`cullBatchesOnCpu` with `ObjectCullOutputs`) writes exactly the same words and is what the unit tests
+compare against.
+
+**Compaction.** The same invocation takes `slot = atomicAdd(&counts.visible, 1u)` and writes its batch
+index into `cull.visibleBatches[slot]` — a dense list of the batches that survived, at most
+`MAX_CULLED_BATCHES` entries, in the device's own order (the counters say how many are valid and
+nothing about the order, because a compute dispatch has no order). It is the producer a compaction-
+driven frame consumes; the record's slot is already the batch index, so a `firstInstance` rewrite is a
+change to the *record*, not to the list. The pass's counters are exact: `visible = tested - frustum -
+distance - occluded`, `recordZeroed = frustum + distance + occluded`, both published as
+`stats.cullVisible` / `cullRecordZeroed` through the same one-frame-late readback.
+
+**Batches past the cap.** The pass only touches `index < min(batchCount, MAX_CULLED_BATCHES)`; a frame
+past the cap leaves the extra batches untested, which by the 13.5 rule means *visible*, so the renderer
+pre-fills every slot with the batch's own instance count and an untested record keeps saying "draw".
+The twin reproduces exactly that (it writes the slots it tested and nothing else, and the tests pin
+that with sentinel-filled buffers).
+
+**Two submission paths, one picture.** `Renderer.indirectDraws` (default on, `?indirectdraws=0|1` in
+the demo, `setIndirectDraws`) picks between `drawIndexedIndirect` / `drawIndirect` at
+`batch.cullIndex * DRAW_RECORD_BYTES` and one direct draw per batch with the visibility word doing the
+work (13.5's path, kept as the A/B arm and the fallback). A direct-submission frame sets no
+`CULL_FLAG_RECORDS`, so the pass leaves the record buffer untouched — nothing pays for a command
+nobody reads. The shadow and prepass loops are untouched: they draw their own geometry with their own
+culling and would need records of their own. The pointer is the whole
+difference — the same batches, the same visibility words, the same pixels — which is what
+`check:browser` asserts: `indirectDraws === batches` on one arm, `0` on the other, and zero pixels
+between them.
+
+**The mock reads the record.** `MockGPUDevice.drawIndexedIndirect` / `drawIndirect` parse the record
+out of the buffer's bytes and log its fields, so a unit test sees what the device would run (including
+a 20-byte indexed record whose instance count the cull pass zeroed) rather than what the renderer
+believed it wrote. That is what closes the loop for `tests/objectCulling.test.ts` and
+`tests/frame.test.ts`, which is why the indirect arm can be asserted without a GPU.
+
 **What the gate proves on a real device.** `check:browser` freezes the PBR fixture and A/Bs the two
 cullers: identical frames (max luma diff 0.00, 0 px beyond one level), `forge.objects.cull` in the gpu
 arm's pass list and absent from the cpu arm's, and the counters either zero (the readback has not
 landed) or the frame's own batch count. It then switches the HiZ stage off: the pyramid passes
 disappear, the frame never gets darker, and it is identical — the assertion that catches a cull too
 many.
+
+**What the indirect gate proves on a real device.** The same fixture, one more A/B: with indirect
+submission on, every `forge.main` draw is indirect (`indirectDraws === batches`) and the pass's
+counters satisfy both identities; switch it off and the picture is unchanged to the pixel, with
+`indirectDraws` back to `0` — the record words really are the commands the direct path would issue.
+The arm then sets a 1 m draw distance over the fixture's renderables: a per-renderable limit the CPU
+frame knows nothing about, so the batches it drops are the pass's own distance verdicts, and
+`cullRecordZeroed` must equal the cull sum in a frame where `cullDistance > 0`.
 
 ## 5. Conventions
 

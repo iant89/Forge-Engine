@@ -796,8 +796,8 @@ CURRENT STATE:
         in-frame, which is why the twin leaves occlusion to it. The guards are shape
         checks (per-batch cost stays linear; the distance test stays a comparison; the
         cap stays inside a frame) so a slow runner cannot turn a correct build red.
-        The visible-object compaction and indirect draws that consume this buffer are
-        13.6.)
+        The visible-object compaction and indirect draws that consume this buffer
+        landed in 13.6.)
 
     [ ] Per-instance culling inside a batch: one visible instance keeps its batch.
 
@@ -807,9 +807,35 @@ CURRENT STATE:
 
 13.6 Indirect Rendering
 
-    [ ] GPU-generated indirect draw commands.
+    [x] GPU-generated indirect draw commands.
 
-    [ ] Visible-object compaction.
+        The cull pass now writes draw commands, not just verdicts: one 32-byte record
+        per batch (`DRAW_RECORD_WORDS` 8 / `DRAW_RECORD_BYTES`, 16-aligned slots, so
+        both `drawIndexedIndirect` and `drawIndirect` can read it), seeded by the CPU
+        with the batch's index window (indexCount / count / indexStart) and owned by
+        the pass in one word only — the instance count, the batch's own when the
+        batch is visible and 0 when it is not. `forge.main` submits through the
+        records whenever `Renderer.indirectDraws` is on (the default), at
+        `batch.cullIndex * 32`; a zero-instance record is a draw the device does not
+        run at all, where Phase 13.5's collapsed clip position still paid for every
+        instance's vertex stage. The mock reads the record bytes back out of the
+        buffer for every indirect draw, so the unit tests assert the words rather
+        than the renderer's intention. Stats `indirectDraws`; demo `?indirectdraws=0|1`
+        + `setIndirectDraws`. docs/RENDERING.md §4d.
+
+    [x] Visible-object compaction.
+
+        The same pass writes a compacted list of the visible batch indices
+        (`atomicAdd(&counts.visible, 1u)` for the slot, so the order is the device's,
+        not the frame's) into `cull.visibleBatches`, one slot per visible batch, at
+        most `MAX_CULLED_BATCHES` of them. It is the producer a compaction-driven
+        frame consumes (a `firstInstance` offset into the instance arena per slot is
+        the natural next step, and the record's slot is already the batch index, so
+        nothing about the list has to change for it); the counters that describe it
+        are exact on both arms — `visible = tested - frustum - distance - occluded`
+        and `recordZeroed = frustum + distance + occluded` are identities the unit
+        tests and the browser gate both assert. Batches past `MAX_CULLED_BATCHES`
+        keep the CPU-uploaded record, so "untested" stays "draw".
 
 
 13.7 Async Pipeline Compilation

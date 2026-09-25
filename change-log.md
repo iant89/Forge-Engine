@@ -38,7 +38,7 @@ JSON array below; agents maintain it by hand until then.
     "summary": "Initial engine import to main (215 files, squash-merged) plus visibility fixes: WebKit sky no longer paints over the scene, and the rover + terrain render correctly in the Mars showcase.",
     "files": [],
     "note": "Backfilled after the fact: PR #33 was squash-merged without branch history, so per-file entries cannot be reconstructed."
-  },
+},
   {
     "id": "0002",
     "date": "2026-09-24T13:58:40Z",
@@ -50,7 +50,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "scripts/convert-perseverance.mjs",
     "what": "Rebase per-wheel indices by the cluster base when emitting wheel slices; throw on cross-wheel triangles; rank k-means seeds front-to-rear explicitly.",
     "why": "The converter pushed global indices into 0-based per-wheel slices, so only wheel_FL (base 0) rendered and the other five wheels were invisible with no error."
-  },
+},
   {
     "id": "0003",
     "date": "2026-09-24T13:58:40Z",
@@ -62,7 +62,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/assets/Perseverance.glb",
     "what": "Repaired 15 wheel meshes in place by subtracting each mesh's index minimum (verified contiguous ranges; body meshes already correct).",
     "why": "The checked-in GLB carried the converter's broken indices; the Draco source was unavailable, so an exact in-place repair beat reconversion."
-  },
+},
   {
     "id": "0004",
     "date": "2026-09-24T13:58:40Z",
@@ -74,7 +74,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/assets/glb.ts",
     "what": "loadGlb now console.warns when a primitive's max index exceeds its vertex count.",
     "why": "Out-of-bounds index buffers fail silently on the GPU; future corrupt geometry should be loud at load time."
-  },
+},
   {
     "id": "0005",
     "date": "2026-09-24T13:58:40Z",
@@ -86,7 +86,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/roverGlb.test.ts",
     "what": "New regression test: six wheel roots + hub positions and in-range indices on every mesh of the checked-in GLB.",
     "why": "Pin the repaired asset so a future reconversion or bad edit fails in CI instead of shipping invisible wheels again."
-  },
+},
   {
     "id": "0006",
     "date": "2026-09-24T13:58:40Z",
@@ -98,7 +98,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Created the cross-session memory file with repo facts and dated notes (first entry: the invisible-wheels bug).",
     "why": "Future sessions need durable notes on real bugs and hard-won repo knowledge, not just code comments."
-  },
+},
   {
     "id": "0007",
     "date": "2026-09-24T14:06:45Z",
@@ -110,7 +110,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Created this JSON-backed activity log with maintenance rules, schemas, a backfilled PR #33 entry, and PR #34 entries.",
     "why": "Requested as the data source for a future interactive engine-history page; one entry per change plus a summary per PR merge."
-  },
+},
   {
     "id": "0008",
     "date": "2026-09-24T14:06:45Z",
@@ -122,7 +122,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "AGENTS.md",
     "what": "Added §7 directing agents to use mnemosyne.md for free-form session notes and change-log.md for per-change + per-PR entries.",
     "why": "The notes/log convention only works if every session knows about it before starting work."
-  },
+},
   {
     "id": "0009",
     "date": "2026-09-24T14:06:45Z",
@@ -134,7 +134,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Appended the change-log.md convention note (entry format, pr-merge rule, model-field convention).",
     "why": "The log convention is itself session knowledge worth preserving alongside the AGENTS.md pointer."
-  },
+},
   {
     "id": "0010",
     "date": "2026-09-24T14:41:01Z",
@@ -146,7 +146,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "scripts/convert-perseverance.mjs",
     "what": "Extract the Remote Sensing Mast subtree (head up-walked to its scene root plus descendants) as hinge-relative mast_* parts; pad the JSON chunk with spaces per the glTF spec.",
     "why": "The mast was baked into the per-material body merge so it could not move; the demo needs a rigid hinge-relative assembly to raise/lower, and NUL JSON padding makes JSON.parse throw."
-  },
+},
   {
     "id": "0011",
     "date": "2026-09-24T14:41:01Z",
@@ -158,7 +158,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/assets/Perseverance.glb",
     "what": "Regenerated from the NASA Draco source with the mast split out (55 hinge-relative parts), rebased wheel indices, and valid chunk padding.",
     "why": "The checked-in asset predates the mast split; regenerating from source also folds the earlier in-place wheel repair into a clean convert."
-  },
+},
   {
     "id": "0012",
     "date": "2026-09-24T14:41:01Z",
@@ -170,7 +170,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/assets/glb.ts",
     "what": "Parse the `mast` root into LoadedGlb.mast (hinge pivot + parts), alongside the wheel groups.",
     "why": "The scene needs the hinge position and the hinge-relative parts to build the deployment pivot."
-  },
+},
   {
     "id": "0013",
     "date": "2026-09-24T14:41:01Z",
@@ -182,7 +182,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/marsShowcaseScene.ts",
     "what": "Mast pivot entity under the chassis, underdamped deployment spring (M key / MAST button / setMast), HUD + marsState mast status.",
     "why": "Requested feature: smooth realistic mast fold/unfold; the spring gives a ~3 s raise with a small latch overshoot and mid-swing reversals."
-  },
+},
   {
     "id": "0014",
     "date": "2026-09-24T14:41:01Z",
@@ -194,7 +194,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/controls/vehicleTouch.ts",
     "what": "MAST pad support: onMastToggle tap callback plus setMast(active) button lighting; unbound on the playground.",
     "why": "The on-screen C/MAST button needs the same tap plumbing as gas/brake without disturbing the shared drive pad."
-  },
+},
   {
     "id": "0015",
     "date": "2026-09-24T14:41:01Z",
@@ -206,7 +206,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/index.html",
     "what": "C/MAST pad button in the vehicle cluster, shown only under body.scene-mars, with an active (commanded) style.",
     "why": "Requested controller button matching the Gas/Brake pads; Mars-only so it never leaks onto the playground."
-  },
+},
   {
     "id": "0016",
     "date": "2026-09-24T14:41:01Z",
@@ -218,7 +218,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "Toggle body.scene-mars for the showcase and expose __forge.setMast(deployed) for gates.",
     "why": "CSS needs a Mars marker for the MAST button, and the browser gate needs a programmatic mast hook."
-  },
+},
   {
     "id": "0017",
     "date": "2026-09-24T14:41:01Z",
@@ -230,7 +230,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/math/mat.ts",
     "what": "Fixed Quat.fromUnitVectorY to actually rotate +Y onto dir (x/z terms were negated, yielding the inverse).",
     "why": "Found while deriving the mast deploy quaternion; the helper had no callers but would have bitten the first user."
-  },
+},
   {
     "id": "0018",
     "date": "2026-09-24T14:41:01Z",
@@ -242,7 +242,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/math.test.ts",
     "what": "Pin fromUnitVectorY: +Y lands on dir for axis and diagonal inputs, antipodal input flips cleanly.",
     "why": "Lock the corrected quaternion helper against regressions."
-  },
+},
   {
     "id": "0019",
     "date": "2026-09-24T14:41:01Z",
@@ -254,7 +254,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/roverGlb.test.ts",
     "what": "Assert the mast root, hinge pivot, part count, and hinge-relative z extents of the checked-in GLB.",
     "why": "A remodelled source or converter regression must fail in CI before it ships a detached or mis-hinged mast."
-  },
+},
   {
     "id": "0020",
     "date": "2026-09-24T14:41:01Z",
@@ -266,7 +266,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/vehicleTouch.test.ts",
     "what": "MAST toggle tests: tap fires the callback, nothing binds without it, setMast lights/clears the button.",
     "why": "Cover the new pad control the same way the gas/brake holds are covered."
-  },
+},
   {
     "id": "0021",
     "date": "2026-09-24T14:41:01Z",
@@ -278,7 +278,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/screenshots/mars-showcase-mast-deployed.png",
     "what": "Headless capture of the raised mast (HUD mast UP) for the screenshots gallery.",
     "why": "Documents the finished feature the way the loading/bounds captures document theirs."
-  },
+},
   {
     "id": "0022",
     "date": "2026-09-24T14:41:01Z",
@@ -290,7 +290,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/screenshots/README.md",
     "what": "Table row describing the deployed-mast capture.",
     "why": "Keep the gallery index complete."
-  },
+},
   {
     "id": "0023",
     "date": "2026-09-24T14:41:01Z",
@@ -302,7 +302,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Mast-feature entries plus this self-entry; PR #34 merge summary rewritten to cover the full branch.",
     "why": "The log must stay complete as the branch grows; the merge summary tracks the PR, not the first commit."
-  },
+},
   {
     "id": "0024",
     "date": "2026-09-24T14:41:01Z",
@@ -314,7 +314,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Session notes: stowed-mast discovery, hinge/head data, fromUnitVectorY + JSON-padding bugs, no-parallel-edits lesson.",
     "why": "Durable record of what this session learned so the next one starts warm."
-  },
+},
   {
     "id": "0025",
     "date": "2026-09-24T14:41:01Z",
@@ -327,24 +327,24 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Mars showcase: all six wheels render (converter index rebase, GLB repaired then cleanly regenerated); deployable Remote Sensing Mast via MAST button / M key with a spring-driven raise and latch overshoot (mast split from the body at convert time, hinge pivot, HUD + gate status); JSON change-log.md plus mnemosyne.md session notes and the AGENTS.md convention; drive-by fixes for Quat.fromUnitVectorY and GLB JSON padding; GLB, touch, and math regression tests.",
     "files": [
-      "scripts/convert-perseverance.mjs",
-      "examples/assets/Perseverance.glb",
-      "examples/src/assets/glb.ts",
-      "tests/roverGlb.test.ts",
-      "mnemosyne.md",
-      "change-log.md",
-      "AGENTS.md",
-      "examples/src/scenes/marsShowcaseScene.ts",
-      "examples/src/controls/vehicleTouch.ts",
-      "examples/index.html",
-      "examples/src/main.ts",
-      "engine/src/math/mat.ts",
-      "tests/math.test.ts",
-      "tests/vehicleTouch.test.ts",
-      "docs/screenshots/mars-showcase-mast-deployed.png",
-      "docs/screenshots/README.md"
+        "scripts/convert-perseverance.mjs",
+        "examples/assets/Perseverance.glb",
+        "examples/src/assets/glb.ts",
+        "tests/roverGlb.test.ts",
+        "mnemosyne.md",
+        "change-log.md",
+        "AGENTS.md",
+        "examples/src/scenes/marsShowcaseScene.ts",
+        "examples/src/controls/vehicleTouch.ts",
+        "examples/index.html",
+        "examples/src/main.ts",
+        "engine/src/math/mat.ts",
+        "tests/math.test.ts",
+        "tests/vehicleTouch.test.ts",
+        "docs/screenshots/mars-showcase-mast-deployed.png",
+        "docs/screenshots/README.md"
     ]
-  },
+},
   {
     "id": "0026",
     "date": "2026-09-24T18:42:23Z",
@@ -356,7 +356,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "README.md",
     "what": "Mars showcase controls paragraph now covers M (camera mast) and R (robotic arm) plus the TFGH/IJKL jog keys and the thumbsticks.",
     "why": "The README described driving only; the mast shipped undocumented and the arm must not."
-  },
+},
   {
     "id": "0027",
     "date": "2026-09-24T18:42:23Z",
@@ -368,7 +368,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "The check:browser row now records the robotic-arm gate: R starts the unfold (elbow leaves its stowed angle), stow returns every joint to zero with the sticks hidden.",
     "why": "The gate gained an arm section; the honesty table must say what it proves."
-  },
+},
   {
     "id": "0028",
     "date": "2026-09-24T18:42:23Z",
@@ -380,7 +380,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/screenshots/README.md",
     "what": "Gallery row for the deployed-arm capture.",
     "why": "Keep the screenshot index complete."
-  },
+},
   {
     "id": "0029",
     "date": "2026-09-24T18:42:23Z",
@@ -392,7 +392,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/screenshots/mars-showcase-arm-unfolded.png",
     "what": "Headless capture (real WebGPU) of the unfolded arm in the ready pose with both jog thumbsticks on screen and the HUD reporting arm READY.",
     "why": "Documents the finished feature the way the mast capture documents its."
-  },
+},
   {
     "id": "0030",
     "date": "2026-09-24T18:42:23Z",
@@ -404,7 +404,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/assets/Perseverance.glb",
     "what": "Regenerated: the five-joint arm is now a nested arm > arm_shoulder > arm_elbow > arm_wrist > arm_turret chain with pivot-relative parts; mast_upper/mast_head joints moved into extras. Binary payload unchanged (every body vertex within 1.4e-8 m of the previous asset).",
     "why": "The scene needs joint pivots and per-link geometry to articulate the arm; the mast fix makes the asset spec-correct."
-  },
+},
   {
     "id": "0031",
     "date": "2026-09-24T18:42:23Z",
@@ -416,7 +416,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/index.html",
     "what": "D·ARM pad button (Mars-only, id-keyed lit rule), the #arm-touch overlay with two labelled thumbsticks (above the drive controls on touch layouts, bottom corners on desktop, beside the pad on short landscape), and a max-width fix so the longer Mars hint stays on one line.",
     "why": "The arm needs its toggle and, when unfolded, its two sticks above the rover controls."
-  },
+},
   {
     "id": "0032",
     "date": "2026-09-24T18:42:23Z",
@@ -428,7 +428,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/assets/glb.ts",
     "what": "LoadedGlb.arm: the loader walks the nested joint chain (strictly-nested validation, unit-normalised extras.axis) and returns per-joint offsets and pivot-relative parts; mast joints now read extras.joint with a translation fallback; fixes the pre-existing TS never-narrowing that failed main's typecheck.",
     "why": "The scene needs the chain; the loader must also keep working with the old flat-mast asset."
-  },
+},
   {
     "id": "0033",
     "date": "2026-09-24T18:42:23Z",
@@ -440,7 +440,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/controls/vehicleTouch.ts",
     "what": "ARM pad button wired like MAST (onArmToggle, setArm, dispose), tap-toggle generalised, suppressTouchChrome exported for armTouch.",
     "why": "The pad gains the arm toggle; the arm sticks reuse its iOS-chrome suppression."
-  },
+},
   {
     "id": "0034",
     "date": "2026-09-24T18:42:23Z",
@@ -452,7 +452,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/controls/armTouch.ts",
     "what": "New: two pointer-capture thumbsticks (swing/shoulder, turret/elbow) with the drive stick's dead zone and knob behaviour, visible only while #arm-touch.shown; hiding releases held sticks; window-level end fallback.",
     "why": "The requested second pair of controls for the unfolded arm."
-  },
+},
   {
     "id": "0035",
     "date": "2026-09-24T18:42:23Z",
@@ -464,7 +464,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "__forge.setArm for automation, mirroring setMast.",
     "why": "The gate and any harness must be able to command the arm headlessly."
-  },
+},
   {
     "id": "0036",
     "date": "2026-09-24T18:42:23Z",
@@ -476,7 +476,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/marsShowcaseScene.ts",
     "what": "Nested arm pivot entities under the chassis posed from RoverArmController each frame; R key + ARM pad toggle; TFGH/IJKL keyboard jog added to stick axes; arm HUD line; marsState arm fields; setArm handle; hint text.",
     "why": "Wires the controller and the sticks into the scene."
-  },
+},
   {
     "id": "0037",
     "date": "2026-09-24T18:42:23Z",
@@ -488,7 +488,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/roverArm.ts",
     "what": "New: pure arm controller — keyframed unfold/stow choreography (lift, swing, long-path elbow, turret aim), smoothed jog rates, joint limits, wrist auto-level, ground guard, acceleration-limited progress with jog offsets that fade on stow.",
     "why": "All arm behaviour in one testable module; the choreography and limits were voxel-swept against the model."
-  },
+},
   {
     "id": "0038",
     "date": "2026-09-24T18:42:23Z",
@@ -500,7 +500,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Session notes: joint pivots = node origins, stowed-shoulder lab collision, long-path elbow, verified jog box, TS never-narrowing and CSS specificity traps, SwiftShader capture recipe.",
     "why": "Durable record so the next session starts warm."
-  },
+},
   {
     "id": "0039",
     "date": "2026-09-24T18:42:23Z",
@@ -512,7 +512,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "scripts/convert-perseverance.mjs",
     "what": "Arm chain split (asserted by name/parentage/axis) into the nested pivot-relative hierarchy with extras {joint, axis}; report gains the joint table; mast sub-group joints moved to extras.",
     "why": "Source of the new GLB structure."
-  },
+},
   {
     "id": "0040",
     "date": "2026-09-24T18:42:23Z",
@@ -524,7 +524,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/roverGlb.test.ts",
     "what": "Arm-chain structure test: joint roles/axes in controller order, parent-relative offsets matching roverArm's hardcoded geometry, pivot-relative extents per link, composed turret pivot; mast extras-not-translation check.",
     "why": "A reconversion that moves a pivot or flattens the chain must fail here, not mis-aim the arm."
-  },
+},
   {
     "id": "0041",
     "date": "2026-09-24T18:42:23Z",
@@ -536,7 +536,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/roverArm.test.ts",
     "what": "New: 14 tests over the choreography (ready pose, timing, no snaps, lift-before-swing, eased reversal), jogging (gating, rates, coast, auto-level, limits, ground guard, jog reset), and the geometry helpers.",
     "why": "Pins the controller behaviour the scene shows."
-  },
+},
   {
     "id": "0042",
     "date": "2026-09-24T18:42:23Z",
@@ -548,7 +548,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/armTouch.test.ts",
     "what": "New: 9 tests over stick mapping (up/right positive), dead zone, per-pointer tracking, window fallback, hide-releases, iOS suppression, dispose, null root.",
     "why": "The thumbstick module's contract."
-  },
+},
   {
     "id": "0043",
     "date": "2026-09-24T18:42:23Z",
@@ -560,7 +560,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/vehicleTouch.test.ts",
     "what": "ARM toggle tests mirroring the MAST ones (tap firing, iOS suppression, setArm/dispose) with #veh-arm in the stub DOM.",
     "why": "Covers the pad-button addition and the tap-toggle refactor."
-  },
+},
   {
     "id": "0044",
     "date": "2026-09-24T18:42:23Z",
@@ -572,7 +572,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Gate arm section: R must start the unfold (elbow joint moves) within 60 s, setArm(false) must stow to all-zero joints with sticks hidden, zero new GPU errors.",
     "why": "Proves the feature end-to-end on real WebGPU within SwiftShader's frame rate."
-  },
+},
   {
     "id": "0045",
     "date": "2026-09-24T18:42:23Z",
@@ -584,7 +584,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Arm-feature entries plus this self-entry for PR #36.",
     "why": "The log must stay complete as the branch grows."
-  },
+},
   {
     "id": "0046",
     "date": "2026-09-24T18:44:32Z",
@@ -597,28 +597,28 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "The Perseverance's front robotic arm unfolds/stows with an acceleration-limited, keyframed choreography (lift, swing, long-path elbow, turret aim) and, once out, is jogged by two thumbsticks above the drive controls (swing/shoulder, turret/elbow) or TFGH/IJKL, with joint limits, wrist auto-level and a ground guard. Converter emits the five-joint chain as a spec-correct nested hierarchy with pivot-relative parts and extras {joint, axis} (mast sub-group joints fixed to extras too); loader gains LoadedGlb.arm; roverArm.ts is the pure tested controller; armTouch.ts + ARM pad button + HUD/HANDLE/gate wiring; keyframes and jog box voxel-swept collision-free; 23 new tests (466 total); real-WebGPU gate checks unfold start + stow-to-zero; docs, README, screenshot, mnemosyne, change-log. Also fixes main's red typecheck (TS never-narrowing in glb.ts).",
     "files": [
-      "scripts/convert-perseverance.mjs",
-      "examples/assets/Perseverance.glb",
-      "examples/src/assets/glb.ts",
-      "examples/src/scenes/roverArm.ts",
-      "examples/src/scenes/marsShowcaseScene.ts",
-      "examples/src/controls/armTouch.ts",
-      "examples/src/controls/vehicleTouch.ts",
-      "examples/src/main.ts",
-      "examples/index.html",
-      "tests/roverGlb.test.ts",
-      "tests/roverArm.test.ts",
-      "tests/armTouch.test.ts",
-      "tests/vehicleTouch.test.ts",
-      "tools/browser-check.mjs",
-      "README.md",
-      "docs/VERIFICATION.md",
-      "docs/screenshots/README.md",
-      "docs/screenshots/mars-showcase-arm-unfolded.png",
-      "mnemosyne.md",
-      "change-log.md"
+        "scripts/convert-perseverance.mjs",
+        "examples/assets/Perseverance.glb",
+        "examples/src/assets/glb.ts",
+        "examples/src/scenes/roverArm.ts",
+        "examples/src/scenes/marsShowcaseScene.ts",
+        "examples/src/controls/armTouch.ts",
+        "examples/src/controls/vehicleTouch.ts",
+        "examples/src/main.ts",
+        "examples/index.html",
+        "tests/roverGlb.test.ts",
+        "tests/roverArm.test.ts",
+        "tests/armTouch.test.ts",
+        "tests/vehicleTouch.test.ts",
+        "tools/browser-check.mjs",
+        "README.md",
+        "docs/VERIFICATION.md",
+        "docs/screenshots/README.md",
+        "docs/screenshots/mars-showcase-arm-unfolded.png",
+        "mnemosyne.md",
+        "change-log.md"
     ]
-  },
+},
   {
     "id": "0047",
     "date": "2026-09-24T19:43:38Z",
@@ -630,7 +630,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/vehicles/vehicle.ts",
     "what": "Add `VehicleInput.parkingBrake` (latched, `parkingBrakeTorque` 7000 N·m on every wheel) and make a brake remove wheel speed only: `brakeTorqueAt`, a `STATIC_HOLD_SPEED` (0.35 m/s) standstill lock that sets `ω = 0` with the ground's slip, a past-the-peak skid lock instead of a reversing wheel, `stepWheelSpeed` for unloaded/airborne wheels, a parked pose hold in `integrate`, and ABS gated on the foot brake (`absActive`).",
     "why": "Reported: \"All the wheels spin when brake is applied.\" `spin` is the odometer `VehicleSystem` poses the visual wheels from and it integrated an ω the slip solve handed back for a *holding* slip (4.7 rad/s in gear) or a backwards-spinning wheel, and a lingering ~0.4 m/s creep with the brake fully on."
-  },
+},
   {
     "id": "0048",
     "date": "2026-09-24T19:43:38Z",
@@ -642,7 +642,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/index.html",
     "what": "Add the `#veh-park` pad button (P/PARK, `aria-pressed`, latched `.active` red) in the pad's bottom-left slot, shown only on the vehicle playground (`body.scene-vehicle:not(.scene-mars)`); the Mars showcase keeps that slot for MAST.",
     "why": "The parking brake needed a visible, tap-able toggle rather than a hold, and the two scenes' pads share one button grid."
-  },
+},
   {
     "id": "0049",
     "date": "2026-09-24T19:43:38Z",
@@ -654,7 +654,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/controls/vehicleTouch.ts",
     "what": "Add the PARK tap toggle: `onParkToggle`, the `#veh-park` query with `suppressTouchChrome`, `setPark(active)` to light it from the scene state, and clearing it in `dispose`.",
     "why": "The pad owns the button wiring, the scene owns the latch state; the lamp has to follow the *state*, not the tap (PARK, like MAST/ARM)."
-  },
+},
   {
     "id": "0050",
     "date": "2026-09-24T19:43:38Z",
@@ -666,7 +666,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/vehiclePlaygroundScene.ts",
     "what": "Latch the parking brake (`P` with `!event.repeat`, or the PARK pad tap), write `vehicle.input.parkingBrake` every frame, report it through `vehicleState().parkingBrake`, and show `PARK` in the HUD/hint.",
     "why": "The parking brake is a state the demo keeps, so the engine input stays a passive 0/1 and nothing releases it automatically."
-  },
+},
   {
     "id": "0051",
     "date": "2026-09-24T19:43:38Z",
@@ -678,7 +678,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/cubesScene.ts",
     "what": "Extend `DemoSceneHandle.vehicleState` with the optional `parkingBrake?: number`.",
     "why": "`window.__forge.vehicleState()` is typed through the handle, and the browser gate asserts the latched value."
-  },
+},
   {
     "id": "0052",
     "date": "2026-09-24T19:43:38Z",
@@ -690,7 +690,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "Expose an `animating()` getter alongside `setAnimating`.",
     "why": "The gate drives the vehicle through the scene's `update`; a frozen demo loop applies no input at all, so the gate needs to assert the loop is running instead of reading a non-moving car as a held brake."
-  },
+},
   {
     "id": "0053",
     "date": "2026-09-24T19:43:38Z",
@@ -702,7 +702,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/vehicles.test.ts",
     "what": "Add the `\"vehicles — brakes and the parking brake\"` suite (6 tests): parked wheels stopped and `spin` frozen on any brake, a 12° slope held under full throttle, the parking brake on all four wheels where the handbrake covers the rears, a brake-to-stop with `spin` frozen, an airborne braked wheel stopped, and the drive back after a long brake hold.",
     "why": "Pins the fix for \"all the wheels spin when brake is applied\" and the latched parking brake; all six fail on the pre-fix engine (`git stash engine/src/vehicles/vehicle.ts`)."
-  },
+},
   {
     "id": "0054",
     "date": "2026-09-24T19:43:38Z",
@@ -714,7 +714,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/vehicleTouch.test.ts",
     "what": "Cover the PARK button: `stubRoot()` gains `#veh-park`, plus tests that a tap fires `onParkToggle` once (mouse button 2 ignored), that no pointerdown binding is added without a handler and the touch gestures stay suppressed, and that `setPark` drives the lamp/`aria-pressed` and `dispose` clears them.",
     "why": "The toggle is the user-facing half of the request; the pad's gesture guards are easy to break by wiring a fourth button."
-  },
+},
   {
     "id": "0055",
     "date": "2026-09-24T19:43:38Z",
@@ -726,7 +726,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Add the parking-brake gate section (`P` latches → state 1 + pad lamp lit, full throttle 15 s → `maxSpeed < 0.05` and `|dz| < 0.02`, `P` releases → `W` drives > 0.5 m) and resume the demo loop the earlier pixel A/Bs froze, asserting the new `__forge.animating()` before driving input.",
     "why": "Real-device proof of the key/input/lamp wiring; the missing resume made the parked half pass for the wrong reason (a frozen loop applies no input, and a parked car looks exactly like a car that cannot move)."
-  },
+},
   {
     "id": "0056",
     "date": "2026-09-24T19:43:38Z",
@@ -738,7 +738,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VEHICLES.md",
     "what": "Document the parking brake: the `P`/pad-button latch in the Demo section, a new `## Brakes` section (the three inputs, the standstill and past-the-peak rules, ABS on the foot brake only), the latch in the usage snippet, and the new test bullets.",
     "why": "The docs are the claim sheet the tests are checked against; the brake rules and the new input are user-visible behaviour."
-  },
+},
   {
     "id": "0057",
     "date": "2026-09-24T19:43:38Z",
@@ -750,7 +750,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Extend the `tests/vehicles.test.ts` note with the brake suite and the pre-fix numbers, the `check:browser` row with the parking-brake section (including why it asserts `animating()`), and the vehicle/particle-standstill notes.",
     "why": "The verification doc lists what each gate actually proves, and the gate now proves the parking brake on a real device."
-  },
+},
   {
     "id": "0058",
     "date": "2026-09-24T19:43:38Z",
@@ -762,7 +762,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "README.md",
     "what": "Mention `P` (parking brake) next to `Space` (handbrake) in the Vehicle demo line.",
     "why": "The demo's controls list is how a reader finds the new toggle."
-  },
+},
   {
     "id": "0059",
     "date": "2026-09-24T19:43:38Z",
@@ -774,7 +774,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Add the dated parking-brake/brake-spin entry: root cause, the one-way brake rule, the latched input, pre-fix baselines, and the gate's frozen-demo trap plus the HMR flake.",
     "why": "Session memory for the next agent: the numbers, the rule, and the two traps that cost runs here."
-  },
+},
   {
     "id": "0060",
     "date": "2026-09-24T19:43:38Z",
@@ -786,7 +786,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append the id 0047–0060 entries for PR #37.",
     "why": "Per-file history for the parking-brake and brake-spin work."
-  },
+},
   {
     "id": "0061",
     "date": "2026-09-24T19:43:47Z",
@@ -799,22 +799,22 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "A parking brake toggle (`P` / the new P/PARK pad button, lamp + `aria-pressed`, `PARK` in the HUD) as a latched `VehicleInput.parkingBrake` × `parkingBrakeTorque` on every wheel, and the fix for \"all the wheels spin when brake is applied\": a brake only ever removes wheel speed (standstill lock below 0.35 m/s with the pose held, past-the-peak skid lock instead of a reversing wheel, airborne wheels stopped, the drive back on release). 6 new tests in `tests/vehicles.test.ts` (all fail on the pre-fix engine) and 3 in `tests/vehicleTouch.test.ts`; 475 tests in 36 files pass. The real-WebGPU gate gained the parking-brake section (latched=1 lamp=true, hold maxSpeed 0.0000 dz 0.0000m, released drove 0.52m under W) and resumes the demo loop the pixel A/Bs froze, asserting the new `__forge.animating()` — without it the parked half passed for the wrong reason because a frozen loop applies no input at all.",
     "files": [
-      "engine/src/vehicles/vehicle.ts",
-      "examples/index.html",
-      "examples/src/controls/vehicleTouch.ts",
-      "examples/src/scenes/vehiclePlaygroundScene.ts",
-      "examples/src/scenes/cubesScene.ts",
-      "examples/src/main.ts",
-      "tests/vehicles.test.ts",
-      "tests/vehicleTouch.test.ts",
-      "tools/browser-check.mjs",
-      "docs/VEHICLES.md",
-      "docs/VERIFICATION.md",
-      "README.md",
-      "mnemosyne.md",
-      "change-log.md"
+        "engine/src/vehicles/vehicle.ts",
+        "examples/index.html",
+        "examples/src/controls/vehicleTouch.ts",
+        "examples/src/scenes/vehiclePlaygroundScene.ts",
+        "examples/src/scenes/cubesScene.ts",
+        "examples/src/main.ts",
+        "tests/vehicles.test.ts",
+        "tests/vehicleTouch.test.ts",
+        "tools/browser-check.mjs",
+        "docs/VEHICLES.md",
+        "docs/VERIFICATION.md",
+        "README.md",
+        "mnemosyne.md",
+        "change-log.md"
     ]
-  },
+},
   {
     "id": "0062",
     "date": "2026-09-24T21:20:00Z",
@@ -826,7 +826,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/vehicles/electric.ts",
     "what": "Add `ElectricMotor` (traction-motor envelope: constant torque to the base speed, constant power above, taper to zero at maxRpm; no idle; coulomb drag; `powerKW` readout) and `ReductionDrive` (a `Transmission` with one fixed ratio that never shifts).",
     "why": "Battery-electric drivetrain for the rover: the combustion defaults geared a 1-tonne Mars rover past 200 km/h."
-  },
+},
   {
     "id": "0063",
     "date": "2026-09-24T21:20:00Z",
@@ -838,7 +838,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/vehicles/vehicle.ts",
     "what": "Fold regenerative braking into the drivetrain demand (brake × `regenTorque`, faded below 0.5 m/s, riding the normal slip solve) and add `Vehicle.wheelCenterPosition` (hardpoint hangs the current suspension length along the body up-axis, clamped to [rest−travel, rest]).",
     "why": "Regen must share the signed slip solve so TC/ABS/friction-circle stay consistent; the wheel pose helper makes the visual wheel a child of the suspension, not the terrain ray."
-  },
+},
   {
     "id": "0064",
     "date": "2026-09-24T21:20:00Z",
@@ -850,7 +850,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/vehicles/system.ts",
     "what": "Pose wheel entities from `Vehicle.wheelCenterPosition` instead of the terrain contact point.",
     "why": "Contact-anchored wheels stuck to the ground over a crest and teleported back when the ray released — the 'wheels fly off the rover and snap back' bug."
-  },
+},
   {
     "id": "0065",
     "date": "2026-09-24T21:20:00Z",
@@ -862,7 +862,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/vehicles/index.ts",
     "what": "Export `ElectricMotor`, `ReductionDrive`, `ElectricMotorOptions`.",
     "why": "Public API for the electric drivetrain."
-  },
+},
   {
     "id": "0066",
     "date": "2026-09-24T21:20:00Z",
@@ -874,7 +874,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/highGainAntenna.ts",
     "what": "Add `HighGainAntennaController`: one-way stowed→deploying→tracking state machine, armed on model load, unfurls after a 5 s delay, then re-solves Earth's direction in chassis-local space every frame with slew-limited gimbals and elevation clamps. No stow API.",
     "why": "The rover's high-gain antenna must deploy automatically ~5 s after the model lands, track Earth as the rover moves, and never lay back down."
-  },
+},
   {
     "id": "0067",
     "date": "2026-09-24T21:20:00Z",
@@ -886,7 +886,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/marsShowcaseScene.ts",
     "what": "Swap the rover to `ElectricMotor` + `ReductionDrive(60)` (~1 kW, ≈6 km/h cap, regen), build a procedural HGA (post, azimuth/elevation pivots, dish, feed) on the front-right deck when the GLB lands, wire the controller into the update loop, and surface antenna + motor telemetry in the HUD and `marsState`.",
     "why": "Electric rover (speed fix) plus the automatic Earth-tracking antenna the NASA model omits."
-  },
+},
   {
     "id": "0068",
     "date": "2026-09-24T21:20:00Z",
@@ -898,7 +898,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/electricMotor.test.ts",
     "what": "Add 18 tests: the EV torque envelope (regions, taper, throttle, drag, I·α, limiter, power sign), `ReductionDrive` (fixed ratio, never shifts, reverse), the rover top-speed regression (<2.2 m/s at pinned throttle), regen braking (shorter stops, no backwards creep), and the suspension-anchored wheel visuals (helper contract, droop/bump-stop clamps, cliff and VehicleSystem ridge cases).",
     "why": "Pin the electric drivetrain and both rover fixes at the unit level; all fail on the pre-fix engine."
-  },
+},
   {
     "id": "0069",
     "date": "2026-09-24T21:20:00Z",
@@ -910,7 +910,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/highGainAntenna.test.ts",
     "what": "Add 8 tests: no motion before arming, countdown respected, unfurl duration and snap-free motion, boresight-on-Earth across attitudes, slew-limited re-aim after a 150° teleport turn, elevation clamps under hard attitudes, and a 2000-step fuzz proving the phase can never leave tracking.",
     "why": "The antenna's automatic one-way Earth tracking is a behaviour contract, not an animation."
-  },
+},
   {
     "id": "0070",
     "date": "2026-09-24T21:20:00Z",
@@ -922,7 +922,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VEHICLES.md",
     "what": "Add 'Electric drivetrains' (envelope, no idle, `ReductionDrive`, regen blend, powerKW, the showcase reference config) and 'Wheel visuals are suspension-anchored' sections.",
     "why": "Document the new public drivetrain classes and the wheel-anchoring fix."
-  },
+},
   {
     "id": "0071",
     "date": "2026-09-24T21:20:00Z",
@@ -934,7 +934,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "README.md",
     "what": "Mars Showcase paragraph: electric drivetrain (~6 km/h, regen), and the HGA auto-deploy/Earth-tracking note.",
     "why": "The demo's behaviour changed."
-  },
+},
   {
     "id": "0072",
     "date": "2026-09-24T21:20:00Z",
@@ -946,7 +946,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Record the wheel-anchoring root cause (contact-anchored visuals), the combustion-defaults top-speed trap, and the NASA model having no HGA geometry (procedural assembly at 0.62, 1.2, 0.55).",
     "why": "Session memory for future rover work."
-  },
+},
   {
     "id": "0073",
     "date": "2026-09-24T21:20:00Z",
@@ -958,7 +958,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append the id 0062–0073 entries for the electric drivetrain, rover speed/suspension fixes and the high-gain antenna.",
     "why": "Per-file history for this session's work."
-  },
+},
   {
     "id": "0074",
     "date": "2026-09-24T22:05:00Z",
@@ -971,21 +971,21 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "ElectricMotor (traction envelope: constant torque → constant power → taper, no idle, drag, powerKW) + ReductionDrive (fixed ratio, never shifts) power the Mars rover at ~1 kW through 60:1 — ≈2160 N tractive and a ≈6 km/h no-load cap replacing combustion defaults geared past 200 km/h ('way too fast'); regen braking blends brake × regenTorque into the signed slip solve, faded below 0.5 m/s. VehicleSystem poses wheel entities from Vehicle.wheelCenterPosition (hardpoint − up·(rest − compression), clamped to travel) instead of the terrain ray — the 'wheels fly off at crests then snap back' fix — and the kick-dust cut-in dropped 0.7 → 0.22 m/s to match the electric band. HighGainAntennaController arms on GLB load, unfurls 5 s later at a 40°/s slew, then re-solves Earth in gimbal space every frame at 70°/s with elevation clamped 12°–85°; one-way, no stow control anywhere; the assembly is procedural (post, two pivots, dish, feed) because the NASA GLB ships no HGA. 26 new tests (envelope, reduction, top-speed regression, regen, wheel anchoring, antenna contract); the browser gate drives the rover (dz 0.54 m, kick dust, HGA deploying, 0 GPU errors). 501 tests in 38 files; verify, lint:arch, docs:check, check:browser all green.",
     "files": [
-      "engine/src/vehicles/electric.ts",
-      "engine/src/vehicles/vehicle.ts",
-      "engine/src/vehicles/system.ts",
-      "engine/src/vehicles/index.ts",
-      "examples/src/scenes/highGainAntenna.ts",
-      "examples/src/scenes/marsShowcaseScene.ts",
-      "tests/electricMotor.test.ts",
-      "tests/highGainAntenna.test.ts",
-      "tools/browser-check.mjs",
-      "docs/VEHICLES.md",
-      "README.md",
-      "mnemosyne.md",
-      "change-log.md"
+        "engine/src/vehicles/electric.ts",
+        "engine/src/vehicles/vehicle.ts",
+        "engine/src/vehicles/system.ts",
+        "engine/src/vehicles/index.ts",
+        "examples/src/scenes/highGainAntenna.ts",
+        "examples/src/scenes/marsShowcaseScene.ts",
+        "tests/electricMotor.test.ts",
+        "tests/highGainAntenna.test.ts",
+        "tools/browser-check.mjs",
+        "docs/VEHICLES.md",
+        "README.md",
+        "mnemosyne.md",
+        "change-log.md"
     ]
-  },
+},
   {
     "id": "0075",
     "date": "2026-09-25T01:18:00Z",
@@ -997,7 +997,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/shaders/ssao.ts",
     "what": "New SSAO module: fsSsao (half-res normal-oriented obscurance over a screen-space spiral, normals rebuilt from depth), fsBlurH/fsBlurV (depth-aware separable Gaussian); rg16float output = (visibility, view depth key).",
     "why": "Phase 13.1: the depth prepass's first consumer; its dead estimate target is what makes 13.2's aliasing real."
-  },
+},
   {
     "id": "0076",
     "date": "2026-09-25T01:18:00Z",
@@ -1009,7 +1009,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/uniforms.ts",
     "what": "Add SsaoUniforms (112 B: invProj, radius, bias, intensity, projScale, depth/AO extents, sampleCount, sharpness, maxPixels) to RENDERING_STRUCTS; document perFrame.flags bit 4 (SSAO bound).",
     "why": "Generated, WebKit-legal uniform layout for the SSAO passes."
-  },
+},
   {
     "id": "0077",
     "date": "2026-09-25T01:18:00Z",
@@ -1021,7 +1021,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/shaders/standard.ts",
     "what": "@invariant on the clip position; group 0 binding 5 aoMap; ambientOcclusion(): 2x2 bilateral textureLoad against the fragment's view depth, applied to the ambient term only.",
     "why": "Bit-identical prepass/forward depths, and SSAO in the forward shader."
-  },
+},
   {
     "id": "0078",
     "date": "2026-09-25T01:18:00Z",
@@ -1033,7 +1033,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/pipeline.ts",
     "what": "Techniques prepass (standard vertex entries, depth-only, less, no bias) and ssao (three entry points, one module); prepass/ssao/ssao-blur bind group layouts; frame layout gains the AO texture; 11 layouts.",
     "why": "Pipelines for forge.prepass and the SSAO chain."
-  },
+},
   {
     "id": "0079",
     "date": "2026-09-25T01:18:00Z",
@@ -1045,7 +1045,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/renderer.ts",
     "what": "classifyPrepass (eligibility, state + front-to-back order); forge.prepass and forge.ssao/.blur.h/.blur.v in buildFrame; forge.main loads the prepass depth and skips depth writes for prepassed draws; SSAO uniforms/bind groups/1x1 fallback; stats depthPrepass/prepassDraws/ssao; RendererOptions.depthPrepass/ssao; dispose/epoch cleanup.",
     "why": "Phase 13.1 frame structure with no per-frame GPU allocation."
-  },
+},
   {
     "id": "0080",
     "date": "2026-09-25T01:18:00Z",
@@ -1057,7 +1057,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/scene/scene.ts",
     "what": "SceneSettings.depthPrepass (default true) and SceneSettings.ssao {enabled, radius 1 m, intensity 1, bias 0.02 m, samples 12}; serialised and deserialised.",
     "why": "Per-scene control of the new passes."
-  },
+},
   {
     "id": "0081",
     "date": "2026-09-25T01:18:00Z",
@@ -1069,7 +1069,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/config.ts",
     "what": "EngineConfig.depthPrepass (off on minimal/low, on for medium/high/ultra); the existing ssao key is now wired; startup log prints prepass=.",
     "why": "Quality profiles cap the prepass and SSAO."
-  },
+},
   {
     "id": "0082",
     "date": "2026-09-25T01:18:00Z",
@@ -1081,7 +1081,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/engine.ts",
     "what": "Pass config.depthPrepass / config.ssao to the Renderer.",
     "why": "Profile caps reach the renderer."
-  },
+},
   {
     "id": "0083",
     "date": "2026-09-25T01:18:00Z",
@@ -1093,7 +1093,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/capabilities.ts",
     "what": "Phase 13 inProgress, 14+ planned (13+ retired); rendering.depthPrepass, rendering.ssao, rendering.resourceAliasing verified; new partial rendering.depthReuse (13.5) and rendering.prepassCoverage (13.1); 13+ references moved to 14+.",
     "why": "The registry must match what shipped and what is still open."
-  },
+},
   {
     "id": "0084",
     "date": "2026-09-25T01:18:00Z",
@@ -1105,7 +1105,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/index.ts",
     "what": "Export SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, SsaoEntryPoint, SsaoUniforms, SceneSsaoSettings.",
     "why": "Public API for tests, tools and users."
-  },
+},
   {
     "id": "0085",
     "date": "2026-09-25T01:18:00Z",
@@ -1117,7 +1117,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "Prepass and SSAO toggles (setDepthPrepass/setSsao on window.__forge), a HUD line (prepass draws, SSAO state) and aliased KiB on the graph line.",
     "why": "The gate flips them; users can see and switch them."
-  },
+},
   {
     "id": "0086",
     "date": "2026-09-25T01:18:00Z",
@@ -1129,7 +1129,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/index.html",
     "what": "Prepass and SSAO buttons in the Rendering panel.",
     "why": "Demo controls for the new passes."
-  },
+},
   {
     "id": "0087",
     "date": "2026-09-25T01:18:00Z",
@@ -1141,7 +1141,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/frame.test.ts",
     "what": "Pins updated for the default prepass + SSAO chain; new suite: prepass depth load/no-write via the mock command log, eligibility, SSAO targets + aliasing + uniform contents, scene/profile/camera switches, steady state and leak-free toggling.",
     "why": "Mock-device proof of the frame structure."
-  },
+},
   {
     "id": "0088",
     "date": "2026-09-25T01:18:00Z",
@@ -1153,7 +1153,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/pipeline.test.ts",
     "what": "11 layouts; prepass/ssao variants; the prepass shares the forward module and entry point, has no fragment stage and no bias.",
     "why": "Pins the bit-identity design at the pipeline level."
-  },
+},
   {
     "id": "0089",
     "date": "2026-09-25T01:18:00Z",
@@ -1165,7 +1165,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/rendering.test.ts",
     "what": "Default frame pass list now includes the prepass and SSAO passes.",
     "why": "Pin update."
-  },
+},
   {
     "id": "0090",
     "date": "2026-09-25T01:18:00Z",
@@ -1177,7 +1177,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/wgsl.test.ts",
     "what": "SsaoUniforms size/offset pins; SSAO_SHADER in the validated corpus.",
     "why": "Layout and validator coverage for the new module."
-  },
+},
   {
     "id": "0091",
     "date": "2026-09-25T01:18:00Z",
@@ -1189,7 +1189,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "PBR section: prepass/SSAO pass order, prepassDraws, aliasing; full-resolution per-pixel A/B (SSAO darkens >= 0.1 %, brightens nothing; prepass on vs off changes no pixel); LDR and restore checks include SSAO.",
     "why": "Real-WebGPU validation of 13.1 / 13.2."
-  },
+},
   {
     "id": "0092",
     "date": "2026-09-25T01:18:00Z",
@@ -1201,7 +1201,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/wgsl-check.mjs",
     "what": "Validate SSAO_SHADER.",
     "why": "check:wgsl covers every shipped module."
-  },
+},
   {
     "id": "0093",
     "date": "2026-09-25T01:18:00Z",
@@ -1213,7 +1213,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/docs-check.mjs",
     "what": "Accept 14+ as the unscheduled-later-work placeholder.",
     "why": "Phase 13 is now a real phase."
-  },
+},
   {
     "id": "0094",
     "date": "2026-09-25T01:18:00Z",
@@ -1225,7 +1225,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ROADMAP.md",
     "what": "Phase 13 [~] IN PROGRESS, Phase 14+ NOT STARTED; Phase 13 current state; 13.1 implement [x] with per-consumer reuse boxes and two new open items (cutouts in the prepass, orthographic SSAO); 13.2 both [x] with measured numbers.",
     "why": "Start the next roadmap phase honestly."
-  },
+},
   {
     "id": "0095",
     "date": "2026-09-25T01:18:00Z",
@@ -1237,7 +1237,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "Remove the stale 'no aliasing in the default frame' entry; add depth-reuse and prepass-coverage limitations.",
     "why": "Known issues track live work only."
-  },
+},
   {
     "id": "0096",
     "date": "2026-09-25T01:18:00Z",
@@ -1249,7 +1249,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/RENDERING.md",
     "what": "Frame diagram, settings table, stats, aliasing paragraph, new section 4a (prepass + SSAO), pipeline cache (11 layouts, new techniques), extension notes and limitations.",
     "why": "Describe the renderer as built."
-  },
+},
   {
     "id": "0097",
     "date": "2026-09-25T01:18:00Z",
@@ -1261,7 +1261,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Phase 13 status; what the pipeline/frame/wgsl suites and the browser gate prove for the prepass, SSAO and aliasing, with measured numbers.",
     "why": "Every claim names its check."
-  },
+},
   {
     "id": "0098",
     "date": "2026-09-25T01:18:00Z",
@@ -1273,7 +1273,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ARCHITECTURE.md",
     "what": "Built-today pass chain corrected (prepass, SSAO, cloud deck, GPU particles); as-built aliasing and pipeline-cache notes.",
     "why": "Keep the as-built summary true."
-  },
+},
   {
     "id": "0099",
     "date": "2026-09-25T01:18:00Z",
@@ -1285,7 +1285,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Phase 13 notes: prepass bit-identity recipe, why SAO weighting was replaced, AO-buffer debugging recipe, f16 sky-key rounding, determinism of demo scenes, HMR trap via capabilities.ts.",
     "why": "Session memory for future renderer work."
-  },
+},
   {
     "id": "0100",
     "date": "2026-09-25T01:18:00Z",
@@ -1297,7 +1297,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Entries 0075-0100 for this change set, and the 0101 pr-merge entry for PR #39.",
     "why": "Activity history."
-  },
+},
   {
     "id": "0101",
     "date": "2026-09-25T01:33:32Z",
@@ -1310,35 +1310,35 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Phase 13 starts with 13.1 depth prepass and 13.2 production aliasing. forge.prepass draws eligible opaque batches depth-only with the standard module's own vertex entry points and an @invariant clip position, so forge.main loads bit-identical depth and skips depth writes for them (real WebGPU: 0 px differ with the prepass on vs off). SSAO is the first consumer: forge.ssao (half-res normal-oriented obscurance, normals rebuilt from depth) plus a depth-aware separable blur into rg16float, applied to the ambient term through a 2x2 bilateral upsample; its raw and final targets alias (PBR fixture: 11 transients in 10 textures, 921,600 B aliased; SSAO darkens 3,905 px and brightens none). Scene settings, EngineConfig/RendererOptions switches (off on minimal/low), stats, demo toggles and gate checks; rendering.depthPrepass/ssao/resourceAliasing verified, depthReuse (13.5) and prepassCoverage (13.1) partial with known limitations; 13+ retired for 14+. 507 tests in 38 files, check:browser passed.",
     "files": [
-      "ARCHITECTURE.md",
-      "README.md",
-      "ROADMAP.md",
-      "change-log.md",
-      "docs/KNOWN-ISSUES.md",
-      "docs/RENDERING.md",
-      "docs/VERIFICATION.md",
-      "engine/src/core/capabilities.ts",
-      "engine/src/core/config.ts",
-      "engine/src/core/engine.ts",
-      "engine/src/index.ts",
-      "engine/src/rendering/pipeline.ts",
-      "engine/src/rendering/renderer.ts",
-      "engine/src/rendering/shaders/ssao.ts",
-      "engine/src/rendering/shaders/standard.ts",
-      "engine/src/rendering/uniforms.ts",
-      "engine/src/scene/scene.ts",
-      "examples/index.html",
-      "examples/src/main.ts",
-      "mnemosyne.md",
-      "tests/frame.test.ts",
-      "tests/pipeline.test.ts",
-      "tests/rendering.test.ts",
-      "tests/wgsl.test.ts",
-      "tools/browser-check.mjs",
-      "tools/docs-check.mjs",
-      "tools/wgsl-check.mjs"
+        "ARCHITECTURE.md",
+        "README.md",
+        "ROADMAP.md",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/core/config.ts",
+        "engine/src/core/engine.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/pipeline.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/shaders/ssao.ts",
+        "engine/src/rendering/shaders/standard.ts",
+        "engine/src/rendering/uniforms.ts",
+        "engine/src/scene/scene.ts",
+        "examples/index.html",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/frame.test.ts",
+        "tests/pipeline.test.ts",
+        "tests/rendering.test.ts",
+        "tests/wgsl.test.ts",
+        "tools/browser-check.mjs",
+        "tools/docs-check.mjs",
+        "tools/wgsl-check.mjs"
     ]
-  },
+},
   {
     "id": "0102",
     "date": "2026-09-25T02:16:46Z",
@@ -1350,7 +1350,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "Add the source→test subsystem map: each subsystem's owned source paths, suites and deps, plus pure helpers (classify, dependents closure, selectForChanges), a self-check, and an --explain/--list/--check CLI.",
     "why": "Selective testing needs a single source of truth for which suites a change can reach; a static import graph can't provide it because every suite imports the @forge/engine barrel."
-  },
+},
   {
     "id": "0103",
     "date": "2026-09-25T02:16:46Z",
@@ -1362,7 +1362,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/affected-tests.mjs",
     "what": "Add the runner: read changed files from git (merge-base diff + working tree + untracked), map them through test-subsystems.mjs, and run only the affected suites via vitest positional filters; supports --base/--all/--print/--json and forwarding args after --.",
     "why": "So `npm run test:affected` runs only what a change touches during the edit loop instead of the full ~500-test suite."
-  },
+},
   {
     "id": "0104",
     "date": "2026-09-25T02:16:46Z",
@@ -1374,7 +1374,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/subsystems.test.ts",
     "what": "Add the drift guard suite: drives the map's --check and --explain as a subprocess and pins selection behaviour (leaf change stays narrow, smoke floor always present, foundation/config/unowned changes expand to full).",
     "why": "A stale map silently under-tests; this suite (in the smoke floor) fails the moment a suite is unclaimed or a subsystem's files move."
-  },
+},
   {
     "id": "0105",
     "date": "2026-09-25T02:16:46Z",
@@ -1386,7 +1386,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "package.json",
     "what": "Add scripts: test:affected, test:affected:print, test:all, check:testmap.",
     "why": "Expose the selective-testing runner and the map drift check as first-class commands."
-  },
+},
   {
     "id": "0106",
     "date": "2026-09-25T02:16:46Z",
@@ -1398,7 +1398,7 @@ JSON array below; agents maintain it by hand until then.
     "file": ".github/workflows/ci.yml",
     "what": "Fetch full history, decide test scope (full on main pushes / dispatch full / full-test-run label / [full-ci] commit token, else affected on PRs), run the selector accordingly, and add a check:testmap gate.",
     "why": "PRs should only test what they change while main keeps a full-suite safety net, with an explicit opt-in to force full."
-  },
+},
   {
     "id": "0107",
     "date": "2026-09-25T02:16:46Z",
@@ -1410,7 +1410,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/TESTING.md",
     "what": "New doc: the subsystem model, the commands, the full-run fallbacks, why a hand-written map, and how to keep it honest.",
     "why": "Selective testing needs a discoverable home that explains the map and how to maintain it."
-  },
+},
   {
     "id": "0108",
     "date": "2026-09-25T02:16:46Z",
@@ -1422,7 +1422,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Add `npm run test:affected` and `npm run check:testmap` rows to the green-today table, stating what each proves.",
     "why": "VERIFICATION.md must stay truthful when gates change (AGENTS.md §4)."
-  },
+},
   {
     "id": "0109",
     "date": "2026-09-25T02:16:46Z",
@@ -1434,7 +1434,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "AGENTS.md",
     "what": "Document the new commands and the tools in the repo map, and add §8 'Selective testing — run only what a change can reach'.",
     "why": "Contributors need the selective-testing workflow and the rule to update the map when suites/files move."
-  },
+},
   {
     "id": "0110",
     "date": "2026-09-25T02:16:46Z",
@@ -1446,7 +1446,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "README.md",
     "what": "Add `npm run test:affected` to the top command block.",
     "why": "Surface the selective-testing entry point next to the other primary commands."
-  },
+},
   {
     "id": "0111",
     "date": "2026-09-25T02:16:46Z",
@@ -1458,7 +1458,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Append a dated note on the selective-testing map: why it's hand-written, the real deps cycles, the full-run triggers, and the subprocess-driven drift test.",
     "why": "Session-memory conventions (AGENTS.md §7): record hard-won repo facts for future sessions."
-  },
+},
   {
     "id": "0112",
     "date": "2026-09-25T02:16:46Z",
@@ -1470,7 +1470,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "Split the single `examples` subsystem into scene-aligned subsystems (ex-ui, ex-weather, ex-rover, ex-antenna, ex-orbit) with per-file source ownership and accurate deps; the pure-UI touch controls depend on nothing.",
     "why": "So a leaf engine change pulls only the demo pieces it can actually reach — e.g. a vehicles change no longer runs the pure-UI vehicleTouch suite (19→11 suites)."
-  },
+},
   {
     "id": "0113",
     "date": "2026-09-25T02:16:46Z",
@@ -1482,7 +1482,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/TESTING.md",
     "what": "Replace the single examples row with the five scene-split demo subsystems and explain the UI-decoupling rationale.",
     "why": "Keep the doc in step with the map after splitting examples."
-  },
+},
   {
     "id": "0114",
     "date": "2026-09-25T02:16:46Z",
@@ -1494,7 +1494,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "AGENTS.md",
     "what": "Update §8's subsystem list to name the scene-split demo subsystems and note the touch controls have no engine coupling.",
     "why": "Contributor guidance must match the actual subsystem set."
-  },
+},
   {
     "id": "0115",
     "date": "2026-09-25T04:17:01Z",
@@ -1506,7 +1506,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/clusters.ts",
     "what": "New: the clustered-lighting builder. A 16x8x24 view-space grid (3072 clusters) indexes up to MAX_CLUSTERED_LIGHTS=256 local lights; each light's view-space bounding box is projected at both of its depths, its log slice range widened by one, near/far/off-frame lights culled, and a cluster over MAX_LIGHTS_PER_CLUSTER=32 evicts its least influential lights (intensity x Rec.709 luma) and reports it. Writes a flat cluster-major index list into reused typed arrays: nothing allocated per build.",
     "why": "Phase 13.3. The frame's light cap was a fixed 16-entry uniform list that writeLights truncated silently; a per-fragment list of only the lights that can reach it lifts the cap to 256 and makes the shader's cost follow the lights near a pixel instead of the lights in the scene."
-  },
+},
   {
     "id": "0116",
     "date": "2026-09-25T04:17:01Z",
@@ -1518,7 +1518,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/uniforms.ts",
     "what": "Add ClusterUniforms (48 B, uniform: invExtent, gridScale, near, logNear, sliceScale, slices, lightCount, maxPerCluster), the ClusterLightBlock (count + array<LightUniforms,256>) and ClusterGridBlock (6144 offset/count u32 + the 98304-entry index list) storage structs, a RENDERING_STORAGE_STRUCTS registry beside RENDERING_STRUCTS, and a comment on PerFrameUniforms.lightCount now that it counts every light in the frame.",
     "why": "The grid's quantisation and its two arrays have to be generated layouts, not hand-written WGSL, or the CPU writer and the shader drift apart. Both blocks are far past (or need not fit) the 64 KiB uniform binding limit, so they are storage-bound and needed their own registry."
-  },
+},
   {
     "id": "0117",
     "date": "2026-09-25T04:17:01Z",
@@ -1530,7 +1530,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/shaders/standard.ts",
     "what": "Factor one lightContribution(LightUniforms, SurfaceShading) out of the fragment light loop; add the SurfaceShading struct, clusterIndexOf(fragCoord, viewDepth), the three cluster structs/bindings (6 uniform, 7/8 read-only storage) and FLAGS_CLUSTERED=32u, plus a second loop that walks the fragment's own cluster list when perFrame.flags bit 5 is set.",
     "why": "Both light paths must shade through the same function in the same light order, so the clustered and unclustered sums are the same floating-point sum. A runtime flag rather than a compile-time define means every shipped variant contains both paths and one pipeline can be A/B'd."
-  },
+},
   {
     "id": "0118",
     "date": "2026-09-25T04:17:01Z",
@@ -1542,7 +1542,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/pipeline.ts",
     "what": "Add the cluster resources to the frame bind group layout: binding 6 uniform, bindings 7 and 8 read-only storage, both visible to the fragment stage.",
     "why": "The frame group is shared by every technique and a bind group layout has no optional slots, so the cluster buffers are bound in every frame whether or not the scene clusters."
-  },
+},
   {
     "id": "0119",
     "date": "2026-09-25T04:17:01Z",
@@ -1554,7 +1554,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/renderer.ts",
     "what": "Decide clustering per frame (settings.clusteredLighting, RendererOptions veto, perspective camera, at least one local light); split writeLights so directionals go to the uniform LightBlock and locals to the cluster staging block through one shared writeLightRecord; add buildClusters() (build the grid, upload the quantisation plus the used prefixes, report it); create/bind/destroy the three cluster buffers; add seven RenderStats fields, their reset, and a clusterBuildInfo getter.",
     "why": "The renderer is where the fixed 16-light cap lived (Math.min(lights.length, MAX_LIGHTS_PER_FRAME), silently dropping the rest). Directional lights stay in the uniform list because they reach every pixel and the cascade caster's shadowIndex lives there; stats.lights/lightsDropped now report a truncated frame instead of hiding it."
-  },
+},
   {
     "id": "0120",
     "date": "2026-09-25T04:17:01Z",
@@ -1566,7 +1566,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/index.ts",
     "what": "Export the cluster grid (ClusterGrid, clusterSliceFor, spotBoundingSphere, the CLUSTER_*/MAX_* constants and types), the three cluster structs and RENDERING_STORAGE_STRUCTS, and the new WGSL reserved-word rule (WGSL_RESERVED_WORDS, reservedWordIssues).",
     "why": "The barrel is the only supported import path for tests, tools and the demo; the grid's constants are what the tests and the browser gate assert against."
-  },
+},
   {
     "id": "0121",
     "date": "2026-09-25T04:17:01Z",
@@ -1578,7 +1578,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/config.ts",
     "what": "Add EngineConfig.clusteredLighting (default true; false on the minimal and low profiles) and describe it in describeConfig.",
     "why": "Every other frame feature has a quality-profile switch, and clustering is CPU work a low-end profile should be able to decline."
-  },
+},
   {
     "id": "0122",
     "date": "2026-09-25T04:17:01Z",
@@ -1590,7 +1590,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/engine.ts",
     "what": "Flow config.clusteredLighting into RendererOptions.",
     "why": "The profile veto has to reach the renderer, which is what decides per frame."
-  },
+},
   {
     "id": "0123",
     "date": "2026-09-25T04:17:01Z",
@@ -1602,7 +1602,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/scene/scene.ts",
     "what": "Add SceneSettings.clusteredLighting (default true), serialise it and apply it in the settings patch path.",
     "why": "A scene owns its lighting policy; the demo's Clustered button and the browser gate both drive it through scene.settings."
-  },
+},
   {
     "id": "0124",
     "date": "2026-09-25T04:17:01Z",
@@ -1614,7 +1614,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/gpu/shaderCache.ts",
     "what": "Add WGSL_RESERVED_WORDS and reservedWordIssues() to validateWgsl: a reserved word used as an identifier (struct member, local or global) is a semantics issue on its real line, with attribute spellings (@align, @invariant) and comments skipped.",
     "why": "The cluster grid's offset array shipped as `meta`, which Tint rejects at parse time ('meta' is a reserved keyword): every pipeline from standard.ts came back invalid and every frame failed to submit, while the mock device, check:wgsl and 537 unit tests stayed green because none of them compile WGSL. Only the browser gate saw it, so the rule now lives where verify runs it."
-  },
+},
   {
     "id": "0125",
     "date": "2026-09-25T04:17:01Z",
@@ -1626,7 +1626,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/capabilities.ts",
     "what": "Flip rendering.clusteredLighting to verified (evidence: tests/clusters.test.ts, tests/frame.test.ts, tests/wgsl.test.ts, tools/browser-check.mjs) and add rendering.clusterCoverage as partial, closing with 13.4.",
     "why": "The registry is the source of truth for what is built, and the honest gaps (CPU-built grid, perspective-only, 256/32 caps, ~428 KB resident) belong in their own partial capability so KNOWN-ISSUES can reference them without going stale."
-  },
+},
   {
     "id": "0126",
     "date": "2026-09-25T04:17:01Z",
@@ -1638,7 +1638,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/clusters.test.ts",
     "what": "New suite (18 tests): conservation probe points looked up exactly the way the fragment stage looks them up, a 2 cm walk of the ground under an off-axis lamp, the spot cone's rim at full range, ascending list order, near/far/off-frame culls, the slice span reaching the deepest light, the cap evicting the dimmest, CLUSTER_INDEX_CAPACITY being exactly the worst case, MAX_CLUSTERED_LIGHTS truncation, determinism with no allocation, and non-finite transforms.",
     "why": "Under-inclusion is the one failure mode a viewer cannot diagnose, so the property that matters has to be checked exhaustively on the CPU where it is cheap. The off-axis walk is the regression test for the near-depth projection bug (it fails on the old code with 'expected [] to include +0')."
-  },
+},
   {
     "id": "0127",
     "date": "2026-09-25T04:17:01Z",
@@ -1650,7 +1650,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/frame.test.ts",
     "what": "Add a clustered-lighting suite (6 tests) that reads the mock's uploaded bytes: the uniform block holds the directional light alone while cluster.lights holds the three lamps with the same record layout, perFrame.flags bit 5 is set, the uploaded quantisation reproduces clusterSliceFor at ten depths, the offset array is a prefix sum with every index addressing a real light, the pass list is identical with clustering on and off, the four off-switches hold, 40 lights are all carried while the uniform path truncates at 16 and reports it, and a steady clustered frame allocates nothing across five setting combinations.",
     "why": "The mock never compiles a shader but it does validate bind groups and writeBuffer bounds, so this is where the new bindings, uploads and stats are pinned without a browser."
-  },
+},
   {
     "id": "0128",
     "date": "2026-09-25T04:17:01Z",
@@ -1662,7 +1662,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/wgsl.test.ts",
     "what": "Add a clustered-lighting struct block (sizes derived from the grid constants, generated declarations embedded verbatim in the module that binds them, one lightContribution with two call sites behind a runtime flag) and a reserved-word block (four uses of `meta` flagged on their real lines, attribute spellings and prose left alone, the language's own words not claimed).",
     "why": "The pixel-identity gate rests on both loops shading through one function, and the reserved-word rule is the CPU-side copy of the browser failure that `meta` caused."
-  },
+},
   {
     "id": "0129",
     "date": "2026-09-25T04:17:01Z",
@@ -1674,7 +1674,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/wgsl-check.mjs",
     "what": "Validate RENDERING_STORAGE_STRUCTS: a positive size that is a multiple of 4, toWgsl(\"storage\") not throwing, and the generated declaration appearing verbatim in a declared host module (STORAGE_STRUCT_HOSTS).",
     "why": "The existing loop only covered uniform structs; a hand-edited storage struct in standard.ts could not be kept in step with the CPU writer that uploads it."
-  },
+},
   {
     "id": "0130",
     "date": "2026-09-25T04:17:01Z",
@@ -1686,7 +1686,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "Claim tests/clusters.test.ts for the rendering subsystem and name the cluster grid in its title.",
     "why": "check:testmap fails when a suite on disk is unowned; the drift guard is the point."
-  },
+},
   {
     "id": "0131",
     "date": "2026-09-25T04:17:01Z",
@@ -1698,7 +1698,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Add the Phase 13.3 section: with the fixture's four lights, clustering on vs off must not move a pixel (0 px beyond one luma level, same 18 passes); with the demo's 36-lamp rig (40 lights) clustering must carry all 39 locals with nothing dropped while the uniform path truncates at 16 and reports it, and the clustered frame must be strictly brighter with none darker; the rig must come back out; and the Clustered button must move the setting it shows.",
     "why": "Only a real device compiles WGSL and only a real frame can prove the two light paths accumulate identically. The 'none darker' half is what caught the off-axis projection bug (181 px)."
-  },
+},
   {
     "id": "0132",
     "date": "2026-09-25T04:17:01Z",
@@ -1710,7 +1710,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/index.html",
     "what": "Add Clustered and +36 lamps buttons to the Rendering panel.",
     "why": "Every rendering toggle the engine has is reachable in the demo, and the many-light rig needs a handle a person can press."
-  },
+},
   {
     "id": "0133",
     "date": "2026-09-25T04:17:01Z",
@@ -1722,7 +1722,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "Add setClusteredLighting/setStressLights plus their buttons, a lights line in the HUD (lights, clustered, clusters used, indices, cap, DROPPED), the __forge entries the gate drives, and a static 36-lamp rig that is dropped on scene switch.",
     "why": "The rig is what makes 'more lights than the fixed list could carry' visible and measurable; it is static so a frozen frame is bit-reproducible, which the pixel A/B needs. Lamps sit low with a 1.8 m range so each covers a handful of clusters rather than tripping the 32-per-cluster cap."
-  },
+},
   {
     "id": "0134",
     "date": "2026-09-25T04:17:01Z",
@@ -1734,7 +1734,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/RENDERING.md",
     "what": "New section 4b (grid, quantisation, conservative assignment and the projection bug it fixed, caps and eviction, buffers, why it is pixel-identical); buildClusters in the frame diagram and the cluster uploads in the uniform line; a settings-table row; the seven new stats; five new limitations.",
     "why": "RENDERING.md is the as-built description and the place the honest limits live."
-  },
+},
   {
     "id": "0135",
     "date": "2026-09-25T04:17:01Z",
@@ -1746,7 +1746,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Add a tests/clusters.test.ts section, the clustered bullet in the frame section, the cluster structs and reserved-word rules in the wgsl section, the two browser-gate clustering claims, and 13.3 in the phase status line.",
     "why": "The doc maps every claim to the assertion that covers it; a new capability without a row here is a claim nobody can check."
-  },
+},
   {
     "id": "0136",
     "date": "2026-09-25T04:17:01Z",
@@ -1758,7 +1758,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "Three rendering bullets: the grid is CPU-built every frame (~428 KB resident, ~43 KB uploaded for the 40-light rig), the 256-light and 32-per-cluster caps with eviction, and orthographic cameras not being clustered.",
     "why": "The 16-light cap is gone but its replacements are real limits, and the docs gate fails a limitation that hides."
-  },
+},
   {
     "id": "0137",
     "date": "2026-09-25T04:17:01Z",
@@ -1770,7 +1770,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ROADMAP.md",
     "what": "Close both 13.3 items with their evidence.",
     "why": "The roadmap is the record of what a phase delivered and where it is proven."
-  },
+},
   {
     "id": "0138",
     "date": "2026-09-25T04:17:01Z",
@@ -1782,7 +1782,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ARCHITECTURE.md",
     "what": "Rewrite section 5.5's 'As built' paragraph (Forward+ over the specified 16x8x24 grid, CPU-built, 256 lights, 32 per cluster, worker and GPU assignment not built, no spot/point shadows) and update the built-today frame chain for 13.1-13.3.",
     "why": "Section 5.5 specified the 16x8x24 cluster list and the as-built paragraph said 'no clustering'; the two have to agree."
-  },
+},
   {
     "id": "0139",
     "date": "2026-09-25T04:17:01Z",
@@ -1794,7 +1794,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Append the 2026-09-25 Phase 13.3 entry: the `meta` reserved-word failure and the rule it produced, the near-depth projection bug and the CPU probe that localised it in minutes, why the sparse conservation probe missed it, the index-capacity sizing rule, and the grid/demo facts worth not re-deriving.",
     "why": "Both bugs were invisible to every CPU gate and expensive to rediscover; that is exactly what this file is for."
-  },
+},
   {
     "id": "0140",
     "date": "2026-09-25T04:17:01Z",
@@ -1806,7 +1806,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append the 26 change entries for Phase 13.3.",
     "why": "One entry per file touched, per the maintenance rules at the top of this file."
-  },
+},
   {
     "id": "0141",
     "date": "2026-09-25T11:21:29Z",
@@ -1819,34 +1819,34 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Phase 13.3 clustered (Forward+) lighting. Local lights are indexed on the CPU into a 16x8x24 view-space grid (3,072 clusters, engine/src/rendering/clusters.ts) and the fragment stage walks only its own cluster's list, so a frame carries 256 local lights instead of a fixed 16-entry uniform block that writeLights truncated silently; a cluster over 32 candidates evicts its least influential lights (intensity x Rec.709 luma) and reports it. Directional lights stay in the uniform list — they reach every pixel, and the cascade caster's shadowIndex lives there. Clustering adds no pass and no pixel: both loops call the one lightContribution() over the same lights in the same order, so on/off is bit-identical while a scene fits the old list (real WebGPU: 0 px differ at 4 lights, same 18 passes), and at 40 lights the demo's static 36-lamp rig carries all 39 locals with none dropped — 88,036 of 921,600 px brighter than the truncated uniform path and none darker. Generated ClusterUniforms/ClusterLightBlock/ClusterGridBlock on frame bindings 6-8 (~428 KB resident, only the used prefixes uploaded), perFrame.flags bit 5, EngineConfig/SceneSettings switches (off on minimal/low), seven new stats plus Renderer.clusterBuildInfo, and demo Clustered / +36 lamps buttons with a HUD lights line. Two bugs only the real GPU could see became CPU gates: WGSL's reserved words (the grid's offset array shipped as `meta`, which Tint rejects at parse time — every pipeline came back invalid and every frame failed to submit, while the mock device, check:wgsl and 537 unit tests stayed green because none of them compile WGSL) are now rejected by validateWgsl; and projecting a light's box at its nearest depth only is not conservative, because ndc.x = proj*x/z moves toward the centre as z grows, which cost an off-axis lamp the inner crescent of its own pool (181 darker px) — it is now projected at both depths and pinned by a 2 cm walk of the ground that fails on the old code (1,986 misses to 0 over 145,323 CPU probes). CLUSTER_INDEX_CAPACITY is sized for the worst case (CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER) so the cap, never the buffer, is what limits a cluster. rendering.clusteredLighting verified; rendering.clusterCoverage partial (CPU-built grid, perspective-only, 256/32 caps) closing with 13.4. 543 tests in 40 files; verify, check:wgsl, lint:arch, check:testmap, docs:check and check:browser green, in the sandbox and in CI.",
     "files": [
-      "ARCHITECTURE.md",
-      "ROADMAP.md",
-      "change-log.md",
-      "docs/KNOWN-ISSUES.md",
-      "docs/RENDERING.md",
-      "docs/VERIFICATION.md",
-      "engine/src/core/capabilities.ts",
-      "engine/src/core/config.ts",
-      "engine/src/core/engine.ts",
-      "engine/src/gpu/shaderCache.ts",
-      "engine/src/index.ts",
-      "engine/src/rendering/clusters.ts",
-      "engine/src/rendering/pipeline.ts",
-      "engine/src/rendering/renderer.ts",
-      "engine/src/rendering/shaders/standard.ts",
-      "engine/src/rendering/uniforms.ts",
-      "engine/src/scene/scene.ts",
-      "examples/index.html",
-      "examples/src/main.ts",
-      "mnemosyne.md",
-      "tests/clusters.test.ts",
-      "tests/frame.test.ts",
-      "tests/wgsl.test.ts",
-      "tools/browser-check.mjs",
-      "tools/test-subsystems.mjs",
-      "tools/wgsl-check.mjs"
+        "ARCHITECTURE.md",
+        "ROADMAP.md",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/core/config.ts",
+        "engine/src/core/engine.ts",
+        "engine/src/gpu/shaderCache.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/clusters.ts",
+        "engine/src/rendering/pipeline.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/shaders/standard.ts",
+        "engine/src/rendering/uniforms.ts",
+        "engine/src/scene/scene.ts",
+        "examples/index.html",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/clusters.test.ts",
+        "tests/frame.test.ts",
+        "tests/wgsl.test.ts",
+        "tools/browser-check.mjs",
+        "tools/test-subsystems.mjs",
+        "tools/wgsl-check.mjs"
     ]
-  },
+},
   {
     "id": "0142",
     "date": "2026-09-25T13:14:37Z",
@@ -1858,7 +1858,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/clusters.ts",
     "what": "Each cluster now owns MAX_LIGHTS_PER_CLUSTER consecutive slots of the index list instead of an (offset, count) pair, so the per-cluster cap *is* the stride and `capFit` is gone; `build` is split into `prepare` (ranges: spheres, near/far/off-frame culls, tile and slice extents), `count` (the lists' lengths and the frame's aggregates, from the per-slice difference plane) and `fill` (the lists themselves); `packRanges`/`influenceOf`/`RANGE_KEY_BITS` pack one u32 key plus one influence rank per light.",
     "why": "The packed layout needed a prefix sum, so any other producer of the grid would have had to run a scan pass before it could write a single list, and capFit could silently shrink the cap when a scene used every cluster. Splitting the build separates the coverage-independent half (count: exact lengths, aggregates, what the fragment stage indexes with) from the coverage-proportional half (fill: what the GPU is there for), which is what makes both the GPU rasteriser and the reported stats possible."
-  },
+},
   {
     "id": "0143",
     "date": "2026-09-25T13:14:37Z",
@@ -1870,7 +1870,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/lightCulling.ts",
     "what": "New: the GPU fill (Phase 13.4). `LIGHT_CULL_SHADER` generates `csAssign` (one invocation per cluster, one workgroup per 256; coverage test from the packed keys, eviction of the least influential light at the cap, insertion-sort back into light order after an eviction) plus its bindings, from the generated layout structs and RANGE_KEY_BITS; `coversKey` is the coverage decode in TypeScript, `assignClustersOnCpu` is the shader's algorithm in TypeScript (the executable spec the tests pin), and `GpuLightCuller` uploads the frame's ranges (prefix only: 2 KB max, 4 B when nothing clustered), builds one pipeline and one bind group, and records `forge.lights.assign` as a side-effect pass.",
     "why": "The fill is the only stage whose cost grows with coverage (14.1 ms for a 256-lamp rig on one thread) and the only one a single CPU thread cannot widen; the counting pass stays on the CPU because its output is needed exactly and immediately. Doing the fill on the device also means the light-index blocks are never uploaded, and nothing needs reading back: the aggregates are functions of the counts."
-  },
+},
   {
     "id": "0144",
     "date": "2026-09-25T13:14:37Z",
@@ -1882,7 +1882,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/uniforms.ts",
     "what": "ClusterRangeEntry (packed key + influence) and ClusterRangeBlock (count + 256 entries, 2052 B, storage-only) added to the registries, so the shader embeds generated declarations instead of a hand-written copy.",
     "why": "The range block is the CPU→GPU interface for the assignment pass: the WGSL decode and `packRanges` have to agree bit for bit, and the way this repo keeps two languages in step is to generate the struct once and assert the shader text contains it verbatim."
-  },
+},
   {
     "id": "0145",
     "date": "2026-09-25T13:14:37Z",
@@ -1894,7 +1894,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/renderer.ts",
     "what": "RendererOptions.lightCulling (\"auto\" | \"cpu\" | \"gpu\"; auto = GPU unless the device is the mock), a runtime `lightCulling` setter and RenderStats.clusterFill; buildClusters runs prepare + count always and rasterize only on the CPU path, uploads only the counts (not the index prefix) when the device fills, and buildFrame records `forge.lights.assign` when this frame fills a grid on the device; the culler is disposed with the renderer and when the mode returns to cpu.",
     "why": "The mock device validates and records compute but cannot execute WGSL, so an unqualified auto has to stay on the CPU there — the same isMock test GpuParticleSystem makes. Auto-resolving once against the device keeps the fast path the default on real hardware without any configuration."
-  },
+},
   {
     "id": "0146",
     "date": "2026-09-25T13:14:37Z",
@@ -1906,7 +1906,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/index.ts",
     "what": "Exports: GpuLightCuller, LIGHT_CULL_SHADER, LIGHT_CULL_WORKGROUP, assignClustersOnCpu, coversKey, RANGE_KEY_BITS, ClusterRanges, ClusterRangeEntry, ClusterRangeBlock.",
     "why": "The shader's TypeScript twin and the packed-range layout are the interfaces a test (and the browser gate) pins the GPU path with; leaving them unexported would have made the equivalence suite reach into engine/src, which the import-boundary lint forbids."
-  },
+},
   {
     "id": "0147",
     "date": "2026-09-25T13:14:37Z",
@@ -1918,7 +1918,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/lightCulling.test.ts",
     "what": "New: pins the GPU fill against the CPU one — `assignClustersOnCpu` versus `ClusterGrid.rasterize` byte for byte over hand-written scenes (scattered lamps, a full-grid light, spots, off-frame and degenerate lights, a scene saturated at the 32-per-cluster cap, a tie-heavy scene) and a 60-scene deterministic sweep with tie-heavy influences; `coversKey` versus the coverage the CPU fill actually walks; the range upload (keys and influences, live prefix only); one dispatch over the whole grid; the bind group following the grid buffer; dispose; the aggregates computed without a readback.",
     "why": "The GPU fill is only worth having if it is the same fill: the fragment stage indexes the grid with the CPU's counts, so a device that wrote different lists would light a surface differently from the CPU path, and no screenshot of one path can show it. The mock cannot execute WGSL, so equivalence has to be provable on the CPU side of the boundary."
-  },
+},
   {
     "id": "0148",
     "date": "2026-09-25T13:14:37Z",
@@ -1930,7 +1930,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/clusters.test.ts",
     "what": "Added the packed-range suite: for five scenes, the decoded keys' coverage must equal the CPU fill's lists (in light order) and the counting pass's counts (capped), plus the aggregates falling out of the counts, and a light that reaches no cluster packing to a key no cluster matches.",
     "why": "The packed key is the one value that crosses from TypeScript into WGSL; if the shader's decode and the CPU's coverage test ever disagreed, the GPU path would silently light less (or more) than the CPU path and only a real device would show it."
-  },
+},
   {
     "id": "0149",
     "date": "2026-09-25T13:14:37Z",
@@ -1942,7 +1942,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/frame.test.ts",
     "what": "Added a renderer-level A/B: the same scene filled on the CPU and on the GPU must report identical stats and an identical build, the CPU arm's command log must carry the counts *and* the index prefix while the GPU arm's carries the counts only, the device must get exactly one lights.assign dispatch of 12 workgroups, the pass must appear with the fill and not on a frame that did not cluster, the range block must hold the light count and live keys the stats describe, and switching back to cpu mid-run must return to the CPU lists.",
     "why": "The renderer side of the handover is where a mistake is cheap (uploading the wrong prefix, recording the pass on a frame nothing filled, or reporting last frame's numbers) and invisible to the shader tests; this puts it under the CPU-only test suite."
-  },
+},
   {
     "id": "0150",
     "date": "2026-09-25T13:14:37Z",
@@ -1954,7 +1954,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/wgsl.test.ts",
     "what": "The storage-struct registry assertion now expects ClusterRangeBlock and ClusterRangeEntry as well.",
     "why": "The registry is what tools/wgsl-check.mjs iterates to prove each struct is embedded verbatim in the shader that binds it; an unregistered struct is a struct with no such proof."
-  },
+},
   {
     "id": "0151",
     "date": "2026-09-25T13:14:37Z",
@@ -1966,7 +1966,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/wgsl-check.mjs",
     "what": "Generates and validates LIGHT_CULL_SHADER (structural validation plus the strict uniform-layout rules), and hosts the two new storage structs in the shader text so the generated declarations must appear in it verbatim.",
     "why": "This is the cheap gate against a hand-edited shader drifting from the CPU writer; it is the only check that reads the WGSL the assignment pass actually compiles."
-  },
+},
   {
     "id": "0152",
     "date": "2026-09-25T13:14:37Z",
@@ -1978,7 +1978,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Clustering's picture A/B now pins the CPU fill explicitly; a new section A/Bs the two fills on the fixture (pixels and every grid stat must match, the GPU arm must add exactly `forge.lights.assign`), then stacks 40 lamps into one ball to force the eviction path and compares the two fills channel by channel (luma can hide a hue change at equal brightness); `keepLuma` keeps the RGB bytes too, and the many-light rig now runs on the GPU fill.",
     "why": "The only place the actual WGSL executes is a real device, and \"the lists are the same\" is a pixel claim: the split's worst failure — a shader that keeps 32 lamps but different ones — is exactly what an A/B of the eviction path catches and the unit tests cannot, because the mock never runs the shader."
-  },
+},
   {
     "id": "0153",
     "date": "2026-09-25T13:14:37Z",
@@ -1990,7 +1990,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "tests/lightCulling.test.ts claimed by the rendering subsystem.",
     "why": "The map is guarded: an unclaimed suite fails tests/subsystems.test.ts and npm run check:testmap, so CI would never go green."
-  },
+},
   {
     "id": "0154",
     "date": "2026-09-25T13:14:37Z",
@@ -2003,7 +2003,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "Removed the scratch timing probe (count 0.03-0.07 ms flat, fill 0.01-14.0 ms with coverage) that the cluster split was designed against.",
     "why": "It was a throwaway measurement committed by accident, not a gate or a benchmark the repo maintains; the numbers it was written for belong in benchmarks/ with the 13.4 stress bench.",
     "note": "Deleted: scratch timing probe that should never have been committed."
-  },
+},
   {
     "id": "0155",
     "date": "2026-09-25T13:14:37Z",
@@ -2015,7 +2015,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "HUD lights line names the fill (cpu/gpu); __forge.setLightCulling/lightCulling and ?lightculling=cpu|gpu; setStressLights gained a `tight` mode that stacks the rig into one ball (dimmer, shorter range, distinct intensities) so a cluster overfills by design.",
     "why": "Every switch the demo exposes is what the browser gate flips, and the stacked rig is the only way to put the fill's eviction path in front of a real device from the outside."
-  },
+},
   {
     "id": "0156",
     "date": "2026-09-25T13:49:44Z",
@@ -2027,7 +2027,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/gpu/shaderCache.ts",
     "what": "New validateWgsl rule (mixedOperatorIssues): a nesting level that holds a relational operator and an unparenthesised `&`, `|` or `^` is rejected, which is the shape Tint refuses at createShaderModule with \"mixing '<' and '&' requires parenthesis\". Shifts with comparisons and the logical operators stay legal (checked against Tint), a `->` arrow is not a comparison, and a `<` jammed against identifiers is a type parameter list.",
     "why": "The Phase 13.4 assignment shader generated exactly that shape from RANGE_KEY_BITS and only the browser gate saw it: the mock recorded the pass, check:wgsl was structurally green and the unit suite passed, while every frame failed to submit on a real device. Same policy as the reserved-word rule after 13.3 — what the browser gate finds becomes a CPU gate."
-  },
+},
   {
     "id": "0157",
     "date": "2026-09-25T13:49:44Z",
@@ -2039,7 +2039,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/lightCulling.ts",
     "what": "The generated packed-range decode is now `((key >> shift) & mask)` — parenthesised as a whole — and the doc comment records why.",
     "why": "`slice < (key >> 14u) & 31u` is a parse error to Tint; the parentheses are what stops the valid grammar rule from being read as precedence the language does not have."
-  },
+},
   {
     "id": "0158",
     "date": "2026-09-25T13:49:44Z",
@@ -2051,7 +2051,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/wgsl.test.ts",
     "what": "Suite for the mixed-operator rule: the generated-decode shape that shipped, both operator orders, the legal forms (parenthesised bitwise, logical operators, shifts against comparisons) and the type-parameter lists the shipped particle shaders are full of.",
     "why": "The regression only appeared on a real GPU; without a CPU test the next generated decode can reintroduce it in the same commit that passes every other gate."
-  },
+},
   {
     "id": "0159",
     "date": "2026-09-25T13:49:44Z",
@@ -2063,7 +2063,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/index.ts",
     "what": "mixedOperatorIssues exported alongside the other shader validators.",
     "why": "tools/wgsl-check.mjs and tests/wgsl.test.ts exercise the validator through the public barrel; the import-boundary lint forbids reaching into engine/src."
-  },
+},
   {
     "id": "0160",
     "date": "2026-09-25T17:12:33Z",
@@ -2075,7 +2075,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/lightCulling.ts",
     "what": "Module doc refreshed with the measured stage costs (demo rig ~0.5 ms / 7,749 entries, saturating rig ~50-75 ms / 98,304 entries, counting pass 0.04-0.09 ms at either) now that benchmarks/src/lights.bench.ts exists.",
     "why": "The header quoted a 786,000-cell / 14.1 ms figure from a rig the benchmark does not measure; the doc a reader checks first must state the numbers the gate actually asserts."
-  },
+},
   {
     "id": "0161",
     "date": "2026-09-25T17:12:33Z",
@@ -2087,7 +2087,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/renderer.ts",
     "what": "`set lightCulling(\"cpu\")` now clears the culler field after disposing it (plus the comment explaining why), so the `??=` in `recordLightFill` builds a fresh culler on the way back to \"gpu\".",
     "why": "The disposed culler stayed referenced, `GpuLightCuller.record` returns immediately once disposed, and `forge.lights.assign` silently vanished from the frame after a cpu->gpu round trip: the grid was never refilled and the fragment stage read stale index blocks (the browser gate's many-light frame went ~110k px darker while `stats.clusterFill` still reported \"gpu\")."
-  },
+},
   {
     "id": "0162",
     "date": "2026-09-25T17:12:33Z",
@@ -2099,7 +2099,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/frame.test.ts",
     "what": "The clustered A/B test now switches back to \"gpu\" and asserts the pass, the dispatch and the fill label return; it fails at :995 without the renderer fix.",
     "why": "The round trip that broke on the real device was untested: every existing assertion held with the pass gone."
-  },
+},
   {
     "id": "0163",
     "date": "2026-09-25T17:12:33Z",
@@ -2111,7 +2111,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Two hard assertions: after the fill switches back to \"gpu\" the frame must list `forge.lights.assign` and report `clusterFill === \"gpu\"` (checked before anything reads a pixel), and in the fill A/B the gpu arm must own the pass while the cpu arm must not.",
     "why": "The many-light darkening the gate reported had its cause in a *missing pass*, not in the fill's output; asserting the pass's presence first names the failure at its source, and the ownership check keeps the \"identical picture\" claim from comparing two frames neither arm drew with its own path."
-  },
+},
   {
     "id": "0164",
     "date": "2026-09-25T17:12:33Z",
@@ -2123,7 +2123,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "benchmarks/src/lights.bench.ts",
     "what": "New light-count stress benchmark (Phase 13.4): prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped rig and a grid-saturating one, with shape guards (the fill follows coverage, the counting pass does not, the worst CPU fill stays under a second).",
     "why": "13.4's split only makes sense if the cost curves are what they are claimed to be; the benchmark is the measurement the docs and the roadmap cite, and it runs in CI."
-  },
+},
   {
     "id": "0165",
     "date": "2026-09-25T17:12:33Z",
@@ -2135,7 +2135,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "benchmarks/run.mjs",
     "what": "Runs the light-count stress benchmark and prints its guard notes alongside the ECS and particle tables.",
     "why": "`npm run bench` is the gate CI already runs, so the new benchmark needs no workflow change to be enforced."
-  },
+},
   {
     "id": "0166",
     "date": "2026-09-25T17:12:33Z",
@@ -2147,7 +2147,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/RENDERING.md",
     "what": "New §4c (GPU light culling): why the fill moved and `prepare`/`count` did not, the no-read-back argument, the pass's shape (12 workgroups x 256, at most `counts[c]` entries per cluster), the packed range keys and the Tint parenthesisation rule, fill switching and the release-the-culler trap, and what the real-device gate proves; §1's pass table, §4b's identity/buffer paragraphs and §9's limits updated to match.",
     "why": "The document is the reference the code comments and capability notes point at; it described a CPU-only build whose fill is now a compute pass."
-  },
+},
   {
     "id": "0167",
     "date": "2026-09-25T17:12:33Z",
@@ -2159,7 +2159,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "The cluster-grid limitation now says the fill runs on the device by default (no read-back, CPU fallback uploads the used prefix) and keeps `prepare`/`count` plus the ~416 KB resident buffers as the honest remainder.",
     "why": "The old bullet said the compute-pass assignment was roadmap 13.4; a limitation that describes finished work is stale by this file's own rule."
-  },
+},
   {
     "id": "0168",
     "date": "2026-09-25T17:12:33Z",
@@ -2171,7 +2171,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "`npm run bench`'s row now covers the Phase 13.4 light-count stress benchmark and its shape guards.",
     "why": "CI's step list is the source for this table, and the benchmark now runs there."
-  },
+},
   {
     "id": "0169",
     "date": "2026-09-25T17:12:33Z",
@@ -2183,7 +2183,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ARCHITECTURE.md",
     "what": "§5.5's as-built note: the fill is one compute pass (`forge.lights.assign`) whenever the device can execute it, with `lightCulling: \"cpu\"` as the fallback; only the worker-side build and spot/point shadows remain unbuilt.",
     "why": "The section is the architecture contract, and it still listed GPU-side assignment as not built."
-  },
+},
   {
     "id": "0170",
     "date": "2026-09-25T17:12:33Z",
@@ -2195,7 +2195,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ROADMAP.md",
     "what": "13.4's two items are checked with the evidence (the pass, the split's rationale, the tests, the gate's A/B and the benchmark's measured numbers).",
     "why": "Phase 13.4 is done; the roadmap is what `docs:check` compares the capability registry against."
-  },
+},
   {
     "id": "0171",
     "date": "2026-09-25T17:12:33Z",
@@ -2207,7 +2207,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/capabilities.ts",
     "what": "`rendering.gpuLightCulling` added as verified (evidence: tests/lightCulling.test.ts, tests/frame.test.ts, benchmarks/src/lights.bench.ts, tools/browser-check.mjs) and `rendering.clusterCoverage` re-scoped from a 13.4-closing partial to a deferred design boundary (perspective-only, 256/32 caps, ~416 KB resident).",
     "why": "The registry must not claim pending work that is finished, and the perspective-only limit is a design decision the roadmap no longer schedules rather than a gap someone will close in 13.4."
-  },
+},
   {
     "id": "0172",
     "date": "2026-09-25T17:12:33Z",
@@ -2219,7 +2219,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Dated entry for 13.4: the three-stage cost curves, why the counting pass stays on the CPU, the disposed-culler bug (symptom, root cause, fix, and the audits it cost), the two new gate assertions, and the Tint parenthesisation rule.",
     "why": "The culler bug took a day of pixel archaeology because the symptom (darker pixels in tile-shaped bands) pointed at the fill's output; the next session should start from \"assert the pass is in the frame\" instead."
-  },
+},
   {
     "id": "0173",
     "date": "2026-09-25T18:05:00Z",
@@ -2231,7 +2231,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "The stacked-rig visibility check now compares idle -> rig (`compareLuma(\"fill-cpu\", \"stacked-cpu\")`), so `brighter` counts the light the rig adds, plus a new assertion that the rig cannot remove light (`darker === 0`).",
     "why": "`compareLuma(a, b)` counts *b* brighter than *a*; the reversed arguments made the rig's own 2,414 px of light report as `darker`, so the gate threw `the stacked rig lit only 0 px` on a rig that was working — a false product failure that hid the real check (the per-cluster eviction's cpu-vs-gpu agreement) behind it. The section had never run before: the many-light assertion upstream threw first, every time the culler bug was present."
-  },
+},
   {
     "id": "0174",
     "date": "2026-09-25T18:12:00Z",
@@ -2244,7 +2244,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "Removed again: a scratch probe that was accidentally committed with the previous change (it reproduced the stacked rig in isolation and printed the pixel diff against idle).",
     "why": "It was a diagnostic for one question, not a tool the repo should carry; the answer it gave (the rig is visible; the gate's comparison was reversed) is recorded in mnemosyne.md and in the gate's own comment.",
     "note": "The file exists only in commits 8551496..HEAD of the PR branch; the merge commit's tree is without it."
-  },
+},
   {
     "id": "0175",
     "date": "2026-09-25T18:40:00Z",
@@ -2257,33 +2257,33 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Phase 13.4: the device fills the cluster grid. The cluster build splits into three stages with three cost curves — prepare is O(lights), count is O(lights x slices + clusters) (a per-slice difference plane, so a lamp sweeping the grid costs the same corner writes as one in a single tile), and the fill (the lists) is O(coverage). Only the fill was worth moving: benchmarks/src/lights.bench.ts measures the demo-shaped rig at ~0.5 ms / 7,749 entries and a saturating rig (256 lamps, every cluster) at 50-75 ms / 98,304 entries = 3,072 clusters x the 32-entry cap, against 0.04-0.09 ms for the same frames' counting pass. prepare and count stay on the CPU because their output is needed exactly and immediately (the fragment stage indexes with counts, stats reports them, lightsDropped is a correctness signal) and neither grows with coverage; nothing is read back, so clustersUsed / clusterIndices / maxLightsPerCluster / lightsDropped are the CPU's own numbers for the same frame. The pass is forge.lights.assign, first in the frame (shadow/prepass never read the grid, forge.main's fragment stage does), one invocation per cluster in 12 workgroups of 256, reading the frame's packed ranges (ClusterRangeBlock, 2 KB; each light's tile/slice extents packed into one u32 by RANGE_KEY_BITS) and the grid's own counts, writing at most counts[c] entries per cluster so a wrong count trims a list instead of spilling into the next one; the shader is a transcription of the CPU fill (same light order, same intensity x Rec.709 luma eviction with ties keeping the earlier light, same re-sort), and assignClustersOnCpu is its TypeScript twin, pinned byte for byte by tests/lightCulling.test.ts including saturated lists. The grid block became fixed-stride (counts + indices, CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER = 98,304 u32, 405,504 B; ~416 KB resident) and RendererOptions.lightCulling = auto|cpu|gpu with stats.clusterFill and the demo's ?lightculling=cpu|gpu plus HUD drive it. Two bugs, both invisible to the CPU gates: Tint rejects a shift mixed with a comparison without parentheses (a *parse* error that invalidated every pipeline built from the module while the mock, check:wgsl and 537 tests stayed green), so the generated decode is ((key >> shift) & mask)u and validateWgsl (mixedOperatorIssues) now fails on that shape on the CPU side; and switching the fill to \"cpu\" disposed the GpuLightCuller but kept the reference, so the ??= reused a dead culler whose record() returns immediately — forge.lights.assign silently vanished after a cpu->gpu round trip (19 passes -> 18, while stats.clusterFill still said \"gpu\") and the grid was never refilled, which the real device showed as ~110k pixels darker in tile-shaped bands on the demo's 36-lamp rig. The setter now clears the field, tests/frame.test.ts pins the round trip, and check:browser asserts the pass is back in the frame before it reads a pixel, that the gpu arm owns the pass while the cpu arm lacks it, that the many-light frame is strictly brighter than the truncated uniform path with no pixel darker, and that the two fills agree over the fixture and past the per-cluster cap (a 40-lamp ball at the origin, where only the eviction path runs). That last section had never executed before this PR's culler fix — the many-light assertion upstream threw on every run — and it failed on a reversed pixel comparison (compareLuma counts the *second* argument brighter; the check asked for idle-vs-rig and so reported the rig's own 2,434 px as \"darker\"), now fixed and paired with an assertion that the rig can never remove light. Verified on a real device: fill handover back in the frame, many-light 81,499-88,596 px brighter with none darker, fill A/B 0 px differ with the pass owned by the gpu arm, stacked rig 2,414-2,434 px brighter with cap 32 reached and no cpu-vs-gpu difference; 565 tests in 41 files, bench guards, lint:arch, check:testmap, docs:check all green. rendering.gpuLightCulling verified; rendering.clusterCoverage deferred (perspective-only, 256/32 caps, ~416 KB resident — the roadmap schedules no work for it).",
     "files": [
-      "ARCHITECTURE.md",
-      "ROADMAP.md",
-      "benchmarks/run.mjs",
-      "benchmarks/src/lights.bench.ts",
-      "change-log.md",
-      "docs/KNOWN-ISSUES.md",
-      "docs/RENDERING.md",
-      "docs/VERIFICATION.md",
-      "engine/src/core/capabilities.ts",
-      "engine/src/gpu/shaderCache.ts",
-      "engine/src/index.ts",
-      "engine/src/rendering/clusters.ts",
-      "engine/src/rendering/lightCulling.ts",
-      "engine/src/rendering/renderer.ts",
-      "engine/src/rendering/shaders/standard.ts",
-      "engine/src/rendering/uniforms.ts",
-      "examples/src/main.ts",
-      "mnemosyne.md",
-      "tests/clusters.test.ts",
-      "tests/frame.test.ts",
-      "tests/lightCulling.test.ts",
-      "tests/wgsl.test.ts",
-      "tools/browser-check.mjs",
-      "tools/test-subsystems.mjs",
-      "tools/wgsl-check.mjs"
+        "ARCHITECTURE.md",
+        "ROADMAP.md",
+        "benchmarks/run.mjs",
+        "benchmarks/src/lights.bench.ts",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/gpu/shaderCache.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/clusters.ts",
+        "engine/src/rendering/lightCulling.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/shaders/standard.ts",
+        "engine/src/rendering/uniforms.ts",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/clusters.test.ts",
+        "tests/frame.test.ts",
+        "tests/lightCulling.test.ts",
+        "tests/wgsl.test.ts",
+        "tools/browser-check.mjs",
+        "tools/test-subsystems.mjs",
+        "tools/wgsl-check.mjs"
     ]
-  },
+},
   {
     "id": "0176",
     "date": "2026-09-25T20:40:00Z",
@@ -2296,7 +2296,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New 13.5 blocks: `ObjectUniforms` gains `visibilityIndex` (and a `_pad`, 176 B); `ObjectCullUniforms` (240 B: view/proj/viewProj, cameraPos, near/far, extent, batchCount, flags, hizLevels) and the storage-only `ObjectBatchEntry` (32 B: AABB min/max, min.w = the batch's distance limit), `ObjectBatchBlock` (8192 entries, 262144 B) and `ObjectCullStatsBlock` (four `atomic<u32>` counters, 16 B), plus `MAX_CULLED_BATCHES`; both new storage structs registered in `RENDERING_STORAGE_STRUCTS` so `check:wgsl` validates them in the storage space.",
     "why": "The culler needs one word per batch (`visibilityIndex`), the frame's own matrices to extract planes from on the device, and one bounds entry per batch whose limit travels with the box because batches merge by geometry/material rather than by distance.",
     "note": "`ObjectCullStatsBlock`'s fields are `atomic<u32>`, not `u32`: `atomicAdd(ptr<storage, u32, read_write>, u32)` has no overload, and a plain `u32` compiled happily on the mock while Tint rejected `objects.cull` on a real device."
-  },
+},
   {
     "id": "0177",
     "date": "2026-09-25T20:40:00Z",
@@ -2309,7 +2309,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New `atomicU32` `FieldType` (4 bytes, emits `atomic<u32>`) and a `uniformLayoutProblems` rule that rejects it in the uniform address space. `alignOf`/`sizeOf`/`wgslType` handle it.",
     "why": "WGSL only allows atomics in the storage address space, so the struct generator has to be able to say `atomic<u32>` — and only there. The registry then keeps its promise that a struct it emits for `uniform` is legal in that space.",
     "note": "The first real-device run of Phase 13.5 is what surfaced this: `check:wgsl`, the mock device and 584 tests were all green on a `u32` counter block that no GPU would compile."
-  },
+},
   {
     "id": "0178",
     "date": "2026-09-25T20:40:00Z",
@@ -2322,7 +2322,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New module: `cullPlanesFrom` (the same six planes `Frustum.setFromViewProjection` derives, unnormalized), `cullBatchesOnCpu` (the shader's twin: frustum sphere test, per-batch distance limit, HiZ rectangle + texel walk), `buildHizOnCpu`/`hizLevelCount`/`hizLevelSize` (view-space-metre pyramid, 2x2 max per level), `HIZ_DEPTH_SHADER`/`HIZ_REDUCE_SHADER`/`OBJECT_CULL_SHADER` (generated from the structs and constants, one invocation per batch, `atomicAdd` into the counters), and `GpuObjectCuller` (pipelines, bounds/stats/HiZ buffers, per-frame `hizLevelsFrame`, `mapAsync` readback of the counters one frame late, `dispose`).",
     "why": "Phase 13.5: decide batch visibility on the device (frustum, per-batch distance, HiZ occlusion), with a CPU twin the mock device can run so every CPU gate still sees real verdicts.",
     "note": "Two real-device bugs found here, both invisible to the CPU gates: a depth texture's `textureLoad` needs the mip level explicitly (Chromium accepts the two-argument form, Tint does not), and the HiZ pixel row is the negated NDC y (texel row 0 is the top) — the mirrored rectangle tested the other half of the screen and culled floating geometry against the ground below it."
-  },
+},
   {
     "id": "0179",
     "date": "2026-09-25T20:40:00Z",
@@ -2335,7 +2335,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "13.5 wiring: `RendererOptions.objectCulling` (auto/cpu/gpu) and `occlusionCulling`; `RenderStats.cullTested`/`cullFrustum`/`cullDistance`/`cullOccluded`; `Batch.maxDistance` (merged batches keep the most permissive member's); `reserveObject(matrix, count, visibilityIndex)`; `prepareObjectCulling` (bounds staging, mode decision, word zeroing, twin or device prepare); `ensureVisibilityCapacity` (256-byte-aligned growth that drops the draw bind group); the cull passes recorded between the prepass and the SSAO chain; `pollObjectCulling()` after execution; `objectCulling` and `occlusionCulling` accessors (the cpu setter disposes the culler and clears the reference); `syncGraphEpoch` invalidates the culler's cached views; `dispose` releases culler + visibility buffer.",
     "why": "The renderer owns the batches, the bounds and the visibility buffer the draw layout binds; the culler owns everything else. Reading `occlusionCulling` through a field (not `options`) lets the demo and the browser gate flip it per frame.",
     "note": "The accessors mirror `lightCulling`'s trap: a disposed culler records nothing, so a stale reference would leave every later frame without a cull pass while `stats` still claimed the device path. The file also had a doc comment for the prepass's group 0 misplaced above `prepareObjectCulling` (its builder is `ensurePrepassBindGroup`); it was moved to its own member."
-  },
+},
   {
     "id": "0180",
     "date": "2026-09-25T20:40:00Z",
@@ -2347,7 +2347,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/pipeline.ts",
     "what": "`drawLayout` gains group 1 binding 2 (`visibility`, vertex stage, read-only storage, `minBindingSize: 4`).",
     "why": "The batch's vertex stage reads its visibility word to collapse the clip position of a culled batch; without the binding the shader would not compile, and `minBindingSize: 4` is what makes a grown buffer visible to the pipeline at all."
-  },
+},
   {
     "id": "0181",
     "date": "2026-09-25T20:40:00Z",
@@ -2360,7 +2360,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "`BINDINGS.visibility` (group 1, binding 2), `batchVisibility: array<u32>`, `cullBatch(clip)` returning `vec4(0, 0, -1, 1)` when the batch's word is non-zero, wired into both colour-module vertex entry points; `DEPTH_VERTEX` untouched.",
     "why": "A culled batch is dropped by the rasteriser instead of a branch in the fragment stage: one degenerate vertex position and the draw costs nothing, and the object is still visible to the depth-only paths (the prepass is what the HiZ pyramid reduces).",
     "note": "The shadow and depth-only entry points deliberately do not read the buffer: the prepass is the producer of the depth the culler tests against, so a culled batch still has to lay its depth down."
-  },
+},
   {
     "id": "0182",
     "date": "2026-09-25T20:40:00Z",
@@ -2372,7 +2372,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/scene/components/index.ts",
     "what": "`Renderable.maxDistance` (default 0 = no limit), documented as a draw rule rather than an upload rule.",
     "why": "The per-batch distance limit 13.5 tests on the device; 0 means \"no test\" and a merged batch keeps the largest member limit, so the rule only ever drops a batch the whole group had already left behind."
-  },
+},
   {
     "id": "0183",
     "date": "2026-09-25T20:40:00Z",
@@ -2385,7 +2385,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "Exports the 13.5 surface: `GpuObjectCuller`, `CULL_WORKGROUP`, `HIZ_WORKGROUP`, `HIZ_LEVELS`, `CULL_FLAG_*`, `CULL_STATS_BYTES`, `CullReason`, `OBJECT_CULL_SHADER`, `HIZ_DEPTH_SHADER`, `HIZ_REDUCE_SHADER`, `cullPlanesFrom`, `cullBatchesOnCpu`, `buildHizOnCpu`, `hizLevelCount`, plus `ObjectCullUniforms`/`ObjectBatchEntry`/`ObjectBatchBlock`/`ObjectCullStatsBlock`/`MAX_CULLED_BATCHES` from the uniforms module.",
     "why": "The demo, the tests and the browser gate drive the culler through the public barrel, and `tools/wgsl-check.mjs` imports the built bundle to validate the generated structs.",
     "note": "The three storage structs had to join `RENDERING_STORAGE_STRUCTS` in the same edit: `tools/wgsl-check.mjs` walks that registry and crashes on a struct the shaders embed but the registry does not know."
-  },
+},
   {
     "id": "0184",
     "date": "2026-09-25T20:40:00Z",
@@ -2398,7 +2398,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "`MockGPUComputePassEncoder.dispatchWorkgroups` normalises a texture binding before touching the texture behind it (a view may be bound directly or as `{ texture: view }`), and its storageTexture access enum is documented as the spec's `write-only`/`read-only`/`read-write`.",
     "why": "`resource.texture.texture` assumed the wrapper shape, so any compute pass that bound a *view* (the HiZ pyramid's views) crashed the mock with `Cannot set properties of undefined (setting 'lastWrittenBy')` instead of validating the frame.",
     "note": "Proven necessary by stashing the file: five of the new suite's tests fail without it."
-  },
+},
   {
     "id": "0185",
     "date": "2026-09-25T20:40:00Z",
@@ -2411,7 +2411,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New suite (16 tests): `cullPlanesFrom` against `Frustum` (normalized comparison, order, facing), `cullBatchesOnCpu` (cull only what is invisible, a 7x7x9 point-inside sweep, per-batch distance limits, the 8192 cap leaving the tail visible), the HiZ test (metre inversion, the size chain, wall/gap verdicts, the mirrored-row regression on a floor depth image, a 120-box footprint sweep asserting every level-0 texel under a culled batch is nearer than its nearest point, `hizLevels: 0` skipping the stage), the generated shader text and structs, and `GpuObjectCuller` (frame block contents, bounds entries, one pass + one dispatch + the counter copy, the pyramid's four levels and the per-frame level count, dispose).",
     "why": "The culler must be conservative and its two implementations must agree; a suite that only checked \"it runs\" would have passed the mirrored-rectangle bug that removed geometry from real frames.",
     "note": "The mirrored-row test fails if the CPU twin's `sy` is flipped back (mutation-checked)."
-  },
+},
   {
     "id": "0186",
     "date": "2026-09-25T20:40:00Z",
@@ -2423,7 +2423,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/frame.test.ts",
     "what": "New \"object culling\" describe (3 tests): the mock's `auto` resolves to the twin with every batch tested and the visibility buffer zeroed; a sky camera culls by frustum with the words matching `stats.cullFrustum`; the device path adds `forge.objects.cull` + `forge.hiz.0` with the dispatch covering the batch count and no verdicts on the mock; the `cpu` -> `gpu` round trip brings the pass back; and `renderer.occlusionCulling` false/true flips the pyramid off and on without a graph error.",
     "why": "A `check:browser` failure is expensive to diagnose; the mock can pin pass ownership, the dispatch shape and the per-frame occlusion switch, and the round trip is exactly the failure mode 13.4 hit."
-  },
+},
   {
     "id": "0187",
     "date": "2026-09-25T20:40:00Z",
@@ -2435,7 +2435,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/wgsl.test.ts",
     "what": "The storage-registry assertion now lists all seven names (ClusterGrid/Light/Range/RangeEntry + ObjectBatchBlock/ObjectBatchEntry/ObjectCullStatsBlock).",
     "why": "Adding a storage struct to `RENDERING_STORAGE_STRUCTS` without extending the exact-key list broke the suite — the list is the guard that every registered struct is validated."
-  },
+},
   {
     "id": "0188",
     "date": "2026-09-25T20:40:00Z",
@@ -2447,7 +2447,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/wgsl-check.mjs",
     "what": "Validates the three new shader modules and maps `ObjectBatchEntry`/`ObjectBatchBlock`/`ObjectCullStatsBlock` to `OBJECT_CULL_SHADER` in `STORAGE_STRUCT_HOSTS`.",
     "why": "The generated structs are embedded verbatim by the shaders, so the checker is what fails when the writer and the WGSL drift."
-  },
+},
   {
     "id": "0189",
     "date": "2026-09-25T20:40:00Z",
@@ -2459,7 +2459,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "`tests/objectCulling.test.ts` added to the rendering subsystem after `tests/lightCulling.test.ts`.",
     "why": "The map is checked by `npm run check:testmap` and `tests/subsystems.test.ts`: a suite that no subsystem claims fails the drift test."
-  },
+},
   {
     "id": "0190",
     "date": "2026-09-25T20:40:00Z",
@@ -2472,7 +2472,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New Phase 13.5 section (plus a doc-header entry): freezes the PBR fixture, A/Bs the device culler against the CPU twin (identical pixels, `forge.objects.cull` owned by the gpu arm only, the device counters either zero or the frame's batch count), then switches HiZ off and asserts the pyramid passes are gone, nothing got darker and no pixel moved; restores `auto` and checks the mode resolves back to the device path.",
     "why": "The mock cannot execute a compute shader: only a real device can prove the pass compiles, runs, and draws the same frame the twin draws. \"HiZ off never darkens a pixel\" is the assertion that catches a cull too many — it is what caught the mirrored-rectangle bug.",
     "note": "The two culls of the same frame: 0 px differ, 0 px darker with HiZ off, 4 pyramid passes on and 0 off."
-  },
+},
   {
     "id": "0191",
     "date": "2026-09-25T20:40:00Z",
@@ -2484,7 +2484,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "`setObjectCulling(mode)` / `setOcclusionCulling(on)` hooks, `objectCulling()` / `occlusionCulling()` getters, `?objectculling=cpu|gpu` and `?occlusionculling=0|1` URL params, and a HUD fragment showing which side decides visibility plus the counters the last readback reported.",
     "why": "The browser gate and a human share the same switches, the way `?lightculling=` and the Clustered button do for 13.4; the HUD line is how a broken culler looks obvious while running the demo."
-  },
+},
   {
     "id": "0192",
     "date": "2026-09-25T20:40:00Z",
@@ -2497,7 +2497,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "New benchmark: `cullBatchesOnCpu` over 512/2048/8192 batches in three modes (frustum, +distance, +HiZ) plus a 1280x720 `buildHizOnCpu` per frame; `assertCullingBenchmark` guards are shape checks (per-batch cost stays linear, the distance test stays a comparison, the cap stays inside a frame) with one catastrophe bound.",
     "why": "Phase 13.5 claims the cull is O(batches) and that the device path exists because the pyramid, not the cull, is the expensive half; the benchmark is what makes those two claims measurable and keeps a quadratic regression out of the fallback path.",
     "note": "Measured on the dev box: 1.1 us/batch at the 8192 cap (9.2 ms/frame full test), pyramid 39.5 ms/frame on the CPU."
-  },
+},
   {
     "id": "0193",
     "date": "2026-09-25T20:40:00Z",
@@ -2509,7 +2509,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "benchmarks/run.mjs",
     "what": "Runs the culling benchmark and prints its notes next to the light-culling ones.",
     "why": "`npm run bench` is the one command that runs the repo's benchmarks in CI; an unregistered benchmark file measures nothing."
-  },
+},
   {
     "id": "0194",
     "date": "2026-09-25T20:40:00Z",
@@ -2521,7 +2521,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "ROADMAP.md",
     "what": "Phase 13 status prose and the CURRENT ENGINE STATE block now say 13.1-13.5 landed and 13.6 onward is open; the frame line includes `forge.hiz.<n>` and `forge.objects.cull`; 13.1's \"reuse depth for culling\" box is ticked; 13.5's three items are checked with the implementation detail (planes from the frame's viewProj, per-batch distance limits in `ObjectBatchEntry.min.w`, HiZ conservatism and the mirrored-row bug, the stats' one-frame lag, the options and the demo hooks, the benchmark numbers), and two remaining items are added (per-instance culling, cascade culling through the same pass).",
     "why": "The roadmap is the record of what exists, not of what was planned; `docs:check` cross-checks its state block against the capability registry, and phase 13's prose was stale since 13.3."
-  },
+},
   {
     "id": "0195",
     "date": "2026-09-25T20:40:00Z",
@@ -2533,7 +2533,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/capabilities.ts",
     "what": "`rendering.gpuCulling` is `verified` (with evidence and the gate's claims); `rendering.depthReuse` now names the HiZ pyramid as a consumer and closes with 13.1 rather than 13.5; new `rendering.cullCoverage` (`partial`, closes with 13.6) records the honest limits — per-batch granularity, uploads that still happen, no occlusion on the CPU twin, the 8192 cap, the lagged device counters.",
     "why": "The registry is the source of truth `docs:check` enforces: a verified capability may not keep a known-issue bullet, and work that is still missing needs an entry that names what closes it."
-  },
+},
   {
     "id": "0196",
     "date": "2026-09-25T20:40:00Z",
@@ -2545,7 +2545,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/RENDERING.md",
     "what": "New §4d \"GPU object culling (Phase 13.5)\": the one-word-per-batch contract and how a culled batch collapses, the three tests and why each is conservative, the CPU twin and why `auto` picks it on a mock, the pass order and the per-frame level count, the atomic counters and the one-frame lag, growth/lifetime, what it does not do (13.6 owns compaction), and what the browser gate proves; §1's frame diagram, settings table and stats list updated to match.",
     "why": "This is the document that describes what the renderer does today; the mirrored-row and depth-texture findings belong next to the test that pins them, so the next person cannot \"fix\" the sign back."
-  },
+},
   {
     "id": "0197",
     "date": "2026-09-25T20:40:00Z",
@@ -2557,7 +2557,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "The prepass-depth entry now names three consumers (SSAO, soft particles, HiZ culling) and drops \"no GPU/HiZ culling\"; a new entry records the culling limits (per batch, uploads still happen, twin has no occlusion, 8192 cap, lagged counters).",
     "why": "`docs:check` fails a bullet that references a verified capability, so the entries have to move with the registry — and the limits are real, so they belong in writing."
-  },
+},
   {
     "id": "0198",
     "date": "2026-09-25T20:40:00Z",
@@ -2569,7 +2569,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Phase 13.5 rows (the culling A/B, the HiZ toggle, the numbers recorded on a real device), plus a note under the command table on the gate's one wall-clock wait: the Mars Showcase's 300 s HGA poll is environment-bound on a SwiftShader-only sandbox and fails identically at `2c24cec`, so a red `check:browser` there is the machine, not the frame. The note ends with the CI evidence for the same commit: the whole gate, that poll included, passes on CI's runner, so the timeout is a property of the slow sandbox rather than of the check.",
     "why": "The verification doc is the map from claim to assertion; a new gate section that no row names is a claim nobody can check."
-  },
+},
   {
     "id": "0199",
     "date": "2026-09-25T20:40:00Z",
@@ -2581,7 +2581,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Dated 13.5 entries: the three real-device-only failures (the `atomic<u32>` counter block, the depth `textureLoad` mip level, the mirrored HiZ row), the mock's `lastWrittenBy` normalisation, and the frame-graph rule that a pass may not read a texture nothing wrote (which is what forced the per-frame level count). A second dated entry covers the attribution itself: one SwiftShader gate at a time, the `/tmp/forge-base` baseline worktree that proved the HGA poll fails before 13.5, and why the exception is recorded in the gate's own documentation instead of by loosening the poll.",
     "why": "These are the lessons the CPU gates structurally could not see; the next session needs them before touching the culler or the mock."
-  },
+},
   {
     "id": "0200",
     "date": "2026-09-25T20:40:00Z",
@@ -2593,7 +2593,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "This file: one `change` entry per Phase 13.5 file (22 of them), plus the `pr-merge` summary appended before the merge.",
     "why": "`AGENTS.md` §7 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
-  },
+},
   {
     "id": "0201",
     "date": "2026-09-25T21:00:00Z",
@@ -2606,32 +2606,267 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Phase 13.5: the device culls objects. `GpuObjectCuller` (`engine/src/rendering/objectCulling.ts`) takes the frame's batches as one bounds entry each (AABB + the batch's per-object distance limit in `min.w`) and writes one u32 visibility word per batch, which the standard shader's vertex stage reads at `batchVisibility[objectData.visibilityIndex]` and answers by pushing the whole batch below the near plane (`cullBatch` -> `vec4(0,0,-1,1)`; a draw cannot express \"zero instances\" without 13.6's indirect path). Three tests run on the device in one pass: frustum (the six planes from `viewProj`, sphere against plane), distance (per batch, the merged limit), and HiZ occlusion against a four-level max-pyramid the same module builds from `scene.depth` (2x2 reduce, view-space metres, level k = max of its four children, rectangle chosen per level by the batch's screen span, one texel walk; conservatively visible when the near plane straddles the bounds or the pyramid is not there). Counters are `atomic<u32>` and read back one frame late, because that is what the gate found first: Tint has no plain-`u32` `atomicAdd` overload and the mock, `check:wgsl` and 584 tests were all green on a shader no GPU would compile (same class as 13.4's parenthesised shift). The pass order is `forge.prepass` -> `forge.hiz.0..3` -> `forge.objects.cull` -> SSAO, so occlusion tests what the prepass just laid down; the culler keeps `hizLevelsFrame` apart from `hizLevels` so a frame with no prepass cannot make a pass read a texture nothing wrote (the render graph's own rule, previously a `UsageError`). `RendererOptions.objectCulling = auto|cpu|gpu` and `occlusionCulling`, plus `RenderStats.cullTested/cullFrustum/cullDistance/cullOccluded` and the demo's `?objectculling=`/`?occlusionculling=` and HUD line drive it; the CPU twin `cullBatchesOnCpu`/`buildHizOnCpu` is what the mock device runs, so every existing CPU gate sees real verdicts, and `Renderable.maxDistance` is the new per-object knob. The second real-device-only bug was the HiZ rectangle's y: NDC +y is up and texel row 0 is the top, so the mirrored rectangle proved floating geometry occluded against rows nearer than it — the gate saw it as `16161 px differ by up to 162.0 luma levels` in the prepass A/B, and the fix (`pixel.y = (0.5 - ndc.y * 0.5) * extent.y`, the same shape in the twin) is pinned by a floor-depth test that fails if the twin's sign is flipped. Measured: `tests/objectCulling.test.ts` 16 tests (mirrors, pyramid sizing/metres/limit, frustum + distance + occlusion sweeps, `MAX_CULLED_BATCHES`, the two-frame level count), `tests/frame.test.ts` 24 (default is `cpu` with zeroed words and `cullTested === batches`; the sky camera's batch is `CullReason.Frustum`; the gpu arm adds `forge.objects.cull` + `forge.hiz.0` and dispatches ceil(batches/64); a cpu->gpu round trip re-adds the pass rather than reusing a disposed culler), 42 suites / 584 tests, and the real-device gate: gpu vs cpu over the fixture 5 batches / 5 tested / max luma diff 0.00 / 0 px beyond one level, `forge.objects.cull` owned by the gpu arm and absent from the cpu arm, occlusion on->off 4 HiZ passes -> 0 with 0 px darker and 0 px beyond one level, restored to `mode gpu, occlusion true` -- and no new GPU errors. benchmarks/src/culling.bench.ts (in `npm run bench`) measures the twin at 0.892 us/batch over 2048 batches and 1.118 us at 8192 (1.25x for 4x the batches); the 8192 cap costs 9.16 ms/frame (3.01 frustum, 3.70 with the distance limits), and the 1280x720 four-level pyramid 39.52 ms/frame -- the reduction the twin does not do and the reason the device is the default. Docs: `docs/RENDERING.md` section 4d (the one-word contract, the twin, the pass order, the atomics and their one-frame lag, the 13.6 boundary), `docs/KNOWN-ISSUES.md` and `docs/ROADMAP.md` (13.5 closed; two follow-ups opened: per-instance culling and cascade culling through the same pass), `docs/VERIFICATION.md` (including the note that the Mars HGA poll is environment-bound here). Capabilities: `rendering.gpuCulling` verified, `rendering.cullCoverage` partial (closes 13.6's per-batch boundary, the 8192 cap, the twin has no occlusion, uploads still happen), `rendering.depthReuse` now names its three consumers. `npm run verify`, `lint:arch`, `check:testmap`, `tsc -p benchmarks` and `docs:check` are green (92 capabilities: 47 verified / 25 partial / 16 planned / 4 deferred). One gate caveat recorded rather than hidden: `check:browser` exits 1 on this sandbox's Mars HGA poll, reproduced at `2c24cec` before any of this code — and the same commit's full gate, that poll included, is green in CI.",
     "files": [
-      "ROADMAP.md",
-      "benchmarks/run.mjs",
-      "benchmarks/src/culling.bench.ts",
-      "change-log.md",
-      "docs/KNOWN-ISSUES.md",
-      "docs/RENDERING.md",
-      "docs/VERIFICATION.md",
-      "engine/src/core/capabilities.ts",
-      "engine/src/gpu/layout.ts",
-      "engine/src/index.ts",
-      "engine/src/rendering/objectCulling.ts",
-      "engine/src/rendering/pipeline.ts",
-      "engine/src/rendering/renderer.ts",
-      "engine/src/rendering/shaders/standard.ts",
-      "engine/src/rendering/uniforms.ts",
-      "engine/src/scene/components/index.ts",
-      "engine/src/testing/mockGpu.ts",
-      "examples/src/main.ts",
-      "mnemosyne.md",
-      "tests/frame.test.ts",
-      "tests/objectCulling.test.ts",
-      "tests/wgsl.test.ts",
-      "tools/browser-check.mjs",
-      "tools/test-subsystems.mjs",
-      "tools/wgsl-check.mjs"
+        "ROADMAP.md",
+        "benchmarks/run.mjs",
+        "benchmarks/src/culling.bench.ts",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/gpu/layout.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/objectCulling.ts",
+        "engine/src/rendering/pipeline.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/shaders/standard.ts",
+        "engine/src/rendering/uniforms.ts",
+        "engine/src/scene/components/index.ts",
+        "engine/src/testing/mockGpu.ts",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/frame.test.ts",
+        "tests/objectCulling.test.ts",
+        "tests/wgsl.test.ts",
+        "tools/browser-check.mjs",
+        "tools/test-subsystems.mjs",
+        "tools/wgsl-check.mjs"
     ]
-  }
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0202",
+    "file": "engine/src/rendering/objectCulling.ts",
+    "what": "The cull pass now writes the frame's draw commands and the visible-batch list alongside the visibility word. `ObjectBatchEntry.max.w` carries the batch's instance count, `ObjectCullStatsBlock` grew to six `atomic<u32>` (`visible`, `recordZeroed`), and the shader gained bindings 5 `drawRecords: array<u32>` and 6 `visibleBatches: array<u32>` plus the constants `CULL_FLAG_RECORDS`, `DRAW_RECORD_WORDS` 8 / `DRAW_RECORD_BYTES` 32 / `DRAW_RECORD_INSTANCES` 1. The verdict is computed once (`cullReasonOf`, extracted so the text pins the algebra the twin mirrors) and one write site turns it into the word, the counter, `slot = atomicAdd(&counts.visible, 1u)` into the list and word 1 of the batch's record: the batch's own count when visible, 0 plus `recordZeroed` when not. All of it sits inside the existing `index < min(batchCount, MAX_CULLED_BATCHES)` guard and behind `CULL_FLAG_RECORDS`. `cullBatchesOnCpu` grew `ObjectCullOutputs { records?, visible? }` and is still the shader's transcription, word for word; `encodeCull` caches on `(visibility, records, visible)` and the readback picks up the two new counters.",
+    "why": "Roadmap 13.6: GPU-generated indirect draw commands and visible-object compaction, produced by the pass that already owns the verdict so no second pass or second decision can disagree with the visibility word the vertex stage reads."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0203",
+    "file": "engine/src/rendering/uniforms.ts",
+    "what": "`ObjectBatchEntry`'s docs now name what `min.w` and `max.w` are for (the distance limit and the batch's instance count, which is what the pass copies into a record), and `ObjectCullStatsBlock` is defined as six `u32` = 24 B: the three cull counters plus `visible` (what survived) and `recordZeroed` (records the pass turned off).",
+    "why": "13.6 makes the bounds entry's last lane load-bearing and the counters must describe both products of the pass; the layout gate pins the new size."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0204",
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "`Renderer.indirectDraws` (default on, `invalidate()` on change) picks how `forge.main` submits. The renderer owns `cull.drawRecords` (`STORAGE | INDIRECT | COPY_DST`, one 32-byte record per batch, grown in 256-byte steps by `ensureRecordCapacity`) and `cull.visibleBatches` (`MAX_CULLED_BATCHES * 4`, `STORAGE | COPY_DST`, via `ensureVisibleList`); `prepareObjectCulling` seeds every record's index window from the batch, writes the batch's instance count into `bounds[i * 8 + 7]`, adds `CULL_FLAG_RECORDS` when records are in play and hands the twin the same outputs. `Batch.cullIndex` is set in `collectBatches`, so `executeMainPass` submits `drawIndexedIndirect` / `drawIndirect` at `cullIndex * DRAW_RECORD_BYTES` and counts `stats.indirectDraws` (the direct arm is unchanged, and shadow/prepass keep their own draws). `RenderStats` gained `cullVisible`, `cullRecordZeroed`, `indirectDraws`; both buffers are destroyed with the culler.",
+    "why": "Roadmap 13.6(a): the frame's draws must come out of the buffers the device wrote, and the switch back to direct draws is the A/B arm the browser gate compares pixels against."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0205",
+    "file": "engine/src/testing/mockGpu.ts",
+    "what": "`drawIndexedIndirect` and `drawIndirect` now read the record out of the buffer (`readIndirectRecord`, `[...new Uint32Array(buffer.data, offset, words)]`), validate its size (20 B indexed / 16 B plain, offset %4), log every field and require a bound index buffer for the indexed form. The size and stride checks stay the spec's; what changed is that the mock sees the command, not the call.",
+    "why": "13.6's whole claim is that the *device* decides the draws: a mock that logs only `{indirect: true}` cannot tell a zeroed record from a live one, so `tests/frame.test.ts` asserts the words the cull pass wrote by reading what the mock parsed."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0206",
+    "file": "engine/src/index.ts",
+    "what": "Exported `CULL_FLAG_RECORDS`, `DRAW_RECORD_WORDS`, `DRAW_RECORD_BYTES`, `DRAW_RECORD_INSTANCES` and the `ObjectCullOutputs` type from `./rendering/objectCulling.js`.",
+    "why": "The record layout is part of the public contract (a caller writing its own records needs the stride and the instance word), and the suites import the constants rather than hard-coding 8 and 32."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0207",
+    "file": "tests/objectCulling.test.ts",
+    "what": "Updated for the new bindings and outputs: the shader pins the single write site (`visibility[index] = reason`), the compaction slot and both record writes; the setup creates the records/visible buffers and every `record(...)` call passes them; the dispose expectation lists six counters. Added three twin tests: the outputs a frame consumes (records' instance words, the list, and both identities `visible = tested - culled` / `recordZeroed = culled`), that a frame without `CULL_FLAG_RECORDS` leaves records and list untouched (sentinel-filled buffers), and that batches past `MAX_CULLED_BATCHES` keep the CPU-seeded count (sentinel) while nothing past the cap is written.",
+    "why": "The suite is where the shader and the twin are held to the same words; the sentinel cases are the ones that catch an off-by-one at the cap."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0208",
+    "file": "tests/frame.test.ts",
+    "what": "Three tests for the submission path. One asserts the frame's records came from the batch (index count, one instance) and that a culled batch's record is zeroed — with the identities over the pass's counters and the list/records agreeing batch by batch. One A/Bs the two paths on a fixture with a 1 m draw distance (so the device, not the CPU, is what drops a batch the frame built) and asserts the direct arm pays for exactly the culled batches' vertices (`indexCount * instanceCount`, read out of `draw.uniforms`). One asserts `CULL_FLAG_RECORDS` follows `indirectDraws`: set and records written on the indirect path, clear and no writes on the direct path, and the CPU twin's records submitting a frame of their own.",
+    "why": "Roadmap 13.6's acceptance: the records drive real draws, a culled batch costs nothing, and the switch really switches."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0209",
+    "file": "examples/src/main.ts",
+    "what": "`?indirectdraws=0|1`, `setIndirectDraws` / `indirectDraws` on `__forge`, and `setObjectDistance(metres)` (negative restores each entity's own `Renderable.maxDistance`) so a gate can make the device cull a batch the frame built. The HUD's cull line now reads `N tested (...) → M drawn, K indirect (Z zero)`.",
+    "why": "Roadmap 13.6's demo surface, and a distance knob is the only way to exercise the pass's own distance verdict on a scene the CPU frame has already accepted."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0210",
+    "file": "tools/browser-check.mjs",
+    "what": "A new arm after 13.5's: freeze the fixture, capture luma with indirect draws on, switch them off, capture again — assert `indirectDraws === batches` on one arm and `0` on the other with zero pixels between the two pictures, then check the pass's identities per arm (the direct arm must have zeroed no records). Then set a 1 m draw distance with the indirect path on and assert `cullDistance > 0`, `recordZeroed === frustum + distance + occluded` and `visible === batches - recordZeroed`, restoring the scene's own limits and the switch afterwards.",
+    "why": "Only a real device can prove the record words are the draw commands; the mock proves the arithmetic, the gate proves the submission."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0211",
+    "file": "benchmarks/src/culling.bench.ts",
+    "what": "A note on why 13.6 adds no curve: the record write is one store and one `atomicAdd` inside the invocation the sweep already times, so the existing numbers still bound the pass, and the saving 13.6 introduces is per *instance* (a zeroed record never enters the vertex stage) which the mock can only count — measured as a difference in `tests/frame.test.ts` and on a device by the gate.",
+    "why": "A reader of the benchmark should not think the indirect path's cost is untested, nor that the file is where it is measured."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0212",
+    "file": "docs/RENDERING.md",
+    "what": "New §4e (indirect draws and compaction): the 32-byte record and why the CPU owns the index window while the pass owns one word, the single verdict that drives the word/counters/list/record, the compaction list and its device order, the `MAX_CULLED_BATCHES` rule that keeps untested batches drawable, the two submission paths and their pixel identity, what the mock reads back, and what the gate proves on a device. §4d's closing paragraph now points at 13.6 as delivered instead of pending.",
+    "why": "The architecture doc is the long form of the roadmap item; the record layout and the flag are contracts a next session must not re-derive."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0213",
+    "file": "ROADMAP.md",
+    "what": "13.6's two items are checked off with the delivered design (record layout and ownership, the compaction list, the counter identities, stats and demo knobs, the cap rule), and 13.5's closing note about 13.6 now reads as delivered.",
+    "why": "The roadmap's checkboxes are the phase's acceptance record and the docs gate reads item ids out of it."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0214",
+    "file": "engine/src/core/capabilities.ts",
+    "what": "`rendering.indirectDraw` promoted planned -> verified (the record, the submission switch, the compaction list, stats, the gate's evidence), and `rendering.cullCoverage` re-scoped now that 13.6 consumes the verdict: what remains is per-instance culling, the instance-arena upload and a `firstInstance` rewrite from the compaction list — none of it scheduled; `rendering.gpuCulling`'s note now says the pass also writes the records and the list.",
+    "why": "The registry is what `docs:check` and the next session read as the truth about what a phase delivered."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0215",
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Two limitations rewritten for 13.6: the per-batch entry now says a culled batch is a zero-instance record (so it no longer enters the vertex stage), keeps the upload/one-instance/8192-cap/no-occlusion-on-the-twin caveats and points at §4e; and a new entry says the compaction list is produced but not consumed — the instance arena is still written and bound for every renderable, records exist only when `indirectDraws` is on, the cascades keep their own AABB test, and the occlusion test is still perspective-only.",
+    "why": "`docs:check` fails a stale limitation, and a reader needs to know which half of 13.6 landed and which did not (capability: rendering.cullCoverage)."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0216",
+    "file": "docs/VERIFICATION.md",
+    "what": "The `check:browser` row now names the 13.5 culling A/B and the 13.6 indirect arm it runs (indirectDraws === batches with the counter identities, the identical picture with records off, the 1 m draw distance), and a new section under the table explains a `check:browser NOT RUN` exit: a runner with no browser (Playwright's browsers live in `~/.cache`, which a restored sandbox may not have) reports that it did not test the browser path, and a change whose browser arm never ran must say so instead of claiming it passed.",
+    "why": "The verification doc is the map of what each command actually checked on which machine; this round's browser arm did not run locally (no browser binary, no CDN), so the doc has to make that legible as NOT RUN rather than green or red."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0217",
+    "file": "mnemosyne.md",
+    "what": "The 13.6 lessons: seeded-vs-written record words and the sentinel test that pins the split, the mock reading records so a zeroed draw is observable, why the frame tests need a distance limit to make the device the decider, and that this sandbox has no browser this round (the advisory CI job is the gate's home).",
+    "why": "These are the traps the next session would otherwise re-litigate."
+},
+  {
+    "date": "2026-09-25T22:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "id": "0218",
+    "file": "change-log.md",
+    "what": "This file: one `change` entry per Phase 13.6 file (13), plus the `pr-merge` summary appended before the merge.",
+    "why": "`AGENTS.md` §7 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
+},
+  {
+    "id": "0219",
+    "date": "2026-09-25T22:22:00Z",
+    "type": "pr-merge",
+    "pr": 44,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "base": "main",
+    "title": "Phase 13.6: the cull pass writes the draws (indirect records + compaction list)",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Phase 13.6: indirect rendering. The cull pass no longer stops at a verdict — it writes the frame's draw commands. One 32-byte record per batch (`DRAW_RECORD_WORDS` 8, `DRAW_RECORD_BYTES` 32, `DRAW_RECORD_INSTANCES` 1, 16-aligned slots so `drawIndexedIndirect` and `drawIndirect` both read them) lives in `cull.drawRecords` (`STORAGE | INDIRECT | COPY_DST`, grown in 256-byte steps): the CPU seeds the index window from the batch (indexCount / count / indexStart, 0 for a non-indexed batch) and the pass owns **word 1 alone** — the batch's instance count (uploaded as `ObjectBatchEntry.max.w`) when the verdict is visible, `0` plus `recordZeroed` when it is not. The verdict is computed once (`cullReasonOf`, extracted), and one write site turns it into the visibility word, the counter, `slot = atomicAdd(&counts.visible, 1u)` into `cull.visibleBatches` (the compacted list of survivors, at most `MAX_CULLED_BATCHES`, in the device's own order) and the record, so nothing in the frame can disagree with what the vertex stage read. The twin writes exactly the same words (`cullBatchesOnCpu` with `ObjectCullOutputs`, behind `CULL_FLAG_RECORDS`), and the pass only touches `index < min(batchCount, MAX_CULLED_BATCHES)` — the renderer pre-fills every slot with the batch's own count, so a slot past the cap keeps saying \"draw\". `Renderer.indirectDraws` (default on, `invalidate()` on change) submits `forge.main` through `drawIndexedIndirect` / `drawIndirect` at `batch.cullIndex * DRAW_RECORD_BYTES`; the direct arm is kept as the A/B — same batches, same words, same pixels — and sets no `CULL_FLAG_RECORDS`, so it pays for no record it will not read. Shadow and prepass keep their own draws and their own culling. `RenderStats` gained `cullVisible`, `cullRecordZeroed` and `indirectDraws` (the first two through the same one-frame-late readback as 13.5's counters). The mock device now parses the record out of `buffer.data` for both indirect draws and logs its fields, which is the only reason a CPU gate can assert the device-side instance count: `tests/objectCulling.test.ts` (19, was 16) pins the shader's single write site, the twin's outputs and both identities (`visible = tested - culled`, `recordZeroed = sum(culled)`), and — with sentinel-filled buffers — that a frame without the flag writes nothing and that past the cap the CPU's count survives; `tests/frame.test.ts` (27, was 24) asserts the records drive the frame, that the two submission paths differ by exactly the culled batches' `indexCount * instanceCount` vertices (read out of `draw.uniforms`, on a fixture whose 1 m draw distance makes the device, not the CPU, the decider), and that the flag follows the switch. `npm run verify` (42 files / 590 tests + check:wgsl), `lint:arch`, `check:testmap` and `docs:check` (92 capabilities: 48 verified / 25 partial / 15 planned / 4 deferred) are green. `check:browser` gained the arm that only a device can settle: a 1 m draw distance over the fixture makes the device drop batches the frame built, the two submission paths then have to draw the same picture to the pixel (one through a zero-instance record, one through 13.5's collapsed clip position), the direct arm must issue zero indirect draws and the same number of draw calls, and the pass's counters must satisfy `recordZeroed = culled` on the record arm and `0` on the direct one. It **did not run locally** — the sandbox snapshot has no browser (`~/.cache` is excluded and the Playwright CDN is unreachable), so the gate exits 2 with `NOT RUN — no launchable browser`, which `docs/VERIFICATION.md` now documents as its own state — but the PR's advisory WebGPU job ran it on a real SwiftShader adapter and passed end to end: `check:browser passed (real WebGPU, headless Chromium + SwiftShader) — gpu: adapter ok (google / swiftshader)`, the Phase 13.6 arm included, ~17 minutes after the push.",
+    "files": [
+        "ROADMAP.md",
+        "benchmarks/src/culling.bench.ts",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/objectCulling.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/uniforms.ts",
+        "engine/src/testing/mockGpu.ts",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/frame.test.ts",
+        "tests/objectCulling.test.ts",
+        "tools/browser-check.mjs"
+    ]
+}
 ]
 ```

@@ -29,8 +29,10 @@ import {
   type DayNightCycle,
   Engine,
   type Entity,
+  type EntityId,
   detectPlatform,
   Light,
+  Renderable,
   runParticleGravityCheck,
   type ParticleGravityCheckOptions,
   type Scene,
@@ -211,6 +213,10 @@ async function main(): Promise<void> {
   if (objectCullingParam === "cpu" || objectCullingParam === "gpu") engine.renderer.objectCulling = objectCullingParam;
   const occlusionParam = new URLSearchParams(window.location.search).get("occlusionculling");
   if (occlusionParam === "0" || occlusionParam === "1") engine.renderer.occlusionCulling = occlusionParam === "1";
+  // `?indirectdraws=0|1` pins how `forge.main` submits: the culler's indirect records (Phase 13.6) or
+  // one direct draw per batch.
+  const indirectParam = new URLSearchParams(window.location.search).get("indirectdraws");
+  if (indirectParam === "0" || indirectParam === "1") engine.renderer.indirectDraws = indirectParam === "1";
 
   // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,
   // fades out once both are live, and offers retry / skip when the fetch fails.
@@ -367,6 +373,43 @@ async function main(): Promise<void> {
     syncRenderButtons();
   }
   /**
+   * How `forge.main` submits its draws (Phase 13.6): through the culler's indirect records — one per
+   * batch, with the instance count the cull pass decided — or as one direct draw per batch, where the
+   * visibility word collapses a culled batch in the vertex stage instead. Both draw the same frame,
+   * which is what the A/B in `tools/browser-check.mjs` asserts; the difference is that a zero-instance
+   * record never runs the batch's vertex shader at all.
+   */
+  function setIndirectDraws(on: boolean): void {
+    engine.renderer.indirectDraws = on;
+    syncRenderButtons();
+  }
+  /**
+   * A draw distance over every renderable in the active scene (0 = none): the object culler's
+   * per-batch distance test, driven from the outside so the browser gate can make the device cull a
+   * batch that the frame *did* build — a batch the camera can see, dropped by the culler alone. That
+   * is the case where an indirect record with zero instances and a clip-collapsed direct draw differ
+   * in what they cost, which is the one thing a pixel comparison cannot see.
+   */
+  function setObjectDistance(metres: number): void {
+    const scene = currentHandle?.scene;
+    if (!scene) return;
+    // The limits the active scene shipped with, captured on the first override and put back by a
+    // negative argument: a scene that culls its own props (grass at 28 m, terrain at 1.2 km) must not
+    // have them rewritten by a check that only meant to turn the knob for one frame.
+    sceneDistanceLimits ??= new Map(
+      scene.world
+        .liveEntityIds()
+        .map((id) => [id, scene.world.facade(id)?.get(Renderable)?.maxDistance ?? 0] as const),
+    );
+    for (const id of scene.world.liveEntityIds()) {
+      const renderable = scene.world.facade(id)?.get(Renderable);
+      if (!renderable) continue;
+      renderable.maxDistance = metres < 0 ? (sceneDistanceLimits.get(id) ?? 0) : metres;
+    }
+    if (metres < 0) sceneDistanceLimits = null;
+    syncRenderButtons();
+  }
+  /**
    * Many-light rig (Phase 13.3): `count` static point lamps over the active scene, so the demo — and
    * the browser gate — can drive more lights than the old fixed 16-entry uniform list could carry.
    * Static on purpose: with the loop frozen the frame is bit-reproducible, which is what the
@@ -427,6 +470,8 @@ async function main(): Promise<void> {
 
   // The browser gate freezes the animation so two readbacks differ only by the toggle between them.
   let animating = true;
+  /** Per-entity `Renderable.maxDistance` before the first `setObjectDistance` override. */
+  let sceneDistanceLimits: Map<EntityId, number> | null = null;
 
   // Animation & HUD loop
   let last = performance.now();
@@ -459,7 +504,10 @@ async function main(): Promise<void> {
     // first frames after a switch read zero tested while the words are already being written.
     const cull =
       `${engine.renderer.objectCulling} cull${engine.renderer.occlusionCulling && engine.renderer.objectCulling === "gpu" ? "+hiz" : ""}` +
-      (r.cullTested > 0 ? ` ${r.cullTested} tested (${r.cullFrustum} off-screen, ${r.cullDistance} distant, ${r.cullOccluded} occluded)` : " (counters pending)");
+      (r.cullTested > 0
+        ? ` ${r.cullTested} tested (${r.cullFrustum} off-screen, ${r.cullDistance} distant, ${r.cullOccluded} occluded)` +
+          ` → ${r.cullVisible} drawn${engine.renderer.indirectDraws ? `, ${r.indirectDraws} indirect (${r.cullRecordZeroed} zero)` : ""}`
+        : " (counters pending)");
     const fill = r.clusterFill === "gpu" ? "gpu fill" : r.clusterFill === "cpu" ? "cpu fill" : "";
     const lights = r.clusteredLighting
       ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster}, ${fill})${r.lightsDropped ? "  ·  DROPPED" : ""}`
@@ -519,6 +567,10 @@ async function main(): Promise<void> {
     setOcclusionCulling,
     /** Whether the object culler's HiZ stage runs (Phase 13.5). */
     occlusionCulling: () => engine.renderer.occlusionCulling,
+    setIndirectDraws,
+    /** Whether forge.main submits through the culler's indirect records (Phase 13.6). */
+    indirectDraws: () => engine.renderer.indirectDraws,
+    setObjectDistance,
     setStressLights,
     /** How many rig lamps are in the scene right now (0 when the rig is off). */
     stressLights: () => stressLamps.length,
