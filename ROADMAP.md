@@ -683,9 +683,27 @@ CURRENT STATE:
 
 13.3 Clustered / Forward+ Lighting
 
-    [ ] Implement GPU-friendly clustered lighting.
+    [x] Implement GPU-friendly clustered lighting. (A 16x8x24 view-space grid built
+        on the CPU and read from the fragment stage: `engine/src/rendering/clusters.ts`
+        → `ClusterUniforms` / `ClusterLightBlock` / `ClusterGridBlock` on frame
+        bindings 6-8 → `clusterIndexOf` + `lightContribution` in
+        `shaders/standard.ts`, behind `perFrame.flags` bit 5; `Renderer.buildClusters`
+        uploads the used prefixes and nothing is allocated per frame. Adds no pass —
+        the graph is identical with it on or off, and so is the picture while a scene
+        fits the old list. docs/RENDERING.md §4b; tests/clusters.test.ts (18),
+        tests/frame.test.ts (6 clustered), tests/wgsl.test.ts, check:browser.)
 
-    [ ] Remove fixed CPU light-list limitations.
+    [x] Remove fixed CPU light-list limitations. (The frame now carries 256 local
+        lights (`MAX_CLUSTERED_LIGHTS`) with at most 32 per cluster
+        (`MAX_LIGHTS_PER_CLUSTER`), the least influential evicted by
+        intensity x colour luma and *reported*, instead of 16 entries truncated
+        silently; directional lights stay in the uniform list, where the cascade
+        caster's shadow index lives. New stats: `lights`, `clusteredLights`,
+        `clustersUsed`, `clusterIndices`, `maxLightsPerCluster`, `lightsDropped`.
+        check:browser drives the demo's 36-lamp rig: 40 lights in the scene, 39
+        clustered, none dropped, 88,036 px brighter than the truncated uniform path
+        and none darker. GPU-side assignment and the light-count stress benchmark
+        are 13.4.)
 
 
 13.4 GPU Light Culling

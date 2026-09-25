@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO and production transient aliasing (13.1, 13.2) are covered below; 13.3 onward is not started.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO, production transient aliasing and clustered lighting (13.1–13.3) are covered below; 13.4 onward is not started.
 
 ## Setting up
 
@@ -204,6 +204,23 @@ by a fraction of a texel changes the light-space origin by a whole texel (the sn
 shadow edges from swimming); a straight-down sun and an orthographic camera produce finite,
 containing matrices; passing an output array reuses the cascade objects.
 
+### `tests/clusters.test.ts` — the light grid, without a GPU
+
+Pure CPU math (`engine/src/rendering/clusters.ts`), so the property that matters can be checked
+exhaustively: **conservation** — a light must be in the cluster list of every fragment it can reach.
+The suite walks probe points inside each light's range and looks them up exactly the way the fragment
+stage does (tile from the projected position, slice from the view depth), and one test walks the ground
+under an *off-axis* lamp at 2 cm, which is where a near-depth-only box projection silently dropped the
+inner crescent of the lamp's own pool (the regression `check:browser` first saw as 181 darker pixels).
+Also pinned: the 16×8×24 constants ARCHITECTURE.md §5.5 specifies; a spot cone's bounding sphere
+covering its rim at full range; every list staying in light order (what makes the clustered and
+unclustered sums bit-identical); the near/far/off-frame culls; the slice span reaching the deepest
+light; the per-cluster cap evicting the *dimmest* (intensity × colour luma) and reporting it;
+`CLUSTER_INDEX_CAPACITY` being exactly the worst case (`CLUSTER_COUNT × MAX_LIGHTS_PER_CLUSTER`), so
+the cap and never the buffer is what limits a cluster; `MAX_CLUSTERED_LIGHTS` truncation reporting what
+it was asked for; determinism (two builds byte-identical, nothing allocated); and a non-finite
+transform dropping a light instead of poisoning the grid.
+
 ### `tests/pipeline.test.ts` — the pipeline cache
 
 Identical keys return the identical bundle and count a cache hit without touching the device; every
@@ -258,6 +275,17 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   `RendererOptions.depthPrepass: false` / `ssao: false` veto them whatever the scene asks. A steady
   SSAO frame creates no texture or buffer, five prepass × SSAO × HDR combinations record no errors,
   and the fixture's teardown proves the SSAO buffer, AO fallback and pooled AO targets are released.
+* **Clustered lighting (13.3)**: with three point lamps added to the fixture, the uniform `LightBlock`
+  holds the directional light alone while `cluster.lights` holds all three (same record layout, same
+  field offsets, same values), `perFrame.flags` bit 5 is set, the uploaded quantisation reproduces
+  `clusterSliceFor` at ten depths across the slice span, and the uploaded offset array is a prefix sum
+  of the counts in which every index addresses a real light and every list is ascending. The pass list
+  is *identical* with clustering on and off — it is a data change, not a pass. Clustering stays off for
+  a directional-only scene, an orthographic camera, `settings.clusteredLighting = false` and
+  `RendererOptions.clusteredLighting: false`. At 40 lights the cluster block carries all 39 locals
+  while the uniform path truncates at 16 and reports `lightsDropped`. A steady clustered frame creates
+  no buffer and no texture, five clustered × HDR × shadow combinations record no error, and the
+  fixture's teardown proves the three cluster buffers are released.
 * **Sky (Phase 8a)**: `scene.setSky()` inserts exactly one `forge.sky` pass directly after `forge.main`,
   drawing one triangle into the *same* colour target with the scene depth attached via an explicit
   load (`MockPassRecord.depthLoadOp === "load"`, `depthStoreOp === "store"` — the read-only attach's
@@ -406,6 +434,21 @@ negative/exponent literals included) are rejected with a message that names the
 `1.0 - smoothstep(high, low, x)` rewrite, commented-out edges are ignored without shifting the
 reported line, runtime (identifier) edges are not a static error, and the shipped
 `PARTICLE_RENDER_SHADER` uses the spec-legal `1.0 - smoothstep(0.35, 0.5, r)` form.
+Phase 13.3 adds `ClusterUniforms` (48 B) to the uniform registry and two *storage* blocks:
+`ClusterLightBlock` (16 + 256 × 80 B) and `ClusterGridBlock` (3 072 × 8 + 98 304 × 4 B — far past the
+64 KiB uniform binding limit, which is why both are storage-bound). The suite asserts they are sized
+from the grid constants alone with nothing hardcoded, that their generated declarations appear
+*verbatim* in the module that binds them (a hand-edited WGSL struct cannot be kept in step with the CPU
+writer), and that the forward shader still passes the strict validator with them embedded. It also pins
+the two source-level guarantees the pixel identity rests on: exactly one `fn lightContribution` with two
+call sites (the uniform loop and the cluster loop shade through the same function), behind a runtime
+`perFrame.flags & FLAGS_CLUSTERED` branch and no compile-time define, so every shipped variant contains
+both paths and one pipeline can be A/B'd. `semantics` issues now also cover WGSL's **reserved words**:
+the grid's offset array shipped as `meta`, which Tint rejects at parse time ("'meta' is a reserved
+keyword") while the mock device and every structural check stay green — `reservedWordIssues` flags a
+reserved word used as an identifier (struct member, local or global) on its real line, leaves attribute
+spellings (`@align`, `@invariant`) and prose alone, does not claim the language's own words
+(`struct`, `let`, `uniform`, `f16`), and the shipped corpus has none.
 
 ### `tests/physics.test.ts` — the solver, and the heightfield it stands on
 
@@ -555,6 +598,17 @@ depending on where the animation froze), 0 brighter.
 - **Prepass identity**: with SSAO off, switching the prepass off as well must not change a single
   pixel by more than one level — measured: 0 pixels differ at all (max difference 0). That is the
   `@invariant` + shared-vertex-module design proven on a real compiler.
+- **Clustered lighting identity (Phase 13.3)**: with the fixture's four lights, switching clustering
+  off must not change a single pixel — measured 0 px differ by even one luma level (max diff 0.00) and
+  the same 18 passes, because both light loops call the same shading function over the same lights in
+  the same order. Anything else is a light the grid failed to index, or a slice boundary the CPU and
+  the GPU quantise apart.
+- **Many lights (Phase 13.3)**: the demo's **+36 lamps** rig puts 40 lights in the scene. Clustering
+  must carry all 39 local lights (`clusteredLights === lights − 1`) with nothing dropped, the uniform
+  path must truncate at 16 and report `lightsDropped`, and the clustered frame must be strictly
+  brighter — measured 88,036 of 921,600 px brighter (up to 204 levels) and **none darker**, since
+  adding lights can only add. Removing the rig restores the fixture's four lights, and the demo's
+  `Clustered` button must move the setting it shows and mark itself pressed.
 - **Cascade debug view** renders without errors, and after every toggle the settings are restored,
   the pass count is back to the HDR default, SSAO is back on, and `gpuErrors` is still 0. The LDR
   readback above also asserts the prepass + SSAO chain survives the switch to the swapchain path.

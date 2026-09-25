@@ -21,7 +21,7 @@
  * first one wrote instead of losing pixels to a one-ulp disagreement.
  */
 
-import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
+import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "../uniforms.js";
 import { WGSL_COLOR, WGSL_FOG } from "./common.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
@@ -33,6 +33,12 @@ export const BINDINGS = {
   shadowSampler: { group: 0, binding: 4 },
   /** Half-resolution SSAO result (`rg16float`: visibility, view depth); a 1×1 "unoccluded" texel when off. */
   ssao: { group: 0, binding: 5 },
+  /** Clustered-light quantisation (`ClusterUniforms`); read only while `perFrame.flags` bit 5 is set. */
+  clusters: { group: 0, binding: 6 },
+  /** Local (point/spot) light records the clusters reference (`ClusterLightBlock`, storage). */
+  clusterLights: { group: 0, binding: 7 },
+  /** The cluster grid: two u32 per cluster, then the flat light-index list (`ClusterGridBlock`, storage). */
+  clusterGrid: { group: 0, binding: 8 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
   material: { group: 2, binding: 0 },
@@ -46,6 +52,13 @@ const STRUCTS = [
   PerFrameUniforms.toWgsl("uniform"),
   LightUniforms.toWgsl("uniform"),
   LightBlock.toWgsl("uniform"),
+  // Clustered (Forward+) lighting: the quantisation block is a uniform, the grid and the lights it
+  // references are storage (a 32k-entry `array<u32>` has a 4-byte stride, which the uniform address
+  // space forbids). `LightUniforms` has the same layout in both spaces, so it is declared once and
+  // the uniform `LightBlock` and the storage `ClusterLightBlock` share it.
+  ClusterUniforms.toWgsl("uniform"),
+  ClusterLightBlock.toWgsl("storage"),
+  ClusterGridBlock.toWgsl("storage"),
   ShadowUniforms.toWgsl("uniform"),
   MaterialUniforms.toWgsl("uniform"),
   ObjectUniforms.toWgsl("uniform"),
@@ -200,6 +213,9 @@ ${COMMON}
 @group(0) @binding(3) var shadowMap: texture_depth_2d_array;
 @group(0) @binding(4) var shadowSampler: sampler_comparison;
 @group(0) @binding(5) var aoMap: texture_2d<f32>;
+@group(0) @binding(6) var<uniform> clusters: ClusterUniforms;
+@group(0) @binding(7) var<storage, read> clusterLights: ClusterLightBlock;
+@group(0) @binding(8) var<storage, read> clusterGrid: ClusterGridBlock;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(2) @binding(0) var<uniform> material: MaterialUniforms;
@@ -214,6 +230,8 @@ const FLAGS_MR: u32 = 4u;
 const FLAGS_DOUBLE_SIDED: u32 = 8u;
 const FLAGS_UNLIT: u32 = 16u;
 const FLAGS_INSTANCED: u32 = 1u;
+// perFrame.flags bit 5: local lights come from the cluster grid, not from the uniform light list.
+const FLAGS_CLUSTERED: u32 = 32u;
 `;
 
 /** Vertex stage for the colour pass (non-instanced path). */
@@ -301,6 +319,74 @@ fn ambientOcclusion(fragCoord: vec2<f32>, viewDepth: f32) -> f32 {
   return sum / total;
 }
 
+// ------------------------------------------------------- clustered (Forward+) lighting (13.3)
+
+// The cluster this fragment falls in: tile from its framebuffer position, slice from its view depth.
+// Both quantisations are the CPU builder's own (rendering/clusters.ts), which widens every light's
+// slice range by one and pads its tile extent, so a float32/float64 disagreement at a boundary can
+// only ever add a light whose contribution is exactly zero — never drop one that matters.
+fn clusterIndexOf(fragCoord: vec2<f32>, viewDepth: f32) -> i32 {
+  let uv = fragCoord * clusters.invExtent;
+  let tiles = vec2<i32>(clusters.gridScale);
+  let tx = clamp(i32(uv.x * clusters.gridScale.x), 0i, tiles.x - 1i);
+  let ty = clamp(i32(uv.y * clusters.gridScale.y), 0i, tiles.y - 1i);
+  let d = max(viewDepth, clusters.near);
+  let tz = clamp(i32((log(d) - clusters.logNear) * clusters.sliceScale), 0i, i32(clusters.slices) - 1i);
+  return (tz * tiles.y + ty) * tiles.x + tx;
+}
+
+// Everything one light evaluation needs that is not the light itself.
+struct SurfaceShading {
+  worldPos: vec3<f32>,
+  normal: vec3<f32>,
+  view: vec3<f32>,
+  viewDepth: f32,
+  albedo: vec3<f32>,
+  f0: vec3<f32>,
+  metallic: f32,
+  roughness: f32,
+}
+
+// One light's contribution to one surface. The uniform light list and the cluster lists both
+// accumulate through this single function, so a frame is bit-identical whichever path supplied the
+// light — that is what turns "clustering on vs off" into a pixel comparison instead of a judgement
+// call, and it is why the body is not allowed to grow a second copy.
+fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
+  let N = s.normal;
+  let V = s.view;
+  var lightDir: vec3<f32>;
+  var attenuation = 1.0;
+  if (L.kind == 0i) {
+    lightDir = -normalize(L.directionIntensity.xyz);
+  } else {
+    let toLight = L.positionRange.xyz - s.worldPos;
+    let dist = max(length(toLight), 1e-4);
+    lightDir = toLight / dist;
+    let range = max(L.positionRange.w, 1e-4);
+    attenuation = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
+    attenuation = attenuation * attenuation / (dist * dist + 1.0);
+    if (L.kind == 2i) {
+      let spotDir = normalize(-L.directionIntensity.xyz);
+      let sc = dot(lightDir, spotDir);
+      attenuation = attenuation * smoothstep(L.spotAngles.y, L.spotAngles.x, sc);
+    }
+  }
+  var power = L.directionIntensity.w * attenuation;
+  if (L.shadowIndex >= 0i) {
+    // Only the directional caster has a shadow map (cascaded); point/spot shadows are deferred.
+    power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);
+  }
+  let H = normalize(V + lightDir);
+  let nl = max(dot(N, lightDir), 0.0);
+  let nv = max(dot(N, V), 0.0);
+  let D = distributionGGX(N, H, s.roughness);
+  let G = geometrySmith(N, V, lightDir, s.roughness);
+  let F = fresnelSchlick(max(dot(H, V), 0.0), s.f0);
+  let specular = (D * G * F) / max(4.0 * nv * nl, 1e-4);
+  let kD = (1.0 - F) * (1.0 - s.metallic);
+  return (kD * s.albedo / PI + specular) * L.color * power * nl;
+}
+
 fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   var base = material.baseColorFactor;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
@@ -338,39 +424,28 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
     color = albedo.rgb;
   } else {
     let F0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
+    let surface = SurfaceShading(in.worldPos, N, V, in.viewDepth, albedo.rgb, F0, metallic, roughness);
+    // Global lights: the uniform list. With clustering on this holds the directional lights only
+    // (they reach every pixel, so there is nothing to cull); with it off it holds everything the
+    // fixed 16-entry list can carry, exactly as before.
     for (var i = 0i; i < lights.count; i = i + 1i) {
-      let L = lights.lights[i];
-      var lightDir: vec3<f32>;
-      var attenuation = 1.0;
-      if (L.kind == 0i) {
-        lightDir = -normalize(L.directionIntensity.xyz);
-      } else {
-        let toLight = L.positionRange.xyz - in.worldPos;
-        let dist = max(length(toLight), 1e-4);
-        lightDir = toLight / dist;
-        let range = max(L.positionRange.w, 1e-4);
-        attenuation = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
-        attenuation = attenuation * attenuation / (dist * dist + 1.0);
-        if (L.kind == 2i) {
-          let spotDir = normalize(-L.directionIntensity.xyz);
-          let sc = dot(lightDir, spotDir);
-          attenuation = attenuation * smoothstep(L.spotAngles.y, L.spotAngles.x, sc);
+      color = color + lightContribution(lights.lights[i], surface);
+    }
+    if ((perFrame.flags & FLAGS_CLUSTERED) != 0u) {
+      // Local lights from this fragment's cluster alone. The list is in light order — the CPU
+      // builder preserves it, evictions included — so the accumulation order, and therefore the
+      // floating-point sum, is the unclustered path's own.
+      let base = clusterIndexOf(in.clipPos.xy, in.viewDepth) * 2i;
+      let start = i32(clusterGrid.clusterOffsets[base]);
+      let entries = i32(clusterGrid.clusterOffsets[base + 1i]);
+      let limit = clusterLights.count;
+      for (var k = 0i; k < entries; k = k + 1i) {
+        let index = i32(clusterGrid.indices[start + k]);
+        // A stale or corrupt index must cost a light, not read another one's record.
+        if (index >= 0i && index < limit) {
+          color = color + lightContribution(clusterLights.lights[index], surface);
         }
       }
-      var power = L.directionIntensity.w * attenuation;
-      if (L.shadowIndex >= 0i) {
-        // Only the directional caster has a shadow map (cascaded); point/spot shadows are deferred.
-        power = power * shadowAttenuation(in.worldPos, N, in.viewDepth);
-      }
-      let H = normalize(V + lightDir);
-      let nl = max(dot(N, lightDir), 0.0);
-      let nv = max(dot(N, V), 0.0);
-      let D = distributionGGX(N, H, roughness);
-      let G = geometrySmith(N, V, lightDir, roughness);
-      let F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-      let specular = (D * G * F) / max(4.0 * nv * nl, 1e-4);
-      let kD = (1.0 - F) * (1.0 - metallic);
-      color = color + (kD * albedo.rgb / PI + specular) * L.color * power * nl;
     }
     let ambient = perFrame.ambientColor * perFrame.ambientIntensity * albedo.rgb;
     let irradiance = ambient * (1.0 - F0) * ambientOcclusion(in.clipPos.xy, in.viewDepth);

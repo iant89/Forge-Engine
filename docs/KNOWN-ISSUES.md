@@ -20,6 +20,22 @@ the honest detail lives; nothing here is hidden behind a green gate.
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
   texel for them and leaves them unoccluded). Orthographic cameras run the prepass but not SSAO.
   (capability: rendering.prepassCoverage)
+* **The cluster grid is built on the CPU, every frame.** `Renderer.buildClusters` walks the local
+  lights, writes 3 072 cluster lists into reused typed arrays and uploads the used prefixes (≈ 43 KB
+  for the demo's 40-light rig): no per-frame allocation, but it is render-thread work that grows with
+  the lights near the camera, and the three cluster buffers cost ≈ 428 KB of VRAM from the first frame
+  whether or not a scene clusters. The compute-pass assignment is roadmap 13.4.
+  (`docs/RENDERING.md` §4b, §9) (capability: rendering.clusterCoverage)
+* **256 local lights, 32 per cluster.** Past `MAX_CLUSTERED_LIGHTS` the frame truncates; past
+  `MAX_LIGHTS_PER_CLUSTER` candidates in one cluster, the least influential (intensity × colour luma)
+  are evicted *there* — so a dense rig in a small volume loses its dimmest lamps while the rest of the
+  scene keeps them. Both are reported (`stats.lightsDropped`, `stats.maxLightsPerCluster`) instead of
+  silently dropping a lamp the way the old 16-entry list did. (`docs/RENDERING.md` §4b)
+  (capability: rendering.clusterCoverage)
+* **Orthographic cameras are not clustered.** The grid's depth axis is view depth, which an
+  orthographic projection does not put in `clip.w` (the same reason SSAO is perspective-only), so their
+  local lights still go through the fixed 16-entry uniform list and still truncate at
+  `MAX_LIGHTS_PER_FRAME`. (`docs/RENDERING.md` §4b) (capability: rendering.clusterCoverage)
 * **`renderScale` applies to the HDR path only.** The LDR path always renders at swapchain size. (capability: rendering.renderScale)
 * **No GPU timestamps.** `renderTimeMs` is CPU encode time; pass timings are not measured. (capability: rendering.gpuTiming)
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves

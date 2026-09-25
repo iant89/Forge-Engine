@@ -509,6 +509,8 @@
             <button id="btn-shadows" class="active">Shadows</button>
             <button id="btn-prepass" class="active" title="Depth prepass: lay the opaque depth down first, then shade each visible pixel once">Prepass</button>
             <button id="btn-ssao" class="active" title="Screen-space ambient occlusion from the prepass depth (half resolution)">SSAO</button>
+            <button id="btn-clustered" class="active" title="Clustered (Forward+) lighting: local lights are indexed into a 16x8x24 view-space grid on the CPU, so each pixel walks only the lights that can reach it">Clustered</button>
+            <button id="btn-stress" title="Many-light rig: put 36 static point lamps into the scene (40 lights in all — more than the old fixed 16-entry uniform list could carry)">+36 lamps</button>
             <button id="btn-cascades">Cascade tint</button>
             <button id="btn-bounds" title="Wireframe AABBs where every renderable (and the rover) is supposed to be">Bounds</button>
           </div>

@@ -180,6 +180,7 @@ export class Engine {
       skyQuality: init.config.skyQuality,
       depthPrepass: init.config.depthPrepass,
       ssao: init.config.ssao,
+      clusteredLighting: init.config.clusteredLighting,
     });
     this.services.set("resources", this.resources);
     this.services.set("tasks", this.tasks);

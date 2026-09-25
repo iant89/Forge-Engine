@@ -14,7 +14,31 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { Camera, Color, createBox, createPlane, GraphicsDevice, Light, Material, Renderable, Renderer, Scene, Vec3, type RendererOptions } from "@forge/engine";
+import {
+  CLUSTER_COUNT,
+  CLUSTER_SLICES,
+  CLUSTER_TILES_X,
+  CLUSTER_TILES_Y,
+  Camera,
+  ClusterGridBlock,
+  ClusterLightBlock,
+  ClusterUniforms,
+  Color,
+  createBox,
+  createPlane,
+  clusterSliceFor,
+  GraphicsDevice,
+  Light,
+  Material,
+  MAX_LIGHTS_PER_CLUSTER,
+  MAX_LIGHTS_PER_FRAME,
+  PerFrameUniforms,
+  Renderable,
+  Renderer,
+  Scene,
+  Vec3,
+  type RendererOptions,
+} from "@forge/engine";
 
 /** The prepass + SSAO chain the default settings put between the shadow passes and forge.main. */
 const PREPASS_SSAO = ["forge.prepass", "forge.ssao", "forge.ssao.blur.h", "forge.ssao.blur.v"] as const;
@@ -593,6 +617,265 @@ describe("depth prepass and SSAO", () => {
     }
     // The fixture's dispose() asserts that no buffer or texture (SSAO uniforms, AO fallback, pooled
     // AO targets) outlives the renderer.
+    await f.dispose();
+  });
+});
+
+// ------------------------------------------------------------------ clustered (Forward+) lighting
+
+/** A GPU buffer's live contents, by label (the mock keeps real bytes, so this is what was uploaded). */
+function bufferOf(f: Fixture, label: string): { f32: Float32Array; i32: Int32Array; u32: Uint32Array; writeCount: number; size: number } {
+  const buffer = [...f.mock.liveBuffers].find((b) => b.label === label);
+  expect(buffer, `"${label}" buffer`).toBeDefined();
+  return {
+    f32: new Float32Array(buffer!.data),
+    i32: new Int32Array(buffer!.data),
+    u32: new Uint32Array(buffer!.data),
+    writeCount: buffer!.writeCount,
+    size: buffer!.size,
+  };
+}
+
+function addPointLight(f: Fixture, name: string, x: number, y: number, z: number, range = 6, intensity = 10): Light {
+  const e = f.scene.createTransformedEntity(name, new Vec3(x, y, z));
+  const l = new Light();
+  l.kind = "point";
+  l.range = range;
+  l.intensity = intensity;
+  l.castShadow = false;
+  f.scene.world.addComponent(e.id, l);
+  return l;
+}
+
+/** `perFrame.flags` as last uploaded. */
+function frameFlags(f: Fixture): number {
+  return bufferOf(f, "perframe.uniforms").u32[PerFrameUniforms.offsetOf("flags") >> 2]!;
+}
+
+describe("clustered (Forward+) lighting", () => {
+  const LIGHTS_OFFSET = ClusterLightBlock.field("lights", "storage");
+  const CLUSTER_FIELDS = {
+    invExtent: ClusterUniforms.offsetOf("invExtent"),
+    gridScale: ClusterUniforms.offsetOf("gridScale"),
+    near: ClusterUniforms.offsetOf("near"),
+    logNear: ClusterUniforms.offsetOf("logNear"),
+    sliceScale: ClusterUniforms.offsetOf("sliceScale"),
+    slices: ClusterUniforms.offsetOf("slices"),
+    lightCount: ClusterUniforms.offsetOf("lightCount"),
+    maxPerCluster: ClusterUniforms.offsetOf("maxPerCluster"),
+  };
+
+  it("local lights go to the cluster grid and the uniform list keeps only the global ones", async () => {
+    const f = await fixture();
+    addPointLight(f, "lamp-a", -2, 1.5, 0);
+    addPointLight(f, "lamp-b", 2, 1.5, 1, 4, 25);
+    addPointLight(f, "lamp-c", 0, 2.5, -2, 8, 5);
+    // Clustering changes what the fragment stage reads, not what the graph records: render the same
+    // scene with it off and on and the pass list must be identical.
+    f.scene.settings.clusteredLighting = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const unclustered = labels(f);
+    f.mock.passes.length = 0;
+    f.scene.settings.clusteredLighting = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+
+    const s = f.renderer.stats;
+    expect(s.clusteredLighting).toBe(true);
+    expect(s.lights).toBe(4); // the sun plus three lamps
+    expect(s.clusteredLights).toBe(3);
+    expect(s.clustersUsed).toBeGreaterThan(0);
+    expect(s.clusterIndices).toBeGreaterThanOrEqual(s.clustersUsed);
+    expect(s.maxLightsPerCluster).toBeGreaterThanOrEqual(1);
+    expect(s.lightsDropped).toBe(false);
+
+    // Clustering is a data change, not a pass: the frame structure is untouched.
+    expect(labels(f)).toEqual(unclustered);
+    expect(labels(f)).toContain("forge.main");
+    expect(frameFlags(f) & 32).toBe(32);
+
+    // The uniform block holds the directional light only (it is the cascade caster, index 0).
+    const uniform = bufferOf(f, "lights.uniforms");
+    expect(uniform.i32[0]).toBe(1);
+    expect(uniform.i32[1]).toBe(1); // shadowedCount
+
+    // The cluster block holds the three lamps, with the same record layout the uniform block uses.
+    const clustered = bufferOf(f, "cluster.lights");
+    expect(clustered.i32[0]).toBe(3);
+    const stride = LIGHTS_OFFSET.stride! >> 2;
+    const at = (i: number) => LIGHTS_OFFSET.offset / 4 + i * stride;
+    expect(clustered.f32[at(0) + 3]).toBe(6); // lamp-a range
+    expect(clustered.f32[at(1) + 3]).toBe(4); // lamp-b range
+    expect(clustered.f32[at(1) + 2]).toBe(1); // lamp-b z
+    expect(clustered.i32[at(0) + 14]).toBe(1); // kind: point
+    expect(clustered.i32[at(0) + 15]).toBe(-1); // no shadow index: point shadows are 13.9
+    expect(clustered.f32[at(2) + 7]).toBe(5); // lamp-c intensity (directionIntensity.w)
+
+    // The quantisation block is what the fragment stage's cluster lookup runs on.
+    const c = bufferOf(f, "cluster.uniforms");
+    expect(c.f32[CLUSTER_FIELDS.gridScale >> 2]).toBe(CLUSTER_TILES_X);
+    expect(c.f32[(CLUSTER_FIELDS.gridScale >> 2) + 1]).toBe(CLUSTER_TILES_Y);
+    expect(c.f32[CLUSTER_FIELDS.slices >> 2]).toBe(CLUSTER_SLICES);
+    expect(c.i32[CLUSTER_FIELDS.lightCount >> 2]).toBe(3);
+    expect(c.i32[CLUSTER_FIELDS.maxPerCluster >> 2]).toBe(MAX_LIGHTS_PER_CLUSTER);
+    expect(c.f32[CLUSTER_FIELDS.invExtent >> 2]).toBeCloseTo(1 / 320, 9);
+    expect(c.f32[(CLUSTER_FIELDS.invExtent >> 2) + 1]).toBeCloseTo(1 / 180, 9);
+    await f.dispose();
+  });
+
+  it("uploads the grid the builder wrote: the offset array is a prefix sum and every index is a real light", async () => {
+    const f = await fixture();
+    for (let i = 0; i < 12; i++) addPointLight(f, `lamp${i}`, ((i % 4) - 1.5) * 3, 1 + (i % 3), ((i >> 2) - 1) * 3, 5, 5 + i);
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const grid = bufferOf(f, "cluster.grid");
+    const s = f.renderer.stats;
+    let offset = 0;
+    let nonEmpty = 0;
+    for (let c = 0; c < CLUSTER_COUNT; c++) {
+      expect(grid.u32[c * 2]).toBe(offset);
+      const n = grid.u32[c * 2 + 1]!;
+      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
+      offset += n;
+      if (n > 0) nonEmpty++;
+    }
+    expect(offset).toBe(s.clusterIndices);
+    expect(nonEmpty).toBe(s.clustersUsed);
+    // Lists are ascending (the shader's accumulation order must not depend on the path) and every
+    // entry addresses a light record that exists.
+    for (let k = 0; k < s.clusterIndices; k++) {
+      expect(grid.u32[(ClusterGridBlock.offsetOf("indices", "storage") >> 2) + k]!).toBeLessThan(s.clusteredLights);
+    }
+    for (let c = 0; c < CLUSTER_COUNT; c++) {
+      const start = (ClusterGridBlock.offsetOf("indices", "storage") >> 2) + grid.u32[c * 2]!;
+      for (let k = 1; k < grid.u32[c * 2 + 1]!; k++) expect(grid.u32[start + k]!).toBeGreaterThan(grid.u32[start + k - 1]!);
+    }
+    expect(s.lightsDropped).toBe(false);
+    await f.dispose();
+  });
+
+  it("the uploaded quantisation reproduces the builder's slice for any depth (CPU/GPU agreement)", async () => {
+    const f = await fixture();
+    addPointLight(f, "lamp", 0, 1.5, 2, 6);
+    f.renderer.renderScene(f.scene);
+    const c = bufferOf(f, "cluster.uniforms");
+    // What the fragment stage sees: f32 roundings of the builder's float64 constants.
+    const near = c.f32[CLUSTER_FIELDS.near >> 2]!;
+    const logNear = c.f32[CLUSTER_FIELDS.logNear >> 2]!;
+    const sliceScale = c.f32[CLUSTER_FIELDS.sliceScale >> 2]!;
+    const slices = c.f32[CLUSTER_FIELDS.slices >> 2]!;
+    const nearF64 = Math.max(1e-4, f.camera.near); // the clamp the renderer applies
+    const far = f.renderer.clusterBuildInfo!.far; // the builder's slice span, not the camera's far
+    expect(near).toBe(Math.fround(nearF64));
+    expect(logNear).toBe(Math.fround(Math.log(nearF64)));
+    expect(slices).toBe(CLUSTER_SLICES);
+    expect(sliceScale).toBe(Math.fround(CLUSTER_SLICES / Math.log(far / nearF64)));
+    // The shader computes clamp(i32((log(max(depth, near)) - logNear) * sliceScale), 0, slices-1);
+    // clusterSliceFor is that expression in float64. They must land on the same slice across the
+    // span, or the CPU builds a list the GPU indexes into the wrong way.
+    for (const depth of [nearF64, nearF64 * 1.5, 0.5, 1, 3, 7.5, 12, far * 0.5, far, far * 2]) {
+      const shaderSlice = Math.min(CLUSTER_SLICES - 1, Math.max(0, Math.trunc((Math.log(Math.max(depth, near)) - logNear) * sliceScale)));
+      expect(shaderSlice, `depth ${depth}`).toBe(clusterSliceFor(depth, nearF64, far));
+    }
+    await f.dispose();
+  });
+
+  it("stays off for a directional-only scene, an orthographic camera, the scene switch and the profile veto", async () => {
+    const f = await fixture();
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.clusteredLighting).toBe(false); // no local lights at all
+    expect(frameFlags(f) & 32).toBe(0);
+    const gridWrites = bufferOf(f, "cluster.grid").writeCount;
+
+    addPointLight(f, "lamp", 0, 1.5, 0);
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.clusteredLighting).toBe(true);
+    expect(bufferOf(f, "cluster.grid").writeCount).toBeGreaterThan(gridWrites);
+
+    // Scene switch.
+    f.scene.settings.clusteredLighting = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.clusteredLighting).toBe(false);
+    expect(frameFlags(f) & 32).toBe(0);
+    expect(bufferOf(f, "lights.uniforms").i32[0]).toBe(2); // both lights back in the uniform list
+    expect(f.renderer.clusterBuildInfo).toBeNull();
+    f.scene.settings.clusteredLighting = true;
+
+    // Quality-profile veto (EngineConfig.clusteredLighting → RendererOptions).
+    const veto = new Renderer(f.device, { shadowMapSize: 256, clusteredLighting: false });
+    veto.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(veto.stats.clusteredLighting).toBe(false);
+    expect(bufferOf(f, "lights.uniforms").i32[0]).toBe(2);
+    veto.dispose();
+
+    // Orthographic camera: clip.w is not a view depth, so there is no depth axis to cluster on.
+    f.camera.setOrthographic(12, 16 / 9, 0.1, 100);
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.clusteredLighting).toBe(false);
+    expect(frameFlags(f) & 32).toBe(0);
+    f.camera.setPerspective(Math.PI / 3, 16 / 9, 0.1, 100);
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.clusteredLighting).toBe(true);
+    await f.dispose();
+  });
+
+  it("carries more lights than the uniform list ever could, and reports the old cap honestly", async () => {
+    const f = await fixture();
+    const total = MAX_LIGHTS_PER_FRAME + 24; // 40 lamps: 2.5x the uniform block
+    for (let i = 0; i < total; i++) addPointLight(f, `lamp${i}`, ((i % 8) - 3.5) * 1.6, 1 + (i % 4) * 0.6, ((i >> 3) - 2) * 1.6, 4, 4 + i);
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const s = f.renderer.stats;
+    expect(s.lights).toBe(total + 1);
+    expect(s.clusteredLights).toBe(total); // every lamp reaches the shader
+    expect(s.lightsDropped).toBe(false);
+    expect(bufferOf(f, "lights.uniforms").i32[0]).toBe(1); // the sun alone
+    expect(bufferOf(f, "cluster.lights").i32[0]).toBe(total);
+    expect(s.clusterIndices).toBeGreaterThan(total);
+
+    // The same scene with clustering off: the fixed list truncates, and the stats say so instead of
+    // letting 24 lamps vanish without a trace.
+    f.scene.settings.clusteredLighting = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.lightsDropped).toBe(true);
+    expect(bufferOf(f, "lights.uniforms").i32[0]).toBe(MAX_LIGHTS_PER_FRAME);
+    await f.dispose();
+  });
+
+  it("allocates nothing on a steady clustered frame, and toggling it leaks nothing", async () => {
+    const f = await fixture();
+    addPointLight(f, "lamp-a", -2, 1.5, 0);
+    addPointLight(f, "lamp-b", 2, 1.5, 1, 4, 25);
+    f.renderer.renderScene(f.scene);
+    f.renderer.renderScene(f.scene);
+    const buffers = f.device.gpuMemory.buffersCreated;
+    const textures = f.device.gpuMemory.texturesCreated;
+    for (let i = 0; i < 4; i++) f.renderer.renderScene(f.scene);
+    expect(f.device.gpuMemory.buffersCreated).toBe(buffers);
+    expect(f.device.gpuMemory.texturesCreated).toBe(textures);
+    expect(f.renderer.stats.texturesCreated).toBe(0);
+    expect(f.renderer.stats.clusteredLighting).toBe(true);
+
+    for (const [clustered, hdr, shadows] of [
+      [true, true, true],
+      [false, true, true],
+      [true, false, false],
+      [false, false, true],
+      [true, true, false],
+    ] as const) {
+      f.scene.settings.clusteredLighting = clustered;
+      f.scene.settings.hdr = hdr;
+      f.scene.settings.shadow.enabled = shadows;
+      for (let i = 0; i < 3; i++) f.renderer.renderScene(f.scene);
+      expect(f.mock.errors, `clustered=${clustered} hdr=${hdr} shadows=${shadows}`).toEqual([]);
+      expect(f.renderer.stats.clusteredLighting).toBe(clustered);
+    }
+    // The fixture's dispose() asserts nothing (cluster buffers included) outlives the renderer.
     await f.dispose();
   });
 });

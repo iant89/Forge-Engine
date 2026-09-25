@@ -220,3 +220,51 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 - Tests can't statically import the `.mjs` map (`allowJs: false` in tsconfig), so the drift suite drives
   it as a subprocess (`node tools/test-subsystems.mjs --check` / `--explain`), like `gpuEnv.test.ts` and
   `capabilities.test.ts` drive their tools.
+
+### 2026-09-25 — Phase 13.3 clustered (Forward+) lighting
+
+- **`meta` is a reserved WGSL keyword.** The cluster grid's per-cluster (offset, count) array was
+  called `meta`; Tint rejected the module at parse time (`'meta' is a reserved keyword`), so every
+  pipeline built from `standard.ts` came back invalid and every frame failed to submit — while the mock
+  device, `check:wgsl` and 537 unit tests all stayed green, because none of them compile WGSL. Renamed
+  to `clusterOffsets`, and `validateWgsl` now has a reserved-word rule (`WGSL_RESERVED_WORDS` +
+  `reservedWordIssues` in `engine/src/gpu/shaderCache.ts`, pinned by `tests/wgsl.test.ts`): 0 hits over
+  the 20 shipped modules, and it flags a member/local/global on its real line while leaving `@align`,
+  `@invariant` and prose alone. **Any new WGSL identifier is one reserved word away from a black
+  canvas that only the browser gate can see — the rule is why that is no longer true.**
+- **Projecting a light's bounding box at its *nearest* depth is not conservative.**
+  `ndc.x = proj00·x/z` moves toward the centre as `z` grows, so for a box that does not straddle the
+  view axis the far edge at the far depth reaches further in than the near edge at the near depth.
+  Cost an off-axis lamp the inner crescent of its own pool: `check:browser` saw 181 darker px in a
+  40-light frame. The ≤16-light identity A/B stayed clean, because the PBR fixture's three local lights
+  sit on the view axis where the bug cannot bite — a passing identity check is not evidence the
+  assignment is conservative. Fix: corner min/max over both depths (`clusters.ts` step 2).
+- **How the bug was found in minutes, not hours:** `/tmp/probe.mjs`-style script — rebuild the demo's
+  camera and lights, `grid.build(...)`, then walk a dense ground grid and assert every light within
+  `range` of a probe point is in that point's cluster list. 145k probes, 1986 misses → 0 after the fix.
+  The CPU probe localises an under-inclusion the browser can only report as "some pixels got darker".
+- **The conservation probe in `tests/clusters.test.ts` missed it** because 7 axis offsets at 0.9×range
+  per light is too sparse, and its camera looks at lights near its own axis. The regression test walks
+  the ground under an off-axis lamp at 2 cm and asserts > 100 probes land in the crescent that was
+  lost; it fails on the old projection with `expected [] to include +0`.
+- **`CLUSTER_INDEX_CAPACITY` must be `CLUSTER_COUNT × MAX_LIGHTS_PER_CLUSTER` (98 304).** At 32 768 the
+  capacity silently reduced the per-cluster cap (`capFit = floor(capacity / clustersUsed)` → 10 when
+  every cluster is used), so a 12-light scene dropped lights. A light dropped because a buffer ran out
+  is a light dropped for a reason nobody can see in the scene; ~384 KB resident is the cheaper price.
+- **Clustering adds no pass and no picture.** Both light loops call the one `lightContribution`, the
+  lists stay in light order (evictions included), and a light a fragment cannot reach adds exactly
+  `+0.0` on the uniform path while the clustered path simply does not list it — so on/off is
+  bit-identical, which is why the gate can A/B it on one pipeline (measured 0 px differ, same 18 passes).
+- **Grid facts worth not re-deriving:** 16×8×24 = 3072 clusters, index `(slice*8 + tileY)*16 + tileX`;
+  slices logarithmic in view depth between `near` and `clusterFar` (the *deepest live light*, capped by
+  the far plane), each light widened ±1 slice because the CPU quantises in f64 and the shader in f32;
+  frame group 0 bindings 6 (`ClusterUniforms` 48 B uniform) / 7 (`ClusterLightBlock` 20 496 B
+  read-only storage) / 8 (`ClusterGridBlock` 417 792 B read-only storage) ≈ 428 KB resident;
+  directional lights never cluster (they reach every pixel, and the cascade caster's `shadowIndex`
+  lives in the uniform list); orthographic cameras never cluster (`clip.w` is not a view depth).
+- **The demo's `+36 lamps` rig is static on purpose** (`setStressLights` in `examples/src/main.ts`):
+  frozen, it is bit-reproducible, which the pixel A/B needs. Lamps sit low (y 0.75–1.65) with a 1.8 m
+  range so each covers a handful of clusters; big-range lamps in a small volume would trip the
+  32-per-cluster cap and fail the gate's "nothing dropped" assertion legitimately. Measured with 40
+  lights on SwiftShader: 39 clustered, 3072 clusters used, largest list 21, 10 863 indices (~43 KB
+  uploaded), 88 036 px brighter than the truncated uniform path and none darker.

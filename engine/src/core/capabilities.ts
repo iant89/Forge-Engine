@@ -386,9 +386,20 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.clusteredLighting",
     phase: "13.3",
-    status: "planned",
-    summary: "Clustered / Forward+ lighting without a fixed CPU light list",
+    status: "verified",
+    summary: "Forward+ lighting: local lights indexed into a 16x8x24 view grid and walked per fragment, so the frame carries 256 lights instead of a fixed 16",
+    evidence: ["tests/clusters.test.ts", "tests/frame.test.ts", "tests/wgsl.test.ts", "tools/browser-check.mjs"],
+    notes: "docs/RENDERING.md §4b. No new pass, and pixel-identical with clustering on/off while a scene fits the old list; the demo's 36-lamp rig carries all 40 lights where the uniform list truncated at 16. Remaining gaps: rendering.clusterCoverage",
     closesWith: "13.3",
+  },
+  {
+    id: "rendering.clusterCoverage",
+    phase: "13.3",
+    status: "partial",
+    summary: "The grid is CPU-built and perspective-only: orthographic cameras keep the fixed 16-entry uniform list, the caps are 256 lights and 32 per cluster, and the buffers cost ~428 KB resident",
+    evidence: ["tests/clusters.test.ts", "tests/frame.test.ts"],
+    notes: "docs/RENDERING.md §4b, docs/KNOWN-ISSUES.md. Eviction keeps the most influential lights and reports it (stats.lightsDropped); the GPU-side assignment and the light-count benchmark are 13.4",
+    closesWith: "13.4",
   },
   {
     id: "rendering.gpuCulling",

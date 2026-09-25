@@ -3,7 +3,9 @@
  *
  * The whole renderer draws with three bind groups and a small, cacheable pipeline set:
  *
- *   group 0  per-frame  : PerFrameUniforms, LightBlock, ShadowUniforms, shadow map, comparison sampler
+ *   group 0  per-frame  : PerFrameUniforms, LightBlock, ShadowUniforms, shadow map, comparison sampler,
+ *                         the SSAO result, and the clustered-lighting trio (ClusterUniforms + the
+ *                         cluster grid and local lights it references, both storage)
  *   group 1  per-draw   : ObjectUniforms (dynamic offset), instance stream (dynamic offset)
  *   group 2  per-material: MaterialUniforms, albedo/normal/MR maps, sampler
  *
@@ -31,7 +33,7 @@
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
@@ -148,6 +150,13 @@ export class PipelineFactory {
         { binding: BINDINGS.shadowSampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "comparison" } },
         // SSAO result, read with textureLoad (never filtered): the real target or a 1×1 fallback.
         { binding: BINDINGS.ssao.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+        // Clustered (Forward+) lighting. Bound in every frame whether or not clustering ran — a bind
+        // group layout has no optional slots — and `perFrame.flags` bit 5 is what tells the fragment
+        // stage to read them. The two storage buffers are the grid (two u32 per cluster, then the
+        // flat light-index list) and the local lights it references.
+        { binding: BINDINGS.clusters.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: ClusterUniforms.byteSize("uniform") } },
+        { binding: BINDINGS.clusterLights.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterLightBlock.byteSize("storage") } },
+        { binding: BINDINGS.clusterGrid.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterGridBlock.byteSize("storage") } },
       ],
     });
     // The depth prepass only runs the standard vertex entries, which read nothing from group 0 but

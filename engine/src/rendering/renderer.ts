@@ -33,7 +33,8 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, MAX_CLUSTERED_LIGHTS, type ClusterBuildResult, type ClusterLightSource } from "./clusters.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
@@ -71,6 +72,11 @@ export interface RendererOptions {
   depthPrepass?: boolean;
   /** `false` never runs the SSAO passes, whatever `scene.settings.ssao.enabled` says. */
   ssao?: boolean;
+  /**
+   * `false` keeps the fixed uniform light list whatever `scene.settings.clusteredLighting` says:
+   * every fragment walks the same ≤16 lights, and lights past that cap are dropped.
+   */
+  clusteredLighting?: boolean;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -105,6 +111,23 @@ export interface RenderStats {
   prepassDraws: number;
   /** True when the SSAO estimate + blur passes ran and the forward pass applied their result. */
   ssao: boolean;
+  /**
+   * True when local (point/spot) lights came from the cluster grid rather than the uniform light
+   * list. Directional lights are global and stay in the uniform list either way.
+   */
+  clusteredLighting: boolean;
+  /** Lights in the frame: global (uniform list) plus local (cluster grid, when clustering ran). */
+  lights: number;
+  /** Local lights written to the cluster grid; 0 when clustering did not run. */
+  clusteredLights: number;
+  /** Clusters holding at least one light, of `CLUSTER_COUNT`. */
+  clustersUsed: number;
+  /** Entries in the flat light-index list: the frame's total per-cluster light slots. */
+  clusterIndices: number;
+  /** The longest cluster list — what one fragment walks at worst. */
+  maxLightsPerCluster: number;
+  /** True when a light was dropped: a cluster over its cap, or more than `MAX_CLUSTERED_LIGHTS` locals. */
+  lightsDropped: boolean;
   /** Render-graph outcome for the frame. */
   passes: number;
   culledPasses: number;
@@ -174,6 +197,14 @@ const SSAO_SHARPNESS = 10;
 /** f16 bit patterns for the 1×1 fallback AO texel: visibility 1.0, key ≈ `SSAO_SKY_KEY` (65 000 → 64 992). */
 const HALF_ONE = 0x3c00;
 const HALF_SKY_KEY = 0x7bef;
+/**
+ * Byte geometry of the two clustered-lighting storage buffers, taken from the generated layout so a
+ * struct change cannot silently desynchronise the uploads (docs/RENDERING.md §4b).
+ */
+const CLUSTER_LIGHTS_FIELD = ClusterLightBlock.field("lights", "storage");
+const CLUSTER_OFFSETS_FIELD = ClusterGridBlock.field("clusterOffsets", "storage");
+const CLUSTER_INDICES_FIELD = ClusterGridBlock.field("indices", "storage");
+
 /** Sun direction when neither the sky settings nor a directional light provide one. */
 const DEFAULT_SUN = new Vec3(0.3, 0.8, 0.5).normalize();
 /** `debugBounds` box colours (RGBA byte pack, 0xAARRGGBB): cyan in view, magenta frustum-culled. */
@@ -218,6 +249,13 @@ export class Renderer implements RenderFrameContext {
     depthPrepass: false,
     prepassDraws: 0,
     ssao: false,
+    clusteredLighting: false,
+    lights: 0,
+    clusteredLights: 0,
+    clustersUsed: 0,
+    clusterIndices: 0,
+    maxLightsPerCluster: 0,
+    lightsDropped: false,
     passes: 0,
     culledPasses: 0,
     transientTextures: 0,
@@ -267,6 +305,19 @@ export class Renderer implements RenderFrameContext {
   private readonly waterAccessor = new StructAccessor(WaterUniforms, this.waterBytes, 0, "uniform");
   private readonly ssaoBytes = new WriteBuffer(SsaoUniforms.byteSize("uniform"));
   private readonly ssaoAccessor = new StructAccessor(SsaoUniforms, this.ssaoBytes, 0, "uniform");
+  // Clustered (Forward+) lighting. The grid is built on the CPU (`rendering/clusters.ts`) into typed
+  // arrays that are uploaded verbatim, and the local lights are written into a storage block whose
+  // records are the uniform `LightUniforms`' own — one layout, two bindings. Everything here is
+  // staging: a frame allocates nothing, and the light records only grow when a scene adds lights.
+  private readonly clusterBytes = new WriteBuffer(ClusterUniforms.byteSize("uniform"));
+  private readonly clusterAccessor = new StructAccessor(ClusterUniforms, this.clusterBytes, 0, "uniform");
+  private readonly clusterLightBytes = new WriteBuffer(ClusterLightBlock.byteSize("storage"));
+  private readonly clusterLightAccessor = new StructAccessor(ClusterLightBlock, this.clusterLightBytes, 0, "storage");
+  private readonly clusterGrid = new ClusterGrid();
+  /** The local lights the grid is built from, filled in place every frame. */
+  private readonly clusterLightSources: ClusterLightSource[] = [];
+  /** What the last build did (drives the `cluster*` stats and the HUD's light line). */
+  private clusterBuild: ClusterBuildResult | null = null;
   /** Shared sun/ambient/horizon tints for the cloud deck and the water surface. */
   private readonly skyLight = new SkyLightingCache();
   /** The frame's effective sky settings: `scene.settings.sky` with the per-frame override merged. */
@@ -290,6 +341,14 @@ export class Renderer implements RenderFrameContext {
   // GPU buffers and bind groups.
   private frameBuffer: GPUBuffer | null = null;
   private lightBuffer: GPUBuffer | null = null;
+  // Clustered lighting: the quantisation block plus the two storage buffers the grid and its lights
+  // live in. Fixed capacity (rendering/clusters.ts), created with the other frame buffers and bound
+  // in every frame group whether or not clustering ran — a bind group layout has no optional slots.
+  private clusterBuffer: GPUBuffer | null = null;
+  private clusterLightBuffer: GPUBuffer | null = null;
+  private clusterGridBuffer: GPUBuffer | null = null;
+  /** Local lights staged for this frame's grid build (written by `writeLights`). */
+  private clusterLightCount = 0;
   private shadowBuffer: GPUBuffer | null = null;
   private cascadeBuffer: GPUBuffer | null = null;
   private postBuffer: GPUBuffer | null = null;
@@ -471,6 +530,14 @@ export class Renderer implements RenderFrameContext {
     // Directional lights first, so index 0 is the cascade caster.
     lights.sort((x, y) => (x.kind === "directional" ? 0 : 1) - (y.kind === "directional" ? 0 : 1));
     for (const l of lights) this.refreshLightDirection(scene, l);
+    // Directional lights reach every pixel, so there is nothing to cull: they stay in the uniform
+    // list, where the cascade caster's shadowIndex already lives. Clustering is for the local
+    // (point/spot) lights, and it stays off when a scene has none, when the camera is orthographic
+    // (its clip.w is not a view depth — the reason SSAO is perspective-only too), or when the
+    // quality profile vetoes it.
+    let globalCount = 0;
+    for (const l of lights) if (l.kind === "directional") globalCount++;
+    const clustered = settings.clusteredLighting && this.options.clusteredLighting !== false && !camera.orthographic && lights.length > globalCount;
     const shadowsWanted = settings.shadow.enabled && this.options.shadows !== false;
     const sun = shadowsWanted ? (lights.find((l) => l.kind === "directional" && l.castShadow) ?? null) : null;
     const cascadeCount = sun ? Math.max(1, Math.min(MAX_CASCADES, Math.floor(settings.shadow.cascades), this.options.shadowCascades ?? MAX_CASCADES)) : 0;
@@ -501,9 +568,10 @@ export class Renderer implements RenderFrameContext {
     const renderWidth = hdr ? Math.max(1, Math.round(this.width * scale)) : this.width;
     const renderHeight = hdr ? Math.max(1, Math.round(this.height * scale)) : this.height;
     const underwater = isUnderwater(positionRender.y, settings.water);
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater, ssao);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater, ssao, clustered);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
-    this.writeLights(scene, lights, shadowsActive ? sun : null);
+    this.writeLights(scene, lights, shadowsActive ? sun : null, clustered);
+    if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
     this.writeShadowUniforms(scene, sun, shadowsActive ? cascadeCount : 0, shadowSize, shadowDistance);
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
     const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
@@ -1013,6 +1081,13 @@ export class Renderer implements RenderFrameContext {
     s.depthPrepass = false;
     s.prepassDraws = 0;
     s.ssao = false;
+    s.clusteredLighting = false;
+    s.lights = 0;
+    s.clusteredLights = 0;
+    s.clustersUsed = 0;
+    s.clusterIndices = 0;
+    s.maxLightsPerCluster = 0;
+    s.lightsDropped = false;
     s.passes = 0;
     s.culledPasses = 0;
     s.transientTextures = 0;
@@ -1020,6 +1095,7 @@ export class Renderer implements RenderFrameContext {
     s.aliasedBytes = 0;
     s.texturesCreated = 0;
     this.instanceCount = 0;
+    this.clusterBuild = null;
   }
 
   private clearFrame(scene: Scene): void {
@@ -1073,7 +1149,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false, ssao = false): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false, ssao = false, clustered = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -1095,11 +1171,11 @@ export class Renderer implements RenderFrameContext {
     a.setVec2("renderExtent", renderWidth, renderHeight);
     a.setF32("shadowDistance", settings.shadow.distance);
     a.setF32("ambientIntensity", settings.ambientIntensity);
-    a.setI32("lightCount", Math.min(this.lightList.length, MAX_LIGHTS_PER_FRAME));
+    a.setI32("lightCount", this.lightList.length);
     a.setI32("cascadeCount", shadowsActive ? this.cascades.length : 0);
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
-    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0);
+    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0);
     a.setU32("flags", flags);
     // With the scene fog off but the camera submerged, exp² carries the murk.
     const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
@@ -1296,23 +1372,116 @@ export class Renderer implements RenderFrameContext {
     this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 
-  private writeLights(scene: Scene, lights: Light[], caster: Light | null): void {
+  /**
+   * Write this frame's lights. Directional lights (and, with clustering off, every light) go into
+   * the uniform `LightBlock`; with clustering on the local lights go into the storage block the
+   * cluster grid references, and are staged for `buildClusters`. One record layout serves both, so
+   * the two destinations cannot disagree about what a light is.
+   */
+  private writeLights(scene: Scene, lights: Light[], caster: Light | null, clustered: boolean): void {
     const a = this.lightAccessor;
-    const count = Math.min(lights.length, MAX_LIGHTS_PER_FRAME);
-    a.setI32("count", count);
-    a.setI32("shadowedCount", caster ? 1 : 0);
-    for (let i = 0; i < count; i++) {
-      const l = lights[i]!;
-      const e = a.element("lights", i) as StructAccessor;
+    let globals = 0;
+    let locals = 0;
+    let truncated = false;
+    for (const l of lights) {
       const pos = scene.world.worldPosition(l.entity, this.scratchVec);
-      e.setVec4("positionRange", pos.x, pos.y, pos.z, l.kind === "directional" ? 0 : l.range);
-      e.setVec4("directionIntensity", l.direction.x, l.direction.y, l.direction.z, l.intensity);
-      e.setVec3("color", l.color.x, l.color.y, l.color.z);
-      e.setVec2("spotAngles", l.innerCone, l.outerCone);
-      e.setI32("kind", l.kind === "directional" ? 0 : l.kind === "point" ? 1 : 2);
-      e.setI32("shadowIndex", l === caster ? 0 : -1);
+      if (l.kind === "directional" || !clustered) {
+        if (globals >= MAX_LIGHTS_PER_FRAME) {
+          truncated = true; // the uniform block is full: this light does not reach the shader at all
+          continue;
+        }
+        const kind = l.kind === "directional" ? 0 : l.kind === "point" ? 1 : 2;
+        this.writeLightRecord(a.element("lights", globals) as StructAccessor, l, pos.x, pos.y, pos.z, kind, l === caster ? 0 : -1);
+        globals++;
+      } else {
+        if (locals >= MAX_CLUSTERED_LIGHTS) {
+          truncated = true;
+          continue;
+        }
+        // Local lights never carry a shadow index: point/spot shadows are 13.9, and the cascade
+        // caster is by construction the directional light that stayed in the uniform block.
+        this.writeLightRecord(this.clusterLightAccessor.element("lights", locals) as StructAccessor, l, pos.x, pos.y, pos.z, l.kind === "point" ? 1 : 2, -1);
+        const slot = this.clusterLightSources[locals] ?? { x: 0, y: 0, z: 0, range: 0, spot: false, dirX: 0, dirY: -1, dirZ: 0, outerCone: 0.5, intensity: 0, colorLuma: 0 };
+        this.clusterLightSources[locals] = slot;
+        slot.x = pos.x;
+        slot.y = pos.y;
+        slot.z = pos.z;
+        slot.range = l.range;
+        slot.spot = l.kind === "spot";
+        slot.dirX = l.direction.x;
+        slot.dirY = l.direction.y;
+        slot.dirZ = l.direction.z;
+        slot.outerCone = l.outerCone;
+        slot.intensity = l.intensity;
+        // Rec.709 luma of the linear colour: the other half of the rank the grid evicts by.
+        slot.colorLuma = 0.2126 * l.color.x + 0.7152 * l.color.y + 0.0722 * l.color.z;
+        locals++;
+      }
     }
+    a.setI32("count", globals);
+    a.setI32("shadowedCount", caster ? 1 : 0);
+    this.clusterLightAccessor.setI32("count", locals);
+    this.clusterLightCount = locals;
+    this.stats.lights = lights.length;
+    this.stats.lightsDropped = truncated;
     this.device.device.queue.writeBuffer(this.lightBuffer!, 0, gpuSource(this.lightBytes.bytes.subarray(0, this.lightBytes.byteLength)));
+  }
+
+  /** One light record, written into either the uniform block or the cluster light block. */
+  private writeLightRecord(e: StructAccessor, l: Light, x: number, y: number, z: number, kind: number, shadowIndex: number): void {
+    e.setVec4("positionRange", x, y, z, kind === 0 ? 0 : l.range);
+    e.setVec4("directionIntensity", l.direction.x, l.direction.y, l.direction.z, l.intensity);
+    e.setVec3("color", l.color.x, l.color.y, l.color.z);
+    e.setVec2("spotAngles", l.innerCone, l.outerCone);
+    e.setI32("kind", kind);
+    e.setI32("shadowIndex", shadowIndex);
+  }
+
+  /**
+   * Build and upload this frame's cluster grid (Phase 13.3, docs/RENDERING.md §4b).
+   *
+   * `writeLights` has already staged the local lights; this hands them to the grid, uploads the two
+   * arrays it wrote plus the quantisation the fragment stage must agree with, and reports the build.
+   * The slice span is the builder's own (the deepest live light, not the camera's far plane), so the
+   * shader and the CPU cannot disagree about where a slice boundary falls.
+   */
+  private buildClusters(camera: Camera, renderWidth: number, renderHeight: number): void {
+    const locals = this.clusterLightCount;
+    const near = Math.max(1e-4, camera.near);
+    const build = this.clusterGrid.build(
+      this.clusterLightSources,
+      { view: this.view, proj00: this.projection.m[0]!, proj11: this.projection.m[5]!, near, far: camera.far },
+      locals,
+    );
+    this.clusterBuild = build;
+    const a = this.clusterAccessor;
+    a.setVec2("invExtent", 1 / Math.max(1, renderWidth), 1 / Math.max(1, renderHeight));
+    a.setVec2("gridScale", CLUSTER_TILES_X, CLUSTER_TILES_Y);
+    a.setF32("near", near);
+    a.setF32("logNear", Math.log(near));
+    a.setF32("sliceScale", CLUSTER_SLICES / Math.max(1e-6, Math.log(Math.max(build.far, near * 1.001) / near)));
+    a.setF32("slices", CLUSTER_SLICES);
+    a.setI32("lightCount", locals);
+    a.setI32("maxPerCluster", build.capPerCluster);
+
+    const q = this.device.device.queue;
+    q.writeBuffer(this.clusterBuffer!, 0, gpuSource(this.clusterBytes.bytes.subarray(0, this.clusterBytes.byteLength)));
+    // The light records are a fixed-stride array: upload the header plus the records that exist.
+    q.writeBuffer(this.clusterLightBuffer!, 0, gpuSource(this.clusterLightBytes.bytes.subarray(0, CLUSTER_LIGHTS_FIELD.offset + locals * CLUSTER_LIGHTS_FIELD.stride!)));
+    // Every cluster's count can change, so the whole offset array goes; the index list only up to what
+    // was written (a full 384 KB upload for a scene with three lamps would be pure waste).
+    q.writeBuffer(this.clusterGridBuffer!, CLUSTER_OFFSETS_FIELD.offset, gpuSource(this.clusterGrid.clusterOffsets));
+    if (build.indexCount > 0) {
+      q.writeBuffer(this.clusterGridBuffer!, CLUSTER_INDICES_FIELD.offset, gpuSource(this.clusterGrid.indices.subarray(0, build.indexCount)));
+    }
+
+    const s = this.stats;
+    s.clusteredLighting = true;
+    s.clusteredLights = locals;
+    s.clustersUsed = build.clustersUsed;
+    s.clusterIndices = build.indexCount;
+    s.maxLightsPerCluster = build.maxPerCluster;
+    s.lightsDropped = s.lightsDropped || build.dropped;
   }
 
   private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, size: number, shadowDistance: number): void {
@@ -1525,6 +1694,9 @@ export class Renderer implements RenderFrameContext {
     const d = this.device.device;
     this.frameBuffer ??= d.createBuffer({ label: "perframe.uniforms", size: this.frameBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.lightBuffer ??= d.createBuffer({ label: "lights.uniforms", size: this.lightBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.clusterBuffer ??= d.createBuffer({ label: "cluster.uniforms", size: this.clusterBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.clusterLightBuffer ??= d.createBuffer({ label: "cluster.lights", size: this.clusterLightBytes.byteLength, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
+    this.clusterGridBuffer ??= d.createBuffer({ label: "cluster.grid", size: ClusterGridBlock.byteSize("storage"), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
     this.shadowBuffer ??= d.createBuffer({ label: "shadow.uniforms", size: this.shadowBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.cascadeBuffer ??= d.createBuffer({ label: "shadowpass.uniforms", size: this.cascadeBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.postBuffer ??= d.createBuffer({ label: "post.uniforms", size: this.postBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
@@ -1555,6 +1727,10 @@ export class Renderer implements RenderFrameContext {
         { binding: 3, resource: shadowView },
         { binding: 4, resource: this.device.sampler("shadow-pcf") },
         { binding: 5, resource: aoView },
+        // Clustered lighting (perFrame.flags bit 5 says whether the shader reads them).
+        { binding: 6, resource: { buffer: this.clusterBuffer! } },
+        { binding: 7, resource: { buffer: this.clusterLightBuffer! } },
+        { binding: 8, resource: { buffer: this.clusterGridBuffer! } },
       ],
     });
     this.frameBindGroupView = shadowView;
@@ -1935,12 +2111,24 @@ export class Renderer implements RenderFrameContext {
     return this.cascades;
   }
 
+  /**
+   * What the last cluster build did, or `null` when clustering did not run this frame. Richer than
+   * the `stats` counters (it carries the slice span and the cap that was actually applied), for HUDs
+   * and tests.
+   */
+  get clusterBuildInfo(): ClusterBuildResult | null {
+    return this.clusterBuild;
+  }
+
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
-    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
+    this.clusterBuffer = null;
+    this.clusterLightBuffer = null;
+    this.clusterGridBuffer = null;
     this.shadowBuffer = null;
     this.cascadeBuffer = null;
     this.postBuffer = null;
