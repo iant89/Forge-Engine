@@ -43,7 +43,11 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 
 ```sh
 npm run typecheck        # tsc -b engine (strict) + examples tsconfig + tests tsconfig
-npm test                 # vitest: math, bvh, renderGraph, shadows, pipeline, frame + rendering (mock GPU device), tasks, wgsl
+npm test                 # vitest: the full suite (math, bvh, renderGraph, shadows, pipeline, frame + rendering, tasks, wgsl, …)
+npm run test:affected    # only the suites your working-tree diff can reach, + the smoke floor (see §8)
+npm run test:affected:print  # show that selection without running it (which subsystems, which suites, why)
+npm run test:all         # force the full suite via the selector (identical set to `npm test`)
+npm run check:testmap    # assert the source→test map (tools/test-subsystems.mjs) has not drifted
 npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
@@ -80,7 +84,8 @@ examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehic
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/               vitest suites (math, ecs, vehicles, particles, environment, terrain, physics, renderGraph, wgsl, …)
 benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)
-tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B)
+tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B),
+                     test-subsystems.mjs (the source→test map + drift self-check), affected-tests.mjs (runs only affected suites)
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
 docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, sky pass, how to add a pass
@@ -188,3 +193,30 @@ no build step between editing engine source and seeing it in the browser.
   (+ version when known), file, and a brief what + why — following the schemas in the file header.
   Before each PR merge, append a `pr-merge` entry summarising all changes in that PR. Validate the
   ```json fence still parses after every edit.
+
+## 8. Selective testing — run only what a change can reach
+
+`npm test` runs every suite and is the right thing before a merge. For the edit loop, `npm run
+test:affected` runs only the suites your change can actually reach, plus a fixed smoke floor. The map
+that makes this safe lives in `tools/test-subsystems.mjs` and is documented in `docs/TESTING.md`.
+
+* **Subsystems own source and suites.** Each subsystem (`math`, `core`, `gpu`, `rendering`, `scene`,
+  `physics`, `vehicles`, `particles`, `environment`, `terrain`, `resources`, `examples`, `docs`,
+  `gpuenv`) declares the `engine/src` paths it owns, the suites that exercise it, and the subsystems
+  it is built upon (`deps`, derived from the real relative imports). A change to X runs X **and every
+  subsystem that transitively depends on X** — the suites the change can reach — never the rest.
+* **The smoke floor always runs**: `math`, `ecs`, `renderGraph`, `frame`, the `architecture`
+  import-boundary guard, and `subsystems` (the map's own drift test). So even the narrowest run keeps
+  a cheap check on the fundamentals.
+* **Foundation and shared changes expand to full automatically.** A change to `core`/`math`
+  (everything rests on them), to the build/test config, to the public barrel `engine/src/index.ts`,
+  to the strict mock device `engine/src/testing/`, to `tests/support/`, or to a file **no subsystem
+  owns** falls back to the full suite. Selection never trades safety for speed silently — it prints
+  the one-line reason. Verify a selection with `npm run test:affected:print` before trusting it.
+* **The map is guarded.** `tests/subsystems.test.ts` (in the smoke floor) and `npm run check:testmap`
+  both fail if a new suite is unclaimed, a subsystem's source path moves, or a `deps` id is unknown.
+  **When you add a suite or move a subsystem's files, update `tools/test-subsystems.mjs`** — CI will
+  not go green otherwise.
+* **CI**: pull requests run `test:affected` against the PR base; pushes to `main` run the full suite
+  as the safety net. Force a full run on a PR with the `full-test-run` label, a `[full-ci]` token in
+  the head commit message, or a manual `workflow_dispatch` with `full: true`.
