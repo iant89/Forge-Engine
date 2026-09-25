@@ -36,7 +36,7 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "cascadeCount", type: i32 },
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
-  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows" },
+  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows, bit4 SSAO bound" },
   { name: "fogParams", type: vec4, comment: "(mode: 0 none 1 linear 2 exp2 3 height, height falloff, height base, pad)" },
 ]);
 
@@ -185,6 +185,25 @@ export const PostUniforms = new StructDef("PostUniforms", [
   { name: "_pad", type: u32 },
 ]);
 
+/**
+ * Screen-space ambient occlusion (`shaders/ssao.ts`), bound as group 0 binding 0 of the
+ * `forge.ssao` pass and both blur passes. The estimator reconstructs view-space positions from the
+ * depth prepass through `invProj`, so it needs no normal buffer and no G-buffer. Lengths in metres.
+ */
+export const SsaoUniforms = new StructDef("SsaoUniforms", [
+  { name: "invProj", type: mat4x4, comment: "clip -> view (column-major): view-space position from depth" },
+  { name: "radius", type: f32, comment: "world-space sampling radius" },
+  { name: "bias", type: f32, comment: "ignore occluders closer than this to the tangent plane" },
+  { name: "intensity", type: f32 },
+  { name: "projScale", type: f32, comment: "depth-texture pixels per metre at view depth 1 (perspective only)" },
+  { name: "depthSize", type: vec2, comment: "depth prepass extent in pixels" },
+  { name: "aoSize", type: vec2, comment: "AO target extent in pixels (half resolution)" },
+  { name: "sampleCount", type: u32 },
+  { name: "sharpness", type: f32, comment: "bilateral blur: relative depth difference that zeroes a tap is 1/sharpness" },
+  { name: "maxPixels", type: f32, comment: "screen-space radius clamp (texture-cache friendliness)" },
+  { name: "_pad", type: u32 },
+]);
+
 /** Debug line vertex (position + packed RGBA8 colour). */
 export const DebugVertexStruct = new StructDef("DebugVertex", [
   { name: "position", type: vec3 },
@@ -251,6 +270,7 @@ export const RENDERING_STRUCTS = {
   InstanceStruct,
   DebugVertexStruct,
   PostUniforms,
+  SsaoUniforms,
   SkyUniforms,
   CloudUniforms,
   WaterUniforms,

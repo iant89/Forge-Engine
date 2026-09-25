@@ -6,12 +6,18 @@
  * casters still reach the cascades; the sky pass depth-tests against a depth buffer the main pass
  * stored (and reverts to discarding it when the sky is off); a steady frame allocates no GPU
  * textures; a resize re-plans and retires the old shapes; everything the renderer created is
- * released by dispose(). The mock validates attachment formats,
+ * released by dispose(). The depth prepass lays down exactly the opaque surfaces, `forge.main` loads
+ * that depth and never re-writes it for them, SSAO runs only on top of it (perspective cameras, half
+ * resolution, estimate target aliased into the blur result) and every switch — scene, quality
+ * profile, camera — falls back to the plain chain. The mock validates attachment formats,
  * bind-group signatures, dynamic offsets and view dimensions, so "no errors" is a real statement.
  */
 
 import { describe, expect, it } from "vitest";
 import { Camera, Color, createBox, createPlane, GraphicsDevice, Light, Material, Renderable, Renderer, Scene, Vec3, type RendererOptions } from "@forge/engine";
+
+/** The prepass + SSAO chain the default settings put between the shadow passes and forge.main. */
+const PREPASS_SSAO = ["forge.prepass", "forge.ssao", "forge.ssao.blur.h", "forge.ssao.blur.v"] as const;
 
 interface Fixture {
   device: GraphicsDevice;
@@ -83,6 +89,25 @@ async function fixture(options: { width?: number; height?: number; renderer?: Re
 
 const labels = (f: Fixture) => f.mock.passes.map((p) => p.label);
 
+/** The pipeline key (`pipeline.<key>`) each draw in `pass` was issued with, in draw order. */
+function drawPipelines(f: Fixture, pass: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const e of f.mock.commandLog) {
+    if (e.label !== pass) continue;
+    if (e.type === "setPipeline") current = String(e["pipeline"]);
+    else if (e.type === "draw" || e.type === "drawIndexed") out.push(current);
+  }
+  return out;
+}
+
+/** The SSAO uniform block as last uploaded (the mock keeps real buffer contents). */
+function ssaoUniforms(f: Fixture): { f32: Float32Array; u32: Uint32Array } {
+  const buffer = [...f.mock.liveBuffers].find((b) => b.label === "ssao.uniforms");
+  expect(buffer, "ssao.uniforms buffer").toBeDefined();
+  return { f32: new Float32Array(buffer!.data), u32: new Uint32Array(buffer!.data) };
+}
+
 describe("frame structure", () => {
   it("HDR: cascades, forward pass into rgba16float, a bloom chain and the tonemap resolve", async () => {
     const f = await fixture();
@@ -92,6 +117,7 @@ describe("frame structure", () => {
     expect(labels(f)).toEqual([
       "forge.shadow.0",
       "forge.shadow.1",
+      ...PREPASS_SSAO,
       "forge.main",
       "forge.bloom.prefilter",
       "forge.bloom.down.2",
@@ -105,17 +131,21 @@ describe("frame structure", () => {
     expect(s.bloomMips).toBe(3); // 180 px tall → 90, 45, 22 (next would be 11 < 16)
     expect(s.shadowCascades).toBe(2);
     expect(s.shadowsDrawn).toBe(2); // one caster batch × two cascades
-    expect(s.drawCalls).toBe(2 + 6); // ground + box, then six fullscreen post draws
-    expect(s.triangles).toBe(2 + 12); // post draws are not scene geometry
-    expect(s.passes).toBe(9);
+    expect(s.prepassDraws).toBe(2); // ground + box, depth only (not counted in drawCalls, like shadows)
+    expect(s.drawCalls).toBe(2 + 3 + 6); // ground + box, three SSAO and six post fullscreen draws
+    expect(s.triangles).toBe(2 + 12); // fullscreen draws are not scene geometry
+    expect(s.passes).toBe(13);
     expect(s.culledPasses).toBe(0);
-    // Transients: atlas, hdr, depth, 3 bloom mips.
-    expect(s.transientTextures).toBe(6);
-    expect(s.physicalTextures).toBe(6);
-    const main = f.mock.passes[2]!;
+    // Transients: atlas, hdr, depth, 3 AO targets, 3 bloom mips — the AO estimate and the AO result
+    // share one physical texture (160x90 rg16float: 4 bytes a pixel).
+    expect(s.transientTextures).toBe(9);
+    expect(s.physicalTextures).toBe(8);
+    expect(s.aliasedBytes).toBe(160 * 90 * 4);
+    const main = f.mock.passes[6]!;
+    expect(main.label).toBe("forge.main");
     expect(main.colorTargets[0]).toContain("rgba16float");
     expect(main.depthTarget).toContain("depth24plus");
-    expect(f.mock.passes[8]!.colorTargets).toEqual(["swapchain"]);
+    expect(f.mock.passes[12]!.colorTargets).toEqual(["swapchain"]);
     await f.dispose();
   });
 
@@ -125,8 +155,8 @@ describe("frame structure", () => {
     f.scene.settings.shadow.cascades = 1;
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
-    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main"]);
-    expect(f.mock.passes[1]!.colorTargets).toEqual(["swapchain"]);
+    expect(labels(f)).toEqual(["forge.shadow.0", ...PREPASS_SSAO, "forge.main"]);
+    expect(f.mock.passes[5]!.colorTargets).toEqual(["swapchain"]);
     expect(f.renderer.stats.hdr).toBe(false);
     expect(f.renderer.stats.bloomMips).toBe(0);
     await f.dispose();
@@ -134,6 +164,8 @@ describe("frame structure", () => {
 
   it("bloom and shadows are individually switchable, and the quality profile caps the scene", async () => {
     const f = await fixture({ renderer: { shadowCascades: 2, shadowMapSize: 256 } });
+    // Without the prepass the chain is exactly the pre-prepass frame (the prepass has its own suite).
+    f.scene.settings.depthPrepass = false;
     f.scene.settings.shadow.cascades = 4; // asks for 4; the profile allows 2
     f.scene.settings.shadow.mapSize = 2048; // asks for 2048; the profile allows 256
     f.scene.settings.bloom.enabled = false;
@@ -172,7 +204,8 @@ describe("frame structure", () => {
     expect(f.mock.errors).toEqual([]);
     const s = f.renderer.stats;
     expect(s.culled).toBe(1);
-    expect(s.drawCalls - 6).toBe(2); // ground + visible box; the culled one is not drawn in forge.main
+    expect(s.drawCalls - 3 - 6).toBe(2); // ground + visible box; the culled one is not drawn in forge.main
+    expect(s.prepassDraws).toBe(2); // ...nor in the depth prepass
     expect(f.mock.passes[0]!.drawCalls).toBe(2); // ...but both boxes reach the shadow pass
     expect(s.shadowsDrawn).toBe(2);
     await f.dispose();
@@ -192,18 +225,18 @@ describe("frame structure", () => {
     expect(f.device.gpuMemory.buffersCreated).toBe(buffers);
     expect(f.renderer.stats.texturesCreated).toBe(0);
 
-    // Resize: frame-sized transients (hdr, depth, bloom mips) are re-planned, the shadow atlas is not.
-    // (200x120 shares no shape with the 320x180 frame; a half-size resize would re-use the old mips.)
+    // Resize: frame-sized transients (hdr, depth, AO, bloom mips) are re-planned, the shadow atlas is
+    // not. (200x120 shares no shape with the 320x180 frame; a half-size resize would re-use old mips.)
     f.renderer.resize(200, 120);
     f.renderer.renderScene(f.scene);
     expect(f.renderer.stats.bloomMips).toBe(2);
-    expect(f.renderer.stats.texturesCreated).toBe(2 + 2);
+    expect(f.renderer.stats.texturesCreated).toBe(2 + 2 + 2); // hdr + depth, two AO (one aliased), two mips
     // The old shapes survive two idle frames (a toggle that flips back costs nothing), then go away.
     f.renderer.renderScene(f.scene);
     const outstandingBefore = f.mock.outstanding.textures.filter((t) => t.startsWith("rg.")).length;
     f.renderer.renderScene(f.scene);
     const outstandingAfter = f.mock.outstanding.textures.filter((t) => t.startsWith("rg.")).length;
-    expect(outstandingBefore - outstandingAfter).toBe(2 + 3); // old hdr + depth + three 320x180 bloom mips
+    expect(outstandingBefore - outstandingAfter).toBe(2 + 2 + 3); // old hdr + depth, two AO, three bloom mips
     expect(f.renderer.stats.texturesCreated).toBe(0);
     expect(f.mock.errors).toEqual([]);
     await f.dispose();
@@ -235,6 +268,7 @@ describe("frame structure", () => {
     expect(f.mock.errors).toEqual([]);
     expect(labels(f)).toEqual([
       "forge.shadow.0",
+      ...PREPASS_SSAO,
       "forge.main",
       "forge.sky",
       "forge.bloom.prefilter",
@@ -244,8 +278,8 @@ describe("frame structure", () => {
       "forge.bloom.up.1",
       "forge.tonemap",
     ]);
-    const main = f.mock.passes[1]!;
-    const sky = f.mock.passes[2]!;
+    const main = f.mock.passes[5]!;
+    const sky = f.mock.passes[6]!;
     // The sky depth-tests against the scene depth, so forge.main must keep it (it discards otherwise),
     // and the sky pass must load it explicitly — the read-only attach's implicit load is exactly the
     // primitive that silently lost the depth on WebKit (flat beige sky-ground over the whole scene).
@@ -258,9 +292,9 @@ describe("frame structure", () => {
     expect(sky.triangles).toBe(1);
     const s = f.renderer.stats;
     expect(s.sky).toBe(true);
-    expect(s.drawCalls).toBe(2 + 1 + 6);
-    expect(s.transientTextures).toBe(6); // the sky adds no texture: it draws into scene.hdr
-    expect(s.passes).toBe(9);
+    expect(s.drawCalls).toBe(2 + 1 + 3 + 6);
+    expect(s.transientTextures).toBe(9); // the sky adds no texture: it draws into scene.hdr
+    expect(s.passes).toBe(13);
 
     // Steady state: nothing is (re)created for the sky.
     const created = f.device.gpuMemory.texturesCreated;
@@ -275,16 +309,16 @@ describe("frame structure", () => {
     f.scene.settings.hdr = false;
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
-    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main", "forge.sky"]);
-    expect(f.mock.passes[2]!.colorTargets).toEqual(["swapchain"]);
-    expect(f.mock.passes[1]!.depthStoreOp).toBe("store");
+    expect(labels(f)).toEqual(["forge.shadow.0", ...PREPASS_SSAO, "forge.main", "forge.sky"]);
+    expect(f.mock.passes[6]!.colorTargets).toEqual(["swapchain"]);
+    expect(f.mock.passes[5]!.depthStoreOp).toBe("store");
 
     // Off again (a solid background): no sky pass, and the depth buffer goes back to being discarded.
     f.mock.passes.length = 0;
     f.scene.setBackgroundColor(0x102030);
     f.renderer.renderScene(f.scene);
-    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main"]);
-    expect(f.mock.passes[1]!.depthStoreOp).toBe("discard");
+    expect(labels(f)).toEqual(["forge.shadow.0", ...PREPASS_SSAO, "forge.main"]);
+    expect(f.mock.passes[5]!.depthStoreOp).toBe("discard");
     expect(f.renderer.stats.sky).toBe(false);
 
     // The quality profile can cap the march or veto the pass regardless of the scene.
@@ -314,7 +348,7 @@ describe("frame structure", () => {
     expect(f.scene.settings.sky.sunDirection!.y).toBe(1); // normalised copy
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
-    expect(labels(f)).toEqual(["forge.main", "forge.sky"]);
+    expect(labels(f)).toEqual([...PREPASS_SSAO, "forge.main", "forge.sky"]);
     // A one-frame override is consumed by the next frame and does not persist.
     f.renderer.setSkyOverride({ exposure: 0.5, quality: "high" });
     f.renderer.renderScene(f.scene);
@@ -343,5 +377,222 @@ describe("frame structure", () => {
     renderer.dispose();
     await device.dispose();
     expect(device.mock.outstanding.textures).toEqual([]);
+  });
+});
+
+describe("depth prepass and SSAO", () => {
+  it("the prepass lays the opaque depth down; forge.main loads it and never re-writes it", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.cascades = 1;
+    f.mock.commandLog.length = 0;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const at = (name: string) => f.mock.passes.find((p) => p.label === name)!;
+    const prepass = at("forge.prepass");
+    const main = at("forge.main");
+    // Depth only: no colour target; cleared, then stored for SSAO and the forward pass.
+    expect(prepass.colorTargets).toEqual([]);
+    expect(prepass.depthTarget).toContain("depth24plus");
+    expect(prepass.depthLoadOp).toBe("clear");
+    expect(prepass.depthStoreOp).toBe("store");
+    expect(prepass.drawCalls).toBe(2);
+    expect(prepass.triangles).toBe(2 + 12);
+    // The forward pass continues on that depth buffer instead of clearing it...
+    expect(main.depthTarget).toBe(prepass.depthTarget);
+    expect(main.depthLoadOp).toBe("load");
+    // ...with the depth-only prepass variant laying it down, and the forward pipelines for the same
+    // surfaces testing against it without writing.
+    const prepassDraws = drawPipelines(f, "forge.prepass");
+    expect(prepassDraws).toHaveLength(2);
+    for (const p of prepassDraws) expect(p).toMatch(/^pipeline\.prepass\|none\|depth24plus\|/);
+    const forward = drawPipelines(f, "forge.main");
+    expect(forward).toHaveLength(2);
+    for (const p of forward) expect(p).toContain("|nodepthwrite|");
+    const s = f.renderer.stats;
+    expect(s.depthPrepass).toBe(true);
+    expect(s.prepassDraws).toBe(2);
+    expect(s.drawCalls).toBe(2 + 3 + 6); // prepass draws are reported apart, like shadowsDrawn
+    await f.dispose();
+  });
+
+  it("transparent, cutout, fading and overlay surfaces stay out of the prepass and keep writing depth", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.enabled = false;
+    const box = createBox(f.device, { width: 1, height: 1, depth: 1 });
+    const cutout = new Material({ label: "cutout", color: 0x44aa44 });
+    cutout.alphaTest = 0.5;
+    const fading = new Material({ label: "fading", color: 0x4444aa, opacity: 0.5 });
+    const glass = new Material({ label: "glass", color: 0xaaaaaa, transparent: true });
+    const add = (name: string, x: number, material: Material, configure?: (r: Renderable) => void) => {
+      const e = f.scene.createTransformedEntity(name, new Vec3(x, 0.5, -3));
+      const r = new Renderable();
+      r.geometry = box;
+      r.material = material;
+      configure?.(r);
+      f.scene.world.addComponent(e.id, r);
+    };
+    add("cutout", -2, cutout);
+    add("fading", -0.5, fading);
+    add("glass", 1, glass, (r) => (r.transparent = true));
+    add("overlay", 2.5, new Material({ label: "hud", color: 0xffffff }), (r) => (r.overlay = true));
+    f.mock.commandLog.length = 0;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const s = f.renderer.stats;
+    expect(s.culled).toBe(0);
+    expect(s.depthPrepass).toBe(true);
+    expect(s.prepassDraws).toBe(2); // the ground and the opaque box only
+    const forward = drawPipelines(f, "forge.main");
+    expect(forward).toHaveLength(6);
+    // The two prepassed surfaces shade without writing depth; the other four draw exactly as they
+    // would with no prepass at all, depth writes included.
+    expect(forward.filter((p) => p.includes("|nodepthwrite|"))).toHaveLength(2);
+    expect(forward.filter((p) => p.includes("|depthwrite|"))).toHaveLength(4);
+    expect(f.mock.passes.find((p) => p.label === "forge.prepass")!.drawCalls).toBe(2);
+
+    // Nothing eligible at all (everything transparent): no prepass pass, and so no SSAO either.
+    f.mock.passes.length = 0;
+    const all = f.scene.world.query([Renderable]);
+    all.refresh();
+    for (let i = 0; i < all.count; i++) f.scene.world.getComponent(all.entity(i), Renderable)!.transparent = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)[0]).toBe("forge.main");
+    expect(labels(f).filter((l) => l.startsWith("forge.prepass") || l.startsWith("forge.ssao"))).toEqual([]);
+    expect(f.renderer.stats.depthPrepass).toBe(false);
+    expect(f.renderer.stats.ssao).toBe(false);
+    expect(f.mock.passes[0]!.depthLoadOp).toBe("clear");
+    box.dispose();
+    for (const m of [cutout, fading, glass]) m.dispose();
+    await f.dispose();
+  });
+
+  it("SSAO: a half-resolution estimate and a separable blur, the estimate's target aliased into the result", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.cascades = 1;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const at = (name: string) => f.mock.passes.find((p) => p.label === name)!;
+    const estimate = at("forge.ssao");
+    const blurH = at("forge.ssao.blur.h");
+    const blurV = at("forge.ssao.blur.v");
+    for (const pass of [estimate, blurH, blurV]) {
+      expect(pass.colorTargets).toHaveLength(1);
+      expect(pass.colorTargets[0]).toContain("160x90"); // half of 320x180
+      expect(pass.colorTargets[0]).toContain("rg16float");
+      expect(pass.depthTarget).toBeNull();
+      expect(pass.drawCalls).toBe(1);
+      expect(pass.triangles).toBe(1);
+    }
+    // The estimate's texture is dead once the horizontal blur has read it: the vertical blur writes
+    // the very same physical texture, and the graph reports the bytes that saved.
+    expect(blurV.colorTargets[0]).toBe(estimate.colorTargets[0]);
+    expect(blurH.colorTargets[0]).not.toBe(estimate.colorTargets[0]);
+    const s = f.renderer.stats;
+    expect(s.ssao).toBe(true);
+    expect(s.aliasedBytes).toBe(160 * 90 * 4);
+    expect(s.physicalTextures).toBe(s.transientTextures - 1);
+
+    // The uniform block: inverse projection, pixels-per-metre at depth 1, both extents, clamps.
+    let u = ssaoUniforms(f);
+    const tanHalf = Math.tan(f.camera.fovY / 2);
+    expect(u.f32[16]).toBeCloseTo(f.scene.settings.ssao.radius, 6); // radius
+    expect(u.f32[19]).toBeCloseTo((0.5 * 180) / tanHalf, 3); // projScale
+    expect([u.f32[20], u.f32[21], u.f32[22], u.f32[23]]).toEqual([320, 180, 160, 90]);
+    expect(u.u32[24]).toBe(12); // sampleCount
+    expect(u.f32[1 * 4 + 1]).toBeCloseTo(tanHalf, 5); // invProj[1][1] = 1 / m[5]
+    f.scene.settings.ssao.samples = 500;
+    f.renderer.renderScene(f.scene);
+    u = ssaoUniforms(f);
+    expect(u.u32[24]).toBe(32);
+    f.scene.settings.ssao.samples = 0;
+    f.renderer.renderScene(f.scene);
+    expect(ssaoUniforms(f).u32[24]).toBe(1);
+    expect(f.mock.errors).toEqual([]);
+    await f.dispose();
+  });
+
+  it("SSAO needs the prepass and a perspective camera; the scene and the quality profile switch either off", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.enabled = false;
+    f.scene.settings.hdr = false;
+    const run = (renderer = f.renderer) => {
+      f.mock.passes.length = 0;
+      f.mock.commandLog.length = 0;
+      renderer.renderScene(f.scene);
+      expect(f.mock.errors).toEqual([]);
+      return labels(f);
+    };
+    expect(run()).toEqual([...PREPASS_SSAO, "forge.main"]);
+
+    // SSAO off: the prepass stays (it pays for itself), the AO passes go, the AO flag clears.
+    f.scene.settings.ssao.enabled = false;
+    expect(run()).toEqual(["forge.prepass", "forge.main"]);
+    expect(f.renderer.stats.ssao).toBe(false);
+    expect(f.renderer.stats.depthPrepass).toBe(true);
+    expect(f.mock.passes[1]!.depthLoadOp).toBe("load");
+    f.scene.settings.ssao.enabled = true;
+    f.scene.settings.ssao.intensity = 0; // nothing to apply: nothing computed
+    expect(run()).toEqual(["forge.prepass", "forge.main"]);
+    f.scene.settings.ssao.intensity = 1;
+
+    // Prepass off: SSAO has no depth to read, and forge.main clears and writes depth itself again.
+    f.scene.settings.depthPrepass = false;
+    expect(run()).toEqual(["forge.main"]);
+    expect(f.mock.passes[0]!.depthLoadOp).toBe("clear");
+    for (const p of drawPipelines(f, "forge.main")) expect(p).toContain("|depthwrite|");
+    expect(f.renderer.stats.depthPrepass).toBe(false);
+    expect(f.renderer.stats.prepassDraws).toBe(0);
+    expect(f.renderer.stats.ssao).toBe(false);
+    f.scene.settings.depthPrepass = true;
+
+    // Orthographic camera: the prepass runs, SSAO does not (its bilateral key is perspective clip.w).
+    f.camera.setOrthographic(10, 16 / 9, 0.1, 100);
+    expect(run()).toEqual(["forge.prepass", "forge.main"]);
+    f.camera.setPerspective(Math.PI / 3, 16 / 9, 0.1, 100);
+    expect(run()).toEqual([...PREPASS_SSAO, "forge.main"]);
+
+    // The quality profile vetoes either, whatever the scene asks for.
+    const noPrepass = new Renderer(f.device, { shadowMapSize: 256, depthPrepass: false });
+    expect(run(noPrepass)).toEqual(["forge.main"]);
+    expect(noPrepass.stats.ssao).toBe(false);
+    noPrepass.dispose();
+    const noSsao = new Renderer(f.device, { shadowMapSize: 256, ssao: false });
+    expect(run(noSsao)).toEqual(["forge.prepass", "forge.main"]);
+    noSsao.dispose();
+    await f.dispose();
+  });
+
+  it("allocates nothing on a steady SSAO frame, and switching it all on and off leaks nothing", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.cascades = 2;
+    f.renderer.renderScene(f.scene);
+    f.renderer.renderScene(f.scene);
+    const created = f.device.gpuMemory.texturesCreated;
+    const buffers = f.device.gpuMemory.buffersCreated;
+    for (let i = 0; i < 4; i++) f.renderer.renderScene(f.scene);
+    expect(f.device.gpuMemory.texturesCreated).toBe(created);
+    expect(f.device.gpuMemory.buffersCreated).toBe(buffers);
+    expect(f.renderer.stats.texturesCreated).toBe(0);
+    expect(f.renderer.stats.ssao).toBe(true);
+
+    for (const [prepass, ssao, hdr] of [
+      [false, false, true],
+      [true, false, true],
+      [true, true, false],
+      [false, true, false],
+      [true, true, true],
+    ] as const) {
+      f.scene.settings.depthPrepass = prepass;
+      f.scene.settings.ssao.enabled = ssao;
+      f.scene.settings.hdr = hdr;
+      for (let i = 0; i < 4; i++) f.renderer.renderScene(f.scene);
+      expect(f.mock.errors, `prepass=${prepass} ssao=${ssao} hdr=${hdr}`).toEqual([]);
+      expect(f.renderer.stats.depthPrepass).toBe(prepass);
+      expect(f.renderer.stats.ssao).toBe(prepass && ssao);
+    }
+    // The fixture's dispose() asserts that no buffer or texture (SSAO uniforms, AO fallback, pooled
+    // AO targets) outlives the renderer.
+    await f.dispose();
   });
 });

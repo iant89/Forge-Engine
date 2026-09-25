@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13+ is not started.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO and production transient aliasing (13.1, 13.2) are covered below; 13.3 onward is not started.
 
 ## Setting up
 
@@ -205,21 +205,30 @@ containing matrices; passing an output array reuses the cascade objects.
 ### `tests/pipeline.test.ts` — the pipeline cache
 
 Identical keys return the identical bundle and count a cache hit without touching the device; every
-axis of the key (technique, colour/depth formats, blending, culling, instancing, additive, fragment
-entry) yields a distinct pipeline; the four post entry points compile from one shader module; all 15
-variants the renderer can ask for (including the two `sky` targets) pass the mock's validation;
-`invalidate()` drops pipelines and the 7 layouts and the next `get` rebuilds them.
+axis of the key (technique, colour/depth formats, blending, culling, instancing, depth write,
+additive, fragment entry) yields a distinct pipeline; the four post entry points compile from one
+shader module; all 22 variants the renderer can ask for (including the two `sky` targets, the three
+`prepass` variants and the three SSAO entry points) pass the mock's validation; `invalidate()` drops
+pipelines and the 11 layouts and the next `get` rebuilds them. **Prepass (13.1):** the `prepass`
+pipeline's vertex stage is the *same* shader module and entry point as the forward pipeline's
+(static and instanced — the prepass compiles no module of its own), it has no fragment stage,
+`depthCompare: "less"` and zero depth bias (the shadow program has a positive one and is a different
+module), culls like the forward pipeline, and the forward variant used over prepassed surfaces is
+`less-equal` with depth writes off. The SSAO estimate and both blur directions share one module,
+bind no vertex buffer and no depth attachment, and use different layouts (depth vs AO texture).
 
 ### `tests/frame.test.ts` — the frame the renderer builds (mock device)
 
 Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plane and boxes on a
 320×180 mock surface with a 256² atlas (the mock allocates texture storage eagerly):
 
-* HDR settings produce exactly `shadow.0, shadow.1, main, bloom.prefilter, bloom.down.2, bloom.down.3,
-  bloom.up.2, bloom.up.1, tonemap`, with `main` on `rgba16float` + `depth24plus`, `tonemap` on the
-  swapchain, 3 bloom mips at 180 px, 6 transients → 6 physical textures, and post draws excluded from
-  the triangle count.
-* `hdr: false` yields `shadow.0, main` with `main` on the swapchain and no post pass.
+* HDR settings produce exactly `shadow.0, shadow.1, prepass, ssao, ssao.blur.h, ssao.blur.v, main,
+  bloom.prefilter, bloom.down.2, bloom.down.3, bloom.up.2, bloom.up.1, tonemap`, with `main` on
+  `rgba16float` + `depth24plus`, `tonemap` on the swapchain, 3 bloom mips at 180 px, 9 transients → 8
+  physical textures with `aliasedBytes` = 160·90·4, and fullscreen draws excluded from the triangle
+  count.
+* `hdr: false` yields `shadow.0, prepass, ssao, ssao.blur.h, ssao.blur.v, main` with `main` on the
+  swapchain and no post pass.
 * Bloom, `postProcessing`, shadows, the light's `castShadow` and the quality caps (`shadowCascades`,
   `shadowMapSize`) each change exactly the passes they should.
 * A caster behind the camera is frustum-culled from `forge.main` but still drawn into the cascade
@@ -229,6 +238,24 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   period, and the shadow atlas is untouched.
 * Toggling HDR and shadows through five combinations records zero mock validation errors, and
   every fixture asserts `mock.outstanding` is empty after teardown.
+* **Depth prepass (13.1)**: `forge.prepass` has no colour target, clears and stores the scene depth
+  and draws the two opaque batches; `forge.main` attaches the *same* depth with `depthLoadOp: "load"`,
+  and every draw it issues for those batches uses a `nodepthwrite` pipeline (read back from the
+  mock's command log: pipeline per draw) while every prepass draw uses the depth-only `prepass`
+  variant. Cutout (`alphaTest`), fading (`opacity < 1`), transparent and overlay batches stay out of
+  the prepass (`prepassDraws` 2 of 6) and keep `depthwrite` pipelines in `forge.main`; a scene with
+  nothing eligible runs no prepass, no SSAO, and `forge.main` clears depth itself. A culled caster
+  reaches the cascades but not the prepass.
+* **SSAO (13.1) and aliasing (13.2)**: the estimate and both blur passes each draw one fullscreen
+  triangle into a 160×90 `rg16float` target with no depth attachment; the vertical blur's target *is*
+  the estimate's physical texture (same label), `aliasedBytes` = 160·90·4 and physical = transient −
+  1. The uploaded `SsaoUniforms` (read back from the mock buffer) carry the radius, `projScale` =
+  ½·180/tan(fov/2), both extents, `invProj[1][1]` = tan(fov/2) and a sample count clamped to 1…32.
+  SSAO off keeps the prepass; intensity 0 computes nothing; prepass off removes both and restores
+  `forge.main`'s own depth clear and writes; an orthographic camera gets the prepass but no SSAO;
+  `RendererOptions.depthPrepass: false` / `ssao: false` veto them whatever the scene asks. A steady
+  SSAO frame creates no texture or buffer, five prepass × SSAO × HDR combinations record no errors,
+  and the fixture's teardown proves the SSAO buffer, AO fallback and pooled AO targets are released.
 * **Sky (Phase 8a)**: `scene.setSky()` inserts exactly one `forge.sky` pass directly after `forge.main`,
   drawing one triangle into the *same* colour target with the scene depth attached via an explicit
   load (`MockPassRecord.depthLoadOp === "load"`, `depthStoreOp === "store"` — the read-only attach's
@@ -364,9 +391,10 @@ on Safari is a black canvas with a live HUD. The suite asserts that every genera
 scalar padding (never `array<u32, N>`), reports no `uniformLayoutProblems()`, keeps its byte
 offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 320,
 `ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 96 B,
-`Water` 224 B), that every
+`Water` 224 B, `Ssao` 112 B), that every
 shipped shader variant — including the depth-only and post modules added in Phase 2, the sky
-module added in Phase 8a and the water module added in Phase 8b — passes `validateWgsl`, that `toWgsl("uniform")`
+module added in Phase 8a, the water module added in Phase 8b and the SSAO module added in Phase 13 —
+passes `validateWgsl`, that `toWgsl("uniform")`
 throws for a sub-16-byte array stride, that struct-typed members sit on 16-byte boundaries, and that
 `validateWgsl` flags the exact pattern that shipped (`pad68: array<u32, 3>`), nested-struct
 strides, root-level uniform arrays and unpadded struct members while accepting legal layouts.
@@ -512,8 +540,22 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   spheres is really being darkened by the cascades, not by ambient occlusion baked into materials).
 - **LDR fallback**: with `hdr` off the pass list has no tonemap or bloom passes and the frame is still
   a lit scene.
+- **Depth prepass, SSAO and aliasing (Phase 13.1 / 13.2)**: the default frame runs exactly one
+  `forge.prepass` (with `prepassDraws >= 1`) and the three `forge.ssao*` passes, in the order
+  prepass → estimate → blur.h → blur.v → `forge.main`; `aliasedBytes > 0` with fewer physical than
+  transient textures (measured: 11 transients → 10 textures, 921,600 B aliased at 1280×720).
+- **SSAO A/B, per pixel at full resolution**: with the animation frozen, switching SSAO off must drop
+  its passes (the prepass stays), and comparing the two frames pixel by pixel, SSAO must darken at
+  least 0.1 % of the frame by more than one luma level, brighten **no** pixel by more than one level
+  (ambient occlusion can only remove light), and lower the mean by less than 15 % (contact shading,
+  not a dimmer). Measured on the PBR fixture: 3,905–4,066 of 921,600 px darker (up to ~5 levels,
+depending on where the animation froze), 0 brighter.
+- **Prepass identity**: with SSAO off, switching the prepass off as well must not change a single
+  pixel by more than one level — measured: 0 pixels differ at all (max difference 0). That is the
+  `@invariant` + shared-vertex-module design proven on a real compiler.
 - **Cascade debug view** renders without errors, and after every toggle the settings are restored,
-  the pass count is back to the HDR default, and `gpuErrors` is still 0.
+  the pass count is back to the HDR default, SSAO is back on, and `gpuErrors` is still 0. The LDR
+  readback above also asserts the prepass + SSAO chain survives the switch to the swapchain path.
 - Resizing the viewport recreates the swapchain and the frame-sized transients and presentation
   continues.
 - No GPU error was recorded: shader compile diagnostics (`getCompilationInfo`), `uncapturederror`
@@ -609,6 +651,10 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   real shader compilation and zero GPU errors.
 * **Render graph semantics.** Validation, culling, live-range aliasing, cross-frame pooling and
   retirement, single-submit recording — all on the mock device, where every allocation is visible.
+  Aliasing also happens in the production frame now (the SSAO chain), on the mock and on real WebGPU.
+* **Depth prepass and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the frame without
+  it on real WebGPU; SSAO only ever darkens, locally. `docs/RENDERING.md` §4a says how, §9 what it
+  does not do.
 * **Cascade math.** Containment, texel snapping and caster back-off are checked numerically,
   independently of the GPU.
 * **`Engine` / `Renderer` / `Scene` at runtime.** Verified both through the mock-device suites and
@@ -652,8 +698,8 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   (above), not by running Safari; there is no WebKit build in the sandbox.
 * **Bloom and shadow *quality*.** The gates prove the effects are present and act in the right
   direction (A/B luminance) and that the cascade fit is geometrically correct; they do not compare
-  against a reference image. Aliasing in the default frame is 0 bytes by design (nothing shares a
-  shape yet), so the aliasing path is exercised only by `tests/renderGraph.test.ts`.
+  against a reference image. The same holds for SSAO: the gate proves it darkens contact areas, never
+  brightens and is not a global dimmer — not that its occlusion matches a ray-traced reference.
 * **GPU timings.** No timestamp queries yet; `renderTimeMs` is CPU time.
 * **A browser-side worker round-trip.** The Node suites drive the shipping worker scope on real
   threads, but no test starts a module worker in a browser and submits a task through it

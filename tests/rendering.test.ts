@@ -77,18 +77,31 @@ describe("Renderer with mock WebGPU device", () => {
     expect(mock.errors).toHaveLength(0);
     mock.assertClean();
 
-    // Default settings: HDR on, three cascades. The frame is one shadow pass per cascade, the
-    // forward pass into the HDR target and the tonemap resolve into the swapchain (the 1x1 mock
-    // surface is too small for a bloom chain, so none is declared).
+    // Default settings: HDR on, three cascades, depth prepass + SSAO. The frame is one shadow pass
+    // per cascade, the depth prepass, the SSAO estimate and its two blur passes, the forward pass
+    // into the HDR target and the tonemap resolve into the swapchain (the 1x1 mock surface is too
+    // small for a bloom chain, so none is declared).
     const passLabels = mock.passes.map((p) => p.label);
-    expect(passLabels).toEqual(["forge.shadow.0", "forge.shadow.1", "forge.shadow.2", "forge.main", "forge.tonemap"]);
+    expect(passLabels).toEqual([
+      "forge.shadow.0",
+      "forge.shadow.1",
+      "forge.shadow.2",
+      "forge.prepass",
+      "forge.ssao",
+      "forge.ssao.blur.h",
+      "forge.ssao.blur.v",
+      "forge.main",
+      "forge.tonemap",
+    ]);
     expect(renderer.passNames).toEqual(passLabels);
     expect(renderer.stats.shadowCascades).toBe(3);
     expect(renderer.stats.shadowsDrawn).toBe(3); // the cube, once per cascade (the ground does not cast)
     expect(renderer.stats.hdr).toBe(true);
     expect(mock.passes[0]!.depthTarget).toContain("depth24plus");
-    expect(mock.passes[3]!.colorTargets[0]).toContain("rgba16float");
-    expect(mock.passes[4]!.colorTargets[0]).toBe("swapchain");
+    expect(renderer.stats.depthPrepass).toBe(true);
+    expect(renderer.stats.ssao).toBe(true);
+    expect(mock.passes[7]!.colorTargets[0]).toContain("rgba16float");
+    expect(mock.passes[8]!.colorTargets[0]).toBe("swapchain");
 
     // Clean teardown and leak check
     scene.dispose();

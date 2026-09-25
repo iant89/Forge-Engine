@@ -16,7 +16,8 @@ CURRENT CODEBASE BASELINE:
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
-    Phase 13+:  NOT STARTED
+    Phase 13:   IN PROGRESS (13.1 depth prepass + SSAO and 13.2 aliasing landed)
+    Phase 14+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -108,7 +109,10 @@ PHASE 11 - Physics / Vehicle Integration
 PHASE 12 - GPU Particles 2.0
     [x]
 
-PHASE 13+
+PHASE 13 - Renderer 2.0
+    [~] IN PROGRESS
+
+PHASE 14+
     [ ] NOT STARTED
 
 
@@ -619,26 +623,62 @@ GOAL:
     Move the renderer from the current forward foundation toward the intended
     scalable GPU-oriented architecture.
 
+CURRENT STATE:
+
+    In progress. Landed: the depth prepass (13.1) with SSAO as its first consumer,
+    and real transient aliasing in every SSAO frame (13.2). 13.3 onward is open.
+    Frame: forge.shadow.<n> → forge.prepass → forge.ssao → forge.ssao.blur.h →
+    forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap.
+
+        - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
+          only, with the standard module's own vertex entry points (`@invariant`
+          position); `forge.main` loads that depth and shades each visible pixel once
+          (`less-equal`, no depth writes for prepassed draws). On real WebGPU the
+          frame is pixel-identical with the prepass on or off.
+        - SSAO: a half-resolution normal-oriented obscurance estimate from the prepass
+          depth, a separable depth-aware blur, a bilateral upsample in the forward
+          shader; it scales the ambient term only.
+        - The SSAO estimate's target is dead once the horizontal blur has read it, so
+          the graph hands its memory to the blur result: aliasedBytes =
+          (w/2)·(h/2)·4 B in every SSAO frame (921,600 B at 1280x720).
+        - Quality profiles: prepass + SSAO on medium/high/ultra, off on minimal/low
+          (`EngineConfig.depthPrepass` / `ssao`); per scene `settings.depthPrepass` /
+          `settings.ssao`.
+
 
 13.1 Depth Prepass
 
-    [ ] Implement depth prepass.
+    [x] Implement depth prepass. (`forge.prepass`; stats `depthPrepass`,
+        `prepassDraws`; tests/frame.test.ts, tests/pipeline.test.ts, check:browser
+        pixel identity.)
 
-    [ ] Reuse depth for:
+    [~] Reuse depth for:
 
-        culling
-        SSAO
-        particles
-        transparency
-        post processing
+        [x] SSAO            — `forge.ssao` samples the prepass depth.
+        [x] particles       — the soft-particle fade samples the same scene depth,
+                              which the prepass now lays down (no second depth pass).
+        [ ] culling         — GPU / HiZ culling is 13.5.
+        [ ] transparency    — blended surfaces depth-test against it; no
+                              transparency technique (depth fade, OIT) consumes it.
+        [ ] post processing — no depth-based post effect exists yet.
+
+    [ ] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
+        (a fragment stage that discards exactly like forge.main), so they get early-Z
+        and take part in SSAO.
+
+    [ ] SSAO for orthographic cameras (the forward pass's bilateral key is clip.w,
+        which only a perspective projection makes view depth).
 
 
 13.2 Render Graph Aliasing Validation
 
-    [ ] Create real production passes that exercise transient resource
-        aliasing.
+    [x] Create real production passes that exercise transient resource
+        aliasing. (The SSAO chain: `ssao.raw` → `ssao.blur` → `ssao.result`; the
+        raw estimate's memory is reused for the result.)
 
-    [ ] Verify aliasedBytes becomes meaningful in normal frames.
+    [x] Verify aliasedBytes becomes meaningful in normal frames. (Every frame with
+        SSAO: 921,600 B at 1280x720 — PBR fixture 11 transients → 10 textures;
+        tests/frame.test.ts, check:browser.)
 
 
 13.3 Clustered / Forward+ Lighting

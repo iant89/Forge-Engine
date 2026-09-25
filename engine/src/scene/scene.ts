@@ -69,6 +69,22 @@ export interface SceneBloomSettings {
   radius: number;
 }
 
+/**
+ * Screen-space ambient occlusion (`forge.ssao`): contact darkening in creases and under objects,
+ * estimated from the depth prepass at half resolution and applied to the ambient term only.
+ */
+export interface SceneSsaoSettings {
+  enabled: boolean;
+  /** World-space sampling radius in metres: how far away an occluder can still darken a point. */
+  radius: number;
+  /** Strength multiplier (1 = the estimator's natural scale). */
+  intensity: number;
+  /** Occluders closer than this (metres) to a point's tangent plane are ignored; fights self-occlusion. */
+  bias: number;
+  /** Taps per pixel (1..32). The half-resolution estimate plus the blur make 12 enough. */
+  samples: number;
+}
+
 export type SkyQuality = "low" | "medium" | "high";
 
 /**
@@ -202,6 +218,15 @@ export interface SceneSettings {
   /** Master switch for the post chain's effects (bloom); HDR resolve still runs when `hdr` is set. */
   postProcessing: boolean;
   bloom: SceneBloomSettings;
+  /**
+   * Lay the opaque scene's depth down in a depth-only pass (`forge.prepass`) before `forge.main`,
+   * which then shades each visible pixel once: prepassed draws test `less-equal` against that
+   * buffer without writing it. SSAO reads the same buffer, so it needs this on. Quality profiles
+   * can veto it (`RendererOptions.depthPrepass`).
+   */
+  depthPrepass: boolean;
+  /** Ambient occlusion from the prepass depth; ignored while `depthPrepass` is off. */
+  ssao: SceneSsaoSettings;
   /** Vertical sync / frame pacing hint for the engine loop. */
   vsync: boolean;
   /**
@@ -238,6 +263,8 @@ export function defaultSceneSettings(): SceneSettings {
     hdr: true,
     postProcessing: true,
     bloom: { enabled: true, threshold: 1, softKnee: 0.5, intensity: 0.06, radius: 1 },
+    depthPrepass: true,
+    ssao: { enabled: true, radius: 1, intensity: 1, bias: 0.02, samples: 12 },
     vsync: true,
     recenterDistance: 0,
   };
@@ -818,6 +845,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
     skyEnabled: s.skyEnabled,
     hdr: s.hdr,
     postProcessing: s.postProcessing,
+    depthPrepass: s.depthPrepass,
     renderScale: s.renderScale,
     iblIntensity: s.iblIntensity,
     recenterDistance: s.recenterDistance,
@@ -832,6 +860,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
     },
     shadow: { ...s.shadow },
     bloom: { ...s.bloom },
+    ssao: { ...s.ssao },
     sky: {
       ...s.sky,
       sunDirection: s.sky.sunDirection ? [s.sky.sunDirection.x, s.sky.sunDirection.y, s.sky.sunDirection.z] : null,
@@ -865,6 +894,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
   if (typeof data["skyEnabled"] === "boolean") target.skyEnabled = data["skyEnabled"];
   if (typeof data["hdr"] === "boolean") target.hdr = data["hdr"];
   if (typeof data["postProcessing"] === "boolean") target.postProcessing = data["postProcessing"];
+  if (typeof data["depthPrepass"] === "boolean") target.depthPrepass = data["depthPrepass"];
   target.renderScale = num(data["renderScale"], target.renderScale);
   target.iblIntensity = num(data["iblIntensity"], target.iblIntensity);
   target.recenterDistance = num(data["recenterDistance"], target.recenterDistance);
@@ -915,6 +945,14 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.bloom.softKnee = num(bloom["softKnee"], target.bloom.softKnee);
     target.bloom.intensity = num(bloom["intensity"], target.bloom.intensity);
     target.bloom.radius = num(bloom["radius"], target.bloom.radius);
+  }
+  const ssao = data["ssao"] as Record<string, unknown> | undefined;
+  if (ssao) {
+    if (typeof ssao["enabled"] === "boolean") target.ssao.enabled = ssao["enabled"];
+    target.ssao.radius = num(ssao["radius"], target.ssao.radius);
+    target.ssao.intensity = num(ssao["intensity"], target.ssao.intensity);
+    target.ssao.bias = num(ssao["bias"], target.ssao.bias);
+    target.ssao.samples = num(ssao["samples"], target.ssao.samples);
   }
   const clouds = data["clouds"] as Record<string, unknown> | undefined;
   if (clouds) {

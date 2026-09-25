@@ -19,7 +19,7 @@ describe("PipelineFactory cache", () => {
     const a = factory.get(base);
     const b = factory.get({ ...base });
     expect(b).toBe(a);
-    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 8 });
+    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 11 });
     expect(factory.keyOf(base)).toBe(a.key);
     factory.invalidate();
     await device.dispose();
@@ -44,6 +44,13 @@ describe("PipelineFactory cache", () => {
       { ...base, technique: "post", colorFormat: device.format, depthFormat: null, doubleSided: true, fragmentEntry: "fsTonemap" },
       { ...base, technique: "sky", doubleSided: true, writeDepth: false },
       { ...base, technique: "sky", colorFormat: device.format, doubleSided: true, writeDepth: false },
+      { ...base, writeDepth: false },
+      { ...base, technique: "prepass", colorFormat: null },
+      { ...base, technique: "prepass", colorFormat: null, instanced: true },
+      { ...base, technique: "prepass", colorFormat: null, doubleSided: true },
+      { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsSsao" },
+      { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurH" },
+      { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurV" },
     ];
     const bundles = variants.map((v) => factory.get(v));
     expect(new Set(bundles.map((b) => b.key)).size).toBe(variants.length);
@@ -54,6 +61,46 @@ describe("PipelineFactory cache", () => {
     for (const v of variants) factory.get(v);
     expect(factory.stats().creates).toBe(variants.length);
     expect(factory.stats().cacheHits).toBe(variants.length);
+    expect(device.mock.errors).toEqual([]);
+    factory.invalidate();
+    await device.dispose();
+  });
+
+  it("the depth prepass compiles the standard module's own vertex entries: depth only, no bias", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const factory = new PipelineFactory(device);
+    type Inspectable = { desc: GPURenderPipelineDescriptor };
+    const desc = (options: PipelineKeyOptions) => (factory.get(options).pipeline as unknown as Inspectable).desc;
+    const forward = desc(base);
+    const forwardInstanced = desc({ ...base, instanced: true });
+    const shadow = desc({ ...base, technique: "depth", colorFormat: null });
+    const prepass = desc({ ...base, technique: "prepass", colorFormat: null });
+    const prepassInstanced = desc({ ...base, technique: "prepass", colorFormat: null, instanced: true });
+    // Same module, same entry point as the forward pass (+ @invariant position): the prepass depth is
+    // bit-identical to what forge.main computes, so its less-equal test passes on exactly that value.
+    expect(prepass.vertex.module).toBe(forward.vertex.module);
+    expect(prepass.vertex.entryPoint).toBe(forward.vertex.entryPoint);
+    expect(prepassInstanced.vertex.module).toBe(forwardInstanced.vertex.module);
+    expect(prepassInstanced.vertex.entryPoint).toBe("vertexMainInstanced");
+    // ...not the shadow program, which is a different shader with a polygon offset.
+    expect(shadow.vertex.module).not.toBe(forward.vertex.module);
+    expect(factory.shaders.stats().created).toBe(3); // standard, standard instanced, depth: the prepass compiled nothing
+    expect(prepass.fragment).toBeUndefined();
+    expect(prepass.depthStencil).toMatchObject({ format: "depth24plus", depthWriteEnabled: true, depthCompare: "less", depthBias: 0, depthBiasSlopeScale: 0 });
+    expect(shadow.depthStencil!.depthBias).toBeGreaterThan(0);
+    expect(prepass.primitive).toMatchObject({ cullMode: "back", frontFace: forward.primitive!.frontFace });
+    expect(desc({ ...base, technique: "prepass", colorFormat: null, doubleSided: true }).primitive!.cullMode).toBe("none");
+    // The forward pipeline over a prepassed surface: tests less-equal against it and writes nothing.
+    expect(desc({ ...base, writeDepth: false }).depthStencil).toMatchObject({ depthWriteEnabled: false, depthCompare: "less-equal" });
+    // SSAO: one module for the estimate and both blur directions, fullscreen, no depth attachment.
+    const ssao = desc({ ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsSsao" });
+    const blur = desc({ ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurH" });
+    expect(ssao.fragment!.module).toBe(blur.fragment!.module);
+    expect(ssao.fragment!.entryPoint).toBe("fsSsao");
+    expect(blur.fragment!.entryPoint).toBe("fsBlurH");
+    expect(ssao.depthStencil).toBeUndefined();
+    expect(ssao.vertex.buffers).toEqual([]);
+    expect(ssao.layout).not.toBe(blur.layout); // the estimate binds depth, the blurs bind the AO texture
     expect(device.mock.errors).toEqual([]);
     factory.invalidate();
     await device.dispose();

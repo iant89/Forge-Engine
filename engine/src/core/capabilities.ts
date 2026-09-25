@@ -83,7 +83,8 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "10": "partial",
   "11": "verified",
   "12": "verified",
-  "13+": "planned",
+  "13": "inProgress",
+  "14+": "planned",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -345,17 +346,41 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.resourceAliasing",
     phase: "13.2",
-    status: "partial",
-    summary: "Live-range aliasing is implemented and tested, but the shipped pass set aliases nothing",
-    evidence: ["tests/renderGraph.test.ts"],
-    closesWith: "13.2",
-    notes: "aliasedBytes reads 0 in a normal frame until a depth prepass/SSAO buffer exists",
+    status: "verified",
+    summary: "Live-range aliasing in production frames: the SSAO estimate's target is reused for the blurred result",
+    evidence: ["tests/renderGraph.test.ts", "tests/frame.test.ts", "tools/browser-check.mjs"],
+    notes: "aliasedBytes = (w/2)·(h/2)·4 B in every SSAO frame (921,600 B at 1280x720); minimal/low profiles run no SSAO and alias nothing",
   },
   {
     id: "rendering.depthPrepass",
     phase: "13.1",
-    status: "planned",
-    summary: "Depth prepass reused by culling, SSAO, particles, transparency and post",
+    status: "verified",
+    summary: "Depth prepass (forge.prepass): opaque depth first, forge.main shades each visible pixel once without re-writing it",
+    evidence: ["tests/frame.test.ts", "tests/pipeline.test.ts", "tools/browser-check.mjs"],
+    notes: "Same vertex module/entry as the forward pass with an @invariant position; real WebGPU frame is pixel-identical with the prepass on or off",
+  },
+  {
+    id: "rendering.ssao",
+    phase: "13.1",
+    status: "verified",
+    summary: "Half-resolution SSAO from the prepass depth: estimate, depth-aware separable blur, bilateral upsample into the ambient term",
+    evidence: ["tests/frame.test.ts", "tests/wgsl.test.ts", "tools/browser-check.mjs"],
+    notes: "Perspective cameras only; ambient term only, so scenes lit mostly by direct light show little of it",
+  },
+  {
+    id: "rendering.depthReuse",
+    phase: "13.1",
+    status: "partial",
+    summary: "The prepass depth feeds SSAO and the soft-particle fade; culling, transparency and post effects do not consume it yet",
+    evidence: ["tests/frame.test.ts"],
+    closesWith: "13.5",
+  },
+  {
+    id: "rendering.prepassCoverage",
+    phase: "13.1",
+    status: "partial",
+    summary: "Cutout, fading, transparent and water surfaces stay out of the prepass (no early-Z, no SSAO on or from them); orthographic cameras get no SSAO",
+    evidence: ["tests/frame.test.ts"],
     closesWith: "13.1",
   },
   {
@@ -587,7 +612,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "ParticleSystem advances once per frame, not once per physics substep",
     evidence: ["tests/particles.test.ts"],
-    closesWith: "13+",
+    closesWith: "14+",
     notes: "GPU path is also frame-rate (render-graph); fixed-step particle substepping is still open",
   },
   {
@@ -748,7 +773,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   },
   {
     id: "networking.replication",
-    phase: "13+",
+    phase: "14+",
     status: "deferred",
     summary: "Multiplayer replication and dedicated servers",
     notes: "The roadmap gates networking behind Phase 29 and schedules no item for it yet",

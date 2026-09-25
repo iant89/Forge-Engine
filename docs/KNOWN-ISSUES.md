@@ -12,9 +12,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
   but do not shadow it. (capability: rendering.shadows)
 * **Shadow atlas memory.** The default profile's 2048² × 3 `depth24plus` array is ≈ 48 MB. Lower
   profiles cap `shadowMapSize`; there is no adaptive resolution. (capability: rendering.shadowMemory)
-* **No aliasing happens in the default frame.** The graph's live-range aliasing is implemented and
-  tested, but the current pass set has no two same-shaped transients with disjoint lifetimes, so
-  `aliasedBytes` reads 0 in the HUD until a depth prepass / SSAO buffer exists. (capability: rendering.resourceAliasing)
+* **The prepass depth has two consumers so far.** SSAO and the soft-particle fade read it; there
+  is no GPU/HiZ culling, no transparency technique and no depth-based post effect that uses it.
+  (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
+* **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
+  transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
+  saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
+  texel for them and leaves them unoccluded). Orthographic cameras run the prepass but not SSAO.
+  (capability: rendering.prepassCoverage)
 * **`renderScale` applies to the HDR path only.** The LDR path always renders at swapchain size. (capability: rendering.renderScale)
 * **No GPU timestamps.** `renderTimeMs` is CPU encode time; pass timings are not measured. (capability: rendering.gpuTiming)
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves

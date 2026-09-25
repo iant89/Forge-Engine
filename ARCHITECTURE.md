@@ -142,12 +142,13 @@ availability. The pass *description* is cheap and is rebuilt every frame from th
 settings; the GPU resources behind it are pooled by descriptor and survive across frames,
 so a steady frame allocates nothing (asserted by the tests and the browser gate).
 
-**Built today (Phase 2 + 8a, see `docs/RENDERING.md`):**
-`shadow.cascade(N≤4) → main(forward, HDR rgba16float, fog in-shader) → sky(analytic, far
-plane, depth read-only) → bloom(prefilter, down×n, up×n) → tonemap → present`, with an LDR
-path (`main` + `sky` straight to the swapchain) when `hdr` is off. Depth prepass, clustered
-lighting, SSAO, clouds, volumetrics, particles, reflections, DoF, motion blur and FXAA are
-not built yet.
+**Built today (Phases 2, 8a/8b, 12 and 13.1–13.2; see `docs/RENDERING.md`):**
+`shadow.cascade(N≤4) → prepass(depth only) → ssao(½-res estimate → blur h → blur v) →
+main(forward, HDR rgba16float, fog + ambient occlusion in-shader) → sky(analytic + cloud deck,
+far plane, depth loaded) → particles(GPU scenes: sim → sort → render → resolve) →
+bloom(prefilter, down×n, up×n) → tonemap → present`, with an LDR path (`main` + `sky` straight
+to the swapchain) when `hdr` is off. Clustered lighting, volumetrics, reflections, DoF, motion
+blur and FXAA are not built yet.
 
 ---
 
@@ -176,7 +177,9 @@ passes are culled unless they have a side effect or write an imported texture; s
 transients with disjoint live ranges share a physical texture; physical textures are pooled
 across frames and retired after two idle frames; misuse (read-before-write, load of undefined
 contents, self-sampling, stale handles) throws `UsageError` with the pass name before anything
-is recorded. Timestamp queries are not wired up yet.
+is recorded. In the default frame the SSAO chain is what aliases: the raw estimate's texture is
+dead after the horizontal blur and becomes the blurred result (`aliasedBytes` 921,600 B at
+1280×720). Timestamp queries are not wired up yet.
 
 ### 5.3 Materials, shaders, caching
 A `Material` is a data record + a `ShaderKey`. The key is
@@ -188,7 +191,7 @@ frame: if a pipeline is not ready, the renderable is drawn with the previous fra
 pipeline or skipped (documented, visible in stats as `pipelinesPending`).
 
 As built: `PipelineFactory` keys on technique × colour/depth format × blend × cull ×
-instancing × fragment entry, shares six bind group layouts, and creates pipelines
+instancing × depth write × fragment entry, shares eleven bind group layouts, and creates pipelines
 synchronously (`createRenderPipeline`); the async path and `pipelinesPending` are not built.
 `invalidate()` is the device-loss hook.
 

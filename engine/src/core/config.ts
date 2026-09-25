@@ -86,6 +86,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     shadowCascades: 1,
     shadowMapSize: 512,
     contactShadows: false,
+    depthPrepass: false,
     ssao: false,
     bloom: false,
     skyQuality: "low",
@@ -102,6 +103,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     shadowCascades: 2,
     shadowMapSize: 1024,
     contactShadows: false,
+    depthPrepass: false,
     ssao: false,
     bloom: true,
     skyQuality: "low",
@@ -117,6 +119,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     shadowCascades: 3,
     shadowMapSize: 2048,
     contactShadows: false,
+    depthPrepass: true,
     ssao: true,
     bloom: true,
     skyQuality: "medium",
@@ -132,6 +135,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     shadowCascades: 4,
     shadowMapSize: 2048,
     contactShadows: true,
+    depthPrepass: true,
     ssao: true,
     bloom: true,
     skyQuality: "high",
@@ -148,6 +152,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     shadowCascades: 4,
     shadowMapSize: 4096,
     contactShadows: true,
+    depthPrepass: true,
     ssao: true,
     bloom: true,
     skyQuality: "high",
@@ -165,6 +170,12 @@ export interface EngineConfigExtras {
   shadowCascades: number;
   shadowMapSize: number;
   contactShadows: boolean;
+  /**
+   * Allow the depth prepass (`forge.prepass`): the opaque depth first, then one shading pass per
+   * visible pixel. Also gates SSAO, which reads that depth. Caps `SceneSettings.depthPrepass`.
+   */
+  depthPrepass: boolean;
+  /** Allow screen-space ambient occlusion (needs `depthPrepass`). Caps `SceneSettings.ssao.enabled`. */
   ssao: boolean;
   bloom: boolean;
   /** Cap on the sky pass's ray-march tier (`SceneSkySettings.quality` asks, this caps). */
@@ -227,6 +238,7 @@ const DEFAULTS: FullConfig = {
   shadowCascades: 4,
   shadowMapSize: 2048,
   contactShadows: true,
+  depthPrepass: true,
   ssao: true,
   bloom: true,
   skyQuality: "high",
@@ -342,7 +354,7 @@ export function describeConfig(config: FullConfig): string {
   const lines: string[] = [];
   lines.push(`quality=${config.quality} backend=${config.backend} renderScale=${config.renderScale}`);
   lines.push(
-    `shadows=${config.shadowCascades}x${config.shadowMapSize} ssao=${config.ssao} bloom=${config.bloom} sky<=${config.skyQuality} volumetrics=${config.volumetrics} refl=${config.reflections}`,
+    `shadows=${config.shadowCascades}x${config.shadowMapSize} prepass=${config.depthPrepass} ssao=${config.ssao} bloom=${config.bloom} sky<=${config.skyQuality} volumetrics=${config.volumetrics} refl=${config.reflections}`,
   );
   lines.push(`fixedDt=${config.fixedDeltaTime.toFixed(5)} substeps<=${config.maxSubSteps} particles<=${config.maxParticles}`);
   lines.push(`terrain: visible=${config.terrainVisibleDistance}m resident<=${config.terrainMaxResidentChunks}/frame=${config.terrainChunksPerFrame}`);
