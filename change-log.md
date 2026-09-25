@@ -1806,6 +1806,46 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append the 26 change entries for Phase 13.3.",
     "why": "One entry per file touched, per the maintenance rules at the top of this file."
+  },
+  {
+    "id": "0141",
+    "date": "2026-09-25T11:21:29Z",
+    "type": "pr-merge",
+    "pr": 41,
+    "branch": "arena/01a0d667-forge-engine",
+    "base": "main",
+    "title": "Phase 13.3: clustered (Forward+) lighting, and no fixed light list",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Phase 13.3 clustered (Forward+) lighting. Local lights are indexed on the CPU into a 16x8x24 view-space grid (3,072 clusters, engine/src/rendering/clusters.ts) and the fragment stage walks only its own cluster's list, so a frame carries 256 local lights instead of a fixed 16-entry uniform block that writeLights truncated silently; a cluster over 32 candidates evicts its least influential lights (intensity x Rec.709 luma) and reports it. Directional lights stay in the uniform list — they reach every pixel, and the cascade caster's shadowIndex lives there. Clustering adds no pass and no pixel: both loops call the one lightContribution() over the same lights in the same order, so on/off is bit-identical while a scene fits the old list (real WebGPU: 0 px differ at 4 lights, same 18 passes), and at 40 lights the demo's static 36-lamp rig carries all 39 locals with none dropped — 88,036 of 921,600 px brighter than the truncated uniform path and none darker. Generated ClusterUniforms/ClusterLightBlock/ClusterGridBlock on frame bindings 6-8 (~428 KB resident, only the used prefixes uploaded), perFrame.flags bit 5, EngineConfig/SceneSettings switches (off on minimal/low), seven new stats plus Renderer.clusterBuildInfo, and demo Clustered / +36 lamps buttons with a HUD lights line. Two bugs only the real GPU could see became CPU gates: WGSL's reserved words (the grid's offset array shipped as `meta`, which Tint rejects at parse time — every pipeline came back invalid and every frame failed to submit, while the mock device, check:wgsl and 537 unit tests stayed green because none of them compile WGSL) are now rejected by validateWgsl; and projecting a light's box at its nearest depth only is not conservative, because ndc.x = proj*x/z moves toward the centre as z grows, which cost an off-axis lamp the inner crescent of its own pool (181 darker px) — it is now projected at both depths and pinned by a 2 cm walk of the ground that fails on the old code (1,986 misses to 0 over 145,323 CPU probes). CLUSTER_INDEX_CAPACITY is sized for the worst case (CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER) so the cap, never the buffer, is what limits a cluster. rendering.clusteredLighting verified; rendering.clusterCoverage partial (CPU-built grid, perspective-only, 256/32 caps) closing with 13.4. 543 tests in 40 files; verify, check:wgsl, lint:arch, check:testmap, docs:check and check:browser green, in the sandbox and in CI.",
+    "files": [
+      "ARCHITECTURE.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/RENDERING.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/core/config.ts",
+      "engine/src/core/engine.ts",
+      "engine/src/gpu/shaderCache.ts",
+      "engine/src/index.ts",
+      "engine/src/rendering/clusters.ts",
+      "engine/src/rendering/pipeline.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/rendering/shaders/standard.ts",
+      "engine/src/rendering/uniforms.ts",
+      "engine/src/scene/scene.ts",
+      "examples/index.html",
+      "examples/src/main.ts",
+      "mnemosyne.md",
+      "tests/clusters.test.ts",
+      "tests/frame.test.ts",
+      "tests/wgsl.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs",
+      "tools/wgsl-check.mjs"
+    ]
   }
 ]
 ```
