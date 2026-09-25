@@ -22,6 +22,8 @@ import {
   Camera,
   ClusterGridBlock,
   ClusterLightBlock,
+  ClusterRangeBlock,
+  ClusterRangeEntry,
   ClusterUniforms,
   Color,
   createBox,
@@ -662,7 +664,7 @@ describe("clustered (Forward+) lighting", () => {
     sliceScale: ClusterUniforms.offsetOf("sliceScale"),
     slices: ClusterUniforms.offsetOf("slices"),
     lightCount: ClusterUniforms.offsetOf("lightCount"),
-    maxPerCluster: ClusterUniforms.offsetOf("maxPerCluster"),
+    stride: ClusterUniforms.offsetOf("stride"),
   };
 
   it("local lights go to the cluster grid and the uniform list keeps only the global ones", async () => {
@@ -718,38 +720,38 @@ describe("clustered (Forward+) lighting", () => {
     expect(c.f32[(CLUSTER_FIELDS.gridScale >> 2) + 1]).toBe(CLUSTER_TILES_Y);
     expect(c.f32[CLUSTER_FIELDS.slices >> 2]).toBe(CLUSTER_SLICES);
     expect(c.i32[CLUSTER_FIELDS.lightCount >> 2]).toBe(3);
-    expect(c.i32[CLUSTER_FIELDS.maxPerCluster >> 2]).toBe(MAX_LIGHTS_PER_CLUSTER);
+    expect(c.i32[CLUSTER_FIELDS.stride >> 2]).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(c.f32[CLUSTER_FIELDS.invExtent >> 2]).toBeCloseTo(1 / 320, 9);
     expect(c.f32[(CLUSTER_FIELDS.invExtent >> 2) + 1]).toBeCloseTo(1 / 180, 9);
     await f.dispose();
   });
 
-  it("uploads the grid the builder wrote: the offset array is a prefix sum and every index is a real light", async () => {
+  it("uploads the grid the builder wrote: fixed-stride blocks, every list ascending and in range", async () => {
     const f = await fixture();
     for (let i = 0; i < 12; i++) addPointLight(f, `lamp${i}`, ((i % 4) - 1.5) * 3, 1 + (i % 3), ((i >> 2) - 1) * 3, 5, 5 + i);
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
     const grid = bufferOf(f, "cluster.grid");
     const s = f.renderer.stats;
-    let offset = 0;
+    const countsAt = ClusterGridBlock.offsetOf("counts", "storage") >> 2;
+    const listAt = ClusterGridBlock.offsetOf("indices", "storage") >> 2;
+    let total = 0;
     let nonEmpty = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(grid.u32[c * 2]).toBe(offset);
-      const n = grid.u32[c * 2 + 1]!;
-      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
-      offset += n;
+      const n = grid.u32[countsAt + c]!;
+      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER); // the cap is the stride: never more
+      total += n;
       if (n > 0) nonEmpty++;
     }
-    expect(offset).toBe(s.clusterIndices);
+    expect(total).toBe(s.clusterIndices);
     expect(nonEmpty).toBe(s.clustersUsed);
-    // Lists are ascending (the shader's accumulation order must not depend on the path) and every
-    // entry addresses a light record that exists.
-    for (let k = 0; k < s.clusterIndices; k++) {
-      expect(grid.u32[(ClusterGridBlock.offsetOf("indices", "storage") >> 2) + k]!).toBeLessThan(s.clusteredLights);
-    }
+    // Cluster c owns slots [c*MAX, c*MAX+n) of the list: lists are ascending (the shader's
+    // accumulation order must not depend on the path) and every entry addresses a real light record.
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const start = (ClusterGridBlock.offsetOf("indices", "storage") >> 2) + grid.u32[c * 2]!;
-      for (let k = 1; k < grid.u32[c * 2 + 1]!; k++) expect(grid.u32[start + k]!).toBeGreaterThan(grid.u32[start + k - 1]!);
+      const n = grid.u32[countsAt + c]!;
+      const start = listAt + c * MAX_LIGHTS_PER_CLUSTER;
+      for (let k = 0; k < n; k++) expect(grid.u32[start + k]!).toBeLessThan(s.clusteredLights);
+      for (let k = 1; k < n; k++) expect(grid.u32[start + k]!).toBeGreaterThan(grid.u32[start + k - 1]!);
     }
     expect(s.lightsDropped).toBe(false);
     await f.dispose();
@@ -877,5 +879,126 @@ describe("clustered (Forward+) lighting", () => {
     }
     // The fixture's dispose() asserts nothing (cluster buffers included) outlives the renderer.
     await f.dispose();
+  });
+
+  it("hands the fill to the GPU when asked, and reports the same grid either way", async () => {
+    // The two fills are A/B-able on one scene. On the mock nothing executes, so what is checked here
+    // is the *handover*: the counts are still the CPU's (the fragment stage and the stats read them),
+    // the lists are not uploaded at all, and the device is handed the pass that writes them. The
+    // shader itself is pinned in tests/lightCulling.test.ts and compiled by check:browser.
+    const scene = async (mode: "cpu" | "gpu") => {
+      const f = await fixture({ renderer: { lightCulling: mode } });
+      addPointLight(f, "lamp-a", -2, 1.5, 0);
+      addPointLight(f, "lamp-b", 2, 1.5, 1, 4, 25);
+      addPointLight(f, "lamp-c", 0, 2.5, -2, 8, 5);
+      f.renderer.renderScene(f.scene);
+      expect(f.mock.errors, mode).toEqual([]);
+      const grid = bufferOf(f, "cluster.grid");
+      const s = { ...f.renderer.stats };
+      const result = f.renderer.clusterBuildInfo!;
+      const listBase = ClusterGridBlock.field("indices", "storage").offset >> 2;
+      const indices = [...grid.u32.subarray(listBase, listBase + 4 * MAX_LIGHTS_PER_CLUSTER)];
+      const writes = f.mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "cluster.grid");
+      const dispatches = f.mock.commandLog.filter((e) => e.type === "dispatch");
+      return { f, s, result, indices, writes, dispatches, passes: labels(f), graphPasses: [...f.renderer.passNames], flags: frameFlags(f) };
+    };
+
+    const cpu = await scene("cpu");
+    const gpu = await scene("gpu");
+
+    // Same frame, same grid, same everything a reader of `stats` can see — the file that produced the
+    // lists is the only difference.
+    expect(cpu.s.clusterFill).toBe("cpu");
+    expect(gpu.s.clusterFill).toBe("gpu");
+    // Everything but the fill's own bookkeeping: the pass list carries the assignment pass, and
+    // `clusterFill` names which half ran.
+    const strip = (s: Renderer["stats"]) => {
+      const { clusterFill, passes, ...rest } = s;
+      return rest;
+    };
+    expect(strip(gpu.s)).toEqual(strip(cpu.s));
+    expect(gpu.result).toEqual(cpu.result);
+    expect(gpu.s.clusterIndices).toBeGreaterThan(0);
+    expect(gpu.s.clustersUsed).toBeGreaterThan(0);
+    expect(gpu.flags & 32).toBe(32);
+
+    // The CPU path uploads the counts and the list prefix; the GPU path uploads the counts only, and
+    // the device gets one pass that writes every list the counts describe.
+    expect(cpu.writes).toHaveLength(2);
+    expect(gpu.writes).toHaveLength(1);
+    expect(gpu.writes[0]!.size).toBe(CLUSTER_COUNT * 4);
+    expect(cpu.indices.some((v) => v !== 0)).toBe(true);
+    expect(gpu.indices.every((v) => v === 0)).toBe(true); // nothing wrote it: the pass is the writer
+    // The graph names the pass; the compute pass inside it is the one the device sees.
+    expect(gpu.graphPasses).toContain("forge.lights.assign");
+    expect(cpu.graphPasses).not.toContain("forge.lights.assign");
+    expect(gpu.passes).toContain("lights.assign");
+    expect(cpu.passes).not.toContain("lights.assign");
+    expect(cpu.dispatches).toEqual([]);
+    // One dispatch per frame, in whole workgroups over the grid (12 x 256 = 3072 clusters).
+    expect(gpu.dispatches).toEqual([expect.objectContaining({ label: "lights.assign", x: CLUSTER_COUNT / 256, y: 1, z: 1 })]);
+    // The ranges the shader reads: the CPU's light count and the packed keys, uploaded once per
+    // clustered frame (the CPU path has no such buffer at all).
+    const rangeWrites = (f: Fixture) =>
+      f.mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "lights.ranges").map((e) => e["size"] as number);
+    expect(rangeWrites(cpu.f)).toEqual([]);
+    const entry = ClusterRangeBlock.field("entries", "storage");
+    const keyBase = entry.offset >> 2;
+    const stride = entry.stride! >> 2;
+    const influenceSlot = ClusterRangeEntry.field("influence", "storage").offset >> 2;
+    expect(rangeWrites(gpu.f)).toEqual([entry.offset + gpu.s.clusteredLights * entry.stride!]);
+    const ranges = bufferOf(gpu.f, "lights.ranges");
+    expect(ranges.u32[0]).toBe(gpu.s.clusteredLights);
+    for (let i = 0; i < gpu.s.clusteredLights; i++) {
+      // Live: the light reaches at least one cluster. (A light that reaches nothing packs to zero.)
+      expect(ranges.u32[keyBase + i * stride]! >>> 24, `key ${i}`).toBe(1);
+      expect(ranges.f32[keyBase + i * stride + influenceSlot]!).toBeGreaterThan(0);
+    }
+
+    // A frame that did not cluster records no assignment pass at all: the pass belongs to the frame
+    // that fills a grid, the way forge.ssao belongs to a frame that computes SSAO. The frame it did
+    // not cluster must not be read against the last clustered frame's grid either.
+    const off = gpu.f;
+    const before = off.mock.commandLog.length;
+    off.scene.settings.clusteredLighting = false;
+    off.renderer.renderScene(off.scene);
+    expect(off.mock.errors).toEqual([]);
+    expect(off.renderer.stats.clusterFill).toBe("none");
+    expect(labels(off)).not.toContain("forge.lights.assign");
+    expect(off.renderer.passNames).not.toContain("forge.lights.assign");
+    expect(off.mock.commandLog.slice(before).filter((e) => e["buffer"] === "lights.ranges")).toEqual([]);
+    expect(off.mock.commandLog.slice(before).filter((e) => e.type === "dispatch")).toEqual([]);
+
+    // Switching back mid-run returns to the CPU fill; the lists are the CPU's again on the next frame,
+    // and the culler's scratch is released with the renderer (the fixture's dispose asserts that).
+    off.scene.settings.clusteredLighting = true;
+    off.renderer.lightCulling = "cpu";
+    off.renderer.renderScene(off.scene);
+    expect(off.renderer.stats.clusterFill).toBe("cpu");
+    expect(off.renderer.passNames).not.toContain("forge.lights.assign");
+    // The CPU fill reproduces the GPU path's grid from the same scene, index count included.
+    expect(off.renderer.stats.clusterIndices).toBe(gpu.s.clusterIndices);
+    expect(off.renderer.stats.clustersUsed).toBe(gpu.s.clustersUsed);
+    expect(bufferOf(off, "cluster.grid").u32.some((v) => v !== 0)).toBe(true);
+
+    // And a round trip back to the GPU fill has to bring the pass *with* it. Switching to "cpu"
+    // releases the culler's device resources; the renderer must not keep the released culler, because
+    // a disposed `GpuLightCuller.record` returns without adding `forge.lights.assign` — the frame would
+    // then render with no fill at all, reading whatever index blocks the last upload left behind (a
+    // grid describing some other frame's lights). That is the bug the real-WebGPU gate caught on the
+    // many-light rig, where the stale lists clipped light off a band of the frame; on the mock it is
+    // visible as the missing pass.
+    const beforeBack = off.mock.commandLog.length;
+    off.renderer.lightCulling = "gpu";
+    off.renderer.renderScene(off.scene);
+    expect(off.renderer.stats.clusterFill).toBe("gpu");
+    expect(off.renderer.passNames).toContain("forge.lights.assign");
+    expect(off.mock.commandLog.slice(beforeBack).filter((e) => e.type === "dispatch")).toEqual([
+      expect.objectContaining({ label: "lights.assign", x: CLUSTER_COUNT / 256, y: 1, z: 1 }),
+    ]);
+    expect(off.mock.errors).toEqual([]);
+
+    await cpu.f.dispose();
+    await gpu.f.dispose();
   });
 });

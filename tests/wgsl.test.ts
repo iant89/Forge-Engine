@@ -35,6 +35,7 @@ import {
   WGSL_RESERVED_WORDS,
   arrayOf,
   f32,
+  mixedOperatorIssues,
   ofStruct,
   preprocessWgsl,
   reservedWordIssues,
@@ -257,11 +258,11 @@ describe("clustered lighting structs (Phase 13.3)", () => {
 
   it("sizes both storage blocks from the grid constants, with nothing hardcoded", () => {
     expect(ClusterLightBlock.byteSize("storage")).toBe(16 + MAX_CLUSTERED_LIGHTS * LightUniforms.byteSize("storage"));
-    expect(ClusterGridBlock.byteSize("storage")).toBe(CLUSTER_COUNT * 8 + CLUSTER_INDEX_CAPACITY * 4);
+    expect(ClusterGridBlock.byteSize("storage")).toBe(CLUSTER_COUNT * 4 + CLUSTER_INDEX_CAPACITY * 4);
     // The grid is far past the 64 KiB uniform binding limit, which is why it is storage-bound; the
     // light block is storage too, so one binding style covers both and neither can grow into a limit.
     expect(ClusterGridBlock.byteSize("storage")).toBeGreaterThan(64 * 1024);
-    expect(Object.keys(RENDERING_STORAGE_STRUCTS).sort()).toEqual(["ClusterGridBlock", "ClusterLightBlock"]);
+    expect(Object.keys(RENDERING_STORAGE_STRUCTS).sort()).toEqual(["ClusterGridBlock", "ClusterLightBlock", "ClusterRangeBlock", "ClusterRangeEntry"]);
     // The per-cluster quantisation is small and read every fragment: that one is a uniform.
     expect(ClusterUniforms.byteSize("uniform")).toBe(48);
     expect(RENDERING_STRUCTS.ClusterUniforms).toBe(ClusterUniforms);
@@ -336,5 +337,75 @@ struct Varyings { @builtin(position) @invariant clipPos: vec4<f32> };
     }
     expect(WGSL_RESERVED_WORDS).toContain("meta");
     expect(new Set(WGSL_RESERVED_WORDS).size).toBe(WGSL_RESERVED_WORDS.length); // no duplicates
+  });
+});
+
+describe("validateWgsl rejects mixed relational and bitwise operators", () => {
+  // The Phase 13.4 assignment shader generated its coverage test from RANGE_KEY_BITS and paired a
+  // comparison with a generated mask: `slice < (key >> 14u) & 31u`. WGSL forbids mixing a relational
+  // operator with a bitwise one without parentheses, Tint rejects the module at createShaderModule,
+  // and every frame failed to submit with "Invalid ComputePipeline" — while the mock device recorded
+  // the pass, check:wgsl was structurally green and 561 unit tests passed. Only the browser gate saw
+  // it, so the rule now lives here (and `LIGHT_CULL_SHADER` is parenthesised because of it).
+  const mixed = (expr: string) =>
+    ["@workgroup_size(64) @compute fn cs() {", `  if (${expr}) {`, "    return;", "  }", "}"].join("\n");
+
+  it("flags the generated-decode shape, at the line it is on", () => {
+    const issues = mixedOperatorIssues(mixed("slice < (key >> 14u) & 31u"));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.kind).toBe("semantics");
+    expect(issues[0]!.line).toBe(2);
+    expect(issues[0]!.message).toContain("mixed at the same nesting level");
+    expect(validateWgsl(mixed("slice < (key >> 14u) & 31u")).length).toBeGreaterThan(0);
+  });
+
+  it("flags the comparison and the bitwise operator in either order", () => {
+    for (const expr of ["a < b & c", "a & b < c", "tileX >= (k >> 4u) | 3u", "x <= m ^ 1u && y > 0"]) {
+      expect(mixedOperatorIssues(mixed(expr)), expr).toHaveLength(1);
+    }
+  });
+
+  it("accepts the parenthesised form, logical operators, and type parameter lists", () => {
+    const legal = [
+      "slice < ((key >> 14u) & 31u)",
+      "(flags & 32u) != 0u",
+      "a == b || (c & d) != 0u",
+      "a && b > 0", // logical, not bitwise: mixing with a comparison is legal
+      "x < 1.0",
+      "a >> 3u == 0u", // shifts bind tighter than comparisons: Tint accepts this unparenthesised
+      "a == b >> 3u",
+    ];
+    for (const expr of legal) {
+      expect(mixedOperatorIssues(mixed(expr)), expr).toEqual([]);
+      expect(validateWgsl(mixed(expr)), expr).toEqual([]);
+    }
+    // Type parameter lists read as a shift to a character-level scan; every shipped shader is full of
+    // them, so a rule that flagged them would fail the gate on all of them.
+    const generics = `
+struct P { v: vec3<f32>, c: vec4<f32> };
+@group(0) @binding(0) var<storage, read_write> trails: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> indirect: array<atomic<u32>>;
+@workgroup_size(64) @compute fn cs() {
+  let h = (1u ^ (2u >> 16u)) * 3u;
+  if (h > 4u) {
+    trails[0] = vec4<f32>(0.0);
+  }
+}`;
+    expect(mixedOperatorIssues(generics)).toEqual([]);
+    expect(validateWgsl(generics)).toEqual([]);
+  });
+
+  it("does not treat a return arrow as a comparison", () => {
+    const source = `
+fn f(key: u32) -> bool {
+  return (key >> 4u) > 1u && (key & 3u) == 0u;
+}
+@workgroup_size(64) @compute fn cs() {
+  if (f(1u)) {
+    return;
+  }
+}`;
+    expect(mixedOperatorIssues(source)).toEqual([]);
+    expect(validateWgsl(source)).toEqual([]);
   });
 });

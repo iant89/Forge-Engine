@@ -262,10 +262,35 @@ const keepLuma = (key) =>
           const luma = new Float32Array(c.width * c.height);
           for (let i = 0, p = 0; i < d.length; i += 4, p++) luma[p] = (d[i] + d[i + 1] + d[i + 2]) / 3;
           (window.__gateLuma ??= {})[key] = luma;
+          // The channels too: luma can hide a hue change at the same brightness, which is what "a
+          // different light survived the per-cluster cap" looks like when the lamps are colour-coded.
+          (window.__gateRgb ??= {})[key] = d.slice(0);
           resolve(luma.length);
         });
       }),
     key,
+  );
+
+/**
+ * Per-pixel, per-channel comparison of two kept frames: how many pixels differ from `a` to `b` in any
+ * of red, green or blue by more than one level, and by how much at the worst pixel.
+ */
+const compareRgb = (a, b) =>
+  page.evaluate(
+    ([a, b]) => {
+      const A = window.__gateRgb[a];
+      const B = window.__gateRgb[b];
+      let max = 0;
+      let differing = 0;
+      for (let i = 0; i < A.length; i += 4) {
+        let worst = 0;
+        for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(B[i + c] - A[i + c]));
+        if (worst > 1) differing++;
+        if (worst > max) max = worst;
+      }
+      return { pixels: A.length / 4, max, differing };
+    },
+    [a, b],
   );
 
 /** Per-pixel comparison of two kept frames: pixels that got darker / brighter from `a` to `b` by more than one level. */
@@ -478,7 +503,10 @@ try {
     window.__forge.setSsao(true);
   });
   const prepassDiff = await compareLuma("ssao-off", "prepass-off");
-  await page.evaluate(() => delete window.__gateLuma);
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
   console.log(`prepass on vs off (ssao off): max luma diff ${prepassDiff.max.toFixed(2)}, ${prepassDiff.darker + prepassDiff.brighter} px beyond 1 level; passes off=${noPrepassStats.renderPasses.length}`);
   if (noPrepassStats.renderPasses.includes("forge.prepass") || noPrepassStats.render.depthPrepass) throw new Error("the depth prepass still ran with it disabled");
   if (prepassDiff.darker + prepassDiff.brighter > 0) {
@@ -497,6 +525,11 @@ try {
   //  2. Past 16 lights the cluster path must carry all of them while the uniform path truncates — and
   //     report the truncation instead of letting 24 lamps vanish without a trace.
   await settle(); // the prepass A/B above re-enabled SSAO and the prepass without waiting for a frame
+  // Clustering on/off is an A/B of what the fragment stage reads, so it is run with the fill that adds
+  // no pass of its own (Phase 13.4's GPU fill is checked on its own below, where it must move nothing
+  // either). This keeps 13.3's claim literal: clustering is a data change, not a structural one.
+  await page.evaluate(() => window.__forge.setLightCulling("cpu"));
+  await settle();
   await keepLuma("clustered-on");
   const clusteredOn = (await page.evaluate(() => window.__forge.stats())).render;
   await page.evaluate(() => window.__forge.setClusteredLighting(false));
@@ -525,6 +558,28 @@ try {
     );
   }
 
+  // The rig below is the production path — a device filling its own grid — so it runs on the GPU fill
+  // (what `auto` resolves to where there is a device to run it on). The fills' own A/B comes later,
+  // where both arms are taken from the same scene, one after the other.
+  //
+  // The switch above is the round trip that matters, and it is checked before anything reads a pixel:
+  // "cpu" releases the culler's device resources, and every check below assumes the frame got a
+  // working fill back. A culler kept after its dispose drops `forge.lights.assign` *silently*
+  // (`Renderer.lightCulling`), and then nothing refills the grid: each frame would shade its lights
+  // through index blocks left over from an earlier scene, which is exactly the shape the many-light
+  // A/B below is looking for — but the honest failure is here, where the cause is.
+  await page.evaluate(() => window.__forge.setLightCulling("gpu"));
+  await settle();
+  const fillHandover = await page.evaluate(() => ({
+    pass: window.__forge.renderPasses().includes("forge.lights.assign"),
+    fill: window.__forge.stats().render.clusterFill,
+  }));
+  console.log(`fill handover: cpu → gpu fill, forge.lights.assign ${fillHandover.pass ? "back in the frame" : "MISSING"} (fill=${fillHandover.fill})`);
+  if (fillHandover.fill !== "gpu") throw new Error(`the fill did not switch back: the renderer reports "${fillHandover.fill}"`);
+  if (!fillHandover.pass) {
+    throw new Error("switching the fill back to \"gpu\" did not put forge.lights.assign back in the frame — the grid would keep whatever index blocks the last upload left on the device");
+  }
+
   // The many-light rig: 36 static lamps, so the scene holds 40 — two and a half times what the fixed
   // list could carry. Clustering must deliver every one; the uniform path must truncate, say so, and
   // leave the frame visibly short of the light the same scene has when nothing is dropped.
@@ -543,7 +598,10 @@ try {
     window.__forge.setStressLights(0);
   });
   await settle();
-  await page.evaluate(() => delete window.__gateLuma);
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
   const restoredLights = (await page.evaluate(() => window.__forge.stats())).render;
   console.log(
     `many lights: ${manyClustered.lights} in the scene → clustered ${manyClustered.clusteredLights} over ${manyClustered.clustersUsed} clusters ` +
@@ -578,6 +636,127 @@ try {
   }
   if (!clusteredButton.restored) throw new Error("a second click on Clustered did not turn it back on");
   console.log(`clustered button: active=${clusteredButton.before} → click → active=${clusteredButton.after.pressed}, setting=${clusteredButton.after.setting} → click → restored=${clusteredButton.restored}`);
+
+  // The two fills of one grid (Phase 13.4). The counting pass is shared — the CPU counts, the counts
+  // are what the fragment stage indexes its lists with — so the only thing that can differ is the
+  // *fill*: the shader's coverage walk, its eviction rule, its sorted output and its index arithmetic.
+  // Every one of those moves pixels, so an identical picture is the claim, and identical stats are the
+  // second half of it: a path that needed a readback to report the grid would report last frame's.
+  await page.evaluate(() => window.__forge.setLightCulling("cpu"));
+  await settle();
+  await keepLuma("fill-cpu");
+  const cpuFillStats = await page.evaluate(() => window.__forge.stats());
+  const cpuFill = cpuFillStats.render;
+  await page.evaluate(() => window.__forge.setLightCulling("gpu"));
+  await settle();
+  await keepLuma("fill-gpu");
+  const gpuFillStats = await page.evaluate(() => window.__forge.stats());
+  const gpuFill = gpuFillStats.render;
+  const fillDiff = await compareLuma("fill-gpu", "fill-cpu");
+  const fillPasses = cpuFillStats.renderPasses.filter((n) => !gpuFillStats.renderPasses.includes(n));
+  const gpuExtra = gpuFillStats.renderPasses.filter((n) => !cpuFillStats.renderPasses.includes(n));
+  const gridFields = ["clusteredLights", "clustersUsed", "clusterIndices", "maxLightsPerCluster", "lightsDropped"];
+  const gpuArmHasPass = gpuFillStats.renderPasses.includes("forge.lights.assign");
+  const cpuArmHasPass = cpuFillStats.renderPasses.includes("forge.lights.assign");
+  console.log(
+    `cluster fill: cpu vs gpu over the fixture — ${gpuFill.clusteredLights} lights, ${gpuFill.clusterIndices} indices, ` +
+      `max luma diff ${fillDiff.max.toFixed(2)} / ${fillDiff.darker + fillDiff.brighter} px beyond 1 level; ` +
+      `gpu adds pass ${gpuExtra.join(",") || "(none)"}; cpu-only passes ${fillPasses.join(",") || "(none)"}; ` +
+      `forge.lights.assign: gpu arm ${gpuArmHasPass ? "yes" : "NO"}, cpu arm ${cpuArmHasPass ? "YES" : "no"}`,
+  );
+  // Who fills the grid is a property of the frame, and it is checkable without pixels: the arm that
+  // reports "gpu" has to be the arm whose frame carries the pass. Both arms filling (or neither) would
+  // make the picture comparison above meaningless — two frames neither of which the arm's own path drew.
+  if (!gpuArmHasPass || cpuArmHasPass) {
+    throw new Error(
+      `the fill's ownership is wrong: the gpu arm ${gpuArmHasPass ? "has" : "lacks"} forge.lights.assign and the cpu arm ${cpuArmHasPass ? "has" : "lacks"} it`,
+    );
+  }
+  if (cpuFill.clusterFill !== "cpu" || gpuFill.clusterFill !== "gpu") {
+    throw new Error(`the fill modes did not switch: cpu arm says "${cpuFill.clusterFill}", gpu arm says "${gpuFill.clusterFill}"`);
+  }
+  for (const field of gridFields) {
+    if (cpuFill[field] !== gpuFill[field]) {
+      throw new Error(`the GPU fill reported a different grid than the CPU fill: ${field} ${JSON.stringify(cpuFill[field])} vs ${JSON.stringify(gpuFill[field])}`);
+    }
+  }
+  if (fillDiff.darker + fillDiff.brighter > 0) {
+    throw new Error(
+      `the GPU fill changed the picture over the fixture: ${fillDiff.darker + fillDiff.brighter} px differ by up to ${fillDiff.max.toFixed(1)} luma levels — ` +
+        `the shader is not writing the lists the CPU fill writes`,
+    );
+  }
+  if (gpuExtra.length !== 1 || gpuExtra[0] !== "forge.lights.assign") {
+    throw new Error(`the GPU fill should add exactly the assignment pass, not ${gpuExtra.join(",") || "(nothing)"}`);
+  }
+  if (fillPasses.length !== 0) throw new Error(`the GPU fill dropped ${fillPasses.join(",")} from the frame`);
+
+  // Past the per-cluster cap: 40 lamps stacked into one small ball, so the fill has to evict the eight
+  // least influential of them. This is the one path the spread-out rig never reaches, and the one where
+  // a transcription error in the shader (the wrong minimum, the wrong comparison, light order lost
+  // after an eviction) keeps 32 lamps but *different* ones — visible here as colour-coded pools of
+  // light that should not have moved. The channels are compared, not just luma, because the kept lamps
+  // differ in hue as much as in brightness.
+  await page.evaluate(() => window.__forge.setLightCulling("cpu"));
+  await page.evaluate(() => window.__forge.setStressLights(40, true));
+  await settle();
+  const stackedCpu = (await page.evaluate(() => window.__forge.stats())).render;
+  await keepLuma("stacked-cpu");
+  await page.evaluate(() => window.__forge.setLightCulling("gpu"));
+  await settle();
+  const stackedGpu = (await page.evaluate(() => window.__forge.stats())).render;
+  await keepLuma("stacked-gpu");
+  const stackedRgb = await compareRgb("stacked-gpu", "stacked-cpu");
+  const stackedLuma = await compareLuma("stacked-gpu", "stacked-cpu");
+  // ... and the rig has to be visible, or comparing two black frames would pass the check above.
+  // `compareLuma(a, b)` counts pixels *b* brighter than *a*, so the idle capture is the "a" here: the
+  // rig is what adds light (the reverse order reports the rig's own pools as `darker`, which reads as a
+  // product failure that is not there).
+  const stackedVsIdle = await compareLuma("fill-cpu", "stacked-cpu");
+  console.log(
+    `stacked rig: ${stackedCpu.lights} lights → ${stackedCpu.clusteredLights} clustered, cap ${stackedCpu.maxLightsPerCluster}, dropped ${stackedCpu.lightsDropped}; ` +
+      `cpu vs gpu fills ${stackedRgb.differing} px differ (max channel ${stackedRgb.max}), luma ${stackedLuma.darker + stackedLuma.brighter} px, ` +
+      `rig lights ${stackedVsIdle.brighter} px brighter than without it`,
+  );
+  if (!stackedCpu.lightsDropped || !stackedGpu.lightsDropped) {
+    throw new Error(`the stacked rig did not overfill a cluster (dropped: cpu=${stackedCpu.lightsDropped}, gpu=${stackedGpu.lightsDropped})`);
+  }
+  if (stackedGpu.maxLightsPerCluster !== 32) throw new Error(`the stacked rig's fullest cluster holds ${stackedGpu.maxLightsPerCluster} lights, expected the 32-per-cluster cap`);
+  if (stackedGpu.clusteredLights !== stackedGpu.lights - 1) throw new Error(`the stacked rig left lights out of the grid: ${stackedGpu.clusteredLights} of ${stackedGpu.lights}`);
+  if (stackedVsIdle.brighter < 200) {
+    throw new Error(
+      `the stacked rig lit only ${stackedVsIdle.brighter} px, too few to tell the two fills apart ` +
+        `(${stackedVsIdle.darker} px darker — the fixture's own lights are dimmer than the rig's)`,
+    );
+  }
+  // The rig can only add light: its lamps are far below the fixture's own lights in influence, so the
+  // eviction must never trade one of those away for a lamp. This is the same pair the many-light rig
+  // asserts (brighter > 0, darker == 0), and it is what makes the two pixel checks above meaningful.
+  if (stackedVsIdle.darker > 0) {
+    throw new Error(
+      `the stacked rig removed light: ${stackedVsIdle.darker} px darker with 40 lamps added (max ${stackedVsIdle.max.toFixed(1)} levels) — ` +
+        "the per-cluster cap evicted a light it should have kept",
+    );
+  }
+  if (stackedRgb.differing > 0) {
+    throw new Error(
+      `the two fills kept different lights past the per-cluster cap: ${stackedRgb.differing} px differ by up to ${stackedRgb.max} levels — ` +
+        `the shader's eviction does not match the CPU fill's`,
+    );
+  }
+  await page.evaluate(() => {
+    window.__forge.setStressLights(0);
+    window.__forge.setLightCulling("auto");
+  });
+  await settle();
+  const restoredFill = await page.evaluate(() => ({ mode: window.__forge.lightCulling(), stats: window.__forge.stats() }));
+  console.log(`cluster fill restored: mode ${restoredFill.mode}, ${restoredFill.stats.render.clusteredLights} clustered lights, no rig`);
+  if (restoredFill.mode !== "gpu") throw new Error(`"auto" did not resolve back to the GPU fill on a device that has one (got "${restoredFill.mode}")`);
+  if (restoredFill.stats.render.clusteredLights !== clusteredOn.clusteredLights) throw new Error("removing the stacked rig did not restore the fixture's local lights");
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
 
   // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
   await page.evaluate(() => window.__forge.setHdr(false));

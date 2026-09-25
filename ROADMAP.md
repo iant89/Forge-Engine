@@ -708,9 +708,37 @@ CURRENT STATE:
 
 13.4 GPU Light Culling
 
-    [ ] Cluster lights on GPU where practical.
+    [x] Cluster lights on GPU where practical. (The *fill* becomes one compute pass,
+        `forge.lights.assign`, first in the frame: one invocation per cluster in 12
+        workgroups of 256, reading the frame's packed ranges (`ClusterRangeBlock`,
+        2 KB) and the grid's counts, writing the index lists — at most `counts[c]`
+        entries per cluster, so a wrong count trims a list instead of spilling into
+        the next one. `prepare` and `count` stay on the CPU because their output is
+        needed exactly and immediately (the fragment stage indexes with `counts`,
+        `stats` reports them, `lightsDropped` is a correctness signal) and because
+        neither grows with coverage; nothing is read back, so `clustersUsed`,
+        `clusterIndices`, `maxLightsPerCluster` and `lightsDropped` are the CPU's own
+        numbers for the same frame. `assignClustersOnCpu` is the shader's twin and
+        tests/lightCulling.test.ts pins it byte for byte (evictions included);
+        `RendererOptions.lightCulling` = auto|cpu|gpu, `stats.clusterFill`, demo
+        `?lightculling=cpu|gpu` + HUD. docs/RENDERING.md §4c; tests/lightCulling.test.ts
+        (11), tests/frame.test.ts (round trip), check:browser — the two fills give an
+        identical picture and identical grid stats on one frozen scene, the pass is in
+        the gpu arm's frame and not the cpu arm's, and the many-light frame is strictly
+        brighter than the truncated uniform path with no pixel darker. The generated
+        range decode is parenthesised (`((key >> shift) & mask)u`): Tint rejects `<`
+        mixed with `&` at parse time, which invalidated every pipeline on the device
+        while every CPU gate stayed green, so `validateWgsl` now fails on that shape.)
 
-    [ ] Add light-count stress benchmark.
+    [x] Add light-count stress benchmark. (benchmarks/src/lights.bench.ts, run by
+        `npm run bench` in CI: `prepare`/`count`/`fill` timed per frame over 16/64/256
+        lights on two rigs — the demo's spread shape (~30 clusters per lamp) and a
+        saturating one (every lamp in every cluster). Measured on the dev box: the
+        spread rig's fill goes 922 -> 7,749 list entries in 0.01 -> 0.50 ms, the
+        saturating rig reaches the 98,304-entry grid (3072 clusters x cap 32) in
+        74.8 ms, while the counting pass stays 0.04-0.09 ms at every light count. The
+        guards are shape checks (fill follows coverage; count does not; the worst case
+        is under a second) so a slow runner cannot turn a correct build red.)
 
 
 13.5 GPU Object Culling

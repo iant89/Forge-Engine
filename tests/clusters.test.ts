@@ -28,6 +28,7 @@ import {
   Mat4,
   Vec3,
   clusterSliceFor,
+  coversKey,
   spotBoundingSphere,
   type ClusterCameraParams,
   type ClusterLightSource,
@@ -87,7 +88,9 @@ describe("cluster grid", () => {
     expect(CLUSTER_TILES_Y).toBe(8);
     expect(CLUSTER_SLICES).toBe(24);
     expect(CLUSTER_COUNT).toBe(CLUSTER_TILES_X * CLUSTER_TILES_Y * CLUSTER_SLICES);
-    expect(new ClusterGrid().clusterOffsets.length).toBe(CLUSTER_COUNT * 2);
+    const grid = new ClusterGrid();
+    expect(grid.counts.length).toBe(CLUSTER_COUNT);
+    expect(grid.indices.length).toBe(CLUSTER_INDEX_CAPACITY);
   });
 
   it("puts a light in every cluster a point within its range looks up (conservation)", () => {
@@ -181,8 +184,8 @@ describe("cluster grid", () => {
     for (let i = 0; i < 40; i++) lights.push(light(((i % 8) - 3.5) * 2.5, 1 + (i % 5), ((i >> 3) - 2) * 3, 7, 5 + i));
     grid.build(lights, camera());
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const start = grid.clusterOffsets[c * 2]!;
-      const n = grid.clusterOffsets[c * 2 + 1]!;
+      const start = c * MAX_LIGHTS_PER_CLUSTER;
+      const n = grid.counts[c]!;
       for (let k = 1; k < n; k++) {
         expect(grid.indices[start + k]!, `cluster ${c} entry ${k}`).toBeGreaterThan(grid.indices[start + k - 1]!);
       }
@@ -238,7 +241,6 @@ describe("cluster grid", () => {
     for (let i = 0; i < MAX_LIGHTS_PER_CLUSTER + 8; i++) lights.push(light(0, 1, 0, 6, 1 + i));
     const result = grid.build(lights, camera());
     expect(result.maxPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
-    expect(result.capPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(result.dropped).toBe(true);
     // The survivors are the brightest, by intensity × colour luma — not the last 32 in list order.
     const centre = clusterOfPoint(camera(), new Vec3(0, 1, 0), result.far);
@@ -258,17 +260,18 @@ describe("cluster grid", () => {
     const result = grid.build(lights, camera());
     expect(CLUSTER_INDEX_CAPACITY).toBe(CLUSTER_COUNT * MAX_LIGHTS_PER_CLUSTER);
     expect(result.clustersUsed).toBe(CLUSTER_COUNT);
-    expect(result.capPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(result.indexCount).toBe(CLUSTER_INDEX_CAPACITY); // the worst case fits, exactly
     expect(result.dropped).toBe(true);
-    // The offsets are a prefix sum of the counts, and every count respects the cap.
-    let offset = 0;
+    // Every cluster owns its MAX_LIGHTS_PER_CLUSTER slots, fills them to the cap and no further, and
+    // the blocks are the whole list: the cap is the stride, so nothing can be lost to the buffer.
+    let full = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(grid.clusterOffsets[c * 2]).toBe(offset);
-      expect(grid.clusterOffsets[c * 2 + 1]!).toBeLessThanOrEqual(result.capPerCluster);
-      offset += grid.clusterOffsets[c * 2 + 1]!;
+      const n = grid.counts[c]!;
+      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
+      full += n;
     }
-    expect(offset).toBe(result.indexCount);
+    expect(full).toBe(result.indexCount);
+    expect(result.maxCluster).toBe(CLUSTER_COUNT - 1);
   });
 
   it("truncates at MAX_CLUSTERED_LIGHTS and reports what it was asked for", () => {
@@ -288,7 +291,7 @@ describe("cluster grid", () => {
     expect(empty).toMatchObject({ requested: 0, lights: 0, live: 0, clustersUsed: 0, indexCount: 0, maxPerCluster: 0 });
     grid.build([light(0, 1, 0)], camera());
     expect(grid.build([], camera()).clustersUsed).toBe(0);
-    for (let c = 0; c < CLUSTER_COUNT; c++) expect(grid.clusterOffsets[c * 2 + 1]).toBe(0);
+    for (let c = 0; c < CLUSTER_COUNT; c++) expect(grid.counts[c]).toBe(0);
   });
 
   it("is deterministic and allocation-free: the same input builds the same bytes twice", () => {
@@ -299,15 +302,15 @@ describe("cluster grid", () => {
     const ra = a.build(lights, params);
     const rb = b.build(lights, params);
     expect(ra).toEqual(rb);
-    expect([...a.clusterOffsets]).toEqual([...b.clusterOffsets]);
-    expect([...a.indices.subarray(0, ra.indexCount)]).toEqual([...b.indices.subarray(0, rb.indexCount)]);
+    expect([...a.counts]).toEqual([...b.counts]);
+    expect([...a.indices]).toEqual([...b.indices]);
     // Rebuilding the same grid does not drift (a stale cursor would show up here).
-    const offsetsBefore = [...a.clusterOffsets];
-    const indicesBefore = [...a.indices.subarray(0, ra.indexCount)];
+    const countsBefore = [...a.counts];
+    const indicesBefore = [...a.indices];
     const again = a.build(lights, params);
     expect(again).toEqual(ra);
-    expect([...a.clusterOffsets]).toEqual(offsetsBefore);
-    expect([...a.indices.subarray(0, again.indexCount)]).toEqual(indicesBefore);
+    expect([...a.counts]).toEqual(countsBefore);
+    expect([...a.indices]).toEqual(indicesBefore);
   });
 
   it("degenerate input does not throw or produce NaN geometry", () => {
@@ -316,8 +319,8 @@ describe("cluster grid", () => {
     expect(Number.isFinite(result.far)).toBe(true);
     expect(result.indexCount).toBeGreaterThanOrEqual(0);
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(Number.isFinite(grid.clusterOffsets[c * 2]!)).toBe(true);
-      expect(grid.clusterOffsets[c * 2 + 1]!).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
+      expect(Number.isFinite(grid.counts[c]!)).toBe(true);
+      expect(grid.counts[c]!).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
     }
     // A zero/near-zero range still lands in the cluster that contains it.
     expect(grid.build([light(0, 1, 0, 0)], camera()).live).toBe(1);
@@ -365,5 +368,90 @@ describe("clusterSliceFor", () => {
     const boundary = (s: number) => NEAR * Math.exp((s / CLUSTER_SLICES) * Math.log(60 / NEAR));
     expect(boundary(1) - boundary(0)).toBeLessThan(boundary(CLUSTER_SLICES - 1) - boundary(CLUSTER_SLICES - 2));
     expect(clusterSliceFor(boundary(12) * 1.001, NEAR, 60)).toBe(12);
+  });
+});
+
+describe("the ranges the GPU fill reads (Phase 13.4)", () => {
+  // `packRanges` turns the prepared ranges into one u32 per light, and `coversKey` decodes it — the
+  // same decode `lightCulling.ts` transcribes into WGSL. The packed key is the only thing that
+  // crosses from TypeScript into the shader, so it is pinned here against the coverage the CPU fill
+  // actually walks: if the two ever disagree about which clusters a light reaches, the GPU path would
+  // light a surface differently and no picture of the CPU path would show it.
+  const scenes: Array<[string, ClusterLightSource[]]> = [
+    ["one lamp", [light(0, 1, 0)]],
+    ["scattered lamps", [light(0, 1, 0, 4), light(-4, 2, 3, 5), light(5, 0.5, -2, 8), light(1.5, 3, 6, 3, 40)]],
+    ["a light reaching the whole grid", [light(0, 1, 20, 400)]],
+    [
+      "spots and off-frame lights",
+      [
+        { x: 0, y: 2, z: 5, range: 20, spot: true, dirX: 0, dirY: -1, dirZ: 0, outerCone: 0.6, intensity: 30, colorLuma: 1 },
+        light(200, 2, 5),
+        light(0, 2, -100, 5),
+      ],
+    ],
+    [
+      "a saturated rig",
+      Array.from({ length: MAX_CLUSTERED_LIGHTS }, (_, i) => light((i % 8) - 3.5, 1 + (i % 5), ((i >> 3) % 8) - 4, 9, 5 + i)),
+    ],
+  ];
+
+  for (const [name, lights] of scenes) {
+    it(`decode to exactly the coverage the fill walks: ${name}`, () => {
+      const grid = new ClusterGrid();
+      const ranges = grid.prepare(lights, camera(), lights.length);
+      const result = grid.rasterize(ranges);
+      const packed = new Uint32Array(MAX_CLUSTERED_LIGHTS);
+      grid.packRanges(packed, ranges);
+
+      // Sum the decoded keys the way the fragment stage's cluster lookup would.
+      const covering = new Uint32Array(CLUSTER_COUNT);
+      for (let c = 0; c < CLUSTER_COUNT; c++) {
+        const tileX = c % CLUSTER_TILES_X;
+        const row = (c / CLUSTER_TILES_X) | 0;
+        const tileY = row % CLUSTER_TILES_Y;
+        const slice = (row / CLUSTER_TILES_Y) | 0;
+        for (let i = 0; i < ranges.lights; i++) if (coversKey(packed[i]!, tileX, tileY, slice)) covering[c]! += 1;
+      }
+
+      let saturated = 0;
+      for (let c = 0; c < CLUSTER_COUNT; c++) {
+        const decoded = covering[c]!;
+        // The counting pass is the decoded coverage, capped: that is what makes the counts the CPU
+        // uploads the counts the shader's lists are bounded by.
+        expect(grid.counts[c], `cluster ${c} count`).toBe(Math.min(decoded, MAX_LIGHTS_PER_CLUSTER));
+        if (decoded <= MAX_LIGHTS_PER_CLUSTER) {
+          // Below the cap there is no eviction, so the list *is* the coverage, in light order.
+          const expected: number[] = [];
+          for (let i = 0; i < ranges.lights; i++) {
+            const tileX = c % CLUSTER_TILES_X;
+            const row = (c / CLUSTER_TILES_X) | 0;
+            if (coversKey(packed[i]!, tileX, row % CLUSTER_TILES_Y, (row / CLUSTER_TILES_Y) | 0)) expected.push(i);
+          }
+          expect([...grid.lightsOf(c)], `cluster ${c} list`).toEqual(expected);
+        } else {
+          saturated++;
+        }
+      }
+      // The saturated rig must actually saturate something, or the cap path is not covered here.
+      if (name === "a saturated rig") expect(saturated).toBeGreaterThan(0);
+      expect(result.indexCount).toBe([...grid.counts].reduce((a, b) => a + b, 0));
+      expect(result.clustersUsed).toBe([...grid.counts].filter((n) => n > 0).length);
+      expect(result.maxPerCluster).toBe(Math.max(...grid.counts));
+      expect(result.dropped).toBe(saturated > 0);
+    });
+  }
+
+  it("packs a light that reaches no cluster to a key no cluster matches", () => {
+    const grid = new ClusterGrid();
+    const ranges = grid.prepare([light(0, 1, -100, 5), light(0, 1, 0)], camera(), 2);
+    const packed = new Uint32Array(MAX_CLUSTERED_LIGHTS);
+    grid.packRanges(packed, ranges);
+    expect(packed[0]).toBe(0);
+    for (let c = 0; c < CLUSTER_COUNT; c += 97) {
+      const tileX = c % CLUSTER_TILES_X;
+      const row = (c / CLUSTER_TILES_X) | 0;
+      expect(coversKey(packed[0]!, tileX, row % CLUSTER_TILES_Y, (row / CLUSTER_TILES_Y) | 0)).toBe(false);
+    }
+    expect(packed[1]).not.toBe(0);
   });
 });

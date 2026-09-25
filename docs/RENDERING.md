@@ -42,7 +42,7 @@ options:
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
 | `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
-| `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | **adds no pass.** Local (point/spot) lights are indexed on the CPU into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b. |
+| `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | adds `forge.lights.assign` — one compute pass, **first** in the frame — when the fill runs on the device (`RendererOptions.lightCulling`: `"auto"`/`"gpu"`; `"auto"` resolves to `"cpu"` on the mock), and **no pass** on the CPU fill. The local (point/spot) lights are indexed into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b–4c. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 | `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
 | `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, a perspective camera, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
@@ -236,8 +236,9 @@ stage walks only the list of the cluster it lands in, so the cost follows the li
 instead of the lights in the scene. Directional lights are never clustered: they reach every pixel, so
 there is nothing to cull, and they stay in the small uniform `LightBlock` where the cascade caster's
 `shadowIndex` lives. Clustering is a *data* change and not a pass — the graph is identical with it on or
-off (§1) — and it lifts the frame's light cap from `MAX_LIGHTS_PER_FRAME` = 16 to `MAX_CLUSTERED_LIGHTS`
-= 256 local lights.
+off (§1) *on the CPU fill*; the device fill (§4c, the default away from the mock) adds the
+`forge.lights.assign` compute pass — and it lifts the frame's light cap from `MAX_LIGHTS_PER_FRAME` = 16
+to `MAX_CLUSTERED_LIGHTS` = 256 local lights.
 
 **Engaging.** `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !==
 false` (`EngineConfig.clusteredLighting`, which the minimal and low profiles turn off), a perspective
@@ -278,20 +279,88 @@ buffer ran out would be a light dropped for a reason nobody can see in the scene
 
 **Buffers.** Group 0 bindings 6–8, created once and never re-created, so the frame bind group stays
 stable: `clusters` (`ClusterUniforms`, 48 B, uniform), `clusterLights` (`ClusterLightBlock`: a count and
-`array<LightUniforms, 256>`, 20 496 B, read-only storage) and `clusterGrid` (`ClusterGridBlock`: 6 144
-u32 of (offset, count) pairs, then the index list — 417 792 B, read-only storage). ≈ 428 KB resident
-from the first frame, clustered or not. Per clustered frame only the used prefixes go up: all 24 KB of
-offsets (any cluster's count can change) and the index list up to `stats.clusterIndices` — 43 KB for the
-demo's 40-light rig.
+`array<LightUniforms, 256>`, 20 496 B, read-only storage) and `clusterGrid` (`ClusterGridBlock`: one
+count per cluster in `counts` — 3 072 u32 — then the fixed-stride index list `indices`,
+`CLUSTER_COUNT × MAX_LIGHTS_PER_CLUSTER` = 98 304 u32; 405 504 B, read-only storage). ≈ 416 KB resident
+from the first frame, clustered or not. Per clustered frame the CPU uploads the whole `counts` array
+(12 KB: any cluster's count can change) and, on the CPU fill only, the index list's used prefix. The
+device fill (§4c) uploads 4 B of ranges plus (key, influence) per light instead, and never the lists.
 
 **Why it is pixel-identical below the old cap.** Both light loops call the same `lightContribution()` in
 `shaders/standard.ts` — one definition, two call sites, pinned by `tests/wgsl.test.ts` — and a fragment
 outside a light's range adds exactly `+0.0` on the uniform path while the clustered path simply does not
 list it. `check:browser` proves the result on real WebGPU: the PBR fixture's four lights give a
-bit-identical frame with clustering on and off (0 px differ by even one luma level, same 18 passes), and
-with the demo's 36-lamp rig (40 lights) the clustered frame is strictly brighter — 88 057 of the
-921 600 px, none darker — while the uniform list truncates at 16 and reports `lightsDropped`. The demo's
-**Clustered** and **+36 lamps** buttons drive both halves.
+bit-identical frame with clustering on and off (0 px differ by even one luma level, same passes), and
+with the demo's 36-lamp rig (40 lights) the clustered frame is strictly brighter — every lamp the grid
+lists adds light the truncated uniform list cannot, and **nothing gets darker** — while the uniform list
+truncates at 16 and reports `lightsDropped`. The demo's **Clustered** and **+36 lamps** buttons drive
+both halves.
+
+## 4c. GPU light culling (Phase 13.4)
+
+The cluster build (§4b) is three stages, and they do not scale the same way. `prepare` is O(lights): one
+bounding sphere, the near/far/off-frame culls, one tile and slice extent per light. `count` is
+O(lights × slices + clusters): a per-slice difference plane, so a light sweeping the whole grid costs
+the same four corner writes as a light in one tile. The **fill** is O(coverage): every (cluster, light)
+cell a light's ranges cover is considered and the lists written. `benchmarks/src/lights.bench.ts`
+measures the three: the demo-shaped rig (256 lamps, ~30 clusters each) fills 7 749 list entries in
+~0.5 ms, and a saturating rig (256 lamps, every cluster) fills the 98 304-entry grid — 3 072 clusters ×
+the 32-entry cap — in ~75 ms, against ~0.1 ms for the same frames' counting pass. 75 ms is a whole
+frame's budget on the CPU, and it is the case this phase exists for: the fill moves to a compute pass,
+and `prepare` and `count` stay where they are.
+
+**Why the fill and not the rest.** `count`'s output is needed *exactly and immediately*: the fragment
+stage indexes its lists with those counts, `stats` reports the same numbers, and `lightsDropped` is a
+correctness signal rather than a hint — reading them back from a device would cost a frame of lag or a
+stall. The fill alone can be handed over: it writes only `indices`, whose *lengths* the CPU already
+knows. `prepare` is O(lights) with no coverage term at all.
+
+**Nothing is read back.** `clustersUsed`, `clusterIndices`, `maxLightsPerCluster` and `lightsDropped`
+are functions of `counts` alone, so the CPU computes them before the dispatch is even recorded and the
+GPU path reports the same numbers, for the same frame, with no staging buffer, no `mapAsync` and no
+lag. `tests/frame.test.ts` pins that the two fills' `stats` are equal field for field (bar which half
+ran), and `check:browser` re-checks it on a real device.
+
+**The pass.** `forge.lights.assign` runs first in the frame — the shadow and prepass passes never read
+the grid, but `forge.main`'s fragment stage does — one invocation per cluster in 12 workgroups of 256.
+It reads the frame's packed ranges (`ClusterRangeBlock`: a light count and up to 256 (key, influence)
+entries, 2 052 B) and the grid's own `counts`, and writes `indices`, at most `counts[c]` entries per
+cluster: a wrong count trims a list rather than spilling into the next cluster's block. The shader is a
+transcription of the CPU fill and not a variant of it — same light order, same eviction rank
+(intensity × Rec.709 luma of the colour, ties keeping the earlier light), same re-sort afterwards.
+`assignClustersOnCpu` in `rendering/lightCulling.ts` is that algorithm in TypeScript, and
+`tests/lightCulling.test.ts` pins the shader's twin against `ClusterGrid.rasterize` byte for byte,
+including the saturated lists where the eviction path runs.
+
+**Packed ranges.** Each light's prepared tile/slice extents cross to the shader as one u32
+(`RANGE_KEY_BITS`: 4+4 bits of tile X, 3+3 of tile Y, 5+5 of slice, one live bit), written by
+`packRanges` and decoded by the shader's `covers()`. The layout lives in one place, so the packer and
+the unpacker cannot drift; `tests/clusters.test.ts` checks that a key carries exactly the coverage the
+CPU fill walks. WGSL needs the parentheses around a shift mixed with a comparison — `slice < (key >> 14u)
+& 31u` is a Tint *parse* error ("mixing `<` and `&` requires parenthesis"), and it invalidates every
+pipeline built from the module, not just that expression — so the generated decode is
+`((key >> shift) & mask)u`, and `validateWgsl` now fails on that shape (`mixedOperatorIssues`, pinned by
+`tests/wgsl.test.ts`). The browser gate was the only gate that could see it; now the CPU gates can too.
+
+**Choosing a fill, and switching.** `RendererOptions.lightCulling` is `"auto"` (default), `"cpu"` or
+`"gpu"`; `"auto"` resolves to `"cpu"` on the mock device (it records compute passes but executes no WGSL)
+and to `"gpu"` everywhere else. `stats.clusterFill` names which half ran, and the demo's
+`?lightculling=cpu|gpu` plus its HUD line drive it. Switching mid-run is safe — both fills write the same
+counts and the same lists in the same order, so a frame filled on the CPU and the next filled on the GPU
+describe the same grid — but switching to `"cpu"` **releases** the culler's device resources, and the
+renderer has to drop its reference along with them. A `GpuLightCuller` that has been disposed returns
+from `record()` without adding the pass, so keeping the released culler would leave every later frame
+with *no* fill at all and shade its lights through whatever index blocks the last upload left on the
+device — a grid describing another frame's lights. `Renderer.lightCulling` documents the trap,
+`tests/frame.test.ts` pins the round trip, and `check:browser` asserts it where it happened: after the
+fill goes `cpu` → `gpu`, `forge.lights.assign` must be back in the frame's pass list.
+
+**What the gate proves on a real device.** `check:browser` runs the PBR fixture on the GPU fill and A/Bs
+the two fills over one frozen scene: identical pictures (max luma diff 0.00, 0 px beyond one level),
+identical grid stats, the pass present in the gpu arm and absent in the cpu arm. It then adds the 36-lamp
+rig: the clustered frame is strictly brighter than the truncated uniform path and none of its pixels is
+darker, `lightsDropped` is false with 39 local lights in the grid and true on the uniform list, and the
+two fills still produce the same picture on the frame the device filled itself.
 
 ## 5. Conventions
 
@@ -384,8 +453,11 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   hidden behind nearer geometry do not count, detail below ~2 px is lost, the kernel is clamped to
   10 % of the frame height (close-ups get a smaller effective radius), and it scales ambient light
   only — a scene lit mostly by direct light shows little of it.
-* Clustering is built on the CPU (§4b) and uploaded every frame — 3 072 clusters, an offset array and a
-  flat index list. Moving the assignment into a compute pass is roadmap 13.4.
+* The cluster *fill* runs on the device by default (§4c, `forge.lights.assign`), but `prepare` and
+  `count` stay on the CPU: the counts are needed exactly and immediately (the fragment stage indexes
+  with them, `stats` reports them), and the two stages are O(lights) and O(lights × slices + clusters)
+  — they do not grow with how much of the grid the lights cover. The lists are still ~98 304 u32 of
+  device buffer, resident whether or not a scene clusters.
 * Local lights are capped at 256 per frame (`MAX_CLUSTERED_LIGHTS`) and each cluster at 32
   (`MAX_LIGHTS_PER_CLUSTER`), where the least influential lose; `stats.lightsDropped` reports either
   case. The cluster buffers cost ≈ 428 KB of VRAM from the first frame whether or not a scene clusters.

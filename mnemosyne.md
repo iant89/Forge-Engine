@@ -268,3 +268,58 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   32-per-cluster cap and fail the gate's "nothing dropped" assertion legitimately. Measured with 40
   lights on SwiftShader: 39 clustered, 3072 clusters used, largest list 21, 10 863 indices (~43 KB
   uploaded), 88 036 px brighter than the truncated uniform path and none darker.
+
+### 2026-09-25 — Phase 13.4 GPU light assignment (the device fills the cluster grid)
+
+- **The cluster build splits into three stages with three different cost curves.** `prepare` is
+  O(lights), `count` is O(lights × slices + clusters) — it writes a per-slice difference plane, so a
+  lamp sweeping the whole grid costs the same four corner writes as a lamp in one tile — and the *fill*
+  (the lists) is O(coverage). Only the fill was worth moving: `benchmarks/src/lights.bench.ts` measures
+  the demo-shaped rig (256 lamps, ~30 clusters each) at ~0.5 ms / 7 749 entries, and a saturating rig
+  (256 lamps, every cluster) at ~50–75 ms / 98 304 entries, against 0.04–0.09 ms for the *same frames'*
+  counting pass. "Move the whole build to the GPU" is not the win — the counting pass is already flat.
+- **`count` stays on the CPU on purpose: its output is needed exactly and immediately.** The fragment
+  stage indexes with `counts`, `stats` reports the same numbers, and `lightsDropped` is a correctness
+  signal, so reading them back from a device would cost a frame of lag or a stall. Nothing in the GPU
+  path is read back at all: `clustersUsed` / `clusterIndices` / `maxLightsPerCluster` / `lightsDropped`
+  are functions of `counts` alone, so both fills report the same numbers for the same frame.
+- **BUG (found only by the real-WebGPU gate; fixed in `Renderer.lightCulling`): a disposed culler left
+  referenced silently drops the pass.** `set lightCulling("cpu")` disposed the `GpuLightCuller` but kept
+  the field, and `GpuLightCuller.record()` starts with `if (this.disposed) return;` — so after a
+  cpu → gpu round trip the `??=` in `recordLightFill` reused the dead culler, `forge.lights.assign`
+  vanished from the frame (19 passes → 18) while `stats.clusterFill` still said `"gpu"`, and the grid was
+  never refilled: every later frame shaded its lights through whatever index blocks the last upload left
+  on the device. On the demo's 36-lamp rig that showed up as ~110k pixels *darker* than the uniform path
+  (light clipped off in tile-shaped bands) — which read like a fill/mapping bug and cost a day of
+  audits (counts/ranges diff, ground-witness probe, on-device fill-vs-CPU byte diff, shader diff — all
+  clean) before `/tmp/bisect-probe.mjs` poisoned the device grid one toggle at a time and showed the
+  first `assign false`. **Lesson: when a rendered picture disagrees with the CPU model, first assert the
+  pass that writes the data is still in the frame list.** The fix is `this.lightCuller = null` beside the
+  `dispose()`; `tests/frame.test.ts` pins the round trip (fails at :995 without it), `check:browser`
+  asserts the pass is back before it reads any pixel.
+- **Two gate assertions exist because of that bug, and both are cheap:** after `setLightCulling("gpu")`
+  the frame must list `forge.lights.assign` and report `clusterFill === "gpu"`; and in the fill A/B the
+  gpu arm must have the pass while the cpu arm must not (otherwise "identical picture" could compare two
+  frames neither arm drew with its own path).
+- **Tint rejects a shift mixed with a comparison without parentheses** (`x < key >> 14u & 31u`): it is a
+  *parse* error that invalidates every pipeline built from the module, and the mock, `check:wgsl` and
+  the unit tests all stay green because none of them compile WGSL. The generated range decode is
+  `((key >> shift) & mask)u` and `validateWgsl` (`mixedOperatorIssues` in `gpu/shaderCache.ts`) now
+  fails on that shape on the CPU side. See the 13.3 entry above for the reserved-word version of this
+  lesson: **anything the shader compiler can reject must get a CPU-side rule, or the browser gate is the
+  only thing between it and a black canvas.**
+
+### 2026-09-25 — a gate section that had never run (stacked rig, and how it lied)
+
+- **The stacked-rig section of `check:browser` failed for a day's worth of runs with a message about the
+  product, and the bug was in the gate.** `compareLuma(a, b)` counts *b* brighter than *a*; the section
+  asked for `compareLuma("stacked-cpu", "fill-cpu").brighter` — i.e. it measured how much brighter the
+  *idle* fixture is than the rig — and threw `the stacked rig lit only 0 px` while the rig was lighting
+  2,414 px (the same 2,414 it was counting as `darker`). The section was unreachable until 13.4's culler
+  bug was fixed, because the many-light assertion upstream threw first on every run: **a check that has
+  never executed is not a check.** When writing a pixel comparison, write the direction in the variable
+  name (`rigVsIdle`) and assert the *shape* of the expected change (the rig adds light, never removes it)
+  — that pairing is what catches a reversed argument instantly instead of after a five-minute gate run.
+- The quick way to settle "is the rig visible": a probe that grabs the canvas pixels directly and diffs
+  against idle (2,458 px brighter, max 157, at 40 lamps; 2,022 at 16 lamps) — five minutes end to end and
+  it made the direction bug obvious on the first run.

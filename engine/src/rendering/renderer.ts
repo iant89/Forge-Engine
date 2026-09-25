@@ -34,7 +34,8 @@ import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
-import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, MAX_CLUSTERED_LIGHTS, type ClusterBuildResult, type ClusterLightSource } from "./clusters.js";
+import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
+import { GpuLightCuller } from "./lightCulling.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
@@ -77,6 +78,16 @@ export interface RendererOptions {
    * every fragment walks the same ≤16 lights, and lights past that cap are dropped.
    */
   clusteredLighting?: boolean;
+  /**
+   * Which half of the cluster grid build runs on the GPU (Phase 13.4). `"auto"` (the default) uses
+   * the compute fill whenever the device can execute it — the range pass and the counting pass stay
+   * on the CPU either way, because the fragment stage's list lengths and everything `stats` reports
+   * about the grid have to be exact and immediate, and the counting pass is coverage-independent.
+   * `"cpu"` forces the reference fill, which is what the mock device and the A/B in
+   * `tools/browser-check.mjs` use; `"gpu"` forces the compute fill even on the mock (which records
+   * and validates the pass without executing it).
+   */
+  lightCulling?: "auto" | "cpu" | "gpu";
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -128,6 +139,11 @@ export interface RenderStats {
   maxLightsPerCluster: number;
   /** True when a light was dropped: a cluster over its cap, or more than `MAX_CLUSTERED_LIGHTS` locals. */
   lightsDropped: boolean;
+  /**
+   * Which rasteriser wrote this frame's cluster lists: `"none"` when clustering did not run, `"cpu"`
+   * for `rendering/clusters.ts`'s fill, `"gpu"` for the compute fill in `rendering/lightCulling.ts`.
+   */
+  clusterFill: "none" | "cpu" | "gpu";
   /** Render-graph outcome for the frame. */
   passes: number;
   culledPasses: number;
@@ -202,7 +218,7 @@ const HALF_SKY_KEY = 0x7bef;
  * struct change cannot silently desynchronise the uploads (docs/RENDERING.md §4b).
  */
 const CLUSTER_LIGHTS_FIELD = ClusterLightBlock.field("lights", "storage");
-const CLUSTER_OFFSETS_FIELD = ClusterGridBlock.field("clusterOffsets", "storage");
+const CLUSTER_COUNTS_FIELD = ClusterGridBlock.field("counts", "storage");
 const CLUSTER_INDICES_FIELD = ClusterGridBlock.field("indices", "storage");
 
 /** Sun direction when neither the sky settings nor a directional light provide one. */
@@ -256,6 +272,7 @@ export class Renderer implements RenderFrameContext {
     clusterIndices: 0,
     maxLightsPerCluster: 0,
     lightsDropped: false,
+    clusterFill: "none",
     passes: 0,
     culledPasses: 0,
     transientTextures: 0,
@@ -318,6 +335,12 @@ export class Renderer implements RenderFrameContext {
   private readonly clusterLightSources: ClusterLightSource[] = [];
   /** What the last build did (drives the `cluster*` stats and the HUD's light line). */
   private clusterBuild: ClusterBuildResult | null = null;
+  /** This frame's prepared ranges, when clustering ran (`null` otherwise): the GPU fill's input. */
+  private clusterRanges: ClusterRanges | null = null;
+  /** Which half of the fill runs on the GPU; `auto` is resolved once, at construction. */
+  private cullingMode: "cpu" | "gpu";
+  /** The compute fill's resources, created on the first frame that uses it. */
+  private lightCuller: GpuLightCuller | null = null;
   /** Shared sun/ambient/horizon tints for the cloud deck and the water surface. */
   private readonly skyLight = new SkyLightingCache();
   /** The frame's effective sky settings: `scene.settings.sky` with the per-frame override merged. */
@@ -441,6 +464,11 @@ export class Renderer implements RenderFrameContext {
   ) {
     this.pipelines = new PipelineFactory(device);
     this.graph = new RenderGraph(device);
+    // The mock device validates and records compute passes but cannot execute WGSL, so an
+    // unqualified "auto" stays on the CPU there: the grid is a shader input, and a grid nothing
+    // wrote is worse than a grid the CPU wrote.
+    const mode = options.lightCulling ?? "auto";
+    this.cullingMode = mode === "auto" ? (device.isMock ? "cpu" : "gpu") : mode;
     this.deviceLostUnsub = device.onLost(() => {
       this.lost = true;
     });
@@ -461,6 +489,35 @@ export class Renderer implements RenderFrameContext {
   /** Names of the passes the render graph executed last frame, in order. */
   get passNames(): readonly string[] {
     return this.graph.stats.executed;
+  }
+
+  /**
+   * Which half of the cluster grid build runs on the GPU; `"auto"` resolves once against the device
+   * (the mock cannot execute compute). Switching is safe at any point: both fills write the same
+   * counts, the same lists in the same order, so a frame filled on the CPU and the next one filled
+   * on the GPU describe the same grid.
+   *
+   * Switching to `"cpu"` releases the culler's device resources, and dropping the reference with them
+   * is load-bearing: `GpuLightCuller.record` returns immediately once disposed, so a culler kept in
+   * the field after its dispose would silently stop adding `forge.lights.assign` to the frame — the
+   * grid would never be refilled, and the fragment stage would read whatever index blocks the last
+   * upload happened to leave on the device (a grid that describes some *other* frame's lights). The
+   * `??=` in `recordLightFill` is what makes a fresh culler after a round trip; it can only do that
+   * if the disposed one is gone.
+   */
+  get lightCulling(): "cpu" | "gpu" {
+    return this.cullingMode;
+  }
+
+  set lightCulling(mode: "auto" | "cpu" | "gpu") {
+    const resolved = mode === "auto" ? (this.device.isMock ? "cpu" : "gpu") : mode;
+    if (resolved === this.cullingMode) return;
+    this.cullingMode = resolved;
+    if (resolved === "cpu") {
+      this.lightCuller?.dispose();
+      this.lightCuller = null;
+    }
+    this.invalidate();
   }
 
   /** Call after a canvas resize; frame-sized transients are re-planned by the graph next frame. */
@@ -640,6 +697,10 @@ export class Renderer implements RenderFrameContext {
     const g = this.graph;
     g.begin();
     this.postSlots = 0;
+    // The grid's lists, before anything reads them (`forge.main`'s fragment stage does, and the
+    // shadow passes do not). Compute rides the graph as a side-effect pass: no attachments, no
+    // transient resources, and never dead-culled.
+    this.recordLightFill(g);
     const swapchain = g.importTexture("swapchain", swapTexture);
     const clear = this.clearColorFor(scene, frame.hdr);
 
@@ -1088,6 +1149,7 @@ export class Renderer implements RenderFrameContext {
     s.clusterIndices = 0;
     s.maxLightsPerCluster = 0;
     s.lightsDropped = false;
+    s.clusterFill = "none";
     s.passes = 0;
     s.culledPasses = 0;
     s.transientTextures = 0;
@@ -1096,6 +1158,7 @@ export class Renderer implements RenderFrameContext {
     s.texturesCreated = 0;
     this.instanceCount = 0;
     this.clusterBuild = null;
+    this.clusterRanges = null;
   }
 
   private clearFrame(scene: Scene): void {
@@ -1438,22 +1501,12 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * Build and upload this frame's cluster grid (Phase 13.3, docs/RENDERING.md §4b).
-   *
-   * `writeLights` has already staged the local lights; this hands them to the grid, uploads the two
-   * arrays it wrote plus the quantisation the fragment stage must agree with, and reports the build.
-   * The slice span is the builder's own (the deepest live light, not the camera's far plane), so the
-   * shader and the CPU cannot disagree about where a slice boundary falls.
+   * The quantisation the fragment stage looks its cluster up with. The GPU rasteriser
+   * (`rendering/lightCulling.ts`) reads the same block, so both paths quantise identically by
+   * construction: `sliceScale` comes from the range pass's own slice span, never from the camera's
+   * far plane.
    */
-  private buildClusters(camera: Camera, renderWidth: number, renderHeight: number): void {
-    const locals = this.clusterLightCount;
-    const near = Math.max(1e-4, camera.near);
-    const build = this.clusterGrid.build(
-      this.clusterLightSources,
-      { view: this.view, proj00: this.projection.m[0]!, proj11: this.projection.m[5]!, near, far: camera.far },
-      locals,
-    );
-    this.clusterBuild = build;
+  private writeClusterUniforms(build: ClusterBuildResult, locals: number, near: number, renderWidth: number, renderHeight: number): void {
     const a = this.clusterAccessor;
     a.setVec2("invExtent", 1 / Math.max(1, renderWidth), 1 / Math.max(1, renderHeight));
     a.setVec2("gridScale", CLUSTER_TILES_X, CLUSTER_TILES_Y);
@@ -1462,17 +1515,51 @@ export class Renderer implements RenderFrameContext {
     a.setF32("sliceScale", CLUSTER_SLICES / Math.max(1e-6, Math.log(Math.max(build.far, near * 1.001) / near)));
     a.setF32("slices", CLUSTER_SLICES);
     a.setI32("lightCount", locals);
-    a.setI32("maxPerCluster", build.capPerCluster);
+    a.setI32("stride", MAX_LIGHTS_PER_CLUSTER);
+  }
+
+  /**
+   * Build and upload this frame's cluster grid (Phase 13.3, 13.4; docs/RENDERING.md §4b–4c).
+   *
+   * `writeLights` has already staged the local lights. The range pass and the counting pass always
+   * run here — the counting pass is coverage-independent, and the counts are what the fragment stage
+   * indexes its lists with *and* what the frame reports, so they have to be exact before anything is
+   * drawn. The fill is the coverage-proportional half: `clusterGrid.rasterize` runs it on the CPU, or
+   * `forge.lights.assign` (recorded in `buildFrame`) runs it on the GPU, in which case the light
+   * indices are never uploaded at all.
+   *
+   * The slice span is the builder's own (the deepest live light, not the camera's far plane), so the
+   * shader and the CPU cannot disagree about where a slice boundary falls.
+   */
+  private buildClusters(camera: Camera, renderWidth: number, renderHeight: number): void {
+    const locals = this.clusterLightCount;
+    const near = Math.max(1e-4, camera.near);
+    const ranges = this.clusterGrid.prepare(
+      this.clusterLightSources,
+      { view: this.view, proj00: this.projection.m[0]!, proj11: this.projection.m[5]!, near, far: camera.far },
+      locals,
+    );
+    const gpuFill = this.cullingMode === "gpu";
+    const build = gpuFill ? this.clusterGrid.count(ranges) : this.clusterGrid.rasterize(ranges);
+    this.clusterRanges = ranges;
+    this.clusterBuild = build;
+    this.writeClusterUniforms(build, locals, near, renderWidth, renderHeight);
 
     const q = this.device.device.queue;
     q.writeBuffer(this.clusterBuffer!, 0, gpuSource(this.clusterBytes.bytes.subarray(0, this.clusterBytes.byteLength)));
     // The light records are a fixed-stride array: upload the header plus the records that exist.
     q.writeBuffer(this.clusterLightBuffer!, 0, gpuSource(this.clusterLightBytes.bytes.subarray(0, CLUSTER_LIGHTS_FIELD.offset + locals * CLUSTER_LIGHTS_FIELD.stride!)));
-    // Every cluster's count can change, so the whole offset array goes; the index list only up to what
-    // was written (a full 384 KB upload for a scene with three lamps would be pure waste).
-    q.writeBuffer(this.clusterGridBuffer!, CLUSTER_OFFSETS_FIELD.offset, gpuSource(this.clusterGrid.clusterOffsets));
-    if (build.indexCount > 0) {
-      q.writeBuffer(this.clusterGridBuffer!, CLUSTER_INDICES_FIELD.offset, gpuSource(this.clusterGrid.indices.subarray(0, build.indexCount)));
+    // Every cluster's list length can change (a cluster no light reaches now held a list last frame),
+    // so all of `counts` goes every frame — the CPU's own counts, whichever rasteriser writes the
+    // lists. Only the CPU fill uploads indices: the fixed-stride blocks mean only the prefix a light
+    // can possibly have written — the highest cluster any live light touches — would need uploading
+    // (a full 384 KB for a scene with three lamps), and the compute fill writes them on the device.
+    q.writeBuffer(this.clusterGridBuffer!, CLUSTER_COUNTS_FIELD.offset, gpuSource(this.clusterGrid.counts));
+    if (!gpuFill) {
+      const entries = Math.min(CLUSTER_INDEX_CAPACITY, (build.maxCluster + 1) * MAX_LIGHTS_PER_CLUSTER);
+      if (entries > 0) {
+        q.writeBuffer(this.clusterGridBuffer!, CLUSTER_INDICES_FIELD.offset, gpuSource(this.clusterGrid.indices.subarray(0, entries)));
+      }
     }
 
     const s = this.stats;
@@ -1482,6 +1569,21 @@ export class Renderer implements RenderFrameContext {
     s.clusterIndices = build.indexCount;
     s.maxLightsPerCluster = build.maxPerCluster;
     s.lightsDropped = s.lightsDropped || build.dropped;
+    s.clusterFill = gpuFill ? "gpu" : "cpu";
+  }
+
+  /**
+   * `forge.lights.assign`: the GPU fill (Phase 13.4). Recorded when the renderer owns that half *and*
+   * this frame filled a grid — a setting, not the frame's contents (`clusterRanges` is null on a frame
+   * that did not cluster), the way `forge.ssao` belongs to the frames that compute SSAO. The grid's
+   * counts were staged by `buildClusters` just before, and the shader reads them from the same buffer.
+   */
+  private recordLightFill(graph: RenderGraph): void {
+    if (this.cullingMode !== "gpu") return;
+    const ranges = this.clusterRanges;
+    if (!ranges) return;
+    this.lightCuller ??= new GpuLightCuller(this.device, this.pipelines.shaders);
+    this.lightCuller.record(graph, this.clusterGrid, ranges, this.clusterGridBuffer!, "forge.lights");
   }
 
   private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, size: number, shadowDistance: number): void {
@@ -2123,6 +2225,8 @@ export class Renderer implements RenderFrameContext {
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
+    this.lightCuller?.dispose();
+    this.lightCuller = null;
     for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
