@@ -17,6 +17,12 @@ import { describe, expect, it } from "vitest";
 import {
   CLUSTER_COUNT,
   CLUSTER_SLICES,
+  CULL_FLAG_RECORDS,
+  ObjectCullUniforms,
+  ObjectUniforms,
+  DRAW_RECORD_BYTES,
+  DRAW_RECORD_INSTANCES,
+  DRAW_RECORD_WORDS,
   CullReason,
   CLUSTER_TILES_X,
   CLUSTER_TILES_Y,
@@ -56,7 +62,9 @@ interface Fixture {
   dispose(): Promise<void>;
 }
 
-async function fixture(options: { width?: number; height?: number; renderer?: RendererOptions; extraBoxes?: Vec3[] } = {}): Promise<Fixture> {
+async function fixture(
+  options: { width?: number; height?: number; renderer?: RendererOptions; extraBoxes?: Vec3[]; boxDistance?: number } = {},
+): Promise<Fixture> {
   const device = await GraphicsDevice.create({ forceMock: true });
   device.resize(options.width ?? 320, options.height ?? 180);
   const mock = device.mock;
@@ -92,6 +100,9 @@ async function fixture(options: { width?: number; height?: number; renderer?: Re
     r.geometry = geometries[1]!;
     r.material = materials[1]!;
     r.castShadow = true;
+    // A draw distance the culler enforces on the device: the batch is in the frame (the CPU's own
+    // visibility test said so) and the device is what drops it (Phase 13.5's distance test).
+    if (options.boxDistance !== undefined) r.maxDistance = options.boxDistance;
     scene.world.addComponent(e.id, r);
   }
 
@@ -1066,6 +1077,125 @@ describe("object culling", () => {
     expect(f.mock.errors).toEqual([]);
     expect(f.renderer.passNames).toContain("forge.objects.cull");
     expect(f.mock.commandLog.slice(before).filter((e) => e.type === "dispatch").map((e) => e["label"])).toContain("objects.cull");
+    await f.dispose();
+  });
+
+  it("submits the frame through the culler's records, and a culled batch's draw carries no instances", async () => {
+    const f = await fixture();
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const batches = f.renderer.stats.batches;
+    // The records are one slot per batch, and the slot's stride is the constant the draw loop indexes
+    // with (8 words, so every offset is 16-aligned for `drawIndexedIndirect`).
+    const records = bufferOf(f, "cull.drawRecords");
+    expect(records.size).toBeGreaterThanOrEqual(batches * DRAW_RECORD_BYTES);
+    expect(records.u32[0]).toBeGreaterThan(0); // the batch's index count
+    expect(records.u32[DRAW_RECORD_INSTANCES]).toBe(1); // one instance per batch in this fixture
+    // Every main-pass draw went through a record, and the mock reads the record out of the buffer —
+    // so this is the device-side instance count, not the renderer's intention.
+    // (The shadow and prepass draws are direct, so the claim is the count: `indirectDraws` increments
+    // once per main-pass draw, and the log has that many indirect records read out of the buffer.)
+    const indirect = f.mock.commandLog.filter((e) => e.type === "drawIndexed" && e["indirect"] === true);
+    expect(f.renderer.stats.indirectDraws).toBe(batches);
+    expect(indirect.length).toBe(f.renderer.stats.indirectDraws);
+    expect(indirect.every((e) => e["instanceCount"] === 1)).toBe(true);
+    expect(f.renderer.stats.cullVisible).toBe(batches);
+    expect(f.renderer.stats.cullRecordZeroed).toBe(0);
+
+    // Point the camera at the sky: whatever it can no longer see gets a zero-instance record, and the
+    // compaction list names the batches that survived.
+    const cam = f.scene.findCamera()!;
+    cam.entity.transform.lookAt(new Vec3(0, 200, 0));
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const s = f.renderer.stats;
+    expect(s.cullFrustum).toBeGreaterThan(0);
+    expect(s.cullVisible).toBe(s.batches - s.cullFrustum - s.cullDistance - s.cullOccluded);
+    expect(s.cullRecordZeroed).toBe(s.cullFrustum + s.cullDistance + s.cullOccluded);
+    const after = bufferOf(f, "cull.drawRecords");
+    let zeroed = 0;
+    for (let i = 0; i < s.batches; i++) {
+      if (after.u32[i * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] === 0) zeroed++;
+    }
+    expect(zeroed).toBe(s.cullRecordZeroed);
+    const list = bufferOf(f, "cull.visibleBatches");
+    const listed = [...list.u32.slice(0, s.cullVisible)];
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed.every((index) => index < s.batches)).toBe(true);
+    // Every listed batch is one the records left drawable, and every unlisted one is zeroed: the list
+    // and the records are the same verdict, which is what a consumer of either relies on.
+    for (let i = 0; i < s.batches; i++) {
+      const visible = listed.includes(i);
+      expect(after.u32[i * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] > 0).toBe(visible);
+    }
+    await f.dispose();
+  });
+
+  it("saves the culled batches' vertex work, which the direct path still pays", async () => {
+    // Phase 13.5 collapsed a culled batch's clip position, which still ran the vertex stage for every
+    // instance of it; a zero-instance record is a draw the device does not run at all. Both arms draw
+    // the same frame (check:browser compares the pixels), and this is what one of them does not do.
+    //
+    // The batch here is culled by *distance*, not by the camera: an off-screen caster would have been
+    // marked shadow-only and never reached the main pass, and then the two arms would agree by
+    // accident. A distance-culled batch is in the frame the CPU built and dropped by the device alone.
+    const f = await fixture({ boxDistance: 1 });
+    const beforeIndirect = f.mock.verticesDrawn;
+    f.renderer.renderScene(f.scene);
+    const indirect = { vertices: f.mock.verticesDrawn - beforeIndirect, zeroed: f.renderer.stats.cullRecordZeroed, calls: f.renderer.stats.drawCalls };
+    expect(f.renderer.stats.cullDistance).toBeGreaterThan(0);
+    expect(indirect.zeroed).toBe(f.renderer.stats.cullDistance);
+
+    f.renderer.indirectDraws = false;
+    const beforeDirect = f.mock.verticesDrawn;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const direct = { vertices: f.mock.verticesDrawn - beforeDirect, calls: f.renderer.stats.drawCalls };
+    // The same verdicts and the same issued calls — the difference is the shading the culled batches
+    // no longer pay for, and it is exactly their vertex count (the batch counts travel in the bounds).
+    expect(direct.calls).toBe(indirect.calls);
+    expect(f.renderer.stats.indirectDraws).toBe(0);
+    expect(direct.vertices).toBeGreaterThan(indirect.vertices);
+    // ...and the difference is exactly the culled batches' vertices: their index count (the record's
+    // first word) times their instance count (which rides in the bounds entry, `max.w`). The records
+    // still hold the indirect frame's verdicts: a direct frame uploads none.
+    // The counts come from the per-batch uniform blocks: one 256-byte slot per batch, in batch order
+    // (`reserveObject`), which is the same order the records and the visibility words are in.
+    const uniforms = bufferOf(f, "draw.uniforms");
+    const countWord = ObjectUniforms.offsetOf("instanceCount", "uniform") >> 2;
+    const records = bufferOf(f, "cull.drawRecords").u32;
+    let culledVertices = 0;
+    for (let i = 0; i < f.renderer.stats.batches; i++) {
+      if (records[i * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] !== 0) continue;
+      culledVertices += records[i * DRAW_RECORD_WORDS]! * uniforms.u32[i * 64 + countWord]!;
+    }
+    expect(culledVertices).toBeGreaterThan(0);
+    expect(direct.vertices - indirect.vertices).toBe(culledVertices);
+    await f.dispose();
+  });
+
+  it("writes records only when the frame asks for them", async () => {
+    const f = await fixture({ renderer: { objectCulling: "gpu" } });
+    const flags = () => bufferOf(f, "objects.cull.uniforms").u32[ObjectCullUniforms.offsetOf("flags", "uniform") >> 2]!;
+    f.renderer.renderScene(f.scene);
+    expect(flags() & CULL_FLAG_RECORDS).toBe(CULL_FLAG_RECORDS);
+
+    f.renderer.indirectDraws = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(flags() & CULL_FLAG_RECORDS).toBe(0);
+    expect(f.renderer.stats.indirectDraws).toBe(0);
+    // The direct path still pays for every batch's vertices, which is the whole difference.
+    const writes = bufferOf(f, "cull.drawRecords").writeCount;
+    f.renderer.renderScene(f.scene);
+    expect(bufferOf(f, "cull.drawRecords").writeCount).toBe(writes);
+
+    f.renderer.objectCulling = "cpu";
+    f.renderer.indirectDraws = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    // The twin writes the record words itself, and the frame is submitted through them.
+    expect(f.renderer.stats.indirectDraws).toBeGreaterThan(0);
     await f.dispose();
   });
 

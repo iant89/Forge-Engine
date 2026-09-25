@@ -33,10 +33,19 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
-import { CULL_FLAG_DISTANCE, CULL_FLAG_FRUSTUM, GpuObjectCuller, cullBatchesOnCpu, hizLevelCount } from "./objectCulling.js";
+import {
+  CULL_FLAG_DISTANCE,
+  CULL_FLAG_FRUSTUM,
+  CULL_FLAG_RECORDS,
+  DRAW_RECORD_BYTES,
+  DRAW_RECORD_WORDS,
+  GpuObjectCuller,
+  cullBatchesOnCpu,
+  hizLevelCount,
+} from "./objectCulling.js";
 import type { ObjectCullParams } from "./objectCulling.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
@@ -106,6 +115,21 @@ export interface RendererOptions {
    * depth buffer's pixels) and a render target the pyramid can shrink into.
    */
   occlusionCulling?: boolean;
+  /**
+   * Submit `forge.main`'s draws through the culler's own indirect records (Phase 13.6), one per batch,
+   * whose instance count the cull pass writes (0 for a culled batch). Default `true`.
+   *
+   * This is the other half of the cull: Phase 13.5 collapsed a culled batch's clip position, which
+   * still paid the vertex stage for every instance of it, and only worked for the techniques whose
+   * vertex entry point reads the visibility word. A zero-instance record is a draw the device skips
+   * outright, whatever shades it. The frame uploads the records' static words (the batch's index
+   * window, which only the CPU knows) and the pass overwrites the one word that is a decision.
+   *
+   * `false` keeps the direct path: same verdicts, same picture, `setBindGroup` + `drawIndexed` per
+   * batch, and the visibility word doing the culling in the vertex stage. It exists to be A/B'd
+   * against the records on a real device, which is how `check:browser` proves the two agree.
+   */
+  indirectDraws?: boolean;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -124,6 +148,12 @@ export interface RenderStats {
   cullDistance: number;
   /** Batches it culled as occluded by the prepass depth (HiZ); always 0 on the CPU path. */
   cullOccluded: number;
+  /** Batches the culler kept: the length of its compaction list, of `cullTested`. */
+  cullVisible: number;
+  /** Batches whose indirect draw record was zeroed; 0 when the frame submits direct draws. */
+  cullRecordZeroed: number;
+  /** `forge.main` draws submitted through the culler's indirect records this frame. */
+  indirectDraws: number;
   /** Draw calls issued by the shadow passes (all cascades). */
   shadowsDrawn: number;
   /** Batch × cascade pairs skipped because the batch lay outside that cascade's box. */
@@ -199,6 +229,8 @@ interface Batch {
   indexStart: number;
   depthSort: number;
   objectOffset: number;
+  /** This batch's index in the cull pass's arrays: its visibility word and its draw record. */
+  cullIndex: number;
   /** `Renderable.maxDistance` union over the batch (0 = no limit); the culler's distance test. */
   maxDistance: number;
   /** Render-local union of the instances' bounds (per-cascade and object culling). */
@@ -283,6 +315,9 @@ export class Renderer implements RenderFrameContext {
     cullFrustum: 0,
     cullDistance: 0,
     cullOccluded: 0,
+    cullVisible: 0,
+    cullRecordZeroed: 0,
+    indirectDraws: 0,
     shadowsDrawn: 0,
     shadowsCulled: 0,
     shadowCascades: 0,
@@ -380,7 +415,22 @@ export class Renderer implements RenderFrameContext {
   private visibilityBuffer: GPUBuffer | null = null;
   private visibilityBytes = 0;
   private visibilityWords = new Uint32Array(0);
-  /** `ObjectBatchEntry` data: 8 floats per batch (`min.xyz`, distance limit, `max.xyz`, pad). */
+  /**
+   * The frame's indirect draw records, one 32-byte slot per batch (Phase 13.6). The renderer owns the
+   * staging words and the buffer: it is the half that knows each batch's index window, and the draw
+   * loop is the half that binds them.
+   */
+  private indirectDrawsEnabled: boolean;
+  private drawRecords: GPUBuffer | null = null;
+  private drawRecordBytes = 0;
+  private drawRecordWords = new Uint32Array(0);
+  /**
+   * The culler's compaction list: one slot per visible batch, at most `MAX_CULLED_BATCHES` of them, so
+   * this one is fixed-size. The CPU twin fills the staging array when it decides the frame (the device
+   * pass fills the buffer directly), which is what makes the list assertable on the mock.
+   */
+  private visibleList: { buffer: GPUBuffer; words: Uint32Array } | null = null;
+  /** `ObjectBatchEntry` data: 8 floats per batch (`min.xyz`, distance limit, `max.xyz`, count). */
   private cullBounds = new Float32Array(0);
   /** True when this frame's cull pass gets a depth pyramid to test against. */
   private cullOcclusion = false;
@@ -520,6 +570,7 @@ export class Renderer implements RenderFrameContext {
     const objectMode = options.objectCulling ?? "auto";
     this.objectCullingMode = objectMode === "auto" ? (device.isMock ? "cpu" : "gpu") : objectMode;
     this.occlusionCullingEnabled = options.occlusionCulling !== false;
+    this.indirectDrawsEnabled = options.indirectDraws !== false;
     this.deviceLostUnsub = device.onLost(() => {
       this.lost = true;
     });
@@ -603,6 +654,21 @@ export class Renderer implements RenderFrameContext {
   set occlusionCulling(on: boolean) {
     if (on === this.occlusionCullingEnabled) return;
     this.occlusionCullingEnabled = on;
+    this.invalidate();
+  }
+
+  /**
+   * Whether `forge.main`'s draws go through the culler's indirect records (Phase 13.6). Public for the
+   * same reason the culler switch is: it changes how the frame is submitted, not what it looks like, so
+   * the only way to pin that claim is to A/B the two submissions (`check:browser` does).
+   */
+  get indirectDraws(): boolean {
+    return this.indirectDrawsEnabled;
+  }
+
+  set indirectDraws(on: boolean) {
+    if (on === this.indirectDrawsEnabled) return;
+    this.indirectDrawsEnabled = on;
     this.invalidate();
   }
 
@@ -849,7 +915,7 @@ export class Renderer implements RenderFrameContext {
     // reported through the culler's counters.
     if (this.objectCullingMode === "gpu" && this.batchCount > 0) {
       this.objectCuller ??= new GpuObjectCuller(this.device, this.pipelines.shaders);
-      this.objectCuller.record(g, sceneDepth, this.visibilityBuffer!);
+      this.objectCuller.record(g, sceneDepth, this.visibilityBuffer!, this.drawRecords!, this.ensureVisibleList().buffer);
     }
 
     // SSAO over the prepass depth at half resolution: estimate, then a separable bilateral blur.
@@ -1155,6 +1221,9 @@ export class Renderer implements RenderFrameContext {
 
   private executeMainPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null, ao: RenderGraphHandle | null): void {
     this.syncGraphEpoch();
+    // The culler's records when the frame submits through them (Phase 13.6): the verdict is a word in
+    // the record the device reads, so a culled batch's draw runs nothing at all.
+    const records = this.indirectDrawsEnabled ? this.drawRecords : null;
     const shadowView = shadowAtlas !== null ? ctx.view(shadowAtlas, { dimension: "2d-array" }) : this.ensureShadowFallback();
     const aoView = ao !== null ? ctx.view(ao) : this.ensureAoFallback();
     const pass = ctx.beginRenderPass();
@@ -1185,11 +1254,21 @@ export class Renderer implements RenderFrameContext {
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
-        pass.drawIndexed(b.indexCount, b.count, b.indexStart);
+        if (records) {
+          pass.drawIndexedIndirect(records, b.cullIndex * DRAW_RECORD_BYTES);
+          this.stats.indirectDraws++;
+        } else {
+          pass.drawIndexed(b.indexCount, b.count, b.indexStart);
+        }
+      } else if (records) {
+        pass.drawIndirect(records, b.cullIndex * DRAW_RECORD_BYTES);
+        this.stats.indirectDraws++;
       } else {
         pass.draw(b.indexCount, b.count);
       }
       this.stats.drawCalls++;
+      // Submitted, not executed: a culled batch still *issues* its draw here, with a record that says
+      // zero instances (the device's own visible count is `stats.cullVisible`, one frame late).
       this.stats.triangles += (b.indexCount / 3) * Math.max(1, b.count);
       this.stats.instances += b.count;
     }
@@ -1240,6 +1319,7 @@ export class Renderer implements RenderFrameContext {
     s.underwater = false;
     s.depthPrepass = false;
     s.prepassDraws = 0;
+    s.indirectDraws = 0;
     s.ssao = false;
     s.clusteredLighting = false;
     s.lights = 0;
@@ -1818,6 +1898,7 @@ export class Renderer implements RenderFrameContext {
       b.indexStart = 0;
       b.depthSort = -Vec3.distanceSqBetween(camPos, box.getCenter(this.scratchVec));
       b.objectOffset = 0;
+      b.cullIndex = index;
       b.maxDistance = r.maxDistance;
       b.bounds.setFrom(box.min, box.max);
       if (caster) this.casterBatches++;
@@ -1862,6 +1943,7 @@ export class Renderer implements RenderFrameContext {
         indexStart: 0,
         depthSort: 0,
         objectOffset: 0,
+        cullIndex: 0,
         maxDistance: 0,
         bounds: new AABB(),
       };
@@ -1956,8 +2038,14 @@ export class Renderer implements RenderFrameContext {
   private prepareObjectCulling(camera: Camera, width: number, height: number, prepass: boolean): void {
     const count = this.batchCount;
     this.ensureVisibilityCapacity(count);
+    this.ensureRecordCapacity(count);
     if (this.cullBounds.length < count * 8) this.cullBounds = new Float32Array(Math.max(count * 8, 512));
     const bounds = this.cullBounds;
+    // The records' static half — the batch's index window — is CPU knowledge the device does not have;
+    // word 1 holds the batch's count as the pre-verdict default (a batch the pass never touches, because
+    // it is past the cap or because the pass did not run, must draw). The bounds carry the same count
+    // (`max.w`) so the pass can write it back for the batches it keeps.
+    const records = this.indirectDrawsEnabled ? this.drawRecordWords : null;
     for (let i = 0; i < count; i++) {
       const b = this.batchPool[i]!;
       const base = i * 8;
@@ -1968,7 +2056,17 @@ export class Renderer implements RenderFrameContext {
       bounds[base + 4] = b.bounds.max.x;
       bounds[base + 5] = b.bounds.max.y;
       bounds[base + 6] = b.bounds.max.z;
-      bounds[base + 7] = 0;
+      bounds[base + 7] = b.count;
+      if (!records) continue;
+      const r = i * DRAW_RECORD_WORDS;
+      records[r] = b.indexCount;
+      records[r + 1] = b.count;
+      records[r + 2] = b.geometry.indexBuffer ? b.indexStart : 0;
+      records[r + 3] = 0;
+      records[r + 4] = 0;
+      records[r + 5] = 0;
+      records[r + 6] = 0;
+      records[r + 7] = 0;
     }
     // Occlusion needs three things at once: the device path, the option, and a depth buffer that
     // exists (the prepass) whose projection maps view z into the pixels the pyramid holds. The CPU
@@ -1981,13 +2079,23 @@ export class Renderer implements RenderFrameContext {
     const words = this.visibilityWords;
     words.fill(0, 0, count);
     if (this.objectCullingMode === "cpu") {
-      const stats = cullBatchesOnCpu(bounds.subarray(0, count * 8), count, this.cpuCullParams(camera, width, height), words);
+      const visible = records ? this.ensureVisibleList().words : null;
+      const stats = cullBatchesOnCpu(bounds.subarray(0, count * 8), count, this.cpuCullParams(camera, width, height, records !== null), words, [], {
+        records: records ?? undefined,
+        visible: visible ?? undefined,
+      });
       this.stats.cullTested = stats.tested;
       this.stats.cullFrustum = stats.culledFrustum;
       this.stats.cullDistance = stats.culledDistance;
       this.stats.cullOccluded = 0;
+      this.stats.cullVisible = stats.visible;
+      this.stats.cullRecordZeroed = stats.recordZeroed;
+      if (visible) this.device.device.queue.writeBuffer(this.visibleList!.buffer, 0, gpuSource(visible.subarray(0, Math.max(count, 1))));
     }
     this.device.device.queue.writeBuffer(this.visibilityBuffer!, 0, gpuSource(words.subarray(0, count)));
+    // Only the *decided* word goes up: the pass overwrites it per batch, and the upload is what the
+    // batches past the cap (and a frame whose culler did not run) keep — visible, not stale.
+    if (records) this.device.device.queue.writeBuffer(this.drawRecords!, 0, gpuSource(records.subarray(0, count * DRAW_RECORD_WORDS)));
 
     if (this.objectCullingMode === "cpu") return;
     this.objectCuller ??= new GpuObjectCuller(this.device, this.pipelines.shaders);
@@ -2001,6 +2109,7 @@ export class Renderer implements RenderFrameContext {
       width,
       height,
       occlude: this.cullOcclusion,
+      records: records !== null,
     });
   }
 
@@ -2009,7 +2118,7 @@ export class Renderer implements RenderFrameContext {
    * says "no depth here": the twin has no prepass depth, so it runs the frustum and distance tests
    * and leaves occlusion to the device path.
    */
-  private cpuCullParams(camera: Camera, width: number, height: number): ObjectCullParams {
+  private cpuCullParams(camera: Camera, width: number, height: number, records: boolean): ObjectCullParams {
     return {
       view: this.view.m,
       proj: this.projection.m,
@@ -2019,7 +2128,7 @@ export class Renderer implements RenderFrameContext {
       far: camera.far,
       width,
       height,
-      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE,
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | (records ? CULL_FLAG_RECORDS : 0),
       hizLevels: 0,
     };
   }
@@ -2039,6 +2148,38 @@ export class Renderer implements RenderFrameContext {
     this.drawBindGroup = null;
   }
 
+  /**
+   * The frame's indirect draw records: one 32-byte slot per batch, `STORAGE` (the pass writes the one
+   * word that is a decision) plus `INDIRECT` (the draw loop reads the record back) and `COPY_DST` (the
+   * upload). 256-aligned and grown in 256-byte steps the way the visibility buffer is; the cull group
+   * binds it, so growing has to retire that group and the culler does that itself.
+   */
+  private ensureRecordCapacity(count: number): void {
+    const bytes = Math.max(alignUp(Math.max(count, 1) * DRAW_RECORD_BYTES, 256), 256);
+    if (bytes <= this.drawRecordBytes) return;
+    this.drawRecords?.destroy();
+    this.drawRecords = this.device.device.createBuffer({
+      label: "cull.drawRecords",
+      size: bytes,
+      usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST,
+    });
+    this.drawRecordBytes = bytes;
+    this.drawRecordWords = new Uint32Array(bytes >> 2);
+  }
+
+  /** The compaction list: fixed capacity (`MAX_CULLED_BATCHES` slots), so it is built once. */
+  private ensureVisibleList(): { buffer: GPUBuffer; words: Uint32Array } {
+    this.visibleList ??= {
+      buffer: this.device.device.createBuffer({
+        label: "cull.visibleBatches",
+        size: MAX_CULLED_BATCHES * 4,
+        usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+      }),
+      words: new Uint32Array(MAX_CULLED_BATCHES),
+    };
+    return this.visibleList;
+  }
+
   /** Map the culler's counters back and publish them; the device's numbers lag by a frame or two. */
   private pollObjectCulling(): void {
     if (this.objectCullingMode !== "gpu" || !this.objectCuller) return;
@@ -2048,6 +2189,8 @@ export class Renderer implements RenderFrameContext {
     this.stats.cullFrustum = stats.culledFrustum;
     this.stats.cullDistance = stats.culledDistance;
     this.stats.cullOccluded = stats.culledOccluded;
+    this.stats.cullVisible = stats.visible;
+    this.stats.cullRecordZeroed = stats.recordZeroed;
   }
 
   /** Group 0 of `forge.prepass`: only the per-frame block (the vertex stage's view-projection). */
@@ -2451,6 +2594,12 @@ export class Renderer implements RenderFrameContext {
     this.objectCuller = null;
     this.visibilityBuffer?.destroy();
     this.visibilityBuffer = null;
+    this.drawRecords?.destroy();
+    this.drawRecords = null;
+    this.drawRecordBytes = 0;
+    this.drawRecordWords = new Uint32Array(0);
+    this.visibleList?.buffer.destroy();
+    this.visibleList = null;
     this.visibilityBytes = 0;
     this.visibilityWords = new Uint32Array(0);
     for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();

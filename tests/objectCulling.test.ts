@@ -23,13 +23,18 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { RenderGraphHandle } from "@forge/engine";
 import {
   BufferUsage,
   CULL_FLAG_DISTANCE,
   CULL_FLAG_FRUSTUM,
   CULL_FLAG_OCCLUSION,
+  CULL_FLAG_RECORDS,
   CULL_STATS_BYTES,
   CULL_WORKGROUP,
+  DRAW_RECORD_BYTES,
+  DRAW_RECORD_INSTANCES,
+  DRAW_RECORD_WORDS,
   CullReason,
   Frustum,
   GpuObjectCuller,
@@ -55,6 +60,7 @@ import {
   hizLevelCount,
   hizLevelSize,
   validateWgsl,
+  type ObjectCullOutputs,
   type ObjectCullParams,
 } from "@forge/engine";
 
@@ -86,8 +92,8 @@ function frameParams(overrides: Partial<ObjectCullParams> = {}): ObjectCullParam
   };
 }
 
-/** A bounds array (`ObjectBatchEntry`: min.xyz, distance limit, max.xyz, pad) from box centres. */
-function boundsOf(boxes: readonly { c: Vec3; r: number; limit?: number }[]): Float32Array {
+/** A bounds array (`ObjectBatchEntry`: min.xyz, distance limit, max.xyz, count) from box centres. */
+function boundsOf(boxes: readonly { c: Vec3; r: number; limit?: number; count?: number }[]): Float32Array {
   const out = new Float32Array(boxes.length * 8);
   boxes.forEach((b, i) => {
     const base = i * 8;
@@ -98,6 +104,7 @@ function boundsOf(boxes: readonly { c: Vec3; r: number; limit?: number }[]): Flo
     out[base + 4] = b.c.x + b.r;
     out[base + 5] = b.c.y + b.r;
     out[base + 6] = b.c.z + b.r;
+    out[base + 7] = b.count ?? 1;
   });
   return out;
 }
@@ -241,6 +248,78 @@ describe("cullBatchesOnCpu", () => {
   });
 });
 
+  it("hands the frame the records and the compaction list the pass would write", () => {
+    const params = frameParams({ flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | CULL_FLAG_RECORDS });
+    const boxes = [
+      { c: new Vec3(0, 0, 0), r: 1, count: 3 }, // dead ahead, three instances
+      { c: new Vec3(0, 0, -12), r: 1, count: 2 }, // behind the camera
+      { c: new Vec3(0, 0, -2), r: 1, count: 5, limit: 0.5 }, // 8 m out, allowed 0.5 m
+    ];
+    const words = new Uint32Array(3);
+    const outputs: ObjectCullOutputs = { records: new Uint32Array(3 * DRAW_RECORD_WORDS), visible: new Uint32Array(MAX_CULLED_BATCHES) };
+    const records = outputs.records!;
+    const visibleList = outputs.visible!;
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 3, params, words, [], outputs);
+    expect(stats.tested).toBe(3);
+    expect(stats.culledFrustum).toBe(1);
+    expect(stats.culledDistance).toBe(1);
+    expect(stats.visible).toBe(1);
+    expect(stats.recordZeroed).toBe(2);
+    // Word 1 of each slot is the instance count the draw would run with: the batch's own, or zero for
+    // a batch the tests dropped. The other words belong to the CPU (the batch's index window).
+    expect(records[0 * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES]).toBe(3);
+    expect(records[1 * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES]).toBe(0);
+    expect(records[2 * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES]).toBe(0);
+    // The list holds the survivors, one slot each, in test order, and nothing past the count.
+    expect([...visibleList.slice(0, stats.visible)]).toEqual([0]);
+    expect(visibleList[stats.visible]).toBe(0);
+    // The identity the browser gate asserts on a device: the visible count is what the three culls
+    // left, and the zeroed records are exactly the batches they dropped.
+    expect(stats.visible).toBe(stats.tested - stats.culledFrustum - stats.culledDistance - stats.culledOccluded);
+    expect(stats.recordZeroed).toBe(stats.culledFrustum + stats.culledDistance + stats.culledOccluded);
+  });
+
+  it("leaves the records and the list alone without the records flag", () => {
+    // `CULL_FLAG_RECORDS` is the caller's switch: a frame that submits direct draws has no use for a
+    // record, and the twin has to write exactly what the pass writes — nothing.
+    const boxes = [{ c: new Vec3(0, 0, -12), r: 1, count: 4 }];
+    const records = new Uint32Array(DRAW_RECORD_WORDS).fill(0xdeadbeef);
+    const visibleList = new Uint32Array(MAX_CULLED_BATCHES).fill(0xdeadbeef);
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 1, frameParams(), new Uint32Array(1), [], { records, visible: visibleList });
+    expect(stats.culledFrustum).toBe(1);
+    expect(stats.recordZeroed).toBe(0);
+    expect([...records]).toEqual(new Array(DRAW_RECORD_WORDS).fill(0xdeadbeef));
+    expect(visibleList[0]).toBe(0xdeadbeef);
+  });
+
+  it("keeps one slot per batch and one slot per visible batch when the cap is passed", () => {
+    // A frame past `MAX_CULLED_BATCHES` leaves the extra batches untested — and visible — so they take
+    // list slots and their records keep the count the CPU uploaded. Nothing is written past the cap.
+    const boxes = Array.from({ length: MAX_CULLED_BATCHES + 3 }, (_, i) => ({ c: new Vec3(0, 0, -1 - i * 0.001), r: 0.5, count: 2 }));
+    // Sentinel-filled: what a caller uploaded is what an untested slot must still say afterwards.
+    const records = new Uint32Array((MAX_CULLED_BATCHES + 3) * DRAW_RECORD_WORDS).fill(0xa5);
+    const visibleList = new Uint32Array(MAX_CULLED_BATCHES);
+    const stats = cullBatchesOnCpu(boundsOf(boxes), boxes.length, frameParams({ flags: CULL_FLAG_RECORDS }), new Uint32Array(boxes.length), [], {
+      records,
+      visible: visibleList,
+    });
+    expect(stats.tested).toBe(MAX_CULLED_BATCHES);
+    expect(stats.visible).toBe(MAX_CULLED_BATCHES);
+    expect(visibleList[MAX_CULLED_BATCHES - 1]).toBe(MAX_CULLED_BATCHES - 1);
+    // The three batches past the cap: not in the list, and their record untouched — the renderer
+    // pre-fills every slot with the batch's count, so "untested" stays "draw", never "whatever was
+    // left there" (and the twin writes exactly the slots the pass writes).
+    expect([...visibleList]).not.toContain(MAX_CULLED_BATCHES);
+    for (let i = stats.tested; i < boxes.length; i++) {
+      expect(records[i * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES]).toBe(0xa5);
+    }
+    expect(records[DRAW_RECORD_INSTANCES]).toBe(2);
+    // The record's slot stride is the constant the renderer indexes with: 8 words, 16-aligned.
+    expect(DRAW_RECORD_BYTES).toBe(32);
+    expect(DRAW_RECORD_BYTES % 16).toBe(0);
+    expect(DRAW_RECORD_INSTANCES).toBe(1);
+  });
+
 describe("the HiZ occlusion test", () => {
   const params = (overrides: Partial<ObjectCullParams> = {}) => {
     const base = frameParams({ flags: CULL_FLAG_FRUSTUM | CULL_FLAG_OCCLUSION, ...overrides });
@@ -383,9 +462,13 @@ describe("OBJECT_CULL_SHADER", () => {
       `const CULL_FLAG_FRUSTUM: u32 = ${CULL_FLAG_FRUSTUM}u;`,
       `const CULL_FLAG_DISTANCE: u32 = ${CULL_FLAG_DISTANCE}u;`,
       `const CULL_FLAG_OCCLUSION: u32 = ${CULL_FLAG_OCCLUSION}u;`,
+      `const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;`,
+      `const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;`,
+      `const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;`,
       `const REASON_FRUSTUM: u32 = ${CullReason.Frustum}u;`,
       "fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {",
       "fn planeAt(row: u32) -> vec4<f32> {",
+      "fn cullReasonOf(box: ObjectBatchEntry) -> u32 {",
       "@workgroup_size(CULL_WORKGROUP) @compute fn csCull(",
     ]) {
       expect(OBJECT_CULL_SHADER, text).toContain(text);
@@ -395,15 +478,24 @@ describe("OBJECT_CULL_SHADER", () => {
     expect(OBJECT_CULL_SHADER).toContain(ObjectBatchEntry.toWgsl("storage"));
     expect(OBJECT_CULL_SHADER).toContain(ObjectBatchBlock.toWgsl("storage"));
     expect(OBJECT_CULL_SHADER).toContain(ObjectCullStatsBlock.toWgsl("storage"));
-    // One invocation per batch, one dispatch, and the word starts at "draw" so an early return is
-    // never a stale verdict.
+    // One invocation per batch, one dispatch, and the word is written on every path (a verdict, not a
+    // leftover): the tests agree with the twin about which batches survive, and the pass writes the
+    // word, the counters, the compaction slot and the record from that single verdict.
     expect(OBJECT_CULL_SHADER.match(/@compute/g)).toHaveLength(1);
-    expect(OBJECT_CULL_SHADER).toContain("visibility[index] = REASON_VISIBLE;");
+    expect(OBJECT_CULL_SHADER).toContain("visibility[index] = reason;");
+    expect(OBJECT_CULL_SHADER).toContain("let kept = reason == REASON_VISIBLE;");
     expect(OBJECT_CULL_SHADER).toContain("atomicAdd(&counts.tested, 1u);");
+    expect(OBJECT_CULL_SHADER).toContain("let slot = atomicAdd(&counts.visible, 1u);");
+    expect(OBJECT_CULL_SHADER).toContain("visibleBatches[slot] = index;");
+    // The record's instance count is the batch's own (the bounds' `max.w`) or zero — the two writes a
+    // draw command can carry, from the same verdict that wrote the word.
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word] = u32(box.max.w);");
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word] = 0u;");
+    expect(OBJECT_CULL_SHADER).toContain("atomicAdd(&counts.recordZeroed, 1u);");
     // The pixel row is the negated NDC y (texel row 0 is the top): the mirrored rect is not a
     // one-texel error, it is a rect over the other half of the screen.
     expect(OBJECT_CULL_SHADER).toContain("(0.5 - ndc.y * 0.5) * cull.extent.y");
-    expect(OBJECT_CULL_SHADER.match(/atomicAdd\(&counts\./g)).toHaveLength(5);
+    expect(OBJECT_CULL_SHADER.match(/atomicAdd\(&counts\./g)).toHaveLength(6);
     expect(validateWgsl(OBJECT_CULL_SHADER)).toEqual([]);
     for (const shader of [HIZ_DEPTH_SHADER, HIZ_REDUCE_SHADER]) {
       expect(shader).toContain(`const HIZ_WORKGROUP: u32 = ${HIZ_WORKGROUP}u;`);
@@ -431,13 +523,24 @@ describe("GpuObjectCuller", () => {
       size: MAX_CULLED_BATCHES * 4,
       usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
     });
+    // The frame-level products (Phase 13.6): the records the draw loop reads, and the compaction list.
+    const records = device.device.createBuffer({
+      label: "cull.drawRecords",
+      size: batchCount * DRAW_RECORD_BYTES,
+      usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST,
+    });
+    const visible = device.device.createBuffer({
+      label: "cull.visibleBatches",
+      size: MAX_CULLED_BATCHES * 4,
+      usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+    });
     const culler = new GpuObjectCuller(device, new PipelineFactory(device).shaders);
     const boxes = Array.from({ length: batchCount }, (_, i) => ({ c: new Vec3(0, 0, -5 - i), r: 1, limit: i === 1 ? 2 : 0 }));
     const params = frameParams();
     const view = new Mat4(params.view as never);
     const projection = new Mat4(params.proj as never);
     const viewProj = new Mat4(params.viewProj as never);
-    const prepare = (occlude: boolean) =>
+    const prepare = (occlude: boolean, writeRecords = false) =>
       culler.prepare(boundsOf(boxes), batchCount, {
         view,
         projection,
@@ -448,12 +551,14 @@ describe("GpuObjectCuller", () => {
         width: 64,
         height: 64,
         occlude,
+        records: writeRecords,
       });
-    return { device, mock, graph, visibility, culler, boxes, prepare };
+    const record = (depth: RenderGraphHandle) => culler.record(graph, depth, visibility, records, visible);
+    return { device, mock, graph, visibility, records, visible, culler, boxes, prepare, record };
   }
 
   it("writes the frame block the shader reads, and one bounds entry per batch", async () => {
-    const { device, mock, visibility, culler, prepare } = await setup(3);
+    const { device, mock, visibility, records, visible, culler, prepare } = await setup(3);
     prepare(false);
     const block = [...mock.liveBuffers].find((b) => b.label === "objects.cull.uniforms")!;
     expect(block).toBeDefined();
@@ -477,15 +582,17 @@ describe("GpuObjectCuller", () => {
     expect(boundsF32[11]).toBe(2); // batch 1 carries its limit in the entry
     culler.dispose();
     visibility.destroy();
+    records.destroy();
+    visible.destroy();
     await device.dispose();
   });
 
   it("records one pass, one whole-workgroup dispatch, and a copy of the counters", async () => {
-    const { device, mock, graph, visibility, culler, prepare } = await setup(3);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(3);
     prepare(false);
     graph.begin();
     const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
-    culler.record(graph, depth, visibility);
+    record(depth);
     expect(graph.execute().executed).toEqual(["forge.objects.cull"]);
     expect(mock.errors).toEqual([]);
     const dispatch = mock.commandLog.find((e) => e.type === "dispatch");
@@ -495,11 +602,13 @@ describe("GpuObjectCuller", () => {
     expect(copy).toMatchObject({ size: CULL_STATS_BYTES });
     culler.dispose();
     visibility.destroy();
+    records.destroy();
+    visible.destroy();
     await device.dispose();
   });
 
   it("builds the pyramid and records its passes only when the frame has depth to test against", async () => {
-    const { device, mock, graph, visibility, culler, prepare } = await setup(2);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(2);
     prepare(true);
     graph.begin();
     const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
@@ -512,7 +621,7 @@ describe("GpuObjectCuller", () => {
         pass.end();
       },
     });
-    culler.record(graph, depth, visibility);
+    record(depth);
     const executed = graph.execute().executed;
     expect(executed).toEqual(["test.prepass", "forge.hiz.0", "forge.hiz.1", "forge.hiz.2", "forge.hiz.3", "forge.objects.cull"]);
     expect(mock.errors).toEqual([]);
@@ -531,6 +640,8 @@ describe("GpuObjectCuller", () => {
     expect(new Uint32Array(block.data)[ObjectCullUniforms.offsetOf("flags", "uniform") >> 2]! & CULL_FLAG_OCCLUSION).toBe(CULL_FLAG_OCCLUSION);
     culler.dispose();
     visibility.destroy();
+    records.destroy();
+    visible.destroy();
     await device.dispose();
   });
 
@@ -538,18 +649,18 @@ describe("GpuObjectCuller", () => {
     // The pyramid texture stays allocated between frames (it is the size of the target, not of the
     // frame), so the level count has to be per-frame state: a frame the renderer did not ask to
     // occlude has no prepass depth, and declaring a pass that reads it is the graph refusing the frame.
-    const { device, mock, graph, visibility, culler, prepare } = await setup(2);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(2);
     prepare(true);
     graph.begin();
     const first = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
     graph.addPass({ name: "test.prepass", depth: { texture: first, depthClearValue: 1 }, execute: (ctx) => void ctx.beginRenderPass().end() });
-    culler.record(graph, first, visibility);
+    record(first);
     expect(graph.execute().executed).toEqual(["test.prepass", "forge.hiz.0", "forge.hiz.1", "forge.hiz.2", "forge.hiz.3", "forge.objects.cull"]);
 
     prepare(false);
     graph.begin();
     const second = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
-    culler.record(graph, second, visibility);
+    record(second);
     const executed = graph.execute().executed;
     expect(executed).toEqual(["forge.objects.cull"]);
     const block = [...mock.liveBuffers].find((b) => b.label === "objects.cull.uniforms")!;
@@ -557,21 +668,25 @@ describe("GpuObjectCuller", () => {
     expect(mock.errors).toEqual([]);
     culler.dispose();
     visibility.destroy();
+    records.destroy();
+    visible.destroy();
     await device.dispose();
   });
 
   it("reports nothing and records nothing after dispose", async () => {
-    const { device, mock, graph, visibility, culler, prepare } = await setup(1);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(1);
     prepare(false);
     culler.dispose();
     graph.begin();
     const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
-    culler.record(graph, depth, visibility);
+    record(depth);
     expect(graph.execute().executed).toEqual([]);
     culler.poll();
-    expect(culler.stats).toEqual({ tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0 });
+    expect(culler.stats).toEqual({ tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 });
     culler.dispose();
     visibility.destroy();
+    records.destroy();
+    visible.destroy();
     await device.dispose();
     expect(mock.errors).toEqual([]);
   });

@@ -339,14 +339,16 @@ export const ObjectCullUniforms = new StructDef("ObjectCullUniforms", [
 ]);
 
 /**
- * One batch's bounds and its distance limit, as the cull pass reads it: `min.xyz`/`max.xyz` are the
- * batch's render-local AABB (exactly the box the CPU frustum test used) and `min.w` is the batch's
- * distance limit in metres, 0 for none (`Renderable.maxDistance`, the union of its members' limits).
- * `max.w` is unused.
+ * One batch's bounds, its distance limit and its instance count, as the cull pass reads it:
+ * `min.xyz`/`max.xyz` are the batch's render-local AABB (exactly the box the CPU frustum test used),
+ * `min.w` is the batch's distance limit in metres, 0 for none (`Renderable.maxDistance`, the union of
+ * its members' limits), and `max.w` is the batch's instance count — what the pass writes into the
+ * batch's indirect draw record when it stays visible (Phase 13.6). The device cannot read the draw
+ * list, so the number of instances a draw carries has to travel with the box it belongs to.
  */
 export const ObjectBatchEntry = new StructDef("ObjectBatchEntry", [
   { name: "min", type: vec4, comment: "render-local AABB min; w = the batch's distance limit (0 = none)" },
-  { name: "max", type: vec4, comment: "render-local AABB max; w unused" },
+  { name: "max", type: vec4, comment: "render-local AABB max; w = the batch's instance count" },
 ]);
 
 /**
@@ -365,12 +367,21 @@ export const ObjectBatchBlock = new StructDef("ObjectBatchBlock", [
  * every invocation that culls a batch). The renderer copies it into a map-read buffer at the end of
  * the frame and reports the numbers on a later frame: a device-side count cannot be known on the CPU
  * without either a stall or a frame of lag, and this is the lag.
+ *
+ * `visible` is the compaction list's cursor as well as the visible count (one `atomicAdd` per batch
+ * that stayed visible), and `recordZeroed` counts the batches whose indirect draw record the pass
+ * zeroed (Phase 13.6). The two are redundant with the three cull counters on purpose: `visible`
+ * equals `tested` minus the three culls, `recordZeroed` equals their sum when the frame submits
+ * through records, and `check:browser` asserts both identities on a real device — the only place
+ * where the pass's own writes can be seen at all.
  */
 export const ObjectCullStatsBlock = new StructDef("ObjectCullStatsBlock", [
   { name: "tested", type: atomicU32, comment: "batches the device tested" },
   { name: "culledFrustum", type: atomicU32 },
   { name: "culledDistance", type: atomicU32 },
   { name: "culledOccluded", type: atomicU32 },
+  { name: "visible", type: atomicU32, comment: "batches that stayed visible = the compaction cursor" },
+  { name: "recordZeroed", type: atomicU32, comment: "batches whose indirect record was zeroed (Phase 13.6)" },
 ]);
 
 /**

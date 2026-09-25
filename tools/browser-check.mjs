@@ -858,6 +858,98 @@ try {
     delete window.__gateRgb;
   });
 
+  // Indirect draws (Phase 13.6) — the frame's draws come out of buffers the cull pass writes, and the
+  // two ways to submit it (through the records, or one direct draw per batch) draw the same picture.
+  //
+  //  1. The records are the draws: with indirect submission on, every `forge.main` draw is
+  //     `drawIndexedIndirect` (`stats.render.indirectDraws === batches`), and the cull pass's own
+  //     counters agree with each other — `visible` is what the three tests left, and `recordZeroed` is
+  //     what they dropped. Both are produced on the device, so this is the pass's arithmetic, not the
+  //     twin's (which the mock tests cover).
+  //  2. The switch is a switch: turning it off returns to one direct draw per batch over the same
+  //     verdicts, and the picture does not change by a pixel. That is the claim a device can settle and
+  //     a unit test cannot: the record's words really are the draw commands.
+  //  3. The distance test really does zero records on a device: a draw distance over the fixture's own
+  //     renderables makes batches the frame built get dropped by the culler alone — the case where the
+  //     CPU could never know, since the CPU only speaks about visibility, never about records.
+  // The A/B is per-pixel, so the scene must hold still: the 13.5 arm put the loop back on.
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await settle();
+  const afterCull = await page.evaluate(() => window.__forge.stats().render);
+  await keepLuma("indirect-on");
+  const indirectOnStats = await page.evaluate(() => window.__forge.stats());
+  const indirectOn = indirectOnStats.render;
+
+  await page.evaluate(() => window.__forge.setIndirectDraws(false));
+  await settle();
+  await keepLuma("indirect-off");
+  const indirectOffStats = await page.evaluate(() => window.__forge.stats());
+  const indirectOff = indirectOffStats.render;
+  const indirectDiff = await compareLuma("indirect-off", "indirect-on");
+  console.log(
+    `indirect draws: batches ${indirectOn.batches}, indirect ${indirectOn.indirectDraws} (off: ${indirectOff.indirectDraws}), ` +
+      `visible ${indirectOn.cullVisible}, zeroed records ${indirectOn.cullRecordZeroed}; max luma diff ${indirectDiff.max.toFixed(2)} / ` +
+      `${indirectDiff.darker + indirectDiff.brighter} px beyond 1 level`,
+  );
+  if (indirectOn.indirectDraws !== indirectOn.batches) {
+    throw new Error(`the indirect arm issued ${indirectOn.indirectDraws} indirect draws for ${indirectOn.batches} batches — the records are not driving forge.main`);
+  }
+  if (indirectOff.indirectDraws !== 0) throw new Error(`the direct arm still issued ${indirectOff.indirectDraws} indirect draws`);
+  if (indirectDiff.darker + indirectDiff.brighter > 0) {
+    throw new Error(
+      `the two submission paths drew different frames: ${indirectDiff.darker + indirectDiff.brighter} px differ by up to ${indirectDiff.max.toFixed(1)} luma levels — ` +
+        `the record words are not the draw commands the direct path issues`,
+    );
+  }
+  // The counters describe the same frame on both arms — a cull is a cull, however the frame submits —
+  // but only the indirect arm writes records, so `recordZeroed` is the cull sum there and exactly zero
+  // on the direct arm (a direct frame sets no CULL_FLAG_RECORDS and the pass leaves the buffer alone).
+  for (const [arm, r, writesRecords] of [
+    ["indirect", indirectOn, true],
+    ["direct", indirectOff, false],
+  ]) {
+    const culled = r.cullFrustum + r.cullDistance + r.cullOccluded;
+    if (r.cullTested === 0) continue; // the counters lag one frame after a mode switch; the identity is what matters
+    if (r.cullVisible !== r.cullTested - culled) {
+      throw new Error(`${arm} arm: the pass tested ${r.cullTested}, culled ${culled}, but published ${r.cullVisible} visible`);
+    }
+    if (writesRecords ? r.cullRecordZeroed !== culled : r.cullRecordZeroed !== 0) {
+      throw new Error(`${arm} arm: ${culled} batches culled, ${r.cullRecordZeroed} records zeroed (${writesRecords ? "expected one per cull" : "expected none on the direct path"})`);
+    }
+  }
+  // A draw distance the device enforces: every renderable beyond 1 m is dropped by the culler. The
+  // frame *did* build those batches (the CPU's visibility test cannot see a per-renderable limit), so
+  // the zeroed records are the pass's own distance verdicts. The picture is allowed to change here.
+  await page.evaluate(() => window.__forge.setIndirectDraws(true));
+  await page.evaluate(() => window.__forge.setObjectDistance(1));
+  await settle();
+  const distStats = await page.evaluate(() => window.__forge.stats());
+  const dist = distStats.render;
+  console.log(
+    `draw distance 1 m: cullDistance ${afterCull.cullDistance} → ${dist.cullDistance}, zeroed records ${dist.cullRecordZeroed}, ` +
+      `visible ${dist.cullVisible} of ${dist.batches}`,
+  );
+  if (dist.cullDistance <= 0) throw new Error("a 1 m draw distance over the fixture culled nothing on the device");
+  if (dist.cullRecordZeroed !== dist.cullFrustum + dist.cullDistance + dist.cullOccluded) {
+    throw new Error(`the distance stage culled ${dist.cullDistance} batches and ${dist.cullRecordZeroed} records were zeroed in total — the two do not agree`);
+  }
+  if (dist.cullVisible !== dist.batches - dist.cullRecordZeroed) {
+    throw new Error(`${dist.cullVisible} of ${dist.batches} batches survived with ${dist.cullRecordZeroed} records zeroed — the counts do not add up`);
+  }
+  const restoredDistance = await page.evaluate(() => {
+    window.__forge.setObjectDistance(-1); // negative restores the limits the scene shipped with
+    window.__forge.setAnimating(true);
+    return { indirect: window.__forge.indirectDraws() };
+  });
+  await settle();
+  console.log(`indirect draws restored: on (${restoredDistance.indirect}), draw distance restored`);
+  if (!restoredDistance.indirect) throw new Error("the indirect-draw switch did not come back on");
+
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
+
   // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
   await page.evaluate(() => window.__forge.setHdr(false));
   await settle();

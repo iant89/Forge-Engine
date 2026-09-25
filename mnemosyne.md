@@ -394,3 +394,36 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   sandbox verdict ("environment-bound") was right for the sandbox and wrong as a statement about the
   check, which is the difference between an attribution and an excuse: say which machine the claim is
   about.
+
+### 2026-09-25 — indirect records: the seeded word, the written word, and who is allowed to guess
+
+- **A record has two owners and one word each.** The CPU owns words 0/1/2 (index window) and the cull
+  pass owns word 1 alone — the instance count becomes the batch's own when the verdict is "visible" and
+  0 when it is not. That split is why the pass can write a *draw command* from a verdict it already
+  had: `csCull` computes `cullReasonOf(box)` once and the word, the counters, the compaction slot and
+  the record all fall out of that one branch, so nothing in the frame can disagree with what the
+  vertex stage read (`engine/src/rendering/objectCulling.ts`).
+- **Test the seeded words with a sentinel, not with a coincidence.** The interesting case is not "the
+  pass wrote the right number" but "the pass wrote *only* the slots it tested": fill the record buffer
+  and the visible list with `0xa5`, run a frame past `MAX_CULLED_BATCHES`, and assert the slots past
+  the cap still read `0xa5` while the tested ones read the batch's count. The first draft of the test
+  filled with zeros and compared against the pre-seeded value — it would have passed with the cap
+  guard deleted.
+- **A mock that logs `{indirect: true}` cannot tell a zeroed record from a live one.** The mock now
+  parses the record out of `buffer.data` and logs its fields, which is the only reason
+  `tests/frame.test.ts` can assert the device-side instance count without a device. Anything the
+  assertion needs must be *read back*, never assumed from the renderer's intent.
+- **To make the device the decider in a test, give the fixture a rule the CPU cannot see.** Half a
+  dozen attempts to cull a batch from the CPU side (sky camera, frustum, occlusion) either culled the
+  shadow caster too — so the batch never reached `forge.main` and the two arms agreed by accident —
+  or left the direct arm already clipped. `Renderable.maxDistance` is a *draw* rule the CPU frame does
+  not apply, so `setObjectDistance(1)` produces exactly what 13.6 is about: a batch the frame built
+  and the device dropped. (The vertex difference is then exactly `indexCount * instanceCount`, read
+  from `draw.uniforms` — the batch counts are not in the bounds entry for the CPU to read, only the
+  pass's own record.)
+- **This snapshot has no browser, so `check:browser` exits 2 (NOT RUN).** `~/.cache` is excluded from
+  the sandbox snapshot, and the Playwright CDN is unreachable from here, so the Chromium build that
+  13.5's session installed is gone: `npx playwright@1.49.1 install chromium` fails with
+  `Download failure, code=1`. Read the new gate arm statically, run the mock-equivalent assertions in
+  `tests/frame.test.ts`, and let the PR's advisory WebGPU job be the real-device evidence — that is
+  what it is for. Do not weaken the arm to make a local run green.

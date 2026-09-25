@@ -109,6 +109,25 @@ export type CullReason = (typeof CullReason)[keyof typeof CullReason];
 export const CULL_FLAG_FRUSTUM = 1;
 export const CULL_FLAG_DISTANCE = 2;
 export const CULL_FLAG_OCCLUSION = 4;
+/**
+ * Write the frame's indirect draw records (Phase 13.6). Off when the renderer submits direct draws,
+ * where the same verdicts reach the shader through the visibility words instead and nothing reads a
+ * record: the pass then neither touches the buffer nor counts `recordZeroed`.
+ */
+export const CULL_FLAG_RECORDS = 8;
+
+/**
+ * One indirect draw record: `(count, instanceCount, first, baseVertex, firstInstance)`, the layout
+ * `drawIndexedIndirect` reads, in words. `drawIndirect`'s record is the same shape — `(vertexCount,
+ * instanceCount, firstVertex, firstInstance)` — so **word 1 is the instance count in both**, which is
+ * the only field the culler decides; the batch's index window (words 0 and 2) is CPU knowledge and is
+ * uploaded once per frame. Records sit one per 32-byte slot so every offset stays 16-aligned and the
+ * pass can address a slot as 8 consecutive `u32`s.
+ */
+export const DRAW_RECORD_WORDS = 8;
+export const DRAW_RECORD_BYTES = DRAW_RECORD_WORDS * 4;
+/** Word the pass owns: the instance count the draw runs with, 0 for a culled batch. */
+export const DRAW_RECORD_INSTANCES = 1;
 
 /** Bytes of `ObjectCullStatsBlock`: both the device buffer and the map-read copy are this big. */
 export const CULL_STATS_BYTES = ObjectCullStatsBlock.byteSize("storage");
@@ -119,6 +138,8 @@ const STATS_WORD = {
   culledFrustum: ObjectCullStatsBlock.offsetOf("culledFrustum", "storage") >> 2,
   culledDistance: ObjectCullStatsBlock.offsetOf("culledDistance", "storage") >> 2,
   culledOccluded: ObjectCullStatsBlock.offsetOf("culledOccluded", "storage") >> 2,
+  visible: ObjectCullStatsBlock.offsetOf("visible", "storage") >> 2,
+  recordZeroed: ObjectCullStatsBlock.offsetOf("recordZeroed", "storage") >> 2,
 } as const;
 
 /**
@@ -207,12 +228,19 @@ ${ObjectCullStatsBlock.toWgsl("storage")}
 @group(0) @binding(2) var<storage, read_write> visibility: array<u32>;
 @group(0) @binding(3) var<storage, read_write> counts: ObjectCullStatsBlock;
 @group(0) @binding(4) var hiz: texture_2d<f32>;
+// The frame's indirect draw records (Phase 13.6), bound whether or not this frame writes them.
+@group(0) @binding(5) var<storage, read_write> drawRecords: array<u32>;
+// The compaction list: one slot per visible batch, filled at counts.visible's cursor.
+@group(0) @binding(6) var<storage, read_write> visibleBatches: array<u32>;
 
 const CULL_WORKGROUP: u32 = ${CULL_WORKGROUP}u;
 const MAX_CULLED_BATCHES: u32 = ${MAX_CULLED_BATCHES}u;
 const CULL_FLAG_FRUSTUM: u32 = ${CULL_FLAG_FRUSTUM}u;
 const CULL_FLAG_DISTANCE: u32 = ${CULL_FLAG_DISTANCE}u;
 const CULL_FLAG_OCCLUSION: u32 = ${CULL_FLAG_OCCLUSION}u;
+const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;
+const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;
+const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;
 const CULL_SLOP: f32 = ${CULL_SLOP};
 const CULL_PAD_PIXELS: f32 = ${CULL_PAD_PIXELS}.0;
 const CULL_EPSILON: f32 = ${CULL_EPSILON};
@@ -250,18 +278,9 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
   return dot(p.xyz, center) + p.w < -length(p.xyz) * radius;
 }
 
-@workgroup_size(CULL_WORKGROUP) @compute fn csCull(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let index = gid.x;
-  let total = min(cull.batchCount, MAX_CULLED_BATCHES);
-  if (index >= total) {
-    return;
-  }
-  atomicAdd(&counts.tested, 1u);
-  // Stays 0 (visible) unless a test proves otherwise: the CPU resets the whole buffer every frame, so
-  // an early return here is always "draw it", never "whatever the last frame said".
-  visibility[index] = REASON_VISIBLE;
-
-  let box = batchBounds.bounds[index];
+// The three tests, as one verdict. Every branch that returns REASON_VISIBLE is a case the tests
+// could not *prove* invisible — a conservative answer, never a wrong one.
+fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
   let center = (box.min.xyz + box.max.xyz) * 0.5;
   let radius = length(box.max.xyz - center) + CULL_SLOP;
 
@@ -273,30 +292,26 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
       }
     }
     if (outside) {
-      visibility[index] = REASON_FRUSTUM;
-      atomicAdd(&counts.culledFrustum, 1u);
-      return;
+      return REASON_FRUSTUM;
     }
   }
 
   if ((cull.flags & CULL_FLAG_DISTANCE) != 0u) {
     if (box.min.w > 0.0) {
       if (distance(center, cull.cameraPos) - radius > box.min.w) {
-        visibility[index] = REASON_DISTANCE;
-        atomicAdd(&counts.culledDistance, 1u);
-        return;
+        return REASON_DISTANCE;
       }
     }
   }
 
   if ((cull.flags & CULL_FLAG_OCCLUSION) == 0u || cull.hizLevels == 0u) {
-    return;
+    return REASON_VISIBLE;
   }
   let viewCenter = (cull.view * vec4<f32>(center, 1.0)).xyz;
   let nearest = viewCenter.z - radius;
   if (nearest <= cull.near) {
     // The sphere straddles the near plane, so no screen rectangle bounds it: nothing is proved.
-    return;
+    return REASON_VISIBLE;
   }
 
   // The rectangle: the eight corners of the sphere's view-space box, projected. A projective map
@@ -323,9 +338,7 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
   let rectMax = hi + vec2<f32>(CULL_PAD_PIXELS, CULL_PAD_PIXELS);
   if (rectMax.x < 0.0 || rectMax.y < 0.0 || rectMin.x > cull.extent.x || rectMin.y > cull.extent.y) {
     // The rectangle (which contains the batch's projection) misses the screen entirely.
-    visibility[index] = REASON_FRUSTUM;
-    atomicAdd(&counts.culledFrustum, 1u);
-    return;
+    return REASON_FRUSTUM;
   }
 
   // The finest level whose texels are a couple of pixels across at most: level L's texel covers
@@ -345,20 +358,69 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
   let firstSpan = min(vec2<u32>(u32(max(rectMin.x, 0.0)), u32(max(rectMin.y, 0.0))) / texels, lastTexel);
   let lastSpan = min(vec2<u32>(u32(max(rectMax.x, 0.0)), u32(max(rectMax.y, 0.0))) / texels, lastTexel);
   let bound = nearest - CULL_EPSILON;
-  var occluded = true;
   for (var ty = firstSpan.y; ty <= lastSpan.y; ty = ty + 1u) {
     for (var tx = firstSpan.x; tx <= lastSpan.x; tx = tx + 1u) {
       if (textureLoad(hiz, vec2<i32>(i32(tx), i32(ty)), level).r >= bound) {
-        occluded = false;
+        return REASON_VISIBLE;
       }
     }
   }
-  if (occluded) {
-    visibility[index] = REASON_OCCLUDED;
+  return REASON_OCCLUDED;
+}
+
+// One invocation per batch decides everything the frame needs to know about it, and this is the only
+// place any of it is written: the visibility word, the three cull counters, the batch's slot in the
+// compaction list, and the batch's indirect draw record. Keeping one write site is what makes the
+// word and the record provably agree — they are the same verdict, written twice for two consumers
+// (the vertex stage's clip test and, in Phase 13.6, the draw command itself).
+@workgroup_size(CULL_WORKGROUP) @compute fn csCull(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let index = gid.x;
+  let total = min(cull.batchCount, MAX_CULLED_BATCHES);
+  if (index >= total) {
+    return;
+  }
+  atomicAdd(&counts.tested, 1u);
+
+  let box = batchBounds.bounds[index];
+  let reason = cullReasonOf(box);
+  // Stays 0 (visible) unless a test proves otherwise: the CPU resets the whole buffer every frame, so
+  // an early return here is always "draw it", never "whatever the last frame said".
+  visibility[index] = reason;
+
+  let kept = reason == REASON_VISIBLE;
+  if (kept) {
+    // Compaction: the slot this batch takes in the frame's visible list. The cursor is the list's
+    // length *and* the visible count, and the slots are filled in completion order — the list is a
+    // set, so a consumer that needs draw order sorts it (the CPU twin writes the same list in test
+    // order, which is why the two arms can be compared as sets).
+    let slot = atomicAdd(&counts.visible, 1u);
+    if (slot < MAX_CULLED_BATCHES) {
+      visibleBatches[slot] = index;
+    }
+  } else if (reason == REASON_FRUSTUM) {
+    atomicAdd(&counts.culledFrustum, 1u);
+  } else if (reason == REASON_DISTANCE) {
+    atomicAdd(&counts.culledDistance, 1u);
+  } else {
     atomicAdd(&counts.culledOccluded, 1u);
+  }
+
+  if ((cull.flags & CULL_FLAG_RECORDS) != 0u) {
+    // The draw command, decided on the device: a *direct* draw cannot express "zero instances", which
+    // is why Phase 13.5 collapsed a culled batch's clip position instead and paid its vertex shader;
+    // an indirect record can, so a culled batch's draw runs no invocation at all — whoever shades it.
+    // Untested batches (past MAX_CULLED_BATCHES) keep the count the CPU uploaded: visible.
+    let word = index * RECORD_WORDS + RECORD_INSTANCES;
+    if (kept) {
+      drawRecords[word] = u32(box.max.w);
+    } else {
+      drawRecords[word] = 0u;
+      atomicAdd(&counts.recordZeroed, 1u);
+    }
   }
 }
 `;
+
 
 // ------------------------------------------------------------------ the tests, in TypeScript
 
@@ -368,6 +430,23 @@ export interface ObjectCullStats {
   culledFrustum: number;
   culledDistance: number;
   culledOccluded: number;
+  /** Batches that stayed visible: the compaction list's length. */
+  visible: number;
+  /** Batches whose indirect draw record was zeroed; 0 when the frame submits direct draws. */
+  recordZeroed: number;
+}
+
+/**
+ * The two things the culler produces for the *frame* rather than for a batch (Phase 13.6): the
+ * indirect draw records and the compaction list. Both are `Uint32Array` staging the caller uploads;
+ * the device writes the same two buffers from its own pass. Optional, so the tests that only care
+ * about the verdicts stay as they were.
+ */
+export interface ObjectCullOutputs {
+  /** `bounds.length / 2` 8-word record slots (see {@link DRAW_RECORD_WORDS}). */
+  records?: Uint32Array;
+  /** `MAX_CULLED_BATCHES` slots, filled in test order: the CPU arm's compaction list. */
+  visible?: Uint32Array;
 }
 
 /** Everything the three tests read, in the units the shader reads them (metres, pixels). */
@@ -485,13 +564,17 @@ export function buildHizOnCpu(
 }
 
 /**
- * The cull pass, in TypeScript — the same three tests, in the same order, with the same margins.
+ * The cull pass, in TypeScript — the same three tests, in the same order, with the same margins, and
+ * the executable specification the WGSL in {@link OBJECT_CULL_SHADER} transcribes. It is what the mock
+ * device runs: a mock records and validates compute passes but executes no WGSL, so without a twin a
+ * frame on the mock would be drawn with whatever the last buffer held.
  *
- * `bounds` holds 8 floats per batch (`min.xyz`, the batch's distance limit, `max.xyz`, pad — the
- * layout the renderer uploads, `ObjectBatchEntry`);
- * `visibility` is written for every tested batch (so a re-used buffer cannot keep an old word).
- * `hiz` is a pyramid {@link buildHizOnCpu} built — the CPU has no depth of its own, which is why
- * `RendererOptions.objectCulling: "cpu"` runs the first two tests only.
+ * `bounds` holds 8 floats per batch (`min.xyz`, the batch's distance limit, `max.xyz`, and the count),
+ * the layout the renderer uploads and `ObjectBatchEntry` describes; `visibility` is written for every
+ * tested batch (so a re-used buffer cannot keep an old word). `hiz` is a pyramid {@link buildHizOnCpu}
+ * built — the CPU has no depth of its own, which is why `RendererOptions.objectCulling: "cpu"` runs
+ * the first two tests only. `out` is where the two frame-level products go (Phase 13.6): the indirect
+ * records' instance counts and the compaction list, in test order.
  */
 export function cullBatchesOnCpu(
   bounds: Float32Array,
@@ -499,13 +582,16 @@ export function cullBatchesOnCpu(
   params: ObjectCullParams,
   visibility: Uint32Array,
   hiz: readonly HizLevel[] = [],
+  out: ObjectCullOutputs = {},
 ): ObjectCullStats {
-  const stats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0 };
+  const stats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 };
   const planes = cullPlanesFrom(params.viewProj);
   const total = Math.min(batchCount, MAX_CULLED_BATCHES);
   const view = params.view;
   const proj = params.proj;
   const occlusion = (params.flags & CULL_FLAG_OCCLUSION) !== 0 && params.hizLevels > 0 && hiz.length > 0;
+  const records = (params.flags & CULL_FLAG_RECORDS) !== 0 ? out.records : undefined;
+  const visibleList = out.visible;
   for (let index = 0; index < total; index++) {
     stats.tested++;
     visibility[index] = CullReason.Visible;
@@ -527,6 +613,7 @@ export function cullBatchesOnCpu(
       if (outside) {
         visibility[index] = CullReason.Frustum;
         stats.culledFrustum++;
+        skipRecord(records, index, stats);
         continue;
       }
     }
@@ -537,16 +624,23 @@ export function cullBatchesOnCpu(
       if (away - radius > limit) {
         visibility[index] = CullReason.Distance;
         stats.culledDistance++;
+        skipRecord(records, index, stats);
         continue;
       }
     }
 
-    if (!occlusion) continue;
+    if (!occlusion) {
+      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+      continue;
+    }
     const vx = view[0]! * cx + view[4]! * cy + view[8]! * cz + view[12]!;
     const vy = view[1]! * cx + view[5]! * cy + view[9]! * cz + view[13]!;
     const vz = view[2]! * cx + view[6]! * cy + view[10]! * cz + view[14]!;
     const nearest = vz - radius;
-    if (nearest <= params.near) continue;
+    if (nearest <= params.near) {
+      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+      continue;
+    }
 
     let loX = Infinity;
     let loY = Infinity;
@@ -571,6 +665,7 @@ export function cullBatchesOnCpu(
     if (rectMaxX < 0 || rectMaxY < 0 || rectMinX > params.width || rectMinY > params.height) {
       visibility[index] = CullReason.Frustum;
       stats.culledFrustum++;
+      skipRecord(records, index, stats);
       continue;
     }
 
@@ -596,9 +691,32 @@ export function cullBatchesOnCpu(
     if (occluded) {
       visibility[index] = CullReason.Occluded;
       stats.culledOccluded++;
+      skipRecord(records, index, stats);
+      continue;
     }
+    keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
   }
   return stats;
+}
+
+/** A batch that stays visible: its compaction slot, and its record's instance count. */
+function keepRecord(
+  records: Uint32Array | undefined,
+  visibleList: Uint32Array | undefined,
+  index: number,
+  instances: number,
+  stats: ObjectCullStats,
+): void {
+  stats.visible++;
+  if (visibleList && stats.visible <= visibleList.length) visibleList[stats.visible - 1] = index;
+  if (records) records[index * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] = instances;
+}
+
+/** A culled batch: its record's instance count goes to zero, and the pass counts that. */
+function skipRecord(records: Uint32Array | undefined, index: number, stats: ObjectCullStats): void {
+  if (!records) return;
+  records[index * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] = 0;
+  stats.recordZeroed++;
 }
 
 // ------------------------------------------------------------------ the device side
@@ -616,6 +734,8 @@ export interface ObjectCullFrame {
   height: number;
   /** Run the HiZ test; the caller decides (perspective camera, pyramid buildable at this size). */
   occlude: boolean;
+  /** Write the frame's indirect draw records (`CULL_FLAG_RECORDS`); the caller owns that switch. */
+  records: boolean;
 }
 
 /**
@@ -640,7 +760,7 @@ export class GpuObjectCuller {
   private readonly readbackBusy = [false, false];
   private readonly readbackFresh = [false, false];
   private readbackTurn = 1;
-  private lastStats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0 };
+  private lastStats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 };
 
   private hiz: GPUTexture | null = null;
   /** Levels of the pyramid *this* frame tests against: 0 unless `prepare` decided to occlude. */
@@ -652,6 +772,8 @@ export class GpuObjectCuller {
   private fallback: GPUTexture | null = null;
   private depthGroups = new Map<GPUTextureView, GPUBindGroup>();
   private groupVisibility: GPUBuffer | null = null;
+  private groupRecords: GPUBuffer | null = null;
+  private groupVisible: GPUBuffer | null = null;
 
   private batchCount = 0;
   private readonly pipelines = new Map<string, GPUComputePipeline>();
@@ -706,7 +828,10 @@ export class GpuObjectCuller {
     a.setF32("far", frame.far);
     a.setVec2("extent", frame.width, frame.height);
     a.setU32("batchCount", total);
-    a.setU32("flags", CULL_FLAG_FRUSTUM | (distance ? CULL_FLAG_DISTANCE : 0) | (occlusion ? CULL_FLAG_OCCLUSION : 0));
+    a.setU32(
+      "flags",
+      CULL_FLAG_FRUSTUM | (distance ? CULL_FLAG_DISTANCE : 0) | (occlusion ? CULL_FLAG_OCCLUSION : 0) | (frame.records ? CULL_FLAG_RECORDS : 0),
+    );
     a.setU32("hizLevels", this.hizLevelsFrame);
     this.ensureStaticBuffers();
     d.queue.writeBuffer(this.cullBufferRef!, 0, gpuSource(this.cullBytes.bytes));
@@ -718,10 +843,12 @@ export class GpuObjectCuller {
 
   /**
    * Add the pyramid passes and `forge.objects.cull` to the frame. `depth` is the depth target
-   * `forge.prepass` has just written; `visibility` is the buffer the draw group also binds. The
-   * read-back copy is encoded in the same pass, so it lands after the dispatch that filled it.
+   * `forge.prepass` has just written; `visibility` is the buffer the draw group also binds, and
+   * `records`/`visible` are the frame's indirect draw records and its compaction list (Phase 13.6),
+   * both renderer-owned the way the visibility words are. The read-back copy is encoded in the same
+   * pass, so it lands after the dispatch that filled it.
    */
-  record(graph: RenderGraph, depth: RenderGraphHandle, visibility: GPUBuffer): void {
+  record(graph: RenderGraph, depth: RenderGraphHandle, visibility: GPUBuffer, records: GPUBuffer, visible: GPUBuffer): void {
     if (this.disposed || this.batchCount === 0) return;
     const levels = this.batchCount > 0 ? this.hizLevelsFrame : 0;
     if (levels > 0) {
@@ -743,7 +870,7 @@ export class GpuObjectCuller {
     graph.addPass({
       name: "forge.objects.cull",
       sideEffect: true,
-      execute: (ctx) => this.encodeCull(ctx, visibility, readback),
+      execute: (ctx) => this.encodeCull(ctx, visibility, records, visible, readback),
     });
   }
 
@@ -769,6 +896,8 @@ export class GpuObjectCuller {
     this.groups.clear();
     this.depthGroups = new Map();
     this.groupVisibility = null;
+    this.groupRecords = null;
+    this.groupVisible = null;
   }
 
   dispose(): void {
@@ -797,6 +926,8 @@ export class GpuObjectCuller {
     this.groups.clear();
     this.depthGroups.clear();
     this.groupVisibility = null;
+    this.groupRecords = null;
+    this.groupVisible = null;
   }
 
   private consume(index: number, buffer: GPUBuffer): void {
@@ -806,6 +937,8 @@ export class GpuObjectCuller {
       culledFrustum: words[STATS_WORD.culledFrustum]!,
       culledDistance: words[STATS_WORD.culledDistance]!,
       culledOccluded: words[STATS_WORD.culledOccluded]!,
+      visible: words[STATS_WORD.visible]!,
+      recordZeroed: words[STATS_WORD.recordZeroed]!,
     };
     buffer.unmap();
     this.readbackBusy[index] = false;
@@ -956,10 +1089,18 @@ export class GpuObjectCuller {
     pass.end();
   }
 
-  private encodeCull(ctx: RenderGraphPassContext, visibility: GPUBuffer, readback: GPUBuffer | null): void {
+  private encodeCull(
+    ctx: RenderGraphPassContext,
+    visibility: GPUBuffer,
+    records: GPUBuffer,
+    visible: GPUBuffer,
+    readback: GPUBuffer | null,
+  ): void {
     const pipeline = this.computePipeline("objects.cull", OBJECT_CULL_SHADER, "csCull", CULL_ENTRIES);
     let group = this.groups.get("objects.cull");
-    if (!group || this.groupVisibility !== visibility) {
+    // Three of the entries are renderer-owned buffers that grow (or are re-created) with the frame:
+    // the group is cached against all three, so a growth retires it instead of binding a stale one.
+    if (!group || this.groupVisibility !== visibility || this.groupRecords !== records || this.groupVisible !== visible) {
       group = this.device.device.createBindGroup({
         label: "objects.cull",
         layout: pipeline.getBindGroupLayout(0),
@@ -969,10 +1110,14 @@ export class GpuObjectCuller {
           { binding: 2, resource: { buffer: visibility } },
           { binding: 3, resource: { buffer: this.statsBuffer! } },
           { binding: 4, resource: this.hiz ? this.hizView(0, this.hizLevels) : this.fallbackView() },
+          { binding: 5, resource: { buffer: records } },
+          { binding: 6, resource: { buffer: visible } },
         ],
       });
       this.groups.set("objects.cull", group);
       this.groupVisibility = visibility;
+      this.groupRecords = records;
+      this.groupVisible = visible;
     }
     const pass = ctx.encoder.beginComputePass({ label: "objects.cull" });
     pass.setPipeline(pipeline);
@@ -1001,4 +1146,8 @@ const CULL_ENTRIES: GPUBindGroupLayoutEntry[] = [
   { binding: 2, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 4 } },
   { binding: 3, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: CULL_STATS_BYTES } },
   { binding: 4, visibility: ShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+  // The two frame-level products (Phase 13.6): the draw records the renderer submits and the
+  // compaction list it keeps. Both are plain `u32` arrays written at an index the pass derives.
+  { binding: 5, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: DRAW_RECORD_BYTES } },
+  { binding: 6, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MAX_CULLED_BATCHES * 4 } },
 ];
