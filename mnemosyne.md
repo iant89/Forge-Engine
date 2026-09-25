@@ -388,3 +388,9 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 - **So read a red gate up to its error line, and record the environment exception where the gate is
   described** (`docs/VERIFICATION.md`, under the command table) rather than weakening the check. A
   timeout that is moved to make a run green is a check nobody has.
+- **The baseline's last word is CI's, not the sandbox's.** The pull request's advisory WebGPU job ran
+  the identical gate on the identical commit and passed end to end, the HGA poll included
+  (`phase=deploying az=168.0° el=12.0°`) — same Chromium, same SwiftShader ICD, a faster CPU. So the
+  sandbox verdict ("environment-bound") was right for the sandbox and wrong as a statement about the
+  check, which is the difference between an attribution and an excuse: say which machine the claim is
+  about.
