@@ -2836,6 +2836,37 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "This file: one `change` entry per Phase 13.6 file (13), plus the `pr-merge` summary appended before the merge.",
     "why": "`AGENTS.md` §7 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
+},
+  {
+    "id": "0219",
+    "date": "2026-09-25T22:45:00Z",
+    "type": "pr-merge",
+    "pr": 44,
+    "branch": "arena/01a0d9e9-forge-engine",
+    "base": "main",
+    "title": "Phase 13.6: the cull pass writes the draws (indirect records + compaction list)",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Phase 13.6: indirect rendering. The cull pass no longer stops at a verdict — it writes the frame's draw commands. One 32-byte record per batch (`DRAW_RECORD_WORDS` 8, `DRAW_RECORD_BYTES` 32, `DRAW_RECORD_INSTANCES` 1, 16-aligned slots so `drawIndexedIndirect` and `drawIndirect` both read them) lives in `cull.drawRecords` (`STORAGE | INDIRECT | COPY_DST`, grown in 256-byte steps): the CPU seeds the index window from the batch (indexCount / count / indexStart, 0 for a non-indexed batch) and the pass owns **word 1 alone** — the batch's instance count (uploaded as `ObjectBatchEntry.max.w`) when the verdict is visible, `0` plus `recordZeroed` when it is not. The verdict is computed once (`cullReasonOf`, extracted), and one write site turns it into the visibility word, the counter, `slot = atomicAdd(&counts.visible, 1u)` into `cull.visibleBatches` (the compacted list of survivors, at most `MAX_CULLED_BATCHES`, in the device's own order) and the record, so nothing in the frame can disagree with what the vertex stage read. The twin writes exactly the same words (`cullBatchesOnCpu` with `ObjectCullOutputs`, behind `CULL_FLAG_RECORDS`), and the pass only touches `index < min(batchCount, MAX_CULLED_BATCHES)` — the renderer pre-fills every slot with the batch's own count, so a slot past the cap keeps saying \"draw\". `Renderer.indirectDraws` (default on, `invalidate()` on change) submits `forge.main` through `drawIndexedIndirect` / `drawIndirect` at `batch.cullIndex * DRAW_RECORD_BYTES`; the direct arm is kept as the A/B — same batches, same words, same pixels — and sets no `CULL_FLAG_RECORDS`, so it pays for no record it will not read. Shadow and prepass keep their own draws and their own culling. `RenderStats` gained `cullVisible`, `cullRecordZeroed` and `indirectDraws` (the first two through the same one-frame-late readback as 13.5's counters). The mock device now parses the record out of `buffer.data` for both indirect draws and logs its fields, which is the only reason a CPU gate can assert the device-side instance count: `tests/objectCulling.test.ts` (19, was 16) pins the shader's single write site, the twin's outputs and both identities (`visible = tested - culled`, `recordZeroed = sum(culled)`), and — with sentinel-filled buffers — that a frame without the flag writes nothing and that past the cap the CPU's count survives; `tests/frame.test.ts` (27, was 24) asserts the records drive the frame, that the two submission paths differ by exactly the culled batches' `indexCount * instanceCount` vertices (read out of `draw.uniforms`, on a fixture whose 1 m draw distance makes the device, not the CPU, the decider), and that the flag follows the switch. `npm run verify` (42 files / 590 tests + check:wgsl), `lint:arch`, `check:testmap` and `docs:check` (92 capabilities: 48 verified / 25 partial / 15 planned / 4 deferred) are green. `check:browser` gained the arm that only a device can settle — indirect on vs off to an identical picture with `indirectDraws === batches` on one side and 0 on the other, the counter identities per arm, then a 1 m draw distance asserting `cullDistance > 0` with `recordZeroed` equal to the cull sum — and **did not run locally**: the sandbox snapshot has no browser (`~/.cache` is excluded and the Playwright CDN is unreachable), so the gate exits 2 with `NOT RUN — no launchable browser`, which `docs/VERIFICATION.md` now documents as its own state. The advisory WebGPU CI job is where this arm's evidence comes from.",
+    "files": [
+        "ROADMAP.md",
+        "benchmarks/src/culling.bench.ts",
+        "change-log.md",
+        "docs/KNOWN-ISSUES.md",
+        "docs/RENDERING.md",
+        "docs/VERIFICATION.md",
+        "engine/src/core/capabilities.ts",
+        "engine/src/index.ts",
+        "engine/src/rendering/objectCulling.ts",
+        "engine/src/rendering/renderer.ts",
+        "engine/src/rendering/uniforms.ts",
+        "engine/src/testing/mockGpu.ts",
+        "examples/src/main.ts",
+        "mnemosyne.md",
+        "tests/frame.test.ts",
+        "tests/objectCulling.test.ts",
+        "tools/browser-check.mjs"
+    ]
 }
 ]
 ```
