@@ -9,12 +9,13 @@
  * clusters, one dispatch per frame.
  *
  * **Why the fill and not the rest.** It is the only stage whose cost grows with how much of the grid
- * the lights cover, and the only stage a single CPU thread cannot widen: a 256-lamp rig whose lights
- * reach 30 clusters each is ~786 000 cell writes (14.1 ms on the CPU, `benchmarks/src/lights.bench.ts`)
- * against ~0.04 ms for the same frame's counting pass. The counting pass stays on the CPU because its
- * output is needed *exactly and immediately* — the fragment stage indexes its lists with `counts`,
- * `Renderer.stats` reports them, and `lightsDropped` is a correctness signal — so it is deliberately
- * the cheap, coverage-independent half.
+ * the lights cover, and the only stage a single CPU thread cannot widen: `benchmarks/src/lights.bench.ts`
+ * measures the demo-shaped rig (256 lamps, ~30 clusters each) at ~0.5 ms for 7 749 list entries, and a
+ * saturating rig (256 lamps, every cluster) at ~75 ms for the 98 304-entry grid — 3 072 clusters × the
+ * 32-entry cap — against 0.04–0.09 ms for the same frames' counting pass. The counting pass stays on the
+ * CPU because its output is needed *exactly and immediately* — the fragment stage indexes its lists with
+ * `counts`, `Renderer.stats` reports them, and `lightsDropped` is a correctness signal — so it is
+ * deliberately the cheap, coverage-independent half.
  *
  * **Nothing is read back.** The fill writes exactly the lists the counting pass counted, so
  * `clustersUsed`, `indexCount`, `maxPerCluster` and the dropped-light flag are functions of `counts`

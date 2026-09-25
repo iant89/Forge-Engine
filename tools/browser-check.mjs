@@ -561,8 +561,24 @@ try {
   // The rig below is the production path — a device filling its own grid — so it runs on the GPU fill
   // (what `auto` resolves to where there is a device to run it on). The fills' own A/B comes later,
   // where both arms are taken from the same scene, one after the other.
+  //
+  // The switch above is the round trip that matters, and it is checked before anything reads a pixel:
+  // "cpu" releases the culler's device resources, and every check below assumes the frame got a
+  // working fill back. A culler kept after its dispose drops `forge.lights.assign` *silently*
+  // (`Renderer.lightCulling`), and then nothing refills the grid: each frame would shade its lights
+  // through index blocks left over from an earlier scene, which is exactly the shape the many-light
+  // A/B below is looking for — but the honest failure is here, where the cause is.
   await page.evaluate(() => window.__forge.setLightCulling("gpu"));
   await settle();
+  const fillHandover = await page.evaluate(() => ({
+    pass: window.__forge.renderPasses().includes("forge.lights.assign"),
+    fill: window.__forge.stats().render.clusterFill,
+  }));
+  console.log(`fill handover: cpu → gpu fill, forge.lights.assign ${fillHandover.pass ? "back in the frame" : "MISSING"} (fill=${fillHandover.fill})`);
+  if (fillHandover.fill !== "gpu") throw new Error(`the fill did not switch back: the renderer reports "${fillHandover.fill}"`);
+  if (!fillHandover.pass) {
+    throw new Error("switching the fill back to \"gpu\" did not put forge.lights.assign back in the frame — the grid would keep whatever index blocks the last upload left on the device");
+  }
 
   // The many-light rig: 36 static lamps, so the scene holds 40 — two and a half times what the fixed
   // list could carry. Clustering must deliver every one; the uniform path must truncate, say so, and
@@ -640,11 +656,22 @@ try {
   const fillPasses = cpuFillStats.renderPasses.filter((n) => !gpuFillStats.renderPasses.includes(n));
   const gpuExtra = gpuFillStats.renderPasses.filter((n) => !cpuFillStats.renderPasses.includes(n));
   const gridFields = ["clusteredLights", "clustersUsed", "clusterIndices", "maxLightsPerCluster", "lightsDropped"];
+  const gpuArmHasPass = gpuFillStats.renderPasses.includes("forge.lights.assign");
+  const cpuArmHasPass = cpuFillStats.renderPasses.includes("forge.lights.assign");
   console.log(
     `cluster fill: cpu vs gpu over the fixture — ${gpuFill.clusteredLights} lights, ${gpuFill.clusterIndices} indices, ` +
       `max luma diff ${fillDiff.max.toFixed(2)} / ${fillDiff.darker + fillDiff.brighter} px beyond 1 level; ` +
-      `gpu adds pass ${gpuExtra.join(",") || "(none)"}; cpu-only passes ${fillPasses.join(",") || "(none)"}`,
+      `gpu adds pass ${gpuExtra.join(",") || "(none)"}; cpu-only passes ${fillPasses.join(",") || "(none)"}; ` +
+      `forge.lights.assign: gpu arm ${gpuArmHasPass ? "yes" : "NO"}, cpu arm ${cpuArmHasPass ? "YES" : "no"}`,
   );
+  // Who fills the grid is a property of the frame, and it is checkable without pixels: the arm that
+  // reports "gpu" has to be the arm whose frame carries the pass. Both arms filling (or neither) would
+  // make the picture comparison above meaningless — two frames neither of which the arm's own path drew.
+  if (!gpuArmHasPass || cpuArmHasPass) {
+    throw new Error(
+      `the fill's ownership is wrong: the gpu arm ${gpuArmHasPass ? "has" : "lacks"} forge.lights.assign and the cpu arm ${cpuArmHasPass ? "has" : "lacks"} it`,
+    );
+  }
   if (cpuFill.clusterFill !== "cpu" || gpuFill.clusterFill !== "gpu") {
     throw new Error(`the fill modes did not switch: cpu arm says "${cpuFill.clusterFill}", gpu arm says "${gpuFill.clusterFill}"`);
   }

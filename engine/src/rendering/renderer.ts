@@ -496,6 +496,14 @@ export class Renderer implements RenderFrameContext {
    * (the mock cannot execute compute). Switching is safe at any point: both fills write the same
    * counts, the same lists in the same order, so a frame filled on the CPU and the next one filled
    * on the GPU describe the same grid.
+   *
+   * Switching to `"cpu"` releases the culler's device resources, and dropping the reference with them
+   * is load-bearing: `GpuLightCuller.record` returns immediately once disposed, so a culler kept in
+   * the field after its dispose would silently stop adding `forge.lights.assign` to the frame — the
+   * grid would never be refilled, and the fragment stage would read whatever index blocks the last
+   * upload happened to leave on the device (a grid that describes some *other* frame's lights). The
+   * `??=` in `recordLightFill` is what makes a fresh culler after a round trip; it can only do that
+   * if the disposed one is gone.
    */
   get lightCulling(): "cpu" | "gpu" {
     return this.cullingMode;
@@ -505,7 +513,10 @@ export class Renderer implements RenderFrameContext {
     const resolved = mode === "auto" ? (this.device.isMock ? "cpu" : "gpu") : mode;
     if (resolved === this.cullingMode) return;
     this.cullingMode = resolved;
-    if (resolved === "cpu") this.lightCuller?.dispose();
+    if (resolved === "cpu") {
+      this.lightCuller?.dispose();
+      this.lightCuller = null;
+    }
     this.invalidate();
   }
 

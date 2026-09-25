@@ -5,6 +5,7 @@
  * Runs the Phase 3 100k-entity benchmarks and prints throughput / timing stats.
  */
 import { runEcsBenchmark } from "./src/ecs.bench.ts";
+import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
 import { runParticleBenchmark } from "./src/particles.bench.ts";
 
 console.log("=== Forge Engine Benchmarks ===");
@@ -14,6 +15,9 @@ const results = runEcsBenchmark(100_000);
 console.log("Running 100k-particle integrator benchmark...");
 const particles = runParticleBenchmark(100_000, 30);
 results.push(...particles.results);
+console.log("Running light-count stress benchmark (Phase 13.4)...");
+const lights = runLightCullingBenchmark();
+results.push(...lights.results);
 
 console.log("\nBenchmark Results:");
 console.log("--------------------------------------------------------------------------------");
@@ -31,6 +35,9 @@ console.log("-------------------------------------------------------------------
 console.log(
   `particle analytic error ${particles.analyticError.toExponential(2)}  alive ${particles.alive}`,
 );
+const lightNotes = assertLightBenchmark(lights);
+console.log("Light culling (Phase 13.4):");
+for (const note of lightNotes) console.log(`  ${note}`);
 const integrate = particles.results[1];
 if (!integrate || integrate.durationMs >= 1000) {
   console.error(`100k particle integrate exceeded 1s (${integrate?.durationMs.toFixed(1) ?? "missing"} ms)`);

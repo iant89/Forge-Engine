@@ -20,12 +20,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
   texel for them and leaves them unoccluded). Orthographic cameras run the prepass but not SSAO.
   (capability: rendering.prepassCoverage)
-* **The cluster grid is built on the CPU, every frame.** `Renderer.buildClusters` walks the local
-  lights, writes 3 072 cluster lists into reused typed arrays and uploads the used prefixes (≈ 43 KB
-  for the demo's 40-light rig): no per-frame allocation, but it is render-thread work that grows with
-  the lights near the camera, and the three cluster buffers cost ≈ 428 KB of VRAM from the first frame
-  whether or not a scene clusters. The compute-pass assignment is roadmap 13.4.
-  (`docs/RENDERING.md` §4b, §9) (capability: rendering.clusterCoverage)
+* **The cluster grid's preparation and counting pass are still CPU work, every frame.** The *fill*
+  (the lists) runs on the device by default — `forge.lights.assign`, one compute pass, no read-back
+  (`docs/RENDERING.md` §4c) — and the CPU fallback uploads the lists' used prefix (≈ 43 KB for the
+  demo's 40-light rig). `prepare` (O(lights)) and `count` (O(lights × slices + clusters)) stay on the
+  render thread because their output is needed exactly and immediately and neither grows with how much
+  of the frame the lights cover, but they are still per-frame render-thread work, and the three cluster
+  buffers cost ≈ 416 KB of VRAM from the first frame whether or not a scene clusters.
+  (`docs/RENDERING.md` §4b, §4c, §9) (capability: rendering.clusterCoverage)
 * **256 local lights, 32 per cluster.** Past `MAX_CLUSTERED_LIGHTS` the frame truncates; past
   `MAX_LIGHTS_PER_CLUSTER` candidates in one cluster, the least influential (intensity × colour luma)
   are evicted *there* — so a dense rig in a small volume loses its dimmest lamps while the rest of the

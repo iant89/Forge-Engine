@@ -981,6 +981,23 @@ describe("clustered (Forward+) lighting", () => {
     expect(off.renderer.stats.clustersUsed).toBe(gpu.s.clustersUsed);
     expect(bufferOf(off, "cluster.grid").u32.some((v) => v !== 0)).toBe(true);
 
+    // And a round trip back to the GPU fill has to bring the pass *with* it. Switching to "cpu"
+    // releases the culler's device resources; the renderer must not keep the released culler, because
+    // a disposed `GpuLightCuller.record` returns without adding `forge.lights.assign` — the frame would
+    // then render with no fill at all, reading whatever index blocks the last upload left behind (a
+    // grid describing some other frame's lights). That is the bug the real-WebGPU gate caught on the
+    // many-light rig, where the stale lists clipped light off a band of the frame; on the mock it is
+    // visible as the missing pass.
+    const beforeBack = off.mock.commandLog.length;
+    off.renderer.lightCulling = "gpu";
+    off.renderer.renderScene(off.scene);
+    expect(off.renderer.stats.clusterFill).toBe("gpu");
+    expect(off.renderer.passNames).toContain("forge.lights.assign");
+    expect(off.mock.commandLog.slice(beforeBack).filter((e) => e.type === "dispatch")).toEqual([
+      expect.objectContaining({ label: "lights.assign", x: CLUSTER_COUNT / 256, y: 1, z: 1 }),
+    ]);
+    expect(off.mock.errors).toEqual([]);
+
     await cpu.f.dispose();
     await gpu.f.dispose();
   });
