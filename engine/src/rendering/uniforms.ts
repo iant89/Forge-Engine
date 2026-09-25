@@ -14,6 +14,7 @@
  */
 
 import { StructDef, f32, i32, u32, vec2, vec3, vec4, mat4x4, arrayOf, ofStruct, type AddressSpace } from "../gpu/layout.js";
+import { CLUSTER_COUNT, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS } from "./clusters.js";
 
 /** Max lights the per-frame block can carry (kept in sync with the WGSL array length). */
 export const MAX_LIGHTS_PER_FRAME = 16;
@@ -32,7 +33,7 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "renderExtent", type: vec2 },
   { name: "shadowDistance", type: f32 },
   { name: "ambientIntensity", type: f32 },
-  { name: "lightCount", type: i32 },
+  { name: "lightCount", type: i32, comment: "lights in the frame, global and local; the uniform LightBlock's own count bounds the shader's loop" },
   { name: "cascadeCount", type: i32 },
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
@@ -259,6 +260,52 @@ export const WaterUniforms = new StructDef("WaterUniforms", [
   { name: "_pad1", type: f32 },
 ]);
 
+/**
+ * Clustered (Forward+) light lookup, bound as group 0 binding 6 of every pass that uses the frame
+ * group. The grid (`ClusterGridBlock`) and the lights it references (`ClusterLightBlock`) are storage
+ * buffers; this block carries only the numbers the fragment stage quantises its own position with,
+ * and they are the *same* numbers `rendering/clusters.ts` quantised the lights with on the CPU. A
+ * disagreement between the two is a light that silently stops reaching a surface at a cluster
+ * boundary, which is why the grid's slice span comes from here rather than being recomputed.
+ */
+export const ClusterUniforms = new StructDef("ClusterUniforms", [
+  { name: "invExtent", type: vec2, comment: "1 / renderExtent: fragment pixel → tile-space uv" },
+  { name: "gridScale", type: vec2, comment: "(CLUSTER_TILES_X, CLUSTER_TILES_Y)" },
+  { name: "near", type: f32, comment: "view depth the slices start at; clamps the fragment's log" },
+  { name: "logNear", type: f32 },
+  { name: "sliceScale", type: f32, comment: "CLUSTER_SLICES / ln(far / near)" },
+  { name: "slices", type: f32 },
+  { name: "lightCount", type: i32, comment: "valid records in ClusterLightBlock.lights" },
+  { name: "maxPerCluster", type: i32, comment: "the cap applied this frame (see ClusterBuildResult)" },
+  { name: "_pad", type: vec2 },
+]);
+
+/**
+ * The local (point/spot) lights a cluster grid references, bound as group 0 binding 7
+ * (`var<storage, read>`). The record layout is the uniform `LightUniforms`' own, so one writer fills
+ * either buffer; the array is a *fixed* capacity because WGSL has no runtime-sized array a
+ * `StructDef` can describe, and a length that changed per frame would mean a shader module that
+ * changed per frame.
+ */
+export const ClusterLightBlock = new StructDef("ClusterLightBlock", [
+  { name: "count", type: i32, comment: "valid records in `lights`; the shader never reads past it" },
+  { name: "_pad0", type: i32 },
+  { name: "_pad1", type: i32 },
+  { name: "_pad2", type: i32 },
+  { name: "lights", type: arrayOf(ofStruct(LightUniforms), MAX_CLUSTERED_LIGHTS) },
+]);
+
+/**
+ * The grid itself, bound as group 0 binding 8 (`var<storage, read>`): two u32 per cluster — the
+ * offset of its list in `indices`, then its length — followed by the flat cluster-major list of
+ * light indices. `rendering/clusters.ts` writes both arrays verbatim; cluster `c` is
+ * `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX`.
+ */
+export const ClusterGridBlock = new StructDef("ClusterGridBlock", [
+  { name: "clusterOffsets", type: arrayOf(u32, CLUSTER_COUNT * 2), comment: "per cluster: offset into `indices`, then count" },
+  { name: "indices", type: arrayOf(u32, CLUSTER_INDEX_CAPACITY), comment: "flat light-index list, cluster-major" },
+]);
+
 export const RENDERING_STRUCTS = {
   PerFrameUniforms,
   LightBlock,
@@ -274,9 +321,23 @@ export const RENDERING_STRUCTS = {
   SkyUniforms,
   CloudUniforms,
   WaterUniforms,
+  ClusterUniforms,
+} as const;
+
+/**
+ * Structs that are only ever bound as `var<storage, read>`. Kept out of `RENDERING_STRUCTS` because
+ * that registry is checked *as if uniform* (`tools/wgsl-check.mjs`), and a plain `array<u32, N>` has
+ * a 4-byte stride — illegal in the uniform address space, exactly what a storage buffer is for.
+ * `check:wgsl` validates these in the storage space instead.
+ */
+export const RENDERING_STORAGE_STRUCTS = {
+  ClusterLightBlock,
+  ClusterGridBlock,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
+
+export type RenderingStorageStructName = keyof typeof RENDERING_STORAGE_STRUCTS;
 
 /** Byte size in the given address space (the size a buffer allocation must satisfy). */
 export function structSize(name: RenderingStructName, space: AddressSpace = "uniform"): number {

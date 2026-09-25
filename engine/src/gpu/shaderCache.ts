@@ -221,6 +221,7 @@ export function validateWgsl(source: string): WgslIssue[] {
   }
 
   issues.push(...reversedSmoothstepIssues(source));
+  issues.push(...reservedWordIssues(source));
 
   // 5. Uniform address-space layout. Chromium's compiler tolerates arrays with a stride below 16
   //    bytes (and other relaxed layouts) inside `var<uniform>` structs; WebKit rejects the module,
@@ -270,6 +271,58 @@ export function reversedSmoothstepIssues(source: string): WgslIssue[] {
         `smoothstep(${m[1]}, ${m[2]}, …) has low >= high, which strict WGSL compilers reject (the result is unspecified where they do not); ` +
         `write a reversed falloff as 1.0 - smoothstep(${m[2]}, ${m[1]}, x)`,
       line: lineAt(cleaned, m.index),
+    });
+  }
+  return issues;
+}
+
+/**
+ * WGSL words the specification reserves but the language does not use. Tint rejects a module that
+ * names one at parse time — `'meta' is a reserved keyword` — so every pipeline built from it comes
+ * back invalid, every frame that used one fails to submit, and the mock device reports nothing
+ * because it never compiles a shader. They are held for future language features, so nothing about
+ * them looks illegal to a reader: `meta`, `resource`, `template`, `cast`, `handle`, `shared`,
+ * `module`, `type`. The Phase 13.3 cluster grid called its per-cluster (offset, count) array `meta`
+ * and only the browser gate saw it.
+ *
+ * Deliberately excludes the words WGSL *does* use — `struct`, `let`, `var`, `fn`, `uniform`,
+ * `storage`, `read`, `override`, the vector/matrix type names — and `f16`, which is a real type once
+ * the extension is enabled. Attribute spellings (`@align`, `@invariant`) are skipped by the scan.
+ */
+export const WGSL_RESERVED_WORDS: readonly string[] = [
+  "NULL", "Self", "abstractFloat", "abstractInt", "abstractNumeric", "align", "as", "asm", "assert",
+  "asynchronous", "cast", "catch", "class", "const_cast", "consteval", "constexpr", "constinit",
+  "delete", "do", "dynamic_cast", "enum", "explicit", "export", "extends", "fallthrough", "fixme",
+  "friend", "from", "goto", "groupshared", "handle", "highp", "i64", "implements", "import",
+  "inline", "interface", "invariant", "iterator", "layout", "lowp", "macro", "matrix", "mediump",
+  "meta", "module", "mut", "mutable", "namespace", "new", "noinline", "nullptr", "offsetof",
+  "operator", "or", "partition", "precision", "premerge", "protected", "public", "readonly",
+  "reinterpret_cast", "requires", "resource", "restrict", "samper", "self", "shared", "signed",
+  "sizeof", "smooth", "static", "static_assert", "static_cast", "storage_buffer", "super", "superp",
+  "target", "template", "this", "throw", "try", "type", "typedef", "typename", "u64", "union",
+  "unless", "unsigned", "using", "vec1", "vec5", "vec6", "vector", "virtual", "void", "volatile",
+  "weak", "wgsl", "yield",
+];
+
+const RESERVED_WORD_SET: ReadonlySet<string> = new Set(WGSL_RESERVED_WORDS);
+
+/**
+ * Reserved words used as identifiers — struct members, locals, globals, function names. Comments are
+ * blanked with their newlines kept, so a reported line is the line the identifier is really on, and a
+ * prose mention of a reserved word is not an error.
+ */
+export function reservedWordIssues(source: string): WgslIssue[] {
+  const cleaned = source.replace(/\/\*[\s\S]*?\*\//g, (s) => s.replace(/[^\n]/g, " ")).replace(/\/\/[^\n]*/g, " ");
+  const issues: WgslIssue[] = [];
+  const re = /(^|[^A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned))) {
+    const word = m[2]!;
+    if (m[1] === "@" || !RESERVED_WORD_SET.has(word)) continue;
+    issues.push({
+      kind: "semantics",
+      message: `'${word}' is a reserved WGSL keyword and cannot be an identifier (Tint rejects the module at parse time)`,
+      line: lineAt(cleaned, m.index + (m[1] === "" ? 0 : 1)),
     });
   }
   return issues;

@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO from Phase 13)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -21,10 +21,10 @@ collectBatches()   (frustum cull, sort,      forge.prepass     depth24plus "dept
   instance merge — no allocation)            forge.ssao        depth → ssao.raw   (rg16float, ½ res)
 classifyPrepass()  (which batches lay        forge.ssao.blur.h ssao.raw  → ssao.blur
   down depth; state + front-to-back sort)    forge.ssao.blur.v ssao.blur → ssao.result (same memory as ssao.raw)
-                                             forge.main        rgba16float "hdr" + depth (load) + ssao.result
-                                             forge.sky         hdr (load) + depth (load, never written): far-plane triangle
-per-frame / light / shadow / sky / object /  forge.bloom.prefilter    hdr        → bloom.1 (½ res)
-  instance uniform uploads                   forge.bloom.down.2..5    bloom.n    → bloom.n+1
+buildClusters()    (local lights into a      forge.main        rgba16float "hdr" + depth (load) + ssao.result
+  16x8x24 view grid; no pass — §4b)          forge.sky         hdr (load) + depth (load, never written): far-plane triangle
+per-frame / light / cluster / shadow /       forge.bloom.prefilter    hdr        → bloom.1 (½ res)
+  sky / object / instance uniform uploads    forge.bloom.down.2..5    bloom.n    → bloom.n+1
 buildFrame() → graph.execute()               forge.bloom.up.4..1      bloom.n+1  +→ bloom.n (additive tent)
                                              forge.tonemap     hdr + bloom.1 → swapchain (sRGB encoded)
 ```
@@ -42,6 +42,7 @@ options:
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
 | `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
+| `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | **adds no pass.** Local (point/spot) lights are indexed on the CPU into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 | `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
 | `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, a perspective camera, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
@@ -53,7 +54,10 @@ rendered frame, so the HUD keeps ticking while a scene loads.
 `triangles`, `instances`, `batches`, `culled`, `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
 `hdr`, `bloomMips`, `sky`, `skySamples`, `depthPrepass`, `prepassDraws` (depth-only draws, not in
 `drawCalls`, like `shadowsDrawn`), `ssao`, `passes`, `culledPasses`, `transientTextures`,
-`physicalTextures`, `aliasedBytes`, `texturesCreated`. The three SSAO fullscreen draws count in
+`physicalTextures`, `aliasedBytes`, `texturesCreated`, `clusteredLighting`, `lights` (every light in
+the frame, global and local), `clusteredLights` (the local ones the grid carries), `clustersUsed`,
+`clusterIndices`, `maxLightsPerCluster` (the largest list actually built) and `lightsDropped` (§4b).
+The three SSAO fullscreen draws count in
 `drawCalls` (as the post passes do) but not in `triangles`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
 order; the demo HUD prints a summary and `tools/browser-check.mjs` asserts on both.
 
@@ -224,6 +228,71 @@ radius — on the PBR fixture it darkened 0.04 % of the frame. Because only ambi
 how much SSAO shows depends on the lighting: the PBR fixture (strong sun and point lights, floating
 spheres) darkens ~0.4 % of its pixels by up to ~5 levels, which is what `check:browser` measures.
 
+## 4b. Clustered (Forward+) lighting (Phase 13.3)
+
+Local lights are indexed on the CPU into a view-space grid — `CLUSTER_TILES_X × CLUSTER_TILES_Y ×
+CLUSTER_SLICES` = 16 × 8 × 24 = 3 072 clusters (`engine/src/rendering/clusters.ts`) — and the fragment
+stage walks only the list of the cluster it lands in, so the cost follows the lights near a pixel
+instead of the lights in the scene. Directional lights are never clustered: they reach every pixel, so
+there is nothing to cull, and they stay in the small uniform `LightBlock` where the cascade caster's
+`shadowIndex` lives. Clustering is a *data* change and not a pass — the graph is identical with it on or
+off (§1) — and it lifts the frame's light cap from `MAX_LIGHTS_PER_FRAME` = 16 to `MAX_CLUSTERED_LIGHTS`
+= 256 local lights.
+
+**Engaging.** `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !==
+false` (`EngineConfig.clusteredLighting`, which the minimal and low profiles turn off), a perspective
+camera, and at least one local light. `perFrame.flags` bit 5 (`FLAGS_CLUSTERED`) tells the shader which
+of the two loops to run; both are always compiled, so one pipeline serves either and the demo can A/B
+them without a rebuild.
+
+**The grid.** A fragment's cluster is `(slice × 8 + tileY) × 16 + tileX`, the tile coming from
+`@builtin(position).xy / renderExtent` and the slice logarithmic in view depth (`clip.w`) between the
+camera's near plane and `clusterFar` — the deepest live light, capped by the far plane:
+`slice = clamp(i32((log(max(depth, near)) − logNear) · sliceScale), 0, 23)`. Logarithmic because a metre
+of depth matters more at 2 m than at 50 m, and because it keeps the slice count independent of the far
+plane. `ClusterUniforms` (48 B) carries exactly the five constants that expression needs, so the CPU
+builder and the fragment stage compute the same slice from the same numbers; the builder still widens
+each light by one slice on each side, because it quantises in float64 and the shader in float32, and a
+widened slice contributes exactly `+0.0`.
+
+**Conservative assignment.** Under-inclusion is the one failure mode a viewer cannot diagnose — a light
+that silently stops lighting part of a surface — so the builder over-covers and never under-covers.
+Each light becomes a view-space bounding sphere (a spot's cone gets `spotBoundingSphere`), the sphere
+becomes a box, and the box is projected at **both** of its depths, taking the corner min/max:
+`ndc.x = proj00·x/z` moves toward the centre as `z` grows, so for a box that does not straddle the view
+axis the *far* edge at the far depth reaches further in than the near edge at the near depth does.
+Projecting at the near depth alone — the obvious thing to write — cost an off-axis lamp the inner
+crescent of its own pool: `check:browser` saw it as 181 darker pixels in a 40-light frame, and
+`tests/clusters.test.ts` now walks that crescent at 2 cm. A sphere that reaches the near plane projects
+without bound and takes every tile; lights fully off frame (NDC beyond ±(1 + 2·`TILE_EPS`)), behind the
+near plane or past the far plane are dropped before they cost anything.
+
+**Caps and eviction.** A cluster holds at most `MAX_LIGHTS_PER_CLUSTER` = 32 lights. When it has more
+candidates than that, the least influential lose — influence is `intensity ×` the Rec.709 luma of the
+colour, a *per-light* measure, so the same lights lose in every cluster and a light cannot pop out at
+one cluster boundary and back in at the next. Lists stay in light order after the eviction sort, which
+is what keeps the shader's accumulation order (and so its floating-point sum) the unclustered path's
+own. The flat index list is sized for the worst case — `CLUSTER_COUNT × MAX_LIGHTS_PER_CLUSTER` =
+98 304 entries — so the cap is what limits a cluster and never the buffer: a light dropped because a
+buffer ran out would be a light dropped for a reason nobody can see in the scene.
+
+**Buffers.** Group 0 bindings 6–8, created once and never re-created, so the frame bind group stays
+stable: `clusters` (`ClusterUniforms`, 48 B, uniform), `clusterLights` (`ClusterLightBlock`: a count and
+`array<LightUniforms, 256>`, 20 496 B, read-only storage) and `clusterGrid` (`ClusterGridBlock`: 6 144
+u32 of (offset, count) pairs, then the index list — 417 792 B, read-only storage). ≈ 428 KB resident
+from the first frame, clustered or not. Per clustered frame only the used prefixes go up: all 24 KB of
+offsets (any cluster's count can change) and the index list up to `stats.clusterIndices` — 43 KB for the
+demo's 40-light rig.
+
+**Why it is pixel-identical below the old cap.** Both light loops call the same `lightContribution()` in
+`shaders/standard.ts` — one definition, two call sites, pinned by `tests/wgsl.test.ts` — and a fragment
+outside a light's range adds exactly `+0.0` on the uniform path while the clustered path simply does not
+list it. `check:browser` proves the result on real WebGPU: the PBR fixture's four lights give a
+bit-identical frame with clustering on and off (0 px differ by even one luma level, same 18 passes), and
+with the demo's 36-lamp rig (40 lights) the clustered frame is strictly brighter — 88 057 of the
+921 600 px, none darker — while the uniform list truncates at 16 and reports `lightsDropped`. The demo's
+**Clustered** and **+36 lamps** buttons drive both halves.
+
 ## 5. Conventions
 
 The rules every module above assumes (pinned by `tests/math.test.ts`; the long form is `AGENTS.md`
@@ -315,6 +384,16 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   hidden behind nearer geometry do not count, detail below ~2 px is lost, the kernel is clamped to
   10 % of the frame height (close-ups get a smaller effective radius), and it scales ambient light
   only — a scene lit mostly by direct light shows little of it.
+* Clustering is built on the CPU (§4b) and uploaded every frame — 3 072 clusters, an offset array and a
+  flat index list. Moving the assignment into a compute pass is roadmap 13.4.
+* Local lights are capped at 256 per frame (`MAX_CLUSTERED_LIGHTS`) and each cluster at 32
+  (`MAX_LIGHTS_PER_CLUSTER`), where the least influential lose; `stats.lightsDropped` reports either
+  case. The cluster buffers cost ≈ 428 KB of VRAM from the first frame whether or not a scene clusters.
+* Orthographic cameras are never clustered — the grid's depth axis is view depth, which an orthographic
+  projection does not put in `clip.w`, the same reason SSAO is perspective-only — so their local lights
+  still go through the fixed 16-entry uniform list.
+* Clustered lights cast no shadows: a local light's `shadowIndex` is always −1 in the cluster block
+  (point and spot shadows are roadmap 13.9), as it already is in the uniform list.
 * `renderScale` scales the HDR target only; the LDR path always renders at swapchain resolution.
 * The graph builds one command buffer and submits it; there are no timestamp queries yet, so
   `renderTimeMs` in the HUD is CPU time.

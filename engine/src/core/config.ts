@@ -88,6 +88,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: false,
     depthPrepass: false,
     ssao: false,
+    clusteredLighting: false,
     bloom: false,
     skyQuality: "low",
     motionBlur: false,
@@ -105,6 +106,7 @@ export const QUALITY_PROFILES: Record<QualityProfile, Partial<FullConfig>> = {
     contactShadows: false,
     depthPrepass: false,
     ssao: false,
+    clusteredLighting: false,
     bloom: true,
     skyQuality: "low",
     motionBlur: false,
@@ -177,6 +179,12 @@ export interface EngineConfigExtras {
   depthPrepass: boolean;
   /** Allow screen-space ambient occlusion (needs `depthPrepass`). Caps `SceneSettings.ssao.enabled`. */
   ssao: boolean;
+  /**
+   * Allow clustered (Forward+) lighting: local lights gathered into a 16×8×24 view-space grid, so a
+   * fragment evaluates the lights in its own cluster instead of a fixed 16-entry uniform list.
+   * Caps `SceneSettings.clusteredLighting`.
+   */
+  clusteredLighting: boolean;
   bloom: boolean;
   /** Cap on the sky pass's ray-march tier (`SceneSkySettings.quality` asks, this caps). */
   skyQuality: "low" | "medium" | "high";
@@ -240,6 +248,7 @@ const DEFAULTS: FullConfig = {
   contactShadows: true,
   depthPrepass: true,
   ssao: true,
+  clusteredLighting: true,
   bloom: true,
   skyQuality: "high",
   motionBlur: true,
@@ -354,7 +363,7 @@ export function describeConfig(config: FullConfig): string {
   const lines: string[] = [];
   lines.push(`quality=${config.quality} backend=${config.backend} renderScale=${config.renderScale}`);
   lines.push(
-    `shadows=${config.shadowCascades}x${config.shadowMapSize} prepass=${config.depthPrepass} ssao=${config.ssao} bloom=${config.bloom} sky<=${config.skyQuality} volumetrics=${config.volumetrics} refl=${config.reflections}`,
+    `shadows=${config.shadowCascades}x${config.shadowMapSize} prepass=${config.depthPrepass} ssao=${config.ssao} clustered=${config.clusteredLighting} bloom=${config.bloom} sky<=${config.skyQuality} volumetrics=${config.volumetrics} refl=${config.reflections}`,
   );
   lines.push(`fixedDt=${config.fixedDeltaTime.toFixed(5)} substeps<=${config.maxSubSteps} particles<=${config.maxParticles}`);
   lines.push(`terrain: visible=${config.terrainVisibleDistance}m resident<=${config.terrainMaxResidentChunks}/frame=${config.terrainChunksPerFrame}`);

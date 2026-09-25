@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const engine = await import(pathToFileURL(resolve("engine/dist/index.js")).href);
-const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, RENDERING_STRUCTS } = engine;
+const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS } = engine;
 
 // The forward shader is validated as the pipeline factory actually compiles it: one module holding
 // the vertex stage and the fragment body (both variants), not the two halves in isolation.
@@ -98,6 +98,42 @@ for (const [label, def] of Object.entries(RENDERING_STRUCTS ?? {})) {
     for (const p of problems) console.error(`   ${p}`);
   } else {
     console.log(`RENDERING_STRUCTS.${label}: ${size} B, uniform layout ok`);
+  }
+}
+
+// Structs that are only ever bound as `var<storage, read>` cannot be checked as uniform: the cluster
+// grid's `array<u32, N>` members have a 4-byte stride, which is exactly what the uniform address space
+// forbids and what a storage buffer exists for. What can still go wrong is (a) a definition the layout
+// engine cannot emit, and (b) the shader embedding a hand-edited copy of the struct instead of the
+// generated one — so assert the generated text appears verbatim in the module that binds it.
+const STORAGE_STRUCT_HOSTS = {
+  ClusterLightBlock: ["shaders/standard.ts", `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`],
+  ClusterGridBlock: ["shaders/standard.ts", `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`],
+};
+for (const [label, def] of Object.entries(RENDERING_STORAGE_STRUCTS ?? {})) {
+  if (!def || typeof def.byteSize !== "function" || typeof def.toWgsl !== "function") {
+    console.error(`RENDERING_STORAGE_STRUCTS.${label}: not a StructDef (layout registry broken)`);
+    failed++;
+    continue;
+  }
+  const problems = [];
+  const size = def.byteSize("storage");
+  let wgsl = "";
+  try {
+    wgsl = def.toWgsl("storage");
+  } catch (error) {
+    problems.push(`toWgsl("storage") threw: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!(size > 0) || size % 4 !== 0) problems.push(`storage size ${size} is not a positive multiple of 4`);
+  const host = STORAGE_STRUCT_HOSTS[label];
+  if (!host) problems.push("no host module declared in tools/wgsl-check.mjs (cannot prove the shader embeds the generated struct)");
+  else if (wgsl && !host[1].includes(wgsl)) problems.push(`the generated struct is not embedded verbatim in ${host[0]} (hand-edited WGSL cannot be kept in step with the CPU writer)`);
+  if (problems.length > 0) {
+    failed++;
+    console.error(`RENDERING_STORAGE_STRUCTS.${label}: ${problems.length} problem(s)`);
+    for (const p of problems) console.error(`   ${p}`);
+  } else {
+    console.log(`RENDERING_STORAGE_STRUCTS.${label}: ${size} B storage, embedded verbatim in ${host[0]}`);
   }
 }
 

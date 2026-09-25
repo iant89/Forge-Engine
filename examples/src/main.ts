@@ -28,12 +28,15 @@
 import {
   type DayNightCycle,
   Engine,
+  type Entity,
   detectPlatform,
+  Light,
   runParticleGravityCheck,
   type ParticleGravityCheckOptions,
   type Scene,
   type ToneMapping,
   type TerrainWorld,
+  Vec3,
 } from "@forge/engine";
 import { OrbitControls } from "./controls/orbitControls.js";
 import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
@@ -65,6 +68,8 @@ const btnBloom = document.getElementById("btn-bloom") as HTMLButtonElement | nul
 const btnShadows = document.getElementById("btn-shadows") as HTMLButtonElement | null;
 const btnPrepass = document.getElementById("btn-prepass") as HTMLButtonElement | null;
 const btnSsao = document.getElementById("btn-ssao") as HTMLButtonElement | null;
+const btnClustered = document.getElementById("btn-clustered") as HTMLButtonElement | null;
+const btnStress = document.getElementById("btn-stress") as HTMLButtonElement | null;
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
@@ -96,6 +101,8 @@ async function main(): Promise<void> {
   let controls: OrbitControls | null = null;
   /** Renderer AABB overlay ("Bounds" toolbar button / `?bounds=1`); separate from the scene's auto boxes. */
   let boundsOn = false;
+  /** Entities the many-light rig added to the current scene (Phase 13.3); dropped on scene switch. */
+  let stressLamps: Entity[] = [];
   /** Set once the Mars loading screen has been dismissed (model ready, or the user skipped it). */
   let loadingDismissed = false;
   let lastLoadingSync = 0;
@@ -168,6 +175,10 @@ async function main(): Promise<void> {
     btnPrepass?.classList.toggle("active", settings.depthPrepass);
     btnSsao?.classList.toggle("active", settings.ssao.enabled);
     if (btnSsao) btnSsao.disabled = !settings.depthPrepass;
+    btnClustered?.classList.toggle("active", settings.clusteredLighting);
+    // The rig's lamps belonged to the scene that was just replaced.
+    stressLamps = [];
+    btnStress?.classList.remove("active");
     btnCascades?.classList.toggle("active", settings.shadow.debugCascades);
     if (btnCascades) btnCascades.disabled = !settings.shadow.enabled;
     btnTmAces?.classList.toggle("active", settings.toneMapping === "aces");
@@ -290,6 +301,8 @@ async function main(): Promise<void> {
     if (btnSsao) btnSsao.disabled = !s.depthPrepass;
     btnCascades?.classList.toggle("active", s.shadow.debugCascades);
     if (btnCascades) btnCascades.disabled = !s.shadow.enabled;
+    btnClustered?.classList.toggle("active", s.clusteredLighting);
+    btnStress?.classList.toggle("active", stressLamps.length > 0);
   }
   function setHdr(on: boolean): void {
     if (!currentHandle) return;
@@ -316,6 +329,46 @@ async function main(): Promise<void> {
     currentHandle.scene.settings.ssao.enabled = on;
     syncRenderButtons();
   }
+  function setClusteredLighting(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.clusteredLighting = on;
+    syncRenderButtons();
+  }
+  /**
+   * Many-light rig (Phase 13.3): `count` static point lamps on a grid over the active scene, so the
+   * demo — and the browser gate — can drive more lights than the old fixed 16-entry uniform list
+   * could carry. Static on purpose: with the loop frozen the frame is bit-reproducible, which is what
+   * the clustering pixel A/B in `tools/browser-check.mjs` needs. Pass 0 to take them back out.
+   */
+  function setStressLights(count: number): void {
+    const scene = currentHandle?.scene;
+    if (!scene) return;
+    for (const lamp of stressLamps) scene.destroyEntity(lamp);
+    stressLamps = [];
+    const wanted = Math.max(0, Math.floor(count));
+    const side = Math.max(1, Math.ceil(Math.sqrt(wanted)));
+    const stepX = 10 / Math.max(1, side - 1);
+    const stepZ = 8 / Math.max(1, side - 1);
+    for (let i = 0; i < wanted; i++) {
+      const x = ((i % side) - (side - 1) / 2) * stepX;
+      const z = (Math.floor(i / side) - (side - 1) / 2) * stepZ;
+      // Low and tight on purpose: a 1.8 m pool of light on the ground reads clearly on camera and
+      // covers a handful of clusters, so the rig demonstrates "many lights", not "many lights all in
+      // the same cluster" (which is what the 32-per-cluster cap is for).
+      const entity = scene.createTransformedEntity(`stress-lamp-${i}`, new Vec3(x, 0.75 + (i % 3) * 0.45, z));
+      const lamp = new Light();
+      lamp.kind = "point";
+      lamp.range = 1.8;
+      lamp.intensity = 11;
+      lamp.castShadow = false;
+      // Spread the hues so the grid reads as separate lamps rather than one wash of white.
+      const t = (i / Math.max(1, wanted - 1)) * Math.PI * 2;
+      lamp.setColor(0.6 + 0.4 * Math.sin(t), 0.6 + 0.4 * Math.sin(t + 2.09), 0.6 + 0.4 * Math.sin(t + 4.19));
+      scene.world.addComponent(entity.id, lamp);
+      stressLamps.push(entity);
+    }
+    syncRenderButtons();
+  }
   function setCascadeDebug(on: boolean): void {
     if (!currentHandle) return;
     currentHandle.scene.settings.shadow.debugCascades = on;
@@ -326,6 +379,8 @@ async function main(): Promise<void> {
   btnShadows?.addEventListener("click", () => setShadows(!currentHandle?.scene.settings.shadow.enabled));
   btnPrepass?.addEventListener("click", () => setDepthPrepass(!currentHandle?.scene.settings.depthPrepass));
   btnSsao?.addEventListener("click", () => setSsao(!currentHandle?.scene.settings.ssao.enabled));
+  btnClustered?.addEventListener("click", () => setClusteredLighting(!currentHandle?.scene.settings.clusteredLighting));
+  btnStress?.addEventListener("click", () => setStressLights(stressLamps.length > 0 ? 0 : 36));
   btnCascades?.addEventListener("click", () => setCascadeDebug(!currentHandle?.scene.settings.shadow.debugCascades));
   syncRenderButtons();
 
@@ -359,6 +414,9 @@ async function main(): Promise<void> {
     const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
+    const lights = r.clusteredLighting
+      ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster})${r.lightsDropped ? "  ·  DROPPED" : ""}`
+      : `lights ${r.lights} in the fixed uniform list${r.lightsDropped ? "  ·  DROPPED" : ""}`;
     const aliased = r.aliasedBytes > 0 ? `  (${(r.aliasedBytes / 1024).toFixed(0)} KiB aliased)` : "";
     hud.textContent =
       `scene [${activeSceneName.toUpperCase()}]  frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
@@ -366,6 +424,7 @@ async function main(): Promise<void> {
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
       `${path}  ·  ${shadows}  ·  ${sky}\n` +
       `${depth}\n` +
+      `${lights}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
     const extra = currentHandle?.overlay?.();
@@ -401,6 +460,12 @@ async function main(): Promise<void> {
     setShadows,
     setDepthPrepass,
     setSsao,
+    setClusteredLighting,
+    /** Whether the active scene shades its local lights through the cluster grid. */
+    clusteredLighting: () => !!currentHandle?.scene.settings.clusteredLighting,
+    setStressLights,
+    /** How many rig lamps are in the scene right now (0 when the rig is off). */
+    stressLights: () => stressLamps.length,
     setCascadeDebug,
     /** Debug AABB overlay: renderer-wide renderable bounds + the Mars rover footprint boxes. */
     setDebugBounds: (on: boolean) => setBounds(!!on),

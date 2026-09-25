@@ -46,6 +46,13 @@
  * and asserts `animating()` — a frozen loop applies no input, and the parked half of the check would
  * pass for the wrong reason (a car that cannot move looks exactly like a car held by a brake).
  *
+ * Phase 13.3 addition: clustered (Forward+) lighting must be *pixel-identical* while a scene fits the
+ * old fixed 16-entry light list — the cluster loop calls the same shading function over the same
+ * lights in the same order, so any difference is a light the grid failed to index or a slice boundary
+ * the CPU and the GPU quantise apart — and the demo's many-light rig (36 static lamps, 40 lights in
+ * all) must reach the shader whole through the grid while the uniform path truncates, reports it, and
+ * presents visibly less light. The `Clustered` button must move the setting it shows.
+ *
  * Rain/showcase addition: the storm preset must spawn visible rain (`weatherState().rainDrops >
  * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
  * Perseverance GLB, settle its six wheels into terrain contact, then drive forward under W far enough
@@ -477,6 +484,100 @@ try {
   if (prepassDiff.darker + prepassDiff.brighter > 0) {
     throw new Error(`the depth prepass changed the picture: ${prepassDiff.darker + prepassDiff.brighter} px differ by up to ${prepassDiff.max.toFixed(1)} luma levels`);
   }
+
+  // Clustered (Forward+) lighting, Phase 13.3 — two claims, and only a real device can prove either.
+  //
+  //  1. While a scene fits in the old fixed 16-entry list, clustering must not move a single pixel.
+  //     The cluster loop calls the same `lightContribution` the uniform loop does, over the same
+  //     lights in the same order, so the accumulated sum is bit-identical; a light the grid failed to
+  //     index, a slice boundary the CPU and the GPU quantise differently, or a reordered sum all show
+  //     up here as a picture that moved. The PBR fixture holds a directional sun plus three local
+  //     lights (two orbiting points and a spot) and the demo loop is frozen, so this is an exact A/B
+  //     of the refactor and not a "looks similar" one.
+  //  2. Past 16 lights the cluster path must carry all of them while the uniform path truncates — and
+  //     report the truncation instead of letting 24 lamps vanish without a trace.
+  await settle(); // the prepass A/B above re-enabled SSAO and the prepass without waiting for a frame
+  await keepLuma("clustered-on");
+  const clusteredOn = (await page.evaluate(() => window.__forge.stats())).render;
+  await page.evaluate(() => window.__forge.setClusteredLighting(false));
+  await settle();
+  await keepLuma("clustered-off");
+  const clusteredOff = (await page.evaluate(() => window.__forge.stats())).render;
+  const clusterDiff = await compareLuma("clustered-off", "clustered-on");
+  await page.evaluate(() => window.__forge.setClusteredLighting(true));
+  await settle();
+  console.log(
+    `clustered: ${clusteredOn.clusteredLights} of ${clusteredOn.lights} lights indexed into ${clusteredOn.clustersUsed} clusters ` +
+      `(${clusteredOn.clusterIndices} indices, cap ${clusteredOn.maxLightsPerCluster}); on vs off max luma diff ${clusterDiff.max.toFixed(2)}, ` +
+      `${clusterDiff.darker + clusterDiff.brighter} px beyond 1 level; passes ${clusteredOn.passes} vs ${clusteredOff.passes}`,
+  );
+  if (!clusteredOn.clusteredLighting) throw new Error("the PBR fixture never engaged clustered lighting (a directional sun plus three local lights should)");
+  if (clusteredOn.lights !== 4 || clusteredOn.clusteredLights !== 3) throw new Error(`clustered lighting saw ${clusteredOn.clusteredLights} local lights of ${clusteredOn.lights}; the fixture has 3 local + 1 directional`);
+  if (clusteredOn.clustersUsed <= 0 || clusteredOn.clusterIndices <= 0) throw new Error("the cluster grid came out empty: no cluster received a light");
+  if (clusteredOn.lightsDropped) throw new Error(`clustered lighting dropped a light with only ${clusteredOn.lights} in the scene (cap ${clusteredOn.maxLightsPerCluster} per cluster)`);
+  if (clusteredOff.clusteredLighting) throw new Error("clustering stayed on after the scene setting was turned off");
+  if (clusteredOff.lights !== clusteredOn.lights) throw new Error(`the light count changed when clustering was switched off (${clusteredOn.lights} → ${clusteredOff.lights})`);
+  if (clusteredOff.passes !== clusteredOn.passes) throw new Error(`clustering changed the frame graph: ${clusteredOn.passes} passes with it, ${clusteredOff.passes} without`);
+  if (clusterDiff.darker + clusterDiff.brighter > 0) {
+    throw new Error(
+      `clustering changed the picture with only ${clusteredOn.lights} lights: ${clusterDiff.darker + clusterDiff.brighter} px differ by up to ` +
+        `${clusterDiff.max.toFixed(1)} luma levels — the cluster path is not accumulating what the uniform path does`,
+    );
+  }
+
+  // The many-light rig: 36 static lamps, so the scene holds 40 — two and a half times what the fixed
+  // list could carry. Clustering must deliver every one; the uniform path must truncate, say so, and
+  // leave the frame visibly short of the light the same scene has when nothing is dropped.
+  await page.evaluate(() => window.__forge.setStressLights(36));
+  await settle();
+  await keepLuma("many-clustered");
+  const manyClustered = (await page.evaluate(() => window.__forge.stats())).render;
+  await page.evaluate(() => window.__forge.setClusteredLighting(false));
+  await settle();
+  await keepLuma("many-uniform");
+  const manyUniform = (await page.evaluate(() => window.__forge.stats())).render;
+  const manyDiff = await compareLuma("many-uniform", "many-clustered");
+  const manyPixels = await samplePixels();
+  await page.evaluate(() => {
+    window.__forge.setClusteredLighting(true);
+    window.__forge.setStressLights(0);
+  });
+  await settle();
+  await page.evaluate(() => delete window.__gateLuma);
+  const restoredLights = (await page.evaluate(() => window.__forge.stats())).render;
+  console.log(
+    `many lights: ${manyClustered.lights} in the scene → clustered ${manyClustered.clusteredLights} over ${manyClustered.clustersUsed} clusters ` +
+      `(cap ${manyClustered.maxLightsPerCluster}, dropped ${manyClustered.lightsDropped}); the uniform list capped at 16, dropped ${manyUniform.lightsDropped}; ` +
+      `${manyDiff.brighter} px brighter clustered (max ${manyDiff.max.toFixed(1)} levels), mean ${manyPixels.mean.toFixed(2)}; rig removed → ${restoredLights.lights} lights`,
+  );
+  if (manyClustered.lights < 17) throw new Error(`the many-light rig added no lights: ${manyClustered.lights} in the scene`);
+  if (manyClustered.clusteredLights !== manyClustered.lights - 1) {
+    throw new Error(`clustering carried ${manyClustered.clusteredLights} of ${manyClustered.lights} lights; every local light belongs in the grid (only the sun stays in the uniform list)`);
+  }
+  if (manyClustered.lightsDropped) throw new Error(`clustered lighting dropped lights at ${manyClustered.lights} (cap ${manyClustered.maxLightsPerCluster} per cluster): the grid does not cover the rig`);
+  if (!manyUniform.lightsDropped) throw new Error(`the fixed uniform list reported no truncation with ${manyUniform.lights} lights in the scene`);
+  if (manyDiff.brighter <= 0) throw new Error(`clustering lit no extra pixel at ${manyClustered.lights} lights: the cluster lists are not reaching the shader`);
+  if (manyDiff.darker > 0) throw new Error(`clustering darkened ${manyDiff.darker} px at ${manyClustered.lights} lights — it can only add the lamps the uniform list dropped`);
+  if (restoredLights.lights !== clusteredOn.lights || !restoredLights.clusteredLighting) throw new Error("removing the rig did not restore the fixture's four lights");
+
+  // The demo's own button must move the setting the setter moves, and mark itself pressed.
+  const clusteredButton = await page.evaluate(() => {
+    const btn = document.getElementById("btn-clustered");
+    if (!btn) return null;
+    const before = btn.classList.contains("active");
+    btn.click();
+    const after = { pressed: btn.classList.contains("active"), setting: window.__forge.clusteredLighting() };
+    btn.click();
+    return { before, after, restored: btn.classList.contains("active") && window.__forge.clusteredLighting() };
+  });
+  await settle();
+  if (!clusteredButton) throw new Error("the demo has no Clustered button (examples/index.html)");
+  if (clusteredButton.before !== true) throw new Error("the Clustered button is not marked pressed while clustering is on");
+  if (clusteredButton.after.pressed !== false || clusteredButton.after.setting !== false) {
+    throw new Error("clicking Clustered did not turn clustering off in both the button and the scene setting");
+  }
+  if (!clusteredButton.restored) throw new Error("a second click on Clustered did not turn it back on");
+  console.log(`clustered button: active=${clusteredButton.before} → click → active=${clusteredButton.after.pressed}, setting=${clusteredButton.after.setting} → click → restored=${clusteredButton.restored}`);
 
   // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
   await page.evaluate(() => window.__forge.setHdr(false));

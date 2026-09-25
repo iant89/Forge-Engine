@@ -142,13 +142,15 @@ availability. The pass *description* is cheap and is rebuilt every frame from th
 settings; the GPU resources behind it are pooled by descriptor and survive across frames,
 so a steady frame allocates nothing (asserted by the tests and the browser gate).
 
-**Built today (Phases 2, 8a/8b, 12 and 13.1–13.2; see `docs/RENDERING.md`):**
+**Built today (Phases 2, 8a/8b, 12 and 13.1–13.3; see `docs/RENDERING.md`):**
 `shadow.cascade(N≤4) → prepass(depth only) → ssao(½-res estimate → blur h → blur v) →
 main(forward, HDR rgba16float, fog + ambient occlusion in-shader) → sky(analytic + cloud deck,
 far plane, depth loaded) → particles(GPU scenes: sim → sort → render → resolve) →
 bloom(prefilter, down×n, up×n) → tonemap → present`, with an LDR path (`main` + `sky` straight
-to the swapchain) when `hdr` is off. Clustered lighting, volumetrics, reflections, DoF, motion
-blur and FXAA are not built yet.
+to the swapchain) when `hdr` is off. Local lights reach the shader through a CPU-built cluster
+grid rather than a fixed light list (§5.5), which adds no pass to the chain above. Volumetrics,
+reflections, DoF, motion blur and FXAA are not built yet, and neither is the GPU-side cluster
+assignment (roadmap 13.4).
 
 ---
 
@@ -209,11 +211,16 @@ use dedicated 1024 atlased maps; point lights use 6-face atlased cube maps with
 single-face-per-frame amortized updates. Contact shadows are a short-range depth-test pass
 in the SSAO buffer (documented as an approximation).
 
-As built: plain forward lighting over a fixed light list (no clustering); directional CSM
+As built: Forward+ over the specified 16×8×24 cluster grid, built on the CPU each frame and
+read from the fragment stage (`engine/src/rendering/clusters.ts`, `docs/RENDERING.md` §4b) —
+256 local lights, 32 per cluster, the least influential evicted and reported, with
+directional lights left in the small uniform list because they reach every pixel. The
+worker-side build and the GPU-side assignment (roadmap 13.4) are not built; neither are
+spot/point shadow maps, so a clustered light's `shadowIndex` is always −1. Directional CSM
 with up to 4 cascades (3 in the default profile) fitted as texel-snapped bounding spheres
 over practical-split slices into a `depth24plus` 2d-array, normal-offset bias + 3×3 PCF,
 cascade blending and distance fade (`engine/src/rendering/shadows.ts`, `docs/RENDERING.md`
-§4). Spot/point shadows and contact shadows are not built.
+§4). Contact shadows are not built.
 
 ---
 

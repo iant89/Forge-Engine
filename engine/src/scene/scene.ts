@@ -227,6 +227,18 @@ export interface SceneSettings {
   depthPrepass: boolean;
   /** Ambient occlusion from the prepass depth; ignored while `depthPrepass` is off. */
   ssao: SceneSsaoSettings;
+  /**
+   * Clustered (Forward+) lighting. Local (point/spot) lights are gathered into a 16×8×24 grid of
+   * view-space clusters and each fragment evaluates only the lights in its own cluster, instead of
+   * every fragment walking one fixed 16-entry uniform list. The light maths is the shared one, so a
+   * frame is pixel-identical either way while the caps do not bite; what changes is the budget —
+   * `MAX_CLUSTERED_LIGHTS` (256) local lights per frame and `MAX_LIGHTS_PER_CLUSTER` (32) per
+   * cluster, instead of 16 lights per scene. Directional lights reach every pixel and stay in the
+   * uniform list. Ignored for orthographic cameras (their `clip.w` is not a view depth, the same
+   * reason SSAO is perspective-only) and when the scene has no local lights at all. Quality profiles
+   * can veto it (`RendererOptions.clusteredLighting`).
+   */
+  clusteredLighting: boolean;
   /** Vertical sync / frame pacing hint for the engine loop. */
   vsync: boolean;
   /**
@@ -265,6 +277,7 @@ export function defaultSceneSettings(): SceneSettings {
     bloom: { enabled: true, threshold: 1, softKnee: 0.5, intensity: 0.06, radius: 1 },
     depthPrepass: true,
     ssao: { enabled: true, radius: 1, intensity: 1, bias: 0.02, samples: 12 },
+    clusteredLighting: true,
     vsync: true,
     recenterDistance: 0,
   };
@@ -846,6 +859,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
     hdr: s.hdr,
     postProcessing: s.postProcessing,
     depthPrepass: s.depthPrepass,
+    clusteredLighting: s.clusteredLighting,
     renderScale: s.renderScale,
     iblIntensity: s.iblIntensity,
     recenterDistance: s.recenterDistance,
@@ -895,6 +909,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
   if (typeof data["hdr"] === "boolean") target.hdr = data["hdr"];
   if (typeof data["postProcessing"] === "boolean") target.postProcessing = data["postProcessing"];
   if (typeof data["depthPrepass"] === "boolean") target.depthPrepass = data["depthPrepass"];
+  if (typeof data["clusteredLighting"] === "boolean") target.clusteredLighting = data["clusteredLighting"];
   target.renderScale = num(data["renderScale"], target.renderScale);
   target.iblIntensity = num(data["iblIntensity"], target.iblIntensity);
   target.recenterDistance = num(data["recenterDistance"], target.recenterDistance);

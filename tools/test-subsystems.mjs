@@ -92,7 +92,7 @@ export const subsystems = {
     deps: ["gpu", "math", "rendering", "scene"],
   },
   rendering: {
-    title: "Renderer, render graph, shadows, pipeline, primitives, WGSL",
+    title: "Renderer, render graph, shadows, clustered lighting, pipeline, primitives, WGSL",
     src: ["engine/src/rendering"],
     tests: [
       "tests/rendering.test.ts",
@@ -100,6 +100,7 @@ export const subsystems = {
       "tests/frame.test.ts",
       "tests/pipeline.test.ts",
       "tests/shadows.test.ts",
+      "tests/clusters.test.ts",
       "tests/primitives.test.ts",
       "tests/wgsl.test.ts",
     ],

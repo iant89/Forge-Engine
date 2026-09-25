@@ -12,10 +12,18 @@
 import { describe, expect, it } from "vitest";
 import {
   BLIT_SHADER,
+  CLUSTER_COUNT,
+  CLUSTER_INDEX_CAPACITY,
+  ClusterGridBlock,
+  ClusterLightBlock,
+  ClusterUniforms,
   DEBUG_SHADER,
   DEPTH_VERTEX,
+  LightUniforms,
+  MAX_CLUSTERED_LIGHTS,
   PARTICLE_RENDER_SHADER,
   POST_SHADER,
+  RENDERING_STORAGE_STRUCTS,
   RENDERING_STRUCTS,
   SKY_SHADER,
   SSAO_SHADER,
@@ -24,10 +32,12 @@ import {
   STANDARD_VERTEX,
   StructDef,
   WATER_SHADER,
+  WGSL_RESERVED_WORDS,
   arrayOf,
   f32,
   ofStruct,
   preprocessWgsl,
+  reservedWordIssues,
   u32,
   validateWgsl,
   vec3,
@@ -239,5 +249,92 @@ describe("validateWgsl enforces smoothstep edge order", () => {
   it("the shipped particle billboard uses the spec-legal form", () => {
     expect(validateWgsl(preprocessWgsl(PARTICLE_RENDER_SHADER, { QUALITY: 2, SHADOW_MODE: 1 }))).toEqual([]);
     expect(PARTICLE_RENDER_SHADER).toContain("1.0 - smoothstep(0.35, 0.5, r)");
+  });
+});
+
+describe("clustered lighting structs (Phase 13.3)", () => {
+  const FORWARD = `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`;
+
+  it("sizes both storage blocks from the grid constants, with nothing hardcoded", () => {
+    expect(ClusterLightBlock.byteSize("storage")).toBe(16 + MAX_CLUSTERED_LIGHTS * LightUniforms.byteSize("storage"));
+    expect(ClusterGridBlock.byteSize("storage")).toBe(CLUSTER_COUNT * 8 + CLUSTER_INDEX_CAPACITY * 4);
+    // The grid is far past the 64 KiB uniform binding limit, which is why it is storage-bound; the
+    // light block is storage too, so one binding style covers both and neither can grow into a limit.
+    expect(ClusterGridBlock.byteSize("storage")).toBeGreaterThan(64 * 1024);
+    expect(Object.keys(RENDERING_STORAGE_STRUCTS).sort()).toEqual(["ClusterGridBlock", "ClusterLightBlock"]);
+    // The per-cluster quantisation is small and read every fragment: that one is a uniform.
+    expect(ClusterUniforms.byteSize("uniform")).toBe(48);
+    expect(RENDERING_STRUCTS.ClusterUniforms).toBe(ClusterUniforms);
+  });
+
+  it("embeds the generated declarations verbatim in the shader that binds them", () => {
+    for (const def of [ClusterLightBlock, ClusterGridBlock]) {
+      expect(FORWARD, def.name).toContain(def.toWgsl("storage"));
+    }
+    expect(FORWARD).toContain(ClusterUniforms.toWgsl("uniform"));
+    // The validator's uniform rules do not apply to storage space, so embedding them is legal.
+    expect(layoutIssues(preprocessWgsl(FORWARD, { QUALITY: 2, SHADOW_MODE: 1 }))).toEqual([]);
+  });
+
+  it("keeps one shading function for both light paths, behind a runtime flag", () => {
+    // The uniform-list loop and the cluster loop call the same function: that single definition is
+    // what makes clustering bit-identical when a scene has fewer lights than the old fixed list.
+    expect(STANDARD_FRAGMENT_BODY.match(/fn lightContribution\(/g)).toHaveLength(1);
+    expect(STANDARD_FRAGMENT_BODY.match(/lightContribution\(/g)).toHaveLength(3); // def + two call sites
+    // A runtime flag, not a compile-time define: every shipped variant contains both paths, so the
+    // browser gate can A/B them on one pipeline instead of two builds.
+    expect(FORWARD).toContain("const FLAGS_CLUSTERED: u32 = 32u;");
+    expect(STANDARD_FRAGMENT_BODY).toContain("if ((perFrame.flags & FLAGS_CLUSTERED) != 0u) {");
+    expect(FORWARD).not.toMatch(/#if[^\n]*CLUSTER/);
+  });
+});
+
+describe("validateWgsl rejects WGSL's reserved words", () => {
+  // The Phase 13.3 cluster grid shipped a per-cluster array called `meta`: legal to the mock device
+  // and to every structural check, and a parse error to Tint ("'meta' is a reserved keyword"), which
+  // made every pipeline built from standard.ts invalid and every frame fail to submit. Only the
+  // browser gate saw it, so the rule now lives here.
+  const source = [
+    "struct ClusterGridBlock {",
+    "  clusterOffsets: array<u32, 4>,",
+    "  meta: array<u32, 4>,",
+    "};",
+    "@group(0) @binding(0) var<storage, read> grid: ClusterGridBlock;",
+    "@fragment fn fs() -> @location(0) vec4<f32> {",
+    "  let meta = 0;",
+    "  return vec4<f32>(f32(grid.meta[meta]));",
+    "}",
+  ].join("\n");
+
+  it("flags every use of a reserved word as an identifier, on its real line", () => {
+    const issues = reservedWordIssues(source);
+    expect(issues).toHaveLength(4); // the member declaration, the local, and both uses on line 8
+    for (const issue of issues) {
+      expect(issue.kind).toBe("semantics");
+      expect(issue.message).toContain("'meta' is a reserved WGSL keyword");
+    }
+    expect(issues.map((i) => i.line)).toEqual([3, 7, 8, 8]);
+    expect(validateWgsl(source).filter((i) => i.message.includes("reserved"))).toHaveLength(4);
+  });
+
+  it("leaves attribute spellings and prose alone, and does not over-claim the language's own words", () => {
+    const legal = `
+struct Uniforms { @align(16) tint: vec4<f32> };
+struct Varyings { @builtin(position) @invariant clipPos: vec4<f32> };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@vertex fn vs() -> Varyings {
+  // a meta comment about the shared type of this module
+  var out: Varyings;
+  out.clipPos = u.tint;
+  return out;
+}`;
+    expect(reservedWordIssues(legal)).toEqual([]);
+    expect(validateWgsl(legal)).toEqual([]);
+    // Words WGSL genuinely uses must not be in the list, or every shader would fail the gate.
+    for (const word of ["struct", "let", "var", "fn", "uniform", "storage", "read", "override", "f16", "vec4", "array"]) {
+      expect(WGSL_RESERVED_WORDS, word).not.toContain(word);
+    }
+    expect(WGSL_RESERVED_WORDS).toContain("meta");
+    expect(new Set(WGSL_RESERVED_WORDS).size).toBe(WGSL_RESERVED_WORDS.length); // no duplicates
   });
 });
