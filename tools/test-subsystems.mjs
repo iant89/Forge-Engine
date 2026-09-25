@@ -129,36 +129,83 @@ export const subsystems = {
   },
 
   // ---- integration + tooling ----
-  examples: {
-    title: "Demo scenes and controls (examples/) — integration over the public API",
-    src: ["examples/src"],
+  // The demo used to be one `examples` subsystem depending on the whole engine. It is split by scene
+  // so a leaf engine change pulls only the demo pieces it can actually reach. The touch controls are
+  // pure UI state machines (they import nothing from `@forge/engine`), so their suites depend on
+  // nothing and run only when their own source changes — an engine change cannot break them.
+  "ex-ui": {
+    title: "Demo touch controls & scene selector (examples) — pure UI, no engine coupling",
+    src: [
+      "examples/src/controls/armTouch.ts",
+      "examples/src/controls/skyTouch.ts",
+      "examples/src/controls/toolbarMenu.ts",
+      "examples/src/controls/vehicleTouch.ts",
+      "examples/src/sceneSelection.ts",
+    ],
     tests: [
       "tests/armTouch.test.ts",
       "tests/skyTouch.test.ts",
-      "tests/vehicleTouch.test.ts",
-      "tests/weatherTouch.test.ts",
       "tests/toolbarMenu.test.ts",
-      "tests/orbitControls.test.ts",
+      "tests/vehicleTouch.test.ts",
       "tests/demoSceneSelection.test.ts",
-      "tests/roverArm.test.ts",
-      "tests/roverGlb.test.ts",
-      "tests/highGainAntenna.test.ts",
     ],
-    // The demo drives the whole public API, so any engine subsystem can reach it. These suites are
-    // cheap (~0.6s total), so pulling them in on any engine change costs little and catches
-    // integration breakage the unit suites do not.
+    deps: [],
+  },
+  "ex-weather": {
+    title: "Weather HUD controls (examples) — driven by the environment API",
+    src: ["examples/src/controls/weatherTouch.ts"],
+    tests: ["tests/weatherTouch.test.ts"],
+    deps: ["environment"],
+  },
+  "ex-rover": {
+    title: "Rover arm kinematics + Perseverance GLB parsing (examples) — self-contained",
+    src: [
+      "examples/src/scenes/roverArm.ts",
+      "examples/src/assets/glb.ts",
+      "examples/assets", // the Perseverance.glb the roverGlb suite parses off disk
+    ],
+    tests: ["tests/roverArm.test.ts", "tests/roverGlb.test.ts"],
+    deps: [],
+  },
+  "ex-antenna": {
+    title: "High-gain antenna gimbal tracking (examples)",
+    src: ["examples/src/scenes/highGainAntenna.ts"],
+    tests: ["tests/highGainAntenna.test.ts"],
+    deps: ["scene"],
+  },
+  "ex-orbit": {
+    title: "Orbit camera controls + the demo scenes it assembles (examples) — integration",
+    // orbitControls.test drives real scenes (mars showcase, terrain), and the mars showcase in turn
+    // assembles the rover, antenna and touch UI. So this subsystem owns the shared demo scaffolding
+    // and depends both on the broad engine and on the other example subsystems it pulls in.
+    src: [
+      "examples/src/controls/orbitControls.ts",
+      "examples/src/main.ts",
+      "examples/src/diag",
+      "examples/src/textures",
+      "examples/src/scenes/cubesScene.ts",
+      "examples/src/scenes/pbrScene.ts",
+      "examples/src/scenes/particleScene.ts",
+      "examples/src/scenes/skyScene.ts",
+      "examples/src/scenes/weatherScene.ts",
+      "examples/src/scenes/terrainScene.ts",
+      "examples/src/scenes/realisticTerrainScene.ts",
+      "examples/src/scenes/vehiclePlaygroundScene.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+    ],
+    tests: ["tests/orbitControls.test.ts"],
     deps: [
-      "core",
-      "math",
+      "ex-ui",
+      "ex-rover",
+      "ex-antenna",
       "scene",
-      "gpu",
-      "resources",
       "rendering",
-      "physics",
+      "terrain",
+      "environment",
       "vehicles",
       "particles",
-      "environment",
-      "terrain",
+      "resources",
+      "gpu",
     ],
   },
   docs: {

@@ -1458,6 +1458,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Append a dated note on the selective-testing map: why it's hand-written, the real deps cycles, the full-run triggers, and the subprocess-driven drift test.",
     "why": "Session-memory conventions (AGENTS.md §7): record hard-won repo facts for future sessions."
+  },
+  {
+    "id": "0112",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Split the single `examples` subsystem into scene-aligned subsystems (ex-ui, ex-weather, ex-rover, ex-antenna, ex-orbit) with per-file source ownership and accurate deps; the pure-UI touch controls depend on nothing.",
+    "why": "So a leaf engine change pulls only the demo pieces it can actually reach — e.g. a vehicles change no longer runs the pure-UI vehicleTouch suite (19→11 suites)."
+  },
+  {
+    "id": "0113",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/TESTING.md",
+    "what": "Replace the single examples row with the five scene-split demo subsystems and explain the UI-decoupling rationale.",
+    "why": "Keep the doc in step with the map after splitting examples."
+  },
+  {
+    "id": "0114",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "AGENTS.md",
+    "what": "Update §8's subsystem list to name the scene-split demo subsystems and note the touch controls have no engine coupling.",
+    "why": "Contributor guidance must match the actual subsystem set."
   }
 ]
 ```

@@ -54,9 +54,19 @@ suites the change can reach — and nothing else. On top of that, a fixed **smok
 | `physics` | `engine/src/physics` | core, math, scene, vehicles |
 | `vehicles` | `engine/src/vehicles` | math, physics, scene |
 | `terrain` | `engine/src/terrain` | core, gpu, math, rendering, scene |
-| `examples` | `examples/src` | the engine broadly (integration; the suites are cheap) |
-| `docs` | `capabilities.ts`, `ROADMAP.md`, `docs/`, `AGENTS.md` | — |
+| `ex-ui` | demo touch controls + scene selector (`examples/src/controls/{armTouch,skyTouch,toolbarMenu,vehicleTouch}.ts`, `sceneSelection.ts`) | — (pure UI, no engine coupling) |
+| `ex-weather` | `examples/src/controls/weatherTouch.ts` | environment |
+| `ex-rover` | `examples/src/scenes/roverArm.ts`, `assets/glb.ts`, `examples/assets/` (the GLB) | — (self-contained kinematics) |
+| `ex-antenna` | `examples/src/scenes/highGainAntenna.ts` | scene |
+| `ex-orbit` | orbit controls + the demo scenes it assembles (`main.ts`, `diag/`, `textures/`, most `scenes/*Scene.ts`) | ex-ui, ex-rover, ex-antenna, scene, rendering, terrain, environment, vehicles, particles, resources, gpu |
+| `docs` | `capabilities.ts`, `ROADMAP.md`, `docs/`, `AGENTS.md`, and the top-level prose docs | — |
 | `gpuenv` | `tools/gpu-env.mjs`, `scripts/setup-deps.sh` | — |
+
+The demo is split by scene rather than treated as one integration bucket: the touch controls
+(`ex-ui`) import nothing from `@forge/engine`, so an engine change cannot reach them and their suites
+run only when their own source changes. `ex-orbit` is the exception — `orbitControls.test` drives real
+scenes (the Mars showcase, terrain), so it depends on the broad engine and on the other example
+subsystems the showcase assembles.
 
 Some `deps` form cycles (rendering ↔ particles, physics ↔ vehicles); those are real edges in the code
 and the closure handles them.

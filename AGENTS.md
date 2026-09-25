@@ -201,10 +201,12 @@ test:affected` runs only the suites your change can actually reach, plus a fixed
 that makes this safe lives in `tools/test-subsystems.mjs` and is documented in `docs/TESTING.md`.
 
 * **Subsystems own source and suites.** Each subsystem (`math`, `core`, `gpu`, `rendering`, `scene`,
-  `physics`, `vehicles`, `particles`, `environment`, `terrain`, `resources`, `examples`, `docs`,
-  `gpuenv`) declares the `engine/src` paths it owns, the suites that exercise it, and the subsystems
-  it is built upon (`deps`, derived from the real relative imports). A change to X runs X **and every
-  subsystem that transitively depends on X** — the suites the change can reach — never the rest.
+  `physics`, `vehicles`, `particles`, `environment`, `terrain`, `resources`, `docs`, `gpuenv`, and the
+  scene-split demo subsystems `ex-ui`, `ex-weather`, `ex-rover`, `ex-antenna`, `ex-orbit`) declares the
+  paths it owns, the suites that exercise it, and the subsystems it is built upon (`deps`, derived from
+  the real relative imports). A change to X runs X **and every subsystem that transitively depends on
+  X** — the suites the change can reach — never the rest. (The demo touch controls import nothing from
+  `@forge/engine`, so an engine change cannot reach their suites at all.)
 * **The smoke floor always runs**: `math`, `ecs`, `renderGraph`, `frame`, the `architecture`
   import-boundary guard, and `subsystems` (the map's own drift test). So even the narrowest run keeps
   a cheap check on the fundamentals.
