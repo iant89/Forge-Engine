@@ -13,6 +13,12 @@
  * space), NDC z in [0,1], positions in render-local float32, linear colour throughout. The sRGB
  * encode happens either here (LDR path, `perFrame.flags` bit 1 clear) or in the post chain's
  * tonemap pass (HDR path, bit 1 set) — never both.
+ *
+ * The clip-space position is `@invariant`. The depth prepass (`forge.prepass`) runs these same
+ * vertex entry points in a depth-only pipeline, and the forward pass then depth-tests `less-equal`
+ * against that buffer without writing it; WGSL's invariance guarantee (same data + same control
+ * flow ⇒ bit-identical position, across pipelines) is what lets the second pass hit every depth the
+ * first one wrote instead of losing pixels to a one-ulp disagreement.
  */
 
 import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct } from "../uniforms.js";
@@ -25,6 +31,8 @@ export const BINDINGS = {
   shadow: { group: 0, binding: 2 },
   shadowMap: { group: 0, binding: 3 },
   shadowSampler: { group: 0, binding: 4 },
+  /** Half-resolution SSAO result (`rg16float`: visibility, view depth); a 1×1 "unoccluded" texel when off. */
+  ssao: { group: 0, binding: 5 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
   material: { group: 2, binding: 0 },
@@ -53,7 +61,7 @@ struct VertexInput {
 }
 
 struct VertexOutput {
-  @builtin(position) clipPos: vec4<f32>,
+  @builtin(position) @invariant clipPos: vec4<f32>,
   @location(0) worldPos: vec3<f32>,
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
@@ -191,6 +199,7 @@ ${COMMON}
 @group(0) @binding(2) var<uniform> uniforms_shadow: ShadowUniforms;
 @group(0) @binding(3) var shadowMap: texture_depth_2d_array;
 @group(0) @binding(4) var shadowSampler: sampler_comparison;
+@group(0) @binding(5) var aoMap: texture_2d<f32>;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(2) @binding(0) var<uniform> material: MaterialUniforms;
@@ -258,6 +267,39 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
  */
 export const STANDARD_FRAGMENT_BODY = /* wgsl */ `
 ${SHADOW_HELPERS}
+
+// SSAO visibility for this fragment: a 2×2 bilateral fetch from the half-resolution AO target.
+// Each texel carries the view depth it was computed at; texels from another surface (a silhouette
+// behind the fragment, or the opaque scene behind a transparent/non-prepassed surface) get no
+// weight, and a fragment no texel agrees with is left unoccluded. Loads, not samples, so it is legal
+// in non-uniform control flow.
+fn ambientOcclusion(fragCoord: vec2<f32>, viewDepth: f32) -> f32 {
+  if ((perFrame.flags & 16u) == 0u) {
+    return 1.0;
+  }
+  let size = vec2<i32>(textureDimensions(aoMap));
+  let st = fragCoord * (vec2<f32>(size) / perFrame.renderExtent) - vec2<f32>(0.5, 0.5);
+  let base = floor(st);
+  let f = st - base;
+  let origin = vec2<i32>(base);
+  let last = size - vec2<i32>(1, 1);
+  var sum = 0.0;
+  var total = 0.0;
+  for (var j = 0; j < 2; j = j + 1) {
+    for (var i = 0; i < 2; i = i + 1) {
+      let tap = textureLoad(aoMap, clamp(origin + vec2<i32>(i, j), vec2<i32>(0, 0), last), 0);
+      let bilinear = select(1.0 - f.x, f.x, i == 1) * select(1.0 - f.y, f.y, j == 1);
+      let agree = max(0.0, 1.0 - 20.0 * abs(tap.g - viewDepth) / max(viewDepth, 1e-3));
+      let w = bilinear * agree;
+      sum = sum + tap.r * w;
+      total = total + w;
+    }
+  }
+  if (total < 1e-4) {
+    return 1.0;
+  }
+  return sum / total;
+}
 
 fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   var base = material.baseColorFactor;
@@ -331,7 +373,7 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
       color = color + (kD * albedo.rgb / PI + specular) * L.color * power * nl;
     }
     let ambient = perFrame.ambientColor * perFrame.ambientIntensity * albedo.rgb;
-    let irradiance = ambient * (1.0 - F0);
+    let irradiance = ambient * (1.0 - F0) * ambientOcclusion(in.clipPos.xy, in.viewDepth);
     color = color + irradiance;
   }
   // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark

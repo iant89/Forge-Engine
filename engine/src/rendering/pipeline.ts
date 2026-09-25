@@ -18,26 +18,35 @@
  * depth writes. The water program (`technique: "water"`) reuses the frame + draw groups and adds
  * `WaterUniforms` as group 2 in place of the material group.
  *
+ * The depth prepass (`technique: "prepass"`) compiles the *standard* module's vertex entry points
+ * into a depth-only pipeline (no fragment stage) whose layout is just the per-frame uniform block
+ * plus the draw group: the vertex entries touch nothing else, and sharing the module and entry
+ * point (plus `@invariant` on the position) is what makes its depths bit-identical to the forward
+ * pass's. SSAO (`technique: "ssao"`) is a fullscreen module with one entry for the estimate and two
+ * for the separable blur; the estimate binds the prepass depth, the blurs bind the AO texture.
+ *
  * Pipelines are keyed on exactly the state that changes them (technique, entry point, blend/cull,
  * colour + depth format, MSAA, instancing). Adding a colour variation must not create a pipeline —
  * if it ever does, the key is wrong and the "pipeline cache is stable across frames" test catches it.
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
+import { SSAO_SHADER, SSAO_BINDINGS, type SsaoEntryPoint } from "./shaders/ssao.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
 import { InternalError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 
 export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fsTonemap";
+export type { SsaoEntryPoint };
 
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "debug" | "blit" | "post" | "sky" | "water";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "prepass" | "debug" | "blit" | "post" | "sky" | "water" | "ssao";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
   /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
@@ -46,8 +55,8 @@ export interface PipelineKeyOptions {
   instanced: boolean;
   sampleCount?: number;
   writeDepth?: boolean;
-  /** Fragment entry point for techniques that expose several (`post`). */
-  fragmentEntry?: PostEntryPoint;
+  /** Fragment entry point for techniques that expose several (`post`, `ssao`). */
+  fragmentEntry?: PostEntryPoint | SsaoEntryPoint;
   /** Additive blending (one / one) — the bloom upsample accumulates into the finer mip. */
   additive?: boolean;
   /**
@@ -80,6 +89,12 @@ export class PipelineFactory {
   private skyLayout: GPUPipelineLayout | null = null;
   private waterBindGroupLayout: GPUBindGroupLayout | null = null;
   private waterLayout: GPUPipelineLayout | null = null;
+  private prepassFrameLayout: GPUBindGroupLayout | null = null;
+  private prepassLayout: GPUPipelineLayout | null = null;
+  private ssaoBindGroupLayout: GPUBindGroupLayout | null = null;
+  private ssaoLayout: GPUPipelineLayout | null = null;
+  private ssaoBlurBindGroupLayout: GPUBindGroupLayout | null = null;
+  private ssaoBlurLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -87,9 +102,31 @@ export class PipelineFactory {
     this.shaders = new ShaderCache(device);
   }
 
-  /** @internal */ get bindGroupLayouts(): { frame: GPUBindGroupLayout; depthFrame: GPUBindGroupLayout; draw: GPUBindGroupLayout; material: GPUBindGroupLayout; post: GPUBindGroupLayout; sky: GPUBindGroupLayout; water: GPUBindGroupLayout } {
+  /** @internal */ get bindGroupLayouts(): {
+    frame: GPUBindGroupLayout;
+    depthFrame: GPUBindGroupLayout;
+    prepassFrame: GPUBindGroupLayout;
+    draw: GPUBindGroupLayout;
+    material: GPUBindGroupLayout;
+    post: GPUBindGroupLayout;
+    sky: GPUBindGroupLayout;
+    water: GPUBindGroupLayout;
+    ssao: GPUBindGroupLayout;
+    ssaoBlur: GPUBindGroupLayout;
+  } {
     this.ensureLayouts();
-    return { frame: this.frameLayout!, depthFrame: this.depthFrameLayout!, draw: this.drawLayout!, material: this.materialLayout!, post: this.postBindGroupLayout!, sky: this.skyBindGroupLayout!, water: this.waterBindGroupLayout! };
+    return {
+      frame: this.frameLayout!,
+      depthFrame: this.depthFrameLayout!,
+      prepassFrame: this.prepassFrameLayout!,
+      draw: this.drawLayout!,
+      material: this.materialLayout!,
+      post: this.postBindGroupLayout!,
+      sky: this.skyBindGroupLayout!,
+      water: this.waterBindGroupLayout!,
+      ssao: this.ssaoBindGroupLayout!,
+      ssaoBlur: this.ssaoBlurBindGroupLayout!,
+    };
   }
 
   private ensureLayouts(): void {
@@ -109,7 +146,16 @@ export class PipelineFactory {
         { binding: BINDINGS.shadow.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: ShadowUniforms.byteSize("uniform") } },
         { binding: BINDINGS.shadowMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d-array", multisampled: false } },
         { binding: BINDINGS.shadowSampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "comparison" } },
+        // SSAO result, read with textureLoad (never filtered): the real target or a 1×1 fallback.
+        { binding: BINDINGS.ssao.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
       ],
+    });
+    // The depth prepass only runs the standard vertex entries, which read nothing from group 0 but
+    // the per-frame block (view-projection); binding the full frame group would drag the shadow
+    // atlas and the not-yet-computed AO target into a pass that cannot use them.
+    this.prepassFrameLayout = d.createBindGroupLayout({
+      label: "prepass.layout",
+      entries: [{ binding: BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX, buffer: { type: "uniform", hasDynamicOffset: false, minBindingSize: PerFrameUniforms.byteSize("uniform") } }],
     });
     this.drawLayout = d.createBindGroupLayout({
       entries: [
@@ -163,10 +209,26 @@ export class PipelineFactory {
       ],
     });
     this.waterLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.waterBindGroupLayout] });
+    this.prepassLayout = d.createPipelineLayout({ bindGroupLayouts: [this.prepassFrameLayout, this.drawLayout] });
+    const ssaoUniform: GPUBindGroupLayoutEntry = { binding: SSAO_BINDINGS.uniforms.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SsaoUniforms.byteSize("uniform") } };
+    this.ssaoBindGroupLayout = d.createBindGroupLayout({
+      label: "ssao.layout",
+      entries: [ssaoUniform, { binding: SSAO_BINDINGS.depth.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d", multisampled: false } }],
+    });
+    this.ssaoLayout = d.createPipelineLayout({ bindGroupLayouts: [this.ssaoBindGroupLayout] });
+    this.ssaoBlurBindGroupLayout = d.createBindGroupLayout({
+      label: "ssao.blur.layout",
+      entries: [ssaoUniform, { binding: SSAO_BINDINGS.ao.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } }],
+    });
+    this.ssaoBlurLayout = d.createPipelineLayout({ bindGroupLayouts: [this.ssaoBlurBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean; ssao?: boolean } {
     switch (key.technique) {
+      case "ssao": {
+        const module = this.shaders.get("ssao.wgsl", SSAO_SHADER);
+        return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: key.fragmentEntry ?? "fsSsao", ssao: true };
+      }
       case "sky": {
         const module = this.shaders.get("sky.wgsl", SKY_SHADER);
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", sky: true };
@@ -227,10 +289,32 @@ export class PipelineFactory {
   }
 
   private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water } = this.moduleFor(options);
+    // `prepass` falls through to the standard module in moduleFor: same source, same vertex entry.
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, ssao } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
-    const isDepthOnly = options.technique === "depth";
-    const fullscreen = blit || post || sky;
+    const isShadowDepth = options.technique === "depth";
+    const isPrepass = options.technique === "prepass";
+    const isDepthOnly = isShadowDepth || isPrepass;
+    const fullscreen = blit || post || sky || ssao;
+    const layout = debug
+      ? this.debugLayout!
+      : blit
+        ? this.blitLayout!
+        : post
+          ? this.postLayout!
+          : sky
+            ? this.skyLayout!
+            : water
+              ? this.waterLayout!
+              : ssao
+                ? fragmentEntry === "fsSsao"
+                  ? this.ssaoLayout!
+                  : this.ssaoBlurLayout!
+                : isPrepass
+                  ? this.prepassLayout!
+                  : isShadowDepth
+                    ? this.depthOnlyLayout!
+                    : this.layout!;
     const blend: GPUBlendState | undefined = options.additive
       ? {
           color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -244,7 +328,7 @@ export class PipelineFactory {
         : undefined;
     const pipelineDesc: GPURenderPipelineDescriptor = {
       label: `pipeline.${key}`,
-      layout: debug ? this.debugLayout! : blit ? this.blitLayout! : post ? this.postLayout! : sky ? this.skyLayout! : water ? this.waterLayout! : isDepthOnly ? this.depthOnlyLayout! : this.layout!,
+      layout,
       vertex: {
         module: vertex,
         entryPoint: vertexEntry,
@@ -282,14 +366,16 @@ export class PipelineFactory {
                 // and stores the depth attachment explicitly (the portable spelling — a read-only
                 // attach's implicit load is not trustworthy on every driver) while this stays false.
                 depthWriteEnabled: sky ? false : options.noDepthTest ? false : options.writeDepth !== false,
-                // The depth pass uses a bias + "less" so caster triangles cannot win the tie against
-                // themselves; the colour pass uses "less-equal" so coplanar decals behave. Overlays
-                // (`noDepthTest`) use "always" so they draw through everything rendered before them.
+                // The depth passes use "less"; the colour pass uses "less-equal" so coplanar decals
+                // behave — and so a prepassed surface, drawn again with depth writes off, passes on
+                // exactly the depth the prepass stored for it. Overlays (`noDepthTest`) use "always"
+                // so they draw through everything rendered before them.
                 depthCompare: isDepthOnly ? "less" : options.noDepthTest ? "always" : "less-equal",
             // Polygon offset keeps shadow casters from self-acne; slope-scaled so grazing angles
-            // bias more than facing ones. Both live in GPUDepthStencilState.
-            depthBias: isDepthOnly ? 2 : 0,
-            depthBiasSlopeScale: isDepthOnly ? 1.5 : 0,
+            // bias more than facing ones. Both live in GPUDepthStencilState. Never on the camera
+            // prepass: its depths must equal the forward pass's exactly.
+            depthBias: isShadowDepth ? 2 : 0,
+            depthBiasSlopeScale: isShadowDepth ? 1.5 : 0,
             depthBiasClamp: 0,
           }
         : undefined,
@@ -321,11 +407,19 @@ export class PipelineFactory {
     this.skyLayout = null;
     this.waterBindGroupLayout = null;
     this.waterLayout = null;
+    this.prepassFrameLayout = null;
+    this.prepassLayout = null;
+    this.ssaoBindGroupLayout = null;
+    this.ssaoLayout = null;
+    this.ssaoBlurBindGroupLayout = null;
+    this.ssaoBlurLayout = null;
     this.shaders.clear();
   }
 
   stats(): { pipelines: number; creates: number; cacheHits: number; layouts: number } {
-    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 8 };
+    // Bind group layouts: frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky,
+    // water, ssao, ssao blur.
+    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 11 };
   }
 }
 

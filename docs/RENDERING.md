@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -17,8 +17,12 @@ CPU                                          GPU passes (default settings, 3 cas
 camera + lights from the scene               forge.shadow.0  ─┐
 computeCascades()  (engine/src/rendering/    forge.shadow.1   ├─ depth24plus 2d-array, 1 layer each
   shadows.ts)                                forge.shadow.2  ─┘
-collectBatches()   (frustum cull, sort,      forge.main        rgba16float "hdr" + depth24plus "depth"
-  instance merge — no allocation)            forge.sky         hdr (load) + depth (load, never written): far-plane triangle
+collectBatches()   (frustum cull, sort,      forge.prepass     depth24plus "depth" only (clear + store), no fragment stage
+  instance merge — no allocation)            forge.ssao        depth → ssao.raw   (rg16float, ½ res)
+classifyPrepass()  (which batches lay        forge.ssao.blur.h ssao.raw  → ssao.blur
+  down depth; state + front-to-back sort)    forge.ssao.blur.v ssao.blur → ssao.result (same memory as ssao.raw)
+                                             forge.main        rgba16float "hdr" + depth (load) + ssao.result
+                                             forge.sky         hdr (load) + depth (load, never written): far-plane triangle
 per-frame / light / shadow / sky / object /  forge.bloom.prefilter    hdr        → bloom.1 (½ res)
   instance uniform uploads                   forge.bloom.down.2..5    bloom.n    → bloom.n+1
 buildFrame() → graph.execute()               forge.bloom.up.4..1      bloom.n+1  +→ bloom.n (additive tent)
@@ -39,14 +43,18 @@ options:
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
 | `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
+| `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
+| `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, a perspective camera, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
 
 A scene with no camera clears the swapchain in a single `forge.clear` pass and still counts as a
 rendered frame, so the HUD keeps ticking while a scene loads.
 
 `Renderer.stats` (also `engine.stats().render`) reports the frame that just ran: `drawCalls`,
 `triangles`, `instances`, `batches`, `culled`, `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
-`hdr`, `bloomMips`, `sky`, `skySamples`, `passes`, `culledPasses`, `transientTextures`,
-`physicalTextures`, `aliasedBytes`, `texturesCreated`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
+`hdr`, `bloomMips`, `sky`, `skySamples`, `depthPrepass`, `prepassDraws` (depth-only draws, not in
+`drawCalls`, like `shadowsDrawn`), `ssao`, `passes`, `culledPasses`, `transientTextures`,
+`physicalTextures`, `aliasedBytes`, `texturesCreated`. The three SSAO fullscreen draws count in
+`drawCalls` (as the post passes do) but not in `triangles`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
 order; the demo HUD prints a summary and `tools/browser-check.mjs` asserts on both.
 
 ## 2. Render graph (`engine/src/rendering/renderGraph.ts`)
@@ -91,9 +99,11 @@ in `stats.culledPasses` and the HUD (`14 passes (0 culled)`).
 
 **Transients alias by live range.** Each transient gets a `[firstPass, lastPass]` range from the
 surviving passes. Two transients with identical descriptors and disjoint ranges share one physical
-texture; `stats.aliasedBytes` is the memory that saved. (In the default frame nothing aliases: the
-bloom mips all differ in size and the HDR target is read by the last pass. The mechanism is covered by
-`tests/renderGraph.test.ts` rather than by the demo.)
+texture; `stats.aliasedBytes` is the memory that saved. In the default frame the SSAO chain is what
+aliases: `ssao.raw` is dead once `forge.ssao.blur.h` has read it, so `ssao.result` (same descriptor,
+first written by `forge.ssao.blur.v`) gets its memory — `(w/2)·(h/2)·4` bytes, 921,600 B at
+1280×720, asserted by `tests/frame.test.ts` and on real WebGPU by `check:browser`. The bloom mips
+all differ in size and the HDR target is read by the last pass, so nothing else aliases.
 
 **Physical textures are pooled across frames.** Textures are keyed by their descriptor
 (`rg.<w>x<h>x<layers>:<format>:u<usage>:s<samples>:m<mips>#n` — that label is what you see in a GPU
@@ -168,6 +178,52 @@ so the resolution step is not a visible line, and everything fades to lit betwee
 `shadowDistance`. Everything the shader needs is in `ShadowUniforms` (320 B; `cascadeViewProj[4]`,
 `cascadeSplits`, `cascadeTexelWorld`, biases, `flags`).
 
+## 4a. Depth prepass and SSAO (Phase 13.1, 13.2)
+
+**Which batches are prepassed.** After `collectBatches`, `classifyPrepass` flags every batch that is
+drawn in view (not shadow-only), not `transparent` or `overlay`, not water, and whose material is
+opaque (`!material.transparent`), not alpha-tested and fully opaque (`opacity ≥ 0.999`) — surfaces
+whose `forge.main` fragment can never be discarded. They are sorted by pipeline state (instanced ×
+double-sided: at most four prepass pipelines), then front to back. No eligible batch, no pass.
+
+**Why the depths match exactly.** The prepass pipelines are the *standard* module's own
+`vertexMain` / `vertexMainInstanced` in a depth-only pipeline (`technique: "prepass"`: no fragment
+stage, `depthCompare: "less"`, no depth bias, same cull mode). The layout is just the per-frame block
+plus the draw group (`prepass.layout`), so the same `ShaderCache` entry serves both passes, and the
+clip position is `@invariant` — WGSL's guarantee that the same data through the same control flow
+yields bit-identical positions in *different* pipelines. `forge.main` then draws the prepassed
+batches with `writeDepth: false` and `less-equal`, so each passes exactly on its own depth, and
+early-Z survives the forward shader's `discard` because nothing is written. Everything else (cutout,
+fading, transparent, water, overlays) is drawn exactly as without a prepass, depth writes included.
+The real-WebGPU gate proves it: with SSAO off, the frame is pixel-identical with the prepass on or off.
+`DEPTH_VERTEX` (the shadow program, with its polygon offset) is never reused here.
+
+**SSAO** (`shaders/ssao.ts`, one module, three fragment entry points over the shared fullscreen
+triangle):
+
+* `fsSsao` → `ssao.raw` (`rg16float`, half resolution): per AO texel, the depth texel under it is
+  turned into a view-space position through `SsaoUniforms.invProj`; the normal is rebuilt from the
+  neighbouring depth texels (per axis the neighbour on the same surface, oriented toward the camera).
+  A 12-tap spiral (interleaved-gradient rotation per pixel) of radius `radius` metres, projected with
+  `projScale = ½·height·proj[1][1]` and clamped to 10 % of the frame height, accumulates for each tap
+  its cosine above the tangent plane `(v·n − bias)/|v|`, less a 0.1 angle bias, times the falloff
+  `1 − |v|²/r²`; visibility = `1 − 2·intensity·Σ/N`. Output: (visibility, view depth); pixels without
+  geometry carry the sky key 65 000.
+* `fsBlurH`, `fsBlurV` → `ssao.blur` → `ssao.result`: a 9-tap Gaussian per direction whose taps are
+  dropped when their view depth differs from the centre's by more than 10 % (`sharpness` 10), so
+  occlusion never bleeds across a silhouette.
+* `forge.main` (`ambientOcclusion()` in `standard.ts`, group 0 binding 5): a 2×2 bilateral
+  `textureLoad` of the result against the fragment's own view depth (`clip.w`); texels from another
+  surface get no weight, and a fragment no texel agrees with is unoccluded. The visibility scales the
+  **ambient term only** — direct light already has shadow maps. With SSAO off the binding holds a
+  1×1 "unoccluded" texel and the shader skips it (`perFrame.flags` bit 4).
+
+The estimator is the normal-oriented hemisphere form, sampled like SAO (McGuire et al., HPG 2012):
+SAO's own `(r² − v·v)³/(v·v)` weighting was tried first and all but ignores occluders beyond half the
+radius — on the PBR fixture it darkened 0.04 % of the frame. Because only ambient light is occluded,
+how much SSAO shows depends on the lighting: the PBR fixture (strong sun and point lights, floating
+spheres) darkens ~0.4 % of its pixels by up to ~5 levels, which is what `check:browser` measures.
+
 ## 5. Conventions
 
 The rules every module above assumes (pinned by `tests/math.test.ts`; the long form is `AGENTS.md`
@@ -202,11 +258,13 @@ colour costs one uniform write and no pipeline. Emissive is `emissiveFactor × e
 
 `PipelineFactory.get(key)` returns a `{ pipeline, key, layout }` bundle; identical keys are identical
 objects and never touch the device. The key covers everything that changes the GPU pipeline:
-`technique` (`standard` / `unlit` / `depth` / `debug` / `post` / `sky`), `colorFormat` (`null` for
-depth-only), `depthFormat` (`null` for post), `transparent` (blend + no depth write), `doubleSided`,
-`instanced`, `additive` (bloom upsample) and `fragmentEntry` (post entry point). Bind group layouts —
-seven of them (frame, shadow-pass frame, draw, material, blit, post, sky) — are created once and
-shared; `stats()` reports `{ pipelines, creates, cacheHits, layouts }`. The `sky` technique forces
+`technique` (`standard` / `unlit` / `depth` / `prepass` / `debug` / `post` / `sky` / `water` /
+`ssao`), `colorFormat` (`null` for depth-only), `depthFormat` (`null` for post and SSAO),
+`transparent` (blend + no depth write), `doubleSided`, `instanced`, `writeDepth`, `additive` (bloom
+upsample) and `fragmentEntry` (post and SSAO entry points). Bind group layouts — eleven of them
+(frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky, water, SSAO estimate,
+SSAO blur) — are created once and shared; `stats()` reports `{ pipelines, creates, cacheHits,
+layouts }`. `prepass` compiles the standard module's vertex entries with no fragment stage (see §4a). The `sky` technique forces
 `depthWriteEnabled: false` (its pass loads and stores the scene depth explicitly but never writes
 it — see the WebKit note on `forge.sky` above) and binds one group:
 `PerFrameUniforms` (vertex + fragment, for `invViewProj`) and `SkyUniforms`. `invalidate()` drops pipelines *and* layouts, which is
@@ -230,7 +288,9 @@ To add a pass:
 A pass that only *tests* against the scene depth (the sky is the example) declares
 `depth: { texture, depthReadOnly: true }` — the graph treats it as a read, the mock enforces the
 spec's rule that a read-only attachment carries no load/store ops, and the producing pass must then
-`store` its depth rather than discard it (`forge.main` switches per frame).
+`store` its depth rather than discard it (`forge.main` switches per frame). A pass that continues on
+an earlier pass's depth — `forge.main` after `forge.prepass` — declares `depthLoadOp: "load"`; the
+graph counts the load as a read, so the producer is never culled.
 
 New WGSL uniform structs go in `uniforms.ts` and are generated, never hand-written; `npm run
 check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules are added to
@@ -244,8 +304,17 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 * Only the first shadow-casting directional light casts; spot and point shadows are not implemented.
 * The default 2048² × 3 `depth24plus` array is ≈ 48 MB; tests use `shadowMapSize: 256` because the
   mock device allocates texture storage eagerly.
-* Nothing aliases in the default frame (see §2). The bloom chain would alias against a depth
-  prepass or an SSAO buffer; neither exists yet.
+* Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles, orthographic
+  cameras, scenes that turn it off — still alias nothing.
+* The prepass depth has two consumers (SSAO, the soft-particle fade); no culling, transparency
+  technique or post effect reads it yet (roadmap 13.1 / 13.5).
+* Cutout, fading, transparent and water surfaces are not prepassed: no early-Z saving for them, and
+  they neither receive nor cast SSAO. Orthographic cameras get the prepass but no SSAO (the bilateral
+  key is `clip.w`).
+* SSAO is screen-space and half resolution without temporal accumulation: occluders off screen or
+  hidden behind nearer geometry do not count, detail below ~2 px is lost, the kernel is clamped to
+  10 % of the frame height (close-ups get a smaller effective radius), and it scales ambient light
+  only — a scene lit mostly by direct light shows little of it.
 * `renderScale` scales the HDR target only; the LDR path always renders at swapchain resolution.
 * The graph builds one command buffer and submits it; there are no timestamp queries yet, so
   `renderTimeMs` in the HUD is CPU time.

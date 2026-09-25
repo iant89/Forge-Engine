@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const engine = await import(pathToFileURL(resolve("engine/dist/index.js")).href);
-const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, RENDERING_STRUCTS } = engine;
+const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, RENDERING_STRUCTS } = engine;
 
 // The forward shader is validated as the pipeline factory actually compiles it: one module holding
 // the vertex stage and the fragment body (both variants), not the two halves in isolation.
@@ -35,6 +35,7 @@ const modules = {
   "shaders/standard.ts:DEBUG_SHADER": DEBUG_SHADER,
   "shaders/standard.ts:BLIT_SHADER": BLIT_SHADER,
   "shaders/post.ts:POST_SHADER": POST_SHADER,
+  "shaders/ssao.ts:SSAO_SHADER": SSAO_SHADER,
   "shaders/sky.ts:SKY_SHADER": SKY_SHADER,
   "shaders/water.ts:WATER_SHADER": WATER_SHADER,
   "particles/shader.ts:PARTICLE_SIM_SHADER": PARTICLE_SIM_SHADER,

@@ -18,6 +18,7 @@ import {
   POST_SHADER,
   RENDERING_STRUCTS,
   SKY_SHADER,
+  SSAO_SHADER,
   STANDARD_FRAGMENT_BODY,
   STANDARD_INSTANCED_VERTEX,
   STANDARD_VERTEX,
@@ -73,6 +74,10 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform")).toBe(224);
     expect(RENDERING_STRUCTS.WaterUniforms.offsetOf("wavesB")).toBe(64);
     expect(RENDERING_STRUCTS.WaterUniforms.offsetOf("sunDirection")).toBe(208);
+    expect(RENDERING_STRUCTS.SsaoUniforms.byteSize("uniform")).toBe(112);
+    expect(RENDERING_STRUCTS.SsaoUniforms.offsetOf("radius")).toBe(64);
+    expect(RENDERING_STRUCTS.SsaoUniforms.offsetOf("depthSize")).toBe(80);
+    expect(RENDERING_STRUCTS.SsaoUniforms.offsetOf("sampleCount")).toBe(96);
   });
 
   it("every shipped shader variant passes the strict validator", () => {
@@ -86,6 +91,7 @@ describe("generated uniform structs are legal in every browser's uniform address
       DEBUG_SHADER,
       BLIT_SHADER,
       POST_SHADER,
+      SSAO_SHADER,
       SKY_SHADER,
       WATER_SHADER,
       // Includes the billboard whose reversed-edge smoothstep a strict Tint rejected (PR #32

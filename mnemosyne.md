@@ -169,3 +169,36 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   roll(+, about local Z); world→local is the inverse. Earth's elevation (38.6°) rotates mostly
   with *roll* (its local x-component dominates), not pitch — clamp tests that assume pitch moves
   elevation will silently pass/fail on the wrong axis.
+
+## 2026-09-24 — Phase 13 started: depth prepass, SSAO, production aliasing (13.1 / 13.2)
+
+- **Prepass depths must be bit-identical to `forge.main`'s**, or `less-equal` without depth writes
+  loses pixels. Recipe that works (real WebGPU: 0 px differ with the prepass on vs off): technique
+  `prepass` = the *standard* module's own `vertexMain`/`vertexMainInstanced` (same ShaderCache key)
+  in a depth-only pipeline, `@invariant` on the `VertexOutput` position, no depth bias. Never reuse
+  `DEPTH_VERTEX` — it is a different module with the shadow polygon offset.
+- **SAO's `(r² − v·v)³ / (v·v)` weighting was nearly invisible**: 0.04 % mean change on the PBR
+  fixture. Not a plumbing bug — the diagnostics proved normals, positions, keys and upsample right;
+  the cubic falloff ignores occluders beyond ~r/2. Shipped estimator: cosine above the tangent plane
+  `(v·n − bias)/|v|` − 0.1 angle bias, × `(1 − v·v/r²)`, visibility `1 − 2·intensity·Σ/N`.
+- **How to see the AO buffer:** temporarily make `fragmentMain` return `vec3(ambientOcclusion(...))`
+  when `perFrame.flags & 16u`, set `hdr = false`, `toneMapping = "none"` in the page, screenshot,
+  revert. Selecting debug modes through a uniform (`ssao.bias >= 100`) gets several intermediates
+  in one browser run. No such debug path is in the tree.
+- **Why SSAO looks subtle in the demos:** it scales ambient only, and the demos' ambient (0.18, 0.2,
+  0.24) is small against their suns/point lights. PBR spheres *float* 0.35 m above the ground
+  (centre y 1.0, radius 0.65), so the contact region is hidden from the camera. The gate therefore
+  checks per pixel at full resolution (≥ 0.1 % darker, 0 brighter), not the mean.
+- **f16 rounds the 65 000 sky key to 64 992** — compare keys against half of it, never `>=` the constant.
+- **Only the PBR fixture is deterministic when frozen.** Terrain keeps streaming (269 px differ
+  between two frames with *identical* settings) and the Mars showcase keeps animating dust (26k px);
+  per-pixel A/B belongs on `?scene=pbr` only.
+- **The HMR trap again (see the gate-trap note above):** `engine/src/core/capabilities.ts` is in
+  `engine/src`, so a registry/docs edit during `check:browser` reloaded the page mid-terrain. Finish
+  every `engine/src` + `examples/src` edit before starting the gate; `.md` edits are safe.
+- Anything that `spawn("npx", ["vite", ...])`s leaves the `node .../vite` grandchild running after
+  `kill()` — the probe scripts *and* `tools/browser-check.mjs` itself (it SIGKILLs only the npx
+  wrapper, so port 5199 stays taken after the gate exits). Clean up with
+  `ps -eo pid,args | grep "vite.*--port <n>"` before the next run.
+- docs:check: "13+" is no longer a phase; "14+" is the placeholder for unscheduled later work
+  (special-cased in `tools/docs-check.mjs`, used by `particles.fixedStep` and `networking.replication`).

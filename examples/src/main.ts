@@ -17,7 +17,7 @@
  *   controls. The modules always bind the same actions as the keys, so there is one path per action
  *   either way.
  * - Real-time statistics HUD (including the render-graph pass list), tone-mapping switcher and
- *   rendering toggles (HDR, bloom, shadows, cascade tint, debug bounds).
+ *   rendering toggles (HDR, bloom, shadows, depth prepass, SSAO, cascade tint, debug bounds).
  * - Mars showcase loading screen: live GLB fetch/parse/build progress plus terrain streaming
  *   state, fading out when both are live, with Retry / Continue when the fetch fails. The
  *   `Bounds` toggle (`?bounds=1`) draws wireframe AABBs where every renderable — and the rover —
@@ -63,6 +63,8 @@ const btnTmNone = document.getElementById("btn-tm-none") as HTMLButtonElement | 
 const btnHdr = document.getElementById("btn-hdr") as HTMLButtonElement | null;
 const btnBloom = document.getElementById("btn-bloom") as HTMLButtonElement | null;
 const btnShadows = document.getElementById("btn-shadows") as HTMLButtonElement | null;
+const btnPrepass = document.getElementById("btn-prepass") as HTMLButtonElement | null;
+const btnSsao = document.getElementById("btn-ssao") as HTMLButtonElement | null;
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
@@ -163,6 +165,9 @@ async function main(): Promise<void> {
     btnBloom?.classList.toggle("active", settings.bloom.enabled);
     if (btnBloom) btnBloom.disabled = !settings.hdr;
     btnShadows?.classList.toggle("active", settings.shadow.enabled);
+    btnPrepass?.classList.toggle("active", settings.depthPrepass);
+    btnSsao?.classList.toggle("active", settings.ssao.enabled);
+    if (btnSsao) btnSsao.disabled = !settings.depthPrepass;
     btnCascades?.classList.toggle("active", settings.shadow.debugCascades);
     if (btnCascades) btnCascades.disabled = !settings.shadow.enabled;
     btnTmAces?.classList.toggle("active", settings.toneMapping === "aces");
@@ -279,6 +284,10 @@ async function main(): Promise<void> {
     btnBloom?.classList.toggle("active", s.bloom.enabled);
     if (btnBloom) btnBloom.disabled = !s.hdr;
     btnShadows?.classList.toggle("active", s.shadow.enabled);
+    btnPrepass?.classList.toggle("active", s.depthPrepass);
+    btnSsao?.classList.toggle("active", s.ssao.enabled);
+    // SSAO reads the prepass depth: without the prepass there is nothing for it to do.
+    if (btnSsao) btnSsao.disabled = !s.depthPrepass;
     btnCascades?.classList.toggle("active", s.shadow.debugCascades);
     if (btnCascades) btnCascades.disabled = !s.shadow.enabled;
   }
@@ -297,6 +306,16 @@ async function main(): Promise<void> {
     currentHandle.scene.settings.shadow.enabled = on;
     syncRenderButtons();
   }
+  function setDepthPrepass(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.depthPrepass = on;
+    syncRenderButtons();
+  }
+  function setSsao(on: boolean): void {
+    if (!currentHandle) return;
+    currentHandle.scene.settings.ssao.enabled = on;
+    syncRenderButtons();
+  }
   function setCascadeDebug(on: boolean): void {
     if (!currentHandle) return;
     currentHandle.scene.settings.shadow.debugCascades = on;
@@ -305,6 +324,8 @@ async function main(): Promise<void> {
   btnHdr?.addEventListener("click", () => setHdr(!currentHandle?.scene.settings.hdr));
   btnBloom?.addEventListener("click", () => setBloom(!currentHandle?.scene.settings.bloom.enabled));
   btnShadows?.addEventListener("click", () => setShadows(!currentHandle?.scene.settings.shadow.enabled));
+  btnPrepass?.addEventListener("click", () => setDepthPrepass(!currentHandle?.scene.settings.depthPrepass));
+  btnSsao?.addEventListener("click", () => setSsao(!currentHandle?.scene.settings.ssao.enabled));
   btnCascades?.addEventListener("click", () => setCascadeDebug(!currentHandle?.scene.settings.shadow.debugCascades));
   syncRenderButtons();
 
@@ -337,12 +358,15 @@ async function main(): Promise<void> {
     const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
     const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
+    const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
+    const aliased = r.aliasedBytes > 0 ? `  (${(r.aliasedBytes / 1024).toFixed(0)} KiB aliased)` : "";
     hud.textContent =
       `scene [${activeSceneName.toUpperCase()}]  frame ${st.frame}  fps ${st.fps.toFixed(1)}\n` +
       `draws ${st.drawCalls}  tris ${st.triangles}  instances ${st.instances}\n` +
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
       `${path}  ·  ${shadows}  ·  ${sky}\n` +
-      `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures\n` +
+      `${depth}\n` +
+      `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
     const extra = currentHandle?.overlay?.();
     if (extra) hud.textContent += `\n${extra}`;
@@ -375,6 +399,8 @@ async function main(): Promise<void> {
     setHdr,
     setBloom,
     setShadows,
+    setDepthPrepass,
+    setSsao,
     setCascadeDebug,
     /** Debug AABB overlay: renderer-wide renderable bounds + the Mars rover footprint boxes. */
     setDebugBounds: (on: boolean) => setBounds(!!on),

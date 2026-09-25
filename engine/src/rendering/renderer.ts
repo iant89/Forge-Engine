@@ -14,10 +14,11 @@
  *   4. uniform upload: one `writeBuffer` each for the frame block, lights, shadow block, cascade
  *      view-projections, sky block (when the sky is on), post parameters and the two draw arenas.
  *   5. frame description: the passes are declared on the `RenderGraph` — `forge.shadow.<n>` per
- *      cascade into a depth array, `forge.main` into the HDR target (or the swapchain in LDR mode),
- *      `forge.sky` over the same target where the depth buffer is still clear, the bloom chain, and
- *      `forge.tonemap` into the swapchain. The graph validates, culls, aliases, records everything
- *      into one command buffer and submits it.
+ *      cascade into a depth array, `forge.prepass` laying the opaque depth down, the half-resolution
+ *      `forge.ssao` estimate + its two blur passes, `forge.main` into the HDR target (or the
+ *      swapchain in LDR mode), `forge.sky` over the same target where the depth buffer is still
+ *      clear, the bloom chain, and `forge.tonemap` into the swapchain. The graph validates, culls,
+ *      aliases, records everything into one command buffer and submits it.
  *
  * The renderer is deliberately *not* a scene owner: it reads through `Scene`'s public surface and
  * holds no entity references between frames, so a scene swap costs only the renderable list.
@@ -31,9 +32,10 @@ import { Vec3 } from "../math/vec.js";
 import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
-import { PipelineFactory, type PostEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
+import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
+import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
 import { computeCascades, type Cascade } from "./shadows.js";
 import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
@@ -41,13 +43,12 @@ import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
 import { findGpuParticleWorld } from "../particles/gpuWorld.js";
-import { GPU_PARTICLE_DEPTH_USAGE } from "../particles/gpuSystem.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
 import { Camera, Light, Renderable } from "../scene/components/index.js";
 import type { GraphicsDevice } from "../gpu/device.js";
-import type { Scene, SceneSkySettings, SkyQuality } from "../scene/scene.js";
+import type { Scene, SceneSkySettings, SceneSsaoSettings, SkyQuality } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import type { RenderFrameContext, SkyParams, PickResult } from "../scene/renderContext.js";
 import { InternalError, UsageError } from "../core/errors.js";
@@ -66,6 +67,10 @@ export interface RendererOptions {
   sky?: boolean;
   /** Cap on the sky's ray-march tier; the scene's `sky.quality` asks, this caps. */
   skyQuality?: SkyQuality;
+  /** `false` never runs `forge.prepass` (and therefore never SSAO), whatever the scene asks. */
+  depthPrepass?: boolean;
+  /** `false` never runs the SSAO passes, whatever `scene.settings.ssao.enabled` says. */
+  ssao?: boolean;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -94,6 +99,12 @@ export interface RenderStats {
   clouds: boolean;
   /** True when the camera is below the water's mean level (sky skipped, murk fog). */
   underwater: boolean;
+  /** True when `forge.prepass` laid the opaque depth down before `forge.main` this frame. */
+  depthPrepass: boolean;
+  /** Draw calls issued by the depth prepass (not counted in `drawCalls`, like `shadowsDrawn`). */
+  prepassDraws: number;
+  /** True when the SSAO estimate + blur passes ran and the forward pass applied their result. */
+  ssao: boolean;
   /** Render-graph outcome for the frame. */
   passes: number;
   culledPasses: number;
@@ -117,6 +128,8 @@ interface Batch {
   castShadow: boolean;
   /** Off-screen caster: drawn by the shadow passes only. */
   shadowOnly: boolean;
+  /** Drawn by `forge.prepass`; `forge.main` then tests against that depth without writing it. */
+  prepass: boolean;
   indexCount: number;
   indexStart: number;
   depthSort: number;
@@ -154,6 +167,13 @@ const MAX_POST_PASSES = 24;
 const MAX_BLOOM_MIPS = 6;
 const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const SHADOW_FORMAT: GPUTextureFormat = "depth24plus";
+/** SSAO targets: visibility + the view depth the bilateral passes key on (f16 holds `SSAO_SKY_KEY`). */
+const SSAO_FORMAT: GPUTextureFormat = "rg16float";
+/** Bilateral blur: a tap whose view depth differs by more than 1/SSAO_SHARPNESS (relative) is dropped. */
+const SSAO_SHARPNESS = 10;
+/** f16 bit patterns for the 1×1 fallback AO texel: visibility 1.0, key ≈ `SSAO_SKY_KEY` (65 000 → 64 992). */
+const HALF_ONE = 0x3c00;
+const HALF_SKY_KEY = 0x7bef;
 /** Sun direction when neither the sky settings nor a directional light provide one. */
 const DEFAULT_SUN = new Vec3(0.3, 0.8, 0.5).normalize();
 /** `debugBounds` box colours (RGBA byte pack, 0xAARRGGBB): cyan in view, magenta frustum-culled. */
@@ -195,6 +215,9 @@ export class Renderer implements RenderFrameContext {
     skySamples: 0,
     clouds: false,
     underwater: false,
+    depthPrepass: false,
+    prepassDraws: 0,
+    ssao: false,
     passes: 0,
     culledPasses: 0,
     transientTextures: 0,
@@ -242,6 +265,8 @@ export class Renderer implements RenderFrameContext {
   private readonly cloudAccessor = new StructAccessor(CloudUniforms, this.cloudBytes, 0, "uniform");
   private readonly waterBytes = new WriteBuffer(WaterUniforms.byteSize("uniform"));
   private readonly waterAccessor = new StructAccessor(WaterUniforms, this.waterBytes, 0, "uniform");
+  private readonly ssaoBytes = new WriteBuffer(SsaoUniforms.byteSize("uniform"));
+  private readonly ssaoAccessor = new StructAccessor(SsaoUniforms, this.ssaoBytes, 0, "uniform");
   /** Shared sun/ambient/horizon tints for the cloud deck and the water surface. */
   private readonly skyLight = new SkyLightingCache();
   /** The frame's effective sky settings: `scene.settings.sky` with the per-frame override merged. */
@@ -275,7 +300,18 @@ export class Renderer implements RenderFrameContext {
   private waterBindGroup: GPUBindGroup | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
+  private frameBindGroupAoView: GPUTextureView | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
+  private prepassBindGroup: GPUBindGroup | null = null;
+  private ssaoBuffer: GPUBuffer | null = null;
+  /** SSAO estimate group, keyed by the prepass depth view it samples. */
+  private ssaoGroup: GPUBindGroup | null = null;
+  private ssaoGroupView: GPUTextureView | null = null;
+  /** SSAO blur groups, one per source view (the raw estimate, the horizontal pass). */
+  private readonly ssaoBlurGroups = new Map<GPUTextureView, GPUBindGroup>();
+  /** Bound as the AO map while SSAO is off (the shader skips it on the flag; the texel reads "unoccluded"). */
+  private aoFallback: GPUTexture | null = null;
+  private aoFallbackView: GPUTextureView | null = null;
   private objectArena = new BufferBuilder(64 * 1024);
   private instanceArena = new BufferBuilder(64 * 1024);
   private objectBuffer: GPUBuffer | null = null;
@@ -295,6 +331,8 @@ export class Renderer implements RenderFrameContext {
   private readonly batchPool: Batch[] = [];
   private batchCount = 0;
   private readonly sortedBatches: Batch[] = [];
+  /** This frame's prepass draws, state-sorted then front-to-back (rebuilt in place every frame). */
+  private readonly prepassBatches: Batch[] = [];
   private readonly batchIndex = new Map<string, number>();
   private casterBatches = 0;
 
@@ -328,6 +366,7 @@ export class Renderer implements RenderFrameContext {
   private readonly cameraWorld = new Mat4();
   private readonly view = new Mat4();
   private readonly projection = new Mat4();
+  private readonly invProjection = new Mat4();
   private readonly viewProj = new Mat4();
   private readonly invViewProj = new Mat4();
   private readonly lastCameraPos = new Vec3();
@@ -446,11 +485,15 @@ export class Renderer implements RenderFrameContext {
       for (let c = 0; c < cascadeCount; c++) this.cascadeFrustums[c]!.setFromViewProjection(this.cascades[c]!.viewProj);
     }
 
-    // 3. Batches.
+    // 3. Batches, and which of them lay down depth in the prepass.
     this.collectBatches(scene, camera, cascadeCount);
     const shadowsActive = cascadeCount > 0 && this.casterBatches > 0;
     this.stats.batches = this.batchCount;
     this.stats.shadowCascades = shadowsActive ? cascadeCount : 0;
+    const prepass = this.classifyPrepass(settings.depthPrepass && this.options.depthPrepass !== false) > 0;
+    // SSAO keys its bilateral passes on clip.w, which only a perspective projection makes view depth.
+    const ssaoSettings = settings.ssao;
+    const ssao = prepass && ssaoSettings.enabled && this.options.ssao !== false && !camera.orthographic && ssaoSettings.radius > 0 && ssaoSettings.intensity > 0;
 
     // 4. Uniforms.
     const hdr = settings.hdr;
@@ -458,7 +501,8 @@ export class Renderer implements RenderFrameContext {
     const renderWidth = hdr ? Math.max(1, Math.round(this.width * scale)) : this.width;
     const renderHeight = hdr ? Math.max(1, Math.round(this.height * scale)) : this.height;
     const underwater = isUnderwater(positionRender.y, settings.water);
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater, ssao);
+    if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
     this.writeLights(scene, lights, shadowsActive ? sun : null);
     this.writeShadowUniforms(scene, sun, shadowsActive ? cascadeCount : 0, shadowSize, shadowDistance);
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
@@ -484,6 +528,8 @@ export class Renderer implements RenderFrameContext {
       bloom: hdr && settings.postProcessing && settings.bloom.enabled && this.options.bloom !== false,
       sky: skyEnabled && !underwater,
       underwater,
+      prepass,
+      ssao,
     });
     this.finishFrame();
   }
@@ -517,7 +563,10 @@ export class Renderer implements RenderFrameContext {
 
   // ------------------------------------------------------------------ frame description
 
-  private buildFrame(scene: Scene, frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean }): void {
+  private buildFrame(
+    scene: Scene,
+    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
+  ): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
     const g = this.graph;
@@ -558,20 +607,53 @@ export class Renderer implements RenderFrameContext {
         !gpuParticleWorld.attachFailed &&
         (gpuParticleWorld.ready || gpuParticleWorld.initPending),
     );
+    // Soft particles and SSAO sample the depth buffer; nothing else needs TEXTURE_BINDING on it.
     const sceneDepth = g.createTexture("scene.depth", {
       width: frame.renderWidth,
       height: frame.renderHeight,
       format: this.device.depthFormat,
-      usage: wantGpuParticles ? GPU_PARTICLE_DEPTH_USAGE : TextureUsage.RENDER_ATTACHMENT,
+      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao ? TextureUsage.TEXTURE_BINDING : 0),
     });
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
+
+    // Depth prepass: every opaque, non-cutout surface's depth, with no fragment stage at all. The
+    // forward pass then loads it and shades each visible pixel once.
+    if (frame.prepass) {
+      g.addPass({
+        name: "forge.prepass",
+        depth: { texture: sceneDepth, depthClearValue: 1 },
+        execute: (ctx) => this.executePrepass(ctx),
+      });
+    }
+
+    // SSAO over the prepass depth at half resolution: estimate, then a separable bilateral blur.
+    // The estimate's target is dead once the horizontal blur has read it, so the graph hands the
+    // same physical texture to the vertical blur's output (live-range aliasing, `aliasedBytes`).
+    let aoResult: RenderGraphHandle | null = null;
+    if (frame.ssao) {
+      const aoWidth = Math.max(1, frame.renderWidth >> 1);
+      const aoHeight = Math.max(1, frame.renderHeight >> 1);
+      const aoUsage = TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING;
+      const raw = g.createTexture("ssao.raw", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
+      const blurred = g.createTexture("ssao.blur", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
+      const result = g.createTexture("ssao.result", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
+      g.addPass({ name: "forge.ssao", reads: [sceneDepth], color: [{ texture: raw }], execute: (ctx) => this.executeSsaoPass(ctx, "fsSsao", sceneDepth) });
+      g.addPass({ name: "forge.ssao.blur.h", reads: [raw], color: [{ texture: blurred }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurH", raw) });
+      g.addPass({ name: "forge.ssao.blur.v", reads: [blurred], color: [{ texture: result }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurV", blurred) });
+      aoResult = result;
+    }
+
+    const mainReads: RenderGraphHandle[] = [];
+    if (shadowAtlas !== null) mainReads.push(shadowAtlas);
+    if (aoResult !== null) mainReads.push(aoResult);
     g.addPass({
       name: "forge.main",
-      reads: shadowAtlas !== null ? [shadowAtlas] : [],
+      reads: mainReads,
       color: [{ texture: sceneColor, clearValue: [clear[0], clear[1], clear[2], 1] }],
-      // The sky pass depth-tests against this buffer, so it must survive the pass when the sky runs.
-      depth: { texture: sceneDepth, depthStoreOp: frame.sky || wantGpuParticles ? "store" : "discard" },
-      execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas),
+      // Loads the prepass depth when there is one. The sky pass depth-tests against this buffer
+      // (and soft particles sample it), so it must survive the pass when either runs.
+      depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles ? "store" : "discard" },
+      execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas, aoResult),
     });
     if (frame.sky) {
       // Sky: fullscreen triangle on the far plane into the same colour target; the depth buffer is
@@ -611,6 +693,8 @@ export class Renderer implements RenderFrameContext {
     this.stats.hdr = frame.hdr;
     this.stats.sky = frame.sky;
     this.stats.underwater = frame.underwater;
+    this.stats.depthPrepass = frame.prepass;
+    this.stats.ssao = frame.ssao;
     this.stats.clouds = frame.sky && scene.settings.clouds.enabled && scene.settings.clouds.coverage > 0.001;
     if (!frame.hdr) {
       this.applyGraphStats(g.execute());
@@ -796,11 +880,57 @@ export class Renderer implements RenderFrameContext {
     pass.end();
   }
 
-  private executeMainPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null): void {
+  /**
+   * `forge.prepass`: depth only, state-sorted then front to back. The pipelines are the standard
+   * module's own vertex entry points with no fragment stage, so each depth written here is exactly
+   * the one `forge.main` computes for the same draw (`@invariant` position, same module, same entry).
+   */
+  private executePrepass(ctx: RenderGraphPassContext): void {
+    this.syncGraphEpoch();
+    const pass = ctx.beginRenderPass();
+    pass.setBindGroup(0, this.ensurePrepassBindGroup());
+    const depthFormat = this.device.depthFormat;
+    let lastState = -1;
+    const list = this.prepassBatches;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i]!;
+      const state = prepassState(b);
+      if (state !== lastState) {
+        lastState = state;
+        pass.setPipeline(this.pipelines.get({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 }).pipeline);
+      }
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+      if (b.geometry.indexBuffer) {
+        pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+        pass.drawIndexed(b.indexCount, b.count, b.indexStart);
+      } else {
+        pass.draw(b.indexCount, b.count);
+      }
+      this.stats.prepassDraws++;
+    }
+    pass.end();
+  }
+
+  /** One SSAO fullscreen pass: the estimate (samples the prepass depth) or one blur direction. */
+  private executeSsaoPass(ctx: RenderGraphPassContext, entry: SsaoEntryPoint, source: RenderGraphHandle): void {
+    this.syncGraphEpoch();
+    const pipeline = this.pipelines.get({ technique: "ssao", colorFormat: SSAO_FORMAT, depthFormat: null, transparent: false, doubleSided: true, instanced: false, fragmentEntry: entry });
+    const group = entry === "fsSsao" ? this.ensureSsaoGroup(ctx.view(source, { aspect: "depth-only" })) : this.ensureSsaoBlurGroup(ctx.view(source));
+    const pass = ctx.beginRenderPass();
+    pass.setPipeline(pipeline.pipeline);
+    pass.setBindGroup(0, group);
+    pass.draw(3);
+    this.stats.drawCalls++;
+    pass.end();
+  }
+
+  private executeMainPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null, ao: RenderGraphHandle | null): void {
     this.syncGraphEpoch();
     const shadowView = shadowAtlas !== null ? ctx.view(shadowAtlas, { dimension: "2d-array" }) : this.ensureShadowFallback();
+    const aoView = ao !== null ? ctx.view(ao) : this.ensureAoFallback();
     const pass = ctx.beginRenderPass();
-    pass.setBindGroup(0, this.ensureFrameBindGroup(shadowView));
+    pass.setBindGroup(0, this.ensureFrameBindGroup(shadowView, aoView));
     const sorted = this.sortedBatches;
     sorted.length = 0;
     for (let i = 0; i < this.batchCount; i++) {
@@ -817,6 +947,9 @@ export class Renderer implements RenderFrameContext {
         transparent: b.transparent,
         doubleSided: b.material.doubleSided,
         instanced: b.count > 1,
+        // Prepassed surfaces are already in the depth buffer: test `less-equal` against their own
+        // depth and leave it alone. With writes off, early-Z survives the shader's `discard`.
+        writeDepth: !b.prepass,
       });
       pass.setPipeline(pipeline.pipeline);
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
@@ -877,6 +1010,9 @@ export class Renderer implements RenderFrameContext {
     s.skySamples = 0;
     s.clouds = false;
     s.underwater = false;
+    s.depthPrepass = false;
+    s.prepassDraws = 0;
+    s.ssao = false;
     s.passes = 0;
     s.culledPasses = 0;
     s.transientTextures = 0;
@@ -937,7 +1073,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false, ssao = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -963,12 +1099,32 @@ export class Renderer implements RenderFrameContext {
     a.setI32("cascadeCount", shadowsActive ? this.cascades.length : 0);
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
-    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0);
+    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0);
     a.setU32("flags", flags);
     // With the scene fog off but the camera submerged, exp² carries the murk.
     const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
     a.setVec4("fogParams", FOG_MODE_ID[fogMode] ?? 0, fog.heightFalloff, fog.heightBase, 0);
     this.device.device.queue.writeBuffer(this.frameBuffer!, 0, gpuSource(this.frameBytes.bytes.subarray(0, this.frameBytes.byteLength)));
+  }
+
+  /** SSAO parameters for the frame: the inverse projection plus the settings, clamped to sane ranges. */
+  private writeSsao(s: SceneSsaoSettings, renderWidth: number, renderHeight: number): void {
+    this.invProjection.copyFrom(this.projection);
+    if (!this.invProjection.invert()) this.invProjection.setIdentity();
+    const a = this.ssaoAccessor;
+    a.setMat4("invProj", this.invProjection.m);
+    a.setF32("radius", s.radius);
+    a.setF32("bias", Math.max(0, s.bias));
+    a.setF32("intensity", s.intensity);
+    // Pixels per metre at view depth 1: NDC y = m[5]·y/z, and NDC spans half the target height.
+    a.setF32("projScale", 0.5 * renderHeight * this.projection.m[5]!);
+    a.setVec2("depthSize", renderWidth, renderHeight);
+    a.setVec2("aoSize", Math.max(1, renderWidth >> 1), Math.max(1, renderHeight >> 1));
+    a.setU32("sampleCount", Math.max(1, Math.min(32, Math.round(Number.isFinite(s.samples) ? s.samples : 12))));
+    a.setF32("sharpness", SSAO_SHARPNESS);
+    // A close-up would otherwise spread 12 taps over hundreds of pixels (cache-hostile, undersampled).
+    a.setF32("maxPixels", Math.max(16, renderHeight * 0.1));
+    this.device.device.queue.writeBuffer(this.ssaoBuffer!, 0, gpuSource(this.ssaoBytes.bytes.subarray(0, this.ssaoBytes.byteLength)));
   }
 
   /**
@@ -1298,6 +1454,22 @@ export class Renderer implements RenderFrameContext {
     return false;
   }
 
+  /**
+   * Flag the batches `forge.prepass` draws and collect them into `prepassBatches` (reused array,
+   * no allocation in a steady frame). Returns how many there are; 0 means no prepass this frame.
+   */
+  private classifyPrepass(wanted: boolean): number {
+    const list = this.prepassBatches;
+    list.length = 0;
+    for (let i = 0; i < this.batchCount; i++) {
+      const b = this.batchPool[i]!;
+      b.prepass = wanted && isPrepassEligible(b);
+      if (b.prepass) list.push(b);
+    }
+    if (list.length > 1) list.sort(prepassOrder);
+    return list.length;
+  }
+
   private acquireBatch(): Batch {
     let b = this.batchPool[this.batchCount];
     if (!b) {
@@ -1310,6 +1482,7 @@ export class Renderer implements RenderFrameContext {
         overlay: false,
         castShadow: false,
         shadowOnly: false,
+        prepass: false,
         indexCount: 0,
         indexStart: 0,
         depthSort: 0,
@@ -1358,6 +1531,7 @@ export class Renderer implements RenderFrameContext {
     this.skyBuffer ??= d.createBuffer({ label: "sky.uniforms", size: this.skyBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.cloudBuffer ??= d.createBuffer({ label: "cloud.uniforms", size: this.cloudBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     this.waterBuffer ??= d.createBuffer({ label: "water.uniforms", size: this.waterBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    this.ssaoBuffer ??= d.createBuffer({ label: "ssao.uniforms", size: this.ssaoBytes.byteLength, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
     const { depthFrame } = this.pipelines.bindGroupLayouts;
     this.cascadeBindGroup ??= d.createBindGroup({
       label: "shadowpass.bindgroup",
@@ -1367,9 +1541,9 @@ export class Renderer implements RenderFrameContext {
     this.ensureArenas();
   }
 
-  /** The frame bind group depends on which shadow atlas view is bound; rebuilt when that changes. */
-  private ensureFrameBindGroup(shadowView: GPUTextureView): GPUBindGroup {
-    if (this.frameBindGroup && this.frameBindGroupView === shadowView) return this.frameBindGroup;
+  /** The frame bind group depends on which shadow atlas and AO views are bound; rebuilt when either changes. */
+  private ensureFrameBindGroup(shadowView: GPUTextureView, aoView: GPUTextureView): GPUBindGroup {
+    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView) return this.frameBindGroup;
     const { frame } = this.pipelines.bindGroupLayouts;
     this.frameBindGroup = this.device.device.createBindGroup({
       label: "perframe.bindgroup",
@@ -1380,10 +1554,70 @@ export class Renderer implements RenderFrameContext {
         { binding: 2, resource: { buffer: this.shadowBuffer! } },
         { binding: 3, resource: shadowView },
         { binding: 4, resource: this.device.sampler("shadow-pcf") },
+        { binding: 5, resource: aoView },
       ],
     });
     this.frameBindGroupView = shadowView;
+    this.frameBindGroupAoView = aoView;
     return this.frameBindGroup;
+  }
+
+  /** Group 0 of `forge.prepass`: only the per-frame block (the vertex stage's view-projection). */
+  private ensurePrepassBindGroup(): GPUBindGroup {
+    this.prepassBindGroup ??= this.device.device.createBindGroup({
+      label: "prepass.bindgroup",
+      layout: this.pipelines.bindGroupLayouts.prepassFrame,
+      entries: [{ binding: 0, resource: { buffer: this.frameBuffer! } }],
+    });
+    return this.prepassBindGroup;
+  }
+
+  private ensureSsaoGroup(depthView: GPUTextureView): GPUBindGroup {
+    if (this.ssaoGroup && this.ssaoGroupView === depthView) return this.ssaoGroup;
+    this.ssaoGroup = this.device.device.createBindGroup({
+      label: "ssao.bindgroup",
+      layout: this.pipelines.bindGroupLayouts.ssao,
+      entries: [
+        { binding: SSAO_BINDINGS.uniforms.binding, resource: { buffer: this.ssaoBuffer! } },
+        { binding: SSAO_BINDINGS.depth.binding, resource: depthView },
+      ],
+    });
+    this.ssaoGroupView = depthView;
+    return this.ssaoGroup;
+  }
+
+  private ensureSsaoBlurGroup(source: GPUTextureView): GPUBindGroup {
+    let group = this.ssaoBlurGroups.get(source);
+    if (group) return group;
+    group = this.device.device.createBindGroup({
+      label: "ssao.blur.bindgroup",
+      layout: this.pipelines.bindGroupLayouts.ssaoBlur,
+      entries: [
+        { binding: SSAO_BINDINGS.uniforms.binding, resource: { buffer: this.ssaoBuffer! } },
+        { binding: SSAO_BINDINGS.ao.binding, resource: source },
+      ],
+    });
+    this.ssaoBlurGroups.set(source, group);
+    return group;
+  }
+
+  /** Bound while SSAO is off: the forward shader skips it on the flag bit, and its texel reads "unoccluded". */
+  private ensureAoFallback(): GPUTextureView {
+    if (this.aoFallbackView) return this.aoFallbackView;
+    this.aoFallback = this.device.createTexture({
+      label: "ssao.fallback",
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: SSAO_FORMAT,
+      usage: TextureUsage.TEXTURE_BINDING | TextureUsage.COPY_DST,
+    });
+    this.device.device.queue.writeTexture(
+      { texture: this.aoFallback },
+      gpuSource(new Uint16Array([HALF_ONE, HALF_SKY_KEY])),
+      { bytesPerRow: 4, rowsPerImage: 1 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    );
+    this.aoFallbackView = this.aoFallback.createView({ label: "ssao.fallback.view" });
+    return this.aoFallbackView;
   }
 
   /** Bound when shadows are off: the shader never samples it, but the layout still needs a depth array. */
@@ -1406,6 +1640,10 @@ export class Renderer implements RenderFrameContext {
     this.postGroups.clear();
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
+    this.frameBindGroupAoView = null;
+    this.ssaoGroup = null;
+    this.ssaoGroupView = null;
+    this.ssaoBlurGroups.clear();
   }
 
   private viewId(view: GPUTextureView): number {
@@ -1700,7 +1938,7 @@ export class Renderer implements RenderFrameContext {
   dispose(): void {
     this.deviceLostUnsub?.dispose();
     this.deviceLostUnsub = null;
-    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
     this.frameBuffer = null;
     this.lightBuffer = null;
     this.shadowBuffer = null;
@@ -1709,8 +1947,16 @@ export class Renderer implements RenderFrameContext {
     this.skyBuffer = null;
     this.cloudBuffer = null;
     this.waterBuffer = null;
+    this.ssaoBuffer = null;
     this.skyBindGroup = null;
     this.waterBindGroup = null;
+    this.prepassBindGroup = null;
+    this.ssaoGroup = null;
+    this.ssaoGroupView = null;
+    this.ssaoBlurGroups.clear();
+    this.aoFallback?.destroy();
+    this.aoFallback = null;
+    this.aoFallbackView = null;
     this.objectBuffer = null;
     this.instanceBuffer = null;
     this.debugBuffer = null;
@@ -1722,6 +1968,7 @@ export class Renderer implements RenderFrameContext {
     this.shadowFallbackView = null;
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
+    this.frameBindGroupAoView = null;
     this.cascadeBindGroup = null;
     this.drawBindGroup = null;
     this.postGroups.clear();
@@ -1729,6 +1976,27 @@ export class Renderer implements RenderFrameContext {
     this.pipelines.invalidate();
     this.defaults.dispose();
   }
+}
+
+/**
+ * Surfaces the depth prepass may lay down: opaque, depth-tested, drawn by the standard program, and
+ * never discarding a fragment the prepass would keep (no cutout, full opacity). Everything else —
+ * transparent and overlay draws, water, fading materials — is drawn by `forge.main` exactly as
+ * without a prepass, depth writes included.
+ */
+function isPrepassEligible(b: Batch): boolean {
+  const m = b.material;
+  return !b.shadowOnly && !b.transparent && !b.overlay && b.geometry.vertexBuffer !== null && m.technique !== "water" && !m.transparent && !(m.alphaTest > 0) && m.opacity >= 0.999;
+}
+
+/** Prepass pipeline variant: instancing × culling (four pipelines at most). */
+function prepassState(b: Batch): number {
+  return (b.count > 1 ? 1 : 0) | (b.material.doubleSided ? 2 : 0);
+}
+
+/** Fewest pipeline switches first, then front to back (`depthSort` is −distance², so larger is nearer). */
+function prepassOrder(a: Batch, b: Batch): number {
+  return prepassState(a) - prepassState(b) || b.depthSort - a.depthSort;
 }
 
 /** One sky field: the per-frame override wins when it is set (`null` is a valid override value). */

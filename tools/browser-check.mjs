@@ -236,6 +236,52 @@ const samplePixels = () =>
   );
 
 /**
+ * Keep the canvas's full-resolution per-pixel luma in the page under `key`, for per-pixel A/B
+ * checks: a mean can hide a shifted or missing object, and a downsample averages small local
+ * changes (contact shading) away. Only the comparison's numbers cross back (`compareLuma`).
+ */
+const keepLuma = (key) =>
+  page.evaluate(
+    (key) =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          const src = document.querySelector("canvas");
+          const c = document.createElement("canvas");
+          c.width = src.width;
+          c.height = src.height;
+          const g = c.getContext("2d", { willReadFrequently: true });
+          g.drawImage(src, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          const luma = new Float32Array(c.width * c.height);
+          for (let i = 0, p = 0; i < d.length; i += 4, p++) luma[p] = (d[i] + d[i + 1] + d[i + 2]) / 3;
+          (window.__gateLuma ??= {})[key] = luma;
+          resolve(luma.length);
+        });
+      }),
+    key,
+  );
+
+/** Per-pixel comparison of two kept frames: pixels that got darker / brighter from `a` to `b` by more than one level. */
+const compareLuma = (a, b) =>
+  page.evaluate(
+    ([a, b]) => {
+      const A = window.__gateLuma[a];
+      const B = window.__gateLuma[b];
+      let max = 0;
+      let darker = 0;
+      let brighter = 0;
+      for (let i = 0; i < A.length; i++) {
+        const d = B[i] - A[i];
+        if (Math.abs(d) > max) max = Math.abs(d);
+        if (d < -1) darker++;
+        else if (d > 1) brighter++;
+      }
+      return { pixels: A.length, max, darker, brighter };
+    },
+    [a, b],
+  );
+
+/**
  * Ask the *browser* whether a WebGPU adapter exists at all, independently of the engine. This is the
  * question that tells the two failure modes apart: "`navigator.gpu` exists but `requestAdapter()`
  * returns null" is the signature of a headless-shell launch or a missing SwiftShader (a browser
@@ -338,6 +384,22 @@ try {
   if (count("forge.bloom.") < 3) throw new Error(`bloom chain missing (prefilter + downsample + upsample): ${passes.join(", ")}`);
   if (!(after.render.shadowsDrawn >= 1)) throw new Error("shadow passes ran but drew nothing (no casters reached the cascades)");
   if (!(after.render.texturesCreated === 0)) throw new Error(`render graph allocated ${after.render.texturesCreated} texture(s) on a steady-state frame (pool is not stable)`);
+  // Phase 13.1/13.2: the depth prepass lays the opaque depth down before forge.main, SSAO reads it
+  // (estimate + two blur passes, all before the forward pass that applies it), and the graph hands
+  // the dead estimate target to the blur result — real memory aliasing on real WebGPU.
+  const at = (name) => passes.indexOf(name);
+  if (!after.render.depthPrepass || count("forge.prepass") !== 1) throw new Error(`the depth prepass did not run: ${passes.join(", ")}`);
+  if (!(after.render.prepassDraws >= 1)) throw new Error("the depth prepass ran but drew nothing");
+  if (!after.render.ssao || count("forge.ssao") !== 3) throw new Error(`SSAO (estimate + two blur passes) did not run: ${passes.join(", ")}`);
+  if (!(at("forge.prepass") < at("forge.ssao") && at("forge.ssao") < at("forge.ssao.blur.h") && at("forge.ssao.blur.h") < at("forge.ssao.blur.v") && at("forge.ssao.blur.v") < at("forge.main"))) {
+    throw new Error(`prepass/SSAO passes out of order: ${passes.join(" → ")}`);
+  }
+  if (!(after.render.aliasedBytes > 0 && after.render.physicalTextures < after.render.transientTextures)) {
+    throw new Error(`no transient aliasing: ${after.render.transientTextures} transients → ${after.render.physicalTextures} textures, aliasedBytes ${after.render.aliasedBytes}`);
+  }
+  console.log(
+    `prepass: ${after.render.prepassDraws} draws; ssao on; aliasing: ${after.render.transientTextures} transients → ${after.render.physicalTextures} textures (${after.render.aliasedBytes} B aliased)`,
+  );
 
   // Pixels: require real variation (a black clear colour with no geometry would otherwise pass a
   // "non-blank" byte-size check).
@@ -374,6 +436,48 @@ try {
   if (noShadowStats.renderPasses.some((p) => p.startsWith("forge.shadow."))) throw new Error("shadow passes still ran with shadows disabled");
   if (!(noShadows.mean > base.mean)) throw new Error(`disabling shadows did not brighten the frame (${noShadows.mean.toFixed(2)} vs ${base.mean.toFixed(2)}): the cascades are not landing on the receivers`);
 
+  // SSAO scales the ambient term only, so it can only take light away: switching it on must darken
+  // a real set of pixels (contact areas: the torus, under and between the floating spheres), must
+  // not brighten any, and must stay contact shading rather than a global dimmer. Per pixel at full
+  // resolution — the fixture's direct lights dominate its ambient, so the effect is local and small.
+  await settle(); // the shadow toggle above has just been undone
+  await keepLuma("ssao-on");
+  await page.evaluate(() => window.__forge.setSsao(false));
+  await settle();
+  const noSsao = await samplePixels();
+  await keepLuma("ssao-off");
+  const noSsaoStats = await page.evaluate(() => window.__forge.stats());
+  const ao = await compareLuma("ssao-off", "ssao-on");
+  const aoDrop = (noSsao.mean - base.mean) / noSsao.mean;
+  console.log(
+    `ssao: ${ao.darker} of ${ao.pixels} px darker with it (max ${ao.max.toFixed(1)} levels), ${ao.brighter} brighter; mean ${base.mean.toFixed(2)} (on) vs ${noSsao.mean.toFixed(2)} (off)`,
+  );
+  if (noSsaoStats.renderPasses.some((p) => p.startsWith("forge.ssao")) || noSsaoStats.render.ssao) throw new Error("SSAO passes still ran with SSAO disabled");
+  if (!noSsaoStats.render.depthPrepass) throw new Error("disabling SSAO also turned the depth prepass off");
+  if (ao.brighter > 0) throw new Error(`SSAO brightened ${ao.brighter} px — ambient occlusion can only remove light`);
+  // 0.1 % of the frame: the fixture measured ~0.42–0.44 % (3,905–4,066 of 921,600 px at 1280x720,
+  // up to ~5 levels, depending on where the animation froze).
+  if (!(ao.darker >= ao.pixels * 0.001)) throw new Error(`SSAO darkened only ${ao.darker} of ${ao.pixels} px: the AO target is not reaching the ambient term`);
+  if (!(aoDrop < 0.15)) throw new Error(`SSAO darkened the whole frame by ${(aoDrop * 100).toFixed(1)}% — contact shading, not a global dimmer`);
+
+  // The depth prepass is an optimisation: with SSAO out of the picture, switching it off must not
+  // move a single pixel (same vertex program + @invariant position ⇒ bit-identical depths).
+  await page.evaluate(() => window.__forge.setDepthPrepass(false));
+  await settle();
+  await keepLuma("prepass-off");
+  const noPrepassStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => {
+    window.__forge.setDepthPrepass(true);
+    window.__forge.setSsao(true);
+  });
+  const prepassDiff = await compareLuma("ssao-off", "prepass-off");
+  await page.evaluate(() => delete window.__gateLuma);
+  console.log(`prepass on vs off (ssao off): max luma diff ${prepassDiff.max.toFixed(2)}, ${prepassDiff.darker + prepassDiff.brighter} px beyond 1 level; passes off=${noPrepassStats.renderPasses.length}`);
+  if (noPrepassStats.renderPasses.includes("forge.prepass") || noPrepassStats.render.depthPrepass) throw new Error("the depth prepass still ran with it disabled");
+  if (prepassDiff.darker + prepassDiff.brighter > 0) {
+    throw new Error(`the depth prepass changed the picture: ${prepassDiff.darker + prepassDiff.brighter} px differ by up to ${prepassDiff.max.toFixed(1)} luma levels`);
+  }
+
   // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
   await page.evaluate(() => window.__forge.setHdr(false));
   await settle();
@@ -382,6 +486,7 @@ try {
   await page.evaluate(() => window.__forge.setHdr(true));
   console.log(`ldr: mean ${ldr.mean.toFixed(2)} distinct=${ldr.distinct}; passes=${ldrStats.renderPasses.join(",")}`);
   if (ldrStats.render.hdr || ldrStats.renderPasses.includes("forge.tonemap")) throw new Error("LDR toggle did not switch the frame off the post chain");
+  if (!ldrStats.render.ssao || !ldrStats.render.depthPrepass) throw new Error("the prepass/SSAO chain did not survive the switch to the LDR path");
   if (ldr.distinct < 8 || ldr.mean < 6) throw new Error("LDR path rendered a blank frame");
 
   // Cascade debug tint is a distinct shader path; it must compile and run clean on real WebGPU.
@@ -394,7 +499,7 @@ try {
   const restored = await page.evaluate(() => window.__forge.stats());
   console.log(`cascade tint: distinct=${tinted.distinct}; after toggles: gpuErrors=${restored.gpuErrors} passes=${restored.renderPasses.length}`);
   if (restored.gpuErrors !== 0 || restored.lastError) throw new Error(`GPU errors after toggling render paths (${restored.gpuErrors}): ${restored.lastError}`);
-  if (!restored.render.hdr || restored.render.bloomMips < 1 || restored.render.shadowCascades < 1) throw new Error("render state did not restore after the toggles");
+  if (!restored.render.hdr || restored.render.bloomMips < 1 || restored.render.shadowCascades < 1 || !restored.render.ssao) throw new Error("render state did not restore after the toggles");
 
   // Resize must keep presenting (the swapchain/recreate path).
   await page.setViewportSize({ width: 900, height: 500 });
