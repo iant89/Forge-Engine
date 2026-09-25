@@ -2596,9 +2596,9 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "0201",
-    "date": "2026-09-25T20:50:00Z",
+    "date": "2026-09-25T21:00:00Z",
     "type": "pr-merge",
-    "pr": null,
+    "pr": 43,
     "branch": "arena/01a0d9e9-forge-engine",
     "base": "main",
     "title": "Phase 13.5: the device culls objects (frustum, distance, HiZ occlusion)",
