@@ -2244,6 +2244,45 @@ JSON array below; agents maintain it by hand until then.
     "what": "Removed again: a scratch probe that was accidentally committed with the previous change (it reproduced the stacked rig in isolation and printed the pixel diff against idle).",
     "why": "It was a diagnostic for one question, not a tool the repo should carry; the answer it gave (the rig is visible; the gate's comparison was reversed) is recorded in mnemosyne.md and in the gate's own comment.",
     "note": "The file exists only in commits 8551496..HEAD of the PR branch; the merge commit's tree is without it."
+  },
+  {
+    "id": "0175",
+    "date": "2026-09-25T18:40:00Z",
+    "type": "pr-merge",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "base": "main",
+    "title": "Phase 13.4: the device fills the cluster grid (GPU light assignment)",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Phase 13.4: the device fills the cluster grid. The cluster build splits into three stages with three cost curves — prepare is O(lights), count is O(lights x slices + clusters) (a per-slice difference plane, so a lamp sweeping the grid costs the same corner writes as one in a single tile), and the fill (the lists) is O(coverage). Only the fill was worth moving: benchmarks/src/lights.bench.ts measures the demo-shaped rig at ~0.5 ms / 7,749 entries and a saturating rig (256 lamps, every cluster) at 50-75 ms / 98,304 entries = 3,072 clusters x the 32-entry cap, against 0.04-0.09 ms for the same frames' counting pass. prepare and count stay on the CPU because their output is needed exactly and immediately (the fragment stage indexes with counts, stats reports them, lightsDropped is a correctness signal) and neither grows with coverage; nothing is read back, so clustersUsed / clusterIndices / maxLightsPerCluster / lightsDropped are the CPU's own numbers for the same frame. The pass is forge.lights.assign, first in the frame (shadow/prepass never read the grid, forge.main's fragment stage does), one invocation per cluster in 12 workgroups of 256, reading the frame's packed ranges (ClusterRangeBlock, 2 KB; each light's tile/slice extents packed into one u32 by RANGE_KEY_BITS) and the grid's own counts, writing at most counts[c] entries per cluster so a wrong count trims a list instead of spilling into the next one; the shader is a transcription of the CPU fill (same light order, same intensity x Rec.709 luma eviction with ties keeping the earlier light, same re-sort), and assignClustersOnCpu is its TypeScript twin, pinned byte for byte by tests/lightCulling.test.ts including saturated lists. The grid block became fixed-stride (counts + indices, CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER = 98,304 u32, 405,504 B; ~416 KB resident) and RendererOptions.lightCulling = auto|cpu|gpu with stats.clusterFill and the demo's ?lightculling=cpu|gpu plus HUD drive it. Two bugs, both invisible to the CPU gates: Tint rejects a shift mixed with a comparison without parentheses (a *parse* error that invalidated every pipeline built from the module while the mock, check:wgsl and 537 tests stayed green), so the generated decode is ((key >> shift) & mask)u and validateWgsl (mixedOperatorIssues) now fails on that shape on the CPU side; and switching the fill to \"cpu\" disposed the GpuLightCuller but kept the reference, so the ??= reused a dead culler whose record() returns immediately — forge.lights.assign silently vanished after a cpu->gpu round trip (19 passes -> 18, while stats.clusterFill still said \"gpu\") and the grid was never refilled, which the real device showed as ~110k pixels darker in tile-shaped bands on the demo's 36-lamp rig. The setter now clears the field, tests/frame.test.ts pins the round trip, and check:browser asserts the pass is back in the frame before it reads a pixel, that the gpu arm owns the pass while the cpu arm lacks it, that the many-light frame is strictly brighter than the truncated uniform path with no pixel darker, and that the two fills agree over the fixture and past the per-cluster cap (a 40-lamp ball at the origin, where only the eviction path runs). That last section had never executed before this PR's culler fix — the many-light assertion upstream threw on every run — and it failed on a reversed pixel comparison (compareLuma counts the *second* argument brighter; the check asked for idle-vs-rig and so reported the rig's own 2,434 px as \"darker\"), now fixed and paired with an assertion that the rig can never remove light. Verified on a real device: fill handover back in the frame, many-light 81,499-88,596 px brighter with none darker, fill A/B 0 px differ with the pass owned by the gpu arm, stacked rig 2,414-2,434 px brighter with cap 32 reached and no cpu-vs-gpu difference; 565 tests in 41 files, bench guards, lint:arch, check:testmap, docs:check all green. rendering.gpuLightCulling verified; rendering.clusterCoverage deferred (perspective-only, 256/32 caps, ~416 KB resident — the roadmap schedules no work for it).",
+    "files": [
+      "ARCHITECTURE.md",
+      "ROADMAP.md",
+      "benchmarks/run.mjs",
+      "benchmarks/src/lights.bench.ts",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/RENDERING.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/gpu/shaderCache.ts",
+      "engine/src/index.ts",
+      "engine/src/rendering/clusters.ts",
+      "engine/src/rendering/lightCulling.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/rendering/shaders/standard.ts",
+      "engine/src/rendering/uniforms.ts",
+      "examples/src/main.ts",
+      "mnemosyne.md",
+      "tests/clusters.test.ts",
+      "tests/frame.test.ts",
+      "tests/lightCulling.test.ts",
+      "tests/wgsl.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs",
+      "tools/wgsl-check.mjs"
+    ]
   }
 ]
 ```
