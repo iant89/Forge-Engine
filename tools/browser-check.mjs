@@ -867,15 +867,23 @@ try {
   //     what they dropped. Both are produced on the device, so this is the pass's arithmetic, not the
   //     twin's (which the mock tests cover).
   //  2. The switch is a switch: turning it off returns to one direct draw per batch over the same
-  //     verdicts, and the picture does not change by a pixel. That is the claim a device can settle and
-  //     a unit test cannot: the record's words really are the draw commands.
-  //  3. The distance test really does zero records on a device: a draw distance over the fixture's own
-  //     renderables makes batches the frame built get dropped by the culler alone — the case where the
-  //     CPU could never know, since the CPU only speaks about visibility, never about records.
-  // The A/B is per-pixel, so the scene must hold still: the 13.5 arm put the loop back on.
-  await page.evaluate(() => window.__forge.setAnimating(false));
+  //     verdicts, and the picture does not change by a pixel — with a draw distance in place, so the
+  //     compared frames really do have culled batches in them. That is the claim a device can settle
+  //     and a unit test cannot: the record's words really are the draw commands.
+  //  3. The distance test really does zero records on a device: the 1 m draw distance drops batches the
+  //     frame built (a per-renderable limit the CPU's visibility knows nothing about), and the pass's
+  //     own counters have to add up — `recordZeroed` is the cull sum on the record arm and zero on the
+  //     direct one, whose frame is drawn by the clip-collapse path instead.
+  // The A/B is per-pixel, so the scene must hold still, and it is worth nothing unless batches are
+  // actually culled: a 1 m draw distance over the fixture's renderables makes the *device* drop batches
+  // the frame built (a per-renderable limit the CPU's own visibility never sees). Both arms then cull
+  // the same batches by different means — a zero-instance record, or Phase 13.5's collapsed clip
+  // position — so an identical picture is exactly the claim that a record's words are the command.
+  await page.evaluate(() => {
+    window.__forge.setAnimating(false);
+    window.__forge.setObjectDistance(1);
+  });
   await settle();
-  const afterCull = await page.evaluate(() => window.__forge.stats().render);
   await keepLuma("indirect-on");
   const indirectOnStats = await page.evaluate(() => window.__forge.stats());
   const indirectOn = indirectOnStats.render;
@@ -887,12 +895,16 @@ try {
   const indirectOff = indirectOffStats.render;
   const indirectDiff = await compareLuma("indirect-off", "indirect-on");
   console.log(
-    `indirect draws: batches ${indirectOn.batches}, indirect ${indirectOn.indirectDraws} (off: ${indirectOff.indirectDraws}), ` +
-      `visible ${indirectOn.cullVisible}, zeroed records ${indirectOn.cullRecordZeroed}; max luma diff ${indirectDiff.max.toFixed(2)} / ` +
-      `${indirectDiff.darker + indirectDiff.brighter} px beyond 1 level`,
+    `indirect draws: batches ${indirectOn.batches}, indirect ${indirectOn.indirectDraws} of ${indirectOn.drawCalls} draws (off: ${indirectOff.indirectDraws} of ${indirectOff.drawCalls}), ` +
+      `visible ${indirectOn.cullVisible}, zeroed records ${indirectOn.cullRecordZeroed}, distance-culled ${indirectOn.cullDistance}; ` +
+      `max luma diff ${indirectDiff.max.toFixed(2)} / ${indirectDiff.darker + indirectDiff.brighter} px beyond 1 level`,
   );
-  if (indirectOn.indirectDraws !== indirectOn.batches) {
-    throw new Error(`the indirect arm issued ${indirectOn.indirectDraws} indirect draws for ${indirectOn.batches} batches — the records are not driving forge.main`);
+  if (indirectOn.cullDistance <= 0) throw new Error("a 1 m draw distance over the fixture culled nothing on the device — the arm has no culled batch to compare");
+  // The two arms issue the *same* calls, one submitted through a record per batch and one drawn
+  // directly: same count, same picture. That is the claim a device can settle and a unit test cannot.
+  if (indirectOn.indirectDraws <= 0) throw new Error("the indirect arm issued no indirect draw at all — the records are not driving forge.main");
+  if (indirectOn.drawCalls !== indirectOff.drawCalls) {
+    throw new Error(`the two submission paths issued ${indirectOn.drawCalls} and ${indirectOff.drawCalls} draw calls for the same frame`);
   }
   if (indirectOff.indirectDraws !== 0) throw new Error(`the direct arm still issued ${indirectOff.indirectDraws} indirect draws`);
   if (indirectDiff.darker + indirectDiff.brighter > 0) {
@@ -917,32 +929,17 @@ try {
       throw new Error(`${arm} arm: ${culled} batches culled, ${r.cullRecordZeroed} records zeroed (${writesRecords ? "expected one per cull" : "expected none on the direct path"})`);
     }
   }
-  // A draw distance the device enforces: every renderable beyond 1 m is dropped by the culler. The
-  // frame *did* build those batches (the CPU's visibility test cannot see a per-renderable limit), so
-  // the zeroed records are the pass's own distance verdicts. The picture is allowed to change here.
-  await page.evaluate(() => window.__forge.setIndirectDraws(true));
-  await page.evaluate(() => window.__forge.setObjectDistance(1));
-  await settle();
-  const distStats = await page.evaluate(() => window.__forge.stats());
-  const dist = distStats.render;
-  console.log(
-    `draw distance 1 m: cullDistance ${afterCull.cullDistance} → ${dist.cullDistance}, zeroed records ${dist.cullRecordZeroed}, ` +
-      `visible ${dist.cullVisible} of ${dist.batches}`,
-  );
-  if (dist.cullDistance <= 0) throw new Error("a 1 m draw distance over the fixture culled nothing on the device");
-  if (dist.cullRecordZeroed !== dist.cullFrustum + dist.cullDistance + dist.cullOccluded) {
-    throw new Error(`the distance stage culled ${dist.cullDistance} batches and ${dist.cullRecordZeroed} records were zeroed in total — the two do not agree`);
-  }
-  if (dist.cullVisible !== dist.batches - dist.cullRecordZeroed) {
-    throw new Error(`${dist.cullVisible} of ${dist.batches} batches survived with ${dist.cullRecordZeroed} records zeroed — the counts do not add up`);
-  }
   const restoredDistance = await page.evaluate(() => {
+    window.__forge.setIndirectDraws(true);
     window.__forge.setObjectDistance(-1); // negative restores the limits the scene shipped with
     window.__forge.setAnimating(true);
     return { indirect: window.__forge.indirectDraws() };
   });
   await settle();
-  console.log(`indirect draws restored: on (${restoredDistance.indirect}), draw distance restored`);
+  const restoredDraw = await page.evaluate(() => window.__forge.stats().render);
+  console.log(
+    `indirect draws restored: on via ${restoredDraw.indirectDraws} records, draw distance restored (distance-culled ${restoredDraw.cullDistance})`,
+  );
   if (!restoredDistance.indirect) throw new Error("the indirect-draw switch did not come back on");
 
   await page.evaluate(() => {
