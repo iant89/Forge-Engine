@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const engine = await import(pathToFileURL(resolve("engine/dist/index.js")).href);
-const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS } = engine;
+const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RESOLVE_SHADER, LIGHT_CULL_SHADER, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS } = engine;
 
 // The forward shader is validated as the pipeline factory actually compiles it: one module holding
 // the vertex stage and the fragment body (both variants), not the two halves in isolation.
@@ -44,6 +44,7 @@ const modules = {
   "particles/shader.ts:PARTICLE_CULL_SHADER": PARTICLE_CULL_SHADER,
   "particles/shader.ts:PARTICLE_RENDER_SHADER": PARTICLE_RENDER_SHADER,
   "particles/shader.ts:PARTICLE_RESOLVE_SHADER": PARTICLE_RESOLVE_SHADER,
+  "rendering/lightCulling.ts:LIGHT_CULL_SHADER": LIGHT_CULL_SHADER,
 };
 
 let failed = 0;
@@ -108,7 +109,12 @@ for (const [label, def] of Object.entries(RENDERING_STRUCTS ?? {})) {
 // generated one — so assert the generated text appears verbatim in the module that binds it.
 const STORAGE_STRUCT_HOSTS = {
   ClusterLightBlock: ["shaders/standard.ts", `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`],
-  ClusterGridBlock: ["shaders/standard.ts", `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`],
+  ClusterGridBlock: [
+    "shaders/standard.ts + rendering/lightCulling.ts",
+    `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}\n${LIGHT_CULL_SHADER}`,
+  ],
+  ClusterRangeEntry: ["rendering/lightCulling.ts", LIGHT_CULL_SHADER],
+  ClusterRangeBlock: ["rendering/lightCulling.ts", LIGHT_CULL_SHADER],
 };
 for (const [label, def] of Object.entries(RENDERING_STORAGE_STRUCTS ?? {})) {
   if (!def || typeof def.byteSize !== "function" || typeof def.toWgsl !== "function") {

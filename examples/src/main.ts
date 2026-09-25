@@ -203,6 +203,9 @@ async function main(): Promise<void> {
   }
   btnBounds?.addEventListener("click", () => setBounds(!boundsOn));
   if (new URLSearchParams(window.location.search).get("bounds") === "1") setBounds(true);
+  // `?lightculling=cpu|gpu` pins the cluster fill for shareable A/B links (`auto` is the startup value).
+  const cullingParam = new URLSearchParams(window.location.search).get("lightculling");
+  if (cullingParam === "cpu" || cullingParam === "gpu") engine.renderer.lightCulling = cullingParam;
 
   // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,
   // fades out once both are live, and offers retry / skip when the fetch fails.
@@ -335,12 +338,28 @@ async function main(): Promise<void> {
     syncRenderButtons();
   }
   /**
-   * Many-light rig (Phase 13.3): `count` static point lamps on a grid over the active scene, so the
-   * demo — and the browser gate — can drive more lights than the old fixed 16-entry uniform list
-   * could carry. Static on purpose: with the loop frozen the frame is bit-reproducible, which is what
-   * the clustering pixel A/B in `tools/browser-check.mjs` needs. Pass 0 to take them back out.
+   * Which half of the cluster grid build runs on the device (Phase 13.4). Same grid either way, so
+   * flipping it while the demo runs is a valid A/B: the picture must not move. `auto` (the startup
+   * value) fills on the GPU on a real device and on the CPU when there is no WebGPU device to fill it.
    */
-  function setStressLights(count: number): void {
+  function setLightCulling(mode: "auto" | "cpu" | "gpu"): void {
+    engine.renderer.lightCulling = mode;
+    syncRenderButtons();
+  }
+  /**
+   * Many-light rig (Phase 13.3): `count` static point lamps over the active scene, so the demo — and
+   * the browser gate — can drive more lights than the old fixed 16-entry uniform list could carry.
+   * Static on purpose: with the loop frozen the frame is bit-reproducible, which is what the
+   * clustering pixel A/B in `tools/browser-check.mjs` needs. Pass 0 to take them back out.
+   *
+   * `tight` stacks them into one small ball instead of spreading them over a grid. Every lamp then
+   * lands in the same cluster, the cluster's candidate count goes past the 32-per-cluster cap, and the
+   * fill has to evict — the one code path the spread-out rig never reaches. It is also what makes the
+   * GPU fill's eviction rule checkable on a real device: both fills must keep the same 32 lamps, and a
+   * different tie-break or ordering would change which small pools of light are on the ground. The
+   * intensities are distinct on purpose, so "the same 32" is not a matter of taste.
+   */
+  function setStressLights(count: number, tight = false): void {
     const scene = currentHandle?.scene;
     if (!scene) return;
     for (const lamp of stressLamps) scene.destroyEntity(lamp);
@@ -350,16 +369,18 @@ async function main(): Promise<void> {
     const stepX = 10 / Math.max(1, side - 1);
     const stepZ = 8 / Math.max(1, side - 1);
     for (let i = 0; i < wanted; i++) {
-      const x = ((i % side) - (side - 1) / 2) * stepX;
-      const z = (Math.floor(i / side) - (side - 1) / 2) * stepZ;
+      const x = tight ? 0.06 * Math.cos(i * 2.4) : ((i % side) - (side - 1) / 2) * stepX;
+      const z = tight ? 0.06 * Math.sin(i * 2.4) : (Math.floor(i / side) - (side - 1) / 2) * stepZ;
       // Low and tight on purpose: a 1.8 m pool of light on the ground reads clearly on camera and
-      // covers a handful of clusters, so the rig demonstrates "many lights", not "many lights all in
-      // the same cluster" (which is what the 32-per-cluster cap is for).
-      const entity = scene.createTransformedEntity(`stress-lamp-${i}`, new Vec3(x, 0.75 + (i % 3) * 0.45, z));
+      // covers a handful of clusters, so the spread rig demonstrates "many lights", not "many lights
+      // all in the same cluster" (which is what the 32-per-cluster cap is for — and what the stacked
+      // rig is for). The stacked lamps are dimmer and shorter-ranged so that 32 of them do not blow
+      // the tone mapper out to white, which would hide which 32 they are.
+      const entity = scene.createTransformedEntity(`stress-lamp-${i}`, new Vec3(x, tight ? 0.55 : 0.75 + (i % 3) * 0.45, z));
       const lamp = new Light();
       lamp.kind = "point";
-      lamp.range = 1.8;
-      lamp.intensity = 11;
+      lamp.range = tight ? 1.2 : 1.8;
+      lamp.intensity = tight ? 0.9 + 0.35 * (i % 7) : 11;
       lamp.castShadow = false;
       // Spread the hues so the grid reads as separate lamps rather than one wash of white.
       const t = (i / Math.max(1, wanted - 1)) * Math.PI * 2;
@@ -414,8 +435,9 @@ async function main(): Promise<void> {
     const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
+    const fill = r.clusterFill === "gpu" ? "gpu fill" : r.clusterFill === "cpu" ? "cpu fill" : "";
     const lights = r.clusteredLighting
-      ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster})${r.lightsDropped ? "  ·  DROPPED" : ""}`
+      ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster}, ${fill})${r.lightsDropped ? "  ·  DROPPED" : ""}`
       : `lights ${r.lights} in the fixed uniform list${r.lightsDropped ? "  ·  DROPPED" : ""}`;
     const aliased = r.aliasedBytes > 0 ? `  (${(r.aliasedBytes / 1024).toFixed(0)} KiB aliased)` : "";
     hud.textContent =
@@ -463,6 +485,9 @@ async function main(): Promise<void> {
     setClusteredLighting,
     /** Whether the active scene shades its local lights through the cluster grid. */
     clusteredLighting: () => !!currentHandle?.scene.settings.clusteredLighting,
+    setLightCulling,
+    /** Which half of the cluster grid build the renderer runs on the device (Phase 13.4). */
+    lightCulling: () => engine.renderer.lightCulling,
     setStressLights,
     /** How many rig lamps are in the scene right now (0 when the rig is off). */
     stressLights: () => stressLamps.length,

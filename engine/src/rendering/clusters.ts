@@ -10,10 +10,20 @@
  * the cost follows the lights near a pixel instead of the lights in the scene, and the cap rises from
  * 16 to `MAX_CLUSTERED_LIGHTS`.
  *
- * A build is two steps: `prepare` (O(lights): bounding spheres, the near/far/off-frame culls, and
- * each light's tile and slice extent) and `rasterize` (the cluster lists). The split is what lets
- * `lightCulling.ts` upload exactly the prepared ranges and run the rasterisation on the GPU, while
- * this file stays the reference implementation the unit tests pin and the renderer's fallback.
+ * A build is three stages, cut where the cost changes shape:
+ *
+ *  1. `prepare` — O(lights): view-space bounding spheres, the near/far/off-frame culls, and each
+ *     light's tile and slice extent, packed into one u32 per light.
+ *  2. `count` — how many lights reach each cluster, and the frame's grid aggregates. A light's tile
+ *     rectangle inside one slice is four corner updates in a per-slice 2D difference plane, so this
+ *     is `O(lights × slices + clusters)`: independent of how much of the grid the lights cover, and
+ *     cheap enough to stay on the CPU even at `MAX_CLUSTERED_LIGHTS` (the fragment stage needs the
+ *     list lengths and the frame reports them, so they have to be exact and immediate).
+ *  3. `fill` — the lists themselves, `O(coverage)`: every cluster a light reaches needs an entry.
+ *     This is the half that does not parallelise on the CPU and does on the GPU, so
+ *     `lightCulling.ts` transcribes it into a compute shader and runs it there (`RendererOptions
+ *     .lightCulling`); this file keeps the reference implementation the unit tests pin, the
+ *     renderer's fallback, and the `build`/`rasterize` entry points that run all three.
  *
  * Pure math: no GPU, no scene imports, nothing allocated per call, so `tests/clusters.test.ts` pins
  * it directly. The three properties that matter:
@@ -56,6 +66,13 @@ export const CLUSTER_TILES_Y = 8;
 export const CLUSTER_SLICES = 24;
 /** `CLUSTER_TILES_X × CLUSTER_TILES_Y × CLUSTER_SLICES` — the grid the shader indexes. */
 export const CLUSTER_COUNT = CLUSTER_TILES_X * CLUSTER_TILES_Y * CLUSTER_SLICES;
+
+/** Difference plane width: one extra column, so a rectangle's `x1 + 1` corner is always inside it. */
+const DIFF_STRIDE = CLUSTER_TILES_X + 1;
+/** Difference plane height: one extra row, for the `y1 + 1` corner. */
+const DIFF_ROW = CLUSTER_TILES_Y + 1;
+/** Ints per slice in the difference plane. */
+const DIFF_SLICE = DIFF_STRIDE * DIFF_ROW;
 /** Local lights the cluster light buffer carries (the uniform cap it replaces was 16). */
 export const MAX_CLUSTERED_LIGHTS = 256;
 /** Light indices one cluster may hold before the least influential are dropped. */
@@ -173,6 +190,25 @@ function sliceOf(viewDepth: number, logNear: number, sliceScale: number): number
 }
 
 /**
+ * Bit layout of a packed light range — `ClusterGrid.packRanges` writes it, the compute rasteriser's
+ * `covers` reads it, and `lightCulling.ts` interpolates these numbers into the shader it generates,
+ * so the packer and the unpacker cannot drift apart.
+ *
+ * One u32 per light carries all three axis bounds plus a live flag. The fields are small because the
+ * grid is fixed: 16 tiles across, 8 down and 24 slices fit in 4, 3 and 5 bits, and the widest
+ * legitimate bound is 23.
+ */
+export const RANGE_KEY_BITS = {
+  tileX0: { shift: 0, mask: 0xf },
+  tileX1: { shift: 4, mask: 0xf },
+  tileY0: { shift: 8, mask: 0x7 },
+  tileY1: { shift: 11, mask: 0x7 },
+  slice0: { shift: 14, mask: 0x1f },
+  slice1: { shift: 19, mask: 0x1f },
+  live: { shift: 24, mask: 0x1 },
+} as const;
+
+/**
  * What the range pass (`prepare`) produced: the per-light tile/slice ranges the rasteriser consumes,
  * plus the frame-level facts the renderer reports (and the fragment stage quantises against).
  *
@@ -213,7 +249,16 @@ export class ClusterGrid {
   private readonly spheres = new Float32Array(MAX_CLUSTERED_LIGHTS * 4);
   /** Per light: how a cluster ranks it when it has to drop one (`intensity × colour luma`). */
   private readonly influence = new Float32Array(MAX_CLUSTERED_LIGHTS);
-  private readonly candidates = new Uint32Array(CLUSTER_COUNT);
+  /**
+   * The counting pass's difference plane, `CLUSTER_SLICES` planes of `DIFF_ROW × DIFF_STRIDE` ints.
+   * A covered tile rectangle contributes four corner updates here instead of one increment per
+   * covered cluster; accumulating the plane over a slice yields the exact per-cluster candidate
+   * counts (rectangles, integers, no rounding anywhere).
+   */
+  private readonly diff = new Int32Array(CLUSTER_SLICES * DIFF_SLICE);
+  /** Running column sums of the plane's rows, one entry per difference-plane column. */
+  private readonly columnSums = new Int32Array(DIFF_STRIDE);
+  /** Where the fill pass appends in each cluster's block; seeded to `c × cap` by the counting pass. */
   private readonly cursor = new Uint32Array(CLUSTER_COUNT);
   private readonly unordered = new Uint8Array(CLUSTER_COUNT);
   private readonly centre = new Vec3();
@@ -362,7 +407,31 @@ export class ClusterGrid {
    * rules into the compute shader the GPU path runs, and the browser gate A/Bs the two on pixels.
    */
   rasterize(rangePass: ClusterRanges): ClusterBuildResult {
+    const result = this.count(rangePass);
+    if (result.indexCount > 0) this.fill(rangePass);
+    return result;
+  }
+
+  /**
+   * The counting pass: the exact number of lights reaching each cluster (capped at
+   * `MAX_LIGHTS_PER_CLUSTER`), plus the frame's grid aggregates. Writes `counts` and seeds the fill's
+   * cursors; leaves `indices` alone.
+   *
+   * Both rasterisers consume this: the CPU fill below, and `rendering/lightCulling.ts`, which uploads
+   * the counts for the fragment stage and lets the GPU write the same lists. It is also the whole
+   * answer to "what did this frame's grid look like" (`Renderer.stats`), which is why it is a
+   * separate step rather than part of the fill: the aggregates have to be exact even when the lists
+   * are written on the GPU.
+   *
+   * The candidate counts come from a per-slice 2D difference plane (see the field docs): four corner
+   * updates per (light, slice) tile rectangle, then one accumulation sweep. That keeps a frame's
+   * counting cost independent of how much of the grid the lights cover — a light sweeping 30 tiles
+   * costs the same four writes as a light in one tile — so the CPU can afford to keep it while the
+   * GPU takes the coverage-proportional fill.
+   */
+  count(rangePass: ClusterRanges): ClusterBuildResult {
     const count = rangePass.lights;
+    const cap = MAX_LIGHTS_PER_CLUSTER;
     const result: ClusterBuildResult = {
       requested: rangePass.requested,
       lights: count,
@@ -374,13 +443,13 @@ export class ClusterGrid {
       far: rangePass.far,
       dropped: rangePass.requested > count,
     };
+    // A frame with nothing live still has to clear the counts: the buffer is uploaded whole.
     this.counts.fill(0);
-    this.candidates.fill(0);
-    this.unordered.fill(0);
     if (rangePass.live === 0) return result;
 
-    // 3. Candidate counts. The traversal is inlined (no callback) because it runs twice per light
-    //    per frame.
+    // 3. Candidate counts, by difference: one plane per slice, four corners per (light, slice).
+    const diff = this.diff;
+    diff.fill(0);
     for (let i = 0; i < count; i++) {
       const b = i * 6;
       const x0 = this.ranges[b]!;
@@ -388,31 +457,75 @@ export class ClusterGrid {
       if (x1 < x0) continue;
       const y0 = this.ranges[b + 1]!;
       const y1 = this.ranges[b + 4]!;
+      const row0 = y0 * DIFF_STRIDE;
+      const row1 = (y1 + 1) * DIFF_STRIDE;
+      const right = x1 + 1;
       for (let s = this.ranges[b + 2]!; s <= this.ranges[b + 5]!; s++) {
-        for (let y = y0; y <= y1; y++) {
-          const row = (s * CLUSTER_TILES_Y + y) * CLUSTER_TILES_X;
-          for (let x = x0; x <= x1; x++) this.candidates[row + x] = (this.candidates[row + x] ?? 0) + 1;
+        const base = s * DIFF_SLICE;
+        const topLeft = base + row0 + x0;
+        const topRight = base + row0 + right;
+        const bottomLeft = base + row1 + x0;
+        const bottomRight = base + row1 + right;
+        diff[topLeft] = diff[topLeft]! + 1;
+        diff[topRight] = diff[topRight]! - 1;
+        diff[bottomLeft] = diff[bottomLeft]! - 1;
+        diff[bottomRight] = diff[bottomRight]! + 1;
+      }
+    }
+
+    // 4. Accumulate the plane into per-cluster counts. Each cluster owns `cap` slots from the start
+    //    (there is no prefix sum to run), and the aggregates fall out of the same sweep: a cluster
+    //    holding more candidates than its stride is exactly the dropped-light condition.
+    const columns = this.columnSums;
+    const counts = this.counts;
+    const cursor = this.cursor;
+    let clustersUsed = 0;
+    let indexCount = 0;
+    let maxPerCluster = 0;
+    let dropped = result.dropped;
+    for (let s = 0; s < CLUSTER_SLICES; s++) {
+      const base = s * DIFF_SLICE;
+      columns.fill(0);
+      for (let y = 0; y < DIFF_ROW; y++) {
+        const row = base + y * DIFF_STRIDE;
+        let run = 0;
+        for (let x = 0; x < DIFF_STRIDE; x++) {
+          run += diff[row + x]!;
+          const sum = columns[x]! + run;
+          columns[x] = sum;
+          if (y >= CLUSTER_TILES_Y || x >= CLUSTER_TILES_X) continue;
+          const n = sum > cap ? cap : sum;
+          const c = (s * CLUSTER_TILES_Y + y) * CLUSTER_TILES_X + x;
+          counts[c] = n;
+          cursor[c] = c * cap;
+          if (n > 0) clustersUsed++;
+          indexCount += n;
+          if (n > maxPerCluster) maxPerCluster = n;
+          if (sum > cap) dropped = true;
         }
       }
     }
-    let clustersUsed = 0;
-    for (let c = 0; c < CLUSTER_COUNT; c++) if ((this.candidates[c] ?? 0) > 0) clustersUsed++;
-
-    // 4. Per-cluster counts and cursors. Each cluster owns `MAX_LIGHTS_PER_CLUSTER` slots from the
-    //    start, so there is no prefix sum to run and no capacity arithmetic to shrink the cap with.
-    const cap = MAX_LIGHTS_PER_CLUSTER;
-    let offset = 0;
-    let maxPerCluster = 0;
-    for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const n = Math.min(this.candidates[c] ?? 0, cap);
-      this.counts[c] = n;
-      this.cursor[c] = c * cap;
-      offset += n;
-      if (n > maxPerCluster) maxPerCluster = n;
-    }
     result.clustersUsed = clustersUsed;
-    result.indexCount = offset;
+    result.indexCount = indexCount;
     result.maxPerCluster = maxPerCluster;
+    result.dropped = dropped;
+    return result;
+  }
+
+  /**
+   * The fill pass: write each cluster's light list into its block of `indices`, in light order.
+   *
+   * Reads what {@link count} wrote (`counts` and the cursors) and nothing else, so a caller that
+   * counted a frame but did not fill it can still report the aggregates — which is how the renderer
+   * hands the fill to the GPU. The gather is the same shape `lightCulling.ts` transcribes into WGSL
+   * (light-major, one `covers` test per cluster, evicting the least influential light when a list is
+   * full), and `tests/lightCulling.test.ts` pins the shader's own twin against this loop.
+   */
+  private fill(rangePass: ClusterRanges): void {
+    const count = rangePass.lights;
+    const cap = MAX_LIGHTS_PER_CLUSTER;
+    const unordered = this.unordered;
+    unordered.fill(0);
 
     // 5. Fill in light order, evicting the least influential light once a cluster is full.
     for (let i = 0; i < count; i++) {
@@ -436,7 +549,6 @@ export class ClusterGrid {
               this.cursor[c] = at + 1;
               continue;
             }
-            result.dropped = true;
             // Full: keep the brighter light. The rank is per light, not per cluster, so the same
             // lights lose everywhere and none of them flickers on one side of a cluster boundary.
             let weakest = start;
@@ -445,7 +557,7 @@ export class ClusterGrid {
             }
             if (weight > this.influence[this.indices[weakest]!]!) {
               this.indices[weakest] = i;
-              this.unordered[c] = 1;
+              unordered[c] = 1;
             }
           }
         }
@@ -455,11 +567,10 @@ export class ClusterGrid {
     // 6. Eviction disturbs the order; restore it, so the shader's accumulation order (and therefore
     //    its floating-point sum) never depends on which lights were dropped.
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      if (!this.unordered[c]) continue;
+      if (!unordered[c]) continue;
       const start = c * cap;
       this.indices.subarray(start, start + this.counts[c]!).sort();
     }
-    return result;
   }
 
   /**
@@ -487,13 +598,13 @@ export class ClusterGrid {
         continue;
       }
       out[i] =
-        (x0 & 0xf) |
-        ((x1 & 0xf) << 4) |
-        ((this.ranges[b + 1]! & 0x7) << 8) |
-        ((this.ranges[b + 4]! & 0x7) << 11) |
-        ((this.ranges[b + 2]! & 0x1f) << 14) |
-        ((this.ranges[b + 5]! & 0x1f) << 19) |
-        (1 << 24);
+        ((x0 & RANGE_KEY_BITS.tileX0.mask) << RANGE_KEY_BITS.tileX0.shift) |
+        ((x1 & RANGE_KEY_BITS.tileX1.mask) << RANGE_KEY_BITS.tileX1.shift) |
+        ((this.ranges[b + 1]! & RANGE_KEY_BITS.tileY0.mask) << RANGE_KEY_BITS.tileY0.shift) |
+        ((this.ranges[b + 4]! & RANGE_KEY_BITS.tileY1.mask) << RANGE_KEY_BITS.tileY1.shift) |
+        ((this.ranges[b + 2]! & RANGE_KEY_BITS.slice0.mask) << RANGE_KEY_BITS.slice0.shift) |
+        ((this.ranges[b + 5]! & RANGE_KEY_BITS.slice1.mask) << RANGE_KEY_BITS.slice1.shift) |
+        (RANGE_KEY_BITS.live.mask << RANGE_KEY_BITS.live.shift);
     }
   }
 

@@ -28,6 +28,7 @@ import {
   Mat4,
   Vec3,
   clusterSliceFor,
+  coversKey,
   spotBoundingSphere,
   type ClusterCameraParams,
   type ClusterLightSource,
@@ -367,5 +368,90 @@ describe("clusterSliceFor", () => {
     const boundary = (s: number) => NEAR * Math.exp((s / CLUSTER_SLICES) * Math.log(60 / NEAR));
     expect(boundary(1) - boundary(0)).toBeLessThan(boundary(CLUSTER_SLICES - 1) - boundary(CLUSTER_SLICES - 2));
     expect(clusterSliceFor(boundary(12) * 1.001, NEAR, 60)).toBe(12);
+  });
+});
+
+describe("the ranges the GPU fill reads (Phase 13.4)", () => {
+  // `packRanges` turns the prepared ranges into one u32 per light, and `coversKey` decodes it — the
+  // same decode `lightCulling.ts` transcribes into WGSL. The packed key is the only thing that
+  // crosses from TypeScript into the shader, so it is pinned here against the coverage the CPU fill
+  // actually walks: if the two ever disagree about which clusters a light reaches, the GPU path would
+  // light a surface differently and no picture of the CPU path would show it.
+  const scenes: Array<[string, ClusterLightSource[]]> = [
+    ["one lamp", [light(0, 1, 0)]],
+    ["scattered lamps", [light(0, 1, 0, 4), light(-4, 2, 3, 5), light(5, 0.5, -2, 8), light(1.5, 3, 6, 3, 40)]],
+    ["a light reaching the whole grid", [light(0, 1, 20, 400)]],
+    [
+      "spots and off-frame lights",
+      [
+        { x: 0, y: 2, z: 5, range: 20, spot: true, dirX: 0, dirY: -1, dirZ: 0, outerCone: 0.6, intensity: 30, colorLuma: 1 },
+        light(200, 2, 5),
+        light(0, 2, -100, 5),
+      ],
+    ],
+    [
+      "a saturated rig",
+      Array.from({ length: MAX_CLUSTERED_LIGHTS }, (_, i) => light((i % 8) - 3.5, 1 + (i % 5), ((i >> 3) % 8) - 4, 9, 5 + i)),
+    ],
+  ];
+
+  for (const [name, lights] of scenes) {
+    it(`decode to exactly the coverage the fill walks: ${name}`, () => {
+      const grid = new ClusterGrid();
+      const ranges = grid.prepare(lights, camera(), lights.length);
+      const result = grid.rasterize(ranges);
+      const packed = new Uint32Array(MAX_CLUSTERED_LIGHTS);
+      grid.packRanges(packed, ranges);
+
+      // Sum the decoded keys the way the fragment stage's cluster lookup would.
+      const covering = new Uint32Array(CLUSTER_COUNT);
+      for (let c = 0; c < CLUSTER_COUNT; c++) {
+        const tileX = c % CLUSTER_TILES_X;
+        const row = (c / CLUSTER_TILES_X) | 0;
+        const tileY = row % CLUSTER_TILES_Y;
+        const slice = (row / CLUSTER_TILES_Y) | 0;
+        for (let i = 0; i < ranges.lights; i++) if (coversKey(packed[i]!, tileX, tileY, slice)) covering[c]! += 1;
+      }
+
+      let saturated = 0;
+      for (let c = 0; c < CLUSTER_COUNT; c++) {
+        const decoded = covering[c]!;
+        // The counting pass is the decoded coverage, capped: that is what makes the counts the CPU
+        // uploads the counts the shader's lists are bounded by.
+        expect(grid.counts[c], `cluster ${c} count`).toBe(Math.min(decoded, MAX_LIGHTS_PER_CLUSTER));
+        if (decoded <= MAX_LIGHTS_PER_CLUSTER) {
+          // Below the cap there is no eviction, so the list *is* the coverage, in light order.
+          const expected: number[] = [];
+          for (let i = 0; i < ranges.lights; i++) {
+            const tileX = c % CLUSTER_TILES_X;
+            const row = (c / CLUSTER_TILES_X) | 0;
+            if (coversKey(packed[i]!, tileX, row % CLUSTER_TILES_Y, (row / CLUSTER_TILES_Y) | 0)) expected.push(i);
+          }
+          expect([...grid.lightsOf(c)], `cluster ${c} list`).toEqual(expected);
+        } else {
+          saturated++;
+        }
+      }
+      // The saturated rig must actually saturate something, or the cap path is not covered here.
+      if (name === "a saturated rig") expect(saturated).toBeGreaterThan(0);
+      expect(result.indexCount).toBe([...grid.counts].reduce((a, b) => a + b, 0));
+      expect(result.clustersUsed).toBe([...grid.counts].filter((n) => n > 0).length);
+      expect(result.maxPerCluster).toBe(Math.max(...grid.counts));
+      expect(result.dropped).toBe(saturated > 0);
+    });
+  }
+
+  it("packs a light that reaches no cluster to a key no cluster matches", () => {
+    const grid = new ClusterGrid();
+    const ranges = grid.prepare([light(0, 1, -100, 5), light(0, 1, 0)], camera(), 2);
+    const packed = new Uint32Array(MAX_CLUSTERED_LIGHTS);
+    grid.packRanges(packed, ranges);
+    expect(packed[0]).toBe(0);
+    for (let c = 0; c < CLUSTER_COUNT; c += 97) {
+      const tileX = c % CLUSTER_TILES_X;
+      const row = (c / CLUSTER_TILES_X) | 0;
+      expect(coversKey(packed[0]!, tileX, row % CLUSTER_TILES_Y, (row / CLUSTER_TILES_Y) | 0)).toBe(false);
+    }
+    expect(packed[1]).not.toBe(0);
   });
 });

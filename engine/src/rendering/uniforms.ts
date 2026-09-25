@@ -309,6 +309,31 @@ export const ClusterGridBlock = new StructDef("ClusterGridBlock", [
   { name: "indices", type: arrayOf(u32, CLUSTER_INDEX_CAPACITY), comment: "cluster-major light-index blocks, `stride` slots each" },
 ]);
 
+/**
+ * One packed light range — the field layout `ClusterGrid.packRanges` writes and the assignment
+ * shader (`rendering/lightCulling.ts`) decodes. `key` carries the tile and slice bounds the CPU range
+ * pass prepared (`RANGE_KEY_BITS` in `rendering/clusters.ts` is the bit layout) and bit 24 is the
+ * live flag; `influence` is the rank the fill evicts by when a cluster's list is full.
+ */
+export const ClusterRangeEntry = new StructDef("ClusterRangeEntry", [
+  { name: "key", type: u32, comment: "packed tile/slice bounds; the live bit (24) is 0 for a light that reaches no cluster" },
+  { name: "influence", type: f32, comment: "intensity × colour luma" },
+]);
+
+/**
+ * The frame's prepared ranges, bound as group 0 binding 0 of the assignment pass
+ * (`var<storage, read>`): one entry per local light, in light order — the order the fill appends in,
+ * which is what keeps the fragment stage's accumulation order the CPU path's own.
+ *
+ * The light count travels with the entries so the shader needs no uniform of its own: a frame that
+ * did not cluster uploads `count = 0`, and the dispatch is then a no-op rather than a rebuild from
+ * whatever keys the previous clustered frame left behind.
+ */
+export const ClusterRangeBlock = new StructDef("ClusterRangeBlock", [
+  { name: "count", type: u32, comment: "valid entries; 0 when clustering did not run this frame" },
+  { name: "entries", type: arrayOf(ofStruct(ClusterRangeEntry), MAX_CLUSTERED_LIGHTS), comment: "one per local light, in light order" },
+]);
+
 export const RENDERING_STRUCTS = {
   PerFrameUniforms,
   LightBlock,
@@ -336,6 +361,8 @@ export const RENDERING_STRUCTS = {
 export const RENDERING_STORAGE_STRUCTS = {
   ClusterLightBlock,
   ClusterGridBlock,
+  ClusterRangeEntry,
+  ClusterRangeBlock,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
