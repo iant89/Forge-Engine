@@ -262,7 +262,15 @@ describe("clustered lighting structs (Phase 13.3)", () => {
     // The grid is far past the 64 KiB uniform binding limit, which is why it is storage-bound; the
     // light block is storage too, so one binding style covers both and neither can grow into a limit.
     expect(ClusterGridBlock.byteSize("storage")).toBeGreaterThan(64 * 1024);
-    expect(Object.keys(RENDERING_STORAGE_STRUCTS).sort()).toEqual(["ClusterGridBlock", "ClusterLightBlock", "ClusterRangeBlock", "ClusterRangeEntry"]);
+    expect(Object.keys(RENDERING_STORAGE_STRUCTS).sort()).toEqual([
+      "ClusterGridBlock",
+      "ClusterLightBlock",
+      "ClusterRangeBlock",
+      "ClusterRangeEntry",
+      "ObjectBatchBlock",
+      "ObjectBatchEntry",
+      "ObjectCullStatsBlock",
+    ]);
     // The per-cluster quantisation is small and read every fragment: that one is a uniform.
     expect(ClusterUniforms.byteSize("uniform")).toBe(48);
     expect(RENDERING_STRUCTS.ClusterUniforms).toBe(ClusterUniforms);

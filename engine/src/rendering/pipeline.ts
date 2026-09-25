@@ -174,6 +174,10 @@ export class PipelineFactory {
           visibility: ShaderStage.VERTEX,
           buffer: { type: "read-only-storage", hasDynamicOffset: true, minBindingSize: InstanceStruct.byteSize("storage") },
         },
+        // The object culler's verdict, one u32 per batch (Phase 13.5). Not a dynamic offset: a draw
+        // belongs to exactly one batch, and its index is in the object block (`visibilityIndex`).
+        // Zero means "draw", so a frame the culler did not run — or a batch past its cap — draws.
+        { binding: BINDINGS.visibility.binding, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage", minBindingSize: 4 } },
       ],
     });
     this.materialLayout = d.createBindGroupLayout({

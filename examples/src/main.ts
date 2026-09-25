@@ -206,6 +206,11 @@ async function main(): Promise<void> {
   // `?lightculling=cpu|gpu` pins the cluster fill for shareable A/B links (`auto` is the startup value).
   const cullingParam = new URLSearchParams(window.location.search).get("lightculling");
   if (cullingParam === "cpu" || cullingParam === "gpu") engine.renderer.lightCulling = cullingParam;
+  // `?objectculling=cpu|gpu` and `?occlusionculling=0|1` do the same for the batch culler (Phase 13.5).
+  const objectCullingParam = new URLSearchParams(window.location.search).get("objectculling");
+  if (objectCullingParam === "cpu" || objectCullingParam === "gpu") engine.renderer.objectCulling = objectCullingParam;
+  const occlusionParam = new URLSearchParams(window.location.search).get("occlusionculling");
+  if (occlusionParam === "0" || occlusionParam === "1") engine.renderer.occlusionCulling = occlusionParam === "1";
 
   // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,
   // fades out once both are live, and offers retry / skip when the fetch fails.
@@ -347,6 +352,21 @@ async function main(): Promise<void> {
     syncRenderButtons();
   }
   /**
+   * Where batch visibility is decided (Phase 13.5): `forge.objects.cull` on the device, or the CPU
+   * twin. Both write the same visibility buffer the vertex stage reads, so the picture must not move —
+   * that is what the A/B in `tools/browser-check.mjs` asserts. `auto` (the startup value) picks the
+   * device path on a real device and the twin on a mock one.
+   */
+  function setObjectCulling(mode: "auto" | "cpu" | "gpu"): void {
+    engine.renderer.objectCulling = mode;
+    syncRenderButtons();
+  }
+  /** The HiZ stage of the object culler (Phase 13.5): conservative, so turning it off may add draws. */
+  function setOcclusionCulling(on: boolean): void {
+    engine.renderer.occlusionCulling = on;
+    syncRenderButtons();
+  }
+  /**
    * Many-light rig (Phase 13.3): `count` static point lamps over the active scene, so the demo — and
    * the browser gate — can drive more lights than the old fixed 16-entry uniform list could carry.
    * Static on purpose: with the loop frozen the frame is bit-reproducible, which is what the
@@ -435,6 +455,11 @@ async function main(): Promise<void> {
     const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
+    // The device path's counters arrive one frame late (a readback cannot be known sooner), so the
+    // first frames after a switch read zero tested while the words are already being written.
+    const cull =
+      `${engine.renderer.objectCulling} cull${engine.renderer.occlusionCulling && engine.renderer.objectCulling === "gpu" ? "+hiz" : ""}` +
+      (r.cullTested > 0 ? ` ${r.cullTested} tested (${r.cullFrustum} off-screen, ${r.cullDistance} distant, ${r.cullOccluded} occluded)` : " (counters pending)");
     const fill = r.clusterFill === "gpu" ? "gpu fill" : r.clusterFill === "cpu" ? "cpu fill" : "";
     const lights = r.clusteredLighting
       ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster}, ${fill})${r.lightsDropped ? "  ·  DROPPED" : ""}`
@@ -445,7 +470,7 @@ async function main(): Promise<void> {
       `draws ${st.drawCalls}  tris ${st.triangles}  instances ${st.instances}\n` +
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
       `${path}  ·  ${shadows}  ·  ${sky}\n` +
-      `${depth}\n` +
+      `${depth}  ·  ${cull}\n` +
       `${lights}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
@@ -488,6 +513,12 @@ async function main(): Promise<void> {
     setLightCulling,
     /** Which half of the cluster grid build the renderer runs on the device (Phase 13.4). */
     lightCulling: () => engine.renderer.lightCulling,
+    setObjectCulling,
+    /** Who decides batch visibility (Phase 13.5): "gpu" runs forge.objects.cull, "cpu" the twin. */
+    objectCulling: () => engine.renderer.objectCulling,
+    setOcclusionCulling,
+    /** Whether the object culler's HiZ stage runs (Phase 13.5). */
+    occlusionCulling: () => engine.renderer.occlusionCulling,
     setStressLights,
     /** How many rig lamps are in the scene right now (0 when the rig is off). */
     stressLights: () => stressLamps.length,

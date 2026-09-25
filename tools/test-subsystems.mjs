@@ -102,6 +102,7 @@ export const subsystems = {
       "tests/shadows.test.ts",
       "tests/clusters.test.ts",
       "tests/lightCulling.test.ts",
+      "tests/objectCulling.test.ts",
       "tests/primitives.test.ts",
       "tests/wgsl.test.ts",
     ],

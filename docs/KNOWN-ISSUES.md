@@ -12,9 +12,16 @@ the honest detail lives; nothing here is hidden behind a green gate.
   but do not shadow it. (capability: rendering.shadows)
 * **Shadow atlas memory.** The default profile's 2048² × 3 `depth24plus` array is ≈ 48 MB. Lower
   profiles cap `shadowMapSize`; there is no adaptive resolution. (capability: rendering.shadowMemory)
-* **The prepass depth has two consumers so far.** SSAO and the soft-particle fade read it; there
-  is no GPU/HiZ culling, no transparency technique and no depth-based post effect that uses it.
+* **The prepass depth has three consumers so far.** SSAO, the soft-particle fade and the object
+  culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
   (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
+* **Object culling is per batch, and the batch still pays for its uploads.** `forge.objects.cull`
+  drops the *draw* of a batch the frame cannot see; `collectBatches` and the instance/object arenas
+  still run for every renderable, one visible instance keeps its whole batch, the CPU twin (the mock
+  device's path) has no depth buffer and therefore no occlusion test, and only the first
+  `MAX_CULLED_BATCHES` (8192) batches of a frame are tested — the rest stay visible rather than being
+  wrongly culled. The device path's counters are one frame late (a readback cannot be known sooner).
+  (`docs/RENDERING.md` §4d) (capability: rendering.cullCoverage)
 * **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
   transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO

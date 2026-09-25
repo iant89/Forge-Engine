@@ -41,6 +41,8 @@ export const BINDINGS = {
   clusterGrid: { group: 0, binding: 8 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
+  /** Batch visibility words the object culler wrote (`rendering/objectCulling.ts`): 0 = draw. */
+  visibility: { group: 1, binding: 2 },
   material: { group: 2, binding: 0 },
   albedoMap: { group: 2, binding: 1 },
   normalMap: { group: 2, binding: 2 },
@@ -218,6 +220,22 @@ ${COMMON}
 @group(0) @binding(8) var<storage, read> clusterGrid: ClusterGridBlock;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
+// The object culler's verdict for this draw's batch (0 = draw, see rendering/objectCulling.ts). Only
+// the colour pass reads it: the prepass and the shadow passes run before the cull pass exists, and
+// the depth they lay down is the very thing the culler tests against.
+@group(1) @binding(2) var<storage, read> batchVisibility: array<u32>;
+
+// A draw cannot express "zero instances", so a batch the culler rejected still issues its draw and
+// the vertex stage throws it away: the clip position goes below the near plane (WebGPU's clip rule
+// is 0 <= z <= w), where every primitive it belongs to is clipped before rasterisation. The vertex
+// work is spent either way — what is saved is the rasteriser and the fragment stage, and, for the
+// batches that pass, the pixels a nearer surface already covers (see 13.6 for removing the draw).
+fn cullBatch(clip: vec4<f32>) -> vec4<f32> {
+  if (batchVisibility[objectData.visibilityIndex] != 0u) {
+    return vec4<f32>(0.0, 0.0, -1.0, 1.0);
+  }
+  return clip;
+}
 @group(2) @binding(0) var<uniform> material: MaterialUniforms;
 @group(2) @binding(1) var albedoMap: texture_2d<f32>;
 @group(2) @binding(2) var normalMap: texture_2d<f32>;
@@ -250,6 +268,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
   out.tint = vec4<f32>(1.0);
+  out.clipPos = cullBatch(out.clipPos);
   return out;
 }
 `;
@@ -275,6 +294,7 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
   out.tint = unpackTint(inst.tint);
+  out.clipPos = cullBatch(out.clipPos);
   return out;
 }
 `;
