@@ -13,12 +13,19 @@
  * as `u32` scalars, never as arrays.
  */
 
-import { StructDef, f32, i32, u32, vec2, vec3, vec4, mat4x4, arrayOf, ofStruct, type AddressSpace } from "../gpu/layout.js";
+import { StructDef, atomicU32, f32, i32, u32, vec2, vec3, vec4, mat4x4, arrayOf, ofStruct, type AddressSpace } from "../gpu/layout.js";
 import { CLUSTER_COUNT, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS } from "./clusters.js";
 
 /** Max lights the per-frame block can carry (kept in sync with the WGSL array length). */
 export const MAX_LIGHTS_PER_FRAME = 16;
 export const MAX_CASCADES = 4;
+/**
+ * Batches one frame can have culled on the device (`ObjectBatchBlock.bounds`'s length, the same
+ * reason `MAX_LIGHTS_PER_FRAME` lives here). A frame with more batches keeps the ones past the cap
+ * visible rather than untested-and-dropped: the visibility buffer is reset every frame, so an
+ * untested batch is exactly as visible as it was before Phase 13.5.
+ */
+export const MAX_CULLED_BATCHES = 8192;
 
 /** Frame-wide state, bound as group 0 in every pass. */
 export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
@@ -148,7 +155,8 @@ export const ObjectUniforms = new StructDef("ObjectUniforms", [
   { name: "boundsMax", type: vec3 },
   { name: "instanceCount", type: u32 },
   { name: "instanceOffset", type: u32 },
-  { name: "_pad", type: vec2 },
+  { name: "visibilityIndex", type: u32, comment: "this draw's word in the culler's visibility buffer (Phase 13.5)" },
+  { name: "_pad", type: u32 },
 ]);
 
 /**
@@ -310,6 +318,62 @@ export const ClusterGridBlock = new StructDef("ClusterGridBlock", [
 ]);
 
 /**
+ * The object culler's frame block (`rendering/objectCulling.ts`, docs/RENDERING.md §4d), bound as
+ * group 0 binding 0 of `forge.objects.cull`. The three matrices are the frame's own — `viewProj` is
+ * byte-identical to the CPU's, because the shader extracts the frustum planes from it with the rows
+ * `Frustum.setFromViewProjection` uses (`extractStandard`), and a plane the two derivations
+ * disagreed about would be geometry that silently stops being drawn.
+ */
+export const ObjectCullUniforms = new StructDef("ObjectCullUniforms", [
+  { name: "view", type: mat4x4, comment: "render-local -> view space (column-major)" },
+  { name: "proj", type: mat4x4, comment: "view -> clip; z in [0,1], clipW = view z (perspective only)" },
+  { name: "viewProj", type: mat4x4, comment: "render-local -> clip, the matrix the planes come from" },
+  { name: "cameraPos", type: vec3, comment: "render-local, the origin the distance test measures from" },
+  { name: "near", type: f32 },
+  { name: "far", type: f32, comment: "the view-depth the stored NDC depth 1.0 maps back to" },
+  { name: "extent", type: vec2, comment: "depth target extent in pixels" },
+  { name: "batchCount", type: u32, comment: "batches in the frame; entries past MAX_CULLED_BATCHES are never tested" },
+  { name: "flags", type: u32, comment: "bit0 frustum, bit1 distance, bit2 HiZ occlusion (see CULL_FLAG_*)" },
+  { name: "hizLevels", type: u32, comment: "levels in the depth pyramid; 0 skips the occlusion test" },
+  { name: "_pad", type: u32 },
+]);
+
+/**
+ * One batch's bounds and its distance limit, as the cull pass reads it: `min.xyz`/`max.xyz` are the
+ * batch's render-local AABB (exactly the box the CPU frustum test used) and `min.w` is the batch's
+ * distance limit in metres, 0 for none (`Renderable.maxDistance`, the union of its members' limits).
+ * `max.w` is unused.
+ */
+export const ObjectBatchEntry = new StructDef("ObjectBatchEntry", [
+  { name: "min", type: vec4, comment: "render-local AABB min; w = the batch's distance limit (0 = none)" },
+  { name: "max", type: vec4, comment: "render-local AABB max; w unused" },
+]);
+
+/**
+ * The frame's batch bounds, bound as group 0 binding 1 of `forge.objects.cull`
+ * (`var<storage, read>`): one entry per drawn batch, in draw order, so `visibility[i]` is the word
+ * the vertex stage of batch `i` reads. Fixed capacity: a frame with more batches simply does not
+ * have its extra batches tested, and an untested batch is visible (the buffer is reset to zero every
+ * frame), never wrongly culled.
+ */
+export const ObjectBatchBlock = new StructDef("ObjectBatchBlock", [
+  { name: "bounds", type: arrayOf(ofStruct(ObjectBatchEntry), MAX_CULLED_BATCHES), comment: "one per batch, in draw order" },
+]);
+
+/**
+ * What the cull pass did, bound as group 0 binding 3 (`var<storage, read_write>`, `atomicAdd`ed by
+ * every invocation that culls a batch). The renderer copies it into a map-read buffer at the end of
+ * the frame and reports the numbers on a later frame: a device-side count cannot be known on the CPU
+ * without either a stall or a frame of lag, and this is the lag.
+ */
+export const ObjectCullStatsBlock = new StructDef("ObjectCullStatsBlock", [
+  { name: "tested", type: atomicU32, comment: "batches the device tested" },
+  { name: "culledFrustum", type: atomicU32 },
+  { name: "culledDistance", type: atomicU32 },
+  { name: "culledOccluded", type: atomicU32 },
+]);
+
+/**
  * One packed light range — the field layout `ClusterGrid.packRanges` writes and the assignment
  * shader (`rendering/lightCulling.ts`) decodes. `key` carries the tile and slice bounds the CPU range
  * pass prepared (`RANGE_KEY_BITS` in `rendering/clusters.ts` is the bit layout) and bit 24 is the
@@ -350,6 +414,7 @@ export const RENDERING_STRUCTS = {
   CloudUniforms,
   WaterUniforms,
   ClusterUniforms,
+  ObjectCullUniforms,
 } as const;
 
 /**
@@ -363,6 +428,9 @@ export const RENDERING_STORAGE_STRUCTS = {
   ClusterGridBlock,
   ClusterRangeEntry,
   ClusterRangeBlock,
+  ObjectBatchEntry,
+  ObjectBatchBlock,
+  ObjectCullStatsBlock,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;

@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO, production transient aliasing and clustered lighting (13.1–13.3) are covered below; 13.4 onward is not started.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO, production transient aliasing, clustered lighting, the GPU cluster fill and GPU object culling (13.1–13.5) are covered below; 13.6 onward is not started.
 
 ## Setting up
 
@@ -66,11 +66,27 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m with the speed and kick dust that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/roverArm`, `tests/armTouch` and `tests/vehicleTouch`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — and zero new GPU errors (state-polled with wall-clock caps) | passing |
-| `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms), and the Phase 13.4 light-count stress benchmark (`benchmarks/src/lights.bench.ts`: prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped and a grid-saturating rig, with shape guards — the fill follows coverage, the counting pass does not, the worst case stays under a second) | passing |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m with the speed and kick dust that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/roverArm`, `tests/armTouch` and `tests/vehicleTouch`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — and zero new GPU errors (state-polled with wall-clock caps). The Mars HGA poll is the gate's one wall-clock wait with no assertion behind it and is environment-bound on a SwiftShader-only sandbox (see the note under the table) | passing except that poll on this sandbox |
+| `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms), the Phase 13.4 light-count stress benchmark (`benchmarks/src/lights.bench.ts`: prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped and a grid-saturating rig, with shape guards — the fill follows coverage, the counting pass does not, the worst case stays under a second) and the Phase 13.5 object-culling benchmark (`benchmarks/src/culling.bench.ts`: the CPU twin's frustum/distance/HiZ tests at 512/2048/8192 batches plus a 1280×720 pyramid per frame; measured here 1.1 µs/batch and 9.2 ms/frame at the cap, 39.5 ms for the pyramid — the reduction the twin does not do) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 | `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
 | `npm run test:gpu` | Suites named `tests/**\/*.gpu.test.ts` against a real adapter; none exist yet (`passWithNoTests`), real-adapter validation is `check:browser` | no-op by design |
+
+### The Mars Showcase poll on a SwiftShader-only sandbox
+
+One gate check waits on a clock instead of asserting a fact: the Mars Showcase section polls for 300 s
+for the HGA to leave `stowed` and swing its azimuth off the 180° rest heading, and the showcase
+presents at a fraction of a frame per second under SwiftShader, so the deployment it is waiting for
+may not start inside that window. This was attributed with a baseline worktree rather than argued
+about: at `2c24cec`, the commit *before* Phase 13.5's culler, the same section failed the same way
+(`mars showcase: HGA never started deploying in 300s`, antenna at `phase: "stowed"`, countdown 0.05,
+rover still rolling, exit 1) — the demo was alive, the machine was slow. On the culler branch the
+sections before that poll all pass, the object-culling ones included (`gpu` vs `cpu` over the fixture:
+5 batches, 5 tested, `max luma diff 0.00`, 0 px beyond one level, `forge.objects.cull` owned by the
+`gpu` arm only; occlusion on → off: 4 HiZ passes → 0, 0 px darker, 0 px beyond one level; restored:
+mode `gpu, occlusion true`). So a red `check:browser` here means: read the run up to its `- Error:`
+line, and treat this one timeout as the sandbox's frame rate rather than as the frame being verified.
+A machine with a real adapter, or one that finishes the deployment inside the window, is unaffected.
 
 ### `tests/math.test.ts` — conventions the engine silently depends on
 
@@ -286,6 +302,18 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   while the uniform path truncates at 16 and reports `lightsDropped`. A steady clustered frame creates
   no buffer and no texture, five clustered × HDR × shadow combinations record no error, and the
   fixture's teardown proves the three cluster buffers are released.
+* **Object culling (13.5)**: the mock's `"auto"` resolves to the CPU twin, which tests every batch in
+  the frame that wrote it and reports `cullTested === batches` with the words in the `cull.visibility`
+  buffer; a camera turned to the sky culls by frustum with `stats.cullFrustum` matching the words that
+  say `CullReason.Frustum`. The device path (`objectCulling: "gpu"`) adds `forge.objects.cull` and,
+  with the prepass running, `forge.hiz.0`; its dispatch covers the batch count in whole workgroups
+  (`ceil(batches / 64)`), the visibility buffer the draws bind is the zeroed one (the device has
+  reported nothing back — a frame whose words were never written draws everything rather than keeping
+  last frame's verdicts), and `cullTested` is 0. Switching to `"cpu"` takes the pass out of the frame
+  and restores the twin's numbers; the round trip to `"gpu"` brings the pass and its dispatch back (a
+  disposed culler left referenced would silently drop it). `renderer.occlusionCulling = false` drops
+  every `forge.hiz` pass while `forge.objects.cull` stays, and `true` brings them back — the level
+  count is per-frame state, so a frame with no prepass never declares a pass that reads it.
 * **Sky (Phase 8a)**: `scene.setSky()` inserts exactly one `forge.sky` pass directly after `forge.main`,
   drawing one triangle into the *same* colour target with the scene depth attached via an explicit
   load (`MockPassRecord.depthLoadOp === "load"`, `depthStoreOp === "store"` — the read-only attach's
@@ -302,6 +330,40 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
 
 The mock validates attachment formats against pipelines, bind-group layouts, dynamic offsets and view
 dimensions, so "no errors" is a statement about the command stream, not just about exceptions.
+
+### `tests/objectCulling.test.ts` — the object culler's conservatism (Phase 13.5)
+
+`engine/src/rendering/objectCulling.ts` in sixteen tests. The question is never "does it run" but "does
+it ever drop something that is visible":
+
+* `cullPlanesFrom` against `Frustum.setFromViewProjection` (normalized comparison, same order, same
+  facing): the shader extracts its own planes from the frame's view-projection, and a plane the two
+  derivations disagreed about is geometry that stops being drawn in one path and not the other.
+* `cullBatchesOnCpu` over a deterministic sweep of 7×7×9 boxes: any box with a point inside the frustum
+  survives (the point-in-frustum property, walked here independently of the code under test), boxes
+  behind the camera / above the frustum / past the far plane are culled with the right reason, each
+  batch's own `maxDistance` drops it only once its sphere no longer reaches (`distance − radius >
+  limit`), the test is skipped when the frame's flags do not carry the distance bit, and the 8192-batch
+  cap leaves the tail at zero — untested means visible, never wrongly culled.
+* The HiZ test: the metre inversion (`far·near / (far − ndc·(far − near))`, unwritten texels exactly
+  `far`), the level size chain and level count, a wall-vs-gap depth image (behind the wall occluded,
+  over the gap kept, in front kept, straddling the edge kept), **the mirrored-row regression** — a
+  floor depth image with a box over the empty top half, which a rectangle built from an un-negated NDC
+  y reports as occluded — and a 120-box sweep asserting that every level-0 texel under a culled batch's
+  padded footprint is nearer than that batch's nearest point. Flipping the twin's `sy` back to the
+  mirrored form fails exactly the regression test (mutation-checked).
+* The generated shader text: the constants, the embedded structs (`ObjectCullUniforms`,
+  `ObjectBatchEntry`/`Block`, `ObjectCullStatsBlock`), one `@compute`, the visible-word reset, five
+  `atomicAdd`s, the negated-y pixel row, the depth texture's three-argument `textureLoad`, and
+  `validateWgsl` clean for all three modules. `tools/wgsl-check.mjs` validates the same structs against
+  the parsed WGSL on the CPU side.
+* `GpuObjectCuller`: the frame block (batch count, flags — the distance bit set because one batch has a
+  limit, the occlusion bit only when a pyramid exists — the matrices verbatim, the target extent) and
+  one bounds entry per batch with the limit at `min.w`; one pass, one whole-workgroup dispatch and the
+  counter copy in the same command buffer; the pyramid's four levels for a 64×64 target with the
+  per-level dispatch halving; the per-frame level count (a second frame with `occlude: false` records
+  `forge.objects.cull` alone and uploads `hizLevels: 0`); and after `dispose` nothing is recorded and
+  the stats read zero.
 
 ### `tests/rendering.test.ts` — Phase 1 renderer behaviour
 
@@ -609,6 +671,22 @@ depending on where the animation froze), 0 brighter.
   brighter — measured 88,036 of 921,600 px brighter (up to 204 levels) and **none darker**, since
   adding lights can only add. Removing the rig restores the fixture's four lights, and the demo's
   `Clustered` button must move the setting it shows and mark itself pressed.
+- **Cluster-fill identity (Phase 13.4)**: the demo's `?lightculling=cpu|gpu` switch (and the gate's
+  `setLightCulling`) must produce the *same* picture over the fixture (measured: max luma diff 0.00,
+  0 px beyond one level) and the same grid stats, with `forge.lights.assign` present in the gpu arm's
+  frame and absent from the cpu arm's. Past the per-cluster cap (the 40-lamp ball) the two fills must
+  keep the same 32 lamps — the eviction path is where a transcription error shows up as differently
+  coloured pools of light.
+- **Object-culling identity (Phase 13.5)**: with the animation frozen, the device cull path
+  (`setObjectCulling("gpu")`) and the CPU twin (`"cpu"`) must draw the same frame (measured: max luma
+  diff 0.00, 0 px beyond one level), `forge.objects.cull` must be in the gpu arm's pass list and absent
+  from the cpu arm's, the twin must test every batch, and the device counters must be either the lagged
+  zero or the frame's own batch count. **HiZ occlusion must only ever add draws**: with
+  `setOcclusionCulling(false)` the `forge.hiz.*` passes disappear and the frame must not change at all
+  (measured: 0 px differ, 0 px darker) — a batch it dropped as hidden was hidden. That assertion is what
+  caught the mirrored-rectangle bug, which showed up in the *prepass* section as
+  `16161 px differ by up to 162.0 luma levels` because the collapsed batches took their prepass depth
+  with them.
 - **Cascade debug view** renders without errors, and after every toggle the settings are restored,
   the pass count is back to the HDR default, SSAO is back on, and `gpuErrors` is still 0. The LDR
   readback above also asserts the prepass + SSAO chain survives the switch to the swapchain path.
@@ -711,6 +789,12 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **Depth prepass and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the frame without
   it on real WebGPU; SSAO only ever darkens, locally. `docs/RENDERING.md` §4a says how, §9 what it
   does not do.
+* **GPU object culling (Phase 13.5).** Frustum, per-batch distance and HiZ occlusion on the device
+  (`forge.objects.cull` + the `forge.hiz.<n>` pyramid), with the CPU twin as the mock device's path and
+  as the reference `tests/objectCulling.test.ts` pins byte for byte. On real WebGPU the two cullers draw
+  the same frame, the pass belongs to the arm that ran it, and switching the HiZ stage off never
+  darkens a pixel. `docs/RENDERING.md` §4d says how; per-batch granularity, the 8192-batch cap and the
+  CPU path's missing occlusion are `KNOWN-ISSUES.md`.
 * **Cascade math.** Containment, texel snapping and caster back-off are checked numerically,
   independently of the GPU.
 * **`Engine` / `Renderer` / `Scene` at runtime.** Verified both through the mock-device suites and
@@ -765,6 +849,10 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **Using the BVH.** The tree exists, is deterministic and can be built in a worker; grid-marched
   terrain raycasts, the pairwise broadphase and per-batch AABB culling do not consult it
   (`capability: physics.spatialIndex`). Nothing measures a speed-up yet.
+* **Per-instance culling and cascade culling.** Culling is per batch: one visible instance keeps its
+  whole batch, and the shadow cascades still use the CPU's per-cascade AABB test rather than the cull
+  pass. Compaction and indirect draws (13.6) are what make the visibility buffer skip the upload too
+  (`capability: rendering.cullCoverage`).
 * **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the

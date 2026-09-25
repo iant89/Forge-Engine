@@ -581,7 +581,11 @@ export class MockGPUBindGroupLayout {
       if (e.texture?.viewDimension === "cube-array" && !e.texture) device.reportError("internal");
       if (e.storageTexture) {
         if (!COLOR_WRITEABLE.has(e.storageTexture.format ?? "")) device.reportError(`createBindGroupLayout: binding ${e.binding} storage format ${e.storageTexture.format} unsupported`);
-        if (!["write", "read-write", "read"].includes(e.storageTexture.access ?? "write")) device.reportError("createBindGroupLayout: bad storageTexture access");
+        // The spec's enum (`GPUStorageTextureAccess`), not the pre-2021 draft's "write"/"read": the
+        // browser rejects the draft spellings outright, so the mock does too.
+        if (!["write-only", "read-only", "read-write"].includes(e.storageTexture.access ?? "write-only")) {
+          device.reportError("createBindGroupLayout: bad storageTexture access");
+        }
       }
 
     }
@@ -1784,7 +1788,12 @@ export class MockGPUComputePassEncoder {
       for (const { resource } of g.bindings.values()) {
         const r = resource as { buffer?: MockGPUBuffer; texture?: MockGPUTextureView };
         if (r.buffer) r.buffer.computeTouchCount++;
-        if (r.texture) r.texture.texture.lastWrittenBy = this.label;
+        // A texture entry may be a view itself or a `{ texture: view }` wrapper (`createBindGroup`
+        // takes both), so normalise the same way before touching the texture behind it. Assuming the
+        // wrapper is what crashed every compute pass that bound a view: `resource.texture` is then
+        // the *texture*, whose own `.texture` is undefined.
+        const view = (resource instanceof MockGPUTextureView ? resource : r.texture) as MockGPUTextureView | undefined;
+        if (view instanceof MockGPUTextureView) view.texture.lastWrittenBy = this.label;
       }
     }
     this.encoder.device.record({ type: "dispatch", label: this.label, x, y, z });

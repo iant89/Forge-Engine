@@ -209,6 +209,12 @@ export class Renderable extends Component {
   emissive = 0;
   /** Culling-mask layer bit; cameras combine their mask with this. */
   layer = 1;
+  /**
+   * Draw distance in metres: the object culler drops the batch past this distance from the camera
+   * (0 = no limit). Enforced by the device by default (Phase 13.5), so it costs the CPU nothing per
+   * frame and can be animated; a merged batch keeps the most permissive limit of its members.
+   */
+  maxDistance = 0;
   /** Local-space bounds override (used when geometry bounds are wrong or intentionally loose). */
   boundsOverride: AABB | null = null;
 

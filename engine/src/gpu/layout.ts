@@ -35,6 +35,7 @@ export type AddressSpace = "uniform" | "storage" | "read_write_storage";
 
 export type FieldType =
   | { kind: "f32" }
+  | { kind: "atomicU32" }
   | { kind: "i32" }
   | { kind: "u32" }
   | { kind: "bool" }
@@ -48,6 +49,8 @@ export type FieldType =
   | { kind: "struct"; struct: StructDef };
 
 export const f32: FieldType = { kind: "f32" };
+/** `atomic<u32>`: 4 bytes like a `u32`, but storage-only (WGSL forbids atomics in uniform space). */
+export const atomicU32: FieldType = { kind: "atomicU32" };
 export const i32: FieldType = { kind: "i32" };
 export const u32: FieldType = { kind: "u32" };
 export const bool_: FieldType = { kind: "bool" };
@@ -81,6 +84,7 @@ export interface FieldLayout {
 export function alignOf(type: FieldType, space: AddressSpace): number {
   switch (type.kind) {
     case "f32":
+    case "atomicU32":
     case "i32":
     case "u32":
     case "bool":
@@ -111,6 +115,7 @@ export function alignOf(type: FieldType, space: AddressSpace): number {
 export function sizeOf(type: FieldType, space: AddressSpace): number {
   switch (type.kind) {
     case "f32":
+    case "atomicU32":
     case "i32":
     case "u32":
     case "bool":
@@ -298,7 +303,10 @@ function requiredUniformAlign(type: FieldType): number {
 }
 
 function collectUniformArrayProblems(path: string, type: FieldType, problems: string[]): void {
-  if (type.kind === "array") {
+  if (type.kind === "atomicU32") {
+    // WGSL: "Atomic types may only be instantiated in the storage address space."
+    problems.push(`${path}: atomic<u32> is storage-only and cannot appear in a uniform buffer`);
+  } else if (type.kind === "array") {
     const stride = naturalStrideOf(type.element, "uniform");
     if (stride % 16 !== 0) {
       problems.push(
@@ -315,6 +323,8 @@ function wgslType(type: FieldType, space: AddressSpace): string {
   switch (type.kind) {
     case "f32":
       return "f32";
+    case "atomicU32":
+      return "atomic<u32>";
     case "i32":
       return "i32";
     case "u32":

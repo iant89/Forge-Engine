@@ -323,3 +323,68 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 - The quick way to settle "is the rig visible": a probe that grabs the canvas pixels directly and diffs
   against idle (2,458 px brighter, max 157, at 40 lamps; 2,022 at 16 lamps) — five minutes end to end and
   it made the direction bug obvious on the first run.
+
+### 2026-09-25 — Phase 13.5 (GPU object culling): three failures only a real device could see
+
+- **`atomicAdd(ptr<storage, u32, read_write>, u32)` has no overload — the counters must be declared
+  `atomic<u32>`.** `ObjectCullStatsBlock` was written with plain `u32` fields, and every CPU gate stayed
+  green: the mock device records the dispatch without executing WGSL, `check:wgsl` only checks the layout
+  it is told to check, and `validateWgsl` is a structural regex. On a real device Tint rejected
+  `objects.cull` outright (`Error while parsing WGSL: line 84:3 no matching call to atomicAdd`), which
+  invalidated the pipeline, the bind group and then the whole command buffer — 272 GPU errors, a black
+  canvas, and a `lastError` naming the *submit* rather than the shader. The struct generator now has an
+  `atomicU32` field type that emits `atomic<u32>` and is **rejected in the uniform address space**
+  (`gpu/layout.ts`), so the same mistake fails on the CPU. **Lesson: any type the shader compiler can
+  reject needs a CPU-side representation, not a comment.**
+- **A depth texture has no sampled form: `textureLoad(depth, coords)` needs the mip level.** The HiZ
+  depth shader read its depth source with two arguments; Chromium's validator accepts the overload, Tint
+  rejects the module (`no matching call to 'textureLoad(texture_depth_2d, vec2<i32>)'`). Same shape of
+  failure as the atomic: the CPU gates cannot see it, the browser gate sees all of it at once. The fix is
+  `textureLoad(depthSource, coords, 0)`, pinned by a shader-text assertion in the new suite.
+- **BUG: the HiZ rectangle used the NDC y as the texel row.** NDC +y points *up* the screen and texel row
+  0 is the *top* of the image, so the rectangle was mirrored about the image centre — not a one-texel
+  error but a test against the other half of the screen. On the PBR fixture (a ground plane in the lower
+  half) every batch floating over that ground was "proven occluded" against rows that were nearer than it
+  and dropped from the frame: the gate reported `the depth prepass changed the picture: 16161 px differ by
+  up to 162.0 luma levels`, in a section whose own comment says the prepass must move *no* pixel. The fix
+  is `sy = (0.5 - ndc.y * 0.5) * extent.y` in the shader and the twin, and the new suite pins a floor
+  depth image plus the shader text (mutation: flipping the twin's `sy` back fails exactly one test).
+  **Lesson: a screen-space rectangle is a place where "obviously right" is wrong twice per axis — pin the
+  sign with a depth image that is not symmetric in y.**
+- **The mock's compute-pass touch assumed `{ texture: view }`.** `dispatchWorkgroups` walked its bind
+  groups and did `resource.texture.texture.lastWrittenBy = label`; a *view* bound directly has no
+  `.texture`, so the first compute pass to bind a texture view (the HiZ pyramid) crashed the mock with
+  `Cannot set properties of undefined` — a mock bug, not an engine bug, but it failed five tests and
+  looked like one. Normalising both shapes is the fix (`tests/objectCulling.test.ts` fails without it;
+  verified by stashing the file).
+- **A pass may not read a texture that no earlier pass wrote, and the pyramid makes that rule
+  per-frame.** `hizLevels > 0` + `forge.objects.cull` reading `scene.depth` is fine when the prepass ran;
+  it is a `UsageError` (`pass "forge.hiz.0" reads "scene.depth" before any pass has written it`) on a
+  frame with no prepass, in a scene or on a camera that turns it off. The culler therefore keeps
+  `hizLevelsFrame` (what *this* frame may use) beside `hizLevels` (what the allocated texture has), and
+  `Renderer.prepareObjectCulling` decides it per frame — pinned by a two-frame test that flips
+  `renderer.occlusionCulling` between them.
+- **The gate can only compare two frames if both ran their own path.** The 13.5 A/B asserts
+  `forge.objects.cull` is in the gpu arm's pass list and *absent* from the cpu arm's *before* it compares
+  pixels; otherwise "0 px differ" is a statement about two frames neither of which used the code under
+  test. Same lesson as 13.4's fill A/B — it is worth restating because it is one line and it makes the
+  pixel comparison meaningful.
+
+### 2026-09-25 — a red gate is not an attribution (baseline worktree, and the HGA poll)
+
+- **The browser gate's last section is a clock, not an assertion.** The Mars Showcase polls for 300 s for
+  the HGA to leave `stowed` and swing off its 180 deg rest heading. On this sandbox the showcase presents
+  at a fraction of a frame per second, the sequence never begins inside the window, and the gate exits 1
+  with `mars showcase: HGA never started deploying in 300s` — with the rover still rolling and the
+  antenna at `countdown 0.05`, i.e. a live demo on a slow machine.
+- **Prove that before believing it: `git worktree add --detach /tmp/forge-base <pre-change commit>` +
+  a `node_modules` symlink, then run the same gate there.** At `2c24cec` (before any 13.5 code) the poll
+  failed identically, so the failure is the environment's frame rate, not the culler — a conclusion worth
+  ~20 minutes of baseline run, and one that a single green `npm run verify` could never have reached.
+- **Run one SwiftShader gate at a time.** With the baseline Chromium alive, the *branch's* gate died in
+  20 s at its first loop-advance check (`loop stalled at frame 7`, `BEFORE === AFTER` stats, zero GPU
+  errors) — no code involved, just two software rasterisers competing for the same CPU. Re-run alone:
+  the whole chain passes up to the poll.
+- **So read a red gate up to its error line, and record the environment exception where the gate is
+  described** (`docs/VERIFICATION.md`, under the command table) rather than weakening the check. A
+  timeout that is moved to make a run green is a check nobody has.

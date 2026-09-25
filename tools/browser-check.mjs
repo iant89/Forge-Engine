@@ -46,6 +46,20 @@
  * and asserts `animating()` — a frozen loop applies no input, and the parked half of the check would
  * pass for the wrong reason (a car that cannot move looks exactly like a car held by a brake).
  *
+ * Phase 13.5 addition: the device object culler (`forge.objects.cull` + the HiZ pyramid) and the CPU
+ * twin that `"auto"` falls back to on a mock device must draw the same frame — the pass exists in one
+ * arm's frame and not the other's — and switching the HiZ stage off must never *darken* a pixel, since
+ * the verdict is conservative by construction and the prepass depth already hides what it drops. That
+ * pair is what would have caught the mirrored-rectangle bug in the occlusion test: a batch tested
+ * against the near ground rows *below* it was culled and vanished from the frame while every CPU gate
+ * stayed green.
+ *
+ * Phase 13.4 addition: the two cluster-grid fills (CPU reference and `forge.lights.assign`) must
+ * present an identical frame over the fixture *and* make the same eviction choices past the
+ * per-cluster cap, and the fill that reports "gpu" must be the arm whose frame carries the pass. The
+ * assignment shader is the CPU fill in another language; both halves are needed, because "same
+ * picture" alone would pass for two arms neither of which ran the pass.
+ *
  * Phase 13.3 addition: clustered (Forward+) lighting must be *pixel-identical* while a scene fits the
  * old fixed 16-entry light list — the cluster loop calls the same shading function over the same
  * lights in the same order, so any difference is a light the grid failed to index or a slice boundary
@@ -753,6 +767,92 @@ try {
   console.log(`cluster fill restored: mode ${restoredFill.mode}, ${restoredFill.stats.render.clusteredLights} clustered lights, no rig`);
   if (restoredFill.mode !== "gpu") throw new Error(`"auto" did not resolve back to the GPU fill on a device that has one (got "${restoredFill.mode}")`);
   if (restoredFill.stats.render.clusteredLights !== clusteredOn.clusteredLights) throw new Error("removing the stacked rig did not restore the fixture's local lights");
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
+
+  // Object culling (Phase 13.5) — two claims, and only a real device can prove either.
+  //
+  //  1. The device path decides the same visibility the CPU twin does. The claim is *pixels*: the two
+  //     paths run the same test on the same boxes with the same margins, and a batch either path got
+  //     wrong is a hole in the picture (culled too much) or a wasted draw (culled too little). The
+  //     fixture's five batches are all on screen, so this arm pins "the pass does not cull what is
+  //     visible"; the terrain arm further down is where the frustum verdicts get exercised.
+  //  2. The HiZ stage is conservative: switching it off may only ever *add* draws. Because the
+  //     prepass depth holds the fixture's own opaque surfaces, a batch the culler drops as occluded
+  //     would have been hidden behind them anyway — so the picture must be identical. This is the
+  //     assertion that would have caught the mirrored-rectangle bug: culling a floating sphere
+  //     against the ground rows *below* it removed it from the frame.
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await settle();
+  await keepLuma("cull-gpu");
+  const cullGpuStats = await page.evaluate(() => window.__forge.stats());
+  const cullGpu = cullGpuStats.render;
+  await page.evaluate(() => window.__forge.setObjectCulling("cpu"));
+  await settle();
+  await keepLuma("cull-cpu");
+  const cullCpuStats = await page.evaluate(() => window.__forge.stats());
+  const cullCpu = cullCpuStats.render;
+  const cullDiff = await compareLuma("cull-cpu", "cull-gpu");
+  const cullGpuHasPass = cullGpuStats.renderPasses.includes("forge.objects.cull");
+  const cullCpuHasPass = cullCpuStats.renderPasses.includes("forge.objects.cull");
+  console.log(
+    `object culling: gpu vs cpu over the fixture — batches ${cullGpu.batches}, tested ${cullGpu.cullTested}, ` +
+      `frustum ${cullGpu.cullFrustum}, occluded ${cullGpu.cullOccluded}; max luma diff ${cullDiff.max.toFixed(2)} / ` +
+      `${cullDiff.darker + cullDiff.brighter} px beyond 1 level; forge.objects.cull: gpu arm ${cullGpuHasPass ? "yes" : "NO"}, cpu arm ${cullCpuHasPass ? "YES" : "no"}`,
+  );
+  if (cullDiff.darker + cullDiff.brighter > 0) {
+    throw new Error(
+      `the two cullers drew different frames: ${cullDiff.darker + cullDiff.brighter} px differ by up to ${cullDiff.max.toFixed(1)} luma levels — ` +
+        `the compute pass is not deciding what the CPU twin decides`,
+    );
+  }
+  if (!cullGpuHasPass || cullCpuHasPass) {
+    throw new Error(`the cull pass belongs to the wrong arm: gpu ${cullGpuHasPass ? "has" : "lacks"} forge.objects.cull, cpu ${cullCpuHasPass ? "has" : "lacks"} it`);
+  }
+  // The device path reports its counters one frame late (a readback cannot be known sooner), so the
+  // arm is allowed to report zeros and must not report a count the pass could not have produced.
+  if (cullGpu.cullTested !== 0 && cullGpu.cullTested !== cullGpu.batches) {
+    throw new Error(`the device culler tested ${cullGpu.cullTested} of ${cullGpu.batches} batches — neither the lagged zero nor the frame's own count`);
+  }
+  if (cullCpu.cullTested !== cullCpu.batches) throw new Error(`the CPU twin tested ${cullCpu.cullTested} of ${cullCpu.batches} batches`);
+
+  await page.evaluate(() => window.__forge.setOcclusionCulling(false));
+  await settle();
+  await keepLuma("cull-no-hiz");
+  const noHizStats = await page.evaluate(() => window.__forge.stats());
+  const noHizDiff = await compareLuma("cull-no-hiz", "cull-gpu");
+  const hizPasses = cullGpuStats.renderPasses.filter((n) => n.startsWith("forge.hiz"));
+  const noHizPasses = noHizStats.renderPasses.filter((n) => n.startsWith("forge.hiz"));
+  console.log(
+    `occlusion culling: hiz passes ${hizPasses.length} → ${noHizPasses.length}; with vs without max luma diff ` +
+      `${noHizDiff.max.toFixed(2)} / ${noHizDiff.darker + noHizDiff.brighter} px beyond 1 level; ` +
+      `occluded px/word verdicts ${cullGpu.cullOccluded} → ${noHizStats.render.cullOccluded}`,
+  );
+  if (noHizPasses.length !== 0) throw new Error(`the HiZ pyramid ran with occlusion culling off: ${noHizPasses.join(", ")}`);
+  if (hizPasses.length === 0) throw new Error("occlusion culling on did not build a HiZ pyramid on a device that supports it");
+  if (noHizDiff.darker > 0) {
+    throw new Error(
+      `disabling occlusion culling removed light from ${noHizDiff.darker} px — a batch the culler had dropped was in front of what it drew`,
+    );
+  }
+  if (noHizDiff.darker + noHizDiff.brighter > 0) {
+    throw new Error(
+      `the occlusion stage changed the picture: ${noHizDiff.darker + noHizDiff.brighter} px differ by up to ${noHizDiff.max.toFixed(1)} luma levels — ` +
+        `a batch it dropped as hidden was not hidden (the mirrored-rectangle bug is exactly this)`,
+    );
+  }
+  const restoredCull = await page.evaluate(() => {
+    window.__forge.setOcclusionCulling(true);
+    window.__forge.setObjectCulling("auto");
+    window.__forge.setAnimating(true);
+    return { mode: window.__forge.objectCulling(), occlusion: window.__forge.occlusionCulling() };
+  });
+  await settle();
+  console.log(`object culling restored: mode ${restoredCull.mode}, occlusion ${restoredCull.occlusion}`);
+  if (restoredCull.mode !== "gpu" || !restoredCull.occlusion) throw new Error('"auto" did not resolve back to the device culler with occlusion on');
+
   await page.evaluate(() => {
     delete window.__gateLuma;
     delete window.__gateRgb;

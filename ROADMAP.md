@@ -16,7 +16,8 @@ CURRENT CODEBASE BASELINE:
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
-    Phase 13:   IN PROGRESS (13.1 depth prepass + SSAO and 13.2 aliasing landed)
+    Phase 13:   IN PROGRESS (13.1-13.5 landed: depth prepass + SSAO, aliasing,
+                clustered lighting, GPU light fill, GPU object culling)
     Phase 14+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -626,9 +627,12 @@ GOAL:
 CURRENT STATE:
 
     In progress. Landed: the depth prepass (13.1) with SSAO as its first consumer,
-    and real transient aliasing in every SSAO frame (13.2). 13.3 onward is open.
-    Frame: forge.shadow.<n> → forge.prepass → forge.ssao → forge.ssao.blur.h →
-    forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap.
+    real transient aliasing in every SSAO frame (13.2), clustered lighting (13.3),
+    the GPU cluster fill (13.4) and GPU object culling with the HiZ pyramid (13.5).
+    13.6 onward is open.
+    Frame: forge.shadow.<n> → forge.prepass → forge.hiz.<n> → forge.objects.cull →
+    forge.ssao → forge.ssao.blur.h → forge.ssao.blur.v → forge.main → forge.sky →
+    particles → bloom → forge.tonemap (the cull passes exist only on the device path).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -644,6 +648,12 @@ CURRENT STATE:
         - Quality profiles: prepass + SSAO on medium/high/ultra, off on minimal/low
           (`EngineConfig.depthPrepass` / `ssao`); per scene `settings.depthPrepass` /
           `settings.ssao`.
+        - Object culling: `forge.objects.cull` writes one visibility word per batch
+          (frustum planes from the frame's own view-projection, per-batch distance
+          limits, HiZ occlusion against the prepass depth); the batch's vertex stage
+          collapses its clip position when the word says no, so a culled batch costs
+          no rasterisation. `RendererOptions.objectCulling` / `occlusionCulling`, the
+          CPU twin on the mock device, live counters one frame late.
 
 
 13.1 Depth Prepass
@@ -657,7 +667,7 @@ CURRENT STATE:
         [x] SSAO            — `forge.ssao` samples the prepass depth.
         [x] particles       — the soft-particle fade samples the same scene depth,
                               which the prepass now lays down (no second depth pass).
-        [ ] culling         — GPU / HiZ culling is 13.5.
+        [x] culling         — `forge.objects.cull` + the HiZ pyramid read it (13.5).
         [ ] transparency    — blended surfaces depth-test against it; no
                               transparency technique (depth fade, OIT) consumes it.
         [ ] post processing — no depth-based post effect exists yet.
@@ -743,11 +753,56 @@ CURRENT STATE:
 
 13.5 GPU Object Culling
 
-    [ ] GPU frustum culling.
+    [x] GPU frustum culling. (`forge.objects.cull`, one invocation per batch in
+        ceil(batches/64) workgroups, between `forge.prepass` and the SSAO chain; the
+        six planes are extracted in-shader from the frame's own view-projection, as
+        `Frustum.setFromViewProjection` extracts them on the CPU — unnormalized rows,
+        compared against a sphere radius with `CULL_SLOP`. `ObjectBatchBlock` carries
+        one 32-byte entry per batch in draw order, and the verdict lands in
+        `ObjectUniforms.visibilityIndex`'s word, which the vertex stage reads as group
+        1 binding 2 (minBindingSize 4, reset to zero every frame by one writeBuffer).
+        `cullBatchesOnCpu` is the twin the mock device runs; tests/objectCulling.test.ts
+        (16), tests/frame.test.ts (3), check:browser.)
 
-    [ ] GPU distance culling.
+    [x] GPU distance culling. (`Renderable.maxDistance` is a draw rule: a batch is
+        dropped once its bounding sphere no longer touches its limit
+        (`distance - radius > limit`), so the limit travels in the bounds entry
+        (`ObjectBatchEntry.min.w`) and a merged batch keeps the most permissive
+        member's. The frame's flags carry a distance bit only when some batch in it
+        has a limit, so a frame with none does not pay for the test. `stats.
+        cullDistance`.)
 
-    [ ] Optional HiZ/occlusion culling.
+    [x] Optional HiZ/occlusion culling. (`forge.hiz.0..<n>` reduce the prepass depth
+        into a pyramid of view-space metres (2x2 max, unwritten texels = `far`), and
+        the cull pass drops a batch only when every texel under its padded footprint —
+        the projection of the sphere's view-space box — is nearer than its nearest
+        point minus `CULL_EPSILON`; the level is picked so texels are a few pixels
+        across. The pixel row is the negated NDC y (texel row 0 is the top): the
+        mirrored rectangle is over the *other half of the screen*, which culled
+        floating geometry against the ground rows below it — check:browser saw it as
+        `disabling occlusion culling changed 16161 px`, and tests/objectCulling.test.ts
+        now pins the sign. Perspective-only, off on the CPU twin (no depth), skipped
+        when the target cannot build a pyramid; a frame the renderer did not ask to
+        occlude neither reads the depth nor declares levels. Stats `cullTested`,
+        `cullFrustum`, `cullOccluded` come back through one map-read copy per frame —
+        one frame late, because a device-side count cannot be known sooner.
+        `RendererOptions.objectCulling` = auto|cpu|gpu, `occlusionCulling` on/off,
+        demo `?objectculling=cpu|gpu` / `?occlusionculling=0|1` + HUD line + the
+        `setObjectCulling`/`setOcclusionCulling` hooks. docs/RENDERING.md §4d;
+        benchmarks/src/culling.bench.ts, run by `npm run bench` in CI: measured on the
+        dev box the twin costs 1.1 us/batch (9.2 ms for the full 8192-batch cap, 3.0 ms
+        frustum-only and 3.7 ms with the distance limits) while building the
+        1280x720 pyramid on the CPU costs 39.5 ms/frame — the reduction the device does
+        in-frame, which is why the twin leaves occlusion to it. The guards are shape
+        checks (per-batch cost stays linear; the distance test stays a comparison; the
+        cap stays inside a frame) so a slow runner cannot turn a correct build red.
+        The visible-object compaction and indirect draws that consume this buffer are
+        13.6.)
+
+    [ ] Per-instance culling inside a batch: one visible instance keeps its batch.
+
+    [ ] Culling the shadow cascades with the same pass (the cascades still use the
+        CPU's per-cascade AABB test).
 
 
 13.6 Indirect Rendering

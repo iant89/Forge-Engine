@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   CLUSTER_COUNT,
   CLUSTER_SLICES,
+  CullReason,
   CLUSTER_TILES_X,
   CLUSTER_TILES_Y,
   Camera,
@@ -1000,5 +1001,92 @@ describe("clustered (Forward+) lighting", () => {
 
     await cpu.f.dispose();
     await gpu.f.dispose();
+  });
+});
+
+// ------------------------------------------------------------------ object culling (Phase 13.5)
+
+describe("object culling", () => {
+  it("culls batches on the CPU by default, and the frame says which", async () => {
+    const f = await fixture();
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    // The mock device has no compute, so "auto" resolves to the twin — and its verdict is immediate:
+    // every batch is tested in the same frame, and the words it wrote are in the buffer the draw
+    // group binds.
+    expect(f.renderer.objectCulling).toBe("cpu");
+    expect(f.renderer.stats.batches).toBeGreaterThan(0);
+    expect(f.renderer.stats.cullTested).toBe(f.renderer.stats.batches);
+    expect(bufferOf(f, "cull.visibility").u32.every((v) => v === 0)).toBe(true);
+    expect(f.renderer.passNames).not.toContain("forge.objects.cull");
+    expect(f.renderer.stats.cullFrustum + f.renderer.stats.cullDistance + f.renderer.stats.cullOccluded).toBe(0);
+
+    // Point the camera at the sky: what it can no longer see is culled, and its word says why.
+    const cam = f.scene.findCamera()!;
+    cam.entity.transform.lookAt(new Vec3(0, 200, 0));
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const s = f.renderer.stats;
+    expect(s.cullTested).toBe(s.batches);
+    expect(s.cullFrustum).toBeGreaterThan(0);
+    const words = bufferOf(f, "cull.visibility").u32;
+    expect([...words.slice(0, s.batches)].filter((w) => w === CullReason.Frustum)).toHaveLength(s.cullFrustum);
+    await f.dispose();
+  });
+
+  it("runs the device path as a pass, and its counters are the device's own", async () => {
+    const f = await fixture({ renderer: { objectCulling: "gpu" } });
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.objectCulling).toBe("gpu");
+    expect(f.renderer.passNames).toContain("forge.objects.cull");
+    // The prepass depth is the pyramid's input, so the occlusion stage rides along with it...
+    expect(f.renderer.passNames).toContain("forge.hiz.0");
+    // ...and the cull pass covers the batch count in whole workgroups.
+    const dispatch = f.mock.commandLog.filter((e) => e.type === "dispatch").at(-1);
+    expect(dispatch).toMatchObject({ label: "objects.cull", x: Math.ceil(f.renderer.stats.batches / 64), y: 1, z: 1 });
+    // The device has not reported anything back yet (and on the mock never will: it records the pass
+    // without executing it), so this is the *zeroed* visibility buffer — a frame whose words were
+    // never written draws everything rather than keeping the last frame's verdicts.
+    expect(f.renderer.stats.cullTested).toBe(0);
+    expect(f.renderer.stats.drawCalls).toBeGreaterThan(0);
+    expect(bufferOf(f, "cull.visibility").u32.every((v) => v === 0)).toBe(true);
+
+    // Switching back to the twin puts the CPU's numbers back and takes the pass out of the frame; a
+    // round trip to "gpu" has to bring it back with it (a released culler must not be kept: a
+    // disposed one records nothing, and the frame would then read a stale buffer).
+    f.renderer.objectCulling = "cpu";
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.passNames).not.toContain("forge.objects.cull");
+    expect(f.renderer.stats.cullTested).toBe(f.renderer.stats.batches);
+    const before = f.mock.commandLog.length;
+    f.renderer.objectCulling = "gpu";
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.passNames).toContain("forge.objects.cull");
+    expect(f.mock.commandLog.slice(before).filter((e) => e.type === "dispatch").map((e) => e["label"])).toContain("objects.cull");
+    await f.dispose();
+  });
+
+  it("skips the occlusion stage when the renderer is told to, and finds it again after", async () => {
+    // The pyramid outlives the frame (it is the size of the target), so "does this frame occlude" has
+    // to be per-frame state: a frame with no pyramid passes that still declared `forge.hiz.0` would
+    // read a depth buffer nothing wrote, and the graph would refuse the frame.
+    const f = await fixture({ renderer: { objectCulling: "gpu" } });
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.passNames).toContain("forge.hiz.0");
+
+    f.renderer.occlusionCulling = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.passNames).toContain("forge.objects.cull");
+    expect(f.renderer.passNames.some((p) => p.startsWith("forge.hiz"))).toBe(false);
+
+    f.renderer.occlusionCulling = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.passNames).toContain("forge.hiz.0");
+    await f.dispose();
   });
 });

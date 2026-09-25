@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting from Phase 13)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + object culling from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -18,7 +18,9 @@ camera + lights from the scene               forge.shadow.0  ─┐
 computeCascades()  (engine/src/rendering/    forge.shadow.1   ├─ depth24plus 2d-array, 1 layer each
   shadows.ts)                                forge.shadow.2  ─┘
 collectBatches()   (frustum cull, sort,      forge.prepass     depth24plus "depth" only (clear + store), no fragment stage
-  instance merge — no allocation)            forge.ssao        depth → ssao.raw   (rg16float, ½ res)
+  instance merge — no allocation)            forge.hiz.0..3    depth → the pyramid (r32float, mip chain), ½, ¼, ... of the target
+buildClusters()    (local lights into a      forge.objects.cull  bounds + pyramid → visibility words, 1 per batch (§4d)
+  16x8x24 view grid; no pass — §4b)          forge.ssao        depth → ssao.raw   (rg16float, ½ res)
 classifyPrepass()  (which batches lay        forge.ssao.blur.h ssao.raw  → ssao.blur
   down depth; state + front-to-back sort)    forge.ssao.blur.v ssao.blur → ssao.result (same memory as ssao.raw)
 buildClusters()    (local lights into a      forge.main        rgba16float "hdr" + depth (load) + ssao.result
@@ -45,13 +47,16 @@ options:
 | `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | adds `forge.lights.assign` — one compute pass, **first** in the frame — when the fill runs on the device (`RendererOptions.lightCulling`: `"auto"`/`"gpu"`; `"auto"` resolves to `"cpu"` on the mock), and **no pass** on the CPU fill. The local (point/spot) lights are indexed into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b–4c. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 | `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
+| `RendererOptions.objectCulling` (`"auto"` default / `"cpu"` / `"gpu"`) | `"gpu"` (and `"auto"` on a real device) adds `forge.objects.cull` between `forge.prepass` and the SSAO chain, plus the `forge.hiz.<n>` pyramid when occlusion is on; `"cpu"` (and `"auto"` on the mock) runs the twin and adds no pass. Either way the batches' visibility words are written before `forge.main` reads them. See §4d. |
+| `RendererOptions.occlusionCulling !== false`, the prepass running, a perspective camera, and a render target the pyramid can shrink into | the cull pass also builds and tests against the HiZ pyramid (`forge.hiz.0..<n>`); off (or orthographic, or a target smaller than a few texels) it is frustum + distance only, and no `forge.hiz` pass exists. |
 | `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, a perspective camera, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
 
 A scene with no camera clears the swapchain in a single `forge.clear` pass and still counts as a
 rendered frame, so the HUD keeps ticking while a scene loads.
 
 `Renderer.stats` (also `engine.stats().render`) reports the frame that just ran: `drawCalls`,
-`triangles`, `instances`, `batches`, `culled`, `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
+`triangles`, `instances`, `batches`, `culled`, `cullTested`, `cullFrustum`, `cullDistance`, `cullOccluded`
+(§4d; the device path reports them one frame late), `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
 `hdr`, `bloomMips`, `sky`, `skySamples`, `depthPrepass`, `prepassDraws` (depth-only draws, not in
 `drawCalls`, like `shadowsDrawn`), `ssao`, `passes`, `culledPasses`, `transientTextures`,
 `physicalTextures`, `aliasedBytes`, `texturesCreated`, `clusteredLighting`, `lights` (every light in
@@ -361,6 +366,95 @@ identical grid stats, the pass present in the gpu arm and absent in the cpu arm.
 rig: the clustered frame is strictly brighter than the truncated uniform path and none of its pixels is
 darker, `lightsDropped` is false with 39 local lights in the grid and true on the uniform list, and the
 two fills still produce the same picture on the frame the device filled itself.
+
+## 4d. GPU object culling (Phase 13.5)
+
+Submitting a batch costs a `setBindGroup` and a `drawIndexed`; the batch's instances pay for their
+vertices. Phase 13.5 removes the first two where the frame cannot see the batch, and it removes them
+*on the device* so the decision scales with the batch count rather than with the frame's CPU budget.
+`engine/src/rendering/objectCulling.ts` owns the whole mechanism; `Renderer` owns the batches, the
+bounds array and the visibility buffer, and calls the culler between building them and recording the
+frame.
+
+**The contract: one word per batch.** `visibility[i]` is a `u32` — 0 draws, anything else is a
+verdict (`CullReason`: frustum, distance, occluded). It is reset to zero every frame by one
+`queue.writeBuffer`, written by the cull pass (or the twin), bound as group 1 binding 2 of the draw
+layout, and read in the vertex stage as `batchVisibility[objectData.visibilityIndex]`. A culled batch
+collapses its clip position to `vec4(0, 0, -1, 1)` — degenerate, so the rasteriser drops every
+triangle without a discard or a branch in the fragment stage, and no per-instance work is needed. The
+buffer is one word per *batch* and 8 KiB of bounds describe 8 192 batches (cap
+`MAX_CULLED_BATCHES`); a frame past the cap simply leaves the extra batches untested, and untested
+means visible, never wrongly culled.
+
+**Three tests, one direction of error.** All of them are conservative by construction: they may keep
+a batch that is invisible, never drop one that is visible.
+
+* *Frustum.* The six planes come from the frame's own `viewProj`, taken as rows (the near plane is
+  `row3 - row2` on a z-in-[0,1] projection, which is where the OpenGL-style `z + w` pair goes wrong).
+  The shader keeps them unnormalized and compares `plane · centre + d` against `-|normal| · radius`, so
+  the sphere test is exact without a square root.
+* *Distance.* `Renderable.maxDistance` is a *draw* rule, not an upload rule: a batch is dropped once
+  its bounding sphere no longer touches the limit (`distance - radius > limit`). Batches merge by
+  geometry/material, so a merged batch keeps the **most permissive** member's limit — the CPU already
+  decided each member belonged in the frame, and the device only gets to drop the whole batch. The
+  frame's flags carry a distance bit only when some batch has a limit.
+* *HiZ occlusion.* The prepass depth is reduced into a pyramid of *view-space metres* (level 0 is the
+  2×2 max of `far·near / (far - ndc·(far - near))`, unwritten texels map to exactly `far`, i.e. an
+  occluder of nothing), and a batch is dropped when every texel under its footprint is nearer than its
+  own nearest point minus `CULL_EPSILON`. The footprint is the projection of the sphere's view-space
+  box — a projective map sends lines to lines, so the box's image is the hull of its 8 corner images —
+  padded by one pixel, and the level is chosen so its texels are at most a few pixels across
+  (`ceil(log2(span)) - 2`, clamped). **The pixel row is the negated NDC y**: texel row 0 is the top of
+  the image while NDC +y points up, and a row index taken straight from the NDC y tests the mirrored
+  half of the screen — for a batch floating over nearer ground that half is filled with a *nearer*
+  surface, so the batch is dropped and vanishes from the frame. That bug reached the real-WebGPU gate
+  (`disabling occlusion culling changed 16 161 px`); the CPU twin, the shader text and the gate now
+  pin the sign (`tests/objectCulling.test.ts`).
+
+**The twin, and why it exists.** `cullBatchesOnCpu` is the same three tests in TypeScript, and the
+shader is a transcription of it (same slop, pad, epsilon, plane order, level choice).
+`RendererOptions.objectCulling` is `"auto"` (default), `"cpu"` or `"gpu"`; `"auto"` chooses the twin on
+the mock device — which records and validates compute passes but executes no WGSL — because a
+visibility buffer the pass never wrote would draw the frame's culled batches as though the culler had
+said no. The twin has no depth buffer, so its occlusion bit is never set: HiZ is a device-only test,
+and the CPU arm is frustum + distance. Both write the same buffer, so the switch changes who does the
+arithmetic and no pixels.
+
+**The frame.** The cull passes land between `forge.prepass` and the SSAO chain: before the prepass the
+depth does not exist, and after `forge.main` a verdict would arrive a pass too late to be consumed.
+`forge.hiz.0` reduces the prepass depth to level 0, `forge.hiz.<n>` reduces level n-1, and
+`forge.objects.cull` dispatches one invocation per batch in ceil(batches / 64) workgroups. The level
+count is *per-frame* state (`hizLevelsFrame`): the pyramid texture is sized by the target, not the
+frame, so a frame the renderer did not ask to occlude must neither read a depth it did not write
+(the graph refuses a pass that reads an unwritten texture) nor report levels.
+
+**Counters, one frame late.** The pass `atomicAdd`s into `ObjectCullStatsBlock` (16 B, four
+`atomic<u32>` — a plain `u32` will not take `atomicAdd`, and a buffer *type* ignoring this is how
+`objects.cull` failed to compile on a real device while the mock accepted it), and the same command
+buffer copies the block into a `MAP_READ` staging buffer. `poll()` maps it after the frame; the numbers
+reach `stats.cullTested` / `cullFrustum` / `cullDistance` / `cullOccluded` on a later frame, because a
+device-side count cannot be known on the CPU without either a stall or a frame of lag. The CPU arm
+reports its own numbers immediately.
+
+**Growth and lifetime.** The visibility buffer is `STORAGE | COPY_DST`, at least 256 B, and grows in
+256-byte steps; growing retires the draw bind group, which binds its length through `minBindingSize`
+(4). The culler owns its pipelines, bounds/stats buffers, pyramid and readbacks, and `dispose` releases
+them; `Renderer.dispose` releases the culler. Switching `objectCulling` to `"cpu"` disposes the culler
+and clears the reference — a disposed culler records nothing, so keeping it would leave later frames
+with no pass at all and draw them through a stale buffer.
+
+**What this does not do.** The batches and their instance data are still built and uploaded for every
+renderable; culling here saves the *draw*, not the upload or the batch assembly. Compaction and
+GPU-generated indirect draws are Phase 13.6, and they consume exactly this buffer. Culling is
+per-batch, so one visible instance keeps its whole batch, and a camera that is neither perspective nor
+free of the near plane simply skips the occlusion test.
+
+**What the gate proves on a real device.** `check:browser` freezes the PBR fixture and A/Bs the two
+cullers: identical frames (max luma diff 0.00, 0 px beyond one level), `forge.objects.cull` in the gpu
+arm's pass list and absent from the cpu arm's, and the counters either zero (the readback has not
+landed) or the frame's own batch count. It then switches the HiZ stage off: the pyramid passes
+disappear, the frame never gets darker, and it is identical — the assertion that catches a cull too
+many.
 
 ## 5. Conventions
 
