@@ -709,7 +709,10 @@ try {
   const stackedRgb = await compareRgb("stacked-gpu", "stacked-cpu");
   const stackedLuma = await compareLuma("stacked-gpu", "stacked-cpu");
   // ... and the rig has to be visible, or comparing two black frames would pass the check above.
-  const stackedVsIdle = await compareLuma("stacked-cpu", "fill-cpu");
+  // `compareLuma(a, b)` counts pixels *b* brighter than *a*, so the idle capture is the "a" here: the
+  // rig is what adds light (the reverse order reports the rig's own pools as `darker`, which reads as a
+  // product failure that is not there).
+  const stackedVsIdle = await compareLuma("fill-cpu", "stacked-cpu");
   console.log(
     `stacked rig: ${stackedCpu.lights} lights → ${stackedCpu.clusteredLights} clustered, cap ${stackedCpu.maxLightsPerCluster}, dropped ${stackedCpu.lightsDropped}; ` +
       `cpu vs gpu fills ${stackedRgb.differing} px differ (max channel ${stackedRgb.max}), luma ${stackedLuma.darker + stackedLuma.brighter} px, ` +
@@ -720,7 +723,21 @@ try {
   }
   if (stackedGpu.maxLightsPerCluster !== 32) throw new Error(`the stacked rig's fullest cluster holds ${stackedGpu.maxLightsPerCluster} lights, expected the 32-per-cluster cap`);
   if (stackedGpu.clusteredLights !== stackedGpu.lights - 1) throw new Error(`the stacked rig left lights out of the grid: ${stackedGpu.clusteredLights} of ${stackedGpu.lights}`);
-  if (stackedVsIdle.brighter < 200) throw new Error(`the stacked rig lit only ${stackedVsIdle.brighter} px, too few to tell the two fills apart`);
+  if (stackedVsIdle.brighter < 200) {
+    throw new Error(
+      `the stacked rig lit only ${stackedVsIdle.brighter} px, too few to tell the two fills apart ` +
+        `(${stackedVsIdle.darker} px darker — the fixture's own lights are dimmer than the rig's)`,
+    );
+  }
+  // The rig can only add light: its lamps are far below the fixture's own lights in influence, so the
+  // eviction must never trade one of those away for a lamp. This is the same pair the many-light rig
+  // asserts (brighter > 0, darker == 0), and it is what makes the two pixel checks above meaningful.
+  if (stackedVsIdle.darker > 0) {
+    throw new Error(
+      `the stacked rig removed light: ${stackedVsIdle.darker} px darker with 40 lamps added (max ${stackedVsIdle.max.toFixed(1)} levels) — ` +
+        "the per-cluster cap evicted a light it should have kept",
+    );
+  }
   if (stackedRgb.differing > 0) {
     throw new Error(
       `the two fills kept different lights past the per-cluster cap: ${stackedRgb.differing} px differ by up to ${stackedRgb.max} levels — ` +
