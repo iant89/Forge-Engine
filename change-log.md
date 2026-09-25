@@ -2231,6 +2231,19 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "The stacked-rig visibility check now compares idle -> rig (`compareLuma(\"fill-cpu\", \"stacked-cpu\")`), so `brighter` counts the light the rig adds, plus a new assertion that the rig cannot remove light (`darker === 0`).",
     "why": "`compareLuma(a, b)` counts *b* brighter than *a*; the reversed arguments made the rig's own 2,414 px of light report as `darker`, so the gate threw `the stacked rig lit only 0 px` on a rig that was working — a false product failure that hid the real check (the per-cluster eviction's cpu-vs-gpu agreement) behind it. The section had never run before: the many-light assertion upstream threw first, every time the culler bug was present."
+  },
+  {
+    "id": "0174",
+    "date": "2026-09-25T18:12:00Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/.probe/stacked-probe.mjs",
+    "what": "Removed again: a scratch probe that was accidentally committed with the previous change (it reproduced the stacked rig in isolation and printed the pixel diff against idle).",
+    "why": "It was a diagnostic for one question, not a tool the repo should carry; the answer it gave (the rig is visible; the gate's comparison was reversed) is recorded in mnemosyne.md and in the gate's own comment.",
+    "note": "The file exists only in commits 8551496..HEAD of the PR branch; the merge commit's tree is without it."
   }
 ]
 ```
