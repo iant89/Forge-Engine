@@ -63,9 +63,17 @@ const RANGE_ENTRY_SLOT = ClusterRangeBlock.field("entries", "storage").offset >>
 const RANGE_ENTRY_STRIDE = (ClusterRangeBlock.field("entries", "storage").stride ?? 0) >> 2;
 const RANGE_INFLUENCE_SLOT = ClusterRangeEntry.field("influence", "storage").offset >> 2;
 
-/** `(key >> shift) & mask`, as WGSL: the packed-range fields, generated from the CPU's own layout. */
+/**
+ * `((key >> shift) & mask)`, as WGSL: the packed-range fields, generated from the CPU's own layout.
+ *
+ * The outer parentheses are not decoration. WGSL requires them when a relational operator and a
+ * bitwise one meet in one expression — Tint rejects `a < (k >> 4u) & 3u` with "mixing '<' and '&'
+ * requires parenthesis" — and it rejects it at `createShaderModule`, so every pipeline built from the
+ * module is invalid and every frame fails to submit. `validateWgsl` now fails on the same shape
+ * (shaderCache.ts, `mixedOperatorIssues`), because the browser gate was the only thing that saw it.
+ */
 const fieldOf = (name: keyof typeof RANGE_KEY_BITS): string =>
-  `(key >> ${RANGE_KEY_BITS[name].shift}u) & ${RANGE_KEY_BITS[name].mask}u`;
+  `((key >> ${RANGE_KEY_BITS[name].shift}u) & ${RANGE_KEY_BITS[name].mask}u)`;
 
 /**
  * The cluster fill: one invocation per cluster, one workgroup per `LIGHT_CULL_WORKGROUP` clusters.

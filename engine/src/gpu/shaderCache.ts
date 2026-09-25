@@ -222,6 +222,7 @@ export function validateWgsl(source: string): WgslIssue[] {
 
   issues.push(...reversedSmoothstepIssues(source));
   issues.push(...reservedWordIssues(source));
+  issues.push(...mixedOperatorIssues(source));
 
   // 5. Uniform address-space layout. Chromium's compiler tolerates arrays with a stride below 16
   //    bytes (and other relaxed layouts) inside `var<uniform>` structs; WebKit rejects the module,
@@ -272,6 +273,86 @@ export function reversedSmoothstepIssues(source: string): WgslIssue[] {
         `write a reversed falloff as 1.0 - smoothstep(${m[2]}, ${m[1]}, x)`,
       line: lineAt(cleaned, m.index),
     });
+  }
+  return issues;
+}
+
+/**
+ * A relational operator meeting a bitwise one at the same nesting level without parentheses, which
+ * WGSL forbids and Tint enforces: `if (t < (k >> 14u) & 31u)` is rejected at `createShaderModule` with
+ * "mixing '<' and '&' requires parenthesis". It is the Phase 13.4 counterpart of the reserved-word
+ * rule below: the assignment shader's generated decode paired a comparison with a generated mask, the
+ * mock device recorded the pass happily, `check:wgsl` was structurally green, and every frame failed
+ * to submit on a real device. Precedence makes it look deliberate to a reader — `&` binds tighter than
+ * `<`, so a human reads the parentheses that are not there.
+ *
+ * Two things are deliberately *not* flagged, and both were checked against Tint on a real device
+ * rather than reasoned about:
+ *
+ * - `<<` and `>>` with a comparison (`a >> 3u == 0u`): legal, because shift binds tighter than
+ *   relational in WGSL's grammar.
+ * - `&&` and `||` with a comparison: logical, not bitwise — `a > 1u || b < 2u` is legal.
+ *
+ * The rule is level-based, and that is the whole trick: `(flags & FLAG) != 0u` is legal precisely
+ * because the bitwise operand sits one level deeper than the comparison, so a level that holds a
+ * comparison *and* an unparenthesised `&`/`|`/`^` is the mistake. A `->` return arrow is not a
+ * comparison, and a `<` jammed against identifiers is a type parameter list (`array<vec4<f32>>`)
+ * rather than a comparison, so a relational operator is only counted when it is whitespace-separated
+ * on both sides.
+ */
+export function mixedOperatorIssues(source: string): WgslIssue[] {
+  const isSpace = (c: string | undefined) => c === undefined || /[ \t]/.test(c);
+  const RELATIONAL = new Set(["<", ">", "<=", ">=", "==", "!="]);
+  const BITWISE = new Set(["&", "|", "^"]);
+  const cleaned = source
+    .replace(/\/\*[\s\S]*?\*\//g, (s) => s.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, " ");
+  const issues: WgslIssue[] = [];
+  for (const [index, line] of cleaned.split("\n").entries()) {
+    // Per nesting level: did we see a comparison / a bitwise operator here?
+    const levels = new Map<number, { compare: string | null; bitwise: string | null }>();
+    let depth = 0;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]!;
+      if (c === "(") {
+        depth++;
+        continue;
+      }
+      if (c === ")") {
+        depth--;
+        continue;
+      }
+      const two = line.slice(i, i + 2);
+      let op: string | null = null;
+      if (["<=", ">=", "==", "!=", "<<", ">>", "&&", "||"].includes(two)) op = two;
+      else if (c === "<" || c === ">" || c === "&" || c === "|" || c === "^") op = c;
+      if (!op) continue;
+      if (op.length === 2) i++;
+      // Logical operators are not bitwise: mixing them with a comparison is legal.
+      if (op === "&&" || op === "||") continue;
+      // Shifts bind tighter than comparisons, so `a >> 3u == 0u` needs no parentheses (Tint agrees).
+      if (op === "<<" || op === ">>") continue;
+      // `fn f() -> bool`: the `>` of an arrow is not a comparison.
+      if (op === ">" && line[i - 1] === "-") continue;
+      // `array<vec4<f32>>`, `vec3<f32>`, `ptr<function, T>`: a type parameter list, not an operator.
+      if ((op === "<" || op === ">") && (!isSpace(line[i - 1]) || !isSpace(line[i + 1]))) continue;
+      const entry = levels.get(depth) ?? { compare: null, bitwise: null };
+      if (RELATIONAL.has(op) && entry.compare === null) entry.compare = op;
+      if (BITWISE.has(op) && entry.bitwise === null) entry.bitwise = op;
+      levels.set(depth, entry);
+    }
+    for (const level of levels.values()) {
+      if (level.compare && level.bitwise) {
+        issues.push({
+          kind: "semantics",
+          message:
+            `'${level.compare}' and '${level.bitwise}' are mixed at the same nesting level without parentheses, which WGSL forbids ` +
+            `(Tint rejects the module at parse time); parenthesise the bitwise operand, e.g. 'x < ((k >> 4u) & 3u)'`,
+          line: index + 1,
+        });
+        break;
+      }
+    }
   }
   return issues;
 }

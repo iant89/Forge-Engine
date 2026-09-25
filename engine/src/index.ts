@@ -109,7 +109,7 @@ export {
 
 // GPU
 export { GraphicsDevice, type DeviceCaps, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
-export { ShaderCache, preprocessWgsl, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
+export { ShaderCache, preprocessWgsl, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
 export { BufferBuilder, StructAccessor, WriteBuffer, FloatAccessor } from "./gpu/bufferWriter.js";
 export { StructDef, diffWgslStruct, alignOf, sizeOf, strideOf, f32, i32, u32, bool_, vec2, vec3, vec4, mat2x2, mat3x3, mat4x4, arrayOf, ofStruct, type AddressSpace, type FieldType } from "./gpu/layout.js";
 export {
