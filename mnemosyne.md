@@ -202,3 +202,21 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `ps -eo pid,args | grep "vite.*--port <n>"` before the next run.
 - docs:check: "13+" is no longer a phase; "14+" is the placeholder for unscheduled later work
   (special-cased in `tools/docs-check.mjs`, used by `particles.fixedStep` and `networking.replication`).
+
+### 2026-09-24 — selective testing (source→test subsystem map)
+
+- `npm run test:affected` runs only the suites a diff can reach. The map is `tools/test-subsystems.mjs`
+  (subsystem → owned `src`, owned `tests`, `deps`); the runner is `tools/affected-tests.mjs`; the drift
+  guard is `tests/subsystems.test.ts` + `npm run check:testmap`. See `docs/TESTING.md`.
+- **Why a hand-written map, not an import graph:** every suite imports the barrel `@forge/engine`, so a
+  static graph maps *every* test to the whole engine. Ownership had to be declared explicitly.
+- `deps` has real cycles (rendering ↔ particles via `rendering` importing `../particles`; physics ↔
+  vehicles via `physics/system.ts` importing `../vehicles/components`). The reverse-dependency closure
+  handles them; don't "fix" the cycle by dropping an edge.
+- Foundation (`core`, `math`), build/test config, the barrel `engine/src/index.ts`, `engine/src/testing`,
+  `tests/support`, the selection tooling, and any unowned file all force a **full** run on purpose
+  (`FULL_TRIGGERS` + `foundation: true`). If you add a new top-level `engine/src` dir or a new suite and
+  CI/`check:testmap` fails, update the map — that failure is the guard doing its job.
+- Tests can't statically import the `.mjs` map (`allowJs: false` in tsconfig), so the drift suite drives
+  it as a subprocess (`node tools/test-subsystems.mjs --check` / `--explain`), like `gpuEnv.test.ts` and
+  `capabilities.test.ts` drive their tools.

@@ -1338,6 +1338,162 @@ JSON array below; agents maintain it by hand until then.
       "tools/docs-check.mjs",
       "tools/wgsl-check.mjs"
     ]
+  },
+  {
+    "id": "0102",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Add the source→test subsystem map: each subsystem's owned source paths, suites and deps, plus pure helpers (classify, dependents closure, selectForChanges), a self-check, and an --explain/--list/--check CLI.",
+    "why": "Selective testing needs a single source of truth for which suites a change can reach; a static import graph can't provide it because every suite imports the @forge/engine barrel."
+  },
+  {
+    "id": "0103",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/affected-tests.mjs",
+    "what": "Add the runner: read changed files from git (merge-base diff + working tree + untracked), map them through test-subsystems.mjs, and run only the affected suites via vitest positional filters; supports --base/--all/--print/--json and forwarding args after --.",
+    "why": "So `npm run test:affected` runs only what a change touches during the edit loop instead of the full ~500-test suite."
+  },
+  {
+    "id": "0104",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/subsystems.test.ts",
+    "what": "Add the drift guard suite: drives the map's --check and --explain as a subprocess and pins selection behaviour (leaf change stays narrow, smoke floor always present, foundation/config/unowned changes expand to full).",
+    "why": "A stale map silently under-tests; this suite (in the smoke floor) fails the moment a suite is unclaimed or a subsystem's files move."
+  },
+  {
+    "id": "0105",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "package.json",
+    "what": "Add scripts: test:affected, test:affected:print, test:all, check:testmap.",
+    "why": "Expose the selective-testing runner and the map drift check as first-class commands."
+  },
+  {
+    "id": "0106",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": ".github/workflows/ci.yml",
+    "what": "Fetch full history, decide test scope (full on main pushes / dispatch full / full-test-run label / [full-ci] commit token, else affected on PRs), run the selector accordingly, and add a check:testmap gate.",
+    "why": "PRs should only test what they change while main keeps a full-suite safety net, with an explicit opt-in to force full."
+  },
+  {
+    "id": "0107",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/TESTING.md",
+    "what": "New doc: the subsystem model, the commands, the full-run fallbacks, why a hand-written map, and how to keep it honest.",
+    "why": "Selective testing needs a discoverable home that explains the map and how to maintain it."
+  },
+  {
+    "id": "0108",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Add `npm run test:affected` and `npm run check:testmap` rows to the green-today table, stating what each proves.",
+    "why": "VERIFICATION.md must stay truthful when gates change (AGENTS.md §4)."
+  },
+  {
+    "id": "0109",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "AGENTS.md",
+    "what": "Document the new commands and the tools in the repo map, and add §8 'Selective testing — run only what a change can reach'.",
+    "why": "Contributors need the selective-testing workflow and the rule to update the map when suites/files move."
+  },
+  {
+    "id": "0110",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "README.md",
+    "what": "Add `npm run test:affected` to the top command block.",
+    "why": "Surface the selective-testing entry point next to the other primary commands."
+  },
+  {
+    "id": "0111",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Append a dated note on the selective-testing map: why it's hand-written, the real deps cycles, the full-run triggers, and the subprocess-driven drift test.",
+    "why": "Session-memory conventions (AGENTS.md §7): record hard-won repo facts for future sessions."
+  },
+  {
+    "id": "0112",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Split the single `examples` subsystem into scene-aligned subsystems (ex-ui, ex-weather, ex-rover, ex-antenna, ex-orbit) with per-file source ownership and accurate deps; the pure-UI touch controls depend on nothing.",
+    "why": "So a leaf engine change pulls only the demo pieces it can actually reach — e.g. a vehicles change no longer runs the pure-UI vehicleTouch suite (19→11 suites)."
+  },
+  {
+    "id": "0113",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/TESTING.md",
+    "what": "Replace the single examples row with the five scene-split demo subsystems and explain the UI-decoupling rationale.",
+    "why": "Keep the doc in step with the map after splitting examples."
+  },
+  {
+    "id": "0114",
+    "date": "2026-09-25T02:16:46Z",
+    "type": "change",
+    "pr": 40,
+    "branch": "arena/01a0d64b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "AGENTS.md",
+    "what": "Update §8's subsystem list to name the scene-split demo subsystems and note the touch controls have no engine coupling.",
+    "why": "Contributor guidance must match the actual subsystem set."
   }
 ]
 ```

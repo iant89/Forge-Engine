@@ -5,6 +5,7 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 ```sh
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
+npm run test:affected  # run only the suites your change can reach + smoke floor (docs/TESTING.md)
 npm run check:browser  # real WebGPU render gate (headless Chromium + SwiftShader)
 npm run demo           # Vite dev server for examples/
 ```

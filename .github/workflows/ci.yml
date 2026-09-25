@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Run the full test suite regardless of what changed"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Selective testing needs the base commit to diff against; a shallow clone hides it.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -33,14 +41,44 @@ jobs:
       - name: Typecheck (engine + examples)
         run: npm run typecheck
 
-      - name: Unit tests
-        run: npm test
+      # Decide the test scope once, so the reason is visible in the log. A full run happens on pushes
+      # to main (the safety net), on a manual dispatch asking for one, when the PR carries the
+      # `full-test-run` label, or when the head commit message contains `[full-ci]`. Everything else
+      # runs only the suites the PR's diff can reach (foundation/config changes still expand to full
+      # inside the selector — see tools/test-subsystems.mjs).
+      - name: Decide test scope
+        id: scope
+        run: |
+          FULL=0
+          case "${{ github.event_name }}" in
+            push) FULL=1 ;;
+            workflow_dispatch) [ "${{ inputs.full }}" = "true" ] && FULL=1 ;;
+          esac
+          if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-test-run') }}" = "true" ]; then
+            FULL=1
+          fi
+          if git log -1 --pretty=%B | grep -qiF '[full-ci]'; then
+            FULL=1
+          fi
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "Test scope: $([ "$FULL" = "1" ] && echo FULL || echo AFFECTED)"
+
+      - name: Unit tests (affected)
+        if: steps.scope.outputs.full != '1'
+        run: node tools/affected-tests.mjs --base "${{ github.event.pull_request.base.sha }}"
+
+      - name: Unit tests (full)
+        if: steps.scope.outputs.full == '1'
+        run: node tools/affected-tests.mjs --all
 
       - name: WGSL validation
         run: npm run check:wgsl
 
       - name: Architecture boundaries
         run: npm run lint:arch
+
+      - name: Test-selection map is current
+        run: npm run check:testmap
 
       - name: Documentation honesty (capability registry, roadmap, known issues)
         run: npm run docs:check
