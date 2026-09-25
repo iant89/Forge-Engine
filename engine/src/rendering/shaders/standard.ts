@@ -435,12 +435,14 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
       // Local lights from this fragment's cluster alone. The list is in light order — the CPU
       // builder preserves it, evictions included — so the accumulation order, and therefore the
       // floating-point sum, is the unclustered path's own.
-      let base = clusterIndexOf(in.clipPos.xy, in.viewDepth) * 2i;
-      let start = i32(clusterGrid.clusterOffsets[base]);
-      let entries = i32(clusterGrid.clusterOffsets[base + 1i]);
+      // Each cluster owns clusters.stride consecutive slots (MAX_LIGHTS_PER_CLUSTER), so the lookup
+      // is one count load plus its own block — no offset table to chase first.
+      let c = clusterIndexOf(in.clipPos.xy, in.viewDepth);
+      let entries = i32(clusterGrid.counts[c]);
+      let base = c * clusters.stride;
       let limit = clusterLights.count;
       for (var k = 0i; k < entries; k = k + 1i) {
-        let index = i32(clusterGrid.indices[start + k]);
+        let index = i32(clusterGrid.indices[base + k]);
         // A stale or corrupt index must cost a light, not read another one's record.
         if (index >= 0i && index < limit) {
           color = color + lightContribution(clusterLights.lights[index], surface);

@@ -662,7 +662,7 @@ describe("clustered (Forward+) lighting", () => {
     sliceScale: ClusterUniforms.offsetOf("sliceScale"),
     slices: ClusterUniforms.offsetOf("slices"),
     lightCount: ClusterUniforms.offsetOf("lightCount"),
-    maxPerCluster: ClusterUniforms.offsetOf("maxPerCluster"),
+    stride: ClusterUniforms.offsetOf("stride"),
   };
 
   it("local lights go to the cluster grid and the uniform list keeps only the global ones", async () => {
@@ -718,38 +718,38 @@ describe("clustered (Forward+) lighting", () => {
     expect(c.f32[(CLUSTER_FIELDS.gridScale >> 2) + 1]).toBe(CLUSTER_TILES_Y);
     expect(c.f32[CLUSTER_FIELDS.slices >> 2]).toBe(CLUSTER_SLICES);
     expect(c.i32[CLUSTER_FIELDS.lightCount >> 2]).toBe(3);
-    expect(c.i32[CLUSTER_FIELDS.maxPerCluster >> 2]).toBe(MAX_LIGHTS_PER_CLUSTER);
+    expect(c.i32[CLUSTER_FIELDS.stride >> 2]).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(c.f32[CLUSTER_FIELDS.invExtent >> 2]).toBeCloseTo(1 / 320, 9);
     expect(c.f32[(CLUSTER_FIELDS.invExtent >> 2) + 1]).toBeCloseTo(1 / 180, 9);
     await f.dispose();
   });
 
-  it("uploads the grid the builder wrote: the offset array is a prefix sum and every index is a real light", async () => {
+  it("uploads the grid the builder wrote: fixed-stride blocks, every list ascending and in range", async () => {
     const f = await fixture();
     for (let i = 0; i < 12; i++) addPointLight(f, `lamp${i}`, ((i % 4) - 1.5) * 3, 1 + (i % 3), ((i >> 2) - 1) * 3, 5, 5 + i);
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
     const grid = bufferOf(f, "cluster.grid");
     const s = f.renderer.stats;
-    let offset = 0;
+    const countsAt = ClusterGridBlock.offsetOf("counts", "storage") >> 2;
+    const listAt = ClusterGridBlock.offsetOf("indices", "storage") >> 2;
+    let total = 0;
     let nonEmpty = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(grid.u32[c * 2]).toBe(offset);
-      const n = grid.u32[c * 2 + 1]!;
-      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
-      offset += n;
+      const n = grid.u32[countsAt + c]!;
+      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER); // the cap is the stride: never more
+      total += n;
       if (n > 0) nonEmpty++;
     }
-    expect(offset).toBe(s.clusterIndices);
+    expect(total).toBe(s.clusterIndices);
     expect(nonEmpty).toBe(s.clustersUsed);
-    // Lists are ascending (the shader's accumulation order must not depend on the path) and every
-    // entry addresses a light record that exists.
-    for (let k = 0; k < s.clusterIndices; k++) {
-      expect(grid.u32[(ClusterGridBlock.offsetOf("indices", "storage") >> 2) + k]!).toBeLessThan(s.clusteredLights);
-    }
+    // Cluster c owns slots [c*MAX, c*MAX+n) of the list: lists are ascending (the shader's
+    // accumulation order must not depend on the path) and every entry addresses a real light record.
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const start = (ClusterGridBlock.offsetOf("indices", "storage") >> 2) + grid.u32[c * 2]!;
-      for (let k = 1; k < grid.u32[c * 2 + 1]!; k++) expect(grid.u32[start + k]!).toBeGreaterThan(grid.u32[start + k - 1]!);
+      const n = grid.u32[countsAt + c]!;
+      const start = listAt + c * MAX_LIGHTS_PER_CLUSTER;
+      for (let k = 0; k < n; k++) expect(grid.u32[start + k]!).toBeLessThan(s.clusteredLights);
+      for (let k = 1; k < n; k++) expect(grid.u32[start + k]!).toBeGreaterThan(grid.u32[start + k - 1]!);
     }
     expect(s.lightsDropped).toBe(false);
     await f.dispose();

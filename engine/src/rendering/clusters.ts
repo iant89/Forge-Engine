@@ -10,6 +10,11 @@
  * the cost follows the lights near a pixel instead of the lights in the scene, and the cap rises from
  * 16 to `MAX_CLUSTERED_LIGHTS`.
  *
+ * A build is two steps: `prepare` (O(lights): bounding spheres, the near/far/off-frame culls, and
+ * each light's tile and slice extent) and `rasterize` (the cluster lists). The split is what lets
+ * `lightCulling.ts` upload exactly the prepared ranges and run the rasterisation on the GPU, while
+ * this file stays the reference implementation the unit tests pin and the renderer's fallback.
+ *
  * Pure math: no GPU, no scene imports, nothing allocated per call, so `tests/clusters.test.ts` pins
  * it directly. The three properties that matter:
  *
@@ -25,11 +30,11 @@
  *    is a gate rather than a hope.
  *  - **Order preserving.** Every cluster's list stays in light order, so the shader accumulates in
  *    the same order as the unclustered path and the two produce the same floating-point sum.
- *  - **Graceful at the caps.** When a cluster holds more candidates than its cap
- *    (`MAX_LIGHTS_PER_CLUSTER`, which the flat index list is sized so it never has to shrink), the
- *    *least influential* lights are dropped — by a per-light measure, so the same lights lose
- *    everywhere and a light cannot pop out at one cluster boundary and back in at the next — and the
- *    build reports it.
+ *  - **Graceful at the caps.** Every cluster owns exactly `MAX_LIGHTS_PER_CLUSTER` slots of the
+ *    light-index list (the cap *is* the stride, so the list can never run out and shrink a cluster),
+ *    and when a cluster holds more candidates than that the *least influential* lights are dropped —
+ *    by a per-light measure, so the same lights lose everywhere and a light cannot pop out at one
+ *    cluster boundary and back in at the next — and the build reports it.
  *
  * Directional lights are never clustered: they reach every pixel, so they stay in the small uniform
  * list (`MAX_LIGHTS_PER_FRAME`) where the cascade caster's `shadowIndex` already lives. Orthographic
@@ -56,11 +61,12 @@ export const MAX_CLUSTERED_LIGHTS = 256;
 /** Light indices one cluster may hold before the least influential are dropped. */
 export const MAX_LIGHTS_PER_CLUSTER = 32;
 /**
- * Entries in the flat light-index list (`ClusterGridBlock.indices`). Sized for the worst case —
- * every cluster holding its full `MAX_LIGHTS_PER_CLUSTER` — so the *cap* is what limits a cluster,
- * never the buffer: a light dropped because a buffer ran out would be a light dropped for a reason
- * nobody can see in the scene. Only the used prefix is uploaded, so a sparse frame costs nothing
- * here; the cost of the sizing is ≈ 384 KB of resident VRAM.
+ * Entries in the light-index list (`ClusterGridBlock.indices`), which is laid out as one fixed
+ * `MAX_LIGHTS_PER_CLUSTER`-slot block per cluster: cluster `c` owns
+ * `indices[c × 32 … c × 32 + counts[c])`. The cap is therefore the *stride*, and a cluster can never
+ * lose a light to a buffer running out — a light dropped for a reason nobody can see in the scene —
+ * while the list needs no prefix sum or offset table to be addressed. The price of the fixed stride
+ * is ≈ 384 KB of resident VRAM (the packed layout it replaces needed ≈ 408 KB).
  */
 export const CLUSTER_INDEX_CAPACITY = CLUSTER_COUNT * MAX_LIGHTS_PER_CLUSTER;
 
@@ -114,15 +120,15 @@ export interface ClusterBuildResult {
   live: number;
   /** Clusters with a non-empty list. */
   clustersUsed: number;
-  /** Entries written to the flat index list. */
+  /** Entries written to the light-index list (the frame's total per-cluster light slots). */
   indexCount: number;
-  /** Longest cluster list. */
+  /** Longest cluster list — what one fragment walks at worst (≤ `MAX_LIGHTS_PER_CLUSTER`). */
   maxPerCluster: number;
-  /** Per-cluster cap actually applied (`MAX_LIGHTS_PER_CLUSTER`, reduced only if the index list would overflow). */
-  capPerCluster: number;
+  /** One past the highest cluster index any live light touches (0 when nothing is live). */
+  maxCluster: number;
   /** View depth the slices span: the camera's far plane, or the deepest live light when that is nearer. */
   far: number;
-  /** True when any light was dropped — by a cap, or by exceeding `MAX_CLUSTERED_LIGHTS`. */
+  /** True when any light was dropped — by a cluster cap, or by exceeding `MAX_CLUSTERED_LIGHTS`. */
   dropped: boolean;
 }
 
@@ -167,22 +173,45 @@ function sliceOf(viewDepth: number, logNear: number, sliceScale: number): number
 }
 
 /**
+ * What the range pass (`prepare`) produced: the per-light tile/slice ranges the rasteriser consumes,
+ * plus the frame-level facts the renderer reports (and the fragment stage quantises against).
+ *
+ * This is the whole of a build that costs O(lights) rather than O(lights × covered clusters), which
+ * is why it is a separate step: `lightCulling.ts` uploads exactly these ranges and lets the GPU do
+ * the rasterisation, while the CPU rasteriser below consumes them unchanged. One range pass, two
+ * rasterisers that agree by construction.
+ */
+export interface ClusterRanges {
+  /** Local lights asked for (may exceed `MAX_CLUSTERED_LIGHTS`). */
+  requested: number;
+  /** Light records with a range (`min(requested, MAX_CLUSTERED_LIGHTS)`). */
+  lights: number;
+  /** Lights that reached at least one cluster: the rest are behind the near plane, past the far plane or off-frame. */
+  live: number;
+  /** View depth the slices span: the camera's far plane, or the deepest live light when that is nearer. */
+  far: number;
+  /** One past the highest cluster index any live light touches (0 when nothing is live). */
+  maxCluster: number;
+}
+
+/**
  * The cluster grid: reusable typed arrays plus the per-frame build.
  *
- * `clusterOffsets` and `indices` are uploaded verbatim as `ClusterGridBlock` (two u32 per cluster — offset into
- * the flat list, then the count — followed by the list itself). The cluster index convention shared
- * with the shader is `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX`.
+ * `counts` and `indices` are uploaded verbatim as `ClusterGridBlock` (one u32 per cluster, then the
+ * fixed-stride light-index blocks — `MAX_LIGHTS_PER_CLUSTER` slots each). The cluster index
+ * convention shared with the shader is `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX`.
  */
 export class ClusterGrid {
-  /** Two u32 per cluster: offset into `indices`, then the entry count. */
-  readonly clusterOffsets = new Uint32Array(CLUSTER_COUNT * 2);
-  /** Flat, cluster-major list of light indices. */
+  /** One u32 per cluster: how many entries of its block in `indices` are valid. */
+  readonly counts = new Uint32Array(CLUSTER_COUNT);
+  /** Cluster-major light-index blocks, `MAX_LIGHTS_PER_CLUSTER` slots per cluster. */
   readonly indices = new Uint32Array(CLUSTER_INDEX_CAPACITY);
 
   /** Per light: (tileX0, tileY0, slice0, tileX1, tileY1, slice1); `tileX1 < tileX0` means "not live". */
   private readonly ranges = new Int32Array(MAX_CLUSTERED_LIGHTS * 6);
   /** Per light: view-space bounding sphere (x, y, z, radius); a negative radius means "not live". */
   private readonly spheres = new Float32Array(MAX_CLUSTERED_LIGHTS * 4);
+  /** Per light: how a cluster ranks it when it has to drop one (`intensity × colour luma`). */
   private readonly influence = new Float32Array(MAX_CLUSTERED_LIGHTS);
   private readonly candidates = new Uint32Array(CLUSTER_COUNT);
   private readonly cursor = new Uint32Array(CLUSTER_COUNT);
@@ -190,18 +219,21 @@ export class ClusterGrid {
   private readonly centre = new Vec3();
   private readonly viewCentre = new Vec3();
 
+  /** Full build: the range pass, then the CPU rasterisation. Writes `counts`/`indices`; allocates nothing. */
+  build(lights: readonly ClusterLightSource[], params: ClusterCameraParams, requested = lights.length): ClusterBuildResult {
+    return this.rasterize(this.prepare(lights, params, requested));
+  }
+
   /**
-   * Rebuild every cluster list for one frame. Writes into `clusterOffsets`/`indices`; allocates nothing.
+   * The range pass: view-space bounding sphere per light, the near/far/off-frame culls, and the
+   * tile/slice extent of every light that survives them. Writes the class's scratch arrays only —
+   * this is what the GPU path uploads (via {@link packRanges}) instead of recomputing in float32.
    *
    * `requested` is how many of `lights` are valid — the renderer keeps a high-water-mark array and
    * passes the frame's count rather than copying a slice of it every frame.
    */
-  build(lights: readonly ClusterLightSource[], params: ClusterCameraParams, requested = lights.length): ClusterBuildResult {
+  prepare(lights: readonly ClusterLightSource[], params: ClusterCameraParams, requested = lights.length): ClusterRanges {
     const count = Math.min(requested, MAX_CLUSTERED_LIGHTS);
-    this.clusterOffsets.fill(0);
-    this.candidates.fill(0);
-    this.unordered.fill(0);
-
     const near = Math.max(1e-4, Number.isFinite(params.near) ? params.near : 0.1);
     const nearEdge = near * (1 + 1e-4);
     const farPlane = Math.max(nearEdge * 2, Number.isFinite(params.far) ? params.far : nearEdge * 2);
@@ -249,25 +281,14 @@ export class ClusterGrid {
       live++;
     }
 
-    const result: ClusterBuildResult = {
-      requested,
-      lights: count,
-      live,
-      clustersUsed: 0,
-      indexCount: 0,
-      maxPerCluster: 0,
-      capPerCluster: MAX_LIGHTS_PER_CLUSTER,
-      far: near,
-      dropped: requested > count,
-    };
-    if (live === 0) return result;
+    if (live === 0) return { requested, lights: count, live: 0, far: near, maxCluster: 0 };
 
     const clusterFar = Math.min(farPlane, Math.max(deepest, nearEdge * 1.001));
     const logNear = Math.log(near);
     const sliceScale = CLUSTER_SLICES / Math.max(1e-6, Math.log(clusterFar / near));
-    result.far = clusterFar;
 
     // 2. Tile and slice ranges.
+    let maxCluster = 0;
     for (let i = 0; i < count; i++) {
       const s = i * 4;
       const radius = this.spheres[s + 3]!;
@@ -293,6 +314,7 @@ export class ClusterGrid {
         this.ranges[b + 1] = 0;
         this.ranges[b + 3] = CLUSTER_TILES_X - 1;
         this.ranges[b + 4] = CLUSTER_TILES_Y - 1;
+        maxCluster = Math.max(maxCluster, maxClusterOf(slice1, CLUSTER_TILES_Y - 1, CLUSTER_TILES_X - 1));
         continue;
       }
       // Both depths of the box, not only the nearest. `ndc.x = proj00·x/z` moves *toward the centre*
@@ -316,17 +338,49 @@ export class ClusterGrid {
       // once the extent is known, and it keeps the index list proportional to what is visible.
       if (x1 < -1 - 2 * TILE_EPS || x0 > 1 + 2 * TILE_EPS || y1 < -1 - 2 * TILE_EPS || y0 > 1 + 2 * TILE_EPS) {
         this.markDead(i);
-        result.live = --live;
+        live--;
         continue;
       }
-      this.ranges[b] = tileOf(ndcToU(x0) - TILE_EPS, CLUSTER_TILES_X);
-      this.ranges[b + 3] = tileOf(ndcToU(x1) + TILE_EPS, CLUSTER_TILES_X);
-      this.ranges[b + 1] = tileOf(ndcToV(y1) - TILE_EPS, CLUSTER_TILES_Y);
-      this.ranges[b + 4] = tileOf(ndcToV(y0) + TILE_EPS, CLUSTER_TILES_Y);
+      const tileX0 = tileOf(ndcToU(x0) - TILE_EPS, CLUSTER_TILES_X);
+      const tileX1 = tileOf(ndcToU(x1) + TILE_EPS, CLUSTER_TILES_X);
+      const tileY0 = tileOf(ndcToV(y1) - TILE_EPS, CLUSTER_TILES_Y);
+      const tileY1 = tileOf(ndcToV(y0) + TILE_EPS, CLUSTER_TILES_Y);
+      this.ranges[b] = tileX0;
+      this.ranges[b + 3] = tileX1;
+      this.ranges[b + 1] = tileY0;
+      this.ranges[b + 4] = tileY1;
+      maxCluster = Math.max(maxCluster, maxClusterOf(slice1, tileY1, tileX1));
     }
+    return { requested, lights: count, live, far: clusterFar, maxCluster };
+  }
 
-    // 3. Candidate counts, then the per-cluster cap the flat index list can actually afford. The
-    //    traversal is inlined (no callback) because it runs twice per light per frame.
+  /**
+   * The rasterisation (the CPU rasteriser): candidate counts, the per-cluster cap, and the lists
+   * themselves, in light order with the least influential lights evicted once a cluster is full.
+   *
+   * `tests/clusters.test.ts` pins this against conservation; `lightCulling.ts` transcribes the same
+   * rules into the compute shader the GPU path runs, and the browser gate A/Bs the two on pixels.
+   */
+  rasterize(rangePass: ClusterRanges): ClusterBuildResult {
+    const count = rangePass.lights;
+    const result: ClusterBuildResult = {
+      requested: rangePass.requested,
+      lights: count,
+      live: rangePass.live,
+      clustersUsed: 0,
+      indexCount: 0,
+      maxPerCluster: 0,
+      maxCluster: rangePass.maxCluster,
+      far: rangePass.far,
+      dropped: rangePass.requested > count,
+    };
+    this.counts.fill(0);
+    this.candidates.fill(0);
+    this.unordered.fill(0);
+    if (rangePass.live === 0) return result;
+
+    // 3. Candidate counts. The traversal is inlined (no callback) because it runs twice per light
+    //    per frame.
     for (let i = 0; i < count; i++) {
       const b = i * 6;
       const x0 = this.ranges[b]!;
@@ -343,19 +397,16 @@ export class ClusterGrid {
     }
     let clustersUsed = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) if ((this.candidates[c] ?? 0) > 0) clustersUsed++;
-    // `capFit` keeps the worst case (every used cluster full) inside the buffer, without a loop.
-    const capFit = clustersUsed > 0 ? Math.floor(CLUSTER_INDEX_CAPACITY / clustersUsed) : MAX_LIGHTS_PER_CLUSTER;
-    const cap = Math.max(1, Math.min(MAX_LIGHTS_PER_CLUSTER, capFit));
-    result.capPerCluster = cap;
 
-    // 4. Cluster-major offsets.
+    // 4. Per-cluster counts and cursors. Each cluster owns `MAX_LIGHTS_PER_CLUSTER` slots from the
+    //    start, so there is no prefix sum to run and no capacity arithmetic to shrink the cap with.
+    const cap = MAX_LIGHTS_PER_CLUSTER;
     let offset = 0;
     let maxPerCluster = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) {
       const n = Math.min(this.candidates[c] ?? 0, cap);
-      this.clusterOffsets[c * 2] = offset;
-      this.clusterOffsets[c * 2 + 1] = n;
-      this.cursor[c] = offset;
+      this.counts[c] = n;
+      this.cursor[c] = c * cap;
       offset += n;
       if (n > maxPerCluster) maxPerCluster = n;
     }
@@ -377,8 +428,8 @@ export class ClusterGrid {
           const row = (s * CLUSTER_TILES_Y + y) * CLUSTER_TILES_X;
           for (let x = x0; x <= x1; x++) {
             const c = row + x;
-            const start = this.clusterOffsets[c * 2]!;
-            const end = start + this.clusterOffsets[c * 2 + 1]!;
+            const start = c * cap;
+            const end = start + this.counts[c]!;
             const at = this.cursor[c]!;
             if (at < end) {
               this.indices[at] = i;
@@ -405,22 +456,66 @@ export class ClusterGrid {
     //    its floating-point sum) never depends on which lights were dropped.
     for (let c = 0; c < CLUSTER_COUNT; c++) {
       if (!this.unordered[c]) continue;
-      const start = this.clusterOffsets[c * 2] ?? 0;
-      this.indices.subarray(start, start + (this.clusterOffsets[c * 2 + 1] ?? 0)).sort();
+      const start = c * cap;
+      this.indices.subarray(start, start + this.counts[c]!).sort();
     }
     return result;
   }
 
+  /**
+   * The prepared ranges, packed one u32 per light for the GPU rasteriser (`lightCulling.ts`):
+   *
+   * ```
+   * bits  0-3  tileX0   bits  4-7  tileX1   bits 8-10  tileY0   bits 11-13  tileY1
+   * bits 14-18 slice0   bits 19-23 slice1   bit 24    live (0 = this light reaches no cluster)
+   * ```
+   *
+   * `out` must hold `MAX_CLUSTERED_LIGHTS` entries; only the first `ClusterRanges.lights` are valid.
+   * The rasteriser tests a cluster against one packed key with three range comparisons — the same
+   * comparisons the loops above make, on the same numbers, so the two paths cannot disagree about
+   * which clusters a light reaches.
+   */
+  packRanges(out: Uint32Array, rangePass: ClusterRanges): void {
+    for (let i = 0; i < rangePass.lights; i++) {
+      const b = i * 6;
+      const x0 = this.ranges[b]!;
+      const x1 = this.ranges[b + 3]!;
+      // `tileX1 < tileX0` is the dead marker (`markDead`), and a dead light must match no cluster —
+      // packing it as zeros with the live bit clear is exactly that.
+      if (x1 < x0) {
+        out[i] = 0;
+        continue;
+      }
+      out[i] =
+        (x0 & 0xf) |
+        ((x1 & 0xf) << 4) |
+        ((this.ranges[b + 1]! & 0x7) << 8) |
+        ((this.ranges[b + 4]! & 0x7) << 11) |
+        ((this.ranges[b + 2]! & 0x1f) << 14) |
+        ((this.ranges[b + 5]! & 0x1f) << 19) |
+        (1 << 24);
+    }
+  }
+
+  /** Influence per light, the rank the rasteriser evicts by (indexed like `packRanges`). */
+  influenceOf(i: number): number {
+    return this.influence[i] ?? 0;
+  }
+
   /** The lights in one cluster, as a view of `indices` (tests, debug overlays). */
   lightsIn(tileX: number, tileY: number, slice: number): Uint32Array {
-    const c = (slice * CLUSTER_TILES_Y + tileY) * CLUSTER_TILES_X + tileX;
-    const start = this.clusterOffsets[c * 2] ?? 0;
-    return this.indices.subarray(start, start + (this.clusterOffsets[c * 2 + 1] ?? 0));
+    return this.lightsOf(ClusterGrid.clusterIndex(tileX, tileY, slice));
+  }
+
+  /** The lights in one cluster by index. */
+  lightsOf(cluster: number): Uint32Array {
+    const start = cluster * MAX_LIGHTS_PER_CLUSTER;
+    return this.indices.subarray(start, start + (this.counts[cluster] ?? 0));
   }
 
   /** Cluster index for a tile/slice triple — the convention the fragment stage computes. */
   static clusterIndex(tileX: number, tileY: number, slice: number): number {
-    return (slice * CLUSTER_TILES_Y + tileY) * CLUSTER_TILES_X + tileX;
+    return maxClusterOf(slice, tileY, tileX);
   }
 
   /** Mark a light as contributing to no cluster (empty range, negative radius). */
@@ -434,7 +529,11 @@ export class ClusterGrid {
     this.ranges[b + 5] = 0;
     this.spheres[i * 4 + 3] = -1;
   }
+}
 
+/** `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX` — the shared cluster index. */
+function maxClusterOf(slice: number, tileY: number, tileX: number): number {
+  return (slice * CLUSTER_TILES_Y + tileY) * CLUSTER_TILES_X + tileX;
 }
 
 /** The view-depth slice a fragment at `viewDepth` belongs to (the shader's own expression, in f64). */

@@ -257,7 +257,7 @@ describe("clustered lighting structs (Phase 13.3)", () => {
 
   it("sizes both storage blocks from the grid constants, with nothing hardcoded", () => {
     expect(ClusterLightBlock.byteSize("storage")).toBe(16 + MAX_CLUSTERED_LIGHTS * LightUniforms.byteSize("storage"));
-    expect(ClusterGridBlock.byteSize("storage")).toBe(CLUSTER_COUNT * 8 + CLUSTER_INDEX_CAPACITY * 4);
+    expect(ClusterGridBlock.byteSize("storage")).toBe(CLUSTER_COUNT * 4 + CLUSTER_INDEX_CAPACITY * 4);
     // The grid is far past the 64 KiB uniform binding limit, which is why it is storage-bound; the
     // light block is storage too, so one binding style covers both and neither can grow into a limit.
     expect(ClusterGridBlock.byteSize("storage")).toBeGreaterThan(64 * 1024);

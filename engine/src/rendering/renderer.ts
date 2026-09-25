@@ -34,7 +34,7 @@ import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES } from "./uniforms.js";
-import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, MAX_CLUSTERED_LIGHTS, type ClusterBuildResult, type ClusterLightSource } from "./clusters.js";
+import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource } from "./clusters.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
@@ -202,7 +202,7 @@ const HALF_SKY_KEY = 0x7bef;
  * struct change cannot silently desynchronise the uploads (docs/RENDERING.md §4b).
  */
 const CLUSTER_LIGHTS_FIELD = ClusterLightBlock.field("lights", "storage");
-const CLUSTER_OFFSETS_FIELD = ClusterGridBlock.field("clusterOffsets", "storage");
+const CLUSTER_COUNTS_FIELD = ClusterGridBlock.field("counts", "storage");
 const CLUSTER_INDICES_FIELD = ClusterGridBlock.field("indices", "storage");
 
 /** Sun direction when neither the sky settings nor a directional light provide one. */
@@ -1438,6 +1438,24 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
+   * The quantisation the fragment stage looks its cluster up with. The GPU rasteriser
+   * (`rendering/lightCulling.ts`) reads the same block, so both paths quantise identically by
+   * construction: `sliceScale` comes from the range pass's own slice span, never from the camera's
+   * far plane.
+   */
+  private writeClusterUniforms(build: ClusterBuildResult, locals: number, near: number, renderWidth: number, renderHeight: number): void {
+    const a = this.clusterAccessor;
+    a.setVec2("invExtent", 1 / Math.max(1, renderWidth), 1 / Math.max(1, renderHeight));
+    a.setVec2("gridScale", CLUSTER_TILES_X, CLUSTER_TILES_Y);
+    a.setF32("near", near);
+    a.setF32("logNear", Math.log(near));
+    a.setF32("sliceScale", CLUSTER_SLICES / Math.max(1e-6, Math.log(Math.max(build.far, near * 1.001) / near)));
+    a.setF32("slices", CLUSTER_SLICES);
+    a.setI32("lightCount", locals);
+    a.setI32("stride", MAX_LIGHTS_PER_CLUSTER);
+  }
+
+  /**
    * Build and upload this frame's cluster grid (Phase 13.3, docs/RENDERING.md §4b).
    *
    * `writeLights` has already staged the local lights; this hands them to the grid, uploads the two
@@ -1454,25 +1472,20 @@ export class Renderer implements RenderFrameContext {
       locals,
     );
     this.clusterBuild = build;
-    const a = this.clusterAccessor;
-    a.setVec2("invExtent", 1 / Math.max(1, renderWidth), 1 / Math.max(1, renderHeight));
-    a.setVec2("gridScale", CLUSTER_TILES_X, CLUSTER_TILES_Y);
-    a.setF32("near", near);
-    a.setF32("logNear", Math.log(near));
-    a.setF32("sliceScale", CLUSTER_SLICES / Math.max(1e-6, Math.log(Math.max(build.far, near * 1.001) / near)));
-    a.setF32("slices", CLUSTER_SLICES);
-    a.setI32("lightCount", locals);
-    a.setI32("maxPerCluster", build.capPerCluster);
+    this.writeClusterUniforms(build, locals, near, renderWidth, renderHeight);
 
     const q = this.device.device.queue;
     q.writeBuffer(this.clusterBuffer!, 0, gpuSource(this.clusterBytes.bytes.subarray(0, this.clusterBytes.byteLength)));
     // The light records are a fixed-stride array: upload the header plus the records that exist.
     q.writeBuffer(this.clusterLightBuffer!, 0, gpuSource(this.clusterLightBytes.bytes.subarray(0, CLUSTER_LIGHTS_FIELD.offset + locals * CLUSTER_LIGHTS_FIELD.stride!)));
-    // Every cluster's count can change, so the whole offset array goes; the index list only up to what
-    // was written (a full 384 KB upload for a scene with three lamps would be pure waste).
-    q.writeBuffer(this.clusterGridBuffer!, CLUSTER_OFFSETS_FIELD.offset, gpuSource(this.clusterGrid.clusterOffsets));
-    if (build.indexCount > 0) {
-      q.writeBuffer(this.clusterGridBuffer!, CLUSTER_INDICES_FIELD.offset, gpuSource(this.clusterGrid.indices.subarray(0, build.indexCount)));
+    // Every cluster's list length can change (a cluster no light reaches now held a list last frame),
+    // so all of `counts` goes every frame. The light-index blocks are fixed-stride, so only the
+    // prefix a light can possibly have written — the highest cluster any live light touches — needs
+    // uploading (a full 384 KB for a scene with three lamps would be pure waste).
+    q.writeBuffer(this.clusterGridBuffer!, CLUSTER_COUNTS_FIELD.offset, gpuSource(this.clusterGrid.counts));
+    const entries = Math.min(CLUSTER_INDEX_CAPACITY, (build.maxCluster + 1) * MAX_LIGHTS_PER_CLUSTER);
+    if (entries > 0) {
+      q.writeBuffer(this.clusterGridBuffer!, CLUSTER_INDICES_FIELD.offset, gpuSource(this.clusterGrid.indices.subarray(0, entries)));
     }
 
     const s = this.stats;

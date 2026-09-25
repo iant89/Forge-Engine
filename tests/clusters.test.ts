@@ -87,7 +87,9 @@ describe("cluster grid", () => {
     expect(CLUSTER_TILES_Y).toBe(8);
     expect(CLUSTER_SLICES).toBe(24);
     expect(CLUSTER_COUNT).toBe(CLUSTER_TILES_X * CLUSTER_TILES_Y * CLUSTER_SLICES);
-    expect(new ClusterGrid().clusterOffsets.length).toBe(CLUSTER_COUNT * 2);
+    const grid = new ClusterGrid();
+    expect(grid.counts.length).toBe(CLUSTER_COUNT);
+    expect(grid.indices.length).toBe(CLUSTER_INDEX_CAPACITY);
   });
 
   it("puts a light in every cluster a point within its range looks up (conservation)", () => {
@@ -181,8 +183,8 @@ describe("cluster grid", () => {
     for (let i = 0; i < 40; i++) lights.push(light(((i % 8) - 3.5) * 2.5, 1 + (i % 5), ((i >> 3) - 2) * 3, 7, 5 + i));
     grid.build(lights, camera());
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const start = grid.clusterOffsets[c * 2]!;
-      const n = grid.clusterOffsets[c * 2 + 1]!;
+      const start = c * MAX_LIGHTS_PER_CLUSTER;
+      const n = grid.counts[c]!;
       for (let k = 1; k < n; k++) {
         expect(grid.indices[start + k]!, `cluster ${c} entry ${k}`).toBeGreaterThan(grid.indices[start + k - 1]!);
       }
@@ -238,7 +240,6 @@ describe("cluster grid", () => {
     for (let i = 0; i < MAX_LIGHTS_PER_CLUSTER + 8; i++) lights.push(light(0, 1, 0, 6, 1 + i));
     const result = grid.build(lights, camera());
     expect(result.maxPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
-    expect(result.capPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(result.dropped).toBe(true);
     // The survivors are the brightest, by intensity × colour luma — not the last 32 in list order.
     const centre = clusterOfPoint(camera(), new Vec3(0, 1, 0), result.far);
@@ -258,17 +259,18 @@ describe("cluster grid", () => {
     const result = grid.build(lights, camera());
     expect(CLUSTER_INDEX_CAPACITY).toBe(CLUSTER_COUNT * MAX_LIGHTS_PER_CLUSTER);
     expect(result.clustersUsed).toBe(CLUSTER_COUNT);
-    expect(result.capPerCluster).toBe(MAX_LIGHTS_PER_CLUSTER);
     expect(result.indexCount).toBe(CLUSTER_INDEX_CAPACITY); // the worst case fits, exactly
     expect(result.dropped).toBe(true);
-    // The offsets are a prefix sum of the counts, and every count respects the cap.
-    let offset = 0;
+    // Every cluster owns its MAX_LIGHTS_PER_CLUSTER slots, fills them to the cap and no further, and
+    // the blocks are the whole list: the cap is the stride, so nothing can be lost to the buffer.
+    let full = 0;
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(grid.clusterOffsets[c * 2]).toBe(offset);
-      expect(grid.clusterOffsets[c * 2 + 1]!).toBeLessThanOrEqual(result.capPerCluster);
-      offset += grid.clusterOffsets[c * 2 + 1]!;
+      const n = grid.counts[c]!;
+      expect(n).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
+      full += n;
     }
-    expect(offset).toBe(result.indexCount);
+    expect(full).toBe(result.indexCount);
+    expect(result.maxCluster).toBe(CLUSTER_COUNT - 1);
   });
 
   it("truncates at MAX_CLUSTERED_LIGHTS and reports what it was asked for", () => {
@@ -288,7 +290,7 @@ describe("cluster grid", () => {
     expect(empty).toMatchObject({ requested: 0, lights: 0, live: 0, clustersUsed: 0, indexCount: 0, maxPerCluster: 0 });
     grid.build([light(0, 1, 0)], camera());
     expect(grid.build([], camera()).clustersUsed).toBe(0);
-    for (let c = 0; c < CLUSTER_COUNT; c++) expect(grid.clusterOffsets[c * 2 + 1]).toBe(0);
+    for (let c = 0; c < CLUSTER_COUNT; c++) expect(grid.counts[c]).toBe(0);
   });
 
   it("is deterministic and allocation-free: the same input builds the same bytes twice", () => {
@@ -299,15 +301,15 @@ describe("cluster grid", () => {
     const ra = a.build(lights, params);
     const rb = b.build(lights, params);
     expect(ra).toEqual(rb);
-    expect([...a.clusterOffsets]).toEqual([...b.clusterOffsets]);
-    expect([...a.indices.subarray(0, ra.indexCount)]).toEqual([...b.indices.subarray(0, rb.indexCount)]);
+    expect([...a.counts]).toEqual([...b.counts]);
+    expect([...a.indices]).toEqual([...b.indices]);
     // Rebuilding the same grid does not drift (a stale cursor would show up here).
-    const offsetsBefore = [...a.clusterOffsets];
-    const indicesBefore = [...a.indices.subarray(0, ra.indexCount)];
+    const countsBefore = [...a.counts];
+    const indicesBefore = [...a.indices];
     const again = a.build(lights, params);
     expect(again).toEqual(ra);
-    expect([...a.clusterOffsets]).toEqual(offsetsBefore);
-    expect([...a.indices.subarray(0, again.indexCount)]).toEqual(indicesBefore);
+    expect([...a.counts]).toEqual(countsBefore);
+    expect([...a.indices]).toEqual(indicesBefore);
   });
 
   it("degenerate input does not throw or produce NaN geometry", () => {
@@ -316,8 +318,8 @@ describe("cluster grid", () => {
     expect(Number.isFinite(result.far)).toBe(true);
     expect(result.indexCount).toBeGreaterThanOrEqual(0);
     for (let c = 0; c < CLUSTER_COUNT; c++) {
-      expect(Number.isFinite(grid.clusterOffsets[c * 2]!)).toBe(true);
-      expect(grid.clusterOffsets[c * 2 + 1]!).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
+      expect(Number.isFinite(grid.counts[c]!)).toBe(true);
+      expect(grid.counts[c]!).toBeLessThanOrEqual(MAX_LIGHTS_PER_CLUSTER);
     }
     // A zero/near-zero range still lands in the cluster that contains it.
     expect(grid.build([light(0, 1, 0, 0)], camera()).live).toBe(1);

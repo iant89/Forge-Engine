@@ -276,7 +276,7 @@ export const ClusterUniforms = new StructDef("ClusterUniforms", [
   { name: "sliceScale", type: f32, comment: "CLUSTER_SLICES / ln(far / near)" },
   { name: "slices", type: f32 },
   { name: "lightCount", type: i32, comment: "valid records in ClusterLightBlock.lights" },
-  { name: "maxPerCluster", type: i32, comment: "the cap applied this frame (see ClusterBuildResult)" },
+  { name: "stride", type: i32, comment: "MAX_LIGHTS_PER_CLUSTER: slots per cluster block in ClusterGridBlock.indices" },
   { name: "_pad", type: vec2 },
 ]);
 
@@ -296,14 +296,17 @@ export const ClusterLightBlock = new StructDef("ClusterLightBlock", [
 ]);
 
 /**
- * The grid itself, bound as group 0 binding 8 (`var<storage, read>`): two u32 per cluster — the
- * offset of its list in `indices`, then its length — followed by the flat cluster-major list of
- * light indices. `rendering/clusters.ts` writes both arrays verbatim; cluster `c` is
- * `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX`.
+ * The grid itself, bound as group 0 binding 8 (`var<storage, read>`): one u32 per cluster — how many
+ * of its block's slots are valid — followed by the light-index blocks themselves, `stride`
+ * (i.e. `MAX_LIGHTS_PER_CLUSTER`) slots per cluster. Cluster `c`'s list is
+ * `indices[c × stride … c × stride + counts[c])`, so the fragment stage needs no offset table and
+ * the cap is the stride: a cluster can never lose a light to a buffer running out. Both arrays are
+ * written verbatim by `rendering/clusters.ts` (or by the compute rasteriser in
+ * `rendering/lightCulling.ts`); cluster `c` is `(slice × CLUSTER_TILES_Y + tileY) × CLUSTER_TILES_X + tileX`.
  */
 export const ClusterGridBlock = new StructDef("ClusterGridBlock", [
-  { name: "clusterOffsets", type: arrayOf(u32, CLUSTER_COUNT * 2), comment: "per cluster: offset into `indices`, then count" },
-  { name: "indices", type: arrayOf(u32, CLUSTER_INDEX_CAPACITY), comment: "flat light-index list, cluster-major" },
+  { name: "counts", type: arrayOf(u32, CLUSTER_COUNT), comment: "per cluster: valid entries in its block of `indices`" },
+  { name: "indices", type: arrayOf(u32, CLUSTER_INDEX_CAPACITY), comment: "cluster-major light-index blocks, `stride` slots each" },
 ]);
 
 export const RENDERING_STRUCTS = {
