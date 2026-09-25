@@ -2219,6 +2219,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Dated entry for 13.4: the three-stage cost curves, why the counting pass stays on the CPU, the disposed-culler bug (symptom, root cause, fix, and the audits it cost), the two new gate assertions, and the Tint parenthesisation rule.",
     "why": "The culler bug took a day of pixel archaeology because the symptom (darker pixels in tile-shaped bands) pointed at the fill's output; the next session should start from \"assert the pass is in the frame\" instead."
+  },
+  {
+    "id": "0173",
+    "date": "2026-09-25T18:05:00Z",
+    "type": "change",
+    "pr": 42,
+    "branch": "arena/01a0d87a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The stacked-rig visibility check now compares idle -> rig (`compareLuma(\"fill-cpu\", \"stacked-cpu\")`), so `brighter` counts the light the rig adds, plus a new assertion that the rig cannot remove light (`darker === 0`).",
+    "why": "`compareLuma(a, b)` counts *b* brighter than *a*; the reversed arguments made the rig's own 2,414 px of light report as `darker`, so the gate threw `the stacked rig lit only 0 px` on a rig that was working — a false product failure that hid the real check (the per-cluster eviction's cpu-vs-gpu agreement) behind it. The section had never run before: the many-light assertion upstream threw first, every time the culler bug was present."
   }
 ]
 ```

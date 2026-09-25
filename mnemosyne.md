@@ -308,3 +308,18 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   fails on that shape on the CPU side. See the 13.3 entry above for the reserved-word version of this
   lesson: **anything the shader compiler can reject must get a CPU-side rule, or the browser gate is the
   only thing between it and a black canvas.**
+
+### 2026-09-25 — a gate section that had never run (stacked rig, and how it lied)
+
+- **The stacked-rig section of `check:browser` failed for a day's worth of runs with a message about the
+  product, and the bug was in the gate.** `compareLuma(a, b)` counts *b* brighter than *a*; the section
+  asked for `compareLuma("stacked-cpu", "fill-cpu").brighter` — i.e. it measured how much brighter the
+  *idle* fixture is than the rig — and threw `the stacked rig lit only 0 px` while the rig was lighting
+  2,414 px (the same 2,414 it was counting as `darker`). The section was unreachable until 13.4's culler
+  bug was fixed, because the many-light assertion upstream threw first on every run: **a check that has
+  never executed is not a check.** When writing a pixel comparison, write the direction in the variable
+  name (`rigVsIdle`) and assert the *shape* of the expected change (the rig adds light, never removes it)
+  — that pairing is what catches a reversed argument instantly instead of after a five-minute gate run.
+- The quick way to settle "is the rig visible": a probe that grabs the canvas pixels directly and diffs
+  against idle (2,458 px brighter, max 157, at 40 lamps; 2,022 at 16 lamps) — five minutes end to end and
+  it made the direction bug obvious on the first run.
