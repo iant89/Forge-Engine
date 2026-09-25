@@ -427,3 +427,9 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `Download failure, code=1`. Read the new gate arm statically, run the mock-equivalent assertions in
   `tests/frame.test.ts`, and let the PR's advisory WebGPU job be the real-device evidence — that is
   what it is for. Do not weaken the arm to make a local run green.
+- **The advisory job is not a formality — it is the only device that ever runs this code.** The new
+  13.6 gate arm never ran on this sandbox (no browser binary, no CDN) and still came back green from
+  CI on the first push: the workflow posts the gate's own tail as a PR comment
+  (`gh api repos/<owner>/<repo>/issues/<pr>/comments`), which is where the `check:browser passed`
+  line and the arm's numbers live when the actions log download fails with `EOF` (it does, often).
+  Read the comment, not the log; `--edit-last` means it always holds the newest run.

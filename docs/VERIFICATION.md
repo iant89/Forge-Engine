@@ -81,7 +81,10 @@ without that directory (or an environment that cannot reach the Playwright CDN) 
 the command the tool prints — `npx playwright@<installed playwright-core version> install --with-deps
 chromium` — and there is nothing to read into a NOT RUN beyond "this machine did not test the browser
 path". The advisory WebGPU CI job is where a real-device gate belongs, so a change whose browser arm
-never ran locally must say so rather than claim the arm passed.
+never ran locally must say so rather than claim the arm passed — as Phase 13.6 did: its sandbox run
+was NOT RUN, and the same commit's advisory job passed the whole gate on SwiftShader
+(`check:browser passed (real WebGPU, headless Chromium + SwiftShader) — gpu: adapter ok (google /
+swiftshader)`, 17 minutes), the Phase 13.6 arm included.
 
 ### The Mars Showcase poll on a SwiftShader-only sandbox
 
