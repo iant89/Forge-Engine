@@ -396,6 +396,12 @@ export class TerrainChunk {
   taskEpoch = 0;
   /** Estimated resident bytes once ready (also reserved while a worker generation is in flight). */
   residentBytes = 0;
+  /**
+   * Skirt depth (metres) baked into this chunk's tile. Owned by the streaming world
+   * (`TerrainWorldOptions.skirtDepth`) rather than passed per call, because a chunk can remesh at a
+   * different LOD and must keep the same skirts across remeshes.
+   */
+  skirtDepth = 8.0;
 
   constructor(cx: number, cz: number, size: number, resolution: number, lod = 0) {
     this.key = chunkCoordKey(cx, cz);
@@ -417,6 +423,7 @@ export class TerrainChunk {
         resolution: this.resolution,
         lod: this.lod,
         geomorphAlpha,
+        skirtDepth: this.skirtDepth,
       },
       pipeline,
       seed,
@@ -435,6 +442,7 @@ export class TerrainChunk {
       size: this.size,
       lod: this.lod,
       geomorphAlpha,
+      skirtDepth: this.skirtDepth,
       cell,
     });
     this.geomorphAlpha = geomorphAlpha;

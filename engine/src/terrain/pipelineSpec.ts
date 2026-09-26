@@ -18,7 +18,7 @@
  * The spec is part of a chunk's cache key (Phase 10.3) for the same reason.
  */
 
-import { UsageError } from "../core/errors.js";
+import { InlineOnlyError, UsageError } from "../core/errors.js";
 import {
   BiomeGenerator,
   CraterGenerator,
@@ -37,6 +37,7 @@ import {
   ThermalErosionGenerator,
   ValleyCarvingGenerator,
 } from "./realistic.js";
+import { MarsTerrainStage } from "./mars/stage.js";
 
 export type TerrainStageKind =
   | "height"
@@ -50,9 +51,18 @@ export type TerrainStageKind =
   | "valley-carving"
   | "detail-noise"
   | "climate-biome"
-  | "realistic-scatter";
+  | "realistic-scatter"
+  | "mars";
 
-export type TerrainStageOptions = Record<string, number | boolean>;
+/**
+ * One option value in a spec.
+ *
+ * Scalars plus `string`: a stage whose configuration cannot itself travel to a worker uses a single
+ * compact identity string (see the Mars stage's `identity`) so its cache key is still exact.
+ */
+export type TerrainStageOptionValue = number | boolean | string;
+
+export type TerrainStageOptions = Record<string, TerrainStageOptionValue>;
 
 export interface TerrainStageSpec {
   kind: TerrainStageKind;
@@ -84,6 +94,23 @@ function codec<P extends object>(
     matches,
     create: (options) => construct(options as P),
   };
+}
+
+/**
+ * The scalar surface the Mars codec reads off `MarsTerrainStage` (its identity fields). Declared
+ * here rather than reusing `MarsTerrainStageOptions` because a codec's `fields` are the *spec*
+ * keys, not constructor options — the stage's heavy configuration (params, field cache) is covered
+ * by the `identity` string instead.
+ */
+interface MarsStageSpecFields {
+  identity: string;
+  seed: number;
+  radius: number;
+  siteLatDeg: number;
+  siteLonDeg: number;
+  siteHeadingDeg: number;
+  curvatureCompensation: boolean;
+  detail: boolean;
 }
 
 /** The stage kinds the worker can reconstruct, with the options each one carries. */
@@ -132,6 +159,23 @@ export const TERRAIN_STAGE_CODECS: readonly StageCodec[] = [
   codec("detail-noise", ["amplitude", "frequency", "octaves", "minSlope", "blend"], (s) => s instanceof DetailNoiseGenerator, (options) => new DetailNoiseGenerator(options)),
   codec("climate-biome", ["seaLevel", "snowLine", "lapseRate", "moistureFrequency"], (s) => s instanceof ClimateBiomeGenerator, (options) => new ClimateBiomeGenerator(options)),
   codec("realistic-scatter", ["countPerChunk", "maxSlope", "minHeight", "maxHeight"], (s) => s instanceof RealisticScatterGenerator, (options) => new RealisticScatterGenerator(options)),
+  // The Mars stage is describable — its `identity` is a cache-key component, so a pipeline hash must
+  // not depend on the stage instance — but it is not *reconstructable*: its terrain samples a Stage A
+  // field cache that only exists on the main thread, and a stage rebuilt from this spec in a worker
+  // would silently produce a planet with no simulated-erosion correction. `create` therefore throws
+  // `InlineOnlyError`, which the scheduler turns into an inline run on the main thread using the live
+  // instance (see docs/MARS-TERRAIN.md). `TerrainWorld { syncGeneration: true }` skips the hop.
+  codec<MarsStageSpecFields>(
+    "mars",
+    ["identity", "seed", "radius", "siteLatDeg", "siteLonDeg", "siteHeadingDeg", "curvatureCompensation", "detail"],
+    (s) => s instanceof MarsTerrainStage,
+    () => {
+      throw new InlineOnlyError(
+        "the mars terrain stage samples a Stage A field cache held on the main thread; " +
+          "run the terrain pipeline inline (TerrainWorld { syncGeneration: true })",
+      );
+    },
+  ),
 ];
 
 const CODEC_BY_KIND = new Map<TerrainStageKind, StageCodec>(TERRAIN_STAGE_CODECS.map((c) => [c.kind, c]));
@@ -155,7 +199,7 @@ function kindOf(stage: TerrainStage): TerrainStageKind {
 export function describeStage(stage: TerrainStage): TerrainStageSpec {
   const kind = kindOf(stage);
   const c = CODEC_BY_KIND.get(kind)!;
-  const source = stage as unknown as Record<string, number | boolean | undefined>;
+  const source = stage as unknown as Record<string, TerrainStageOptionValue | undefined>;
   const options: TerrainStageOptions = {};
   for (const field of c.fields) {
     const value = source[field];

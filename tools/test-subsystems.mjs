@@ -127,8 +127,17 @@ export const subsystems = {
   terrain: {
     title: "Terrain (chunks, heightmaps, LOD, streaming, generators)",
     src: ["engine/src/terrain"],
-    tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts"],
+    tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts", "tests/marsTerrain.test.ts"],
     deps: ["core", "gpu", "math", "rendering", "scene"],
+  },
+  "tools-mars": {
+    title: "Mars generator tooling (region planner + pre-generation script, tools/mars-terrain)",
+    // These scripts ship into the separate `mars-terrain-gen` repo, so they are plain copies of some
+    // cube-sphere math rather than imports of it; `tests/marsTerrainPlan.test.ts` is the seam that
+    // proves the copy still agrees with `engine/src/terrain/mars/cubeSphere.ts` point-for-point.
+    src: ["tools/mars-terrain", "tools/mars-port-check.mjs"],
+    tests: ["tests/marsTerrainPlan.test.ts"],
+    deps: ["terrain"],
   },
 
   // ---- integration + tooling ----

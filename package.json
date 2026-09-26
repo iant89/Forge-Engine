@@ -27,6 +27,7 @@
     "docs:check": "vite-node tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",
+    "check:mars-port": "vite-node tools/mars-port-check.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "demo:build": "vite build --config examples/vite.config.ts",
     "bench:build": "tsc -p benchmarks/tsconfig.json"

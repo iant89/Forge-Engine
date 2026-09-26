@@ -92,10 +92,21 @@ be verified, plus the index that now exists but is not used.
 
 ## Terrain (Phase 10)
 
+* **The Mars generator port has no demo scene and no hosted erosion cache.** `MarsTerrainStage`
+  renders the ported analytic surface anywhere, but the simulated-erosion correction needs the
+  generator's `cache/global/` fields (~30 MB for six faces), which this repository does not ship, and
+  no example scene builds a `createMarsPipeline(...)` world yet. `docs/MARS-TERRAIN.md` §5 is the
+  wiring recipe. (capability: terrain.marsGeneratorPort)
+* **The Mars port's crater sum is order-sensitive in the last mantissa bits.** `MarsCraterScanner`
+  batches the generator's per-vertex 27-cell scan (it samples the same craters — a test asserts zero
+  class mismatches and 1e-6 agreement) but sums them in a different order, so `mars-port-check`
+  compares against the generator's float32 output with a tolerance rather than for bit equality.
+  (`docs/MARS-TERRAIN.md` §6) (capability: terrain.marsGeneratorPort)
 * **Layered terrain materials are not wired into the world.** `LayeredTerrainMaterial` blends
   height/slope/biome weights on the CPU and is covered by unit tests, but `TerrainWorld` and the
   demos still attach a single `Material`. A multi-texture splat path and world/demo integration are
-  still open under 10.8. (capability: terrain.materialLayering)
+  still open under 10.8 — this is also what keeps the Mars port's dust/rock/sand/crust weights
+  invisible. (capability: terrain.materialLayering)
 
 ## Vehicles (Phase 6 / 11)
 

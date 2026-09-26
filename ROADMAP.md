@@ -375,6 +375,24 @@ CURRENT PROBLEMS (addressed in this phase):
     [x] Material-specific surface properties (helper)
 
 
+10.9 Mars Generator Port
+
+    [!] Port the external `mars-terrain-gen` analytic generator (Stage B) into a Forge
+        `TerrainStage`, so its planet can be rendered at any `chunkSize`/`chunkResolution`
+        instead of only at quadtree-depth chunk files (docs/MARS-TERRAIN.md).
+
+        [x] `engine/src/terrain/mars/`: cube-sphere mapping, bit-identical noise, geology
+            (crater bands, volcanoes, cinder cones, dichotomy + canyon), Stage A field
+            cache reader, `MarsTerrainStage`, `MarsSite`, `adviseMarsTile`, splat layers.
+        [x] Deterministic/seamless generation and renderer integration pinned by
+            tests/marsTerrain.test.ts; region planner + port verification tooling
+            (tools/mars-terrain, tools/mars-port-check.mjs) pinned by
+            tests/marsTerrainPlan.test.ts.
+        [!] No demo scene uses the port yet, the repo hosts no Stage A cache (so the demos
+            would render the analytic-only surface), and the 4-channel splat weights it
+            writes are not consumable until 10.8 lands.
+
+
 EXIT CRITERIA:
 
     Terrain LOD changes actual geometry complexity.
