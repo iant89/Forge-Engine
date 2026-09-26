@@ -551,3 +551,55 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   (0.335 m in 45 s vs >0.5 m; last session's pre-change baseline failed the same arm at 0.485 m).
   The Mars scene has no point lights, so the attribution is the SwiftShader frame rate, not this
   diff — kept the distinction honest in docs/VERIFICATION.md. Landed as PR #46.
+
+## 2026-09-26 — Mars generator ported into the engine (Phase 10.9)
+
+- **Context:** the planet lives in an external Dropbox-only generator (`mars-terrain-gen`). Its Stage B
+  is one pure function per vertex (`sampleAnalytic(dir) + bilinear(erosionDelta) + fineDetail`) whose
+  terms depend on the *absolute direction*, so the port kept the function and threw away the chunking:
+  `engine/src/terrain/mars/` now evaluates any square Forge tile at any size, and shared vertices agree
+  by construction (asserted to 1e-9). Design + tables: `docs/MARS-TERRAIN.md`.
+- **The generator's chunk files are a dead end as tiles:** curved quads, no skirts/normals/indices,
+  one depth per run, and the depth that matches a 128–256 m tile (15/16) is 6.4–25.8 billion chunks
+  (~590 TB). The engine instead uses the generator's Stage A *erosion* cache (~30 MB for six faces) and
+  recomputes everything else. The region-walker tooling (`tools/mars-terrain/`) is for standalone use.
+- **Never swap the ported noise (`noise3.ts`) for `math/noise.ts`/`math/rng.ts`.** The port has to hash
+  identically to the generator or the cached `erosionDelta` no longer matches the analytic base it was
+  measured against. Same reason `pipelineSpec.ts` registers the `mars` codec: `hashPipelineSpec` must
+  change when site/seed/fields change.
+- **Crater sampling is the hot path.** The generator re-walks 27 cells × 3 bands per vertex (81 hash
+  probes each). `MarsCraterScanner` memoises per chunk, keyed on the vertex cell triple — a per-vertex
+  memo made it 1.7x *slower*, a per-chunk one took 33² chunks from 27.9 ms to 20.0 ms. The scanner
+  samples the same craters but sums them in a different order, so verification is tolerance-based
+  (`tools/mars-port-check.mjs`), not bit-exact. Chunk generation is noise-bound: `fbm3(5 oct)` is
+  1.47 µs, `domainWarp3` 3.47 µs (`hash3` is 12 ns) — more speed must come from fewer octaves/warps.
+- **`performance.now()` is unusable for microbenchmarks in this vite-node setup** (reported ~17 µs for a
+  12 ns hash). Use `Number(process.hrtime.bigint())/1e6`. Also: `npx vite-node -e` does not exist —
+  write a scratch `.mts` file, and delete it after (AGENTS.md: no generated artifacts in the repo).
+- **Dropbox fetching:** `raw=1`/`dl.dropboxusercontent.com` 500s, `dl=0` returns share chrome, and
+  `curl` has no egress. `fetch_page` with `&dl=1` works for every file.
+- **`InlineOnlyError` is the worker-handback contract**: a codec whose stage cannot be rebuilt from its
+  spec returns a *describable* spec (stable identity, scalar options) but throws from `create()`; the
+  scheduler runs it inline exactly once, and `TerrainWorld { syncGeneration: true }` skips the hop.
+- **Known deviation kept, documented:** Stage A's lookup uses the generator's *approximate* cube inverse
+  (naive face projection, not the inverse spherify warp). The port uses the same one so cached fields
+  line up; `docs/KNOWN-ISSUES.md` + `docs/MARS-TERRAIN.md` §6 say so.
+- **Smoke-tested both tools, not just written:** `tools/mars-terrain/plan.ts` ran through vite-node
+  (default bands at the generator's first volcano, which is lat 30.3364 / lon 110.5560 — the site the
+  CLI defaults to) and produced 27,265 chunks for `16:33:4,15:33:12`; and `npm run check:mars-port`
+  was exercised end-to-end against a *synthetic* Stage A cache in `/tmp` (res 64, built from the port
+  itself): worst error 4.8e-4 m — float32 storage, exit 0 — and with a deliberate +1 m offset on one
+  face it reports `FAIL` for that face and exits 1. The synthetic cache is a smoke test of the
+  decode/compare/exit paths, **not** evidence of fidelity against the real generator; that still needs
+  a real `cache/global/`.
+- **Appending to `change-log.md` means appending text, not re-serialising the JSON.** Re-dumping the
+  parsed array with `json.dumps` normalises the file's existing 296 entries (the backfilled first
+  entry's indentation, `\u` escapes) and turns a 29-entry append into a ~1,400-line diff. Splice
+  `,\n<new entries>\n]\n``` ` into the original text, then re-parse the fence to validate.
+- **Honesty gate work for a port:** a new subsystem is not "done" in this repo until it is in
+  `capabilities.ts` (new entry `terrain.marsGeneratorPort`, partial), a matching `ROADMAP.md` item
+  (10.9), `KNOWN-ISSUES.md` bullets that reference a *non-verified* capability (rule 6 of
+  `tools/docs-check.mjs`), and the test map (`tools/test-subsystems.mjs`) claims every new suite —
+  including the `tools-mars` subsystem for the generator-side planner.
+- **Landed as PR #47** (squash-merge into `main`); the CPU gates passed and the advisory WebGPU
+  browser job was still running at merge time.

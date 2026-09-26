@@ -208,6 +208,41 @@ focus 5 km the world still holds no more than `maxChunksLoaded` chunks (`maxGene
 progresses at least one chunk per frame, which the old scan-order queue could silently fail to do when
 the budget was already full of far chunks).
 
+### `tests/marsTerrain.test.ts` — the ported Mars generator (`docs/MARS-TERRAIN.md`)
+
+The external `mars-terrain-gen` planet is reproduced inside the engine: the cube-sphere mapping round
+trips and reports the generator's own metric chunk table (depth 4 = 300 km … depth 16 = 73.1 m), the
+analytic geology is deterministic per seed, the shield volcano sits where the config puts it and stands
+~18 km above the reference sphere, and crater bowls classify as `CraterFloor`. The properties the port
+exists for are asserted structurally: heights, non-negative slopes and normalised 4-channel splat
+weights on every vertex; the same tile generated twice is identical; and two tiles that share an edge
+agree at every shared vertex to 1e-9 because each vertex is evaluated from its absolute direction
+(which is what makes any `chunkSize`/`chunkResolution` work). The batched `MarsCraterScanner` is
+compared against the generator's direct per-vertex loop (same crater set, 0 class mismatches, 1e-6
+agreement), the Stage A field reader is checked against the documented file layout and rejects
+undersized buffers, and the `mars` pipeline stage describes itself with a stable identity while
+refusing to be rebuilt in a worker (`InlineOnlyError`) so the scheduler hands the task back inline.
+`adviseMarsTile` is pinned at the sizes the docs recommend (128 m/33 → `micro`, 256 m/65 → `micro`,
+256 m/129 → `full`), including the "the generator's own default output is unusable as a tile" verdict
+for 300 km chunks. Finally the whole thing is streamed through a real `TerrainWorld` (`syncGeneration`,
+`skirtDepth: 64`) and asserted to produce ready chunks on the LOD ladder with AABBs that include the
+skirts.
+
+### `tests/marsTerrainPlan.test.ts` — the generator-side tooling stays honest
+
+`tools/mars-terrain/plan.ts` and `pregenerate.ts` ship into the generator's repository by copy, so the
+cube-sphere math in `plan.ts` is a *second* implementation of formulas the engine already has. This
+suite is the seam: it imports the copy directly and asserts the two agree **exactly** (identical
+doubles for the spherify warp, the face-centre chunk edges, lat/lon and great-circle distance helper),
+that the documented depth→metres table still matches the code, that the chunk file layout
+(`4 + 21·res²` bytes) and file names match the generator's, and that the ring planner keeps its
+promises — finest band first, no chunk planned twice, per-band cost estimates that add up, and a
+depth-16 ring planned in well under the test timeout (a full-face sweep at that depth would be 4.3
+billion nodes, so finishing at all proves the quadtree pruning works). It also guards the copy-in
+script's contract without the generator repo present: the module paths `pregenerate.ts` imports must
+still be the generator's, and it must call `generateChunk`/`chunkExists`/`saveGlobalFace` rather than
+growing its own sweep.
+
 ### `tests/renderGraph.test.ts` — the graph's contracts (mock device)
 
 * **Validation** — reading or `load`-ing a transient nothing wrote, attaching one texture twice,
@@ -849,6 +884,13 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   and TC slip are numeric tests in `tests/vehicles.test.ts`. The playground is a scene the browser
   gate loads; it is not a handling-quality test. See `docs/VEHICLES.md` for what is kinematic rather
   than simulated.
+* **A ported planet (Phase 10.9).** The Mars generator's analytic surface is reproduced inside the
+  engine and can be evaluated at any tile size, with seamless shared vertices and deterministic tiles
+  (`tests/marsTerrain.test.ts`). What that check does *not* prove — and what `npm run
+  check:mars-port -- --cache <generator-cache>` is for — is agreement with a real generator cache
+  point by point; the comparison to float32 storage tolerance is described in `docs/MARS-TERRAIN.md`
+  §6, and the port's unfinished edges (no demo scene, no hosted erosion cache, splats waiting on the
+  10.8 material path) are in `KNOWN-ISSUES.md` and Phase 10.9 of `ROADMAP.md`.
 * **A particle buffer.** The CPU integrator matches `analyticGravity` in `tests/particles.test.ts`,
   including a 100k × 30 step budget. The same curve on a real device is the `runParticleGravityCheck`
   assertion in `check:browser`. Emission, modules, and trails are CPU and covered by the unit suite

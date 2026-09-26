@@ -498,6 +498,18 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["tests/terrain.test.ts"],
   },
   {
+    id: "terrain.marsGeneratorPort",
+    phase: "10.9",
+    status: "partial",
+    summary: "Ported external Mars generator (analytic Stage B + cached erosion) as a size-agnostic TerrainStage",
+    evidence: ["tests/marsTerrain.test.ts", "tests/marsTerrainPlan.test.ts"],
+    closesWith: "10.9",
+    notes:
+      "Seamless at any chunkSize/chunkResolution because every vertex is evaluated from its absolute " +
+      "direction; the generator's ~30 MB Stage A cache supplies the simulated erosion. No demo scene " +
+      "uses it, and its 4-channel splat output needs the 10.8 material path.",
+  },
+  {
     id: "terrain.materialLayering",
     phase: "10.8",
     status: "partial",

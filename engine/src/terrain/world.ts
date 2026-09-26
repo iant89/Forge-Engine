@@ -64,6 +64,13 @@ export interface TerrainWorldOptions extends TerrainBudgetOptions {
   horizonSkirt?: boolean;
   /** Outer apron extent past the loaded radius (metres). */
   horizonExtent?: number;
+  /**
+   * Skirt depth (metres) for every tile: the apron of geometry hanging below a chunk's edge that
+   * hides the height difference between neighbouring LODs. The default (8 m) suits gentle terrain at
+   * the demo's 128 m chunks; mountainous terrain (or larger chunks, where the coarsest LOD samples
+   * every chunkSize/2 metres) needs deeper skirts, e.g. `adviseMarsTile(...).recommendedSkirtDepth`.
+   */
+  skirtDepth?: number;
   /** Optional external cache (tests). */
   cache?: TerrainGenerationCache;
   /** Force synchronous generation even when a scheduler is present (tests). */
@@ -111,6 +118,7 @@ export class TerrainWorld extends SceneObject {
   private frameUploadBudget = 0;
   readonly horizonEnabled: boolean;
   readonly horizonExtent: number;
+  readonly skirtDepth: number;
   readonly syncGeneration: boolean;
 
   readonly pipeline: GeneratorPipeline;
@@ -163,6 +171,7 @@ export class TerrainWorld extends SceneObject {
     this.warmUpUploadsActive = this.warmUpChunks > 0;
     this.horizonEnabled = options.horizonSkirt !== false;
     this.horizonExtent = options.horizonExtent ?? this.chunkSize * 2;
+    this.skirtDepth = options.skirtDepth ?? 8.0;
     this.syncGeneration = options.syncGeneration ?? false;
 
     this.heightGenerator = new HeightGenerator(options.heightOptions);
@@ -262,6 +271,7 @@ export class TerrainWorld extends SceneObject {
       const resolution = req.resolution;
       if (!chunk) {
         chunk = new TerrainChunk(req.sel.cx, req.sel.cz, this.chunkSize, resolution, req.sel.lod);
+        chunk.skirtDepth = this.skirtDepth;
         this.chunks.set(key, chunk);
       }
       chunk.lastAccessed = performance.now();

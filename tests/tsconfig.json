@@ -9,7 +9,12 @@
     "noEmit": true,
     "sourceMap": false
   },
-  "include": ["**/*.ts"],
+  "include": [
+    "**/*.ts",
+    // The generator planner is a plain tool script that also ships into mars-terrain-gen, so it is
+    // typechecked here (strict, like everything else) instead of only in the generator repo.
+    "../tools/mars-terrain/plan.ts"
+  ],
   "references": [
     {
       "path": "../engine"

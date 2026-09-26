@@ -12,8 +12,9 @@ npm run demo           # Vite dev server for examples/
 
 See `AGENTS.md` for working conventions, `ARCHITECTURE.md` for design, `docs/RENDERING.md` for
 what the renderer does today (render graph, HDR + bloom + tone mapping, cascaded shadow maps, the
-depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` for the sun/sky/fog/day-night model, and
-`docs/VERIFICATION.md` for what each check proves.
+depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` for the sun/sky/fog/day-night model,
+`docs/MARS-TERRAIN.md` for the ported Mars generator (the same planet as the external
+`mars-terrain-gen`), and `docs/VERIFICATION.md` for what each check proves.
 
 The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
 (the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1
