@@ -8,9 +8,9 @@
  *  - B: sand / scree / beach
  *  - A: snow / alpine
  *
- * Currently the renderer uses a single material per chunk; these presets
- * give a base color that approximates the blended result. A future shader
- * will sample the biome texture for true splat blending.
+ * These legacy presets deliberately return a single Material. For actual four-channel GPU
+ * blending, use LayeredTerrainMaterial with TerrainWorldOptions.layeredMaterial instead; its
+ * per-tile weight maps and shared texture arrays consume the same channel convention.
  */
 
 import { Material, type MaterialOptions } from "../rendering/material.js";

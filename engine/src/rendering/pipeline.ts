@@ -33,9 +33,10 @@
  */
 
 import { ShaderStage } from "../gpu/constants.js";
-import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
+import { ObjectUniforms, InstanceStruct, MaterialUniforms, SplatUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
+import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
@@ -48,7 +49,7 @@ export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fs
 export type { SsaoEntryPoint };
 
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "prepass" | "debug" | "blit" | "post" | "sky" | "water" | "ssao";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "prepass" | "debug" | "blit" | "post" | "sky" | "water" | "ssao" | "terrain";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
   /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
@@ -94,6 +95,8 @@ export class PipelineFactory {
   private depthFrameLayout: GPUBindGroupLayout | null = null;
   private drawLayout: GPUBindGroupLayout | null = null;
   private materialLayout: GPUBindGroupLayout | null = null;
+  private terrainMaterialLayout: GPUBindGroupLayout | null = null;
+  private terrainLayout: GPUPipelineLayout | null = null;
   private layout: GPUPipelineLayout | null = null;
   private depthOnlyLayout: GPUPipelineLayout | null = null;
   private debugLayout: GPUPipelineLayout | null = null;
@@ -124,6 +127,7 @@ export class PipelineFactory {
     prepassFrame: GPUBindGroupLayout;
     draw: GPUBindGroupLayout;
     material: GPUBindGroupLayout;
+    terrain: GPUBindGroupLayout;
     post: GPUBindGroupLayout;
     sky: GPUBindGroupLayout;
     water: GPUBindGroupLayout;
@@ -137,6 +141,7 @@ export class PipelineFactory {
       prepassFrame: this.prepassFrameLayout!,
       draw: this.drawLayout!,
       material: this.materialLayout!,
+      terrain: this.terrainMaterialLayout!,
       post: this.postBindGroupLayout!,
       sky: this.skyBindGroupLayout!,
       water: this.waterBindGroupLayout!,
@@ -194,15 +199,24 @@ export class PipelineFactory {
         { binding: BINDINGS.visibility.binding, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage", minBindingSize: 4 } },
       ],
     });
-    this.materialLayout = d.createBindGroupLayout({
-      entries: [
+    const materialEntries: GPUBindGroupLayoutEntry[] = [
         { binding: BINDINGS.material.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: MaterialUniforms.byteSize("uniform") } },
         { binding: BINDINGS.albedoMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: BINDINGS.normalMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: BINDINGS.mrMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: BINDINGS.sampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
+      ];
+    this.materialLayout = d.createBindGroupLayout({ entries: materialEntries });
+    this.terrainMaterialLayout = d.createBindGroupLayout({ label: "terrain.material.layout", entries: [
+      ...materialEntries,
+      { binding: SPLAT_BINDINGS.uniforms, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SplatUniforms.byteSize("uniform") } },
+      ...[SPLAT_BINDINGS.albedo, SPLAT_BINDINGS.normal, SPLAT_BINDINGS.mr].map((binding) => ({
+        binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float" as const, viewDimension: "2d-array" as const },
+      })),
+      { binding: SPLAT_BINDINGS.weights, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+      { binding: SPLAT_BINDINGS.sampler, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+    ] });
+    this.terrainLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.terrainMaterialLayout] });
     this.layout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout] });
     // The depth pass has no material group and cannot bind the shadow map (which is the pass target),
     // so it uses depthFrameLayout containing only the per-frame uniform buffer.
@@ -263,6 +277,11 @@ export class PipelineFactory {
       case "water": {
         const module = this.shaders.get("water.wgsl", WATER_SHADER);
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", water: true };
+      }
+      case "terrain": {
+        const source = key.instanced ? STANDARD_INSTANCED_VERTEX : STANDARD_VERTEX;
+        const module = this.shaders.get(`terrain.${key.instanced ? "instanced" : "static"}.wgsl`, `${source}\n${TERRAIN_FRAGMENT_BODY}`);
+        return { vertex: module, fragment: module, vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
       }
       case "depth":
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
@@ -425,7 +444,7 @@ export class PipelineFactory {
                   ? this.prepassLayout!
                   : isShadowDepth
                     ? this.depthOnlyLayout!
-                    : this.layout!;
+                    : options.technique === "terrain" ? this.terrainLayout! : this.layout!;
     const blend: GPUBlendState | undefined = options.additive
       ? {
           color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -514,6 +533,8 @@ export class PipelineFactory {
     this.depthFrameLayout = null;
     this.drawLayout = null;
     this.materialLayout = null;
+    this.terrainMaterialLayout = null;
+    this.terrainLayout = null;
     this.layout = null;
     this.depthOnlyLayout = null;
     this.debugLayout = null;
@@ -539,14 +560,14 @@ export class PipelineFactory {
 
   stats(): { pipelines: number; pipelinesPending: number; failures: number; creates: number; cacheHits: number; layouts: number } {
     // Bind group layouts: frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky,
-    // water, ssao, ssao blur.
+    // water, ssao, ssao blur, terrain material.
     return {
       pipelines: this.pipelines.size,
       pipelinesPending: this.pending.size,
       failures: this.failures.size,
       creates: this.creates,
       cacheHits: this.hits,
-      layouts: 11,
+      layouts: 12,
     };
   }
 }

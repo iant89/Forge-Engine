@@ -20,7 +20,7 @@ import { Vec2 } from "../math/vec.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { Texture } from "../resources/texture.js";
 
-export type MaterialTechnique = "standard" | "unlit" | "emissive" | "debug-line" | "blit" | "water";
+export type MaterialTechnique = "standard" | "unlit" | "emissive" | "debug-line" | "blit" | "water" | "terrain";
 
 export interface MaterialOptions {
   label?: string;
@@ -47,6 +47,14 @@ export const FLAG_NORMAL = 2;
 export const FLAG_MR = 4;
 export const FLAG_DOUBLE_SIDED = 8;
 export const FLAG_UNLIT = 16;
+
+/** Shared fallback bindings; subclasses may extend group 2 without changing ordinary materials. */
+export interface MaterialDefaults {
+  white: Texture;
+  normal: Texture;
+  mr: Texture;
+  sampler: GPUSampler;
+}
 
 export class Material {
   label: string;
@@ -154,7 +162,7 @@ export class Material {
   }
 
   /** @internal Called by the renderer once per material creation. */
-  ensureGpu(device: GraphicsDevice, bindGroupLayout: GPUBindGroupLayout, defaults: { white: Texture; normal: Texture; mr: Texture; sampler: GPUSampler }): void {
+  ensureGpu(device: GraphicsDevice, bindGroupLayout: GPUBindGroupLayout, defaults: MaterialDefaults): void {
     if (!this.uniformBuffer) {
       const size = MaterialUniforms.byteSize("uniform");
       this.uniformBuffer = device.createBuffer({ label: `material.${this.label}`, size, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
@@ -166,15 +174,20 @@ export class Material {
     if (!this.bindGroup) {
       this.bindGroup = device.device.createBindGroup({
         layout: bindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer! } },
-          { binding: 1, resource: (this.albedoMap ?? defaults.white).view },
-          { binding: 2, resource: (this.normalMap ?? defaults.normal).view },
-          { binding: 3, resource: (this.metallicRoughnessMap ?? defaults.mr).view },
-          { binding: 4, resource: defaults.sampler },
-        ],
+        entries: this.gpuBindings(defaults),
       });
     }
+  }
+
+  /** Additional material techniques keep the standard prefix and append their own bindings. */
+  protected gpuBindings(defaults: MaterialDefaults): GPUBindGroupEntry[] {
+    return [
+      { binding: 0, resource: { buffer: this.uniformBuffer! } },
+      { binding: 1, resource: (this.albedoMap ?? defaults.white).view },
+      { binding: 2, resource: (this.normalMap ?? defaults.normal).view },
+      { binding: 3, resource: (this.metallicRoughnessMap ?? defaults.mr).view },
+      { binding: 4, resource: defaults.sampler },
+    ];
   }
 
   /** @internal */

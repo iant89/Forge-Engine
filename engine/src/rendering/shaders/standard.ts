@@ -397,7 +397,33 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
  * Fragment stage without the defines block: the pipeline factory appends this to a vertex source
  * that already carries the declarations, so a module holds one copy of every struct.
  */
-export const STANDARD_FRAGMENT_BODY = /* wgsl */ `
+const STANDARD_SURFACE_SETUP = /* wgsl */ `
+  let albedo = materialAlbedo(in.uv);
+  var N = normalize(in.normal);
+  let V = normalize(perFrame.cameraPosRender - in.worldPos);
+  if ((perFrame.flags & 4u) != 0u) {
+    // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
+    if ((material.flags & FLAGS_NORMAL) != 0u) {
+      let sampled = textureSample(normalMap, materialSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
+      let T = normalize(in.tangent.xyz);
+      let B = cross(N, T) * in.tangent.w;
+      let tbn = mat3x3<f32>(T, B, N);
+      N = normalize(tbn * (sampled * vec3<f32>(material.normalScale, material.normalScale, 1.0)));
+    }
+  }
+  var metallic = material.metallic;
+  var roughness = material.roughness;
+  if ((material.flags & FLAGS_MR) != 0u) {
+    let mr = textureSample(mrMap, materialSampler, in.uv * material.tiling + material.offset);
+    metallic = metallic * mr.b;
+    roughness = roughness * mr.g;
+  }
+  roughness = clamp(roughness, 0.045, 1.0);
+`;
+
+/** Shared lighting/shadows/fog/output; other surface techniques replace only PBR input sampling. */
+export function createStandardFragmentBody(surfaceSetup = STANDARD_SURFACE_SETUP): string {
+  return /* wgsl */ `
 ${SHADOW_HELPERS}
 
 // SSAO visibility for this fragment: a 2×2 bilateral fetch from the half-resolution AO target.
@@ -516,27 +542,7 @@ fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
 
 @fragment
 fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
-  let albedo = materialAlbedo(in.uv);
-  var N = normalize(in.normal);
-  let V = normalize(perFrame.cameraPosRender - in.worldPos);
-  if ((perFrame.flags & 4u) != 0u) {
-    // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
-    if ((material.flags & FLAGS_NORMAL) != 0u) {
-      let sampled = textureSample(normalMap, materialSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
-      let T = normalize(in.tangent.xyz);
-      let B = cross(N, T) * in.tangent.w;
-      let tbn = mat3x3<f32>(T, B, N);
-      N = normalize(tbn * (sampled * vec3<f32>(material.normalScale, material.normalScale, 1.0)));
-    }
-  }
-  var metallic = material.metallic;
-  var roughness = material.roughness;
-  if ((material.flags & FLAGS_MR) != 0u) {
-    let mr = textureSample(mrMap, materialSampler, in.uv * material.tiling + material.offset);
-    metallic = metallic * mr.b;
-    roughness = roughness * mr.g;
-  }
-  roughness = clamp(roughness, 0.045, 1.0);
+${surfaceSetup}
 
   var color = vec3<f32>(0.0);
   if ((material.flags & FLAGS_UNLIT) != 0u) {
@@ -600,6 +606,10 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   return vec4<f32>(color, alpha);
 }
 `;
+
+}
+
+export const STANDARD_FRAGMENT_BODY = createStandardFragmentBody();
 
 /** @deprecated kept so external demos keep compiling; use `STANDARD_FRAGMENT_BODY`. */
 export const STANDARD_FRAGMENT = STANDARD_DEFINES + STANDARD_FRAGMENT_BODY;

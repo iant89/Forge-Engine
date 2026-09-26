@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   Camera,
   Clock,
@@ -18,6 +18,7 @@ import {
   Profiler,
   Scene,
   SystemScratch,
+  TaskScheduler,
   TerrainTile,
   TerrainWorld,
   Transform,
@@ -25,6 +26,7 @@ import {
   createMarsGenParams,
   createMarsPipeline,
   createPipelineFromSpec,
+  createWorldCell,
   describePipeline,
   hashPipelineSpec,
   marsAngularDistanceMeters,
@@ -43,6 +45,8 @@ import {
   type MarsFaceFields,
   type SystemContext,
 } from "@forge/engine";
+
+import { createWorkerThreadPool } from "./support/workerThreads.js";
 
 /**
  * Mars terrain port tests (see docs/MARS-TERRAIN.md).
@@ -409,23 +413,127 @@ describe("Mars terrain - MarsTerrainStage", () => {
     expect(turnedEast.latDeg).toBeGreaterThan(10);
   });
 
-  it("describes itself for the pipeline cache key but refuses to be rebuilt in a worker", () => {
-    const pipeline = createMarsPipeline({ site: { latDeg: 1, lonDeg: 2 }, paramsOverrides: { seed: 5 } });
-    const spec = describePipeline(pipeline);
-    expect(spec.stages.length).toBe(1);
-    expect(spec.stages[0]!.kind).toBe("mars");
-    expect(spec.stages[0]!.options.seed).toBe(5);
-    expect(typeof spec.stages[0]!.options.identity).toBe("string");
-    expect(() => createPipelineFromSpec(spec)).toThrow(InlineOnlyError);
+  it("round-trips the complete analytic planet and site as structured-cloneable data", () => {
+    const params = createMarsGenParams({
+      seed: 541,
+      radius: MARS_RADIUS_M * 0.98,
+      dichotomy: { seed: 62, amplitude: 1700, axis: { x: 0.1, y: 0.9, z: -0.3 }, waviness: 0.7 },
+      canyon: [{ a: { x: 0, y: 1, z: 0 }, b: { x: 1, y: 0.2, z: 0.1 }, width: 2, depth: 51 }],
+      volcanoes: [{ center: { x: MARS_RADIUS_M, y: 0, z: 0 }, baseRadius: 400_000,
+        height: 900, calderaRadius: 15_000, calderaDepth: 70, seed: 12 }],
+    });
+    for (const pipeline of [
+      createMarsPipeline(),
+      createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } }),
+      createMarsPipeline({ params, site: { latDeg: 1, lonDeg: 2, headingDeg: 72, radiusM: MARS_RADIUS_M * 0.9 }, detail: false, curvatureCompensation: false }),
+      createMarsPipeline({ params, site: { latDeg: -8, lonDeg: 12, headingDeg: -31, radiusM: MARS_RADIUS_M * 1.1 } }),
+    ]) {
+      const spec = structuredClone(describePipeline(pipeline));
+      const rebuilt = createPipelineFromSpec(spec);
+      expect(describePipeline(rebuilt)).toEqual(spec);
+      const originalStage = pipeline.stages[0] as MarsTerrainStage;
+      const restoredStage = rebuilt.stages[0] as MarsTerrainStage;
+      expect(restoredStage.params).toEqual(originalStage.params);
+      expect(restoredStage.site.radius).toBe(originalStage.site.radius);
+      expect(restoredStage.globalFields).toBeNull();
+      // Reference the ORIGINAL live pipeline, not two calls to the same reconstruction code.
+      const original = createWorldCell(-3, 4, 128, 17, originalStage.seed);
+      const restored = createWorldCell(-3, 4, 128, 17, originalStage.seed);
+      pipeline.execute(original);
+      rebuilt.execute(restored);
+      expect(restored.heights).toEqual(original.heights);
+      expect(restored.slopes).toEqual(original.slopes);
+      expect(restored.biomes).toEqual(original.biomes);
+      expect(hashPipelineSpec(describePipeline(rebuilt))).toBe(hashPipelineSpec(spec));
+    }
+  });
 
-    const same = createMarsPipeline({ site: { latDeg: 1, lonDeg: 2 }, paramsOverrides: { seed: 5 } });
-    expect(hashPipelineSpec(describePipeline(same))).toBe(hashPipelineSpec(spec));
-    const moved = createMarsPipeline({ site: { latDeg: 1, lonDeg: 3 }, paramsOverrides: { seed: 5 } });
-    expect(hashPipelineSpec(describePipeline(moved))).not.toBe(hashPipelineSpec(spec));
+  it("includes the site's own radius in the cache identity, not only the planet radius", () => {
+    const make = (radiusM: number) => createMarsPipeline({ site: { latDeg: 1, lonDeg: 2, radiusM } });
+    const a = describePipeline(make(MARS_RADIUS_M));
+    const b = describePipeline(make(MARS_RADIUS_M * 0.9));
+    expect(hashPipelineSpec(a)).not.toBe(hashPipelineSpec(b));
+    expect(hashPipelineSpec(describePipeline(make(MARS_RADIUS_M)))).toBe(hashPipelineSpec(a));
+    expect((createPipelineFromSpec(b).stages[0] as MarsTerrainStage).site.radius).toBe(MARS_RADIUS_M * 0.9);
+    const moved = describePipeline(createMarsPipeline({ site: { latDeg: 1, lonDeg: 3 } }));
+    expect(hashPipelineSpec(a)).not.toBe(hashPipelineSpec(moved));
+  });
+
+  it("keeps live Stage A fields inline instead of reconstructing an uneroded planet", () => {
+    for (const fields of [new MarsGlobalFieldSet(fakeFields(4)), new MarsGlobalFieldSet([])]) {
+      const pipeline = createMarsPipeline({ globalFields: fields });
+      const spec = structuredClone(describePipeline(pipeline));
+      expect(spec.stages[0]!.kind).toBe("mars");
+      expect(spec.stages[0]!.options.seed).toBe(MARS_GEN_PARAMS.seed);
+      expect(() => createPipelineFromSpec(spec)).toThrow(InlineOnlyError);
+    }
+  });
+
+  it("rejects incomplete, malformed or inconsistent serialized configurations", () => {
+    const pipeline = createMarsPipeline({ site: { latDeg: 1, lonDeg: 2 }, paramsOverrides: { seed: 5 } });
+    for (const identity of ["not JSON", "null", "{}", JSON.stringify({ seed: 5, radius: MARS_RADIUS_M })]) {
+      const spec = describePipeline(pipeline);
+      spec.stages[0]!.options.identity = identity;
+      expect(() => createPipelineFromSpec(spec)).toThrow(/mars terrain spec/);
+    }
+    const inconsistent = describePipeline(pipeline);
+    inconsistent.stages[0]!.options.seed = 6;
+    expect(() => createPipelineFromSpec(inconsistent)).toThrow(/disagree/);
+    const missingSiteRadius = describePipeline(pipeline);
+    const identity = JSON.parse(String(missingSiteRadius.stages[0]!.options.identity));
+    delete identity.site.radiusM;
+    missingSiteRadius.stages[0]!.options.identity = JSON.stringify(identity);
+    expect(() => createPipelineFromSpec(missingSiteRadius)).toThrow(/missing or invalid/);
   });
 });
 
 describe("Mars terrain - renderer integration", () => {
+  it("falls back to the live cached-erosion stage exactly once when a worker cannot reconstruct it", async () => {
+    const faces = fakeFields(4, false);
+    for (const face of faces) face.erosionDelta.fill(7);
+    const fields = new MarsGlobalFieldSet(faces);
+    const options = { site: { latDeg: 0, lonDeg: 0 }, detail: false, curvatureCompensation: false };
+    const pipeline = createMarsPipeline({ ...options, globalFields: fields });
+    const stage = pipeline.stages[0] as MarsTerrainStage;
+    const process = vi.spyOn(stage, "process");
+    const pool = await createWorkerThreadPool({ installEngineHandlers: false });
+    const scheduler = new TaskScheduler({ workerCount: 1, createWorker: (i) => pool.createWorker(i) });
+    const scene = new Scene({ name: "mars-cache-fallback" });
+    const terrain = new TerrainWorld({
+      pipeline, seed: stage.seed, chunkSize: 128, chunkResolution: 9,
+      visibleChunks: 1, generationsPerFrame: 1, horizonSkirt: false,
+    });
+    scene.add(terrain);
+    const camera = scene.createEntity("camera");
+    camera.add(new Transform());
+    camera.add(new Camera());
+    const context: SystemContext = {
+      ...createMockContext(scene.world),
+      services: { get: <T>(key: string) => key === "tasks" ? scheduler as T : undefined, engineConfig: {} },
+    };
+    try {
+      terrain.update(context, 1 / 60);
+      expect(process).not.toHaveBeenCalled();
+      await scheduler.drain();
+      terrain.update(context, 1 / 60);
+      expect(scheduler.stats.inlineFallbacks).toBe(1);
+      expect(process).toHaveBeenCalledTimes(1);
+      const tile = [...terrain.chunks.values()][0]!.tile!;
+      expect(tile).toBeTruthy();
+      const analytic = createWorldCell(tile.cx, tile.cz, tile.size, tile.resolution, stage.seed);
+      createMarsPipeline(options).execute(analytic);
+      for (let i = 0; i < analytic.heights.length; i++) {
+        expect(tile.cell.heights[i]! - analytic.heights[i]!).toBeCloseTo(7, 4);
+      }
+      // No field buffer was transferred away or replaced with an analytic-only fallback.
+      for (const face of faces) expect(face.erosionDelta.byteLength).toBe(4 * 4 * 4);
+    } finally {
+      scene.dispose();
+      scheduler.dispose();
+      await pool.dispose();
+    }
+  });
+
   it("streams a Mars patch through TerrainWorld with deep skirts", () => {
     const world = new EntityWorld();
     const terrain = new TerrainWorld({

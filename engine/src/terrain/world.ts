@@ -18,6 +18,7 @@ import { Heightmap } from "./heightmap.js";
 import { TerrainLOD, resolutionForLod, type LODSelection } from "./lod.js";
 import { GeneratorPipeline, HeightGenerator, createWorldCell, type HeightGeneratorOptions } from "./generators.js";
 import { Material } from "../rendering/material.js";
+import { LayeredTerrainMaterial } from "./material.js";
 import { Geometry } from "../rendering/geometry.js";
 import { Transform, Renderable, Camera } from "../scene/components/index.js";
 import { Vec3 } from "../math/vec.js";
@@ -60,6 +61,8 @@ export interface TerrainWorldOptions extends TerrainBudgetOptions {
   pipeline?: GeneratorPipeline;
   heightOptions?: HeightGeneratorOptions;
   material?: Material;
+  /** Optional four-surface splat path. World owns the helper; its supplied texture arrays are borrowed. */
+  layeredMaterial?: LayeredTerrainMaterial;
   /** When false, skip horizon skirt creation (tests that only care about chunks). Default true. */
   horizonSkirt?: boolean;
   /** Outer apron extent past the loaded radius (metres). */
@@ -133,6 +136,21 @@ export class TerrainWorld extends SceneObject {
   readonly focusPosition = new Vec3();
   readonly focusForward = new Vec3(0, 0, 1);
   material: Material | null = null;
+  readonly layeredMaterial: LayeredTerrainMaterial | null;
+  private layersEnabled = true;
+
+  get layeredMaterialsEnabled(): boolean { return this.layersEnabled && this.layeredMaterial !== null; }
+
+  /** Switch between resident splat materials and the representative/horizon material, without regen. */
+  setLayeredMaterialsEnabled(enabled: boolean): void {
+    this.layersEnabled = enabled;
+    if (!this.scene) return;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.entityId === null) continue;
+      const renderable = this.scene.world.getComponent(chunk.entityId, Renderable);
+      if (renderable) renderable.material = this.layeredMaterialsEnabled ? chunk.tile?.gpuMaterial ?? this.material : this.material;
+    }
+  }
 
   private readonly sampledCells = new Map<string, Heightmap>();
   private readonly completed: CompletedGeneration[] = [];
@@ -174,6 +192,7 @@ export class TerrainWorld extends SceneObject {
     this.skirtDepth = options.skirtDepth ?? 8.0;
     this.syncGeneration = options.syncGeneration ?? false;
 
+    this.layeredMaterial = options.layeredMaterial ?? null;
     this.heightGenerator = new HeightGenerator(options.heightOptions);
     this.pipeline = options.pipeline ?? GeneratorPipeline.createDefault(this.seed, options.heightOptions);
     this.pipelineHash = hashPipelineSpec(describePipeline(this.pipeline));
@@ -197,9 +216,7 @@ export class TerrainWorld extends SceneObject {
       lodDistances,
     });
 
-    if (options.material) {
-      this.material = options.material;
-    }
+    this.material = options.material ?? this.layeredMaterial?.toMaterial() ?? null;
   }
 
   override onAttach(scene: Scene): void {
@@ -300,7 +317,7 @@ export class TerrainWorld extends SceneObject {
           chunk.lod = req.sel.lod;
           chunk.resolution = resolution;
           chunk.applyCell(cell, req.sel.geomorphAlpha);
-          chunk.residentBytes = estimateTileBytes(chunk.resolution);
+          chunk.residentBytes = estimateTileBytes(chunk.resolution, this.layeredMaterial !== null);
           this.attachChunkEntity(chunk, context);
         }
       } else if (chunk.state === "generating") {
@@ -431,7 +448,7 @@ export class TerrainWorld extends SceneObject {
     if (cached) {
       chunk.applyCell(cellFromResult(cached), req.sel.geomorphAlpha);
       chunk.lod = req.sel.lod;
-      chunk.residentBytes = estimateTileBytes(chunk.resolution);
+      chunk.residentBytes = estimateTileBytes(chunk.resolution, this.layeredMaterial !== null);
       this.streamingStats.residentBytes += chunk.residentBytes;
       this.attachChunkEntity(chunk, context);
       this.streamingStats.generatedThisFrame++;
@@ -445,7 +462,7 @@ export class TerrainWorld extends SceneObject {
       chunk.lod = req.sel.lod;
       chunk.generate(this.pipeline, this.seed, req.sel.geomorphAlpha);
       this.cacheGenerated(chunk);
-      chunk.residentBytes = estimateTileBytes(chunk.resolution);
+      chunk.residentBytes = estimateTileBytes(chunk.resolution, this.layeredMaterial !== null);
       this.streamingStats.residentBytes += chunk.residentBytes;
       this.attachChunkEntity(chunk, context);
       this.streamingStats.generatedThisFrame++;
@@ -476,7 +493,7 @@ export class TerrainWorld extends SceneObject {
     chunk.lod = req.sel.lod;
     chunk.geomorphAlpha = req.sel.geomorphAlpha;
     // Reserve estimated bytes so the memory gate accounts for in-flight worker generations.
-    const reserved = estimateTileBytes(req.resolution);
+    const reserved = estimateTileBytes(req.resolution, this.layeredMaterial !== null);
     chunk.residentBytes = reserved;
     this.streamingStats.residentBytes += reserved;
 
@@ -518,7 +535,7 @@ export class TerrainWorld extends SceneObject {
           chunk.generate(this.pipeline, this.seed, chunk.geomorphAlpha);
           this.cacheGenerated(chunk);
           // Reservation already counted; keep estimate (recomputeResidentBytes reconciles).
-          chunk.residentBytes = estimateTileBytes(chunk.resolution);
+          chunk.residentBytes = estimateTileBytes(chunk.resolution, this.layeredMaterial !== null);
           this.completed.push({
             key: chunk.key,
             result: this.resultFromChunk(chunk),
@@ -608,7 +625,7 @@ export class TerrainWorld extends SceneObject {
       this.cache.set(cacheKey, item.result);
       chunk.lod = item.lod;
       chunk.applyCell(cellFromResult(item.result), item.geomorphAlpha);
-      chunk.residentBytes = estimateTileBytes(chunk.resolution);
+      chunk.residentBytes = estimateTileBytes(chunk.resolution, this.layeredMaterial !== null);
       this.attachChunkEntity(chunk, context);
       uploads++;
       this.streamingStats.generatedThisFrame++;
@@ -748,7 +765,10 @@ export class TerrainWorld extends SceneObject {
           metallic: 0.05,
         });
       }
-      r.material = this.material;
+      if (this.layeredMaterial && !chunk.tile.gpuMaterial) {
+        chunk.tile.gpuMaterial = this.layeredMaterial.createTileMaterial(device, chunk.tile.cell);
+      }
+      r.material = this.layeredMaterialsEnabled ? chunk.tile.gpuMaterial : this.material;
     }
 
     // Single upload accounting point for remesh gating / drainCompletions (device or headless).
@@ -919,6 +939,7 @@ export class TerrainWorld extends SceneObject {
       this.horizonGeometry = null;
     }
     this.horizonEntityId = null;
+    this.layeredMaterial?.dispose();
     if (this.material) {
       this.material.dispose();
       this.material = null;

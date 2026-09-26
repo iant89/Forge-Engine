@@ -603,3 +603,145 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   including the `tools-mars` subsystem for the generator-side planner.
 - **Landed as PR #47** (squash-merge into `main`); the CPU gates passed and the advisory WebGPU
   browser job was still running at merge time.
+
+## 2026-09-26 — Mars Showcase uses the ported analytic planet
+
+- `examples/src/scenes/marsShowcaseScene.ts` now uses `createMarsPipeline` with the unmodified seed
+  1337 at the equatorial site (0°/0°, heading 0). Spawn is local (-164, 4): a surveyed gentle uphill
+  route, not a flattened pad. The Olympus summit start ran downhill to ~8.5 m/s in a 20-second CPU
+  survey; the motor's no-load speed is not a downhill speed limiter. The equatorial survey kept all
+  six contacts at roughly 1.6–1.8 m/s. Other demos retain their own terrain presets.
+- Keep rover ground queries, camera clearance and sky `seaLevel` on `TerrainWorld.getHeightAt`,
+  **not** `MarsTerrainStage.sampleElevation`: the latter bypasses the resident LOD/morph grid.
+  The opening queries prime the same cached full-resolution tiles that streaming uploads, and
+  `tests/marsShowcase.test.ts` asserts no surface jump. Contacts interpolate that grid bicubically;
+  they are not triangle-exact between mesh vertices.
+- The stage is still inline-only. The scene deliberately sets `syncGeneration: true`, nine warm-up
+  chunks and one generation per subsequent frame, with 128 m / 33-vertex tiles and 32 m skirts.
+  This avoids rejected worker hops and a 48-chunk synchronous burst, not all main-thread hitches.
+  No Stage A cache is fetched; the single regolith material remains (10.8 still owes splat rendering).
+- `marsState()` now distinguishes selected chunks from ready tiles and reports the actual generator,
+  erosion mode, ground height and rover-tile readiness. The loading screen waits for that tile,
+  not merely nonzero resident bytes. The browser gate checks those fields and **positive** Z travel
+  under W; a backwards slide can no longer satisfy its half-metre drive assertion.
+- Five scene-assembly tests use the actual terrain/vehicle/camera with the strict mock GPU, stubbing
+  only DOM and the pending GLB fetch. They cover landing/contact agreement, a six-second W-drive
+  with dust, camera/sky alignment, mixed-LOD edges/skirts and moved-focus budgets, with leak-free
+  teardown. Claimed by `ex-orbit` in `tools/test-subsystems.mjs`. `npm run verify` passed 644 tests in
+  45 files plus typecheck/WGSL; docs:check, check:testmap, lint:arch and demo:build passed (existing
+  large-chunk build advisory).
+- Real Chromium + SwiftShader: the full gate passed every arm through the new showcase checks —
+  analytic `mars` stage, nine opening tiles ready, six contacts, initial clearance 0.542 m;
+  W drove forward 0.51 m at up to 1.06 m/s with 154 kick-dust particles. It then **failed** the
+  unchanged 300 s HGA poll, still stowed with 1.45 s of simulation countdown left; arm checks were
+  not reached. No full browser pass is claimed, and no timing/distance threshold was relaxed.
+  An earlier 900×600 ad-hoc probe moved only 0.438 m in 45 s (six contacts, live dust, zero GPU
+  errors); the full gate's showcase viewport is 900×520. Both the PBR gate screenshot and
+  `tools/.mars-showcase-integration.png` were inspected: rover and ground are visible. Keep the
+  successful terrain/drive assertions distinct from the later aggregate failure.
+
+## 2026-09-26 — Analytic Mars workers and startup-cancellation acknowledgement
+
+- `terrain/pipelineSpec.ts` now rebuilds analytic Mars stages from the complete JSON identity:
+  all planet/geology settings, site latitude/longitude/heading/**radius**, and detail/curvature flags.
+  Scalar/identity mismatches and incomplete data fail rather than defaulting to another planet.
+  `MarsTerrainStage.identity` previously omitted a custom site radius (distinct from params.radius);
+  including it fixes that cache-key collision and makes worker reconstruction faithful.
+- Live Stage A fields, even an empty field set, still throw `InlineOnlyError`. A real-thread world
+  test confirms the live-instance fallback runs once, retains a synthetic +7 m correction and keeps
+  its buffers. `syncGeneration: true` still avoids the rejected hop for cache-backed worlds. No real
+  cache data was fetched or upstream-fidelity claim added.
+- Showcase streaming now uses the existing two-worker scheduler (`syncGeneration: false`), retaining
+  nine warm-up requests and one per subsequent frame. Spawn/query-cache cells are reused; mesh
+  building/uploads and missing-cell ground queries are still main-thread work. The HUD/marsState
+  reports pool availability as `workers`/`inline`; the no-worker fallback is explicitly tested.
+- **Real bug found while testing cancellation before worker bootstrap completes:** the worker
+  suppressed a cancelled result but never told the scheduler it was finished. Its slot stayed busy,
+  leaving `1 queued / 0 running` forever. The delayed-bootstrap Mars regression failed that way
+  before the fix. `workerScope.ts` now posts `cancelled` only once the handler finishes;
+  `scheduler.ts` releases only the matching cancelled job's slot. The protocol test asserts no
+  premature ack, and the real single-worker test completes the replacement without fallback.
+- `tests/tasks.test.ts` compares worker-returned height/slope/splat bytes with the ORIGINAL live
+  pipelines (custom parameters/sites/flags and a subsequent scatter), not two reconstruction calls.
+  `tests/marsShowcase.test.ts` uses the shipping worker bootstrap and spies on the live stage to prove
+  normal worker streaming does not regenerate cells on main, with leak-free GPU teardown.
+- `npm run check:browser:mars-workers` is an explicitly scoped command. Its shared native-Worker
+  message observer (`tools/browser-mars-workers.mjs`, also used by the full gate) validates actual
+  Mars task/result identities, finite typed arrays and resident showcase uploads/contact. A pool or
+  mode label alone cannot pass. The first real Chromium/SwiftShader run passed: 2 native workers,
+  12/12 jobs returned, 0 fallback/errors, 11 ready tiles, six contacts, 0.574 m clearance; screenshot
+  inspected. It does NOT run renderer A/Bs, W-drive, HGA or arm checks. The previous full run's HGA
+  timeout remains recorded; do not turn the focused success into an aggregate browser pass.
+- The browser gate now spawns Node's Vite entry directly, so its existing kill no longer leaves an
+  npx→shell→Vite grandchild bound to 5199. `npm run verify` passed 652 tests in 45 files plus
+  typecheck/WGSL; lint:arch, docs:check, check:testmap and demo:build passed (existing chunk advisory).
+- Final focused rerun after all code edits also passed: 13/13 Mars jobs, 13 ready tiles, six
+  contacts and 0.573 m clearance, no fallback/errors. Inspected the updated screenshot; the test
+  server exited without leaving port 5199 open. The user preview remains on 5173.
+
+## 2026-09-26 — Four-layer Mars PBR surfaces (Phase 10.8)
+
+- `LayeredTerrainMaterial` now builds tile-owned RGBA8 masks from the existing height/slope/biome
+  gates; `TerrainWorldOptions.layeredMaterial` attaches a `SplatMaterial` per uploaded tile. The
+  renderer's opt-in `terrain` technique shares standard vertices/prepass/shadows/PBR lighting but
+  extends group 2 with a 224-byte uniform block, three four-slice texture arrays, the mask and a
+  clamp sampler. Ordinary materials keep their five-binding layout; vertex stride stays 48 bytes.
+- Weight UVs address texel centres and clamp at borders; layer UV phase comes from absolute tile
+  origins in CPU double precision. Albedo blends in linear light, normals are scaled/blended/
+  normalized in tangent space, MR is G=roughness/B=metallic. Macro variation is world-phased and
+  micro detail follows albedo texels. This does NOT fix differences already present in coarse-LOD
+  slope/biome grids; those may still change material mixes, and the horizon apron remains a single
+  representative material. No erosion cache, generator-height, seed/site or rover-physics changes.
+- Masks and both per-tile material buffers are disposed with the tile on remesh/eviction; the
+  helper owns fallback arrays, supplied arrays remain caller-owned. Per-tile estimates add mask
+  bytes + 304 uniform bytes; the showcase's shared 256²×4 PBR arrays are ~4 MiB including mips.
+  Texture-array mips filter independently in linear-light/normal-vector space. Array view cache
+  keys now use the effective dimension, not "2d" for an inferred "2d-array".
+- **Mock bug exposed and reproduced:** higher mips skipped only one slice of preceding mips and
+  overlapped another array layer (`expected 0, got 60` in the new test). `mipRange` now accounts for
+  all slices; this is a stricter/correct storage model, not a validation exemption.
+- **Batching correctness:** the old key matched geometry + pipeline flags, not material data. The
+  merge now also requires the same Material object: different masks/uniforms/maps cannot draw with
+  the first material's bind group. Shared Material instances still batch. The PBR fixture now has
+  19 correct batches instead of 5 (32 total draws instead of 18); do not "optimize" that back by
+  ignoring different materials.
+- Mars Showcase uses independent dust/basalt/sand/crust micro-surfaces, scene-authored sRGB tints,
+  and the actual generated masks. HUD/state expose layer names and resident splat count. The
+  reversible material toggle changes bindings, not geometry/contacts. Its initial default-helper
+  palette capture was inspected, then the scene tints were tuned toward ferric dust/dark basalt.
+- Seven `terrainMaterials.test.ts` cases cover arrays/mips, gates/invalid weights, negative/large
+  UV phases, matching mask edges/skirts, real draw/instancing/layout paths, streaming ownership/
+  budgets and failed-construction cleanup. An eighth Showcase case compares uploaded masks against
+  actual Mars cells. Both terrain shader variants are in the WGSL gate. Full CPU verification:
+  **661 tests / 46 files**, typecheck/WGSL, architecture/docs/test-map checks and production build
+  all passed (existing bundle-size advisory).
+- Real-GPU offscreen oracle uses Renderer/RenderGraph, not a replacement sampling shader. Four
+  one-hot outputs: [250,0,0], [0,250,0], [0,0,250], [185,126,63]. Bilinear mixture, ordinary PBR
+  reference and prepassed pixels all [162,147,138], exactly the CPU expected colour; MR texture
+  and equivalent scalar factors both [132,5,5]. Normal/roughness/metallic variations change pixels,
+  zero GPU errors. The first focused run stopped on a hidden scene-selector action (not the GPU);
+  forcing the select fixed that, and the focused pixel/worker/showcase run passed (8/8 worker jobs,
+  nine resident splat tiles, six contacts). Its initial whole-frame A/B changed 439,192 pixels.
+- Final gate strengthens the A/B to lower outer ground regions, excluding rover/sky (>10% changed,
+  max channel difference >=10). W-drive distance is freshly sampled AFTER material captures, so
+  idle drift during screenshots does not count for/against driving. One full run was deliberately
+  restarted while still in PBR after spotting that stale-baseline issue; no distance/time thresholds
+  were relaxed. Final full run outcome is recorded below.
+- **Final full WebGPU result:** all checks through Mars materials and W-drive passed. Ground-only
+  layered/single A/B: 117,000/117,000 region pixels changed, max channel 129; inspected the final
+  rust-palette capture and the PBR fixture. Native workers returned 8/8 jobs with no fallback/errors;
+  nine opening splat tiles and six contacts. W drove +0.57 m, max 1.10 m/s, dust 165, six contacts.
+  The aggregate gate then **failed** its unchanged 300 s antenna poll: stowed with 0.5306 s of
+  simulation countdown left (117 tiles resident). Arm checks were not reached. No full pass is
+  claimed. The test server cleaned up 5199; the user preview remains live on 5173.
+
+## 2026-09-26 — Pull-request preparation
+
+- Packaging the analytic Mars showcase integration, faithful worker reconstruction/cancellation fix,
+  and four-layer PBR rendering together from `arena/01a0def6-forge-engine` into `main` at the user's
+  request. No runtime changes made during PR preparation.
+- Fresh pre-commit verification passed: 661 tests / 46 files, typecheck, WGSL, architecture lint,
+  test-map/doc checks, production demo build and diff whitespace validation. The browser evidence
+  remains the implementation run recorded above, not a fresh GPU run: all checks through materials
+  and W-drive passed, but the aggregate stopped at the 300 s HGA timeout; arm checks were not reached.
+  Keep that warning prominent in the PR, and do not mark the full browser gate green.

@@ -29,6 +29,8 @@
     "check:wgsl": "node tools/wgsl-check.mjs",
     "check:mars-port": "vite-node tools/mars-port-check.mjs",
     "check:browser": "node tools/browser-check.mjs",
+    "check:browser:terrain-layers": "node tools/browser-check.mjs --terrain-layers",
+    "check:browser:mars-workers": "node tools/browser-check.mjs --mars-workers",
     "demo:build": "vite build --config examples/vite.config.ts",
     "bench:build": "tsc -p benchmarks/tsconfig.json"
   },

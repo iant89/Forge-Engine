@@ -14,6 +14,7 @@ import { geomorphHeight } from "./lod.js";
 import { Geometry, type GeometrySource } from "../rendering/geometry.js";
 import { AABB } from "../math/geometry.js";
 import { Vec3 } from "../math/vec.js";
+import type { SplatMaterial } from "../rendering/splatMaterial.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { EntityId } from "../scene/entityId.js";
 
@@ -106,6 +107,8 @@ export class TerrainTile {
   readonly bounds: AABB;
 
   gpuGeometry: Geometry | null = null;
+  /** Tile-owned uniforms and weight map; the material's texture arrays remain shared. */
+  gpuMaterial: SplatMaterial | null = null;
 
   constructor(options: TerrainTileOptions, pipeline?: GeneratorPipeline, seed = 0) {
     this.cx = options.cx;
@@ -368,6 +371,8 @@ export class TerrainTile {
   }
 
   dispose(): void {
+    this.gpuMaterial?.dispose();
+    this.gpuMaterial = null;
     if (this.gpuGeometry) {
       this.gpuGeometry.dispose();
       this.gpuGeometry = null;
