@@ -45,11 +45,11 @@ export interface SceneShadowSettings {
   enabled: boolean;
   /** Directional cascade count (1..4). More cascades = more shadow passes = more cost. */
   cascades: number;
-  /** Requested resolution per cascade; the engine's quality profile caps it. */
+  /** Shared requested edge resolution for directional cascade and spot-map layers; the profile caps it. */
   mapSize: number;
-  /** Maximum distance from the camera that receives shadows. */
+  /** Maximum distance from the camera that receives directional cascade shadows. */
   distance: number;
-  /** Re-render the shadow map only when the scene's shadow-relevant state changed. */
+  /** Reserved for later adaptive shadow work; currently has no effect on map allocation or updates. */
   adaptive: boolean;
   /** Cascade split scheme: 0 = uniform, 1 = logarithmic (practical split blend). */
   splitLambda: number;

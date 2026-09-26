@@ -67,8 +67,11 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles")).toBe(48);
     expect(RENDERING_STRUCTS.LightBlock.byteSize("uniform")).toBe(1296);
     expect(RENDERING_STRUCTS.LightBlock.offsetOf("lights")).toBe(16);
-    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(320);
+    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(656);
     expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("cascadeTexelWorld")).toBe(272);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotViewProj")).toBe(288);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotParams")).toBe(544);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount")).toBe(608);
     expect(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform")).toBe(80);
     expect(RENDERING_STRUCTS.PostUniforms.byteSize("uniform")).toBe(48);
     expect(RENDERING_STRUCTS.PostUniforms.offsetOf("flags")).toBe(40);
@@ -283,6 +286,15 @@ describe("clustered lighting structs (Phase 13.3)", () => {
     expect(FORWARD).toContain(ClusterUniforms.toWgsl("uniform"));
     // The validator's uniform rules do not apply to storage space, so embedding them is legal.
     expect(layoutIssues(preprocessWgsl(FORWARD, { QUALITY: 2, SHADOW_MODE: 1 }))).toEqual([]);
+  });
+
+  it("routes directional and spot shadow indices to their own atlas layers", () => {
+    expect(STANDARD_FRAGMENT_BODY).toContain("fn spotShadowAttenuation(");
+    expect(STANDARD_FRAGMENT_BODY).toContain("uniforms_shadow.spotViewProj[shadowIndex]");
+    expect(STANDARD_FRAGMENT_BODY).toContain("uniforms_shadow.count + shadowIndex");
+    expect(STANDARD_FRAGMENT_BODY).toContain("textureSampleCompareLevel(shadowMap, shadowSampler, uv + o, layer, depth)");
+    expect(STANDARD_FRAGMENT_BODY).toContain("power = power * spotShadowAttenuation(s.worldPos, N, L.shadowIndex);");
+    expect(STANDARD_FRAGMENT_BODY).toContain("power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);");
   });
 
   it("keeps one shading function for both light paths, behind a runtime flag", () => {

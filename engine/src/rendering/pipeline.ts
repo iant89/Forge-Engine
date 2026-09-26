@@ -74,9 +74,22 @@ export interface RenderPipelineBundle {
   topology: GPUPrimitiveTopology;
 }
 
+export interface PipelineFactoryOptions {
+  /**
+   * Compile cache misses with `createRenderPipelineAsync` and let frames skip until the bundle is
+   * ready. Defaults to async on real devices and sync on the mock, whose synchronous implementation
+   * is only used to keep deterministic command-recording tests concise.
+   */
+  asyncCompilation?: boolean;
+}
+
 export class PipelineFactory {
   readonly shaders: ShaderCache;
   private readonly pipelines = new Map<string, RenderPipelineBundle>();
+  private readonly pending = new Map<string, Promise<RenderPipelineBundle>>();
+  private readonly failures = new Map<string, string>();
+  private readonly asyncCompilation: boolean;
+  private generation = 0;
   private frameLayout: GPUBindGroupLayout | null = null;
   private depthFrameLayout: GPUBindGroupLayout | null = null;
   private drawLayout: GPUBindGroupLayout | null = null;
@@ -100,8 +113,9 @@ export class PipelineFactory {
   private creates = 0;
   private hits = 0;
 
-  constructor(readonly device: GraphicsDevice) {
+  constructor(readonly device: GraphicsDevice, options: PipelineFactoryOptions = {}) {
     this.shaders = new ShaderCache(device);
+    this.asyncCompilation = options.asyncCompilation ?? !device.isMock;
   }
 
   /** @internal */ get bindGroupLayouts(): {
@@ -134,7 +148,7 @@ export class PipelineFactory {
   private ensureLayouts(): void {
     if (this.frameLayout) return;
     const d = this.device.device;
-    // Shadow passes bind one `ShadowPassUniforms` record per cascade through a dynamic offset.
+    // Shadow passes bind one `ShadowPassUniforms` record per atlas layer through a dynamic offset.
     this.depthFrameLayout = d.createBindGroupLayout({
       label: "shadowpass.layout",
       entries: [
@@ -287,6 +301,10 @@ export class PipelineFactory {
     ].join("|");
   }
 
+  /**
+   * Synchronous cache API retained for explicit startup tooling and the mock-device tests. The
+   * Renderer uses `getReady()` instead: on a real device it never calls this miss path from a frame.
+   */
   get(options: PipelineKeyOptions): RenderPipelineBundle {
     const key = this.keyOf(options);
     const cached = this.pipelines.get(key);
@@ -298,10 +316,90 @@ export class PipelineFactory {
     const bundle = this.create(options, key);
     this.pipelines.set(key, bundle);
     this.creates++;
+    this.failures.delete(key);
     return bundle;
   }
 
-  private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
+  /**
+   * Non-blocking renderer lookup. A miss queues one asynchronous compilation and returns `null` for
+   * this frame; repeated requests for the same key share that in-flight compilation.
+   */
+  getReady(options: PipelineKeyOptions): RenderPipelineBundle | null {
+    const key = this.keyOf(options);
+    const cached = this.pipelines.get(key);
+    if (cached) {
+      this.hits++;
+      return cached;
+    }
+    if (!this.asyncCompilation) return this.get(options);
+    if (!this.pending.has(key) && !this.failures.has(key)) void this.getAsync(options).catch(() => undefined);
+    return null;
+  }
+
+  /** Explicit async request, useful for asset/scene prewarming outside the render loop. */
+  getAsync(options: PipelineKeyOptions): Promise<RenderPipelineBundle> {
+    const key = this.keyOf(options);
+    const cached = this.pipelines.get(key);
+    if (cached) {
+      this.hits++;
+      return Promise.resolve(cached);
+    }
+    const existing = this.pending.get(key);
+    if (existing) return existing;
+    const failure = this.failures.get(key);
+    if (failure) return Promise.reject(new InternalError(`render pipeline "${key}" previously failed: ${failure}`));
+    if (!this.asyncCompilation) return Promise.resolve(this.get(options));
+
+    const generation = this.generation;
+    let descriptor: GPURenderPipelineDescriptor;
+    let topology: GPUPrimitiveTopology;
+    let compile: Promise<GPURenderPipeline>;
+    try {
+      this.ensureLayouts();
+      ({ descriptor, topology } = this.describe(options, key));
+      compile = this.device.device.createRenderPipelineAsync(descriptor);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.failures.set(key, message);
+      this.device.recordError(`render pipeline compilation (${key})`, message);
+      return Promise.reject(new InternalError(`failed to asynchronously create render pipeline "${key}": ${message}`, { cause: error }));
+    }
+
+    let pending: Promise<RenderPipelineBundle>;
+    pending = Promise.resolve(compile)
+      .then((pipeline) => {
+        if (generation !== this.generation) {
+          // The WebGPU API has no pipeline destroy() in browsers, but the strict mock does; release
+          // that resource there and never let a stale compile repopulate the invalidated cache.
+          (pipeline as GPURenderPipeline & { destroy?: () => void }).destroy?.();
+          throw new InternalError(`render pipeline "${key}" completed after its factory was invalidated`);
+        }
+        const bundle = { pipeline, key, topology };
+        this.pipelines.set(key, bundle);
+        this.creates++;
+        return bundle;
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (generation === this.generation) {
+          this.failures.set(key, message);
+          this.device.recordError(`render pipeline compilation (${key})`, message);
+        }
+        throw error instanceof InternalError ? error : new InternalError(`failed to asynchronously create render pipeline "${key}": ${message}`, { cause: error });
+      })
+      .finally(() => {
+        if (this.pending.get(key) === pending) this.pending.delete(key);
+      });
+    this.pending.set(key, pending);
+    return pending;
+  }
+
+  /** Await currently in-flight compiles. This is a host/test convenience, never called by renderScene. */
+  async settle(): Promise<void> {
+    while (this.pending.size > 0) await Promise.allSettled([...this.pending.values()]);
+  }
+
+  private describe(options: PipelineKeyOptions, key: string): { descriptor: GPURenderPipelineDescriptor; topology: GPUPrimitiveTopology } {
     // `prepass` falls through to the standard module in moduleFor: same source, same vertex entry.
     const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, ssao } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
@@ -394,18 +492,24 @@ export class PipelineFactory {
         : undefined,
       multisample: { count: sampleCount },
     };
-    let pipeline: GPURenderPipeline;
+    return { descriptor: pipelineDesc, topology: debug ? "line-list" : "triangle-list" };
+  }
+
+  private create(options: PipelineKeyOptions, key: string): RenderPipelineBundle {
+    const { descriptor, topology } = this.describe(options, key);
     try {
-      pipeline = this.device.device.createRenderPipeline(pipelineDesc);
-    } catch (e) {
-      throw new InternalError(`failed to create render pipeline "${key}": ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+      return { pipeline: this.device.device.createRenderPipeline(descriptor), key, topology };
+    } catch (error) {
+      throw new InternalError(`failed to create render pipeline "${key}": ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
-    return { pipeline, key, topology: debug ? "line-list" : "triangle-list" };
   }
 
   /** Re-create every pipeline after a device loss (modules and layouts are dead with the old one). */
   invalidate(): void {
+    this.generation++;
     this.pipelines.clear();
+    this.pending.clear();
+    this.failures.clear();
     this.frameLayout = null;
     this.depthFrameLayout = null;
     this.drawLayout = null;
@@ -429,10 +533,21 @@ export class PipelineFactory {
     this.shaders.clear();
   }
 
-  stats(): { pipelines: number; creates: number; cacheHits: number; layouts: number } {
+  get pipelinesPending(): number {
+    return this.pending.size;
+  }
+
+  stats(): { pipelines: number; pipelinesPending: number; failures: number; creates: number; cacheHits: number; layouts: number } {
     // Bind group layouts: frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky,
     // water, ssao, ssao blur.
-    return { pipelines: this.pipelines.size, creates: this.creates, cacheHits: this.hits, layouts: 11 };
+    return {
+      pipelines: this.pipelines.size,
+      pipelinesPending: this.pending.size,
+      failures: this.failures.size,
+      creates: this.creates,
+      cacheHits: this.hits,
+      layouts: 11,
+    };
   }
 }
 

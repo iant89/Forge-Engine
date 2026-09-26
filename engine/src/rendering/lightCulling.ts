@@ -408,7 +408,7 @@ export class GpuLightCuller {
 
   /** One invocation per cluster: the grid's 3 072 clusters in twelve workgroups of 256. */
   private encode(ctx: RenderGraphPassContext): void {
-    const pass = ctx.encoder.beginComputePass({ label: "lights.assign" });
+    const pass = ctx.beginComputePass("lights.assign");
     pass.setPipeline(this.pipeline!);
     pass.setBindGroup(0, this.group!);
     pass.dispatchWorkgroups(CLUSTER_COUNT / LIGHT_CULL_WORKGROUP);

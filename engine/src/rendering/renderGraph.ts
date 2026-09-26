@@ -28,6 +28,7 @@
  */
 
 import { UsageError } from "../core/errors.js";
+import { BufferUsage } from "../gpu/constants.js";
 import { textureSizeBytes } from "../gpu/formats.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 
@@ -76,11 +77,32 @@ export interface RenderGraphDepthAttachment {
   view?: RenderGraphViewDesc;
 }
 
+export type GpuPassKind = "render" | "compute";
+
+export interface GpuPassTime {
+  name: string;
+  kind: GpuPassKind;
+  ms: number;
+}
+
+/** One completed, asynchronous timestamp-query readback. `frameIndex` orders delayed callbacks. */
+export interface GpuTimingFrame {
+  frameIndex: number;
+  frameTimeMs: number;
+  renderTimeMs: number;
+  computeTimeMs: number;
+  passes: readonly GpuPassTime[];
+}
+
+export type GpuTimingCallback = (timing: GpuTimingFrame) => void;
+
 export interface RenderGraphPassContext {
   readonly encoder: GPUCommandEncoder;
   readonly passName: string;
   /** Begin the render pass described by the pass's attachments. The callback must `end()` it. */
   beginRenderPass(label?: string): GPURenderPassEncoder;
+  /** Begin a timestamped compute pass (when enabled/supported). The callback must `end()` it. */
+  beginComputePass(label?: string): GPUComputePassEncoder;
   texture(handle: RenderGraphHandle): GPUTexture;
   /** Views are cached per physical texture, so identical requests return the identical object. */
   view(handle: RenderGraphHandle, desc?: RenderGraphViewDesc): GPUTextureView;
@@ -110,6 +132,17 @@ export interface RenderGraphStats {
   transientTextures: number;
   /** Physical textures backing the transients (≤ transientTextures when aliasing kicked in). */
   physicalTextures: number;
+  /** True only when timestamp-query was enabled and requested on this graph. */
+  gpuTimingAvailable: boolean;
+  /** Most recent completed GPU timestamp sample (readback is intentionally asynchronous). */
+  gpuFrameTimeMs: number;
+  gpuRenderTimeMs: number;
+  gpuComputeTimeMs: number;
+  gpuPassTimes: readonly GpuPassTime[];
+  /** Frames skipped because all readback slots were in flight. */
+  gpuTimingSkippedFrames: number;
+  /** Pass timestamps omitted after the query set reaches its per-frame capacity. */
+  gpuTimingDroppedPasses: number;
   /** Bytes the frame's transients occupy after aliasing (what the pool has to hold for this frame). */
   transientBytes: number;
   /** Bytes the transients would have needed without aliasing minus what was allocated. */
@@ -125,6 +158,8 @@ export interface RenderGraphStats {
 export interface RenderGraphOptions {
   /** Idle frames a pooled texture survives before it is destroyed (default 2). */
   retireAfterFrames?: number;
+  /** Collect non-blocking timestamp-query samples if the device has requested `timestamp-query`. */
+  gpuTimestamps?: boolean;
 }
 
 interface ResourceNode {
@@ -172,6 +207,30 @@ interface PooledTexture {
 }
 
 const NO_PASS = -1;
+const DEFAULT_TIMESTAMP_QUERY_COUNT = 512;
+const READBACK_SLOT_COUNT = 3;
+
+interface GpuTimingReadbackSlot {
+  resolve: GPUBuffer;
+  readback: GPUBuffer;
+  busy: boolean;
+}
+
+interface TimedGpuPass {
+  name: string;
+  kind: GpuPassKind;
+  beginIndex: number;
+  endIndex: number;
+}
+
+interface GpuTimingRecorder {
+  frameIndex: number;
+  queryCount: number;
+  querySet: GPUQuerySet;
+  slot: GpuTimingReadbackSlot;
+  passes: TimedGpuPass[];
+  droppedPasses: number;
+}
 
 export class RenderGraph {
   readonly stats: RenderGraphStats = {
@@ -180,6 +239,13 @@ export class RenderGraph {
     executed: [],
     transientTextures: 0,
     physicalTextures: 0,
+    gpuTimingAvailable: false,
+    gpuFrameTimeMs: 0,
+    gpuRenderTimeMs: 0,
+    gpuComputeTimeMs: 0,
+    gpuPassTimes: [],
+    gpuTimingSkippedFrames: 0,
+    gpuTimingDroppedPasses: 0,
     transientBytes: 0,
     aliasedBytes: 0,
     pooledBytes: 0,
@@ -194,6 +260,12 @@ export class RenderGraph {
   private passes: PassNode[] = [];
   private readonly pool = new Map<string, PooledTexture[]>();
   private readonly retireAfterFrames: number;
+  private gpuTimingEnabled: boolean;
+  private gpuQuerySet: GPUQuerySet | null = null;
+  private gpuQueryCount = 0;
+  private gpuTimingSlots: GpuTimingReadbackSlot[] = [];
+  private nextGpuFrameIndex = 0;
+  private latestCompletedGpuFrameIndex = -1;
   private disposed = false;
   private building = false;
 
@@ -202,6 +274,8 @@ export class RenderGraph {
     options: RenderGraphOptions = {},
   ) {
     this.retireAfterFrames = Math.max(0, options.retireAfterFrames ?? 2);
+    this.gpuTimingEnabled = options.gpuTimestamps === true && device.caps.timestampQuery;
+    this.stats.gpuTimingAvailable = this.gpuTimingEnabled;
   }
 
   /** Start describing a frame. Handles from a previous frame are invalid after this. */
@@ -282,7 +356,7 @@ export class RenderGraph {
   }
 
   /** Compile (validate, cull, alias, allocate) and record + submit the frame as one command buffer. */
-  execute(): RenderGraphStats {
+  execute(onGpuTimings?: GpuTimingCallback): RenderGraphStats {
     this.assertBuilding("execute");
     this.building = false;
     const stats = this.stats;
@@ -301,19 +375,34 @@ export class RenderGraph {
     // Record.
     const device = this.device.device;
     const encoder = device.createCommandEncoder({ label: "forge.frame" });
+    const timing = this.beginGpuTimingFrame();
     const viewCache = new Map<string, GPUTextureView>();
-    for (const pass of live) {
-      encoder.pushDebugGroup(pass.desc.name);
-      const ctx = this.contextFor(pass, encoder, physical, viewCache);
-      try {
-        pass.desc.execute(ctx);
-      } finally {
-        encoder.popDebugGroup();
+    try {
+      for (const pass of live) {
+        encoder.pushDebugGroup(pass.desc.name);
+        const ctx = this.contextFor(pass, encoder, physical, viewCache, timing);
+        try {
+          pass.desc.execute(ctx);
+        } finally {
+          encoder.popDebugGroup();
+        }
+        stats.executed.push(pass.desc.name);
       }
-      stats.executed.push(pass.desc.name);
+      if (timing?.queryCount) {
+        encoder.resolveQuerySet(timing.querySet, 0, timing.queryCount, timing.slot.resolve, 0);
+        encoder.copyBufferToBuffer(timing.slot.resolve, 0, timing.slot.readback, 0, timing.queryCount * 8);
+        stats.gpuTimingDroppedPasses += timing.droppedPasses;
+      }
+      device.queue.submit([encoder.finish()]);
+      stats.submits++;
+      if (timing) {
+        if (timing.queryCount > 0) void this.readGpuTimings(timing, onGpuTimings);
+        else timing.slot.busy = false;
+      }
+    } catch (error) {
+      if (timing) timing.slot.busy = false;
+      throw error;
     }
-    device.queue.submit([encoder.finish()]);
-    stats.submits++;
     this.retireIdle();
     return stats;
   }
@@ -322,6 +411,13 @@ export class RenderGraph {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.gpuQuerySet?.destroy();
+    this.gpuQuerySet = null;
+    for (const slot of this.gpuTimingSlots) {
+      slot.resolve.destroy();
+      slot.readback.destroy();
+    }
+    this.gpuTimingSlots = [];
     for (const list of this.pool.values()) {
       for (const p of list) {
         p.texture.destroy();
@@ -514,11 +610,138 @@ export class RenderGraph {
 
   // ------------------------------------------------------------------ execution helpers
 
+  private ensureGpuTimingResources(): boolean {
+    if (!this.gpuTimingEnabled) return false;
+    if (this.gpuQuerySet) return true;
+    const limits = this.device.device.limits as GPUSupportedLimits & { maxTimestampQueries?: number };
+    const queryCount = Number.isInteger(limits.maxTimestampQueries) && limits.maxTimestampQueries! > 0
+      ? Math.min(DEFAULT_TIMESTAMP_QUERY_COUNT, Math.max(2, limits.maxTimestampQueries! * 64))
+      : DEFAULT_TIMESTAMP_QUERY_COUNT;
+    let querySet: GPUQuerySet | null = null;
+    const slots: GpuTimingReadbackSlot[] = [];
+    try {
+      querySet = this.device.device.createQuerySet({ label: "forge.gpu-timestamps", type: "timestamp", count: queryCount });
+      const bytes = queryCount * 8;
+      for (let i = 0; i < READBACK_SLOT_COUNT; i++) {
+        const resolve = this.device.createBuffer({ label: `forge.timestamps.resolve.${i}`, size: bytes, usage: BufferUsage.QUERY_RESOLVE | BufferUsage.COPY_SRC });
+        try {
+          const readback = this.device.createBuffer({ label: `forge.timestamps.readback.${i}`, size: bytes, usage: BufferUsage.MAP_READ | BufferUsage.COPY_DST });
+          slots.push({ resolve, readback, busy: false });
+        } catch (error) {
+          resolve.destroy();
+          throw error;
+        }
+      }
+      this.gpuQuerySet = querySet;
+      this.gpuQueryCount = queryCount;
+      this.gpuTimingSlots = slots;
+      return true;
+    } catch (error) {
+      querySet?.destroy();
+      for (const slot of slots) {
+        slot.resolve.destroy();
+        slot.readback.destroy();
+      }
+      this.gpuTimingEnabled = false;
+      this.stats.gpuTimingAvailable = false;
+      this.device.recordError("GPU timestamp setup", error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  private beginGpuTimingFrame(): GpuTimingRecorder | null {
+    if (!this.gpuTimingEnabled || this.disposed) return null;
+    const frameIndex = ++this.nextGpuFrameIndex;
+    if (!this.ensureGpuTimingResources()) return null;
+    const slot = this.gpuTimingSlots.find((candidate) => !candidate.busy);
+    if (!slot) {
+      this.stats.gpuTimingSkippedFrames++;
+      return null;
+    }
+    slot.busy = true;
+    return { frameIndex, queryCount: 0, querySet: this.gpuQuerySet!, slot, passes: [], droppedPasses: 0 };
+  }
+
+  private timestampWritesForPass(
+    timing: GpuTimingRecorder | null,
+    name: string,
+    kind: GpuPassKind,
+  ): GPURenderPassTimestampWrites | null {
+    if (!timing) return null;
+    if (timing.queryCount + 2 > this.gpuQueryCount) {
+      timing.droppedPasses++;
+      return null;
+    }
+    const beginIndex = timing.queryCount;
+    const endIndex = beginIndex + 1;
+    timing.queryCount += 2;
+    timing.passes.push({ name, kind, beginIndex, endIndex });
+    return {
+      querySet: timing.querySet,
+      beginningOfPassWriteIndex: beginIndex,
+      endOfPassWriteIndex: endIndex,
+    };
+  }
+
+  private async readGpuTimings(timing: GpuTimingRecorder, callback?: GpuTimingCallback): Promise<void> {
+    const byteLength = timing.queryCount * 8;
+    let mapped = false;
+    try {
+      await timing.slot.readback.mapAsync(BufferUsage.MAP_READ, 0, byteLength);
+      mapped = true;
+      const bytes = timing.slot.readback.getMappedRange(0, byteLength).slice(0);
+      const timestamps = new BigUint64Array(bytes);
+      const passes: GpuPassTime[] = [];
+      let firstTimestamp: bigint | null = null;
+      let lastTimestamp: bigint | null = null;
+      let renderTimeMs = 0;
+      let computeTimeMs = 0;
+      for (const pass of timing.passes) {
+        const start = timestamps[pass.beginIndex];
+        const end = timestamps[pass.endIndex];
+        if (start === undefined || end === undefined || end < start) continue;
+        const ms = Number(end - start) / 1_000_000;
+        passes.push({ name: pass.name, kind: pass.kind, ms });
+        if (pass.kind === "render") renderTimeMs += ms;
+        else computeTimeMs += ms;
+        if (firstTimestamp === null || start < firstTimestamp) firstTimestamp = start;
+        if (lastTimestamp === null || end > lastTimestamp) lastTimestamp = end;
+      }
+      if (this.disposed || timing.frameIndex < this.latestCompletedGpuFrameIndex) return;
+      const frameTimeMs = firstTimestamp === null || lastTimestamp === null ? 0 : Number(lastTimestamp - firstTimestamp) / 1_000_000;
+      const result: GpuTimingFrame = {
+        frameIndex: timing.frameIndex,
+        frameTimeMs,
+        renderTimeMs,
+        computeTimeMs,
+        passes,
+      };
+      this.latestCompletedGpuFrameIndex = timing.frameIndex;
+      this.stats.gpuFrameTimeMs = frameTimeMs;
+      this.stats.gpuRenderTimeMs = renderTimeMs;
+      this.stats.gpuComputeTimeMs = computeTimeMs;
+      this.stats.gpuPassTimes = passes;
+      callback?.(result);
+    } catch (error) {
+      if (!this.disposed) this.device.recordError("GPU timestamp readback", error instanceof Error ? error.message : String(error));
+    } finally {
+      if (mapped && !this.disposed) {
+        try {
+          timing.slot.readback.unmap();
+        } catch {
+          // The device or graph may have been disposed while this asynchronous map was in flight.
+        }
+      }
+      timing.slot.busy = false;
+    }
+  }
+
   private contextFor(
     pass: PassNode,
     encoder: GPUCommandEncoder,
     slots: { texture: PooledTexture | null }[],
     importedViews: Map<string, GPUTextureView>,
+    timing: GpuTimingRecorder | null,
   ): RenderGraphPassContext {
     const resources = this.resources;
     const texture = (handle: RenderGraphHandle): GPUTexture => {
@@ -572,14 +795,25 @@ export class RenderGraph {
               depthClearValue: d.depthClearValue ?? 1,
             }
         : undefined;
-      return encoder.beginRenderPass({ label: label ?? pass.desc.name, colorAttachments, depthStencilAttachment });
+      const passLabel = label ?? pass.desc.name;
+      const descriptor: GPURenderPassDescriptor = { label: passLabel, colorAttachments, depthStencilAttachment };
+      const timestampWrites = this.timestampWritesForPass(timing, passLabel, "render");
+      if (timestampWrites) descriptor.timestampWrites = timestampWrites;
+      return encoder.beginRenderPass(descriptor);
+    };
+    const beginComputePass = (label?: string): GPUComputePassEncoder => {
+      const passLabel = label ?? pass.desc.name;
+      const descriptor: GPUComputePassDescriptor = { label: passLabel };
+      const timestampWrites = this.timestampWritesForPass(timing, passLabel, "compute");
+      if (timestampWrites) descriptor.timestampWrites = timestampWrites;
+      return encoder.beginComputePass(descriptor);
     };
     const colorFormat = (index: number): GPUTextureFormat => {
       const c = pass.desc.color?.[index];
       if (!c) throw new UsageError(`RenderGraph pass "${pass.desc.name}" has no colour attachment ${index}`);
       return resources[c.texture]!.desc.format;
     };
-    return { encoder, passName: pass.desc.name, beginRenderPass, texture, view, size, colorFormat };
+    return { encoder, passName: pass.desc.name, beginRenderPass, beginComputePass, texture, view, size, colorFormat };
   }
 
   private push(node: ResourceNode): RenderGraphHandle {

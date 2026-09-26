@@ -5,13 +5,18 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Rendering (Phase 2)
 
-* **Casters are drawn once per cascade they intersect.** There is per-cascade AABB culling but no
-  per-object cascade assignment, so a near object costs up to N shadow draws. `stats.shadowsDrawn`
-  makes it visible. (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
-* **Only the first shadow-casting directional light casts.** Spot and point lights light the scene
-  but do not shadow it. (capability: rendering.shadows)
-* **Shadow atlas memory.** The default profile's 2048² × 3 `depth24plus` array is ≈ 48 MB. Lower
-  profiles cap `shadowMapSize`; there is no adaptive resolution. (capability: rendering.shadowMemory)
+* **Casters can still contribute to multiple shadow maps.** The renderer assigns each renderable a
+  conservative mask from its world AABB and submits only its assigned contiguous instance ranges;
+  when an object's bounds intersect multiple cascade or spot frusta, it is drawn into each map. A
+  single-map heuristic is intentionally not used because it could drop valid shadows.
+  `stats.shadowInstancesDrawn` and `shadowInstancesCulled` expose the work.
+  (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
+* **Shadowed-light coverage is bounded.** Only the first shadow-casting directional light and up to
+  four valid spot lights receive maps. Point lights, contact shadows and adaptive resolution remain
+  deferred; all maps share the frame's capped `shadow.mapSize` resolution. (capability: rendering.shadows)
+* **Shadow atlas memory.** One 2048² `depth24plus` layer is about 16 MiB; the four-cascade/four-spot
+  maximum is about 128 MiB at 2048² and 512 MiB at the 4096² ultra cap. Quality profiles cap
+  `shadowMapSize`; maps are not adaptive. (capability: rendering.shadowMemory)
 * **The prepass depth has three consumers so far.** SSAO, the soft-particle fade and the object
   culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
   (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
@@ -56,7 +61,7 @@ the honest detail lives; nothing here is hidden behind a green gate.
   local lights still go through the fixed 16-entry uniform list and still truncate at
   `MAX_LIGHTS_PER_FRAME`. (`docs/RENDERING.md` §4b) (capability: rendering.clusterCoverage)
 * **`renderScale` applies to the HDR path only.** The LDR path always renders at swapchain size. (capability: rendering.renderScale)
-* **No GPU timestamps.** `renderTimeMs` is CPU encode time; pass timings are not measured. (capability: rendering.gpuTiming)
+* **No profiler UI.** The profiler receives asynchronous GPU pass samples, but this build has no timeline or pass-timing overlay. (capability: diagnostics.profiler)
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves
   presence and direction (A/B luminance) and the pass structure; visual quality is an eyeball check
   on `tools/.browser-check.png`. (capability: rendering.postFxVerification)

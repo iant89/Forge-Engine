@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: the depth prepass, SSAO, production transient aliasing, clustered lighting, the GPU cluster fill and GPU object culling (13.1–13.5) are covered below; 13.6 onward is not started.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: items 13.1–13.8 are implemented and covered below, including indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9's per-object cascade assignment and bounded spot shadows (four shared-resolution maps) are implemented, while point/contact shadows and adaptive resolution remain.
 
 ## Setting up
 
@@ -60,13 +60,13 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 349+ tests in 31 files (adds `vehiclePhysics` Phase 11): prior suites plus `vehiclePhysics` (15) covering backend, heightfield agreement, chassis/prop collision, orientation, stress cases, telemetry — see the per-suite notes below | passing |
+| `npm test` | 603 tests in 42 files on the current tree (including Phase 13.7 async pipeline, Phase 13.8 timestamp/readback and Phase 13.9 cascade/spot-map coverage); see the per-suite notes below | passing |
 | `npm run test:affected` | The same suites as `npm test`, but only the ones the working-tree (or PR) diff can reach: each change is mapped through `tools/test-subsystems.mjs` to its subsystem, expanded to every dependent subsystem, and unioned with the smoke floor (`math`, `ecs`, `renderGraph`, `frame`, `architecture`, `subsystems`). A foundation change (`core`/`math`), a build/test-config change, or a file no subsystem owns falls back to the full suite, and the one-line reason is printed. `--all` forces the full set; PRs run this in CI, `main` runs the full suite | passing |
 | `npm run check:testmap` | The source→test map has not drifted: every suite on disk is claimed by exactly one subsystem (or the smoke floor), every declared source path and `deps` id resolves, and every top-level `engine/src` directory is owned by a subsystem or is a full-run trigger. Guarded a second time from inside vitest by `tests/subsystems.test.ts` | passing |
-| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to every generated struct (13, including `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
+| `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, unlit, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 16 generated structs (including `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m with the speed and kick dust that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/roverArm`, `tests/armTouch` and `tests/vehicleTouch`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — the Phase 13.5 object culling A/B (identical picture between the device culler and the CPU twin, the pass present in one arm only, the HiZ stage off without darkening a pixel) and the Phase 13.6 indirect arm that follows it (`indirectDraws === batches` with the pass's counter identities on a real device, the same picture with the records off and `indirectDraws` back to 0, and a 1 m draw distance that makes the device, not the CPU, zero records) — and zero new GPU errors (state-polled with wall-clock caps). The Mars HGA poll is the gate's one wall-clock wait with no assertion behind it and is environment-bound on a SwiftShader-only sandbox (see the note under the table) | passing (including that poll on CI; this sandbox's software rasteriser is too slow for it — see the note below) |
+| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera, scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m with the speed and kick dust that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/roverArm`, `tests/armTouch` and `tests/vehicleTouch`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — the Phase 13.5 object culling A/B (identical picture between the device culler and the CPU twin, the pass present in one arm only, the HiZ stage off without darkening a pixel) and the Phase 13.6 indirect arm that follows it (`indirectDraws === batches` with the pass's counter identities on a real device, the same picture with the records off and `indirectDraws` back to 0, and a 1 m draw distance that makes the device, not the CPU, zero records), plus startup through the non-blocking 13.7 pipeline path and optional 13.8 timestamp-query reporting (this SwiftShader adapter reported frame/render/compute and per-pass samples), and the 13.9 per-object cascade submissions plus the spot-shadow A/B: on the PBR fixture the spot map/pass appears, disappears when only the spotlight's `castShadow` flag is disabled (directional cascades stay active), and returns when re-enabled; the full-resolution comparison measured 13,464 pixels darker with spot shadows, none brighter, maximum 11 luma levels, with zero GPU errors through that arm. The frame suite separately checks spot-map counts/layers and range/`firstInstance` ownership because the browser A/B checks rendered output | this local run's spot A/B, cascade tint and earlier browser arms passed, then the Mars Showcase W-drive check failed at 0.485 m in 45 s against the >0.5 m requirement; the gate did not reach the later HGA poll, so there is no full browser pass or CI result for this diff |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms), the Phase 13.4 light-count stress benchmark (`benchmarks/src/lights.bench.ts`: prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped and a grid-saturating rig, with shape guards — the fill follows coverage, the counting pass does not, the worst case stays under a second) and the Phase 13.5 object-culling benchmark (`benchmarks/src/culling.bench.ts`: the CPU twin's frustum/distance/HiZ tests at 512/2048/8192 batches plus a 1280×720 pyramid per frame; measured here 1.1 µs/batch and 9.2 ms/frame at the cap, 39.5 ms for the pyramid — the reduction the twin does not do) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 | `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
@@ -223,8 +223,11 @@ the budget was already full of far chunks).
   re-executing the same topology allocates nothing and preserves texture identity; a shape that
   stops being used survives the two-frame grace period, is then destroyed, and `dispose()` releases
   the rest (asserted through `mock.outstanding`).
-* **Recording** — one command buffer per `execute()`, a named debug group per pass, and attachment
-  views with the mip/layer shapes the passes declared.
+* **Recording and timing** — one command buffer per `execute()`, a named debug group per pass, and
+  attachment views with the mip/layer shapes the passes declared. Timestamp-enabled execution resolves
+  render and compute pass boundaries asynchronously, reports positive per-pass/frame durations through
+  the callback and stats, and leaves `execute()` non-blocking. When `timestamp-query` is unsupported,
+  the graph continues without timing and allocates no timestamp buffers.
 
 ### `tests/shadows.test.ts` — cascade math without a GPU
 
@@ -234,7 +237,10 @@ cascade's light-space box (perspective camera, arbitrary orientation); the box l
 `casterBackoff × radius` of room in front of the slice for off-screen casters; translating the camera
 by a fraction of a texel changes the light-space origin by a whole texel (the snapping that keeps
 shadow edges from swimming); a straight-down sun and an orthographic camera produce finite,
-containing matrices; passing an output array reuses the cascade objects.
+containing matrices; passing an output array reuses the cascade objects. Spotlight fitting also proves
+the perspective frustum contains interior cone points, clips beyond `Light.range`, remains finite for
+vertical directions, rejects degenerate direction/range/resolution, clamps extreme outer cosines and
+reuses the supplied matrix.
 
 ### `tests/clusters.test.ts` — the light grid, without a GPU
 
@@ -268,6 +274,8 @@ module), culls like the forward pipeline, and the forward variant used over prep
 `less-equal` with depth writes off. The SSAO estimate and both blur directions share one module,
 bind no vertex buffer and no depth attachment, and use different layouts (depth vs AO texture).
 
+**Async compilation (13.7):** repeated `getReady()` cache misses share one in-flight `createRenderPipelineAsync`, return no bundle until it resolves, and expose pending/failure counts; a rejection is latched until invalidation and never leaves a pending entry.
+
 ### `tests/frame.test.ts` — the frame the renderer builds (mock device)
 
 Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plane and boxes on a
@@ -284,6 +292,13 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   `shadowMapSize`) each change exactly the passes they should.
 * A caster behind the camera is frustum-culled from `forge.main` but still drawn into the cascade
   that contains it.
+* **Per-object cascade assignment (13.9):** two same-geometry casters with distinct, overlapping
+  cascade masks stay in one colour batch; each depth pass issues only the `firstInstance` ranges
+  assigned to its layer, and the submitted/cut instance totals match the masks.
+* **Spot maps (13.9):** spot passes follow cascade layers in the shared array, use per-spot matrices
+  and map texel size, preserve light indices in both the fixed uniform list and clustered storage
+  block, support a spot-only frame, and cap the active maps at four. Tests check the 3-layer mixed
+  atlas, the 4-layer spot-only atlas, the extra spot remaining unshadowed, and zero mock errors.
 * A steady frame creates no textures and no buffers; a resize to an unrelated size creates only the
   frame-sized transients (HDR, depth, new bloom mips), the old shapes are retired after the grace
   period, and the shadow atlas is untouched.
@@ -307,6 +322,10 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   `RendererOptions.depthPrepass: false` / `ssao: false` veto them whatever the scene asks. A steady
   SSAO frame creates no texture or buffer, five prepass × SSAO × HDR combinations record no errors,
   and the fixture's teardown proves the SSAO buffer, AO fallback and pooled AO targets are released.
+* **GPU timing (13.8)**: an enabled mock renderer exposes non-zero asynchronous frame/render/compute
+  times and a `lights.assign` timestamp in `Renderer.stats.gpuPassTimes`; the matching `Profiler` frame
+  record and per-pass scope receive those samples. The graph-specific test verifies `execute()` returns
+  before map completion and reports separate render and compute passes.
 * **Clustered lighting (13.3)**: with three point lamps added to the fixture, the uniform `LightBlock`
   holds the directional light alone while `cluster.lights` holds all three (same record layout, same
   field offsets, same values), `perFrame.flags` bit 5 is set, the uploaded quantisation reproduces
@@ -497,8 +516,8 @@ CPU behaviour plus mock-device integration:
 Chromium's compiler accepts uniform structs with a relaxed layout; WebKit rejects the module, which
 on Safari is a black canvas with a live HUD. The suite asserts that every generated struct emits
 scalar padding (never `array<u32, N>`), reports no `uniformLayoutProblems()`, keeps its byte
-offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 320,
-`ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 96 B,
+offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 656
+(with spot matrices at 288 and parameters at 544), `ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 96 B,
 `Water` 224 B, `Ssao` 112 B), that every
 shipped shader variant — including the depth-only and post modules added in Phase 2, the sky
 module added in Phase 8a, the water module added in Phase 8b and the SSAO module added in Phase 13 —
@@ -856,7 +875,7 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   direction (A/B luminance) and that the cascade fit is geometrically correct; they do not compare
   against a reference image. The same holds for SSAO: the gate proves it darkens contact areas, never
   brightens and is not a global dimmer — not that its occlusion matches a ray-traced reference.
-* **GPU timings.** No timestamp queries yet; `renderTimeMs` is CPU time.
+* **GPU timestamp fidelity on physical adapters.** The mock tests exercise asynchronous timestamp resolves and readback with deterministic nanosecond clocks; no CI assertion compares timestamp-query durations against a physical GPU or another timing source.
 * **A browser-side worker round-trip.** The Node suites drive the shipping worker scope on real
   threads, but no test starts a module worker in a browser and submits a task through it
   (`capability: workers.browserThreads`).
@@ -865,10 +884,11 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 * **Using the BVH.** The tree exists, is deterministic and can be built in a worker; grid-marched
   terrain raycasts, the pairwise broadphase and per-batch AABB culling do not consult it
   (`capability: physics.spatialIndex`). Nothing measures a speed-up yet.
-* **Per-instance culling and cascade culling.** Culling is per batch: one visible instance keeps its
-  whole batch, and the shadow cascades still use the CPU's per-cascade AABB test rather than the cull
-  pass. Compaction and indirect draws (13.6) are what make the visibility buffer skip the upload too
-  (`capability: rendering.cullCoverage`).
+* **Per-instance GPU visibility remains coarse.** The device HiZ pass culls whole colour batches:
+  one visible instance keeps its batch. Phase 13.9 separately assigns CPU-side world-AABB masks and
+  contiguous instance ranges to cascade/spot maps, but those shadow submissions are not driven by
+  the HiZ cull pass. The device does not yet independently compact individual instances across the
+  colour and shadow passes (`capability: rendering.cullCoverage`).
 * **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the
@@ -899,5 +919,6 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   Its log is mirrored onto the pull request as a comment, because job logs cannot be downloaded from
   every environment. If that runner cannot launch a WebGPU browser the script exits 2, the job
   says so and passes with a warning — it proves nothing about rendering, which is exactly what an
-  advisory check should admit. WebKit, mobile browsers and GPU timings are still not run anywhere in
-  CI; a failing advisory job never blocks a merge, so a green PR is not a rendering verdict.
+  advisory check should admit. WebKit and mobile browsers are not run in CI, and GPU timestamp fidelity
+  is not asserted on a physical adapter; a failing advisory job never blocks a merge, so a green PR is
+  not a rendering verdict.

@@ -1,9 +1,9 @@
 /**
- * Cascaded shadow map fitting (docs/RENDERING.md §4).
+ * Shadow-map fitting (docs/RENDERING.md §4).
  *
- * Pure math, no GPU: the renderer feeds it the camera and the light direction and gets back one
- * orthographic light view-projection per cascade plus the numbers the shader needs to pick and
- * bias a cascade. Kept separate so the tests can pin the properties that matter without a device:
+ * Pure math, no GPU: `computeCascades` fits an orthographic directional projection to each camera
+ * slice; `computeSpotShadow` fits a perspective projection to one light's cone and finite range. Kept
+ * separate so tests can pin the properties that matter without a device:
  *
  *  - splits are monotone and cover exactly `[near, shadowDistance]` (practical split scheme,
  *    `lambda` blends uniform and logarithmic spacing);
@@ -177,4 +177,65 @@ export function computeCascades(camera: CascadeCameraParams, options: CascadeOpt
     sliceNear = sliceFar;
   }
   return out;
+}
+
+/** Reused renderer output for one perspective spotlight depth map. */
+export interface SpotShadowFit {
+  /** Render-local -> spot light clip space; WebGPU depth is [0,1]. */
+  viewProj: Mat4;
+  fovY: number;
+  near: number;
+  far: number;
+  /** One map texel in UV space. */
+  texelSize: number;
+  /** World-space texel footprint per light-view-space unit (multiply by clip.w). */
+  worldTexelScale: number;
+}
+
+const spotView = new Mat4();
+const spotProjection = new Mat4();
+const spotTarget = new Vec3();
+const spotUp = new Vec3();
+
+/**
+ * Fit a square perspective map to a spotlight's outer cone and finite range. The fit is conservative
+ * with respect to the analytic cone: the outer cosine is clamped to a valid perspective FOV, and
+ * callers supply the wider of the configured inner/outer cones. Returns false for a degenerate
+ * direction, range or resolution instead of emitting a singular matrix.
+ */
+export function computeSpotShadow(
+  position: Vec3,
+  direction: Vec3,
+  outerConeCos: number,
+  range: number,
+  mapSize: number,
+  out: SpotShadowFit,
+): boolean {
+  const directionLength = Math.hypot(direction.x, direction.y, direction.z);
+  if (
+    !Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.z) ||
+    !(directionLength > 1e-8) || !Number.isFinite(directionLength) || !(range > 1e-4) || !Number.isFinite(range) || !(mapSize > 0) || !Number.isFinite(mapSize)
+  ) {
+    return false;
+  }
+  const dx = direction.x / directionLength;
+  const dy = direction.y / directionLength;
+  const dz = direction.z / directionLength;
+  spotTarget.set(position.x + dx, position.y + dy, position.z + dz);
+  spotUp.set(0, 1, 0);
+  if (Math.abs(dy) > 0.99) spotUp.set(0, 0, 1);
+
+  const cosine = Math.max(-1, Math.min(1, Number.isFinite(outerConeCos) ? outerConeCos : 0.6));
+  const fovY = Math.max(Math.PI / 360, Math.min(Math.PI - Math.PI / 360, 2 * Math.acos(cosine)));
+  const near = Math.min(0.1, range * 0.01);
+  const resolution = Math.max(1, Math.floor(mapSize));
+  spotView.setLookAt(position, spotTarget, spotUp);
+  spotProjection.setPerspective(fovY, 1, near, range);
+  out.viewProj.multiplyMatrices(spotProjection, spotView);
+  out.fovY = fovY;
+  out.near = near;
+  out.far = range;
+  out.texelSize = 1 / resolution;
+  out.worldTexelScale = (2 * Math.tan(fovY / 2)) / resolution;
+  return true;
 }

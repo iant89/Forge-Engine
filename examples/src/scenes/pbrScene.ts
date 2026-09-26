@@ -200,7 +200,7 @@ export function buildPbrScene(engine: Engine): DemoSceneHandle {
   spot.kind = "spot";
   spot.intensity = 15.0;
   spot.range = 16;
-  spot.innerCone = 0.5;
+  spot.innerCone = 0.95;
   spot.outerCone = 0.85;
   spot.setColor(1.0, 1.0, 1.0);
   scene.world.addComponent(spotEntity.id, spot);
@@ -270,6 +270,9 @@ export function buildPbrScene(engine: Engine): DemoSceneHandle {
     cameraEntity,
     update,
     dispose,
+    setSpotShadows: (enabled) => {
+      spot.castShadow = enabled;
+    },
     camera: {
       target: new Vec3(0, 1.0, 0),
       distance: 12,

@@ -41,7 +41,7 @@ export interface EngineConfig extends Partial<EngineConfigExtras> {
   /** Do not present, do not read canvas: used by tests/benchmarks. */
   headless?: boolean;
   logLevel?: LogLevelType | "silent" | "error" | "warn" | "info" | "debug" | "trace";
-  /** Enable per-pass GPU timestamp queries (costs a resolve buffer read; on by default in dev). */
+  /** Enable asynchronous per-pass GPU timestamps when the optional adapter feature is available. */
   gpuTimestamps?: boolean;
   /** Validate that every submitted command stream matches expectations (dev only, expensive). */
   renderValidation?: boolean;

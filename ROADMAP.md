@@ -16,8 +16,10 @@ CURRENT CODEBASE BASELINE:
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
-    Phase 13:   IN PROGRESS (13.1-13.5 landed: depth prepass + SSAO, aliasing,
-                clustered lighting, GPU light fill, GPU object culling)
+    Phase 13:   IN PROGRESS (13.1-13.8 landed: depth prepass + SSAO, aliasing,
+                clustered lighting, GPU light fill/culling, indirect rendering,
+                async pipeline compilation, GPU timing; 13.9 cascade assignment and
+                bounded spot shadows landed; point/contact/adaptive work remains)
     Phase 14+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -628,11 +630,15 @@ CURRENT STATE:
 
     In progress. Landed: the depth prepass (13.1) with SSAO as its first consumer,
     real transient aliasing in every SSAO frame (13.2), clustered lighting (13.3),
-    the GPU cluster fill (13.4) and GPU object culling with the HiZ pyramid (13.5).
-    13.6 onward is open.
-    Frame: forge.shadow.<n> → forge.prepass → forge.hiz.<n> → forge.objects.cull →
-    forge.ssao → forge.ssao.blur.h → forge.ssao.blur.v → forge.main → forge.sky →
-    particles → bloom → forge.tonemap (the cull passes exist only on the device path).
+    the GPU cluster fill (13.4), GPU object culling with the HiZ pyramid (13.5),
+    indirect rendering (13.6), asynchronous pipeline compilation (13.7) and GPU
+    timing (13.8). Phase 13.9 has conservative per-object cascade assignment and
+    bounded spot shadows (up to four lights); point/contact shadows and adaptive
+    resolution remain.
+    Frame: forge.shadow.<n> → forge.shadow.spot.<n> (optional, after cascades) →
+    forge.prepass → forge.hiz.<n> → forge.objects.cull → forge.ssao →
+    forge.ssao.blur.h → forge.ssao.blur.v → forge.main → forge.sky → particles →
+    bloom → forge.tonemap (the cull passes exist only on the device path).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -840,32 +846,53 @@ CURRENT STATE:
 
 13.7 Async Pipeline Compilation
 
-    [ ] Implement the architecture's intended async pipeline path.
+    [x] Implement the architecture's intended async pipeline path.
 
-    [ ] Expose:
+        `PipelineFactory.getReady()` starts one `createRenderPipelineAsync()` per cache key and
+        returns immediately; the renderer skips only the draws whose variants are not ready yet.
+        The synchronous `get()` remains available for explicit tooling and the deterministic mock.
 
-        pipelinesPending
+    [x] Expose:
 
-    [ ] Never block a frame waiting for pipeline creation.
+        `pipelinesPending` and async `pipelineFailures` in renderer stats.
+
+    [x] Never block a frame waiting for pipeline creation.
+
+        Renderer call sites use the non-blocking lookup by default on real devices. Startup fallback
+        keeps forward depth writes correct while prepass and forward variants compile.
 
 
 13.8 GPU Timing
 
-    [ ] Wire timestamp queries where supported.
+    [x] Wire timestamp queries where supported.
 
-    [ ] Expose:
+        RenderGraph brackets render and compute passes and resolves into a three-slot readback ring;
+        `mapAsync()` updates stats later and is never awaited by `execute()`. Devices without the
+        optional `timestamp-query` feature continue without timing.
 
-        GPU frame time
-        pass time
-        compute time
-        render time
+    [x] Expose:
+
+        GPU frame time, per-pass time, compute time and render time through `Renderer.stats` / `engine.stats().render`; the Profiler receives per-pass GPU samples.
 
 
 13.9 Shadow Improvements
 
-    [ ] Per-object cascade assignment.
+    [x] Per-object cascade assignment.
 
-    [ ] Spot shadows.
+        Each caster gets a conservative cascade bitmask from its world AABB. Contiguous instances
+        with the same mask become `firstInstance` ranges within the existing colour batch, so each
+        shadow layer submits only the instances assigned to it without fragmenting the main draw.
+        `shadowInstancesDrawn` and `shadowInstancesCulled` report the assignment work; objects whose
+        bounds intersect multiple cascade volumes remain in each corresponding layer.
+
+    [x] Spot shadows.
+
+        The first four valid shadow-casting spot lights share the directional depth-array atlas,
+        appended after active cascade layers. Every map uses the frame's capped shadow resolution;
+        per-light/adaptive resolution is intentionally deferred. Spot indices survive uniform and
+        clustered light paths, and caster AABBs are assigned against each spot frustum. Covered by
+        math/frame/WGSL tests and the PBR browser visual A/B; `Renderer.stats.spotShadowMaps` reports
+        the active spot-map prefix.
 
     [ ] Point shadows.
 
@@ -1873,13 +1900,17 @@ TRACK E - KNOWN ISSUES
 
 
 ================================================================================
-                         CURRENT PRIORITY QUEUE
+                    ORIGINAL PRIORITY QUEUE (HISTORICAL)
 ================================================================================
 
 DO NOT immediately start scripting, editor work, networking, or miscellaneous
 features.
 
-The recommended immediate sequence is:
+The sequence below is retained from the original plan, not a current queue: terrain workers/LOD,
+vehicle integration, and Phase 13.1–13.8 have since landed. The active Phase 13 remainder is 13.9
+shadow improvements (see the current state at the top of this document).
+
+The original recommended sequence was:
 
     01. Engine hardening
     02. Worker terrain generation
@@ -1983,9 +2014,10 @@ CHANGE:
     New:
         Renderer foundation is complete; scalable GPU renderer remains ahead.
 
-    Reason:
+    Reason (at the time of this roadmap revision):
         Clustered lighting, depth prepass, GPU culling, indirect rendering,
-        GPU timing and async pipeline creation remain unfinished.
+        GPU timing and async pipeline creation were unfinished; 13.1–13.8 have
+        since landed, with 13.9 shadow improvements still open.
 
 
 CHANGE:
