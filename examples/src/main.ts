@@ -259,8 +259,8 @@ async function main(): Promise<void> {
         }
       }
     }
-    if (loadingTerrain) loadingTerrain.textContent = `terrain: ${mars.terrainChunks} chunks · ${mb(mars.terrainResidentBytes)} MB resident`;
-    if (mars.modelLoaded && mars.terrainResidentBytes > 0) hideLoading();
+    if (loadingTerrain) loadingTerrain.textContent = `terrain: ${mars.terrainReadyChunks}/${mars.terrainChunks} chunks ready · ${mb(mars.terrainResidentBytes)} MB · analytic Mars`;
+    if (mars.modelLoaded && mars.terrainRoverChunkReady) hideLoading();
   }
   loadingRetry?.addEventListener("click", () => {
     (currentHandle as MarsShowcaseSceneHandle | null)?.retryModelLoad?.();
@@ -706,6 +706,23 @@ async function main(): Promise<void> {
      * returns `gpuExecuted: false`; a real adapter that ran the compute shader returns true.
      */
     runParticleGravityCheck: (options?: ParticleGravityCheckOptions) => runParticleGravityCheck(engine.gpu.device, options ?? {}),
+    /** Real-renderer pixel oracle on a small offscreen device; pause this device during the check. */
+    runTerrainLayerCheck: async () => {
+      const running = engine.isRunning;
+      const resumeAnimation = animating;
+      animating = false;
+      engine.stop();
+      try {
+        await engine.gpu.device.queue.onSubmittedWorkDone();
+        const { runTerrainLayerCheck } = await import("./diag/terrainLayerCheck.js");
+        return await runTerrainLayerCheck();
+      } finally {
+        animating = resumeAnimation;
+        if (running) engine.start();
+      }
+    },
+    /** Reversible terrain material comparison; does not regenerate geometry or alter driving. */
+    setTerrainLayers: (enabled: boolean) => currentHandle?.scene.object<TerrainWorld>("TerrainWorld")?.setLayeredMaterialsEnabled(enabled),
     /** Terrain surface height at a world XZ (null outside the terrain demo). */
     terrainHeightAt: (x: number, z: number) => {
       const terrain = currentHandle?.scene.object<TerrainWorld>("TerrainWorld");

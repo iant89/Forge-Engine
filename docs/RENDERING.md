@@ -666,20 +666,53 @@ A `Material` is a shared data record: an 80-byte `MaterialUniforms` block (base 
 roughness, emissive factor × strength, texture flags) written only when `dirty`, plus one bind group
 created once with the material's textures (missing maps resolve to shared 1×1 defaults so the layout
 has no optional slots). Pipeline choice depends only on `technique` (`standard`, `unlit`, `emissive`,
-`debug-line`, `blit`), which maps are bound, `transparent`, alpha test and `doubleSided`; changing a
+`debug-line`, `blit`, `water`, `terrain`), which maps are bound, `transparent`, alpha test and `doubleSided`; changing a
 colour costs one uniform write and no pipeline. Emissive is `emissiveFactor × emissiveStrength` **not** modulated by the base colour
 (glTF semantics) — that is what makes an emissive cube a bloom source regardless of its albedo.
 
+### Four-layer terrain surfaces (10.8)
+
+`SplatMaterial` is an opt-in `terrain` technique; `LayeredTerrainMaterial` builds it from a cell's
+height/slope/biome gates for `TerrainWorldOptions.layeredMaterial`. It uses the same 48-byte vertices,
+standard vertex entry points (including instancing), shadow/prepass geometry and shared PBR lighting,
+fog and output encoding. Only surface sampling and material group 2 differ:
+
+| Binding | Terrain extension (ordinary 0–4 bindings stay unchanged) |
+| --- | --- |
+| 5 | 224-byte `SplatUniforms`: four colours, surface factors, UV transforms, micro detail and macro phase |
+| 6–8 | Four-slice albedo (sRGB), normal and metallic-roughness (linear) texture arrays |
+| 9 | Tile-owned linear RGBA8 weights, one texel at each cell vertex |
+| 10 | Clamp sampler for weights; the existing repeat sampler addresses layer textures |
+
+Masks map vertex UVs to texel centres and are filtered/renormalized in the fragment shader; zero
+coverage falls back to equal weights. Four fixed texture samples per map avoid derivative operations
+inside weight-dependent control flow. Albedo blends in linear light, normals in tangent space before
+normalization, and MR uses G=roughness/B=metallic times per-layer factors. UV phase is calculated on
+the CPU from absolute tile coordinates, including negative/large origins. Ordinary materials do not
+pay these texture fetches or use the extended layout. CPU layer-range gating is grid sampled, not
+per-fragment displacement/texture-height blending; coarse geology masks can still differ between LODs.
+
+Tiles release their own masks and both material buffers during remesh/eviction. Texture arrays are
+shared and caller-owned (or helper-owned defaults), not copied per tile. Material batching requires
+**the same Material object** as well as compatible geometry/pipeline state: a pipeline key alone
+cannot identify different uniforms, textures or masks. `MaterialLibrary` is the way to intentionally
+share a material for instancing.
+
+`check:browser:terrain-layers` renders an offscreen pixel oracle through the actual Renderer and
+RenderGraph: one-hot channels, bilinear linear-light mixtures, ordinary/prepass parity, and separate
+normal/roughness/metallic texture/factor changes. It also compares ground pixels in the real Mars
+Showcase with layering on/off; this scoped command does not claim the full browser suite passed.
+
 ## 7. Pipeline cache (`pipeline.ts`)
 
-`PipelineFactory.get(key)` returns a `{ pipeline, key, layout }` bundle; identical keys are identical
+`PipelineFactory.get(key)` returns a `{ pipeline, key, topology }` bundle; identical keys are identical
 objects and never touch the device. The key covers everything that changes the GPU pipeline:
 `technique` (`standard` / `unlit` / `depth` / `prepass` / `debug` / `post` / `sky` / `water` /
-`ssao`), `colorFormat` (`null` for depth-only), `depthFormat` (`null` for post and SSAO),
+`ssao` / `terrain`), `colorFormat` (`null` for depth-only), `depthFormat` (`null` for post and SSAO),
 `transparent` (blend + no depth write), `doubleSided`, `instanced`, `writeDepth`, `additive` (bloom
-upsample) and `fragmentEntry` (post and SSAO entry points). Bind group layouts — eleven of them
+upsample) and `fragmentEntry` (post and SSAO entry points). Bind group layouts — twelve of them
 (frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky, water, SSAO estimate,
-SSAO blur) — are created once and shared; `stats()` reports `{ pipelines, creates, cacheHits,
+SSAO blur, terrain material) — are created once and shared; `stats()` reports `{ pipelines, creates, cacheHits,
 layouts }`. `prepass` compiles the standard module's vertex entries with no fragment stage (see §4a). The `sky` technique forces
 `depthWriteEnabled: false` (its pass loads and stores the scene depth explicitly but never writes
 it — see the WebKit note on `forge.sky` above) and binds one group:

@@ -1,11 +1,12 @@
 /**
- * Mars showcase: the public-domain NASA Mars 2020 Perseverance model driving over the Phase 4
- * procedural Martian terrain under the Phase 8a Mars sky, with wheel-kick and ambient dust.
+ * Mars showcase: the public-domain NASA Mars 2020 Perseverance model driving over the ported
+ * Mars generator's analytic surface under the Phase 8a Mars sky, with wheel-kick and ambient dust.
  *
  * Stack, all on the public `@forge/engine` API:
- * - terrain: the terrain demo's `TerrainWorld` preset (seed 42137, regolith textures, exp² dust
- *   haze) plus `warmUpChunks` (elevated gen + upload budgets) so the async worker path fills the
- *   opening disc in a few frames instead of dripping in at the steady upload cap;
+ * - terrain: `createMarsPipeline` at the equatorial plain (generator seed 1337), 128 m / 33-vertex
+ *   tiles with 32 m skirts, dust/rock/sand/crust splat materials and exp² dust haze. Analytic-only: no external Stage A
+ *   erosion cache is fetched. Cell generation uses the engine's worker pool, with nine warm-up
+ *   requests then one per frame; mesh uploads and missing-cell ground queries remain on main;
  * - sky: `MARS_ATMOSPHERE` through `forge.sky` with the horizon-coloured haze (same recipe as the
  *   terrain demo, quality raised to medium — this scene spends its budget on the rover up close);
  * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1 kW + `ReductionDrive` 60:1 —
@@ -47,13 +48,10 @@ import {
   Mat4,
   System,
   type SystemContext,
-  GeneratorPipeline,
-  HeightGenerator,
-  CraterGenerator,
-  ErosionGenerator,
-  BiomeGenerator,
-  ScatterGenerator,
+  type MarsTerrainStage,
   Light,
+  LayeredTerrainMaterial,
+  marsSurfaceLayers,
   MARS_ATMOSPHERE,
   Material,
   Quat,
@@ -73,7 +71,10 @@ import {
   Vehicle,
   VehicleComponent,
   VehicleSystem,
+  adviseMarsTile,
+  chunkCoordKey,
   createAtmosphere,
+  createMarsPipeline,
   createBox,
   createCylinder,
   createSphere,
@@ -86,7 +87,7 @@ import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js"
 import { ARM_JOINT_COUNT, RoverArmController, type ArmJogInput } from "./roverArm.js";
 import { HighGainAntennaController } from "./highGainAntenna.js";
 import {
-  createMarsRegolithTextures,
+  createMarsSurfaceTextures,
   disposePbrTextureSet,
   type PbrTextureSet,
 } from "../textures/procedural.js";
@@ -102,6 +103,17 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     /** Terrain streaming: chunk objects requested and bytes resident on the GPU. */
     terrainChunks: number;
     terrainResidentBytes: number;
+    /** Actual pipeline/mode and resident terrain, not just requested chunk objects. */
+    terrainGenerator: string;
+    terrainHasErosion: boolean;
+    /** Current worker-pool availability; browser tests separately observe real result messages. */
+    terrainGeneration: "workers" | "inline";
+    terrainMaterialMode: "layered" | "single";
+    terrainMaterialLayers: string[];
+    terrainSplatTiles: number;
+    terrainReadyChunks: number;
+    terrainRoverChunkReady: boolean;
+    terrainGroundHeight: number;
     wheelCount: number;
     contactWheels: number;
     ambientDust: number;
@@ -196,9 +208,21 @@ class RoverDebugBounds extends System {
   }
 }
 
-/** Rover spawn on the terrain heightfield (placeOnGround drops it onto the surface). */
-const SPAWN_X = -16;
-const SPAWN_Z = 18;
+/** A local patch of the port's procedural planet, not a reconstruction of a NASA landing site. */
+export const MARS_SHOWCASE_SITE = {
+  name: "Equatorial plain",
+  latDeg: 0,
+  lonDeg: 0,
+  headingDeg: 0,
+} as const;
+
+/**
+ * Surveyed gentle uphill traverse on the unmodified seed-1337 surface. The summit preset starts
+ * on a long downhill slope; this site keeps all six wheels planted during the opening drive without
+ * flattening the generator or changing the rover's physics. placeOnGround supplies Y and attitude.
+ */
+const SPAWN_X = -164;
+const SPAWN_Z = 4;
 
 /**
  * Chase-cam framing tuned so the rover fills a portrait (iPhone) frame with terrain underfoot.
@@ -384,47 +408,42 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   scene.settings.shadow.distance = 250;
   scene.settings.shadow.splitLambda = 0.7;
 
-  // Terrain: the Phase 4 preset + warm-up burst so the first frame already shows the valley.
+  // Terrain: the same planet as mars-terrain-gen, evaluated per tile rather than loading baked
+  // chunks. Each tile consumes its actual geology weights; the four PBR arrays are shared.
   const gpu = engine.gpu;
-  let marsMaps: PbrTextureSet | null = createMarsRegolithTextures(gpu, 512);
-  const terrainMat = new Material({
-    label: "showcase-regolith",
-    color: marsMaps ? Color.fromSrgbHex(0xffffff) : Color.fromSrgbHex(0xc25127),
-    roughness: marsMaps ? 1.0 : 0.88,
-    metallic: 0.04,
-    tiling: marsMaps ? [16, 16] : undefined,
-    albedoMap: marsMaps?.albedo ?? null,
-    normalMap: marsMaps?.normal ?? null,
-    metallicRoughnessMap: marsMaps?.metallicRoughness ?? null,
-    normalScale: 1.6,
+  let marsMaps: PbrTextureSet | null = createMarsSurfaceTextures(gpu, 256);
+  // Scene-authored sRGB tints: ferric dust, dark basalt, pale sand, weathered crust. The shared
+  // helper's generic linear palette is intentionally overridable; these are not calibrated NASA data.
+  const surfaceColors = [0xc9784f, 0x5c5046, 0xd1a06b, 0x9a6549];
+  const terrainLayers = new LayeredTerrainMaterial({
+    label: "showcase-mars-layers",
+    layers: marsSurfaceLayers().map((layer, i) => ({ ...layer, color: Color.fromSrgbHex(surfaceColors[i]!), textureSize: i === 2 ? 4 : 8 })),
+    maps: marsMaps,
   });
-  const heightOptions = {
-    amplitude: 65,
-    frequency: 1 / 260,
-    octaves: 6,
-    ridgeWeight: 0.45,
-  };
-  const pipeline = new GeneratorPipeline()
-    .addStage(new HeightGenerator(heightOptions))
-    .addStage(new CraterGenerator({ density: 0.5, minRadius: 18, maxRadius: 55, depthRatio: 0.32, rimRatio: 0.16 }))
-    .addStage(new CraterGenerator({ density: 0.7, minRadius: 6, maxRadius: 16, depthRatio: 0.25, rimRatio: 0.12 }))
-    .addStage(new ErosionGenerator({ iterations: 2, talusAngle: 0.65 }))
-    .addStage(new BiomeGenerator())
-    .addStage(new ScatterGenerator());
+  const terrainMat = terrainLayers.toMaterial(); // horizon apron + reversible diagnostic fallback
+  const pipeline = createMarsPipeline({ site: MARS_SHOWCASE_SITE });
+  const marsStage = pipeline.stages[0] as MarsTerrainStage;
   const terrain = new TerrainWorld({
-    seed: 42137,
+    seed: marsStage.seed,
     chunkSize: 128,
     chunkResolution: 33,
+    skirtDepth: adviseMarsTile(128, 33).recommendedSkirtDepth,
     viewDistance: 1024,
     maxLOD: 3,
-    maxChunksLoaded: 220,
-    maxGenerationsPerFrame: 2,
-    warmUpChunks: 48,
+    visibleChunks: 220,
+    generationsPerFrame: 1,
+    uploadsPerFrame: 2,
+    warmUpChunks: 9,
+    // The analytic configuration round-trips to workers; no Stage A field buffers are needed.
+    // TerrainWorld still falls back inline when there is no scheduler / workers cannot start.
+    syncGeneration: false,
     material: terrainMat,
+    layeredMaterial: terrainLayers,
     pipeline,
-    heightOptions,
   });
   scene.add(terrain);
+  const terrainGeneration = (): "workers" | "inline" =>
+    !terrain.syncGeneration && engine.tasks && !engine.tasks.isInline ? "workers" : "inline";
 
   // Sun + rust-coloured bounce fill (terrain demo's lights).
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(200, 300, 200));
@@ -1071,6 +1090,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
               : `${Math.round(arm.progress * 100)}%↓`;
       return (
         `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel} · HGA ${antennaLabel}\n` +
+        `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDust.simulation.alive}  NASA/JPL-Caltech (public domain)`
@@ -1086,18 +1106,33 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     }),
     marsState: () => {
       const terrainStats = terrain.stats();
+      let readyChunks = 0;
+      for (const chunk of terrain.chunks.values()) if (chunk.state === "ready") readyChunks++;
+      const roverChunkKey = chunkCoordKey(
+        Math.floor(vehicle.position.x / terrain.chunkSize),
+        Math.floor(vehicle.position.z / terrain.chunkSize),
+      );
       return {
         modelLoaded,
         modelError,
         modelProgress,
         terrainChunks: Number(terrainStats.chunks ?? 0),
         terrainResidentBytes: Number(terrainStats.residentBytes ?? 0),
+        terrainGenerator: marsStage.name,
+        terrainHasErosion: marsStage.hasErosionCorrection,
+        terrainGeneration: terrainGeneration(),
+        terrainMaterialMode: terrain.layeredMaterialsEnabled ? "layered" : "single",
+        terrainMaterialLayers: terrainLayers.layers.map((layer) => layer.name),
+        terrainSplatTiles: [...terrain.chunks.values()].filter((chunk) => chunk.tile?.gpuMaterial !== null && chunk.tile?.gpuMaterial !== undefined).length,
+        terrainReadyChunks: readyChunks,
+        terrainRoverChunkReady: terrain.chunks.get(roverChunkKey)?.state === "ready",
+        terrainGroundHeight: terrain.getHeightAt(vehicle.position.x, vehicle.position.z),
         wheelCount: vehicle.wheels.length,
-      contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
-      ambientDust: ambientDust.simulation.alive,
-      kickDust: kickDust.simulation.alive,
-      mastT,
-      mastDeployed: mastTarget === 1,
+        contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
+        ambientDust: ambientDust.simulation.alive,
+        kickDust: kickDust.simulation.alive,
+        mastT,
+        mastDeployed: mastTarget === 1,
         armT: arm.progress,
         armDeployed: arm.deployed,
         armUnfolded: arm.unfolded,
@@ -1148,10 +1183,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
+      scene.dispose(); // tile materials/masks before the shared arrays they reference
       terrainMat.dispose();
       disposePbrTextureSet(marsMaps);
       marsMaps = null;
-      scene.dispose();
     },
   };
 }

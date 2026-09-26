@@ -30,6 +30,7 @@ import {
   STANDARD_FRAGMENT_BODY,
   STANDARD_INSTANCED_VERTEX,
   STANDARD_VERTEX,
+  TERRAIN_FRAGMENT_BODY,
   StructDef,
   WATER_SHADER,
   WGSL_RESERVED_WORDS,
@@ -47,6 +48,13 @@ import {
 
 const ENTRY = `@vertex fn vs() -> @builtin(position) vec4<f32> { return vec4<f32>(0.0); }`;
 const layoutIssues = (source: string): string[] => validateWgsl(source).filter((i) => i.kind === "layout").map((i) => i.message);
+
+it("validates both terrain splat modules with the unchanged standard vertex/depth path", () => {
+  for (const vertex of [STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX]) {
+    expect(validateWgsl(`${vertex}\n${TERRAIN_FRAGMENT_BODY}`)).toEqual([]);
+  }
+  expect(RENDERING_STRUCTS.SplatUniforms.byteSize("uniform")).toBe(224);
+});
 
 describe("generated uniform structs are legal in every browser's uniform address space", () => {
   it("emits padding as scalars, never as a small-stride array", () => {
@@ -100,6 +108,7 @@ describe("generated uniform structs are legal in every browser's uniform address
   it("every shipped shader variant passes the strict validator", () => {
     const sources = {
       STANDARD_VERTEX,
+  TERRAIN_FRAGMENT_BODY,
       STANDARD_INSTANCED_VERTEX,
       STANDARD_FRAGMENT_BODY,
       STANDARD_FORWARD: `${STANDARD_VERTEX}\n${STANDARD_FRAGMENT_BODY}`,

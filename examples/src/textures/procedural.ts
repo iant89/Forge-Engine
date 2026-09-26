@@ -5,7 +5,7 @@
  * them via `Texture.fromRgba8`. This allows the PBR showcase to display rich surface detail
  * without external binary assets or asset loaders.
  */
-import { Texture, hash2i, type GraphicsDevice } from "@forge/engine";
+import { Texture, hash2i, type GraphicsDevice, type SplatTextureSet } from "@forge/engine";
 
 export interface PbrTextureSet {
   albedo: Texture;
@@ -182,6 +182,65 @@ export function createMarsRegolithTextures(device: GraphicsDevice, size = 512): 
     albedo: Texture.fromRgba8(device, size, size, albedo, { label: "mars.albedo", srgb: true, mipmaps: true }),
     normal: Texture.fromRgba8(device, size, size, normal, { label: "mars.normal", srgb: false, mipmaps: true, normal: true }),
     metallicRoughness: Texture.fromRgba8(device, size, size, mr, { label: "mars.mr", srgb: false, mipmaps: true }),
+  };
+}
+
+/**
+ * Four independently tileable micro-surfaces for the Mars splat channels: dust, basalt, sand,
+ * crust. Neutral albedo detail is tinted by marsSurfaceLayers(); geological weights are NOT baked
+ * into these maps. Albedo mips filter in linear light, normals in vector space; arrays are shared.
+ */
+export function createMarsSurfaceTextures(device: GraphicsDevice, size = 256): SplatTextureSet {
+  const albedos: Uint8Array[] = [];
+  const normals: Uint8Array[] = [];
+  const roughnessMaps: Uint8Array[] = [];
+  for (let layer = 0; layer < 4; layer++) {
+    const albedo = new Uint8Array(size * size * 4);
+    const normal = new Uint8Array(size * size * 4);
+    const mr = new Uint8Array(size * size * 4);
+    const relief = new Float32Array(size * size);
+    const seed = 0x4d415253 + layer * 911;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = x / size, v = y / size;
+        const broad = periodicFbm(u * 8, v * 8, 8, 3, seed);
+        const grain = periodicValueNoise(u * 64, v * 64, 64, seed + 7);
+        const ripple = Math.sin(2 * Math.PI * (u * 8 + v * 2) + broad * 1.2);
+        const fissure = Math.max(0, 1 - Math.abs(broad) / 0.045);
+        const h = layer === 0 ? broad * 0.08 + grain * 0.018
+          : layer === 1 ? Math.abs(broad) * 0.55 + grain * 0.06 - fissure * 0.13
+          : layer === 2 ? ripple * 0.09 + grain * 0.009
+          : broad * 0.16 + grain * 0.035 - fissure * 0.08;
+        relief[y * size + x] = h;
+        const o = (y * size + x) * 4;
+        const shade = layer === 1 ? 0.77 + h * 0.7 : layer === 2 ? 0.92 + ripple * 0.045 : 0.88 + h * 0.6;
+        const value = Math.round(Math.max(0.3, Math.min(1, shade)) * 255);
+        albedo[o] = albedo[o + 1] = albedo[o + 2] = value;
+        albedo[o + 3] = 255;
+        mr[o] = 255;
+        mr[o + 1] = Math.round((layer === 1 ? 0.83 + fissure * 0.15 : 0.96 + grain * 0.025) * 255);
+        mr[o + 2] = 255; // layer metallic factors supply the physical value (mostly dielectric)
+        mr[o + 3] = 255;
+      }
+    }
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = (relief[y * size + (x + 1) % size]! - relief[y * size + (x - 1 + size) % size]!) * 4;
+        const dy = (relief[((y + 1) % size) * size + x]! - relief[((y - 1 + size) % size) * size + x]!) * 4;
+        const length = Math.hypot(dx, dy, 1);
+        const o = (y * size + x) * 4;
+        normal[o] = Math.round((0.5 - dx / length * 0.5) * 255);
+        normal[o + 1] = Math.round((0.5 - dy / length * 0.5) * 255);
+        normal[o + 2] = Math.round((0.5 + 1 / length * 0.5) * 255);
+        normal[o + 3] = 255;
+      }
+    }
+    albedos.push(albedo); normals.push(normal); roughnessMaps.push(mr);
+  }
+  return {
+    albedo: Texture.fromRgba8Array(device, size, size, albedos, { label: "mars.layers.albedo", srgb: true }),
+    normal: Texture.fromRgba8Array(device, size, size, normals, { label: "mars.layers.normal", normal: true }),
+    metallicRoughness: Texture.fromRgba8Array(device, size, size, roughnessMaps, { label: "mars.layers.mr" }),
   };
 }
 

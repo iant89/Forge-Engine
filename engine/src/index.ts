@@ -313,6 +313,8 @@ export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions }
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, computeNormalsAndTangents, type GeometrySource } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding } from "./rendering/mesh.js";
 export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
+export { SplatMaterial, splatUvTransform, type SplatMaterialOptions, type SplatTextureSet, type SplatSurfaceLayer } from "./rendering/splatMaterial.js";
+export { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./rendering/shaders/terrain.js";
 export {
   boxGeometrySource,
   planeGeometrySource,
@@ -337,7 +339,7 @@ export {
   type RockOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
-export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
+export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, SplatUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
 export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
 export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";

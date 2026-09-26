@@ -128,8 +128,8 @@ export const subsystems = {
   terrain: {
     title: "Terrain (chunks, heightmaps, LOD, streaming, generators)",
     src: ["engine/src/terrain"],
-    tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts", "tests/marsTerrain.test.ts"],
-    deps: ["core", "gpu", "math", "rendering", "scene"],
+    tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts", "tests/marsTerrain.test.ts", "tests/terrainMaterials.test.ts"],
+    deps: ["core", "gpu", "math", "rendering", "resources", "scene"],
   },
   population: {
     title: "World population (deterministic scatter, SoA instance blocks, terrain-following streaming)",
@@ -199,8 +199,8 @@ export const subsystems = {
   },
   "ex-orbit": {
     title: "Orbit camera controls + the demo scenes it assembles (examples) — integration",
-    // orbitControls.test drives real scenes (mars showcase, terrain), and the mars showcase in turn
-    // assembles the rover, antenna and touch UI. So this subsystem owns the shared demo scaffolding
+    // orbitControls.test and marsShowcase.test drive the real demo assembly; Mars Showcase in turn
+    // assembles the terrain, rover, antenna and touch UI. So this subsystem owns the shared demo scaffolding
     // and depends both on the broad engine and on the other example subsystems it pulls in.
     src: [
       "examples/src/controls/orbitControls.ts",
@@ -217,7 +217,7 @@ export const subsystems = {
       "examples/src/scenes/vehiclePlaygroundScene.ts",
       "examples/src/scenes/marsShowcaseScene.ts",
     ],
-    tests: ["tests/orbitControls.test.ts"],
+    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts"],
     deps: [
       "ex-ui",
       "ex-rover",

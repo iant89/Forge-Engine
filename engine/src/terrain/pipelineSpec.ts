@@ -37,7 +37,8 @@ import {
   ThermalErosionGenerator,
   ValleyCarvingGenerator,
 } from "./realistic.js";
-import { MarsTerrainStage } from "./mars/stage.js";
+import { MarsTerrainStage, type MarsSiteOptions } from "./mars/stage.js";
+import type { MarsGenParams } from "./mars/config.js";
 
 export type TerrainStageKind =
   | "height"
@@ -57,8 +58,8 @@ export type TerrainStageKind =
 /**
  * One option value in a spec.
  *
- * Scalars plus `string`: a stage whose configuration cannot itself travel to a worker uses a single
- * compact identity string (see the Mars stage's `identity`) so its cache key is still exact.
+ * Scalars plus `string`: structured settings can travel as canonical JSON (the Mars stage's
+ * `identity` carries its complete analytic configuration). Live Stage A field buffers stay inline.
  */
 export type TerrainStageOptionValue = number | boolean | string;
 
@@ -99,8 +100,8 @@ function codec<P extends object>(
 /**
  * The scalar surface the Mars codec reads off `MarsTerrainStage` (its identity fields). Declared
  * here rather than reusing `MarsTerrainStageOptions` because a codec's `fields` are the *spec*
- * keys, not constructor options — the stage's heavy configuration (params, field cache) is covered
- * by the `identity` string instead.
+ * keys, not constructor options. `identity` carries the complete analytic configuration as JSON;
+ * a non-null field-cache marker explicitly prevents reconstruction without those live buffers.
  */
 interface MarsStageSpecFields {
   identity: string;
@@ -111,6 +112,83 @@ interface MarsStageSpecFields {
   siteHeadingDeg: number;
   curvatureCompensation: boolean;
   detail: boolean;
+}
+
+/** The JSON identity is both a cache key and the analytic Mars worker payload. */
+interface MarsStageIdentity extends MarsGenParams {
+  site: Required<MarsSiteOptions>;
+  detail: boolean;
+  curvatureCompensation: boolean;
+  globalFields: number[] | null;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function numbers(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
+  return record(value) && fields.every((key) => typeof value[key] === "number" && Number.isFinite(value[key]));
+}
+
+const vector = (value: unknown): boolean => numbers(value, ["x", "y", "z"]);
+
+/**
+ * Rebuild from the *entire* planet, never defaults plus seed: volcanoes/canyon/dichotomy, the site's
+ * own radius, detail and curvature all change the surface. Reject malformed or inconsistent specs
+ * rather than guessing, and never drop a live field cache to make a worker task appear successful.
+ */
+function createMarsStage(options: MarsStageSpecFields): MarsTerrainStage {
+  let data: unknown;
+  try {
+    data = JSON.parse(options.identity) as unknown;
+  } catch {
+    throw new UsageError("mars terrain spec: identity must be complete configuration JSON");
+  }
+  if (
+    !numbers(data, ["seed", "radius"]) ||
+    !numbers(data.dichotomy, ["seed", "boundaryOffset", "amplitude", "waviness"]) || !vector(data.dichotomy.axis) ||
+    !Array.isArray(data.canyon) || !data.canyon.every((c: unknown) =>
+      numbers(c, ["width", "depth"]) && vector(c.a) && vector(c.b)) ||
+    !Array.isArray(data.volcanoes) || !data.volcanoes.every((v: unknown) =>
+      numbers(v, ["baseRadius", "height", "calderaRadius", "calderaDepth", "seed"]) && vector(v.center)) ||
+    !numbers(data.site, ["latDeg", "lonDeg", "headingDeg", "radiusM"]) ||
+    typeof data.detail !== "boolean" || typeof data.curvatureCompensation !== "boolean" ||
+    !(data.globalFields === null || (Array.isArray(data.globalFields) &&
+      data.globalFields.every((face: unknown) => typeof face === "number" && Number.isInteger(face) && face >= 0 && face < 6)))
+  ) {
+    throw new UsageError("mars terrain spec: identity has missing or invalid configuration fields");
+  }
+  const identity = data as unknown as MarsStageIdentity;
+  if (!(identity.radius > 0 && identity.site.radiusM > 0)) {
+    throw new UsageError("mars terrain spec: planet and site radii must be positive");
+  }
+  if (identity.globalFields !== null) {
+    throw new InlineOnlyError(
+      "the mars terrain stage samples a Stage A field cache held on the main thread; " +
+        "run this cache-backed pipeline inline (TerrainWorld { syncGeneration: true })",
+    );
+  }
+  const stage = new MarsTerrainStage({
+    params: {
+      seed: identity.seed,
+      radius: identity.radius,
+      dichotomy: identity.dichotomy,
+      canyon: identity.canyon,
+      volcanoes: identity.volcanoes,
+    },
+    site: identity.site,
+    detail: identity.detail,
+    curvatureCompensation: identity.curvatureCompensation,
+  });
+  if (
+    stage.identity !== options.identity || stage.seed !== options.seed || stage.radius !== options.radius ||
+    stage.siteLatDeg !== options.siteLatDeg || stage.siteLonDeg !== options.siteLonDeg ||
+    stage.siteHeadingDeg !== options.siteHeadingDeg || stage.detail !== options.detail ||
+    stage.curvatureCompensation !== options.curvatureCompensation
+  ) {
+    throw new UsageError("mars terrain spec: scalar options disagree with the serialized identity");
+  }
+  return stage;
 }
 
 /** The stage kinds the worker can reconstruct, with the options each one carries. */
@@ -159,28 +237,19 @@ export const TERRAIN_STAGE_CODECS: readonly StageCodec[] = [
   codec("detail-noise", ["amplitude", "frequency", "octaves", "minSlope", "blend"], (s) => s instanceof DetailNoiseGenerator, (options) => new DetailNoiseGenerator(options)),
   codec("climate-biome", ["seaLevel", "snowLine", "lapseRate", "moistureFrequency"], (s) => s instanceof ClimateBiomeGenerator, (options) => new ClimateBiomeGenerator(options)),
   codec("realistic-scatter", ["countPerChunk", "maxSlope", "minHeight", "maxHeight"], (s) => s instanceof RealisticScatterGenerator, (options) => new RealisticScatterGenerator(options)),
-  // The Mars stage is describable — its `identity` is a cache-key component, so a pipeline hash must
-  // not depend on the stage instance — but it is not *reconstructable*: its terrain samples a Stage A
-  // field cache that only exists on the main thread, and a stage rebuilt from this spec in a worker
-  // would silently produce a planet with no simulated-erosion correction. `create` therefore throws
-  // `InlineOnlyError`, which the scheduler turns into an inline run on the main thread using the live
-  // instance (see docs/MARS-TERRAIN.md). `TerrainWorld { syncGeneration: true }` skips the hop.
+  // Analytic Mars stages round-trip from their full JSON configuration. Stages holding a live
+  // Stage A field cache still refuse reconstruction: a worker must never omit that correction.
   codec<MarsStageSpecFields>(
     "mars",
     ["identity", "seed", "radius", "siteLatDeg", "siteLonDeg", "siteHeadingDeg", "curvatureCompensation", "detail"],
     (s) => s instanceof MarsTerrainStage,
-    () => {
-      throw new InlineOnlyError(
-        "the mars terrain stage samples a Stage A field cache held on the main thread; " +
-          "run the terrain pipeline inline (TerrainWorld { syncGeneration: true })",
-      );
-    },
+    createMarsStage,
   ),
 ];
 
 const CODEC_BY_KIND = new Map<TerrainStageKind, StageCodec>(TERRAIN_STAGE_CODECS.map((c) => [c.kind, c]));
 
-/** True when a stage is one of the built-in kinds a worker can reconstruct. */
+/** True when a stage can be described; live-data variants may still require inline execution. */
 export function isDescribableStage(stage: object): boolean {
   return TERRAIN_STAGE_CODECS.some((c) => c.matches(stage));
 }

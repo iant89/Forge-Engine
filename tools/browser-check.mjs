@@ -71,11 +71,16 @@
  *
  * Rain/showcase addition: the storm preset must spawn visible rain (`weatherState().rainDrops >
  * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
- * Perseverance GLB, settle its six wheels into terrain contact, then drive forward under W far enough
- * to prove the drivetrain and produce wheel-kick dust — all with no new GPU errors. These waits
+ * Perseverance GLB on the ported analytic Mars pipeline, make the rover's tile resident, settle its
+ * six wheels into terrain contact, then drive forward under W far enough to prove the drivetrain
+ * and produce wheel-kick dust — with clearance above that same surface and no new GPU errors. These waits
  * use wall-clock caps because the showcase presents well under 1 fps on the software rasteriser, and
  * a frame-count settle would
  * either race the model fetch or stall the gate for minutes.
+ *
+ * `--mars-workers` runs only native-worker round trips, showcase uploads/contact and a visual
+ * capture. The full suite also observes those worker messages in its Mars arm. The focused mode
+ * has its own command/output and never claims the renderer A/Bs, W-drive, HGA or arm checks ran.
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
@@ -101,7 +106,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { gpuLaunchEnv, ICD_SOURCE_TEXT, LOADER_SOURCE_TEXT } from "./gpu-env.mjs";
+import { installMarsWorkerProbe, verifyMarsWorkers } from "./browser-mars-workers.mjs";
 
+// Explicitly scoped fast path: worker round trips + actual showcase uploads/rendering, NOT the
+// all-scene renderer/drive/HGA/arm gate. Its distinct command/output cannot masquerade as a full pass.
+const MARS_WORKERS_ONLY = process.argv.includes("--mars-workers");
+const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
+const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const workerSmokeOnly = process.argv.includes("--workers-only");
@@ -122,7 +133,7 @@ function httpOk(url, timeoutMs = 1500) {
   });
 }
 
-const vite = spawn("npx", ["vite", "--config", "examples/vite.config.ts", "--port", String(PORT), "--strictPort", "--force"], {
+const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--config", "examples/vite.config.ts", "--port", String(PORT), "--strictPort", "--force"], {
   stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT) },
 });
@@ -194,7 +205,7 @@ try {
   );
 } catch (error) {
   console.error(
-    `check:browser NOT RUN — no launchable browser (${String(error).split("\n")[0]}).\n` +
+    `${CHECK_NAME} NOT RUN — no launchable browser (${String(error).split("\n")[0]}).\n` +
       "  install the build that matches the installed playwright-core, then retry:\n" +
       "  npx playwright@$(node -p \"require('playwright-core/package.json').version\") install --with-deps chromium",
   );
@@ -203,8 +214,12 @@ try {
 }
 
 const problems = [];
-const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+const context = await browser.newContext({
+  viewport: MARS_WORKERS_ONLY || TERRAIN_LAYERS_ONLY ? { width: 900, height: 520 } : { width: 1280, height: 720 },
+  deviceScaleFactor: 1,
+});
 const page = await context.newPage();
+await installMarsWorkerProbe(page);
 page.on("console", (msg) => {
   // The source URL matters: "Failed to load resource: 404" without it cost a CI round trip.
   const where = msg.location()?.url ? ` @ ${msg.location().url}` : "";
@@ -377,7 +392,7 @@ const describeGpu = async () => (await probeGpu()).text;
 
 /** Stop the run the way the "cannot run here" path does: report, tear the harness down, exit 2. */
 async function notRun(headline, lines) {
-  console.error(`check:browser NOT RUN — ${headline}\n${lines.map((l) => `  ${l}`).join("\n")}`);
+  console.error(`${CHECK_NAME} NOT RUN — ${headline}\n${lines.map((l) => `  ${l}`).join("\n")}`);
   await browser.close();
   vite.kill("SIGKILL");
   process.exit(2);
@@ -387,37 +402,62 @@ const GPU_HINT =
   'the gate needs the full Chromium build (channel: "chromium") launched with --headless=new ' +
   "--enable-unsafe-webgpu --enable-unsafe-swiftshader --enable-features=Vulkan.";
 
-let exitCode = 0;
-try {
-  // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
-  // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
-  await page.goto(`${URL}?scene=pbr`, { waitUntil: "load", timeout: 60000 });
-  let boot;
+/** Numerical pixel evidence, not just a populated bind group or an orange screenshot. */
+async function checkTerrainLayerPixels() {
+  const result = await page.evaluate(() => window.__forge.runTerrainLayerCheck());
+  if (!result.gpuExecuted || result.gpuErrors !== 0) throw new Error(`terrain layer oracle failed: ${JSON.stringify(result)}`);
+  console.log(`terrain layer pixels: ${JSON.stringify(result)}`);
+}
+
+async function waitPresentedFrames(count) {
+  const from = await page.evaluate(() => window.__forge.stats().frame);
+  await page.waitForFunction((frame) => window.__forge.stats().frame >= frame, from + count, { polling: 250, timeout: 60000 });
+}
+
+async function checkShowcaseLayers() {
+  const state = await page.evaluate(() => window.__forge.marsState());
+  if (state?.terrainMaterialMode !== "layered" || state.terrainSplatTiles < 9 ||
+      state.terrainMaterialLayers.join(",") !== "dust,rock,sand,crust") {
+    throw new Error(`showcase lacks resident four-layer materials: ${JSON.stringify(state)}`);
+  }
+  const wasAnimating = await page.evaluate(() => window.__forge.animating());
+  await page.evaluate(() => window.__forge.setAnimating(false));
   try {
-    await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
-    boot = await page.evaluate(() => window.__forgeError ?? null);
-  } catch (waitError) {
-    boot = `the demo never signalled a boot result (${String(waitError.message).split("\n")[0]})`;
+    await page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { timeout: 60000 });
+    await keepLuma("terrain-layered");
+    await page.screenshot({ path: "tools/.browser-check-terrain-layered.png", timeout: 60000 });
+    await page.evaluate(() => window.__forge.setTerrainLayers(false));
+    await waitPresentedFrames(3);
+    await keepLuma("terrain-single");
+    // Restrict the comparison to the lower outer quarters: no rover/sky, so a moving wheel or
+    // streamed horizon cannot substitute for a real change to the shaded ground.
+    const change = await page.evaluate(() => {
+      const canvas = document.querySelector("canvas");
+      const a = window.__gateRgb["terrain-layered"], b = window.__gateRgb["terrain-single"];
+      let pixels = 0, differing = 0, max = 0;
+      for (let y = Math.floor(canvas.height / 2); y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        if (x >= canvas.width / 4 && x < canvas.width * 3 / 4) continue;
+        const offset = (y * canvas.width + x) * 4;
+        const difference = Math.max(...[0, 1, 2].map((c) => Math.abs(a[offset + c] - b[offset + c])));
+        pixels++; if (difference > 1) differing++; max = Math.max(max, difference);
+      }
+      return { pixels, differing, max };
+    });
+    if (change.differing < change.pixels * 0.1 || change.max < 10) throw new Error(`terrain material toggle had too little ground-pixel effect: ${JSON.stringify(change)}`);
+    const off = await page.evaluate(() => window.__forge.marsState());
+    if (off.terrainMaterialMode !== "single" || off.contactWheels < 4) throw new Error("terrain comparison changed contacts or did not toggle");
+    console.log(`mars layered vs single: ${change.differing}/${change.pixels} ground pixels differ, max channel ${change.max}; ${state.terrainSplatTiles} splat tiles`);
+  } finally {
+    await page.evaluate((animating) => { window.__forge.setTerrainLayers(true); window.__forge.setAnimating(animating); }, wasAnimating);
   }
+  await waitPresentedFrames(2);
+  const after = await page.evaluate(() => ({ state: window.__forge.marsState(), stats: window.__forge.stats() }));
+  if (after.state.terrainMaterialMode !== "layered" || after.stats.gpuErrors || after.stats.lastError) throw new Error(`terrain layers failed to restore: ${JSON.stringify(after)}`);
+}
 
-  // Ask the browser, not the engine, whether WebGPU exists at all. A missing adapter is a browser
-  // choice (headless shell, no SwiftShader) and the gate can prove nothing about rendering without
-  // one, so it reports "did not run" (exit 2). An engine that fails its own adapter request on a
-  // machine where this probe succeeds is a product bug and falls through to the normal failure path.
-  const gpu = await probeGpu();
-  if (boot !== null && !gpu.ok) {
-    await notRun("the demo did not start and this browser cannot present WebGPU, so the failure cannot be attributed to the engine.", [
-      `the engine said: ${boot.split("\n")[0]}`,
-      gpu.text,
-      GPU_HINT,
-    ]);
-  }
-  console.log(gpu.text);
-  if (boot) throw new Error(`engine failed to start:\n${boot}`);
-  if (!gpu.ok) await notRun("this browser cannot present WebGPU.", [gpu.text, GPU_HINT]);
-
-  const backend = await page.evaluate(() => window.__forge.backend);
-  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
+/** The default gate still runs every renderer/scene/vehicle/articulation check. */
+async function checkAllScenes(backend) {
+  await checkTerrainLayerPixels();
   const landingOption = await page.evaluate(
     () => document.querySelector("#scene-select option[selected]")?.getAttribute("value") ?? null,
   );
@@ -1675,16 +1715,33 @@ try {
   );
   if (!marsLoaded.modelLoaded) throw new Error(`mars showcase: rover model failed to load (${marsLoaded.modelError})`);
   if (marsLoaded.wheelCount !== 6) throw new Error(`mars showcase: expected 6 model wheels, found ${marsLoaded.wheelCount}`);
+  if (marsLoaded.terrainGenerator !== "mars" || marsLoaded.terrainHasErosion !== false) {
+    throw new Error(`mars showcase: expected the analytic-only Mars port, got ${marsLoaded.terrainGenerator}, erosion=${marsLoaded.terrainHasErosion}`);
+  }
   const marsSettled = await pollMars(
-    "mars showcase: wheels never reached terrain contact (≥4 of 6) in 45s",
-    (s) => s.contactWheels >= 4,
+    "mars showcase: rover tile never became resident with terrain contact (≥4 of 6) in 45s",
+    (s) => s.terrainRoverChunkReady && s.terrainReadyChunks > 0 && s.contactWheels >= 4,
     45000,
   );
+  await verifyMarsWorkers(page);
+  await checkShowcaseLayers();
+  const checkMarsSurface = (state) => {
+    const clearance = state.y - state.terrainGroundHeight;
+    if (!state.terrainRoverChunkReady || !Number.isFinite(clearance) || clearance < 0.2 || clearance > 1.2) {
+      throw new Error(`mars showcase: rover is not on its resident surface (ready=${state.terrainRoverChunkReady}, clearance=${clearance})`);
+    }
+    return clearance;
+  };
+  console.log(`mars terrain: ${marsSettled.terrainGenerator} analytic-only, ${marsSettled.terrainReadyChunks} ready tiles, clearance=${checkMarsSurface(marsSettled).toFixed(3)}m`);
   const marsStatsBefore = await page.evaluate(() => window.__forge.stats());
   if (marsStatsBefore.gpuErrors !== 0 || marsStatsBefore.lastError) {
     throw new Error(`mars showcase GPU errors before driving: ${marsStatsBefore.lastError}`);
   }
-  const zStart = marsSettled.z;
+  // Material captures may take many slow frames. Measure W travel from *now*, never include
+  // idle downhill drift during those captures in the drive distance (either sign).
+  const marsAtDrive = await page.evaluate(() => window.__forge.marsState());
+  checkMarsSurface(marsAtDrive);
+  const zStart = marsAtDrive.z;
   await page.keyboard.down("KeyW");
   let maxSpeed = 0;
   let maxKick = 0;
@@ -1695,7 +1752,7 @@ try {
       marsDriven = await page.evaluate(() => window.__forge.marsState());
       maxSpeed = Math.max(maxSpeed, marsDriven.speed ?? 0);
       maxKick = Math.max(maxKick, marsDriven.kickDust ?? 0);
-      if (Math.abs(marsDriven.z - zStart) > 0.5) break;
+      if (marsDriven.z - zStart > 0.5) break;
       await page.waitForTimeout(500);
     }
   } finally {
@@ -1706,7 +1763,8 @@ try {
     `mars showcase drive: dz=${marsDz.toFixed(2)}m maxSpeed=${maxSpeed.toFixed(2)}m/s maxKickDust=${maxKick} ` +
       `contact=${marsDriven?.contactWheels}`,
   );
-  if (!(Math.abs(marsDz) > 0.5)) throw new Error(`mars showcase: W did not drive the rover (dz ${marsDz.toFixed(3)}m in 45s)`);
+  if (!(marsDz > 0.5)) throw new Error(`mars showcase: W did not drive the rover forward (dz ${marsDz.toFixed(3)}m in 45s)`);
+  checkMarsSurface(marsDriven);
   if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
   if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
   // High-gain antenna: it arms when the GLB lands and unfurls five seconds of sim time later, so
@@ -1757,6 +1815,57 @@ try {
     throw new Error(`mars showcase GPU errors while moving the arm: ${marsStatsArm.lastError}`);
   }
   await page.screenshot({ path: "tools/.browser-check-showcase.png" });
+}
+
+let exitCode = 0;
+try {
+  // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
+  // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
+  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
+  let boot;
+  try {
+    await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
+    boot = await page.evaluate(() => window.__forgeError ?? null);
+  } catch (waitError) {
+    boot = `the demo never signalled a boot result (${String(waitError.message).split("\n")[0]})`;
+  }
+
+  // Ask the browser, not the engine, whether WebGPU exists at all. A missing adapter is a browser
+  // choice (headless shell, no SwiftShader) and the gate can prove nothing about rendering without
+  // one, so it reports "did not run" (exit 2). An engine that fails its own adapter request on a
+  // machine where this probe succeeds is a product bug and falls through to the normal failure path.
+  const gpu = await probeGpu();
+  if (boot !== null && !gpu.ok) {
+    await notRun("the demo did not start and this browser cannot present WebGPU, so the failure cannot be attributed to the engine.", [
+      `the engine said: ${boot.split("\n")[0]}`,
+      gpu.text,
+      GPU_HINT,
+    ]);
+  }
+  console.log(gpu.text);
+  if (boot) throw new Error(`engine failed to start:\n${boot}`);
+  if (!gpu.ok) await notRun("this browser cannot present WebGPU.", [gpu.text, GPU_HINT]);
+
+  const backend = await page.evaluate(() => window.__forge.backend);
+  if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
+  if (TERRAIN_LAYERS_ONLY) {
+    await checkTerrainLayerPixels();
+    await page.selectOption("#scene-select", "mars-showcase", { force: true });
+    await verifyMarsWorkers(page);
+    await checkShowcaseLayers();
+    console.log("Focused layered-material pixel/worker/upload checks only; the all-scene drive/articulation suite was not run.");
+  } else if (MARS_WORKERS_ONLY) {
+    await verifyMarsWorkers(page);
+    // Pending pipelines deliberately skip draws. Wait for the normal async startup to finish
+    // before the visual inspection capture, without changing quality or freezing the simulation.
+    await page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { timeout: 60000 });
+    await page.screenshot({ path: "tools/.browser-check-mars-workers.png", timeout: 60000 });
+    const final = await page.evaluate(() => window.__forge.stats());
+    if (final.gpuErrors || final.lastError) throw new Error(`Mars worker rendering error: ${final.lastError}`);
+    console.log("Focused worker/upload checks only; renderer A/Bs, W-drive, HGA and arm checks were not run.");
+  } else {
+    await checkAllScenes(backend);
+  }
 } catch (error) {
   problems.push(String(error.stack ?? error.message).split("\n").slice(0, 6).join("\n"));
   exitCode = 1;
@@ -1765,10 +1874,10 @@ try {
 const fatal = problems.filter((p) => !p.startsWith("console.warn:"));
 for (const p of problems) console.log(`- ${p}`);
 if (exitCode === 0 && fatal.length > 0) {
-  console.error(`\ncheck:browser FAILED (${fatal.length} console/page error(s))`);
+  console.error(`\n${CHECK_NAME} FAILED (${fatal.length} console/page error(s))`);
   exitCode = 1;
 } else if (exitCode === 0) {
-  console.log(`\ncheck:browser passed (real WebGPU, headless Chromium + SwiftShader) — ${await describeGpu()}`);
+  console.log(`\n${CHECK_NAME} passed (real WebGPU, headless Chromium + SwiftShader) — ${await describeGpu()}`);
 }
 await browser.close();
 vite.kill("SIGKILL");

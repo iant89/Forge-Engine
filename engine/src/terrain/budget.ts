@@ -6,6 +6,8 @@
  * existing scenes keep compiling.
  */
 
+import { MaterialUniforms, SplatUniforms } from "../rendering/uniforms.js";
+
 export interface TerrainBudgets {
   /** Soft cap on resident chunk GPU+CPU geometry bytes. */
   memoryBytes: number;
@@ -46,11 +48,13 @@ export function resolveTerrainBudgets(options: TerrainBudgetOptions = {}): Terra
 }
 
 /** Rough CPU-side byte cost of a resident tile (grids + mesh source). */
-export function estimateTileBytes(resolution: number): number {
+export function estimateTileBytes(resolution: number, layered = false): number {
   const verts = resolution * resolution + 4 * resolution; // grid + skirts
   const indexCount = ((resolution - 1) * (resolution - 1) + 4 * (resolution - 1)) * 6;
   // heights+slopes+biomes grids + positions/normals/uvs/tangents + indices
   const grids = resolution * resolution * (4 + 4 + 16);
   const mesh = verts * (12 + 12 + 8 + 16) + indexCount * 4;
-  return grids + mesh;
+  // Per-tile mask + both material buffers; shared texture arrays are outside the tile budget.
+  const splat = layered ? resolution * resolution * 4 + MaterialUniforms.byteSize("uniform") + SplatUniforms.byteSize("uniform") : 0;
+  return grids + mesh + splat;
 }

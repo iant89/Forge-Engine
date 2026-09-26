@@ -166,23 +166,120 @@ The stage is pure given (seed, params, site, fields): the same tile generated tw
 (`tests/marsTerrain.test.ts` asserts it), and sharing a vertex across tiles/seams gives the same height
 to 1e-9.
 
-The one wrinkle is **workers**. A `MarsTerrainStage` instance holds a `MarsSite` (a live frame) and a
-`MarsGlobalFieldSet` (field buffers); neither can be rebuilt from the pipeline spec in a worker. So the
-`mars` codec in `pipelineSpec.ts` is:
+**Analytic-only stages now run on workers.** `pipelineSpec.ts` reconstructs the stage from its
+complete JSON `identity`, not just the seed and a fresh set of defaults. That includes the planet
+radius, full dichotomy/canyon/volcano configuration, site latitude/longitude/heading and **site radius**,
+as well as detail and curvature flags. The site radius is distinct from the geology's planet radius;
+it now participates in the cache identity too. Malformed JSON, incomplete fields or scalar options
+that disagree with the identity are rejected instead of silently generating a different surface.
 
-* **describable** — it serialises a stable `identity` string plus the scalar parameters, so
-  `hashPipelineSpec` is stable and the terrain cache key changes when the site, seed or fields change,
-  and
-* **not reconstructible** — `create()` throws `InlineOnlyError`, which the task scheduler treats as
-  "this task cannot run in a worker, hand it back", and the main thread runs it inline exactly once
-  (see `docs/VERIFICATION.md`, §`tests/tasks.test.ts`).
+`tests/tasks.test.ts` runs analytic Mars jobs through genuine worker threads and compares the
+transferred height/slope/splat bytes against the **original live pipelines**, including custom
+planets/sites, disabled detail/curvature and a subsequent scatter stage. The showcase integration
+test spies on the live stage and proves streaming uploads worker results without running that stage
+again on the main thread. The default worker bootstrap installs the terrain handler; no custom
+worker URL or separate runtime dependency is needed.
 
-Pass `syncGeneration: true` to `TerrainWorld` to skip the failed hop entirely for fully-inline setups.
+**Live Stage A field caches remain inline-only.** The serialized identity includes a non-null cache
+marker, not the ~30 MB of buffers. Reconstruction throws `InlineOnlyError` even for an empty field
+set: a worker must never omit a requested erosion correction. `TerrainWorld` recovers using the live
+pipeline; use `syncGeneration: true` for such worlds to skip the unsupported round trip. A real-thread
+test checks that recovery executes the live stage once, preserves a synthetic +7 m erosion field and
+does not detach its buffers. Hosting/transporting actual cache data remains separate work.
+
+The scheduler also falls back inline when workers cannot start. Mesh building, GPU uploads and
+`getHeightAt` cache misses remain on the main thread in either mode. Worker cancellation is not JS
+preemption: once a cancelled handler finishes, a `cancelled` acknowledgement releases the worker's
+slot. This matters during async bootstrap, when both a terrain task and its cancellation can arrive
+before the handler has loaded; discarding the result without an acknowledgement used to strand the
+slot and leave every subsequent task queued.
 
 ## 5. Usage
 
+### The shipped Mars Showcase
+
+`npm run demo:showcase` (or the default demo URL) now builds a `createMarsPipeline(...)` world in
+`examples/src/scenes/marsShowcaseScene.ts`. The old **Terrain** demo retains its Phase 4 preset.
+The showcase uses the generator's **unmodified seed 1337**, with `detail` and curvature compensation
+on, at the **Equatorial plain** (`latDeg: 0`, `lonDeg: 0`, heading 0). This is a location on the
+procedural planet, not a reconstruction of Perseverance's real landing site.
+
+The rover starts at local `x = -164 m, z = 4 m`, on a surveyed gentle uphill traverse rather than the
+summit preset's long downhill slope. No flattened pad or height scaling is added: `placeOnGround`
+gets its height and attitude from `TerrainWorld.getHeightAt`, which also supplies wheel contacts,
+camera clearance and the sky's local `seaLevel`. Queries made before streaming generate/cache the
+same full-resolution grid the resident opening tiles subsequently use.
+
+Configuration: **128 m chunks, 33 × 33 vertices (4 m spacing), 32 m skirts**, a 1024 m view distance,
+LOD 0–3 and a 220-chunk visible budget. The scene uses `syncGeneration: false` and the demo's two
+workers: nine initial requests, then at most one generation request per frame, with cached query
+cells reused rather than regenerated. The opening terrain is available before the loading overlay
+dismisses: it waits for the rover's actual tile, not just any resident bytes. These are chunk-count
+budgets, not a promise that mesh uploads or cache-miss ground queries never hitch.
+
+The HUD labels the surface **analytic only (no erosion cache)**. No external terrain download is
+attempted. The stage's **dust / rock / sand / crust** weights now drive four GPU-blended PBR layers:
+three shared 256² × 4 texture arrays (sRGB albedo, linear normals and metallic-roughness), plus a
+small linear RGBA8 weight map per resident tile. Neutral procedural surface details are tinted with
+scene-authored ferric dust, dark basalt, pale sand and weathered crust colours; these are artistic
+approximations, not calibrated NASA reflectance measurements.
+`marsState()` exposes the actual generator/mode, ready chunk count, rover-tile readiness and ground
+height for diagnostics and the browser gate, plus `terrainGeneration` (`workers` or `inline`) from
+current pool availability. The HUD displays that mode; the browser gate separately observes native
+Worker task/result messages, so a mode label alone cannot prove off-thread execution.
+`terrainMaterialMode`, `terrainMaterialLayers` and `terrainSplatTiles` report actual tile-material
+wiring. `TerrainWorld.setLayeredMaterialsEnabled(false)` temporarily selects the representative
+single material without regenerating geometry or changing contacts; `true` restores the splats.
+
+### Layered material contract (10.8)
+
 ```ts
-import { TerrainWorld, createMarsPipeline, MarsSite, MARS_SITE_PRESETS, adviseMarsTile } from "@forge/engine";
+import { TerrainWorld, LayeredTerrainMaterial, marsSurfaceLayers, createMarsPipeline } from "@forge/engine";
+
+const terrain = new TerrainWorld({
+  seed: 1337,
+  pipeline: createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } }),
+  layeredMaterial: new LayeredTerrainMaterial({
+    layers: marsSurfaceLayers(),
+    // Optional SplatTextureSet: three Texture.fromRgba8Array(...) textures, each with four slices.
+    // Without maps the helper supplies shared white, flat-normal and neutral-MR arrays.
+  }),
+});
+```
+
+The helper evaluates existing height/slope/biome gates at the cell vertices, stores normalized
+weights in RGBA8, and the shader filters then renormalizes them. UV 0/1 addresses the **centres** of
+the boundary texels, with a separate clamp sampler: neighbouring tiles never wrap to their opposite
+edge. Layer textures repeat at `textureSize` metres (8 by default), with phase computed from the
+absolute tile origin in CPU double precision. Thus tiling does not restart at a chunk border or
+swim when the render origin changes. Albedo is decoded before blending; tangent normals are scaled,
+blended and renormalized, and each layer supplies roughness/metallic factors times its MR map.
+Macro colour variation is world-phased; micro darkening follows the albedo details.
+
+The fixed 48-byte vertex layout and standard depth/shadow/PBR-lighting paths are unchanged. The
+opt-in terrain technique extends material group 2; ordinary materials retain their original five
+bindings. Material **identity**, not just pipeline compatibility, is required for batching, so two
+masks on the same geometry cannot accidentally use the first mask's bind group.
+
+A tile owns its mask and material buffers. Remeshing/eviction releases them; the world owns the
+layered helper and its fallback arrays. Supplied arrays remain caller-owned and shared. A cloned
+SplatMaterial borrows its textures, so keep their owner alive. Per-tile budget estimates include the
+mask and 304 uniform bytes; shared arrays remain outside that tile budget (reported in GPU memory).
+The showcase arrays are roughly 4 MiB including mipmaps. Mips are filtered independently per slice,
+in linear light for albedo and vector space for normals.
+
+This is four fixed layers with grid-sampled gates, not triplanar projection or texture-height
+blending. The distant apron uses a representative single material. Coarse LODs can produce different
+slope-derived biome weights: stable texture phase/filtering does not promise identical geology masks
+between different grids. No generator heights, seed, landing location or rover physics were changed.
+
+### Other sites and optional erosion fields
+
+```ts
+import {
+  TerrainWorld, LayeredTerrainMaterial, marsSurfaceLayers, createMarsPipeline, MARS_GEN_PARAMS, MARS_SITE_PRESETS, adviseMarsTile,
+  fetchMarsFaceFields, MarsGlobalFieldSet,
+} from "@forge/engine";
 
 // Optional: load the generator's Stage A cache (~30 MB) for the simulated erosion. Copy
 // `cache/global/` to the served assets and fetch the six faces; everything else is computed.
@@ -192,9 +289,14 @@ const faces = await Promise.all(
 const fields = new MarsGlobalFieldSet(faces);
 
 const terrain = new TerrainWorld({
+  seed: MARS_GEN_PARAMS.seed,
   chunkSize: 128,
   chunkResolution: 33,
   skirtDepth: adviseMarsTile(128, 33).recommendedSkirtDepth, // 32 m
+  syncGeneration: true, // live Stage A buffers still require inline (§4); omit for analytic workers
+  generationsPerFrame: 1,
+  warmUpChunks: 9,
+  layeredMaterial: new LayeredTerrainMaterial({ layers: marsSurfaceLayers() }),
   pipeline: createMarsPipeline({
     site: MARS_SITE_PRESETS.olympusMons, // or { latDeg, lonDeg, headingDeg }
     globalFields: fields,                // omit for the analytic-only surface
@@ -223,8 +325,12 @@ midpoint); both are derived from the generator's `marsConfig.ts` rather than har
 ## 6. Verification
 
 ```sh
-npx vitest run tests/marsTerrain.test.ts        # 20 tests: mapping, geology, fields, stage, streaming
+npx vitest run tests/marsTerrain.test.ts        # mapping, geology, fields, analytic serialization, streaming/fallback
 npx vitest run tests/marsTerrainPlan.test.ts    # 8 tests: tools/mars-terrain/plan.ts vs the engine
+npx vitest run tests/marsShowcase.test.ts       # scene wiring, spawn/drive, camera, streaming/LOD
+npm run check:browser:terrain-layers          # real-GPU one-hot/mixed/PBR pixels + showcase material A/B
+npm run check:browser:mars-workers            # native Worker messages + actual showcase uploads/render
+npm run check:browser                         # full suite, including W-drive and articulation
 npm run check:mars-port -- --cache <generator-cache>   # point-for-point vs the generator's own output
 ```
 

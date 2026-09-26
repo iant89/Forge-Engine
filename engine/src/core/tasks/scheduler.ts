@@ -298,9 +298,9 @@ export class TaskScheduler implements Disposable {
     }
     const rec = this.byId.get(msg.id);
     if (!rec) {
-      // Cancelled or unknown id: the result is discarded, but the worker that produced it is idle
-      // again — without this, every cancelled running task would burn a worker for the session.
-      if ((msg.type === "result" || msg.type === "error") && entry.currentId === msg.id) {
+      // Cancelled or unknown id: discard any late result, or accept the explicit completion ack
+      // when the worker suppressed that result. Only the matching job may release this slot.
+      if ((msg.type === "result" || msg.type === "error" || msg.type === "cancelled") && entry.currentId === msg.id) {
         entry.busy = false;
         entry.currentId = -1;
         this.pump();
@@ -608,7 +608,7 @@ export class TaskScheduler implements Disposable {
 }
 
 export interface WorkerMessage {
-  type: "ready" | "task" | "result" | "error" | "progress" | "cancel";
+  type: "ready" | "task" | "result" | "error" | "progress" | "cancel" | "cancelled";
   id: number;
   value?: unknown;
   /** Failure text for `type: "error"` (see `workerScope.ts`). */
