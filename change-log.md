@@ -3779,6 +3779,41 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Appended one Phase 13.9 point-shadow change entry per touched file, including this self-entry.",
     "why": "Keep the activity history complete under the repository logging rules."
+  },
+  {
+    "id": "0296",
+    "date": "2026-09-26T06:40:00Z",
+    "type": "pr-merge",
+    "pr": 46,
+    "branch": "arena/01a0dc45-forge-engine",
+    "base": "main",
+    "title": "Phase 13.9: bounded point-light cube shadows",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Phase 13.9, third subtask: point shadows. The first two valid shadow-casting point lights each render six 90° cube faces into the shared depth24plus atlas after the spot maps, at the frame's capped resolution: computePointShadow()/createPointShadowFaces() as pure math with degenerate-input rejection and reusable fits; the renderer adds per-face frustums behind a range-sphere pre-test (mask bits 8-19), forge.shadow.point.<p>.<face> passes, point matrices/params/count in ShadowUniforms (656 → 1456 B, layout re-pinned in tests/wgsl.test.ts) and slots preserved on the uniform and clustered light paths, with stats.pointShadowMaps; the fragment shader picks the dominant face per receiver (WebGPU has no depth-cube comparison sampling) and runs the same texel-scaled normal offset + 3×3 PCF, with the face-edge lit-fallback seam documented in KNOWN-ISSUES and RENDERING.md (twenty-layer worst case ~320 MiB at 2048², ~1.25 GiB at 4096²). Four fitting tests plus four frame tests (both light paths, per-face assignment, two-cube cap + point-only frame, cube drop); the PBR demo's orbiting point lights cast by default with a setPointShadows hook, HUD 'point Nx6f', and a point A/B arm in tools/browser-check.mjs. verify (611 tests / 42 files + WGSL), lint:arch, check:testmap, docs:check and demo:build green; local check:browser passed the point A/B (141,517 px darker, 0 brighter, zero GPU errors) and every arm through the weather scene before the pre-existing flaky Mars W-drive check failed at 0.335 m (no point lights in that scene), so the advisory CI WebGPU job remains the full-pass evidence. Contact shadows and adaptive resolution remain under 13.9.",
+    "files": [
+      "ARCHITECTURE.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/RENDERING.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/index.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/rendering/shaders/standard.ts",
+      "engine/src/rendering/shadows.ts",
+      "engine/src/rendering/uniforms.ts",
+      "engine/src/scene/components/index.ts",
+      "examples/src/main.ts",
+      "examples/src/scenes/cubesScene.ts",
+      "examples/src/scenes/pbrScene.ts",
+      "mnemosyne.md",
+      "tests/frame.test.ts",
+      "tests/shadows.test.ts",
+      "tests/wgsl.test.ts",
+      "tools/browser-check.mjs"
+    ]
   }
 ]
 ```

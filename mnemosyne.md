@@ -543,3 +543,11 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   the browser's own SwiftShader ICD covers the gate) — unlike the 2026-09-25 session, `check:browser`
   can run locally here.
 - Remaining 13.9 items: contact shadows and adaptive shadow resolution.
+- **Gate result (this session):** local `check:browser` finally ran again (bundled Chromium extracted by
+  `npm run setup`; the gate uses the browser's own SwiftShader ICD, so the missing system Vulkan
+  packages are only a warning). The new point A/B passed — 141,517 px darker, 0 brighter, max 74.7
+  levels, zero GPU errors, HUD `csm 3x + spot 1x + point 2x12f (100 draws, 33 culled)` — and every arm
+  through the weather scene passed; the run then died on the pre-existing Mars Showcase W-drive flake
+  (0.335 m in 45 s vs >0.5 m; last session's pre-change baseline failed the same arm at 0.485 m).
+  The Mars scene has no point lights, so the attribution is the SwiftShader frame rate, not this
+  diff — kept the distinction honest in docs/VERIFICATION.md. Landed as PR #46.
