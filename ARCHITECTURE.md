@@ -217,8 +217,8 @@ frame and read from the fragment stage (`engine/src/rendering/clusters.ts`, `doc
 directional lights left in the small uniform list because they reach every pixel. The fill (the
 lists) runs as one compute pass, `forge.lights.assign`, whenever the device can execute it
 (`engine/src/rendering/lightCulling.ts`, §4c), with `lightCulling: "cpu"` as the fallback and the
-pixel A/B the browser gate runs. Neither the worker-side build nor spot/point shadow maps are
-built, so a clustered light's `shadowIndex` is always −1. Directional CSM
+pixel A/B the browser gate runs. Assigned spot and point lights keep their `shadowIndex` in the
+clustered block; unselected lights use −1. The worker-side grid build is not built. Directional CSM
 with up to 4 cascades (3 in the default profile) fitted as texel-snapped bounding spheres
 over practical-split slices into a `depth24plus` 2d-array, normal-offset bias + 3×3 PCF,
 cascade blending and distance fade (`engine/src/rendering/shadows.ts`, `docs/RENDERING.md`

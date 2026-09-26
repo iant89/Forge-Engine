@@ -7,16 +7,22 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 * **Casters can still contribute to multiple shadow maps.** The renderer assigns each renderable a
   conservative mask from its world AABB and submits only its assigned contiguous instance ranges;
-  when an object's bounds intersect multiple cascade or spot frusta, it is drawn into each map. A
-  single-map heuristic is intentionally not used because it could drop valid shadows.
+  when an object's bounds intersect multiple cascade, spot or point-face frusta, it is drawn into
+  each map. A single-map heuristic is intentionally not used because it could drop valid shadows.
   `stats.shadowInstancesDrawn` and `shadowInstancesCulled` expose the work.
   (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
-* **Shadowed-light coverage is bounded.** Only the first shadow-casting directional light and up to
-  four valid spot lights receive maps. Point lights, contact shadows and adaptive resolution remain
-  deferred; all maps share the frame's capped `shadow.mapSize` resolution. (capability: rendering.shadows)
-* **Shadow atlas memory.** One 2048² `depth24plus` layer is about 16 MiB; the four-cascade/four-spot
-  maximum is about 128 MiB at 2048² and 512 MiB at the 4096² ultra cap. Quality profiles cap
-  `shadowMapSize`; maps are not adaptive. (capability: rendering.shadowMemory)
+* **Shadowed-light coverage is bounded.** Only the first shadow-casting directional light, up to
+  four valid spot lights and up to two valid point lights receive maps. Contact shadows and
+  adaptive resolution remain deferred; all maps share the frame's capped `shadow.mapSize`
+  resolution. (capability: rendering.shadows)
+* **Point cube faces seam at grazing angles.** WebGPU has no comparison sampling for depth cubes,
+  so the shader picks the dominant face per fragment; PCF taps that cross a face edge fall back to
+  lit, which can leave a thin bright seam where faces meet at shallow receiver angles.
+  (`docs/RENDERING.md` §4) (capability: rendering.shadows)
+* **Shadow atlas memory.** One 2048² `depth24plus` layer is about 16 MiB; the
+  four-cascade/four-spot/two-point-cube maximum is twenty layers — about 320 MiB at 2048² and
+  1.25 GiB at the 4096² ultra cap. Quality profiles cap `shadowMapSize`; maps are not adaptive.
+  (capability: rendering.shadowMemory)
 * **The prepass depth has three consumers so far.** SSAO, the soft-particle fade and the object
   culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
   (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)

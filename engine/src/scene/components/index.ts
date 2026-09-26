@@ -306,9 +306,9 @@ export class Camera extends Component {
 export type LightKind = "directional" | "point" | "spot";
 
 /**
- * Light source. The renderer supports the first shadow-casting directional light and up to four
- * shadow-casting spot lights per frame. Other lights still contribute analytically; point shadows
- * are not implemented.
+ * Light source. The renderer supports the first shadow-casting directional light, up to four
+ * shadow-casting spot lights and up to two shadow-casting point lights (six cube faces each) per
+ * frame. Lights past those caps still contribute analytically, without shadows.
  */
 export class Light extends Component {
   kind: LightKind = "directional";

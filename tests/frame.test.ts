@@ -46,7 +46,9 @@ import {
   Material,
   MAX_LIGHTS_PER_CLUSTER,
   MAX_LIGHTS_PER_FRAME,
+  MAX_POINT_SHADOWS,
   MAX_SPOT_SHADOWS,
+  POINT_SHADOW_FACES,
   PerFrameUniforms,
   Profiler,
   Renderable,
@@ -360,6 +362,135 @@ describe("frame structure", () => {
       expect(lights.i32[records.offset / 4 + (i + 1) * strideWords + shadowIndexWord]).toBe(i);
     }
     expect(lights.i32[records.offset / 4 + (MAX_SPOT_SHADOWS + 1) * strideWords + shadowIndexWord]).toBe(-1);
+    await f.dispose();
+  });
+
+  it("renders point cube faces after cascades and preserves point indices on both light paths", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.shadow.cascades = 2;
+    f.scene.settings.clusteredLighting = false;
+    const testPoint = addPointLight(f, "test-point", 0, 4, 2);
+    testPoint.castShadow = true;
+    f.renderer.renderScene(f.scene);
+
+    expect(f.mock.errors).toEqual([]);
+    const faceNames = Array.from({ length: POINT_SHADOW_FACES }, (_, face) => `forge.shadow.point.0.${face}`);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.shadow.1", ...faceNames, "forge.main"]);
+    // Two cascades + one point cube (six layers) share one depth array.
+    expect(f.mock.passes[0]!.depthTarget).toContain(`256x256x${2 + POINT_SHADOW_FACES}`);
+    expect(f.renderer.stats.shadowCascades).toBe(2);
+    expect(f.renderer.stats.spotShadowMaps).toBe(0);
+    expect(f.renderer.stats.pointShadowMaps).toBe(1);
+
+    const shadow = bufferOf(f, "shadow.uniforms");
+    expect(shadow.i32[ShadowUniforms.offsetOf("count") >> 2]).toBe(2);
+    expect(shadow.i32[ShadowUniforms.offsetOf("spotCount") >> 2]).toBe(0);
+    expect(shadow.i32[ShadowUniforms.offsetOf("pointCount") >> 2]).toBe(1);
+    const pointMatrix = ShadowUniforms.offsetOf("pointViewProj") >> 2;
+    expect(Array.from(shadow.f32.slice(pointMatrix, pointMatrix + POINT_SHADOW_FACES * 16)).every(Number.isFinite)).toBe(true);
+    const pointParams = ShadowUniforms.offsetOf("pointParams") >> 2;
+    expect(shadow.f32[pointParams]).toBeCloseTo(1 / 256, 7);
+
+    // The point light sits right after the directional caster in the uniform block.
+    const uniformLights = bufferOf(f, "lights.uniforms");
+    const uniformRecords = LightBlock.field("lights", "uniform");
+    const uniformPoint = (uniformRecords.offset + uniformRecords.stride!) / 4;
+    expect(uniformLights.i32[uniformPoint + (LightUniforms.offsetOf("shadowIndex") >> 2)]).toBe(0);
+    expect(uniformLights.i32[uniformPoint + (LightUniforms.offsetOf("kind") >> 2)]).toBe(1);
+
+    // The same point light moves into the cluster storage block without losing its shadow slot.
+    f.mock.passes.length = 0;
+    f.scene.settings.clusteredLighting = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.shadow.1", ...faceNames, "forge.main"]);
+    const clusteredLights = bufferOf(f, "cluster.lights");
+    const clusterRecords = ClusterLightBlock.field("lights", "storage");
+    const clusterPoint = clusterRecords.offset / 4;
+    expect(clusteredLights.i32[clusterPoint + (LightUniforms.offsetOf("shadowIndex") >> 2)]).toBe(0);
+    expect(f.renderer.stats.pointShadowMaps).toBe(1);
+    await f.dispose();
+  });
+
+  it("assigns each caster only to the cube faces it can reach", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.shadow.cascades = 1;
+    f.scene.settings.clusteredLighting = false;
+    // Directly above the default box: the box sits entirely in the -Y octant of the light, so only
+    // face 3 (-Y) may draw it; the opposite face 2 (+Y) must stay empty.
+    const light = addPointLight(f, "overhead-point", 0, 3, 0);
+    light.castShadow = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+
+    const indexOf = (name: string) => labels(f).indexOf(name);
+    const downFace = f.mock.passes[indexOf("forge.shadow.point.0.3")]!;
+    const upFace = f.mock.passes[indexOf("forge.shadow.point.0.2")]!;
+    expect(downFace.drawCalls).toBeGreaterThan(0);
+    expect(upFace.drawCalls).toBe(0);
+    // One caster instance, assigned to exactly one face.
+    expect(f.renderer.stats.shadowInstancesDrawn).toBe(f.renderer.stats.shadowCascades + 1);
+    await f.dispose();
+  });
+
+  it("caps point cubes at two and supports point-only shadow frames", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.clusteredLighting = false;
+    for (let i = 0; i < MAX_POINT_SHADOWS + 1; i++) {
+      const l = addPointLight(f, `capacity-point-${i}`, i * 2 - 2, 3, 0, 8);
+      l.castShadow = true;
+    }
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.shadowCascades).toBeGreaterThan(0);
+    expect(f.renderer.stats.pointShadowMaps).toBe(MAX_POINT_SHADOWS);
+
+    // Drop the sun: the reused cascade array must not leak its old count into a point-only frame.
+    f.mock.passes.length = 0;
+    f.sun.castShadow = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    const expected: string[] = [];
+    for (let p = 0; p < MAX_POINT_SHADOWS; p++) {
+      for (let face = 0; face < POINT_SHADOW_FACES; face++) expected.push(`forge.shadow.point.${p}.${face}`);
+    }
+    expected.push("forge.main");
+    expect(labels(f)).toEqual(expected);
+    expect(f.mock.passes[0]!.depthTarget).toContain(`256x256x${MAX_POINT_SHADOWS * POINT_SHADOW_FACES}`);
+    expect(f.renderer.stats.shadowCascades).toBe(0);
+    expect(f.renderer.stats.pointShadowMaps).toBe(MAX_POINT_SHADOWS);
+    const shadow = bufferOf(f, "shadow.uniforms");
+    expect(shadow.i32[ShadowUniforms.offsetOf("count") >> 2]).toBe(0);
+    expect(shadow.i32[ShadowUniforms.offsetOf("pointCount") >> 2]).toBe(MAX_POINT_SHADOWS);
+    // Slot numbering: the two shadowed point lights keep slots 0 and 1; the third has no map.
+    const records = LightBlock.field("lights", "uniform");
+    const lights = bufferOf(f, "lights.uniforms");
+    const shadowIndexWord = LightUniforms.offsetOf("shadowIndex") >> 2;
+    const strideWords = records.stride! / 4;
+    expect(lights.i32[records.offset / 4 + 1 * strideWords + shadowIndexWord]).toBe(0);
+    expect(lights.i32[records.offset / 4 + 2 * strideWords + shadowIndexWord]).toBe(1);
+    expect(lights.i32[records.offset / 4 + 3 * strideWords + shadowIndexWord]).toBe(-1);
+    await f.dispose();
+  });
+
+  it("drops the point cube when no caster reaches the light", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.shadow.cascades = 1;
+    f.scene.settings.clusteredLighting = false;
+    // Far outside the light's range: the sphere pre-test keeps every caster out of every face.
+    const light = addPointLight(f, "distant-point", 30, 3, 30, 4);
+    light.castShadow = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.main"]);
+    expect(f.renderer.stats.pointShadowMaps).toBe(0);
     await f.dispose();
   });
 

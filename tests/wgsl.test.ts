@@ -67,11 +67,14 @@ describe("generated uniform structs are legal in every browser's uniform address
     expect(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles")).toBe(48);
     expect(RENDERING_STRUCTS.LightBlock.byteSize("uniform")).toBe(1296);
     expect(RENDERING_STRUCTS.LightBlock.offsetOf("lights")).toBe(16);
-    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(656);
+    expect(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform")).toBe(1456);
     expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("cascadeTexelWorld")).toBe(272);
     expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotViewProj")).toBe(288);
     expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotParams")).toBe(544);
-    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount")).toBe(608);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointViewProj")).toBe(608);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointParams")).toBe(1376);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointCount")).toBe(1408);
+    expect(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount")).toBe(1412);
     expect(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform")).toBe(80);
     expect(RENDERING_STRUCTS.PostUniforms.byteSize("uniform")).toBe(48);
     expect(RENDERING_STRUCTS.PostUniforms.offsetOf("flags")).toBe(40);

@@ -2,8 +2,9 @@
  * Shadow-map fitting (docs/RENDERING.md §4).
  *
  * Pure math, no GPU: `computeCascades` fits an orthographic directional projection to each camera
- * slice; `computeSpotShadow` fits a perspective projection to one light's cone and finite range. Kept
- * separate so tests can pin the properties that matter without a device:
+ * slice; `computeSpotShadow` fits a perspective projection to one light's cone and finite range;
+ * `computePointShadow` fits six 90° perspective projections — one per cube face — around a point
+ * light's finite range. Kept separate so tests can pin the properties that matter without a device:
  *
  *  - splits are monotone and cover exactly `[near, shadowDistance]` (practical split scheme,
  *    `lambda` blends uniform and logarithmic spacing);
@@ -237,5 +238,80 @@ export function computeSpotShadow(
   out.far = range;
   out.texelSize = 1 / resolution;
   out.worldTexelScale = (2 * Math.tan(fovY / 2)) / resolution;
+  return true;
+}
+
+/**
+ * One cube face of a point-light shadow map: a 90° perspective projection aimed down that face's
+ * axis, exactly the transform the sampler inverts at shading time (face order +x -x +y -y +z -z).
+ */
+export interface PointShadowFace {
+  /** Render-local -> this face's clip space; WebGPU depth is [0,1]. */
+  viewProj: Mat4;
+  /** Unit axis this face looks along (render-local). */
+  readonly axis: Vec3;
+}
+
+/** Reused renderer output for one point light's six-face depth map. */
+export interface PointShadowFit {
+  readonly faces: PointShadowFace[];
+  near: number;
+  far: number;
+  /** One map texel in UV space. */
+  texelSize: number;
+  /** World-space texel footprint per light-view-space unit (multiply by clip.w). */
+  worldTexelScale: number;
+}
+
+/** Cube-face axis + up pairs. The view matrix aims local +Z down `axis`; `up` breaks the ±axis
+ *  ambiguity. Face order matches `POINT_FACE_AXES` consumers (shader, renderer, tests). */
+const POINT_FACE_AXES: ReadonlyArray<readonly [axis: [number, number, number], up: [number, number, number]]> = [
+  [[1, 0, 0], [0, 1, 0]], // +x
+  [[-1, 0, 0], [0, 1, 0]], // -x
+  [[0, 1, 0], [0, 0, -1]], // +y
+  [[0, -1, 0], [0, 0, 1]], // -y
+  [[0, 0, 1], [0, 1, 0]], // +z
+  [[0, 0, -1], [0, 1, 0]], // -z
+];
+
+const pointView = new Mat4();
+const pointProjection = new Mat4();
+const pointTarget = new Vec3();
+const pointUp = new Vec3();
+
+/** Allocate the six reusable face records (the renderer keeps one set per point-shadow slot). */
+export function createPointShadowFaces(): PointShadowFace[] {
+  return POINT_FACE_AXES.map(([axis]) => ({ viewProj: new Mat4(), axis: new Vec3(...axis) }));
+}
+
+/**
+ * Fit six square perspective maps (one cube face each) to a point light's finite range. Every face
+ * shares the light's position as its eye and the range as its far plane, so any caster inside the
+ * light's sphere lands in at least one face. Returns false for a degenerate position, range or
+ * resolution instead of emitting singular matrices.
+ */
+export function computePointShadow(position: Vec3, range: number, mapSize: number, out: PointShadowFit): boolean {
+  if (
+    !Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.z) ||
+    !(range > 1e-4) || !Number.isFinite(range) || !(mapSize > 0) || !Number.isFinite(mapSize)
+  ) {
+    return false;
+  }
+  const near = Math.min(0.1, range * 0.01);
+  const resolution = Math.max(1, Math.floor(mapSize));
+  pointProjection.setPerspective(Math.PI / 2, 1, near, range);
+  for (let f = 0; f < POINT_FACE_AXES.length; f++) {
+    const [axis, up] = POINT_FACE_AXES[f]!;
+    const face = out.faces[f]!;
+    pointTarget.set(position.x + axis[0]!, position.y + axis[1]!, position.z + axis[2]!);
+    pointUp.set(up[0]!, up[1]!, up[2]!);
+    pointView.setLookAt(position, pointTarget, pointUp);
+    face.viewProj.multiplyMatrices(pointProjection, pointView);
+  }
+  out.near = near;
+  out.far = range;
+  out.texelSize = 1 / resolution;
+  // tan(45°) = 1: a 90° face spans two world units per light-space unit at clip.w distance.
+  out.worldTexelScale = 2 / resolution;
   return true;
 }

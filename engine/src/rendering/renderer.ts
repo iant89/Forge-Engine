@@ -5,16 +5,18 @@
  *   1. camera resolution: pick the highest-priority enabled `Camera`, compose view/projection from
  *      its entity's world matrix, and publish them back onto the component (culling, audio and
  *      picking all read the same numbers — never a second copy).
- *   2. shadow fit: split the camera frustum for directional cascades and fit bounded perspective
- *      spot maps (`rendering/shadows.ts`). Pure math; nothing GPU-side happens yet.
+ *   2. shadow fit: split the camera frustum for directional cascades, fit bounded perspective
+ *      spot maps and six-face point cube maps (`rendering/shadows.ts`). Pure math; nothing
+ *      GPU-side happens yet.
  *   3. batch assembly: Renderables grouped by (geometry, material pipeline key, transparency, caster
  *      flags), each batch writing its instance matrices into a per-frame arena. Draw cost is
  *      therefore `setBindGroup(dynamic offsets) + drawIndexed`, with no per-draw object creation.
- *      Off-screen shadow casters that still fall inside a cascade or spot frustum land in shadow-only batches.
+ *      Off-screen shadow casters that still fall inside a cascade, spot or point frustum land in shadow-only batches.
  *   4. uniform upload: one `writeBuffer` each for the frame block, lights, shadow block, shadow-pass
  *      view-projections, sky block (when the sky is on), post parameters and the two draw arenas.
  *   5. frame description: the passes are declared on the `RenderGraph` — `forge.shadow.<n>` per
- *      cascade and `forge.shadow.spot.<n>` per spot map into a depth array, `forge.prepass` laying the opaque depth down, the half-resolution
+ *      cascade, `forge.shadow.spot.<n>` per spot map and `forge.shadow.point.<n>.<face>` per point
+ *      cube face into a depth array, `forge.prepass` laying the opaque depth down, the half-resolution
  *      `forge.ssao` estimate + its two blur passes, `forge.main` into the HDR target (or the
  *      swapchain in LDR mode), `forge.sky` over the same target where the depth buffer is still
  *      clear, the bloom chain, and `forge.tonemap` into the swapchain. The graph validates, culls,
@@ -33,7 +35,7 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import {
@@ -50,7 +52,7 @@ import type { ObjectCullParams } from "./objectCulling.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
-import { computeCascades, computeSpotShadow, type Cascade, type SpotShadowFit } from "./shadows.js";
+import { computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, type Cascade, type SpotShadowFit, type PointShadowFit } from "./shadows.js";
 import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
@@ -161,7 +163,7 @@ export interface RenderStats {
   cullRecordZeroed: number;
   /** `forge.main` draws submitted through the culler's indirect records this frame. */
   indirectDraws: number;
-  /** Draw calls issued by all directional cascade and spot shadow passes. */
+  /** Draw calls issued by all directional cascade, spot and point-cube shadow passes. */
   shadowsDrawn: number;
   /** Batch × shadow-map pairs with no assigned caster instances. */
   shadowsCulled: number;
@@ -173,6 +175,8 @@ export interface RenderStats {
   shadowCascades: number;
   /** Spot-light shadow maps active this frame (maximum {@link MAX_SPOT_SHADOWS}). */
   spotShadowMaps: number;
+  /** Point-light shadow cubes active this frame (maximum {@link MAX_POINT_SHADOWS}); each is six atlas layers. */
+  pointShadowMaps: number;
   debugLines: number;
   /** Wireframe AABBs drawn by `debugBounds` last frame (one per visible Renderable). */
   debugBounds: number;
@@ -240,16 +244,26 @@ export interface RenderStats {
   pipelineFailures: number;
 }
 
+/** Mask-bit base of the point lights' cube faces (cascades 0..3, spots 4..7, then six bits per point light). */
+const POINT_MASK_BASE = MAX_CASCADES + MAX_SPOT_SHADOWS;
+
 interface ShadowInstanceRange {
   /** First instance relative to this batch's dynamic storage-buffer offset. */
   firstInstance: number;
   instanceCount: number;
-  /** Bits 0..MAX_CASCADES-1 are cascades; the following bits are spot-map slots. */
+  /** Bits 0..MAX_CASCADES-1 are cascades, the next MAX_SPOT_SHADOWS bits spot slots, then six face bits per point light. */
   shadowMask: number;
 }
 
 interface SpotShadowState extends SpotShadowFit {
   readonly frustum: Frustum;
+  readonly position: Vec3;
+  light: Light | null;
+}
+
+interface PointShadowState extends PointShadowFit {
+  /** One light-space frustum per cube face (conservative caster assignment). */
+  readonly frustums: Frustum[];
   readonly position: Vec3;
   light: Light | null;
 }
@@ -386,6 +400,7 @@ export class Renderer implements RenderFrameContext {
     shadowInstancesCulled: 0,
     shadowCascades: 0,
     spotShadowMaps: 0,
+    pointShadowMaps: 0,
     debugLines: 0,
     debugBounds: 0,
     hdr: false,
@@ -603,6 +618,17 @@ export class Renderer implements RenderFrameContext {
     light: null,
   }));
   private readonly spotShadowIndices = new Map<Light, number>();
+  private readonly pointShadows: PointShadowState[] = Array.from({ length: MAX_POINT_SHADOWS }, () => ({
+    faces: createPointShadowFaces(),
+    frustums: Array.from({ length: POINT_SHADOW_FACES }, () => new Frustum()),
+    near: 0,
+    far: 0,
+    texelSize: 0,
+    worldTexelScale: 0,
+    position: new Vec3(),
+    light: null,
+  }));
+  private readonly pointShadowIndices = new Map<Light, number>();
   private readonly lightList: Light[] = [];
 
   // Debug lines.
@@ -841,7 +867,11 @@ export class Renderer implements RenderFrameContext {
     const shadowSize = clampShadowSize(Math.min(settings.shadow.mapSize, this.options.shadowMapSize ?? settings.shadow.mapSize));
     const shadowDistance = Math.max(camera.near + 1e-3, Math.min(settings.shadow.distance, camera.far));
     const spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize) : 0;
-    if (!shadowsWanted) this.spotShadowIndices.clear();
+    const pointShadowCount = shadowsWanted ? this.preparePointShadows(scene, lights, shadowSize) : 0;
+    if (!shadowsWanted) {
+      this.spotShadowIndices.clear();
+      this.pointShadowIndices.clear();
+    }
     if (sun) {
       computeCascades(
         { world: this.cameraWorld, fovY: camera.fovY, aspect, near: camera.near, orthographic: camera.orthographic, orthoHeight: camera.orthoHeight },
@@ -852,15 +882,18 @@ export class Renderer implements RenderFrameContext {
     }
 
     // 3. Batches, and which of them lay down depth in the prepass.
-    this.collectBatches(scene, camera, cascadeCount, spotShadowCount);
+    this.collectBatches(scene, camera, cascadeCount, spotShadowCount, pointShadowCount);
     const shadowBits = (1 << cascadeCount) - 1;
     const spotBits = ((1 << spotShadowCount) - 1) << MAX_CASCADES;
+    const pointBits = ((1 << (POINT_SHADOW_FACES * pointShadowCount)) - 1) << POINT_MASK_BASE;
     const activeCascadeCount = (this.shadowCasterMask & shadowBits) !== 0 ? cascadeCount : 0;
     const activeSpotCount = (this.shadowCasterMask & spotBits) !== 0 ? spotShadowCount : 0;
-    const shadowsActive = activeCascadeCount > 0 || activeSpotCount > 0;
+    const activePointCount = (this.shadowCasterMask & pointBits) !== 0 ? pointShadowCount : 0;
+    const shadowsActive = activeCascadeCount > 0 || activeSpotCount > 0 || activePointCount > 0;
     this.stats.batches = this.batchCount;
     this.stats.shadowCascades = activeCascadeCount;
     this.stats.spotShadowMaps = activeSpotCount;
+    this.stats.pointShadowMaps = activePointCount;
     const prepass = this.classifyPrepass(settings.depthPrepass && this.options.depthPrepass !== false) > 0;
     // SSAO keys its bilateral passes on clip.w, which only a perspective projection makes view depth.
     const ssaoSettings = settings.ssao;
@@ -874,9 +907,9 @@ export class Renderer implements RenderFrameContext {
     const underwater = isUnderwater(positionRender.y, settings.water);
     this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
-    this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, clustered);
+    this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, activePointCount, clustered);
     if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
-    this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, shadowSize, shadowDistance);
+    this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, activePointCount, shadowSize, shadowDistance);
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
     const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
     if (skySettings) this.writeSky(skySettings);
@@ -898,6 +931,7 @@ export class Renderer implements RenderFrameContext {
       renderHeight,
       cascadeCount: activeCascadeCount,
       spotShadowCount: activeSpotCount,
+      pointShadowCount: activePointCount,
       shadowSize,
       bloom: hdr && settings.postProcessing && settings.bloom.enabled && this.options.bloom !== false,
       sky: skyEnabled && !underwater,
@@ -939,7 +973,7 @@ export class Renderer implements RenderFrameContext {
 
   private buildFrame(
     scene: Scene,
-    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
+    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; pointShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
   ): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
@@ -953,9 +987,10 @@ export class Renderer implements RenderFrameContext {
     const swapchain = g.importTexture("swapchain", swapTexture);
     const clear = this.clearColorFor(scene, frame.hdr);
 
-    // One depth array: directional cascades occupy its prefix, followed by the active spot maps.
+    // One depth array: directional cascades occupy its prefix, followed by the active spot maps and
+    // the point lights' cube faces (six layers each, face order +x -x +y -y +z -z).
     let shadowAtlas: RenderGraphHandle | null = null;
-    const shadowLayerCount = frame.cascadeCount + frame.spotShadowCount;
+    const shadowLayerCount = frame.cascadeCount + frame.spotShadowCount + frame.pointShadowCount * POINT_SHADOW_FACES;
     if (shadowLayerCount > 0) {
       shadowAtlas = g.createTexture("shadow.maps", {
         width: frame.shadowSize,
@@ -979,6 +1014,16 @@ export class Renderer implements RenderFrameContext {
           depth: { texture: atlas, view: { arrayLayer: layer }, depthClearValue: 1 },
           execute: (ctx) => this.executeShadowPass(ctx, layer, 1 << (MAX_CASCADES + s)),
         });
+      }
+      for (let p = 0; p < frame.pointShadowCount; p++) {
+        for (let face = 0; face < POINT_SHADOW_FACES; face++) {
+          const layer = frame.cascadeCount + frame.spotShadowCount + p * POINT_SHADOW_FACES + face;
+          g.addPass({
+            name: `forge.shadow.point.${p}.${face}`,
+            depth: { texture: atlas, view: { arrayLayer: layer }, depthClearValue: 1 },
+            execute: (ctx) => this.executeShadowPass(ctx, layer, 1 << (POINT_MASK_BASE + p * POINT_SHADOW_FACES + face)),
+          });
+        }
       }
     }
 
@@ -1478,6 +1523,7 @@ export class Renderer implements RenderFrameContext {
     s.shadowInstancesCulled = 0;
     s.shadowCascades = 0;
     s.spotShadowMaps = 0;
+    s.pointShadowMaps = 0;
     s.debugLines = 0;
     s.debugBounds = 0;
     s.hdr = false;
@@ -1796,10 +1842,10 @@ export class Renderer implements RenderFrameContext {
   /**
    * Write this frame's lights. Directional lights (and, with clustering off, every light) go into
    * the uniform `LightBlock`; with clustering on the local lights go into the storage block the
-   * cluster grid references. Spot shadow indices are preserved in either destination, so the shared
-   * light-contribution path samples the same map in clustered and unclustered frames.
+   * cluster grid references. Spot and point shadow indices are preserved in either destination, so
+   * the shared light-contribution path samples the same map in clustered and unclustered frames.
    */
-  private writeLights(scene: Scene, lights: Light[], caster: Light | null, spotShadowCount: number, clustered: boolean): void {
+  private writeLights(scene: Scene, lights: Light[], caster: Light | null, spotShadowCount: number, pointShadowCount: number, clustered: boolean): void {
     const a = this.lightAccessor;
     let globals = 0;
     let locals = 0;
@@ -1809,13 +1855,17 @@ export class Renderer implements RenderFrameContext {
       const pos = scene.world.worldPosition(l.entity, this.scratchVec);
       const spotIndex = this.spotShadowIndices.get(l);
       const spotShadowIndex = l.kind === "spot" && spotIndex !== undefined && spotIndex < spotShadowCount ? spotIndex : -1;
+      const pointIndex = this.pointShadowIndices.get(l);
+      const pointShadowIndex = l.kind === "point" && pointIndex !== undefined && pointIndex < pointShadowCount ? pointIndex : -1;
       if (l.kind === "directional" || !clustered) {
         if (globals >= MAX_LIGHTS_PER_FRAME) {
           truncated = true; // the uniform block is full: this light does not reach the shader at all
           continue;
         }
         const kind = l.kind === "directional" ? 0 : l.kind === "point" ? 1 : 2;
-        const shadowIndex = l === caster ? 0 : spotShadowIndex;
+        // The shader tells spot and point slots apart by the light's kind, so the two families
+        // number their slots independently from zero.
+        const shadowIndex = l === caster ? 0 : spotShadowIndex >= 0 ? spotShadowIndex : pointShadowIndex;
         this.writeLightRecord(a.element("lights", globals) as StructAccessor, l, pos.x, pos.y, pos.z, kind, shadowIndex);
         if (shadowIndex >= 0) shadowedGlobals++;
         globals++;
@@ -1824,8 +1874,8 @@ export class Renderer implements RenderFrameContext {
           truncated = true;
           continue;
         }
-        // Point lights still have no maps; an assigned spot keeps its map slot even in the cluster block.
-        this.writeLightRecord(this.clusterLightAccessor.element("lights", locals) as StructAccessor, l, pos.x, pos.y, pos.z, l.kind === "point" ? 1 : 2, spotShadowIndex);
+        // An assigned spot or point keeps its map slot even in the cluster block.
+        this.writeLightRecord(this.clusterLightAccessor.element("lights", locals) as StructAccessor, l, pos.x, pos.y, pos.z, l.kind === "point" ? 1 : 2, spotShadowIndex >= 0 ? spotShadowIndex : pointShadowIndex);
         const slot = this.clusterLightSources[locals] ?? { x: 0, y: 0, z: 0, range: 0, spot: false, dirX: 0, dirY: -1, dirZ: 0, outerCone: 0.5, intensity: 0, colorLuma: 0 };
         this.clusterLightSources[locals] = slot;
         slot.x = pos.x;
@@ -1959,7 +2009,7 @@ export class Renderer implements RenderFrameContext {
     this.lightCuller.record(graph, this.clusterGrid, ranges, this.clusterGridBuffer!, "forge.lights");
   }
 
-  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, spotShadowCount: number, size: number, shadowDistance: number): void {
+  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, spotShadowCount: number, pointShadowCount: number, size: number, shadowDistance: number): void {
     const a = this.shadowAccessor;
     const splits = [1e9, 1e9, 1e9, 1e9];
     const texels = [0, 0, 0, 0];
@@ -1995,22 +2045,43 @@ export class Renderer implements RenderFrameContext {
       if (state) this.writeShadowPassUniform(cascadeCount + s, matrix);
     }
 
+    const pointMatrixStride = a.arrayStride("pointViewProj");
+    const pointMatrixBase = a.offsetOf("pointViewProj");
+    const pointParamsStride = a.arrayStride("pointParams");
+    const pointParamsBase = a.offsetOf("pointParams");
+    for (let p = 0; p < MAX_POINT_SHADOWS; p++) {
+      const state = p < pointShadowCount ? this.pointShadows[p]! : null;
+      for (let f = 0; f < POINT_SHADOW_FACES; f++) {
+        const slot = p * POINT_SHADOW_FACES + f;
+        const matrix = state ? state.faces[f]!.viewProj.m : IDENTITY;
+        this.shadowBytes.f32.set(matrix, (pointMatrixBase + slot * pointMatrixStride) >> 2);
+        if (state) this.writeShadowPassUniform(cascadeCount + spotShadowCount + slot, matrix);
+      }
+      const params = (pointParamsBase + p * pointParamsStride) >> 2;
+      const light = state?.light ?? null;
+      this.shadowBytes.f32[params] = state?.texelSize ?? 0;
+      this.shadowBytes.f32[params + 1] = light?.shadowBias ?? 0;
+      this.shadowBytes.f32[params + 2] = light?.shadowNormalBias ?? 0;
+      this.shadowBytes.f32[params + 3] = state?.worldTexelScale ?? 0;
+    }
+
     a.setI32("spotCount", spotShadowCount);
+    a.setI32("pointCount", pointShadowCount);
     a.setF32("texelSize", 1 / size);
     a.setF32("depthBias", sun ? sun.shadowBias : 0.0008);
     a.setF32("normalBias", sun ? sun.shadowNormalBias : 0.6);
     a.setF32("fadeStart", shadowDistance * 0.85);
-    a.setI32("enabled", cascadeCount > 0 || spotShadowCount > 0 ? 1 : 0);
+    a.setI32("enabled", cascadeCount > 0 || spotShadowCount > 0 || pointShadowCount > 0 ? 1 : 0);
     a.setI32("size", size);
     a.setI32("count", cascadeCount);
     a.setU32("flags", scene.settings.shadow.debugCascades ? 1 : 0);
     const q = this.device.device.queue;
     q.writeBuffer(this.shadowBuffer!, 0, gpuSource(this.shadowBytes.bytes.subarray(0, this.shadowBytes.byteLength)));
-    const layerCount = cascadeCount + spotShadowCount;
+    const layerCount = cascadeCount + spotShadowCount + pointShadowCount * POINT_SHADOW_FACES;
     if (layerCount > 0) q.writeBuffer(this.cascadeBuffer!, 0, gpuSource(this.cascadeBytes.bytes.subarray(0, layerCount * UNIFORM_SLOT)));
   }
 
-  /** Write one dynamic-offset depth-pass record in the shared directional/spot arena. */
+  /** Write one dynamic-offset depth-pass record in the shared directional/spot/point arena. */
   private writeShadowPassUniform(layer: number, matrix: Float32Array): void {
     this.cascadeAccessor.relocate(layer * UNIFORM_SLOT);
     this.cascadeAccessor.setMat4("viewProj", matrix);
@@ -2052,7 +2123,29 @@ export class Renderer implements RenderFrameContext {
     return count;
   }
 
-  private collectBatches(scene: Scene, camera: Camera, cascadeCount: number, spotShadowCount: number): void {
+  /**
+   * Fit this frame's point-shadow cubes (the first {@link MAX_POINT_SHADOWS} valid shadow-casting
+   * point lights in scene order). Every face shares the light's position and range, so the six
+   * frustums together cover the whole influence sphere.
+   */
+  private preparePointShadows(scene: Scene, lights: readonly Light[], mapSize: number): number {
+    this.pointShadowIndices.clear();
+    let count = 0;
+    for (const light of lights) {
+      if (light.kind !== "point" || !light.castShadow || !light.affectScene || count >= MAX_POINT_SHADOWS) continue;
+      const state = this.pointShadows[count]!;
+      state.light = null;
+      scene.world.worldPosition(light.entity, state.position);
+      if (!computePointShadow(state.position, light.range, mapSize, state)) continue;
+      for (let f = 0; f < POINT_SHADOW_FACES; f++) state.frustums[f]!.setFromViewProjection(state.faces[f]!.viewProj);
+      state.light = light;
+      this.pointShadowIndices.set(light, count);
+      count++;
+    }
+    return count;
+  }
+
+  private collectBatches(scene: Scene, camera: Camera, cascadeCount: number, spotShadowCount: number, pointShadowCount: number): void {
     this.batchCount = 0;
     this.shadowCasterMask = 0;
     this.batchIndex.clear();
@@ -2077,9 +2170,10 @@ export class Renderer implements RenderFrameContext {
       // frame, culled or not — the boxes are what proves where the model is supposed to sit.
       if (this.debugBounds) this.queueOverlayAabb(box, inView ? DEBUG_BOUNDS_IN_VIEW : DEBUG_BOUNDS_CULLED);
       const caster = r.castShadow && !r.transparent && !r.overlay;
-      // Assign this object independently to each cascade or spot frustum it intersects. Retaining
-      // the mask per instance prevents a merged colour batch from dragging unrelated objects into a map.
-      const shadowMask = caster ? this.shadowMaskFor(box, cascadeCount, spotShadowCount) : 0;
+      // Assign this object independently to each cascade, spot or point-cube frustum it intersects.
+      // Retaining the mask per instance prevents a merged colour batch from dragging unrelated
+      // objects into a map.
+      const shadowMask = caster ? this.shadowMaskFor(box, cascadeCount, spotShadowCount, pointShadowCount) : 0;
       let shadowOnly = false;
       if (!inView) {
         this.stats.culled++;
@@ -2168,14 +2262,22 @@ export class Renderer implements RenderFrameContext {
     batch.shadowRangeCount++;
   }
 
-  /** Conservative cascade and spot-map bits for every light-space frustum intersecting this renderable. */
-  private shadowMaskFor(box: AABB, cascadeCount: number, spotShadowCount: number): number {
+  /** Conservative cascade, spot and point-face bits for every light-space frustum intersecting this renderable. */
+  private shadowMaskFor(box: AABB, cascadeCount: number, spotShadowCount: number, pointShadowCount: number): number {
     let mask = 0;
     for (let c = 0; c < cascadeCount; c++) {
       if (this.cascadeFrustums[c]!.intersectsAABB(box)) mask |= 1 << c;
     }
     for (let s = 0; s < spotShadowCount; s++) {
       if (this.spotShadows[s]!.frustum.intersectsAABB(box)) mask |= 1 << (MAX_CASCADES + s);
+    }
+    for (let p = 0; p < pointShadowCount; p++) {
+      const state = this.pointShadows[p]!;
+      // Sphere pre-test: a caster outside the light's range cannot reach any of the six faces.
+      if (!box.intersectsSphere(state.position, state.far)) continue;
+      for (let f = 0; f < POINT_SHADOW_FACES; f++) {
+        if (state.frustums[f]!.intersectsAABB(box)) mask |= 1 << (POINT_MASK_BASE + p * POINT_SHADOW_FACES + f);
+      }
     }
     return mask;
   }

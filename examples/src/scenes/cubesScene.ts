@@ -49,6 +49,8 @@ export interface DemoSceneHandle {
   particleState?: () => { capacity: number; emitted: number; ready: boolean };
   /** Browser verification hook for scenes with local spotlights. */
   setSpotShadows?: (enabled: boolean) => void;
+  /** Browser verification hook for scenes with shadow-casting point lights. */
+  setPointShadows?: (enabled: boolean) => void;
   /** Optional promise that settles when the scene's async GPU init finishes. */
   ready?: Promise<void>;
 }

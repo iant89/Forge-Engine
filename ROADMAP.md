@@ -18,8 +18,9 @@ CURRENT CODEBASE BASELINE:
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
     Phase 13:   IN PROGRESS (13.1-13.8 landed: depth prepass + SSAO, aliasing,
                 clustered lighting, GPU light fill/culling, indirect rendering,
-                async pipeline compilation, GPU timing; 13.9 cascade assignment and
-                bounded spot shadows landed; point/contact/adaptive work remains)
+                async pipeline compilation, GPU timing; 13.9 cascade assignment,
+                bounded spot shadows and bounded point shadows landed;
+                contact/adaptive work remains)
     Phase 14+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -632,13 +633,14 @@ CURRENT STATE:
     real transient aliasing in every SSAO frame (13.2), clustered lighting (13.3),
     the GPU cluster fill (13.4), GPU object culling with the HiZ pyramid (13.5),
     indirect rendering (13.6), asynchronous pipeline compilation (13.7) and GPU
-    timing (13.8). Phase 13.9 has conservative per-object cascade assignment and
-    bounded spot shadows (up to four lights); point/contact shadows and adaptive
-    resolution remain.
-    Frame: forge.shadow.<n> → forge.shadow.spot.<n> (optional, after cascades) →
-    forge.prepass → forge.hiz.<n> → forge.objects.cull → forge.ssao →
-    forge.ssao.blur.h → forge.ssao.blur.v → forge.main → forge.sky → particles →
-    bloom → forge.tonemap (the cull passes exist only on the device path).
+    timing (13.8). Phase 13.9 has conservative per-object cascade assignment,
+    bounded spot shadows (up to four lights) and bounded point shadows (up to two
+    lights, six cube faces each); contact shadows and adaptive resolution remain.
+    Frame: forge.shadow.<n> → forge.shadow.spot.<n> → forge.shadow.point.<n>.<face>
+    (both optional, after cascades) → forge.prepass → forge.hiz.<n> →
+    forge.objects.cull → forge.ssao → forge.ssao.blur.h → forge.ssao.blur.v →
+    forge.main → forge.sky → particles → bloom → forge.tonemap (the cull passes
+    exist only on the device path).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -894,7 +896,15 @@ CURRENT STATE:
         math/frame/WGSL tests and the PBR browser visual A/B; `Renderer.stats.spotShadowMaps` reports
         the active spot-map prefix.
 
-    [ ] Point shadows.
+    [x] Point shadows.
+
+        The first two valid shadow-casting point lights each render six 90° cube faces into the
+        shared depth-array atlas (layers follow the spot maps; face order +x -x +y -y +z -z), all
+        at the frame's capped shadow resolution. Caster AABBs are assigned per face behind a range
+        sphere pre-test; the shader selects the dominant face per fragment and PCF-samples it
+        (WebGPU has no depth-cube comparison sampling). Point slots survive both the uniform and
+        clustered light paths. Covered by math/frame/WGSL tests and the PBR browser visual A/B;
+        `Renderer.stats.pointShadowMaps` reports the active cube prefix.
 
     [ ] Contact shadows.
 

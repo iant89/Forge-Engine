@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { computeCascadeSplits, computeCascades, computeSpotShadow, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams, type SpotShadowFit } from "@forge/engine";
+import { computeCascadeSplits, computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams, type PointShadowFit, type SpotShadowFit } from "@forge/engine";
 
 const corners = new Float32Array(24);
 
@@ -213,5 +213,109 @@ describe("spot-shadow fitting", () => {
     expect(fit.fovY).toBeLessThan(Math.PI);
     expect(fit.fovY).toBeGreaterThan(0);
     expect(Array.from(matrix.m).every(Number.isFinite)).toBe(true);
+  });
+});
+
+/** Face order the renderer, shader and these tests agree on: +x -x +y -y +z -z. */
+const FACE_AXES = [
+  new Vec3(1, 0, 0),
+  new Vec3(-1, 0, 0),
+  new Vec3(0, 1, 0),
+  new Vec3(0, -1, 0),
+  new Vec3(0, 0, 1),
+  new Vec3(0, 0, -1),
+];
+
+describe("point-shadow fitting", () => {
+  function output(): PointShadowFit {
+    return { faces: createPointShadowFaces(), near: 0, far: 0, texelSize: 0, worldTexelScale: 0 };
+  }
+
+  it("fits six 90-degree faces around the light with the range as the far plane", () => {
+    const position = new Vec3(-3, 4, 2);
+    const fit = output();
+    expect(computePointShadow(position, 12, 512, fit)).toBe(true);
+    expect(fit.faces).toHaveLength(6);
+    expect(fit.near).toBeGreaterThan(0);
+    expect(fit.near).toBeLessThan(fit.far);
+    expect(fit.far).toBe(12);
+    expect(fit.texelSize).toBe(1 / 512);
+    // tan(45°) = 1, so one texel spans 2/512 world units per light-space unit.
+    expect(fit.worldTexelScale).toBeCloseTo(2 / 512, 12);
+    for (const face of fit.faces) {
+      expect(Array.from(face.viewProj.m).every(Number.isFinite)).toBe(true);
+    }
+
+    // Each face looks down its own axis: a point on the axis lands in the map's centre, at a depth
+    // proportional to its distance, and beyond the range it falls off the far plane.
+    for (let f = 0; f < 6; f++) {
+      const axis = FACE_AXES[f]!;
+      expect(fit.faces[f]!.axis.x).toBe(axis.x);
+      expect(fit.faces[f]!.axis.y).toBe(axis.y);
+      expect(fit.faces[f]!.axis.z).toBe(axis.z);
+      const mid = position.clone().addScaled(axis, 6);
+      const p = project(fit.faces[f]!.viewProj, mid.x, mid.y, mid.z);
+      expect(Math.abs(p.x)).toBeLessThan(1e-5);
+      expect(Math.abs(p.y)).toBeLessThan(1e-5);
+      expect(p.z).toBeGreaterThan(0);
+      expect(p.z).toBeLessThan(1);
+      const atRange = position.clone().addScaled(axis, 12);
+      expect(project(fit.faces[f]!.viewProj, atRange.x, atRange.y, atRange.z).z).toBeCloseTo(1, 6);
+      const beyond = position.clone().addScaled(axis, 13);
+      expect(project(fit.faces[f]!.viewProj, beyond.x, beyond.y, beyond.z).z).toBeGreaterThan(1);
+    }
+  });
+
+  it("covers every direction of the influence sphere with the dominant face", () => {
+    const position = new Vec3(1, 2, -1);
+    const range = 8;
+    const fit = output();
+    expect(computePointShadow(position, range, 256, fit)).toBe(true);
+
+    // Deterministic directions in every octant: every receiver inside the sphere projects inside
+    // the clip box of the face the shader would pick (dominant axis), whatever its direction.
+    let seed = 42;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (let i = 0; i < 256; i++) {
+      const dir = new Vec3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1);
+      if (dir.length() < 1e-3) continue;
+      dir.normalize();
+      const depth = 0.5 + rand() * (range - 0.6);
+      const receiver = position.clone().addScaled(dir, depth);
+      const ax = Math.abs(dir.x);
+      const ay = Math.abs(dir.y);
+      const az = Math.abs(dir.z);
+      let face = 4;
+      if (ax >= ay && ax >= az) face = dir.x > 0 ? 0 : 1;
+      else if (ay >= az) face = dir.y > 0 ? 2 : 3;
+      else face = dir.z > 0 ? 4 : 5;
+      const p = project(fit.faces[face]!.viewProj, receiver.x, receiver.y, receiver.z);
+      expect(Math.abs(p.x), `face ${face}`).toBeLessThanOrEqual(1 + 1e-6);
+      expect(Math.abs(p.y), `face ${face}`).toBeLessThanOrEqual(1 + 1e-6);
+      expect(p.z, `face ${face}`).toBeGreaterThan(0);
+      expect(p.z, `face ${face}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("rejects degenerate positions, ranges and resolutions", () => {
+    const fit = output();
+    expect(computePointShadow(new Vec3(NaN, 0, 0), 10, 512, fit)).toBe(false);
+    expect(computePointShadow(new Vec3(0, 0, 0), 0, 512, fit)).toBe(false);
+    expect(computePointShadow(new Vec3(0, 0, 0), 1e-5, 512, fit)).toBe(false);
+    expect(computePointShadow(new Vec3(0, 0, 0), 10, 0, fit)).toBe(false);
+    expect(computePointShadow(new Vec3(0, 0, 0), NaN, 512, fit)).toBe(false);
+  });
+
+  it("reuses the supplied fit across frames", () => {
+    const fit = output();
+    const faces = fit.faces;
+    expect(computePointShadow(new Vec3(0, 3, 0), 10, 256, fit)).toBe(true);
+    expect(fit.faces).toBe(faces);
+    expect(computePointShadow(new Vec3(5, 1, 2), 4, 512, fit)).toBe(true);
+    expect(fit.faces).toBe(faces);
+    expect(fit.far).toBe(4);
   });
 });

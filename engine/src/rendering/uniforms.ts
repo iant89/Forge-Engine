@@ -21,8 +21,15 @@ export const MAX_LIGHTS_PER_FRAME = 16;
 export const MAX_CASCADES = 4;
 /** Maximum simultaneously shadowed local spot lights; maps share the directional depth-array atlas. */
 export const MAX_SPOT_SHADOWS = 4;
-/** Total reusable depth-pass uniform slots (directional cascades plus spot maps). */
-export const MAX_SHADOW_LAYERS = MAX_CASCADES + MAX_SPOT_SHADOWS;
+/** Maximum simultaneously shadowed point lights; each occupies {@link POINT_SHADOW_FACES} atlas layers. */
+export const MAX_POINT_SHADOWS = 2;
+/** Cube faces one point shadow is rendered into (±X, ±Y, ±Z). */
+export const POINT_SHADOW_FACES = 6;
+/**
+ * Total reusable depth-pass uniform slots (directional cascades plus spot maps plus every point
+ * cube face). The shadow-pass uniform arena and the atlas layer accounting both count in these.
+ */
+export const MAX_SHADOW_LAYERS = MAX_CASCADES + MAX_SPOT_SHADOWS + MAX_POINT_SHADOWS * POINT_SHADOW_FACES;
 /**
  * Batches one frame can have culled on the device (`ObjectBatchBlock.bounds`'s length, the same
  * reason `MAX_LIGHTS_PER_FRAME` lives here). A frame with more batches keeps the ones past the cap
@@ -93,9 +100,11 @@ export const LightUniforms = new StructDef("LightUniforms", [
 ]);
 
 /**
- * Directional cascade and local spotlight shadow state. Directional cascades occupy atlas layers
- * `[0, count)`; spot slot `i` occupies layer `count + i` and is selected by `LightUniforms.shadowIndex`.
- * The spot parameters are `(texelSize, depthBias, normalBias, worldTexelScale)`.
+ * Directional cascade and local (spot/point) shadow state. Directional cascades occupy atlas layers
+ * `[0, count)`; spot slot `i` occupies layer `count + i` and point light `p`'s cube face `f` layer
+ * `count + spotCount + 6p + f`. `LightUniforms.shadowIndex` selects the slot within the light's own
+ * family (the shader tells spot and point slots apart by `kind`). The spot/point parameters are
+ * `(texelSize, depthBias, normalBias, worldTexelScale)`.
  */
 export const ShadowUniforms = new StructDef("ShadowUniforms", [
   { name: "cascadeViewProj", type: arrayOf(mat4x4, MAX_CASCADES) },
@@ -103,6 +112,9 @@ export const ShadowUniforms = new StructDef("ShadowUniforms", [
   { name: "cascadeTexelWorld", type: vec4, comment: "render-local size of one shadow texel per cascade (normal-offset bias)" },
   { name: "spotViewProj", type: arrayOf(mat4x4, MAX_SPOT_SHADOWS), comment: "render-local -> each spot light's clip space" },
   { name: "spotParams", type: arrayOf(vec4, MAX_SPOT_SHADOWS), comment: "(1/mapSize, depthBias, normalBias, world-texel scale per light-space unit)" },
+  { name: "pointViewProj", type: arrayOf(mat4x4, MAX_POINT_SHADOWS * POINT_SHADOW_FACES), comment: "render-local -> each point light's six cube-face clip spaces (face order +x -x +y -y +z -z)" },
+  { name: "pointParams", type: arrayOf(vec4, MAX_POINT_SHADOWS), comment: "(1/mapSize, depthBias, normalBias, world-texel scale per light-space unit)" },
+  { name: "pointCount", type: i32, comment: "active point-map prefix; face layer = count + spotCount + 6*shadowIndex + face" },
   { name: "spotCount", type: i32, comment: "active spot-map prefix; spot map layer = count + shadowIndex" },
   { name: "texelSize", type: f32, comment: "1 / directional cascade map size" },
 
