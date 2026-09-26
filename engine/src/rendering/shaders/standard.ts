@@ -21,7 +21,7 @@
  * first one wrote instead of losing pixels to a one-ulp disagreement.
  */
 
-import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "../uniforms.js";
+import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, POINT_SHADOW_FACES } from "../uniforms.js";
 import { WGSL_COLOR, WGSL_FOG } from "./common.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
@@ -188,6 +188,66 @@ fn spotShadowAttenuation(point: vec3<f32>, normal: vec3<f32>, shadowIndex: i32) 
     return 1.0;
   }
   let layer = uniforms_shadow.count + shadowIndex;
+  let depth = sc.z - params.y;
+  var lit = 0.0;
+  for (var y = -1; y <= 1; y = y + 1) {
+    for (var x = -1; x <= 1; x = x + 1) {
+      let o = vec2<f32>(f32(x), f32(y)) * params.x;
+      lit = lit + textureSampleCompareLevel(shadowMap, shadowSampler, uv + o, layer, depth);
+    }
+  }
+  return lit / 9.0;
+}
+
+// Cube face whose axis dominates this direction (face order +x -x +y -y +z -z, matching the
+// renderer's layer order). Ties resolve to the earlier face — the CPU's frustum assignment is
+// conservative either way, so both candidate faces hold the caster.
+fn pointShadowFaceIndex(dir: vec3<f32>) -> i32 {
+  let a = abs(dir);
+  if (a.x >= a.y && a.x >= a.z) {
+    if (dir.x > 0.0) { return 0i; }
+    return 1i;
+  }
+  if (a.y >= a.z) {
+    if (dir.y > 0.0) { return 2i; }
+    return 3i;
+  }
+  if (dir.z > 0.0) { return 4i; }
+  return 5i;
+}
+
+// Point coverage: pick the cube face by the dominant axis of the light->receiver direction,
+// project through that face's perspective matrix and PCF-sample the shared atlas layer. WebGPU has
+// no comparison sampling for depth cubes, so the face is chosen explicitly here; PCF taps that
+// cross a face edge fall back to lit (a slight seam at grazing angles, documented).
+fn pointShadowAttenuation(point: vec3<f32>, normal: vec3<f32>, lightPos: vec3<f32>, range: f32, shadowIndex: i32) -> f32 {
+  if (shadowIndex < 0i || shadowIndex >= uniforms_shadow.pointCount) {
+    return 1.0;
+  }
+  let params = uniforms_shadow.pointParams[shadowIndex];
+  let toPoint = point - lightPos;
+  let dist = length(toPoint);
+  if (dist >= range || dist <= 1e-5) {
+    return 1.0;
+  }
+  let face = pointShadowFaceIndex(toPoint / dist);
+  let faceIndex = shadowIndex * ${POINT_SHADOW_FACES}i + face;
+  var sc = uniforms_shadow.pointViewProj[faceIndex] * vec4<f32>(point, 1.0);
+  if (sc.w <= 1e-5) {
+    return 1.0;
+  }
+  let worldTexel = sc.w * params.w;
+  let normalOffset = normal * (worldTexel * params.z);
+  sc = uniforms_shadow.pointViewProj[faceIndex] * vec4<f32>(point + normalOffset, 1.0);
+  if (sc.w <= 1e-5) {
+    return 1.0;
+  }
+  sc = sc / sc.w;
+  let uv = sc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || sc.z > 1.0 || sc.z < 0.0) {
+    return 1.0;
+  }
+  let layer = uniforms_shadow.count + uniforms_shadow.spotCount + faceIndex;
   let depth = sc.z - params.y;
   var lit = 0.0;
   for (var y = -1; y <= 1; y = y + 1) {
@@ -429,6 +489,8 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
   if (L.shadowIndex >= 0i) {
     if (L.kind == 0i) {
       power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);
+    } else if (L.kind == 1i) {
+      power = power * pointShadowAttenuation(s.worldPos, N, L.positionRange.xyz, L.positionRange.w, L.shadowIndex);
     } else if (L.kind == 2i) {
       power = power * spotShadowAttenuation(s.worldPos, N, L.shadowIndex);
     }

@@ -273,6 +273,10 @@ export function buildPbrScene(engine: Engine): DemoSceneHandle {
     setSpotShadows: (enabled) => {
       spot.castShadow = enabled;
     },
+    setPointShadows: (enabled) => {
+      point1.castShadow = enabled;
+      point2.castShadow = enabled;
+    },
     camera: {
       target: new Vec3(0, 1.0, 0),
       distance: 12,

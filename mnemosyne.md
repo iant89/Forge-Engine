@@ -514,3 +514,32 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   attribute the narrow failure without evidence, call the gate green, or weaken the threshold.
 - No task-duration entry was added. This work continued from a state with no reliable start marker;
   individual command runtimes do not establish actual start-to-finish task time.
+
+### 2026-09-26 — point shadows (Phase 13.9, third subtask)
+
+- **Policy mirrors the spot step.** First two valid shadow-casting point lights in scene order; each
+  renders six 90° faces (`computePointShadow`, face order +x −x +y −y +z −z) into the shared
+  `depth24plus` atlas after the spot layers, all at the frame's capped resolution. Atlas worst case
+  grew from eight to twenty layers (~320 MiB at 2048², ~1.25 GiB at 4096²) — documented in
+  KNOWN-ISSUES/capabilities rather than avoided. Mask bits 8–19 hold the twelve faces (cascades 0–3,
+  spots 4–7), behind a cheap AABB-vs-range-sphere pre-test.
+- **WebGPU has no depth-cube comparison sampling**, so the fragment picks the dominant face per
+  fragment and PCF-samples the array layer; PCF taps crossing a face edge fall back to lit (thin
+  bright seam at grazing angles — documented, not fixed). Spot and point slots both number from zero
+  in `LightUniforms.shadowIndex`; the shader tells them apart by `kind`, and both survive the
+  clustered storage block.
+- **ShadowUniforms grew 656 → 1456 B** (pointViewProj ×12 matrices + pointParams + pointCount).
+  `tests/wgsl.test.ts` pins the new offsets — update that pin deliberately whenever the struct moves.
+- **New tests**: four fitting tests in `tests/shadows.test.ts` (axis/range/coverage/degenerate/reuse)
+  and four frame tests (both light paths, per-face assignment via an overhead light drawing the −Y
+  face only, two-cube cap + point-only frame, cube drop when nothing reaches the light). The browser
+  gate got a point A/B arm after the spot one (`setPointShadows` toggles both PBR orbiting lights).
+- **Demo**: the PBR scene's two orbiting point lights cast by default now (Light.castShadow defaults
+  to true and nothing opted out) — only that scene has point lights, so no other gate scene changed.
+  HUD prints `point Nx6f`. `MAX_SHADOW_LAYERS` is now 20, sizing the shadow-pass uniform arena.
+- `npm run verify` passed (typecheck, 611 tests in 42 files, WGSL layout); `docs:check`,
+  `check:testmap`, `lint:arch` and `demo:build` also passed. The sandbox has a working bundled
+  Chromium this session (`npm run setup` extracted it; the system Vulkan ICDs are still missing but
+  the browser's own SwiftShader ICD covers the gate) — unlike the 2026-09-25 session, `check:browser`
+  can run locally here.
+- Remaining 13.9 items: contact shadows and adaptive shadow resolution.

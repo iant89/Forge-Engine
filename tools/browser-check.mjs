@@ -8,10 +8,11 @@
  *
  * Phase 2 additions (docs/VERIFICATION.md#browser): the frame must have run the cascaded-shadow, HDR
  * forward, bloom and tonemap passes, and readbacks bracketing each toggle must move the way the
- * physics says — bloom adds light, directional shadows and the spotlight's own shadows remove it —
- * with zero GPU errors across the HDR, LDR, cascade-debug and spot-map variants. The spot-only A/B
- * leaves directional cascades active; a pass list alone would not catch a map sampled at the wrong
- * coordinates (that renders, validates, and shadows nothing).
+ * physics says — bloom adds light, directional shadows and the spotlight's and point lights' own
+ * shadows remove it — with zero GPU errors across the HDR, LDR, cascade-debug and spot-map
+ * variants. The spot-only and point-only A/Bs leave directional cascades active; a pass list alone
+ * would not catch a map sampled at the wrong coordinates (that renders, validates, and shadows
+ * nothing).
  *
  * Phase 6/7 addition: `runParticleGravityCheck` must execute the compute shader on this device and match
  * the analytic curve, and the vehicle playground plus the particle fountain must load with zero GPU
@@ -510,6 +511,38 @@ try {
   }
   if (spotDiff.darker < 1 || spotDiff.brighter !== 0) {
     throw new Error(`spot shadows produced no monotone darkening (${spotDiff.darker} darker, ${spotDiff.brighter} brighter pixels)`);
+  }
+
+  // Point-light cube shadows (Phase 13.9): the two orbiting point lights cast into six atlas layers
+  // each. Same A/B shape as the spot arm above — animation stays frozen, so only the maps differ.
+  const pointOnStats = await page.evaluate(() => window.__forge.stats());
+  if (!(pointOnStats.render.pointShadowMaps >= 1) || !pointOnStats.renderPasses.some((p) => p.startsWith("forge.shadow.point."))) {
+    throw new Error(`the PBR point lights did not produce shadow cubes: ${pointOnStats.renderPasses.join(", ")}`);
+  }
+  await page.evaluate(() => window.__forge.setPointShadows(false));
+  await settle();
+  const pointOffStats = await page.evaluate(() => window.__forge.stats());
+  await keepLuma("point-off");
+  if (pointOffStats.render.pointShadowMaps !== 0 || pointOffStats.renderPasses.some((p) => p.startsWith("forge.shadow.point."))) {
+    throw new Error("the point cube maps/passes remained active after disabling the PBR point lights' castShadow flags");
+  }
+  if (pointOffStats.render.shadowCascades < 1 || !pointOffStats.renderPasses.includes("forge.shadow.0")) {
+    throw new Error("disabling the point cubes also removed the directional cascades");
+  }
+  await page.evaluate(() => window.__forge.setPointShadows(true));
+  await settle();
+  await keepLuma("point-on");
+  const pointDiff = await compareLuma("point-off", "point-on");
+  const pointRestoredStats = await page.evaluate(() => window.__forge.stats());
+  console.log(`point shadows: ${pointDiff.darker} px darker on, ${pointDiff.brighter} brighter (max ${pointDiff.max.toFixed(1)} levels)`);
+  if (!(pointRestoredStats.render.pointShadowMaps >= 1) || !pointRestoredStats.renderPasses.some((p) => p.startsWith("forge.shadow.point."))) {
+    throw new Error("the PBR point shadow cubes did not return after the A/B toggle");
+  }
+  if (pointOffStats.gpuErrors !== 0 || pointOffStats.lastError || pointRestoredStats.gpuErrors !== 0 || pointRestoredStats.lastError) {
+    throw new Error(`GPU error during the point-shadow A/B: off=${pointOffStats.gpuErrors} (${pointOffStats.lastError}), restored=${pointRestoredStats.gpuErrors} (${pointRestoredStats.lastError})`);
+  }
+  if (pointDiff.darker < 1 || pointDiff.brighter !== 0) {
+    throw new Error(`point shadows produced no monotone darkening (${pointDiff.darker} darker, ${pointDiff.brighter} brighter pixels)`);
   }
 
   await page.evaluate(() => window.__forge.setBloom(false));

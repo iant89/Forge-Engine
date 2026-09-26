@@ -336,6 +336,9 @@ async function main(): Promise<void> {
   function setSpotShadows(on: boolean): void {
     currentHandle?.setSpotShadows?.(on);
   }
+  function setPointShadows(on: boolean): void {
+    currentHandle?.setPointShadows?.(on);
+  }
   function setDepthPrepass(on: boolean): void {
     if (!currentHandle) return;
     currentHandle.scene.settings.depthPrepass = on;
@@ -500,7 +503,9 @@ async function main(): Promise<void> {
     const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
     const r = st.render;
     const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
-    const shadowMaps = `${r.shadowCascades > 0 ? `csm ${r.shadowCascades}x` : ""}${r.shadowCascades > 0 && r.spotShadowMaps > 0 ? " + " : ""}${r.spotShadowMaps > 0 ? `spot ${r.spotShadowMaps}x` : ""}`;
+    const shadowMaps =
+      `${r.shadowCascades > 0 ? `csm ${r.shadowCascades}x` : ""}${r.shadowCascades > 0 && (r.spotShadowMaps > 0 || r.pointShadowMaps > 0) ? " + " : ""}` +
+      `${r.spotShadowMaps > 0 ? `spot ${r.spotShadowMaps}x` : ""}${r.spotShadowMaps > 0 && r.pointShadowMaps > 0 ? " + " : ""}${r.pointShadowMaps > 0 ? `point ${r.pointShadowMaps}x${r.pointShadowMaps * 6}f` : ""}`;
     const shadows = shadowMaps ? `${shadowMaps} (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
@@ -558,6 +563,7 @@ async function main(): Promise<void> {
     setBloom,
     setShadows,
     setSpotShadows,
+    setPointShadows,
     setDepthPrepass,
     setSsao,
     setClusteredLighting,
