@@ -53,6 +53,8 @@ npm run verify           # typecheck + test + check:wgsl — run this before eve
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, asserts on pixels
+npm run check:browser:mars-workers # scoped native-worker + Mars upload/render check, NOT the full gate
+npm run check:browser:terrain-layers # scoped real-GPU splat pixel oracle + showcase A/B, NOT the full gate
 npm run demo             # Vite dev server for examples/ (binds 0.0.0.0, allowedHosts: true)
 ```
 

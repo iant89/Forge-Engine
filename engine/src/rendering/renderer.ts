@@ -1441,7 +1441,7 @@ export class Renderer implements RenderFrameContext {
         instanced: b.count > 1,
       }) !== null;
       const mainPipelineOptions = {
-        technique: isWater ? "water" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
+        technique: isWater ? "water" as const : b.material.technique === "terrain" ? "terrain" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
         colorFormat,
         depthFormat: this.device.depthFormat,
         transparent: b.transparent,
@@ -2193,6 +2193,9 @@ export class Renderer implements RenderFrameContext {
       const previous = previousIndex === undefined ? null : this.batchPool[previousIndex]!;
       const canMerge =
         previous !== null &&
+        // A pipeline key describes shader/state compatibility, not uniforms or texture identity.
+        // Distinct splat masks (and ordinary material values/maps) must never share one bind group.
+        previous.material === r.material &&
         previous.count < maxInstances &&
         previous.instanceOffset + previous.count * INSTANCE_STRIDE === this.instanceArena.usedBytes;
       const instanceOffset = canMerge ? this.instanceArena.reserve(INSTANCE_STRIDE, 1) : this.instanceArena.reserve(INSTANCE_STRIDE, 256);
@@ -2728,7 +2731,8 @@ export class Renderer implements RenderFrameContext {
   private materialGroupCache = new WeakMap<Material, { revision: number; group: GPUBindGroup }>();
 
   private ensureMaterialGroup(material: Material): GPUBindGroup {
-    const { material: layout } = this.pipelines.bindGroupLayouts;
+    const layouts = this.pipelines.bindGroupLayouts;
+    const layout = material.technique === "terrain" ? layouts.terrain : layouts.material;
     const cached = this.materialGroupCache.get(material);
     if (cached && cached.revision === material.revision) return cached.group;
     material.ensureGpu(this.device, layout, {

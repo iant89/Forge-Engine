@@ -167,10 +167,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "workers.browserThreads",
     phase: "9.1",
-    status: "partial",
-    summary: "No browser-side worker round-trip is asserted",
-    closesWith: "9.1",
-    notes: "Node suites drive the same worker scope on node:worker_threads; demos request workerCount>0 (browser gate may still run inline when Worker is unavailable)",
+    status: "verified",
+    summary: "Native browser workers return Mars terrain grids that the showcase uploads into resident tiles",
+    evidence: ["tools/browser-check.mjs", "tools/browser-mars-workers.mjs"],
+    notes: "check:browser:mars-workers observes actual native Worker task/result messages, pipeline hashes and typed grids; inline fallback cannot pass. The full browser gate includes the same check. Safari/mobile worker loading is not tested.",
   },
   {
     id: "workers.terrainGeneration",
@@ -178,7 +178,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "The full terrain generator pipeline runs in a worker and matches inline generation bit-for-bit",
     evidence: ["tests/tasks.test.ts"],
-    notes: "Default worker-entry installs installTerrainTaskHandlers (Phase 10.2); demos set workerCount>0; inline fallback when no scheduler is mounted",
+    notes: "Default worker-entry installs installTerrainTaskHandlers; real-thread tests include analytic Mars with custom planet/site settings and no fallback. Live Stage A buffers remain inline-only.",
   },
   {
     id: "workers.bvhGeneration",
@@ -502,21 +502,23 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "10.9",
     status: "partial",
     summary: "Ported external Mars generator (analytic Stage B + cached erosion) as a size-agnostic TerrainStage",
-    evidence: ["tests/marsTerrain.test.ts", "tests/marsTerrainPlan.test.ts"],
+    evidence: ["tests/marsTerrain.test.ts", "tests/marsTerrainPlan.test.ts", "tests/marsShowcase.test.ts", "tests/tasks.test.ts", "tools/browser-check.mjs", "tools/browser-mars-workers.mjs"],
     closesWith: "10.9",
     notes:
       "Seamless at any chunkSize/chunkResolution because every vertex is evaluated from its absolute " +
-      "direction; the generator's ~30 MB Stage A cache supplies the simulated erosion. No demo scene " +
-      "uses it, and its 4-channel splat output needs the 10.8 material path.",
+      "direction. Mars Showcase uses the analytic-only port at a surveyed equatorial landing site. " +
+      "Analytic cells run in workers; live Stage A fields, mesh building/uploads and missing-cell " +
+      "ground queries still run on main. The ~30 MB erosion cache is not hosted, real-cache fidelity " +
+      "is unverified. The showcase consumes its four splat channels as GPU-blended PBR layers; " +
+      "coarse-LOD slope/biome sampling can still change the material mix.",
   },
   {
     id: "terrain.materialLayering",
     phase: "10.8",
-    status: "partial",
-    summary: "LayeredTerrainMaterial helper blends height/slope/biome weights on the CPU; not wired into TerrainWorld or demos yet",
-    evidence: ["tests/terrain.test.ts"],
-    closesWith: "10.8",
-    notes: "Helper + unit sample tests exist; TerrainWorld still uses a single Material. Multi-texture splat and world/demo wiring remain.",
+    status: "verified",
+    summary: "TerrainWorld and Mars Showcase blend four PBR texture-array layers through per-tile height/slope/biome weight maps",
+    evidence: ["tests/terrainMaterials.test.ts", "tests/marsShowcase.test.ts", "examples/src/diag/terrainLayerCheck.ts", "tools/browser-check.mjs"],
+    notes: "GPU albedo/normal/MR blending, world-phased UVs and macro/micro variation; masks/materials follow tile lifetime and budgets. Real-GPU pixels pin one-hot channels, linear-light mixtures, PBR map/factor effects and ordinary/prepass parity. Four fixed layers; gates use the cell grid, and the distant horizon apron remains a representative single material.",
   },
 
   // ---------------------------------------------------------------- physics / vehicles

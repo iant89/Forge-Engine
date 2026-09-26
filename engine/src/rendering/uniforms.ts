@@ -166,6 +166,15 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "_pad1", type: u32 },
 ]);
 
+/** Four-surface splat material, opt-in group 2 extension. Every array element is vec4-aligned. */
+export const SplatUniforms = new StructDef("SplatUniforms", [
+  { name: "colors", type: arrayOf(vec4, 4) },
+  { name: "surfaces", type: arrayOf(vec4, 4), comment: "roughness, metallic, normalScale, macroVariation" },
+  { name: "uvTransforms", type: arrayOf(vec4, 4), comment: "scale.xy, wrapped world offset.zw" },
+  { name: "microDetails", type: vec4 },
+  { name: "macroUv", type: vec4, comment: "512m macro period: scale.xy, wrapped offset.zw" },
+]);
+
 /** Per-object state, bound as group 1 (the world matrix the draw actually uses). */
 export const ObjectUniforms = new StructDef("ObjectUniforms", [
   { name: "model", type: mat4x4 },
@@ -436,6 +445,7 @@ export const RENDERING_STRUCTS = {
   ShadowUniforms,
   ShadowPassUniforms,
   MaterialUniforms,
+  SplatUniforms,
   ObjectUniforms,
   InstanceStruct,
   DebugVertexStruct,

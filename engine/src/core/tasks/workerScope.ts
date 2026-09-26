@@ -15,6 +15,7 @@
  *   main → worker : {type:'task', id, name, payload} | {type:'cancel', id}
  *   worker → main : {type:'ready'} | {type:'progress', id, value, detail}
  *                  | {type:'result', id, value} | {type:'error', id, error, inlineFallback}
+ *                  | {type:'cancelled', id} (handler finished; its worker slot can be reused)
  *
  * `inlineFallback: true` means "run this one on the main thread instead": the handler is not
  * installed in this worker, or it declared that it needs the main thread by throwing
@@ -139,7 +140,10 @@ export function installWorkerScope(scope: WorkerScopeLike, options: WorkerScopeO
           inlineFallback: e instanceof InlineOnlyError,
         });
       } finally {
-        cancelled.delete(id);
+        // Suppressing a cancelled result is not enough: the scheduler keeps the worker busy until
+        // it hears that the handler actually finished. In particular, task+cancel can both queue
+        // during async bootstrap; without this ack that first job strands the slot permanently.
+        if (cancelled.delete(id)) scope.postMessage({ type: "cancelled", id });
       }
     })();
   }

@@ -120,14 +120,46 @@ export class Texture {
     return texture;
   }
 
-  private writeRgba8(device: GraphicsDevice, pixels: Uint8Array, mips: number, filter: Rgba8MipFilter): void {
+  /** RGBA8 array slices, each with its own correctly filtered mip chain (no inter-layer mixing). */
+  static fromRgba8Array(
+    device: GraphicsDevice,
+    width: number,
+    height: number,
+    layers: readonly Uint8Array[],
+    options: { label?: string; srgb?: boolean; mipmaps?: boolean; normal?: boolean } = {},
+  ): Texture {
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || layers.length < 1) {
+      throw new UsageError("fromRgba8Array: positive integer dimensions and at least one layer are required");
+    }
+    const expected = width * height * 4;
+    if (layers.some((pixels) => pixels.length < expected)) throw new UsageError(`fromRgba8Array: each layer needs ${expected} bytes`);
+    if (options.srgb && options.normal) throw new UsageError("fromRgba8Array: a normal map cannot be sRGB");
+    const mips = options.mipmaps === false ? 1 : maxMipLevels(width, height);
+    const texture = Texture.create(device, {
+      width, height, depthOrArrayLayers: layers.length,
+      format: options.srgb ? "rgba8unorm-srgb" : "rgba8unorm", mipLevelCount: mips,
+      usage: TextureUsage.TEXTURE_BINDING | TextureUsage.COPY_DST | TextureUsage.COPY_SRC,
+      label: options.label ?? "rgba8-array",
+    });
+    try {
+      for (let layer = 0; layer < layers.length; layer++) {
+        texture.writeRgba8(device, layers[layer]!, mips, options.normal ? "normal" : options.srgb ? "srgb" : "linear", layer);
+      }
+    } catch (error) {
+      texture.dispose();
+      throw error;
+    }
+    return texture;
+  }
+
+  private writeRgba8(device: GraphicsDevice, pixels: Uint8Array, mips: number, filter: Rgba8MipFilter, layer = 0): void {
     let level = pixels.subarray(0, this.desc.width * this.desc.height * 4);
     let width = this.desc.width;
     let height = this.desc.height;
     for (let mip = 0; mip < mips; mip++) {
       const bytesPerRow = width * 4; // unaligned is legal for queue.writeTexture
       device.device.queue.writeTexture(
-        { texture: this.gpuTexture!, mipLevel: mip, origin: [0, 0, 0] as unknown as GPUOrigin3D },
+        { texture: this.gpuTexture!, mipLevel: mip, origin: [0, 0, layer] as unknown as GPUOrigin3D },
         gpuSource(level),
         { bytesPerRow, rowsPerImage: height },
         [width, height, 1] as unknown as GPUExtent3D,
@@ -177,12 +209,13 @@ export class Texture {
   }
 
   viewFor(key: TextureViewKey): GPUTextureView {
-    const cacheKey = `${key.dimension ?? "2d"}|${key.format ?? ""}|${key.baseMipLevel ?? 0}|${key.mipLevelCount ?? "all"}|${key.baseArrayLayer ?? 0}|${key.arrayLayerCount ?? "all"}`;
+    const dimension = key.dimension ?? (this.desc.depthOrArrayLayers > 1 ? "2d-array" : "2d");
+    const cacheKey = `${dimension}|${key.format ?? ""}|${key.baseMipLevel ?? 0}|${key.mipLevelCount ?? "all"}|${key.baseArrayLayer ?? 0}|${key.arrayLayerCount ?? "all"}`;
     const cached = this.views.get(cacheKey);
     if (cached) return cached;
     if (!this.gpuTexture) throw new ResourceLifecycleError(`Texture "${this.desc.label}" was released; its view cannot be created`);
     const view = this.gpuTexture.createView({
-      dimension: key.dimension ?? (this.desc.depthOrArrayLayers > 1 ? "2d-array" : "2d"),
+      dimension,
       format: key.format ?? this.desc.format,
       baseMipLevel: key.baseMipLevel ?? 0,
       mipLevelCount: key.mipLevelCount,

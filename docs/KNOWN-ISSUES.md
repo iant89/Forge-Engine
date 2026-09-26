@@ -92,21 +92,29 @@ be verified, plus the index that now exists but is not used.
 
 ## Terrain (Phase 10)
 
-* **The Mars generator port has no demo scene and no hosted erosion cache.** `MarsTerrainStage`
-  renders the ported analytic surface anywhere, but the simulated-erosion correction needs the
-  generator's `cache/global/` fields (~30 MB for six faces), which this repository does not ship, and
-  no example scene builds a `createMarsPipeline(...)` world yet. `docs/MARS-TERRAIN.md` §5 is the
-  wiring recipe. (capability: terrain.marsGeneratorPort)
+* **Mars Showcase is analytic-only; no erosion cache is hosted.** The showcase now uses
+  `createMarsPipeline(...)` at the equatorial plain, but the simulated-erosion correction needs the
+  generator's real `cache/global/` fields (~30 MB for six faces), which this repository does not ship.
+  `check:mars-port` has not yet verified fidelity against that real cache; the synthetic-cache smoke
+  test is not evidence of agreement with upstream. `docs/MARS-TERRAIN.md` §5–6 describes both paths.
+  (capability: terrain.marsGeneratorPort)
+* **Mars still has main-thread work.** Analytic cell grids now generate on workers (nine warm-up
+  requests, then one per frame in the showcase), but mesh construction/uploads and missing-cell
+  camera/vehicle queries remain synchronous. Live Stage A field caches cannot be reconstructed on a
+  worker yet: those pipelines require the live-instance fallback, preferably `syncGeneration: true`
+  to bypass the rejected worker hop. Missing/blocked workers also fall back inline. This is a
+  chunk-count budget, not a millisecond guarantee. (capability: terrain.marsGeneratorPort)
 * **The Mars port's crater sum is order-sensitive in the last mantissa bits.** `MarsCraterScanner`
   batches the generator's per-vertex 27-cell scan (it samples the same craters — a test asserts zero
   class mismatches and 1e-6 agreement) but sums them in a different order, so `mars-port-check`
   compares against the generator's float32 output with a tolerance rather than for bit equality.
   (`docs/MARS-TERRAIN.md` §6) (capability: terrain.marsGeneratorPort)
-* **Layered terrain materials are not wired into the world.** `LayeredTerrainMaterial` blends
-  height/slope/biome weights on the CPU and is covered by unit tests, but `TerrainWorld` and the
-  demos still attach a single `Material`. A multi-texture splat path and world/demo integration are
-  still open under 10.8 — this is also what keeps the Mars port's dust/rock/sand/crust weights
-  invisible. (capability: terrain.materialLayering)
+* **Mars material weights still inherit LOD sampling.** The four PBR layers now render, with
+  phase-aligned tiled maps and clamped texel-centre mask sampling. That removes shader-introduced
+  border wrapping, not differences in the input data: slope-derived biome weights can change when
+  a tile is regenerated at a coarser resolution. There is no independent high-resolution global
+  material map, triplanar cliff projection or material-mask geomorph. The distant horizon apron
+  retains a representative single material. (capability: terrain.marsGeneratorPort)
 
 ## Vehicles (Phase 6 / 11)
 
