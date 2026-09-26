@@ -18,6 +18,9 @@ import {
   CLUSTER_COUNT,
   CLUSTER_SLICES,
   CULL_FLAG_RECORDS,
+  AABB,
+  Frustum,
+  Mat4,
   ObjectCullUniforms,
   ObjectUniforms,
   DRAW_RECORD_BYTES,
@@ -38,15 +41,21 @@ import {
   clusterSliceFor,
   GraphicsDevice,
   Light,
+  LightBlock,
+  LightUniforms,
   Material,
   MAX_LIGHTS_PER_CLUSTER,
   MAX_LIGHTS_PER_FRAME,
+  MAX_SPOT_SHADOWS,
   PerFrameUniforms,
+  Profiler,
   Renderable,
   Renderer,
   Scene,
+  ShadowUniforms,
   Vec3,
   type RendererOptions,
+  type SystemContext,
 } from "@forge/engine";
 
 /** The prepass + SSAO chain the default settings put between the shadow passes and forge.main. */
@@ -59,11 +68,13 @@ interface Fixture {
   scene: Scene;
   camera: Camera;
   sun: Light;
+  boxGeometry: ReturnType<typeof createBox>;
+  boxMaterial: Material;
   dispose(): Promise<void>;
 }
 
 async function fixture(
-  options: { width?: number; height?: number; renderer?: RendererOptions; extraBoxes?: Vec3[]; boxDistance?: number } = {},
+  options: { width?: number; height?: number; renderer?: RendererOptions; extraBoxes?: Vec3[]; boxDistance?: number; includeDefaultBox?: boolean } = {},
 ): Promise<Fixture> {
   const device = await GraphicsDevice.create({ forceMock: true });
   device.resize(options.width ?? 320, options.height ?? 180);
@@ -94,7 +105,8 @@ async function fixture(
   groundR.material = materials[0]!;
   groundR.castShadow = false;
   scene.world.addComponent(ground.id, groundR);
-  for (const [i, position] of [new Vec3(0, 0.75, 0), ...(options.extraBoxes ?? [])].entries()) {
+  const boxPositions = [...(options.includeDefaultBox === false ? [] : [new Vec3(0, 0.75, 0)]), ...(options.extraBoxes ?? [])];
+  for (const [i, position] of boxPositions.entries()) {
     const e = scene.createTransformedEntity(`box${i}`, position);
     const r = new Renderable();
     r.geometry = geometries[1]!;
@@ -113,6 +125,8 @@ async function fixture(
     scene,
     camera,
     sun,
+    boxGeometry: geometries[1]!,
+    boxMaterial: materials[1]!,
     async dispose() {
       scene.dispose();
       renderer.dispose();
@@ -147,6 +161,32 @@ function ssaoUniforms(f: Fixture): { f32: Float32Array; u32: Uint32Array } {
 }
 
 describe("frame structure", () => {
+  it("publishes asynchronous GPU render and compute timings through Renderer.stats", async () => {
+    const f = await fixture({ renderer: { gpuTimestamps: true, lightCulling: "gpu", objectCulling: "cpu", shadows: false, bloom: false, ssao: false } });
+    const pointEntity = f.scene.createTransformedEntity("point", new Vec3(0, 2, 1));
+    const point = new Light();
+    point.kind = "point";
+    point.range = 12;
+    point.intensity = 4;
+    f.scene.world.addComponent(pointEntity.id, point);
+
+    const profiler = new Profiler();
+    profiler.beginFrame(0);
+    const context = { profiler, elapsed: 0, dt: 1 / 60, frame: 0 } as unknown as SystemContext;
+    f.renderer.renderScene(f.scene, context);
+    profiler.endFrame({ drawCalls: f.renderer.stats.drawCalls, triangles: f.renderer.stats.triangles });
+    expect(f.renderer.stats.gpuTimingAvailable).toBe(true);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(f.renderer.stats.gpuFrameTimeMs).toBeGreaterThan(0);
+    expect(profiler.lastFrame()?.gpuMs).toBe(f.renderer.stats.gpuFrameTimeMs);
+    expect(profiler.scopeStats("lights.assign")?.gpuMs).toBeGreaterThan(0);
+    expect(f.renderer.stats.gpuRenderTimeMs).toBeGreaterThan(0);
+    expect(f.renderer.stats.gpuComputeTimeMs).toBeGreaterThan(0);
+    expect(f.renderer.stats.gpuPassTimes.some((pass) => pass.kind === "compute" && pass.name === "lights.assign")).toBe(true);
+    expect(f.mock.errors).toEqual([]);
+    await f.dispose();
+  });
+
   it("HDR: cascades, forward pass into rgba16float, a bloom chain and the tonemap resolve", async () => {
     const f = await fixture();
     f.scene.settings.shadow.cascades = 2;
@@ -233,6 +273,96 @@ describe("frame structure", () => {
     await f.dispose();
   });
 
+  it("renders spot maps after cascades and preserves spot indices on both light paths", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.shadow.cascades = 2;
+    f.scene.settings.clusteredLighting = false;
+    const testSpot = addSpotLight(f, "test-spot", new Vec3(0, 4, 2));
+    testSpot.innerCone = 0.5;
+    testSpot.outerCone = 0.85; // renderer orders the cosine edges so WGSL never receives reversed smoothstep bounds
+    f.renderer.renderScene(f.scene);
+
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.shadow.1", "forge.shadow.spot.0", "forge.main"]);
+    expect(f.mock.passes[0]!.depthTarget).toContain("256x256x3");
+    expect(f.mock.passes[2]!.drawCalls).toBeGreaterThan(0);
+    expect(f.renderer.stats.shadowCascades).toBe(2);
+    expect(f.renderer.stats.spotShadowMaps).toBe(1);
+
+    const shadow = bufferOf(f, "shadow.uniforms");
+    expect(shadow.i32[ShadowUniforms.offsetOf("count") >> 2]).toBe(2);
+    expect(shadow.i32[ShadowUniforms.offsetOf("spotCount") >> 2]).toBe(1);
+    const spotMatrix = ShadowUniforms.offsetOf("spotViewProj") >> 2;
+    expect(Array.from(shadow.f32.slice(spotMatrix, spotMatrix + 16)).every(Number.isFinite)).toBe(true);
+    const spotParams = ShadowUniforms.offsetOf("spotParams") >> 2;
+    expect(shadow.f32[spotParams]).toBeCloseTo(1 / 256, 7);
+
+    const uniformLights = bufferOf(f, "lights.uniforms");
+    const uniformRecords = LightBlock.field("lights", "uniform");
+    const uniformSpot = (uniformRecords.offset + uniformRecords.stride!) / 4;
+    expect(uniformLights.i32[uniformSpot + (LightUniforms.offsetOf("shadowIndex") >> 2)]).toBe(0);
+    expect(uniformLights.f32[uniformSpot + (LightUniforms.offsetOf("spotAngles") >> 2)]).toBeCloseTo(0.85, 6);
+    expect(uniformLights.f32[uniformSpot + (LightUniforms.offsetOf("spotAngles") >> 2) + 1]).toBeCloseTo(0.5, 6);
+
+    // The same spot moves into the cluster storage block without losing its shadow slot.
+    f.mock.passes.length = 0;
+    f.scene.settings.clusteredLighting = true;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual(["forge.shadow.0", "forge.shadow.1", "forge.shadow.spot.0", "forge.main"]);
+    const clusteredLights = bufferOf(f, "cluster.lights");
+    const clusterRecords = ClusterLightBlock.field("lights", "storage");
+    const clusterSpot = clusterRecords.offset / 4;
+    expect(clusteredLights.i32[clusterSpot + (LightUniforms.offsetOf("shadowIndex") >> 2)]).toBe(0);
+    expect(f.renderer.stats.spotShadowMaps).toBe(1);
+    await f.dispose();
+  });
+
+  it("caps spot maps at four and supports spotlight-only shadow frames", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.clusteredLighting = false;
+    for (let i = 0; i < MAX_SPOT_SHADOWS + 1; i++) {
+      addSpotLight(f, `capacity-spot-${i}`, new Vec3(0, 4, 2));
+    }
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.shadowCascades).toBeGreaterThan(0);
+    expect(f.renderer.stats.spotShadowMaps).toBe(MAX_SPOT_SHADOWS);
+
+    // Drop the sun after the first frame: the reused cascade array must not leak its old count into a spot-only frame.
+    f.mock.passes.length = 0;
+    f.sun.castShadow = false;
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(labels(f)).toEqual([
+      "forge.shadow.spot.0",
+      "forge.shadow.spot.1",
+      "forge.shadow.spot.2",
+      "forge.shadow.spot.3",
+      "forge.main",
+    ]);
+    expect(f.mock.passes[0]!.depthTarget).toContain(`256x256x${MAX_SPOT_SHADOWS}`);
+    expect(f.renderer.stats.shadowCascades).toBe(0);
+    expect(f.renderer.stats.spotShadowMaps).toBe(MAX_SPOT_SHADOWS);
+    const shadow = bufferOf(f, "shadow.uniforms");
+    expect(shadow.i32[ShadowUniforms.offsetOf("count") >> 2]).toBe(0);
+    expect(shadow.i32[ShadowUniforms.offsetOf("spotCount") >> 2]).toBe(MAX_SPOT_SHADOWS);
+    const frame = bufferOf(f, "perframe.uniforms");
+    expect(frame.i32[PerFrameUniforms.offsetOf("cascadeCount") >> 2]).toBe(0);
+    const records = LightBlock.field("lights", "uniform");
+    const lights = bufferOf(f, "lights.uniforms");
+    const shadowIndexWord = LightUniforms.offsetOf("shadowIndex") >> 2;
+    const strideWords = records.stride! / 4;
+    for (let i = 0; i < MAX_SPOT_SHADOWS; i++) {
+      expect(lights.i32[records.offset / 4 + (i + 1) * strideWords + shadowIndexWord]).toBe(i);
+    }
+    expect(lights.i32[records.offset / 4 + (MAX_SPOT_SHADOWS + 1) * strideWords + shadowIndexWord]).toBe(-1);
+    await f.dispose();
+  });
+
   it("casters outside the view frustum still render into the cascades they intersect", async () => {
     // A box behind the camera's back is frustum-culled for the colour pass but sits well inside the
     // first cascade's light-space box, so it must still cast.
@@ -246,6 +376,80 @@ describe("frame structure", () => {
     expect(s.prepassDraws).toBe(2); // ...nor in the depth prepass
     expect(f.mock.passes[0]!.drawCalls).toBe(2); // ...but both boxes reach the shadow pass
     expect(s.shadowsDrawn).toBe(2);
+    await f.dispose();
+  });
+
+  it("assigns per-object cascade ranges without splitting the colour batch", async () => {
+    const f = await fixture({ includeDefaultBox: false });
+    f.scene.settings.shadow.cascades = 4;
+    // The cascade fit is camera/light-only, so this setup frame gives us the exact frusta even though
+    // there are no casters yet. Candidate bounds are then chosen from the intersection of the real
+    // camera frustum and overlapping-but-distinct cascade masks.
+    f.renderer.renderScene(f.scene);
+    const cascadeFrustums = f.renderer.shadowCascades.map((cascade) => new Frustum().setFromViewProjection(cascade.viewProj));
+    const cameraFrustum = new Frustum().setFromViewProjection(f.camera.viewProjection);
+    const localBounds = f.boxGeometry.bounds;
+    const worldBounds = new AABB();
+    const candidates: { position: Vec3; mask: number }[] = [];
+    for (const z of [-7, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40, 55, 70, 85]) {
+      for (const x of [-16, -12, -8, -4, 0, 4, 8, 12, 16]) {
+        for (const y of [-1, 0, 1, 2, 4, 8, 12]) {
+          const position = new Vec3(x, y, z);
+          const bounds = localBounds.transformByMatrix(new Mat4().translate(position), worldBounds);
+          if (!cameraFrustum.intersectsAABB(bounds)) continue;
+          let mask = 0;
+          for (let cascade = 0; cascade < cascadeFrustums.length; cascade++) {
+            if (cascadeFrustums[cascade]!.intersectsAABB(bounds)) mask |= 1 << cascade;
+          }
+          if (mask !== 0) candidates.push({ position, mask });
+        }
+      }
+    }
+    let pair: [typeof candidates[number], typeof candidates[number]] | null = null;
+    for (let a = 0; a < candidates.length && !pair; a++) {
+      for (let b = a + 1; b < candidates.length; b++) {
+        const left = candidates[a]!;
+        const right = candidates[b]!;
+        if (left.mask !== right.mask && (left.mask & right.mask) !== 0) {
+          pair = [left, right];
+          break;
+        }
+      }
+    }
+    expect(pair, "fixture has two visible casters with overlapping, distinct cascade masks").not.toBeNull();
+    const selected = pair!;
+    for (const [index, candidate] of selected.entries()) {
+      const entity = f.scene.createTransformedEntity(`assigned-caster-${index}`, candidate.position);
+      const renderable = new Renderable();
+      renderable.geometry = f.boxGeometry;
+      renderable.material = f.boxMaterial;
+      f.scene.world.addComponent(entity.id, renderable);
+    }
+
+    f.mock.passes.length = 0;
+    f.mock.commandLog.length = 0;
+    f.renderer.renderScene(f.scene);
+    const popcount = (mask: number) => {
+      let count = 0;
+      for (let bit = 0; bit < 4; bit++) count += (mask >> bit) & 1;
+      return count;
+    };
+    const expectedInstances = selected.reduce((sum, candidate) => sum + popcount(candidate.mask), 0);
+    expect(f.renderer.stats.batches).toBe(2); // ground + one shared colour batch for both casters
+    expect(f.renderer.stats.shadowInstancesDrawn).toBe(expectedInstances);
+    expect(f.renderer.stats.shadowInstancesCulled).toBe(8 - expectedInstances);
+    expect(f.renderer.stats.shadowsDrawn).toBe(expectedInstances); // masks differ, so each assigned range is submitted separately
+
+    for (let cascade = 0; cascade < 4; cascade++) {
+      const expectedFirstInstances = selected.flatMap((candidate, index) => (candidate.mask & (1 << cascade)) !== 0 ? [index] : []);
+      const pass = f.mock.passes.find((record) => record.label === `forge.shadow.${cascade}`)!;
+      expect(pass.instances).toBe(expectedFirstInstances.length);
+      const actualFirstInstances = f.mock.commandLog
+        .filter((entry) => entry.label === `forge.shadow.${cascade}` && entry.type === "drawIndexed")
+        .map((entry) => Number(entry["firstInstance"]));
+      expect(actualFirstInstances).toEqual(expectedFirstInstances);
+    }
+    expect(f.mock.errors).toEqual([]);
     await f.dispose();
   });
 
@@ -657,6 +861,20 @@ function addPointLight(f: Fixture, name: string, x: number, y: number, z: number
   l.range = range;
   l.intensity = intensity;
   l.castShadow = false;
+  f.scene.world.addComponent(e.id, l);
+  return l;
+}
+
+function addSpotLight(f: Fixture, name: string, position: Vec3, target = new Vec3(0, 0.75, 0)): Light {
+  const e = f.scene.createTransformedEntity(name, position);
+  e.transform.lookAt(target);
+  const l = new Light();
+  l.kind = "spot";
+  l.range = 16;
+  l.innerCone = 0.95;
+  l.outerCone = 0.75;
+  l.followRotation = true;
+  l.castShadow = true;
   f.scene.world.addComponent(e.id, l);
   return l;
 }

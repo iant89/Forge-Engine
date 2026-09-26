@@ -8,8 +8,9 @@
  *
  * Phase 2 additions (docs/VERIFICATION.md#browser): the frame must have run the cascaded-shadow, HDR
  * forward, bloom and tonemap passes, and readbacks bracketing each toggle must move the way the
- * physics says — bloom adds light, shadows remove it — with zero GPU errors across the HDR, LDR and
- * cascade-debug shader variants. A pass list alone would not catch a shadow map sampled at the wrong
+ * physics says — bloom adds light, directional shadows and the spotlight's own shadows remove it —
+ * with zero GPU errors across the HDR, LDR, cascade-debug and spot-map variants. The spot-only A/B
+ * leaves directional cascades active; a pass list alone would not catch a map sampled at the wrong
  * coordinates (that renders, validates, and shadows nothing).
  *
  * Phase 6/7 addition: `runParticleGravityCheck` must execute the compute shader on this device and match
@@ -224,6 +225,23 @@ const settle = (frames = 4) =>
         requestAnimationFrame(step);
       }),
     frames,
+  );
+
+/** GPU cull counters are asynchronous; wait until this mode's device readback has actually arrived. */
+const waitForCullReadback = (writesRecords) =>
+  page.waitForFunction(
+    (records) => {
+      const r = window.__forge.stats().render;
+      const culled = r.cullFrustum + r.cullDistance + r.cullOccluded;
+      return (
+        r.cullTested > 0 &&
+        r.cullDistance > 0 &&
+        r.cullVisible === r.cullTested - culled &&
+        r.cullRecordZeroed === (records ? culled : 0)
+      );
+    },
+    writesRecords,
+    { polling: 100, timeout: 15000 },
   );
 
 // Pixels: copy the WebGPU canvas into a 2D surface in-page and measure it. Sampling the WebGPU canvas
@@ -463,6 +481,36 @@ try {
   await page.evaluate(() => window.__forge.setAnimating(false));
   await settle();
   const base = await samplePixels();
+
+  const spotOnStats = await page.evaluate(() => window.__forge.stats());
+  if (!(spotOnStats.render.spotShadowMaps >= 1) || !spotOnStats.renderPasses.some((p) => p.startsWith("forge.shadow.spot."))) {
+    throw new Error(`the PBR spotlight did not produce a shadow map: ${spotOnStats.renderPasses.join(", ")}`);
+  }
+  await page.evaluate(() => window.__forge.setSpotShadows(false));
+  await settle();
+  const spotOffStats = await page.evaluate(() => window.__forge.stats());
+  await keepLuma("spot-off");
+  if (spotOffStats.render.spotShadowMaps !== 0 || spotOffStats.renderPasses.some((p) => p.startsWith("forge.shadow.spot."))) {
+    throw new Error("the spot map/pass remained active after disabling the PBR spotlight's castShadow flag");
+  }
+  if (spotOffStats.render.shadowCascades < 1 || !spotOffStats.renderPasses.includes("forge.shadow.0")) {
+    throw new Error("disabling the spot map also removed the directional cascades");
+  }
+  await page.evaluate(() => window.__forge.setSpotShadows(true));
+  await settle();
+  await keepLuma("spot-on");
+  const spotDiff = await compareLuma("spot-off", "spot-on");
+  const spotRestoredStats = await page.evaluate(() => window.__forge.stats());
+  console.log(`spot shadows: ${spotDiff.darker} px darker on, ${spotDiff.brighter} brighter (max ${spotDiff.max.toFixed(1)} levels)`);
+  if (!(spotRestoredStats.render.spotShadowMaps >= 1) || !spotRestoredStats.renderPasses.some((p) => p.startsWith("forge.shadow.spot."))) {
+    throw new Error("the PBR spotlight shadow map did not return after the A/B toggle");
+  }
+  if (spotOffStats.gpuErrors !== 0 || spotOffStats.lastError || spotRestoredStats.gpuErrors !== 0 || spotRestoredStats.lastError) {
+    throw new Error(`GPU error during the spot-shadow A/B: off=${spotOffStats.gpuErrors} (${spotOffStats.lastError}), restored=${spotRestoredStats.gpuErrors} (${spotRestoredStats.lastError})`);
+  }
+  if (spotDiff.darker < 1 || spotDiff.brighter !== 0) {
+    throw new Error(`spot shadows produced no monotone darkening (${spotDiff.darker} darker, ${spotDiff.brighter} brighter pixels)`);
+  }
 
   await page.evaluate(() => window.__forge.setBloom(false));
   await settle();
@@ -884,12 +932,14 @@ try {
     window.__forge.setObjectDistance(1);
   });
   await settle();
+  await waitForCullReadback(true);
   await keepLuma("indirect-on");
   const indirectOnStats = await page.evaluate(() => window.__forge.stats());
   const indirectOn = indirectOnStats.render;
 
   await page.evaluate(() => window.__forge.setIndirectDraws(false));
   await settle();
+  await waitForCullReadback(false);
   await keepLuma("indirect-off");
   const indirectOffStats = await page.evaluate(() => window.__forge.stats());
   const indirectOff = indirectOffStats.render;

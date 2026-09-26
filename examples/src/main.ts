@@ -333,6 +333,9 @@ async function main(): Promise<void> {
     currentHandle.scene.settings.shadow.enabled = on;
     syncRenderButtons();
   }
+  function setSpotShadows(on: boolean): void {
+    currentHandle?.setSpotShadows?.(on);
+  }
   function setDepthPrepass(on: boolean): void {
     if (!currentHandle) return;
     currentHandle.scene.settings.depthPrepass = on;
@@ -497,7 +500,8 @@ async function main(): Promise<void> {
     const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
     const r = st.render;
     const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
-    const shadows = r.shadowCascades > 0 ? `csm ${r.shadowCascades}x (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
+    const shadowMaps = `${r.shadowCascades > 0 ? `csm ${r.shadowCascades}x` : ""}${r.shadowCascades > 0 && r.spotShadowMaps > 0 ? " + " : ""}${r.spotShadowMaps > 0 ? `spot ${r.spotShadowMaps}x` : ""}`;
+    const shadows = shadowMaps ? `${shadowMaps} (${r.shadowsDrawn} draws, ${r.shadowsCulled} culled)` : "shadows off";
     const sky = r.sky ? `sky ${r.skySamples} spp` : "sky off";
     const depth = r.depthPrepass ? `prepass ${r.prepassDraws} draws  ·  ${r.ssao ? "ssao half-res" : "ssao off"}` : "no prepass  ·  ssao off";
     // The device path's counters arrive one frame late (a readback cannot be known sooner), so the
@@ -553,6 +557,7 @@ async function main(): Promise<void> {
     setHdr,
     setBloom,
     setShadows,
+    setSpotShadows,
     setDepthPrepass,
     setSsao,
     setClusteredLighting,

@@ -181,6 +181,7 @@ export class Engine {
       depthPrepass: init.config.depthPrepass,
       ssao: init.config.ssao,
       clusteredLighting: init.config.clusteredLighting,
+      gpuTimestamps: init.config.gpuTimestamps,
     });
     this.services.set("resources", this.resources);
     this.services.set("tasks", this.tasks);

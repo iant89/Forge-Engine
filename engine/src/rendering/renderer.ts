@@ -5,16 +5,16 @@
  *   1. camera resolution: pick the highest-priority enabled `Camera`, compose view/projection from
  *      its entity's world matrix, and publish them back onto the component (culling, audio and
  *      picking all read the same numbers — never a second copy).
- *   2. cascade fit: split the camera frustum along view depth and fit one light-space box per slice
- *      (`rendering/shadows.ts`). Pure math; nothing GPU-side happens yet.
+ *   2. shadow fit: split the camera frustum for directional cascades and fit bounded perspective
+ *      spot maps (`rendering/shadows.ts`). Pure math; nothing GPU-side happens yet.
  *   3. batch assembly: Renderables grouped by (geometry, material pipeline key, transparency, caster
  *      flags), each batch writing its instance matrices into a per-frame arena. Draw cost is
  *      therefore `setBindGroup(dynamic offsets) + drawIndexed`, with no per-draw object creation.
- *      Off-screen shadow casters that still fall inside a cascade land in shadow-only batches.
- *   4. uniform upload: one `writeBuffer` each for the frame block, lights, shadow block, cascade
+ *      Off-screen shadow casters that still fall inside a cascade or spot frustum land in shadow-only batches.
+ *   4. uniform upload: one `writeBuffer` each for the frame block, lights, shadow block, shadow-pass
  *      view-projections, sky block (when the sky is on), post parameters and the two draw arenas.
  *   5. frame description: the passes are declared on the `RenderGraph` — `forge.shadow.<n>` per
- *      cascade into a depth array, `forge.prepass` laying the opaque depth down, the half-resolution
+ *      cascade and `forge.shadow.spot.<n>` per spot map into a depth array, `forge.prepass` laying the opaque depth down, the half-resolution
  *      `forge.ssao` estimate + its two blur passes, `forge.main` into the HDR target (or the
  *      swapchain in LDR mode), `forge.sky` over the same target where the depth buffer is still
  *      clear, the bloom chain, and `forge.tonemap` into the swapchain. The graph validates, culls,
@@ -33,7 +33,7 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import {
@@ -49,8 +49,8 @@ import {
 import type { ObjectCullParams } from "./objectCulling.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
-import { RenderGraph, type RenderGraphHandle, type RenderGraphPassContext } from "./renderGraph.js";
-import { computeCascades, type Cascade } from "./shadows.js";
+import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
+import { computeCascades, computeSpotShadow, type Cascade, type SpotShadowFit } from "./shadows.js";
 import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
@@ -69,7 +69,7 @@ import { InternalError, UsageError } from "../core/errors.js";
 export interface RendererOptions {
   /** Force an override clear colour (the editor's "show without sky" mode). */
   clearColor?: number | null;
-  /** Shadow map resolution cap per cascade; the scene asks, the quality profile caps. */
+  /** Shared shadow-map resolution cap for every cascade and spot layer; the scene asks, the profile caps. */
   shadowMapSize?: number;
   /** Cascade count cap (1..4); the scene's `shadow.cascades` asks, this caps. */
   shadowCascades?: number;
@@ -116,6 +116,13 @@ export interface RendererOptions {
    */
   occlusionCulling?: boolean;
   /**
+   * Compile render-pipeline cache misses without waiting in the render loop. Defaults on for real
+   * GPUs; mock frames stay synchronous unless explicitly enabled.
+   */
+  asyncPipelines?: boolean;
+  /** Collect asynchronous GPU timestamp samples when the device supports timestamp-query. */
+  gpuTimestamps?: boolean;
+  /**
    * Submit `forge.main`'s draws through the culler's own indirect records (Phase 13.6), one per batch,
    * whose instance count the cull pass writes (0 for a culled batch). Default `true`.
    *
@@ -154,11 +161,18 @@ export interface RenderStats {
   cullRecordZeroed: number;
   /** `forge.main` draws submitted through the culler's indirect records this frame. */
   indirectDraws: number;
-  /** Draw calls issued by the shadow passes (all cascades). */
+  /** Draw calls issued by all directional cascade and spot shadow passes. */
   shadowsDrawn: number;
-  /** Batch × cascade pairs skipped because the batch lay outside that cascade's box. */
+  /** Batch × shadow-map pairs with no assigned caster instances. */
   shadowsCulled: number;
+  /** Caster instances submitted across shadow maps (one instance may contribute to multiple maps). */
+  shadowInstancesDrawn: number;
+  /** Caster-instance/map pairs omitted by per-object shadow-frustum assignment. */
+  shadowInstancesCulled: number;
+  /** Directional cascade maps active this frame. */
   shadowCascades: number;
+  /** Spot-light shadow maps active this frame (maximum {@link MAX_SPOT_SHADOWS}). */
+  spotShadowMaps: number;
   debugLines: number;
   /** Wireframe AABBs drawn by `debugBounds` last frame (one per visible Renderable). */
   debugBounds: number;
@@ -211,6 +225,33 @@ export interface RenderStats {
   pooledBytes: number;
   aliasedBytes: number;
   texturesCreated: number;
+  /** Whether GPU timestamps were requested and the adapter supports them. */
+  gpuTimingAvailable: boolean;
+  /** Latest completed query sample: first timed pass start through last timed pass end, in milliseconds. */
+  gpuFrameTimeMs: number;
+  gpuRenderTimeMs: number;
+  gpuComputeTimeMs: number;
+  gpuPassTimes: readonly GpuPassTime[];
+  gpuTimingSkippedFrames: number;
+  gpuTimingDroppedPasses: number;
+  /** Unique render-pipeline keys still compiling asynchronously. */
+  pipelinesPending: number;
+  /** Render pipelines whose async compilation failed; each failed key is latched until invalidation. */
+  pipelineFailures: number;
+}
+
+interface ShadowInstanceRange {
+  /** First instance relative to this batch's dynamic storage-buffer offset. */
+  firstInstance: number;
+  instanceCount: number;
+  /** Bits 0..MAX_CASCADES-1 are cascades; the following bits are spot-map slots. */
+  shadowMask: number;
+}
+
+interface SpotShadowState extends SpotShadowFit {
+  readonly frustum: Frustum;
+  readonly position: Vec3;
+  light: Light | null;
 }
 
 interface Batch {
@@ -233,8 +274,12 @@ interface Batch {
   cullIndex: number;
   /** `Renderable.maxDistance` union over the batch (0 = no limit); the culler's distance test. */
   maxDistance: number;
-  /** Render-local union of the instances' bounds (per-cascade and object culling). */
+  /** Render-local union of the instances' bounds (object culling). */
   readonly bounds: AABB;
+  /** Contiguous per-object ranges grouped by conservative cascade mask for shadow submissions. */
+  readonly shadowRanges: ShadowInstanceRange[];
+  /** Live prefix of `shadowRanges`; backing range objects are reused on subsequent frames. */
+  shadowRangeCount: number;
 }
 
 interface PostParams {
@@ -283,6 +328,23 @@ const CLUSTER_INDICES_FIELD = ClusterGridBlock.field("indices", "storage");
 
 /** Sun direction when neither the sky settings nor a directional light provide one. */
 const DEFAULT_SUN = new Vec3(0.3, 0.8, 0.5).normalize();
+
+function clampConeCos(value: number, fallback: number): number {
+  return Math.max(-1, Math.min(1, Number.isFinite(value) ? value : fallback));
+}
+
+/** Wider normalized spot cosine, kept in step with the interval uploaded to the shading shader. */
+function spotOuterConeCos(light: Light): number {
+  let innerCos = clampConeCos(light.innerCone, 0.85);
+  let outerCos = clampConeCos(light.outerCone, 0.6);
+  if (innerCos < outerCos) {
+    const swap = innerCos;
+    innerCos = outerCos;
+    outerCos = swap;
+  }
+  if (innerCos - outerCos < 1e-5) outerCos = Math.max(-1, outerCos - 1e-4);
+  return outerCos;
+}
 /** `debugBounds` box colours (RGBA byte pack, 0xAARRGGBB): cyan in view, magenta frustum-culled. */
 const DEBUG_BOUNDS_IN_VIEW = 0xff00ffff;
 const DEBUG_BOUNDS_CULLED = 0xffff00ff;
@@ -320,7 +382,10 @@ export class Renderer implements RenderFrameContext {
     indirectDraws: 0,
     shadowsDrawn: 0,
     shadowsCulled: 0,
+    shadowInstancesDrawn: 0,
+    shadowInstancesCulled: 0,
     shadowCascades: 0,
+    spotShadowMaps: 0,
     debugLines: 0,
     debugBounds: 0,
     hdr: false,
@@ -348,6 +413,15 @@ export class Renderer implements RenderFrameContext {
     pooledBytes: 0,
     aliasedBytes: 0,
     texturesCreated: 0,
+    gpuTimingAvailable: false,
+    gpuFrameTimeMs: 0,
+    gpuRenderTimeMs: 0,
+    gpuComputeTimeMs: 0,
+    gpuPassTimes: [],
+    gpuTimingSkippedFrames: 0,
+    gpuTimingDroppedPasses: 0,
+    pipelinesPending: 0,
+    pipelineFailures: 0,
   };
   instanceCount = 0;
 
@@ -376,7 +450,7 @@ export class Renderer implements RenderFrameContext {
   private readonly lightAccessor = new StructAccessor(LightBlock, this.lightBytes, 0, "uniform");
   private readonly shadowBytes = new WriteBuffer(ShadowUniforms.byteSize("uniform"));
   private readonly shadowAccessor = new StructAccessor(ShadowUniforms, this.shadowBytes, 0, "uniform");
-  private readonly cascadeBytes = new WriteBuffer(MAX_CASCADES * UNIFORM_SLOT);
+  private readonly cascadeBytes = new WriteBuffer(MAX_SHADOW_LAYERS * UNIFORM_SLOT);
   private readonly cascadeAccessor = new StructAccessor(ShadowPassUniforms, this.cascadeBytes, 0, "uniform");
   private readonly postBytes = new WriteBuffer(MAX_POST_PASSES * UNIFORM_SLOT);
   private readonly postAccessor = new StructAccessor(PostUniforms, this.postBytes, 0, "uniform");
@@ -511,11 +585,24 @@ export class Renderer implements RenderFrameContext {
   /** This frame's prepass draws, state-sorted then front-to-back (rebuilt in place every frame). */
   private readonly prepassBatches: Batch[] = [];
   private readonly batchIndex = new Map<string, number>();
-  private casterBatches = 0;
+  /** OR of all per-object shadow-map assignments this frame; avoids an atlas when no map has casters. */
+  private shadowCasterMask = 0;
 
   // Shadows.
   private readonly cascades: Cascade[] = [];
   private readonly cascadeFrustums: Frustum[] = [new Frustum(), new Frustum(), new Frustum(), new Frustum()];
+  private readonly spotShadows: SpotShadowState[] = Array.from({ length: MAX_SPOT_SHADOWS }, () => ({
+    viewProj: new Mat4(),
+    fovY: 0,
+    near: 0,
+    far: 0,
+    texelSize: 0,
+    worldTexelScale: 0,
+    frustum: new Frustum(),
+    position: new Vec3(),
+    light: null,
+  }));
+  private readonly spotShadowIndices = new Map<Light, number>();
   private readonly lightList: Light[] = [];
 
   // Debug lines.
@@ -557,8 +644,9 @@ export class Renderer implements RenderFrameContext {
     readonly device: GraphicsDevice,
     readonly options: RendererOptions = {},
   ) {
-    this.pipelines = new PipelineFactory(device);
-    this.graph = new RenderGraph(device);
+    this.pipelines = new PipelineFactory(device, { asyncCompilation: options.asyncPipelines ?? !device.isMock });
+    this.graph = new RenderGraph(device, { gpuTimestamps: options.gpuTimestamps ?? false });
+    this.stats.gpuTimingAvailable = this.graph.stats.gpuTimingAvailable;
     // The mock device validates and records compute passes but cannot execute WGSL, so an
     // unqualified "auto" stays on the CPU there: the grid is a shader input, and a grid nothing
     // wrote is worse than a grid the CPU wrote.
@@ -752,6 +840,8 @@ export class Renderer implements RenderFrameContext {
     const cascadeCount = sun ? Math.max(1, Math.min(MAX_CASCADES, Math.floor(settings.shadow.cascades), this.options.shadowCascades ?? MAX_CASCADES)) : 0;
     const shadowSize = clampShadowSize(Math.min(settings.shadow.mapSize, this.options.shadowMapSize ?? settings.shadow.mapSize));
     const shadowDistance = Math.max(camera.near + 1e-3, Math.min(settings.shadow.distance, camera.far));
+    const spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize) : 0;
+    if (!shadowsWanted) this.spotShadowIndices.clear();
     if (sun) {
       computeCascades(
         { world: this.cameraWorld, fovY: camera.fovY, aspect, near: camera.near, orthographic: camera.orthographic, orthoHeight: camera.orthoHeight },
@@ -762,10 +852,15 @@ export class Renderer implements RenderFrameContext {
     }
 
     // 3. Batches, and which of them lay down depth in the prepass.
-    this.collectBatches(scene, camera, cascadeCount);
-    const shadowsActive = cascadeCount > 0 && this.casterBatches > 0;
+    this.collectBatches(scene, camera, cascadeCount, spotShadowCount);
+    const shadowBits = (1 << cascadeCount) - 1;
+    const spotBits = ((1 << spotShadowCount) - 1) << MAX_CASCADES;
+    const activeCascadeCount = (this.shadowCasterMask & shadowBits) !== 0 ? cascadeCount : 0;
+    const activeSpotCount = (this.shadowCasterMask & spotBits) !== 0 ? spotShadowCount : 0;
+    const shadowsActive = activeCascadeCount > 0 || activeSpotCount > 0;
     this.stats.batches = this.batchCount;
-    this.stats.shadowCascades = shadowsActive ? cascadeCount : 0;
+    this.stats.shadowCascades = activeCascadeCount;
+    this.stats.spotShadowMaps = activeSpotCount;
     const prepass = this.classifyPrepass(settings.depthPrepass && this.options.depthPrepass !== false) > 0;
     // SSAO keys its bilateral passes on clip.w, which only a perspective projection makes view depth.
     const ssaoSettings = settings.ssao;
@@ -777,11 +872,11 @@ export class Renderer implements RenderFrameContext {
     const renderWidth = hdr ? Math.max(1, Math.round(this.width * scale)) : this.width;
     const renderHeight = hdr ? Math.max(1, Math.round(this.height * scale)) : this.height;
     const underwater = isUnderwater(positionRender.y, settings.water);
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, underwater, ssao, clustered);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
-    this.writeLights(scene, lights, shadowsActive ? sun : null, clustered);
+    this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, clustered);
     if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
-    this.writeShadowUniforms(scene, sun, shadowsActive ? cascadeCount : 0, shadowSize, shadowDistance);
+    this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, shadowSize, shadowDistance);
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
     const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
     if (skySettings) this.writeSky(skySettings);
@@ -801,7 +896,8 @@ export class Renderer implements RenderFrameContext {
       hdr,
       renderWidth,
       renderHeight,
-      cascadeCount: shadowsActive ? cascadeCount : 0,
+      cascadeCount: activeCascadeCount,
+      spotShadowCount: activeSpotCount,
       shadowSize,
       bloom: hdr && settings.postProcessing && settings.bloom.enabled && this.options.bloom !== false,
       sky: skyEnabled && !underwater,
@@ -843,7 +939,7 @@ export class Renderer implements RenderFrameContext {
 
   private buildFrame(
     scene: Scene,
-    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
+    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
   ): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
@@ -857,22 +953,31 @@ export class Renderer implements RenderFrameContext {
     const swapchain = g.importTexture("swapchain", swapTexture);
     const clear = this.clearColorFor(scene, frame.hdr);
 
-    // Shadow cascades: one depth array, one pass per layer.
+    // One depth array: directional cascades occupy its prefix, followed by the active spot maps.
     let shadowAtlas: RenderGraphHandle | null = null;
-    if (frame.cascadeCount > 0) {
-      shadowAtlas = g.createTexture("shadow.cascades", {
+    const shadowLayerCount = frame.cascadeCount + frame.spotShadowCount;
+    if (shadowLayerCount > 0) {
+      shadowAtlas = g.createTexture("shadow.maps", {
         width: frame.shadowSize,
         height: frame.shadowSize,
         format: SHADOW_FORMAT,
         usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
-        depthOrArrayLayers: frame.cascadeCount,
+        depthOrArrayLayers: shadowLayerCount,
       });
       const atlas = shadowAtlas;
       for (let c = 0; c < frame.cascadeCount; c++) {
         g.addPass({
           name: `forge.shadow.${c}`,
           depth: { texture: atlas, view: { arrayLayer: c }, depthClearValue: 1 },
-          execute: (ctx) => this.executeShadowPass(ctx, c),
+          execute: (ctx) => this.executeShadowPass(ctx, c, 1 << c),
+        });
+      }
+      for (let s = 0; s < frame.spotShadowCount; s++) {
+        const layer = frame.cascadeCount + s;
+        g.addPass({
+          name: `forge.shadow.spot.${s}`,
+          depth: { texture: atlas, view: { arrayLayer: layer }, depthClearValue: 1 },
+          execute: (ctx) => this.executeShadowPass(ctx, layer, 1 << (MAX_CASCADES + s)),
         });
       }
     }
@@ -929,9 +1034,12 @@ export class Renderer implements RenderFrameContext {
       const raw = g.createTexture("ssao.raw", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
       const blurred = g.createTexture("ssao.blur", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
       const result = g.createTexture("ssao.result", { width: aoWidth, height: aoHeight, format: SSAO_FORMAT, usage: aoUsage });
-      g.addPass({ name: "forge.ssao", reads: [sceneDepth], color: [{ texture: raw }], execute: (ctx) => this.executeSsaoPass(ctx, "fsSsao", sceneDepth) });
-      g.addPass({ name: "forge.ssao.blur.h", reads: [raw], color: [{ texture: blurred }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurH", raw) });
-      g.addPass({ name: "forge.ssao.blur.v", reads: [blurred], color: [{ texture: result }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurV", blurred) });
+      // A pass whose pipeline is still compiling writes neutral visibility (white), so the next
+      // pass can safely sample it and startup frames never inherit undefined pooled texture contents.
+      const neutralAo = [1, 1, 0, 0] as const;
+      g.addPass({ name: "forge.ssao", reads: [sceneDepth], color: [{ texture: raw, clearValue: neutralAo }], execute: (ctx) => this.executeSsaoPass(ctx, "fsSsao", sceneDepth) });
+      g.addPass({ name: "forge.ssao.blur.h", reads: [raw], color: [{ texture: blurred, clearValue: neutralAo }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurH", raw) });
+      g.addPass({ name: "forge.ssao.blur.v", reads: [blurred], color: [{ texture: result, clearValue: neutralAo }], execute: (ctx) => this.executeSsaoPass(ctx, "fsBlurV", blurred) });
       aoResult = result;
     }
 
@@ -989,7 +1097,9 @@ export class Renderer implements RenderFrameContext {
     this.stats.ssao = frame.ssao;
     this.stats.clouds = frame.sky && scene.settings.clouds.enabled && scene.settings.clouds.coverage > 0.001;
     if (!frame.hdr) {
-      this.applyGraphStats(g.execute());
+      const profiler = this.currentFrameContext?.profiler;
+      const profilerFrameIndex = profiler?.currentFrameIndex;
+      this.applyGraphStats(g.execute((timing) => this.applyGpuTiming(timing, profiler, profilerFrameIndex)));
       this.pollObjectCulling();
       return;
     }
@@ -1072,13 +1182,20 @@ export class Renderer implements RenderFrameContext {
       });
     }
     this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
-    this.applyGraphStats(g.execute());
+    const profiler = this.currentFrameContext?.profiler;
+    const profilerFrameIndex = profiler?.currentFrameIndex;
+    this.applyGraphStats(g.execute((timing) => this.applyGpuTiming(timing, profiler, profilerFrameIndex)));
     this.pollObjectCulling();
   }
 
   private executeSkyPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat): void {
     const pass = ctx.beginRenderPass();
-    const bundle = this.pipelines.get({ technique: "sky", colorFormat, depthFormat: this.device.depthFormat, transparent: false, doubleSided: true, instanced: false, writeDepth: false });
+    const bundle = this.pipelines.getReady({ technique: "sky", colorFormat, depthFormat: this.device.depthFormat, transparent: false, doubleSided: true, instanced: false, writeDepth: false });
+    if (!bundle) {
+      // Keep the graph attachment intact (the main pass's color is loaded) while compilation runs.
+      pass.end();
+      return;
+    }
     pass.setPipeline(bundle.pipeline);
     pass.setBindGroup(0, this.ensureSkyBindGroup());
     pass.draw(3, 1, 0, 0);
@@ -1114,16 +1231,7 @@ export class Renderer implements RenderFrameContext {
     return this.waterBindGroup;
   }
 
-  private applyGraphStats(stats: {
-    passes: number;
-    culledPasses: number;
-    transientTextures: number;
-    physicalTextures: number;
-    transientBytes: number;
-    pooledBytes: number;
-    aliasedBytes: number;
-    texturesCreated: number;
-  }): void {
+  private applyGraphStats(stats: RenderGraphStats): void {
     this.stats.passes = stats.passes;
     this.stats.culledPasses = stats.culledPasses;
     this.stats.transientTextures = stats.transientTextures;
@@ -1132,44 +1240,76 @@ export class Renderer implements RenderFrameContext {
     this.stats.pooledBytes = stats.pooledBytes;
     this.stats.aliasedBytes = stats.aliasedBytes;
     this.stats.texturesCreated = stats.texturesCreated;
+    this.stats.gpuTimingAvailable = stats.gpuTimingAvailable;
+    this.stats.gpuFrameTimeMs = stats.gpuFrameTimeMs;
+    this.stats.gpuRenderTimeMs = stats.gpuRenderTimeMs;
+    this.stats.gpuComputeTimeMs = stats.gpuComputeTimeMs;
+    this.stats.gpuPassTimes = stats.gpuPassTimes;
+    this.stats.gpuTimingSkippedFrames = stats.gpuTimingSkippedFrames;
+    this.stats.gpuTimingDroppedPasses = stats.gpuTimingDroppedPasses;
+  }
+
+  private applyGpuTiming(timing: GpuTimingFrame, profiler?: SystemContext["profiler"], profilerFrameIndex?: number): void {
+    this.stats.gpuFrameTimeMs = timing.frameTimeMs;
+    this.stats.gpuRenderTimeMs = timing.renderTimeMs;
+    this.stats.gpuComputeTimeMs = timing.computeTimeMs;
+    this.stats.gpuPassTimes = timing.passes;
+    profiler?.reportGpuTimes(timing.passes, timing.frameTimeMs, profilerFrameIndex);
   }
 
   private finishFrame(): void {
     this.currentFrameContext = null;
     this.invalidated = false;
+    const pipelineStats = this.pipelines.stats();
+    this.stats.pipelinesPending = pipelineStats.pipelinesPending;
+    this.stats.pipelineFailures = pipelineStats.failures;
     this.lastUploadCount++;
   }
 
   // ------------------------------------------------------------------ pass bodies
 
-  private executeShadowPass(ctx: RenderGraphPassContext, cascade: number): void {
+  private executeShadowPass(ctx: RenderGraphPassContext, shadowLayer: number, shadowBit: number): void {
     this.syncGraphEpoch();
     const pass = ctx.beginRenderPass();
-    pass.setBindGroup(0, this.cascadeBindGroup!, [cascade * UNIFORM_SLOT]);
-    const frustum = this.cascadeFrustums[cascade]!;
+    pass.setBindGroup(0, this.cascadeBindGroup!, [shadowLayer * UNIFORM_SLOT]);
     let lastInstanced = -1;
+    let currentPipeline: GPURenderPipeline | null = null;
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
       if (!b.castShadow || b.overlay || b.transparent) continue;
       if (!b.geometry.vertexBuffer) continue;
-      if (!frustum.intersectsAABB(b.bounds)) {
+      let assignedInstances = 0;
+      for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
+        const range = b.shadowRanges[rangeIndex]!;
+        if ((range.shadowMask & shadowBit) !== 0) assignedInstances += range.instanceCount;
+      }
+      if (assignedInstances === 0) {
         this.stats.shadowsCulled++;
+        this.stats.shadowInstancesCulled += b.count;
         continue;
       }
+      this.stats.shadowInstancesCulled += b.count - assignedInstances;
       const instanced = b.count > 1 ? 1 : 0;
       if (instanced !== lastInstanced) {
         lastInstanced = instanced;
-        pass.setPipeline(this.pipelines.get({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: instanced === 1 }).pipeline);
+        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: instanced === 1 })?.pipeline ?? null;
+        if (currentPipeline) pass.setPipeline(currentPipeline);
       }
+      if (!currentPipeline) continue;
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
-      if (b.geometry.indexBuffer) {
-        pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
-        pass.drawIndexed(b.indexCount, b.count, b.indexStart);
-      } else {
-        pass.draw(b.indexCount, b.count);
+      if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+      for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
+        const range = b.shadowRanges[rangeIndex]!;
+        if ((range.shadowMask & shadowBit) === 0) continue;
+        if (b.geometry.indexBuffer) {
+          pass.drawIndexed(b.indexCount, range.instanceCount, b.indexStart, 0, range.firstInstance);
+        } else {
+          pass.draw(b.indexCount, range.instanceCount, 0, range.firstInstance);
+        }
+        this.stats.shadowsDrawn++;
+        this.stats.shadowInstancesDrawn += range.instanceCount;
       }
-      this.stats.shadowsDrawn++;
     }
     pass.end();
   }
@@ -1185,14 +1325,17 @@ export class Renderer implements RenderFrameContext {
     pass.setBindGroup(0, this.ensurePrepassBindGroup());
     const depthFormat = this.device.depthFormat;
     let lastState = -1;
+    let currentPipeline: GPURenderPipeline | null = null;
     const list = this.prepassBatches;
     for (let i = 0; i < list.length; i++) {
       const b = list[i]!;
       const state = prepassState(b);
       if (state !== lastState) {
         lastState = state;
-        pass.setPipeline(this.pipelines.get({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 }).pipeline);
+        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 })?.pipeline ?? null;
+        if (currentPipeline) pass.setPipeline(currentPipeline);
       }
+      if (!currentPipeline) continue;
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
@@ -1209,9 +1352,14 @@ export class Renderer implements RenderFrameContext {
   /** One SSAO fullscreen pass: the estimate (samples the prepass depth) or one blur direction. */
   private executeSsaoPass(ctx: RenderGraphPassContext, entry: SsaoEntryPoint, source: RenderGraphHandle): void {
     this.syncGraphEpoch();
-    const pipeline = this.pipelines.get({ technique: "ssao", colorFormat: SSAO_FORMAT, depthFormat: null, transparent: false, doubleSided: true, instanced: false, fragmentEntry: entry });
-    const group = entry === "fsSsao" ? this.ensureSsaoGroup(ctx.view(source, { aspect: "depth-only" })) : this.ensureSsaoBlurGroup(ctx.view(source));
+    const pipeline = this.pipelines.getReady({ technique: "ssao", colorFormat: SSAO_FORMAT, depthFormat: null, transparent: false, doubleSided: true, instanced: false, fragmentEntry: entry });
     const pass = ctx.beginRenderPass();
+    if (!pipeline) {
+      // The graph attachment was cleared to neutral white; leave it that way until this variant is ready.
+      pass.end();
+      return;
+    }
+    const group = entry === "fsSsao" ? this.ensureSsaoGroup(ctx.view(source, { aspect: "depth-only" })) : this.ensureSsaoBlurGroup(ctx.view(source));
     pass.setPipeline(pipeline.pipeline);
     pass.setBindGroup(0, group);
     pass.draw(3);
@@ -1237,17 +1385,30 @@ export class Renderer implements RenderFrameContext {
     sorted.sort((a, b) => (a.transparent === b.transparent ? a.depthSort - b.depthSort : a.transparent ? 1 : -1));
     for (const b of sorted) {
       const isWater = b.material.technique === "water";
-      const pipeline = this.pipelines.get({
-        technique: isWater ? "water" : b.material.technique === "unlit" ? "unlit" : "standard",
+      // An opaque batch whose prepass variant is still compiling must use a depth-writing forward
+      // variant this frame; otherwise a missing prepass would leave later opaque geometry unoccluded.
+      const prepassReady = b.prepass && this.pipelines.getReady({
+        technique: "prepass",
+        colorFormat: null,
+        depthFormat: this.device.depthFormat,
+        transparent: false,
+        doubleSided: b.material.doubleSided,
+        instanced: b.count > 1,
+      }) !== null;
+      const mainPipelineOptions = {
+        technique: isWater ? "water" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
         colorFormat,
         depthFormat: this.device.depthFormat,
         transparent: b.transparent,
         doubleSided: b.material.doubleSided,
         instanced: b.count > 1,
-        // Prepassed surfaces are already in the depth buffer: test `less-equal` against their own
-        // depth and leave it alone. With writes off, early-Z survives the shader's `discard`.
-        writeDepth: !b.prepass,
-      });
+      };
+      // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
+      // variant is still compiling, the depth-writing forward variant remains correct at equal depth
+      // and avoids a one-frame hole when the prepass finishes first.
+      let pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: !prepassReady });
+      if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
+      if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
@@ -1279,7 +1440,7 @@ export class Renderer implements RenderFrameContext {
 
   private executePostPass(ctx: RenderGraphPassContext, entry: PostEntryPoint, slot: number, source: RenderGraphHandle, second: RenderGraphHandle, additive: boolean): void {
     this.syncGraphEpoch();
-    const pipeline = this.pipelines.get({
+    const pipeline = this.pipelines.getReady({
       technique: "post",
       colorFormat: ctx.colorFormat(0),
       depthFormat: null,
@@ -1290,6 +1451,11 @@ export class Renderer implements RenderFrameContext {
       additive,
     });
     const pass = ctx.beginRenderPass();
+    if (!pipeline) {
+      // Keep this output deterministic (clear or retain its loaded destination) until compilation finishes.
+      pass.end();
+      return;
+    }
     pass.setPipeline(pipeline.pipeline);
     pass.setBindGroup(0, this.ensurePostGroup(ctx.view(source), ctx.view(second)), [slot * UNIFORM_SLOT]);
     pass.draw(3);
@@ -1308,7 +1474,10 @@ export class Renderer implements RenderFrameContext {
     s.culled = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
+    s.shadowInstancesDrawn = 0;
+    s.shadowInstancesCulled = 0;
     s.shadowCascades = 0;
+    s.spotShadowMaps = 0;
     s.debugLines = 0;
     s.debugBounds = 0;
     s.hdr = false;
@@ -1335,6 +1504,16 @@ export class Renderer implements RenderFrameContext {
     s.physicalTextures = 0;
     s.aliasedBytes = 0;
     s.texturesCreated = 0;
+    s.gpuTimingAvailable = this.graph.stats.gpuTimingAvailable;
+    s.gpuFrameTimeMs = this.graph.stats.gpuFrameTimeMs;
+    s.gpuRenderTimeMs = this.graph.stats.gpuRenderTimeMs;
+    s.gpuComputeTimeMs = this.graph.stats.gpuComputeTimeMs;
+    s.gpuPassTimes = this.graph.stats.gpuPassTimes;
+    s.gpuTimingSkippedFrames = this.graph.stats.gpuTimingSkippedFrames;
+    s.gpuTimingDroppedPasses = this.graph.stats.gpuTimingDroppedPasses;
+    const pipelineStats = this.pipelines.stats();
+    s.pipelinesPending = pipelineStats.pipelinesPending;
+    s.pipelineFailures = pipelineStats.failures;
     this.instanceCount = 0;
     this.clusterBuild = null;
     this.clusterRanges = null;
@@ -1391,7 +1570,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, underwater = false, ssao = false, clustered = false): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, cascadeCount: number, underwater = false, ssao = false, clustered = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -1414,7 +1593,7 @@ export class Renderer implements RenderFrameContext {
     a.setF32("shadowDistance", settings.shadow.distance);
     a.setF32("ambientIntensity", settings.ambientIntensity);
     a.setI32("lightCount", this.lightList.length);
-    a.setI32("cascadeCount", shadowsActive ? this.cascades.length : 0);
+    a.setI32("cascadeCount", cascadeCount);
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
     const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0);
@@ -1617,32 +1796,36 @@ export class Renderer implements RenderFrameContext {
   /**
    * Write this frame's lights. Directional lights (and, with clustering off, every light) go into
    * the uniform `LightBlock`; with clustering on the local lights go into the storage block the
-   * cluster grid references, and are staged for `buildClusters`. One record layout serves both, so
-   * the two destinations cannot disagree about what a light is.
+   * cluster grid references. Spot shadow indices are preserved in either destination, so the shared
+   * light-contribution path samples the same map in clustered and unclustered frames.
    */
-  private writeLights(scene: Scene, lights: Light[], caster: Light | null, clustered: boolean): void {
+  private writeLights(scene: Scene, lights: Light[], caster: Light | null, spotShadowCount: number, clustered: boolean): void {
     const a = this.lightAccessor;
     let globals = 0;
     let locals = 0;
+    let shadowedGlobals = 0;
     let truncated = false;
     for (const l of lights) {
       const pos = scene.world.worldPosition(l.entity, this.scratchVec);
+      const spotIndex = this.spotShadowIndices.get(l);
+      const spotShadowIndex = l.kind === "spot" && spotIndex !== undefined && spotIndex < spotShadowCount ? spotIndex : -1;
       if (l.kind === "directional" || !clustered) {
         if (globals >= MAX_LIGHTS_PER_FRAME) {
           truncated = true; // the uniform block is full: this light does not reach the shader at all
           continue;
         }
         const kind = l.kind === "directional" ? 0 : l.kind === "point" ? 1 : 2;
-        this.writeLightRecord(a.element("lights", globals) as StructAccessor, l, pos.x, pos.y, pos.z, kind, l === caster ? 0 : -1);
+        const shadowIndex = l === caster ? 0 : spotShadowIndex;
+        this.writeLightRecord(a.element("lights", globals) as StructAccessor, l, pos.x, pos.y, pos.z, kind, shadowIndex);
+        if (shadowIndex >= 0) shadowedGlobals++;
         globals++;
       } else {
         if (locals >= MAX_CLUSTERED_LIGHTS) {
           truncated = true;
           continue;
         }
-        // Local lights never carry a shadow index: point/spot shadows are 13.9, and the cascade
-        // caster is by construction the directional light that stayed in the uniform block.
-        this.writeLightRecord(this.clusterLightAccessor.element("lights", locals) as StructAccessor, l, pos.x, pos.y, pos.z, l.kind === "point" ? 1 : 2, -1);
+        // Point lights still have no maps; an assigned spot keeps its map slot even in the cluster block.
+        this.writeLightRecord(this.clusterLightAccessor.element("lights", locals) as StructAccessor, l, pos.x, pos.y, pos.z, l.kind === "point" ? 1 : 2, spotShadowIndex);
         const slot = this.clusterLightSources[locals] ?? { x: 0, y: 0, z: 0, range: 0, spot: false, dirX: 0, dirY: -1, dirZ: 0, outerCone: 0.5, intensity: 0, colorLuma: 0 };
         this.clusterLightSources[locals] = slot;
         slot.x = pos.x;
@@ -1653,7 +1836,7 @@ export class Renderer implements RenderFrameContext {
         slot.dirX = l.direction.x;
         slot.dirY = l.direction.y;
         slot.dirZ = l.direction.z;
-        slot.outerCone = l.outerCone;
+        slot.outerCone = spotOuterConeCos(l);
         slot.intensity = l.intensity;
         // Rec.709 luma of the linear colour: the other half of the rank the grid evicts by.
         slot.colorLuma = 0.2126 * l.color.x + 0.7152 * l.color.y + 0.0722 * l.color.z;
@@ -1661,7 +1844,7 @@ export class Renderer implements RenderFrameContext {
       }
     }
     a.setI32("count", globals);
-    a.setI32("shadowedCount", caster ? 1 : 0);
+    a.setI32("shadowedCount", shadowedGlobals);
     this.clusterLightAccessor.setI32("count", locals);
     this.clusterLightCount = locals;
     this.stats.lights = lights.length;
@@ -1674,7 +1857,18 @@ export class Renderer implements RenderFrameContext {
     e.setVec4("positionRange", x, y, z, kind === 0 ? 0 : l.range);
     e.setVec4("directionIntensity", l.direction.x, l.direction.y, l.direction.z, l.intensity);
     e.setVec3("color", l.color.x, l.color.y, l.color.z);
-    e.setVec2("spotAngles", l.innerCone, l.outerCone);
+    let innerCos = clampConeCos(l.innerCone, 0.85);
+    let outerCos = clampConeCos(l.outerCone, 0.6);
+    if (innerCos < outerCos) {
+      const swap = innerCos;
+      innerCos = outerCos;
+      outerCos = swap;
+    }
+    if (innerCos - outerCos < 1e-5) {
+      innerCos = Math.min(1, innerCos + 1e-4);
+      outerCos = Math.max(-1, outerCos - 1e-4);
+    }
+    e.setVec2("spotAngles", innerCos, outerCos);
     e.setI32("kind", kind);
     e.setI32("shadowIndex", shadowIndex);
   }
@@ -1765,38 +1959,62 @@ export class Renderer implements RenderFrameContext {
     this.lightCuller.record(graph, this.clusterGrid, ranges, this.clusterGridBuffer!, "forge.lights");
   }
 
-  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, size: number, shadowDistance: number): void {
+  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, spotShadowCount: number, size: number, shadowDistance: number): void {
     const a = this.shadowAccessor;
     const splits = [1e9, 1e9, 1e9, 1e9];
     const texels = [0, 0, 0, 0];
-    const stride = a.arrayStride("cascadeViewProj");
-    const base = a.offsetOf("cascadeViewProj");
+    const cascadeStride = a.arrayStride("cascadeViewProj");
+    const cascadeBase = a.offsetOf("cascadeViewProj");
     for (let c = 0; c < MAX_CASCADES; c++) {
       const cascade = c < cascadeCount ? this.cascades[c]! : null;
       const m = cascade ? cascade.viewProj.m : IDENTITY;
-      this.shadowBytes.f32.set(m, (base + c * stride) >> 2);
+      this.shadowBytes.f32.set(m, (cascadeBase + c * cascadeStride) >> 2);
       if (cascade) {
         splits[c] = cascade.far;
         texels[c] = cascade.texelWorld;
       }
-      // Per-cascade light view-projection for the depth passes (dynamic-offset arena).
-      this.cascadeAccessor.relocate(c * UNIFORM_SLOT);
-      this.cascadeAccessor.setMat4("viewProj", m);
-      this.cascadeAccessor.setI32("cascade", c);
+      this.writeShadowPassUniform(c, m);
     }
     a.setVec4("cascadeSplits", splits[0]!, splits[1]!, splits[2]!, splits[3]!);
     a.setVec4("cascadeTexelWorld", texels[0]!, texels[1]!, texels[2]!, texels[3]!);
+
+    const spotMatrixStride = a.arrayStride("spotViewProj");
+    const spotMatrixBase = a.offsetOf("spotViewProj");
+    const spotParamsStride = a.arrayStride("spotParams");
+    const spotParamsBase = a.offsetOf("spotParams");
+    for (let s = 0; s < MAX_SPOT_SHADOWS; s++) {
+      const state = s < spotShadowCount ? this.spotShadows[s]! : null;
+      const matrix = state ? state.viewProj.m : IDENTITY;
+      this.shadowBytes.f32.set(matrix, (spotMatrixBase + s * spotMatrixStride) >> 2);
+      const params = (spotParamsBase + s * spotParamsStride) >> 2;
+      const light = state?.light ?? null;
+      this.shadowBytes.f32[params] = state?.texelSize ?? 0;
+      this.shadowBytes.f32[params + 1] = light?.shadowBias ?? 0;
+      this.shadowBytes.f32[params + 2] = light?.shadowNormalBias ?? 0;
+      this.shadowBytes.f32[params + 3] = state?.worldTexelScale ?? 0;
+      if (state) this.writeShadowPassUniform(cascadeCount + s, matrix);
+    }
+
+    a.setI32("spotCount", spotShadowCount);
     a.setF32("texelSize", 1 / size);
     a.setF32("depthBias", sun ? sun.shadowBias : 0.0008);
     a.setF32("normalBias", sun ? sun.shadowNormalBias : 0.6);
     a.setF32("fadeStart", shadowDistance * 0.85);
-    a.setI32("enabled", cascadeCount > 0 ? 1 : 0);
+    a.setI32("enabled", cascadeCount > 0 || spotShadowCount > 0 ? 1 : 0);
     a.setI32("size", size);
     a.setI32("count", cascadeCount);
     a.setU32("flags", scene.settings.shadow.debugCascades ? 1 : 0);
     const q = this.device.device.queue;
     q.writeBuffer(this.shadowBuffer!, 0, gpuSource(this.shadowBytes.bytes.subarray(0, this.shadowBytes.byteLength)));
-    if (cascadeCount > 0) q.writeBuffer(this.cascadeBuffer!, 0, gpuSource(this.cascadeBytes.bytes.subarray(0, cascadeCount * UNIFORM_SLOT)));
+    const layerCount = cascadeCount + spotShadowCount;
+    if (layerCount > 0) q.writeBuffer(this.cascadeBuffer!, 0, gpuSource(this.cascadeBytes.bytes.subarray(0, layerCount * UNIFORM_SLOT)));
+  }
+
+  /** Write one dynamic-offset depth-pass record in the shared directional/spot arena. */
+  private writeShadowPassUniform(layer: number, matrix: Float32Array): void {
+    this.cascadeAccessor.relocate(layer * UNIFORM_SLOT);
+    this.cascadeAccessor.setMat4("viewProj", matrix);
+    this.cascadeAccessor.setI32("layer", layer);
   }
 
   private writePostSlot(p: PostParams): number {
@@ -1817,9 +2035,26 @@ export class Renderer implements RenderFrameContext {
     return slot;
   }
 
-  private collectBatches(scene: Scene, camera: Camera, cascadeCount: number): void {
+  private prepareSpotShadows(scene: Scene, lights: readonly Light[], mapSize: number): number {
+    this.spotShadowIndices.clear();
+    let count = 0;
+    for (const light of lights) {
+      if (light.kind !== "spot" || !light.castShadow || !light.affectScene || count >= MAX_SPOT_SHADOWS) continue;
+      const state = this.spotShadows[count]!;
+      state.light = null;
+      scene.world.worldPosition(light.entity, state.position);
+      if (!computeSpotShadow(state.position, light.direction, spotOuterConeCos(light), light.range, mapSize, state)) continue;
+      state.frustum.setFromViewProjection(state.viewProj);
+      state.light = light;
+      this.spotShadowIndices.set(light, count);
+      count++;
+    }
+    return count;
+  }
+
+  private collectBatches(scene: Scene, camera: Camera, cascadeCount: number, spotShadowCount: number): void {
     this.batchCount = 0;
-    this.casterBatches = 0;
+    this.shadowCasterMask = 0;
     this.batchIndex.clear();
     this.objectArena.reset();
     this.instanceArena.reset();
@@ -1841,12 +2076,15 @@ export class Renderer implements RenderFrameContext {
       // Debug bounds: record the would-be footprint of everything that *has* a renderable this
       // frame, culled or not — the boxes are what proves where the model is supposed to sit.
       if (this.debugBounds) this.queueOverlayAabb(box, inView ? DEBUG_BOUNDS_IN_VIEW : DEBUG_BOUNDS_CULLED);
-      const caster = cascadeCount > 0 && r.castShadow && !r.transparent && !r.overlay;
+      const caster = r.castShadow && !r.transparent && !r.overlay;
+      // Assign this object independently to each cascade or spot frustum it intersects. Retaining
+      // the mask per instance prevents a merged colour batch from dragging unrelated objects into a map.
+      const shadowMask = caster ? this.shadowMaskFor(box, cascadeCount, spotShadowCount) : 0;
       let shadowOnly = false;
       if (!inView) {
         this.stats.culled++;
-        // Off-screen casters still matter when a cascade box contains them.
-        if (!caster || !this.intersectsAnyCascade(box, cascadeCount)) continue;
+        // Off-screen casters still matter when any active directional or spot frustum contains them.
+        if (!caster || shadowMask === 0) continue;
         shadowOnly = true;
       }
       const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}`;
@@ -1875,8 +2113,10 @@ export class Renderer implements RenderFrameContext {
       let index = previousIndex;
       const existing = previous;
       if (canMerge && existing) {
+        const instanceIndex = existing.count;
         existing.count++;
         existing.bounds.union(box);
+        this.addShadowRange(existing, instanceIndex, shadowMask);
         // A merged batch draws as one, so its limit has to be the most permissive of its members':
         // the CPU already decided each member belonged in the frame, and the device only gets to
         // drop the whole batch.
@@ -1901,13 +2141,43 @@ export class Renderer implements RenderFrameContext {
       b.cullIndex = index;
       b.maxDistance = r.maxDistance;
       b.bounds.setFrom(box.min, box.max);
-      if (caster) this.casterBatches++;
+      b.shadowRangeCount = 0;
+      this.addShadowRange(b, 0, shadowMask);
     }
   }
 
-  private intersectsAnyCascade(box: AABB, cascadeCount: number): boolean {
-    for (let c = 0; c < cascadeCount; c++) if (this.cascadeFrustums[c]!.intersectsAABB(box)) return true;
-    return false;
+  /** Append/coalesce the per-object assignment without splitting the colour batch. */
+  private addShadowRange(batch: Batch, instanceIndex: number, shadowMask: number): void {
+    if (shadowMask === 0) return;
+    this.shadowCasterMask |= shadowMask;
+    const ranges = batch.shadowRanges;
+    const last = ranges[batch.shadowRangeCount - 1];
+    if (last && last.shadowMask === shadowMask && last.firstInstance + last.instanceCount === instanceIndex) {
+      last.instanceCount++;
+      return;
+    }
+    let range = ranges[batch.shadowRangeCount];
+    if (!range) {
+      range = { firstInstance: instanceIndex, instanceCount: 1, shadowMask };
+      ranges.push(range);
+    } else {
+      range.firstInstance = instanceIndex;
+      range.instanceCount = 1;
+      range.shadowMask = shadowMask;
+    }
+    batch.shadowRangeCount++;
+  }
+
+  /** Conservative cascade and spot-map bits for every light-space frustum intersecting this renderable. */
+  private shadowMaskFor(box: AABB, cascadeCount: number, spotShadowCount: number): number {
+    let mask = 0;
+    for (let c = 0; c < cascadeCount; c++) {
+      if (this.cascadeFrustums[c]!.intersectsAABB(box)) mask |= 1 << c;
+    }
+    for (let s = 0; s < spotShadowCount; s++) {
+      if (this.spotShadows[s]!.frustum.intersectsAABB(box)) mask |= 1 << (MAX_CASCADES + s);
+    }
+    return mask;
   }
 
   /**
@@ -1946,6 +2216,8 @@ export class Renderer implements RenderFrameContext {
         cullIndex: 0,
         maxDistance: 0,
         bounds: new AABB(),
+        shadowRanges: [],
+        shadowRangeCount: 0,
       };
       this.batchPool.push(b);
     }
@@ -2382,7 +2654,8 @@ export class Renderer implements RenderFrameContext {
       this.debugBuffer = this.device.device.createBuffer({ label: "debug.lines", size: this.debugBufferCapacity, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
     }
     this.device.device.queue.writeBuffer(this.debugBuffer, 0, gpuSource(this.debugLines.subarray(0, (size / 4) | 0)));
-    const pipeline = this.pipelines.get({ technique: "debug", colorFormat, depthFormat: this.device.depthFormat, transparent: true, doubleSided: true, instanced: false });
+    const pipeline = this.pipelines.getReady({ technique: "debug", colorFormat, depthFormat: this.device.depthFormat, transparent: true, doubleSided: true, instanced: false });
+    if (!pipeline) return;
     pass.setPipeline(pipeline.pipeline);
     pass.setVertexBuffer(0, this.debugBuffer);
     pass.draw(this.debugLineCount * 2);
@@ -2444,7 +2717,8 @@ export class Renderer implements RenderFrameContext {
     // `noDepthTest` keeps the pass's depth attachment (a pipeline without depth state is invalid in
     // a pass that has one) but compares "always", so the boxes draw through terrain, haze and
     // meshes — they mark where geometry is, not where it happens to be visible.
-    const pipeline = this.pipelines.get({ technique: "debug", colorFormat, depthFormat: this.device.depthFormat, transparent: true, doubleSided: true, instanced: false, noDepthTest: true });
+    const pipeline = this.pipelines.getReady({ technique: "debug", colorFormat, depthFormat: this.device.depthFormat, transparent: true, doubleSided: true, instanced: false, noDepthTest: true });
+    if (!pipeline) return;
     pass.setPipeline(pipeline.pipeline);
     pass.setVertexBuffer(0, this.overlayBuffer);
     pass.draw(this.overlayLineCount * 2);
@@ -2608,6 +2882,8 @@ export class Renderer implements RenderFrameContext {
     this.clusterBuffer = null;
     this.clusterLightBuffer = null;
     this.clusterGridBuffer = null;
+    this.spotShadowIndices.clear();
+    for (const spot of this.spotShadows) spot.light = null;
     this.shadowBuffer = null;
     this.cascadeBuffer = null;
     this.postBuffer = null;

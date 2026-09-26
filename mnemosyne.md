@@ -433,3 +433,84 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   (`gh api repos/<owner>/<repo>/issues/<pr>/comments`), which is where the `check:browser passed`
   line and the arm's numbers live when the actions log download fails with `EOF` (it does, often).
   Read the comment, not the log; `--edit-last` means it always holds the newest run.
+
+### 2026-09-25 — async pipeline compilation and GPU timing (Phase 13.7–13.8)
+
+- `PipelineFactory.getReady()` is the renderer's non-blocking path; real devices default to async,
+  while the deterministic mock remains synchronous by default. A pending variant is skipped, and the
+  prepass/main depth-writing fallback prevents a temporary depth hole. `tests/pipeline.test.ts` pins
+  single-flight requests, pending/failure stats, failure latching, and stale completion after
+  invalidation.
+- `RenderGraph` adds optional timestamp writes for graph-backed render and compute passes and a
+  three-slot async map-read ring. It measures WebGPU nanoseconds as milliseconds, reports latest
+  completed frame/render/compute and per-pass samples, drops timing—not rendering—when slots are busy,
+  and gracefully disables setup when timestamp-query is unavailable. The three graph-backed compute
+  systems use `ctx.beginComputePass()`; the standalone particle integrator path remains outside this
+  graph timing scope.
+- GPU samples carry the renderer's captured profiler frame index, so late readbacks amend the frame
+  record that submitted them rather than whichever frame is current. `tests/frame.test.ts` pins the
+  matching frame and `lights.assign` scope; `tests/renderGraph.test.ts` pins asynchronous mapping and
+  unsupported-feature fallback.
+- The first local WebGPU run exposed the expected cull-stat readback lag in Phase 13.6's browser A/B:
+  the direct arm sampled the previous indirect frame's `recordZeroed` count. `tools/browser-check.mjs`
+  now waits for a mode-specific device readback (including distance culls and the counter identities)
+  rather than sleeping an arbitrary four frames. The second run passed the full indirect A/B and every
+  later device/browser check through weather, particles, and the Mars rover; it then hit the known
+  300-second HGA poll at `stowed`, countdown 0.2. The exception is the SwiftShader frame rate, not the
+  13.7/13.8 implementation; the same poll already has a baseline attribution in the preceding note.
+- `npm run verify` passed typecheck, 596 tests in 42 files, and WGSL validation. `docs:check`,
+  `check:testmap`, and `lint:arch` also passed after the docs/gate wording was aligned. No aggregate
+  task-time entry was added because the available evidence does not measure start-to-finish work time;
+  PR #44's 23m29 creation-to-merge interval still does not establish Phase 13.6's coding duration.
+
+### 2026-09-25 — conservative per-object cascade assignment (Phase 13.9, first subtask)
+
+- Each shadow caster's world AABB is tested against every fitted cascade frustum. Its conservative bitmask
+  keeps it in all maps it can affect; adjacent batch instances with the same nonzero mask coalesce into
+  shadow-only ranges, and each cascade pass submits only its matching ranges with `firstInstance`. The
+  main colour batch remains unchanged. Range records use a live-prefix count and are reused from each
+  batch's retained backing array after it has reached a stable capacity.
+- `shadowInstancesDrawn` and `shadowInstancesCulled` count caster-instance/cascade work. Existing
+  `shadowsDrawn` counts actual range draws; `shadowsCulled` counts batch/cascade pairs with no
+  assigned instance. Off-camera casters remain eligible for shadow-only batches. Objects overlapping
+  several cascades are intentionally duplicated across those maps; no single-cascade heuristic or GPU
+  compaction was introduced.
+- `tests/frame.test.ts` finds two camera-visible casters with different but overlapping masks from the
+  actual fitted frusta, then checks that they share one colour batch, the exact cascade `firstInstance`
+  draws match the masks, and the submitted/omitted instance totals are correct. Focused frame and
+  cascade tests passed (29 + 7); `npm run verify` passed typecheck, 597 tests across 42 files and WGSL.
+  `docs:check`, `check:testmap`, `lint:arch` and `npm run demo:build` also passed; the build emitted
+  Vite's large-chunk advisory.
+- On real Chromium + SwiftShader, the altered shadow path rendered during the shadow on/off and cascade
+  tint A/B checks, with the expected luminance changes and zero GPU errors. The overall browser run did
+  **not** pass: it stopped later at the Mars rover drive gate (0.485 m in 45 s against the >0.5 m
+  requirement), before the HGA poll. That narrow failure has no baseline attribution or CI result for
+  this diff; don't claim full browser success or weaken the threshold.
+- Only the per-object assignment item is complete. Spot, point and contact shadows plus adaptive shadow
+  resolution remain unchecked in 13.9. No task-duration entry was added: work started before this
+  continuation and there is no reliable start marker from which to measure actual elapsed time.
+
+### 2026-09-26 — spot shadows (Phase 13.9, second subtask)
+
+- Policy: support the first four valid shadow-casting spot lights in scene order. Directional cascades
+  occupy the shared `depth24plus` array prefix; spot layers follow. Every map uses the frame's
+  `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (256–4096), not per-light or
+  adaptive resolution. The eight-layer worst case is about 128 MiB at 2048² and 512 MiB at 4096².
+- `computeSpotShadow()` fits a perspective projection to the ordered/clamped outer cone and finite
+  light range. Renderer AABB masks reserve bits 0–3 for cascades and 4–7 for spot slots, keep
+  off-camera casters, and submit each object's matching instance ranges. `forge.shadow.spot.<i>`
+  writes layers after the active cascade prefix; the PBR light's `shadowIndex` survives both uniform
+  and clustered paths. Point/contact shadows and adaptive resolution remain deferred.
+- Added `Renderer.stats.spotShadowMaps`, the spot fit/coverage math tests, mixed/spot-only frame tests
+  (including four-map cap and stale-cascade reset), generated-layout/WGSL assertions, a spot-only
+  PBR toggle and HUD map count. The PBR fixture's invalid inner/outer cosine order was corrected;
+  renderer upload also normalizes malformed cone values.
+- `npm run verify` passed: typecheck, 603 tests in 42 files, and WGSL structural/layout validation.
+  `check:testmap`, `lint:arch`, `docs:check` and `demo:build` passed; Vite reported its existing
+  >500 kB chunk advisory. Real Chromium + SwiftShader rendered the spot pass and its on/off A/B:
+  13,464 pixels darker with spot shadows, zero brighter, maximum 11 luma levels, no GPU errors in
+  that arm. `check:browser` did **not** pass end-to-end: later the Mars Showcase W-drive gate stopped
+  at 0.485 m in 45 s (threshold >0.5 m), before the HGA poll. Preserve that distinction; don't
+  attribute the narrow failure without evidence, call the gate green, or weaken the threshold.
+- No task-duration entry was added. This work continued from a state with no reliable start marker;
+  individual command runtimes do not establish actual start-to-finish task time.

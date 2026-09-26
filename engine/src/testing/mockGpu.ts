@@ -1006,9 +1006,9 @@ export class MockGPUQuerySet {
   destroyed = false;
   readonly type: GPUQueryType;
   readonly count: number;
-  results: Float64Array;
+  results: BigUint64Array;
   /** Timestamp values assigned in submission order (ns, monotonic). */
-  nextTimestampNs = 1000;
+  nextTimestampNs = 1_000n;
   written = false;
 
   constructor(
@@ -1018,7 +1018,7 @@ export class MockGPUQuerySet {
     device.trackCreate("querySet", this);
     this.type = desc.type;
     this.count = desc.count;
-    this.results = new Float64Array(desc.count);
+    this.results = new BigUint64Array(desc.count);
     if (desc.count === 0) device.reportError("createQuerySet: count must be > 0");
     if (desc.count > (device.limitsDict.maxTimestampQueries ?? 8) * 64) device.reportError("createQuerySet: count exceeds practical limit");
     if (desc.type === "timestamp" && !device.features.has("timestamp-query")) {
@@ -1216,8 +1216,8 @@ export class MockGPUCommandEncoder {
     if (destinationOffset % 256 !== 0) this.device.reportError("resolveQuerySet: destination offset must be a multiple of 256");
     if (startQuery + queryCount > querySet.count) this.device.reportError("resolveQuerySet: range exceeds query set count");
     if (destinationOffset + queryCount * 8 > destination.size) this.device.reportError("resolveQuerySet: destination buffer too small");
-    const out = new Float64Array(destination.data, destinationOffset, queryCount);
-    for (let i = 0; i < queryCount; i++) out[i] = querySet.results[startQuery + i] ?? 0;
+    const out = new BigUint64Array(destination.data, destinationOffset, queryCount);
+    for (let i = 0; i < queryCount; i++) out[i] = querySet.results[startQuery + i] ?? 0n;
     querySet.written = true;
     this.device.record({ type: "resolveQueries", count: queryCount, querySet: querySet.type });
   }
@@ -1362,6 +1362,18 @@ export class MockGPURenderPassEncoder extends MockPassBase {
       depth: this.depthTexture?.label ?? null,
     });
     this.validateAttachments();
+    this.writeTimestamp(this.desc.timestampWrites?.beginningOfPassWriteIndex);
+  }
+
+  private writeTimestamp(queryIndex: number | undefined): void {
+    if (queryIndex === undefined) return;
+    const querySet = this.desc.timestampWrites?.querySet as unknown as MockGPUQuerySet | undefined;
+    if (!(querySet instanceof MockGPUQuerySet)) return this.err("timestampWrites.querySet is not a query set from this device");
+    if (querySet.device !== this.encoder.device) return this.err("timestampWrites.querySet belongs to another device");
+    if (querySet.type !== "timestamp") return this.err("timestampWrites.querySet must have type 'timestamp'");
+    if (!Number.isInteger(queryIndex) || queryIndex < 0 || queryIndex >= querySet.count) return this.err(`timestamp query index ${queryIndex} is out of range`);
+    querySet.results[queryIndex] = querySet.nextTimestampNs;
+    querySet.nextTimestampNs += 100_000n;
   }
 
   private validateAttachments(): void {
@@ -1439,11 +1451,11 @@ export class MockGPURenderPassEncoder extends MockPassBase {
         if (q.queryIndex >= qs.count) this.encoder.device.reportError("render pass: occlusion query index out of range");
       }
     }
-    const tw = this.desc.timestampWrites as unknown as { begin?: { queryIndex?: number }; end?: { queryIndex?: number } } | undefined;
+    const tw = this.desc.timestampWrites;
     if (tw) {
-      for (const side of [tw.begin, tw.end]) {
-        if (side && side.queryIndex === undefined) this.encoder.device.reportError("render pass: timestampWrite missing queryIndex");
-      }
+      const querySet = tw.querySet as unknown as MockGPUQuerySet;
+      if (!(querySet instanceof MockGPUQuerySet)) device.reportError("render pass: timestampWrites.querySet is not a mock query set");
+      else if (querySet.type !== "timestamp") device.reportError("render pass: timestampWrites.querySet must have type 'timestamp'");
     }
     // Viewport defaults to the attachment extent.
     const first = this.colorTextures[0] ?? this.depthTexture;
@@ -1716,6 +1728,7 @@ export class MockGPURenderPassEncoder extends MockPassBase {
     }
     this.ended = true;
     if (!this.valid) return;
+    this.writeTimestamp(this.desc.timestampWrites?.endOfPassWriteIndex);
     const device = this.encoder.device;
     device.passes.push({
       label: this.label,
@@ -1760,11 +1773,25 @@ export class MockGPUComputePassEncoder {
     private readonly valid: boolean,
   ) {
     this.label = desc.label ?? "(compute pass)";
-    if (this.valid) encoder.device.record({ type: "computePass", label: this.label });
+    if (this.valid) {
+      encoder.device.record({ type: "computePass", label: this.label });
+      this.writeTimestamp(desc.timestampWrites?.beginningOfPassWriteIndex);
+    }
   }
 
   private err(message: string): void {
     this.encoder.device.reportError(`[compute pass "${this.label}"] ${message}`);
+  }
+
+  private writeTimestamp(queryIndex: number | undefined): void {
+    if (queryIndex === undefined) return;
+    const querySet = this.desc.timestampWrites?.querySet as unknown as MockGPUQuerySet | undefined;
+    if (!(querySet instanceof MockGPUQuerySet)) return this.err("timestampWrites.querySet is not a query set from this device");
+    if (querySet.device !== this.encoder.device) return this.err("timestampWrites.querySet belongs to another device");
+    if (querySet.type !== "timestamp") return this.err("timestampWrites.querySet must have type 'timestamp'");
+    if (!Number.isInteger(queryIndex) || queryIndex < 0 || queryIndex >= querySet.count) return this.err(`timestamp query index ${queryIndex} is out of range`);
+    querySet.results[queryIndex] = querySet.nextTimestampNs;
+    querySet.nextTimestampNs += 100_000n;
   }
 
   setPipeline(pipeline: MockGPUComputePipeline): void {
@@ -1844,6 +1871,7 @@ export class MockGPUComputePassEncoder {
     }
     this.ended = true;
     if (!this.valid) return;
+    this.writeTimestamp(this.desc.timestampWrites?.endOfPassWriteIndex);
     const device = this.encoder.device;
     device.passes.push({
       label: this.label,

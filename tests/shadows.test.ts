@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { computeCascadeSplits, computeCascades, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams } from "@forge/engine";
+import { computeCascadeSplits, computeCascades, computeSpotShadow, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams, type SpotShadowFit } from "@forge/engine";
 
 const corners = new Float32Array(24);
 
@@ -158,5 +158,60 @@ describe("cascade fitting", () => {
     expect(out.map((c) => c.viewProj)).toEqual(identities);
     computeCascades(camera, { count: 2, shadowDistance: 40, lambda: 0.6, mapSize: 512, lightDirection: light }, out);
     expect(out).toHaveLength(2);
+  });
+});
+
+describe("spot-shadow fitting", () => {
+  function output(): SpotShadowFit {
+    return { viewProj: new Mat4(), fovY: 0, near: 0, far: 0, texelSize: 0, worldTexelScale: 0 };
+  }
+
+  it("fits the perspective cone and finite range into WebGPU clip space", () => {
+    const position = new Vec3(2, 5, -3);
+    const direction = new Vec3(0.4, -0.7, 0.2).normalize();
+    const fit = output();
+    expect(computeSpotShadow(position, direction, 0.8, 16, 1024, fit)).toBe(true);
+    expect(fit.fovY).toBeCloseTo(2 * Math.acos(0.8), 12);
+    expect(fit.near).toBeGreaterThan(0);
+    expect(fit.near).toBeLessThan(fit.far);
+    expect(fit.far).toBe(16);
+    expect(fit.texelSize).toBe(1 / 1024);
+    expect(fit.worldTexelScale).toBeCloseTo(2 * Math.tan(fit.fovY / 2) / 1024, 12);
+    expect(Array.from(fit.viewProj.m).every(Number.isFinite)).toBe(true);
+
+    const forward = direction.clone().normalize();
+    const worldUp = Math.abs(forward.y) > 0.99 ? new Vec3(0, 0, 1) : new Vec3(0, 1, 0);
+    const right = worldUp.clone().cross(forward).normalize();
+    const up = forward.clone().cross(right).normalize();
+    const depth = 8;
+    const half = depth * Math.tan(fit.fovY / 2) * 0.8;
+    const receiver = position.clone().addScaled(forward, depth).addScaled(right, half).addScaled(up, -half);
+    const p = project(fit.viewProj, receiver.x, receiver.y, receiver.z);
+    expect(Math.abs(p.x)).toBeLessThan(0.81);
+    expect(Math.abs(p.y)).toBeLessThan(0.81);
+    expect(p.z).toBeGreaterThan(0);
+    expect(p.z).toBeLessThan(1);
+
+    const beyondRange = position.clone().addScaled(forward, 17);
+    expect(project(fit.viewProj, beyondRange.x, beyondRange.y, beyondRange.z).z).toBeGreaterThan(1);
+  });
+
+  it("keeps vertical spot directions finite and rejects degenerate inputs", () => {
+    const fit = output();
+    expect(computeSpotShadow(new Vec3(0, 4, 0), new Vec3(0, 1, 0), 0.5, 20, 512, fit)).toBe(true);
+    expect(Array.from(fit.viewProj.m).every(Number.isFinite)).toBe(true);
+    expect(computeSpotShadow(new Vec3(), new Vec3(), 0.5, 20, 512, fit)).toBe(false);
+    expect(computeSpotShadow(new Vec3(), new Vec3(0, -1, 0), 0.5, 0, 512, fit)).toBe(false);
+    expect(computeSpotShadow(new Vec3(), new Vec3(0, -1, 0), 0.5, 20, 0, fit)).toBe(false);
+  });
+
+  it("reuses the supplied fit and clamps the outer cosine to a valid projection", () => {
+    const fit = output();
+    const matrix = fit.viewProj;
+    expect(computeSpotShadow(new Vec3(1, 2, 3), new Vec3(0, 0, 2), -2, 12, 256, fit)).toBe(true);
+    expect(fit.viewProj).toBe(matrix);
+    expect(fit.fovY).toBeLessThan(Math.PI);
+    expect(fit.fovY).toBeGreaterThan(0);
+    expect(Array.from(matrix.m).every(Number.isFinite)).toBe(true);
   });
 });

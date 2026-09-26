@@ -1059,7 +1059,7 @@ export class GpuObjectCuller {
       this.depthGroups = new Map([[depthView, group]]);
     }
     const size = hizLevelSize(this.hizWidth, this.hizHeight, 0);
-    const pass = ctx.encoder.beginComputePass({ label: "hiz.depth" });
+    const pass = ctx.beginComputePass("hiz.depth");
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(size.width / HIZ_WORKGROUP), Math.ceil(size.height / HIZ_WORKGROUP));
@@ -1082,7 +1082,7 @@ export class GpuObjectCuller {
       this.groups.set(key, group);
     }
     const size = hizLevelSize(this.hizWidth, this.hizHeight, level);
-    const pass = ctx.encoder.beginComputePass({ label: key });
+    const pass = ctx.beginComputePass(key);
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(size.width / HIZ_WORKGROUP), Math.ceil(size.height / HIZ_WORKGROUP));
@@ -1119,7 +1119,7 @@ export class GpuObjectCuller {
       this.groupRecords = records;
       this.groupVisible = visible;
     }
-    const pass = ctx.encoder.beginComputePass({ label: "objects.cull" });
+    const pass = ctx.beginComputePass("objects.cull");
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(this.batchCount / CULL_WORKGROUP));

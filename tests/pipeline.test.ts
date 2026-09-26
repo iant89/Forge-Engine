@@ -19,9 +19,66 @@ describe("PipelineFactory cache", () => {
     const a = factory.get(base);
     const b = factory.get({ ...base });
     expect(b).toBe(a);
-    expect(factory.stats()).toEqual({ pipelines: 1, creates: 1, cacheHits: 1, layouts: 11 });
+    expect(factory.stats()).toEqual({ pipelines: 1, pipelinesPending: 0, failures: 0, creates: 1, cacheHits: 1, layouts: 11 });
     expect(factory.keyOf(base)).toBe(a.key);
     factory.invalidate();
+    await device.dispose();
+  });
+
+  it("queues one async compilation per key and exposes bundles only after they are ready", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const factory = new PipelineFactory(device, { asyncCompilation: true });
+    expect(factory.getReady(base)).toBeNull();
+    expect(factory.getReady({ ...base })).toBeNull();
+    const pending = factory.getAsync(base);
+    expect(factory.getAsync({ ...base })).toBe(pending);
+    expect(factory.stats()).toMatchObject({ pipelines: 0, pipelinesPending: 1, failures: 0, creates: 0 });
+
+    await factory.settle();
+    const ready = factory.getReady(base);
+    expect(ready).not.toBeNull();
+    expect(factory.getReady({ ...base })).toBe(ready);
+    expect(factory.stats()).toMatchObject({ pipelines: 1, pipelinesPending: 0, failures: 0, creates: 1, cacheHits: 2 });
+    expect(device.mock.errors).toEqual([]);
+    factory.invalidate();
+    await device.dispose();
+  });
+
+  it("does not cache a compilation that completes after invalidation", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const raw = device.device as unknown as { createRenderPipelineAsync: (descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline> };
+    const compile = raw.createRenderPipelineAsync.bind(device.device);
+    let captured: GPURenderPipelineDescriptor | null = null;
+    let resolveCompile: ((pipeline: GPURenderPipeline) => void) | null = null;
+    raw.createRenderPipelineAsync = (descriptor) => {
+      captured = descriptor;
+      return new Promise((resolve) => { resolveCompile = resolve; });
+    };
+    const factory = new PipelineFactory(device, { asyncCompilation: true });
+    const pending = factory.getAsync(base);
+    factory.invalidate();
+    const stalePipeline = await compile(captured!);
+    resolveCompile!(stalePipeline);
+    await expect(pending).rejects.toThrow(/completed after its factory was invalidated/);
+    expect(factory.stats()).toMatchObject({ pipelines: 0, pipelinesPending: 0, failures: 0 });
+    expect((stalePipeline as GPURenderPipeline & { destroyed: boolean }).destroyed).toBe(true);
+    expect(device.mock.errors).toEqual([]);
+    await device.dispose();
+  });
+
+  it("latches async compilation failures until invalidation without leaving pending entries", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const raw = device.device as unknown as { createRenderPipelineAsync: (descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline> };
+    raw.createRenderPipelineAsync = async () => { throw new Error("forced pipeline compile failure"); };
+    const factory = new PipelineFactory(device, { asyncCompilation: true });
+    expect(factory.getReady(base)).toBeNull();
+    await factory.settle();
+    expect(factory.stats()).toMatchObject({ pipelines: 0, pipelinesPending: 0, failures: 1 });
+    expect(factory.getReady(base)).toBeNull();
+    await expect(factory.getAsync(base)).rejects.toThrow(/previously failed/);
+    factory.invalidate();
+    expect(factory.stats().failures).toBe(0);
+    expect(device.mock.errors).toEqual([]);
     await device.dispose();
   });
 

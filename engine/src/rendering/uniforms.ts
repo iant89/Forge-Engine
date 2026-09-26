@@ -19,6 +19,10 @@ import { CLUSTER_COUNT, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS } from "./c
 /** Max lights the per-frame block can carry (kept in sync with the WGSL array length). */
 export const MAX_LIGHTS_PER_FRAME = 16;
 export const MAX_CASCADES = 4;
+/** Maximum simultaneously shadowed local spot lights; maps share the directional depth-array atlas. */
+export const MAX_SPOT_SHADOWS = 4;
+/** Total reusable depth-pass uniform slots (directional cascades plus spot maps). */
+export const MAX_SHADOW_LAYERS = MAX_CASCADES + MAX_SPOT_SHADOWS;
 /**
  * Batches one frame can have culled on the device (`ObjectBatchBlock.bounds`'s length, the same
  * reason `MAX_LIGHTS_PER_FRAME` lives here). A frame with more batches keeps the ones past the cap
@@ -84,36 +88,40 @@ export const LightUniforms = new StructDef("LightUniforms", [
   { name: "color", type: vec3 },
   { name: "spotAngles", type: vec2, comment: "(cos inner, cos outer)" },
   { name: "kind", type: i32, comment: "0 directional, 1 point, 2 spot" },
-  { name: "shadowIndex", type: i32, comment: "-1 when the light casts no shadow" },
+  { name: "shadowIndex", type: i32, comment: "-1 unshadowed; directional caster uses 0, spots use their map slot" },
   { name: "_pad", type: vec2 },
 ]);
 
 /**
- * Cascaded shadow state for the directional caster. `cascadeViewProj[c]` maps render-local space
- * into cascade `c` of the shadow atlas (a `texture_depth_2d_array`, layer = cascade); the fragment
- * stage picks the cascade by view depth against `cascadeSplits` (see `rendering/shadows.ts`).
+ * Directional cascade and local spotlight shadow state. Directional cascades occupy atlas layers
+ * `[0, count)`; spot slot `i` occupies layer `count + i` and is selected by `LightUniforms.shadowIndex`.
+ * The spot parameters are `(texelSize, depthBias, normalBias, worldTexelScale)`.
  */
 export const ShadowUniforms = new StructDef("ShadowUniforms", [
   { name: "cascadeViewProj", type: arrayOf(mat4x4, MAX_CASCADES) },
   { name: "cascadeSplits", type: vec4, comment: "far view-depth of each cascade; unused entries are +large" },
   { name: "cascadeTexelWorld", type: vec4, comment: "render-local size of one shadow texel per cascade (normal-offset bias)" },
-  { name: "texelSize", type: f32, comment: "1 / map size" },
+  { name: "spotViewProj", type: arrayOf(mat4x4, MAX_SPOT_SHADOWS), comment: "render-local -> each spot light's clip space" },
+  { name: "spotParams", type: arrayOf(vec4, MAX_SPOT_SHADOWS), comment: "(1/mapSize, depthBias, normalBias, world-texel scale per light-space unit)" },
+  { name: "spotCount", type: i32, comment: "active spot-map prefix; spot map layer = count + shadowIndex" },
+  { name: "texelSize", type: f32, comment: "1 / directional cascade map size" },
+
   { name: "depthBias", type: f32, comment: "constant bias in NDC depth units" },
   { name: "normalBias", type: f32, comment: "normal offset in texels" },
   { name: "fadeStart", type: f32, comment: "view depth where shadows start fading to unshadowed" },
   { name: "enabled", type: i32 },
   { name: "size", type: i32 },
-  { name: "count", type: i32, comment: "cascades in use (1..MAX_CASCADES)" },
+  { name: "count", type: i32, comment: "active directional cascade prefix (0..MAX_CASCADES)" },
   { name: "flags", type: u32, comment: "bit0 tint fragments by cascade (debug)" },
 ]);
 
 /**
- * Group 0 of the shadow (depth-only) passes: the light view-projection of one cascade. One record
- * per cascade lives in a small dynamic-offset arena, so all cascades share a single bind group.
+ * Group 0 of a shadow depth pass: the light view-projection for one cascade or spot-map layer. One
+ * record per possible layer lives in a dynamic-offset arena, so all shadow passes share one bind group.
  */
 export const ShadowPassUniforms = new StructDef("ShadowPassUniforms", [
-  { name: "viewProj", type: mat4x4, comment: "render-local -> cascade clip space" },
-  { name: "cascade", type: i32 },
+  { name: "viewProj", type: mat4x4, comment: "render-local -> shadow-map clip space" },
+  { name: "layer", type: i32, comment: "atlas layer being rendered" },
   { name: "_pad0", type: i32 },
   { name: "_pad1", type: i32 },
   { name: "_pad2", type: i32 },

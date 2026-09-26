@@ -47,6 +47,8 @@ export interface DemoSceneHandle {
    * there is no concurrent live-count readback. Prefer `ready` + `emitted` over any fake alive.
    */
   particleState?: () => { capacity: number; emitted: number; ready: boolean };
+  /** Browser verification hook for scenes with local spotlights. */
+  setSpotShadows?: (enabled: boolean) => void;
   /** Optional promise that settles when the scene's async GPU init finishes. */
   ready?: Promise<void>;
 }

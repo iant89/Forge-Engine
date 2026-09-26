@@ -652,7 +652,7 @@ export class GpuParticleSystem {
   private encodeSim(ctx: RenderGraphPassContext): void {
     const emitGroup = this.ensureEmitBindGroup();
     const simGroup = this.ensureSimBindGroup();
-    const pass = ctx.encoder.beginComputePass({ label: "particle.sim" });
+    const pass = ctx.beginComputePass("particle.sim");
     if (this.lastEmitBudget > 0) {
       pass.setPipeline(this.emitPipeline!);
       pass.setBindGroup(0, emitGroup);
@@ -666,7 +666,7 @@ export class GpuParticleSystem {
 
   private encodeCull(ctx: RenderGraphPassContext): void {
     const group = this.ensureCullBindGroup();
-    const pass = ctx.encoder.beginComputePass({ label: "particle.sort" });
+    const pass = ctx.beginComputePass("particle.sort");
     pass.setPipeline(this.cullPipeline!);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(this.capacity / PARTICLE_WORKGROUP));
@@ -692,7 +692,7 @@ export class GpuParticleSystem {
 
   private encodeResolve(ctx: RenderGraphPassContext): void {
     const group = this.ensureResolveBindGroup();
-    const pass = ctx.encoder.beginComputePass({ label: "particle.resolve" });
+    const pass = ctx.beginComputePass("particle.resolve");
     pass.setPipeline(this.resolvePipeline!);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(1);

@@ -165,6 +165,40 @@ fn shadowCascadeCoverage(point: vec3<f32>, normal: vec3<f32>, cascade: i32) -> f
   return lit / 9.0;
 }
 
+// Spot coverage uses that light's perspective transform and a texel-scaled normal offset. The map
+// lives after the directional cascade prefix; the index is the slot among spot lights only.
+fn spotShadowAttenuation(point: vec3<f32>, normal: vec3<f32>, shadowIndex: i32) -> f32 {
+  if (shadowIndex < 0i || shadowIndex >= uniforms_shadow.spotCount) {
+    return 1.0;
+  }
+  let params = uniforms_shadow.spotParams[shadowIndex];
+  var sc = uniforms_shadow.spotViewProj[shadowIndex] * vec4<f32>(point, 1.0);
+  if (sc.w <= 1e-5) {
+    return 1.0;
+  }
+  let worldTexel = sc.w * params.w;
+  let normalOffset = normal * (worldTexel * params.z);
+  sc = uniforms_shadow.spotViewProj[shadowIndex] * vec4<f32>(point + normalOffset, 1.0);
+  if (sc.w <= 1e-5) {
+    return 1.0;
+  }
+  sc = sc / sc.w;
+  let uv = sc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || sc.z > 1.0 || sc.z < 0.0) {
+    return 1.0;
+  }
+  let layer = uniforms_shadow.count + shadowIndex;
+  let depth = sc.z - params.y;
+  var lit = 0.0;
+  for (var y = -1; y <= 1; y = y + 1) {
+    for (var x = -1; x <= 1; x = x + 1) {
+      let o = vec2<f32>(f32(x), f32(y)) * params.x;
+      lit = lit + textureSampleCompareLevel(shadowMap, shadowSampler, uv + o, layer, depth);
+    }
+  }
+  return lit / 9.0;
+}
+
 // Shadow factor for the directional caster: picks the cascade by view depth, blends across the
 // last 15% of a cascade so the resolution step is not a visible line, and fades out entirely at
 // the shadow distance.
@@ -393,8 +427,11 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
   }
   var power = L.directionIntensity.w * attenuation;
   if (L.shadowIndex >= 0i) {
-    // Only the directional caster has a shadow map (cascaded); point/spot shadows are deferred.
-    power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);
+    if (L.kind == 0i) {
+      power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);
+    } else if (L.kind == 2i) {
+      power = power * spotShadowAttenuation(s.worldPos, N, L.shadowIndex);
+    }
   }
   let H = normalize(V + lightDir);
   let nl = max(dot(N, lightDir), 0.0);
@@ -511,8 +548,8 @@ ${ShadowPassUniforms.toWgsl("uniform")}
 ${ObjectUniforms.toWgsl("uniform")}
 ${InstanceStruct.toWgsl("storage")}
 
-// Group 0 is the *cascade* block, not the camera's per-frame block: the shadow pass renders from
-// the light, so its view-projection comes from the cascade fit (rendering/shadows.ts).
+// Group 0 is the per-shadow-layer block, not the camera's per-frame block: its matrix is the
+// directional cascade or spotlight projection fit in rendering/shadows.ts.
 @group(0) @binding(0) var<uniform> shadowPass: ShadowPassUniforms;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;

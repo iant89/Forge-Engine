@@ -206,8 +206,12 @@ export {
   type RenderGraphPassDesc,
   type RenderGraphStats,
   type RenderGraphOptions,
+  type GpuPassKind,
+  type GpuPassTime,
+  type GpuTimingFrame,
+  type GpuTimingCallback,
 } from "./rendering/renderGraph.js";
-export { computeCascadeSplits, frustumSliceCorners, computeCascades, type Cascade, type CascadeCameraParams, type CascadeOptions } from "./rendering/shadows.js";
+export { computeCascadeSplits, frustumSliceCorners, computeCascades, computeSpotShadow, type Cascade, type CascadeCameraParams, type CascadeOptions, type SpotShadowFit } from "./rendering/shadows.js";
 export {
   ClusterGrid,
   clusterSliceFor,
@@ -259,7 +263,7 @@ export {
   type ObjectCullParams,
   type ObjectCullStats,
 } from "./rendering/objectCulling.js";
-export { PipelineFactory, type PipelineKeyOptions } from "./rendering/pipeline.js";
+export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions } from "./rendering/pipeline.js";
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, computeNormalsAndTangents, type GeometrySource } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding } from "./rendering/mesh.js";
 export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
@@ -280,7 +284,7 @@ export {
   type SphereOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
-export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
+export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
 export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";

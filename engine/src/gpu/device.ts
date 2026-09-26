@@ -286,6 +286,21 @@ export class GraphicsDevice {
     // which is which (`PipelineFactory` keys them separately).
     countMethod("createRenderPipeline", "pipelineCount");
     countMethod("createComputePipeline", "pipelineCount");
+    const countAsyncMethod = (method: string, field: "pipelineCount"): void => {
+      const original = raw[method] as ((...args: never[]) => Promise<unknown>) | undefined;
+      if (typeof original !== "function") return;
+      raw[method] = (...args: never[]): Promise<unknown> => {
+        const result = original.apply(this.device, args);
+        return Promise.resolve(result).then((value) => {
+          memory[field]++;
+          return value;
+        });
+      };
+    };
+    // Async creation is counted only after successful compilation; rejected descriptors are not
+    // resident pipelines and must not inflate the memory report.
+    countAsyncMethod("createRenderPipelineAsync", "pipelineCount");
+    countAsyncMethod("createComputePipelineAsync", "pipelineCount");
   }
 
   /** Live allocation accounting (see `GpuMemoryStats`). Copy on read: callers keep snapshots. */

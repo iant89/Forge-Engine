@@ -9,16 +9,16 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { GraphicsDevice, RenderGraph, UsageError, type RenderGraphHandle, type RenderGraphPassContext } from "@forge/engine";
+import { GraphicsDevice, RenderGraph, UsageError, type RenderGraphHandle, type RenderGraphOptions, type RenderGraphPassContext } from "@forge/engine";
 
 const RT = 0x10; // GPUTextureUsage.RENDER_ATTACHMENT
 const TB = 0x04; // GPUTextureUsage.TEXTURE_BINDING
 
-async function setup(width = 64, height = 32) {
+async function setup(width = 64, height = 32, graphOptions: RenderGraphOptions = {}) {
   const device = await GraphicsDevice.create({ forceMock: true });
   device.resize(width, height);
   const mock = device.mock;
-  const graph = new RenderGraph(device);
+  const graph = new RenderGraph(device, graphOptions);
   return { device, mock, graph };
 }
 
@@ -310,6 +310,51 @@ describe("RenderGraph recording", () => {
     const groups = mock.commandLog.slice(logStart).filter((e) => e.type === "debugGroup") as { label?: string; push?: boolean; pop?: boolean }[];
     expect(groups.map((g) => (g.push ? `push:${g.label}` : "pop"))).toEqual(["push:forge.main", "pop", "push:forge.tonemap", "pop"]);
     expect(mock.passes.map((p) => p.label)).toEqual(["forge.main", "forge.tonemap"]);
+    expect(mock.errors).toEqual([]);
+    graph.dispose();
+    await device.dispose();
+  });
+
+  it("keeps rendering when timestamp-query is not supported", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    device.resize(64, 32);
+    (device.caps as { timestampQuery: boolean }).timestampQuery = false;
+    const mock = device.mock;
+    const graph = new RenderGraph(device, { gpuTimestamps: true });
+    graph.begin();
+    const swap = graph.importTexture("swapchain", device.currentTexture!);
+    graph.addPass({ name: "present", color: [{ texture: swap }], execute: touch });
+    const stats = graph.execute();
+    expect(stats.gpuTimingAvailable).toBe(false);
+    expect(mock.outstanding.buffers.filter((label) => label.startsWith("forge.timestamps"))).toEqual([]);
+    expect(mock.errors).toEqual([]);
+    graph.dispose();
+    await device.dispose();
+  });
+
+  it("reads asynchronous render and compute pass timestamps without blocking execute", async () => {
+    const { device, mock, graph } = await setup(64, 32, { gpuTimestamps: true });
+    let completed: { frameIndex: number; frameTimeMs: number; renderTimeMs: number; computeTimeMs: number; passes: readonly { name: string; kind: string; ms: number }[] } | null = null;
+    graph.begin();
+    const swap = graph.importTexture("swapchain", device.currentTexture!);
+    graph.addPass({ name: "forge.main", color: [{ texture: swap }], execute: (ctx) => ctx.beginRenderPass().end() });
+    graph.addPass({ name: "objects.cull", sideEffect: true, execute: (ctx) => ctx.beginComputePass("objects.cull").end() });
+    const stats = graph.execute((timing) => { completed = timing; });
+
+    expect(stats.gpuTimingAvailable).toBe(true);
+    expect(completed).toBeNull(); // mapAsync resolves after execute has returned
+    expect(mock.commandLog.some((entry) => entry.type === "resolveQueries")).toBe(true);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(completed).not.toBeNull();
+    expect(completed!.frameTimeMs).toBeGreaterThan(0);
+    expect(completed!.renderTimeMs).toBeGreaterThan(0);
+    expect(completed!.computeTimeMs).toBeGreaterThan(0);
+    expect(completed!.passes.map((pass) => [pass.name, pass.kind])).toEqual([
+      ["forge.main", "render"],
+      ["objects.cull", "compute"],
+    ]);
+    expect(graph.stats.gpuPassTimes).toHaveLength(2);
+    expect(graph.stats.gpuFrameTimeMs).toBe(completed!.frameTimeMs);
     expect(mock.errors).toEqual([]);
     graph.dispose();
     await device.dispose();

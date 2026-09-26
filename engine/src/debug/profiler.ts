@@ -223,13 +223,24 @@ export class Profiler {
     if (this.marks.length > 128) this.marks.splice(0, this.marks.length - 128);
   }
 
+  /** Frame id currently being recorded; captured before the renderer's asynchronous readback begins. */
+  get currentFrameIndex(): number {
+    return this.frameIndex;
+  }
+
   /** Renderer hook: submit per-pass GPU times (ms) collected from timestamp queries. */
-  reportGpuTimes(times: readonly { name: string; ms: number }[], frameTotalMs = 0): void {
+  reportGpuTimes(times: readonly { name: string; ms: number }[], frameTotalMs = 0, frameIndex?: number): void {
     for (const t of times) {
       const s = this.stats[this.id(t.name)] ?? null;
       if (s) s.gpuMs = s.gpuMs * 0.7 + t.ms * 0.3;
     }
-    this.gpuFrameMs = frameTotalMs;
+    if (frameIndex === undefined) {
+      this.gpuFrameMs = frameTotalMs;
+      return;
+    }
+    const frame = this.frames.find((record) => record.index === frameIndex);
+    if (frame) frame.gpuMs = frameTotalMs;
+    else if (this.inFrame && this.frameIndex === frameIndex) this.gpuFrameMs = frameTotalMs;
   }
 
   /** Called by the renderer when a pass had to be skipped; counts up in `stats`. */

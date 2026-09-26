@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + object culling from Phase 13)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + object culling + async pipelines + GPU timing from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -17,6 +17,7 @@ CPU                                          GPU passes (default settings, 3 cas
 camera + lights from the scene               forge.shadow.0  ─┐
 computeCascades()  (engine/src/rendering/    forge.shadow.1   ├─ depth24plus 2d-array, 1 layer each
   shadows.ts)                                forge.shadow.2  ─┘
+                                             forge.shadow.spot.<n> (optional, after cascades)
 collectBatches()   (frustum cull, sort,      forge.prepass     depth24plus "depth" only (clear + store), no fragment stage
   instance merge — no allocation)            forge.hiz.0..3    depth → the pyramid (r32float, mip chain), ½, ¼, ... of the target
 buildClusters()    (local lights into a      forge.objects.cull  bounds + pyramid → visibility words, 1 per batch (§4d)
@@ -38,8 +39,9 @@ options:
 | --- | --- |
 | `settings.hdr` (default `true`) | on: `forge.main` renders into an `rgba16float` target and `forge.tonemap` resolves to the swapchain. off: `forge.main` writes the swapchain directly and applies exposure + tone curve + sRGB encode in the standard shader; no post passes exist. |
 | `settings.postProcessing && settings.bloom.enabled` and `RendererOptions.bloom !== false` | adds the bloom chain between `forge.main` and `forge.tonemap`. Requires `hdr`. Skipped silently when the half-resolution mip would be under 16 px. |
-| `settings.shadow.enabled`, a directional light with `castShadow`, at least one `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per cascade, `i < min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
-| `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | edge size of every cascade layer. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options. |
+| `settings.shadow.enabled`, the first shadow-casting directional light, an intersecting `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per active cascade, up to `min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
+| `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to four. The first four valid shadow-casting spot lights are supported; point shadows are not. |
+| `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | common edge size of every cascade and spot layer in the shared depth array. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options; all maps use the same per-frame resolution. |
 | `settings.renderScale` (HDR only) | the HDR target and depth buffer are allocated at `round(size × scale)`; tonemap upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
@@ -56,7 +58,7 @@ rendered frame, so the HUD keeps ticking while a scene loads.
 
 `Renderer.stats` (also `engine.stats().render`) reports the frame that just ran: `drawCalls`,
 `triangles`, `instances`, `batches`, `culled`, `cullTested`, `cullFrustum`, `cullDistance`, `cullOccluded`
-(§4d; the device path reports them one frame late), `shadowsDrawn`, `shadowsCulled`, `shadowCascades`,
+(§4d; the device path reports them one frame late), `shadowsDrawn`, `shadowsCulled`, `shadowInstancesDrawn`, `shadowInstancesCulled`, `shadowCascades`, `spotShadowMaps`,
 `hdr`, `bloomMips`, `sky`, `skySamples`, `depthPrepass`, `prepassDraws` (depth-only draws, not in
 `drawCalls`, like `shadowsDrawn`), `ssao`, `passes`, `culledPasses`, `transientTextures`,
 `physicalTextures`, `aliasedBytes`, `texturesCreated`, `clusteredLighting`, `lights` (every light in
@@ -65,6 +67,38 @@ the frame, global and local), `clusteredLights` (the local ones the grid carries
 The three SSAO fullscreen draws count in
 `drawCalls` (as the post passes do) but not in `triangles`. `Renderer.passNames` (`engine.stats().renderPasses`) is the executed pass list in
 order; the demo HUD prints a summary and `tools/browser-check.mjs` asserts on both.
+
+### Async pipeline compilation (Phase 13.7)
+
+On real devices, `Renderer` asks `PipelineFactory.getReady()` for each draw variant. A cache hit is
+immediately usable; a miss starts one `createRenderPipelineAsync()` request per key and returns
+`null` for that frame, so the render loop never waits for compilation. Call sites skip only the draws
+whose pipelines are pending, while attachment clears/loads still run. The prepass path falls back to
+a depth-writing forward variant if the prepass pipeline is still compiling (and uses that same
+variant if the no-depth-write forward variant is not ready yet), avoiding a hole in the scene during
+startup. `RendererOptions.asyncPipelines` can force either path; mock renderers default to synchronous
+compilation to preserve deterministic command-recording tests. `PipelineFactory.get()` remains the
+synchronous tooling API; `getAsync()` supports explicit prewarming and `settle()` is for host/test
+code, not the render loop. `Renderer.stats.pipelinesPending` and `pipelineFailures` expose the number
+of unique in-flight keys and latched async failures.
+
+### GPU timing (Phase 13.8)
+
+`EngineConfig.gpuTimestamps` opts into timestamp queries (on by default for high/ultra quality, off
+for minimal/low/medium); timestamp-query remains an optional adapter feature. `RendererOptions.gpuTimestamps`
+and `RenderGraphOptions.gpuTimestamps` are available to direct users. When enabled and supported,
+the graph brackets render and compute passes with timestamp writes, resolves them into a rotating set
+of three readback buffers, and calls `mapAsync()` without waiting in `execute()`. It records at most
+256 passes per frame; `gpuTimingDroppedPasses` and `gpuTimingSkippedFrames` surface capacity and
+readback-ring pressure. If the feature is unavailable or setup fails, `gpuTimingAvailable` is false
+and rendering continues without timing.
+
+The latest completed sample is exposed in `Renderer.stats` (and `engine.stats().render`) as
+`gpuFrameTimeMs`, `gpuRenderTimeMs`, `gpuComputeTimeMs`, and `gpuPassTimes` (`{ name, kind, ms }`).
+The frame duration spans the first timed pass start to the last timed pass end; render/compute values
+sum the corresponding pass durations. Timestamp readback is asynchronous, so these are the latest
+completed measurements, not CPU submission times. The renderer forwards per-pass samples to the
+engine `Profiler`, which merges GPU time into the matching pass names.
 
 ## 2. Render graph (`engine/src/rendering/renderGraph.ts`)
 
@@ -124,10 +158,12 @@ textures are never destroyed.
 
 `RenderGraphPassContext` gives a pass its `encoder`, `beginRenderPass(label?)` (attachments come
 from the declaration; the label defaults to the pass name and lands in the debug group and in
-`mock.passes`), `texture(h)`, `view(h, desc?)` (memoised per frame, so a pass may call it every frame),
-`size(h)` and `colorFormat(index)` for building pipelines against whatever the attachment happens to
-be. Failure inside `execute()` propagates and the frame is discarded; the next `execute()` requires a
-fresh `begin()`.
+`mock.passes`), `beginComputePass(label?)`, `texture(h)`, `view(h, desc?)` (memoised per frame, so a
+pass may call it every frame), `size(h)` and `colorFormat(index)` for building pipelines against
+whatever the attachment happens to be. Use the context's pass-begin methods for timestamp coverage;
+raw `encoder.begin*Pass()` calls are not timed. Failure inside `execute()` propagates and the frame
+is discarded; the next `execute()` requires a fresh `begin()`. `execute(callback?)` returns before the
+optional GPU timing callback fires.
 
 ## 3. HDR, bloom and tone mapping (`shaders/post.ts`)
 
@@ -175,17 +211,41 @@ world it is in (HDR: output linear radiance untouched).
 
 The renderer draws each cascade into its layer of one `depth24plus` 2d-array with the depth-only
 pipeline (`DEPTH_VERTEX`; group 0 is the per-cascade `ShadowPassUniforms` at a dynamic offset,
-group 1 the same object/instance layout the main pass uses, so instanced batches cast as one draw).
-Batches are culled per cascade against the cascade's light-space frustum (`stats.shadowsCulled`);
-transparent and overlay batches never cast.
+group 1 the same object/instance layout the main pass uses). During batch collection, each eligible
+renderable's world AABB is tested against every cascade's light-space frustum and receives a
+conservative bitmask. Adjacent instances with the same mask are retained as ranges inside the colour
+batch; each shadow pass uses `firstInstance` to submit only ranges assigned to its map, without
+splitting the main colour draw. `stats.shadowsCulled` counts batch/map pairs with no assigned
+instances, while `shadowInstancesDrawn`/`shadowInstancesCulled` count per-map caster-instance work.
+Transparent and overlay batches never cast.
 
 Sampling (`standard.ts`): the cascade is picked by view depth against `cascadeSplits`, the receiver
 is pushed along its normal by `normalBias` texels (normal-offset shadows, which remove acne on
 low-poly surfaces without the peter-panning of a large constant bias), and coverage is a 3×3 PCF over
 a comparison sampler on `texture_depth_2d_array`. The last 15 % of each cascade blends into the next
 so the resolution step is not a visible line, and everything fades to lit between `fadeStart` and
-`shadowDistance`. Everything the shader needs is in `ShadowUniforms` (320 B; `cascadeViewProj[4]`,
-`cascadeSplits`, `cascadeTexelWorld`, biases, `flags`).
+`shadowDistance`. Everything the shader needs is in `ShadowUniforms` (656 B; directional matrices,
+splits and texel sizes, spot matrices/parameters, counts and biases).
+
+### Spotlight shadows (Phase 13.9)
+
+Up to four valid shadow-casting spot lights are fitted per frame by `computeSpotShadow()`: the light's
+travel direction and outer-cone cosine define a square perspective projection, with the near plane
+kept close to the light and the far plane at `Light.range`. Cone cosines are clamped and ordered at
+light upload, so even reversed user values yield a valid soft-edge interval. The renderer takes the
+first four valid spots in scene order; `Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
+`depth24plus` 2d-array and the same frame resolution (`settings.shadow.mapSize` capped by
+`RendererOptions.shadowMapSize`); per-light/adaptive resolution is not part of this step.
+
+Directional cascades occupy array layers `[0, count)`, then spot slot `i` occupies `count + i` and
+uses `LightUniforms.shadowIndex = i`. The same index survives both the fixed uniform light list and
+the clustered-light storage block. Per-object AABB masks reserve bits 0–3 for cascades and bits 4–7
+for spot slots, so a spot-only frame works without inventing a directional cascade. The renderer adds
+`forge.shadow.spot.<i>` after any active cascade passes, fits each spot frustum independently, and
+uses those masks to retain off-screen casters while avoiding draws into unrelated maps. Spot sampling
+uses the corresponding matrix, per-light depth/normal bias and a 3×3 PCF; `Renderer.stats.spotShadowMaps`
+reports the active spot-map prefix. Point-light, contact and adaptive-resolution shadows remain future
+13.9 items.
 
 ## 4a. Depth prepass and SSAO (Phase 13.1, 13.2)
 
@@ -239,9 +299,9 @@ Local lights are indexed on the CPU into a view-space grid — `CLUSTER_TILES_X 
 CLUSTER_SLICES` = 16 × 8 × 24 = 3 072 clusters (`engine/src/rendering/clusters.ts`) — and the fragment
 stage walks only the list of the cluster it lands in, so the cost follows the lights near a pixel
 instead of the lights in the scene. Directional lights are never clustered: they reach every pixel, so
-there is nothing to cull, and they stay in the small uniform `LightBlock` where the cascade caster's
-`shadowIndex` lives. Clustering is a *data* change and not a pass — the graph is identical with it on or
-off (§1) *on the CPU fill*; the device fill (§4c, the default away from the mock) adds the
+there is nothing to cull, and they stay in the uniform `LightBlock`. The directional caster and any
+selected spot light retain their `shadowIndex` in whichever block carries them. Clustering is a *data*
+change and not a pass — the graph is identical with it on or off (§1) *on the CPU fill*; the device fill (§4c, the default away from the mock) adds the
 `forge.lights.assign` compute pass — and it lifts the frame's light cap from `MAX_LIGHTS_PER_FRAME` = 16
 to `MAX_CLUSTERED_LIGHTS` = 256 local lights.
 
@@ -596,12 +656,17 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 
 ## 9. Limitations (honest list)
 
-* No per-object cascade assignment: a caster is drawn into every cascade whose light-space box it
-  intersects, so a small object close to the camera is rendered up to N times. Cheap for the demo,
-  not for a city.
-* Only the first shadow-casting directional light casts; spot and point shadows are not implemented.
-* The default 2048² × 3 `depth24plus` array is ≈ 48 MB; tests use `shadowMapSize: 256` because the
-  mock device allocates texture storage eagerly.
+* Shadow assignment is conservative per renderable, not a single-map heuristic: an object's AABB can
+  intersect multiple cascade or spot frusta, in which case its assigned range is submitted to each
+  corresponding map. Off-screen caster coverage is preserved, but overlapping maps can repeat vertex
+  work; there is no per-map GPU compaction.
+* Only the first shadow-casting directional light and up to four spot lights cast. Point-light,
+  contact and adaptive-resolution shadows are not implemented yet.
+* At 2048², one `depth24plus` layer costs about 16 MiB: three cascades alone are ≈48 MiB, three
+  cascades plus four spots ≈112 MiB, and the hard four-cascade/four-spot maximum is ≈128 MiB. The
+  4096² ultra profile scales that worst case to ≈512 MiB. All maps use the shared
+  `settings.shadow.mapSize` resolution; tests use `shadowMapSize: 256` because the mock device
+  allocates texture storage eagerly.
 * Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles, orthographic
   cameras, scenes that turn it off — still alias nothing.
 * The prepass depth has two consumers (SSAO, the soft-particle fade); no culling, transparency
@@ -624,8 +689,10 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 * Orthographic cameras are never clustered — the grid's depth axis is view depth, which an orthographic
   projection does not put in `clip.w`, the same reason SSAO is perspective-only — so their local lights
   still go through the fixed 16-entry uniform list.
-* Clustered lights cast no shadows: a local light's `shadowIndex` is always −1 in the cluster block
-  (point and spot shadows are roadmap 13.9), as it already is in the uniform list.
+* The cluster block preserves assigned spot `shadowIndex` values, but point lights and unselected
+  spots still use −1. Only the first four valid shadow-casting spot lights receive maps; point-light,
+  contact and adaptive-resolution shadows remain roadmap 13.9 work.
 * `renderScale` scales the HDR target only; the LDR path always renders at swapchain resolution.
-* The graph builds one command buffer and submits it; there are no timestamp queries yet, so
-  `renderTimeMs` in the HUD is CPU time.
+* The graph builds one command buffer and submits it. The engine-level `renderTimeMs` remains a CPU
+  submission-side measurement; optional GPU timestamps are reported separately in `Renderer.stats`
+  as `gpuFrameTimeMs`, `gpuRenderTimeMs`, `gpuComputeTimeMs` and `gpuPassTimes` (§1).
