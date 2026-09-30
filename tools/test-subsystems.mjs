@@ -130,6 +130,17 @@ export const subsystems = {
     tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts", "tests/marsTerrain.test.ts"],
     deps: ["core", "gpu", "math", "rendering", "scene"],
   },
+  population: {
+    title: "World population (deterministic scatter, SoA instance blocks, terrain-following streaming)",
+    // The seam itself (scene/population.ts) is owned by `scene` — a change there selects scene and
+    // every dependent, which includes this subsystem — while the scatter/streaming implementation
+    // and its suite live here. deps name rendering + terrain although world.ts imports them
+    // type-only: the suite drives the renderer's population batch path and TerrainWorld streaming,
+    // so a change to either must run it (runtime-only edges would under-select).
+    src: ["engine/src/population"],
+    tests: ["tests/population.test.ts"],
+    deps: ["math", "rendering", "scene", "terrain"],
+  },
   "tools-mars": {
     title: "Mars generator tooling (region planner + pre-generation script, tools/mars-terrain)",
     // These scripts ship into the separate `mars-terrain-gen` repo, so they are plain copies of some

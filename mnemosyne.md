@@ -603,3 +603,58 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   including the `tools-mars` subsystem for the generator-side planner.
 - **Landed as PR #47** (squash-merge into `main`); the CPU gates passed and the advisory WebGPU
   browser job was still running at merge time.
+
+## 2026-09-30 — Phase 14 started: world population (14.1/14.3/14.5/14.6 + rocks/boulders)
+
+- **Scope of the first slice.** 14.1 deterministic scatter, 14.3 compact SoA instance blocks, 14.5
+  per-chunk population culling (through the existing Phase 13.5/13.6 per-batch machinery), 14.6
+  streaming follows terrain chunks, and rocks + boulders of 14.2 in the terrain demo. Open:
+  14.4 GPU LOD, vegetation/debris/decals/props, device-resident instance buffers — all in
+  KNOWN-ISSUES § World population and `world.population` (partial, closesWith 14.4).
+- **The seam lives in `engine/src/scene/population.ts`, not `population/`.** The renderer must
+  consume population submissions, and `population/world.ts` must consume Geometry/Material —
+  putting the seam in population/ would need a rendering↔population runtime import (a declared-dep
+  cycle in `tools/test-subsystems.mjs`). scene/ already allows type-only rendering imports
+  (lint-arch's scene rule), so the block/source/collector interfaces live beside `SceneObject` and
+  both sides reach them through existing deps. `isPopulationSource` is structural (no `instanceof`)
+  so anything can be a source — the tests drive a hand-built one.
+- **`composeYTRS` in `math/mat.ts` is the population fast path** — a Y-rotation TRS written
+  straight into a Float32Array at an offset (renderer: instance arena; population world: bounds).
+  Bit-exact vs `setCompose` + `Quat.fromAxisAngle` (pinned in math.test.ts); verified numerically
+  *before* building on it with a scratch vite-node script (first attempt failed only because the
+  barrel didn't re-export it yet).
+- **Lat-long spheres leave vertex 0 with a zero normal** when normals are recomputed from faces:
+  the whole first pole strip is degenerate (a and b both sit on the pole), so vertex 0 belongs to
+  no non-degenerate triangle. `rockGeometrySource` borrows vertex 1's normal (same position). The
+  sphere primitive never hits this because it writes analytic normals and only *computes* tangents.
+- **`TerrainWorld.update` refreshes `focusPosition` from the scene's active camera every frame** —
+  setting `focusPosition` by hand in a test whose scene has a camera does nothing. Move the camera
+  entity (`cameraEntity.transform.position = new Vec3(...)`); `Entity.transform` is a
+  `TransformHandle` (a `position` setter, **no** `setPosition`).
+- **Terrain chunk lifecycle from the population side:** ready chunks stay in `terrain.chunks`
+  through a LOD remesh (state cycles ready→generating→ready with a NEW tile object; eviction is the
+  only thing that deletes the map entry). Populations key on the map entry, re-anchor Y to the new
+  tile's heightmap when `chunk.tile` identity changes, and never re-scatter XZ.
+- **Determinism caveat kept honest:** slope/height acceptance samples the tile that was live when
+  the chunk was *first* populated, so a chunk that first appears at a coarse LOD can keep slightly
+  different instances than one that appeared at LOD 0. Same warm-up sequence ⇒ bit-identical;
+  "any load order" ⇒ not guaranteed. Documented in KNOWN-ISSUES rather than papered over.
+- **Browser gate results for this diff:** the new terrain-arm population assertions passed
+  (`population: 959 instances in 48 batches, entities 64`, zero GPU errors) and every arm through
+  the weather scene passed; the run died on the pre-existing Mars Showcase W-drive flake (0.287 m
+  vs > 0.5 m — the same flake that failed the previous session's *pre-change* baseline at 0.485 m;
+  the Mars scene has no population source). Two re-runs then died on sandbox throttling (~7 fps vs
+  the first run's 23 fps: `loop stalled at frame 5`, then a 30 s screenshot timeout). **Kill
+  leftover vite/chromium before re-running the gate** — a stray `npx vite` survives
+  `vite.kill("SIGKILL")` on the wrapper and competes for the CPU quota.
+- **Visibility evidence without eyes:** an agent session with no image viewing can still prove
+  rocks are on screen — freeze the camera (`setAnimating(false)`), screenshot before/after the
+  population streams in, diff pixels in-page (decode via data URLs, pass base64 — passing byte
+  arrays as evaluate() args blows the stack). Result: 1,803 strongly-changed ground pixels (mean
+  delta 78.5, max 553); the ~13% whole-frame change is HUD text churn at the top, not the scene.
+  Screenshots kept at `tools/.population-before/after.png` (git-ignored).
+- **Test-map deps can be wider than runtime imports:** `population` declares deps on
+  `rendering` + `terrain` even though `world.ts` imports both type-only, because
+  `tests/population.test.ts` drives the renderer's batch path and TerrainWorld streaming — a
+  runtime-only deps reading would under-select. The manifest's deps are hand-declared (only
+  validated for resolution), so say why in a comment like the one now in test-subsystems.mjs.

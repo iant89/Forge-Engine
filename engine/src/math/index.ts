@@ -40,7 +40,7 @@ export {
   gamma22ToLinear,
 } from "./scalar.js";
 export { Vec2, Vec3, Vec4, type Vec2Like, type Vec3Like, type Vec3Ops, scratch3 } from "./vec.js";
-export { Mat3, Mat4, Quat } from "./mat.js";
+export { Mat3, Mat4, Quat, composeYTRS } from "./mat.js";
 export { TRS, TransformStore, LOCAL_STRIDE, WORLD_STRIDE, multiplyInto, type TRSLike } from "./transform.js";
 export { AABB, BoundingSphere, Plane, Ray, RayHit, Frustum, OBB, type PlaneTest, type PlaneLike } from "./geometry.js";
 export {

@@ -84,7 +84,8 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "11": "verified",
   "12": "verified",
   "13": "inProgress",
-  "14+": "planned",
+  "14": "inProgress",
+  "15+": "planned",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -656,7 +657,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "ParticleSystem advances once per frame, not once per physics substep",
     evidence: ["tests/particles.test.ts"],
-    closesWith: "14+",
+    closesWith: "15+",
     notes: "GPU path is also frame-rate (render-graph); fixed-step particle substepping is still open",
   },
   {
@@ -761,9 +762,12 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "world.population",
     phase: "14.1",
-    status: "planned",
-    summary: "Deterministic scatter with instance buffers, GPU LOD/culling and population streaming",
-    closesWith: "14.1",
+    status: "partial",
+    summary:
+      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain chunk streaming with per-chunk device culling",
+    evidence: ["tests/population.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
+    closesWith: "14.4",
+    notes: "First slice covers 14.1/14.3/14.5/14.6 and rocks+boulders of 14.2; GPU-selected object LOD (14.4), vegetation/debris/decals/props types and device-resident instance buffers are not built — see docs/KNOWN-ISSUES.md § World population",
   },
   {
     id: "assets.contentAddressing",
@@ -817,7 +821,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   },
   {
     id: "networking.replication",
-    phase: "14+",
+    phase: "15+",
     status: "deferred",
     summary: "Multiplayer replication and dedicated servers",
     notes: "The roadmap gates networking behind Phase 29 and schedules no item for it yet",

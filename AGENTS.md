@@ -78,6 +78,8 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   particles/         CPU simulation + a compute integrator for the same gravity/drag/life step (docs/PARTICLES.md)
   environment/       sun position (NOAA/Meeus), AtmosphereModel (CPU twin of the sky shader), fog formulas,
                      DayNightCycle (docs/ENVIRONMENT.md). Phase 8b (weather/clouds/water) goes here too.
+  population/        Phase 14 world population: deterministic scatter into SoA blocks, PopulationWorld
+                     streaming; the seam (blocks + source/collector) lives in scene/population.ts
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase.

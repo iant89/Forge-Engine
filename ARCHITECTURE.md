@@ -85,7 +85,10 @@ resources - + -> assets |
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
 subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
 uploads the atmosphere presets and the fog mode table); `environment` never imports `rendering`,
-and `scene` knows the environment's *types* only (the `sky` settings block).
+and `scene` knows the environment's *types* only (the `sky` settings block). The Phase 14
+population seam lives in `scene/population.ts` for the same reason: `rendering` consumes the
+source/collector interfaces through its existing scene dependency, `population` implements them
+on top of terrain + rendering types, and neither gains a sibling import.
 
 ---
 

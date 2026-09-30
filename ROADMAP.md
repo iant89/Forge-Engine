@@ -21,7 +21,11 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation, GPU timing; 13.9 cascade assignment,
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
-    Phase 14+:  NOT STARTED
+    Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
+                blocks, 14.5 per-chunk population culling and 14.6 streaming landed;
+                rocks + boulders of 14.2 in the terrain demo; GPU LOD, remaining
+                types and device-resident buffers open)
+    Phase 15+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -116,7 +120,10 @@ PHASE 12 - GPU Particles 2.0
 PHASE 13 - Renderer 2.0
     [~] IN PROGRESS
 
-PHASE 14+
+PHASE 14 - World Population
+    [~] IN PROGRESS
+
+PHASE 15+
     [ ] NOT STARTED
 
 
@@ -950,17 +957,28 @@ GOAL:
 
 14.1 Deterministic Scatter
 
-    Placement determined by:
+    [x] Placement determined by:
 
         seed
         chunk coordinate
         population type
 
+        `scatterPopulationChunk` (engine/src/population/scatter.ts) is a pure function of
+        `(type, seed, chunk coordinate, sampler)`: a `chunkSeed`-derived `Rng` stream over a
+        stratified jittered grid (one candidate per `densityGrid²` cell), with slope, height-band
+        and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
+        never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population.test.ts.
+
 
 14.2 Population Types
 
-    [ ] Rocks
-    [ ] Boulders
+    [x] Rocks
+    [x] Boulders
+
+        Both ship in the terrain demo on the shared `rockGeometrySource` primitive (displaced,
+        optionally squashed sphere; deterministic per seed). Boulders are the same geometry at a
+        larger scale band with a tighter slope limit and deeper embed.
+
     [ ] Debris
     [ ] Vegetation
     [ ] Decals
@@ -969,7 +987,14 @@ GOAL:
 
 14.3 Instance Storage
 
-    [ ] Compact instance buffers.
+    [x] Compact instance buffers.
+
+        `PopulationInstanceBlock` (engine/src/scene/population.ts) is SoA typed arrays — positions
+        (3), non-uniform scales (3), Y rotations (1), packed tints (1) — allocated once per
+        (chunk, type), no per-instance object anywhere. The renderer writes the records into the
+        frame's instance arena through `composeYTRS` (math/mat.ts), so a population draws as
+        ordinary instanced batches. The further step — *device-resident* instance buffers that are
+        uploaded once per chunk instead of once per frame — is not built (docs/KNOWN-ISSUES.md).
 
 
 14.4 GPU LOD
@@ -979,12 +1004,23 @@ GOAL:
 
 14.5 GPU Culling
 
-    [ ] Population culling.
+    [x] Population culling.
+
+        Each (chunk, type) submission becomes its own batch with its own conservative bounds, so
+        the Phase 13.5 device object culler (frustum, distance, HiZ) and the Phase 13.6 indirect
+        records apply to populations unchanged; a type's `maxDistance` is the per-batch distance
+        limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
+        of its instances (per-instance device culling is not built).
 
 
 14.6 Population Streaming
 
-    [ ] Population follows terrain/world chunk streaming.
+    [x] Population follows terrain/world chunk streaming.
+
+        `PopulationWorld` (engine/src/population/world.ts) diffs `TerrainWorld.chunks` every update:
+        ready chunks get populations within a per-frame budget, evicted chunks lose them, and an
+        LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
+        Zero ECS entities are created — pinned by tests/population.test.ts.
 
 
 EXIT CRITERIA:

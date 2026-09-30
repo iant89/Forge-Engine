@@ -197,6 +197,117 @@ export function sphereGeometrySource(options: SphereOptions = {}): GeometrySourc
   return { positions, normals, uvs, tangents, indices, label: "sphere" };
 }
 
+export interface RockOptions {
+  /** Mean radius before displacement. Default 0.5. */
+  radius?: number;
+  /** Lat-long subdivisions per side; the vertex count is `(segments+1)²`. Default 10. */
+  segments?: number;
+  /** Displacement amplitude as a fraction of `radius` (0 = sphere). Default 0.28. */
+  roughness?: number;
+  /** Vertical squash after displacement, 0..1 (0.35 ≈ a settled boulder). Default 0. */
+  flatten?: number;
+  /** Seed of the deterministic displacement field; same seed → same rock, byte for byte. */
+  seed?: number;
+}
+
+/**
+ * A displaced, optionally squashed sphere — the engine's rock/boulder primitive (Phase 14's first
+ * population types). The displacement is a seeded sum of sine lobes over the sphere direction
+ * (`1 + roughness · Σ aᵏ·sin(dot(dir, kᵏ)·fᵏ + φᵏ)` with geometrically falling amplitudes), which
+ * is smooth, deterministic and needs no noise library; normals come from the shared face-averaging
+ * pass so the craggy silhouette shades correctly. UVs are the sphere's (a rock texture can wrap
+ * them; the flat-colour demo does not).
+ */
+export function rockGeometrySource(options: RockOptions = {}): GeometrySource {
+  const radius = options.radius ?? 0.5;
+  const seg = Math.max(4, Math.floor(options.segments ?? 10));
+  const roughness = options.roughness ?? 0.28;
+  const flatten = options.flatten ?? 0;
+  const seed = options.seed ?? 0;
+
+  // Seeded displacement field: three random unit directions with rising frequency and falling
+  // amplitude each (nine lobes total) — enough facets to read as rock at scatter scales.
+  const lobes: { x: number; y: number; z: number; f: number; p: number; a: number }[] = [];
+  let state = (seed | 0) || 1;
+  const nextRandom = () => {
+    // xorshift32 — local to this generator so it never couples to math/rng's stream contract.
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state |= 0;
+    return ((state >>> 0) / 4294967296) as number;
+  };
+  for (let l = 0; l < 3; l++) {
+    const theta = nextRandom() * Math.PI * 2;
+    const y = nextRandom() * 2 - 1;
+    const ring = Math.sqrt(Math.max(0, 1 - y * y));
+    lobes.push({
+      x: ring * Math.cos(theta),
+      y,
+      z: ring * Math.sin(theta),
+      f: 1.7 + l * 1.9 + nextRandom(),
+      p: nextRandom() * Math.PI * 2,
+      a: Math.pow(0.45, l),
+    });
+  }
+
+  const vertCount = (seg + 1) * (seg + 1);
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint32Array(seg * seg * 6);
+  let vi = 0;
+  for (let j = 0; j <= seg; j++) {
+    const theta = (j / seg) * Math.PI;
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+    for (let i = 0; i <= seg; i++) {
+      const phi = (i / seg) * Math.PI * 2;
+      const dx = sinT * Math.cos(phi);
+      const dy = cosT;
+      const dz = sinT * Math.sin(phi);
+      let r = 1;
+      if (roughness > 0) {
+        for (const lobe of lobes) {
+          r += roughness * lobe.a * Math.sin((dx * lobe.x + dy * lobe.y + dz * lobe.z) * lobe.f * Math.PI + lobe.p);
+        }
+        r = Math.max(0.55, r);
+      }
+      positions[vi * 3] = dx * r * radius;
+      positions[vi * 3 + 1] = dy * r * radius * (1 - flatten);
+      positions[vi * 3 + 2] = dz * r * radius;
+      uvs[vi * 2] = i / seg;
+      uvs[vi * 2 + 1] = j / seg;
+      vi++;
+    }
+  }
+  let k = 0;
+  for (let j = 0; j < seg; j++) {
+    for (let i = 0; i < seg; i++) {
+      const a = j * (seg + 1) + i;
+      const b = a + 1;
+      const c = a + seg + 1;
+      const d = c + 1;
+      indices[k++] = a;
+      indices[k++] = b;
+      indices[k++] = c;
+      indices[k++] = b;
+      indices[k++] = d;
+      indices[k++] = c;
+    }
+  }
+  const { normals, tangents } = computeNormalsAndTangents(positions, indices, uvs);
+  // The lat-long top pole leaves vertex 0 in degenerate triangles only — its whole first strip
+  // collapses onto the pole point, so no face contributes a normal. Vertex 1 sits at the same
+  // position, and its normal is therefore the correct one; borrow it. (The sphere primitive writes
+  // analytic normals instead and never hits this; the rock displaces, so it must recompute.)
+  if (Math.hypot(normals[0]!, normals[1]!, normals[2]!) < 1e-6) {
+    normals[0] = normals[3]!;
+    normals[1] = normals[4]!;
+    normals[2] = normals[5]!;
+  }
+  return { positions, normals, uvs, tangents, indices, label: "rock" };
+}
+
 export interface CylinderOptions {
   radiusTop?: number;
   radiusBottom?: number;
@@ -348,6 +459,11 @@ export function createPlane(device: GraphicsDevice, options: PlaneOptions = {}):
 
 export function createSphere(device: GraphicsDevice, options: SphereOptions = {}): Geometry {
   return Geometry.create(device, sphereGeometrySource(options));
+}
+
+/** A rock/boulder as an uploaded geometry (Phase 14 population types). */
+export function createRock(device: GraphicsDevice, options: RockOptions = {}): Geometry {
+  return Geometry.create(device, rockGeometrySource(options));
 }
 
 export function createCylinder(device: GraphicsDevice, options: CylinderOptions = {}): Geometry {

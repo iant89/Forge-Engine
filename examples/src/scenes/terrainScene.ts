@@ -11,6 +11,9 @@
  *   directional light) and exp² dust haze whose colour is the model's own horizon radiance, so the
  *   loaded disc's edge fades into the sky instead of reading as a cliff.
  * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
+ * - Phase 14 world population: deterministic rocks and boulders scattered per streamed chunk
+ *   (`PopulationWorld`), drawn as instanced batches with no entity per rock and culled per chunk
+ *   by the device object culler past each type's draw distance.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
  * - A full PBR texture set (albedo + tangent-space normal + metallic-roughness) tiled over the
  *   chunks — iron-oxide regolith with basalt patches and pebble grain, generated procedurally so
@@ -25,10 +28,12 @@ import {
   Light,
   MARS_ATMOSPHERE,
   Material,
+  PopulationWorld,
   Scene,
   Vec3,
   TerrainWorld,
   createAtmosphere,
+  createRock,
 } from "@forge/engine";
 import {
   createMarsRegolithTextures,
@@ -116,6 +121,54 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   });
   scene.add(terrain);
 
+  // Phase 14 — world population. Two types share the streamed disc: rocks (dense, small, slope
+  // tolerant) and boulders (sparse, large, flattish ground only). Placement is a pure function of
+  // (seed, chunk, type) over the chunk's heightmap, so the same world always scatters the same
+  // rocks; remeshes re-anchor them to the new surface rather than re-scattering. Neither type
+  // creates an entity — `stats.populationInstances` reports how many rocks the frame drew while
+  // the entity count stays at the terrain chunks + lights + camera. `maxDistance` hands each type
+  // to the device object culler, which drops whole chunk batches past it.
+  const rockMaterial = new Material({
+    label: "mars-rock",
+    color: Color.fromSrgbHex(0x9a6a4e),
+    roughness: 0.96,
+    metallic: 0.03,
+  });
+  const rockGeometry = gpu ? createRock(gpu, { radius: 0.8, segments: 7, seed: 7, roughness: 0.34 }) : null;
+  const boulderGeometry = gpu ? createRock(gpu, { radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 }) : null;
+  const population = new PopulationWorld({
+    terrain,
+    types: [
+      {
+        id: 1,
+        label: "rocks",
+        densityGrid: 6,
+        scaleMin: 0.3,
+        scaleMax: 1.7,
+        scaleExponent: 1.7,
+        slopeLimit: 0.55,
+        tintJitter: 0.3,
+        maxDistance: 550,
+        geometry: rockGeometry,
+        material: rockMaterial,
+      },
+      {
+        id: 2,
+        label: "boulders",
+        densityGrid: 2,
+        scaleMin: 0.6,
+        scaleMax: 1.4,
+        slopeLimit: 0.4,
+        tintJitter: 0.25,
+        embed: 0.25,
+        maxDistance: 800,
+        geometry: boulderGeometry,
+        material: rockMaterial,
+      },
+    ],
+  });
+  scene.add(population);
+
   // Directional Sun Light
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(200, 300, 200));
   const sun = new Light();
@@ -179,6 +232,10 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
       scene.settings.sky.seaLevel = terrain.getHeightAt(orbitTarget.x, orbitTarget.z);
     },
     dispose: () => {
+      population.dispose();
+      rockGeometry?.dispose();
+      boulderGeometry?.dispose();
+      rockMaterial.dispose();
       terrainMat.dispose();
       terrain.dispose();
       disposePbrTextureSet(marsMaps);

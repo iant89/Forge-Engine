@@ -1071,6 +1071,33 @@ try {
   await page.evaluate(() => window.__forge.setAnimating(false));
   await settle(8) // the streaming budget generates a couple of chunks per frame
 
+  // Phase 14: the streamed disc carries a deterministic rock/boulder population. It must actually
+  // draw (instances and batches > 0) while the entity count stays in the terrain-chunk + lights +
+  // camera range — the point of populations is thousands of instances with no entity per instance,
+  // so an entity count that grew with the instances would mean the seam regressed to renderables.
+  const populationStart = await page.evaluate(() => {
+    const s = window.__forge.stats();
+    return {
+      instances: s.render.populationInstances,
+      batches: s.render.populationBatches,
+      entities: s.entities,
+      frameInstances: s.instances,
+      gpuErrors: s.gpuErrors,
+    };
+  });
+  if (!(populationStart.instances > 100)) {
+    throw new Error(`the terrain population did not draw (${populationStart.instances} instances in ${populationStart.batches} batches)`);
+  }
+  if (!(populationStart.batches >= 4)) throw new Error(`the terrain population drew too few batches (${populationStart.batches})`);
+  if (!(populationStart.entities < 400)) {
+    throw new Error(`population instances became entities (${populationStart.entities} entities for ${populationStart.instances} instances)`);
+  }
+  if (populationStart.gpuErrors > 0) throw new Error(`gpu errors after population draw: ${populationStart.gpuErrors}`);
+  console.log(
+    `  population: ${populationStart.instances} instances in ${populationStart.batches} batches, ` +
+      `entities ${populationStart.entities}, instances(frame) ${populationStart.frameInstances}`,
+  );
+
   const WHEEL_STEPS = 4;
   const wheelAtCentre = async (deltaY, clientX, clientY) => {
     for (let i = 0; i < WHEEL_STEPS; i++) {

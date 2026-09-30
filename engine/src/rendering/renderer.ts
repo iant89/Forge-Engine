@@ -29,7 +29,7 @@
 import { BufferUsage, TextureUsage, gpuSource } from "../gpu/constants.js";
 import { Double3 } from "../math/double3.js";
 import { BufferBuilder, StructAccessor, WriteBuffer } from "../gpu/bufferWriter.js";
-import { Mat4 } from "../math/mat.js";
+import { Mat4, composeYTRS } from "../math/mat.js";
 import { Vec3 } from "../math/vec.js";
 import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
@@ -58,6 +58,7 @@ import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
 import { findGpuParticleWorld } from "../particles/gpuWorld.js";
+import { isPopulationSource, type PopulationCollector, type PopulationSubmission } from "../scene/population.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
@@ -149,6 +150,14 @@ export interface RenderStats {
   instances: number;
   batches: number;
   culled: number;
+  /**
+   * Population batches submitted this frame (Phase 14): one per visible (chunk, type) slice. They
+   * are ordinary batches — shadow assignment, prepass, device culling and indirect records all
+   * apply — but they come from `PopulationSource`s, not from `Renderable` entities.
+   */
+  populationBatches: number;
+  /** Population instances submitted inside those batches; drawn with zero ECS entities. */
+  populationInstances: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -387,6 +396,8 @@ export class Renderer implements RenderFrameContext {
     instances: 0,
     batches: 0,
     culled: 0,
+    populationBatches: 0,
+    populationInstances: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
@@ -1517,6 +1528,8 @@ export class Renderer implements RenderFrameContext {
     s.instances = 0;
     s.batches = 0;
     s.culled = 0;
+    s.populationBatches = 0;
+    s.populationInstances = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
     s.shadowInstancesDrawn = 0;
@@ -2238,6 +2251,152 @@ export class Renderer implements RenderFrameContext {
       b.shadowRangeCount = 0;
       this.addShadowRange(b, 0, shadowMask);
     }
+
+    // Phase 14: population sources. Everything above walked one `Renderable` at a time; a
+    // population hands over whole chunks of static instances at once, and each submission becomes
+    // its own batch (never merged across chunks) so the device object culler's verdict is per chunk.
+    this.collectPopulationBatches(scene, camPos, cascadeCount, spotShadowCount, pointShadowCount);
+  }
+
+  /**
+   * Ask every scene object that is a `PopulationSource` for its chunks. Runs after the renderable
+   * walk so population instance records land contiguously after the entity records; a population
+   * batch cannot merge with an entity batch even when geometry and material match, because its
+   * bounds must stay this chunk's alone.
+   */
+  private collectPopulationBatches(
+    scene: Scene,
+    camPos: Vec3,
+    cascadeCount: number,
+    spotShadowCount: number,
+    pointShadowCount: number,
+  ): void {
+    this.populationCamPos.copyFrom(camPos);
+    this.populationShadowCounts[0] = cascadeCount;
+    this.populationShadowCounts[1] = spotShadowCount;
+    this.populationShadowCounts[2] = pointShadowCount;
+    const objects = scene.objects;
+    for (let i = 0; i < objects.length; i++) {
+      const object = objects[i]!;
+      if (!object.enabled) continue;
+      if (!isPopulationSource(object)) continue;
+      object.collectPopulations(this.populationCollector);
+    }
+  }
+
+  /** The population seam as sources see it: one stable collector object, no per-frame allocation. */
+  private readonly populationCollector: PopulationCollector = {
+    addPopulationBatch: (submission) => this.addPopulationBatch(submission),
+  };
+
+  /** Camera position (render space) and the frame's shadow-map counts, captured for the population path. */
+  private readonly populationCamPos = new Vec3();
+  private readonly populationShadowCounts = new Int32Array(3);
+
+  /**
+   * Receive one population submission: frustum-test the chunk, then emit it as instanced batch
+   * slices of at most `maxInstancesPerBatch` instances. Mirrors what the renderable walk does per
+   * entity — instance records in the arena, conservative shadow assignment, a batch with bounds —
+   * except the K instances cost one submission instead of K entities. Returns `false` when the
+   * submission was rejected before any record was written.
+   */
+  private addPopulationBatch(submission: PopulationSubmission): boolean {
+    const geometry = submission.geometry;
+    const material = submission.material;
+    const block = submission.instances;
+    if (!geometry || !material || block.count <= 0) return false;
+    const bounds = submission.bounds;
+
+    // Chunk-level pre-tests: the conservative shadow mask of the whole submission decides whether
+    // per-instance frustum work is needed at all, and an off-view chunk with no shadow presence
+    // never enters the frame.
+    const chunkMask = submission.castShadow
+      ? this.shadowMaskFor(bounds, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!)
+      : 0;
+    const inView = this.frustum.intersectsAABB(bounds);
+    if (this.debugBounds) this.queueOverlayAabb(bounds, inView ? DEBUG_BOUNDS_IN_VIEW : DEBUG_BOUNDS_CULLED);
+    if (!inView) {
+      this.stats.culled += block.count;
+      if (chunkMask === 0) return false;
+    }
+
+    let first = 0;
+    while (first < block.count) {
+      const sliceCount = Math.min(this.maxInstancesPerBatch, block.count - first);
+      this.emitPopulationSlice(submission, geometry, material, first, sliceCount, inView, chunkMask);
+      first += sliceCount;
+    }
+    return true;
+  }
+
+  /** One contiguous run of population instances: records into the arena, then one batch. */
+  private emitPopulationSlice(
+    submission: PopulationSubmission,
+    geometry: Geometry,
+    material: Material,
+    first: number,
+    count: number,
+    inView: boolean,
+    chunkMask: number,
+  ): void {
+    const block = submission.instances;
+    // A batch's instance window must start 256-aligned (the dynamic-offset rule, as in the
+    // renderable walk); the whole slice is reserved in one go so its records are contiguous.
+    const instanceOffset = this.instanceArena.reserve(count * INSTANCE_STRIDE, 256);
+    const f32 = this.instanceArena.target.f32;
+    const u32 = this.instanceArena.target.u32;
+    const castShadow = submission.castShadow;
+    const index = this.batchCount;
+
+    const batch = this.acquireBatch();
+    batch.geometry = geometry;
+    batch.material = material;
+    batch.instanceOffset = instanceOffset;
+    batch.count = count;
+    batch.transparent = false;
+    batch.overlay = false;
+    batch.castShadow = castShadow;
+    batch.shadowOnly = !inView;
+    batch.indexCount = geometry.indexCount > 0 ? geometry.indexCount : geometry.vertexCount;
+    batch.indexStart = 0;
+    batch.depthSort = -Vec3.distanceSqBetween(this.populationCamPos, submission.bounds.getCenter(this.scratchVec));
+    batch.objectOffset = 0;
+    batch.cullIndex = index;
+    batch.maxDistance = submission.maxDistance;
+    batch.bounds.setFrom(submission.bounds.min, submission.bounds.max);
+    batch.shadowRangeCount = 0;
+
+    for (let k = 0; k < count; k++) {
+      const source = first + k;
+      const base = (instanceOffset >> 2) + k * (INSTANCE_STRIDE >> 2);
+      composeYTRS(
+        block.positions[source * 3]!,
+        block.positions[source * 3 + 1]!,
+        block.positions[source * 3 + 2]!,
+        block.scales[source * 3]!,
+        block.scales[source * 3 + 1]!,
+        block.scales[source * 3 + 2]!,
+        block.rotations[source]!,
+        f32,
+        base,
+      );
+      const tint = block.tints[source]!;
+      u32[base + 16] = tint || packColorRGBA(1, 1, 1, 1);
+      f32[base + 17] = 0;
+      u32[base + 18] = 0;
+      u32[base + 19] = 0;
+
+      if (castShadow && chunkMask !== 0) {
+        // Per-instance map assignment, the same conservative test a renderable gets. Only chunks
+        // the pre-test placed near an active map pay this; the rest skip straight past.
+        this.scratchMat.m.set(f32.subarray(base, base + 16));
+        geometry.bounds.transformByMatrix(this.scratchMat, this.scratchBox);
+        this.addShadowRange(batch, k, this.shadowMaskFor(this.scratchBox, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!));
+      }
+    }
+
+    this.stats.populationBatches++;
+    this.stats.populationInstances += count;
   }
 
   /** Append/coalesce the per-object assignment without splitting the colour batch. */
