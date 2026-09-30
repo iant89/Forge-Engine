@@ -608,6 +608,38 @@ The arm then sets a 1 m draw distance over the fixture's renderables: a per-rend
 frame knows nothing about, so the batches it drops are the pass's own distance verdicts, and
 `cullRecordZeroed` must equal the cull sum in a frame where `cullDistance > 0`.
 
+## 4f. Population batches (Phase 14)
+
+`collectBatches` walks one `Renderable` at a time — one entity, one instance record, one transform
+update per object. A population is the other shape of content: thousands of *static* instances
+(rocks, boulders) whose per-frame cost should not scale through the scene graph. Scene objects that
+implement `PopulationSource` (`engine/src/scene/population.ts`, the seam) hand the renderer one
+`PopulationSubmission` per (chunk, type) during batch collection, and each submission becomes its
+own instanced batch:
+
+* **Instance records come from SoA arrays, not entities.** The submission owns a
+  `PopulationInstanceBlock` — positions (3), non-uniform scales (3), Y rotations (1), packed tints
+  (1) per instance, allocated once per chunk. The renderer composes each record straight into the
+  frame's instance arena with `composeYTRS` (`math/mat.ts`), so populations draw through exactly the
+  same instanced pipelines, bind groups and dynamic-offset windows as `Renderable` batches. No
+  entity, transform slot or component store entry exists for any instance.
+* **One batch per (chunk, type), never merged.** A population batch cannot merge with another even
+  when geometry and material match: its bounds must stay this chunk's alone, because the culler's
+  verdict (frustum/distance/HiZ, §4d), the indirect record (§4e) and the compaction list are all
+  per batch. Oversized submissions (past `maxInstancesPerBatch`) split into contiguous slices.
+* **Shadow assignment is two-level.** The chunk's conservative union bounds are tested against
+  every active cascade/spot/point-face frustum first; only chunks near a map pay the per-instance
+  AABB test (the same `shadowMaskFor` a renderable gets), and contiguous same-mask instances
+  coalesce into `firstInstance` ranges inside the batch.
+* **Off-view chunks with shadow presence stay as shadow-only batches**, like off-screen renderable
+  casters; fully invisible ones (`!inView` and mask 0) are rejected before any record is written.
+* **`stats.populationBatches` / `stats.populationInstances`** report the path separately from the
+  entity path, so "how much of the frame is population" is answerable without guessing from
+  `instances`.
+
+What this path does *not* do yet — per-instance device culling, device-resident instance buffers
+uploaded once per chunk, GPU-selected LOD — is in `docs/KNOWN-ISSUES.md` § World population.
+
 ## 5. Conventions
 
 The rules every module above assumes (pinned by `tests/math.test.ts`; the long form is `AGENTS.md`

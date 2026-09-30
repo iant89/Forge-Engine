@@ -183,6 +183,9 @@ export type { RenderFrameContext, PickResult, SkyParams } from "./scene/renderCo
 // Terrain
 export * from "./terrain/index.js";
 
+// World population (Phase 14): dense instanced scatter without per-object entities.
+export * from "./population/index.js";
+
 // Physics
 export * from "./physics/index.js";
 
@@ -271,17 +274,20 @@ export {
   boxGeometrySource,
   planeGeometrySource,
   sphereGeometrySource,
+  rockGeometrySource,
   cylinderGeometrySource,
   coneGeometrySource,
   torusGeometrySource,
   createBox,
   createPlane,
   createSphere,
+  createRock,
   createCylinder,
   createTorus,
   type BoxOptions,
   type PlaneOptions,
   type SphereOptions,
+  type RockOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
 export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";

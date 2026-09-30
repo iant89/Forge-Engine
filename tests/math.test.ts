@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  AABB, alignUp, chunkSeed, clamp, Color, combine32, decodePairToFloat64, Double3, encodeFloat64ToPair,
+  AABB, alignUp, chunkSeed, clamp, Color, combine32, composeYTRS, decodePairToFloat64, Double3, encodeFloat64ToPair,
   fbm2, Frustum, hash2iFloat, linearToSrgb, lerp, Mat4, mix32, nextPowerOfTwo, perlin2, Quat, RayHit,
   Rng, simplex2, srgbToLinear, TRS, TransformStore, valueNoise2, Vec2, Vec3,
 } from "@forge/engine";
@@ -338,6 +338,24 @@ describe("colour", () => {
 });
 
 describe("bounds", () => {
+  it("composeYTRS matches setCompose with a Y-axis quaternion, and writes at an offset", () => {
+    const out = new Float32Array(32);
+    let worst = 0;
+    for (const radians of [0, 0.7, -1.9, Math.PI, 42.5]) {
+      for (const p of [new Vec3(0, 0, 0), new Vec3(1, -2, 3.5)]) {
+        for (const s of [new Vec3(1, 1, 1), new Vec3(0.5, 2, 1.7)]) {
+          const ref = new Mat4().setCompose(p, Quat.fromAxisAngle(new Vec3(0, 1, 0), radians), s);
+          composeYTRS(p.x, p.y, p.z, s.x, s.y, s.z, radians, out, 4);
+          for (let i = 0; i < 16; i++) worst = Math.max(worst, Math.abs(out[4 + i]! - ref.m[i]!));
+          // Untouched head and tail: the offset contract the renderer's arena writes rely on.
+          expect(out[0]).toBe(0);
+          expect(out[4 + 16]).toBe(0);
+        }
+      }
+    }
+    expect(worst).toBe(0);
+  });
+
   it("AABB slab intersection returns the entry distance and respects maxDistance", () => {
     const box = new AABB(new Vec3(-1, -1, -1), new Vec3(1, 1, 1));
     const tMinMax = new Float32Array([0, 100]);

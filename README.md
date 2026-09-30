@@ -27,7 +27,9 @@ model lands, the high-gain antenna unfurls by itself and tracks Earth for the li
 slew-limited gimbals compensate every rover move, and there is no stow control. The
 scene selector still offers all nine demos: **PBR Showcase** (Phase 2: instanced material grid,
 emissive bloom source, three shadow cascades, HDR / bloom / shadow / prepass / SSAO / cascade-tint
-toggles in the panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze), **Realistic
+toggles in the panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze, with Phase 14's
+deterministic rock and boulder populations streaming in per chunk — thousands of instanced rocks, zero entities per
+rock), **Realistic
 (Alpine)** (Phase 4), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
 handbrake, `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`

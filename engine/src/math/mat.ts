@@ -906,6 +906,52 @@ export class Mat4 {
   }
 }
 
+/**
+ * Write the 16 column-major floats of a translate · rotate-Y · scale matrix directly into `out`
+ * at `offset` — no `Mat4`, `Quat` or `Vec3` allocation.
+ *
+ * This is exactly `Mat4.setCompose(position, Quat.fromAxisAngle(Vec3.up, radians), scale)` (pinned
+ * by `tests/math.test.ts`), kept as a standalone scalar function because its two hot callers write
+ * straight into buffers they already own: the renderer composes population instances into the
+ * per-frame instance arena, and the population world transforms per-instance bounds. A Y-only
+ * rotation is all scatter placement produces (rocks yaw; they do not tumble), and the direct form
+ * avoids the quaternion round trip per instance.
+ */
+export function composeYTRS(
+  px: number,
+  py: number,
+  pz: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  radians: number,
+  out: Float32Array,
+  offset = 0,
+): void {
+  const c = Math.cos(radians);
+  const s = Math.sin(radians);
+  // Column 0: the rotated +X axis, scaled by sx.
+  out[offset] = c * sx;
+  out[offset + 1] = 0;
+  out[offset + 2] = -s * sx;
+  out[offset + 3] = 0;
+  // Column 1: +Y is the rotation axis, so it only scales.
+  out[offset + 4] = 0;
+  out[offset + 5] = sy;
+  out[offset + 6] = 0;
+  out[offset + 7] = 0;
+  // Column 2: the rotated +Z axis, scaled by sz.
+  out[offset + 8] = s * sz;
+  out[offset + 9] = 0;
+  out[offset + 10] = c * sz;
+  out[offset + 11] = 0;
+  // Column 3: translation.
+  out[offset + 12] = px;
+  out[offset + 13] = py;
+  out[offset + 14] = pz;
+  out[offset + 15] = 1;
+}
+
 // Module-local scratch objects (never exposed publicly).
 let _sv: Vec3 | null = null;
 let _svB: Vec3 | null = null;

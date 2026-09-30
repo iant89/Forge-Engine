@@ -184,6 +184,34 @@ What remains:
   bolts share one light; bolts draw as debug lines only (no emissive mesh, no bloom seeding beyond
   the sky flash). (capability: environment.lightning)
 
+## World population (Phase 14)
+
+* **Instance records are re-uploaded every frame.** Population instance data is compact and
+  SoA-owned (`PopulationInstanceBlock`), but the renderer still writes every visible instance's
+  matrix + tint record into the per-frame instance arena and `writeBuffer`s the arena once per
+  frame — the same path `Renderable`s take. Device-resident instance buffers uploaded once per
+  (chunk, type) at a stable offset would remove that per-frame cost; they need an offset allocator
+  inside the instance buffer and are not built. (capability: world.population)
+* **Device culling is per chunk, not per instance.** Each (chunk, type) submission is one batch, so
+  the `forge.objects.cull` verdict and the `maxDistance` test drop whole chunks; a chunk whose edge
+  alone is in view draws all of its instances, and HiZ occlusion sees only the chunk's conservative
+  union bounds. Per-instance culling on the device is the 14.5 follow-up. (capability: world.population)
+* **Placement depends on the tile resolution the chunk first became ready at.** Slope/height
+  acceptance samples the resident tile's heightmap at whatever LOD was live when the chunk was
+  populated; a chunk that first appears at a coarse LOD may keep slightly different instances than
+  one that appeared at LOD 0. XZ placement, scale, rotation and tint are stable forever after (an
+  LOD remesh re-anchors Y to the new surface instead of re-scattering), and the same warm-up
+  sequence is bit-for-bit reproducible — but "same chunk, any load order" is not guaranteed until
+  placement samples a resolution-independent surface. (capability: world.population)
+* **Population generation is main-thread inline.** Populating a chunk is one bounded scatter pass
+  per type over the resident heightmap (budgeted by `generationsPerFrame`), not a `TaskScheduler`
+  job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
+  heightmap samples available off-thread. (capability: world.population)
+* **Only rocks and boulders exist.** Vegetation, debris, decals and environmental props (14.2) are
+  unbuilt; there is no GPU-selected object LOD (14.4) — every instance of a type draws the same
+  geometry at every distance — and no population raycast, so picking/debug tools cannot hit a rock.
+  (capability: world.population)
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet
