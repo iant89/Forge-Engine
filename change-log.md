@@ -4469,6 +4469,44 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "2026-09-30 session note: scope, the seam placement decision, composeYTRS, the pole-normal gotcha, TerrainWorld focus/camera test pitfalls, browser-gate results and the flake attribution, the no-vision pixel A/B technique, port hygiene",
     "why": "Institutional memory for the next phase slice (14.4 GPU LOD, remaining types, device-resident buffers)."
+  },
+  {
+    "id": "0349",
+    "date": "2026-09-30T13:06:01Z",
+    "type": "pr-merge",
+    "pr": 49,
+    "branch": "arena/01a0f188-forge-engine",
+    "base": "main",
+    "title": "Phase 14: world population — deterministic scatter, compact instance blocks, instanced batches with zero entities",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "First slice of Phase 14 (world population): 14.1 deterministic scatter (scatterPopulationChunk, a pure function of type/seed/chunk/sampler over a stratified jittered grid), 14.3 compact SoA instance blocks (PopulationInstanceBlock), a renderer seam in scene/population.ts that turns each (chunk, type) submission into its own instanced batch — instance records composed into the frame arena via the new composeYTRS, two-level conservative shadow assignment, per-chunk bounds so the Phase 13.5/13.6 device culler and indirect records apply unchanged — and 14.6 PopulationWorld streaming that follows TerrainWorld chunks (budgeted populate, eviction, Y re-anchor on LOD remesh) with zero ECS entities. 14.2 partial: rocks + boulders in the terrain demo via the new rockGeometrySource primitive. Full suite 659 passing (19 new population tests); check:browser passed every arm through the weather scene including the new population arm (959 instances / 48 batches / 64 entities / 0 GPU errors) and died only on the pre-existing Mars Showcase W-drive SwiftShader flake. Open remainder — 14.4 GPU LOD, vegetation/debris/decals/props, device-resident instance buffers — documented in KNOWN-ISSUES and the world.population capability (partial, closesWith 14.4).",
+    "files": [
+      "AGENTS.md",
+      "ARCHITECTURE.md",
+      "README.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/RENDERING.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/index.ts",
+      "engine/src/math/index.ts",
+      "engine/src/math/mat.ts",
+      "engine/src/population/index.ts",
+      "engine/src/population/scatter.ts",
+      "engine/src/population/world.ts",
+      "engine/src/rendering/primitives.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/scene/population.ts",
+      "examples/src/scenes/terrainScene.ts",
+      "mnemosyne.md",
+      "tests/math.test.ts",
+      "tests/population.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs"
+    ]
   }
 ]
 ```
