@@ -17,9 +17,11 @@
  *    the engine ships; anything that can fill a block can be one.
  *  - `PopulationCollector` — what the renderer implements. It receives one `PopulationSubmission`
  *    per (chunk, type) — a submission is one potential instanced batch — and does everything the
- *    `Renderable` path does: frustum test, per-instance records in the frame's instance arena,
- *    conservative shadow-map assignment, and a batch with its own bounds so the device object
- *    culler (Phase 13.5) can drop whole chunks.
+ *    `Renderable` path does: frustum test, per-instance records, conservative shadow-map assignment,
+ *    and a batch with its own bounds so the device object culler (Phase 13.5) can drop whole chunks.
+ *    A submission that carries a `residencyKey` has its records composed **once** into a slot of the
+ *    renderer's instance buffer instead of once per frame into the frame's arena (Phase 14.3's
+ *    device-resident step); the key is the slot's identity and the version says when to rewrite it.
  *
  * `Geometry`/`Material` appear here as *types only*: this module lives in `scene` beside
  * `SceneObject` (a population source is a scene-object capability, like `raycast`), so the renderer
@@ -89,6 +91,23 @@ export interface PopulationSubmission {
   readonly castShadow: boolean;
   /** Draw distance in metres (0 = unlimited); the device culler drops the batch past it. */
   readonly maxDistance: number;
+  /**
+   * Stable identity of this submission's instance data, for device-resident storage (Phase 14.3's
+   * further step). Submissions that share a key share one uploaded block, so a key must name one
+   * (chunk, type) for as long as that chunk lives — `"${worldUid}:${typeId}:${cx},${cz}"` is the
+   * shape `PopulationWorld` uses. The renderer allocates a slot the first time it sees a key, writes
+   * the records once, and frees the slot on the first frame the key is *not* offered (a chunk that
+   * streamed out, a source that was disabled or removed). Omitted, and the records are composed into
+   * the frame's instance arena every frame the way a `Renderable`'s are.
+   */
+  readonly residencyKey?: string;
+  /**
+   * The source's own version of `instances`: bump it whenever the arrays change (a re-scatter, or a
+   * remesh re-anchoring Y) and the renderer composes and uploads the block again. A version that
+   * never moves is what makes a steady frame cost nothing; one that moves every frame is a
+   * per-frame upload with extra bookkeeping, so only bump it when the data really changed.
+   */
+  readonly residencyVersion?: number;
 }
 
 /**

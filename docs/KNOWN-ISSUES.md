@@ -186,12 +186,14 @@ What remains:
 
 ## World population (Phase 14)
 
-* **Instance records are re-uploaded every frame.** Population instance data is compact and
-  SoA-owned (`PopulationInstanceBlock`), but the renderer still writes every visible instance's
-  matrix + tint record into the per-frame instance arena and `writeBuffer`s the arena once per
-  frame — the same path `Renderable`s take. Device-resident instance buffers uploaded once per
-  (chunk, type) at a stable offset would remove that per-frame cost; they need an offset allocator
-  inside the instance buffer and are not built. (capability: world.population)
+* **Resident instance slots are bucketed, capped, and rewritten wholesale.** A block's slot is the
+  next power of two above its 256-aligned byte need (`SlotAllocator.slotBytesFor`), so a 41 KiB
+  block holds 64 KiB, and slots stop at `MAX_SLOT_BYTES` (4 MiB): a type whose `maxPerChunk` would
+  need more — or a frame whose instance buffer cannot grow — leaves that block in the per-frame
+  arena, paying exactly the per-frame upload residency was built to remove. A chunk whose content
+  version moves (an LOD remesh) re-composes and re-uploads *every* record in its block; there is no
+  partial update. Growing the arena moves every absolute offset, so one such frame rewrites all
+  resident blocks once (`invalidateResidency`). (capability: world.population)
 * **Device culling is per chunk, not per instance.** Each (chunk, type) submission is one batch, so
   the `forge.objects.cull` verdict and the `maxDistance` test drop whole chunks; a chunk whose edge
   alone is in view draws all of its instances, and HiZ occlusion sees only the chunk's conservative
@@ -207,10 +209,54 @@ What remains:
   per type over the resident heightmap (budgeted by `generationsPerFrame`), not a `TaskScheduler`
   job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
   heightmap samples available off-thread. (capability: world.population)
-* **Only rocks and boulders exist.** Vegetation, debris, decals and environmental props (14.2) are
-  unbuilt; there is no GPU-selected object LOD (14.4) — every instance of a type draws the same
-  geometry at every distance — and no population raycast, so picking/debug tools cannot hit a rock.
+* **Object LOD is chosen per batch, with no hysteresis.** The device picks one level per
+  (chunk, type) batch from that batch's bounds centre, so every instance in a chunk draws the same
+  level, and a chunk whose centre sits on a threshold can change level between frames as the camera
+  moves — a pop, not an error, but there is no dither or fade to hide it. Past `MAX_LOD_SETS` (64)
+  distinct chains the excess is not registered: those batches draw level 0, which is correct and
+  simply costs the saving. Chains are hand-built from a parametric source (`createLodChain`); there
+  is no mesh decimator, so an imported mesh has one level unless its caller builds the rest.
+  (capability: rendering.objectLod)
+* **A level threshold has no slop, so the host and the device can still differ by one ulp.** The
+  device measures the level distance in f32 (bounds centre, camera position, root); the two host
+  paths that must match it — the renderer's mirror, which decides what the prepass and the shadow
+  maps draw, and the CPU twin, which decides what a cpu-culling frame draws — now round exactly
+  where it does (`lodDistanceF32`), and the twin measures its distance *verdict* the same way for
+  the same reason. Before that they measured in f64, and at 800 m an f32 ulp is 6.1e-5 m: a batch
+  inside that gap of a `minDistance` gets one level in `forge.main` and another in the prepass,
+  which `depthCompare: "less-equal"` turns into holes rather than a cosmetic drift. Tint may still
+  contract `dot` into an fma and leave one ulp, which is a batch within a fraction of a millimetre
+  of a threshold for one frame — the missing hysteresis above at its smallest.
+  (capability: rendering.objectLod)
+* **The shadow maps and the prepass still draw batches the device culler is about to reject.** Those
+  passes are recorded before `forge.objects.cull`, because its occlusion test reads the pyramid the
+  prepass depth is reduced into, and they collapse a rejected batch by reading its visibility word —
+  which in the device arm the pass has not written yet. The host now states the verdicts it can reach
+  alone (`markCertainDistanceCulls`: certainly past the batch's own distance limit, with a margin
+  wider than f32 rounding can argue with), which removed the visible consequence — a rejected batch
+  used to leave prepass depth the sky was rejected against while `forge.main` never shaded it, 418
+  dark specks along the terrain horizon, measured by the pixel A/B in `tools/browser-check.mjs`.
+  What remains is work, not pixels: every batch still costs those passes a draw and its vertex
+  shading, and a batch inside the margin is still theirs to draw. Splitting the pass — frustum,
+  distance and level before the shadow maps, occlusion after the pyramid — is the fix.
+  (roadmap: 14.7)
+* **Populations cannot be picked or raycast.** Instances live in SoA typed arrays keyed by
+  (chunk, type) with no entity and no per-instance bounds, so `scene.raycast` and the debug tools
+  cannot hit a rock. A query would have to re-run the same stratified scatter (it is deterministic,
+  so it can) or maintain a per-instance accelerator; neither is built.
   (capability: world.population)
+* **Decals sit a constant distance above the surface, and cast no shadow.** A decal instance is a
+  plane lifted by its type's `lift` (6 cm in the preset) with no embed, so where the terrain's
+  relief across the decal's own chord exceeds that — a 4 m decal over 55 m of relief sags about
+  6 cm — the plane sinks in or floats. The terrain demo raises its decal `lift` to 22 cm for exactly
+  this reason. A decal that follows the surface needs a depth-biased material or a plane bent to the
+  heightmap. Transparent types also drop their shadow batch: the shadow map has no alpha-test path,
+  so a decal would otherwise stamp a solid square into the cascade. (capability: world.population)
+* **The four new types are parametric primitives, and vegetation does not move.** Debris is a shard
+  cluster, vegetation is drooping blades, props are bevelled posts — all from the engine's own
+  primitive sources, one material per type, no authored assets and no per-instance texture. Nothing
+  sways: the standard vertex stage has no wind term for population instances, so a scrub field is
+  static geometry with a tint jitter. (capability: world.population)
 
 ## Documentation debt
 

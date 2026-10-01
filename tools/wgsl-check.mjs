@@ -121,6 +121,9 @@ const STORAGE_STRUCT_HOSTS = {
   ObjectBatchEntry: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
   ObjectBatchBlock: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
   ObjectCullStatsBlock: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
+  ObjectLodLevel: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
+  ObjectLodSet: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
+  ObjectLodSetBlock: ["rendering/objectCulling.ts", OBJECT_CULL_SHADER],
 };
 for (const [label, def] of Object.entries(RENDERING_STORAGE_STRUCTS ?? {})) {
   if (!def || typeof def.byteSize !== "function" || typeof def.toWgsl !== "function") {

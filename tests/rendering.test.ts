@@ -11,12 +11,15 @@ import {
   Camera,
   Color,
   createBox,
+  createLodPrimitive,
   createPlane,
+  CullReason,
   GraphicsDevice,
   Light,
   Material,
   Renderable,
   Renderer,
+  rockGeometrySource,
   Scene,
   Vec3,
 } from "@forge/engine";
@@ -312,5 +315,238 @@ describe("Renderer with mock WebGPU device", () => {
     await device.dispose();
     expect(mock.outstanding.buffers).toHaveLength(0);
     expect(mock.outstanding.textures).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 14.4 at the renderer level: the LOD a batch draws is the level its own distance selects, in
+ * *every* pass that draws it.
+ *
+ * The reason this is a renderer test and not only a culler test is the failure it guards against. The
+ * device picks the level inside the indirect record, but the depth prepass and the shadow passes draw
+ * directly, before any record exists: if they kept drawing level 0 while the main pass drew a coarser
+ * level, the coarse surface would sit behind the finer prepass depth and — with the engine's
+ * `less-equal` depth compare — be rejected, punching holes in the picture. So the renderer mirrors the
+ * selection with the same pure rule the pass uses, and these cases check the mirror reaches the draws:
+ * the prepass's own `drawIndexed` arguments, the twin's record words, and the frame's triangle count
+ * must all say the same level.
+ */
+describe("Renderer LOD selection (14.4)", () => {
+  /** A three-level rock chain: 864 / 294 / 96 indices, switching at 40 m and 120 m. */
+  const SEGMENTS = [12, 7, 4];
+  const DISTANCES = [40, 120];
+  const WINDOWS = [
+    { firstIndex: 0, indexCount: 864 },
+    { firstIndex: 864, indexCount: 294 },
+    { firstIndex: 1158, indexCount: 96 },
+  ];
+  /** The sky's fullscreen triangle is in every frame's count, so the rock's own is one short of it. */
+  const SKY_TRIANGLES = 1;
+
+  async function fixture(cameraZ: number, objectCulling: "cpu" | "gpu" = "cpu") {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    device.resize(320, 180);
+    const mock = device.mock;
+    // "cpu" is the mock's default and runs the twin, so the records and `cullLodReduced` are this
+    // frame's; "gpu" drives the real culler (which the mock validates but does not execute), so it is
+    // the arm that shows the chain being registered with the device.
+    const renderer = new Renderer(device, { shadowMapSize: 256, objectCulling });
+    const scene = new Scene({ name: "lod-renderer" });
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, cameraZ));
+    const camera = new Camera();
+    camera.fovY = Math.PI / 3;
+    camera.near = 0.1;
+    camera.far = 600;
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+    const geometry = createLodPrimitive(device, {
+      build: (level) => rockGeometrySource({ radius: 1, segments: SEGMENTS[level]!, seed: 3 }),
+      levels: SEGMENTS.length,
+      distances: DISTANCES,
+    });
+    const material = new Material({ label: "lod-rock", color: 0x887766, roughness: 0.9 });
+    const rockEntity = scene.createTransformedEntity("rock", new Vec3(0, 0, 0));
+    const renderable = new Renderable();
+    renderable.geometry = geometry;
+    renderable.material = material;
+    renderable.castShadow = false;
+    scene.world.addComponent(rockEntity.id, renderable);
+    return {
+      device,
+      mock,
+      renderer,
+      scene,
+      camEntity,
+      geometry,
+      material,
+      renderable,
+      async dispose() {
+        renderer.dispose();
+        material.dispose();
+        geometry.dispose();
+        scene.dispose();
+        await device.dispose();
+        expect(mock.outstanding.buffers).toEqual([]);
+        expect(mock.outstanding.textures).toEqual([]);
+      },
+    };
+  }
+
+  /** The windows the frame's *direct* draws used (the prepass and the shadow passes). */
+  function directWindows(mock: { commandLog: Record<string, unknown>[] }): { indexCount: number; firstIndex: number }[] {
+    return mock.commandLog
+      .filter((e) => e.type === "drawIndexed" && e["indirect"] === undefined)
+      .map((e) => ({ indexCount: e["indexCount"] as number, firstIndex: e["firstIndex"] as number }));
+  }
+
+  /** The window the indirect record carries: what the main pass actually draws. */
+  function recordWindow(mock: { liveBuffers: Set<{ label: string; data: ArrayBuffer }> }, batch: number): { indexCount: number; firstIndex: number } {
+    const records = [...mock.liveBuffers].find((b) => b.label === "cull.drawRecords");
+    if (!records) throw new Error("no cull.drawRecords buffer");
+    const words = new Uint32Array(records.data);
+    return { indexCount: words[batch * 8]!, firstIndex: words[batch * 8 + 2]! };
+  }
+
+  it("draws the finest level up close, in the prepass and the record alike", async () => {
+    const f = await fixture(-10); // 10 m from the rock at the origin
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    // The chain is registered once, and this frame's batches all read it.
+    expect(f.renderer.stats.lodSets).toBe(1);
+    expect(f.renderer.stats.lodBatches).toBe(1);
+    expect(f.renderer.stats.cullLodReduced).toBe(0);
+    expect(f.renderer.stats.triangles).toBe(WINDOWS[0]!.indexCount / 3 + SKY_TRIANGLES);
+    expect(recordWindow(f.mock, 0)).toEqual(WINDOWS[0]!);
+    expect(directWindows(f.mock)).toContainEqual(WINDOWS[0]!);
+    // A chain's own primary window is level 0, which is what a pass with no record falls back to.
+    expect(f.geometry.drawStart).toBe(WINDOWS[0]!.firstIndex);
+    expect(f.geometry.drawCount).toBe(WINDOWS[0]!.indexCount);
+    await f.dispose();
+  });
+
+  it("drops to the coarsest level past the last threshold, in every pass that draws it", async () => {
+    const f = await fixture(-140); // 140 m out: past the 120 m threshold
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.lodSets).toBe(1);
+    expect(f.renderer.stats.lodBatches).toBe(1);
+    // The frame's own report: one batch drew a coarser level than the CPU's default.
+    expect(f.renderer.stats.cullLodReduced).toBe(1);
+    expect(f.renderer.stats.triangles).toBe(WINDOWS[2]!.indexCount / 3 + SKY_TRIANGLES);
+    const record = recordWindow(f.mock, 0);
+    expect(record).toEqual(WINDOWS[2]!);
+    // The prepass drew the *same* level: had it drawn level 0, its finer depth would have rejected
+    // the coarse surface the main pass shades, and the rock would have holes in it.
+    const direct = directWindows(f.mock);
+    expect(direct).toContainEqual(WINDOWS[2]!);
+    expect(direct.some((w) => w.indexCount === WINDOWS[0]!.indexCount)).toBe(false);
+    await f.dispose();
+  });
+
+  it("steps through the middle level between the two thresholds", async () => {
+    const f = await fixture(-60); // 60 m: past 40, short of 120
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.cullLodReduced).toBe(1);
+    expect(recordWindow(f.mock, 0)).toEqual(WINDOWS[1]!);
+    expect(directWindows(f.mock)).toContainEqual(WINDOWS[1]!);
+    expect(f.renderer.stats.triangles).toBe(WINDOWS[1]!.indexCount / 3 + SKY_TRIANGLES);
+    await f.dispose();
+  });
+
+  it("registers the chain with the device once and stages one set index per batch per frame", async () => {
+    // The device arm: the culler owns the main pass's level, so what the renderer owes it is one
+    // static table and one u32 per batch per frame. The passes that draw *directly* (the prepass, the
+    // shadow maps) still need the level from the CPU mirror, and that is what this watches.
+    const f = await fixture(-140, "gpu");
+    for (let frame = 0; frame < 3; frame++) {
+      f.renderer.renderScene(f.scene);
+      expect(f.mock.errors).toEqual([]);
+    }
+    const tableWrites = () => f.mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "objects.lodSets").length;
+    const indexWrites = () => f.mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "objects.batchLods").length;
+    // Three frames, one table upload: the chain is static geometry, and rewriting it per frame would
+    // be exactly the cost device LOD exists to remove. The per-batch indices are the per-frame part.
+    expect(tableWrites()).toBe(1);
+    expect(indexWrites()).toBe(3);
+    expect(f.renderer.stats.lodSets).toBe(1);
+    expect(f.renderer.stats.lodBatches).toBe(1);
+    // The batch's set index is the table's first entry: one chain, one set, batch 0 points at it.
+    const batchLods = [...f.mock.liveBuffers].find((b) => b.label === "objects.batchLods")!;
+    expect(new Uint32Array(batchLods.data, 0, 1)[0]).toBe(0);
+    // The prepass followed the mirror down to the coarsest level (140 m is past both thresholds).
+    expect(directWindows(f.mock)).toContainEqual(WINDOWS[2]!);
+    expect(directWindows(f.mock).some((w) => w.indexCount === WINDOWS[0]!.indexCount)).toBe(false);
+    // The record's window is the mirror's answer, uploaded as the default: the pass overwrites those
+    // two words with its own identical decision, so a batch the pass never reaches — past
+    // MAX_CULLED_BATCHES, or a frame whose pass did not run — still draws the level its distance
+    // asked for rather than the finest one. The mock executes no WGSL, so this is the default showing.
+    expect(recordWindow(f.mock, 0)).toEqual(WINDOWS[2]!);
+    await f.dispose();
+  });
+
+  it("hands the passes before the cull pass the distance verdict it will reach, in both modes", async () => {
+    // `forge.objects.cull` runs after the shadow maps and the depth prepass — its occlusion test reads
+    // the pyramid the prepass depth is reduced into — and both of those read the visibility words to
+    // collapse a rejected batch in the vertex stage. In the device arm those words were the host's
+    // zeros until the pass wrote them, so a batch the pass was about to reject still wrote prepass
+    // depth, and depth the sky is rejected against while `forge.main` never shades it is a dark speck
+    // on the horizon: 418 of them over the terrain demo, which is how this was found. 140 m against a
+    // 50 m limit is far past the host's margin, so the host can state it before the frame is recorded.
+    const verdict = async (objectCulling: "cpu" | "gpu") => {
+      const f = await fixture(-140, objectCulling);
+      f.renderable.maxDistance = 50;
+      f.renderer.renderScene(f.scene);
+      expect(f.mock.errors).toEqual([]);
+      const buffer = [...f.mock.liveBuffers].find((b) => b.label === "cull.visibility")!;
+      const words = [...new Uint32Array(buffer.data, 0, Math.max(1, f.renderer.stats.batches))];
+      await f.dispose();
+      return words;
+    };
+    expect(await verdict("gpu")).toEqual([CullReason.Distance]);
+    // The twin reaches the same verdict on its own, which is the point: the two arms now hand the
+    // prepass and the shadow maps the same words, so they draw the same frame.
+    expect(await verdict("cpu")).toEqual([CullReason.Distance]);
+  });
+
+  it("leaves a geometry without a chain exactly as it was", async () => {
+    // The overwhelming majority of geometries are single-level: they must not pay for the feature,
+    // and their draws must not change.
+    const device = await GraphicsDevice.create({ forceMock: true });
+    device.resize(320, 180);
+    const mock = device.mock;
+    const renderer = new Renderer(device, { shadowMapSize: 256 });
+    const scene = new Scene({ name: "no-lod" });
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -140));
+    const camera = new Camera();
+    camera.fovY = Math.PI / 3;
+    camera.near = 0.1;
+    camera.far = 600;
+    scene.world.addComponent(camEntity.id, camera);
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+    const geometry = createBox(device, { width: 2, height: 2, depth: 2 });
+    const material = new Material({ label: "plain", color: 0x446688 });
+    const entity = scene.createTransformedEntity("box", new Vec3(0, 0, 0));
+    const renderable = new Renderable();
+    renderable.geometry = geometry;
+    renderable.material = material;
+    scene.world.addComponent(entity.id, renderable);
+
+    renderer.renderScene(scene);
+    expect(mock.errors).toEqual([]);
+    expect(geometry.lods).toBeNull();
+    expect(renderer.stats.lodSets).toBe(0);
+    expect(renderer.stats.lodBatches).toBe(0);
+    expect(renderer.stats.cullLodReduced).toBe(0);
+    expect(renderer.stats.triangles).toBe(12 + SKY_TRIANGLES);
+    expect(recordWindow(mock, 0)).toEqual({ indexCount: 36, firstIndex: 0 });
+    // No table buffer at all: nothing was registered, so nothing was allocated or uploaded.
+    expect([...mock.liveBuffers].some((b) => b.label === "objects.lodSets")).toBe(false);
+    renderer.dispose();
+    material.dispose();
+    geometry.dispose();
+    scene.dispose();
+    await device.dispose();
+    expect(mock.outstanding.buffers).toEqual([]);
   });
 });

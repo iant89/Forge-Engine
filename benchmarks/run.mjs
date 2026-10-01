@@ -5,6 +5,7 @@
  * Runs the Phase 3 100k-entity benchmarks and prints throughput / timing stats.
  */
 import { assertCullingBenchmark, runCullingBenchmark } from "./src/culling.bench.ts";
+import { assertPopulationBenchmark, runPopulationBenchmark } from "./src/population.bench.ts";
 import { runEcsBenchmark } from "./src/ecs.bench.ts";
 import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
 import { runParticleBenchmark } from "./src/particles.bench.ts";
@@ -22,6 +23,9 @@ results.push(...lights.results);
 console.log("Running object-culling benchmark (Phase 13.5)...");
 const culling = runCullingBenchmark();
 results.push(...culling.results);
+console.log("Running world-population benchmark (Phase 14)...");
+const population = await runPopulationBenchmark();
+results.push(...population.results);
 
 console.log("\nBenchmark Results:");
 console.log("--------------------------------------------------------------------------------");
@@ -45,6 +49,9 @@ for (const note of lightNotes) console.log(`  ${note}`);
 const cullNotes = assertCullingBenchmark(culling);
 console.log("Object culling (Phase 13.5):");
 for (const note of cullNotes) console.log(`  ${note}`);
+const populationNotes = assertPopulationBenchmark(population);
+console.log("World population (Phase 14):");
+for (const note of populationNotes) console.log(`  ${note}`);
 const integrate = particles.results[1];
 if (!integrate || integrate.durationMs >= 1000) {
   console.error(`100k particle integrate exceeded 1s (${integrate?.durationMs.toFixed(1) ?? "missing"} ms)`);

@@ -443,6 +443,316 @@ export function torusGeometrySource(options: { radius?: number; tube?: number; r
   return { positions, normals, uvs, tangents, indices, label: "torus" };
 }
 
+// ------------------------------------------------------------------ Phase 14.2 population types
+
+/**
+ * A deterministic local random stream (xorshift32).
+ *
+ * The population primitives each need a handful of jitter values, and they must not couple to
+ * `math/rng`'s stream contract (which the scatter's determinism is pinned against): a primitive's
+ * output is a pure function of its own options, so its stream is private and its seed is its own.
+ */
+function primitiveRandom(seed: number): () => number {
+  let state = (seed | 0) || 1;
+  return () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state |= 0;
+    return (state >>> 0) / 4294967296;
+  };
+}
+
+export interface DebrisOptions {
+  /** Fragments in one instance — a chip pile reads as debris where one chip reads as a pebble. Default 3. */
+  fragments?: number;
+  /** Radius of the pile the fragments are scattered inside. Default 0.5. */
+  radius?: number;
+  /** Sides of each fragment's prism (3 = a shard, 5 = a chunk). Default 4. */
+  sides?: number;
+  /** Fragment height as a fraction of `radius`. Default 0.55. */
+  height?: number;
+  /** Seed of the deterministic jitter; same seed → same pile, byte for byte. */
+  seed?: number;
+}
+
+/**
+ * Broken fragments — the engine's debris primitive (Phase 14.2).
+ *
+ * Each fragment is a tapered prism: a jittered base polygon at y = 0 and an apex above it, so the
+ * silhouette is a wedge rather than a scaled rock. A few of them per instance, each with its own
+ * yaw, tilt and scale, is what makes a debris field read as *broken* — one convex blob per instance
+ * reads as gravel no matter how it is displaced. There is no bottom face: the base sits at y = 0 and
+ * the scatter embeds it.
+ */
+export function debrisGeometrySource(options: DebrisOptions = {}): GeometrySource {
+  const fragments = Math.max(1, Math.floor(options.fragments ?? 3));
+  const sides = Math.max(3, Math.floor(options.sides ?? 4));
+  const radius = options.radius ?? 0.5;
+  const height = (options.height ?? 0.55) * radius;
+  const random = primitiveRandom(options.seed ?? 0);
+
+  const vertCount = fragments * (sides + 1);
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint32Array(fragments * sides * 3);
+  let vi = 0;
+  let ii = 0;
+  for (let f = 0; f < fragments; f++) {
+    // The pile: fragments within `radius` of the instance origin, none exactly on top of another
+    // (the angle steps around the pile, so they spread instead of clumping).
+    const angle = (f / fragments) * Math.PI * 2 + random() * 0.9;
+    const distance = radius * (0.15 + 0.75 * random());
+    const cx = Math.cos(angle) * distance;
+    const cz = Math.sin(angle) * distance;
+    const yaw = random() * Math.PI * 2;
+    const tilt = (random() - 0.5) * 0.5;
+    const scale = radius * (0.35 + 0.5 * random());
+    const apexHeight = height * (0.7 + 0.9 * random());
+    const base = vi;
+    for (let k = 0; k < sides; k++) {
+      const a = yaw + (k / sides) * Math.PI * 2;
+      const r = scale * (0.7 + 0.5 * random());
+      positions[vi * 3] = cx + Math.cos(a) * r;
+      // The tilt leans the whole base polygon, so a fragment can look knocked over rather than planted.
+      positions[vi * 3 + 1] = Math.sin(a) * r * tilt;
+      positions[vi * 3 + 2] = cz + Math.sin(a) * r;
+      uvs[vi * 2] = k / sides;
+      uvs[vi * 2 + 1] = 0;
+      vi++;
+    }
+    positions[vi * 3] = cx + scale * 0.15 * (random() - 0.5);
+    positions[vi * 3 + 1] = apexHeight;
+    positions[vi * 3 + 2] = cz + scale * 0.15 * (random() - 0.5);
+    uvs[vi * 2] = 0.5;
+    uvs[vi * 2 + 1] = 1;
+    vi++;
+    for (let k = 0; k < sides; k++) {
+      // Outward winding (`frontFace: "cw"`, as every primitive here): the face normal of
+      // (base k, apex, base k+1) points away from the fragment's axis and slightly up, so back-face
+      // culling keeps the walls a camera can see and drops the far side of the shard.
+      indices[ii++] = base + k;
+      indices[ii++] = base + sides;
+      indices[ii++] = base + ((k + 1) % sides);
+    }
+  }
+  const { normals, tangents } = computeNormalsAndTangents(positions, indices, uvs);
+  return { positions, normals, uvs, tangents, indices, label: "debris" };
+}
+
+export interface VegetationOptions {
+  /** Blades in one tuft. Default 9. */
+  blades?: number;
+  /** Tuft height. Default 1. */
+  height?: number;
+  /** Radius of the base the blades spring from. Default 0.3. */
+  radius?: number;
+  /** Segments per blade (a blade bends, so it needs more than one). Default 3. */
+  segments?: number;
+  /** Blade width at the base, as a fraction of `height`. Default 0.09. */
+  width?: number;
+  /** Outward bend at the tip, as a fraction of `height` (0 = upright, 1 = a full arch). Default 0.45. */
+  droop?: number;
+  /** Seed of the deterministic jitter. */
+  seed?: number;
+}
+
+/**
+ * A tuft of blades — the engine's vegetation primitive (Phase 14.2).
+ *
+ * Each blade is a tapered, bent ribbon of `segments` quads rising from a point on the tuft's base
+ * disc: two vertices per ring, offset along the blade's own horizontal perpendicular, so the ribbon
+ * is a *plane* the whole way up. That is what makes a double-sided material the right answer (and a
+ * shadow map the wrong one: the silhouette of a blade ribbon is a solid sliver, not a plant). UVs run
+ * across the blade (u) and along it (v), so an alpha-cutout leaf texture maps blade by blade.
+ *
+ * There is no trunk and no canopy: at population scatter scales a shrub reads as a tuft, and a
+ * canopy needs a branching structure this primitive deliberately does not grow.
+ */
+export function vegetationGeometrySource(options: VegetationOptions = {}): GeometrySource {
+  const blades = Math.max(1, Math.floor(options.blades ?? 9));
+  const segments = Math.max(1, Math.floor(options.segments ?? 3));
+  const height = options.height ?? 1;
+  const radius = options.radius ?? 0.3;
+  const width = (options.width ?? 0.09) * height;
+  const droop = Math.max(0, options.droop ?? 0.45);
+  const random = primitiveRandom(options.seed ?? 0);
+
+  const rings = segments + 1;
+  const vertCount = blades * rings * 2;
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint32Array(blades * segments * 6);
+  let vi = 0;
+  let ii = 0;
+  for (let b = 0; b < blades; b++) {
+    // Blades step around the disc rather than landing anywhere: a tuft reads as a tuft when its
+    // blades radiate, and a pure random scatter leaves gaps and overlaps.
+    const yaw = (b / blades) * Math.PI * 2 + (random() - 0.5) * 0.7;
+    const base = vi;
+    const baseRadius = radius * (0.2 + 0.8 * random());
+    const bx = Math.cos(yaw) * baseRadius;
+    const bz = Math.sin(yaw) * baseRadius;
+    const outwardX = Math.cos(yaw);
+    const outwardZ = Math.sin(yaw);
+    const bladeHeight = height * (0.7 + 0.5 * random());
+    const bladeDroop = droop * (0.6 + 0.7 * random());
+    const twist = (random() - 0.5) * 0.6;
+    for (let ring = 0; ring < rings; ring++) {
+      const t = ring / segments;
+      // The centre line: up, minus a little for the arch, and outward by the droop's own square so
+      // the tip hangs past the base instead of leaning in a straight line.
+      const cx = bx + outwardX * bladeDroop * bladeHeight * t * t;
+      const cz = bz + outwardZ * bladeDroop * bladeHeight * t * t;
+      const cy = bladeHeight * t * (1 - 0.3 * bladeDroop * t);
+      // The ribbon's perpendicular, rotated a little per blade so neighbouring blades are not parallel.
+      const perpX = -Math.sin(yaw + twist * t);
+      const perpZ = Math.cos(yaw + twist * t);
+      const halfWidth = (width * (1 - 0.85 * t)) / 2;
+      positions[vi * 3] = cx + perpX * halfWidth;
+      positions[vi * 3 + 1] = cy;
+      positions[vi * 3 + 2] = cz + perpZ * halfWidth;
+      uvs[vi * 2] = 0;
+      uvs[vi * 2 + 1] = t;
+      vi++;
+      positions[vi * 3] = cx - perpX * halfWidth;
+      positions[vi * 3 + 1] = cy;
+      positions[vi * 3 + 2] = cz - perpZ * halfWidth;
+      uvs[vi * 2] = 1;
+      uvs[vi * 2 + 1] = t;
+      vi++;
+    }
+    for (let ring = 0; ring < segments; ring++) {
+      const a = base + ring * 2;
+      indices[ii++] = a;
+      indices[ii++] = a + 1;
+      indices[ii++] = a + 2;
+      indices[ii++] = a + 1;
+      indices[ii++] = a + 3;
+      indices[ii++] = a + 2;
+    }
+  }
+  const { normals, tangents } = computeNormalsAndTangents(positions, indices, uvs);
+  return { positions, normals, uvs, tangents, indices, label: "vegetation" };
+}
+
+export interface PropOptions {
+  /** Post radius at the base. Default 0.18. */
+  radius?: number;
+  /** Post height. Default 1.6. */
+  height?: number;
+  /** Sides of the shaft (6 reads as a driven stake, 4 as a timber post). Default 6. */
+  sides?: number;
+  /** Fraction of the height the chamfered cap takes. Default 0.14. */
+  bevel?: number;
+  /** Per-vertex irregularity as a fraction of `radius` (a machined post is 0). Default 0.06. */
+  roughness?: number;
+  /** Seed of the deterministic jitter. */
+  seed?: number;
+}
+
+/**
+ * A beveled post — the engine's environmental-prop primitive (Phase 14.2).
+ *
+ * Three stacked rings plus a pyramidal cap: the shaft tapers slightly, the shoulder steps in, and the
+ * cap closes it, so the silhouette reads as *made* rather than grown — which is the whole job of a
+ * prop. There is no bottom face (the scatter embeds the base) and no separate material slot for the
+ * cap: a prop is one draw, one material, one instance.
+ */
+export function propGeometrySource(options: PropOptions = {}): GeometrySource {
+  const sides = Math.max(3, Math.floor(options.sides ?? 6));
+  const radius = options.radius ?? 0.18;
+  const height = options.height ?? 1.6;
+  const bevel = Math.min(0.5, Math.max(0, options.bevel ?? 0.14));
+  const roughness = options.roughness ?? 0.06;
+  const random = primitiveRandom(options.seed ?? 0);
+
+  // Rings: base, shoulder, cap rim — then the apex. Radii and heights as fractions of the post.
+  const rings = [
+    { y: 0, r: 1 },
+    { y: 1 - bevel, r: 0.94 },
+    { y: 1 - bevel, r: 0.55 },
+  ];
+  const vertCount = rings.length * sides + 1;
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint32Array((2 * sides + 2 * sides + sides) * 3);
+  let vi = 0;
+  for (let ring = 0; ring < rings.length; ring++) {
+    const spec = rings[ring]!;
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2;
+      const r = radius * spec.r * (1 + (random() - 0.5) * 2 * roughness);
+      positions[vi * 3] = Math.cos(a) * r;
+      positions[vi * 3 + 1] = height * spec.y;
+      positions[vi * 3 + 2] = Math.sin(a) * r;
+      uvs[vi * 2] = k / sides;
+      uvs[vi * 2 + 1] = spec.y;
+      vi++;
+    }
+  }
+  positions[vi * 3] = 0;
+  positions[vi * 3 + 1] = height;
+  positions[vi * 3 + 2] = 0;
+  uvs[vi * 2] = 0.5;
+  uvs[vi * 2 + 1] = 1;
+  const apex = vi;
+  vi++;
+
+  let ii = 0;
+  // The two shaft bands (base → shoulder rim, shoulder rim → cap rim) as quads, wound so the face
+  // normal points away from the post's axis: (lower k, upper k, lower k+1) is the cylinder's own
+  // side ordering, and the second band's shoulder annulus therefore faces up.
+  for (let band = 0; band < 2; band++) {
+    const lower = band * sides;
+    const upper = (band + 1) * sides;
+    for (let k = 0; k < sides; k++) {
+      const next = (k + 1) % sides;
+      indices[ii++] = lower + k;
+      indices[ii++] = upper + k;
+      indices[ii++] = lower + next;
+      indices[ii++] = lower + next;
+      indices[ii++] = upper + k;
+      indices[ii++] = upper + next;
+    }
+  }
+  // The cap: rim ring to apex, wound so the fan faces up and out (the cylinder's top-cap ordering).
+  const capRing = 2 * sides;
+  for (let k = 0; k < sides; k++) {
+    indices[ii++] = apex;
+    indices[ii++] = capRing + ((k + 1) % sides);
+    indices[ii++] = capRing + k;
+  }
+  if (ii !== indices.length) throw new Error(`propGeometrySource: wrote ${ii} of ${indices.length} indices`);
+  const { normals, tangents } = computeNormalsAndTangents(positions, indices, uvs);
+  return { positions, normals, uvs, tangents, indices, label: "prop" };
+}
+
+export interface LodPrimitiveOptions {
+  /** Builds one level's source; called with 0 for the finest and `levels - 1` for the coarsest. */
+  build: (level: number) => GeometrySource;
+  /** Levels in the chain (at least two — one level is not a chain). */
+  levels: number;
+  /** Metres at which each level after the first takes over; ascending, `levels - 1` entries. */
+  distances: number[];
+}
+
+/**
+ * A primitive with a device-selectable LOD chain (Phase 14.4): one geometry whose index buffer holds
+ * every level, so the culler can switch levels by rewriting the draw's index window.
+ *
+ * The builder is what makes the levels *the same shape at different detail* — a rock at fewer
+ * segments, a tuft with fewer blades — which is why this takes a function rather than a decimation
+ * pass. A general mesh decimator (quadric collapse over an imported asset) is not built; the levels
+ * here are regenerated, not reduced.
+ */
+export function createLodPrimitive(device: GraphicsDevice, options: LodPrimitiveOptions): Geometry {
+  const levels = Math.max(2, Math.floor(options.levels));
+  const sources: GeometrySource[] = [];
+  for (let i = 0; i < levels; i++) sources.push(options.build(i));
+  return Geometry.createLodChain(device, sources, options.distances);
+}
+
 /** Line-list geometry for the debug overlay: pairs of positions. */
 export function linesGeometry(positions: Float32Array, colors: Uint32Array): { positions: Float32Array; colors: Uint32Array; vertexCount: number } {
   return { positions, colors, vertexCount: Math.floor(positions.length / 3) };
@@ -464,6 +774,21 @@ export function createSphere(device: GraphicsDevice, options: SphereOptions = {}
 /** A rock/boulder as an uploaded geometry (Phase 14 population types). */
 export function createRock(device: GraphicsDevice, options: RockOptions = {}): Geometry {
   return Geometry.create(device, rockGeometrySource(options));
+}
+
+/** Debris fragments as an uploaded geometry (Phase 14.2). */
+export function createDebris(device: GraphicsDevice, options: DebrisOptions = {}): Geometry {
+  return Geometry.create(device, debrisGeometrySource(options));
+}
+
+/** A vegetation tuft as an uploaded geometry (Phase 14.2). Pair it with a double-sided material. */
+export function createVegetation(device: GraphicsDevice, options: VegetationOptions = {}): Geometry {
+  return Geometry.create(device, vegetationGeometrySource(options));
+}
+
+/** An environmental prop (a beveled post) as an uploaded geometry (Phase 14.2). */
+export function createProp(device: GraphicsDevice, options: PropOptions = {}): Geometry {
+  return Geometry.create(device, propGeometrySource(options));
 }
 
 export function createCylinder(device: GraphicsDevice, options: CylinderOptions = {}): Geometry {

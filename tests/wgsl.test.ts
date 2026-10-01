@@ -21,6 +21,7 @@ import {
   DEPTH_VERTEX,
   LightUniforms,
   MAX_CLUSTERED_LIGHTS,
+  OBJECT_CULL_SHADER,
   PARTICLE_RENDER_SHADER,
   POST_SHADER,
   RENDERING_STORAGE_STRUCTS,
@@ -276,6 +277,9 @@ describe("clustered lighting structs (Phase 13.3)", () => {
       "ObjectBatchBlock",
       "ObjectBatchEntry",
       "ObjectCullStatsBlock",
+      "ObjectLodLevel",
+      "ObjectLodSet",
+      "ObjectLodSetBlock",
     ]);
     // The per-cluster quantisation is small and read every fragment: that one is a uniform.
     expect(ClusterUniforms.byteSize("uniform")).toBe(48);
@@ -360,6 +364,35 @@ struct Varyings { @builtin(position) @invariant clipPos: vec4<f32> };
     }
     expect(WGSL_RESERVED_WORDS).toContain("meta");
     expect(new Set(WGSL_RESERVED_WORDS).size).toBe(WGSL_RESERVED_WORDS.length); // no duplicates
+  });
+
+  // Phase 14.4 shipped the level rule as `fn selectLod(set: ObjectLodSet, d: f32)`. Every host gate
+  // passed — the mock device does not parse WGSL, and the reserved-word list did not contain the word
+  // — and Dawn then rejected the whole objects.cull module, so a real browser drew nothing at all with
+  // an invalid compute pipeline. The word is in the list now; this pins both halves of the fix.
+  it("refuses 'set', the reserved word that broke objects.cull on a real device", () => {
+    const issues = reservedWordIssues("fn selectLod(set: ObjectLodSet, d: f32) -> u32 { return 0u; }");
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.message).toContain("'set' is a reserved WGSL keyword");
+    expect(issues[0]!.line).toBe(1);
+    expect(WGSL_RESERVED_WORDS).toContain("set");
+    expect(validateWgsl("fn selectLod(set: ObjectLodSet, d: f32) -> u32 { return 0u; }").length).toBeGreaterThan(0);
+
+    // The shader that ships the rule is clean, and its parameter is named for what it holds.
+    expect(OBJECT_CULL_SHADER).toContain("fn selectLod(chain: ObjectLodSet, d: f32) -> u32 {");
+    expect(reservedWordIssues(OBJECT_CULL_SHADER)).toEqual([]);
+  });
+
+  it("lists the words the parser actually rejects, not ones WGSL uses", () => {
+    // Spot-check the additions against the two ways a word can be unusable: reserved identifiers are
+    // refused by this scanner, while keywords (`default:` in a switch, `enable f16;`) are not listed —
+    // listing those would fail valid shaders, which is why they stay out.
+    for (const word of ["set", "match", "get", "pass", "use", "ref", "mod", "std", "register", "unorm", "thread_local"]) {
+      expect(WGSL_RESERVED_WORDS, word).toContain(word);
+    }
+    for (const word of ["default", "enable", "switch", "alias", "diagnostic"]) {
+      expect(WGSL_RESERVED_WORDS, word).not.toContain(word);
+    }
   });
 });
 

@@ -44,6 +44,19 @@
  * millimetre on the depth). The failure to fear is a batch that silently stops being drawn;
  * over-culling the *other* way would just be a visible bug.
  *
+ *  - **Level of detail (Phase 14.4).** A batch whose geometry carries a LOD chain
+ *    (`Geometry.lods`: several detail levels concatenated into one index buffer, each an index
+ *    window plus the distance it starts at) has its *draw window* decided here too. The pass writes
+ *    the record's `indexCount` and `firstIndex` from the level the batch's own distance selects, so
+ *    the detail level is a device decision with no read-back, no second buffer and no per-batch CPU
+ *    work — the same verdict, the same invocation, two more words. {@link selectLodLevel} is the
+ *    rule and the WGSL `selectLod` transcribes it; the renderer runs it on the CPU as well, because
+ *    the passes that draw *before* this one (the depth prepass, the shadow maps) cannot read a
+ *    record this pass has not written yet and must agree with it exactly — a prepass at level 0
+ *    under a main pass at level 2 rejects the coarse surface's farther fragments and punches holes
+ *    in it. Selection is per *batch*: a population chunk whose near edge is close draws every one
+ *    of its instances at the finer level.
+ *
  * ## Consuming the verdict without a read-back
  *
  * The word lands in a storage buffer bound as group 1 binding 2 of the draw group, and the standard
@@ -76,7 +89,18 @@ import { StructAccessor, WriteBuffer } from "../gpu/bufferWriter.js";
 import type { ShaderCache } from "../gpu/shaderCache.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import { Mat4 } from "../math/mat.js";
-import { MAX_CULLED_BATCHES, ObjectBatchBlock, ObjectBatchEntry, ObjectCullStatsBlock, ObjectCullUniforms } from "./uniforms.js";
+import {
+  MAX_BATCH_LODS,
+  MAX_CULLED_BATCHES,
+  MAX_LOD_SETS,
+  ObjectBatchBlock,
+  ObjectBatchEntry,
+  ObjectCullStatsBlock,
+  ObjectCullUniforms,
+  ObjectLodLevel,
+  ObjectLodSet,
+  ObjectLodSetBlock,
+} from "./uniforms.js";
 import type { RenderGraph, RenderGraphHandle, RenderGraphPassContext } from "./renderGraph.js";
 
 /** Invocations per workgroup of `forge.objects.cull`: one batch each. */
@@ -115,6 +139,12 @@ export const CULL_FLAG_OCCLUSION = 4;
  * record: the pass then neither touches the buffer nor counts `recordZeroed`.
  */
 export const CULL_FLAG_RECORDS = 8;
+/**
+ * Select each batch's LOD level on the device (Phase 14.4). Implies {@link CULL_FLAG_RECORDS}: the
+ * level *is* the record's index window, so a frame that submits direct draws has its levels chosen
+ * by {@link selectLodLevel} on the CPU instead and this flag stays off.
+ */
+export const CULL_FLAG_LOD = 16;
 
 /**
  * One indirect draw record: `(count, instanceCount, first, baseVertex, firstInstance)`, the layout
@@ -128,6 +158,29 @@ export const DRAW_RECORD_WORDS = 8;
 export const DRAW_RECORD_BYTES = DRAW_RECORD_WORDS * 4;
 /** Word the pass owns: the instance count the draw runs with, 0 for a culled batch. */
 export const DRAW_RECORD_INSTANCES = 1;
+/**
+ * Words the pass also owns for a batch with a LOD chain (Phase 14.4): the index window of the level
+ * its distance selected. The CPU still writes both — level 0's window — so a batch the pass never
+ * reaches (past {@link MAX_CULLED_BATCHES}, or a frame with no LOD flag) draws its finest level.
+ */
+export const DRAW_RECORD_INDEX_COUNT = 0;
+export const DRAW_RECORD_FIRST_INDEX = 2;
+
+/**
+ * The per-batch set index that means "this geometry has no LOD chain": the pass leaves the record's
+ * CPU window alone. It is `MAX_LOD_SETS`-proof by construction — no live set index can reach it.
+ */
+export const LOD_SET_NONE = 0xffffffff;
+
+/** Byte geometry of the device LOD table, taken from the generated layout so a struct change cannot silently desynchronise the upload. */
+const LOD_SETS_FIELD = ObjectLodSetBlock.field("sets", "storage");
+const LOD_SET_LEVELS_FIELD = ObjectLodSet.field("levels", "storage");
+const LOD_SET_LODS_FIELD = ObjectLodSet.field("lods", "storage");
+const LOD_LEVEL_FIRST_INDEX_FIELD = ObjectLodLevel.field("firstIndex", "storage");
+const LOD_LEVEL_INDEX_COUNT_FIELD = ObjectLodLevel.field("indexCount", "storage");
+const LOD_LEVEL_MIN_DISTANCE_FIELD = ObjectLodLevel.field("minDistance", "storage");
+/** Bytes of the whole table: the buffer is created at this size once, whatever is live in it. */
+export const LOD_TABLE_BYTES = ObjectLodSetBlock.byteSize("storage");
 
 /** Bytes of `ObjectCullStatsBlock`: both the device buffer and the map-read copy are this big. */
 export const CULL_STATS_BYTES = ObjectCullStatsBlock.byteSize("storage");
@@ -140,6 +193,7 @@ const STATS_WORD = {
   culledOccluded: ObjectCullStatsBlock.offsetOf("culledOccluded", "storage") >> 2,
   visible: ObjectCullStatsBlock.offsetOf("visible", "storage") >> 2,
   recordZeroed: ObjectCullStatsBlock.offsetOf("recordZeroed", "storage") >> 2,
+  lodReduced: ObjectCullStatsBlock.offsetOf("lodReduced", "storage") >> 2,
 } as const;
 
 /**
@@ -222,6 +276,9 @@ ${ObjectCullUniforms.toWgsl("uniform")}
 ${ObjectBatchEntry.toWgsl("storage")}
 ${ObjectBatchBlock.toWgsl("storage")}
 ${ObjectCullStatsBlock.toWgsl("storage")}
+${ObjectLodLevel.toWgsl("storage")}
+${ObjectLodSet.toWgsl("storage")}
+${ObjectLodSetBlock.toWgsl("storage")}
 
 @group(0) @binding(0) var<uniform> cull: ObjectCullUniforms;
 @group(0) @binding(1) var<storage, read> batchBounds: ObjectBatchBlock;
@@ -232,6 +289,10 @@ ${ObjectCullStatsBlock.toWgsl("storage")}
 @group(0) @binding(5) var<storage, read_write> drawRecords: array<u32>;
 // The compaction list: one slot per visible batch, filled at counts.visible's cursor.
 @group(0) @binding(6) var<storage, read_write> visibleBatches: array<u32>;
+// Phase 14.4: one LOD set index per batch (LOD_SET_NONE when its geometry has no chain), and the
+// static table those indices address — uploaded once per distinct geometry, not once per frame.
+@group(0) @binding(7) var<storage, read> batchLods: array<u32>;
+@group(0) @binding(8) var<storage, read> lodSets: ObjectLodSetBlock;
 
 const CULL_WORKGROUP: u32 = ${CULL_WORKGROUP}u;
 const MAX_CULLED_BATCHES: u32 = ${MAX_CULLED_BATCHES}u;
@@ -239,8 +300,11 @@ const CULL_FLAG_FRUSTUM: u32 = ${CULL_FLAG_FRUSTUM}u;
 const CULL_FLAG_DISTANCE: u32 = ${CULL_FLAG_DISTANCE}u;
 const CULL_FLAG_OCCLUSION: u32 = ${CULL_FLAG_OCCLUSION}u;
 const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;
+const CULL_FLAG_LOD: u32 = ${CULL_FLAG_LOD}u;
 const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;
 const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;
+const RECORD_INDEX_COUNT: u32 = ${DRAW_RECORD_INDEX_COUNT}u;
+const RECORD_FIRST_INDEX: u32 = ${DRAW_RECORD_FIRST_INDEX}u;
 const CULL_SLOP: f32 = ${CULL_SLOP};
 const CULL_PAD_PIXELS: f32 = ${CULL_PAD_PIXELS}.0;
 const CULL_EPSILON: f32 = ${CULL_EPSILON};
@@ -278,12 +342,28 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
   return dot(p.xyz, center) + p.w < -length(p.xyz) * radius;
 }
 
-// The three tests, as one verdict. Every branch that returns REASON_VISIBLE is a case the tests
-// could not *prove* invisible — a conservative answer, never a wrong one.
-fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
-  let center = (box.min.xyz + box.max.xyz) * 0.5;
-  let radius = length(box.max.xyz - center) + CULL_SLOP;
+// Phase 14.4: the level a distance selects — the last one whose minDistance it has reached, so an
+// ascending chain needs no search. The TypeScript selectLodLevel is this function; the two are
+// pinned against each other by tests/objectCulling.test.ts and by the renderer's own CPU mirror
+// (the prepass and the shadow maps must draw the level this pass will pick, or the depth they lay
+// down disagrees with the surface the main pass shades).
+// The parameter is "chain" and never "set": WGSL reserves that word, Tint rejects the module at parse
+// time, and the host mock (which does not parse WGSL at all) would have drawn it happily. The word is
+// in WGSL_RESERVED_WORDS now, so ShaderCache.get refuses it before a device ever sees it.
+fn selectLod(chain: ObjectLodSet, d: f32) -> u32 {
+  var level = 0u;
+  for (var i = 1u; i < chain.levels; i = i + 1u) {
+    if (d >= chain.lods[i].minDistance) {
+      level = i;
+    }
+  }
+  return level;
+}
 
+// The three tests, as one verdict. Every branch that returns REASON_VISIBLE is a case the tests
+// could not *prove* invisible — a conservative answer, never a wrong one. The sphere is built by the
+// caller: the LOD selection measures from the same centre the tests do.
+fn cullReasonOf(box: ObjectBatchEntry, center: vec3<f32>, radius: f32) -> u32 {
   if ((cull.flags & CULL_FLAG_FRUSTUM) != 0u) {
     var outside = false;
     for (var row = 0u; row < 6u; row = row + 1u) {
@@ -382,7 +462,9 @@ fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
   atomicAdd(&counts.tested, 1u);
 
   let box = batchBounds.bounds[index];
-  let reason = cullReasonOf(box);
+  let center = (box.min.xyz + box.max.xyz) * 0.5;
+  let radius = length(box.max.xyz - center) + CULL_SLOP;
+  let reason = cullReasonOf(box, center, radius);
   // Stays 0 (visible) unless a test proves otherwise: the CPU resets the whole buffer every frame, so
   // an early return here is always "draw it", never "whatever the last frame said".
   visibility[index] = reason;
@@ -410,11 +492,27 @@ fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
     // is why Phase 13.5 collapsed a culled batch's clip position instead and paid its vertex shader;
     // an indirect record can, so a culled batch's draw runs no invocation at all — whoever shades it.
     // Untested batches (past MAX_CULLED_BATCHES) keep the count the CPU uploaded: visible.
-    let word = index * RECORD_WORDS + RECORD_INSTANCES;
+    let word = index * RECORD_WORDS;
     if (kept) {
-      drawRecords[word] = u32(box.max.w);
+      drawRecords[word + RECORD_INSTANCES] = u32(box.max.w);
+      // Phase 14.4 — the level is two more words of the same record: the draw that runs is the one
+      // this batch's own distance asked for, with no CPU decision and no read-back. A batch whose
+      // geometry has no chain (LOD_SET_NONE, or a set index past the live table) keeps the window
+      // the CPU uploaded, which is level 0 — the finest, and the safe answer to "don't know".
+      if ((cull.flags & CULL_FLAG_LOD) != 0u) {
+        let setId = batchLods[index];
+        if (setId < cull.lodSetCount) {
+          let chain = lodSets.sets[setId];
+          let level = selectLod(chain, distance(center, cull.cameraPos));
+          drawRecords[word + RECORD_INDEX_COUNT] = chain.lods[level].indexCount;
+          drawRecords[word + RECORD_FIRST_INDEX] = chain.lods[level].firstIndex;
+          if (level > 0u) {
+            atomicAdd(&counts.lodReduced, 1u);
+          }
+        }
+      }
     } else {
-      drawRecords[word] = 0u;
+      drawRecords[word + RECORD_INSTANCES] = 0u;
       atomicAdd(&counts.recordZeroed, 1u);
     }
   }
@@ -434,6 +532,159 @@ export interface ObjectCullStats {
   visible: number;
   /** Batches whose indirect draw record was zeroed; 0 when the frame submits direct draws. */
   recordZeroed: number;
+  /** Visible batches the pass dropped to a coarser LOD level (Phase 14.4); 0 when no chain exists. */
+  lodReduced: number;
+}
+
+/** One chain level as the CPU reads it: the draw window it selects and the distance it starts at. */
+export interface ObjectLodLevelCpu {
+  firstIndex: number;
+  indexCount: number;
+  minDistance: number;
+}
+
+/** One geometry's chain, in CPU form. `Geometry.lods` satisfies this shape as it stands. */
+export interface ObjectLodSetCpu {
+  levels: readonly ObjectLodLevelCpu[];
+}
+
+/**
+ * The frame's LOD inputs (Phase 14.4): the static table, one set per distinct chained geometry, and
+ * one set index per batch. {@link LOD_SET_NONE} marks a batch whose geometry has no chain, so the
+ * selection leaves its CPU-uploaded window (level 0) alone.
+ */
+export interface ObjectLodTable {
+  sets: readonly ObjectLodSetCpu[];
+  /** One index per batch, in batch order; entries past the batch count are never read. */
+  batchSets: ArrayLike<number>;
+}
+
+/**
+ * The LOD a distance selects: the last level whose `minDistance` it has reached. `levels[0]`'s
+ * threshold is 0 by construction (`Geometry.concatenateLods` rejects a chain that is not ascending),
+ * so the answer is 0 for anything nearer than the first threshold and the coarsest level past the
+ * last. This is the rule the WGSL `selectLod` transcribes, and the one the renderer's CPU mirror
+ * runs for the passes that draw before the device gets to decide (prepass, shadow maps).
+ */
+export function selectLodLevel(levels: ArrayLike<{ readonly minDistance: number }>, distance: number): number {
+  let level = 0;
+  for (let i = 1; i < levels.length; i++) {
+    if (distance >= (levels[i]?.minDistance ?? 0)) level = i;
+  }
+  return level;
+}
+
+/**
+ * The distance a LOD threshold measures, in the device's own arithmetic (Phase 14.4).
+ *
+ * `selectLod` compares `distance(center, cull.cameraPos)` with `minDistance`: an f32 centre built
+ * from the f32 bounds entry, an f32 camera position out of the uniform block, and f32 differences,
+ * products and square root. The two host paths that must agree with it — the renderer's mirror, which
+ * decides what the prepass and the shadow maps draw, and {@link cullBatchesOnCpu}, which decides what
+ * a cpu-culling frame draws — measure in f64 by default, and a level threshold has no slop to absorb
+ * the difference: at 800 m one f32 ulp is 6.1e-5 m, so a batch inside that gap of a `minDistance`
+ * gets one level on the host and another on the device.
+ *
+ * That is not cosmetic drift. `forge.main` reads the device's choice while the prepass reads the
+ * mirror's, and with `depthCompare: "less-equal"` a coarser main-pass surface has its farther
+ * fragments rejected by the finer prepass depth — the geometry gets holes. So both host paths round
+ * exactly where the device rounds. Tint may still contract `dot` into an fma and leave one ulp; the
+ * cull verdicts absorb that with `CULL_SLOP`, and this is as close as the two languages get.
+ *
+ * Arguments are the bounds entry's min and max corners and the camera position, in that order, so
+ * neither caller has to allocate a centre.
+ */
+export function lodDistanceF32(
+  minX: number,
+  minY: number,
+  minZ: number,
+  maxX: number,
+  maxY: number,
+  maxZ: number,
+  cameraX: number,
+  cameraY: number,
+  cameraZ: number,
+): number {
+  const cx = Math.fround((Math.fround(minX) + Math.fround(maxX)) * 0.5);
+  const cy = Math.fround((Math.fround(minY) + Math.fround(maxY)) * 0.5);
+  const cz = Math.fround((Math.fround(minZ) + Math.fround(maxZ)) * 0.5);
+  const dx = Math.fround(cx - Math.fround(cameraX));
+  const dy = Math.fround(cy - Math.fround(cameraY));
+  const dz = Math.fround(cz - Math.fround(cameraZ));
+  const xx = Math.fround(dx * dx);
+  const yy = Math.fround(dy * dy);
+  const zz = Math.fround(dz * dz);
+  return Math.fround(Math.sqrt(Math.fround(Math.fround(xx + yy) + zz)));
+}
+
+/**
+ * How far past its own limit a batch has to be before {@link markCertainDistanceCulls} says so. The
+ * host and the device measure the same distance in the same f32 arithmetic, but Tint may contract the
+ * shader's `dot` into an fma and leave one ulp, and the limit itself is an f32 in the bounds entry:
+ * a centimetre plus a few parts in a million is wider than either, and narrower than any scene's
+ * level of detail.
+ */
+const DISTANCE_VERDICT_MARGIN = 1e-2;
+
+/**
+ * Write the distance verdicts the host can reach *before* the device pass runs, and return how many
+ * batches it marked.
+ *
+ * `forge.objects.cull` runs after the shadow maps and the depth prepass, because the occlusion test
+ * reads the pyramid the prepass depth is reduced into. Until it runs, the visibility words those two
+ * read are whatever the host uploaded, and a host that uploaded zeros — "visible" — makes both of
+ * them draw every batch in the frame, including the ones the pass is about to reject. That is not
+ * only wasted rasterisation: a rejected batch that wrote prepass depth still rejects the sky there,
+ * and `forge.main` never shades it, so the pixel keeps the clear colour. Over the terrain demo that
+ * was 418 dark specks along the horizon (measured by `tools/browser-check.mjs`, which A/Bs the device
+ * culler against the twin pixel for pixel) — distant rocks past their `maxDistance`, silhouetted
+ * against the sky.
+ *
+ * So the host states the one verdict it needs no frustum and no pyramid for: this batch is certainly
+ * past its own distance limit. "Certainly" is {@link DISTANCE_VERDICT_MARGIN} beyond it, which is why
+ * this is a floor and not a twin of the pass — a batch inside the margin is left visible and the pass
+ * decides it, exactly as before. Batches at or past {@link MAX_CULLED_BATCHES} are left alone too: the
+ * pass never tests them, so a word written here would be the last word, and an untested batch has to
+ * stay visible.
+ *
+ * @param bounds - the frame's bounds entries, 8 words each (see {@link ObjectBatchEntry}).
+ * @param batchCount - batches in the frame; entries past the cap are not marked.
+ * @param visibility - the frame's visibility words, one per batch, `CullReason.Visible` on entry.
+ */
+export function markCertainDistanceCulls(
+  bounds: ArrayLike<number>,
+  batchCount: number,
+  cameraX: number,
+  cameraY: number,
+  cameraZ: number,
+  visibility: Uint32Array,
+): number {
+  const total = Math.min(batchCount, MAX_CULLED_BATCHES);
+  let marked = 0;
+  for (let index = 0; index < total; index++) {
+    const base = index * 8;
+    const limit = bounds[base + 3] ?? 0;
+    if (!(limit > 0)) continue;
+    const minX = bounds[base]!;
+    const minY = bounds[base + 1]!;
+    const minZ = bounds[base + 2]!;
+    const maxX = bounds[base + 4]!;
+    const maxY = bounds[base + 5]!;
+    const maxZ = bounds[base + 6]!;
+    const away = lodDistanceF32(minX, minY, minZ, maxX, maxY, maxZ, cameraX, cameraY, cameraZ);
+    // The pass's own radius: half the box diagonal plus CULL_SLOP, so a batch is kept while its
+    // sphere still reaches the limit. Measured in f64 over the same f32 corners — the margin below is
+    // orders of magnitude wider than the difference that makes.
+    const cx = (minX + maxX) * 0.5;
+    const cy = (minY + maxY) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const radius = Math.hypot(maxX - cx, maxY - cy, maxZ - cz) + CULL_SLOP;
+    if (away - radius > limit + DISTANCE_VERDICT_MARGIN + 1e-5 * Math.max(limit, away)) {
+      visibility[index] = CullReason.Distance;
+      marked++;
+    }
+  }
+  return marked;
 }
 
 /**
@@ -467,6 +718,12 @@ export interface ObjectCullParams {
   flags: number;
   /** Levels of the pyramid the occlusion test may read; 0 skips it. */
   hizLevels: number;
+  /**
+   * The frame's LOD table (Phase 14.4). Read only when `flags` carries {@link CULL_FLAG_LOD}, which
+   * the caller sets only when it also asked for records: without an indirect record there is no
+   * window for the pass to write, and the renderer selects levels on the CPU instead.
+   */
+  lods?: ObjectLodTable | null;
 }
 
 /** One level of a CPU-built pyramid: `data` is width × height view depths in metres. */
@@ -584,7 +841,7 @@ export function cullBatchesOnCpu(
   hiz: readonly HizLevel[] = [],
   out: ObjectCullOutputs = {},
 ): ObjectCullStats {
-  const stats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 };
+  const stats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0, lodReduced: 0 };
   const planes = cullPlanesFrom(params.viewProj);
   const total = Math.min(batchCount, MAX_CULLED_BATCHES);
   const view = params.view;
@@ -592,6 +849,9 @@ export function cullBatchesOnCpu(
   const occlusion = (params.flags & CULL_FLAG_OCCLUSION) !== 0 && params.hizLevels > 0 && hiz.length > 0;
   const records = (params.flags & CULL_FLAG_RECORDS) !== 0 ? out.records : undefined;
   const visibleList = out.visible;
+  // Phase 14.4: the twin writes the same two extra record words the device writes, from the same
+  // rule, so the mock arm and the real arm draw the same level at the same distance.
+  const lodTable = (params.flags & CULL_FLAG_LOD) !== 0 && records ? params.lods ?? null : null;
   for (let index = 0; index < total; index++) {
     stats.tested++;
     visibility[index] = CullReason.Visible;
@@ -600,6 +860,22 @@ export function cullBatchesOnCpu(
     const cy = (bounds[base + 1]! + bounds[base + 5]!) * 0.5;
     const cz = (bounds[base + 2]! + bounds[base + 6]!) * 0.5;
     const radius = Math.hypot(bounds[base + 4]! - cx, bounds[base + 5]! - cy, bounds[base + 6]! - cz) + CULL_SLOP;
+    // The level distance is measured the way the device measures it (f32 bounds, f32 camera, f32
+    // root): a threshold has no slop, so an f64 distance here would hand a batch on a threshold a
+    // different level than `selectLod` gives it. See lodDistanceF32. The distance verdict below uses
+    // the same number for the same reason.
+    const awayF32 = lodDistanceF32(
+      bounds[base]!,
+      bounds[base + 1]!,
+      bounds[base + 2]!,
+      bounds[base + 4]!,
+      bounds[base + 5]!,
+      bounds[base + 6]!,
+      params.cameraPos.x,
+      params.cameraPos.y,
+      params.cameraPos.z,
+    );
+    const lod = lodWindowFor(lodTable, index, awayF32);
 
     if ((params.flags & CULL_FLAG_FRUSTUM) !== 0) {
       let outside = false;
@@ -620,7 +896,11 @@ export function cullBatchesOnCpu(
 
     const limit = bounds[base + 3] ?? 0;
     if ((params.flags & CULL_FLAG_DISTANCE) !== 0 && limit > 0) {
-      const away = Math.hypot(cx - params.cameraPos.x, cy - params.cameraPos.y, cz - params.cameraPos.z);
+      // The same measurement the device makes (`distance(center, cull.cameraPos)` in f32) and the same
+      // one the level selection above uses: `away - radius > limit` has no slop of its own, so an f64
+      // distance here would keep a batch the pass rejects — or reject one it keeps — whenever a batch
+      // sits within an ulp of its limit.
+      const away = awayF32;
       if (away - radius > limit) {
         visibility[index] = CullReason.Distance;
         stats.culledDistance++;
@@ -630,7 +910,7 @@ export function cullBatchesOnCpu(
     }
 
     if (!occlusion) {
-      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, lod, stats);
       continue;
     }
     const vx = view[0]! * cx + view[4]! * cy + view[8]! * cz + view[12]!;
@@ -638,7 +918,7 @@ export function cullBatchesOnCpu(
     const vz = view[2]! * cx + view[6]! * cy + view[10]! * cz + view[14]!;
     const nearest = vz - radius;
     if (nearest <= params.near) {
-      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, lod, stats);
       continue;
     }
 
@@ -694,22 +974,43 @@ export function cullBatchesOnCpu(
       skipRecord(records, index, stats);
       continue;
     }
-    keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+    keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, lod, stats);
   }
   return stats;
 }
 
-/** A batch that stays visible: its compaction slot, and its record's instance count. */
+/**
+ * The record window one batch's distance selects (Phase 14.4), or `null` when the batch has no LOD
+ * chain — then the CPU-uploaded window (level 0) stands, exactly as on the device. The distance is
+ * measured to the batch bounds' centre, the same centre the frustum and occlusion tests use.
+ */
+function lodWindowFor(table: ObjectLodTable | null, index: number, distance: number): ObjectLodLevelCpu | null {
+  if (!table) return null;
+  const setId = table.batchSets[index] ?? LOD_SET_NONE;
+  if (setId >= table.sets.length) return null;
+  const set = table.sets[setId]!;
+  const level = selectLodLevel(set.levels, distance);
+  return set.levels[level] ?? null;
+}
+
+/** A batch that stays visible: its compaction slot, its record's instance count, and its LOD window. */
 function keepRecord(
   records: Uint32Array | undefined,
   visibleList: Uint32Array | undefined,
   index: number,
   instances: number,
+  lod: ObjectLodLevelCpu | null,
   stats: ObjectCullStats,
 ): void {
   stats.visible++;
   if (visibleList && stats.visible <= visibleList.length) visibleList[stats.visible - 1] = index;
-  if (records) records[index * DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES] = instances;
+  if (!records) return;
+  const word = index * DRAW_RECORD_WORDS;
+  records[word + DRAW_RECORD_INSTANCES] = instances;
+  if (!lod) return;
+  records[word + DRAW_RECORD_INDEX_COUNT] = lod.indexCount;
+  records[word + DRAW_RECORD_FIRST_INDEX] = lod.firstIndex;
+  if (lod.minDistance > 0) stats.lodReduced++;
 }
 
 /** A culled batch: its record's instance count goes to zero, and the pass counts that. */
@@ -736,6 +1037,22 @@ export interface ObjectCullFrame {
   occlude: boolean;
   /** Write the frame's indirect draw records (`CULL_FLAG_RECORDS`); the caller owns that switch. */
   records: boolean;
+  /**
+   * Select each batch's LOD level on the device (Phase 14.4). Ignored unless `records` is on: the
+   * level *is* two words of the record. `revision` lets the static table stay put between frames —
+   * only the per-batch indices are re-uploaded every frame.
+   */
+  lods?: ObjectLodFrame | null;
+}
+
+/** The frame's LOD inputs, in the shape the device path needs them. */
+export interface ObjectLodFrame {
+  /** One set index per batch ({@link LOD_SET_NONE} for a batch without a chain); at least `batchCount` long. */
+  batchSets: Uint32Array;
+  /** The static table: one set per distinct chained geometry, in set-index order. */
+  sets: readonly ObjectLodSetCpu[];
+  /** Bumped whenever `sets` changes; the table's bytes are rewritten only then. */
+  revision: number;
 }
 
 /**
@@ -756,11 +1073,18 @@ export class GpuObjectCuller {
   private cullBufferRef: GPUBuffer | null = null;
   private boundsBuffer: GPUBuffer | null = null;
   private statsBuffer: GPUBuffer | null = null;
+  /** Phase 14.4: one set index per batch (grows with the batch count) and the static chain table. */
+  private batchLodBuffer: GPUBuffer | null = null;
+  private batchLodCapacity = 0;
+  private lodTableBuffer: GPUBuffer | null = null;
+  private readonly lodTableBytes = new WriteBuffer(LOD_TABLE_BYTES);
+  /** The revision the table buffer currently holds; -1 forces the first upload. */
+  private lodTableRevision = -1;
   private readonly readbacks: (GPUBuffer | null)[] = [null, null];
   private readonly readbackBusy = [false, false];
   private readonly readbackFresh = [false, false];
   private readbackTurn = 1;
-  private lastStats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 };
+  private lastStats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0, lodReduced: 0 };
 
   private hiz: GPUTexture | null = null;
   /** Levels of the pyramid *this* frame tests against: 0 unless `prepare` decided to occlude. */
@@ -774,6 +1098,8 @@ export class GpuObjectCuller {
   private groupVisibility: GPUBuffer | null = null;
   private groupRecords: GPUBuffer | null = null;
   private groupVisible: GPUBuffer | null = null;
+  private groupBatchLods: GPUBuffer | null = null;
+  private groupLodTable: GPUBuffer | null = null;
 
   private batchCount = 0;
   private readonly pipelines = new Map<string, GPUComputePipeline>();
@@ -819,6 +1145,11 @@ export class GpuObjectCuller {
     this.hizLevelsFrame = occlusion ? this.hizLevels : 0;
     let distance = false;
     for (let i = 0; i < total; i++) if (bounds[i * 8 + 3]! > 0) distance = true;
+    // Phase 14.4: the device selects levels only where it can write them — into a record. The table
+    // is static per geometry (rewritten when its revision moves), the per-batch indices are not.
+    const lods = frame.records && total > 0 ? frame.lods ?? null : null;
+    const lodSets = lods && lods.sets.length > 0 && lods.sets.length <= MAX_LOD_SETS ? lods.sets.length : 0;
+    if (lodSets > 0) this.uploadLods(lods!, total, lodSets);
     const a = this.cullAccessor;
     a.setMat4("view", frame.view.m);
     a.setMat4("proj", frame.projection.m);
@@ -830,15 +1161,66 @@ export class GpuObjectCuller {
     a.setU32("batchCount", total);
     a.setU32(
       "flags",
-      CULL_FLAG_FRUSTUM | (distance ? CULL_FLAG_DISTANCE : 0) | (occlusion ? CULL_FLAG_OCCLUSION : 0) | (frame.records ? CULL_FLAG_RECORDS : 0),
+      CULL_FLAG_FRUSTUM |
+        (distance ? CULL_FLAG_DISTANCE : 0) |
+        (occlusion ? CULL_FLAG_OCCLUSION : 0) |
+        (frame.records ? CULL_FLAG_RECORDS : 0) |
+        (lodSets > 0 ? CULL_FLAG_LOD : 0),
     );
     a.setU32("hizLevels", this.hizLevelsFrame);
+    a.setU32("lodSetCount", lodSets);
     this.ensureStaticBuffers();
     d.queue.writeBuffer(this.cullBufferRef!, 0, gpuSource(this.cullBytes.bytes));
     // The counters are `atomicAdd`ed by the pass, so they are zeroed here: a workgroup cannot
     // reliably zero a buffer other workgroups are adding to.
     this.statsBytes.u32.fill(0);
     d.queue.writeBuffer(this.statsBuffer!, 0, gpuSource(this.statsBytes.bytes));
+  }
+
+  /**
+   * Stage the frame's per-batch LOD set indices, and the static chain table when its revision moved
+   * (Phase 14.4). The indices are one `u32` per batch — the whole per-frame cost of device LOD
+   * selection — while the table's bytes are rewritten only when a new chained geometry arrives.
+   */
+  private uploadLods(lods: ObjectLodFrame, total: number, setCount: number): void {
+    const d = this.device.device;
+    if (!this.batchLodBuffer || this.batchLodCapacity < total) {
+      this.batchLodBuffer?.destroy();
+      this.batchLodCapacity = Math.max(total, 256);
+      this.batchLodBuffer = d.createBuffer({
+        label: "objects.batchLods",
+        size: this.batchLodCapacity * 4,
+        usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+      });
+    }
+    d.queue.writeBuffer(this.batchLodBuffer, 0, gpuSource(lods.batchSets.subarray(0, total)));
+
+    if (!this.lodTableBuffer) {
+      this.lodTableBuffer = d.createBuffer({ label: "objects.lodSets", size: LOD_TABLE_BYTES, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
+      this.lodTableRevision = -1;
+    }
+    if (this.lodTableRevision === lods.revision) return;
+    const words = this.lodTableBytes.u32;
+    const floats = this.lodTableBytes.f32;
+    words.fill(0);
+    words[ObjectLodSetBlock.offsetOf("count", "storage") >> 2] = setCount;
+    const setStride = ObjectLodSet.size("storage");
+    const levelStride = ObjectLodLevel.size("storage");
+    for (let s = 0; s < setCount; s++) {
+      const set = lods.sets[s]!;
+      const at = LOD_SETS_FIELD.offset + s * setStride;
+      const levels = Math.min(set.levels.length, MAX_BATCH_LODS);
+      words[(at + LOD_SET_LEVELS_FIELD.offset) >> 2] = levels;
+      for (let i = 0; i < levels; i++) {
+        const level = set.levels[i]!;
+        const levelAt = at + LOD_SET_LODS_FIELD.offset + i * levelStride;
+        words[(levelAt + LOD_LEVEL_FIRST_INDEX_FIELD.offset) >> 2] = level.firstIndex;
+        words[(levelAt + LOD_LEVEL_INDEX_COUNT_FIELD.offset) >> 2] = level.indexCount;
+        floats[(levelAt + LOD_LEVEL_MIN_DISTANCE_FIELD.offset) >> 2] = level.minDistance;
+      }
+    }
+    d.queue.writeBuffer(this.lodTableBuffer, 0, gpuSource(this.lodTableBytes.bytes));
+    this.lodTableRevision = lods.revision;
   }
 
   /**
@@ -898,6 +1280,8 @@ export class GpuObjectCuller {
     this.groupVisibility = null;
     this.groupRecords = null;
     this.groupVisible = null;
+    this.groupBatchLods = null;
+    this.groupLodTable = null;
   }
 
   dispose(): void {
@@ -909,6 +1293,12 @@ export class GpuObjectCuller {
     this.boundsBuffer = null;
     this.statsBuffer?.destroy();
     this.statsBuffer = null;
+    this.batchLodBuffer?.destroy();
+    this.batchLodBuffer = null;
+    this.batchLodCapacity = 0;
+    this.lodTableBuffer?.destroy();
+    this.lodTableBuffer = null;
+    this.lodTableRevision = -1;
     for (let i = 0; i < this.readbacks.length; i++) {
       this.readbacks[i]?.destroy();
       this.readbacks[i] = null;
@@ -928,9 +1318,15 @@ export class GpuObjectCuller {
     this.groupVisibility = null;
     this.groupRecords = null;
     this.groupVisible = null;
+    this.groupBatchLods = null;
+    this.groupLodTable = null;
   }
 
   private consume(index: number, buffer: GPUBuffer): void {
+    // `dispose` destroys the readback pair, and a map that was already in flight still resolves
+    // afterwards: mapping a destroyed buffer is a validation error, which a real device reports as an
+    // uncaptured error at teardown. The counters it held belonged to a frame nobody will read.
+    if (this.disposed) return;
     const words = new Uint32Array(buffer.getMappedRange(0, CULL_STATS_BYTES), 0, CULL_STATS_BYTES >> 2);
     this.lastStats = {
       tested: words[STATS_WORD.tested]!,
@@ -939,6 +1335,7 @@ export class GpuObjectCuller {
       culledOccluded: words[STATS_WORD.culledOccluded]!,
       visible: words[STATS_WORD.visible]!,
       recordZeroed: words[STATS_WORD.recordZeroed]!,
+      lodReduced: words[STATS_WORD.lodReduced]!,
     };
     buffer.unmap();
     this.readbackBusy[index] = false;
@@ -1024,6 +1421,31 @@ export class GpuObjectCuller {
     return this.fallback.createView();
   }
 
+  /**
+   * The two LOD bindings (Phase 14.4), created on first use and zeroed: a frame whose batches have
+   * no chains binds them anyway (a bind group layout has no optional slots) and never reads them —
+   * `cull.lodSetCount` is 0, so the selection branch does not run.
+   */
+  private ensureLodBuffers(): GPUBuffer {
+    const d = this.device.device;
+    if (!this.batchLodBuffer) {
+      this.batchLodCapacity = Math.max(this.batchCount, 256);
+      this.batchLodBuffer = d.createBuffer({
+        label: "objects.batchLods",
+        size: this.batchLodCapacity * 4,
+        usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+      });
+      // Zero reads as set 0, so an inactive frame must also say "no sets": `lodSetCount` does.
+      d.queue.writeBuffer(this.batchLodBuffer, 0, gpuSource(new Uint32Array(this.batchLodCapacity)));
+    }
+    if (!this.lodTableBuffer) {
+      this.lodTableBuffer = d.createBuffer({ label: "objects.lodSets", size: LOD_TABLE_BYTES, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
+      this.lodTableRevision = -1;
+      d.queue.writeBuffer(this.lodTableBuffer, 0, gpuSource(new Uint32Array(LOD_TABLE_BYTES >> 2)));
+    }
+    return this.batchLodBuffer;
+  }
+
   private computePipeline(name: string, source: string, entryPoint: string, entries: GPUBindGroupLayoutEntry[]): GPUComputePipeline {
     let pipeline = this.pipelines.get(name);
     if (pipeline) return pipeline;
@@ -1098,9 +1520,19 @@ export class GpuObjectCuller {
   ): void {
     const pipeline = this.computePipeline("objects.cull", OBJECT_CULL_SHADER, "csCull", CULL_ENTRIES);
     let group = this.groups.get("objects.cull");
-    // Three of the entries are renderer-owned buffers that grow (or are re-created) with the frame:
-    // the group is cached against all three, so a growth retires it instead of binding a stale one.
-    if (!group || this.groupVisibility !== visibility || this.groupRecords !== records || this.groupVisible !== visible) {
+    // Three of the entries are renderer-owned buffers that grow (or are re-created) with the frame,
+    // and two more are this class's own LOD buffers (Phase 14.4), created on first use and grown
+    // with the batch count: the group is cached against all five, so a growth retires it instead of
+    // binding a stale one.
+    const batchLods = this.ensureLodBuffers();
+    if (
+      !group ||
+      this.groupVisibility !== visibility ||
+      this.groupRecords !== records ||
+      this.groupVisible !== visible ||
+      this.groupBatchLods !== batchLods ||
+      this.groupLodTable !== this.lodTableBuffer
+    ) {
       group = this.device.device.createBindGroup({
         label: "objects.cull",
         layout: pipeline.getBindGroupLayout(0),
@@ -1112,12 +1544,16 @@ export class GpuObjectCuller {
           { binding: 4, resource: this.hiz ? this.hizView(0, this.hizLevels) : this.fallbackView() },
           { binding: 5, resource: { buffer: records } },
           { binding: 6, resource: { buffer: visible } },
+          { binding: 7, resource: { buffer: batchLods } },
+          { binding: 8, resource: { buffer: this.lodTableBuffer! } },
         ],
       });
       this.groups.set("objects.cull", group);
       this.groupVisibility = visibility;
       this.groupRecords = records;
       this.groupVisible = visible;
+      this.groupBatchLods = batchLods;
+      this.groupLodTable = this.lodTableBuffer;
     }
     const pass = ctx.beginComputePass("objects.cull");
     pass.setPipeline(pipeline);
@@ -1150,4 +1586,9 @@ const CULL_ENTRIES: GPUBindGroupLayoutEntry[] = [
   // compaction list it keeps. Both are plain `u32` arrays written at an index the pass derives.
   { binding: 5, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: DRAW_RECORD_BYTES } },
   { binding: 6, visibility: ShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MAX_CULLED_BATCHES * 4 } },
+  // Phase 14.4: one LOD set index per batch, and the static chain table it addresses. Both are
+  // read-only, and both are bound whether or not this frame has a chain — `cull.lodSetCount` is what
+  // says the table is empty, so the selection branch never runs on a frame that has nothing to pick.
+  { binding: 7, visibility: ShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
+  { binding: 8, visibility: ShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: LOD_TABLE_BYTES } },
 ];

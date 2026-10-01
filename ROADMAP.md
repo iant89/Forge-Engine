@@ -21,10 +21,12 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation, GPU timing; 13.9 cascade assignment,
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
-    Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
-                blocks, 14.5 per-chunk population culling and 14.6 streaming landed;
-                rocks + boulders of 14.2 in the terrain demo; GPU LOD, remaining
-                types and device-resident buffers open)
+    Phase 14:   IMPLEMENTED BUT REQUIRES HARDENING (14.1-14.6 all landed:
+                deterministic scatter, six population types as engine presets,
+                compact SoA blocks plus device-resident instance slots,
+                GPU-selected object LOD, per-chunk device culling, streaming;
+                per-instance culling, off-thread generation, resolution-independent
+                placement, LOD hysteresis and culling before the prepass remain)
     Phase 15+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -121,7 +123,7 @@ PHASE 13 - Renderer 2.0
     [~] IN PROGRESS
 
 PHASE 14 - World Population
-    [~] IN PROGRESS
+    [!] IMPLEMENTED BUT REQUIRES HARDENING
 
 PHASE 15+
     [ ] NOT STARTED
@@ -979,10 +981,24 @@ GOAL:
         optionally squashed sphere; deterministic per seed). Boulders are the same geometry at a
         larger scale band with a tighter slope limit and deeper embed.
 
-    [ ] Debris
-    [ ] Vegetation
-    [ ] Decals
-    [ ] Environmental props
+    [x] Debris
+    [x] Vegetation
+    [x] Decals
+    [x] Environmental props
+
+        All six types ship as engine presets — `POPULATION_PRESETS` in
+        engine/src/population/presets.ts, one entry per type carrying its id, density grid, scale
+        band and exponent, slope limit, tint jitter, embed, lift, shadow flag and `maxDistance` —
+        so a scene composes a population from names, and `populationPreset("debris", { densityGrid: 5 })`
+        overrides only what it names (ids are pinned: two types may not share one). Each type gets
+        its own primitive: `debrisGeometrySource` (a shard cluster, no underside),
+        `vegetationGeometrySource` (drooping blades), `propGeometrySource` (a bevelled post) and
+        `planeGeometrySource` for decals. The terrain demo draws all six at once with per-type
+        materials — a transparent alpha-mapped decal on a new `createDustBlotchTexture`, a
+        double-sided scrub, a metallic marker — and `tests/population.test.ts` pins each preset's
+        determinism, its slope/scale limits and its id. Limitations in docs/KNOWN-ISSUES.md
+        § World population: decals sit a constant lift above the surface and cast no shadow,
+        vegetation does not sway, and populations cannot be picked.
 
 
 14.3 Instance Storage
@@ -993,13 +1009,54 @@ GOAL:
         (3), non-uniform scales (3), Y rotations (1), packed tints (1) — allocated once per
         (chunk, type), no per-instance object anywhere. The renderer writes the records into the
         frame's instance arena through `composeYTRS` (math/mat.ts), so a population draws as
-        ordinary instanced batches. The further step — *device-resident* instance buffers that are
-        uploaded once per chunk instead of once per frame — is not built (docs/KNOWN-ISSUES.md).
+        ordinary instanced batches.
+
+    [x] Device-resident instance buffers.
+
+        The one instance buffer now carries two regions: the per-frame arena `Renderable`s use, and
+        a resident region of slots handed out by `SlotAllocator` (engine/src/gpu/slotAllocator.ts —
+        256-byte aligned, power-of-two bucketed, 4 MiB per slot). A population block is keyed
+        `pop{world}:{type}:{cx},{cz}` and its records are composed and written once, when it appears
+        or when its content version moves; a settled frame writes nothing at all. Binding 1 stays a
+        dynamic-offset window into that buffer, so no shader, pipeline or bind-group layout changed —
+        the arena and the resident region are the same bytes as far as the device is concerned.
+        Blocks a source stops submitting are swept at the end of the frame that stops seeing them;
+        growing the arena moves every absolute offset and rewrites the resident blocks once.
+        `stats.populationResidentInstances/Blocks/Bytes` and `stats.populationUploads/UploadedBytes`
+        report both sides, and benchmarks/src/population.bench.ts measures the difference over
+        120 chunks: 4 320 offered records go from 204 480 bytes composed and uploaded every frame
+        to 345 600 bytes uploaded once and then nothing. The bench reports the frame times and guards
+        the byte counts, because the milliseconds move with the machine (3.1-4.7 ms for the same arena
+        frame across runs of one tree, 2.4-3.9 ms for the resident one) and the bytes do not move at
+        all. Slot bucketing, the cap and the wholesale
+        rewrite are limitations, documented in docs/KNOWN-ISSUES.md § World population.
 
 
 14.4 GPU LOD
 
-    [ ] GPU-selected object LOD.
+    [x] GPU-selected object LOD.
+
+        A geometry can be a *chain*: `concatenateLods` / `Geometry.createLodChain`
+        (engine/src/rendering/geometry.ts) take 2-4 levels built from the same vertex layout,
+        concatenate their indices into one buffer with global offsets, and keep an ascending
+        `minDistance` per level. The device learns the chains from a static table
+        (`ObjectLodSetBlock` in engine/src/rendering/uniforms.ts, one 80-byte set per chain,
+        uploaded only when a chain's revision moves) plus one `u32` set index per batch per frame —
+        `LOD_SET_NONE` for a geometry with no chain. `forge.objects.cull` then walks the chain for
+        every batch it keeps and writes the chosen level's index window into the same indirect draw
+        record it already writes (`selectLod`), so a level costs no draw call, no read-back and no
+        CPU decision; `counts.lodReduced` is the seventh atomic and reports how many batches dropped
+        a level. The host runs the identical rule (`selectLodLevel`) as a mirror, because the shadow
+        maps and the depth prepass are encoded *before* the cull pass: a prepass at level 0 under a
+        main pass at level 2 rejects the coarse surface's farther fragments against the finer
+        surface's depth and punches holes in it. `stats.lodSets/lodBatches/cullLodReduced` report the
+        selection; tests/rendering.test.ts and tests/objectCulling.test.ts pin the mirror, the
+        record words and the window arithmetic against the WGSL, and the terrain demo's six chains
+        measure 250 488 → 102 240 triangles per frame at the demo camera with no measurable
+        frame-time cost (benchmarks/src/population.bench.ts). tools/browser-check.mjs asserts the
+        twin and the device produce pixel-identical terrain. Selection is per batch (per chunk), not
+        per instance, has no hysteresis or dither, and stops registering chains past
+        `MAX_LOD_SETS` (64) — docs/KNOWN-ISSUES.md § World population.
 
 
 14.5 GPU Culling
@@ -1012,6 +1069,23 @@ GOAL:
         limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
         of its instances (per-instance device culling is not built).
 
+        Populating a whole terrain is also what exposed a frame-ordering gap the device arm has had
+        since Phase 13.5. The shadow maps and the depth prepass are recorded *before*
+        `forge.objects.cull` (its occlusion test reads the pyramid the prepass depth is reduced
+        into), and both collapse a rejected batch by reading its visibility word — which in the
+        device arm was still the host's zero, "visible", until the pass wrote it. So those passes
+        drew every batch in the frame, and a batch the pass then rejected left prepass depth behind
+        that the sky was rejected against while `forge.main` never shaded it: 418 dark specks along
+        the terrain horizon, measured by the pixel A/B in tools/browser-check.mjs that compares the
+        device culler with the twin. `markCertainDistanceCulls`
+        (engine/src/rendering/objectCulling.ts) now lets the host state the one verdict it needs
+        neither a frustum nor a pyramid for — certainly past the batch's own distance limit, with a
+        margin wider than the device's f32 rounding can argue with — so both arms hand the passes
+        before the cull pass the same words. tests/objectCulling.test.ts sweeps the margin against
+        the twin's own verdicts (the host's marks have to be a subset of the pass's, or the prepass
+        would skip a batch the main pass draws) and tests/rendering.test.ts pins both arms to the
+        same uploaded word.
+
 
 14.6 Population Streaming
 
@@ -1021,6 +1095,23 @@ GOAL:
         ready chunks get populations within a per-frame budget, evicted chunks lose them, and an
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
         Zero ECS entities are created — pinned by tests/population.test.ts.
+
+
+14.7 Cull Before the Prepass
+
+    [ ] Split the cull pass so the shadow maps and the prepass never draw a rejected batch.
+
+        `markCertainDistanceCulls` (14.5) removes the *visible* consequence of the frame ordering:
+        the passes before `forge.objects.cull` no longer hold depth for geometry `forge.main` will
+        not shade. They still issue a draw for every batch — a rejected one collapses in the vertex
+        stage, which saves the rasterisation and not the vertex work — and a batch inside the host's
+        margin is still theirs to draw. The ordering itself is the occlusion test's: it reads the
+        pyramid the prepass depth is reduced into, so it cannot run first. Splitting the pass is the
+        fix — frustum, distance and level selection before the shadow maps (they need no depth),
+        occlusion after the pyramid — and it costs one extra dispatch of the same shader plus a
+        decision about counters being written twice (the seven atomics would count both halves
+        unless the second dispatch skips them). Until then the device arm's prepass and shadow
+        passes do vertex work for batches the twin arm never draws.
 
 
 EXIT CRITERIA:

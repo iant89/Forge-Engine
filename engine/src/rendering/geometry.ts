@@ -8,6 +8,13 @@
  *
  * Vertex layout is fixed (48 bytes, see `VERTEX_STRIDE`) so every pipeline can share one
  * `GPUVertexBufferLayout` and so the debug/depth programs can read a subset by ignoring attributes.
+ *
+ * A geometry may also carry a **LOD chain** (Phase 14.4): several detail levels of the same shape
+ * concatenated into that one vertex/index buffer, described by `lods` (an index window + a distance
+ * per level). Concatenation is what makes the level switchable *inside a draw command* — the device
+ * culler rewrites the indirect record's index window, so the level is chosen on the GPU with no
+ * read-back and no second buffer to rebind. `drawStart`/`drawCount` are the window every existing
+ * path (shadow, prepass, direct draw, single-level geometry) uses: level 0.
  */
 
 import { BufferUsage, gpuSource } from "../gpu/constants.js";
@@ -42,6 +49,41 @@ export interface GeometrySource {
   label?: string;
 }
 
+/**
+ * One level of a geometry's LOD chain (Phase 14.4): a draw window into the geometry's *own* index
+ * buffer, plus the camera distance from which that window is the one to draw.
+ *
+ * Every level of a chain lives in the same vertex and index buffer — that is what lets one draw
+ * switch levels by changing its index window (`firstIndex`/`indexCount`) instead of rebinding
+ * buffers, and therefore what lets the device culler pick the level inside the indirect record it
+ * already writes (`rendering/objectCulling.ts`). Indices are global (already offset by the level's
+ * vertex base), so `baseVertex` stays 0 and the record's word 3 is unused.
+ */
+export interface GeometryLodLevel {
+  /** First index of this level's window. */
+  readonly indexStart: number;
+  /** Indices this level draws (a multiple of three). */
+  readonly indexCount: number;
+  /** Vertices this level occupies — reporting only; the window is index-addressed. */
+  readonly vertexCount: number;
+  /**
+   * Camera distance in metres at which this level takes over from the one before it. Level 0's is
+   * always 0; the rest ascend, so "the last level whose `minDistance` is ≤ d" is the selection.
+   */
+  readonly minDistance: number;
+}
+
+/** The chain {@link Geometry.createLodChain} uploads, computed before any GPU object exists. */
+export interface GeometryLodSource {
+  /** The concatenated source: every level's vertices, then every level's indices. */
+  readonly source: GeometrySource;
+  /** One window per level, nearest first. */
+  readonly lods: readonly GeometryLodLevel[];
+}
+
+/** Levels one chain may hold — the device culler's table is built for this many. */
+export const MAX_GEOMETRY_LODS = 4;
+
 export class Geometry {
   vertexBuffer: GPUBuffer | null = null;
   indexBuffer: GPUBuffer | null = null;
@@ -53,6 +95,17 @@ export class Geometry {
   released = false;
   /** Set by `Mesh`/materials when the geometry is used by a skinning pipeline. */
   skinned = false;
+  /**
+   * LOD chain, nearest first; `null` for a single-level geometry (the overwhelming majority). When
+   * present, `indexCount`/`vertexCount` describe the *whole* buffer (all levels) and every draw
+   * must go through a window: {@link drawStart}/{@link drawCount} for level 0, or the window of the
+   * level the frame selected.
+   */
+  lods: readonly GeometryLodLevel[] | null = null;
+  /** First index of the geometry's primary draw window: level 0's when a chain exists, else 0. */
+  drawStart = 0;
+  /** Index count of the primary draw window (`vertexCount` for an unindexed geometry). */
+  drawCount = 0;
 
   private constructor(
     readonly device: GraphicsDevice,
@@ -104,7 +157,119 @@ export class Geometry {
     g.bounds = src.bounds ? src.bounds.clone() : computeBounds(positions);
     g.uploadVertices(interleaved);
     if (src.indices && src.indices.length > 0) g.uploadIndices(src.indices);
+    g.drawStart = 0;
+    g.drawCount = g.indexCount > 0 ? g.indexCount : g.vertexCount;
     return g;
+  }
+
+  /**
+   * Concatenate LOD sources into one uploadable source plus the chain's windows (Phase 14.4).
+   *
+   * Pure: no device, no allocation beyond the arrays it returns, and the same inputs always give
+   * the same bytes — so a chain can be built in a worker or in a test and compared level by level.
+   * Indices become global (each level's are offset by its vertex base), which keeps `baseVertex` at
+   * 0 for every window; the index buffer is therefore always `Uint32Array`, whatever the levels
+   * were authored as. Bounds are the union of the levels' own, so culling stays conservative when
+   * a coarse level's silhouette is not exactly the fine one's.
+   */
+  static concatenateLods(levels: readonly GeometrySource[], distances: readonly number[]): GeometryLodSource {
+    if (levels.length < 2) throw new UsageError("Geometry.concatenateLods: a chain needs at least two levels");
+    if (levels.length > MAX_GEOMETRY_LODS) throw new UsageError(`Geometry.concatenateLods: ${levels.length} levels exceeds MAX_GEOMETRY_LODS (${MAX_GEOMETRY_LODS})`);
+    if (distances.length !== levels.length - 1) {
+      throw new UsageError(`Geometry.concatenateLods: ${levels.length} levels need ${levels.length - 1} distances, got ${distances.length}`);
+    }
+    let vertexTotal = 0;
+    let indexTotal = 0;
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i]!;
+      const verts = Math.floor(level.positions.length / 3);
+      if (verts === 0) throw new UsageError(`Geometry.concatenateLods: level ${i} has no positions`);
+      if (!level.indices || level.indices.length === 0) {
+        throw new UsageError(`Geometry.concatenateLods: level ${i} is unindexed — a LOD window is an index range`);
+      }
+      if (level.indices.length % 3 !== 0) throw new UsageError(`Geometry.concatenateLods: level ${i} has ${level.indices.length} indices (not a multiple of 3)`);
+      for (let k = 0; k < level.indices.length; k++) {
+        if (level.indices[k]! >= verts) throw new UsageError(`Geometry.concatenateLods: level ${i} index ${level.indices[k]} exceeds its ${verts} vertices`);
+      }
+      if (i > 0) {
+        const d = distances[i - 1]!;
+        if (!Number.isFinite(d) || d <= 0) throw new UsageError(`Geometry.concatenateLods: distance ${i} must be a positive number of metres, got ${d}`);
+        if (d <= (distances[i - 2] ?? 0)) throw new UsageError(`Geometry.concatenateLods: distances must ascend (${d} follows ${distances[i - 2]})`);
+      }
+      vertexTotal += verts;
+      indexTotal += level.indices.length;
+    }
+
+    const positions = new Float32Array(vertexTotal * 3);
+    const normals = new Float32Array(vertexTotal * 3);
+    const uvs = new Float32Array(vertexTotal * 2);
+    const tangents = new Float32Array(vertexTotal * 4);
+    const indices = new Uint32Array(indexTotal);
+    const lods: GeometryLodLevel[] = [];
+    const bounds = new AABB();
+    let vertexBase = 0;
+    let indexBase = 0;
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i]!;
+      const verts = Math.floor(level.positions.length / 3);
+      positions.set(level.positions.subarray(0, verts * 3), vertexBase * 3);
+      // A level may author fewer channels than another; missing ones get the same defaults
+      // `Geometry.create` would have written (+Y normal, zero uv, +x tangent with w = 1).
+      if (level.normals) normals.set(level.normals.subarray(0, verts * 3), vertexBase * 3);
+      for (let v = 0; v < verts; v++) {
+        const o = (vertexBase + v) * 3;
+        if (!level.normals) normals[o + 2] = 1;
+        if (level.tangents) tangents.set(level.tangents.subarray(v * 4, v * 4 + 4), (vertexBase + v) * 4);
+        else {
+          // A level authored without tangents gets the fallback the shaders can normalize: +x with
+          // a defined handedness. (Zero would leave a normal-mapped material with a degenerate TBN.)
+          const t = (vertexBase + v) * 4;
+          tangents[t] = 1;
+          tangents[t + 3] = 1;
+        }
+      }
+      if (level.uvs) uvs.set(level.uvs.subarray(0, verts * 2), vertexBase * 2);
+      const levelIndices = level.indices!;
+      for (let k = 0; k < levelIndices.length; k++) indices[indexBase + k] = levelIndices[k]! + vertexBase;
+      const levelBounds = level.bounds ? level.bounds : computeBounds(level.positions);
+      if (i === 0) bounds.setFrom(levelBounds.min, levelBounds.max);
+      else bounds.union(levelBounds);
+      lods.push({
+        indexStart: indexBase,
+        indexCount: levelIndices.length,
+        vertexCount: verts,
+        minDistance: i === 0 ? 0 : distances[i - 1]!,
+      });
+      vertexBase += verts;
+      indexBase += levelIndices.length;
+    }
+    return {
+      source: { positions, normals, uvs, tangents, indices, bounds, label: `${levels[0]!.label ?? "lod"}+${levels.length}lods` },
+      lods,
+    };
+  }
+
+  /**
+   * Upload a LOD chain as one geometry (Phase 14.4). The returned geometry draws level 0 through
+   * {@link drawStart}/{@link drawCount} exactly like any other, and `lods` is what the renderer
+   * registers with the device culler so the *device* picks the window per frame.
+   */
+  static createLodChain(device: GraphicsDevice, levels: readonly GeometrySource[], distances: readonly number[]): Geometry {
+    const chain = Geometry.concatenateLods(levels, distances);
+    const g = Geometry.create(device, chain.source);
+    g.lods = chain.lods;
+    const first = chain.lods[0]!;
+    g.drawStart = first.indexStart;
+    g.drawCount = first.indexCount;
+    return g;
+  }
+
+  /** The draw window of one chain level (level 0 for a single-level geometry). */
+  lodWindow(level: number): { indexStart: number; indexCount: number } {
+    const lods = this.lods;
+    if (!lods) return { indexStart: this.drawStart, indexCount: this.drawCount };
+    const clamped = Math.max(0, Math.min(lods.length - 1, Math.floor(level)));
+    return { indexStart: lods[clamped]!.indexStart, indexCount: lods[clamped]!.indexCount };
   }
 
   private uploadVertices(data: Float32Array): void {
@@ -158,6 +323,11 @@ export class Geometry {
       this.vertexCount = next.vertexCount;
       this.indexCount = next.indexCount;
       this.indexFormat = next.indexFormat;
+      this.drawStart = next.drawStart;
+      this.drawCount = next.drawCount;
+      // The replacement is a single-level source: a stale chain would point windows into a buffer
+      // whose layout nothing remembers, so it goes with the old vertex data.
+      this.lods = null;
     } else {
       writeRaw(this.device, this.vertexBuffer!, src.positions);
     }
@@ -179,7 +349,14 @@ export class Geometry {
   }
 
   stats(): Record<string, number | string | boolean> {
-    return { vertices: this.vertexCount, indices: this.indexCount, bytes: this.gpuBytes, skinned: this.skinned };
+    return {
+      vertices: this.vertexCount,
+      indices: this.indexCount,
+      bytes: this.gpuBytes,
+      skinned: this.skinned,
+      lods: this.lods ? this.lods.length : 0,
+      drawCount: this.drawCount,
+    };
   }
 }
 

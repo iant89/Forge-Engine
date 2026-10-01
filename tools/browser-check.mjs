@@ -1098,6 +1098,141 @@ try {
       `entities ${populationStart.entities}, instances(frame) ${populationStart.frameInstances}`,
   );
 
+  // Phase 14.3/14.4: those records have to live on the device, and the levels drawn have to be the
+  // levels the device picked. Both are settled-frame claims over a scene that streams — the demo
+  // generates chunks in waves, and a chunk arriving between two captures looks exactly like a
+  // rendering difference — so wait for quiescence (a run of *distinct* frames with the same resident
+  // block count, the same draw count and no uploads at all; a timer-based poll reads the same frame
+  // over and over on a 10 fps device) and retry the level A/B if a wave lands inside it. This arm
+  // drives the camera a few lines below, which is why the checks run first.
+  const waitForQuiescence = (frames = 10) =>
+    page.evaluate(
+      (needed) =>
+        new Promise((resolve, reject) => {
+          let lastFrame = -1;
+          let blocks = -1;
+          let draws = -1;
+          let still = 0;
+          let seen = 0;
+          const step = () => {
+            const stats = window.__forge.stats();
+            seen += 1;
+            if (stats.frame !== lastFrame) {
+              const render = stats.render;
+              still =
+                render.populationResidentBlocks === blocks && render.drawCalls === draws && render.populationUploads === 0
+                  ? still + 1
+                  : 0;
+              blocks = render.populationResidentBlocks;
+              draws = render.drawCalls;
+            }
+            lastFrame = stats.frame;
+            if (still >= needed) resolve({ blocks, draws, probes: seen });
+            else if (seen > 1200) reject(new Error(`the terrain population never quiesced: ${blocks} blocks and ${draws} draws after ${seen} rAF probes`));
+            else requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }),
+      frames,
+    );
+
+  const populationFrame = () =>
+    page.evaluate(() => {
+      const render = window.__forge.stats().render;
+      return {
+        blocks: render.populationResidentBlocks,
+        residentInstances: render.populationResidentInstances,
+        residentBytes: render.populationResidentBytes,
+        uploads: render.populationUploads,
+        uploadedBytes: render.populationUploadedBytes,
+        drawnInstances: render.populationInstances,
+        triangles: render.triangles,
+        lodSets: render.lodSets,
+        lodBatches: render.lodBatches,
+        cullLodReduced: render.cullLodReduced,
+        mode: window.__forge.objectCulling(),
+      };
+    });
+
+  let settled = null;
+  let deviceFrame = null;
+  let twinFrame = null;
+  let lodDiff = null;
+  let attempt = 0;
+  let held = false;
+  for (;;) {
+    attempt += 1;
+    settled = await waitForQuiescence();
+    await keepLuma("terrain-lod-gpu");
+    deviceFrame = await populationFrame();
+    // The device chose those levels inside forge.objects.cull. Make the CPU mirror choose them and
+    // compare: the two are one rule (`selectLod` in WGSL, `selectLodLevel` on the host), so the
+    // terrain must render identically — a chunk on the wrong side of a threshold shows up as rocks
+    // changing shape. The twin also reports this frame's own level reductions instead of a readback
+    // that lags, which is what makes "levels really were chosen" assertable at all.
+    //
+    // "Identically" is the whole arm, and it took a second thing to be true: the shadow maps and the
+    // prepass are recorded *before* the cull pass and collapse a rejected batch through its visibility
+    // word, so in the device arm the host has to state the verdicts it is certain of ahead of the frame
+    // (`markCertainDistanceCulls`). Without them this A/B measured 418 differing pixels — dark specks
+    // along the horizon, where a batch past its `maxDistance` had written prepass depth the sky was
+    // rejected against while forge.main never shaded it — with byte-identical draw records.
+    await page.evaluate(() => window.__forge.setObjectCulling("cpu"));
+    await settle(6);
+    await keepLuma("terrain-lod-cpu");
+    twinFrame = await populationFrame();
+    lodDiff = await compareLuma("terrain-lod-gpu", "terrain-lod-cpu");
+    await page.evaluate(() => window.__forge.setObjectCulling("auto"));
+    await settle(4);
+    held =
+      deviceFrame.blocks === settled.blocks &&
+      twinFrame.blocks === deviceFrame.blocks &&
+      twinFrame.residentInstances === deviceFrame.residentInstances;
+    if (held || attempt >= 3) break;
+    console.log(
+      `  a population wave landed inside the level A/B (${deviceFrame.blocks} → ${twinFrame.blocks} blocks); settling again (attempt ${attempt + 1} of 3)`,
+    );
+  }
+  const restoredLod = await page.evaluate(() => window.__forge.objectCulling());
+  console.log(
+    `  terrain quiesced after ${settled.probes} rAF probes in ${attempt} attempt(s): ${deviceFrame.blocks} resident blocks, ` +
+      `${deviceFrame.residentInstances} instances in ${deviceFrame.residentBytes} bytes of slots, ${deviceFrame.uploads} uploads / ${deviceFrame.uploadedBytes} bytes on that frame, ` +
+      `${deviceFrame.drawnInstances} instances drawn in ${deviceFrame.lodBatches} batches over ${deviceFrame.lodSets} LOD sets, ${deviceFrame.triangles} triangles`,
+  );
+  console.log(
+    `  LOD selection, device vs mirror: the twin put ${twinFrame.cullLodReduced} of ${twinFrame.lodBatches} chained batches on a coarser level (this frame's own count), ` +
+      `the device readback reported ${deviceFrame.cullLodReduced}; triangles ${deviceFrame.triangles} → ${twinFrame.triangles}; ` +
+      `max luma diff ${lodDiff.max.toFixed(2)} / ${lodDiff.darker + lodDiff.brighter} px beyond 1 level; culling restored to ${restoredLod}`,
+  );
+  if (!held) {
+    throw new Error(
+      `the terrain population kept streaming through three level A/B attempts (${deviceFrame.blocks} → ${twinFrame.blocks} blocks) — the comparison would have measured two scenes`,
+    );
+  }
+  if (restoredLod !== "gpu") throw new Error(`"auto" did not resolve back to the device culler over the terrain (mode ${restoredLod})`);
+  if (twinFrame.mode !== "cpu") throw new Error(`setObjectCulling("cpu") did not take over the terrain (mode ${twinFrame.mode})`);
+  if (!(deviceFrame.drawnInstances > 0 && deviceFrame.residentInstances >= deviceFrame.drawnInstances)) {
+    throw new Error(`device-resident storage does not cover what drew (${deviceFrame.residentInstances} resident for ${deviceFrame.drawnInstances} drawn)`);
+  }
+  if (deviceFrame.uploads !== 0 || deviceFrame.uploadedBytes !== 0) {
+    throw new Error(`a quiescent frame still uploaded population records (${deviceFrame.uploads} writes, ${deviceFrame.uploadedBytes} bytes) — the instance data is not staying resident`);
+  }
+  if (!(deviceFrame.lodSets >= 1 && deviceFrame.lodBatches > 0)) {
+    throw new Error(`no LOD-selected population drew (${deviceFrame.lodSets} geometry sets registered, ${deviceFrame.lodBatches} batches)`);
+  }
+  if (!(twinFrame.cullLodReduced > 0)) {
+    throw new Error(`nothing dropped to a coarser level (${twinFrame.cullLodReduced} of ${twinFrame.lodBatches} chained batches) — this framing proves nothing about level selection`);
+  }
+  if (twinFrame.triangles !== deviceFrame.triangles) {
+    throw new Error(`the mirror and the device arm asked for different geometry: ${deviceFrame.triangles} triangles with the device culler, ${twinFrame.triangles} with the twin`);
+  }
+  if (lodDiff.darker + lodDiff.brighter > 0) {
+    throw new Error(
+      `the two level selectors drew different frames: ${lodDiff.darker + lodDiff.brighter} px differ by up to ${lodDiff.max.toFixed(1)} luma levels — ` +
+        `the WGSL and host level rules disagree somewhere over the terrain`,
+    );
+  }
+
   const WHEEL_STEPS = 4;
   const wheelAtCentre = async (deltaY, clientX, clientY) => {
     for (let i = 0; i < WHEEL_STEPS; i++) {

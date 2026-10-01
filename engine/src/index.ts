@@ -111,6 +111,7 @@ export {
 export { GraphicsDevice, type DeviceCaps, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
 export { ShaderCache, preprocessWgsl, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
 export { BufferBuilder, StructAccessor, WriteBuffer, FloatAccessor } from "./gpu/bufferWriter.js";
+export { SlotAllocator } from "./gpu/slotAllocator.js";
 export { StructDef, diffWgslStruct, alignOf, sizeOf, strideOf, f32, i32, u32, bool_, vec2, vec3, vec4, mat2x2, mat3x3, mat4x4, arrayOf, ofStruct, type AddressSpace, type FieldType } from "./gpu/layout.js";
 export {
   BufferUsage,
@@ -249,11 +250,16 @@ export {
   CULL_FLAG_DISTANCE,
   CULL_FLAG_FRUSTUM,
   CULL_FLAG_OCCLUSION,
+  CULL_FLAG_LOD,
   CULL_FLAG_RECORDS,
   CULL_STATS_BYTES,
   DRAW_RECORD_BYTES,
+  DRAW_RECORD_FIRST_INDEX,
+  DRAW_RECORD_INDEX_COUNT,
   DRAW_RECORD_INSTANCES,
   DRAW_RECORD_WORDS,
+  LOD_SET_NONE,
+  LOD_TABLE_BYTES,
   CullReason,
   OBJECT_CULL_SHADER,
   buildHizOnCpu,
@@ -261,13 +267,29 @@ export {
   cullPlanesFrom,
   hizLevelCount,
   hizLevelSize,
+  lodDistanceF32,
+  markCertainDistanceCulls,
+  selectLodLevel,
   type HizLevel,
   type ObjectCullOutputs,
   type ObjectCullParams,
   type ObjectCullStats,
+  type ObjectLodFrame,
+  type ObjectLodLevelCpu,
+  type ObjectLodSetCpu,
+  type ObjectLodTable,
 } from "./rendering/objectCulling.js";
 export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions } from "./rendering/pipeline.js";
-export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, computeNormalsAndTangents, type GeometrySource } from "./rendering/geometry.js";
+export {
+  Geometry,
+  MAX_GEOMETRY_LODS,
+  VERTEX_LAYOUT,
+  VERTEX_STRIDE,
+  computeNormalsAndTangents,
+  type GeometryLodLevel,
+  type GeometryLodSource,
+  type GeometrySource,
+} from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding } from "./rendering/mesh.js";
 export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
 export {
@@ -278,19 +300,30 @@ export {
   cylinderGeometrySource,
   coneGeometrySource,
   torusGeometrySource,
+  debrisGeometrySource,
+  vegetationGeometrySource,
+  propGeometrySource,
   createBox,
   createPlane,
   createSphere,
   createRock,
   createCylinder,
   createTorus,
+  createDebris,
+  createVegetation,
+  createProp,
+  createLodPrimitive,
   type BoxOptions,
   type PlaneOptions,
   type SphereOptions,
   type RockOptions,
   type CylinderOptions,
+  type DebrisOptions,
+  type VegetationOptions,
+  type PropOptions,
+  type LodPrimitiveOptions,
 } from "./rendering/primitives.js";
-export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
+export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, ObjectLodLevel, ObjectLodSet, ObjectLodSetBlock, MAX_BATCH_LODS, MAX_LOD_SETS, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
 export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";

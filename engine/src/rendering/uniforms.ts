@@ -353,9 +353,9 @@ export const ObjectCullUniforms = new StructDef("ObjectCullUniforms", [
   { name: "far", type: f32, comment: "the view-depth the stored NDC depth 1.0 maps back to" },
   { name: "extent", type: vec2, comment: "depth target extent in pixels" },
   { name: "batchCount", type: u32, comment: "batches in the frame; entries past MAX_CULLED_BATCHES are never tested" },
-  { name: "flags", type: u32, comment: "bit0 frustum, bit1 distance, bit2 HiZ occlusion (see CULL_FLAG_*)" },
+  { name: "flags", type: u32, comment: "bit0 frustum, bit1 distance, bit2 HiZ occlusion, bit3 records, bit4 LOD (see CULL_FLAG_*)" },
   { name: "hizLevels", type: u32, comment: "levels in the depth pyramid; 0 skips the occlusion test" },
-  { name: "_pad", type: u32 },
+  { name: "lodSetCount", type: u32, comment: "LOD sets in the device table; a batch index at or past it draws its CPU window (Phase 14.4)" },
 ]);
 
 /**
@@ -402,6 +402,59 @@ export const ObjectCullStatsBlock = new StructDef("ObjectCullStatsBlock", [
   { name: "culledOccluded", type: atomicU32 },
   { name: "visible", type: atomicU32, comment: "batches that stayed visible = the compaction cursor" },
   { name: "recordZeroed", type: atomicU32, comment: "batches whose indirect record was zeroed (Phase 13.6)" },
+  { name: "lodReduced", type: atomicU32, comment: "visible batches the pass dropped to a coarser LOD level (Phase 14.4)" },
+]);
+
+/**
+ * LOD levels one geometry chain may hold (Phase 14.4). Four is what a scattered prop needs — a rock
+ * or a tuft goes 480/120/30 triangles and then stops mattering — and it keeps one set at 80 bytes.
+ */
+export const MAX_BATCH_LODS = 4;
+
+/**
+ * Geometry chains the device LOD table holds — 5 KiB of VRAM at {@link MAX_BATCH_LODS} levels each.
+ * One set per *geometry*, not per batch, uploaded once when the renderer first sees the chain, so a
+ * frame with ten thousand batches needs one entry per distinct rock. A scene with more distinct
+ * chains than this draws its extra ones at level 0: untested is never wrongly reduced.
+ */
+export const MAX_LOD_SETS = 64;
+
+/**
+ * One level of a chain as the cull pass reads it: the draw window it selects (`firstIndex`/
+ * `indexCount` are words 2 and 0 of the indirect record the pass writes) and the camera distance in
+ * metres from which that level takes over. Level 0's `minDistance` is 0, the rest ascend.
+ */
+export const ObjectLodLevel = new StructDef("ObjectLodLevel", [
+  { name: "firstIndex", type: u32, comment: "record word 2 when this level is selected" },
+  { name: "indexCount", type: u32, comment: "record word 0 when this level is selected" },
+  { name: "minDistance", type: f32, comment: "this level is the one to draw at distances >= minDistance" },
+  { name: "_pad", type: u32 },
+]);
+
+/**
+ * One geometry's chain: how many of the {@link MAX_BATCH_LODS} slots are live, then the slots. The
+ * unused trailing slots are never read (the selection loop stops at `levels`).
+ */
+export const ObjectLodSet = new StructDef("ObjectLodSet", [
+  { name: "levels", type: u32, comment: "live levels, 2..MAX_BATCH_LODS" },
+  { name: "_pad0", type: u32 },
+  { name: "_pad1", type: u32 },
+  { name: "_pad2", type: u32 },
+  { name: "lods", type: arrayOf(ofStruct(ObjectLodLevel), MAX_BATCH_LODS), comment: "ascending minDistance" },
+]);
+
+/**
+ * The device LOD table, bound as group 0 binding 8 of `forge.objects.cull` (`var<storage, read>`).
+ * Static per geometry: the renderer uploads a set once, when it first meets the chain, and rewrites
+ * the buffer only when the table grows — the per-frame cost of GPU LOD is one `u32` per batch (its
+ * set index) plus the selection the pass was already doing for the distance test.
+ */
+export const ObjectLodSetBlock = new StructDef("ObjectLodSetBlock", [
+  { name: "count", type: u32, comment: "live sets; a batch index at or past it keeps its CPU window" },
+  { name: "_pad0", type: u32 },
+  { name: "_pad1", type: u32 },
+  { name: "_pad2", type: u32 },
+  { name: "sets", type: arrayOf(ofStruct(ObjectLodSet), MAX_LOD_SETS), comment: "one per distinct LOD geometry" },
 ]);
 
 /**
@@ -462,6 +515,9 @@ export const RENDERING_STORAGE_STRUCTS = {
   ObjectBatchEntry,
   ObjectBatchBlock,
   ObjectCullStatsBlock,
+  ObjectLodLevel,
+  ObjectLodSet,
+  ObjectLodSetBlock,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
