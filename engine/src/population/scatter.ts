@@ -77,6 +77,13 @@ export interface PopulationTypeSpec {
    * embedded reads as *settled*.
    */
   readonly embed?: number;
+  /**
+   * Metres to *raise* the instance above the surface after `embed` (default 0). A decal is a flat
+   * quad that must not share the terrain's depth values: a few centimetres of lift is what keeps it
+   * from z-fighting, and unlike `embed` it is absolute, so every instance of the type lifts the same
+   * amount whatever its scale.
+   */
+  readonly lift?: number;
   /** Whether instances of this type cast shadows. Default true. */
   readonly castShadow?: boolean;
   /** Draw distance limit for the type's batches, metres (0 = unlimited). */
@@ -96,6 +103,7 @@ export interface ResolvedPopulationTypeSpec {
   maxHeight: number;
   tintJitter: number;
   embed: number;
+  lift: number;
   castShadow: boolean;
   maxDistance: number;
 }
@@ -116,6 +124,7 @@ export function resolvePopulationTypeSpec(spec: PopulationTypeSpec): ResolvedPop
     maxHeight: spec.maxHeight ?? Infinity,
     tintJitter: spec.tintJitter ?? 0,
     embed: spec.embed ?? 0.15,
+    lift: spec.lift ?? 0,
     castShadow: spec.castShadow ?? true,
     maxDistance: spec.maxDistance ?? 0,
   };
@@ -172,7 +181,7 @@ export function scatterPopulationChunk(
       const sz = r.scaleMin + (r.scaleMax - r.scaleMin) * sw;
       const k = out.count;
       out.positions[k * 3] = x;
-      out.positions[k * 3 + 1] = y - r.embed * sy;
+      out.positions[k * 3 + 1] = y - r.embed * sy + r.lift;
       out.positions[k * 3 + 2] = z;
       out.scales[k * 3] = sx;
       out.scales[k * 3 + 1] = sy;

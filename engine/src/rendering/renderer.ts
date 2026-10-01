@@ -35,20 +35,25 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, MAX_LOD_SETS } from "./uniforms.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import {
   CULL_FLAG_DISTANCE,
   CULL_FLAG_FRUSTUM,
+  CULL_FLAG_LOD,
   CULL_FLAG_RECORDS,
   DRAW_RECORD_BYTES,
   DRAW_RECORD_WORDS,
   GpuObjectCuller,
+  LOD_SET_NONE,
   cullBatchesOnCpu,
   hizLevelCount,
+  lodDistanceF32,
+  markCertainDistanceCulls,
+  selectLodLevel,
 } from "./objectCulling.js";
-import type { ObjectCullParams } from "./objectCulling.js";
+import type { ObjectCullParams, ObjectLodSetCpu, ObjectLodTable } from "./objectCulling.js";
 import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
@@ -58,7 +63,8 @@ import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
 import { findGpuParticleWorld } from "../particles/gpuWorld.js";
-import { isPopulationSource, type PopulationCollector, type PopulationSubmission } from "../scene/population.js";
+import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
+import { SlotAllocator } from "../gpu/slotAllocator.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
@@ -158,6 +164,21 @@ export interface RenderStats {
   populationBatches: number;
   /** Population instances submitted inside those batches; drawn with zero ECS entities. */
   populationInstances: number;
+  /**
+   * Population instances drawn from device-resident storage this frame (Phase 14.3): their records
+   * were uploaded once per (chunk, type) and are *not* rewritten into the frame's arena. The rest
+   * (`populationInstances - populationResidentInstances`) took the arena path — a source without a
+   * residency key, or a frame whose slot allocation could not be satisfied.
+   */
+  populationResidentInstances: number;
+  /** Device-resident instance blocks alive right now: one per (chunk, type) a source submitted. */
+  populationResidentBlocks: number;
+  /** Bytes those blocks hold in the instance buffer (slot-rounded, so ≥ the records' own size). */
+  populationResidentBytes: number;
+  /** Blocks uploaded this frame — a steady frame reports 0, which is the whole point of residency. */
+  populationUploads: number;
+  /** Bytes written to the instance buffer for those blocks this frame. */
+  populationUploadedBytes: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -170,6 +191,19 @@ export interface RenderStats {
   cullVisible: number;
   /** Batches whose indirect draw record was zeroed; 0 when the frame submits direct draws. */
   cullRecordZeroed: number;
+  /**
+   * Batches whose geometry carries a LOD chain (Phase 14.4). Their draw window is the level this
+   * frame selected — on the device inside the indirect record, and on the CPU (the same rule,
+   * {@link selectLodLevel}) for the passes that draw before the culler and for direct draws.
+   */
+  lodBatches: number;
+  /** Distinct LOD chains registered with the device table (one per chained geometry, not per batch). */
+  lodSets: number;
+  /**
+   * Visible batches dropped to a coarser level by the culler. Like every device counter it is one
+   * frame late (a read-back cannot be known sooner); the CPU arm reports it immediately.
+   */
+  cullLodReduced: number;
   /** `forge.main` draws submitted through the culler's indirect records this frame. */
   indirectDraws: number;
   /** Draw calls issued by all directional cascade, spot and point-cube shadow passes. */
@@ -277,6 +311,37 @@ interface PointShadowState extends PointShadowFit {
   light: Light | null;
 }
 
+/**
+ * One device-resident population instance block (Phase 14.3's further step).
+ *
+ * The records are composed **once** per (chunk, type) — at populate, and again only when the source
+ * says the data changed (a remesh re-anchor) — and every frame after that costs a batch that points
+ * at the same byte offset. `offset` is region-relative (the buffer's resident base is added when a
+ * batch is emitted), so the arena growing does not invalidate it; it does move the absolute offset,
+ * which is why the block is then marked dirty and re-uploaded.
+ */
+interface ResidentInstances {
+  readonly key: string;
+  /** The CPU arrays the records are composed from — held so a resize can re-upload without the source. */
+  readonly block: PopulationInstanceBlock;
+  /** The source's own version of the data; a mismatch means "compose and upload again". */
+  version: number;
+  /** Region-relative byte offset of the block's first record. */
+  offset: number;
+  /** Bytes the slot holds (bucket-rounded). */
+  bytes: number;
+  /** Instances the block held when its records were last composed. */
+  count: number;
+  /** Byte stride between slices, so every slice's window stays 256-aligned. */
+  sliceStride: number;
+  /** Whether the records must be written to the buffer this frame. */
+  dirty: boolean;
+  /** The frame that last saw this submission; the sweep frees a block whose source stopped sending it. */
+  lastFrame: number;
+  /** Instance 0's matrix: what a single-instance batch's object uniform reads (Phase 14.3). */
+  readonly firstMatrix: Float32Array;
+}
+
 interface Batch {
   geometry: Geometry;
   material: Material;
@@ -297,6 +362,20 @@ interface Batch {
   cullIndex: number;
   /** `Renderable.maxDistance` union over the batch (0 = no limit); the culler's distance test. */
   maxDistance: number;
+  /**
+   * The LOD level this frame draws (Phase 14.4): the CPU mirror of the device's own selection, which
+   * the passes that run *before* `forge.objects.cull` (shadow maps, depth prepass) and the direct
+   * draw path need because they cannot read a record the device has not written yet. 0 for a
+   * geometry with no chain — and `indexCount`/`indexStart` are that level's window in both cases.
+   */
+  lodLevel: number;
+  /** The batch's set index in the device LOD table ({@link LOD_SET_NONE} without a chain). */
+  lodSetId: number;
+  /**
+   * Device-resident instance storage this batch's window lives in (Phase 14.3), or `null` when its
+   * records were composed into the frame's arena the way every `Renderable`'s are.
+   */
+  resident: ResidentInstances | null;
   /** Render-local union of the instances' bounds (object culling). */
   readonly bounds: AABB;
   /** Contiguous per-object ranges grouped by conservative cascade mask for shadow submissions. */
@@ -398,12 +477,20 @@ export class Renderer implements RenderFrameContext {
     culled: 0,
     populationBatches: 0,
     populationInstances: 0,
+    populationResidentInstances: 0,
+    populationResidentBlocks: 0,
+    populationResidentBytes: 0,
+    populationUploads: 0,
+    populationUploadedBytes: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
     cullOccluded: 0,
     cullVisible: 0,
     cullRecordZeroed: 0,
+    lodBatches: 0,
+    lodSets: 0,
+    cullLodReduced: 0,
     indirectDraws: 0,
     shadowsDrawn: 0,
     shadowsCulled: 0,
@@ -595,6 +682,32 @@ export class Renderer implements RenderFrameContext {
   private objectBufferCapacity = 0;
   private instanceBuffer: GPUBuffer | null = null;
   private instanceBufferCapacity = 0;
+  /**
+   * The instance buffer is two regions in one buffer, which is what lets both be reached through the
+   * draw group's single dynamic-offset binding: `[0, instanceArenaBytes)` is the per-frame arena
+   * every `Renderable` composes into, and `[instanceResidentBase, … + allocator.capacity)` holds the
+   * device-resident population blocks (Phase 14.3). The arena's capacity is a high-water mark, so a
+   * steady frame never moves the resident base; when it does grow, every resident block is
+   * re-uploaded at its new absolute offset (its region-relative slot never changes).
+   */
+  private instanceArenaBytes = 0;
+  private instanceResidentBase = 0;
+  private readonly residentSlots = new SlotAllocator();
+  /** Live device-resident blocks, by the submission's `residencyKey`. */
+  private readonly residency = new Map<string, ResidentInstances>();
+  /** Blocks whose records must be (re-)written once the buffer exists and is big enough. */
+  private readonly residentDirty: ResidentInstances[] = [];
+  /** Monotonic frame counter the residency sweep keys on (a block not submitted this frame dies). */
+  private residencyFrame = 0;
+  /** Compose staging for resident uploads; grown, never shrunk, so a steady frame allocates nothing. */
+  private residentStagingF32 = new Float32Array(0);
+  private residentStagingU32 = new Uint32Array(0);
+  /** Device LOD table (Phase 14.4): one set per chained geometry, and the ids handed out for them. */
+  private readonly lodSets: ObjectLodSetCpu[] = [];
+  private readonly lodSetIds = new WeakMap<Geometry, number>();
+  private lodRevision = 0;
+  /** Per-batch set indices staged for the culler; grown with the batch count. */
+  private batchLodSets = new Uint32Array(0);
   private drawBindGroup: GPUBindGroup | null = null;
   private shadowFallback: GPUTexture | null = null;
   private shadowFallbackView: GPUTextureView | null = null;
@@ -932,6 +1045,9 @@ export class Renderer implements RenderFrameContext {
       b.objectOffset = this.reserveObject(b.count > 1 ? IDENTITY : this.lastMatrixFor(b), b.count, i);
     }
     this.ensureArenas();
+    // Device-resident population blocks (Phase 14.3) go up after the buffer is known to be big
+    // enough for their offsets, and before the frame is recorded: a steady frame writes nothing.
+    this.flushResidentUploads();
     this.uploadArenas();
     this.prepareObjectCulling(camera, renderWidth, renderHeight, prepass);
 
@@ -1352,7 +1468,7 @@ export class Renderer implements RenderFrameContext {
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, this.instanceWindowOffset(b)]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
@@ -1392,7 +1508,7 @@ export class Renderer implements RenderFrameContext {
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, this.instanceWindowOffset(b)]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -1466,7 +1582,7 @@ export class Renderer implements RenderFrameContext {
       if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
       if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, this.instanceWindowOffset(b)]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
@@ -1530,6 +1646,10 @@ export class Renderer implements RenderFrameContext {
     s.culled = 0;
     s.populationBatches = 0;
     s.populationInstances = 0;
+    s.populationResidentInstances = 0;
+    s.populationUploads = 0;
+    s.populationUploadedBytes = 0;
+    s.lodBatches = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
     s.shadowInstancesDrawn = 0;
@@ -2241,8 +2361,13 @@ export class Renderer implements RenderFrameContext {
       b.overlay = r.overlay;
       b.castShadow = caster;
       b.shadowOnly = shadowOnly;
-      b.indexCount = r.geometry.indexCount > 0 ? r.geometry.indexCount : r.geometry.vertexCount;
-      b.indexStart = 0;
+      // The geometry's own primary window: level 0 of a LOD chain (Phase 14.4), or the whole index
+      // buffer. `prepareObjectCulling` narrows it to the level this frame selects.
+      b.indexCount = r.geometry.drawCount;
+      b.indexStart = r.geometry.drawStart;
+      b.lodLevel = 0;
+      b.lodSetId = LOD_SET_NONE;
+      b.resident = null;
       b.depthSort = -Vec3.distanceSqBetween(camPos, box.getCenter(this.scratchVec));
       b.objectOffset = 0;
       b.cullIndex = index;
@@ -2275,6 +2400,7 @@ export class Renderer implements RenderFrameContext {
     this.populationShadowCounts[0] = cascadeCount;
     this.populationShadowCounts[1] = spotShadowCount;
     this.populationShadowCounts[2] = pointShadowCount;
+    this.residencyFrame++;
     const objects = scene.objects;
     for (let i = 0; i < objects.length; i++) {
       const object = objects[i]!;
@@ -2282,6 +2408,148 @@ export class Renderer implements RenderFrameContext {
       if (!isPopulationSource(object)) continue;
       object.collectPopulations(this.populationCollector);
     }
+    // Every source has offered every chunk it holds, so a block this frame did not see belongs to a
+    // chunk that streamed out (or a source that was removed or disabled): its slot goes back.
+    this.sweepResidency();
+  }
+
+  // ---------------------------------------------------------------- device-resident instances
+
+  /**
+   * The device-resident block for one submission, created on first sight and kept until its source
+   * stops offering it (Phase 14.3). Returns `null` — and the submission then takes the per-frame
+   * arena path — when the source gave no `residencyKey`, or when no slot could be allocated.
+   *
+   * Sizing is by the block's *capacity*, not its live count: a chunk's arrays are allocated once and
+   * a re-scatter changes `count` inside them, so a slot sized for the capacity never has to move
+   * (moving a slot would mean re-uploading every block after it, which is the cost residency exists
+   * to remove). Slices are padded to 256 bytes so each batch window keeps the dynamic-offset rule.
+   */
+  private resolveResidency(submission: PopulationSubmission): ResidentInstances | null {
+    const key = submission.residencyKey;
+    if (!key) return null;
+    const block = submission.instances;
+    const version = submission.residencyVersion ?? 0;
+    const existing = this.residency.get(key);
+    if (existing) {
+      existing.lastFrame = this.residencyFrame;
+      if (existing.version !== version) {
+        existing.version = version;
+        existing.count = block.count;
+        this.markResidentDirty(existing);
+      } else if (existing.dirty) {
+        // Still queued from the resize/re-create that dirtied it; its bytes are this frame's to write.
+        existing.count = block.count;
+      }
+      if (existing.dirty) this.populationMatrix(block, 0, existing.firstMatrix, 0);
+      return existing;
+    }
+    const capacity = Math.max(block.capacity, block.count);
+    const maxPerBatch = this.maxInstancesPerBatch;
+    const slices = Math.max(1, Math.ceil(capacity / maxPerBatch));
+    const sliceStride = alignUp(maxPerBatch * INSTANCE_STRIDE, 256);
+    const lastSliceInstances = capacity - (slices - 1) * maxPerBatch;
+    const bytes = (slices - 1) * sliceStride + alignUp(Math.max(1, lastSliceInstances) * INSTANCE_STRIDE, 256);
+    const offset = this.residentSlots.allocate(bytes);
+    if (offset < 0) return null;
+    const entry: ResidentInstances = {
+      key,
+      block,
+      version,
+      offset,
+      bytes,
+      count: block.count,
+      sliceStride,
+      dirty: true,
+      lastFrame: this.residencyFrame,
+      firstMatrix: new Float32Array(16),
+    };
+    this.populationMatrix(block, 0, entry.firstMatrix, 0);
+    this.residency.set(key, entry);
+    this.residentDirty.push(entry);
+    return entry;
+  }
+
+  /** Queue a block's records for (re-)upload; idempotent, so a frame queues a block at most once. */
+  private markResidentDirty(entry: ResidentInstances): void {
+    if (entry.dirty) return;
+    entry.dirty = true;
+    this.residentDirty.push(entry);
+  }
+
+  /** Every block's absolute offset moved (the arena grew, or the buffer was re-created): rewrite them all. */
+  private invalidateResidency(): void {
+    for (const entry of this.residency.values()) {
+      entry.dirty = true;
+      if (this.residentDirty.indexOf(entry) < 0) this.residentDirty.push(entry);
+    }
+  }
+
+  /** Free the slots of blocks whose source stopped submitting them, and report what is left. */
+  private sweepResidency(): void {
+    if (this.residency.size > 0) {
+      for (const [key, entry] of this.residency) {
+        if (entry.lastFrame === this.residencyFrame) continue;
+        this.residentSlots.free(entry.offset);
+        this.residency.delete(key);
+      }
+    }
+    this.stats.populationResidentBlocks = this.residency.size;
+    this.stats.populationResidentBytes = this.residentSlots.usedBytes;
+  }
+
+  /**
+   * Write every dirty block's records into the instance buffer's resident region. Runs after
+   * `ensureArenas`, so the buffer exists and is large enough for the offsets the allocator handed
+   * out; a steady frame finds the queue empty and does nothing at all — that is the whole point.
+   */
+  private flushResidentUploads(): void {
+    const list = this.residentDirty;
+    if (list.length === 0) return;
+    const buffer = this.instanceBuffer;
+    if (!buffer) return;
+    const device = this.device.device;
+    let uploads = 0;
+    let bytes = 0;
+    for (let i = 0; i < list.length; i++) {
+      const entry = list[i]!;
+      entry.dirty = false;
+      // A block swept this frame (its source stopped offering it) has a free slot: writing it could
+      // land on top of the block that took the slot over.
+      if (entry.lastFrame !== this.residencyFrame) continue;
+      const block = entry.block;
+      const count = Math.min(block.count, entry.count);
+      if (count <= 0) continue;
+      const maxPerBatch = this.maxInstancesPerBatch;
+      const slices = Math.max(1, Math.ceil(count / maxPerBatch));
+      this.ensureResidentStaging(maxPerBatch * (INSTANCE_STRIDE >> 2));
+      for (let slice = 0; slice < slices; slice++) {
+        const first = slice * maxPerBatch;
+        const sliceCount = Math.min(maxPerBatch, count - first);
+        const f32 = this.residentStagingF32;
+        const u32 = this.residentStagingU32;
+        for (let k = 0; k < sliceCount; k++) this.writePopulationRecord(block, first + k, f32, u32, k * (INSTANCE_STRIDE >> 2));
+        const written = sliceCount * INSTANCE_STRIDE;
+        device.queue.writeBuffer(
+          buffer,
+          this.instanceResidentBase + entry.offset + slice * entry.sliceStride,
+          gpuSource(new Uint8Array(f32.buffer, 0, written)),
+        );
+        uploads++;
+        bytes += written;
+      }
+    }
+    list.length = 0;
+    this.stats.populationUploads += uploads;
+    this.stats.populationUploadedBytes += bytes;
+  }
+
+  /** Grow (never shrink) the compose staging so a steady frame allocates nothing. */
+  private ensureResidentStaging(floats: number): void {
+    if (this.residentStagingF32.length >= floats) return;
+    const next = alignUp(Math.max(floats, 4096), 4);
+    this.residentStagingF32 = new Float32Array(next);
+    this.residentStagingU32 = new Uint32Array(this.residentStagingF32.buffer);
   }
 
   /** The population seam as sources see it: one stable collector object, no per-frame allocation. */
@@ -2294,11 +2562,12 @@ export class Renderer implements RenderFrameContext {
   private readonly populationShadowCounts = new Int32Array(3);
 
   /**
-   * Receive one population submission: frustum-test the chunk, then emit it as instanced batch
-   * slices of at most `maxInstancesPerBatch` instances. Mirrors what the renderable walk does per
-   * entity — instance records in the arena, conservative shadow assignment, a batch with bounds —
-   * except the K instances cost one submission instead of K entities. Returns `false` when the
-   * submission was rejected before any record was written.
+   * Receive one population submission: resolve its device-resident storage, frustum-test the chunk,
+   * then emit it as instanced batch slices of at most `maxInstancesPerBatch` instances. Mirrors what
+   * the renderable walk does per entity — instance records, conservative shadow assignment, a batch
+   * with its own bounds — except the K instances cost one submission instead of K entities, and
+   * (Phase 14.3) their records are uploaded once per (chunk, type) instead of once per frame.
+   * Returns `false` when the submission was rejected before any batch was emitted.
    */
   private addPopulationBatch(submission: PopulationSubmission): boolean {
     const geometry = submission.geometry;
@@ -2306,6 +2575,9 @@ export class Renderer implements RenderFrameContext {
     const block = submission.instances;
     if (!geometry || !material || block.count <= 0) return false;
     const bounds = submission.bounds;
+    // Residency is resolved *before* the visibility tests: a chunk that leaves the view for a frame
+    // must keep the records it already paid to upload, or coming back costs the upload again.
+    const resident = this.resolveResidency(submission);
 
     // Chunk-level pre-tests: the conservative shadow mask of the whole submission decides whether
     // per-instance frustum work is needed at all, and an off-view chunk with no shadow presence
@@ -2321,28 +2593,42 @@ export class Renderer implements RenderFrameContext {
     }
 
     let first = 0;
+    let slice = 0;
     while (first < block.count) {
       const sliceCount = Math.min(this.maxInstancesPerBatch, block.count - first);
-      this.emitPopulationSlice(submission, geometry, material, first, sliceCount, inView, chunkMask);
+      this.emitPopulationSlice(submission, geometry, material, first, sliceCount, slice, inView, chunkMask, resident);
       first += sliceCount;
+      slice++;
     }
     return true;
   }
 
-  /** One contiguous run of population instances: records into the arena, then one batch. */
+  /**
+   * One contiguous run of population instances: one batch, and — unless the block is device-resident
+   * (Phase 14.3) — its records composed into the frame's arena.
+   */
   private emitPopulationSlice(
     submission: PopulationSubmission,
     geometry: Geometry,
     material: Material,
     first: number,
     count: number,
+    slice: number,
     inView: boolean,
     chunkMask: number,
+    resident: ResidentInstances | null,
   ): void {
     const block = submission.instances;
     // A batch's instance window must start 256-aligned (the dynamic-offset rule, as in the
-    // renderable walk); the whole slice is reserved in one go so its records are contiguous.
-    const instanceOffset = this.instanceArena.reserve(count * INSTANCE_STRIDE, 256);
+    // renderable walk). A resident block's slices are padded to that alignment when the slot is
+    // sized, so its window is the slot plus the slice's own stride and nothing is reserved here —
+    // and the offset stays *relative to the resident region*, whose base is not settled until
+    // `ensureArenas` has seen this frame's arena high-water (see `instanceWindowOffset`).
+    // Otherwise the whole slice is reserved in the arena in one go, which keeps its records
+    // contiguous.
+    const instanceOffset = resident
+      ? resident.offset + slice * resident.sliceStride
+      : this.instanceArena.reserve(count * INSTANCE_STRIDE, 256);
     const f32 = this.instanceArena.target.f32;
     const u32 = this.instanceArena.target.u32;
     const castShadow = submission.castShadow;
@@ -2353,12 +2639,18 @@ export class Renderer implements RenderFrameContext {
     batch.material = material;
     batch.instanceOffset = instanceOffset;
     batch.count = count;
-    batch.transparent = false;
+    // A decal's material is the batch's blend state: the seam carries no transparency flag of its
+    // own, so a type draws opaque or blended exactly as its material says (and its pipeline key
+    // follows, which is what keeps a transparent population out of the depth prepass).
+    batch.transparent = material.transparent;
     batch.overlay = false;
-    batch.castShadow = castShadow;
+    batch.castShadow = castShadow && !batch.transparent;
     batch.shadowOnly = !inView;
-    batch.indexCount = geometry.indexCount > 0 ? geometry.indexCount : geometry.vertexCount;
-    batch.indexStart = 0;
+    batch.indexCount = geometry.drawCount;
+    batch.indexStart = geometry.drawStart;
+    batch.lodLevel = 0;
+    batch.lodSetId = LOD_SET_NONE;
+    batch.resident = resident;
     batch.depthSort = -Vec3.distanceSqBetween(this.populationCamPos, submission.bounds.getCenter(this.scratchVec));
     batch.objectOffset = 0;
     batch.cullIndex = index;
@@ -2368,28 +2660,17 @@ export class Renderer implements RenderFrameContext {
 
     for (let k = 0; k < count; k++) {
       const source = first + k;
-      const base = (instanceOffset >> 2) + k * (INSTANCE_STRIDE >> 2);
-      composeYTRS(
-        block.positions[source * 3]!,
-        block.positions[source * 3 + 1]!,
-        block.positions[source * 3 + 2]!,
-        block.scales[source * 3]!,
-        block.scales[source * 3 + 1]!,
-        block.scales[source * 3 + 2]!,
-        block.rotations[source]!,
-        f32,
-        base,
-      );
-      const tint = block.tints[source]!;
-      u32[base + 16] = tint || packColorRGBA(1, 1, 1, 1);
-      f32[base + 17] = 0;
-      u32[base + 18] = 0;
-      u32[base + 19] = 0;
-
+      if (resident) {
+        // The records are on the device already; only the shadow assignment still needs the matrix.
+        if (castShadow && chunkMask !== 0) this.populationMatrix(block, source, this.scratchMat.m, 0);
+      } else {
+        const base = (instanceOffset >> 2) + k * (INSTANCE_STRIDE >> 2);
+        this.writePopulationRecord(block, source, f32, u32, base);
+        if (castShadow && chunkMask !== 0) this.scratchMat.m.set(f32.subarray(base, base + 16));
+      }
       if (castShadow && chunkMask !== 0) {
         // Per-instance map assignment, the same conservative test a renderable gets. Only chunks
         // the pre-test placed near an active map pay this; the rest skip straight past.
-        this.scratchMat.m.set(f32.subarray(base, base + 16));
         geometry.bounds.transformByMatrix(this.scratchMat, this.scratchBox);
         this.addShadowRange(batch, k, this.shadowMaskFor(this.scratchBox, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!));
       }
@@ -2397,6 +2678,32 @@ export class Renderer implements RenderFrameContext {
 
     this.stats.populationBatches++;
     this.stats.populationInstances += count;
+    if (resident) this.stats.populationResidentInstances += count;
+  }
+
+  /** One instance's Y-rotation TRS, composed straight into a record array at `offset`. */
+  private populationMatrix(block: PopulationInstanceBlock, source: number, out: Float32Array, offset: number): void {
+    composeYTRS(
+      block.positions[source * 3]!,
+      block.positions[source * 3 + 1]!,
+      block.positions[source * 3 + 2]!,
+      block.scales[source * 3]!,
+      block.scales[source * 3 + 1]!,
+      block.scales[source * 3 + 2]!,
+      block.rotations[source]!,
+      out,
+      offset,
+    );
+  }
+
+  /** One instance record as the shaders read it: the matrix, then tint/emissive and the two spares. */
+  private writePopulationRecord(block: PopulationInstanceBlock, source: number, f32: Float32Array, u32: Uint32Array, base: number): void {
+    this.populationMatrix(block, source, f32, base);
+    const tint = block.tints[source]!;
+    u32[base + 16] = tint || packColorRGBA(1, 1, 1, 1);
+    f32[base + 17] = 0;
+    u32[base + 18] = 0;
+    u32[base + 19] = 0;
   }
 
   /** Append/coalesce the per-object assignment without splitting the colour batch. */
@@ -2476,6 +2783,9 @@ export class Renderer implements RenderFrameContext {
         objectOffset: 0,
         cullIndex: 0,
         maxDistance: 0,
+        lodLevel: 0,
+        lodSetId: LOD_SET_NONE,
+        resident: null,
         bounds: new AABB(),
         shadowRanges: [],
         shadowRangeCount: 0,
@@ -2500,8 +2810,28 @@ export class Renderer implements RenderFrameContext {
 
   private readonly objectAccessor = new StructAccessor(ObjectUniforms, this.objectArena.target, 0, "uniform");
 
+  /**
+   * The dynamic offset a draw binds for this batch's instance window (Phase 14.3).
+   *
+   * A device-resident population block's offset is relative to the buffer's resident region, and
+   * that region's base moves whenever the per-frame arena below it grows. The arena's size is only
+   * known once every batch has been emitted — after the batches exist — so the base is added here, at
+   * the draw, rather than baked into the batch: on the frame the partition moves (and on the very
+   * first frame, when the base is still 0) a baked-in offset would have bound the arena's own bytes
+   * and drawn every resident population from somebody else's matrices.
+   */
+  private instanceWindowOffset(b: Batch): number {
+    return b.resident ? this.instanceResidentBase + b.instanceOffset : b.instanceOffset;
+  }
+
   /** Non-instanced draws read `objectData.model`; the batch's single matrix is stored there. */
   private lastMatrixFor(b: Batch): Float32Array {
+    // A device-resident block's records are not in the arena (that is the point of residency), so a
+    // one-instance population batch reads the matrix the block cached when it was composed.
+    if (b.resident) {
+      this.scratchMatrix.set(b.resident.firstMatrix);
+      return this.scratchMatrix;
+    }
     const base = b.instanceOffset >> 2;
     const f = this.instanceArena.target.f32;
     this.scratchMatrix.set(f.subarray(base, base + 16));
@@ -2574,13 +2904,57 @@ export class Renderer implements RenderFrameContext {
     this.ensureRecordCapacity(count);
     if (this.cullBounds.length < count * 8) this.cullBounds = new Float32Array(Math.max(count * 8, 512));
     const bounds = this.cullBounds;
+    if (this.batchLodSets.length < count) this.batchLodSets = new Uint32Array(Math.max(count, 64));
+    const batchSets = this.batchLodSets;
     // The records' static half — the batch's index window — is CPU knowledge the device does not have;
     // word 1 holds the batch's count as the pre-verdict default (a batch the pass never touches, because
     // it is past the cap or because the pass did not run, must draw). The bounds carry the same count
     // (`max.w`) so the pass can write it back for the batches it keeps.
     const records = this.indirectDrawsEnabled ? this.drawRecordWords : null;
+    let lodBatches = 0;
     for (let i = 0; i < count; i++) {
       const b = this.batchPool[i]!;
+      // Phase 14.4: the LOD mirror. The device picks the level for `forge.main` inside the record it
+      // writes; the shadow maps and the depth prepass draw *before* that pass and the direct-draw
+      // path never reads a record at all, so they need the same answer from the same rule on the
+      // same inputs — a prepass at level 0 under a main pass at level 2 rejects the coarse surface's
+      // farther fragments and punches holes in it. One sqrt and one threshold walk per chained batch.
+      const chain = b.geometry.lods;
+      if (chain) {
+        const setId = this.lodSetIdFor(b.geometry);
+        batchSets[i] = setId;
+        b.lodSetId = setId;
+        lodBatches++;
+        // Measured the way the pass measures it — f32 bounds centre, f32 camera, f32 root — because a
+        // level threshold has no slop: at 800 m an f32 ulp is 6.1e-5 m, and an f64 distance here would
+        // hand a batch inside that gap of a `minDistance` a finer level than `selectLod` gives it, which
+        // is exactly the hole this mirror exists to prevent. See lodDistanceF32.
+        const level =
+          setId === LOD_SET_NONE
+            ? 0
+            : selectLodLevel(
+                chain,
+                lodDistanceF32(
+                  b.bounds.min.x,
+                  b.bounds.min.y,
+                  b.bounds.min.z,
+                  b.bounds.max.x,
+                  b.bounds.max.y,
+                  b.bounds.max.z,
+                  camera.positionRender.x,
+                  camera.positionRender.y,
+                  camera.positionRender.z,
+                ),
+              );
+        b.lodLevel = level;
+        const window = b.geometry.lodWindow(level);
+        b.indexCount = window.indexCount;
+        b.indexStart = window.indexStart;
+      } else {
+        batchSets[i] = LOD_SET_NONE;
+        b.lodSetId = LOD_SET_NONE;
+        b.lodLevel = 0;
+      }
       const base = i * 8;
       bounds[base] = b.bounds.min.x;
       bounds[base + 1] = b.bounds.min.y;
@@ -2601,6 +2975,11 @@ export class Renderer implements RenderFrameContext {
       records[r + 6] = 0;
       records[r + 7] = 0;
     }
+    this.stats.lodBatches = lodBatches;
+    this.stats.lodSets = this.lodSets.length;
+    // The device selects levels only where it can write them (into a record), and only when a chain
+    // is in the frame at all; otherwise the mirror above is the whole selection.
+    const lodTable = records && lodBatches > 0 && this.lodSets.length > 0 ? { sets: this.lodSets, batchSets } : null;
     // Occlusion needs three things at once: the device path, the option, and a depth buffer that
     // exists (the prepass) whose projection maps view z into the pixels the pyramid holds. The CPU
     // twin cannot do it at all — it has no depth — so `"cpu"` is frustum + distance only.
@@ -2611,9 +2990,31 @@ export class Renderer implements RenderFrameContext {
     // pass only those inside its cap, so whatever is left has to mean "visible".
     const words = this.visibilityWords;
     words.fill(0, 0, count);
+    if (this.objectCullingMode !== "cpu") {
+      // The device writes these words, but only in `forge.objects.cull`, which the frame records
+      // *after* the shadow maps and the depth prepass — the occlusion test reads the pyramid the
+      // prepass depth is reduced into, so it cannot run earlier. Until it runs, the words say
+      // "visible" and both of those passes draw every batch in the frame, including the ones the pass
+      // is about to reject. That costs rasterisation and, worse, depth: a rejected batch that wrote
+      // prepass depth still rejects the sky there while `forge.main` never shades it, which over the
+      // terrain demo was 418 dark specks along the horizon (distant rocks past their `maxDistance`,
+      // silhouetted against the sky) — measured by the pixel A/B in `tools/browser-check.mjs`, which
+      // is what found it. `markCertainDistanceCulls` states the one verdict the host can reach with no
+      // frustum and no pyramid, far enough past the limit that the device's own f32 distance cannot
+      // disagree; the pass overwrites every word inside its cap, so what it decides still decides the
+      // frame, and a batch inside the margin is left for it exactly as before.
+      markCertainDistanceCulls(
+        bounds.subarray(0, count * 8),
+        count,
+        camera.positionRender.x,
+        camera.positionRender.y,
+        camera.positionRender.z,
+        words,
+      );
+    }
     if (this.objectCullingMode === "cpu") {
       const visible = records ? this.ensureVisibleList().words : null;
-      const stats = cullBatchesOnCpu(bounds.subarray(0, count * 8), count, this.cpuCullParams(camera, width, height, records !== null), words, [], {
+      const stats = cullBatchesOnCpu(bounds.subarray(0, count * 8), count, this.cpuCullParams(camera, width, height, records !== null, lodTable), words, [], {
         records: records ?? undefined,
         visible: visible ?? undefined,
       });
@@ -2623,6 +3024,7 @@ export class Renderer implements RenderFrameContext {
       this.stats.cullOccluded = 0;
       this.stats.cullVisible = stats.visible;
       this.stats.cullRecordZeroed = stats.recordZeroed;
+      this.stats.cullLodReduced = stats.lodReduced;
       if (visible) this.device.device.queue.writeBuffer(this.visibleList!.buffer, 0, gpuSource(visible.subarray(0, Math.max(count, 1))));
     }
     this.device.device.queue.writeBuffer(this.visibilityBuffer!, 0, gpuSource(words.subarray(0, count)));
@@ -2643,7 +3045,29 @@ export class Renderer implements RenderFrameContext {
       height,
       occlude: this.cullOcclusion,
       records: records !== null,
+      lods: lodTable ? { batchSets, sets: this.lodSets, revision: this.lodRevision } : null,
     });
+  }
+
+  /**
+   * The device LOD table's id for one chained geometry, registering the chain the first time the
+   * renderer meets it (Phase 14.4). The table is per *geometry*, uploaded once, so a frame with ten
+   * thousand batches costs one `u32` per batch and no table traffic at all. A chain that arrives
+   * past {@link MAX_LOD_SETS} is left unregistered and keeps drawing its level-0 window: the safe
+   * answer to "no room" is the finest level, never a wrong one.
+   */
+  private lodSetIdFor(geometry: Geometry): number {
+    const chain = geometry.lods;
+    if (!chain || chain.length < 2) return LOD_SET_NONE;
+    const existing = this.lodSetIds.get(geometry);
+    if (existing !== undefined) return existing;
+    if (this.lodSets.length >= MAX_LOD_SETS) return LOD_SET_NONE;
+    const levels = chain.map((level) => ({ firstIndex: level.indexStart, indexCount: level.indexCount, minDistance: level.minDistance }));
+    const id = this.lodSets.length;
+    this.lodSets.push({ levels });
+    this.lodSetIds.set(geometry, id);
+    this.lodRevision++;
+    return id;
   }
 
   /**
@@ -2651,7 +3075,7 @@ export class Renderer implements RenderFrameContext {
    * says "no depth here": the twin has no prepass depth, so it runs the frustum and distance tests
    * and leaves occlusion to the device path.
    */
-  private cpuCullParams(camera: Camera, width: number, height: number, records: boolean): ObjectCullParams {
+  private cpuCullParams(camera: Camera, width: number, height: number, records: boolean, lods: ObjectLodTable | null): ObjectCullParams {
     return {
       view: this.view.m,
       proj: this.projection.m,
@@ -2661,8 +3085,9 @@ export class Renderer implements RenderFrameContext {
       far: camera.far,
       width,
       height,
-      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | (records ? CULL_FLAG_RECORDS : 0),
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | (records ? CULL_FLAG_RECORDS : 0) | (lods ? CULL_FLAG_LOD : 0),
       hizLevels: 0,
+      lods,
     };
   }
 
@@ -2724,6 +3149,7 @@ export class Renderer implements RenderFrameContext {
     this.stats.cullOccluded = stats.culledOccluded;
     this.stats.cullVisible = stats.visible;
     this.stats.cullRecordZeroed = stats.recordZeroed;
+    this.stats.cullLodReduced = stats.lodReduced;
   }
 
   /** Group 0 of `forge.prepass`: only the per-frame block (the vertex stage's view-projection). */
@@ -2845,10 +3271,21 @@ export class Renderer implements RenderFrameContext {
     // exists whatever the culling mode is; the zeroed words are what "no culler ran" means.
     this.ensureVisibilityCapacity(this.batchCount);
     const needObject = alignUp(Math.max(this.objectArena.target.byteLength, 64 * 1024), 256);
-    // One full instance window of slack past the written region: every batch start `o` then
-    // satisfies `o + instanceWindowBytes <= capacity`, which is exactly the WebGPU rule for a
-    // dynamic-offset binding of that size (see the draw bind group above).
-    const needInstance = alignUp(Math.max(this.instanceArena.usedBytes + this.instanceWindowBytes, 64 * 1024), 256);
+    // The instance buffer is two regions in one buffer (Phase 14.3): the per-frame arena, whose
+    // capacity is a high-water mark so a steady frame never moves what sits above it, and the
+    // device-resident population blocks the slot allocator owns. One full instance window of slack
+    // past both: every batch start `o` then satisfies `o + instanceWindowBytes <= capacity`, which
+    // is exactly the WebGPU rule for a dynamic-offset binding of that size (see the draw bind group).
+    const arenaNeed = alignUp(Math.max(this.instanceArena.usedBytes, 64 * 1024), 256);
+    if (arenaNeed > this.instanceArenaBytes) {
+      // The resident region begins where the arena ends, so growth shifts every resident block's
+      // absolute offset. Its slot (region-relative) is unchanged, but its bytes are now somewhere
+      // else and the buffer is about to be re-created anyway: rewrite them all.
+      this.instanceArenaBytes = arenaNeed;
+      this.instanceResidentBase = arenaNeed;
+      this.invalidateResidency();
+    }
+    const needInstance = alignUp(this.instanceResidentBase + this.residentSlots.capacity + this.instanceWindowBytes, 256);
     let rebuilt = false;
     if (needObject > this.objectBufferCapacity) {
       this.objectBuffer?.destroy();
@@ -2861,6 +3298,8 @@ export class Renderer implements RenderFrameContext {
       this.instanceBuffer = this.device.device.createBuffer({ label: "instances.storage", size: needInstance, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
       this.instanceBufferCapacity = needInstance;
       rebuilt = true;
+      // A fresh buffer holds nothing: every resident block's records have to go up again.
+      this.invalidateResidency();
     }
     if (rebuilt || !this.drawBindGroup) {
       const { draw } = this.pipelines.bindGroupLayouts;
@@ -3167,6 +3606,16 @@ export class Renderer implements RenderFrameContext {
     this.overlayBuffer = null;
     this.objectBufferCapacity = 0;
     this.instanceBufferCapacity = 0;
+    // Device-resident population blocks live *inside* the instance buffer just destroyed: the slots
+    // go with it, and so does the queue of uploads that would have written into it.
+    this.residency.clear();
+    this.residentDirty.length = 0;
+    this.residentSlots.clear();
+    this.instanceArenaBytes = 0;
+    this.instanceResidentBase = 0;
+    this.lodSets.length = 0;
+    this.lodRevision = 0;
+    this.batchLodSets = new Uint32Array(0);
     this.shadowFallback?.destroy();
     this.shadowFallback = null;
     this.shadowFallbackView = null;

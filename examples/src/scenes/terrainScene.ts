@@ -11,9 +11,12 @@
  *   directional light) and exp² dust haze whose colour is the model's own horizon radiance, so the
  *   loaded disc's edge fades into the sky instead of reading as a cliff.
  * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
- * - Phase 14 world population: deterministic rocks and boulders scattered per streamed chunk
- *   (`PopulationWorld`), drawn as instanced batches with no entity per rock and culled per chunk
- *   by the device object culler past each type's draw distance.
+ * - Phase 14 world population: six deterministic types scattered per streamed chunk (`PopulationWorld`
+ *   over the engine's own presets — rocks, boulders, debris, scrub, dust decals and marker posts),
+ *   drawn as instanced batches with no entity per instance and culled per chunk by the device object
+ *   culler past each type's draw distance. Each chunk's instance records are uploaded once into a slot
+ *   of the instance buffer rather than recomposed every frame, and every type's geometry is a LOD chain
+ *   whose level the device selects per chunk inside the same pass that decides visibility.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
  * - A full PBR texture set (albedo + tangent-space normal + metallic-roughness) tiled over the
  *   chunks — iron-oxide regolith with basalt patches and pebble grain, generated procedurally so
@@ -33,9 +36,16 @@ import {
   Vec3,
   TerrainWorld,
   createAtmosphere,
-  createRock,
+  createLodPrimitive,
+  debrisGeometrySource,
+  planeGeometrySource,
+  populationPreset,
+  propGeometrySource,
+  rockGeometrySource,
+  vegetationGeometrySource,
 } from "@forge/engine";
 import {
+  createDustBlotchTexture,
   createMarsRegolithTextures,
   disposePbrTextureSet,
   type PbrTextureSet,
@@ -121,50 +131,117 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   });
   scene.add(terrain);
 
-  // Phase 14 — world population. Two types share the streamed disc: rocks (dense, small, slope
-  // tolerant) and boulders (sparse, large, flattish ground only). Placement is a pure function of
-  // (seed, chunk, type) over the chunk's heightmap, so the same world always scatters the same
-  // rocks; remeshes re-anchor them to the new surface rather than re-scattering. Neither type
-  // creates an entity — `stats.populationInstances` reports how many rocks the frame drew while
-  // the entity count stays at the terrain chunks + lights + camera. `maxDistance` hands each type
-  // to the device object culler, which drops whole chunk batches past it.
+  // Phase 14 — world population. Six types share the streamed disc, each one an engine *preset*
+  // (`populationPreset`) wearing this scene's own geometry and material: rocks and boulders (the
+  // ground cover), debris (chips collected on steeper ground), vegetation (dry scrub tufts), decals
+  // (dust blotches) and props (sparse survey markers). Placement is a pure function of (seed, chunk,
+  // type id) over the chunk's heightmap, so the same world always scatters the same rocks, and a
+  // remesh re-anchors them to the new surface rather than re-scattering. No type creates an entity —
+  // `stats.populationInstances` reports how many instances the frame drew while the entity count stays
+  // at terrain chunks + lights + camera — and each type's `maxDistance` hands its chunk batches to the
+  // device object culler. Each chunk's records go to the device once, into a slot of the instance
+  // buffer keyed by (world, type, chunk), instead of being recomposed into the frame's arena.
+  //
+  // Every type's geometry is a LOD *chain* (Phase 14.4): one index buffer holding two or three levels
+  // of the same shape, so the device picks the level per chunk by rewriting two words of the draw
+  // record — no read-back, no second buffer. The switch distances sit inside each type's
+  // `maxDistance`, so a type reaches its coarsest level before it stops drawing and the switch is never
+  // the last thing you see of it.
   const rockMaterial = new Material({
     label: "mars-rock",
     color: Color.fromSrgbHex(0x9a6a4e),
     roughness: 0.96,
     metallic: 0.03,
   });
-  const rockGeometry = gpu ? createRock(gpu, { radius: 0.8, segments: 7, seed: 7, roughness: 0.34 }) : null;
-  const boulderGeometry = gpu ? createRock(gpu, { radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 }) : null;
+  // Scrub is a tuft of thin double-sided blades: single-sided would show the terrain through every
+  // blade seen from behind, and a shadow map of them silhouettes as a solid blob, so the preset's
+  // `castShadow: false` is the honest answer.
+  const scrubMaterial = new Material({
+    label: "mars-scrub",
+    color: Color.fromSrgbHex(0x9c8a55),
+    roughness: 1,
+    metallic: 0,
+    doubleSided: true,
+  });
+  // A decal is a flat quad whose *material* is the shape: transparent, with the blotch in the albedo
+  // map's alpha. The renderer drops shadow casting for a transparent batch on its own, so a decal
+  // never costs a shadow-map draw.
+  const dustBlotch = gpu ? createDustBlotchTexture(gpu, 128) : null;
+  const decalMaterial = new Material({
+    label: "mars-dust-decal",
+    color: 0xffffff,
+    roughness: 1,
+    metallic: 0,
+    transparent: true,
+    albedoMap: dustBlotch,
+  });
+  const markerMaterial = new Material({
+    label: "mars-marker",
+    color: Color.fromSrgbHex(0xc9c2b6),
+    roughness: 0.45,
+    metallic: 0.6,
+  });
+  const rockGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        // `rockGeometrySource` clamps below four segments, so the levels are 8, 5 and 4 — 384, 150 and
+        // 96 indices. Level 0 stays near the detail this scene drew before the chain existed.
+        build: (level) => rockGeometrySource({ radius: 0.8, segments: [8, 5, 4][level]!, seed: 7, roughness: 0.34 }),
+        levels: 3,
+        distances: [140, 340],
+      })
+    : null;
+  const boulderGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        build: (level) => rockGeometrySource({ radius: 2.4, segments: [9, 6, 4][level]!, seed: 11, roughness: 0.3, flatten: 0.4 }),
+        levels: 3,
+        distances: [300, 620],
+      })
+    : null;
+  const debrisGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        build: (level) => debrisGeometrySource({ fragments: level === 0 ? 4 : 2, sides: level === 0 ? 5 : 3, radius: 0.5, seed: 23 }),
+        levels: 2,
+        distances: [90],
+      })
+    : null;
+  const scrubGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        build: (level) => vegetationGeometrySource({ blades: [9, 5, 3][level]!, segments: [3, 2, 1][level]!, height: 1, radius: 0.35, seed: 31 }),
+        levels: 3,
+        distances: [90, 220],
+      })
+    : null;
+  // A decal's detail is in its alpha map, so its chain only sheds subdivisions: 4×4 near, 1×1 far.
+  const decalGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        build: (level) => planeGeometrySource({ width: 1, depth: 1, segmentsX: level === 0 ? 4 : 1, segmentsZ: level === 0 ? 4 : 1 }),
+        levels: 2,
+        distances: [140],
+      })
+    : null;
+  const markerGeometry = gpu
+    ? createLodPrimitive(gpu, {
+        build: (level) => propGeometrySource({ radius: 0.22, height: 2.2, sides: [8, 5, 4][level]!, bevel: 0.16, roughness: 0.05, seed: 47 }),
+        levels: 3,
+        distances: [320, 760],
+      })
+    : null;
   const population = new PopulationWorld({
     terrain,
     types: [
-      {
-        id: 1,
-        label: "rocks",
-        densityGrid: 6,
-        scaleMin: 0.3,
-        scaleMax: 1.7,
-        scaleExponent: 1.7,
-        slopeLimit: 0.55,
-        tintJitter: 0.3,
-        maxDistance: 550,
-        geometry: rockGeometry,
-        material: rockMaterial,
-      },
-      {
-        id: 2,
-        label: "boulders",
-        densityGrid: 2,
-        scaleMin: 0.6,
-        scaleMax: 1.4,
-        slopeLimit: 0.4,
-        tintJitter: 0.25,
-        embed: 0.25,
-        maxDistance: 800,
-        geometry: boulderGeometry,
-        material: rockMaterial,
-      },
+      { ...populationPreset("rock"), geometry: rockGeometry, material: rockMaterial },
+      { ...populationPreset("boulder"), geometry: boulderGeometry, material: rockMaterial },
+      // The presets are engine defaults; this scene's chunk is 128 m and its disc is a kilometre, so
+      // the four new types come in denser than the preset only where they can be seen: debris and
+      // scrub are near-ground detail, and at the preset's own reach they would put instances in every
+      // one of ~200 resident chunks for pixels no larger than a grain of sand.
+      { ...populationPreset("debris", { densityGrid: 5, maxDistance: 170 }), geometry: debrisGeometry, material: rockMaterial },
+      { ...populationPreset("vegetation", { densityGrid: 4, maxDistance: 260 }), geometry: scrubGeometry, material: scrubMaterial },
+      // The preset lifts a decal 6 cm, which suits a mesh that follows the analytic surface. This
+      // terrain's chords span 4 m over 55 m of relief, and a chord sags ~6 cm below the surface it
+      // approximates — so the lift here has to clear the mesh's own error, not just the surface.
+      { ...populationPreset("decal", { densityGrid: 2, maxDistance: 200, lift: 0.22 }), geometry: decalGeometry, material: decalMaterial },
+      { ...populationPreset("prop", { maxDistance: 900 }), geometry: markerGeometry, material: markerMaterial },
     ],
   });
   scene.add(population);
@@ -233,9 +310,12 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
     },
     dispose: () => {
       population.dispose();
-      rockGeometry?.dispose();
-      boulderGeometry?.dispose();
+      for (const geometry of [rockGeometry, boulderGeometry, debrisGeometry, scrubGeometry, decalGeometry, markerGeometry]) geometry?.dispose();
       rockMaterial.dispose();
+      scrubMaterial.dispose();
+      decalMaterial.dispose();
+      markerMaterial.dispose();
+      dustBlotch?.dispose();
       terrainMat.dispose();
       terrain.dispose();
       disposePbrTextureSet(marsMaps);

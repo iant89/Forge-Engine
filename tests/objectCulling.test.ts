@@ -29,10 +29,13 @@ import {
   CULL_FLAG_DISTANCE,
   CULL_FLAG_FRUSTUM,
   CULL_FLAG_OCCLUSION,
+  CULL_FLAG_LOD,
   CULL_FLAG_RECORDS,
   CULL_STATS_BYTES,
   CULL_WORKGROUP,
   DRAW_RECORD_BYTES,
+  DRAW_RECORD_FIRST_INDEX,
+  DRAW_RECORD_INDEX_COUNT,
   DRAW_RECORD_INSTANCES,
   DRAW_RECORD_WORDS,
   CullReason,
@@ -43,6 +46,7 @@ import {
   HIZ_LEVELS,
   HIZ_REDUCE_SHADER,
   HIZ_WORKGROUP,
+  LOD_TABLE_BYTES,
   MAX_CULLED_BATCHES,
   Mat4,
   OBJECT_CULL_SHADER,
@@ -50,6 +54,10 @@ import {
   ObjectBatchEntry,
   ObjectCullStatsBlock,
   ObjectCullUniforms,
+  ObjectLodLevel,
+  ObjectLodSet,
+  ObjectLodSetBlock,
+  LOD_SET_NONE,
   PipelineFactory,
   RenderGraph,
   TextureUsage,
@@ -59,9 +67,13 @@ import {
   cullPlanesFrom,
   hizLevelCount,
   hizLevelSize,
+  lodDistanceF32,
+  markCertainDistanceCulls,
+  selectLodLevel,
   validateWgsl,
   type ObjectCullOutputs,
   type ObjectCullParams,
+  type ObjectLodSetCpu,
 } from "@forge/engine";
 
 const NEAR = 0.5;
@@ -463,12 +475,24 @@ describe("OBJECT_CULL_SHADER", () => {
       `const CULL_FLAG_DISTANCE: u32 = ${CULL_FLAG_DISTANCE}u;`,
       `const CULL_FLAG_OCCLUSION: u32 = ${CULL_FLAG_OCCLUSION}u;`,
       `const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;`,
+      `const CULL_FLAG_LOD: u32 = ${CULL_FLAG_LOD}u;`,
       `const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;`,
       `const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;`,
+      `const RECORD_INDEX_COUNT: u32 = ${DRAW_RECORD_INDEX_COUNT}u;`,
+      `const RECORD_FIRST_INDEX: u32 = ${DRAW_RECORD_FIRST_INDEX}u;`,
       `const REASON_FRUSTUM: u32 = ${CullReason.Frustum}u;`,
       "fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {",
       "fn planeAt(row: u32) -> vec4<f32> {",
-      "fn cullReasonOf(box: ObjectBatchEntry) -> u32 {",
+      // `chain`, never `set`: WGSL reserves the word, Dawn refuses the shader, and the host mock —
+      // which does not parse WGSL — would happily have drawn it. tools/wgsl-check.mjs now flags it.
+      "fn selectLod(chain: ObjectLodSet, d: f32) -> u32 {",
+      // The distance is the batch's *own* sphere centre and radius (the box is centre+extent, and the
+      // LOD test must see the same number the frustum test does, or a batch can be drawn at a level
+      // the CPU mirror did not pick).
+      "fn cullReasonOf(box: ObjectBatchEntry, center: vec3<f32>, radius: f32) -> u32 {",
+      "let level = selectLod(chain, distance(center, cull.cameraPos));",
+      "@group(0) @binding(7) var<storage, read> batchLods: array<u32>;",
+      "@group(0) @binding(8) var<storage, read> lodSets: ObjectLodSetBlock;",
       "@workgroup_size(CULL_WORKGROUP) @compute fn csCull(",
     ]) {
       expect(OBJECT_CULL_SHADER, text).toContain(text);
@@ -478,6 +502,11 @@ describe("OBJECT_CULL_SHADER", () => {
     expect(OBJECT_CULL_SHADER).toContain(ObjectBatchEntry.toWgsl("storage"));
     expect(OBJECT_CULL_SHADER).toContain(ObjectBatchBlock.toWgsl("storage"));
     expect(OBJECT_CULL_SHADER).toContain(ObjectCullStatsBlock.toWgsl("storage"));
+    // The LOD table is embedded too, and its size is what the host buffer is allocated from: a
+    // struct the device and the CPU disagree about is a table of distances read as indices.
+    expect(OBJECT_CULL_SHADER).toContain(ObjectLodLevel.toWgsl("storage"));
+    expect(OBJECT_CULL_SHADER).toContain(ObjectLodSet.toWgsl("storage"));
+    expect(OBJECT_CULL_SHADER).toContain(ObjectLodSetBlock.toWgsl("storage"));
     // One invocation per batch, one dispatch, and the word is written on every path (a verdict, not a
     // leftover): the tests agree with the twin about which batches survive, and the pass writes the
     // word, the counters, the compaction slot and the record from that single verdict.
@@ -489,13 +518,28 @@ describe("OBJECT_CULL_SHADER", () => {
     expect(OBJECT_CULL_SHADER).toContain("visibleBatches[slot] = index;");
     // The record's instance count is the batch's own (the bounds' `max.w`) or zero — the two writes a
     // draw command can carry, from the same verdict that wrote the word.
-    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word] = u32(box.max.w);");
-    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word] = 0u;");
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word + RECORD_INSTANCES] = u32(box.max.w);");
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word + RECORD_INSTANCES] = 0u;");
     expect(OBJECT_CULL_SHADER).toContain("atomicAdd(&counts.recordZeroed, 1u);");
+    // Phase 14.4: the level is two more words of the same record, written only for a kept batch whose
+    // set id is inside the live table. A culled batch never reaches them (its count is already 0), and
+    // an unregistered chain leaves the window the CPU uploaded — level 0, the finest.
+    expect(OBJECT_CULL_SHADER).toContain("if ((cull.flags & CULL_FLAG_LOD) != 0u) {");
+    expect(OBJECT_CULL_SHADER).toContain("let setId = batchLods[index];");
+    expect(OBJECT_CULL_SHADER).toContain("if (setId < cull.lodSetCount) {");
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word + RECORD_INDEX_COUNT] = chain.lods[level].indexCount;");
+    expect(OBJECT_CULL_SHADER).toContain("drawRecords[word + RECORD_FIRST_INDEX] = chain.lods[level].firstIndex;");
+    expect(OBJECT_CULL_SHADER).toContain("atomicAdd(&counts.lodReduced, 1u);");
+    // The counter block grew with the seventh atomic; a host that allocated the old 24 bytes would
+    // write `lodReduced` past the end of its own buffer.
+    // The pass's buffer is the *storage* size (a uniform-sized copy would round to 32 and leave four
+    // dead bytes between the counters and whatever follows).
+    expect(ObjectCullStatsBlock.byteSize("storage")).toBe(CULL_STATS_BYTES);
+    expect(CULL_STATS_BYTES).toBe(28);
     // The pixel row is the negated NDC y (texel row 0 is the top): the mirrored rect is not a
     // one-texel error, it is a rect over the other half of the screen.
     expect(OBJECT_CULL_SHADER).toContain("(0.5 - ndc.y * 0.5) * cull.extent.y");
-    expect(OBJECT_CULL_SHADER.match(/atomicAdd\(&counts\./g)).toHaveLength(6);
+    expect(OBJECT_CULL_SHADER.match(/atomicAdd\(&counts\./g)).toHaveLength(7);
     expect(validateWgsl(OBJECT_CULL_SHADER)).toEqual([]);
     for (const shader of [HIZ_DEPTH_SHADER, HIZ_REDUCE_SHADER]) {
       expect(shader).toContain(`const HIZ_WORKGROUP: u32 = ${HIZ_WORKGROUP}u;`);
@@ -513,52 +557,55 @@ describe("OBJECT_CULL_SHADER", () => {
   });
 });
 
+/** A culler, its three frame-level buffers and a mock device, wired but not yet recorded. */
+async function cullerSetup(batchCount = 3) {
+  const device = await GraphicsDevice.create({ forceMock: true });
+  const mock = device.mock;
+  const graph = new RenderGraph(device);
+  const visibility = device.device.createBuffer({
+    label: "cull.visibility",
+    size: MAX_CULLED_BATCHES * 4,
+    usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
+  // The frame-level products (Phase 13.6): the records the draw loop reads, and the compaction list.
+  const records = device.device.createBuffer({
+    label: "cull.drawRecords",
+    size: batchCount * DRAW_RECORD_BYTES,
+    usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST,
+  });
+  const visible = device.device.createBuffer({
+    label: "cull.visibleBatches",
+    size: MAX_CULLED_BATCHES * 4,
+    usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
+  const culler = new GpuObjectCuller(device, new PipelineFactory(device).shaders);
+  const boxes = Array.from({ length: batchCount }, (_, i) => ({ c: new Vec3(0, 0, -5 - i), r: 1, limit: i === 1 ? 2 : 0 }));
+  const params = frameParams();
+  const view = new Mat4(params.view as never);
+  const projection = new Mat4(params.proj as never);
+  const viewProj = new Mat4(params.viewProj as never);
+  const prepare = (occlude: boolean, writeRecords = false) =>
+    culler.prepare(boundsOf(boxes), batchCount, {
+      view,
+      projection,
+      viewProj,
+      cameraPos: { x: EYE.x, y: EYE.y, z: EYE.z },
+      near: NEAR,
+      far: FAR,
+      width: 64,
+      height: 64,
+      occlude,
+      records: writeRecords,
+    });
+  const record = (depth: RenderGraphHandle) => culler.record(graph, depth, visibility, records, visible);
+  return { device, mock, graph, visibility, records, visible, culler, boxes, prepare, record };
+}
+
 describe("GpuObjectCuller", () => {
-  async function setup(batchCount = 3) {
-    const device = await GraphicsDevice.create({ forceMock: true });
-    const mock = device.mock;
-    const graph = new RenderGraph(device);
-    const visibility = device.device.createBuffer({
-      label: "cull.visibility",
-      size: MAX_CULLED_BATCHES * 4,
-      usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
-    });
-    // The frame-level products (Phase 13.6): the records the draw loop reads, and the compaction list.
-    const records = device.device.createBuffer({
-      label: "cull.drawRecords",
-      size: batchCount * DRAW_RECORD_BYTES,
-      usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST,
-    });
-    const visible = device.device.createBuffer({
-      label: "cull.visibleBatches",
-      size: MAX_CULLED_BATCHES * 4,
-      usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
-    });
-    const culler = new GpuObjectCuller(device, new PipelineFactory(device).shaders);
-    const boxes = Array.from({ length: batchCount }, (_, i) => ({ c: new Vec3(0, 0, -5 - i), r: 1, limit: i === 1 ? 2 : 0 }));
-    const params = frameParams();
-    const view = new Mat4(params.view as never);
-    const projection = new Mat4(params.proj as never);
-    const viewProj = new Mat4(params.viewProj as never);
-    const prepare = (occlude: boolean, writeRecords = false) =>
-      culler.prepare(boundsOf(boxes), batchCount, {
-        view,
-        projection,
-        viewProj,
-        cameraPos: { x: EYE.x, y: EYE.y, z: EYE.z },
-        near: NEAR,
-        far: FAR,
-        width: 64,
-        height: 64,
-        occlude,
-        records: writeRecords,
-      });
-    const record = (depth: RenderGraphHandle) => culler.record(graph, depth, visibility, records, visible);
-    return { device, mock, graph, visibility, records, visible, culler, boxes, prepare, record };
-  }
+
 
   it("writes the frame block the shader reads, and one bounds entry per batch", async () => {
-    const { device, mock, visibility, records, visible, culler, prepare } = await setup(3);
+    const { device, mock, visibility, records, visible, culler, prepare } = await cullerSetup(3);
     prepare(false);
     const block = [...mock.liveBuffers].find((b) => b.label === "objects.cull.uniforms")!;
     expect(block).toBeDefined();
@@ -588,7 +635,7 @@ describe("GpuObjectCuller", () => {
   });
 
   it("records one pass, one whole-workgroup dispatch, and a copy of the counters", async () => {
-    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(3);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(3);
     prepare(false);
     graph.begin();
     const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
@@ -608,7 +655,7 @@ describe("GpuObjectCuller", () => {
   });
 
   it("builds the pyramid and records its passes only when the frame has depth to test against", async () => {
-    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(2);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(2);
     prepare(true);
     graph.begin();
     const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
@@ -649,7 +696,7 @@ describe("GpuObjectCuller", () => {
     // The pyramid texture stays allocated between frames (it is the size of the target, not of the
     // frame), so the level count has to be per-frame state: a frame the renderer did not ask to
     // occlude has no prepass depth, and declaring a pass that reads it is the graph refusing the frame.
-    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(2);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(2);
     prepare(true);
     graph.begin();
     const first = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
@@ -674,7 +721,7 @@ describe("GpuObjectCuller", () => {
   });
 
   it("reports nothing and records nothing after dispose", async () => {
-    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await setup(1);
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(1);
     prepare(false);
     culler.dispose();
     graph.begin();
@@ -682,12 +729,385 @@ describe("GpuObjectCuller", () => {
     record(depth);
     expect(graph.execute().executed).toEqual([]);
     culler.poll();
-    expect(culler.stats).toEqual({ tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 });
+    expect(culler.stats).toEqual({ tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0, lodReduced: 0 });
     culler.dispose();
     visibility.destroy();
     records.destroy();
     visible.destroy();
     await device.dispose();
     expect(mock.errors).toEqual([]);
+  });
+});
+
+/**
+ * Phase 14.4 — device-selected object LOD.
+ *
+ * The claim is that the *level* is decided where the visibility verdict is decided: one invocation per
+ * batch, from the batch's own distance, writing two more words of the indirect record the draw already
+ * reads. What could go wrong, and what these cases pin:
+ *
+ *  - the selection rule itself (the last level whose threshold the distance reached, never out of
+ *    range, and the same rule in WGSL and in the CPU twin — `selectLodLevel` is the twin's);
+ *  - a batch with no chain, or a set index past the live table, keeping the window the CPU uploaded
+ *    (level 0: untested is never wrongly reduced);
+ *  - a culled batch never getting a window (its instance count is already 0, and writing a level for
+ *    it would be a decision about a draw that does not happen);
+ *  - the table's bytes: one set index per batch per frame, the table itself rewritten only when its
+ *    revision moves, and the counters' seventh word read back from the offset the struct says.
+ */
+describe("Object LOD selection (14.4)", () => {
+  /** A rock's chain: 480 → 120 → 30 indices, switching at 40 m and 120 m. */
+  const CHAIN: ObjectLodSetCpu = {
+    levels: [
+      { firstIndex: 0, indexCount: 480, minDistance: 0 },
+      { firstIndex: 480, indexCount: 120, minDistance: 40 },
+      { firstIndex: 600, indexCount: 30, minDistance: 120 },
+    ],
+  };
+
+  /** A records array pre-filled the way the renderer fills it: every chained batch at level 0. */
+  function levelZeroRecords(batches: number): Uint32Array {
+    const records = new Uint32Array(batches * DRAW_RECORD_WORDS);
+    for (let i = 0; i < batches; i++) {
+      const word = i * DRAW_RECORD_WORDS;
+      records[word + DRAW_RECORD_INDEX_COUNT] = CHAIN.levels[0]!.indexCount;
+      records[word + DRAW_RECORD_FIRST_INDEX] = CHAIN.levels[0]!.firstIndex;
+      records[word + DRAW_RECORD_INSTANCES] = 1;
+    }
+    return records;
+  }
+
+  it("selects the last level whose threshold the distance has reached", () => {
+    expect(selectLodLevel(CHAIN.levels, 0)).toBe(0);
+    expect(selectLodLevel(CHAIN.levels, 39.999)).toBe(0);
+    // The threshold itself takes the coarser level: `>=`, matching the WGSL, so the two arms cannot
+    // disagree about a batch sitting exactly on the boundary.
+    expect(selectLodLevel(CHAIN.levels, 40)).toBe(1);
+    expect(selectLodLevel(CHAIN.levels, 119.5)).toBe(1);
+    expect(selectLodLevel(CHAIN.levels, 120)).toBe(2);
+    expect(selectLodLevel(CHAIN.levels, 1e6)).toBe(2);
+  });
+
+  it("measures the level distance the way the device does, so a batch on a threshold cannot disagree", () => {
+    // 800 m is a level threshold and 799.99997 m is inside one f32 ulp of it (ulp(800) = 6.1e-5 m),
+    // so the f64 distance says "nearer" while the device's f32 distance says "reached". The host
+    // paths have to say what the device says: `forge.main` reads the record the pass wrote while the
+    // prepass and the shadow maps read the mirror, and a coarser main-pass surface under a finer
+    // prepass depth is rejected by `depthCompare: "less-equal"` — holes, not a cosmetic drift.
+    const chain = {
+      levels: [
+        { minDistance: 0, firstIndex: 0, indexCount: 96 },
+        { minDistance: 800, firstIndex: 96, indexCount: 24 },
+      ],
+    };
+    const f64 = Math.hypot(799.99997, 0, 0);
+    expect(f64 < 800).toBe(true);
+    expect(selectLodLevel(chain.levels, f64)).toBe(0);
+    const device = lodDistanceF32(0, 0, 0, 0, 0, 0, 799.99997, 0, 0);
+    expect(device).toBe(800);
+    expect(selectLodLevel(chain.levels, device)).toBe(1);
+
+    // The centre is the bounds entry's, halved in f32 like the WGSL does, and where f32 is exact the
+    // emulation is just the distance.
+    expect(lodDistanceF32(-1, -2, -3, 1, 2, 3, 3, 0, 4)).toBe(5);
+    expect(lodDistanceF32(0, 0, 0, 2, 0, 0, 1, 0, 0)).toBe(0);
+    // A batch far from every threshold is unaffected: the rounding only matters at the boundary.
+    expect(selectLodLevel(CHAIN.levels, lodDistanceF32(0, 0, 0, 0, 0, 0, 500, 0, 0))).toBe(selectLodLevel(CHAIN.levels, 500));
+    // A single-level chain, an empty one, and a batch behind the eye: level 0, never out of range.
+    expect(selectLodLevel([{ minDistance: 0 }], 500)).toBe(0);
+    expect(selectLodLevel([], 500)).toBe(0);
+    expect(selectLodLevel(CHAIN.levels, -5)).toBe(0);
+  });
+
+  it("writes the selected level's window into the record the draw reads", () => {
+    // Three batches on the view axis, 5 m / 45 m / 135 m from the eye at z = -10 (which looks
+    // towards +Z): one per level of the chain.
+    const boxes = [
+      { c: new Vec3(0, 0, -5), r: 0.5, count: 3 },
+      { c: new Vec3(0, 0, 35), r: 0.5, count: 3 },
+      { c: new Vec3(0, 0, 125), r: 0.5, count: 3 },
+    ];
+    const records = levelZeroRecords(3);
+    const params = frameParams({
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | CULL_FLAG_RECORDS | CULL_FLAG_LOD,
+      lods: { sets: [CHAIN], batchSets: new Uint32Array([0, 0, 0]) },
+    });
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 3, params, new Uint32Array(3), [], { records });
+    expect(stats.visible).toBe(3);
+    // Two of the three drew a coarser level than the CPU's default: that is the frame's LOD saving,
+    // and it is counted so a scene can report it (and so a table nobody reduces is visible as such).
+    expect(stats.lodReduced).toBe(2);
+    expect(records[DRAW_RECORD_INDEX_COUNT]).toBe(480);
+    expect(records[DRAW_RECORD_FIRST_INDEX]).toBe(0);
+    expect(records[DRAW_RECORD_WORDS + DRAW_RECORD_INDEX_COUNT]).toBe(120);
+    expect(records[DRAW_RECORD_WORDS + DRAW_RECORD_FIRST_INDEX]).toBe(480);
+    expect(records[2 * DRAW_RECORD_WORDS + DRAW_RECORD_INDEX_COUNT]).toBe(30);
+    expect(records[2 * DRAW_RECORD_WORDS + DRAW_RECORD_FIRST_INDEX]).toBe(600);
+    // The instance count is untouched by the level: a draw's instance and index windows are separate.
+    expect(records[DRAW_RECORD_WORDS + DRAW_RECORD_INSTANCES]).toBe(3);
+  });
+
+  it("keeps the uploaded window for a batch with no chain, or a set index past the table", () => {
+    const boxes = [
+      { c: new Vec3(0, 0, 125), r: 0.5, count: 2 },
+      { c: new Vec3(0, 0, 125), r: 0.5, count: 2 },
+    ];
+    const records = levelZeroRecords(2);
+    const params = frameParams({
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | CULL_FLAG_RECORDS | CULL_FLAG_LOD,
+      // LOD_SET_NONE is "this geometry has no chain"; 7 is a set index the table does not hold (a
+      // chain that arrived past MAX_LOD_SETS). Both must draw the finest level rather than read a
+      // neighbouring set's windows — the device guards with `setId < cull.lodSetCount`, this mirrors it.
+      lods: { sets: [CHAIN], batchSets: new Uint32Array([LOD_SET_NONE, 7]) },
+    });
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 2, params, new Uint32Array(2), [], { records });
+    expect(stats.visible).toBe(2);
+    expect(stats.lodReduced).toBe(0);
+    for (const i of [0, 1]) {
+      expect(records[i * DRAW_RECORD_WORDS + DRAW_RECORD_INDEX_COUNT]).toBe(480);
+      expect(records[i * DRAW_RECORD_WORDS + DRAW_RECORD_FIRST_INDEX]).toBe(0);
+    }
+  });
+
+  it("ignores a table the frame did not ask for", () => {
+    // No CULL_FLAG_LOD: the twin must not read `params.lods` at all, so a stale table from a previous
+    // frame cannot change this frame's windows.
+    const boxes = [{ c: new Vec3(0, 0, 125), r: 0.5, count: 2 }];
+    const records = levelZeroRecords(1);
+    const params = frameParams({
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | CULL_FLAG_RECORDS,
+      lods: { sets: [CHAIN], batchSets: new Uint32Array([0]) },
+    });
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 1, params, new Uint32Array(1), [], { records });
+    expect(stats.visible).toBe(1);
+    expect(stats.lodReduced).toBe(0);
+    expect(records[DRAW_RECORD_INDEX_COUNT]).toBe(480);
+  });
+
+  it("leaves a culled batch's window alone and zeroes only its instance count", () => {
+    // Behind the eye (which sits at z = -10 and looks towards +Z), so the frustum test drops it. The pass writes the level only in the kept branch:
+    // a culled draw runs no invocation, and a window written for it would be a decision about nothing.
+    const boxes = [{ c: new Vec3(0, 0, -20), r: 0.5, count: 4 }];
+    const records = levelZeroRecords(1);
+    const params = frameParams({
+      flags: CULL_FLAG_FRUSTUM | CULL_FLAG_DISTANCE | CULL_FLAG_RECORDS | CULL_FLAG_LOD,
+      lods: { sets: [CHAIN], batchSets: new Uint32Array([0]) },
+    });
+    const stats = cullBatchesOnCpu(boundsOf(boxes), 1, params, new Uint32Array(1), [], { records });
+    expect(stats.culledFrustum).toBe(1);
+    expect(stats.visible).toBe(0);
+    expect(stats.recordZeroed).toBe(1);
+    expect(stats.lodReduced).toBe(0);
+    expect(records[DRAW_RECORD_INSTANCES]).toBe(0);
+    expect(records[DRAW_RECORD_INDEX_COUNT]).toBe(480);
+    expect(records[DRAW_RECORD_FIRST_INDEX]).toBe(0);
+  });
+
+  it("stages one set index per batch and rewrites the table only when its revision moves", async () => {
+    const { device, mock, visibility, records, visible, culler, boxes } = await cullerSetup(3);
+    const frame = (revision: number, batchSets: Uint32Array) => {
+      const p = frameParams();
+      culler.prepare(boundsOf(boxes), 3, {
+        view: new Mat4(p.view as never),
+        projection: new Mat4(p.proj as never),
+        viewProj: new Mat4(p.viewProj as never),
+        cameraPos: { x: EYE.x, y: EYE.y, z: EYE.z },
+        near: NEAR,
+        far: FAR,
+        width: 64,
+        height: 64,
+        occlude: false,
+        records: true,
+        lods: { batchSets, sets: [CHAIN], revision },
+      });
+    };
+    const tableWrites = () => mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "objects.lodSets").length;
+    const indexWrites = () => mock.commandLog.filter((e) => e.type === "writeBuffer" && e["buffer"] === "objects.batchLods").length;
+
+    frame(1, new Uint32Array([0, LOD_SET_NONE, 0]));
+    expect(mock.errors).toEqual([]);
+    // The per-frame cost of device LOD: one u32 per batch, and the flag that tells the pass to read it.
+    const batchLods = [...mock.liveBuffers].find((b) => b.label === "objects.batchLods")!;
+    expect(batchLods).toBeDefined();
+    expect(new Uint32Array(batchLods.data, 0, 3)).toEqual(new Uint32Array([0, LOD_SET_NONE, 0]));
+    const block = [...mock.liveBuffers].find((b) => b.label === "objects.cull.uniforms")!;
+    const uniforms = new Uint32Array(block.data);
+    expect(uniforms[ObjectCullUniforms.offsetOf("flags", "uniform") >> 2]! & CULL_FLAG_LOD).toBe(CULL_FLAG_LOD);
+    expect(uniforms[ObjectCullUniforms.offsetOf("lodSetCount", "uniform") >> 2]).toBe(1);
+
+    // The table's bytes, read at the offsets the generated layout reports: this is the check that
+    // would catch a host writing a distance into an index word.
+    const table = [...mock.liveBuffers].find((b) => b.label === "objects.lodSets")!;
+    expect(table.size).toBe(LOD_TABLE_BYTES);
+    const words = new Uint32Array(table.data);
+    const floats = new Float32Array(table.data);
+    expect(words[ObjectLodSetBlock.offsetOf("count", "storage") >> 2]).toBe(1);
+    const setStride = ObjectLodSet.size("storage");
+    const levelStride = ObjectLodLevel.size("storage");
+    const setsAt = ObjectLodSetBlock.field("sets", "storage").offset;
+    const lodsAt = ObjectLodSet.field("lods", "storage").offset;
+    expect(words[(setsAt + ObjectLodSet.field("levels", "storage").offset) >> 2]).toBe(3);
+    for (let i = 0; i < 3; i++) {
+      const at = setsAt + lodsAt + i * levelStride;
+      expect(words[(at + ObjectLodLevel.field("firstIndex", "storage").offset) >> 2]).toBe(CHAIN.levels[i]!.firstIndex);
+      expect(words[(at + ObjectLodLevel.field("indexCount", "storage").offset) >> 2]).toBe(CHAIN.levels[i]!.indexCount);
+      expect(floats[(at + ObjectLodLevel.field("minDistance", "storage").offset) >> 2]).toBeCloseTo(CHAIN.levels[i]!.minDistance, 6);
+    }
+    // Set 1 is not live: its slot stays zeroed rather than holding the previous frame's chain.
+    expect(words[(setsAt + setStride + ObjectLodSet.field("levels", "storage").offset) >> 2]).toBe(0);
+    expect(tableWrites()).toBe(1);
+    expect(indexWrites()).toBe(1);
+
+    // A steady frame: the indices go up again (they are per-frame), the table does not (it is static).
+    frame(1, new Uint32Array([0, 0, 0]));
+    expect(tableWrites()).toBe(1);
+    expect(indexWrites()).toBe(2);
+    expect(new Uint32Array(batchLods.data, 0, 3)).toEqual(new Uint32Array([0, 0, 0]));
+
+    // A new chained geometry arrived: the revision moved, so the table is rewritten once.
+    frame(2, new Uint32Array([0, 1, 0]));
+    expect(tableWrites()).toBe(2);
+    expect(uniforms[ObjectCullUniforms.offsetOf("lodSetCount", "uniform") >> 2]).toBe(1);
+    culler.dispose();
+    visibility.destroy();
+    records.destroy();
+    visible.destroy();
+    await device.dispose();
+    expect(mock.outstanding.buffers).toEqual([]);
+  });
+
+  it("does not set the LOD flag or allocate a table for a frame with no chains", async () => {
+    const { device, mock, visibility, records, visible, culler, prepare } = await cullerSetup(2);
+    prepare(false, true);
+    const block = [...mock.liveBuffers].find((b) => b.label === "objects.cull.uniforms")!;
+    expect(new Uint32Array(block.data)[ObjectCullUniforms.offsetOf("flags", "uniform") >> 2]! & CULL_FLAG_LOD).toBe(0);
+    expect(new Uint32Array(block.data)[ObjectCullUniforms.offsetOf("lodSetCount", "uniform") >> 2]).toBe(0);
+    // No table, no per-batch indices: a scene without LOD chains pays nothing for the feature, and
+    // the pass still binds something at 7/8 (a zeroed fallback) so the bind group layout holds.
+    expect([...mock.liveBuffers].some((b) => b.label === "objects.lodSets")).toBe(false);
+    expect([...mock.liveBuffers].some((b) => b.label === "objects.batchLods")).toBe(false);
+    culler.dispose();
+    visibility.destroy();
+    records.destroy();
+    visible.destroy();
+    await device.dispose();
+    expect(mock.outstanding.buffers).toEqual([]);
+  });
+
+  it("reads the seventh counter back from the offset the struct reports", async () => {
+    // The mock executes no WGSL, so the counters are written by hand here: what this pins is the
+    // read-back, i.e. that `lodReduced` is word 6 of a 28-byte block and `consume` looks there. A
+    // struct that grew a word without the host following would report another counter's value.
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(2);
+    prepare(false, true);
+    const stats = [...mock.liveBuffers].find((b) => b.label === "objects.cull.stats")!;
+    expect(stats.size).toBe(CULL_STATS_BYTES);
+    const words = new Uint32Array(stats.data);
+    words.fill(0);
+    words[ObjectCullStatsBlock.offsetOf("tested", "storage") >> 2] = 2;
+    words[ObjectCullStatsBlock.offsetOf("visible", "storage") >> 2] = 2;
+    words[ObjectCullStatsBlock.offsetOf("lodReduced", "storage") >> 2] = 1;
+    expect(ObjectCullStatsBlock.offsetOf("lodReduced", "storage")).toBe(24);
+    graph.begin();
+    const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+    record(depth);
+    graph.execute();
+    culler.poll();
+    // The read-back is a mapped promise, so the counters land a microtask later than the poll.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(culler.stats).toEqual({ tested: 2, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 2, recordZeroed: 0, lodReduced: 1 });
+    culler.dispose();
+    visibility.destroy();
+    records.destroy();
+    visible.destroy();
+    await device.dispose();
+  });
+
+  it("drops a read-back whose map was in flight when dispose landed", async () => {
+    // `poll` maps a buffer and consumes it a microtask later, and a scene that ends between the two
+    // disposes the pair. Mapping a destroyed buffer is a validation error, which a real device reports
+    // as an uncaptured error at teardown — noise for a frame's counters nobody will ever read.
+    const { device, mock, graph, visibility, records, visible, culler, prepare, record } = await cullerSetup(1);
+    prepare(false, true);
+    graph.begin();
+    const depth = graph.createTexture("scene.depth", { width: 64, height: 64, format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+    record(depth);
+    graph.execute();
+    culler.poll();
+    culler.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mock.errors).toEqual([]);
+    visibility.destroy();
+    records.destroy();
+    visible.destroy();
+    await device.dispose();
+  });
+});
+
+describe("markCertainDistanceCulls (the verdicts the passes before forge.objects.cull need)", () => {
+  // The fixture camera is 10 m from the origin and the test is `away - radius > limit`, where the
+  // radius is the box's half diagonal plus CULL_SLOP: for a 0.5 m box that is 0.876 m, so its surface
+  // sits 9.1239746 m away. The limits below straddle that number, and the middle one lands inside the
+  // host's margin — the pass rejects it and the host deliberately leaves it alone.
+  const radius = 0.5;
+
+  it("marks only what the pass certainly rejects, and reports how many", () => {
+    const boxes = [
+      { c: new Vec3(0, 0, 0), r: radius, limit: 20 }, // 9.124 < 20: kept by both
+      { c: new Vec3(0, 0, 0), r: radius, limit: 9.13 }, // just past the surface: kept by both
+      { c: new Vec3(0, 0, 0), r: radius, limit: 9.12 }, // the pass rejects it; inside the margin, so the pass decides
+      { c: new Vec3(0, 0, 0), r: radius, limit: 9 }, // 9.124 > 9 + margin: certain
+      { c: new Vec3(0, 0, 0), r: radius }, // no limit: nothing to decide
+    ];
+    const bounds = boundsOf(boxes);
+    const words = new Uint32Array(boxes.length);
+    const marked = markCertainDistanceCulls(bounds, boxes.length, EYE.x, EYE.y, EYE.z, words);
+    expect(marked).toBe(1);
+    expect([...words]).toEqual([0, 0, 0, CullReason.Distance, 0]);
+
+    // The twin — and so the pass, which runs the same rule — rejects the last two of the three that
+    // have a limit at all. The host's marks have to be a subset of that, never a superset.
+    const twin = new Uint32Array(boxes.length);
+    cullBatchesOnCpu(bounds, boxes.length, frameParams(), twin);
+    expect([...twin]).toEqual([0, 0, CullReason.Distance, CullReason.Distance, 0]);
+    expect(10 - (Math.hypot(radius, radius, radius) + 0.01)).toBeCloseTo(9.1239746, 6);
+  });
+
+  it("never marks a batch the twin keeps, over a sweep of limits, distances and box sizes", () => {
+    // This is the whole safety argument: a batch the host marks is skipped by the prepass and the
+    // shadow maps, so marking one the pass keeps would leave it shading without prepass depth — the
+    // hole this exists to prevent, one level down. The margin is what makes the implication hold
+    // across f32 rounding, and a sweep is what makes that claim mean something.
+    let marked = 0;
+    let keptByTwin = 0;
+    for (let step = 0; step < 600; step++) {
+      const z = (step % 40) * 2; // 0..78 m ahead of the camera
+      const r = 0.25 + (step % 7) * 1.5; // 0.25..9.25 m boxes
+      const limit = 1 + ((step * 7) % 120) * 0.5; // 1..60 m, deliberately landing on boundaries
+      const boxes = [{ c: new Vec3(0, 0, z), r, limit }];
+      const bounds = boundsOf(boxes);
+      const words = new Uint32Array(1);
+      markCertainDistanceCulls(bounds, 1, EYE.x, EYE.y, EYE.z, words);
+      const twin = new Uint32Array(1);
+      cullBatchesOnCpu(bounds, 1, frameParams(), twin);
+      if (twin[0] === CullReason.Visible) keptByTwin++;
+      if (words[0] !== 0) {
+        marked++;
+        expect(twin[0]).toBe(CullReason.Distance);
+        expect(words[0]).toBe(CullReason.Distance);
+      }
+    }
+    // Both sides of the sweep have to be populated, or the implication above is vacuous.
+    expect(marked).toBeGreaterThan(50);
+    expect(keptByTwin).toBeGreaterThan(50);
+  });
+
+  it("leaves batches past the cap alone: the pass never tests them, so its word is the last word", () => {
+    const count = MAX_CULLED_BATCHES + 3;
+    const boxes = Array.from({ length: count }, (_, i) => ({ c: new Vec3(0, 0, 5000 + i), r: 1, limit: 10 }));
+    const words = new Uint32Array(count);
+    const marked = markCertainDistanceCulls(boundsOf(boxes), count, EYE.x, EYE.y, EYE.z, words);
+    expect(marked).toBe(MAX_CULLED_BATCHES);
+    expect([...words.subarray(MAX_CULLED_BATCHES)]).toEqual([0, 0, 0]);
   });
 });

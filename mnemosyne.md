@@ -658,3 +658,115 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `tests/population.test.ts` drives the renderer's batch path and TerrainWorld streaming — a
   runtime-only deps reading would under-select. The manifest's deps are hand-declared (only
   validated for resolution), so say why in a comment like the one now in test-subsystems.mjs.
+
+## 2026-10-01 — Phase 14 finished: GPU LOD (14.4), six population types (14.2), device-resident instance slots (14.3)
+
+- **WGSL reserves `set`, and nothing on the host can tell you.** The 14.4 level rule shipped as
+  `fn selectLod(set: ObjectLodSet, d: f32)`. The mock device records compute passes but never parses
+  WGSL, `validateWgsl` passed, `check:wgsl` passed, all 708 tests passed — and Dawn rejected the
+  whole `objects.cull` module on a real device, so every frame submitted an invalid command buffer
+  and drew nothing (`[Invalid ComputePipeline "objects.cull"]`, 222 recorded GPU errors). Two fixes:
+  the parameter is now `chain`, and `WGSL_RESERVED_WORDS` grew by 55 words measured *empirically* —
+  one probe module per candidate (`let WORD: u32 = 1u;`) compiled in check:browser's own Chromium,
+  keeping only the words Tint called reserved. `default` and `enable` are rejected too but stay out
+  of the list: they are *keywords*, and `reservedWordIssues` cannot tell a keyword use from a
+  declaration — WGSL's `switch` takes a `default:` arm and `enable f16;` is a directive, so listing
+  either would fail valid shaders.
+- **Backticks inside a WGSL template literal are a TypeScript syntax error, not a comment.** The
+  first version of the "why `chain`" comment used backticks for the identifiers and broke the build
+  with `TS1443: Module declaration names may only use ' or " quoted strings` 170 lines away from the
+  edit. WGSL comments live inside `` /* wgsl */ `…` `` — quote words in them, never backtick them.
+- **LOD is a static table plus one `u32` per batch, not per-frame windows.** The rejected design
+  wrote a per-batch (firstIndex, indexCount, minDistance) window every frame (~48 B/batch/frame).
+  What ships is `ObjectLodSetBlock` (80 B per chain, uploaded only when the renderer's chain
+  revision moves) + `objects.batchLods` (one set index per batch, `LOD_SET_NONE` for a geometry with
+  no chain), so a chain's bytes cross the bus once per chain, not once per frame.
+- **The CPU level mirror is required, not an optimisation.** The shadow maps and the depth prepass
+  are encoded *before* `forge.objects.cull`, and the direct-draw path reads no record at all. With
+  `depthCompare: "less-equal"`, a prepass at level 0 under a main pass at level 2 rejects the coarse
+  surface's farther fragments against the finer surface's depth and punches holes in the geometry —
+  so `prepareObjectCulling` runs `selectLodLevel` (the twin of the WGSL `selectLod`) and overwrites
+  the batch's own index window. Both write the record's window words only in the *kept* branch:
+  `skipRecord` zeroes the instance count and nothing else.
+- **One instance buffer, two regions.** Per-frame arena at `[0, instanceArenaBytes)`, resident slots
+  from `SlotAllocator` above it, and binding 1 stays a dynamic-offset window — so no shader, pipeline
+  or layout knows which region a batch came from, and the residency is invisible to the device.
+  Every resident slice stride is `alignUp(…, 256)` because the mock (and the API) require
+  256-multiple dynamic offsets. Two traps: (a) do **not** bake the resident base into
+  `batch.instanceOffset` at emit time — `collectBatches` runs before `ensureArenas`, so the base is
+  stale on a growth frame; add it in `instanceWindowOffset(b)` at draw time and call
+  `invalidateResidency()` when the base moves; (b) `invalidateResidency` can dirty a block that the
+  same frame sweeps, so `flushResidentUploads` skips entries whose `lastFrame !== residencyFrame`
+  (writing a freed slot lands on whoever took it over).
+- **`rockGeometrySource` clamps segments at 4** (`Math.max(4, …)`), so a `[8, 5, 3]` chain is really
+  `[8, 5, 4]` and a `8 >> level` ramp collapses to two identical coarse levels. Tests use
+  `[12, 7, 4]` (864/294/96 indices) where three distinct levels matter; the demo's level 0 is the
+  geometry it already drew, so nothing near the camera changed.
+- **Benchmarking a mock frame needs the frame emptied first.** A full frame on the mock costs
+  ~40 µs/instance (56 ms for 1404 instances) because the mock replays the whole graph in JS, so
+  population work was invisible and an absolute-millisecond catastrophe bound was meaningless. The
+  bench now runs a bare frame (`shadows/bloom/sky/depthPrepass/ssao/clusteredLighting` off,
+  `hdr = false`, 320×180) over 120 chunks: arena 4.68 ms/frame vs device-resident 2.74 ms, first
+  frame 12.8 ms for 345 600 B, then 0 B.
+- **Per-candidate cost comparisons across presets measure the wrong thing.** At four candidates the
+  fixed cost (seeding the stream, clearing the block) dominates, so the six presets' µs/candidate
+  varied 10.6× and tripped a linearity guard that was really measuring JIT warm-up and timer
+  quantisation. Linearity is now measured on *one* preset at rising grid densities (64 → 1024
+  candidates: 1.03 → 0.29 µs, flat after the first step), and the presets get absolute bounds
+  instead (all six for one chunk: 0.108 ms).
+- **Node's type-stripping loader rejects parameter properties.** `constructor(private readonly x: T)`
+  in `benchmarks/src/*.ts` is `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` under `node benchmarks/run.mjs`
+  (v22 strip-only) — declare the field and assign it. Enums and namespaces would fail the same way.
+- **Residency is resolved before the frustum test**, on purpose: a chunk that leaves the view for a
+  frame keeps the records it already paid to upload. Consequence for measurement — the first frame
+  uploads every *offered* chunk (4 320 records), not every *drawn* one (2 556), and the bench's
+  guard compares against offered.
+- **Browser gate over a streaming scene: wait for the scene to stop before comparing pixels.** The
+  terrain arm drives the camera a few lines after the population check, so the settled-frame
+  assertions run first, behind a poll that waits for `populationResidentBlocks` *and* `drawCalls` to
+  hold still for 12 consecutive probes. A chunk arriving between two captures looks exactly like a
+  rendering difference. The LOD A/B then compares the device arm and the twin arm for identical
+  triangle counts (exact, mirror vs mirror) and identical pixels (the only place a *device* level
+  choice is visible), with the twin's `cullLodReduced` as the non-lagged proof levels were chosen.
+- **When two arms disagree and every counter matches, enumerate what the switch actually changes —
+  starting with the pass list — instead of reasoning harder about the mechanism you just built.** The
+  terrain A/B of the device culler against the CPU twin differed on 418 of 468 000 pixels with
+  *identical* verdict counters (547 tested, 192 visible, 44 frustum, 311 distance, 0 occluded),
+  identical `lodReduced` (109), identical `stats.triangles` (142 940) and — measured by reading the
+  indirect draw records back off the device — **byte-identical records for all 547 batches**. The
+  draws were never in question. The first hypothesis was the one closest to hand: the device measures
+  the level distance in f32 while both host paths measured it in f64, and a threshold has no slop, so
+  `lodDistanceF32` was written, tested and shipped — and changed nothing, same 418 pixels to the
+  decimal. What found it was an arm *matrix* instead of another theory: gpu/cpu × prepass on/off. The
+  odd arm out was gpu-with-prepass, and turning the prepass off **in the same mode** reproduced the
+  difference (419 px), while gpu-vs-cpu with the prepass off was 0 px. The cause was frame ordering,
+  not arithmetic: the shadow maps and the prepass collapse a rejected batch by reading its visibility
+  word, and in the device arm that word is written by `forge.objects.cull`, which runs *after* them
+  (its occlusion test reads the pyramid the prepass depth is reduced into). So the prepass drew every
+  batch, a rejected one left depth behind, and the sky — depth-tested, never shaded there — left a
+  dark speck. `markCertainDistanceCulls` now lets the host state the verdicts it needs no frustum and
+  no pyramid for. Two smaller things worth keeping: `stats.triangles` accumulates the *mirrored*
+  window for every submitted batch, so it agrees with itself across arms by construction and proves
+  nothing about what the device wrote; and the controls that made any of this attributable were cheap
+  — capture the same arm twice (drift: 0 px) and toggle occlusion alone (0 px) before theorising.
+- **`git checkout -- <path>` on an uncommitted working tree is unrecoverable by git, and this
+  workspace has exactly one safety net.** Reverting a temporary mutation-check edit that way wiped
+  ~400 lines of uncommitted Phase 14 work from `engine/src/rendering/renderer.ts` (the file went
+  straight back to HEAD; nothing was staged, so `git fsck --lost-found` had nothing). What saved it
+  was `/tmp/arena-workspace/coding.patch` — the platform's cumulative turn-end diff, which still had
+  the whole file as of the previous turn. Extract one file's section from it (`re.split` on
+  `^diff --git `), `git apply --check` it, apply, and re-do only the current turn's edits. What does
+  *not* help: `engine/dist/*.js.map` has no `sourcesContent` (tsconfig does not enable
+  `inlineSources`), so the build output is compiled JS with the types gone. Undo a mutation check by
+  re-applying the inverse edit, never with git.
+- **SwiftShader flakes are still flakes.** One run died at the SSAO arm with
+  `Execution context was destroyed, most likely because of a navigation` — nothing in the tree
+  navigates, and the re-run walked straight through the same arm. Kill leftover vite/chromium before
+  re-running; a stray `npx vite` survives the wrapper's `SIGKILL` and competes for the CPU quota.
+- **Phase 14 is `[!] partial` with every item `[x]`.** All six items are implemented, tested,
+  benchmarked and browser-checked, but three limitations are still true (culling and LOD are per
+  chunk, placement depends on the tile LOD a chunk first became ready at, generation is main-thread
+  inline) and rule 6 of `tools/docs-check.mjs` forbids a KNOWN-ISSUES bullet whose target is
+  `verified`. Precedent: Phases 6 and 10 are `[!]` with their items ticked. The new
+  `rendering.objectLod` entry is `partial` for the same reason, so the LOD limitations have a target
+  that is not the population capability.

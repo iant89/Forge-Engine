@@ -64,11 +64,23 @@ export interface PopulationWorldOptions {
   generationsPerFrame?: number;
 }
 
+/**
+ * Identifies a world inside its residency keys. Two `PopulationWorld`s in one scene may both scatter
+ * a type 1 into chunk (0,0), and their blocks are different data: the renderer's device-resident
+ * slots are keyed by string, so the key has to carry the world.
+ */
+let worldSerial = 0;
+
 interface TypeRecord {
   readonly spec: ResolvedPopulationTypeSpec;
   readonly block: PopulationInstanceBlock;
   /** Present only when the type has both a geometry and a material; reused every frame. */
   readonly submission: PopulationSubmission | null;
+  /**
+   * The block's data version, read through the submission's getter (Phase 14.3): a scatter and a
+   * remesh re-anchor bump it, and the renderer re-uploads the device-resident records when it moves.
+   */
+  readonly state: { version: number };
 }
 
 interface ChunkRecord {
@@ -100,6 +112,8 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   readonly terrain: TerrainWorld;
   readonly seed: number;
   readonly types: readonly ResolvedPopulationTypeSpec[];
+  /** This world's half of every residency key it hands the renderer. */
+  readonly uid: number;
 
   private readonly populated = new Map<string, ChunkRecord>();
   private readonly pending: string[] = [];
@@ -110,6 +124,7 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
 
   constructor(options: PopulationWorldOptions) {
     super();
+    this.uid = ++worldSerial;
     this.terrain = options.terrain;
     this.seed = options.seed ?? options.terrain.seed;
     this.generationsPerFrame = Math.max(0, Math.floor(options.generationsPerFrame ?? 4));
@@ -176,8 +191,11 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
         const block = type.block;
         for (let k = 0; k < block.count; k++) {
           block.positions[k * 3 + 1] =
-            sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - spec.embed * block.scales[k * 3 + 1]!;
+            sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - spec.embed * block.scales[k * 3 + 1]! + spec.lift;
         }
+        // The records the renderer uploaded describe the *old* Y: a new version is what tells it to
+        // compose and upload them again (Phase 14.3's device-resident blocks).
+        type.state.version++;
         if (type.submission) this.buildBounds(type, type.submission);
       }
       record.tileRef = chunk.tile;
@@ -193,6 +211,10 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
       scatterPopulationChunk(spec, this.seed, cx, cz, chunkSize, sampler, block);
       const geometry = input.geometry ?? null;
       const material = input.material ?? null;
+      const state = { version: 1 };
+      // One key per (world, type, chunk): the identity the renderer's device-resident slot is
+      // allocated under, and dropped when this world stops offering it (the chunk streamed out).
+      const residencyKey = `pop${this.uid}:${spec.id}:${cx},${cz}`;
       const submission: PopulationSubmission | null =
         geometry && material
           ? {
@@ -202,10 +224,14 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
               bounds: new AABB(),
               castShadow: spec.castShadow,
               maxDistance: spec.maxDistance,
+              residencyKey,
+              get residencyVersion(): number {
+                return state.version;
+              },
             }
           : null;
-      if (submission) this.buildBounds({ spec, block, submission }, submission);
-      return { spec, block, submission };
+      if (submission) this.buildBounds({ spec, block, submission, state }, submission);
+      return { spec, block, submission, state };
     });
     this.populated.set(key, { key, cx, cz, types, tileRef: tile });
   }

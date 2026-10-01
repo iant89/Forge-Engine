@@ -370,19 +370,34 @@ export function mixedOperatorIssues(source: string): WgslIssue[] {
  * `storage`, `read`, `override`, the vector/matrix type names — and `f16`, which is a real type once
  * the extension is enabled. Attribute spellings (`@align`, `@invariant`) are skipped by the scan.
  */
+/**
+ * Words WGSL reserves and Tint/Dawn therefore rejects as identifiers (`let set = …` is a parse
+ * error, not a warning). The host mock never parses WGSL, so a shader using one passes every local
+ * gate and then fails on a real device — which is what happened to `objects.cull` when the Phase
+ * 14.4 level rule took a `set` parameter. The list is the union of the WGSL specification's
+ * reserved words and a probe of this browser: each word was declared as a local in a one-line
+ * compute shader and kept only when the parser called it reserved.
+ *
+ * Two rejected words are deliberately absent. `default` and `enable` are *keywords*, not reserved
+ * identifiers, and this scanner cannot tell a keyword use from a declaration: WGSL's `switch` takes
+ * a `default:` arm and `enable f16;` is a directive, so listing either would fail valid shaders.
+ */
 export const WGSL_RESERVED_WORDS: readonly string[] = [
-  "NULL", "Self", "abstractFloat", "abstractInt", "abstractNumeric", "align", "as", "asm", "assert",
-  "asynchronous", "cast", "catch", "class", "const_cast", "consteval", "constexpr", "constinit",
-  "delete", "do", "dynamic_cast", "enum", "explicit", "export", "extends", "fallthrough", "fixme",
-  "friend", "from", "goto", "groupshared", "handle", "highp", "i64", "implements", "import",
-  "inline", "interface", "invariant", "iterator", "layout", "lowp", "macro", "matrix", "mediump",
-  "meta", "module", "mut", "mutable", "namespace", "new", "noinline", "nullptr", "offsetof",
-  "operator", "or", "partition", "precision", "premerge", "protected", "public", "readonly",
-  "reinterpret_cast", "requires", "resource", "restrict", "samper", "self", "shared", "signed",
-  "sizeof", "smooth", "static", "static_assert", "static_cast", "storage_buffer", "super", "superp",
-  "target", "template", "this", "throw", "try", "type", "typedef", "typename", "u64", "union",
-  "unless", "unsigned", "using", "vec1", "vec5", "vec6", "vector", "virtual", "void", "volatile",
-  "weak", "wgsl", "yield",
+  "NULL", "Self", "abstractFloat", "abstractInt", "abstractNumeric", "active", "align", "alignas", "alignof", "as",
+  "asm", "asm_fragment", "assert", "async", "asynchronous", "attribute", "auto", "await", "become", "cast", "catch",
+  "class", "co_await", "co_return", "co_yield", "common", "compile", "compile_fragment", "concept", "const_cast",
+  "consteval", "constexpr", "constinit", "crate", "debugger", "decltype", "delete", "demote", "demote_to_helper",
+  "do", "dynamic_cast", "enum", "explicit", "export", "extends", "extern", "fallthrough", "fixme", "friend", "from",
+  "fxgroup", "get", "goto", "groupshared", "handle", "highp", "i64", "impl", "implements", "import", "inline",
+  "instanceof", "interface", "invariant", "iterator", "layout", "lowp", "macro", "macro_rules", "match", "matrix",
+  "mediump", "meta", "mod", "module", "move", "mut", "mutable", "namespace", "new", "nil", "noexcept", "noinline",
+  "nointerpolation", "noperspective", "nullptr", "of", "offsetof", "operator", "or", "package", "packoffset",
+  "partition", "pass", "patch", "precise", "precision", "premerge", "priv", "protected", "pub", "public", "readonly",
+  "ref", "regardless", "register", "reinterpret_cast", "requires", "resource", "restrict", "samper", "self", "set",
+  "shared", "signed", "sizeof", "smooth", "snorm", "static", "static_assert", "static_cast", "std", "storage_buffer",
+  "subroutine", "super", "superp", "target", "template", "this", "thread_local", "throw", "trait", "try", "type",
+  "typedef", "typename", "u64", "union", "unless", "unorm", "unsigned", "use", "using", "vec1", "vec5", "vec6",
+  "vector", "virtual", "void", "volatile", "weak", "wgsl", "with", "writeonly", "yield",
 ];
 
 const RESERVED_WORD_SET: ReadonlySet<string> = new Set(WGSL_RESERVED_WORDS);

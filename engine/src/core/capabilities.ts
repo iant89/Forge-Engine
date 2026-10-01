@@ -84,7 +84,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "11": "verified",
   "12": "verified",
   "13": "inProgress",
-  "14": "inProgress",
+  "14": "partial",
   "15+": "planned",
 };
 
@@ -423,8 +423,8 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "13.5",
     status: "partial",
     summary: "Culling is per batch and skips the upload: a culled batch's instance data is still written to the arena and one visible instance keeps its whole batch, so the compaction list buys a denser instance arena only once the frame rewrites firstInstance; the CPU twin cannot test occlusion, and only the first 8192 batches of a frame are tested",
-    evidence: ["tests/objectCulling.test.ts", "tests/frame.test.ts"],
-    notes: "docs/RENDERING.md §4d, docs/KNOWN-ISSUES.md. The cap leaves batches past it visible rather than wrongly culled and their records keep the CPU-seeded count, and the missing occlusion on the CPU path is what keeps the mock device's frames honest; per-instance culling and rewriting the instance arena from the compaction list are roadmap leftovers, not scheduled work",
+    evidence: ["tests/objectCulling.test.ts", "tests/frame.test.ts", "tests/rendering.test.ts"],
+    notes: "docs/RENDERING.md §4d, docs/KNOWN-ISSUES.md. The cap leaves batches past it visible rather than wrongly culled and their records keep the CPU-seeded count, and the missing occlusion on the CPU path is what keeps the mock device's frames honest; per-instance culling and rewriting the instance arena from the compaction list are roadmap leftovers, not scheduled work. The passes recorded before forge.objects.cull (the shadow maps and the prepass) collapse a rejected batch through its visibility word, which in the device arm the pass has not written yet: the host states the distance verdicts it is certain of first (markCertainDistanceCulls, with a margin wider than the device's f32 rounding), so a rejected batch costs those passes vertex work and no pixels — splitting the pass is roadmap 14.7",
     closesWith: "13.6",
   },
   {
@@ -451,6 +451,15 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     summary: "Timestamp queries exposing asynchronous GPU frame/pass/compute/render times",
     evidence: ["tests/renderGraph.test.ts", "tests/frame.test.ts"],
     notes: "Supported devices report asynchronously; unsupported devices continue with gpuTimingAvailable=false.",
+  },
+  {
+    id: "rendering.objectLod",
+    phase: "14.4",
+    status: "partial",
+    summary: "GPU-selected object LOD: a geometry can be a chain of 2-4 index windows over one vertex buffer, described to the device by a static table plus one set index per batch, and forge.objects.cull writes the chosen window into the indirect record it already writes; the host mirrors the same rule so the prepass and shadow maps draw the level the device will pick",
+    evidence: ["tests/rendering.test.ts", "tests/objectCulling.test.ts", "tests/wgsl.test.ts", "benchmarks/src/population.bench.ts", "tools/browser-check.mjs"],
+    notes: "concatenateLods / Geometry.createLodChain (engine/src/rendering/geometry.ts), ObjectLodSetBlock + ObjectLodLevel (engine/src/rendering/uniforms.ts), selectLod in WGSL with selectLodLevel as its host twin, CULL_FLAG_LOD, LOD_SET_NONE, stats.lodSets/lodBatches/cullLodReduced, MAX_BATCH_LODS 4 and MAX_LOD_SETS 64. The mirror is not an optimisation: the prepass and the cascades are encoded before the cull pass, and a prepass at level 0 under a main pass at level 2 rejects the coarse surface's farther fragments and punches holes in it. Selection is per batch (so per chunk for a population), not per instance, has no hysteresis or dither, and a chain past MAX_LOD_SETS is not registered — its batches draw level 0, correct and unsaved. There is no mesh decimator: chains are built by the caller from one parametric source — docs/KNOWN-ISSUES.md § World population",
+    closesWith: "14.5",
   },
 
   // ---------------------------------------------------------------- terrain
@@ -761,13 +770,21 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   // ---------------------------------------------------------------- world / content
   {
     id: "world.population",
-    phase: "14.1",
+    phase: "14",
     status: "partial",
     summary:
-      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain chunk streaming with per-chunk device culling",
-    evidence: ["tests/population.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
-    closesWith: "14.4",
-    notes: "First slice covers 14.1/14.3/14.5/14.6 and rocks+boulders of 14.2; GPU-selected object LOD (14.4), vegetation/debris/decals/props types and device-resident instance buffers are not built — see docs/KNOWN-ISSUES.md § World population",
+      "Deterministic per-chunk scatter into compact SoA instance blocks whose records stay resident on the device, drawn as instanced batches with per-chunk device culling and GPU-selected LOD, following terrain chunk streaming with zero ECS entities — six preset types: rocks, boulders, debris, vegetation, decals and props",
+    evidence: [
+      "tests/population.test.ts",
+      "tests/rendering.test.ts",
+      "tests/gpuMemory.test.ts",
+      "tests/primitives.test.ts",
+      "tests/math.test.ts",
+      "benchmarks/src/population.bench.ts",
+      "tools/browser-check.mjs",
+    ],
+    closesWith: "14.5",
+    notes: "All six items of Phase 14 are implemented. POPULATION_PRESETS / populationPreset (engine/src/population/presets.ts) carry each type's density grid, scale band and exponent, slope limit, tint jitter, embed, lift, shadow flag and maxDistance; debrisGeometrySource, vegetationGeometrySource and propGeometrySource give the new types their own primitives; SlotAllocator (engine/src/gpu/slotAllocator.ts) hands out the resident region of the one instance buffer, keyed pop{world}:{type}:{cx},{cz} and versioned, so a settled frame uploads nothing (stats.populationResidentInstances/Blocks/Bytes, populationUploads/UploadedBytes); and each type can draw a LOD chain (rendering.objectLod). What is not done: per-instance device culling (the 14.5 follow-up), off-thread generation, placement independent of the tile LOD a chunk first became ready at, picking populations, decal conformity to the surface, vegetation motion — docs/KNOWN-ISSUES.md § World population",
   },
   {
     id: "assets.contentAddressing",

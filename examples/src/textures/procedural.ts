@@ -398,3 +398,49 @@ export function createSciFiPanelTextures(device: GraphicsDevice, size = 256): Pb
     metallicRoughness: Texture.fromRgba8(device, size, size, mr, { label: "scifi.mr", srgb: false, mipmaps: false }),
   };
 }
+
+/**
+ * A dust blotch for the population demo's decal type (Phase 14.2).
+ *
+ * One RGBA map: the colour is a faintly darker regolith than the ground it lies on, and the *alpha*
+ * is the shape — a soft, irregular blob that falls to zero well inside the quad's edge, so the decal
+ * has no visible border. That is what a decal is for: the geometry is a flat quad (the `decal`
+ * population preset lifts it a few centimetres clear of the surface so it never shares the terrain's
+ * depth), and everything about its silhouette comes from this map.
+ *
+ * Seamless is not a requirement here — a blotch is placed once, not tiled — but the alpha still fades
+ * to zero at the border so a quad whose UVs run 0..1 shows nothing at its edges.
+ */
+export function createDustBlotchTexture(device: GraphicsDevice, size = 128, seed = 91): Texture {
+  const bytes = new Uint8Array(size * size * 4);
+  const half = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x + 0.5) / size;
+      const v = (y + 0.5) / size;
+      // Distance from the quad's centre, normalised so the edge is 1.
+      const dx = (x + 0.5 - half) / half;
+      const dy = (y + 0.5 - half) / half;
+      const radius = Math.sqrt(dx * dx + dy * dy);
+      // Three bands of value noise warp the outline, so the blotch is a splodge rather than a disc;
+      // the lattice period is the texture size, which keeps the field continuous (no seam at the
+      // border, where the alpha is zero anyway).
+      const warp =
+        periodicFbm(u, v, 3, 3, seed) * 0.34 +
+        periodicFbm(u, v, 7, 2, seed + 17) * 0.16 +
+        periodicFbm(u, v, 17, 1, seed + 41) * 0.07;
+      const edge = radius + warp - 0.16;
+      // A smooth falloff over the outer third: no band, and nothing hard for a mip level to alias.
+      const alpha = Math.max(0, Math.min(1, (0.72 - edge) / 0.3));
+      const grain = periodicFbm(u, v, 33, 2, seed + 7);
+      const idx = (y * size + x) * 4;
+      // Slightly darker and redder than the regolith's own albedo, so the blotch reads as settled
+      // dust rather than as a shadow (a decal is lit by the same sun as the ground it lies on).
+      bytes[idx] = Math.floor(122 + grain * 26);
+      bytes[idx + 1] = Math.floor(78 + grain * 18);
+      bytes[idx + 2] = Math.floor(58 + grain * 14);
+      bytes[idx + 3] = Math.floor(alpha * alpha * (3 - 2 * alpha) * 235);
+    }
+  }
+  return Texture.fromRgba8(device, size, size, bytes, { label: "decal.dustBlotch", srgb: true, mipmaps: true });
+}

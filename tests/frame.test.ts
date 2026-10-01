@@ -1406,8 +1406,11 @@ describe("object culling", () => {
     const dispatch = f.mock.commandLog.filter((e) => e.type === "dispatch").at(-1);
     expect(dispatch).toMatchObject({ label: "objects.cull", x: Math.ceil(f.renderer.stats.batches / 64), y: 1, z: 1 });
     // The device has not reported anything back yet (and on the mock never will: it records the pass
-    // without executing it), so this is the *zeroed* visibility buffer — a frame whose words were
-    // never written draws everything rather than keeping the last frame's verdicts.
+    // without executing it), so these are the words the host uploaded: zero — "visible" — for every
+    // batch here, because the only verdict the host states ahead of the pass is a batch certainly past
+    // its own distance limit (`markCertainDistanceCulls`, pinned by tests/rendering.test.ts) and this
+    // fixture has none. A frame whose words were never written draws everything rather than keeping
+    // the last frame's verdicts.
     expect(f.renderer.stats.cullTested).toBe(0);
     expect(f.renderer.stats.drawCalls).toBeGreaterThan(0);
     expect(bufferOf(f, "cull.visibility").u32.every((v) => v === 0)).toBe(true);

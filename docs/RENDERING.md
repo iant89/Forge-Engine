@@ -504,7 +504,9 @@ the mock device — which records and validates compute passes but executes no W
 visibility buffer the pass never wrote would draw the frame's culled batches as though the culler had
 said no. The twin has no depth buffer, so its occlusion bit is never set: HiZ is a device-only test,
 and the CPU arm is frustum + distance. Both write the same buffer, so the switch changes who does the
-arithmetic and no pixels.
+arithmetic and no pixels — which took a host-side verdict to make true over a whole terrain, because
+of *when* the two write it (next paragraph but one). `tools/browser-check.mjs` A/Bs the arms pixel for
+pixel over the terrain scene and holds them to exactly that: zero pixels beyond one luma level.
 
 **The frame.** The cull passes land between `forge.prepass` and the SSAO chain: before the prepass the
 depth does not exist, and after `forge.main` a verdict would arrive a pass too late to be consumed.
@@ -514,9 +516,32 @@ count is *per-frame* state (`hizLevelsFrame`): the pyramid texture is sized by t
 frame, so a frame the renderer did not ask to occlude must neither read a depth it did not write
 (the graph refuses a pass that reads an unwritten texture) nor report levels.
 
-**Counters, one frame late.** The pass `atomicAdd`s into `ObjectCullStatsBlock` (16 B, four
+**What the passes before it see.** That ordering has a consequence the frame cannot argue with: the
+shadow maps and the prepass collapse a rejected batch by reading its visibility word, and in the
+device arm the pass has not written that word yet — the host uploaded it, and "the pass will decide"
+used to mean uploading zeros, which mean *visible*. So both passed drew every batch in the frame. The
+waste is vertex work; the artifact was depth. A batch the pass then rejected had already written
+prepass depth, `forge.main` never shaded it, and the sky — depth-tested against that depth — was
+rejected where the batch had been: 418 dark specks along the horizon of the terrain demo, distant
+rocks past their `maxDistance` silhouetted against the sky, and the whole of the difference the
+browser gate measured between the two culling arms (their indirect draw records, read back off the
+device, were byte-identical for all 547 batches). `markCertainDistanceCulls` is the host's answer:
+before the frame is recorded it writes the one verdict that needs neither a frustum nor a pyramid —
+`away − radius > limit`, the pass's own test, with `DISTANCE_VERDICT_MARGIN` (a centimetre plus a few
+parts in a million) on top so the device's f32 distance cannot disagree — and leaves everything else
+to the pass, including every batch inside the margin and every batch past `MAX_CULLED_BATCHES`, whose
+word the pass never overwrites. The margin is what makes the implication one-way, and
+`tests/objectCulling.test.ts` sweeps it against the twin's verdicts to keep it that way: a batch the
+host marks must be a batch the pass marks, or the prepass would skip a batch `forge.main` draws — the
+same hole, one level down. Frustum-rejected batches are still drawn by both passes (they are
+off-screen, so they cost work and no pixels); splitting the pass is roadmap 14.7.
+
+**Counters, one frame late.** The pass `atomicAdd`s into `ObjectCullStatsBlock` (28 B, seven
 `atomic<u32>` — a plain `u32` will not take `atomicAdd`, and a buffer *type* ignoring this is how
-`objects.cull` failed to compile on a real device while the mock accepted it), and the same command
+`objects.cull` failed to compile on a real device while the mock accepted it; Phase 14.4's
+`lodReduced` is the seventh, and the same pass was killed a second time by a WGSL identifier called
+`set`, which Tint reserves and the host mock never parses — `WGSL_RESERVED_WORDS` now lists it),
+and the same command
 buffer copies the block into a `MAP_READ` staging buffer. `poll()` maps it after the frame; the numbers
 reach `stats.cullTested` / `cullFrustum` / `cullDistance` / `cullOccluded` on a later frame, because a
 device-side count cannot be known on the CPU without either a stall or a frame of lag. The CPU arm
@@ -623,6 +648,25 @@ own instanced batch:
   frame's instance arena with `composeYTRS` (`math/mat.ts`), so populations draw through exactly the
   same instanced pipelines, bind groups and dynamic-offset windows as `Renderable` batches. No
   entity, transform slot or component store entry exists for any instance.
+* **The records stay on the device (Phase 14.3).** The one `instances` buffer carries two regions:
+  the per-frame arena `Renderable`s write every frame, and a resident region of slots handed out by
+  `SlotAllocator` (`engine/src/gpu/slotAllocator.ts` — 256-byte aligned, power-of-two bucketed,
+  4 MiB per slot). A block is keyed `pop{world}:{type}:{cx},{cz}` and its records are composed and
+  `writeBuffer`ed once, when the block appears or when its content version moves; a settled frame
+  writes nothing at all. Binding 1 is still a dynamic-offset window into that same buffer, so no
+  shader, pipeline or bind-group layout knows which region a batch came from. Blocks a source stops
+  submitting are swept at the end of the frame that stops seeing them, and growing the arena moves
+  every absolute offset — so one such frame rewrites them all. A block too large for a slot stays in
+  the arena and pays the per-frame upload residency exists to remove.
+  `stats.populationResidentInstances/Blocks/Bytes` and `stats.populationUploads/UploadedBytes`
+  report both sides; `benchmarks/src/population.bench.ts` measures them against each other.
+* **Six preset types (Phase 14.2).** `POPULATION_PRESETS` and `populationPreset(name, overrides)`
+  (`engine/src/population/presets.ts`) carry each type's density grid, scale band and exponent,
+  slope limit, tint jitter, embed, lift, shadow flag and `maxDistance`, so a scene composes a
+  population from names. `debrisGeometrySource`, `vegetationGeometrySource` and
+  `propGeometrySource` give debris, vegetation and props their own primitives and decals reuse the
+  plane. Ids are pinned — two types may not share one — because the id is in both the residency key
+  and the chunk seed.
 * **One batch per (chunk, type), never merged.** A population batch cannot merge with another even
   when geometry and material match: its bounds must stay this chunk's alone, because the culler's
   verdict (frustum/distance/HiZ, §4d), the indirect record (§4e) and the compaction list are all
@@ -637,8 +681,51 @@ own instanced batch:
   entity path, so "how much of the frame is population" is answerable without guessing from
   `instances`.
 
-What this path does *not* do yet — per-instance device culling, device-resident instance buffers
-uploaded once per chunk, GPU-selected LOD — is in `docs/KNOWN-ISSUES.md` § World population.
+What this path does *not* do — per-instance device culling (one chunk's verdict covers all of its
+instances), picking or raycasting populations, and anything finer than a per-batch LOD choice — is
+in `docs/KNOWN-ISSUES.md` § World population. The LOD itself is §4g.
+
+## 4g. Object LOD chains (Phase 14.4)
+
+A `Geometry` can be a *chain*: 2-4 index windows over one vertex buffer, each with its own
+`minDistance` (`concatenateLods` / `Geometry.createLodChain` / `createLodPrimitive` in
+`engine/src/rendering/geometry.ts`). The levels are concatenated, so their indices address the
+shared vertices with *global* offsets and one index buffer serves the whole chain;
+`geometry.lods` is `null` for a single-level geometry, which is what keeps the feature free for
+everything that does not opt in. A chain validates itself at build time — 2-4 levels, one
+ascending positive distance per level past the first, every level's indices inside its own vertex
+count, missing channels defaulted — because a level whose indices point past the shared vertex
+buffer is a device-side fault, not an error anyone can catch later.
+
+**Who picks the level.** `forge.objects.cull`, for every batch it keeps: one `u32` set index per
+batch (`objects.batchLods`, `LOD_SET_NONE` when the geometry has no chain) addresses a static table
+(`objects.lodSets`, an `ObjectLodSetBlock` of 80-byte sets, written only when the renderer's chain
+revision moves), and `selectLod` walks the ascending `minDistance`s to write the chosen level's
+`indexCount` and `firstIndex` into the same indirect record §4e already wrote. No extra pass, no
+read-back, no CPU decision; `CULL_FLAG_LOD` is what says the table is live this frame, and
+`counts.lodReduced` — the block's seventh atomic — reports how many kept batches dropped a level.
+
+**Why the host runs the same rule.** The shadow maps and the depth prepass are encoded *before* the
+cull pass, and the direct-draw path reads no record at all, so neither can wait for a device
+decision. `prepareObjectCulling` mirrors `selectLod` with `selectLodLevel` — one sqrt and one
+threshold walk per chained batch — and overwrites the batch's own index window, so every pass in
+the frame draws the same level — measured in the device's own arithmetic, because a threshold has no
+slop: `lodDistanceF32` rounds the bounds centre, the camera position and the root to f32 exactly
+where the WGSL does, so a batch sitting on a `minDistance` cannot get one level in `forge.main` and
+another in the prepass. That is not a nicety: with `depthCompare: "less-equal"`, a prepass at level
+0 under a main pass at level 2 rejects the coarse surface's farther fragments against the finer
+surface's depth and punches holes in the geometry. `tests/objectCulling.test.ts` pins the
+twin against the WGSL word for word, `tests/rendering.test.ts` pins the window arithmetic and the
+mirror's own level choice per camera distance, and `tools/browser-check.mjs` A/Bs the two
+selectors over the terrain to a pixel-identical picture.
+
+**Counters and limits.** `stats.lodSets` (chains registered), `stats.lodBatches` (batches drawing a
+level) and `stats.cullLodReduced` (device-reported, so a frame late; the twin reports its own
+immediately). A renderer registers at most `MAX_LOD_SETS` (64) chains of `MAX_BATCH_LODS` (4)
+levels; past that a chain is not registered and its batches draw level 0 — correct, merely unsaved.
+Selection is per batch (so per chunk for a population), has no hysteresis or dither, and there is no
+decimator: a caller builds the levels from one parametric source. See `docs/KNOWN-ISSUES.md`
+§ World population.
 
 ## 5. Conventions
 
