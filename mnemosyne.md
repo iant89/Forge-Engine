@@ -846,3 +846,16 @@ entry only after the new one is ready). Watch: swapping a ready entry out from u
 materials is the dangerous half; the safe pattern is double-buffer (load new → repoint → dispose
 old), which `retry` does NOT do today (it disposes before re-loading) — 15.4 may need a
 `reloadDeferred` variant.
+
+## 2026-10-05 — PR #51 merged to main
+
+Phase 14 is fully on `main` (all six population types, device-resident buffers, GPU LOD), and
+Phase 15 has begun there with 15.1 content addressing, 15.2 dependency graph and 15.3 streaming
+(`AssetStreamer`, pumped by `Engine.step`). 712/712 tests at merge. Remaining Phase 15: 15.4
+hot reload (needs the double-buffered swap — `retry` disposes before re-loading, unsafe for
+live materials), 15.5 asset validation, 15.6 KTX2/Basis. The sandbox git-reset pattern hit
+three times in this session's turns (branch pointer back at the base commit, working tree
+kept); each time the recovery was: fetch, blob-verify the tree against the remote tip,
+`git reset --mixed` the branch pointer, continue. The advisory WebGPU gate's merge-blocking
+fear did not materialize — it is advisory, and its only "failure" at merge time was a GitHub
+runner dispatch error, not a code failure.
