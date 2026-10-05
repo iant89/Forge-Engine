@@ -47,6 +47,12 @@ export interface PopulationType extends PopulationTypeSpec {
   geometry?: Geometry | null;
   /** Shared by every instance of the type; `null`/omitted keeps the type CPU-only. */
   material?: Material | null;
+  /**
+   * Phase 14.4: GPU-selected LOD. When `geometry` is a merged hi+lo buffer (population/lod.ts),
+   * its high-window triangle count and the camera distance (metres) beyond which an instance
+   * takes the low window. Omitted draws the geometry as a single detail level.
+   */
+  lod?: { hiTriangles: number; distance: number } | null;
 }
 
 export interface PopulationWorldOptions {
@@ -115,6 +121,22 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
     this.generationsPerFrame = Math.max(0, Math.floor(options.generationsPerFrame ?? 4));
     const ids = new Set<number>();
     this.types = options.types.map((type) => {
+      if (type.lod) {
+        const { hiTriangles, distance } = type.lod;
+        if (!Number.isInteger(hiTriangles) || hiTriangles <= 0) {
+          throw new RangeError(`population type "${type.label}": lod.hiTriangles must be a positive integer`);
+        }
+        if (!Number.isFinite(distance) || distance < 0) {
+          throw new RangeError(`population type "${type.label}": lod.distance must be a finite, non-negative number`);
+        }
+        if (type.material?.technique === "water") {
+          throw new RangeError(`population type "${type.label}": GPU LOD is not supported by the water vertex entry`);
+        }
+        const geometry = type.geometry;
+        if (geometry && (geometry.indexBuffer !== null || geometry.topology !== "triangle-list" || geometry.vertexCount % 3 !== 0 || hiTriangles >= geometry.vertexCount / 3)) {
+          throw new RangeError(`population type "${type.label}": LOD geometry must be an unindexed triangle list with non-empty high and low windows`);
+        }
+      }
       const spec = resolvePopulationTypeSpec(type);
       if (ids.has(spec.id)) throw new Error(`population: duplicate type id ${spec.id} ("${spec.label}")`);
       ids.add(spec.id);
@@ -205,6 +227,7 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
               bounds: new AABB(),
               castShadow: spec.castShadow,
               maxDistance: spec.maxDistance,
+              lod: input.lod ? { hiTriangles: input.lod.hiTriangles, lodDistance: input.lod.distance } : null,
             }
           : null;
       if (submission) this.buildBounds({ spec, block, submission }, submission);

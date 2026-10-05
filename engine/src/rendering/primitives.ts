@@ -211,6 +211,16 @@ export interface RockOptions {
 }
 
 /**
+ * A `GeometrySource` whose attribute arrays are all present. `rockGeometrySource` always computes
+ * every one, and callers that need the strict shape (population LOD windows) lean on it.
+ */
+export interface FullGeometrySource extends Omit<GeometrySource, "normals" | "uvs" | "tangents"> {
+  normals: Float32Array;
+  uvs: Float32Array;
+  tangents: Float32Array;
+}
+
+/**
  * A displaced, optionally squashed sphere — the engine's rock/boulder primitive (Phase 14's first
  * population types). The displacement is a seeded sum of sine lobes over the sphere direction
  * (`1 + roughness · Σ aᵏ·sin(dot(dir, kᵏ)·fᵏ + φᵏ)` with geometrically falling amplitudes), which
@@ -218,7 +228,7 @@ export interface RockOptions {
  * pass so the craggy silhouette shades correctly. UVs are the sphere's (a rock texture can wrap
  * them; the flat-colour demo does not).
  */
-export function rockGeometrySource(options: RockOptions = {}): GeometrySource {
+export function rockGeometrySource(options: RockOptions = {}): FullGeometrySource {
   const radius = options.radius ?? 0.5;
   const seg = Math.max(4, Math.floor(options.segments ?? 10));
   const roughness = options.roughness ?? 0.28;

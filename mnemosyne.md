@@ -699,3 +699,22 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   *and* exported from engine/src/index.ts (it validates through dist); uniform structs go into
   RENDERING_STRUCTS (uniform-space layout check). Compute entry convention here is
   `@workgroup_size(N) @compute` — the validator's regex requires `@compute` immediately before `fn`.
+
+## 2026-10-05 — 14.4 renderer integration landed
+
+- **GPU LOD now runs end to end:** rock prototypes expand their indexed mesh into unindexed hi/lo
+  triangle lists, merge hi first, and carry `hiTriangles` + a per-type camera-distance threshold through
+  `PopulationWorld` into the renderer. One `forge.populationLod` compute pass dispatches each visible
+  LOD batch; colour, prepass and shadow variants all select the same per-instance window (including
+  single-instance batches). The mock pass writes the flags bit and the browser gate now requires a real
+  WebGPU population-LOD batch/pass on the terrain scene.
+- **Fixes found in the integration loop:** geometry attribute arrays have different per-vertex widths
+  (pos/normal 3, UV 2, tangent 4); merge offsets must be attribute-specific, not a shared positions
+  float offset. Uniform `count` is u32 in the mock, while camera/distance are f32. A dynamic uniform
+  bind group must declare its 32-byte window size, or nonzero 256-byte slots run off the end of the
+  binding. Include `lod` in the prepass state key and always use the instanced LOD entry for count 1.
+- **Validation:** `npm test` = 670/670; check:wgsl validates the new compute/vertex strings and
+  `PopulationLodUniforms` (32 B). The updated real-WebGPU browser gate passed the pbr/A-B arms and
+  its terrain assertion: 959 instances, 48 batches, 48 GPU-LOD batches, 64 entities, zero GPU errors.
+  The full gate was deliberately stopped after the LOD arm, so later vehicle/sky/Mars arms are not
+  claimed; the CI advisory job remains the complete-sweep check.

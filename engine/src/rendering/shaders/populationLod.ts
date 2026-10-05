@@ -31,7 +31,7 @@ fn populationLodMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (i >= lod.count) {
     return;
   }
-  let inst = instances[i];
+  var inst = instances[i];
   // Instance origin: row 3 is the homogeneous translation column of the model matrix.
   let pos = vec3<f32>(inst.row3.x, inst.row3.y, inst.row3.z);
   let distance = length(pos - lod.camera);

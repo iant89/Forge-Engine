@@ -202,9 +202,8 @@ What remains:
   job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
   heightmap samples available off-thread. (capability: world.population)
 * **Only rocks and boulders exist.** Vegetation, debris, decals and environmental props (14.2) are
-  unbuilt; there is no GPU-selected object LOD (14.4) — every instance of a type draws the same
-  geometry at every distance — and no population raycast, so picking/debug tools cannot hit a rock.
-  (capability: world.population)
+  unbuilt, and there is no population raycast, so picking/debug tools cannot hit a rock. Population
+  culling is per chunk rather than per instance (noted above). (capability: world.population)
 
 ## Documentation debt
 

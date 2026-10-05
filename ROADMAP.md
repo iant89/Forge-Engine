@@ -22,9 +22,9 @@ CURRENT CODEBASE BASELINE:
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
     Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
-                blocks + device-resident instance buffers, 14.5 per-chunk population
-                culling and 14.6 streaming landed; rocks + boulders of 14.2 in the
-                terrain demo; GPU LOD and the remaining 14.2 types open)
+                blocks + device-resident instance buffers, 14.4 GPU-selected object
+                LOD, 14.5 per-chunk population culling and 14.6 streaming landed;
+                rocks + boulders of 14.2 in the terrain demo; remaining 14.2 types open)
     Phase 15+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -1004,7 +1004,20 @@ GOAL:
 
 14.4 GPU LOD
 
-    [ ] GPU-selected object LOD.
+    [x] GPU-selected object LOD.
+
+        Population prototypes are built into one merged, unindexed hi+lo vertex buffer
+        (`buildLodGeometry`, `engine/src/population/lod.ts`): the high window's triangle list comes
+        first, then the low window. The renderer writes `hiTriangles` into the existing object
+        uniform slot and, in `forge.populationLod`, dispatches one invocation per instance to set
+        the low-window bit in the device-resident instance record when its origin is strictly
+        farther than the type's `lodDistance` from the camera. Standard colour, depth-prepass and
+        shadow vertex entries clip out the unselected half; even a one-instance population batch
+        takes the instanced entry. The mock compute pass applies the same decision to its backing
+        buffer. Tests pin merge/attribute ordering, the distance boundary, camera reselection without
+        an instance re-upload, 256-byte uniform slots for multiple LOD batches, all three render
+        paths, and streamed `PopulationWorld` metadata propagation (tests/population.test.ts,
+        tests/pipeline.test.ts). The terrain demo exercises separate hi/lo rock and boulder meshes.
 
 
 14.5 GPU Culling

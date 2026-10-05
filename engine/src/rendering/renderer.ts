@@ -26,7 +26,7 @@
  * holds no entity references between frames, so a scene swap costs only the renderable list.
  */
 
-import { BufferUsage, TextureUsage, gpuSource } from "../gpu/constants.js";
+import { BufferUsage, ShaderStage, TextureUsage, gpuSource } from "../gpu/constants.js";
 import { Double3 } from "../math/double3.js";
 import { BufferBuilder, StructAccessor, WriteBuffer } from "../gpu/bufferWriter.js";
 import { Mat4, composeYTRS } from "../math/mat.js";
@@ -35,7 +35,8 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import {
@@ -162,6 +163,8 @@ export interface RenderStats {
   populationBuffers: number;
   /** `writeBuffer` calls the population buffers needed this frame (steady state: 0). */
   populationUploads: number;
+  /** Population batches drawn through the LOD entries, each one `forge.populationLod` dispatch (Phase 14.4). */
+  populationLodBatches: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -312,6 +315,16 @@ interface Batch {
    * buffer's draw group (bound instead of the shared arena group, at `instanceOffset` 0).
    */
   population: PopulationDeviceRecord | null;
+  /**
+   * Phase 14.4: the merged LOD buffer's high-window triangle count — 0 means not an LOD batch.
+   * An LOD batch always draws through the instanced LOD entries (its instance data is always the
+   * device buffer, even at count 1, where the plain population batch would draw statically).
+   */
+  lodHiTriangles: number;
+  /** `PopulationSubmission.lod.lodDistance` (metres, camera → instance origin). */
+  lodDistance: number;
+  /** This batch's `PopulationLodUniforms` slot in the per-frame LOD uniform arena (-1 = none). */
+  lodUniformOffset: number;
 }
 
 interface PostParams {
@@ -340,6 +353,14 @@ interface PopulationDeviceRecord {
   buffer: GPUBuffer;
   /** Draw bind group (layout `draw`) whose instance binding is this buffer, at offset 0. */
   group: GPUBindGroup;
+  /**
+   * Phase 14.4: the `forge.populationLod` compute group for this buffer (its own layout: the LOD
+   * uniform arena with a dynamic offset + this buffer as read-write storage), or `null` when the
+   * submission has no LOD.
+   */
+  lodGroup: GPUBindGroup | null;
+  /** `null` = not an LOD submission; otherwise its `hiTriangles` (the merged buffer's boundary). */
+  lodHiTriangles: number | null;
   /** The `PopulationInstanceBlock.revision` the buffer content matches. */
   revision: number;
   /** Live instance count the buffer was sized for (scatter is fixed per chunk — never grows). */
@@ -428,6 +449,7 @@ export class Renderer implements RenderFrameContext {
     populationInstances: 0,
     populationBuffers: 0,
     populationUploads: 0,
+    populationLodBatches: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
@@ -631,6 +653,13 @@ export class Renderer implements RenderFrameContext {
   private populationCompose = new Float32Array(0);
   /** `writeBuffer` count for the population buffers this frame (reported as `stats.populationUploads`). */
   private populationUploads = 0;
+  // Phase 14.4: the LOD selection pass's per-frame uniform arena (one 256-byte slot per LOD batch)
+  // and the compute pipeline/group layout it dispatches through.
+  private populationLodArena = new BufferBuilder(64 * 1024);
+  private populationLodBuffer: GPUBuffer | null = null;
+  private populationLodBufferCapacity = 0;
+  private populationLodLayout: GPUBindGroupLayout | null = null;
+  private populationLodPipeline: GPUComputePipeline | null = null;
   private drawBindGroup: GPUBindGroup | null = null;
   private shadowFallback: GPUTexture | null = null;
   private shadowFallbackView: GPUTextureView | null = null;
@@ -966,9 +995,19 @@ export class Renderer implements RenderFrameContext {
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
       // A count-1 population batch draws through the non-instanced entry, which reads the object
-      // uniform — its single instance's matrix lives in the device record, not the arena.
-      const single = b.count > 1 ? IDENTITY : b.population ? b.population.firstMatrix : this.lastMatrixFor(b);
-      b.objectOffset = this.reserveObject(single, b.count, i);
+      // uniform — its single instance's matrix lives in the device record, not the arena. An LOD
+      // batch is the exception: it always draws through the instanced LOD entry (its instance data
+      // is the device buffer even at count 1), which reads `hiTriangles`, not `model`.
+      const single = b.count > 1 || b.lodHiTriangles > 0
+        ? IDENTITY
+        : b.population
+          ? b.population.firstMatrix
+          : this.lastMatrixFor(b);
+      b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles);
+      if (b.lodHiTriangles > 0) {
+        b.lodUniformOffset = this.reservePopulationLodUniform(b);
+        this.stats.populationLodBatches++;
+      }
     }
     this.ensureArenas();
     this.uploadArenas();
@@ -1034,6 +1073,8 @@ export class Renderer implements RenderFrameContext {
     // shadow passes do not). Compute rides the graph as a side-effect pass: no attachments, no
     // transient resources, and never dead-culled.
     this.recordLightFill(g);
+    // Population LOD selection, before the shadow passes — the first readers of the flags bit.
+    this.recordPopulationLod(g);
     const swapchain = g.importTexture("swapchain", swapTexture);
     const clear = this.clearColorFor(scene, frame.hdr);
 
@@ -1367,7 +1408,10 @@ export class Renderer implements RenderFrameContext {
     this.syncGraphEpoch();
     const pass = ctx.beginRenderPass();
     pass.setBindGroup(0, this.cascadeBindGroup!, [shadowLayer * UNIFORM_SLOT]);
-    let lastInstanced = -1;
+    // Pipeline state = (instanced << 1) | lod: LOD batches always take the instanced LOD entry,
+    // even at count 1 (their instances are the device buffer, and the static entry would draw the
+    // merged buffer's whole vertex range).
+    let lastState = -1;
     let currentPipeline: GPURenderPipeline | null = null;
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
@@ -1384,10 +1428,12 @@ export class Renderer implements RenderFrameContext {
         continue;
       }
       this.stats.shadowInstancesCulled += b.count - assignedInstances;
-      const instanced = b.count > 1 ? 1 : 0;
-      if (instanced !== lastInstanced) {
-        lastInstanced = instanced;
-        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: instanced === 1 })?.pipeline ?? null;
+      const isLod = b.lodHiTriangles > 0;
+      const instanced = b.count > 1 || isLod;
+      const state = (instanced ? 2 : 0) | (isLod ? 1 : 0);
+      if (state !== lastState) {
+        lastState = state;
+        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced, lod: isLod })?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
@@ -1428,7 +1474,8 @@ export class Renderer implements RenderFrameContext {
       const state = prepassState(b);
       if (state !== lastState) {
         lastState = state;
-        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 })?.pipeline ?? null;
+        // LOD batches always draw instanced (see the shadow pass above).
+        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 || b.lodHiTriangles > 0, lod: b.lodHiTriangles > 0 })?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
@@ -1484,13 +1531,18 @@ export class Renderer implements RenderFrameContext {
       const isWater = b.material.technique === "water";
       // An opaque batch whose prepass variant is still compiling must use a depth-writing forward
       // variant this frame; otherwise a missing prepass would leave later opaque geometry unoccluded.
+      // LOD batches always draw through the instanced LOD entry (their instance data is the
+      // device buffer even at count 1) — the prepass probe must ask for the same variant.
+      const batchInstanced = b.count > 1 || b.lodHiTriangles > 0;
+      const batchLod = b.lodHiTriangles > 0;
       const prepassReady = b.prepass && this.pipelines.getReady({
         technique: "prepass",
         colorFormat: null,
         depthFormat: this.device.depthFormat,
         transparent: false,
         doubleSided: b.material.doubleSided,
-        instanced: b.count > 1,
+        instanced: batchInstanced,
+        lod: batchLod,
       }) !== null;
       const mainPipelineOptions = {
         technique: isWater ? "water" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
@@ -1498,7 +1550,8 @@ export class Renderer implements RenderFrameContext {
         depthFormat: this.device.depthFormat,
         transparent: b.transparent,
         doubleSided: b.material.doubleSided,
-        instanced: b.count > 1,
+        instanced: batchInstanced,
+        lod: batchLod,
       };
       // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
       // variant is still compiling, the depth-writing forward variant remains correct at equal depth
@@ -1574,6 +1627,7 @@ export class Renderer implements RenderFrameContext {
     s.populationInstances = 0;
     s.populationBuffers = 0;
     s.populationUploads = 0;
+    s.populationLodBatches = 0;
     this.populationUploads = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
@@ -2209,6 +2263,7 @@ export class Renderer implements RenderFrameContext {
     this.batchIndex.clear();
     this.objectArena.reset();
     this.instanceArena.reset();
+    this.populationLodArena.reset();
     const store = scene.world.store(Renderable);
     const camPos = camera.positionRender;
     const maxInstances = this.maxInstancesPerBatch;
@@ -2361,6 +2416,18 @@ export class Renderer implements RenderFrameContext {
     const material = submission.material;
     const block = submission.instances;
     if (!geometry || !material || block.count <= 0) return false;
+    if (submission.lod) {
+      const { hiTriangles, lodDistance } = submission.lod;
+      if (!Number.isInteger(hiTriangles) || hiTriangles <= 0 || !Number.isFinite(lodDistance) || lodDistance < 0) {
+        throw new UsageError("population LOD requires a positive integer hiTriangles and a finite, non-negative lodDistance");
+      }
+      if (material.technique === "water") {
+        throw new UsageError("population LOD currently requires a standard/unlit material; the water vertex entry has no LOD window selector");
+      }
+      if (geometry.indexBuffer !== null || geometry.topology !== "triangle-list" || geometry.vertexCount % 3 !== 0 || hiTriangles >= geometry.vertexCount / 3) {
+        throw new UsageError("population LOD geometry must be an unindexed triangle list with non-empty high and low windows");
+      }
+    }
     const bounds = submission.bounds;
 
     // The device record is chunk state, not frame state: it is created on first sight and
@@ -2444,13 +2511,21 @@ export class Renderer implements RenderFrameContext {
       rec = {
         buffer,
         group: this.createPopulationGroup(buffer, size),
+        lodGroup: null,
+        lodHiTriangles: submission.lod?.hiTriangles ?? null,
         revision: block.revision,
         count,
         seen: true,
         firstMatrix,
       };
+      if (rec.lodHiTriangles !== null) rec.lodGroup = this.createPopulationLodGroup(buffer);
       this.populationDevice.set(submission, rec);
       return rec;
+    }
+    const lodHiTriangles = submission.lod?.hiTriangles ?? null;
+    if (rec.lodHiTriangles !== lodHiTriangles || (lodHiTriangles !== null && !rec.lodGroup)) {
+      rec.lodHiTriangles = lodHiTriangles;
+      rec.lodGroup = lodHiTriangles !== null ? this.createPopulationLodGroup(rec.buffer) : null;
     }
     if (block.revision !== rec.revision) {
       const size = count * INSTANCE_STRIDE;
@@ -2495,13 +2570,97 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * The object/visibility buffers were rebuilt underneath the population groups — recreate the
-   * groups so they bind the live buffers. Called from the two capacity paths that can do that.
+   * The object/visibility buffers (or the LOD uniform arena) were rebuilt underneath the
+   * population groups — recreate the groups so they bind the live buffers. Called from the
+   * capacity paths that can do that.
    */
   private rebuildPopulationGroups(): void {
     for (const rec of this.populationDevice.values()) {
       rec.group = this.createPopulationGroup(rec.buffer, rec.count * INSTANCE_STRIDE);
+      rec.lodGroup = rec.lodHiTriangles !== null ? this.createPopulationLodGroup(rec.buffer) : null;
     }
+  }
+
+  /** The compute pipeline's group-0 layout: LOD uniform arena (dynamic offset) + one chunk buffer. */
+  private createPopulationLodLayout(): GPUBindGroupLayout {
+    return this.device.device.createBindGroupLayout({
+      label: "population.lod.layout",
+      entries: [
+        { binding: 0, visibility: ShaderStage.COMPUTE, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: PopulationLodUniforms.byteSize("uniform") } },
+        { binding: 1, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+  }
+
+  /** One compute bind group: the shared LOD uniform arena plus this chunk's read-write instance buffer. */
+  private createPopulationLodGroup(buffer: GPUBuffer): GPUBindGroup {
+    this.ensurePopulationLodBuffer();
+    this.populationLodLayout ??= this.createPopulationLodLayout();
+    return this.device.device.createBindGroup({
+      label: "population.lod.group",
+      layout: this.populationLodLayout,
+      entries: [
+        // The explicit size keeps a nonzero dynamic offset inside the selected 32-byte uniform
+        // window; omitting it would bind the whole arena and make the first nonzero slot OOB.
+        { binding: 0, resource: { buffer: this.populationLodBuffer!, size: PopulationLodUniforms.byteSize("uniform") } },
+        { binding: 1, resource: { buffer } },
+      ],
+    });
+  }
+
+  /**
+   * Phase 14.4: the `forge.populationLod` compute pipeline, created on first need. A frame whose
+   * pipeline is still unavailable skips the pass — its batches keep flags bit 0 at 0 (all high
+   * window), the conservative side of the selection.
+   */
+  private ensurePopulationLodPipeline(): GPUComputePipeline | null {
+    if (this.populationLodPipeline) return this.populationLodPipeline;
+    try {
+      const d = this.device.device;
+      // The same static validation and compile-info reporting every other shader in the engine gets.
+      const module = this.pipelines.shaders.get("population.lod.wgsl", POPULATION_LOD_SHADER);
+      this.populationLodLayout ??= this.createPopulationLodLayout();
+      this.populationLodPipeline = d.createComputePipeline({
+        label: "population.lod.pipeline",
+        layout: d.createPipelineLayout({ label: "population.lod.pipelayout", bindGroupLayouts: [this.populationLodLayout] }),
+        compute: { module, entryPoint: "populationLodMain" },
+      });
+      return this.populationLodPipeline;
+    } catch (error) {
+      this.device.recordError("population LOD compute pipeline", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+
+  /**
+   * `forge.populationLod` (Phase 14.4): recorded when the frame has at least one LOD population
+   * batch. Runs before every shadow pass — the first readers of the flags bit — and after the
+   * 14.3 uploads (queued before this frame's command buffer on the same queue, so the buffer
+   * contents it reads are already in place).
+   */
+  private recordPopulationLod(graph: RenderGraph): void {
+    if (this.stats.populationLodBatches === 0) return;
+    graph.addPass({ name: "forge.populationLod", sideEffect: true, execute: (ctx) => this.executePopulationLodPass(ctx) });
+  }
+
+  /** One compute pass, one dispatch per LOD batch (64 instances per workgroup). */
+  private executePopulationLodPass(ctx: RenderGraphPassContext): void {
+    const pass = ctx.beginComputePass("population.lod");
+    const pipeline = this.ensurePopulationLodPipeline();
+    if (!pipeline) {
+      pass.end();
+      return;
+    }
+    pass.setPipeline(pipeline);
+    for (let i = 0; i < this.batchCount; i++) {
+      const b = this.batchPool[i]!;
+      if (b.lodUniformOffset < 0 || !b.population) continue;
+      const group = b.population.lodGroup;
+      if (!group) continue;
+      pass.setBindGroup(0, group, [b.lodUniformOffset]);
+      pass.dispatchWorkgroups(Math.ceil(b.count / 64));
+    }
+    pass.end();
   }
 
   /** One population chunk as one instanced batch, drawn from its own device-resident buffer. */
@@ -2535,6 +2694,9 @@ export class Renderer implements RenderFrameContext {
     batch.objectOffset = 0;
     batch.cullIndex = index;
     batch.maxDistance = submission.maxDistance;
+    // Phase 14.4: the merged-buffer window boundary and selection distance (0 = single detail).
+    batch.lodHiTriangles = submission.lod?.hiTriangles ?? 0;
+    batch.lodDistance = submission.lod?.lodDistance ?? 0;
     batch.bounds.setFrom(submission.bounds.min, submission.bounds.max);
     batch.shadowRangeCount = 0;
 
@@ -2644,16 +2806,23 @@ export class Renderer implements RenderFrameContext {
         shadowRanges: [],
         shadowRangeCount: 0,
         population: null,
+        lodHiTriangles: 0,
+        lodDistance: 0,
+        lodUniformOffset: -1,
       };
       this.batchPool.push(b);
     }
-    // Pooled reuse: a recycled slot must not carry the previous frame's population bind group.
+    // Pooled reuse: a recycled slot must not carry the previous frame's population bind group or
+    // LOD window (a plain batch in a slot that was LOD last frame would take the LOD entry).
     b.population = null;
+    b.lodHiTriangles = 0;
+    b.lodDistance = 0;
+    b.lodUniformOffset = -1;
     this.batchCount++;
     return b;
   }
 
-  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number): number {
+  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number, hiTriangles = 0): number {
     const offset = this.objectArena.reserve(ObjectUniforms.byteSize("uniform"), 256);
     const a = this.objectAccessor;
     a.relocate(offset);
@@ -2662,7 +2831,38 @@ export class Renderer implements RenderFrameContext {
     // Which word of the culler's visibility buffer this draw reads (the batch index: the cull pass
     // writes one word per batch in upload order).
     a.setU32("visibilityIndex", visibilityIndex);
+    // Phase 14.4: the merged LOD buffer's high-window boundary (the LOD entries test it; 0 = not
+    // an LOD batch, where no entry reads it).
+    a.setU32("hiTriangles", hiTriangles);
     return offset;
+  }
+
+  /**
+   * Phase 14.4: this frame's `PopulationLodUniforms` slot for one LOD batch — the camera, the
+   * selection distance, and the instance count the dispatch walks. One 256-byte slot per batch
+   * (the `UNIFORM_SLOT` dynamic-offset pattern); the batch keeps the offset until the pass.
+   */
+  private reservePopulationLodUniform(b: Batch): number {
+    const offset = this.populationLodArena.reserve(PopulationLodUniforms.byteSize("uniform"), UNIFORM_SLOT);
+    const a = this.populationLodAccessor;
+    a.relocate(offset);
+    a.setVec3("camera", this.populationCamPos.x, this.populationCamPos.y, this.populationCamPos.z);
+    a.setF32("lodDistance", b.lodDistance);
+    a.setU32("count", b.count);
+    a.setU32("_pad", 0);
+    return offset;
+  }
+
+  private readonly populationLodAccessor = new StructAccessor(PopulationLodUniforms, this.populationLodArena.target, 0, "uniform");
+
+  /** The LOD uniform arena's device buffer, grown when the arena exceeds it. */
+  private ensurePopulationLodBuffer(): void {
+    const need = alignUp(Math.max(this.populationLodArena.target.byteLength, 64 * 1024), 256);
+    if (need > this.populationLodBufferCapacity) {
+      this.populationLodBuffer?.destroy();
+      this.populationLodBuffer = this.device.device.createBuffer({ label: "population.lod.uniforms", size: need, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+      this.populationLodBufferCapacity = need;
+    }
   }
 
   private readonly objectAccessor = new StructAccessor(ObjectUniforms, this.objectArena.target, 0, "uniform");
@@ -2680,6 +2880,13 @@ export class Renderer implements RenderFrameContext {
     const instanceBytes = this.instanceArena.written();
     if (objectBytes.length > 0) this.device.device.queue.writeBuffer(this.objectBuffer!, 0, gpuSource(objectBytes));
     if (instanceBytes.length > 0) this.device.device.queue.writeBuffer(this.instanceBuffer!, 0, gpuSource(instanceBytes));
+    // The LOD slots are written into the arena during batch collection, before `ensureArenas` —
+    // upload whatever this frame reserved (a frame with no LOD batches writes nothing).
+    const lodBytes = this.populationLodArena.written();
+    if (lodBytes.length > 0) {
+      this.ensurePopulationLodBuffer();
+      this.device.device.queue.writeBuffer(this.populationLodBuffer!, 0, gpuSource(lodBytes));
+    }
   }
 
   private ensureBuffers(): void {
@@ -3031,6 +3238,14 @@ export class Renderer implements RenderFrameContext {
       this.instanceBufferCapacity = needInstance;
       rebuilt = true;
     }
+    // Phase 14.4: the LOD uniform arena grew — the population compute groups bind the old buffer.
+    const needLod = alignUp(Math.max(this.populationLodArena.target.byteLength, 64 * 1024), 256);
+    if (needLod > this.populationLodBufferCapacity) {
+      this.populationLodBuffer?.destroy();
+      this.populationLodBuffer = this.device.device.createBuffer({ label: "population.lod.uniforms", size: needLod, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+      this.populationLodBufferCapacity = needLod;
+      rebuilt = true;
+    }
     if (rebuilt || !this.drawBindGroup) {
       const { draw } = this.pipelines.bindGroupLayouts;
       this.drawBindGroup = this.device.device.createBindGroup({
@@ -3309,7 +3524,9 @@ export class Renderer implements RenderFrameContext {
     this.visibleList = null;
     this.visibilityBytes = 0;
     this.visibilityWords = new Uint32Array(0);
-    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.populationLodBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
+    this.populationLodBuffer = null;
+    this.populationLodBufferCapacity = 0;
     this.frameBuffer = null;
     this.lightBuffer = null;
     this.clusterBuffer = null;
@@ -3365,9 +3582,10 @@ function isPrepassEligible(b: Batch): boolean {
   return !b.shadowOnly && !b.transparent && !b.overlay && b.geometry.vertexBuffer !== null && m.technique !== "water" && !m.transparent && !(m.alphaTest > 0) && m.opacity >= 0.999;
 }
 
-/** Prepass pipeline variant: instancing × culling (four pipelines at most). */
+/** Prepass pipeline variant: instancing × culling × population LOD (eight pipelines at most). */
 function prepassState(b: Batch): number {
-  return (b.count > 1 ? 1 : 0) | (b.material.doubleSided ? 2 : 0);
+  const lod = b.lodHiTriangles > 0;
+  return (b.count > 1 || lod ? 1 : 0) | (b.material.doubleSided ? 2 : 0) | (lod ? 4 : 0);
 }
 
 /** Fewest pipeline switches first, then front to back (`depthSort` is −distance², so larger is nearer). */

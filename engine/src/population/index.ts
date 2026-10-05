@@ -18,6 +18,15 @@ export {
 } from "./scatter.js";
 export { PopulationWorld, type PopulationType, type PopulationWorldOptions } from "./world.js";
 export {
+  buildLodGeometry,
+  unindexedLodWindow,
+  populationLodIndex,
+  type PopulationLodWindow,
+  type PopulationLodWindowSource,
+  type PopulationLodSource,
+  type PopulationLodGeometry,
+} from "./lod.js";
+export {
   POPULATION_INSTANCE_FLOATS,
   PopulationInstanceBlock,
   isPopulationSource,

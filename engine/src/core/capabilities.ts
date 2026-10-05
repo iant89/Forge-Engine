@@ -764,10 +764,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "14.1",
     status: "partial",
     summary:
-      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain chunk streaming with per-chunk device culling",
-    evidence: ["tests/population.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
-    closesWith: "14.4",
-    notes: "First slice covers 14.1/14.3 (incl. device-resident instance buffers)/14.5/14.6 and rocks+boulders of 14.2; GPU-selected object LOD (14.4) and the vegetation/debris/decals/props types are not built — see docs/KNOWN-ISSUES.md § World population",
+      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain streaming with per-chunk device culling and GPU-selected object LOD",
+    evidence: ["tests/population.test.ts", "tests/pipeline.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
+    closesWith: "14.2",
+    notes: "14.1/14.3 (incl. device-resident buffers)/14.4/14.5/14.6 and rocks+boulders of 14.2 are built; vegetation/debris/decals/props remain, along with per-instance culling and population raycast follow-ups — see docs/KNOWN-ISSUES.md § World population",
   },
   {
     id: "assets.contentAddressing",

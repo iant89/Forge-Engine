@@ -100,6 +100,13 @@ export interface PopulationSubmission {
   readonly castShadow: boolean;
   /** Draw distance in metres (0 = unlimited); the device culler drops the batch past it. */
   readonly maxDistance: number;
+  /**
+   * Phase 14.4: GPU-selected LOD. When present, `geometry` is the merged hi+lo buffer
+   * (population/lod.ts `buildLodGeometry` + `Geometry.create`): the batch draws through the
+   * instanced LOD entries, and the renderer runs one `forge.populationLod` dispatch for it that
+   * picks each instance's window from the camera distance. `lodDistance` is in metres.
+   */
+  readonly lod?: { hiTriangles: number; lodDistance: number } | null;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  Geometry,
   type Engine,
   Light,
   MARS_ATMOSPHERE,
@@ -32,8 +33,10 @@ import {
   Scene,
   Vec3,
   TerrainWorld,
+  buildLodGeometry,
   createAtmosphere,
-  createRock,
+  rockGeometrySource,
+  unindexedLodWindow,
 } from "@forge/engine";
 import {
   createMarsRegolithTextures,
@@ -134,8 +137,22 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
     roughness: 0.96,
     metallic: 0.03,
   });
-  const rockGeometry = gpu ? createRock(gpu, { radius: 0.8, segments: 7, seed: 7, roughness: 0.34 }) : null;
-  const boulderGeometry = gpu ? createRock(gpu, { radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 }) : null;
+  // Phase 14.4: GPU-selected LOD. Each type's geometry is a *merged* hi+lo buffer (unindexed, the
+  // high window's triangles first, then the low window's); the `forge.populationLod` dispatch
+  // picks each instance's window from the camera, so near instances keep the fine facets and,
+  // beyond `lodDistance`, the GPU switches them to the coarse silhouette with no per-frame copy.
+  // The lo window is the same rock at fewer segments — same seed, so the same displacement field
+  // on coarser facets, which keeps the silhouette honest at the switch distance.
+  const rockLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 7, seed: 7, roughness: 0.34 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.34 })),
+  });
+  const boulderLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.3, flatten: 0.4 })),
+  });
+  const rockGeometry = gpu ? Geometry.create(gpu, rockLod.source) : null;
+  const boulderGeometry = gpu ? Geometry.create(gpu, boulderLod.source) : null;
   const population = new PopulationWorld({
     terrain,
     types: [
@@ -151,6 +168,7 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
         maxDistance: 550,
         geometry: rockGeometry,
         material: rockMaterial,
+        lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
       },
       {
         id: 2,
@@ -164,6 +182,8 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
         maxDistance: 800,
         geometry: boulderGeometry,
         material: rockMaterial,
+        // Larger prototypes stay high-detail longer: the switch distance tracks the type's scale.
+        lod: { hiTriangles: boulderLod.hiTriangles, distance: 420 },
       },
     ],
   });
