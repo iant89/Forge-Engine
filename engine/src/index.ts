@@ -144,6 +144,9 @@ export {
 
 // Resources
 export { ResourceRegistry, ResourceHandle, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
+export { AssetId, hashContent, type AssetIdInfo } from "./resources/assetId.js";
+export { AssetGraph } from "./resources/assetGraph.js";
+export { AssetStreamer, type StreamerOptions, type StreamedLoad, type StreamingState, type StreamingStats } from "./resources/streaming.js";
 export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
 
 // Scene / ECS
@@ -273,6 +276,8 @@ export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique
 export {
   boxGeometrySource,
   planeGeometrySource,
+  discGeometrySource,
+  rosetteGeometrySource,
   sphereGeometrySource,
   rockGeometrySource,
   cylinderGeometrySource,
@@ -286,12 +291,15 @@ export {
   createTorus,
   type BoxOptions,
   type PlaneOptions,
+  type DiscOptions,
+  type RosetteOptions,
   type SphereOptions,
   type RockOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
 export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
-export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
+export { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./rendering/shaders/standard.js";
+export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";

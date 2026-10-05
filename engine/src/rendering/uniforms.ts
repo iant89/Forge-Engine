@@ -176,7 +176,7 @@ export const ObjectUniforms = new StructDef("ObjectUniforms", [
   { name: "instanceCount", type: u32 },
   { name: "instanceOffset", type: u32 },
   { name: "visibilityIndex", type: u32, comment: "this draw's word in the culler's visibility buffer (Phase 13.5)" },
-  { name: "_pad", type: u32 },
+  { name: "hiTriangles", type: u32, comment: "population LOD (Phase 14.4): the merged buffer's high-window triangle count; 0 = not an LOD batch" },
 ]);
 
 /**
@@ -192,8 +192,21 @@ export const InstanceStruct = new StructDef("InstanceData", [
   { name: "row3", type: vec4 },
   { name: "tint", type: u32 },
   { name: "emissive", type: f32 },
+  /** Population records (Phase 14.4): bit 0 is the GPU-selected LOD window (0 = near/high, 1 = far/low). */
   { name: "flags", type: u32 },
   { name: "materialIndex", type: u32 },
+]);
+
+/**
+ * One `forge.populationLod` dispatch (Phase 14.4): the camera and the selection rule for one
+ * population submission's device-resident buffer. Records live in a dynamic-offset uniform arena,
+ * one 256-byte slot per dispatch (the `UNIFORM_SLOT` pattern the post chain uses).
+ */
+export const PopulationLodUniforms = new StructDef("PopulationLodUniforms", [
+  { name: "camera", type: vec3 },
+  { name: "lodDistance", type: f32, comment: "instances farther than this (euclidean, from `camera`) take the low window" },
+  { name: "count", type: u32 },
+  { name: "_pad", type: u32 },
 ]);
 
 /**
@@ -446,6 +459,7 @@ export const RENDERING_STRUCTS = {
   WaterUniforms,
   ClusterUniforms,
   ObjectCullUniforms,
+  PopulationLodUniforms,
 } as const;
 
 /**

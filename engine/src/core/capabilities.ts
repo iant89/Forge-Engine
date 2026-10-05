@@ -85,7 +85,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "12": "verified",
   "13": "inProgress",
   "14": "inProgress",
-  "15+": "planned",
+  "15+": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -764,24 +764,32 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "14.1",
     status: "partial",
     summary:
-      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain chunk streaming with per-chunk device culling",
-    evidence: ["tests/population.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
-    closesWith: "14.4",
-    notes: "First slice covers 14.1/14.3/14.5/14.6 and rocks+boulders of 14.2; GPU-selected object LOD (14.4), vegetation/debris/decals/props types and device-resident instance buffers are not built — see docs/KNOWN-ISSUES.md § World population",
+      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain streaming with per-chunk device culling and GPU-selected object LOD",
+    evidence: ["tests/population.test.ts", "tests/pipeline.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
+    closesWith: "14.5",
+    notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented; capability remains partial for per-instance culling, load-order-independent surface sampling, worker generation and population raycast follow-ups — see docs/KNOWN-ISSUES.md § World population",
   },
   {
     id: "assets.contentAddressing",
     phase: "15.1",
-    status: "planned",
-    summary: "Stable asset ids, content hashes and a dependency graph",
-    closesWith: "15.1",
+    status: "partial",
+    summary:
+      "Stable AssetId form (path- and content-addressed), SHA-256 content hashing with re-acquire invalidation, and a cycle-checked dependency graph with eviction safety",
+    evidence: ["tests/assetPipeline.test.ts"],
+    closesWith: "15.3",
+    notes:
+      "15.1 + 15.2 mechanisms are built and tested on ResourceRegistry (AssetId/hashContent, contentHash re-acquire invalidation, AssetGraph edges, eviction blocking and invalidate() propagation); the capability closes when Phase 15.3 streaming builds the first real loaders on top of them",
   },
   {
     id: "assets.streaming",
     phase: "15.3",
-    status: "planned",
-    summary: "Async, cancellable, prioritized asset streaming with GPU upload budgeting",
-    closesWith: "15.3",
+    status: "partial",
+    summary:
+      "Frame-driven AssetStreamer on the resource registry: priority-ordered admission under a concurrency cap, queued/in-flight cancellation, and a per-frame GPU upload budget gated by estimatedBytes; Engine.step pumps it",
+    evidence: ["tests/streaming.test.ts"],
+    closesWith: "15.4",
+    notes:
+      "All four 15.3 items are built, tested (26 CPU tests) and real-device probed (budget/priority/cancel with live texture uploads, zero GPU errors); the capability closes when 15.4 hot reload exercises the cancel/retry path against real asset content",
   },
   {
     id: "animation.clips",

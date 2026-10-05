@@ -54,6 +54,17 @@ export class PopulationInstanceBlock {
   readonly capacity: number;
   /** Live instance count — always ≤ capacity. */
   count = 0;
+  /**
+   * Monotonic content revision (Phase 14.3 device-resident buffers). The renderer uploads a block's
+   * records to a stable device buffer when this changes — scatter and remesh re-anchoring are the
+   * only mutators, so a live chunk uploads once and then costs zero per-frame copies.
+   */
+  revision = 0;
+
+  /** Mark the live prefix as changed (the scatter and the remesh re-anchor are the callers). */
+  markModified(): void {
+    this.revision++;
+  }
 
   constructor(capacity: number) {
     if (capacity < 0 || !Number.isFinite(capacity)) throw new Error(`population: invalid capacity ${capacity}`);
@@ -89,6 +100,13 @@ export interface PopulationSubmission {
   readonly castShadow: boolean;
   /** Draw distance in metres (0 = unlimited); the device culler drops the batch past it. */
   readonly maxDistance: number;
+  /**
+   * Phase 14.4: GPU-selected LOD. When present, `geometry` is the merged hi+lo buffer
+   * (population/lod.ts `buildLodGeometry` + `Geometry.create`): the batch draws through the
+   * instanced LOD entries, and the renderer runs one `forge.populationLod` dispatch for it that
+   * picks each instance's window from the camera distance. `lodDistance` is in metres.
+   */
+  readonly lod?: { hiTriangles: number; lodDistance: number } | null;
 }
 
 /**

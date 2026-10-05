@@ -35,7 +35,7 @@
 import { ShaderStage } from "../gpu/constants.js";
 import { ObjectUniforms, InstanceStruct, MaterialUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
 import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
-import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
+import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
@@ -55,6 +55,12 @@ export interface PipelineKeyOptions {
   transparent: boolean;
   doubleSided: boolean;
   instanced: boolean;
+  /**
+   * Phase 14.4: the population-LOD instanced entry (`vertexMainInstancedLod`). Only meaningful
+   * with `instanced` — the batch's geometry is the merged hi+lo buffer and `ObjectUniforms`
+   * carries its `hiTriangles` boundary.
+   */
+  lod?: boolean;
   sampleCount?: number;
   writeDepth?: boolean;
   /** Fragment entry point for techniques that expose several (`post`, `ssao`). */
@@ -265,7 +271,9 @@ export class PipelineFactory {
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", water: true };
       }
       case "depth":
-        return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
+        // The shadow module carries the LOD instanced entry too: population casters draw through
+        // the merged buffer and must honour the same per-instance window bit.
+        return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? (key.lod ? "vertexMainInstancedLod" : "vertexMainInstanced") : "vertexMain", fragmentEntry: "fragmentMain" };
       case "debug":
         return { vertex: this.shaders.get("debug.wgsl", DEBUG_SHADER), fragment: this.shaders.get("debug.wgsl", DEBUG_SHADER), vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", debug: true };
       case "blit":
@@ -278,9 +286,16 @@ export class PipelineFactory {
         // One module for both stages: drivers accept multiple entry points per module, and one
         // compile instead of two is measurably faster on scene load. The fragment stage's defines are
         // already embedded in the vertex source, so the fragment body is appended without them.
-        const vertexSource = key.instanced ? STANDARD_INSTANCED_VERTEX : STANDARD_VERTEX;
-        const module = this.shaders.get(`standard.${key.instanced ? "instanced" : "static"}.wgsl`, `${vertexSource}\n${STANDARD_FRAGMENT_BODY}`);
-        return { vertex: module, fragment: module, vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
+        // The LOD variant is a *third* module: a module is keyed by its source text in the cache,
+        // and the prepass compiles the same vertex entry it must stay bit-identical to.
+        const vertexSource = key.instanced
+          ? key.lod
+            ? STANDARD_LOD_INSTANCED_VERTEX
+            : STANDARD_INSTANCED_VERTEX
+          : STANDARD_VERTEX;
+        const entry = key.instanced ? (key.lod ? "vertexMainInstancedLod" : "vertexMainInstanced") : "vertexMain";
+        const module = this.shaders.get(`standard.${key.instanced ? (key.lod ? "instanced-lod" : "instanced") : "static"}.wgsl`, `${vertexSource}\n${STANDARD_FRAGMENT_BODY}`);
+        return { vertex: module, fragment: module, vertexEntry: entry, fragmentEntry: "fragmentMain" };
       }
     }
   }
@@ -293,6 +308,7 @@ export class PipelineFactory {
       options.transparent ? "blend" : "opaque",
       options.doubleSided ? "two" : "one",
       options.instanced ? "inst" : "static",
+      options.lod ? "lod" : "-",
       options.sampleCount ?? 1,
       options.writeDepth === false ? "nodepthwrite" : "depthwrite",
       options.noDepthTest ? "nodepthtest" : "depthtest",

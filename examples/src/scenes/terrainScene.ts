@@ -11,9 +11,9 @@
  *   directional light) and exp² dust haze whose colour is the model's own horizon radiance, so the
  *   loaded disc's edge fades into the sky instead of reading as a cliff.
  * - Dynamic chunk streaming with nearest-first generation inside a resident-chunk budget.
- * - Phase 14 world population: deterministic rocks and boulders scattered per streamed chunk
- *   (`PopulationWorld`), drawn as instanced batches with no entity per rock and culled per chunk
- *   by the device object culler past each type's draw distance.
+ * - Phase 14 world population: deterministic rocks, boulders, debris, rosette scrub, ground decals
+ *   and mineral spires scattered per streamed chunk (`PopulationWorld`), drawn as instanced batches
+ *   with no entity per instance, GPU-selected hi/lo LOD on the rock types, and per-chunk device culling.
  * - Directional sun light casting cascaded shadow maps across the terrain contours.
  * - A full PBR texture set (albedo + tangent-space normal + metallic-roughness) tiled over the
  *   chunks — iron-oxide regolith with basalt patches and pebble grain, generated procedurally so
@@ -24,6 +24,7 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  Geometry,
   type Engine,
   Light,
   MARS_ATMOSPHERE,
@@ -32,8 +33,14 @@ import {
   Scene,
   Vec3,
   TerrainWorld,
+  boxGeometrySource,
+  buildLodGeometry,
+  coneGeometrySource,
   createAtmosphere,
-  createRock,
+  discGeometrySource,
+  rockGeometrySource,
+  rosetteGeometrySource,
+  unindexedLodWindow,
 } from "@forge/engine";
 import {
   createMarsRegolithTextures,
@@ -121,21 +128,49 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   });
   scene.add(terrain);
 
-  // Phase 14 — world population. Two types share the streamed disc: rocks (dense, small, slope
-  // tolerant) and boulders (sparse, large, flattish ground only). Placement is a pure function of
-  // (seed, chunk, type) over the chunk's heightmap, so the same world always scatters the same
-  // rocks; remeshes re-anchor them to the new surface rather than re-scattering. Neither type
-  // creates an entity — `stats.populationInstances` reports how many rocks the frame drew while
-  // the entity count stays at the terrain chunks + lights + camera. `maxDistance` hands each type
-  // to the device object culler, which drops whole chunk batches past it.
+  // Phase 14 — world population. Six deterministic types share the streamed disc: rocks and
+  // boulders (hi/lo GPU LOD), fractured debris, rosette scrub, flat erosion decals, and low mineral
+  // spires. Placement is a pure function of (seed, chunk, type) over the chunk's heightmap; remeshes
+  // re-anchor to the new surface rather than re-scattering. None creates per-instance entities, and
+  // the device object culler drops whole per-type chunk batches past each `maxDistance`.
   const rockMaterial = new Material({
     label: "mars-rock",
     color: Color.fromSrgbHex(0x9a6a4e),
     roughness: 0.96,
     metallic: 0.03,
   });
-  const rockGeometry = gpu ? createRock(gpu, { radius: 0.8, segments: 7, seed: 7, roughness: 0.34 }) : null;
-  const boulderGeometry = gpu ? createRock(gpu, { radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 }) : null;
+  // Phase 14.4: GPU-selected LOD. Each type's geometry is a *merged* hi+lo buffer (unindexed, the
+  // high window's triangles first, then the low window's); the `forge.populationLod` dispatch
+  // picks each instance's window from the camera, so near instances keep the fine facets and,
+  // beyond `lodDistance`, the GPU switches them to the coarse silhouette with no per-frame copy.
+  // The lo window is the same rock at fewer segments — same seed, so the same displacement field
+  // on coarser facets, which keeps the silhouette honest at the switch distance.
+  const rockLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 7, seed: 7, roughness: 0.34 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.34 })),
+  });
+  const boulderLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.3, flatten: 0.4 })),
+  });
+  const rockGeometry = gpu ? Geometry.create(gpu, rockLod.source) : null;
+  const boulderGeometry = gpu ? Geometry.create(gpu, boulderLod.source) : null;
+
+  // 14.2's remaining population types use small, deterministic prototype meshes. Debris is a flat
+  // fractured slab; the rosette is a radial ribbon-leaf succulent; decals are thin +Y discs; the
+  // environmental prop is a six-sided mineral spire with its base at the origin.
+  const debrisGeometry = gpu ? Geometry.create(gpu, boxGeometrySource({ width: 0.9, height: 0.22, depth: 0.52 })) : null;
+  const vegetationGeometry = gpu ? Geometry.create(gpu, rosetteGeometrySource({ leaves: 8, radius: 0.42, height: 0.6, leafWidth: 0.11 })) : null;
+  const decalGeometry = gpu ? Geometry.create(gpu, discGeometrySource({ radiusX: 0.55, radiusZ: 0.34, segments: 12 })) : null;
+  const spireSource = coneGeometrySource({ radius: 0.32, height: 0.95, radialSegments: 6 });
+  for (let i = 1; i < spireSource.positions.length; i += 3) spireSource.positions[i] += 0.475;
+  const spireGeometry = gpu ? Geometry.create(gpu, spireSource) : null;
+
+  const debrisMaterial = new Material({ label: "mars-debris", color: Color.fromSrgbHex(0x71645a), roughness: 0.98, metallic: 0.02 });
+  const vegetationMaterial = new Material({ label: "mars-rosette", color: Color.fromSrgbHex(0x617044), roughness: 0.88, metallic: 0.0 });
+  const decalMaterial = new Material({ label: "mars-erosion-decals", color: Color.fromSrgbHex(0x704337), roughness: 1.0, transparent: true, opacity: 0.58, doubleSided: true });
+  const spireMaterial = new Material({ label: "mars-mineral-spire", color: Color.fromSrgbHex(0x9b7860), roughness: 0.72, metallic: 0.12 });
+
   const population = new PopulationWorld({
     terrain,
     types: [
@@ -151,6 +186,7 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
         maxDistance: 550,
         geometry: rockGeometry,
         material: rockMaterial,
+        lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
       },
       {
         id: 2,
@@ -164,6 +200,63 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
         maxDistance: 800,
         geometry: boulderGeometry,
         material: rockMaterial,
+        // Larger prototypes stay high-detail longer: the switch distance tracks the type's scale.
+        lod: { hiTriangles: boulderLod.hiTriangles, distance: 420 },
+      },
+      {
+        id: 3,
+        label: "debris",
+        densityGrid: 2,
+        scaleMin: 0.35,
+        scaleMax: 1.2,
+        scaleExponent: 1.6,
+        slopeLimit: 0.68,
+        tintJitter: 0.12,
+        embed: 0.35,
+        maxDistance: 320,
+        geometry: debrisGeometry,
+        material: debrisMaterial,
+      },
+      {
+        id: 4,
+        label: "rosette-scrub",
+        densityGrid: 3,
+        scaleMin: 0.45,
+        scaleMax: 1.25,
+        scaleExponent: 1.3,
+        slopeLimit: 0.38,
+        tintJitter: 0.1,
+        embed: 0.05,
+        maxDistance: 360,
+        geometry: vegetationGeometry,
+        material: vegetationMaterial,
+      },
+      {
+        id: 5,
+        label: "erosion-decals",
+        densityGrid: 2,
+        scaleMin: 0.7,
+        scaleMax: 1.45,
+        slopeLimit: 0.18,
+        embed: -0.015,
+        castShadow: false,
+        maxDistance: 190,
+        geometry: decalGeometry,
+        material: decalMaterial,
+      },
+      {
+        id: 6,
+        label: "mineral-spires",
+        densityGrid: 1,
+        scaleMin: 0.7,
+        scaleMax: 1.4,
+        scaleExponent: 1.5,
+        slopeLimit: 0.28,
+        tintJitter: 0.08,
+        embed: 0.06,
+        maxDistance: 850,
+        geometry: spireGeometry,
+        material: spireMaterial,
       },
     ],
   });
@@ -235,7 +328,15 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
       population.dispose();
       rockGeometry?.dispose();
       boulderGeometry?.dispose();
+      debrisGeometry?.dispose();
+      vegetationGeometry?.dispose();
+      decalGeometry?.dispose();
+      spireGeometry?.dispose();
       rockMaterial.dispose();
+      debrisMaterial.dispose();
+      vegetationMaterial.dispose();
+      decalMaterial.dispose();
+      spireMaterial.dispose();
       terrainMat.dispose();
       terrain.dispose();
       disposePbrTextureSet(marsMaps);

@@ -72,9 +72,10 @@ export interface PopulationTypeSpec {
    */
   readonly tintJitter?: number;
   /**
-   * How far instances sink into the ground, as a fraction of their Y scale (default 0.15) — a
-   * rock planted exactly at surface height intersects it in one point and looks placed; slightly
-   * embedded reads as *settled*.
+   * Surface offset as a fraction of Y scale (default 0.15): positive sinks into the ground,
+   * negative lifts above it. A rock planted exactly at surface height intersects at one point;
+   * slightly embedded reads as settled, while a shallow decal may use a small negative value to
+   * clear z-fighting on a nearly flat patch.
    */
   readonly embed?: number;
   /** Whether instances of this type cast shadows. Default true. */
@@ -139,8 +140,10 @@ export function scatterPopulationChunk(
 ): number {
   const r = resolvePopulationTypeSpec(spec);
   out.clear();
-  if (r.maxPerChunk <= 0 || chunkSize <= 0) return 0;
-
+  if (r.maxPerChunk <= 0 || chunkSize <= 0) {
+    out.markModified();
+    return 0;
+  }
   // Type identity is part of the stream: two types over one chunk share neither candidates nor scale.
   const rng = new Rng(chunkSeed(cx, cz, POPULATION_CHUNK_LEVEL + r.id, seed | 0));
   const grid = r.densityGrid;
@@ -159,7 +162,10 @@ export function scatterPopulationChunk(
       const rotation = rng.nextFloat() * Math.PI * 2;
       const tintRoll = rng.nextFloat();
 
-      if (out.count >= r.maxPerChunk) return out.count;
+      if (out.count >= r.maxPerChunk) {
+        out.markModified();
+        return out.count;
+      }
 
       const x = originX + (i + jitterX) * step;
       const z = originZ + (j + jitterZ) * step;
@@ -185,5 +191,6 @@ export function scatterPopulationChunk(
       out.count = k + 1;
     }
   }
+  out.markModified();
   return out.count;
 }

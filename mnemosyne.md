@@ -658,3 +658,204 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `tests/population.test.ts` drives the renderer's batch path and TerrainWorld streaming — a
   runtime-only deps reading would under-select. The manifest's deps are hand-declared (only
   validated for resolution), so say why in a comment like the one now in test-subsystems.mjs.
+
+## 2026-10-05 — 14.3 writeBuffer root cause (element vs byte), 14.4 GPU LOD started
+
+- **The 14.3 real-WebGPU failures were `GPUQueue.writeBuffer` size semantics.** For a TypedArray
+  source, `size`/`dataOffset` are counted in **elements**, not bytes (W3C webgpu §19.2; MDN same;
+  confirmed by a standalone probe: Float32Array + size=100 wrote 400 B and failed with "Write range
+  (bufferOffset: 0, size: 400) does not fit"). The population uploads passed byte counts with
+  Float32Array → 4× oversize writes. Fix: upload `data.subarray(0, count * (INSTANCE_STRIDE >> 2))`
+  with **no size argument** (renderer.ts, both population writeBuffer calls). Killed hypotheses:
+  second device/queue, stale vite bundle, pre-existing instrumentation writes — all disproven.
+- **The mock is why the bug survived every unit suite:** `mockGpu.ts` implemented byte semantics,
+  so oversized writes "succeeded" there. It now enforces element semantics (BYTES_PER_ELEMENT,
+  DataView = 1, integer checks). Lesson: a mock that is *looser* than the spec hides exactly the
+  calls real devices validate — mock API surface changes deserve a full-suite run, not just the
+  suites that use them.
+- **Probe gotchas (standalone WebGPU script in the sandbox):** `data:` pages have no `navigator.gpu`
+  (opaque origin) — serve over 127.0.0.1 http; `adapter.requestDevice()` returns the device directly
+  (no `.device` to destructure); queue validation errors surfaced as console warnings, not the
+  device `error` event, in the probe (mechanism unknown — the app engine does log them); kill stray
+  vite/chromium by explicit PID (`ss -tlnp`) — `pkill -f vite` matches the invoking shell.
+- **Browser gate in this sandbox is speed-limited, not broken:** after a workspace reset there is no
+  system Vulkan (apt unreachable offline; only the Chromium-bundled SwiftShader ICD/loader), and one
+  pbr-fixture frame takes ~3 s there — longer than the gate's 2.5 s stall window, so the gate
+  coin-flips `loop stalled at frame N`. **Baseline evidence:** with this diff stashed, the clean
+  tree advanced exactly 1 frame in the same window and the full gate ran past 420 s. Attribute
+  stalls to the environment, and let the CI advisory WebGPU gate (which does run `check:browser`)
+  be the authoritative real-device check; never "fix" the engine for a sandbox-speed stall.
+- **14.4 design (in flight this session):** one *merged unindexed* buffer per prototype — hi
+  window's triangles first, lo after; vertex's window = `vertexIndex / 3 < objectData.hiTriangles`
+  (the renamed `ObjectUniforms._pad` slot, still 176 B layout). The `forge.populationLod` compute
+  pass (shaders/populationLod.ts, `PopulationLodUniforms` 32 B) sets bit 0 of the instance
+  record's `flags` from camera distance; the LOD vertex entries (colour `vertexMainInstancedLod` +
+  DEPTH_VERTEX's shadow twin) clip out the unselected half via below-near-plane NDC. Shadow and
+  colour share the 14.3 buffer, so selection is camera-keyed (conservative for casters). CPU twin:
+  `population/lod.ts` (`buildLodGeometry`, `populationLodIndex`). **Remainder:** renderer wiring
+  (pipeline `lod` option, batch.lodHiTriangles, the compute pass in the graph, submission.lod),
+  demo hi/lo rocks, mock LOD pass, tests, docs.
+- **wgsl-check registration:** new WGSL strings must be added to tools/wgsl-check.mjs's module map
+  *and* exported from engine/src/index.ts (it validates through dist); uniform structs go into
+  RENDERING_STRUCTS (uniform-space layout check). Compute entry convention here is
+  `@workgroup_size(N) @compute` — the validator's regex requires `@compute` immediately before `fn`.
+
+## 2026-10-05 — 14.4 renderer integration landed
+
+- **GPU LOD now runs end to end:** rock prototypes expand their indexed mesh into unindexed hi/lo
+  triangle lists, merge hi first, and carry `hiTriangles` + a per-type camera-distance threshold through
+  `PopulationWorld` into the renderer. One `forge.populationLod` compute pass dispatches each visible
+  LOD batch; colour, prepass and shadow variants all select the same per-instance window (including
+  single-instance batches). The mock pass writes the flags bit and the browser gate now requires a real
+  WebGPU population-LOD batch/pass on the terrain scene.
+- **Fixes found in the integration loop:** geometry attribute arrays have different per-vertex widths
+  (pos/normal 3, UV 2, tangent 4); merge offsets must be attribute-specific, not a shared positions
+  float offset. Uniform `count` is u32 in the mock, while camera/distance are f32. A dynamic uniform
+  bind group must declare its 32-byte window size, or nonzero 256-byte slots run off the end of the
+  binding. Include `lod` in the prepass state key and always use the instanced LOD entry for count 1.
+- **Validation:** `npm test` = 670/670; check:wgsl validates the new compute/vertex strings and
+  `PopulationLodUniforms` (32 B). The updated real-WebGPU browser gate passed the pbr/A-B arms and
+  its terrain assertion: 959 instances, 48 batches, 48 GPU-LOD batches, 64 entities, zero GPU errors.
+  The full gate was deliberately stopped after the LOD arm, so later vehicle/sky/Mars arms are not
+  claimed; the CI advisory job remains the complete-sweep check.
+
+## 2026-10-05 — Phase 14.2 population types completed
+
+- **All six type categories now ship in the terrain demo:** rocks, boulders, fractured slab debris,
+  radial rosette scrub, translucent ground erosion discs and sparse mineral spires. The streamed
+  integration test renders all six through `PopulationWorld` with no entity per instance; the local
+  real-WebGPU gate passed the expanded terrain arm at 1,339 instances / 125 batches / 48 GPU-LOD
+  batches / 64 entities / zero GPU errors (full sweep deliberately stopped after that arm).
+- **Primitive contracts:** `discGeometrySource` is a +Y-facing fan with winding consistent with
+  `frontFace: "cw"`; `rosetteGeometrySource` duplicates front/back leaf vertices so reverse faces
+  receive independent normals instead of cancelling. Decal `embed` is slightly negative to lift the
+  zero-thickness disc above the terrain. Every added geometry/material is released by the scene handle.
+
+## 2026-10-05 — Phase 15 opened: 15.1 content addressing + 15.2 dependency graph
+
+**Branch incident (read this first):** the sandbox reset re-clones the git repo and resets the
+branch to the base commit, but the *working tree keeps its files*. This session's local commit
+(90d7c09, my re-derived 14.4 wiring) therefore sat on `b6fb0c2` while the remote had already
+advanced through `753927d → b2eabb7 → 3478c3e → cbbb7d3` — a parallel run had pushed the same
+14.4 wiring (independently converging on the same WGSL `let`-immutability fix) *and* completed
+14.2. Resolution: backed the divergent commit up as tag `backup/local-144-90d7c09`, verified the
+remote tip was green here (671/671), and adopted it (`git reset --hard origin/...`). **Rule for
+any future turn:** before committing/pushing, `git fetch` and compare `HEAD` with
+`origin/<branch>`; if the remote moved, diff content (not history) and prefer the more complete
+tree — never blind-force-push this branch.
+
+**15.1 as-built** (`engine/src/resources/assetId.ts`):
+- Id form `<kind>:<address>`; kind `[A-Za-z][A-Za-z0-9_-]*`; address is a path or
+  `c/<64-hex sha256>[~name]`. `parse` returns null for legacy bare ids (they stay legal registry
+  keys); constructors throw `UsageError`. `display()` shortens content ids for logs.
+- `hashContent` is the pipeline's ONE hasher: SHA-256 via WebCrypto (async; works in Node ≥ 19
+  and browser secure contexts; throws a clear `UsageError` on plain-http browsers). Pass the
+  view straight to `digest` — it hashes exactly the view's byte range, no copy.
+
+**15.2 as-built** (`engine/src/resources/assetGraph.ts` + registry integration):
+- Edges are (dependent → dependency), both directions stored. `link`/`wouldCycle` reject cycles
+  at registration; `wouldCycle` returns a human path (`a → b → c → a`) for the log.
+- **The graph is metadata + safety, NOT a load scheduler.** Loaders pull their own deps through
+  `context.registry` (the seam already existed). Orchestration is 15.3. Keeping this boundary is
+  what keeps 15.3 from rewriting the registry.
+- Descriptor hooks: `contentHash?: string` (stable property of the id's content) and
+  `dependencies?: (value) => readonly string[]` (reported once the value exists — a glTF only
+  knows its textures after parsing). Edges register on load success, re-register on `retry`
+  (unlink first, so a failed reload leaves no stale graph), clear on eviction.
+- **Eviction safety:** an entry with a *loaded* dependent is never a candidate (the dependent's
+  value may embed it without holding a handle). `evictIdle` now loops passes until one frees
+  nothing — evicting a dependent unblocks its dependency in the SAME call, so a chain leaves
+  together. **Trap hit:** the pass bound must be captured *before* the loop — `pass <=
+  this.entries.size` re-evaluates and shrinks as entries are evicted, ending exactly-sized
+  chains one pass early.
+- **Cycle race (documented, not fixed):** with two concurrent loads that depend on each other,
+  whichever lands FIRST registers its edge (no cycle exists yet); the SECOND edge closes the
+  cycle and is the one rejected + logged. One-way edge survives; harmless (no dangle, no loop).
+  Don't "fix" it by retro-removing the first edge — that would mutate one load's metadata from
+  another load's failure.
+- `contentChanged` path: ready entry + same id + different `contentHash` → release + emit
+  `{id, oldHash, newHash, dependents: transitive loaded}` + fresh load. Old handles go stale
+  (`.value` throws) — documented in the acquire comment. In-flight loads are never swapped
+  (15.3 concern).
+- `invalidate(id)` = release-if-loaded + return transitive loaded dependents + always emit
+  `invalidated` — this is the 15.4 hot-reload hook; the editor acts on the list.
+
+**State after this slice:** 15.1 + 15.2 closed; `assets.contentAddressing` partial, closesWith
+15.3 (closes when real loaders use the ids). `Phase 15+` = inProgress. 697/697 tests, docs:check
+green (28 partial / 11 planned).
+
+**Next: 15.3 Streaming** — async asset loading, cancellation, prioritization, GPU upload
+budgeting. It must build ON the seams already in place: `ResourceLoadContext.signal` (abort),
+descriptor `priority`, the byte budget/`evictIdle`, and the graph (load orchestration walks it).
+Candidate shape: a `loadAsset(id, priority)` that resolves the graph's leaves first, respects a
+per-frame upload budget, and is cancellable — then 15.4 (hot reload) becomes `invalidate` +
+`retry` wired to file watchers, and 15.5 (validation) is loader-side checks.
+
+## 2026-10-05 — 15.3 Streaming: AssetStreamer (priority, cancel, upload budget), pumped by Engine.step
+
+**As-built** (`engine/src/resources/streaming.ts` + registry/engine integration):
+- The streamer is a **scheduler in front of the registry**: `request()` queues, `pump()` admits
+  (highest `descriptor.priority`, FIFO ties, `maxConcurrent` cap), `newFrame()` resets the
+  `uploadBudgetBytes` frame budget (charged by `descriptor.estimatedBytes` — a pre-load estimate;
+  `bytes(value)` stays the post-load eviction-budget accounting). `Engine.step` calls
+  `newFrame()+pump()` before systems run; `engine.stats().streaming` + `Engine.settle()` wired.
+- **Budget rule:** a pump scan admits the highest-priority item that *fits*; items that don't fit
+  stay queued (deferredForBudget counts them) — a too-big pre-fetch never starves the frame.
+  `estimatedBytes` 0/undefined = not gateable. Budget changes take effect from the next newFrame.
+- **Cancellation:** queued → dropped, promise rejected, never touches the registry (stateOf stays
+  null — probe-verified). In-flight → `registry.cancelLoad(id)` sets the abort flag; the load
+  finishes off the record, its output is disposed, the entry fails, and the streamer classifies
+  the rejection as `cancelled` (via its own flag, not message matching). Terminal failed/cancelled
+  loads are **re-requestable** — the dedupe skips them and the retry queues like a real upload.
+- **Lease discipline:** the streamer holds one handle per in-flight load (eviction safety) and
+  releases it in `finishLoad` **before** resolving/rejecting the caller's promise.
+
+**Traps hit (all found by the tests, not review):**
+1. **Microtask-later release.** A `.finally(release)` on a separate promise chain runs AFTER the
+   caller's `await` continuation (reaction registration order) — `handle()` was still non-null in
+   the test. Fix: release inside the same reaction that settles the load.
+2. **Stale abort flag (pre-existing registry bug, exposed by cancelLoad).** `startLoad` reused the
+   entry's `abort` object, so a load re-triggered after a cancellation inherited `aborted: true`
+   and discarded its own output on completion ("resource was cancelled" on a load nobody
+   cancelled). `retry()` reset the flag manually, but the `acquire`→failed→`startLoad` path did
+   not. Fix: `startLoad` gives every attempt a fresh `{aborted: false}`; the manual reset is gone.
+3. **settle() deadlock under budget pressure.** settle pumps without frames → an exhausted budget
+   never resets → a queued item that fits *a fresh* budget never admits → infinite loop. Fix:
+   each settle iteration is a simulated frame (`newFrame()+pump()`).
+4. **Ready fast path must settle synchronously.** `admit` on an already-ready entry used to flip
+   state on a microtask — `request()` then `state === "ready"` is now observable immediately
+   (the lease is released before the resolve).
+
+**Real-device probe (deleted before commit; pattern = 14.4's):** 8 procedural textures through
+the real `AssetStreamer` (100 KB/frame budget, 3×85 KB priority-9 + 5×20 KB priority-1,
+maxConcurrent 3, real `Texture.fromRgba8` uploads). Result: bigs admitted exactly one per frame
+(85000/85000/85000), smalls 60000 then 20000 at the cap, mid-queue cancel at frame 2 never
+reached the GPU (no registry entry), `ready: 7, failed: 0, cancelled: 1, deferredForBudget: 17`,
+**gpuErrors 0, no console errors, device not lost** in 26 frames.
+
+**State after this slice:** 15.1+15.2+15.3 closed. `assets.streaming` partial, closesWith 15.4.
+712/712 tests, docs:check green (29 partial / 10 planned / 46 known limitations).
+
+**Next: 15.4 Hot Reload** (mesh/texture/material/shader reload). Everything it needs exists:
+`invalidate(id)` + the `contentChanged` event give the reload list, `retry(id)`/cancel+request
+give the swap, `contentHash` gives the change detection. The slice is: a `HotReloader` (or
+editor action) that, on a source change (dev server HMR event / manual trigger / mtime poll for
+the probe), invalidates by id and re-requests the affected ids through the streamer at high
+priority — and tests that the swap is atomic (no frame reads a disposed texture: release the old
+entry only after the new one is ready). Watch: swapping a ready entry out from under live
+materials is the dangerous half; the safe pattern is double-buffer (load new → repoint → dispose
+old), which `retry` does NOT do today (it disposes before re-loading) — 15.4 may need a
+`reloadDeferred` variant.
+
+## 2026-10-05 — PR #51 merged to main
+
+Phase 14 is fully on `main` (all six population types, device-resident buffers, GPU LOD), and
+Phase 15 has begun there with 15.1 content addressing, 15.2 dependency graph and 15.3 streaming
+(`AssetStreamer`, pumped by `Engine.step`). 712/712 tests at merge. Remaining Phase 15: 15.4
+hot reload (needs the double-buffered swap — `retry` disposes before re-loading, unsafe for
+live materials), 15.5 asset validation, 15.6 KTX2/Basis. The sandbox git-reset pattern hit
+three times in this session's turns (branch pointer back at the base commit, working tree
+kept); each time the recovery was: fetch, blob-verify the tree against the remote tip,
+`git reset --mixed` the branch pointer, continue. The advisory WebGPU gate's merge-blocking
+fear did not materialize — it is advisory, and its only "failure" at merge time was a GitHub
+runner dispatch error, not a code failure.

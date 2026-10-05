@@ -88,12 +88,14 @@ describe("PipelineFactory cache", () => {
     const variants: PipelineKeyOptions[] = [
       base,
       { ...base, instanced: true },
+      { ...base, instanced: true, lod: true },
       { ...base, transparent: true },
       { ...base, doubleSided: true },
       { ...base, colorFormat: device.format },
       { ...base, technique: "unlit" },
       { ...base, technique: "depth", colorFormat: null },
       { ...base, technique: "depth", colorFormat: null, instanced: true },
+      { ...base, technique: "depth", colorFormat: null, instanced: true, lod: true },
       { ...base, technique: "debug", transparent: true, doubleSided: true },
       { ...base, technique: "post", depthFormat: null, doubleSided: true, fragmentEntry: "fsPrefilter" },
       { ...base, technique: "post", depthFormat: null, doubleSided: true, fragmentEntry: "fsDownsample" },
@@ -104,6 +106,7 @@ describe("PipelineFactory cache", () => {
       { ...base, writeDepth: false },
       { ...base, technique: "prepass", colorFormat: null },
       { ...base, technique: "prepass", colorFormat: null, instanced: true },
+      { ...base, technique: "prepass", colorFormat: null, instanced: true, lod: true },
       { ...base, technique: "prepass", colorFormat: null, doubleSided: true },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsSsao" },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurH" },
@@ -130,18 +133,26 @@ describe("PipelineFactory cache", () => {
     const desc = (options: PipelineKeyOptions) => (factory.get(options).pipeline as unknown as Inspectable).desc;
     const forward = desc(base);
     const forwardInstanced = desc({ ...base, instanced: true });
+    const forwardInstancedLod = desc({ ...base, instanced: true, lod: true });
     const shadow = desc({ ...base, technique: "depth", colorFormat: null });
+    const shadowLod = desc({ ...base, technique: "depth", colorFormat: null, instanced: true, lod: true });
     const prepass = desc({ ...base, technique: "prepass", colorFormat: null });
     const prepassInstanced = desc({ ...base, technique: "prepass", colorFormat: null, instanced: true });
+    const prepassInstancedLod = desc({ ...base, technique: "prepass", colorFormat: null, instanced: true, lod: true });
     // Same module, same entry point as the forward pass (+ @invariant position): the prepass depth is
     // bit-identical to what forge.main computes, so its less-equal test passes on exactly that value.
     expect(prepass.vertex.module).toBe(forward.vertex.module);
     expect(prepass.vertex.entryPoint).toBe(forward.vertex.entryPoint);
     expect(prepassInstanced.vertex.module).toBe(forwardInstanced.vertex.module);
     expect(prepassInstanced.vertex.entryPoint).toBe("vertexMainInstanced");
+    // LOD forward + prepass use the same merged-buffer vertex module and entry point; shadow has
+    // its own depth module but uses the matching LOD-aware entry.
+    expect(prepassInstancedLod.vertex.module).toBe(forwardInstancedLod.vertex.module);
+    expect(prepassInstancedLod.vertex.entryPoint).toBe("vertexMainInstancedLod");
+    expect(shadowLod.vertex.entryPoint).toBe("vertexMainInstancedLod");
     // ...not the shadow program, which is a different shader with a polygon offset.
     expect(shadow.vertex.module).not.toBe(forward.vertex.module);
-    expect(factory.shaders.stats().created).toBe(3); // standard, standard instanced, depth: the prepass compiled nothing
+    expect(factory.shaders.stats().created).toBe(4); // standard static/instanced/LOD + depth: prepass compiles nothing
     expect(prepass.fragment).toBeUndefined();
     expect(prepass.depthStencil).toMatchObject({ format: "depth24plus", depthWriteEnabled: true, depthCompare: "less", depthBias: 0, depthBiasSlopeScale: 0 });
     expect(shadow.depthStencil!.depthBias).toBeGreaterThan(0);

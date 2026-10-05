@@ -21,11 +21,14 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation, GPU timing; 13.9 cascade assignment,
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
-    Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
-                blocks, 14.5 per-chunk population culling and 14.6 streaming landed;
-                rocks + boulders of 14.2 in the terrain demo; GPU LOD, remaining
-                types and device-resident buffers open)
-    Phase 15+:  NOT STARTED
+    Phase 14:   IN PROGRESS (planned 14.1-14.6 population slices implemented, including
+                all six 14.2 types and GPU-selected LOD; capability remains partial for
+                documented follow-ups: per-instance culling, load-order-independent
+                surface sampling, worker generation and population raycast)
+    Phase 15+:  IN PROGRESS (15.1 content addressing, 15.2 dependency graph and 15.3 streaming
+                — priority, cancellation, per-frame upload budget, pumped by Engine.step —
+                landed on the resource registry; 15.4 hot reload, 15.5 validation and
+                15.6 KTX2/Basis remain)
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -124,7 +127,7 @@ PHASE 14 - World Population
     [~] IN PROGRESS
 
 PHASE 15+
-    [ ] NOT STARTED
+    [~] IN PROGRESS
 
 
 ================================================================================
@@ -979,27 +982,60 @@ GOAL:
         optionally squashed sphere; deterministic per seed). Boulders are the same geometry at a
         larger scale band with a tighter slope limit and deeper embed.
 
-    [ ] Debris
-    [ ] Vegetation
-    [ ] Decals
-    [ ] Environmental props
+    [x] Debris
+
+        Fractured, low-profile slabs scatter as their own material/geometry type with a tighter
+        scale band and shorter draw distance than the native rocks.
+
+    [x] Vegetation
+
+        A procedural rosette-scrub prototype has tapered radial leaves with explicit front/back
+        faces; slope filtering keeps it on plantable ground.
+
+    [x] Decals
+
+        Flat, +Y-facing erosion discs use a translucent material, skip shadow casting, and use a
+        small negative surface offset to avoid z-fighting on nearly flat terrain.
+
+    [x] Environmental props
+
+        Low-poly mineral spires provide a sparse, longer-range landmark type, with their mesh base
+        anchored at the surface.
 
 
 14.3 Instance Storage
 
     [x] Compact instance buffers.
+    [x] Device-resident instance buffers.
 
         `PopulationInstanceBlock` (engine/src/scene/population.ts) is SoA typed arrays — positions
         (3), non-uniform scales (3), Y rotations (1), packed tints (1) — allocated once per
-        (chunk, type), no per-instance object anywhere. The renderer writes the records into the
-        frame's instance arena through `composeYTRS` (math/mat.ts), so a population draws as
-        ordinary instanced batches. The further step — *device-resident* instance buffers that are
-        uploaded once per chunk instead of once per frame — is not built (docs/KNOWN-ISSUES.md).
+        (chunk, type), no per-instance object anywhere. The renderer composes the records
+        (`composeYTRS`, math/mat.ts) once per content revision and uploads them to a *device-
+        resident* buffer that lives as long as the chunk: one stable GPUBuffer plus one draw bind
+        group per (chunk, type), bound in place of the frame's instance arena. A live chunk costs
+        zero per-frame instance copies — `stats.populationUploads` is 0 in steady state — and the
+        buffer is destroyed when the source stops offering the chunk (terrain eviction). A remesh
+        re-anchor moves the revision and is the only other event that re-uploads. Pinned by
+        tests/population.test.ts (seam + streamed-terrain suites).
 
 
 14.4 GPU LOD
 
-    [ ] GPU-selected object LOD.
+    [x] GPU-selected object LOD.
+
+        Population prototypes are built into one merged, unindexed hi+lo vertex buffer
+        (`buildLodGeometry`, `engine/src/population/lod.ts`): the high window's triangle list comes
+        first, then the low window. The renderer writes `hiTriangles` into the existing object
+        uniform slot and, in `forge.populationLod`, dispatches one invocation per instance to set
+        the low-window bit in the device-resident instance record when its origin is strictly
+        farther than the type's `lodDistance` from the camera. Standard colour, depth-prepass and
+        shadow vertex entries clip out the unselected half; even a one-instance population batch
+        takes the instanced entry. The mock compute pass applies the same decision to its backing
+        buffer. Tests pin merge/attribute ordering, the distance boundary, camera reselection without
+        an instance re-upload, 256-byte uniform slots for multiple LOD batches, all three render
+        paths, and streamed `PopulationWorld` metadata propagation (tests/population.test.ts,
+        tests/pipeline.test.ts). The terrain demo exercises separate hi/lo rock and boulder meshes.
 
 
 14.5 GPU Culling
@@ -1039,10 +1075,22 @@ GOAL:
 
 15.1 Content Addressing
 
-    [ ] Stable AssetID.
+    [x] Stable AssetID.
 
-    [ ] Content hashes.
+        `AssetId` (engine/src/resources/assetId.ts) is the one place resource identity is
+        constructed and parsed: `<kind>:<address>` with two address forms — `texture:assets/rocks.png`
+        (path-addressed, today's style) and `texture:c/<sha256>[~name]` (content-addressed).
+        Constructors validate at call time (`UsageError`), `parse` returns `null` for legacy bare
+        ids instead of throwing, and the registry exposes `info(id)` for the parsed metadata.
 
+    [x] Content hashes.
+
+        `hashContent` is the pipeline's single hasher (SHA-256 via WebCrypto; async, never blocks
+        a frame). A `ResourceDescriptor` may carry the id's `contentHash`; re-acquiring the same
+        id with a different hash means the bytes changed under a stable path id, so the cached
+        value is released and re-loaded and `events.contentChanged` names the transitive loaded
+        dependents that now hold stale values (the fix for the "edit the file in place, the
+        registry serves old bytes forever" failure).
 
 15.2 Dependency Graph
 
@@ -1057,16 +1105,55 @@ GOAL:
           +-- Physics
           +-- Audio
 
+    [x] The graph above, live in the registry.
+
+        `AssetGraph` (engine/src/resources/assetGraph.ts) stores (dependent → dependency) edges in
+        both directions with cycle detection at link time. A descriptor reports its deps via
+        `dependencies(value)` once the value exists (a glTF only knows its textures after
+        parsing); the registry registers the edges on load, re-registers on `retry`, and clears
+        them on eviction. A loaded dependent blocks eviction of its dependencies and the scan
+        cascades within one `evictIdle`, so a whole chain leaves together. `invalidate(id)`
+        releases an asset and returns the transitive loaded reload list (the Phase 15.4 hot-reload
+        hook); `dependenciesOf`/`dependentsOf`/`subgraph` serve the editor's asset browser. The
+        graph is metadata + safety, not a load scheduler — loaders pull their own deps through
+        `context.registry` (orchestration is 15.3).
+
 
 15.3 Streaming
 
-    [ ] Async asset loading.
+    [x] Async asset loading.
 
-    [ ] Cancellation.
+        `AssetStreamer` (engine/src/resources/streaming.ts) is the scheduler in front of the
+        registry: `request()` only queues, and loads start when `pump()` admits them — once per
+        frame, before systems run (`Engine.step` pumps `engine.streamer`, so a scene can use what
+        lands that frame). Nothing blocks the simulation loop: a frame admits what it can and the
+        rest waits. `Engine.settle()` drains it; `engine.stats().streaming` shows queue depth,
+        in-flight count and budget state for the HUD.
 
-    [ ] Prioritization.
+    [x] Cancellation.
 
-    [ ] GPU upload budgeting.
+        `streamer.cancel(id)` drops a queued load outright (it never runs, never touches the
+        registry); an in-flight load goes through the registry's new `cancelLoad` — the load
+        finishes off the record, its output is disposed, the entry fails with a cancellation
+        error, and the streamer classifies it as `cancelled` (not a failure). A cancelled or
+        failed id is re-requestable: the retry goes through the queue like any real upload.
+
+    [x] Prioritization.
+
+        The queue drains highest `descriptor.priority` first (FIFO ties) under a `maxConcurrent`
+        in-flight cap. A high-priority texture a visible object needs jumps over queued background
+        pre-fetches; the streamer's lease on an in-flight entry keeps it eviction-safe mid-load.
+
+    [x] GPU upload budgeting.
+
+        Each frame carries `uploadBudgetBytes` of estimated upload, reset by `newFrame()`.
+        Admitting a load charges its `descriptor.estimatedBytes` (a conservative pre-load
+        estimate — `bytes(value)` stays the post-load accounting for the eviction budget); items
+        that do not fit stay queued, so a 16 MB pre-fetch never starves the frame and smaller
+        high-priority items still make it. Verified on real WebGPU: three 85 KB priority-9
+        textures admitted one per frame, 20 KB smalls packed at the cap, a mid-queue cancel that
+        never reached the GPU, 7/7 admitted textures ready, zero GPU errors (targeted probe, see
+        docs/VERIFICATION.md).
 
 
 15.4 Hot Reload

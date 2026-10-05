@@ -84,6 +84,14 @@ be verified, plus the index that now exists but is not used.
   main thread" has nothing to run.
   (capability: assets.meshDecoding)
 
+* **Streaming is admission scheduling, not mid-load interruption.** `AssetStreamer` (Phase 15.3) gates
+  when loads *start* — priority, concurrency cap, per-frame upload budget — but an aborted in-flight
+  load still runs to completion and only then disposes its output, and the streamer only schedules: a
+  composite loader still pulls its own dependencies through `context.registry` (the graph is metadata,
+  not a scheduler). Heavy main-thread decoding stays the bottleneck until the 15.1 worker decoder
+  lands.
+  (capability: assets.streaming)
+
 * **The BVH is built, not used.** `MeshBvh` (median split, deterministic, buildable in a worker) exists
   and is tested, but terrain raycasts are still grid-marched, the broadphase is pairwise, and the
   renderer culls with per-batch AABBs — so the tree saves nothing at runtime yet.
@@ -186,12 +194,6 @@ What remains:
 
 ## World population (Phase 14)
 
-* **Instance records are re-uploaded every frame.** Population instance data is compact and
-  SoA-owned (`PopulationInstanceBlock`), but the renderer still writes every visible instance's
-  matrix + tint record into the per-frame instance arena and `writeBuffer`s the arena once per
-  frame — the same path `Renderable`s take. Device-resident instance buffers uploaded once per
-  (chunk, type) at a stable offset would remove that per-frame cost; they need an offset allocator
-  inside the instance buffer and are not built. (capability: world.population)
 * **Device culling is per chunk, not per instance.** Each (chunk, type) submission is one batch, so
   the `forge.objects.cull` verdict and the `maxDistance` test drop whole chunks; a chunk whose edge
   alone is in view draws all of its instances, and HiZ occlusion sees only the chunk's conservative
@@ -207,10 +209,11 @@ What remains:
   per type over the resident heightmap (budgeted by `generationsPerFrame`), not a `TaskScheduler`
   job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
   heightmap samples available off-thread. (capability: world.population)
-* **Only rocks and boulders exist.** Vegetation, debris, decals and environmental props (14.2) are
-  unbuilt; there is no GPU-selected object LOD (14.4) — every instance of a type draws the same
-  geometry at every distance — and no population raycast, so picking/debug tools cannot hit a rock.
-  (capability: world.population)
+* **Population rendering has no raycast or per-instance visibility.** All six Phase 14.2 types
+  (rocks, boulders, debris, rosette vegetation, decals, mineral spires) now draw as batches, but
+  picking/debug tools cannot hit them and the device culls only whole chunk/type bounds (noted
+  above). Placement still depends on the tile LOD at first readiness, and generation is inline on
+  the main thread (noted above). (capability: world.population)
 
 ## Documentation debt
 

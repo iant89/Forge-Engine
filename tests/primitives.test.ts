@@ -4,6 +4,8 @@ import {
   sphereGeometrySource,
   cylinderGeometrySource,
   planeGeometrySource,
+  discGeometrySource,
+  rosetteGeometrySource,
   torusGeometrySource,
   coneGeometrySource,
   Mat4,
@@ -75,6 +77,24 @@ describe("Primitive face normal vs vertex normal", () => {
     const torus = analyzeGeometry(torusGeometrySource(), "torus");
     expect(torus.inward).toBe(0);
     expect(torus.outward).toBe(torus.total);
+  });
+
+  it("ground decals and rosette foliage have finite attributes and outward two-sided faces", () => {
+    const disc = discGeometrySource({ radiusX: 0.6, radiusZ: 0.35, segments: 12 });
+    expect(disc.indices?.length).toBe(36);
+    expect(disc.positions.length / 3).toBe(13);
+    expect(analyzeGeometry(disc, "disc").inward).toBe(0);
+    expect(disc.positions.filter((_, i) => i % 3 === 1).every((y) => y === 0)).toBe(true);
+
+    const plant = rosetteGeometrySource({ leaves: 7, radius: 0.5, height: 0.8 });
+    expect(plant.indices?.length).toBe(7 * 12);
+    expect(plant.positions.length / 3).toBe(7 * 8);
+    const faces = analyzeGeometry(plant, "rosette");
+    expect(faces.inward).toBe(0);
+    expect(faces.zero).toBe(0);
+    for (const value of [...plant.positions, ...plant.normals!, ...plant.uvs!, ...plant.tangents!]) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
   });
 
   it("torus camera-facing triangles wind clockwise on screen", () => {

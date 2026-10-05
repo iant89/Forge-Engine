@@ -1080,6 +1080,8 @@ try {
     return {
       instances: s.render.populationInstances,
       batches: s.render.populationBatches,
+      lodBatches: s.render.populationLodBatches,
+      populationLodPass: s.renderPasses.includes("forge.populationLod"),
       entities: s.entities,
       frameInstances: s.instances,
       gpuErrors: s.gpuErrors,
@@ -1089,13 +1091,17 @@ try {
     throw new Error(`the terrain population did not draw (${populationStart.instances} instances in ${populationStart.batches} batches)`);
   }
   if (!(populationStart.batches >= 4)) throw new Error(`the terrain population drew too few batches (${populationStart.batches})`);
+  if (!(populationStart.lodBatches > 0) || !populationStart.populationLodPass) {
+    throw new Error(`GPU population LOD did not run (${populationStart.lodBatches} LOD batches, pass=${populationStart.populationLodPass})`);
+  }
   if (!(populationStart.entities < 400)) {
     throw new Error(`population instances became entities (${populationStart.entities} entities for ${populationStart.instances} instances)`);
   }
   if (populationStart.gpuErrors > 0) throw new Error(`gpu errors after population draw: ${populationStart.gpuErrors}`);
   console.log(
     `  population: ${populationStart.instances} instances in ${populationStart.batches} batches, ` +
-      `entities ${populationStart.entities}, instances(frame) ${populationStart.frameInstances}`,
+      `${populationStart.lodBatches} GPU-LOD batches, entities ${populationStart.entities}, ` +
+      `instances(frame) ${populationStart.frameInstances}`,
   );
 
   const WHEEL_STEPS = 4;
