@@ -24,6 +24,10 @@
  *     changes, and cycles are rejected at registration time (`AssetGraph.link`). The graph is
  *     metadata + safety, not a load scheduler: loaders pull their own deps through
  *     `context.registry`, and load orchestration is Phase 15.3.
+ *  7. **Cancellation (Phase 15.3).** `cancelLoad(id)` sets the in-flight entry's abort flag:
+ *     when the load finishes after that, its produced value is disposed and the entry fails
+ *     with a cancellation error. `AssetStreamer` classifies the rejection as `cancelled`; a
+ *     later `acquire` retries like any failed entry.
  */
 
 import { ResourceLifecycleError, UsageError, InternalError } from "../core/errors.js";
@@ -53,6 +57,14 @@ export interface ResourceDescriptor<T> {
   load(context: ResourceLoadContext): Promise<T> | T;
   /** Estimated GPU bytes, for the budget. 0 = unaccounted. */
   bytes?: (value: T) => number;
+  /**
+   * Phase 15.3: estimated GPU bytes this load will upload, known *before* the load.
+   * `AssetStreamer` charges this against the per-frame upload budget at admission time.
+   * Unlike `bytes(value)` (accounted *after* the load, for the eviction budget), this must be
+   * a conservative pre-estimate — a texture's full mip-chain size, say. 0/undefined = not
+   * budgeted (always admitted when the concurrency cap allows).
+   */
+  estimatedBytes?: number;
   /** Free the resource. Called on eviction/release; GPU objects usually need it. */
   dispose?: (value: T) => void;
   /** Idle time in ms before eviction may collect it (0 = evictable immediately). */
@@ -274,9 +286,25 @@ export class ResourceRegistry {
     }
   }
 
+  /**
+   * Phase 15.3: abort an in-flight load. The load still runs to completion, but its output is
+   * disposed and the entry fails with a cancellation error; the next `acquire` retries (the
+   * standard failed-entry behavior). Returns false when the id is not currently loading.
+   */
+  cancelLoad(id: string): boolean {
+    const e = this.entries.get(id);
+    if (!e || e.state !== "loading") return false;
+    e.abort.aborted = true;
+    return true;
+  }
+
   /** @internal */
   private startLoad<T>(entry: Entry<T>): void {
     const descriptor = entry.descriptor as ResourceDescriptor<T>;
+    // Every attempt gets a fresh abort signal: a previously-cancelled attempt (`cancelLoad`)
+    // must not taint the retry this call is starting — the post-completion check below would
+    // otherwise discard a perfectly good re-load as "cancelled".
+    entry.abort = { aborted: false };
     entry.state = "loading";
     entry.error = null;
     entry.failure = null;
@@ -480,9 +508,9 @@ export class ResourceRegistry {
       e.value = null;
     }
     // Phase 15.2: drop the edges the old value declared; the re-load registers its own (a reload
-    // whose load fails must not leave the stale graph behind).
+    // whose load fails must not leave the stale graph behind). startLoad gives the attempt a
+    // fresh abort signal.
     this.graph.unlink(id);
-    e.abort = { aborted: false };
     this.startLoad(e as unknown as Entry<T>);
     return e.promise as Promise<T>;
   }

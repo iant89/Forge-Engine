@@ -26,6 +26,7 @@ import { ObjectDisposedError, UsageError, assert } from "../core/errors.js";
 import { TaskScheduler, type TaskDescriptor, type TaskStats } from "../core/tasks/scheduler.js";
 import { GraphicsDevice, type DeviceCaps, type GpuMemoryStats } from "../gpu/device.js";
 import { ResourceRegistry } from "../resources/registry.js";
+import { AssetStreamer, type StreamingStats } from "../resources/streaming.js";
 import { Profiler, type ScopeStats } from "../debug/profiler.js";
 import { Renderer, type RenderStats } from "../rendering/renderer.js";
 import { Scene } from "../scene/scene.js";
@@ -92,6 +93,8 @@ export interface EngineStats {
   components: number;
   sceneObjects: number;
   resources: { entries: number; bytes: number; pending: number };
+  /** Phase 15.3: the frame-driven asset streamer (queue depth, in-flight, budget). */
+  streaming: Readonly<StreamingStats>;
   deviceLost: boolean;
   gpuErrors: number;
   /**
@@ -117,6 +120,7 @@ export class Engine {
   readonly logger: Logger;
   readonly gpu: GraphicsDevice;
   readonly resources: ResourceRegistry;
+  readonly streamer: AssetStreamer;
   readonly tasks: TaskScheduler;
   readonly profiler: Profiler;
   readonly clock: Clock;
@@ -164,6 +168,12 @@ export class Engine {
       maxBytes: init.config.gpuMemoryBudgetMB > 0 ? init.config.gpuMemoryBudgetMB * 1048576 : 0,
       logger: init.logger.child("resources"),
     });
+    // Phase 15.3: the frame-driven scheduler in front of the registry. `step()` pumps it once
+    // per frame; scenes request loads through it and tune it (maxConcurrent / uploadBudgetBytes)
+    // directly.
+    this.streamer = new AssetStreamer(this.resources, {
+      logger: init.logger.child("streamer"),
+    });
     this.tasks = new TaskScheduler({
       workerCount: init.config.workerCount,
       maxConcurrent: Math.max(1, init.config.workerCount || 1),
@@ -184,6 +194,7 @@ export class Engine {
       gpuTimestamps: init.config.gpuTimestamps,
     });
     this.services.set("resources", this.resources);
+    this.services.set("streamer", this.streamer);
     this.services.set("tasks", this.tasks);
     this.services.set("config", this.config);
     this.services.set("engine", this);
@@ -325,6 +336,10 @@ export class Engine {
     this.gpu.beginFrame();
     this.profiler.beginFrame(this.frameCounter);
     this.scratch.beginFrame();
+    // Asset streaming (Phase 15.3): open the frame's upload budget and admit the highest-
+    // priority queued loads *before* any system runs, so a scene can use what lands this frame.
+    this.streamer.newFrame();
+    this.streamer.pump();
     const tick = manualDt === undefined ? this.clock.tick() : this.manualTick(manualDt);
     this.lastTick = tick;
     this.frameCounter++;
@@ -490,6 +505,7 @@ export class Engine {
       components: scene ? scene.world.componentCountValue : 0,
       sceneObjects: scene ? scene.objects.length : 0,
       resources: { entries: this.resources.size, bytes: this.resources.bytes, pending: this.resources.stats().pending },
+      streaming: this.streamer.stats(),
       deviceLost: this.gpu.lost,
       gpuErrors: this.gpu.totalErrorCount,
       lastError: this.gpu.lastError ?? this.lastRenderError,
@@ -533,6 +549,7 @@ export class Engine {
 
   /** Await in-flight GPU work + asset loads (tests + deterministic screenshots). */
   async settle(): Promise<void> {
+    await this.streamer.settle();
     await this.resources.settle();
     await this.tasks.drain();
     await this.gpu.flush();
@@ -552,6 +569,7 @@ export class Engine {
     this.tasks.dispose();
     this.renderer.dispose();
     this.profiler.dispose();
+    this.streamer.dispose(); // before resources: it holds leases on registry entries
     this.resources.dispose();
     await this.gpu.dispose();
     this.logger.debug("engine disposed");

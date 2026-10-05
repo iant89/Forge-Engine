@@ -84,6 +84,14 @@ be verified, plus the index that now exists but is not used.
   main thread" has nothing to run.
   (capability: assets.meshDecoding)
 
+* **Streaming is admission scheduling, not mid-load interruption.** `AssetStreamer` (Phase 15.3) gates
+  when loads *start* — priority, concurrency cap, per-frame upload budget — but an aborted in-flight
+  load still runs to completion and only then disposes its output, and the streamer only schedules: a
+  composite loader still pulls its own dependencies through `context.registry` (the graph is metadata,
+  not a scheduler). Heavy main-thread decoding stays the bottleneck until the 15.1 worker decoder
+  lands.
+  (capability: assets.streaming)
+
 * **The BVH is built, not used.** `MeshBvh` (median split, deterministic, buildable in a worker) exists
   and is tested, but terrain raycasts are still grid-marched, the broadphase is pairwise, and the
   renderer culls with per-batch AABBs — so the tree saves nothing at runtime yet.

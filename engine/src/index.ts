@@ -146,6 +146,7 @@ export {
 export { ResourceRegistry, ResourceHandle, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
 export { AssetId, hashContent, type AssetIdInfo } from "./resources/assetId.js";
 export { AssetGraph } from "./resources/assetGraph.js";
+export { AssetStreamer, type StreamerOptions, type StreamedLoad, type StreamingState, type StreamingStats } from "./resources/streaming.js";
 export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
 
 // Scene / ECS

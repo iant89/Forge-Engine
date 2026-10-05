@@ -790,3 +790,59 @@ descriptor `priority`, the byte budget/`evictIdle`, and the graph (load orchestr
 Candidate shape: a `loadAsset(id, priority)` that resolves the graph's leaves first, respects a
 per-frame upload budget, and is cancellable — then 15.4 (hot reload) becomes `invalidate` +
 `retry` wired to file watchers, and 15.5 (validation) is loader-side checks.
+
+## 2026-10-05 — 15.3 Streaming: AssetStreamer (priority, cancel, upload budget), pumped by Engine.step
+
+**As-built** (`engine/src/resources/streaming.ts` + registry/engine integration):
+- The streamer is a **scheduler in front of the registry**: `request()` queues, `pump()` admits
+  (highest `descriptor.priority`, FIFO ties, `maxConcurrent` cap), `newFrame()` resets the
+  `uploadBudgetBytes` frame budget (charged by `descriptor.estimatedBytes` — a pre-load estimate;
+  `bytes(value)` stays the post-load eviction-budget accounting). `Engine.step` calls
+  `newFrame()+pump()` before systems run; `engine.stats().streaming` + `Engine.settle()` wired.
+- **Budget rule:** a pump scan admits the highest-priority item that *fits*; items that don't fit
+  stay queued (deferredForBudget counts them) — a too-big pre-fetch never starves the frame.
+  `estimatedBytes` 0/undefined = not gateable. Budget changes take effect from the next newFrame.
+- **Cancellation:** queued → dropped, promise rejected, never touches the registry (stateOf stays
+  null — probe-verified). In-flight → `registry.cancelLoad(id)` sets the abort flag; the load
+  finishes off the record, its output is disposed, the entry fails, and the streamer classifies
+  the rejection as `cancelled` (via its own flag, not message matching). Terminal failed/cancelled
+  loads are **re-requestable** — the dedupe skips them and the retry queues like a real upload.
+- **Lease discipline:** the streamer holds one handle per in-flight load (eviction safety) and
+  releases it in `finishLoad` **before** resolving/rejecting the caller's promise.
+
+**Traps hit (all found by the tests, not review):**
+1. **Microtask-later release.** A `.finally(release)` on a separate promise chain runs AFTER the
+   caller's `await` continuation (reaction registration order) — `handle()` was still non-null in
+   the test. Fix: release inside the same reaction that settles the load.
+2. **Stale abort flag (pre-existing registry bug, exposed by cancelLoad).** `startLoad` reused the
+   entry's `abort` object, so a load re-triggered after a cancellation inherited `aborted: true`
+   and discarded its own output on completion ("resource was cancelled" on a load nobody
+   cancelled). `retry()` reset the flag manually, but the `acquire`→failed→`startLoad` path did
+   not. Fix: `startLoad` gives every attempt a fresh `{aborted: false}`; the manual reset is gone.
+3. **settle() deadlock under budget pressure.** settle pumps without frames → an exhausted budget
+   never resets → a queued item that fits *a fresh* budget never admits → infinite loop. Fix:
+   each settle iteration is a simulated frame (`newFrame()+pump()`).
+4. **Ready fast path must settle synchronously.** `admit` on an already-ready entry used to flip
+   state on a microtask — `request()` then `state === "ready"` is now observable immediately
+   (the lease is released before the resolve).
+
+**Real-device probe (deleted before commit; pattern = 14.4's):** 8 procedural textures through
+the real `AssetStreamer` (100 KB/frame budget, 3×85 KB priority-9 + 5×20 KB priority-1,
+maxConcurrent 3, real `Texture.fromRgba8` uploads). Result: bigs admitted exactly one per frame
+(85000/85000/85000), smalls 60000 then 20000 at the cap, mid-queue cancel at frame 2 never
+reached the GPU (no registry entry), `ready: 7, failed: 0, cancelled: 1, deferredForBudget: 17`,
+**gpuErrors 0, no console errors, device not lost** in 26 frames.
+
+**State after this slice:** 15.1+15.2+15.3 closed. `assets.streaming` partial, closesWith 15.4.
+712/712 tests, docs:check green (29 partial / 10 planned / 46 known limitations).
+
+**Next: 15.4 Hot Reload** (mesh/texture/material/shader reload). Everything it needs exists:
+`invalidate(id)` + the `contentChanged` event give the reload list, `retry(id)`/cancel+request
+give the swap, `contentHash` gives the change detection. The slice is: a `HotReloader` (or
+editor action) that, on a source change (dev server HMR event / manual trigger / mtime poll for
+the probe), invalidates by id and re-requests the affected ids through the streamer at high
+priority — and tests that the swap is atomic (no frame reads a disposed texture: release the old
+entry only after the new one is ready). Watch: swapping a ready entry out from under live
+materials is the dangerous half; the safe pattern is double-buffer (load new → repoint → dispose
+old), which `retry` does NOT do today (it disposes before re-loading) — 15.4 may need a
+`reloadDeferred` variant.

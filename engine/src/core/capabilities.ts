@@ -783,9 +783,13 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "assets.streaming",
     phase: "15.3",
-    status: "planned",
-    summary: "Async, cancellable, prioritized asset streaming with GPU upload budgeting",
-    closesWith: "15.3",
+    status: "partial",
+    summary:
+      "Frame-driven AssetStreamer on the resource registry: priority-ordered admission under a concurrency cap, queued/in-flight cancellation, and a per-frame GPU upload budget gated by estimatedBytes; Engine.step pumps it",
+    evidence: ["tests/streaming.test.ts"],
+    closesWith: "15.4",
+    notes:
+      "All four 15.3 items are built, tested (26 CPU tests) and real-device probed (budget/priority/cancel with live texture uploads, zero GPU errors); the capability closes when 15.4 hot reload exercises the cancel/retry path against real asset content",
   },
   {
     id: "animation.clips",

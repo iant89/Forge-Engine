@@ -25,8 +25,9 @@ CURRENT CODEBASE BASELINE:
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
                 surface sampling, worker generation and population raycast)
-    Phase 15+:  IN PROGRESS (15.1 content addressing + 15.2 dependency graph landed on the
-                resource registry; 15.3 streaming, 15.4 hot reload, 15.5 validation and
+    Phase 15+:  IN PROGRESS (15.1 content addressing, 15.2 dependency graph and 15.3 streaming
+                — priority, cancellation, per-frame upload budget, pumped by Engine.step —
+                landed on the resource registry; 15.4 hot reload, 15.5 validation and
                 15.6 KTX2/Basis remain)
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -1120,13 +1121,39 @@ GOAL:
 
 15.3 Streaming
 
-    [ ] Async asset loading.
+    [x] Async asset loading.
 
-    [ ] Cancellation.
+        `AssetStreamer` (engine/src/resources/streaming.ts) is the scheduler in front of the
+        registry: `request()` only queues, and loads start when `pump()` admits them — once per
+        frame, before systems run (`Engine.step` pumps `engine.streamer`, so a scene can use what
+        lands that frame). Nothing blocks the simulation loop: a frame admits what it can and the
+        rest waits. `Engine.settle()` drains it; `engine.stats().streaming` shows queue depth,
+        in-flight count and budget state for the HUD.
 
-    [ ] Prioritization.
+    [x] Cancellation.
 
-    [ ] GPU upload budgeting.
+        `streamer.cancel(id)` drops a queued load outright (it never runs, never touches the
+        registry); an in-flight load goes through the registry's new `cancelLoad` — the load
+        finishes off the record, its output is disposed, the entry fails with a cancellation
+        error, and the streamer classifies it as `cancelled` (not a failure). A cancelled or
+        failed id is re-requestable: the retry goes through the queue like any real upload.
+
+    [x] Prioritization.
+
+        The queue drains highest `descriptor.priority` first (FIFO ties) under a `maxConcurrent`
+        in-flight cap. A high-priority texture a visible object needs jumps over queued background
+        pre-fetches; the streamer's lease on an in-flight entry keeps it eviction-safe mid-load.
+
+    [x] GPU upload budgeting.
+
+        Each frame carries `uploadBudgetBytes` of estimated upload, reset by `newFrame()`.
+        Admitting a load charges its `descriptor.estimatedBytes` (a conservative pre-load
+        estimate — `bytes(value)` stays the post-load accounting for the eviction budget); items
+        that do not fit stay queued, so a 16 MB pre-fetch never starves the frame and smaller
+        high-priority items still make it. Verified on real WebGPU: three 85 KB priority-9
+        textures admitted one per frame, 20 KB smalls packed at the cap, a mid-queue cancel that
+        never reached the GPU, 7/7 admitted textures ready, zero GPU errors (targeted probe, see
+        docs/VERIFICATION.md).
 
 
 15.4 Hot Reload
