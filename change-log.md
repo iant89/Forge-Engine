@@ -4697,7 +4697,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/VERIFICATION.md",
-    "what": "check:browser result cell rewritten for this diff: the local run's stall attribution (bundled SwiftShader only, no system Vulkan installable offline, baseline-on-clean-tree stall evidence) and the CI advisory gate as the authoritative real-device check.",
+    "what": "check:browser result cell rewritten for this diff: the local run's stall attribution (bundled SwiftShader only, no system Vulkan installable offline, baseline-on-clean-tree stall evidence) plus the entered-sweep run's passes through the terrain population arm (959 instances / 48 batches / entities 64, zero GPU errors — the 14.3 upload path on real WebGPU), with the CI advisory gate mirroring it.",
     "why": "The verification doc records what each gate actually proved for this diff, including failure attribution — the convention set by the Phase 14 entry."
   },
   {
