@@ -718,3 +718,15 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   its terrain assertion: 959 instances, 48 batches, 48 GPU-LOD batches, 64 entities, zero GPU errors.
   The full gate was deliberately stopped after the LOD arm, so later vehicle/sky/Mars arms are not
   claimed; the CI advisory job remains the complete-sweep check.
+
+## 2026-10-05 — Phase 14.2 population types completed
+
+- **All six type categories now ship in the terrain demo:** rocks, boulders, fractured slab debris,
+  radial rosette scrub, translucent ground erosion discs and sparse mineral spires. The streamed
+  integration test renders all six through `PopulationWorld` with no entity per instance; the local
+  real-WebGPU gate passed the expanded terrain arm at 1,339 instances / 125 batches / 48 GPU-LOD
+  batches / 64 entities / zero GPU errors (full sweep deliberately stopped after that arm).
+- **Primitive contracts:** `discGeometrySource` is a +Y-facing fan with winding consistent with
+  `frontFace: "cw"`; `rosetteGeometrySource` duplicates front/back leaf vertices so reverse faces
+  receive independent normals instead of cancelling. Decal `embed` is slightly negative to lift the
+  zero-thickness disc above the terrain. Every added geometry/material is released by the scene handle.

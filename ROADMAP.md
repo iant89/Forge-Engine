@@ -21,10 +21,10 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation, GPU timing; 13.9 cascade assignment,
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
-    Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
-                blocks + device-resident instance buffers, 14.4 GPU-selected object
-                LOD, 14.5 per-chunk population culling and 14.6 streaming landed;
-                rocks + boulders of 14.2 in the terrain demo; remaining 14.2 types open)
+    Phase 14:   IN PROGRESS (planned 14.1-14.6 population slices implemented, including
+                all six 14.2 types and GPU-selected LOD; capability remains partial for
+                documented follow-ups: per-instance culling, load-order-independent
+                surface sampling, worker generation and population raycast)
     Phase 15+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -979,10 +979,25 @@ GOAL:
         optionally squashed sphere; deterministic per seed). Boulders are the same geometry at a
         larger scale band with a tighter slope limit and deeper embed.
 
-    [ ] Debris
-    [ ] Vegetation
-    [ ] Decals
-    [ ] Environmental props
+    [x] Debris
+
+        Fractured, low-profile slabs scatter as their own material/geometry type with a tighter
+        scale band and shorter draw distance than the native rocks.
+
+    [x] Vegetation
+
+        A procedural rosette-scrub prototype has tapered radial leaves with explicit front/back
+        faces; slope filtering keeps it on plantable ground.
+
+    [x] Decals
+
+        Flat, +Y-facing erosion discs use a translucent material, skip shadow casting, and use a
+        small negative surface offset to avoid z-fighting on nearly flat terrain.
+
+    [x] Environmental props
+
+        Low-poly mineral spires provide a sparse, longer-range landmark type, with their mesh base
+        anchored at the surface.
 
 
 14.3 Instance Storage

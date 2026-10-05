@@ -201,9 +201,11 @@ What remains:
   per type over the resident heightmap (budgeted by `generationsPerFrame`), not a `TaskScheduler`
   job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
   heightmap samples available off-thread. (capability: world.population)
-* **Only rocks and boulders exist.** Vegetation, debris, decals and environmental props (14.2) are
-  unbuilt, and there is no population raycast, so picking/debug tools cannot hit a rock. Population
-  culling is per chunk rather than per instance (noted above). (capability: world.population)
+* **Population rendering has no raycast or per-instance visibility.** All six Phase 14.2 types
+  (rocks, boulders, debris, rosette vegetation, decals, mineral spires) now draw as batches, but
+  picking/debug tools cannot hit them and the device culls only whole chunk/type bounds (noted
+  above). Placement still depends on the tile LOD at first readiness, and generation is inline on
+  the main thread (noted above). (capability: world.population)
 
 ## Documentation debt
 

@@ -273,6 +273,8 @@ export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique
 export {
   boxGeometrySource,
   planeGeometrySource,
+  discGeometrySource,
+  rosetteGeometrySource,
   sphereGeometrySource,
   rockGeometrySource,
   cylinderGeometrySource,
@@ -286,6 +288,8 @@ export {
   createTorus,
   type BoxOptions,
   type PlaneOptions,
+  type DiscOptions,
+  type RosetteOptions,
   type SphereOptions,
   type RockOptions,
   type CylinderOptions,

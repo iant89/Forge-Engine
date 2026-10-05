@@ -40,14 +40,18 @@ import {
   SystemScratch,
   TerrainWorld,
   Vec3,
+  boxGeometrySource,
   buildLodGeometry,
   chunkCoordKey,
+  coneGeometrySource,
   createRock,
+  discGeometrySource,
   createWorldCell,
   isPopulationSource,
   populationLodIndex,
   resolvePopulationTypeSpec,
   rockGeometrySource,
+  rosetteGeometrySource,
   scatterPopulationChunk,
   unpackColor,
   unindexedLodWindow,
@@ -974,7 +978,22 @@ describe("Population - renderer over streamed terrain", () => {
       lo: unindexedLodWindow(rockGeometrySource({ radius: 0.7, seed: 9, segments: 4 })),
     });
     const rockGeometry = Geometry.create(device, rockLod.source);
+    const boulderLod = buildLodGeometry({
+      hi: unindexedLodWindow(rockGeometrySource({ radius: 1.8, seed: 10, segments: 7, flatten: 0.35 })),
+      lo: unindexedLodWindow(rockGeometrySource({ radius: 1.8, seed: 10, segments: 4, flatten: 0.35 })),
+    });
+    const boulderGeometry = Geometry.create(device, boulderLod.source);
+    const debrisGeometry = Geometry.create(device, boxGeometrySource({ width: 0.9, height: 0.2, depth: 0.55 }));
+    const vegetationGeometry = Geometry.create(device, rosetteGeometrySource({ leaves: 7, radius: 0.4, height: 0.6 }));
+    const decalGeometry = Geometry.create(device, discGeometrySource({ radiusX: 0.5, radiusZ: 0.3, segments: 10 }));
+    const spireSource = coneGeometrySource({ radius: 0.28, height: 0.8, radialSegments: 6 });
+    for (let i = 1; i < spireSource.positions.length; i += 3) spireSource.positions[i] += 0.4;
+    const spireGeometry = Geometry.create(device, spireSource);
     const rockMaterial = new Material({ label: "rock", color: 0x997755, roughness: 0.95 });
+    const debrisMaterial = new Material({ label: "debris", color: 0x71645a, roughness: 0.98 });
+    const vegetationMaterial = new Material({ label: "rosette", color: 0x617044, roughness: 0.88 });
+    const decalMaterial = new Material({ label: "decal", color: 0x704337, roughness: 1, transparent: true, opacity: 0.6, doubleSided: true });
+    const spireMaterial = new Material({ label: "spire", color: 0x9b7860, roughness: 0.72, metallic: 0.12 });
     const population = new PopulationWorld({
       terrain,
       types: [
@@ -989,6 +1008,21 @@ describe("Population - renderer over streamed terrain", () => {
           material: rockMaterial,
           lod: { hiTriangles: rockLod.hiTriangles, distance: 180 },
         },
+        {
+          id: 2,
+          label: "boulders",
+          densityGrid: 2,
+          scaleMin: 0.65,
+          scaleMax: 1.3,
+          maxDistance: 400,
+          geometry: boulderGeometry,
+          material: rockMaterial,
+          lod: { hiTriangles: boulderLod.hiTriangles, distance: 240 },
+        },
+        { id: 3, label: "debris", densityGrid: 2, scaleMin: 0.4, scaleMax: 1.2, embed: 0.03, maxDistance: 300, geometry: debrisGeometry, material: debrisMaterial },
+        { id: 4, label: "rosette-scrub", densityGrid: 2, scaleMin: 0.5, scaleMax: 1.2, embed: 0.05, maxDistance: 300, geometry: vegetationGeometry, material: vegetationMaterial },
+        { id: 5, label: "erosion-decals", densityGrid: 2, scaleMin: 0.7, scaleMax: 1.4, slopeLimit: 0.18, embed: -0.015, castShadow: false, maxDistance: 180, geometry: decalGeometry, material: decalMaterial },
+        { id: 6, label: "mineral-spires", densityGrid: 1, scaleMin: 0.7, scaleMax: 1.3, embed: 0.06, maxDistance: 400, geometry: spireGeometry, material: spireMaterial },
       ],
       generationsPerFrame: 64,
     });
@@ -1010,6 +1044,7 @@ describe("Population - renderer over streamed terrain", () => {
     expect(mock.errors).toEqual([]);
     expect(renderer.stats.populationBatches).toBeGreaterThan(0);
     expect(renderer.stats.populationInstances).toBeGreaterThan(10);
+    expect(population.stats().types).toBe(6); // rocks, boulders, debris, vegetation, decals, environmental props
     // PopulationWorld carries each type's LOD metadata through to its streamed submission, and the
     // renderer selects windows on-device without turning instances into entities.
     expect(renderer.stats.populationLodBatches).toBeGreaterThan(0);
@@ -1031,7 +1066,16 @@ describe("Population - renderer over streamed terrain", () => {
     population.dispose();
     terrain.dispose();
     rockMaterial.dispose();
+    debrisMaterial.dispose();
+    vegetationMaterial.dispose();
+    decalMaterial.dispose();
+    spireMaterial.dispose();
     rockGeometry.dispose();
+    boulderGeometry.dispose();
+    debrisGeometry.dispose();
+    vegetationGeometry.dispose();
+    decalGeometry.dispose();
+    spireGeometry.dispose();
     scene.dispose();
     await device.dispose();
     expect(mock.outstanding.buffers).toEqual([]);

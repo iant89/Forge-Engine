@@ -72,9 +72,10 @@ export interface PopulationTypeSpec {
    */
   readonly tintJitter?: number;
   /**
-   * How far instances sink into the ground, as a fraction of their Y scale (default 0.15) — a
-   * rock planted exactly at surface height intersects it in one point and looks placed; slightly
-   * embedded reads as *settled*.
+   * Surface offset as a fraction of Y scale (default 0.15): positive sinks into the ground,
+   * negative lifts above it. A rock planted exactly at surface height intersects at one point;
+   * slightly embedded reads as settled, while a shallow decal may use a small negative value to
+   * clear z-fighting on a nearly flat patch.
    */
   readonly embed?: number;
   /** Whether instances of this type cast shadows. Default true. */

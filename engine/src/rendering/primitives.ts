@@ -133,6 +133,104 @@ export function planeGeometrySource(options: PlaneOptions = {}): GeometrySource 
   return { positions, normals, uvs, tangents, indices, label: horizontal ? "plane" : "quad" };
 }
 
+export interface DiscOptions {
+  /** Radius along X. Defaults to 0.5. */
+  radiusX?: number;
+  /** Radius along Z. Defaults to `radiusX`. */
+  radiusZ?: number;
+  /** Ring segments (minimum 3). Defaults to 16. */
+  segments?: number;
+}
+
+/** A flat, +Y-facing disc for decals and other ground-hugging geometry. */
+export function discGeometrySource(options: DiscOptions = {}): GeometrySource {
+  const rx = options.radiusX ?? 0.5;
+  const rz = options.radiusZ ?? rx;
+  const segments = Math.max(3, Math.floor(options.segments ?? 16));
+  const positions = new Float32Array((segments + 1) * 3);
+  const normals = new Float32Array((segments + 1) * 3);
+  const uvs = new Float32Array((segments + 1) * 2);
+  const indices = new Uint32Array(segments * 3);
+  // Vertex 0 is the fan centre; the ring follows +angle so [centre, next, current] winds +Y.
+  normals[1] = 1;
+  uvs[0] = 0.5;
+  uvs[1] = 0.5;
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const x = Math.cos(angle);
+    const z = Math.sin(angle);
+    const vertex = i + 1;
+    positions[vertex * 3] = x * rx;
+    positions[vertex * 3 + 2] = z * rz;
+    normals[vertex * 3 + 1] = 1;
+    uvs[vertex * 2] = 0.5 + x * 0.5;
+    uvs[vertex * 2 + 1] = 0.5 + z * 0.5;
+    const next = ((i + 1) % segments) + 1;
+    indices[i * 3] = 0;
+    indices[i * 3 + 1] = next;
+    indices[i * 3 + 2] = vertex;
+  }
+  const tangents = computeNormalsAndTangents(positions, indices, uvs).tangents;
+  return { positions, normals, uvs, tangents, indices, label: "disc" };
+}
+
+export interface RosetteOptions {
+  /** Number of radiating leaves (minimum 3). Defaults to 9. */
+  leaves?: number;
+  /** Maximum leaf-tip radius. Defaults to 0.45. */
+  radius?: number;
+  /** Maximum leaf height. Defaults to 0.65. */
+  height?: number;
+  /** Leaf width through its middle. Defaults to 0.12. */
+  leafWidth?: number;
+}
+
+/**
+ * A low-poly, radial succulent rosette: tapered ribbon leaves fan from one ground-level crown.
+ * Front and back faces are explicit, so it needs no double-sided material or texture asset.
+ */
+export function rosetteGeometrySource(options: RosetteOptions = {}): GeometrySource {
+  const leaves = Math.max(3, Math.floor(options.leaves ?? 9));
+  const radius = options.radius ?? 0.45;
+  const height = options.height ?? 0.65;
+  const width = options.leafWidth ?? 0.12;
+  const positions = new Float32Array(leaves * 8 * 3);
+  const uvs = new Float32Array(leaves * 8 * 2);
+  const indices = new Uint32Array(leaves * 12);
+  for (let i = 0; i < leaves; i++) {
+    const a = (i / leaves) * Math.PI * 2;
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const sx = -dz;
+    const sz = dx;
+    const taper = 0.76 + 0.24 * ((i * 7) % leaves) / leaves;
+    const reach = radius * taper;
+    const tipHeight = height * (0.7 + 0.3 * ((i * 5 + 1) % leaves) / leaves);
+    const halfWidth = width * (0.7 + 0.3 * taper) * 0.5;
+    const vertex = i * 8;
+    const p = (v: number, x: number, y: number, z: number) => {
+      const o = (vertex + v) * 3;
+      positions[o] = x;
+      positions[o + 1] = y;
+      positions[o + 2] = z;
+    };
+    p(0, dx * 0.035, 0.025, dz * 0.035);
+    p(1, dx * reach * 0.52 + sx * halfWidth, tipHeight * 0.34, dz * reach * 0.52 + sz * halfWidth);
+    p(2, dx * reach, tipHeight, dz * reach);
+    p(3, dx * reach * 0.52 - sx * halfWidth, tipHeight * 0.34, dz * reach * 0.52 - sz * halfWidth);
+    for (let v = 0; v < 4; v++) positions.set(positions.subarray((vertex + v) * 3, (vertex + v) * 3 + 3), (vertex + 4 + v) * 3);
+    const leafUv = [0.5, 0, 1, 0.45, 0.5, 1, 0, 0.45];
+    uvs.set(leafUv, vertex * 2);
+    uvs.set(leafUv, (vertex + 4) * 2);
+    const base = i * 12;
+    // Front, then a duplicate reverse-wound back with its own normals so they cannot cancel.
+    indices.set([vertex, vertex + 1, vertex + 2, vertex, vertex + 2, vertex + 3,
+      vertex + 4, vertex + 6, vertex + 5, vertex + 4, vertex + 7, vertex + 6], base);
+  }
+  const generated = computeNormalsAndTangents(positions, indices, uvs);
+  return { positions, normals: generated.normals, uvs, tangents: generated.tangents, indices, label: "rosette" };
+}
+
 export interface SphereOptions {
   radius?: number;
   widthSegments?: number;
