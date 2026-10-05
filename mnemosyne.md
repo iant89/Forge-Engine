@@ -658,3 +658,44 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `tests/population.test.ts` drives the renderer's batch path and TerrainWorld streaming — a
   runtime-only deps reading would under-select. The manifest's deps are hand-declared (only
   validated for resolution), so say why in a comment like the one now in test-subsystems.mjs.
+
+## 2026-10-05 — 14.3 writeBuffer root cause (element vs byte), 14.4 GPU LOD started
+
+- **The 14.3 real-WebGPU failures were `GPUQueue.writeBuffer` size semantics.** For a TypedArray
+  source, `size`/`dataOffset` are counted in **elements**, not bytes (W3C webgpu §19.2; MDN same;
+  confirmed by a standalone probe: Float32Array + size=100 wrote 400 B and failed with "Write range
+  (bufferOffset: 0, size: 400) does not fit"). The population uploads passed byte counts with
+  Float32Array → 4× oversize writes. Fix: upload `data.subarray(0, count * (INSTANCE_STRIDE >> 2))`
+  with **no size argument** (renderer.ts, both population writeBuffer calls). Killed hypotheses:
+  second device/queue, stale vite bundle, pre-existing instrumentation writes — all disproven.
+- **The mock is why the bug survived every unit suite:** `mockGpu.ts` implemented byte semantics,
+  so oversized writes "succeeded" there. It now enforces element semantics (BYTES_PER_ELEMENT,
+  DataView = 1, integer checks). Lesson: a mock that is *looser* than the spec hides exactly the
+  calls real devices validate — mock API surface changes deserve a full-suite run, not just the
+  suites that use them.
+- **Probe gotchas (standalone WebGPU script in the sandbox):** `data:` pages have no `navigator.gpu`
+  (opaque origin) — serve over 127.0.0.1 http; `adapter.requestDevice()` returns the device directly
+  (no `.device` to destructure); queue validation errors surfaced as console warnings, not the
+  device `error` event, in the probe (mechanism unknown — the app engine does log them); kill stray
+  vite/chromium by explicit PID (`ss -tlnp`) — `pkill -f vite` matches the invoking shell.
+- **Browser gate in this sandbox is speed-limited, not broken:** after a workspace reset there is no
+  system Vulkan (apt unreachable offline; only the Chromium-bundled SwiftShader ICD/loader), and one
+  pbr-fixture frame takes ~3 s there — longer than the gate's 2.5 s stall window, so the gate
+  coin-flips `loop stalled at frame N`. **Baseline evidence:** with this diff stashed, the clean
+  tree advanced exactly 1 frame in the same window and the full gate ran past 420 s. Attribute
+  stalls to the environment, and let the CI advisory WebGPU gate (which does run `check:browser`)
+  be the authoritative real-device check; never "fix" the engine for a sandbox-speed stall.
+- **14.4 design (in flight this session):** one *merged unindexed* buffer per prototype — hi
+  window's triangles first, lo after; vertex's window = `vertexIndex / 3 < objectData.hiTriangles`
+  (the renamed `ObjectUniforms._pad` slot, still 176 B layout). The `forge.populationLod` compute
+  pass (shaders/populationLod.ts, `PopulationLodUniforms` 32 B) sets bit 0 of the instance
+  record's `flags` from camera distance; the LOD vertex entries (colour `vertexMainInstancedLod` +
+  DEPTH_VERTEX's shadow twin) clip out the unselected half via below-near-plane NDC. Shadow and
+  colour share the 14.3 buffer, so selection is camera-keyed (conservative for casters). CPU twin:
+  `population/lod.ts` (`buildLodGeometry`, `populationLodIndex`). **Remainder:** renderer wiring
+  (pipeline `lod` option, batch.lodHiTriangles, the compute pass in the graph, submission.lod),
+  demo hi/lo rocks, mock LOD pass, tests, docs.
+- **wgsl-check registration:** new WGSL strings must be added to tools/wgsl-check.mjs's module map
+  *and* exported from engine/src/index.ts (it validates through dist); uniform structs go into
+  RENDERING_STRUCTS (uniform-space layout check). Compute entry convention here is
+  `@workgroup_size(N) @compute` — the validator's regex requires `@compute` immediately before `fn`.

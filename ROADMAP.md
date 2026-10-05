@@ -22,9 +22,9 @@ CURRENT CODEBASE BASELINE:
                 bounded spot shadows and bounded point shadows landed;
                 contact/adaptive work remains)
     Phase 14:   IN PROGRESS (14.1 deterministic scatter, 14.3 compact SoA instance
-                blocks, 14.5 per-chunk population culling and 14.6 streaming landed;
-                rocks + boulders of 14.2 in the terrain demo; GPU LOD, remaining
-                types and device-resident buffers open)
+                blocks + device-resident instance buffers, 14.5 per-chunk population
+                culling and 14.6 streaming landed; rocks + boulders of 14.2 in the
+                terrain demo; GPU LOD and the remaining 14.2 types open)
     Phase 15+:  NOT STARTED
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
@@ -988,13 +988,18 @@ GOAL:
 14.3 Instance Storage
 
     [x] Compact instance buffers.
+    [x] Device-resident instance buffers.
 
         `PopulationInstanceBlock` (engine/src/scene/population.ts) is SoA typed arrays — positions
         (3), non-uniform scales (3), Y rotations (1), packed tints (1) — allocated once per
-        (chunk, type), no per-instance object anywhere. The renderer writes the records into the
-        frame's instance arena through `composeYTRS` (math/mat.ts), so a population draws as
-        ordinary instanced batches. The further step — *device-resident* instance buffers that are
-        uploaded once per chunk instead of once per frame — is not built (docs/KNOWN-ISSUES.md).
+        (chunk, type), no per-instance object anywhere. The renderer composes the records
+        (`composeYTRS`, math/mat.ts) once per content revision and uploads them to a *device-
+        resident* buffer that lives as long as the chunk: one stable GPUBuffer plus one draw bind
+        group per (chunk, type), bound in place of the frame's instance arena. A live chunk costs
+        zero per-frame instance copies — `stats.populationUploads` is 0 in steady state — and the
+        buffer is destroyed when the source stops offering the chunk (terrain eviction). A remesh
+        re-anchor moves the revision and is the only other event that re-uploads. Pinned by
+        tests/population.test.ts (seam + streamed-terrain suites).
 
 
 14.4 GPU LOD

@@ -11,10 +11,12 @@
  *  - `PopulationWorld` follows terrain chunk streaming: ready chunks get populations within the
  *    per-update budget, evicted chunks lose them, remeshes re-anchor Y to the new surface without
  *    re-scattering XZ, and none of it ever creates an entity (14.6 + the phase's headline).
- *  - The renderer seam: a submission becomes instanced batches whose instance records land in the
- *    same arena the renderables use; per-chunk frustum rejection happens before any record is
- *    written; casters reach the shadow maps through the same conservative assignment; the strict
- *    mock device reports no validation errors and nothing leaks (14.3/14.5 integration).
+ *  - The renderer seam: a submission becomes one instanced batch per (chunk, type), and its
+ *    instances live in a **device-resident buffer** (Phase 14.3) — one `writeBuffer` per content
+ *    revision, zero per-frame copies, the buffer freed when the chunk stops being offered.
+ *    Per-chunk frustum rejection happens before any batch is emitted; casters reach the shadow
+ *    maps through the same conservative assignment; the strict mock device reports no validation
+ *    errors and nothing leaks (14.3/14.5 integration).
  */
 
 import { describe, expect, it } from "vitest";
@@ -231,16 +233,19 @@ describe("Population - compact instance blocks (14.3)", () => {
 class StaticPopulation extends SceneObject implements PopulationSource {
   readonly name = "static-population";
   readonly results: boolean[] = [];
+  /** Flipped to false to simulate the chunk being evicted (the source stops offering it). */
+  active = true;
 
   constructor(
     private readonly submission: PopulationSubmission,
-    private readonly enabledFlag = true,
+    enabledFlag = true,
   ) {
     super();
+    this.active = enabledFlag;
   }
 
   collectPopulations(collector: PopulationCollector): void {
-    if (!this.enabledFlag) return;
+    if (!this.active) return;
     this.results.push(collector.addPopulationBatch(this.submission));
   }
 }
@@ -270,6 +275,13 @@ function handSubmission(
     castShadow: false,
     maxDistance: 0,
   };
+}
+
+/** The live "population.instances" buffers on the mock (it keeps real bytes, so content is checkable). */
+function populationBuffers(mock: GraphicsDevice["mock"], expected: number): { size: number; writeCount: number; data: ArrayBuffer }[] {
+  const found = [...mock.liveBuffers].filter((b) => b.label === "population.instances");
+  expect(found.length).toBe(expected);
+  return found as { size: number; writeCount: number; data: ArrayBuffer }[];
 }
 
 describe("Population - renderer seam (14.3/14.5)", () => {
@@ -323,26 +335,92 @@ describe("Population - renderer seam (14.3/14.5)", () => {
     expect(source.results).toEqual([true]);
     // The Phase 14 headline: three (or three thousand) instances, still zero entities.
     expect(f.scene.entityCount).toBe(entitiesBefore);
+    // Phase 14.3: one device-resident buffer for the three instances, one upload to fill it.
+    expect(f.renderer.stats.populationBuffers).toBe(1);
+    expect(f.renderer.stats.populationUploads).toBe(1);
 
     // Steady frame: no new GPU objects, and the submission is re-offered every frame.
     f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
     expect(f.renderer.stats.populationBatches).toBe(1);
     expect(source.results.length).toBe(2);
+    // The buffer persists and needs no second upload: the chunk's data is already on the device.
+    expect(f.renderer.stats.populationBuffers).toBe(1);
+    expect(f.renderer.stats.populationUploads).toBe(0);
+    const populated = populationBuffers(f.mock, 1)[0];
+    expect(populated).toBeDefined();
+    expect(populated?.writeCount).toBe(1);
     await f.dispose();
   });
 
-  it("splits oversized submissions into maxInstancesPerBatch slices", async () => {
+  it("keeps a whole submission in one device-resident buffer, at no per-frame copy cost", async () => {
     const f = await fixture();
-    f.scene.add(new StaticPopulation(handSubmission(f.geometry, f.material, 7)));
-    const sliced = new Renderer(f.device, { shadowMapSize: 256, maxInstancesPerBatch: 3 });
-    sliced.renderScene(f.scene);
+    const source = new StaticPopulation(handSubmission(f.geometry, f.material, 7));
+    f.scene.add(source);
+
+    f.renderer.renderScene(f.scene);
     expect(f.mock.errors).toEqual([]);
-    expect(sliced.stats.populationBatches).toBe(3);
-    expect(sliced.stats.populationInstances).toBe(7);
-    // 3 + 3 + 1: every slice is its own batch so the device culler keeps per-chunk granularity.
-    expect(sliced.stats.batches).toBeGreaterThanOrEqual(3);
-    sliced.dispose();
+    // One batch per (chunk, type) — the culler keeps per-chunk granularity without slices.
+    expect(f.renderer.stats.populationBatches).toBe(1);
+    expect(f.renderer.stats.populationInstances).toBe(7);
+    const [buffer] = populationBuffers(f.mock, 1);
+    expect(buffer?.size).toBe(7 * 80); // 7 records × InstanceData (80 B)
+    expect(buffer?.writeCount).toBe(1);
+
+    // Two more frames: the chunk's buffer is never touched again (the frame's other arenas still
+    // upload, but the population data is already on the device).
+    f.renderer.renderScene(f.scene);
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.populationBuffers).toBe(1);
+    expect(f.renderer.stats.populationUploads).toBe(0);
+    expect(buffer?.writeCount).toBe(1);
+    await f.dispose();
+  });
+
+  it("re-uploads a population buffer exactly when the block's content revision moves", async () => {
+    const f = await fixture();
+    const submission = handSubmission(f.geometry, f.material, 4);
+    f.scene.add(new StaticPopulation(submission));
+
+    f.renderer.renderScene(f.scene);
+    const [buffer] = populationBuffers(f.mock, 1);
+    expect(buffer).toBeDefined();
+    const f32 = () => new Float32Array(buffer!.data);
+    const translationBefore = f32()[13]; // record 0's translation (column 3): [px, py, pz]
+
+    // Move every instance and mark the block changed — the only event that may re-upload.
+    for (let k = 0; k < 4; k++) submission.instances.positions[k * 3 + 1] = 5;
+    submission.instances.markModified();
+
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.populationUploads).toBe(1);
+    expect(buffer?.writeCount).toBe(2);
+    const translationAfter = f32()[13];
+    expect(translationAfter).toBe(5);
+    expect(translationBefore).toBe(0);
+
+    // Without a new revision the next frame is silent again.
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.populationUploads).toBe(0);
+    expect(buffer?.writeCount).toBe(2);
+    await f.dispose();
+  });
+
+  it("frees the device buffer when a chunk stops being offered (eviction)", async () => {
+    const f = await fixture();
+    const source = new StaticPopulation(handSubmission(f.geometry, f.material, 5));
+    f.scene.add(source);
+
+    f.renderer.renderScene(f.scene);
+    expect(f.renderer.stats.populationBuffers).toBe(1);
+
+    source.active = false; // the terrain chunk was evicted
+    f.renderer.renderScene(f.scene);
+    expect(f.mock.errors).toEqual([]);
+    expect(f.renderer.stats.populationBuffers).toBe(0);
+    expect(f.mock.outstanding.buffers).not.toContain("population.instances");
     await f.dispose();
   });
 
@@ -614,10 +692,13 @@ describe("Population - renderer over streamed terrain", () => {
     // Population batches are regular batches: the device object culler tests them like any other.
     expect(renderer.stats.cullTested).toBeGreaterThanOrEqual(renderer.stats.populationBatches);
 
-    // Steady frame: pooling holds, no new textures, still no errors.
+    // Steady frame: pooling holds, no new textures, still no errors — and the population data is
+    // device-resident: the steady frame uploads nothing for it (Phase 14.3).
     renderer.renderScene(scene, ctx);
     expect(mock.errors).toEqual([]);
     expect(renderer.stats.texturesCreated).toBe(0);
+    expect(renderer.stats.populationBuffers).toBeGreaterThan(0);
+    expect(renderer.stats.populationUploads).toBe(0);
 
     renderer.dispose();
     population.dispose();

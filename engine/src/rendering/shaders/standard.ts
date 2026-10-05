@@ -394,6 +394,45 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
 `;
 
 /**
+ * Phase 14.4: the LOD variant of the instanced entry. The batch's geometry is the merged
+ * population-LOD buffer — the high window's triangles first, then the low window's, each *expanded*
+ * (unindexed: three vertices per triangle, so vertex `v / 3` is a triangle index). The
+ * `forge.populationLod` compute pass writes a per-instance bit into the record's `flags` slot
+ * (0 = near → high, 1 = far → low); this entry clips out the window the instance did not select,
+ * so only the selected LOD is rasterized. The unselected window costs vertex ALU only.
+ *
+ * `objectData.hiTriangles` is the high window's triangle count: a vertex belongs to the high
+ * window iff its triangle index is below it (the low window's triangles continue from there).
+ */
+export const STANDARD_LOD_INSTANCED_VERTEX = /* wgsl */ `
+${STANDARD_DEFINES}
+
+@vertex
+fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceIndex: u32, @builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+  var out: VertexOutput;
+  let inst = instances[instanceIndex];
+  let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
+  var world = model * vec4<f32>(input.position, 1.0);
+  var clip = perFrame.viewProj * world;
+  let inHi = vertexIndex / 3u < objectData.hiTriangles;
+  let wantHi = (inst.flags & 1u) == 0u;
+  if (inHi != wantHi) {
+    // Same clip-out as the culler's verdict: below the near plane, clipped before rasterisation.
+    clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  }
+  out.clipPos = clip;
+  out.worldPos = world.xyz;
+  out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+  out.uv = input.uv;
+  out.tangent = input.tangent;
+  out.viewDepth = out.clipPos.w;
+  out.tint = unpackTint(inst.tint);
+  out.clipPos = cullBatch(out.clipPos);
+  return out;
+}
+`;
+
+/**
  * Fragment stage without the defines block: the pipeline factory appends this to a vertex source
  * that already carries the declarations, so a module holds one copy of every struct.
  */
@@ -637,6 +676,24 @@ fn vertexMainInstanced(input: In, @builtin(instance_index) instanceIndex: u32) -
   let i = instances[instanceIndex];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
   out.clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  return out;
+}
+
+// Phase 14.4: the shadow pass draws population casters through the same merged LOD buffer, so it
+// honours the same per-instance window bit. The LOD selection is keyed on the *camera* distance
+// (the compute pass's uniform), which for a shadow caster is conservative, not exact.
+@vertex
+fn vertexMainInstancedLod(input: In, @builtin(instance_index) instanceIndex: u32, @builtin(vertex_index) vertexIndex: u32) -> Out {
+  var out: Out;
+  let i = instances[instanceIndex];
+  let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
+  var clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let inHi = vertexIndex / 3u < objectData.hiTriangles;
+  let wantHi = (i.flags & 1u) == 0u;
+  if (inHi != wantHi) {
+    clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  }
+  out.clip = clip;
   return out;
 }
 

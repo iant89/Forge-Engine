@@ -174,10 +174,13 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
       for (const type of record.types) {
         const spec = type.spec;
         const block = type.block;
+        if (block.count === 0) continue;
         for (let k = 0; k < block.count; k++) {
           block.positions[k * 3 + 1] =
             sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - spec.embed * block.scales[k * 3 + 1]!;
         }
+        // The device-resident buffer (Phase 14.3) must re-upload: Y positions moved.
+        block.markModified();
         if (type.submission) this.buildBounds(type, type.submission);
       }
       record.tileRef = chunk.tile;

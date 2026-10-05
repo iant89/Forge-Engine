@@ -186,12 +186,6 @@ What remains:
 
 ## World population (Phase 14)
 
-* **Instance records are re-uploaded every frame.** Population instance data is compact and
-  SoA-owned (`PopulationInstanceBlock`), but the renderer still writes every visible instance's
-  matrix + tint record into the per-frame instance arena and `writeBuffer`s the arena once per
-  frame — the same path `Renderable`s take. Device-resident instance buffers uploaded once per
-  (chunk, type) at a stable offset would remove that per-frame cost; they need an offset allocator
-  inside the instance buffer and are not built. (capability: world.population)
 * **Device culling is per chunk, not per instance.** Each (chunk, type) submission is one batch, so
   the `forge.objects.cull` verdict and the `maxDistance` test drop whole chunks; a chunk whose edge
   alone is in view draws all of its instances, and HiZ occlusion sees only the chunk's conservative

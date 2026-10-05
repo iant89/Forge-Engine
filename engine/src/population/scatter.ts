@@ -139,8 +139,10 @@ export function scatterPopulationChunk(
 ): number {
   const r = resolvePopulationTypeSpec(spec);
   out.clear();
-  if (r.maxPerChunk <= 0 || chunkSize <= 0) return 0;
-
+  if (r.maxPerChunk <= 0 || chunkSize <= 0) {
+    out.markModified();
+    return 0;
+  }
   // Type identity is part of the stream: two types over one chunk share neither candidates nor scale.
   const rng = new Rng(chunkSeed(cx, cz, POPULATION_CHUNK_LEVEL + r.id, seed | 0));
   const grid = r.densityGrid;
@@ -159,7 +161,10 @@ export function scatterPopulationChunk(
       const rotation = rng.nextFloat() * Math.PI * 2;
       const tintRoll = rng.nextFloat();
 
-      if (out.count >= r.maxPerChunk) return out.count;
+      if (out.count >= r.maxPerChunk) {
+        out.markModified();
+        return out.count;
+      }
 
       const x = originX + (i + jitterX) * step;
       const z = originZ + (j + jitterZ) * step;
@@ -185,5 +190,6 @@ export function scatterPopulationChunk(
       out.count = k + 1;
     }
   }
+  out.markModified();
   return out.count;
 }

@@ -58,7 +58,7 @@ import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
 import { findGpuParticleWorld } from "../particles/gpuWorld.js";
-import { isPopulationSource, type PopulationCollector, type PopulationSubmission } from "../scene/population.js";
+import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
 import { Material } from "./material.js";
@@ -158,6 +158,10 @@ export interface RenderStats {
   populationBatches: number;
   /** Population instances submitted inside those batches; drawn with zero ECS entities. */
   populationInstances: number;
+  /** Live device-resident population instance buffers (Phase 14.3); one per (chunk, type). */
+  populationBuffers: number;
+  /** `writeBuffer` calls the population buffers needed this frame (steady state: 0). */
+  populationUploads: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -303,6 +307,11 @@ interface Batch {
   readonly shadowRanges: ShadowInstanceRange[];
   /** Live prefix of `shadowRanges`; backing range objects are reused on subsequent frames. */
   shadowRangeCount: number;
+  /**
+   * Phase 14.3: when the batch's instances live in a device-resident population buffer, that
+   * buffer's draw group (bound instead of the shared arena group, at `instanceOffset` 0).
+   */
+  population: PopulationDeviceRecord | null;
 }
 
 interface PostParams {
@@ -321,6 +330,25 @@ interface PostParams {
 
 const FORWARD_Z = new Vec3(0, 0, 1);
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
+/**
+ * One device-resident population buffer and the draw group that binds it (Phase 14.3). The buffer
+ * lives as long as the (chunk, type) submission does — one `writeBuffer` per content revision
+ * (scatter, remesh re-anchor), zero per-frame copies otherwise.
+ */
+interface PopulationDeviceRecord {
+  buffer: GPUBuffer;
+  /** Draw bind group (layout `draw`) whose instance binding is this buffer, at offset 0. */
+  group: GPUBindGroup;
+  /** The `PopulationInstanceBlock.revision` the buffer content matches. */
+  revision: number;
+  /** Live instance count the buffer was sized for (scatter is fixed per chunk — never grows). */
+  count: number;
+  /** Set while the frame collects populations; a record not seen belongs to an evicted chunk. */
+  seen: boolean;
+  /** First instance's composed matrix — the object uniform a count-1 batch draws through. */
+  firstMatrix: Float32Array;
+}
 const TONE_MAP_MODE: Record<string, number> = { none: 0, reinhard: 1, aces: 2, filmic: 3 };
 /**
  * Bytes between instance records — the WGSL `InstanceData` array stride, *not* the arena spacing.
@@ -398,6 +426,8 @@ export class Renderer implements RenderFrameContext {
     culled: 0,
     populationBatches: 0,
     populationInstances: 0,
+    populationBuffers: 0,
+    populationUploads: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
@@ -595,6 +625,12 @@ export class Renderer implements RenderFrameContext {
   private objectBufferCapacity = 0;
   private instanceBuffer: GPUBuffer | null = null;
   private instanceBufferCapacity = 0;
+  /** Device-resident population instance buffers (Phase 14.3), keyed by the submission that owns them. */
+  private readonly populationDevice = new Map<PopulationSubmission, PopulationDeviceRecord>();
+  /** Growable scratch the population records are composed into before upload. */
+  private populationCompose = new Float32Array(0);
+  /** `writeBuffer` count for the population buffers this frame (reported as `stats.populationUploads`). */
+  private populationUploads = 0;
   private drawBindGroup: GPUBindGroup | null = null;
   private shadowFallback: GPUTexture | null = null;
   private shadowFallbackView: GPUTextureView | null = null;
@@ -929,7 +965,10 @@ export class Renderer implements RenderFrameContext {
     this.writeWater(scene, skySettings, lights);
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
-      b.objectOffset = this.reserveObject(b.count > 1 ? IDENTITY : this.lastMatrixFor(b), b.count, i);
+      // A count-1 population batch draws through the non-instanced entry, which reads the object
+      // uniform — its single instance's matrix lives in the device record, not the arena.
+      const single = b.count > 1 ? IDENTITY : b.population ? b.population.firstMatrix : this.lastMatrixFor(b);
+      b.objectOffset = this.reserveObject(single, b.count, i);
     }
     this.ensureArenas();
     this.uploadArenas();
@@ -1352,7 +1391,8 @@ export class Renderer implements RenderFrameContext {
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      // Population batches bind their own chunk buffer through their own group (Phase 14.3).
+      pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
@@ -1392,7 +1432,8 @@ export class Renderer implements RenderFrameContext {
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      // Population batches bind their own chunk buffer through their own group (Phase 14.3).
+      pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -1466,7 +1507,8 @@ export class Renderer implements RenderFrameContext {
       if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
       if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
-      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      // Population batches bind their own chunk buffer through their own group (Phase 14.3).
+      pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.geometry.indexBuffer) {
@@ -1530,6 +1572,9 @@ export class Renderer implements RenderFrameContext {
     s.culled = 0;
     s.populationBatches = 0;
     s.populationInstances = 0;
+    s.populationBuffers = 0;
+    s.populationUploads = 0;
+    this.populationUploads = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
     s.shadowInstancesDrawn = 0;
@@ -2275,6 +2320,9 @@ export class Renderer implements RenderFrameContext {
     this.populationShadowCounts[0] = cascadeCount;
     this.populationShadowCounts[1] = spotShadowCount;
     this.populationShadowCounts[2] = pointShadowCount;
+    // Liveness pass: every record the sources re-offer this frame is marked seen; whatever is left
+    // unmarked belongs to an evicted chunk and loses its device buffer.
+    for (const rec of this.populationDevice.values()) rec.seen = false;
     const objects = scene.objects;
     for (let i = 0; i < objects.length; i++) {
       const object = objects[i]!;
@@ -2282,6 +2330,13 @@ export class Renderer implements RenderFrameContext {
       if (!isPopulationSource(object)) continue;
       object.collectPopulations(this.populationCollector);
     }
+    for (const [submission, rec] of this.populationDevice) {
+      if (rec.seen) continue;
+      this.destroyPopulationRecord(rec);
+      this.populationDevice.delete(submission);
+    }
+    this.stats.populationBuffers = this.populationDevice.size;
+    this.stats.populationUploads = this.populationUploads;
   }
 
   /** The population seam as sources see it: one stable collector object, no per-frame allocation. */
@@ -2294,10 +2349,11 @@ export class Renderer implements RenderFrameContext {
   private readonly populationShadowCounts = new Int32Array(3);
 
   /**
-   * Receive one population submission: frustum-test the chunk, then emit it as instanced batch
-   * slices of at most `maxInstancesPerBatch` instances. Mirrors what the renderable walk does per
-   * entity — instance records in the arena, conservative shadow assignment, a batch with bounds —
-   * except the K instances cost one submission instead of K entities. Returns `false` when the
+   * Receive one population submission: keep its device-resident instance record in sync
+   * (Phase 14.3), frustum-test the chunk, then emit it as one instanced batch. The batch's
+   * instances are drawn straight out of the chunk's own buffer — no per-frame arena records,
+   * no per-frame copies — while everything the renderable walk does per entity (shadow
+   * assignment, batch bounds for the device culler) applies unchanged. Returns `false` when the
    * submission was rejected before any record was written.
    */
   private addPopulationBatch(submission: PopulationSubmission): boolean {
@@ -2306,6 +2362,11 @@ export class Renderer implements RenderFrameContext {
     const block = submission.instances;
     if (!geometry || !material || block.count <= 0) return false;
     const bounds = submission.bounds;
+
+    // The device record is chunk state, not frame state: it is created on first sight and
+    // re-uploaded only when the block's content revision changes (a remesh re-anchor).
+    const rec = this.syncPopulationDevice(submission);
+    if (!rec) return false;
 
     // Chunk-level pre-tests: the conservative shadow mask of the whole submission decides whether
     // per-instance frustum work is needed at all, and an off-view chunk with no shadow presence
@@ -2319,43 +2380,154 @@ export class Renderer implements RenderFrameContext {
       this.stats.culled += block.count;
       if (chunkMask === 0) return false;
     }
-
-    let first = 0;
-    while (first < block.count) {
-      const sliceCount = Math.min(this.maxInstancesPerBatch, block.count - first);
-      this.emitPopulationSlice(submission, geometry, material, first, sliceCount, inView, chunkMask);
-      first += sliceCount;
-    }
+    this.emitPopulationBatch(submission, geometry, material, rec, inView, chunkMask);
     return true;
   }
 
-  /** One contiguous run of population instances: records into the arena, then one batch. */
-  private emitPopulationSlice(
+  /**
+   * Compose the block's records into `out` (20 floats per instance, `InstanceData` layout) and
+   * capture the first instance's matrix. Called once per content revision, never per frame.
+   */
+  private composePopulationRecords(block: PopulationInstanceBlock, out: Float32Array, firstMatrix: Float32Array): void {
+    for (let k = 0; k < block.count; k++) {
+      const base = (k * INSTANCE_STRIDE) >> 2;
+      composeYTRS(
+        block.positions[k * 3]!,
+        block.positions[k * 3 + 1]!,
+        block.positions[k * 3 + 2]!,
+        block.scales[k * 3]!,
+        block.scales[k * 3 + 1]!,
+        block.scales[k * 3 + 2]!,
+        block.rotations[k]!,
+        out,
+        base,
+      );
+      const tint = block.tints[k]!;
+      out[base + 16] = tint || packColorRGBA(1, 1, 1, 1);
+      out[base + 17] = 0;
+      out[base + 18] = 0;
+      out[base + 19] = 0;
+    }
+    if (block.count > 0) firstMatrix.set(out.subarray(0, 16));
+  }
+
+  /**
+   * Keep the submission's device-resident record in sync with its block (Phase 14.3). Creates the
+   * buffer + draw group on first sight; re-composes and re-uploads exactly when the block's
+   * `revision` has moved (scatter or a remesh re-anchor). Returns `null` for empty blocks.
+   */
+  private syncPopulationDevice(submission: PopulationSubmission): PopulationDeviceRecord | null {
+    const block = submission.instances;
+    const count = block.count;
+    let rec: PopulationDeviceRecord | null = this.populationDevice.get(submission) ?? null;
+    if (rec && rec.count !== count) {
+      // A scatter is fixed per chunk; a different count means the source re-scattered at another
+      // cap. Recreate the record rather than trusting a wrong-sized buffer.
+      this.destroyPopulationRecord(rec);
+      this.populationDevice.delete(submission);
+      rec = null;
+    }
+    if (rec) rec.seen = true;
+    if (!rec) {
+      if (count <= 0) return null;
+      const d = this.device.device;
+      const size = count * INSTANCE_STRIDE;
+      const buffer = d.createBuffer({ label: "population.instances", size, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
+      const data = this.populationComposeData(size);
+      const firstMatrix = new Float32Array(16);
+      this.composePopulationRecords(block, data, firstMatrix);
+      // The scratch is growable and may outlive several smaller buffers, so upload the exact
+      // record span as an exactly-sized view. Never pass `writeBuffer`'s `size` argument with a
+      // TypedArray source: the spec (and Chromium) count it in *elements*, not bytes.
+      d.queue.writeBuffer(buffer, 0, gpuSource(data.subarray(0, count * (INSTANCE_STRIDE >> 2))));
+      this.populationUploads++;
+      rec = {
+        buffer,
+        group: this.createPopulationGroup(buffer, size),
+        revision: block.revision,
+        count,
+        seen: true,
+        firstMatrix,
+      };
+      this.populationDevice.set(submission, rec);
+      return rec;
+    }
+    if (block.revision !== rec.revision) {
+      const size = count * INSTANCE_STRIDE;
+      const data = this.populationComposeData(size);
+      this.composePopulationRecords(block, data, rec.firstMatrix);
+      this.device.device.queue.writeBuffer(rec.buffer, 0, gpuSource(data.subarray(0, count * (INSTANCE_STRIDE >> 2))));
+      rec.revision = block.revision;
+      this.populationUploads++;
+    }
+    return rec;
+  }
+
+  /** Growable compose scratch (bytes). Reused across chunks and frames — no per-frame allocation. */
+  private populationComposeData(bytes: number): Float32Array {
+    if (this.populationCompose.byteLength < bytes) {
+      this.populationCompose = new Float32Array(alignUp(bytes, 256));
+    }
+    return this.populationCompose;
+  }
+
+  /** The draw group for one population buffer: the shared object/visibility bindings, the chunk's own instance buffer. */
+  private createPopulationGroup(buffer: GPUBuffer, size: number): GPUBindGroup {
+    return this.device.device.createBindGroup({
+      label: "population.drawgroup",
+      layout: this.pipelines.bindGroupLayouts.draw,
+      entries: [
+        { binding: 0, resource: { buffer: this.objectBuffer!, size: ObjectUniforms.byteSize("uniform") } },
+        // Whole buffer, dynamic offset 0: the batch draws its whole instance count at index 0, so
+        // no window slack or 256-aligned slice offsets are needed — the arena's slicing rules do
+        // not apply to a buffer that holds exactly one submission.
+        { binding: 1, resource: { buffer, size } },
+        { binding: 2, resource: { buffer: this.visibilityBuffer! } },
+      ],
+    });
+  }
+
+  /** Free one record's GPU resources (chunk evicted, renderer torn down). */
+  private destroyPopulationRecord(rec: PopulationDeviceRecord): void {
+    // Bind groups have no destroy in the WebGPU API (the mock tracks them without one, as with the
+    // other draw groups the renderer drops by reference).
+    rec.buffer.destroy();
+  }
+
+  /**
+   * The object/visibility buffers were rebuilt underneath the population groups — recreate the
+   * groups so they bind the live buffers. Called from the two capacity paths that can do that.
+   */
+  private rebuildPopulationGroups(): void {
+    for (const rec of this.populationDevice.values()) {
+      rec.group = this.createPopulationGroup(rec.buffer, rec.count * INSTANCE_STRIDE);
+    }
+  }
+
+  /** One population chunk as one instanced batch, drawn from its own device-resident buffer. */
+  private emitPopulationBatch(
     submission: PopulationSubmission,
     geometry: Geometry,
     material: Material,
-    first: number,
-    count: number,
+    rec: PopulationDeviceRecord,
     inView: boolean,
     chunkMask: number,
   ): void {
     const block = submission.instances;
-    // A batch's instance window must start 256-aligned (the dynamic-offset rule, as in the
-    // renderable walk); the whole slice is reserved in one go so its records are contiguous.
-    const instanceOffset = this.instanceArena.reserve(count * INSTANCE_STRIDE, 256);
-    const f32 = this.instanceArena.target.f32;
-    const u32 = this.instanceArena.target.u32;
+    const count = block.count;
     const castShadow = submission.castShadow;
     const index = this.batchCount;
 
     const batch = this.acquireBatch();
     batch.geometry = geometry;
     batch.material = material;
-    batch.instanceOffset = instanceOffset;
+    // Offset 0 into the submission's own buffer, through its own draw group (batch.population).
+    batch.instanceOffset = 0;
+    batch.population = rec;
     batch.count = count;
-    batch.transparent = false;
+    batch.transparent = material.transparent;
     batch.overlay = false;
-    batch.castShadow = castShadow;
+    batch.castShadow = castShadow && !material.transparent;
     batch.shadowOnly = !inView;
     batch.indexCount = geometry.indexCount > 0 ? geometry.indexCount : geometry.vertexCount;
     batch.indexStart = 0;
@@ -2367,29 +2539,21 @@ export class Renderer implements RenderFrameContext {
     batch.shadowRangeCount = 0;
 
     for (let k = 0; k < count; k++) {
-      const source = first + k;
-      const base = (instanceOffset >> 2) + k * (INSTANCE_STRIDE >> 2);
-      composeYTRS(
-        block.positions[source * 3]!,
-        block.positions[source * 3 + 1]!,
-        block.positions[source * 3 + 2]!,
-        block.scales[source * 3]!,
-        block.scales[source * 3 + 1]!,
-        block.scales[source * 3 + 2]!,
-        block.rotations[source]!,
-        f32,
-        base,
-      );
-      const tint = block.tints[source]!;
-      u32[base + 16] = tint || packColorRGBA(1, 1, 1, 1);
-      f32[base + 17] = 0;
-      u32[base + 18] = 0;
-      u32[base + 19] = 0;
-
       if (castShadow && chunkMask !== 0) {
         // Per-instance map assignment, the same conservative test a renderable gets. Only chunks
-        // the pre-test placed near an active map pay this; the rest skip straight past.
-        this.scratchMat.m.set(f32.subarray(base, base + 16));
+        // the pre-test placed near an active map pay this; the rest skip straight past. The
+        // record already lives on the device, so the matrix is composed into scratch, not arena.
+        composeYTRS(
+          block.positions[k * 3]!,
+          block.positions[k * 3 + 1]!,
+          block.positions[k * 3 + 2]!,
+          block.scales[k * 3]!,
+          block.scales[k * 3 + 1]!,
+          block.scales[k * 3 + 2]!,
+          block.rotations[k]!,
+          this.scratchMat.m,
+          0,
+        );
         geometry.bounds.transformByMatrix(this.scratchMat, this.scratchBox);
         this.addShadowRange(batch, k, this.shadowMaskFor(this.scratchBox, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!));
       }
@@ -2479,9 +2643,12 @@ export class Renderer implements RenderFrameContext {
         bounds: new AABB(),
         shadowRanges: [],
         shadowRangeCount: 0,
+        population: null,
       };
       this.batchPool.push(b);
     }
+    // Pooled reuse: a recycled slot must not carry the previous frame's population bind group.
+    b.population = null;
     this.batchCount++;
     return b;
   }
@@ -2679,6 +2846,8 @@ export class Renderer implements RenderFrameContext {
     this.visibilityBytes = bytes;
     this.visibilityWords = new Uint32Array(bytes >> 2);
     this.drawBindGroup = null;
+    // The population draw groups bind the old visibility buffer — recreate them over the new one.
+    this.rebuildPopulationGroups();
   }
 
   /**
@@ -2882,6 +3051,7 @@ export class Renderer implements RenderFrameContext {
         ],
       });
     }
+    if (rebuilt) this.rebuildPopulationGroups();
   }
 
   private materialGroupCache = new WeakMap<Material, { revision: number; group: GPUBindGroup }>();
@@ -3127,6 +3297,8 @@ export class Renderer implements RenderFrameContext {
     this.lightCuller = null;
     this.objectCuller?.dispose();
     this.objectCuller = null;
+    for (const rec of this.populationDevice.values()) this.destroyPopulationRecord(rec);
+    this.populationDevice.clear();
     this.visibilityBuffer?.destroy();
     this.visibilityBuffer = null;
     this.drawRecords?.destroy();

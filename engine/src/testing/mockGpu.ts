@@ -1918,16 +1918,29 @@ export class MockGPUQueue {
     }
     if (bufferOffset % 4 !== 0) device.reportError(`writeBuffer: bufferOffset ${bufferOffset} must be a multiple of 4`);
     const src = asUint8(data);
-    const writeSize = size ?? Math.max(0, src.byteLength - dataOffset);
-    if (writeSize < 0) device.reportError("writeBuffer: negative size");
-    if (dataOffset + writeSize > src.byteLength) {
-      device.reportError(`writeBuffer: reads [${dataOffset}, ${dataOffset + writeSize}) but the source is ${src.byteLength} bytes`);
+    // Spec (and Chromium) semantics: for a TypedArray source, `dataOffset`/`size` are counts of
+    // the view's *elements*; for an ArrayBuffer/DataView they are bytes. This exact distinction
+    // has bitten the engine once (a byte-count `size` passed with a Float32Array source wrote
+    // 4× the intended span on real WebGPU while the old byte-oriented mock validated it fine).
+    const view = ArrayBuffer.isView(data) ? data : null;
+    // DataView has no BYTES_PER_ELEMENT (its "element" is a byte) — fall back to 1.
+    const elementBytes = view ? (view as unknown as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1 : 1;
+    if (!Number.isInteger(dataOffset) || dataOffset < 0) {
+      device.reportError(`writeBuffer: dataOffset ${dataOffset} must be a non-negative integer`);
+    }
+    if (size !== undefined && (!Number.isInteger(size) || size < 0)) {
+      device.reportError(`writeBuffer: size ${size} must be a non-negative integer`);
+    }
+    const start = dataOffset * elementBytes;
+    const writeSize = size === undefined ? Math.max(0, src.byteLength - start) : size * elementBytes;
+    if (start + writeSize > src.byteLength) {
+      device.reportError(`writeBuffer: reads [${start}, ${start + writeSize}) but the source is ${src.byteLength} bytes`);
     }
     if (bufferOffset + writeSize > buffer.size) {
       device.reportError(`writeBuffer: writes [${bufferOffset}, ${bufferOffset + writeSize}) into a ${buffer.size}-byte buffer`);
     }
     if (device.lost) device.reportError("writeBuffer: device lost");
-    new Uint8Array(buffer.data, bufferOffset, writeSize).set(src.subarray(dataOffset, dataOffset + writeSize));
+    new Uint8Array(buffer.data, bufferOffset, writeSize).set(src.subarray(start, start + writeSize));
     buffer.writeCount++;
     buffer.lastWriteBytes = writeSize;
     this.writeBufferCalls++;
