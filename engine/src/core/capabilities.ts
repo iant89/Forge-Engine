@@ -85,7 +85,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "12": "verified",
   "13": "inProgress",
   "14": "inProgress",
-  "15+": "planned",
+  "15+": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -772,9 +772,13 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "assets.contentAddressing",
     phase: "15.1",
-    status: "planned",
-    summary: "Stable asset ids, content hashes and a dependency graph",
-    closesWith: "15.1",
+    status: "partial",
+    summary:
+      "Stable AssetId form (path- and content-addressed), SHA-256 content hashing with re-acquire invalidation, and a cycle-checked dependency graph with eviction safety",
+    evidence: ["tests/assetPipeline.test.ts"],
+    closesWith: "15.3",
+    notes:
+      "15.1 + 15.2 mechanisms are built and tested on ResourceRegistry (AssetId/hashContent, contentHash re-acquire invalidation, AssetGraph edges, eviction blocking and invalidate() propagation); the capability closes when Phase 15.3 streaming builds the first real loaders on top of them",
   },
   {
     id: "assets.streaming",

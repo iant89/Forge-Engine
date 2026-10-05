@@ -68,9 +68,9 @@ export const subsystems = {
     deps: ["core", "math"],
   },
   resources: {
-    title: "Resource registry, textures, mip generation",
+    title: "Resource registry, textures, mip generation, asset ids + dependency graph",
     src: ["engine/src/resources"],
-    tests: ["tests/resources.test.ts", "tests/textureMips.test.ts"],
+    tests: ["tests/resources.test.ts", "tests/textureMips.test.ts", "tests/assetPipeline.test.ts"],
     deps: ["core", "gpu", "math"],
   },
   scene: {

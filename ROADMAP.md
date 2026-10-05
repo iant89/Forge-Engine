@@ -25,7 +25,9 @@ CURRENT CODEBASE BASELINE:
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
                 surface sampling, worker generation and population raycast)
-    Phase 15+:  NOT STARTED
+    Phase 15+:  IN PROGRESS (15.1 content addressing + 15.2 dependency graph landed on the
+                resource registry; 15.3 streaming, 15.4 hot reload, 15.5 validation and
+                15.6 KTX2/Basis remain)
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -124,7 +126,7 @@ PHASE 14 - World Population
     [~] IN PROGRESS
 
 PHASE 15+
-    [ ] NOT STARTED
+    [~] IN PROGRESS
 
 
 ================================================================================
@@ -1072,10 +1074,22 @@ GOAL:
 
 15.1 Content Addressing
 
-    [ ] Stable AssetID.
+    [x] Stable AssetID.
 
-    [ ] Content hashes.
+        `AssetId` (engine/src/resources/assetId.ts) is the one place resource identity is
+        constructed and parsed: `<kind>:<address>` with two address forms — `texture:assets/rocks.png`
+        (path-addressed, today's style) and `texture:c/<sha256>[~name]` (content-addressed).
+        Constructors validate at call time (`UsageError`), `parse` returns `null` for legacy bare
+        ids instead of throwing, and the registry exposes `info(id)` for the parsed metadata.
 
+    [x] Content hashes.
+
+        `hashContent` is the pipeline's single hasher (SHA-256 via WebCrypto; async, never blocks
+        a frame). A `ResourceDescriptor` may carry the id's `contentHash`; re-acquiring the same
+        id with a different hash means the bytes changed under a stable path id, so the cached
+        value is released and re-loaded and `events.contentChanged` names the transitive loaded
+        dependents that now hold stale values (the fix for the "edit the file in place, the
+        registry serves old bytes forever" failure).
 
 15.2 Dependency Graph
 
@@ -1089,6 +1103,19 @@ GOAL:
           +-- Animation
           +-- Physics
           +-- Audio
+
+    [x] The graph above, live in the registry.
+
+        `AssetGraph` (engine/src/resources/assetGraph.ts) stores (dependent → dependency) edges in
+        both directions with cycle detection at link time. A descriptor reports its deps via
+        `dependencies(value)` once the value exists (a glTF only knows its textures after
+        parsing); the registry registers the edges on load, re-registers on `retry`, and clears
+        them on eviction. A loaded dependent blocks eviction of its dependencies and the scan
+        cascades within one `evictIdle`, so a whole chain leaves together. `invalidate(id)`
+        releases an asset and returns the transitive loaded reload list (the Phase 15.4 hot-reload
+        hook); `dependenciesOf`/`dependentsOf`/`subgraph` serve the editor's asset browser. The
+        graph is metadata + safety, not a load scheduler — loaders pull their own deps through
+        `context.registry` (orchestration is 15.3).
 
 
 15.3 Streaming

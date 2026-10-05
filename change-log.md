@@ -5095,6 +5095,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Appended per-file entries 0387-0398 for the remaining Phase 14.2 population types.",
     "why": "The activity history requires one chronological JSON entry per touched file, including this log."
+  },
+  {
+    "id": "0399",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/resources/assetId.ts",
+    "what": "New: AssetId (forPath/forContent/parse/isValid/kindOf/display, canonical `<kind>:<address>` form with `c/<sha256>[~name]` content addressing) plus hashContent (SHA-256 via WebCrypto, the pipeline's single hasher).",
+    "why": "Phase 15.1: stable, structured resource identity with content hashes — the fix for rename-sensitive ids and the stale-cache-under-a-stable-path failure."
+  },
+  {
+    "id": "0400",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/resources/assetGraph.ts",
+    "what": "New: AssetGraph — (dependent -> dependency) edges in both directions with wouldCycle/link cycle rejection, dependenciesOf/dependentsOf, transitive subgraphs, unlink/clear/stats. Pure data, no resource-state knowledge.",
+    "why": "Phase 15.2: the Vehicle->Mesh/Material/Texture dependency graph, stored live so eviction safety, invalidation propagation and editor queries have something to ask."
+  },
+  {
+    "id": "0401",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/resources/registry.ts",
+    "what": "Integrated 15.1 + 15.2: descriptors gain contentHash and dependencies(value); acquire re-loads on a hash mismatch and emits contentChanged with transitive loaded dependents; loads register graph edges (re-registered on retry, cleared on eviction, cycles rejected with a logged error); evictIdle blocks entries with loaded dependents and cascades within one call (pass bound captured before evictions shrink entries.size); new invalidate/dependenciesOf/dependentsOf/subgraph/info API, stats().edges, two new events, graph cleared on dispose.",
+    "why": "Content hashes make the same-path-different-bytes failure detectable at re-acquire; the graph stops eviction from dangling loaded values and hands 15.4 its reload list."
+  },
+  {
+    "id": "0402",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Exported AssetId, hashContent, AssetIdInfo and AssetGraph from the public barrel.",
+    "why": "Loaders, tests and the editor build against the public API (AGENTS.md: public API only)."
+  },
+  {
+    "id": "0403",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/assetPipeline.test.ts",
+    "what": "New 26-test suite: AssetId construction/parsing/display + malformed rejection, SHA-256 vectors + view-offset hashing, AssetGraph edges/cycles/transitives/unlink, registry edge registration, cycle rejection (the edge that closes the cycle is the one rejected under concurrent loads), eviction blocking + single-call chain cascade, byte-target vs grace, retry edge re-registration, invalidate propagation, contentChanged dedupe/reload, legacy-id compatibility.",
+    "why": "Phase 15.1/15.2 acceptance: id stability, hash correctness, graph safety and the eviction/invalidation semantics are all pinned before 15.3 builds loaders on top."
+  },
+  {
+    "id": "0404",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Added tests/assetPipeline.test.ts to the resources subsystem and extended its title.",
+    "why": "The affected-test map must claim every suite exactly once (guarded by the drift test)."
+  },
+  {
+    "id": "0405",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "assets.contentAddressing moved planned -> partial (summary/notes/evidence updated, closesWith 15.1 -> 15.3); ROADMAP_PHASE_STATUS \"15+\" moved planned -> inProgress.",
+    "why": "The 15.1 + 15.2 mechanisms are built and tested; the capability closes when 15.3 streaming makes content addressing load-bearing in real loaders."
+  },
+  {
+    "id": "0406",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "15.1 (Stable AssetID, Content hashes) and 15.2 (the graph) checked off with as-built notes; state block PHASE 15+ -> [~] IN PROGRESS and the status header line updated to name the remaining 15.3-15.6 work.",
+    "why": "Keep the roadmap the honest source of truth (docs:check cross-checks the state block against the capability registry)."
+  },
+  {
+    "id": "0407",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "2026-10-05 entry: the 15.1/15.2 design (id form, single hasher, graph-as-metadata-not-scheduler), the eviction-cascade pass-bound bug, the concurrent-load cycle race, the branch-divergence incident, and the next-slice plan (15.3).",
+    "why": "Institutional memory for the next session: what is built, the traps hit, and what 15.3 must build on."
+  },
+  {
+    "id": "0408",
+    "date": "2026-10-05T20:05:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10a15-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries 0399-0408 for the Phase 15.1/15.2 slice.",
+    "why": "Maintenance rule: one entry per file touched."
   }
 ]
 ```

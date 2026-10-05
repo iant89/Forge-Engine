@@ -14,11 +14,23 @@
  *     grace period is ignored (see `evictIdle`).
  *  4. **Deterministic failure.** A failed load is cached as a failed entry: `acquire` rejects with
  *     the original error and `retry()` re-attempts. No infinite reload storms.
+ *  5. **Content-hash invalidation (Phase 15.1).** A descriptor may carry the SHA-256 of its bytes
+ *     (`contentHash`). Re-acquiring the same id with a *different* hash means the file changed
+ *     under a stable path id: the cached entry is released and re-loaded, and `contentChanged`
+ *     names the transitive dependents that now hold stale values.
+ *  6. **Dependency graph safety (Phase 15.2).** A descriptor may declare its dependencies
+ *     (`dependencies(value)`); the edges are registered when the load lands. A loaded dependent
+ *     blocks eviction of its dependencies, `invalidate()` reports who must reload when an asset
+ *     changes, and cycles are rejected at registration time (`AssetGraph.link`). The graph is
+ *     metadata + safety, not a load scheduler: loaders pull their own deps through
+ *     `context.registry`, and load orchestration is Phase 15.3.
  */
 
 import { ResourceLifecycleError, UsageError, InternalError } from "../core/errors.js";
 import { EventTarget2 } from "../core/events.js";
 import type { Logger } from "../core/log.js";
+import { AssetGraph } from "./assetGraph.js";
+import { AssetId, type AssetIdInfo } from "./assetId.js";
 
 export type ResourceState = "idle" | "loading" | "ready" | "failed" | "released";
 
@@ -31,7 +43,11 @@ export interface ResourceLoadContext {
 }
 
 export interface ResourceDescriptor<T> {
-  /** Stable identity: "texture:assets/rocks.png" or "chunk:3,-1,2". Two ids that differ re-load. */
+  /**
+   * Stable identity: "texture:assets/rocks.png" or "chunk:3,-1,2". Two ids that differ re-load.
+   * Canonical ids follow the `AssetId` form (`kind:…`); bare legacy ids stay legal but carry no
+   * metadata.
+   */
   id: string;
   kind: string;
   load(context: ResourceLoadContext): Promise<T> | T;
@@ -43,6 +59,20 @@ export interface ResourceDescriptor<T> {
   idleMs?: number;
   priority?: number;
   tags?: readonly string[];
+  /**
+   * Phase 15.1: SHA-256 hex of the resource's bytes (see `hashContent`), when the loader knows
+   * it. Must describe the *content at `id`*, not the load attempt. Re-acquiring `id` with a
+   * different hash releases the cached value and re-loads, emitting `contentChanged` with the
+   * transitive dependents that now hold stale values.
+   */
+  contentHash?: string;
+  /**
+   * Phase 15.2: the ids this resource depends on, reported once the value exists (a glTF only
+   * knows its textures after parsing). Used for eviction safety, `invalidate()` propagation and
+   * graph queries — not for scheduling: the loader still pulls its own deps through
+   * `context.registry`. Edges that would close a cycle are rejected with a logged error.
+   */
+  dependencies?: (value: T) => readonly string[];
 }
 
 export class ResourceHandle<T> {
@@ -150,6 +180,7 @@ export class ResourceRegistry {
   readonly maxBytes: number;
   readonly idleGraceMs: number;
   private readonly entries = new Map<string, Entry<unknown>>();
+  private readonly graph = new AssetGraph();
   private readonly logger: Logger | null;
   private totalBytes = 0;
   private loads = 0;
@@ -161,6 +192,10 @@ export class ResourceRegistry {
     loaded: new EventTarget2<string>(),
     failed: new EventTarget2<{ id: string; error: unknown }>(),
     evicted: new EventTarget2<string>(),
+    /** Phase 15.1: same id, different `contentHash` on re-acquire — the value was replaced. */
+    contentChanged: new EventTarget2<{ id: string; oldHash: string; newHash: string; dependents: string[] }>(),
+    /** Phase 15.2: an asset was invalidated/evicted; `dependents` is the transitive reload list. */
+    invalidated: new EventTarget2<{ id: string; dependents: string[]; reason: string }>(),
   };
 
   constructor(options: ResourceRegistryOptions = {}) {
@@ -193,6 +228,28 @@ export class ResourceRegistry {
     if (this.disposed) throw new ResourceLifecycleError("ResourceRegistry was disposed");
     if (!descriptor.id) throw new UsageError("ResourceDescriptor.id must be a non-empty string");
     if (!descriptor.kind) throw new UsageError("ResourceDescriptor.kind must be a non-empty string");
+    // Phase 15.1: the same path id now carries different bytes — the cached value is stale by
+    // definition. Release it, announce which loaded dependents hold it, and load fresh. Handles
+    // still pointing at the old entry are stale too (`.value` throws; re-acquire for the new
+    // bytes). An in-flight load is left alone: swapping a descriptor mid-load is a Phase 15.3
+    // concern.
+    const existing = this.entries.get(descriptor.id) as Entry<unknown> | undefined;
+    if (
+      existing !== undefined &&
+      existing.state === "ready" &&
+      descriptor.contentHash !== undefined &&
+      existing.descriptor.contentHash !== undefined &&
+      descriptor.contentHash !== existing.descriptor.contentHash
+    ) {
+      const dependents = this.graph.transitive(descriptor.id, "dependents");
+      this.releaseEntry(existing);
+      this.events.contentChanged.emit({
+        id: descriptor.id,
+        oldHash: existing.descriptor.contentHash,
+        newHash: descriptor.contentHash,
+        dependents,
+      });
+    }
     let entry = this.entries.get(descriptor.id) as Entry<T> | undefined;
     if (!entry) {
       entry = new Entry<T>(descriptor, this as unknown as ResourceRegistry) as unknown as Entry<T>;
@@ -246,6 +303,7 @@ export class ResourceRegistry {
       entry.value = value;
       entry.bytes = descriptor.bytes ? Math.max(0, descriptor.bytes(value)) : 0;
       this.totalBytes += entry.bytes;
+      this.registerDependencies(entry, value);
       entry.state = "ready";
       this.events.loaded.emit(descriptor.id);
       // Over budget: `evictIdle()` picks the target up from `maxBytes` and ignores the grace period.
@@ -263,6 +321,36 @@ export class ResourceRegistry {
     // A rejected handle-less load must not surface as an unhandled rejection: readiness is always
     // observed through handle.onReady()/wait(), which re-rejects deliberately.
     promise.catch(() => undefined);
+  }
+
+  /**
+   * @internal Phase 15.2: record (or re-record, after `retry`) the edges a loaded value declares.
+   * A callback that throws or an edge that would close a cycle logs an error and registers no
+   * edges — metadata failure must never break the resource itself.
+   */
+  private registerDependencies<T>(entry: Entry<T>, value: T): void {
+    const descriptor = entry.descriptor as ResourceDescriptor<T>;
+    if (descriptor.dependencies === undefined) return;
+    let declared: readonly string[];
+    try {
+      declared = descriptor.dependencies(value) ?? [];
+    } catch (error) {
+      this.logger?.error(`resource ${descriptor.id}: dependencies() threw; no edges registered`, error);
+      return;
+    }
+    const deps = [...new Set(declared)].filter((d) => typeof d === "string" && d.length > 0 && d !== descriptor.id);
+    let cycle: string | null = null;
+    for (const d of deps) {
+      cycle = this.graph.wouldCycle(descriptor.id, d);
+      if (cycle !== null) break;
+    }
+    if (cycle !== null) {
+      this.logger?.error(`resource ${descriptor.id}: dependency cycle (${cycle}); no edges registered`);
+      return;
+    }
+    // Retry path: replace, don't accumulate, stale edges.
+    this.graph.unlink(descriptor.id);
+    for (const d of deps) this.graph.link(descriptor.id, d);
   }
 
   /** @internal */
@@ -289,6 +377,11 @@ export class ResourceRegistry {
    *    least-recently-used entries until the total is at or under the target, *ignoring* the grace
    *    period. Budget pressure is not negotiable, which is what makes the budget a budget.
    *
+   *  **Dependency safety (Phase 15.2):** an entry with a *loaded* dependent is never a candidate —
+   *  the dependent's value may embed it without holding a registry handle (a material keeps its
+   *  textures). Evicting the dependent in the same call unblocks its dependencies, so the scan
+   *  cascades until a pass frees nothing: a whole dependency chain leaves in one `evictIdle`.
+   *
    * Returns the number of entries evicted; `evictedBytes`/`stats().evictedBytes` report their size.
    */
   evictIdle(targetBytes = 0): number {
@@ -297,27 +390,42 @@ export class ResourceRegistry {
     // A byte target that is already satisfied frees nothing: "be under 64 bytes" must not evict a
     // 64-byte cache down to zero.
     if (target > 0 && this.totalBytes <= target) return 0;
-    const candidates: Entry<unknown>[] = [];
-    for (const e of this.entries.values()) {
-      if (e.refCount > 0 || e.pinned) continue;
-      if (target === 0 && nowMs() - e.lastUse < this.idleGraceMs) continue;
-      candidates.push(e);
-    }
-    if (candidates.length === 0) return 0;
-    candidates.sort((a, b) => a.lastUse - b.lastUse);
     let freed = 0;
     let freedCount = 0;
-    for (const e of candidates) {
-      // Read the size *before* releasing: `releaseEntry` zeroes `e.bytes`, and an eviction report
-      // that always says 0 MB is worse than no report.
-      const bytes = e.bytes;
-      this.releaseEntry(e);
-      freedCount++;
-      freed += bytes;
-      if (target > 0 && this.totalBytes <= target) break;
+    // Each pass evicts at least one entry (or the loop stops), so ≤ entries.size passes. The
+    // bound is captured up front: evicting shrinks `entries.size`, and a live bound would end
+    // the loop one pass too early on exactly-sized chains.
+    const maxPasses = this.entries.size;
+    for (let pass = 0; pass <= maxPasses; pass++) {
+      const candidates: Entry<unknown>[] = [];
+      for (const e of this.entries.values()) {
+        if (e.refCount > 0 || e.pinned) continue;
+        if (this.hasLoadedDependents(e.descriptor.id)) continue;
+        if (target === 0 && nowMs() - e.lastUse < this.idleGraceMs) continue;
+        candidates.push(e);
+      }
+      if (candidates.length === 0) break;
+      candidates.sort((a, b) => a.lastUse - b.lastUse);
+      let progress = false;
+      for (const e of candidates) {
+        // Read the size *before* releasing: `releaseEntry` zeroes `e.bytes`, and an eviction
+        // report that always says 0 MB is worse than no report.
+        const bytes = e.bytes;
+        this.releaseEntry(e);
+        freedCount++;
+        freed += bytes;
+        progress = true;
+        if (target > 0 && this.totalBytes <= target) break;
+      }
+      if (!progress || (target > 0 && this.totalBytes <= target)) break;
     }
     if (freedCount > 0) this.logger?.debug(`resources: evicted ${freedCount} entries (${(freed / 1048576).toFixed(1)} MB)`);
     return freedCount;
+  }
+
+  /** Phase 15.2: `id` may not be evicted while any dependent is still loaded (see `evictIdle`). */
+  private hasLoadedDependents(id: string): boolean {
+    return this.graph.dependentsOf(id).some((dependent) => this.entries.has(dependent));
   }
 
   private releaseEntry(e: Entry<unknown>): void {
@@ -336,6 +444,7 @@ export class ResourceRegistry {
     e.bytes = 0;
     e.state = "released";
     this.entries.delete(descriptor.id);
+    this.graph.unlink(descriptor.id);
     this.evictions++;
     this.events.evicted.emit(descriptor.id);
   }
@@ -370,9 +479,48 @@ export class ResourceRegistry {
       e.bytes = 0;
       e.value = null;
     }
+    // Phase 15.2: drop the edges the old value declared; the re-load registers its own (a reload
+    // whose load fails must not leave the stale graph behind).
+    this.graph.unlink(id);
     e.abort = { aborted: false };
     this.startLoad(e as unknown as Entry<T>);
     return e.promise as Promise<T>;
+  }
+
+  /**
+   * Phase 15.2: invalidate an asset — release it if loaded and report, transitively, every
+   * loaded asset that depends on it (the reload list for the editor's hot-reload action, the
+   * Phase 15.4 hook). Always emits `invalidated`, even for an id that is not currently loaded.
+   */
+  invalidate(id: string, reason = "invalidated"): string[] {
+    const dependents = this.graph.transitive(id, "dependents").filter((d) => this.entries.has(d));
+    const entry = this.entries.get(id);
+    if (entry) this.releaseEntry(entry);
+    this.events.invalidated.emit({ id, dependents, reason });
+    return dependents;
+  }
+
+  /** Phase 15.2: the ids `id` directly depends on (sorted). */
+  dependenciesOf(id: string): string[] {
+    return this.graph.dependenciesOf(id);
+  }
+
+  /** Phase 15.2: the ids that directly depend on `id` (sorted). */
+  dependentsOf(id: string): string[] {
+    return this.graph.dependentsOf(id);
+  }
+
+  /**
+   * Phase 15.2: the transitive subgraph around `id` — `"deps"` walks down to the leaves (what
+   * this asset needs), `"dependents"` walks up to the roots (who needs this asset).
+   */
+  subgraph(id: string, direction: "deps" | "dependents"): string[] {
+    return this.graph.transitive(id, direction);
+  }
+
+  /** Parsed `AssetId` metadata for a registry id, or null for legacy bare ids. */
+  info(id: string): AssetIdInfo | null {
+    return AssetId.parse(id);
   }
 
   /** All loaded ids of a kind (the editor's asset browser + leak tests use this). */
@@ -396,6 +544,8 @@ export class ResourceRegistry {
     evictedBytes: number;
     pending: number;
     unreferenced: number;
+    /** Phase 15.2: live dependency-graph edges. */
+    edges: number;
   } {
     let pending = 0;
     let unreferenced = 0;
@@ -412,6 +562,7 @@ export class ResourceRegistry {
       evictedBytes: this.evictedBytesTotal,
       pending,
       unreferenced,
+      edges: this.graph.edgeCount,
     };
   }
 
@@ -439,6 +590,7 @@ export class ResourceRegistry {
       this.releaseEntry(e);
     }
     this.entries.clear();
+    this.graph.clear();
     for (const key of Object.keys(this.events) as (keyof typeof this.events)[]) this.events[key].clear();
   }
 }

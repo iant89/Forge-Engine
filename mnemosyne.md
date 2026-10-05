@@ -730,3 +730,63 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
   `frontFace: "cw"`; `rosetteGeometrySource` duplicates front/back leaf vertices so reverse faces
   receive independent normals instead of cancelling. Decal `embed` is slightly negative to lift the
   zero-thickness disc above the terrain. Every added geometry/material is released by the scene handle.
+
+## 2026-10-05 — Phase 15 opened: 15.1 content addressing + 15.2 dependency graph
+
+**Branch incident (read this first):** the sandbox reset re-clones the git repo and resets the
+branch to the base commit, but the *working tree keeps its files*. This session's local commit
+(90d7c09, my re-derived 14.4 wiring) therefore sat on `b6fb0c2` while the remote had already
+advanced through `753927d → b2eabb7 → 3478c3e → cbbb7d3` — a parallel run had pushed the same
+14.4 wiring (independently converging on the same WGSL `let`-immutability fix) *and* completed
+14.2. Resolution: backed the divergent commit up as tag `backup/local-144-90d7c09`, verified the
+remote tip was green here (671/671), and adopted it (`git reset --hard origin/...`). **Rule for
+any future turn:** before committing/pushing, `git fetch` and compare `HEAD` with
+`origin/<branch>`; if the remote moved, diff content (not history) and prefer the more complete
+tree — never blind-force-push this branch.
+
+**15.1 as-built** (`engine/src/resources/assetId.ts`):
+- Id form `<kind>:<address>`; kind `[A-Za-z][A-Za-z0-9_-]*`; address is a path or
+  `c/<64-hex sha256>[~name]`. `parse` returns null for legacy bare ids (they stay legal registry
+  keys); constructors throw `UsageError`. `display()` shortens content ids for logs.
+- `hashContent` is the pipeline's ONE hasher: SHA-256 via WebCrypto (async; works in Node ≥ 19
+  and browser secure contexts; throws a clear `UsageError` on plain-http browsers). Pass the
+  view straight to `digest` — it hashes exactly the view's byte range, no copy.
+
+**15.2 as-built** (`engine/src/resources/assetGraph.ts` + registry integration):
+- Edges are (dependent → dependency), both directions stored. `link`/`wouldCycle` reject cycles
+  at registration; `wouldCycle` returns a human path (`a → b → c → a`) for the log.
+- **The graph is metadata + safety, NOT a load scheduler.** Loaders pull their own deps through
+  `context.registry` (the seam already existed). Orchestration is 15.3. Keeping this boundary is
+  what keeps 15.3 from rewriting the registry.
+- Descriptor hooks: `contentHash?: string` (stable property of the id's content) and
+  `dependencies?: (value) => readonly string[]` (reported once the value exists — a glTF only
+  knows its textures after parsing). Edges register on load success, re-register on `retry`
+  (unlink first, so a failed reload leaves no stale graph), clear on eviction.
+- **Eviction safety:** an entry with a *loaded* dependent is never a candidate (the dependent's
+  value may embed it without holding a handle). `evictIdle` now loops passes until one frees
+  nothing — evicting a dependent unblocks its dependency in the SAME call, so a chain leaves
+  together. **Trap hit:** the pass bound must be captured *before* the loop — `pass <=
+  this.entries.size` re-evaluates and shrinks as entries are evicted, ending exactly-sized
+  chains one pass early.
+- **Cycle race (documented, not fixed):** with two concurrent loads that depend on each other,
+  whichever lands FIRST registers its edge (no cycle exists yet); the SECOND edge closes the
+  cycle and is the one rejected + logged. One-way edge survives; harmless (no dangle, no loop).
+  Don't "fix" it by retro-removing the first edge — that would mutate one load's metadata from
+  another load's failure.
+- `contentChanged` path: ready entry + same id + different `contentHash` → release + emit
+  `{id, oldHash, newHash, dependents: transitive loaded}` + fresh load. Old handles go stale
+  (`.value` throws) — documented in the acquire comment. In-flight loads are never swapped
+  (15.3 concern).
+- `invalidate(id)` = release-if-loaded + return transitive loaded dependents + always emit
+  `invalidated` — this is the 15.4 hot-reload hook; the editor acts on the list.
+
+**State after this slice:** 15.1 + 15.2 closed; `assets.contentAddressing` partial, closesWith
+15.3 (closes when real loaders use the ids). `Phase 15+` = inProgress. 697/697 tests, docs:check
+green (28 partial / 11 planned).
+
+**Next: 15.3 Streaming** — async asset loading, cancellation, prioritization, GPU upload
+budgeting. It must build ON the seams already in place: `ResourceLoadContext.signal` (abort),
+descriptor `priority`, the byte budget/`evictIdle`, and the graph (load orchestration walks it).
+Candidate shape: a `loadAsset(id, priority)` that resolves the graph's leaves first, respects a
+per-frame upload budget, and is cancellable — then 15.4 (hot reload) becomes `invalidate` +
+`retry` wired to file watchers, and 15.5 (validation) is loader-side checks.
