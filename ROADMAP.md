@@ -1430,11 +1430,12 @@ GOAL:
 
 15.5.4 Sand Deformation and Wheel Tracks
 
-    [ ] Persistent per-tile deformation state.
+    [~] Persistent per-tile deformation state.
 
-        Store shallow track/deformation samples keyed by terrain chunk and world-local coordinates,
-        separate from the procedural generator output. Eviction must serialize the state and reapply
-        it when the tile returns; the base analytic Mars surface remains reproducible.
+        `TerrainDeformationField` now stores bounded, chunk-keyed shallow wheel deltas separately from
+        the procedural generator, supports sampling, revision tracking and serialize/restore, and the
+        Mars Showcase records load-bearing wheel impressions into it. Rendering, collision application
+        and eviction-time persistence wiring are still open.
 
     [ ] Visual tracks first.
 

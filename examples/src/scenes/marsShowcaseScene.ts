@@ -90,6 +90,7 @@ import {
   bridgeRockContact,
   MARS_ROCK_MATERIAL,
   createInteractiveRockSpec,
+  TerrainDeformationField,
   buildLodGeometry,
   rockGeometrySource,
   unindexedLodWindow,
@@ -627,6 +628,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
   let brokenInteractiveRocks = 0;
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
+  const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
   const INTERACTION_RADIUS = 48;
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
@@ -1143,6 +1145,21 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
       stepInteractiveRocks(dt);
+      // Record shallow wheel impressions separately from the procedural heightfield. The renderer
+      // and ground-query consumers do not apply this delta yet; this keeps the runtime state ready
+      // for the visual and physical deformation steps without mutating generated Mars cells.
+      for (const wheel of vehicle.wheels) {
+        if (!wheel.inContact) continue;
+        const cx = Math.floor(wheel.contactX / terrain.chunkSize);
+        const cz = Math.floor(wheel.contactZ / terrain.chunkSize);
+        const key = chunkCoordKey(cx, cz);
+        deformation.stamp(key, {
+          x: wheel.contactX - cx * terrain.chunkSize,
+          z: wheel.contactZ - cz * terrain.chunkSize,
+          radius: 0.18,
+          depth: 0.008 * Math.min(1.5, Math.max(0.2, wheel.normalLoad / 625)),
+        }, terrain.chunkSize);
+      }
       // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
       // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
       // onto the latch like the real pyro deployment — and a mid-swing toggle reverses smoothly.
@@ -1306,6 +1323,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         roverDamageWheels: roverDamage.wheels,
         roverDamageSuspension: roverDamage.suspension,
         roverDisabled: roverDamage.disabled,
+        deformationChunks: deformation.chunkCount,
+        deformationSamples: deformation.sampleCount,
+        deformationRevision: deformation.revision,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
