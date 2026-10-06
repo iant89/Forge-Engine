@@ -1378,11 +1378,13 @@ GOAL:
 
 15.5.2 Push, Roll and Destruction
 
-    [ ] Material and strength model.
+    [x] Material and strength model.
 
-        Add mass/density, friction, restitution, crush strength, break threshold and roll resistance
-        to the population type/instance data. A small rock whose mass is below the rover's available
-        tractive force can be pushed; a heavy or tall rock remains an obstacle.
+        `InteractiveRockMaterial`, `MARS_ROCK_MATERIAL` and `createInteractiveRockSpec` derive mass,
+        friction, restitution, crush strength, push force and climb height from the proxy shape. The
+        Mars Showcase now uses this profile instead of hard-coded per-rock thresholds; values are
+        validated before a dynamic proxy is created. Roll resistance and per-instance geology remain
+        open for the later break/settle step.
 
     [ ] Dynamic rock bodies.
 

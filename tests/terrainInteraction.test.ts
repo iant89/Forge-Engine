@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { BoxShape, InteractiveRockProxy, assessRockContact, type InteractiveRockSpec } from "@forge/engine";
+import {
+  BoxShape,
+  InteractiveRockProxy,
+  MARS_ROCK_MATERIAL,
+  assessRockContact,
+  createInteractiveRockSpec,
+  type InteractiveRockSpec,
+} from "@forge/engine";
 
 function rock(overrides: Partial<InteractiveRockSpec> = {}): InteractiveRockSpec {
   return {
@@ -42,6 +49,27 @@ describe("Phase 15.5 interactive terrain foundation", () => {
       availableForce: 60,
       obstacleHeight: 0.5,
     })).toMatchObject({ outcome: "blocked", reason: "too-tall" });
+  });
+
+  it("derives mass and thresholds from the Mars material profile", () => {
+    const spec = createInteractiveRockSpec({
+      id: "mars-rock",
+      shape: new BoxShape(0.5, 0.5, 0.5),
+      material: MARS_ROCK_MATERIAL,
+      climbRadius: 0.5,
+    });
+    expect(spec.mass).toBeCloseTo(120, 8);
+    expect(spec.pushForce).toBeGreaterThanOrEqual(MARS_ROCK_MATERIAL.minimumPushForce);
+    expect(spec.crushStrength).toBeGreaterThan(0);
+    expect(spec.climbHeight).toBeCloseTo(0.7, 8);
+  });
+
+  it("rejects invalid material parameters instead of creating unstable proxies", () => {
+    expect(() => createInteractiveRockSpec({
+      id: "bad-rock",
+      shape: new BoxShape(0.5, 0.5, 0.5),
+      material: { ...MARS_ROCK_MATERIAL, density: -1 },
+    })).toThrow(/density/);
   });
 
   it("promotes a rock to a dynamic body and applies a push impulse", () => {

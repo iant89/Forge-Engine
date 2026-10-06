@@ -28,6 +28,62 @@ export interface InteractiveRockSpec {
   readonly restitution?: number;
 }
 
+/** Physical parameters for a near-field rock material. Values are gameplay-scale, not geological data. */
+export interface InteractiveRockMaterial {
+  readonly density: number;
+  readonly friction: number;
+  readonly restitution: number;
+  /** Fracture force per unit volume, in N/m³. */
+  readonly crushStrength: number;
+  /** Portion of the rock's weight used as the minimum push force. */
+  readonly pushCoefficient: number;
+  readonly minimumPushForce: number;
+  /** Multiplier from proxy radius to the rover's climbable height. */
+  readonly climbHeightFactor: number;
+}
+
+/** Basalt/regolith gameplay profile used by the Mars Showcase. */
+export const MARS_ROCK_MATERIAL: InteractiveRockMaterial = Object.freeze({
+  density: 120,
+  friction: 0.9,
+  restitution: 0.05,
+  crushStrength: 12000,
+  pushCoefficient: 0.8,
+  minimumPushForce: 80,
+  climbHeightFactor: 1.4,
+});
+
+export interface InteractiveRockSpecOptions {
+  readonly id: string;
+  readonly shape: Shape;
+  readonly material?: InteractiveRockMaterial;
+  readonly climbRadius?: number;
+}
+
+/** Build a validated, material-derived rock spec from a collision shape. */
+export function createInteractiveRockSpec(options: InteractiveRockSpecOptions): InteractiveRockSpec {
+  const material = options.material ?? MARS_ROCK_MATERIAL;
+  for (const [name, value] of Object.entries(material)) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      throw new RangeError(`interactive rock material ${name} must be a finite non-negative number`);
+    }
+  }
+  if (!options.id) throw new RangeError("interactive rock id must not be empty");
+  const unitMass = options.shape.computeMass(1).mass;
+  const mass = Math.max(1e-3, unitMass * material.density);
+  const radius = Math.max(0, options.climbRadius ?? 0.5);
+  return {
+    id: options.id,
+    shape: options.shape,
+    mass,
+    crushStrength: Math.max(1, unitMass * material.crushStrength),
+    pushForce: Math.max(material.minimumPushForce, mass * 3.72 * material.pushCoefficient),
+    climbHeight: radius * material.climbHeightFactor,
+    friction: material.friction,
+    restitution: material.restitution,
+  };
+}
+
 export interface RockContactInput {
   /** Rover mass in kilograms. */
   readonly roverMass: number;

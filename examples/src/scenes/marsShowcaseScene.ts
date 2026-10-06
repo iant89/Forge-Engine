@@ -86,6 +86,8 @@ import {
   createVehicleConfig,
   heightFunctionGround,
   InteractiveRockProxy,
+  MARS_ROCK_MATERIAL,
+  createInteractiveRockSpec,
   buildLodGeometry,
   rockGeometrySource,
   unindexedLodWindow,
@@ -637,16 +639,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         wanted.add(id);
         if (interactiveRocks.has(id)) continue;
         const radius = Math.max(0.12, block.scales[p]! * 0.65);
-        const proxy = new InteractiveRockProxy({
+        const proxy = new InteractiveRockProxy(createInteractiveRockSpec({
           id,
           shape: new SphereShape(radius),
-          mass: Math.max(8, radius * radius * radius * 38),
-          crushStrength: 50000,
-          pushForce: Math.max(80, radius * radius * 180),
-          climbHeight: Math.max(0.2, radius * 1.4),
-          friction: 0.9,
-          restitution: 0.05,
-        }, { x: block.positions[p]!, y: block.positions[p + 1]!, z: block.positions[p + 2]! });
+          material: MARS_ROCK_MATERIAL,
+          climbRadius: radius,
+        }), { x: block.positions[p]!, y: block.positions[p + 1]!, z: block.positions[p + 2]! });
         interactivePhysics.addBody(proxy.body);
         interactiveRocks.set(id, { block, index: i, proxy });
       }
