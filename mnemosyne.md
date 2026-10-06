@@ -1152,3 +1152,40 @@ was not rerun; its last known separate issue is still the timing-sensitive rover
   gate (`check:browser`, `check:browser:terrain-layers`, `check:browser:mars-workers`) — this sandbox
   has no Vulkan adapter beyond SwiftShader and the gate is speed-limited here, so #48's GPU pixel/A-B
   evidence is still the implementation-run record above, not a fresh green run.
+
+## 2026-10-06 — PR #54 rebased onto main: step 1 dropped, the port inspector re-landed
+
+The session branch was rebuilt on `origin/main` (`c1cff62`, which carries #51 + #52 + #53) after
+comparing the two designs (`PR54-design-comparison.md` at the workspace root, also posted as a PR
+comment). `git merge-tree --write-tree origin/main HEAD` had listed nine conflicting files, and the
+sandbox `node_modules` had been wiped by a re-clone — `npm ci` was needed again, and the earlier commits
+had to be rebuilt because the re-clone dropped them from the object store (the working tree survived).
+
+**Step 1 (per-chunk material bake) was dropped as superseded.** Measured against #53: the bake adds
+80 B/tile and gets one colour per 128 m chunk; #53's `SplatMaterial` adds ~4,580 B/tile (4,356 B RGBA8
+mask + 224 B `SplatUniforms`, +4.1 % of a tile) and gets per-vertex (4 m) blends plus four texture
+arrays, macro variation, micro detail and slope/height gates. Draw calls are identical (chunk meshes
+are unique, so per-chunk materials never cost a batch), which is why the cheap bake was tempting — but
+it is an approximation of a shipped feature, not an alternative to it.
+
+**Only the inspector re-landed** (`?scene=mars-generator`, scene + suite + gate arm + docs). Main's API
+made it *smaller*: `TerrainWorld` owns the splat path (`chunk.tile.gpuMaterial`), so tests assert
+`weightPixels(cell)` per tile instead of comparing baked `baseColor`s; `createMarsSurfaceTextures` and
+`marsSurfaceLayers()` provide real arrays; and `syncGeneration: false` now genuinely means workers
+because the analytic configuration round-trips to a worker.
+
+Traps worth keeping:
+
+- **Never place a new gate arm after the Mars Showcase section.** An abort anywhere in the gate's
+  single try block ends everything after it; on the previous base the showcase's W-drive check
+  (frame-rate bound on SwiftShader) aborted the run three times out of three, so an arm placed after it
+  never executed. The inspector arm sits before `loadScene("mars-showcase")`.
+- **The port's splat is regional.** A 54-site scan (15° lat × 60° lon, 5×5 tiles each) found two
+  dominant channels in one window at only two sites (`0,0` and `60N,60E`); the volcano summit bakes one
+  colour for kilometres. Assertions about "the materials vary" must use `?marssite=0,0`, and the
+  limitation is documented rather than papered over.
+- **`Heightmap.getNormal` clamps at tile edges** (central differences sample one texel outside the
+  grid): up to ~6° off the analytic normal at `x == 0 || x == size`. Mesh vertex normals are unaffected;
+  do not use it as a normal oracle at an edge.
+- The re-landed branch's gate: 766 tests / 53 files (main was 758/52), `lint:arch`, `check:testmap`
+  (51 claimed suites), `docs:check` (100 capabilities, 48 limitations), `demo:build` green.

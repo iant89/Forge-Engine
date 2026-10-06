@@ -45,6 +45,10 @@ import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
 import { buildPbrScene } from "./scenes/pbrScene.js";
 import { buildTerrainScene } from "./scenes/terrainScene.js";
 import { buildRealisticTerrainScene } from "./scenes/realisticTerrainScene.js";
+import {
+  buildMarsGeneratorScene,
+  type MarsGeneratorSceneHandle,
+} from "./scenes/marsGeneratorScene.js";
 import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js";
 import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
@@ -112,6 +116,8 @@ async function main(): Promise<void> {
   // `?scene=...` query string can still deep-link to any of them.
   const requestedScene = new URLSearchParams(window.location.search).get("scene");
   let activeSceneName: DemoSceneName = resolveDemoSceneName(requestedScene);
+  /** `?marssite=…` picks the ported Mars generator's site (the volcano by default). */
+  const marsSiteParam = new URLSearchParams(window.location.search).get("marssite");
 
   function loadScene(name: DemoSceneName): void {
     if (currentHandle) {
@@ -152,6 +158,9 @@ async function main(): Promise<void> {
       currentHandle = buildTerrainScene(engine);
     } else if (name === "realistic") {
       currentHandle = buildRealisticTerrainScene(engine, { preset: "alpine" });
+    } else if (name === "mars-generator") {
+      // `?marssite=vallesRift` (or any preset key / `lat,lon` pair) moves the ported generator's patch.
+      currentHandle = buildMarsGeneratorScene(engine, { site: marsSiteParam ?? undefined });
     } else if (name === "vehicle") {
       currentHandle = buildVehiclePlaygroundScene(engine);
     } else if (name === "particles") {
@@ -276,6 +285,7 @@ async function main(): Promise<void> {
       next === "cubes" ||
       next === "terrain" ||
       next === "realistic" ||
+      next === "mars-generator" ||
       next === "vehicle" ||
       next === "particles" ||
       next === "sky" ||
@@ -610,6 +620,11 @@ async function main(): Promise<void> {
     marsState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
+    },
+    /** Ported Mars generator inspector (`?scene=mars-generator`): site, fidelity, generation mode. */
+    marsGeneratorState: () => {
+      const handle = currentHandle as MarsGeneratorSceneHandle | null;
+      return handle?.marsGeneratorState?.() ?? null;
     },
     /** Mars showcase: raise (true) or stow (false) the camera mast; null on other scenes. */
     setMast: (deployed: boolean) => {

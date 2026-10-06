@@ -36,10 +36,10 @@ emissive bloom source, three shadow cascades, HDR / bloom / shadow / prepass / S
 toggles in the panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze, with Phase 14's
 deterministic rock and boulder populations streaming in per chunk — thousands of instanced rocks, zero entities per
 rock), **Realistic
-(Alpine)** (Phase 4), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
+(Alpine)** (Phase 4), **Mars Generator (P10.9)** (the ported planet as a *site inspector*: free orbit camera, no rover, and the site from the URL — `?marssite=vallesRift`, or `?marssite=0,0` for the crater field where the four material layers actually mix), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
 handbrake, `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`
 scrub the clock, `T` pauses it, `M` swaps Earth for Mars), and **Weather / Water** (Phase 8b: storm
 presets with rain, lightning, a Gerstner lake and an underwater dive). `?scene=pbr`, `?scene=terrain`,
-`?scene=vehicle`, `?scene=particles`, `?scene=sky`, `?scene=weather` and `?scene=mars-showcase` open
-scenes directly (`?scene=mars` is an alias for the Mars-flavoured Terrain demo).
+`?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`, `?scene=sky`, `?scene=weather` and `?scene=mars-showcase` open
+scenes directly (`?scene=mars` is an alias for the Mars-flavoured Terrain demo, `?scene=mars-port` for the generator inspector).

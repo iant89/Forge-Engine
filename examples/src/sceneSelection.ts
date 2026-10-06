@@ -11,6 +11,7 @@ export type DemoSceneName =
   | "cubes"
   | "terrain"
   | "realistic"
+  | "mars-generator"
   | "vehicle"
   | "particles"
   | "sky"
@@ -24,6 +25,7 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "cubes":
     case "terrain":
     case "realistic":
+    case "mars-generator":
     case "vehicle":
     case "particles":
     case "sky":
@@ -34,6 +36,9 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
       return "terrain";
     case "realistic-terrain":
       return "realistic";
+    case "mars-port":
+    case "mars-generator-port":
+      return "mars-generator";
     case "vehicle-playground":
       return "vehicle";
     case "showcase":

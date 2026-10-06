@@ -78,6 +78,16 @@
  * a frame-count settle would
  * either race the model fetch or stall the gate for minutes.
  *
+ * Phase 10.9 addition: the ported Mars generator is also addressable as a *site inspector*
+ * (`?scene=mars-generator`, site from `?marssite=<preset|lat,lon>`). Two arms: the volcano preset must
+ * stream the port on workers with the four-layer `SplatMaterial` path and no GPU errors, and a real
+ * `?scene=mars-generator&marssite=0,0` navigation (what a URL does — not `loadScene`) must leave a
+ * resident tile whose mask blends two channels, read back through `layeredMaterial.weightPixels`.
+ * The port's material rules are regional, so the volcano and canyon presets bake one channel for
+ * kilometres: a distinct-dominant-channel count over the streamed patch would be true on the crater
+ * field and false elsewhere, which is a property of the geology, not of the splat path. The arm runs
+ * *before* the showcase section on purpose — the showcase's W-drive threshold is frame-rate bound on
+ * SwiftShader and has aborted this gate on main, and an arm placed after it would be coverage on paper.
  * `--mars-workers` runs only native-worker round trips, showcase uploads/contact and a visual
  * capture. The full suite also observes those worker messages in its Mars arm. The focused mode
  * has its own command/output and never claims the renderer A/Bs, W-drive, HGA or arm checks ran.
@@ -1686,6 +1696,125 @@ async function checkAllScenes(backend) {
   });
   if (desktopPanel.display !== "block") throw new Error(`the weather button panel is not shown at desktop width (display ${desktopPanel.display})`);
   if (desktopPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the weather button panel at desktop width");
+
+  // ---------------------------------------------------------- Phase 10.9: ported-generator inspector
+  // The showcase below drives the port at *one* surveyed site; `?scene=mars-generator` is the other
+  // half of the port's demo coverage — the site comes from the URL, the camera is free, and there is
+  // no rover. Two things need the real adapter rather than the mock: the four-slice PBR arrays must
+  // upload and bind through SplatMaterial, and a site the port's geology actually mixes at (0°N 0°E,
+  // the crater field) must come back with one tile whose mask is a genuine two-channel blend.
+  // It runs before the showcase because the showcase section's W-drive check is frame-rate bound on
+  // SwiftShader and has aborted this gate repeatedly; an arm after it would be coverage on paper only.
+  const waitForGeneratorTiles = async (min, where) => {
+    try {
+      await page.waitForFunction(
+        (n) => {
+          const world = (window.__forge?.scene?.objects ?? []).find((o) => o && o.name === "TerrainWorld");
+          if (!world) return false;
+          const baked = [...world.chunks.values()].filter((c) => c.tile?.gpuMaterial).length;
+          return baked >= n;
+        },
+        min,
+        { polling: 250, timeout: 120000 },
+      );
+    } catch (error) {
+      throw new Error(`the generator inspector streamed no ${min} splat tiles (${where}): ${String(error.message).split("\n")[0]}`);
+    }
+    await settle(2);
+  };
+  /**
+   * Read every resident tile's mask back from the CPU twin of the weights and report how it splits:
+   * the dominant-channel histogram (which tiles look alike) plus the best-mixed tile's shares. The
+   * latter is the discriminating number — a single-channel site leaves it at 0.
+   */
+  const generatorMaskStats = () =>
+    page.evaluate(() => {
+      const world = (window.__forge.scene.objects ?? []).find((o) => o && o.name === "TerrainWorld");
+      const layered = world?.layeredMaterial;
+      if (!layered) return null;
+      const counts = [0, 0, 0, 0];
+      let tiles = 0;
+      let bestSecond = 0;
+      let bestShares = null;
+      for (const chunk of world.chunks.values()) {
+        const cell = chunk.tile?.cell;
+        if (!cell) continue;
+        const pixels = layered.weightPixels(cell);
+        const sums = [0, 0, 0, 0];
+        for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 4; c++) sums[c] += pixels[i + c];
+        const total = sums[0] + sums[1] + sums[2] + sums[3];
+        if (total <= 0) continue;
+        const shares = sums.map((s) => s / total);
+        const sorted = [...shares].sort((a, b) => b - a);
+        let top = 0;
+        for (let c = 1; c < 4; c++) if (shares[c] > shares[top]) top = c;
+        counts[top]++;
+        tiles++;
+        if (sorted[1] > bestSecond) {
+          bestSecond = sorted[1];
+          bestShares = shares.map((s) => +s.toFixed(3));
+        }
+      }
+      return { tiles, counts, bestSecond: +bestSecond.toFixed(3), bestShares };
+    });
+
+  await page.evaluate(() => window.__forge.loadScene("mars-generator"));
+  await waitForGeneratorTiles(6, "selector path");
+  const generator = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
+  if (!generator.state) throw new Error("?scene=mars-generator did not expose marsGeneratorState()");
+  if (generator.state.site !== "olympusMons") {
+    throw new Error(`the generator inspector did not open the volcano preset: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.state.generation !== "workers") {
+    throw new Error(`the ported generator is not running on workers in the demo: ${generator.state.generation}`);
+  }
+  if (generator.state.materialMode !== "layered" || generator.state.layers.join(",") !== "dust,rock,sand,crust") {
+    throw new Error(`the inspector's four-layer path is not resident: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.state.hasErosionCorrection !== false) {
+    throw new Error("the inspector claims an erosion cache this repo does not ship");
+  }
+  if (generator.state.chunkSize !== 128 || generator.state.skirtDepth !== 32 || generator.state.splatTiles < 6) {
+    throw new Error(`the advised size/skirts did not reach the world: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.stats.gpuErrors !== 0 || generator.stats.lastError) {
+    throw new Error(`GPU errors in the generator inspector (${generator.stats.gpuErrors}): ${generator.stats.lastError}`);
+  }
+  console.log(
+    `mars generator: ${generator.state.site} — ${generator.state.readyChunks} chunks, ${generator.state.splatTiles} splat tiles, ` +
+      `${generator.state.generation}, ${generator.state.materialMode}`,
+  );
+
+  // The deep link is a real navigation (what a URL does), and 0,0 is the site where the port's
+  // regional material rules mix channels: its crater rim splits a tile roughly 45/55 rock/crust,
+  // while the volcano and canyon presets bake one channel for kilometres (measured over resident
+  // mock tiles in tests/marsGeneratorScene.test.ts). So the claim checked here is *within one tile*:
+  // a non-dominant channel must carry a real share of the mask, which a flat material cannot fake.
+  await page.goto(`${URL}?scene=mars-generator&marssite=0,0`, { waitUntil: "load", timeout: 60000 });
+  await page.waitForFunction(() => window.__forge !== undefined, null, { timeout: 45000 });
+  await waitForGeneratorTiles(6, "crater-field deep link");
+  const crater = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
+  if (crater.state?.site !== "lat 0 lon 0") {
+    throw new Error(`?marssite=0,0 did not reach the stage: ${JSON.stringify(crater.state)}`);
+  }
+  const mask = await generatorMaskStats();
+  if (!mask || mask.tiles < 6) throw new Error(`could not read the crater field's weight masks: ${JSON.stringify(mask)}`);
+  // 25 % is well below the ~45/55 split the crater rim produces and well above the 0 a flat or
+  // single-region site would leave, so this fails on a broken splat without pinning a float.
+  if (mask.bestSecond < 0.25) {
+    throw new Error(
+      `the crater field's masks are single-channel (${JSON.stringify(mask)}): no tile mixes two channels, ` +
+        "so the port's splat is not reaching the tiles",
+    );
+  }
+  if (crater.stats.gpuErrors !== 0 || crater.stats.lastError) {
+    throw new Error(`GPU errors at the crater field (${crater.stats.gpuErrors}): ${crater.stats.lastError}`);
+  }
+  console.log(
+    `mars generator (crater field): ${mask.tiles} tiles, dominant dust/rock/sand/crust = ${mask.counts.join("/")}, ` +
+      `best-mixed tile ${JSON.stringify(mask.bestShares)} (second channel ${mask.bestSecond})`,
+  );
+  await page.screenshot({ path: "tools/.browser-check-mars-generator.png", timeout: 60000 });
 
   // Mars showcase: the Perseverance GLB must load (a fetch that 404s or a bad magic number used
   // to leave the placeholder driving around), the six model wheels must be found and settle into

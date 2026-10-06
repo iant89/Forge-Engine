@@ -527,7 +527,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "10.9",
     status: "partial",
     summary: "Ported external Mars generator (analytic Stage B + cached erosion) as a size-agnostic TerrainStage",
-    evidence: ["tests/marsTerrain.test.ts", "tests/marsTerrainPlan.test.ts", "tests/marsShowcase.test.ts", "tests/tasks.test.ts", "tools/browser-check.mjs", "tools/browser-mars-workers.mjs"],
+    evidence: ["tests/marsTerrain.test.ts", "tests/marsTerrainPlan.test.ts", "tests/marsShowcase.test.ts", "tests/marsGeneratorScene.test.ts", "tests/tasks.test.ts", "tools/browser-check.mjs", "tools/browser-mars-workers.mjs"],
     closesWith: "10.9",
     notes:
       "Seamless at any chunkSize/chunkResolution because every vertex is evaluated from its absolute " +
@@ -535,7 +535,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "Analytic cells run in workers; live Stage A fields, mesh building/uploads and missing-cell " +
       "ground queries still run on main. The ~30 MB erosion cache is not hosted, real-cache fidelity " +
       "is unverified. The showcase consumes its four splat channels as GPU-blended PBR layers; " +
-      "coarse-LOD slope/biome sampling can still change the material mix.",
+      "coarse-LOD slope/biome sampling can still change the material mix. A second demo, " +
+      "`?scene=mars-generator`, inspects any site (`?marssite=<preset|lat,lon>`) with the same port; its " +
+      "geology is regional, so most sites bake a single dominant channel.",
   },
   {
     id: "terrain.materialLayering",

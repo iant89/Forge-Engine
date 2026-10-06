@@ -231,6 +231,44 @@ Worker task/result messages, so a mode label alone cannot prove off-thread execu
 wiring. `TerrainWorld.setLayeredMaterialsEnabled(false)` temporarily selects the representative
 single material without regenerating geometry or changing contacts; `true` restores the splats.
 
+### The shipped site inspector (`?scene=mars-generator`)
+
+The showcase and this scene are the two halves of the port's demo coverage. The showcase pins one
+surveyed landing site and drives the rover; `examples/src/scenes/marsGeneratorScene.ts` is the
+inspector — the same `createMarsPipeline` world, the same 128 m / 33-vertex tiles with
+`adviseMarsTile(128, 33).recommendedSkirtDepth` (32 m) and the same worker-backed generation
+(`syncGeneration: false`, one generation per frame, nine warm-up requests), but no rover, a free orbit
+camera clamped to the ported surface, and the site taken from the URL:
+
+| URL | site |
+|---|---|
+| `?scene=mars-generator` | `MARS_SITE_PRESETS.olympusMons` (the 21 km volcano summit the generator's own CLI defaults to) |
+| `?scene=mars-generator&marssite=vallesRift` | a `MARS_SITE_PRESETS` key |
+| `?scene=mars-generator&marssite=0,0` | any `lat,lon` pair in degrees (range-checked; an unknown key falls back to the volcano) |
+
+The material path is the showcase's: four scene-tinted `marsSurfaceLayers()` over the shared
+`createMarsSurfaceTextures` arrays, one `SplatMaterial` per resident tile with a mask built from that
+tile's own splat. `window.__forge.marsGeneratorState()` reports the site, fidelity band, tile size,
+skirt depth, generation mode (`workers`/`inline`), material mode, ready chunks and splat tiles; the HUD
+repeats it and states **analytic only (no erosion cache)**.
+
+Two things this inspector makes visible, both worth knowing before reading a screenshot:
+
+* **The port's material regions are coarse relative to one 128 m tile.** Its geology assigns a
+  material per terrain region (crater floors and rims, the volcano's flank, the canyon's walls), so a
+  tile's weights sit almost entirely on one channel: the volcano summit and the canyon floor bake a
+  single channel for kilometres. A scan of 54 sites on a 15° × 60° grid, then a per-tile readback,
+  found the one place the *demo* shows a real blend — the 0°N 0°E crater field, where the rim splits a
+  tile roughly 45/55 rock/crust. That is why `?marssite=0,0` is the discriminating site, why the
+  browser check requires a non-dominant channel to carry ≥ 25 % of at least one resident tile's mask
+  mass, and why the unit suite also pins that the volcano summit stays flat (see
+  `docs/KNOWN-ISSUES.md`).
+* **`Heightmap.getNormal` clamps at tile edges.** It central-differences ±0.25 cells, which at
+  `x == 0` or `x == size` samples outside the grid and returns a clamped neighbour, so edge normals can
+  sit up to a few degrees off the analytic surface normal. The vertex normals the meshes are built from
+  are unaffected (they come from the analytic surface); this only matters if a tool or test queries
+  `Heightmap.getNormal` at a tile edge as a normal oracle.
+
 ### Layered material contract (10.8)
 
 ```ts
@@ -328,6 +366,7 @@ midpoint); both are derived from the generator's `marsConfig.ts` rather than har
 npx vitest run tests/marsTerrain.test.ts        # mapping, geology, fields, analytic serialization, streaming/fallback
 npx vitest run tests/marsTerrainPlan.test.ts    # 8 tests: tools/mars-terrain/plan.ts vs the engine
 npx vitest run tests/marsShowcase.test.ts       # scene wiring, spawn/drive, camera, streaming/LOD
+npx vitest run tests/marsGeneratorScene.test.ts # inspector: site parsing/URL routing, masks per tile, camera clamp
 npm run check:browser:terrain-layers          # real-GPU one-hot/mixed/PBR pixels + showcase material A/B
 npm run check:browser:mars-workers            # native Worker messages + actual showcase uploads/render
 npm run check:browser                         # full suite, including W-drive and articulation
