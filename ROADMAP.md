@@ -1412,12 +1412,13 @@ GOAL:
         transfer a smaller share to the rock. Continuous collision/tunnelling protection and per-wheel
         contact manifolds remain part of the next response step.
 
-    [ ] Climb, push and damage rules.
+    [x] Climb, push and damage rules.
 
-        Distinguish a climbable rock, a pushable rock and an immovable obstacle using contact height,
-        normal, relative velocity, rover mass and available traction. Apply bounded damage to the
-        rover for impacts that exceed the chassis, wheel or suspension limits, and expose the result
-        in `marsState()` and the showcase HUD.
+        Contact height, available traction and material-derived push force distinguish climbable,
+        pushable and blocked rocks. `applyRoverImpactDamage` applies bounded hull, wheel and suspension
+        damage to tall blocked impacts; a disabled rover cuts throttle and holds its brake. Damage and
+        disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
+        recovery remain open.
 
     [ ] Deterministic physics and browser evidence.
 

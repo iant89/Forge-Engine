@@ -131,6 +131,33 @@ export interface VehicleRockContactInput extends RockContactInput {
   readonly vehicleVelocity: Vec3Ops;
 }
 
+export interface RoverDamageState {
+  hull: number;
+  wheels: number;
+  suspension: number;
+  disabled: boolean;
+}
+
+/** Apply bounded impact damage; terrain contact and damage are intentionally separate systems. */
+export function applyRoverImpactDamage(
+  state: RoverDamageState,
+  assessment: RockContactAssessment,
+  _input: RockContactInput,
+  obstacleHeight: number,
+  dt: number,
+): number {
+  if (assessment.outcome !== "blocked" || state.disabled) return 0;
+  const impactThreshold = 2500;
+  const force = Math.max(0, assessment.impactForce - impactThreshold);
+  const amount = Math.min(100, (force / 40000) * Math.max(0, dt) * 4);
+  if (amount <= 0) return 0;
+  state.hull = Math.min(100, state.hull + amount);
+  state.suspension = Math.min(100, state.suspension + amount * Math.min(1.5, Math.max(0.25, obstacleHeight * 2)));
+  if (obstacleHeight > 0.35) state.wheels = Math.min(100, state.wheels + amount * 0.35);
+  state.disabled = state.hull >= 100 || state.suspension >= 100;
+  return amount;
+}
+
 /**
  * Bridge one vehicle contact into both participants. Damage is intentionally not decided here;
  * this step only transfers normal momentum and leaves the impact assessment for the next phase item.

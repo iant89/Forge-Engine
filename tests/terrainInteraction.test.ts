@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyRoverImpactDamage,
   BoxShape,
   InteractiveRockProxy,
   MARS_ROCK_MATERIAL,
@@ -115,6 +116,31 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     expect(result.outcome).toBe("blocked");
     expect(velocity.x).toBeCloseTo(0.2, 8);
     expect(velocity.z).toBe(0);
+  });
+
+  it("applies bounded damage for a blocked tall-rock impact and disables at the limit", () => {
+    const spec = rock({ crushStrength: 1000000, pushForce: 5000 });
+    const assessment = assessRockContact(spec, {
+      roverMass: 1025,
+      relativeSpeed: 8,
+      availableForce: 10,
+      obstacleHeight: 1,
+    });
+    const damage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
+    const amount = applyRoverImpactDamage(damage, assessment, {
+      roverMass: 1025,
+      relativeSpeed: 8,
+      availableForce: 10,
+      obstacleHeight: 1,
+    }, 1, 1 / 60);
+    expect(assessment.outcome).toBe("blocked");
+    expect(amount).toBeGreaterThan(0);
+    expect(damage.hull).toBeGreaterThan(0);
+    expect(damage.wheels).toBeGreaterThan(0);
+    for (let i = 0; i < 20000; i++) applyRoverImpactDamage(damage, assessment, {
+      roverMass: 1025, relativeSpeed: 8, availableForce: 10, obstacleHeight: 1,
+    }, 1, 1 / 60);
+    expect(damage.disabled).toBe(true);
   });
 
   it("marks a fractured rock without leaving a live dynamic body decision to the caller", () => {

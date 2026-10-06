@@ -86,6 +86,7 @@ import {
   createVehicleConfig,
   heightFunctionGround,
   InteractiveRockProxy,
+  applyRoverImpactDamage,
   bridgeRockContact,
   MARS_ROCK_MATERIAL,
   createInteractiveRockSpec,
@@ -625,6 +626,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   }));
   const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
   let brokenInteractiveRocks = 0;
+  const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
   const INTERACTION_RADIUS = 48;
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
@@ -678,6 +680,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             obstacleHeight: (body.shape as SphereShape).radius * 2,
             vehicleVelocity: vehicle.velocity,
           }, { x: nx, y: 0, z: nz });
+          applyRoverImpactDamage(roverDamage, assessment, {
+            roverMass: 1025,
+            relativeSpeed: approach,
+            availableForce: 2160,
+            obstacleHeight: (body.shape as SphereShape).radius * 2,
+          }, (body.shape as SphereShape).radius * 2, dt);
           if (assessment.outcome === "crushed") {
             // Break now, then remove the proxy from the active world. The zeroed instance is a
             // deterministic settled/broken state; no fragment bodies are spawned in this first slice.
@@ -1190,8 +1198,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // The first non-zero throttle input is the user's acknowledgement that the rover should
       // move. Until then both brakes stay engaged, including while the GLB is still loading.
       if (throttle > 0.01) startupBrake = false;
-      vehicle.input.throttle = throttle;
-      vehicle.input.brake = Math.max(keyBrake, startupBrake ? 1 : 0);
+      vehicle.input.throttle = roverDamage.disabled ? 0 : throttle;
+      vehicle.input.brake = Math.max(keyBrake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
 
@@ -1294,6 +1302,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         populationInstances: Number(populationStats.instances ?? 0),
         interactiveRocks: interactiveRocks.size,
         brokenInteractiveRocks,
+        roverDamageHull: roverDamage.hull,
+        roverDamageWheels: roverDamage.wheels,
+        roverDamageSuspension: roverDamage.suspension,
+        roverDisabled: roverDamage.disabled,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
