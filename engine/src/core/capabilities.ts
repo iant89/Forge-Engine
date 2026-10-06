@@ -85,7 +85,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "12": "verified",
   "13": "inProgress",
   "14": "inProgress",
-  "15+": "inProgress",
+  "15+": "verified",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -168,10 +168,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "workers.browserThreads",
     phase: "9.1",
-    status: "partial",
-    summary: "No browser-side worker round-trip is asserted",
-    closesWith: "9.1",
-    notes: "Node suites drive the same worker scope on node:worker_threads; demos request workerCount>0 (browser gate may still run inline when Worker is unavailable)",
+    status: "verified",
+    summary: "The browser module-worker decodes and returns a GLB mesh through TaskScheduler without inline fallback",
+    evidence: ["tools/browser-check.mjs", "docs/VERIFICATION.md"],
+    notes: "The focused `npm run check:browser:workers` gate checks worker count, completed task, zero inline fallback/failures and decoded triangle contents on Chromium + SwiftShader.",
   },
   {
     id: "workers.terrainGeneration",
@@ -190,12 +190,28 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   },
   {
     id: "assets.meshDecoding",
-    phase: "15.1",
-    status: "planned",
-    summary: "Mesh/asset decoding off the main thread",
-    closesWith: "15.1",
-    notes: "No glTF/GLB decoder exists yet; the worker harness already supports the decode-handler pattern",
+    phase: "9.1",
+    status: "verified",
+    summary: "Core glTF 2.0/GLB triangle mesh accessors decode on TaskScheduler workers and return transferable upload-ready arrays",
+    evidence: ["tests/gltf.test.ts", "tests/tasks.test.ts", "docs/VERIFICATION.md"],
+    notes: "Covers interleaved/sparse accessors, normalized attributes, indices, bounds, nodes/scenes and material factors. Extended import (images, animation/skin/morph/instancing, Draco/meshopt) is tracked separately as assets.gltfAdvanced.",
   },
+  {
+    id: "assets.gltfAdvanced",
+    phase: "16.1",
+    status: "planned",
+    summary: "Extended glTF import: image/material resource assembly, animation/skin/morph/instancing and compressed geometry extensions",
+    closesWith: "16.1",
+    notes: "The Phase 9.1 importer deliberately covers static uncompressed triangle geometry and metadata; advanced extensions and GPU asset construction remain future work.",
+  },
+  {
+    id: "assets.loaderPreemption",
+    phase: "15.3",
+    status: "deferred",
+    summary: "Preempting arbitrary synchronous asset-loader code after a streaming request starts",
+    notes: "JavaScript cannot interrupt synchronous work. The streamer cancels queued requests, signals running loaders and discards cancelled outputs; loader bodies must cooperate. No roadmap item schedules hard preemption.",
+  },
+
   {
     id: "resources.registry",
     phase: "1",
@@ -525,7 +541,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "physics.rigidBodies",
     phase: "5",
     status: "verified",
-    summary: "Fixed-step rigid bodies, pairwise broadphase, sequential impulse solver, friction and restitution",
+    summary: "Fixed-step rigid bodies, deterministic sweep-and-prune broadphase, sequential impulse solver, friction and restitution",
     evidence: ["tests/physics.test.ts"],
   },
   {
@@ -555,11 +571,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "physics.spatialIndex",
     phase: "9.1",
-    status: "partial",
-    summary: "A deterministic median-split mesh BVH exists; raycasts, culling and the broadphase do not use it yet",
-    evidence: ["tests/bvh.test.ts"],
-    closesWith: "13.5",
-    notes: "Grid-marched terrain raycasts and the pairwise broadphase still answer queries without it",
+    status: "verified",
+    summary: "Mesh BVH accelerates triangle picking and frustum refinement; deterministic sweep-and-prune reduces rigid-body broadphase pairs",
+    evidence: ["tests/bvh.test.ts", "tests/ecs.test.ts", "tests/rendering.test.ts", "tests/physics.test.ts"],
+    notes: "PhysicsWorld restores insertion-order pair processing for deterministic contacts. Heightfield raycasts keep their specialized grid marcher; GPU batch visibility still uses conservative bounds.",
   },
   {
     id: "physics.wasmBackend",
@@ -772,25 +787,56 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "assets.contentAddressing",
     phase: "15.1",
-    status: "partial",
+    status: "verified",
     summary:
-      "Stable AssetId form (path- and content-addressed), SHA-256 content hashing with re-acquire invalidation, and a cycle-checked dependency graph with eviction safety",
+      "Stable path/content AssetIds, SHA-256 content hashing, re-acquire invalidation and a cycle-checked dependency graph with eviction safety",
     evidence: ["tests/assetPipeline.test.ts"],
-    closesWith: "15.3",
     notes:
-      "15.1 + 15.2 mechanisms are built and tested on ResourceRegistry (AssetId/hashContent, contentHash re-acquire invalidation, AssetGraph edges, eviction blocking and invalidate() propagation); the capability closes when Phase 15.3 streaming builds the first real loaders on top of them",
+      "15.1 + 15.2 behavior is covered on ResourceRegistry: ids/hashes, changed-content events, graph edges, eviction blocking, invalidation propagation and reload dependency updates",
   },
   {
     id: "assets.streaming",
     phase: "15.3",
-    status: "partial",
+    status: "verified",
     summary:
-      "Frame-driven AssetStreamer on the resource registry: priority-ordered admission under a concurrency cap, queued/in-flight cancellation, and a per-frame GPU upload budget gated by estimatedBytes; Engine.step pumps it",
-    evidence: ["tests/streaming.test.ts"],
-    closesWith: "15.4",
+      "Frame-driven AssetStreamer with priority admission, concurrency cap, cancellation, estimated-byte upload budget and Engine.step pumping",
+    evidence: ["tests/streaming.test.ts", "docs/VERIFICATION.md"],
     notes:
-      "All four 15.3 items are built, tested (26 CPU tests) and real-device probed (budget/priority/cancel with live texture uploads, zero GPU errors); the capability closes when 15.4 hot reload exercises the cancel/retry path against real asset content",
+      "The 15.3 scheduler is unit tested and was exercised with live texture uploads on real WebGPU; cancellation of queued work is immediate while running loader bodies cooperate with signals (assets.loaderPreemption is deliberately deferred).",
   },
+  {
+    id: "assets.hotReload",
+    phase: "15.4",
+    status: "verified",
+    summary: "Staged, validated mesh/texture/material replacement and validated runtime WGSL overrides with pipeline invalidation",
+    evidence: ["tests/phase15.test.ts", "tests/shaderHotReload.test.ts"],
+    notes: "Resource values remain live until the swap callback commits; shader overrides reject invalid WGSL before invalidating the last good pipelines. File watching/importer integration is caller-owned.",
+  },
+  {
+    id: "assets.validation",
+    phase: "15.5",
+    status: "verified",
+    summary: "Structured validation for mesh streams, texture limits/formats, material techniques/dependencies and memory budgets",
+    evidence: ["tests/phase15.test.ts"],
+    notes: "The registry runs descriptor validators before publishing loaded output and disposes rejected values.",
+  },
+  {
+    id: "assets.ktx2",
+    phase: "15.6",
+    status: "verified",
+    summary: "Lazy Basis Universal WASM KTX2 transcoding to device-supported BC7/ASTC/ETC2/RGBA8 or HDR BC6H/RGBA16F, with mip/layer/face upload",
+    evidence: ["tests/phase15.test.ts", "docs/VERIFICATION.md"],
+    notes: "Real Basis WASM and a real Chromium/SwiftShader BC7 six-mip upload are verified; automatic selection falls back to RGBA for unaligned base dimensions or unavailable compression features.",
+  },
+  {
+    id: "assets.ktx2Volume",
+    phase: "15.6",
+    status: "deferred",
+    summary: "KTX2 3D/volume texture transcoding and upload",
+    closesWith: "15.6",
+    notes: "The selected Basis JS binding does not expose volume slices; the loader rejects depth-bearing KTX2 files rather than uploading incomplete data.",
+  },
+
   {
     id: "animation.clips",
     phase: "16.1",

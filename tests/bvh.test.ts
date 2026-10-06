@@ -207,6 +207,9 @@ describe("Phase 9.1 — mesh BVH", () => {
     );
     expect(coincident.leafCount).toBeGreaterThan(0);
     expect(new Set(coincident.triOrder).size).toBe(2);
+
+    expect(() => MeshBvh.build(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), new Uint32Array([0, 1, 3]))).toThrow(RangeError);
+    expect(() => MeshBvh.build(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, Infinity]), new Uint32Array([0, 1, 2]))).toThrow(RangeError);
   });
 
   it("queries bounds and frustums as candidate sets that match brute force", () => {
@@ -228,6 +231,8 @@ describe("Phase 9.1 — mesh BVH", () => {
     const visible: number[] = [];
     const count = bvh.queryFrustum(frustum, visible);
     expect(count).toBe(visible.length);
+    expect(bvh.intersectsFrustum(frustum)).toBe(true);
+    expect(bvh.intersectsFrustum(frustum, new Mat4().translate(new Vec3(10_000, 0, 0)))).toBe(false);
     expect(count).toBeGreaterThan(0);
     expect(count).toBeLessThan(bvh.triangleCount); // the frustum must actually cull something
     for (const triangle of visible) expect(triangle).toBeLessThan(bvh.triangleCount);

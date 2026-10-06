@@ -27,6 +27,7 @@ import { TaskScheduler, type TaskDescriptor, type TaskStats } from "../core/task
 import { GraphicsDevice, type DeviceCaps, type GpuMemoryStats } from "../gpu/device.js";
 import { ResourceRegistry } from "../resources/registry.js";
 import { AssetStreamer, type StreamingStats } from "../resources/streaming.js";
+import { AssetHotReloader } from "../resources/hotReload.js";
 import { Profiler, type ScopeStats } from "../debug/profiler.js";
 import { Renderer, type RenderStats } from "../rendering/renderer.js";
 import { Scene } from "../scene/scene.js";
@@ -121,6 +122,7 @@ export class Engine {
   readonly gpu: GraphicsDevice;
   readonly resources: ResourceRegistry;
   readonly streamer: AssetStreamer;
+  readonly hotReloader: AssetHotReloader;
   readonly tasks: TaskScheduler;
   readonly profiler: Profiler;
   readonly clock: Clock;
@@ -174,6 +176,7 @@ export class Engine {
     this.streamer = new AssetStreamer(this.resources, {
       logger: init.logger.child("streamer"),
     });
+    this.hotReloader = new AssetHotReloader(this.resources, this.streamer);
     this.tasks = new TaskScheduler({
       workerCount: init.config.workerCount,
       maxConcurrent: Math.max(1, init.config.workerCount || 1),
@@ -195,6 +198,7 @@ export class Engine {
     });
     this.services.set("resources", this.resources);
     this.services.set("streamer", this.streamer);
+    this.services.set("hotReloader", this.hotReloader);
     this.services.set("tasks", this.tasks);
     this.services.set("config", this.config);
     this.services.set("engine", this);
@@ -569,6 +573,7 @@ export class Engine {
     this.tasks.dispose();
     this.renderer.dispose();
     this.profiler.dispose();
+    this.hotReloader.dispose(); // cancels staged replacements before the streamer/registry are torn down
     this.streamer.dispose(); // before resources: it holds leases on registry entries
     this.resources.dispose();
     await this.gpu.dispose();

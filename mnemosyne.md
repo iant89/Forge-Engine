@@ -859,3 +859,116 @@ kept); each time the recovery was: fetch, blob-verify the tree against the remot
 `git reset --mixed` the branch pointer, continue. The advisory WebGPU gate's merge-blocking
 fear did not materialize — it is advisory, and its only "failure" at merge time was a GitHub
 runner dispatch error, not a code failure.
+
+## 2026-10-05 — Phase 15 complete; Phase 9.1 decoder boundary clarified
+
+Phase 15 Asset Pipeline 2.0 is implemented and recorded as verified in `ROADMAP.md` and
+`engine/src/core/capabilities.ts`:
+
+- 15.4 stages mesh/texture/material replacement through the resource registry and streamer,
+  preserving the current live asset until the consumer-swap callback commits; shader replacement
+  validates WGSL before invalidating pipeline caches.
+- 15.5 validates mesh data, textures (including compressed block alignment), material support,
+  dependencies and memory budgets before publishing values.
+- 15.6 lazily loads the bundled Basis WASM and transcodes KTX2/Basis for the selected device. The
+  Vite-only `?url` import lives in `engine/src/resources/basisWasmUrl.ts` and is dynamically loaded
+  from `ktx2.ts`, so Node-side imports of the engine barrel (including `check:wgsl`) work. Compressed
+  mip uploads use physical whole-block copy extents; invalid compressed base dimensions are rejected
+  and automatic KTX2 target selection falls back to RGBA8 when needed.
+- The real Chromium/SwiftShader ETC1S fixture probe passed after the lazy-import change: 40×40 sRGB,
+  six BC7 mips, 2,240 GPU bytes, no WebGPU validation errors or page/console/network errors.
+
+The roadmap, known issues, verification evidence and capability registry keep the remaining
+Phase 9.1 glTF/GLB mesh decoder (and browser worker round-trip) explicitly separate; Phase 15's
+format-agnostic APIs and KTX2 loader are not a mesh importer. KTX2 3D/volume textures stay deferred.
+`docs/VERIFICATION.md` now records 724 tests in 49 files.
+
+Latest CPU/document/build gates after the code change:
+`npm test` — 724 passed / 49 files; `npm run typecheck`, `npm run check:wgsl`,
+`npm run demo:build`, `npm run docs:check` (97 capabilities; 55 verified, 27 partial,
+10 planned, 5 deferred), `npm run check:testmap` (20 subsystems / 49 suites), and
+`npm run lint:arch` all passed. Demo build still emits the existing >500 kB chunk warning;
+Basis WASM is emitted as a 486.03 kB asset.
+
+`npm run check:browser` is **not fully green** in this run. Its initial hard 2.5 s frame check was
+changed to wait up to 15 s for actual frame progress (SwiftShader had been falsely classified as
+stalled); the full run then passed PBR/render A/B, terrain, compute, vehicle, particles, sky, weather
+and the Mars Showcase load/contact checks. It reached the rover drive, observed 0.61 m/s maximum
+speed and kick dust, but measured 0.434 m in 45 s versus the gate's >0.5 m threshold and stopped
+before the HGA/arm assertions. Do not report the entire browser gate as passing; all Phase 15
+acceptance checks and the separate targeted KTX2 real-browser upload did pass.
+
+## 2026-10-05 — Phase 9.1 worker-backed glTF/GLB mesh decoding
+
+Implemented the open Phase 9.1 mesh-decoding and browser-worker checks:
+
+- Added the pure `asset.gltf.decode` task (`engine/src/core/tasks/gltfMesh.ts`) and public
+  `decodeGltfMesh` / `loadGltfMesh` API (`engine/src/resources/gltf.ts`). With a `TaskScheduler`,
+  core glTF 2.0/GLB static triangle accessors decode in its worker pool and return typed arrays,
+  indices, bounds, node/scene transforms, and basic PBR factors as transferable data. `.gltf` sidecar
+  fetches are resolved on the caller thread; `transferInput` lets owned buffers move to the worker.
+- Decoder coverage includes interleaved and sparse accessors, normalized integer attributes, data URI
+  and external buffers, malformed bounds/indices, node graph checks and explicit errors for unsupported
+  Draco/meshopt/morph/skin/instancing paths. The decoder does not build GPU meshes/materials or import
+  images/animation/skin; the extended glTF importer is tracked as `assets.gltfAdvanced` in Phase 16.1.
+- `tests/gltf.test.ts` covers inline decode, external `.gltf` fetch, and parity with a real
+  `node:worker_threads` run. The new `npm run check:browser:workers` uses Chromium + SwiftShader and a
+  real Vite-bundled module worker against `tests/fixtures/triangle.glb`; observed result was
+  `workers=1, completed=1, inlineFallbacks=0, mesh=1, vertices=3`, with correct positions/indices.
+  The full `npm run check:browser` also includes this probe before its long scene checks.
+
+Updated `ROADMAP.md`, `engine/src/core/capabilities.ts`, `docs/KNOWN-ISSUES.md`, and
+`docs/VERIFICATION.md`: the mesh-decoding and browser-worker capabilities are verified; Phase 9 as a
+whole was still in progress at that checkpoint because `physics.spatialIndex` was not yet used by queries/culling; a follow-up below closes that gap. Added a
+separate planned capability for extended glTF import and a deferred capability for arbitrary
+preemptive loader cancellation (running JavaScript loader bodies remain cooperative).
+
+Verification after Phase 9.1 changes: `npm test` — 733 passed in 50 files; `npm run typecheck`,
+`npm run check:wgsl`, `npm run docs:check` (99 capabilities: 57 verified, 26 partial, 10 planned,
+6 deferred), `npm run check:testmap` (50 suites), `npm run lint:arch`, `npm run demo:build`, and
+`npm run check:browser:workers` all passed. Production build still emits the existing >500 kB main
+chunk warning. The full all-scenes `npm run check:browser` was not rerun for this phase; the prior run
+stopped at the unrelated Mars drive threshold (0.434 m / 45 s vs >0.5 m).
+
+## 2026-10-05 — Phase 9 closed: spatial-index runtime integration
+
+Closed the final Phase 9 capability (`physics.spatialIndex`) rather than leaving the tested BVH
+unused:
+
+- `Geometry` lazily builds/caches a `MeshBvh` (invalidated on data update/release). `Scene.raycast`
+  now performs transformed, triangle-accurate mesh picking through that tree, including non-uniform and
+  negative-scale normal conversion; the world AABB remains a broadphase and the old AABB behavior is
+  retained only for geometry with no triangle data. `MeshBvh.build` rejects malformed index/position
+  streams instead of silently building corrupt bounds.
+- `Renderer.collectBatches` keeps its inexpensive world-AABB test, then uses transformed BVH leaf
+  bounds to refine visibility for meshes with at least 16 triangles. This is conservative and only
+  removes a renderable when no triangle leaf overlaps the camera frustum; custom bounds overrides and
+  population batch culling retain their existing conservative path.
+- Added `SweepAndPruneBroadphase` for PhysicsWorld candidate pairs. It prunes on X, tests Y/Z overlap,
+  filters immovable pairs, then restores body insertion order before narrowphase so solver determinism
+  is unchanged. PhysicsWorld refreshes AABBs before broadphase/raycast culling; `broadphaseStats`
+  exposes candidate counts. Physics raycasts now skip colliders whose AABBs cannot beat the closest hit.
+- Tests prove scene-ray parity under a transformed mesh (including rejection of an AABB-only false
+  positive), frustum refinement of a sparse mesh whose aggregate AABB straddles the camera, sweep-and-
+  prune equivalence with brute-force AABB pairs and candidate reduction, and BVH invalid-input errors.
+
+Updated Phase 9's exit criteria and closed the phase in `ROADMAP.md`; `physics.spatialIndex` is now
+verified. Removed the stale BVH limitation from `docs/KNOWN-ISSUES.md` and updated `docs/VERIFICATION.md`.
+`docs:check` reports 99 capabilities (58 verified, 25 partial, 10 planned, 6 deferred), 46 known
+limitations, and a roadmap state block in agreement.
+
+Completed the final `Geometry.updateFrom` stream path: same-size updates write the full interleaved
+48-byte vertex records, explicitly supplied indices replace the prior GPU index buffer/format, changed
+vertex counts rebuild and safely transfer GPU buffers, and bounds plus the cached mesh BVH are refreshed.
+Regression coverage checks uploaded mock-GPU vertex bytes, same-size buffer reuse, index format/count,
+resizing, bounds, and picking-cache invalidation. Sweep-and-prune empty statistics also normalize the
+possible-pair count to positive zero.
+
+Final verification after those edits: `npm test` — 736 tests / 50 files; `npm run typecheck`;
+`npm run docs:check` (99 capabilities: 58 verified, 25 partial, 10 planned, 6 deferred; 46 known
+limitations); `npm run check:testmap` (50 suites); `npm run lint:arch`; `npm run check:wgsl`;
+`npm run demo:build`; `npm run check:browser:workers` — Chromium + SwiftShader: one worker, one
+completed task, zero inline fallbacks, one triangle mesh with three vertices; and `git diff --check`.
+The build retains its non-fatal >500 kB main-chunk warning. The full all-scenes `npm run check:browser`
+was not rerun; its last known separate issue is still the timing-sensitive rover drive threshold
+(0.434 m against >0.5 m).

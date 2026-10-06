@@ -10,7 +10,7 @@
  */
 
 import { TextureUsage, gpuSource } from "../gpu/constants.js";
-import { formatInfo, maxMipLevels, textureSizeBytes } from "../gpu/formats.js";
+import { bytesPerRow as textureBytesPerRow, formatInfo, maxMipLevels, textureSizeBytes } from "../gpu/formats.js";
 import { ResourceLifecycleError, UsageError } from "../core/errors.js";
 import { linearToSrgb, srgbToLinear } from "../math/scalar.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -57,6 +57,10 @@ export class Texture {
     if (desc.width <= 0) throw new UsageError(`Texture.create: width must be > 0 (got ${desc.width})`);
     const height = desc.height ?? 1;
     if (desc.dimension !== "1d" && height <= 0) throw new UsageError(`Texture.create: height must be > 0 (got ${height})`);
+    const info = formatInfo(desc.format);
+    if (info.isCompressed && (desc.width % info.blockWidth !== 0 || height % info.blockHeight !== 0)) {
+      throw new UsageError(`Texture.create: compressed format "${desc.format}" requires base dimensions aligned to ${info.blockWidth}x${info.blockHeight} blocks (got ${desc.width}x${height})`);
+    }
     const maxMips = desc.mipLevelCount ?? maxMipLevels(desc.width, height);
     if (maxMips < 1) throw new UsageError("Texture.create: mipLevelCount must be at least 1");
     if (desc.mipLevelCount !== undefined && desc.mipLevelCount > maxMips) {
@@ -139,6 +143,40 @@ export class Texture {
       width = nextW;
       height = nextH;
     }
+  }
+
+  /**
+   * Upload one mip/layer from raw bytes. Supports uncompressed and WebGPU block-compressed
+   * formats; KTX2/Basis transcoding uses this path so it preserves compressed mips instead of
+   * inflating them to a single RGBA level.
+   */
+  writeMipData(device: GraphicsDevice, mipLevel: number, layer: number, data: Uint8Array): void {
+    if (this.released || !this.gpuTexture) throw new ResourceLifecycleError(`Texture "${this.desc.label}" was released; mip data cannot be uploaded`);
+    if (!Number.isInteger(mipLevel) || mipLevel < 0 || mipLevel >= this.desc.mipLevelCount) {
+      throw new UsageError(`Texture.writeMipData: mipLevel ${mipLevel} is outside [0, ${this.desc.mipLevelCount})`);
+    }
+    if (!Number.isInteger(layer) || layer < 0 || layer >= this.desc.depthOrArrayLayers) {
+      throw new UsageError(`Texture.writeMipData: layer ${layer} is outside [0, ${this.desc.depthOrArrayLayers})`);
+    }
+    const width = Math.max(1, this.desc.width >> mipLevel);
+    const height = Math.max(1, this.desc.height >> mipLevel);
+    const info = formatInfo(this.desc.format);
+    const rowBytes = textureBytesPerRow(this.desc.format, width);
+    const rowsPerImage = Math.ceil(height / info.blockHeight);
+    const required = rowBytes * rowsPerImage;
+    // Compressed mip levels keep their logical dimensions for sampling, but the physical upload
+    // region is rounded up to whole blocks (e.g. a 10x10 mip occupies 12x12 texels of BC7 blocks).
+    const copyWidth = info.isCompressed ? Math.ceil(width / info.blockWidth) * info.blockWidth : width;
+    const copyHeight = info.isCompressed ? Math.ceil(height / info.blockHeight) * info.blockHeight : height;
+    if (data.byteLength < required) {
+      throw new UsageError(`Texture.writeMipData: mip ${mipLevel} layer ${layer} needs ${required} bytes, got ${data.byteLength}`);
+    }
+    device.device.queue.writeTexture(
+      { texture: this.gpuTexture, mipLevel, origin: [0, 0, layer] as unknown as GPUOrigin3D },
+      gpuSource(data),
+      { bytesPerRow: rowBytes, rowsPerImage },
+      [copyWidth, copyHeight, 1] as unknown as GPUExtent3D,
+    );
   }
 
   get width(): number {

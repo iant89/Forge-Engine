@@ -12,6 +12,7 @@ import {
   Color,
   createBox,
   createPlane,
+  Geometry,
   GraphicsDevice,
   Light,
   Material,
@@ -245,6 +246,43 @@ describe("Renderer with mock WebGPU device", () => {
     await device.dispose();
     expect(mock.outstanding.buffers).toHaveLength(0);
     expect(mock.outstanding.textures).toHaveLength(0);
+  });
+
+  it("uses mesh BVH leaves to refine a large mesh's frustum cull", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "bvh-frustum-cull" });
+    const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -10));
+    const camera = new Camera();
+    scene.world.addComponent(cameraEntity.id, camera);
+    cameraEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+    // The aggregate bounds span across the camera, but all triangle leaves are far off to either
+    // side. AABB-only culling would submit this draw; the BVH can safely reject it.
+    const positions = new Float32Array(16 * 9);
+    for (let triangle = 0; triangle < 16; triangle++) {
+      const x = triangle < 8 ? -100 : 100;
+      const offset = triangle * 9;
+      positions.set([x, 0, 0, x + 1, 0, 0, x, 1, 0], offset);
+    }
+    const geometry = Geometry.create(device, { positions, label: "sparse-frustum-mesh" });
+    const material = new Material({ label: "sparse-frustum-material", color: 0x00ff00 });
+    const entity = scene.createTransformedEntity("sparse-mesh", new Vec3(0, 0, 0));
+    const renderable = new Renderable();
+    renderable.geometry = geometry;
+    renderable.material = material;
+    scene.world.addComponent(entity.id, renderable);
+
+    renderer.renderScene(scene);
+    expect(geometry.getMeshBvh()?.nodeCount).toBeGreaterThan(1);
+    expect(renderable.isVisible).toBe(false);
+    expect(renderer.stats.culled).toBeGreaterThanOrEqual(1);
+
+    scene.dispose();
+    renderer.dispose();
+    geometry.dispose();
+    material.dispose();
+    await device.dispose();
   });
 
   it("draws debug lines and releases debug buffers on dispose", async () => {

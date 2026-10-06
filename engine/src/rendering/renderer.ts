@@ -2277,7 +2277,9 @@ export class Renderer implements RenderFrameContext {
       this.scratchMat.m.set(matrix);
       this.scratchBox.transformByMatrix(this.scratchMat, this.scratchWorldBox);
       const box = this.scratchWorldBox;
-      const inView = this.frustum.intersectsAABB(box) && (r.layer & camera.cullingMask) !== 0;
+      const coarseInView = this.frustum.intersectsAABB(box);
+      const meshInView = coarseInView && (r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
+      const inView = meshInView && (r.layer & camera.cullingMask) !== 0;
       r.isVisible = inView;
       // Debug bounds: record the would-be footprint of everything that *has* a renderable this
       // frame, culled or not — the boxes are what proves where the model is supposed to sit.

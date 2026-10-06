@@ -15,6 +15,7 @@ import { NoiseField, valueNoise2 } from "../../math/noise.js";
 import { Rng, chunkSeed } from "../../math/rng.js";
 import { alignUp } from "../../math/scalar.js";
 import { MeshBvh } from "../../math/bvh.js";
+import { GLTF_MESH_DECODE_TASK, decodeGltfMeshTask, transferablesForGltfMesh, type GltfMeshDecodePayload, type DecodedGltfAsset } from "./gltfMesh.js";
 
 // ---------------------------------------------------------------- heightfield
 
@@ -236,6 +237,7 @@ export interface BuiltinHandlerTable {
   "terrain.slope": [SlopeFieldTaskPayload, SlopeFieldTaskResult];
   "terrain.scatter": [ScatterTaskPayload, ScatterTaskResult];
   "texture.noiseTile": [NoiseTileTaskPayload, NoiseTileTaskResult];
+  "asset.gltf.decode": [GltfMeshDecodePayload, DecodedGltfAsset];
 }
 
 /**
@@ -249,6 +251,7 @@ export function installTaskHandlers(register: <P, R>(name: string, fn: (payload:
   register<ScatterTaskPayload, ScatterTaskResult>("terrain.scatter", (p) => scatterPoints(p));
   register<NoiseTileTaskPayload, NoiseTileTaskResult>("texture.noiseTile", (p, ctx) => generateNoiseTile(p, ctx));
   register<BvhTaskPayload, BvhTaskResult>("geometry.bvh", (p) => buildBvhTask(p));
+  register<GltfMeshDecodePayload, DecodedGltfAsset>(GLTF_MESH_DECODE_TASK, (p, ctx) => decodeGltfMeshTask(p, ctx));
   // Results own fresh buffers, so they cross the thread boundary as transfers rather than copies.
   for (const name of BUILTIN_TASK_NAMES) registerTaskResultTransfer(name, (result) => transferablesFor(name, result));
 }
@@ -321,6 +324,7 @@ export const BUILTIN_TASK_NAMES = [
   "terrain.scatter",
   "texture.noiseTile",
   "geometry.bvh",
+  GLTF_MESH_DECODE_TASK,
 ] as const;
 
 /**
@@ -348,6 +352,8 @@ export function transferablesFor(name: string, result: unknown): ArrayBuffer[] {
         bvh.bounds.buffer as ArrayBuffer,
       ];
     }
+    case GLTF_MESH_DECODE_TASK:
+      return transferablesForGltfMesh(result) as ArrayBuffer[];
     default:
       return [];
   }

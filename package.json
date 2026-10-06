@@ -29,6 +29,7 @@
     "check:wgsl": "node tools/wgsl-check.mjs",
     "check:mars-port": "vite-node tools/mars-port-check.mjs",
     "check:browser": "node tools/browser-check.mjs",
+    "check:browser:workers": "node tools/browser-check.mjs --workers-only",
     "demo:build": "vite build --config examples/vite.config.ts",
     "bench:build": "tsc -p benchmarks/tsconfig.json"
   },

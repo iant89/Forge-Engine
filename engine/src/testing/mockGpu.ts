@@ -467,6 +467,10 @@ export class MockGPUTexture {
     if (this.sampleCount > 1 && this.mipLevelCount > 1) d.reportError("createTexture: multisampled textures must have a single mip level");
     if (this.dimension === "1d" && this.mipLevelCount > 1) d.reportError("createTexture: 1d textures must have mipLevelCount 1");
     if (d.options.checkFormats !== false && !isKnownFormat(this.format)) d.reportError(`createTexture: unknown format "${this.format}"`);
+    const textureFormatInfo = isKnownFormat(this.format) ? formatInfo(this.format) : null;
+    if (textureFormatInfo?.isCompressed && (this.width % textureFormatInfo.blockWidth !== 0 || this.height % textureFormatInfo.blockHeight !== 0)) {
+      d.reportError(`createTexture: compressed format "${this.format}" requires base dimensions aligned to ${textureFormatInfo.blockWidth}x${textureFormatInfo.blockHeight} blocks`);
+    }
     const isDepth = DEPTH_FORMATS.has(this.format);
     if ((this.usage & TextureUsage.RENDER_ATTACHMENT) !== 0) {
       if (isDepth && (this.usage & TextureUsage.TEXTURE_BINDING) !== 0 && !STENCIL_FORMATS.has(this.format) && this.format !== "depth32float" && this.format !== "depth24plus") {
@@ -521,12 +525,19 @@ function isMultisampled(samples: number): boolean {
   return samples > 1;
 }
 
+function mockSubresourceBytes(width: number, height: number, format: string | undefined): number {
+  if (format && isKnownFormat(format)) {
+    const info = formatInfo(format as GPUTextureFormat);
+    if (info.isCompressed) return Math.ceil(width / info.blockWidth) * Math.ceil(height / info.blockHeight) * info.bytesPerBlock;
+  }
+  return width * height * Math.max(1, mockBytesPerTexel(format));
+}
+
 function textureStorageBytes(w: number, h: number, layers: number, mips: number, format: string | undefined, samples: number): number {
-  const bpp = Math.max(1, mockBytesPerTexel(format));
   let total = 0;
   for (let m = 0; m < mips; m++) {
     const { w: mw, h: mh } = formatMipSize(w, h, m);
-    total += mw * mh * bpp * layers * samples;
+    total += mockSubresourceBytes(mw, mh, format) * layers * samples;
   }
   return total;
 }
@@ -542,14 +553,14 @@ function readIndirectRecord(buffer: MockGPUBuffer, offset: number, words: number
 }
 
 function mipRange(t: { width: number; height: number; format: string | undefined }, mip: number, layer: number, layers = 1): { offset: number; bytes: number } {
-  const bpp = Math.max(1, mockBytesPerTexel(t.format));
   let offset = 0;
   for (let m = 0; m < mip; m++) {
     const { w, h } = formatMipSize(t.width, t.height, m);
-    offset += w * h * bpp * layers;
+    offset += mockSubresourceBytes(w, h, t.format) * layers;
   }
   const { w, h } = formatMipSize(t.width, t.height, mip);
-  return { offset: offset + layer * w * h * bpp, bytes: w * h * bpp };
+  const bytes = mockSubresourceBytes(w, h, t.format);
+  return { offset: offset + layer * bytes, bytes };
 }
 
 export class MockGPUBindGroupLayout {
@@ -2024,28 +2035,54 @@ export class MockGPUQueue {
     if (dims.width === 0 || dims.height === 0) device.reportError("writeTexture: zero-extent copy");
     const offset = dataLayout.offset ?? 0;
     if (offset % 4 !== 0) device.reportError("writeTexture: offset must be a multiple of 4");
-    const bpp = Math.max(1, mockBytesPerTexel(tex.format));
-    const bytesPerRow = dataLayout.bytesPerRow ?? dims.width * bpp;
-    if (dims.height > 1 && bytesPerRow < dims.width * bpp) device.reportError(`writeTexture: bytesPerRow ${bytesPerRow} < row bytes ${dims.width * bpp}`);
+    const compressedInfo = tex.format && isKnownFormat(tex.format) ? formatInfo(tex.format as GPUTextureFormat) : null;
+    const isCompressed = compressedInfo?.isCompressed === true;
+    const blockWidth = isCompressed ? compressedInfo.blockWidth : 1;
+    const blockHeight = isCompressed ? compressedInfo.blockHeight : 1;
+    const bytesPerBlock = isCompressed ? compressedInfo.bytesPerBlock : Math.max(1, mockBytesPerTexel(tex.format));
+    const rowBytes = Math.ceil(dims.width / blockWidth) * bytesPerBlock;
+    const imageRows = Math.ceil(dims.height / blockHeight);
+    const bytesPerRow = dataLayout.bytesPerRow ?? rowBytes;
+    if (imageRows > 1 && bytesPerRow < rowBytes) device.reportError(`writeTexture: bytesPerRow ${bytesPerRow} < row bytes ${rowBytes}`);
     const src = asUint8(data);
-    const rowsPerImage = dataLayout.rowsPerImage ?? dims.height;
-    const needed = offset + bytesPerRow * (dims.height + (dims.depthOrArrayLayers - 1) * rowsPerImage);
+    const rowsPerImage = dataLayout.rowsPerImage ?? imageRows;
+    const imageStride = bytesPerRow * rowsPerImage;
+    const layerCount = Math.max(1, dims.depthOrArrayLayers);
+    const needed = offset + (layerCount - 1) * imageStride + (imageRows - 1) * bytesPerRow + rowBytes;
     if (needed > src.byteLength) device.reportError(`writeTexture: data has ${src.byteLength} bytes, copy needs ${needed}`);
     const mip = (destination as GPUImageCopyTexture).mipLevel ?? 0;
     if (mip >= tex.mipLevelCount) device.reportError(`writeTexture: mip ${mip} >= mipLevelCount ${tex.mipLevelCount}`);
     const origin = originXYZ((destination as GPUImageCopyTexture).origin);
     const { w: mw, h: mh } = formatMipSize(tex.width, tex.height, mip);
-    if (origin.x + dims.width > mw || origin.y + dims.height > mh) {
-      device.reportError(`writeTexture: copy exceeds mip ${mip} extent ${mw}x${mh}`);
+    const physicalMipWidth = isCompressed ? Math.ceil(mw / blockWidth) * blockWidth : mw;
+    const physicalMipHeight = isCompressed ? Math.ceil(mh / blockHeight) * blockHeight : mh;
+    if (origin.x + dims.width > physicalMipWidth || origin.y + dims.height > physicalMipHeight) {
+      device.reportError(`writeTexture: copy exceeds mip ${mip} physical extent ${physicalMipWidth}x${physicalMipHeight}`);
     }
-    for (let layer = 0; layer < Math.max(1, dims.depthOrArrayLayers); layer++) {
+    if (isCompressed && (origin.x % blockWidth !== 0 || origin.y % blockHeight !== 0)) {
+      device.reportError(`writeTexture: compressed texture origin must align to ${blockWidth}x${blockHeight} blocks`);
+    }
+    for (let layer = 0; layer < layerCount; layer++) {
       const dstBase = mipRange(tex, mip, origin.z + layer).offset;
-      for (let y = 0; y < dims.height; y++) {
-        for (let x = 0; x < dims.width; x++) {
-          const si = offset + layer * rowsPerImage * bytesPerRow + y * bytesPerRow + x * bpp;
-          const di = dstBase + ((origin.y + y) * mw + origin.x + x) * bpp;
-          if (di + bpp > tex.storage.length || si + bpp > src.length) continue;
-          for (let b = 0; b < bpp; b++) tex.storage[di + b] = src[si + b] ?? 0;
+      if (isCompressed) {
+        const mipRowBytes = Math.ceil(mw / blockWidth) * bytesPerBlock;
+        const blockX = Math.floor(origin.x / blockWidth);
+        const blockY = Math.floor(origin.y / blockHeight);
+        for (let row = 0; row < imageRows; row++) {
+          const si = offset + layer * imageStride + row * bytesPerRow;
+          const di = dstBase + (blockY + row) * mipRowBytes + blockX * bytesPerBlock;
+          if (di + rowBytes <= tex.storage.length && si + rowBytes <= src.length) {
+            tex.storage.set(src.subarray(si, si + rowBytes), di);
+          }
+        }
+      } else {
+        for (let y = 0; y < dims.height; y++) {
+          for (let x = 0; x < dims.width; x++) {
+            const si = offset + layer * imageStride + y * bytesPerRow + x * bytesPerBlock;
+            const di = dstBase + ((origin.y + y) * mw + origin.x + x) * bytesPerBlock;
+            if (di + bytesPerBlock > tex.storage.length || si + bytesPerBlock > src.length) continue;
+            for (let b = 0; b < bytesPerBlock; b++) tex.storage[di + b] = src[si + b] ?? 0;
+          }
         }
       }
     }

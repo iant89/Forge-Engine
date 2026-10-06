@@ -200,7 +200,7 @@ describe("Phase 9.1 — scheduler (inline)", () => {
   it("warms up the builtin handler table", async () => {
     await builtinTaskHandlersReady();
     expect(listTaskHandlers()).toEqual(
-      expect.arrayContaining(["terrain.heightfield", "terrain.slope", "terrain.scatter", "texture.noiseTile"]),
+      expect.arrayContaining(["terrain.heightfield", "terrain.slope", "terrain.scatter", "texture.noiseTile", "asset.gltf.decode"]),
     );
   });
 
