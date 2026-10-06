@@ -6576,6 +6576,35 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "mnemosyne.md",
     "what": "Append the rebase note: why step 1 was dropped (measured memory/blend trade against #53), what re-landing on main's SplatMaterial simplified, and three traps (gate arms before the showcase, the port's regional splat, the Heightmap.getNormal edge clamp).",
-    "why": "Or the next agent re-proposes the chunk bake or re-learns the regional-splat and gate-order lessons from scratch."  }
+    "why": "Or the next agent re-proposes the chunk bake or re-learns the regional-splat and gate-order lessons from scratch."  },
+  {
+    "id": "0520",
+    "date": "2026-10-06T10:05:00Z",
+    "type": "pr-merge",
+    "pr": 54,
+    "branch": "arena/01a10aad-forge-engine",
+    "base": "main",
+    "title": "Terrain 10.9: ported Mars generator as a site inspector (?scene=mars-generator), re-landed on main's #53",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Rebase of this session's branch onto c1cff62 (#53): step 1 (per-chunk bakeChunkMaterial, f7a1c12) is dropped as superseded — #53's per-tile SplatMaterial blends four texture arrays per vertex for ~4,580 B/tile at identical draw calls, where the bake spent 80 B/chunk for one colour per 128 m chunk — and only the port's site inspector is re-landed, rebuilt on main's API rather than carried over: TerrainWorld.layeredMaterial / chunk.tile.gpuMaterial supply model, createMarsSurfaceTextures the shared arrays, and syncGeneration:false now genuinely means worker generation. Ships ?scene=mars-generator (aliases mars-port / mars-generator-port; ?scene=mars still means the hand-written Martian demo) with ?marssite=<preset|lat,lon>, window.__forge.marsGeneratorState(), an orbit camera clamped to the ported surface, 8 tests (weightPixels(cell) per tile, advised sizing, entity budget, camera clamp, and the measured material contrast: the crater rim at 0,0 blends ~45/55 rock/crust inside one 128 m tile while the volcano summit bakes one channel), a check:browser arm placed before the Mars Showcase section, and the docs/log updates (regional-splat and Heightmap.getNormal edge-clamp limits in KNOWN-ISSUES/MARS-TERRAIN, capability notes, roadmap sub-item, README). Gate on the new base: verify 766 tests / 53 files (main: 758/52), lint:arch, check:testmap, docs:check, demo:build, and check:browser green through both inspector arms (volcano 11 chunks / 11 splat tiles / workers + layered / zero GPU errors; ?marssite=0,0 13 tiles, best-mixed mask [0, 0.458, 0, 0.542]) before the pre-existing Mars Showcase W-drive threshold (dz 0.303 m vs > 0.5 m) aborts the sandbox run.",
+    "files": [
+      "README.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/MARS-TERRAIN.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "examples/index.html",
+      "examples/src/main.ts",
+      "examples/src/sceneSelection.ts",
+      "examples/src/scenes/marsGeneratorScene.ts",
+      "mnemosyne.md",
+      "tests/demoSceneSelection.test.ts",
+      "tests/marsGeneratorScene.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs"
+    ]  }
 ]
 ```
