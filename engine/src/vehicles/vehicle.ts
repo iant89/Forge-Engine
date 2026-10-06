@@ -162,6 +162,19 @@ export interface WheelState {
   nx: number;
   ny: number;
   nz: number;
+  /**
+   * Torn-off / destroyed wheel: excluded from ground sampling, load transfer, torque split and
+   * steering, so the vehicle keeps driving on the survivors. Set by the scene when wheel damage
+   * passes `WHEEL_DETACH_DAMAGE` (vehicles/damage.ts); the sampler also zeroes the contact state
+   * so a disabled wheel hangs at full droop and reports no load.
+   */
+  disabled: boolean;
+  /**
+   * Visual-only camber tilt (radians) for a bent-but-attached wheel; VehicleSystem leans the
+   * wheel root by this after steering/spin. Scenes drive it from per-wheel damage, up to
+   * `WHEEL_BEND_MAX` (vehicles/damage.ts).
+   */
+  bend: number;
 }
 
 const WHEEL_COUNT = 4;
@@ -327,6 +340,8 @@ export class Vehicle {
       nx: 0,
       ny: 1,
       nz: 0,
+      disabled: false,
+      bend: 0,
     }));
     this.rpm = config.engine.idleRpm;
     if (config.engine.omega < 1 && config.engine.idleRpm > 0) config.engine.rpm = config.engine.idleRpm;
@@ -555,7 +570,7 @@ export class Vehicle {
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       const input = this.torqueInputs[i]!;
-      input.driven = w.driven;
+      input.driven = w.driven && !w.disabled;
       input.omega = w.omega;
     }
     const shares = splitDriveTorque(wheelTorqueTotal, this.torqueInputs, c.differential, c.lsdBias, this.torqueShares);
@@ -756,8 +771,19 @@ export class Vehicle {
     this.rebuildBasis();
     this.correctPenetration(ground);
     if (parked) {
+      // A park latches the whole velocity vector, not just the horizontal plane. Gravity already
+      // integrated into velocity.y above while the position latch skipped the matching motion, so
+      // leaving it would bank seconds of fall speed (3.7 m/s per Mars second) and slam the chassis
+      // into the ground the moment the brake releases — the "jump then stuck" spawn report, where
+      // the rover sits parked from load until the first throttle input. Latch prev as well so the
+      // body-frame acceleration below reads 0, not a one-substep gravity spike that would poison
+      // the next step's load transfer.
       this.velocity.x = 0;
+      this.velocity.y = 0;
       this.velocity.z = 0;
+      this.prevVx = 0;
+      this.prevVy = 0;
+      this.prevVz = 0;
       this.yawRate *= 0.5;
       for (const w of this.wheels) if (Math.abs(w.omega) < 2) w.omega = 0;
     }
@@ -903,6 +929,21 @@ export class Vehicle {
     const uy = this.up.y > 0.2 ? this.up.y : 0.2;
     for (const w of this.wheels) {
       w.steerAngle = w.steered ? steerAngle(this.input.steer, c.maxSteerAngle, this.speed) * (w.z < 0 ? -1 : 1) : 0;
+      if (w.disabled) {
+        // Torn-off wheel: no ground contact, no load, no steering — it hangs at full droop
+        // (compression 0) while the survivors carry the vehicle. Stale contact/normal values
+        // are harmless: every consumer is guarded by `inContact`.
+        w.inContact = false;
+        w.compression = 0;
+        w.compressionRate = 0;
+        w.normalLoad = 0;
+        w.longForce = 0;
+        w.latForce = 0;
+        w.kappa = 0;
+        w.alpha = 0;
+        w.steerAngle = 0;
+        continue;
+      }
       const hx = this.position.x + this.right.x * w.x + this.forward.x * w.z;
       const hy = this.position.y + this.right.y * w.x + this.forward.y * w.z;
       const hz = this.position.z + this.right.z * w.x + this.forward.z * w.z;

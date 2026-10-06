@@ -24,6 +24,12 @@ import {
   tractionControlScale,
   type SystemContext,
   DEFAULT_LONGITUDINAL,
+  createVehicleDamageZones,
+  applyBodyDamage,
+  applyWheelDamage,
+  computeBodyCrushOffset,
+  WHEEL_DETACH_DAMAGE,
+  WHEEL_BEND_MAX,
 } from "@forge/engine";
 
 function ctx(world: EntityWorld, fixedDt = 1 / 60, fixedSteps = 1): SystemContext {
@@ -466,6 +472,53 @@ describe("vehicles — brakes and the parking brake", () => {
     }
   });
 
+  it("banks no fall speed while parked: releasing a long hold neither slams nor launches", () => {
+    // Regression: a park latched only the horizontal velocity while gravity kept integrating into
+    // velocity.y (~9.8 m/s banked per held second), so releasing the brake slammed the chassis
+    // into the ground and the suspension fired it back up. The Mars showcase sits parked from
+    // scene load until the first throttle input, which made every demo open with a jump.
+    for (const input of ["brake", "handbrake", "parkingBrake"] as const) {
+      const { vehicle, ground } = parked();
+      vehicle.input[input] = 1;
+      run(vehicle, ground, 10);
+      expect(vehicle.velocity.y, input).toBe(0);
+      const y0 = vehicle.position.y;
+      vehicle.input[input] = 0;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < 120; i++) {
+        vehicle.step(1 / 60, ground);
+        minY = Math.min(minY, vehicle.position.y);
+        maxY = Math.max(maxY, vehicle.position.y);
+      }
+      expect(y0 - minY, input).toBeLessThan(0.05);
+      expect(maxY - y0, input).toBeLessThan(0.05);
+      expect(vehicle.speed, input).toBe(0);
+    }
+  });
+
+  it("releases a slope park into a gentle roll, not a banked-velocity slam", () => {
+    const theta = (12 * Math.PI) / 180;
+    const ground = slopeGround(theta, "z");
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null, mass: 1200, mu: 1.1 }));
+    vehicle.placeOnGround(ground);
+    vehicle.input.brake = 1;
+    run(vehicle, ground, 6);
+    expect(vehicle.velocity.y).toBe(0);
+    vehicle.input.brake = 0;
+    // The car rolls downhill from rest; its clearance above the surface it rolls on must stay in
+    // the suspension's working band the whole way down — never buried, never airborne.
+    const sample = { height: 0, nx: 0, ny: 1, nz: 0 };
+    for (let i = 0; i < 120; i++) {
+      vehicle.step(1 / 60, ground);
+      ground.sample(vehicle.position.x, vehicle.position.z, sample);
+      const clearance = vehicle.position.y - sample.height;
+      expect(clearance).toBeGreaterThan(0.2);
+      expect(clearance).toBeLessThan(1.0);
+    }
+    expect(vehicle.speed).toBeGreaterThan(0.1);
+  });
+
   it("gives the drive back when the brake is released", () => {
     // A brake held for a long time must not poison the drivetrain for the drive that follows: the
     // browser gate presses W with the parking brake latched, holds it, then releases and expects the
@@ -515,5 +568,124 @@ describe("vehicles — brakes and the parking brake", () => {
     vehicle.input.brake = 1;
     run(vehicle, ground, 1.2);
     expect(vehicle.speed).toBeLessThan(0.05);
+  });
+});
+
+describe("vehicles — area damage", () => {
+  it("splits body damage across the zones an impact direction implies", () => {
+    const zones = createVehicleDamageZones();
+    applyBodyDamage(zones, 1, 0, 0.4); // dead-on nose hit
+    expect(zones.front).toBeCloseTo(0.4, 8);
+    expect(zones.rear + zones.left + zones.right).toBe(0);
+    const corner = createVehicleDamageZones();
+    applyBodyDamage(corner, 1, 1, 0.4); // front-right corner hit splits evenly
+    expect(corner.front).toBeCloseTo(0.2, 8);
+    expect(corner.right).toBeCloseTo(0.2, 8);
+    const tail = createVehicleDamageZones();
+    applyBodyDamage(tail, -0.5, -1, 0.6); // rear-left, mostly side
+    expect(tail.rear).toBeCloseTo(0.2, 8);
+    expect(tail.left).toBeCloseTo(0.4, 8);
+    // Crush clamps at fully crushed, and zero impacts change nothing.
+    applyBodyDamage(tail, -1, 0, 5);
+    expect(tail.rear).toBe(1);
+    applyBodyDamage(tail, 0, 0, 0.5);
+    expect(tail.front).toBe(0);
+  });
+
+  it("sinks crushed panels inward with a falloff from the zone edge", () => {
+    const out = { x: 0, y: 0, z: 0 };
+    const zones = createVehicleDamageZones();
+    zones.front = 1;
+    computeBodyCrushOffset(0, 1.6, zones, out); // nose tip, fully inside the front zone
+    expect(out.z).toBeCloseTo(-0.3, 8);
+    expect(out.x).toBeCloseTo(0, 8);
+    expect(out.y).toBeCloseTo(-0.1, 8);
+    computeBodyCrushOffset(0, 0.8, zones, out); // halfway in takes half the inset
+    expect(out.z).toBeCloseTo(-0.15, 8);
+    computeBodyCrushOffset(0, 0, zones, out); // the deck centre never moves
+    expect(out.x).toBeCloseTo(0, 8);
+    expect(out.y).toBeCloseTo(0, 8);
+    expect(out.z).toBeCloseTo(0, 8);
+    const side = createVehicleDamageZones();
+    side.left = 0.5;
+    computeBodyCrushOffset(-1.4, 0, side, out); // left rocker panel folds inward (+x)
+    expect(out.x).toBeCloseTo(0.15, 8);
+    expect(out.y).toBeCloseTo(-0.05, 8);
+  });
+
+  it("clamps wheel damage at the detach threshold", () => {
+    const wheels = [0, 0, 0, 0];
+    applyWheelDamage(wheels, 1, 0.4);
+    applyWheelDamage(wheels, 1, 0.8);
+    expect(wheels[1]).toBe(1);
+    expect(wheels[0]).toBe(0);
+    expect(WHEEL_DETACH_DAMAGE).toBe(1);
+    // Out-of-range indices are ignored rather than growing the array.
+    applyWheelDamage(wheels, 9, 1);
+    expect(wheels).toEqual([0, 1, 0, 0]);
+  });
+
+  it("a disabled wheel reports no contact or load, takes no torque, and the car drives on", () => {
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null, mass: 1000 }));
+    const ground = flatGround(0);
+    vehicle.placeOnGround(ground);
+    const w = vehicle.wheels[0]!;
+    w.disabled = true;
+    // `driven` is deliberately left on: the engine must exclude disabled wheels from the
+    // torque split even if a scene forgets to clear the flag alongside.
+    vehicle.input.throttle = 1;
+    vehicle.input.steer = 0.5;
+    run(vehicle, ground, 2);
+    expect(w.inContact).toBe(false);
+    expect(w.normalLoad).toBe(0);
+    expect(w.compression).toBe(0);
+    expect(w.steerAngle).toBe(0);
+    expect(w.omega).toBe(0);
+    // The three survivors still pull the car away, listing to the dead corner.
+    expect(vehicle.speed).toBeGreaterThan(0.5);
+  });
+
+  it("VehicleSystem leans a bent wheel in place without moving its hub", () => {
+    const poseWheel = (bend: number) => {
+      const world = new EntityWorld();
+      const ground = flatGround(0);
+      const vehicle = new Vehicle(createVehicleConfig({ aero: null, mass: 1000 }));
+      vehicle.placeOnGround(ground);
+      vehicle.wheels[0]!.bend = bend;
+      const entity = world.createEntity("car");
+      entity.add(new Transform());
+      const comp = new VehicleComponent(vehicle, ground);
+      const wheelEntities = vehicle.wheels.map((_, i) => {
+        const e = world.createEntity(`wheel-${i}`);
+        e.add(new Transform());
+        return e;
+      });
+      comp.wheelEntities = wheelEntities.map((e) => e.id);
+      entity.add(comp);
+      world.registerSystem(new VehicleSystem());
+      world.runSystems(ctx(world));
+      const t = wheelEntities[0]!.get(Transform)!;
+      const result = {
+        px: t.position.x,
+        py: t.position.y,
+        pz: t.position.z,
+        qx: t.rotation.x,
+        qy: t.rotation.y,
+        qz: t.rotation.z,
+        qw: t.rotation.w,
+      };
+      world.dispose();
+      return result;
+    };
+    // Twin deterministic builds: the only difference is the bend, applied after spin.
+    const straight = poseWheel(0);
+    const bent = poseWheel(WHEEL_BEND_MAX);
+    expect(bent.px).toBeCloseTo(straight.px, 8);
+    expect(bent.py).toBeCloseTo(straight.py, 8);
+    expect(bent.pz).toBeCloseTo(straight.pz, 8);
+    const dot = Math.abs(
+      bent.qx * straight.qx + bent.qy * straight.qy + bent.qz * straight.qz + bent.qw * straight.qw,
+    );
+    expect(dot).toBeLessThan(0.999);
   });
 });

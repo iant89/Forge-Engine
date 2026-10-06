@@ -54,6 +54,7 @@ import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
+import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
     // on `body.scene-sky` / `body.scene-weather`; the vehicle pad stays touch-only on
     // `body.scene-vehicle` (shared with the Mars showcase's rover controls). Each module binds the
     // same paths as the keys, whichever is visible.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
@@ -172,6 +173,8 @@ async function main(): Promise<void> {
     } else if (name === "mars-showcase") {
       currentHandle = buildMarsShowcaseScene(engine);
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
+    } else if (name === "rover-course") {
+      currentHandle = buildRoverCourseScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -290,7 +293,8 @@ async function main(): Promise<void> {
       next === "particles" ||
       next === "sky" ||
       next === "weather" ||
-      next === "mars-showcase"
+      next === "mars-showcase" ||
+      next === "rover-course"
     ) {
       loadScene(next);
     }

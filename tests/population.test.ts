@@ -977,6 +977,47 @@ describe("Population - terrain-following streaming (14.6)", () => {
     scene.dispose();
   });
 
+  it("snaps far re-anchors instantly instead of gliding rocks down from the sky", () => {
+    // The near glide is pinned above; this is its complement. A coarse↔fine LOD swap moves the
+    // sampled surface by metres, and gliding that gap at 300+ m reads as rocks falling on newly
+    // streamed-in terrain — so chunks past `settleSnapDistance` (120 m) snap outright.
+    const spec: PopulationTypeSpec = { id: 1, label: "rocks", densityGrid: 3, scaleMin: 1, scaleMax: 1 };
+    const { scene, terrain, population, ctx } = terrainFixture({ types: [spec] });
+    terrain.update(ctx, 0.016);
+    population.update(ctx, 0.016);
+    const far = [...terrain.chunks.values()].find((chunk) => {
+      if (chunk.state !== "ready" || !population.chunkPopulation(chunk.key, 1)) return false;
+      const dx = (chunk.cx + 0.5) * terrain.chunkSize - terrain.focusPosition.x;
+      const dz = (chunk.cz + 0.5) * terrain.chunkSize - terrain.focusPosition.z;
+      return Math.hypot(dx, dz) > population.settleSnapDistance;
+    });
+    expect(far, "a populated chunk beyond the snap gate").toBeDefined();
+    const key = far!.key;
+    const block = population.chunkPopulation(key, 1)!;
+    expect(block.count).toBeGreaterThan(0);
+    const yBefore = [...block.positions].filter((_, i) => i % 3 === 1);
+
+    // Refine at full resolution — the production path this gate serves (a far chunk sharpening
+    // as the camera nears it; far fixture chunks sit at coarse LOD already, so coarsening them
+    // would move nothing and the test could not tell snap from glide).
+    const pipeline = GeneratorPipeline.createDefault(991);
+    const cell = createWorldCell(far!.cx, far!.cz, 64, 9, 991);
+    pipeline.execute(cell);
+    far!.applyCell(cell);
+    population.update(ctx, 0.016);
+
+    // The remesh must actually move the surface, or snap-vs-glide is indistinguishable (the
+    // settling pass snaps sub-2 mm gaps on its own).
+    const gaps = yBefore.map((y, k) => Math.abs(block.targetY[k]! - y!));
+    expect(Math.max(...gaps)).toBeGreaterThan(0.01);
+    // One update lands every rendered Y exactly on its new anchor — no glide frames.
+    for (let k = 0; k < block.count; k++) {
+      expect(block.positions[k * 3 + 1]!).toBe(block.targetY[k]!);
+    }
+    population.dispose();
+    scene.dispose();
+  });
+
   it("syncs anchors on scatter and parks showcase-hidden instances out of Y settling", () => {
     const spec: PopulationTypeSpec = { id: 1, label: "rocks", densityGrid: 3, scaleMin: 1, scaleMax: 1 };
     const { scene, terrain, population, ctx } = terrainFixture({ types: [spec] });

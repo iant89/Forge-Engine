@@ -143,6 +143,12 @@ export class VehicleSystem extends FixedSystem {
       const visualSpin = wheel.x < 0 ? -wheel.spin : wheel.spin;
       this.scratchSpinRot.setEulerComponents(visualSpin, 0, 0);
       this.scratchRot.multiply(this.scratchSpinRot);
+      if (wheel.bend !== 0) {
+        // Bent wheel: lean the hub by the damage camber (about local forward) plus matching
+        // toe (about local up), applied after spin so mangled wheels still roll crookedly.
+        this.scratchSpinRot.setEulerComponents(0, wheel.bend * 0.6, wheel.bend);
+        this.scratchRot.multiply(this.scratchSpinRot);
+      }
       t.setRotation(this.scratchRot);
     }
   }

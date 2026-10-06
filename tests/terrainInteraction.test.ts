@@ -107,6 +107,70 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     expect(proxy.broken).toBe(false);
   });
 
+  it("matches pushed rocks to the rover's speed instead of launching them", () => {
+    // A sub-kilo pebble: the old force×dt kick landed every call regardless of rock speed, so one
+    // slow nudge stacked tens of m/s per frame and shot the rock across the terrain. Sustained
+    // contact now settles the rock at the rover's pace (5% lead + 5 cm/s separation) and holds it
+    // there no matter how long the shove lasts.
+    const pebble = new InteractiveRockProxy(
+      rock({ mass: 0.8, crushStrength: 50000, pushForce: 10 }),
+      { x: 0, y: 1, z: 0 },
+    );
+    const input = { roverMass: 1025, relativeSpeed: 0.5, availableForce: 2860, obstacleHeight: 0.1 };
+    for (let i = 0; i < 60; i++) {
+      expect(pebble.contact(input, { x: 1, y: 0, z: 0 }).outcome).toBe("pushed");
+    }
+    expect(pebble.body.linearVelocity.x).toBeCloseTo(0.5 * 1.05 + 0.05, 6);
+    expect(pebble.body.linearVelocity.x).toBeLessThan(1);
+  });
+
+  it("scales pushed and crushed bridge transfers by the rock's share of the rover's mass", () => {
+    // The old flat transfers (15% per call pushed, 100% crushed) ground the rover to a halt
+    // against pebbles; a light rock now takes only its mass share.
+    const pebble = new InteractiveRockProxy(
+      rock({ mass: 18, crushStrength: 500000, pushForce: 10 }),
+      { x: 0, y: 1, z: 0 },
+    );
+    const pushVelocity = { x: 2, y: 0, z: 0 };
+    const push = bridgeRockContact(pebble, {
+      roverMass: 1025,
+      relativeSpeed: 2,
+      availableForce: 2860,
+      obstacleHeight: 0.1,
+      vehicleVelocity: pushVelocity,
+    }, { x: 1, y: 0, z: 0 });
+    expect(push.outcome).toBe("pushed");
+    expect(pushVelocity.x).toBeCloseTo(2 * (1 - 18 / 1025), 8);
+
+    const crumbs = new InteractiveRockProxy(rock({ mass: 18, crushStrength: 5000 }), { x: 0, y: 1, z: 0 });
+    const crushVelocity = { x: 2, y: 0, z: 0 };
+    const crush = bridgeRockContact(crumbs, {
+      roverMass: 1025,
+      relativeSpeed: 2,
+      availableForce: 2860,
+      obstacleHeight: 0.1,
+      vehicleVelocity: crushVelocity,
+    }, { x: 1, y: 0, z: 0 });
+    expect(crush.outcome).toBe("crushed");
+    expect(crushVelocity.x).toBeCloseTo(2 * (1 - (2 * 18) / 1025), 8);
+
+    // …while leaning on a near-tonne boulder still costs the capped quarter per call.
+    const boulder = new InteractiveRockProxy(
+      rock({ mass: 900, crushStrength: 1e9, pushForce: 2000 }),
+      { x: 0, y: 1, z: 0 },
+    );
+    const boulderVelocity = { x: 2, y: 0, z: 0 };
+    const shove = bridgeRockContact(boulder, {
+      roverMass: 1025,
+      relativeSpeed: 2,
+      availableForce: 2860,
+      obstacleHeight: 0.1,
+      vehicleVelocity: boulderVelocity,
+    }, { x: 1, y: 0, z: 0 });
+    expect(shove.outcome).toBe("pushed");
+    expect(boulderVelocity.x).toBeCloseTo(1.5, 8);
+  });
+
   it("transfers blocked contact momentum back through the vehicle bridge", () => {
     const proxy = new InteractiveRockProxy(rock({ crushStrength: 500000 }), { x: 0, y: 1, z: 0 });
     const velocity = { x: 2, y: 0, z: 0 };

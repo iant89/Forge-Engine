@@ -102,10 +102,16 @@ import {
   buildLodGeometry,
   rockGeometrySource,
   unindexedLodWindow,
+  createVehicleDamageZones,
+  applyBodyDamage,
+  applyWheelDamage,
+  computeBodyCrushOffset,
+  WHEEL_DETACH_DAMAGE,
+  WHEEL_BEND_MAX,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
-import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js";
+import { loadGlb, type GlbLoadProgress, type GlbPart, type LoadedGlb } from "../assets/glb.js";
 import { ARM_JOINT_COUNT, RoverArmController, type ArmJogInput } from "./roverArm.js";
 import { HighGainAntennaController } from "./highGainAntenna.js";
 import {
@@ -138,6 +144,17 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     terrainGroundHeight: number;
     wheelCount: number;
     contactWheels: number;
+    /** Cumulative interactive rocks the rover has shattered. */
+    brokenInteractiveRocks: number;
+    /** Per-panel crush 0 (pristine) .. 1 (fully crushed in). */
+    damageZoneFront: number;
+    damageZoneRear: number;
+    damageZoneLeft: number;
+    damageZoneRight: number;
+    /** Per-wheel damage 0..1 in wheel order (front-left first). */
+    damageWheels: number[];
+    /** Indices of torn-off wheels (disabled, hidden, dropped as props). */
+    detachedWheels: number[];
     ambientDust: number;
     kickDust: number;
     /** Live rock/regolith fragments in ballistic flight. */
@@ -282,6 +299,8 @@ const WHEELS = [
 ] as const;
 
 const WHEEL_RADIUS = 0.264;
+/** Pristine suspension rest length; suspension wear sags it up to 30% shorter (visible squat). */
+const BASE_SUSPENSION_REST = 0.32;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
 
 /**
@@ -445,6 +464,7 @@ const KICK_DUST_SPRITES_PER_WHEEL = Math.ceil(KICK_DUST_SPRITES / WHEELS.length)
 const ROCK_CHIP_SPRITES_PER_WHEEL = 10;
 const AXIS_X = { x: 1, y: 0, z: 0 };
 const AXIS_Y = { x: 0, y: 1, z: 0 };
+const AXIS_Z = { x: 0, y: 0, z: 1 };
 
 /** Grows a wheel puff across its life, then shrinks it away — the shared material has no
  * per-particle alpha (see docs/KNOWN-ISSUES.md), so dissipation rides on size instead. Seeded size
@@ -788,15 +808,25 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     roughness: 0.96,
     metallic: 0.03,
   });
+  // Two rock variants with distinct displacement seeds: every instance of one population type
+  // shares a single lump of geometry, and a whole field of the same lump at different scales reads
+  // as unnatural repetition next to the varied break fragments (their own seeds, 23 and 37). The
+  // variants share radius/collision so the interactive layer treats them identically; only the
+  // silhouette and crag differ.
   const rockLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.35 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.35 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.42 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.42 })),
+  });
+  const rockLodB = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 41, roughness: 0.5 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 41, roughness: 0.5 })),
   });
   const boulderLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.32, flatten: 0.38 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.32, flatten: 0.38 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.38, flatten: 0.38 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.38, flatten: 0.38 })),
   });
   const rockGeometry = Geometry.create(gpu, rockLod.source);
+  const rockGeometryB = Geometry.create(gpu, rockLodB.source);
   const boulderGeometry = Geometry.create(gpu, boulderLod.source);
   const chunkGeometry = Geometry.create(
     gpu,
@@ -823,6 +853,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         geometry: rockGeometry,
         material: rockMaterial,
         lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
+      },
+      {
+        id: 3,
+        label: "rocks-b",
+        densityGrid: 4,
+        scaleMin: 0.3,
+        scaleMax: 1.7,
+        scaleExponent: 1.7,
+        slopeLimit: 0.55,
+        tintJitter: 0.3,
+        maxDistance: 550,
+        geometry: rockGeometryB,
+        material: rockMaterial,
+        lod: { hiTriangles: rockLodB.hiTriangles, distance: 260 },
       },
       {
         id: 2,
@@ -920,7 +964,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       handbrake: w.handbrake,
     })),
   };
-  config.suspensionRest = 0.32;
+  config.suspensionRest = BASE_SUSPENSION_REST;
   config.suspensionTravel = 0.16;
   config.maxSteerAngle = 0.62;
   const vehicle = new Vehicle(config);
@@ -1008,6 +1052,168 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const MAX_ROCK_SPEED = 6;
 
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
+
+  // Area-dependent visible damage: per-panel crush zones plus per-wheel damage, accumulated
+  // from the same assessed rock contacts that feed the mechanical `roverDamage` numbers.
+  const damageZones = createVehicleDamageZones();
+  const wheelDamage = WHEELS.map(() => 0);
+  const detachedWheels = new Set<number>();
+  /** Impacts below this force (N) only scratch the paint; above it panels start to crumple. */
+  const IMPACT_DAMAGE_THRESHOLD = 5000;
+  /** Force (N) above the threshold that counts as a worst-case, fully-crushing hit. */
+  const IMPACT_DAMAGE_RANGE = 100000;
+  /** Body crush per full-severity first touch (× outcome/size factors). */
+  const BODY_DAMAGE_INSTANT = 0.45;
+  /** Wheel damage per full-severity first touch (× outcome/size factors). */
+  const WHEEL_DAMAGE_INSTANT = 0.65;
+  /** Body/wheel damage per second of sustained full-severity grinding contact. */
+  const DAMAGE_GRIND_RATE = 0.3;
+  /** Wheels catch debris even from small rocks: their size factor never drops below this. */
+  const WHEEL_SIZE_FLOOR = 0.3;
+  /** Maximum deterministic crumple tilt (radians) for a fully crushed body panel. */
+  const BODY_CRUMPLE_TILT_MAX = 0.12;
+
+  interface BodyPartRecord {
+    entity: Entity;
+    centerX: number;
+    centerZ: number;
+    baseX: number;
+    baseY: number;
+    baseZ: number;
+    tiltAxis: Vec3;
+  }
+  const bodyPartRecords: BodyPartRecord[] = [];
+  interface WheelPartRecord {
+    entity: Entity;
+    renderable: Renderable;
+    part: GlbPart;
+  }
+  const wheelPartRecords: WheelPartRecord[][] = WHEELS.map(() => []);
+  const crushOffset = { x: 0, y: 0, z: 0 };
+  const crushPos = new Vec3();
+  const crushQuat = new Quat();
+  const detachQuat = new Quat();
+  const detachTip = new Quat();
+
+  const hashName = (name: string): number => {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+    return h;
+  };
+
+  /** Repose every recorded body part from the live crush zones (no-op while pristine). */
+  const applyBodyCrush = (): void => {
+    for (const rec of bodyPartRecords) {
+      computeBodyCrushOffset(rec.centerX, rec.centerZ, damageZones, crushOffset);
+      rec.entity.transform.position = crushPos.set(
+        rec.baseX + crushOffset.x,
+        rec.baseY + crushOffset.y,
+        rec.baseZ + crushOffset.z,
+      );
+      const severity = Math.min(
+        1,
+        (Math.abs(crushOffset.x) + Math.abs(crushOffset.y) + Math.abs(crushOffset.z)) / 0.3,
+      );
+      rec.entity.transform.rotation = crushQuat.setAxisAngle(rec.tiltAxis, severity * BODY_CRUMPLE_TILT_MAX);
+    }
+  };
+
+  /** Drop a torn-off wheel's meshes on the ground where it came off (shared GLB resources). */
+  const spawnDetachedWheelProp = (index: number): void => {
+    const parts = wheelPartRecords[index];
+    if (!parts || parts.length === 0) return;
+    const root = wheelRoots[index]!;
+    const p = root.transform.position;
+    const propY = deformedGroundHeight(p.x, p.z) + WHEEL_RADIUS * 0.35;
+    // Lying flat with a deterministic yaw so repeat rams read differently per corner.
+    detachQuat.setAxisAngle(AXIS_Y, index * 1.3);
+    detachTip.setAxisAngle(AXIS_Z, Math.PI / 2);
+    detachQuat.multiply(detachTip);
+    for (const rec of parts) {
+      const prop = scene.createTransformedEntity(`detached-${WHEELS[index]!.name}-part`, new Vec3(p.x, propY, p.z));
+      prop.transform.rotation = detachQuat;
+      const renderable = new Renderable();
+      renderable.geometry = rec.part.geometry;
+      renderable.material = rec.part.material;
+      renderable.castShadow = true;
+      renderable.receiveShadow = true;
+      scene.world.addComponent(prop.id, renderable);
+    }
+  };
+
+  /** Tear a wheel off: mechanically dead, meshes hidden, wreckage dropped on the ground. */
+  const detachWheel = (index: number): void => {
+    const wheel = vehicle.wheels[index];
+    if (!wheel || detachedWheels.has(index)) return;
+    wheel.disabled = true;
+    wheel.driven = false;
+    wheel.steered = false;
+    wheel.bend = 0;
+    detachedWheels.add(index);
+    for (const rec of wheelPartRecords[index] ?? []) rec.renderable.visible = false;
+    spawnDetachedWheelProp(index);
+  };
+
+  /**
+   * Accumulate area damage from one assessed contact. `forward`/`right` come from the contact
+   * normal in vehicle frame, so the rammed corner crushes; big rocks dent more than pebbles;
+   * the nearest wheel takes the debris. Blocked grinds keep wearing while they last; a pushed
+   * rock only dents when the hit shatters it (a clean shove that rolls away is harmless).
+   */
+  const applyImpactZoneDamage = (
+    rockX: number,
+    rockZ: number,
+    nx: number,
+    nz: number,
+    collisionRadius: number,
+    assessment: { outcome: string; impactForce: number },
+    firstTouch: boolean,
+    breaking: boolean,
+    dt: number,
+  ): void => {
+    if (assessment.outcome !== "blocked" && !breaking) return;
+    const severity = Math.min(
+      1,
+      Math.max(0, (assessment.impactForce - IMPACT_DAMAGE_THRESHOLD) / IMPACT_DAMAGE_RANGE),
+    );
+    if (severity <= 0) return;
+    const outcomeFactor = assessment.outcome === "blocked" ? 1 : 0.8;
+    const sizeFactor = Math.min(1, Math.max(0.15, collisionRadius / 0.8));
+    const wheelSize = Math.max(sizeFactor, WHEEL_SIZE_FLOOR);
+    const sinYaw = Math.sin(vehicle.yaw);
+    const cosYaw = Math.cos(vehicle.yaw);
+    const forward = nx * sinYaw + nz * cosYaw;
+    const right = nx * cosYaw - nz * sinYaw;
+    const instant = firstTouch ? 1 : 0;
+    applyBodyDamage(
+      damageZones,
+      forward,
+      right,
+      severity * outcomeFactor * sizeFactor * (instant * BODY_DAMAGE_INSTANT + dt * DAMAGE_GRIND_RATE),
+    );
+    let nearest = 0;
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < WHEELS.length; i++) {
+      const spec = WHEELS[i]!;
+      const wx = vehicle.position.x + spec.x * cosYaw + spec.z * sinYaw;
+      const wz = vehicle.position.z - spec.x * sinYaw + spec.z * cosYaw;
+      const d = (wx - rockX) * (wx - rockX) + (wz - rockZ) * (wz - rockZ);
+      if (d < best) {
+        best = d;
+        nearest = i;
+      }
+    }
+    if (!detachedWheels.has(nearest)) {
+      applyWheelDamage(
+        wheelDamage,
+        nearest,
+        severity * outcomeFactor * wheelSize * (instant * WHEEL_DAMAGE_INSTANT + dt * DAMAGE_GRIND_RATE),
+      );
+      if (wheelDamage[nearest]! >= WHEEL_DETACH_DAMAGE) detachWheel(nearest);
+      else vehicle.wheels[nearest]!.bend = wheelDamage[nearest]! * WHEEL_BEND_MAX;
+    }
+    applyBodyCrush();
+  };
   const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
   const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
   const trackMarks = Array.from({ length: 256 }, (_, index) => {
@@ -1108,19 +1314,29 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   };
   const INTERACTION_RADIUS = 48;
   const MAX_INTERACTIVE_ROCKS = 64;
+  /**
+   * Population types the interaction layer promotes, with the collision radii their geometry was
+   * built at. Both rock variants share the 0.8 m radius (only the displacement seed differs), so
+   * one table row each keeps the sync, ids and active-entity geometry in agreement.
+   */
+  const INTERACTIVE_ROCK_TYPES = [
+    { typeId: 1, label: "rocks", baseRadius: 0.8, baseFlatten: 0 },
+    { typeId: 3, label: "rocks-b", baseRadius: 0.8, baseFlatten: 0 },
+    { typeId: 2, label: "boulders", baseRadius: 2.4, baseFlatten: 0.38 },
+  ] as const;
+  const interactiveGeometryForType = (typeId: number): Geometry =>
+    typeId === 2 ? boulderGeometry : typeId === 3 ? rockGeometryB : rockGeometry;
 
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
     for (const [chunkKey, chunk] of terrain.chunks) {
       if (chunk.state !== "ready") continue;
-      for (const typeId of [1, 2]) {
+      for (const { typeId, label, baseRadius, baseFlatten } of INTERACTIVE_ROCK_TYPES) {
         const block = population.chunkPopulation(chunkKey, typeId);
         if (!block) continue;
-        const baseRadius = typeId === 2 ? 2.4 : 0.8;
-        const baseFlatten = typeId === 2 ? 0.38 : 0;
         for (let i = 0; i < block.count; i++) {
           const p = i * 3;
-          const id = `${chunkKey}:${typeId === 1 ? "rocks" : "boulders"}:${i}`;
+          const id = `${chunkKey}:${label}:${i}`;
           if (brokenInteractiveRockIds.has(id)) continue;
           const existing = interactiveRocks.get(id);
           // Zeroed scales mark a removed instance — unless a live record already tracks it, in
@@ -1484,6 +1700,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const nz = dz / distance;
         const approach = vx * nx + vz * nz;
         if (approach > 0.04) {
+          const firstTouch = !record.awake;
           record.awake = true;
           // Clean handoff: wake exactly on today's surface (never a stale resting Y), with the
           // integration history synced so the first dynamic step starts from rest, not from a
@@ -1508,10 +1725,21 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             availableForce: ROVER_TRACTIVE_FORCE,
             obstacleHeight,
           }, obstacleHeight, dt);
-
           const isLargeRock = record.typeId === 2 || collisionRadius >= 0.35;
           const significantImpact = assessment.outcome === "crushed" || (approach >= 0.35 && assessment.impactForce >= 20000);
-          if ((isLargeRock && significantImpact) || assessment.outcome === "crushed") {
+          const breaking = (isLargeRock && significantImpact) || assessment.outcome === "crushed";
+          applyImpactZoneDamage(
+            body.position.x,
+            body.position.z,
+            nx,
+            nz,
+            collisionRadius,
+            assessment,
+            firstTouch,
+            breaking,
+            dt,
+          );
+          if (breaking) {
             toBreak.push({ record, nx, nz, approach });
           }
         }
@@ -1551,7 +1779,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           new Vec3(body.position.x, body.position.y, body.position.z),
         );
         const renderable = new Renderable();
-        renderable.geometry = record.typeId === 2 ? boulderGeometry : rockGeometry;
+        renderable.geometry = interactiveGeometryForType(record.typeId);
         renderable.material = rockMaterial;
         renderable.castShadow = true;
         renderable.receiveShadow = true;
@@ -1789,6 +2017,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       renderable.castShadow = true;
       renderable.receiveShadow = true;
       scene.world.addComponent(child.id, renderable);
+      // Crush anchor: the part's model-space centre picks which zone dents it; the hash gives
+      // each panel a deterministic crumple axis so repeat impacts fold it the same way.
+      const center = part.geometry.bounds.getCenter(new Vec3());
+      const tiltHash = hashName(part.name);
+      const tiltLen = Math.hypot(Math.sin(tiltHash), 0.35, Math.cos(tiltHash));
+      bodyPartRecords.push({
+        entity: child,
+        centerX: center.x,
+        centerZ: center.z,
+        baseX: 0,
+        baseY: bodyOffsetY,
+        baseZ: 0,
+        tiltAxis: new Vec3(Math.sin(tiltHash) / tiltLen, 0.35 / tiltLen, Math.cos(tiltHash) / tiltLen),
+      });
     }
     // Wheels: hub-centred parts become children of the system-posed wheel roots (identity local).
     const byName = new Map(glb.wheels.map((w) => [w.name, w]));
@@ -1808,8 +2050,19 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         renderable.castShadow = true;
         renderable.receiveShadow = true;
         scene.world.addComponent(child.id, renderable);
+        wheelPartRecords[i]!.push({ entity: child, renderable, part });
+      }
+      // A wheel torn off before the model landed arrives already wrecked: hide its meshes and
+      // drop the prop now that the parts exist.
+      if (detachedWheels.has(i)) {
+        for (const rec of wheelPartRecords[i] ?? []) rec.renderable.visible = false;
+        spawnDetachedWheelProp(i);
+      } else if (wheelDamage[i]! > 0) {
+        vehicle.wheels[i]!.bend = wheelDamage[i]! * WHEEL_BEND_MAX;
       }
     }
+    // Impacts during loading still dented the zones; repose the fresh parts to match.
+    applyBodyCrush();
     // Mast: three-tier articulation hierarchy matching the real Perseverance joints.
     // Lower pivot (hinge) → upper pivot (azimuth) → head pivot (elevation).
     // Each tier's parts are offset so vertices stay in their original hinge-relative coords
@@ -2168,6 +2421,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // move. Until then both brakes stay engaged, including while the GLB is still loading.
       if (throttle > 0.01) startupBrake = false;
       const brake = Math.max(keyBrake, pad.brake);
+      // Suspension wear sags the ride: the rest length shortens up to 30% at 100% damage, so
+      // a battered rover visibly squats (and bottoms out sooner — travel itself is unchanged).
+      vehicle.config.suspensionRest =
+        BASE_SUSPENSION_REST * (1 - 0.3 * Math.min(1, roverDamage.suspension / 100));
       vehicle.input.throttle = roverDamage.disabled ? 0 : throttle;
       vehicle.input.brake = Math.max(brake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
@@ -2228,12 +2485,28 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             : arm.progress <= 0
               ? "STOWED"
               : `${Math.round(arm.progress * 100)}%↓`;
+      const zonePct = (v: number): string => `${Math.round(v * 100)}`;
+      const zoneTotal = damageZones.front + damageZones.rear + damageZones.left + damageZones.right;
+      const wheelTotal = wheelDamage.reduce((sum, w) => sum + w, 0);
+      const damageLine =
+        zoneTotal + wheelTotal > 0.005
+          ? `\n damage zones F${zonePct(damageZones.front)} R${zonePct(damageZones.rear)} ` +
+            `L${zonePct(damageZones.left)} R${zonePct(damageZones.right)}` +
+            WHEELS.map((w, i) =>
+              detachedWheels.has(i)
+                ? ` ${w.name.replace("wheel_", "")}✕`
+                : wheelDamage[i]! > 0.005
+                  ? ` ${w.name.replace("wheel_", "")}${zonePct(wheelDamage[i]!)}`
+                  : "",
+            ).join("")
+          : "";
       return (
         `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel} · HGA ${antennaLabel}\n` +
         `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
-        `dust ${ambientDust.simulation.alive}+${kickDustAlive()} · chips ${wheelRockChipsAlive()}  NASA/JPL-Caltech (public domain)`
+        `dust ${ambientDust.simulation.alive}+${kickDustAlive()} · chips ${wheelRockChipsAlive()}  NASA/JPL-Caltech (public domain)` +
+        damageLine
       );
     },
     vehicleState: () => ({
@@ -2277,6 +2550,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         roverDamageWheels: roverDamage.wheels,
         roverDamageSuspension: roverDamage.suspension,
         roverDisabled: roverDamage.disabled,
+        damageZoneFront: damageZones.front,
+        damageZoneRear: damageZones.rear,
+        damageZoneLeft: damageZones.left,
+        damageZoneRight: damageZones.right,
+        damageWheels: [...wheelDamage],
+        detachedWheels: [...detachedWheels].sort((a, b) => a - b),
         deformationChunks: deformation.chunkCount,
         deformationSamples: deformation.sampleCount,
         deformationRevision: deformation.revision,
@@ -2384,6 +2663,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       fragments.length = 0;
       interactivePhysics.setHeightfield(null);
       rockGeometry.dispose();
+      rockGeometryB.dispose();
       boulderGeometry.dispose();
       chunkGeometry.dispose();
       pebbleGeometry.dispose();

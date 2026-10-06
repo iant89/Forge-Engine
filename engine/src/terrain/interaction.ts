@@ -161,6 +161,11 @@ export function applyRoverImpactDamage(
 /**
  * Bridge one vehicle contact into both participants. Damage is intentionally not decided here;
  * this step only transfers normal momentum and leaves the impact assessment for the next phase item.
+ *
+ * The transfer is a fraction of the rover's normal-direction speed removed per contact call. A
+ * blocked rock stops the rover (there is nowhere for the momentum to go); a pushed or crushed
+ * rock only takes its share — scaled by the mass ratio, so shoving a pebble never grinds a
+ * tonne-class rover to a halt while leaning on a boulder still does.
  */
 export function bridgeRockContact(
   proxy: InteractiveRockProxy,
@@ -170,12 +175,36 @@ export function bridgeRockContact(
   const assessment = proxy.contact(input, normal);
   const normalSpeed = input.vehicleVelocity.x * normal.x + input.vehicleVelocity.y * normal.y + input.vehicleVelocity.z * normal.z;
   if (normalSpeed <= 0) return assessment;
-  const transfer = assessment.outcome === "blocked" ? 0.9 : assessment.outcome === "pushed" ? 0.15 : 1;
+  const massShare = Math.max(0, proxy.spec.mass) / Math.max(1, input.roverMass);
+  let transfer: number;
+  if (assessment.outcome === "blocked") {
+    transfer = 0.9;
+  } else if (assessment.outcome === "pushed") {
+    // A 30 kg rock takes ~3% per call; an 800 kg boulder takes the capped 25%.
+    transfer = Math.min(0.25, Math.max(0.01, massShare));
+  } else if (assessment.outcome === "crushed") {
+    // Debris absorbs a little more than a clean push, but pulverising a pebble must not stop
+    // the rover the way the old flat 1.0 did.
+    transfer = Math.min(0.3, Math.max(0.02, massShare * 2));
+  } else {
+    transfer = 0;
+  }
   input.vehicleVelocity.x -= normal.x * normalSpeed * transfer;
   input.vehicleVelocity.y -= normal.y * normalSpeed * transfer;
   input.vehicleVelocity.z -= normal.z * normalSpeed * transfer;
   return assessment;
 }
+
+/**
+ * Lead factor for a velocity-matched shove: the rock targets 5% above the rover's approach speed
+ * so the pair separates instead of grinding in sustained contact.
+ */
+export const PUSH_MATCH = 1.05;
+/**
+ * Separation bias (m/s) added to every matched shove, so even a creep-speed nudge parts the rock
+ * from the bumper instead of re-contacting on the next call.
+ */
+export const PUSH_SEPARATION = 0.05;
 
 export class InteractiveRockProxy {
   readonly spec: InteractiveRockSpec;
@@ -195,7 +224,15 @@ export class InteractiveRockProxy {
     });
   }
 
-  /** Apply a contact impulse after the vehicle layer has assessed the interaction. */
+  /**
+   * Apply a contact impulse after the vehicle layer has assessed the interaction.
+   *
+   * A push is velocity-matched, not force-accumulated: the rock is carried along at the rover's
+   * approach speed (plus a small separation bias so the pair parts instead of resting in contact),
+   * and only up to what the rover's available force can afford this call. The old
+   * `availableForce × dt` kick landed every call regardless of the rock's speed, so a sub-kilo
+   * pebble gained tens of m/s per frame from a slow nudge and shot across the terrain.
+   */
   contact(input: RockContactInput, normal: Vec3Ops, impulseScale = 1): RockContactAssessment {
     const assessment = assessRockContact(this.spec, input);
     this.lastAssessment = assessment;
@@ -204,8 +241,21 @@ export class InteractiveRockProxy {
       return assessment;
     }
     if (assessment.outcome === "pushed") {
-      const impulse = Math.max(0, input.availableForce) * Math.max(0, impulseScale) * (input.impactDuration ?? 1 / 60);
-      this.body.applyImpulse({ x: normal.x * impulse, y: normal.y * impulse, z: normal.z * impulse });
+      const rockNormalSpeed =
+        this.body.linearVelocity.x * normal.x +
+        this.body.linearVelocity.y * normal.y +
+        this.body.linearVelocity.z * normal.z;
+      const desired = Math.max(0, input.relativeSpeed) * PUSH_MATCH + PUSH_SEPARATION;
+      const catchUp = desired - rockNormalSpeed;
+      if (catchUp > 0) {
+        // Authority: the Δv this call's share of the rover's force budget can buy. A light rock
+        // matches the rover in a call or two; an 800 kg boulder needs a sustained shove.
+        const duration = Math.max(1e-3, input.impactDuration ?? 1 / 60);
+        const authority =
+          (Math.max(0, input.availableForce) * Math.max(0, impulseScale) * duration) / Math.max(1e-3, this.spec.mass);
+        const applied = Math.min(catchUp, authority) * this.spec.mass;
+        this.body.applyImpulse({ x: normal.x * applied, y: normal.y * applied, z: normal.z * applied });
+      }
     }
     return assessment;
   }
