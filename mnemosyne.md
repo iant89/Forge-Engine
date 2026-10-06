@@ -1284,3 +1284,20 @@ Traps worth keeping:
 - **Arena tooling note:** parallel `edit_file` calls to the *same* file race (last write wins and
   the losers still report success). Always edit one file per message, sequentially; verify with
   `tsc`/grep afterwards.
+
+## 2026-10-06 — restore the gentler rover drive tune
+
+- User found the #60 traction boost too fast. Restored 9.5 N·m / 1000 W / 1000 rpm base speed in
+  `examples/src/scenes/marsShowcaseScene.ts` and `roverCourseScene.ts`; Mars regolith rolling
+  resistance is back to 0.06. Grouser grip, braking, spawn/contact fixes and visible damage remain.
+  The 3800 rpm / 60:1 no-load speed is unchanged; this reverts acceleration and loaded-speed tuning,
+  not a hard downhill limiter. Rock-contact force now derives from torque/reduction/efficiency/radius
+  (≈1943 N) rather than keeping the boosted tune's hard-coded 2860 N.
+- `tests/marsShowcase.test.ts` now probes the shipped vehicle rather than a copied config: pins the
+  old motor, checks <1.2 m/s after one second and <1.75 m/s over forty seconds at full throttle on
+  flat ground. Its boosted 25° climb expectation intentionally becomes a modest 15° grip check.
+  `tests/roverCourse.test.ts` pins the same motor and speed bands, stepping without scene obstacles.
+- Validation: `npm run test:affected` 163/163 in 12 suites; typecheck, WGSL and architecture gates
+  clean. No rendering changes; the real-WebGPU browser sweep was not run.
+- PR preparation: `npm run verify` also passed the full 816-test / 57-suite run, typecheck and
+  WGSL validation before committing the rollback.

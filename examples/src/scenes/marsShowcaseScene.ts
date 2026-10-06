@@ -304,20 +304,20 @@ const BASE_SUSPENSION_REST = 0.32;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
 
 /**
- * Traction constants the rover build below consumes (exported so the traction tests pin the
- * exact numbers the scene drives on — grip regressions must fail loudly, not feel vague).
+ * Traction constants the rover build below consumes. The gentle 1 kW drive tune and regolith
+ * rolling resistance keep acceleration and loaded speed down; grouser grip is retained.
  */
 export const MARS_ROVER_TRACTION = {
-  /** Stall torque (N·m). 14 N·m through the 60:1 reduction ≈ 840 N·m at the wheels. */
-  peakTorque: 14,
-  /** Field-weakening power cap (W). Sized so full torque survives through crawl/climb speeds. */
-  peakPower: 2500,
-  /** Base speed (rpm): constant torque below, constant power above. 1800 rpm ≈ 0.83 m/s. */
-  ratedRpm: 1800,
+  /** Stall torque (N·m). 9.5 N·m through the 60:1 reduction ≈ 570 N·m before losses. */
+  peakTorque: 9.5,
+  /** Field-weakening power cap (W): the original, gentler rover tune. */
+  peakPower: 1000,
+  /** Base speed (rpm): constant torque below, constant power above. 1000 rpm ≈ 0.46 m/s. */
+  ratedRpm: 1000,
   /** Tire/soil friction. 1.4 ≈ chevron-grouser wheels biting into regolith. */
   mu: 1.4,
-  /** Rolling resistance. 0.035 keeps the torque margin positive on 25°+ grades. */
-  rollingResistance: 0.035,
+  /** Rolling resistance of regolith/sand, restored with the original drive tune. */
+  rollingResistance: 0.06,
   /** Stiffer-than-default longitudinal curve (default B:10): grousers build force fast. */
   longitudinal: { B: 14, C: 1.65, E: 0.97 },
   /** Stiffer-than-default lateral curve (default B:8.5): holds to large slip angles. */
@@ -327,10 +327,10 @@ export const MARS_ROVER_TRACTION = {
 /**
  * Electric traction — the real rovers are battery-electric, and the old combustion defaults
  * (340 N·m through a 5-speed gearbox) geared the 1025 kg rover past 200 km/h equivalent, which
- * is the "way too fast, wheels fly off at hill crests" report. A ~2.5 kW motor behind a 60:1
- * reduction gives ≈840 N·m at the wheels (≈2860 N tractive — climbs ~37° regolith at Mars
- * gravity) and the motor's no-load speed caps the rover at ≈1.75 m/s ≈ 6 km/h. `regenTorque`
- * blends ≈955 N of regenerative braking in ahead of the friction pads (see `ElectricMotor`).
+ * is the "way too fast, wheels fly off at hill crests" report. A ~1 kW motor behind a 60:1
+ * reduction gives ≈513 N·m at the wheels after losses (≈1943 N peak tractive force), and
+ * the motor's no-load speed caps the rover at ≈1.75 m/s ≈ 6 km/h. `regenTorque` blends ≈859 N
+ * of regenerative braking in ahead of the friction pads after losses (see `ElectricMotor`).
  */
 const ROVER_MOTOR = {
   peakTorque: MARS_ROVER_TRACTION.peakTorque,
@@ -342,11 +342,8 @@ const ROVER_MOTOR = {
   inertia: 0.02,
 };
 const ROVER_REDUCTION = 60;
-/**
- * Peak tractive force (N) the rock-contact bridge may spend: 14 N·m × 60:1 × 0.9 efficiency /
- * 0.264 m wheel radius ≈ 2860 N. Keep in sync with `MARS_ROVER_TRACTION` above.
- */
-const ROVER_TRACTIVE_FORCE = 2860;
+/** Peak tractive force (N) for rock contacts, using the vehicle's default 0.9 efficiency. */
+const ROVER_TRACTIVE_FORCE = (MARS_ROVER_TRACTION.peakTorque * ROVER_REDUCTION * 0.9) / WHEEL_RADIUS;
 
 /**
  * Fragment geometry half-extents (see `rockGeometrySource`: Y is squashed by `(1 − flatten)`).

@@ -7272,6 +7272,102 @@ JSON array below; agents maintain it by hand until then.
       "tests/vehicles.test.ts",
       "tools/test-subsystems.mjs"
     ]
+  },
+  {
+    "id": "0573",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Restore the original 9.5 N·m / 1000 W / 1000 rpm motor and 0.06 regolith rolling resistance; retain grouser grip, gearing and brakes. Derive rock-contact force from the reverted torque (about 1943 N) and correct force comments.",
+    "why": "The user found the recent traction boost too fast; restore the gentler launch and loaded speed without undoing the unrelated physics, rock or damage fixes."
+  },
+  {
+    "id": "0574",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverCourseScene.ts",
+    "what": "Use the same original 9.5 N·m / 1000 W / 1000 rpm motor in the rover course, keeping Earth-gravity springs, asphalt resistance, gearing and brakes.",
+    "why": "The course copied the boosted rover motor; both scenes should use the requested gentler drive tune."
+  },
+  {
+    "id": "0575",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcase.test.ts",
+    "what": "Replace the copied-config 25-degree boosted climb check with a shipped-vehicle regression that pins the reverted motor and resistance, bounds one-second acceleration and forty-second full-throttle speed, and retains a 15-degree no-wheelspin climb check.",
+    "why": "Catch future scene-only speedups while deliberately removing the steep-climb requirement that motivated the unwanted power increase."
+  },
+  {
+    "id": "0576",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/roverCourse.test.ts",
+    "what": "Add a regression pinning the original motor/gearing and gentle one-second acceleration plus forty-second full-throttle speed on the actual course vehicle, stepping without obstacle collisions.",
+    "why": "Ensure the course cannot silently keep the boosted motor or pass a speed check only because it hits a barrier."
+  },
+  {
+    "id": "0577",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VEHICLES.md",
+    "what": "Document the restored motor, regolith resistance, shared course tune, efficiency-correct peak tractive force and unchanged no-load speed; clarify that it is not a downhill limiter.",
+    "why": "Keep the drivetrain contract accurate after the speed rollback without promising the boosted climbing performance."
+  },
+  {
+    "id": "0578",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Correct the Mars Showcase suite count and document the shipped-vehicle acceleration/speed checks, modest 15-degree grip test and six-test rover-course coverage.",
+    "why": "Verification prose must describe the new speed regression and the intentionally reduced climbing requirement."
+  },
+  {
+    "id": "0579",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the rover drive-tune rollback, retained fixes, derived rock force, shipped-vehicle regression strategy, successful affected-test/typecheck/WGSL/architecture validation and the full 816-test verification run before PR creation.",
+    "why": "Future sessions should not reintroduce the power boost to satisfy the old 25-degree climb test."
+  },
+  {
+    "id": "0580",
+    "date": "2026-10-06T22:30:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/0721e380-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Append per-file activity entries for the rover speed rollback and validation.",
+    "why": "Maintain the repository activity-history contract."
   }
 ]
 ```

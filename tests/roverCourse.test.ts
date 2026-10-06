@@ -169,6 +169,34 @@ describe("Rover Course — proving ground assembly", () => {
     expect(handle.courseState().conesHit).toBe(0);
   });
 
+  it("keeps the original 1 kW motor and gentle full-throttle acceleration", async () => {
+    const { component } = await fixture();
+    const rover = component.vehicle;
+    expect(rover.config.engine).toMatchObject({
+      peakTorque: 9.5,
+      peakPower: 1000,
+      ratedRpm: 1000,
+      maxRpm: 3800,
+      regenTorque: 4.2,
+    });
+    expect(rover.config.transmission.ratio).toBe(60);
+    // Step the actual vehicle directly on the course's flat ground: track obstacles must not
+    // masquerade as a speed cap, and the scene must not overwrite this full-throttle input.
+    rover.input.brake = 0;
+    rover.input.handbrake = 0;
+    rover.input.throttle = 1;
+    for (let i = 0; i < 60; i++) rover.step(1 / 60, component.ground);
+    expect(rover.speed).toBeGreaterThan(0.5);
+    expect(rover.speed).toBeLessThan(1.2);
+    let maxSpeed = rover.speed;
+    for (let i = 60; i < 60 * 40; i++) {
+      rover.step(1 / 60, component.ground);
+      maxSpeed = Math.max(maxSpeed, rover.speed);
+    }
+    expect(maxSpeed).toBeLessThan(1.75);
+    expect(rover.speed).toBeGreaterThan(0.6);
+  });
+
   it("drives the rover down the home straight without clipping the slalom", async () => {
     const { handle, component, tick, key } = await fixture();
     const rover = component.vehicle;
