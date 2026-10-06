@@ -1420,11 +1420,12 @@ GOAL:
         disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
         recovery remain open.
 
-    [ ] Deterministic physics and browser evidence.
+    [~] Deterministic physics and browser evidence.
 
-        Add CPU tests for threshold decisions, rolling and damage, plus a real-WebGPU showcase arm
-        that verifies a pushable rock moves, an immovable rock blocks/damages the rover and a crater
-        edge can start a roll.
+        CPU coverage now replays promotion, impulse, gravity, rolling, blocking and damage decisions
+        deterministically. A dedicated real-WebGPU showcase arm is still required to verify that a
+        pushable rock moves, an immovable rock blocks/damages the rover and a crater edge can start a
+        roll without GPU errors.
 
 
 15.5.4 Sand Deformation and Wheel Tracks

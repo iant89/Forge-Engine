@@ -143,6 +143,18 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     expect(damage.disabled).toBe(true);
   });
 
+  it("replays the same rock contact trajectory deterministically", () => {
+    const run = (): [number, number, number, number] => {
+      const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+      const proxy = new InteractiveRockProxy(rock({ crushStrength: 500000 }), { x: 0, y: 2, z: 0 });
+      world.addBody(proxy.body);
+      proxy.contact({ roverMass: 1025, relativeSpeed: 0.4, availableForce: 2160, obstacleHeight: 0.1 }, { x: 1, y: 0, z: 0 });
+      world.stepDeterministic(120);
+      return [proxy.body.position.x, proxy.body.position.y, proxy.body.linearVelocity.x, proxy.body.angularVelocity.y];
+    };
+    expect(run()).toEqual(run());
+  });
+
   it("marks a fractured rock without leaving a live dynamic body decision to the caller", () => {
     const proxy = new InteractiveRockProxy(rock(), { x: 0, y: 1, z: 0 });
     const result = proxy.contact({
