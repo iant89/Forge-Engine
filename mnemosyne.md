@@ -1254,3 +1254,33 @@ Traps worth keeping:
 - The particles demo now **builds with ribbons on**; `?ribbons=0` deep-links the A/B. Capability
   `particles.gpuRendering` stays `partial` on purpose — mesh particles remain deferred, and
   rule-6 flips (`partial`→`verified` while a `closesWith` item is open) break `docs:check`.
+
+## 2026-10-06 — showcase rock physics: frozen entities, flickering records, falling rocks
+
+- **`Entity.transform` getters return throwaway copies** (`engine/src/scene/world.ts`:
+  `TransformHandle.position/rotation/scale` `new` every access; only the setters write the slot).
+  `transform.position.copyFrom(...)` / `transform.scale.set(...)` are silent no-ops — this froze
+  every active rock and fragment visual at its spawn pose/scale (the "broken pieces stacked inside
+  one another" report: the *bodies* separated, the *visuals* never moved). Poses must be assigned
+  (`entity.transform.position = scratchVec.set(...)`); `syncEntityPose`/`setEntityScale` in
+  `marsShowcaseScene.ts` are the pattern. Track marks already assigned, which is why only they worked.
+- **Interactive-rock records must stay `wanted` while tracked.** The sync's zeroed-scales skip
+  (meant for broken instances) also matched awake rocks and evicted them every frame: entities
+  churned destroy/create every other frame, bodies lost all momentum on re-promotion (shoved rocks
+  could never roll), and per-record state (push-trail cursor) reset constantly. Fix: compute the id
+  first, skip zeroed scales only when no record tracks the instance, and range-check tracked rocks
+  by body position.
+- **LOD remesh Y-snaps read as falling rocks.** `reanchorRemeshed` used to snap instance Y to the new
+  tile in one frame (measured −2.46 m at ~400 m on a 20 s drive); coarse↔fine heightfields differ by
+  meters on rough terrain, worse with bicubic overshoot above the facets. Fix: bilinear sampling
+  (matches the rendered mesh exactly) + per-instance anchor targets with 8/s exponential settling.
+- **Rover traction was torque-limited, not slip-limited.** Slips stayed ~0.003–0.03 with TC idle;
+  the 25° stall was `m·g·(sinθ + rr·cosθ)` exceeding motor torque, and raising `peakTorque` alone
+  does nothing past `ratedRpm` — the `peakPower` field-weakening cap binds first. Size all three
+  together (`MARS_ROVER_TRACTION`); the 25° climb test in `tests/marsShowcase.test.ts` pins it.
+- **Deformation-field stamps below the cell size are no-ops** (4 m cells vs 0.18 m wheel/rock
+  radii: `sampleCount = 0`). Sub-meter ground response (wheel ruts already, rock push-trails now)
+  must be decal pools, not heightfield edits.
+- **Arena tooling note:** parallel `edit_file` calls to the *same* file race (last write wins and
+  the losers still report success). Always edit one file per message, sequentially; verify with
+  `tsc`/grep afterwards.

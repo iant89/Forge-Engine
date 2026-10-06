@@ -6870,6 +6870,111 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/diag/particleRibbonCheck.ts",
     "what": "New deterministic offscreen ribbon oracle: two same-seed 256-particle fountains (ribbons on vs off) stepped 36 fixed frames on their own GraphicsDevice, both final frames copied back, and lit-area/mean-luma/dark-pixel metrics returned; the __forge hook pauses the demo device around the call like the terrain-layer check does.",
     "why": "The animated demo fountain's density drifts by more between sample windows than the ribbon delta, so any live A/B is flakiness; same-seed re-runs share bit-identical particle state, leaving only the ribbon draw to move the pixels (blend-order noise stayed ~0.4% against a ~21% signal)."
+  },
+  {
+    "id": "0542",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/scene/population.ts",
+    "what": "PopulationInstanceBlock gains a per-instance targetY anchor array plus snapY/snapAllY helpers: rendered Y damps toward the anchor instead of snapping when the terrain remeshes underneath.",
+    "why": "Remesh re-anchoring snapped distant rocks by meters in one frame (measured -2.46 m at ~400 m), which reads as rocks falling from the sky on newly streamed-in terrain."
+  },
+  {
+    "id": "0543",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/population/world.ts",
+    "what": "HeightmapSampler now samples bilinear (matching the rendered mesh facets exactly instead of bicubic-overshooting them); reanchorRemeshed writes Y targets only and a new 8/s exponential settleAnchoredY pass glides instances onto the new surface, skipping showcase-hidden (zero-scale) instances.",
+    "why": "Same falling-rocks root cause as 0542: bilinear removes the float above the facets, settling turns meter-scale LOD corrections into a sub-second glide (driving diagnostic: 14 drops < -0.5 m before, 0 after)."
+  },
+  {
+    "id": "0544",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Showcase rock/traction overhaul: (1) MARS_ROVER_TRACTION export (14 N.m/2500 W/1800 rpm motor, mu 1.4, rr 0.035, stiffer Pacejka curves) + ROVER_TRACTIVE_FORCE 2860 N; (2) layoutBreakFragments golden-angle separated spawn, collision-matched fragment scales, stronger scatter, 1 s min-awake, 6 m/s caps; (3) furrow + backside-mound push-trail pools stamped per 0.3 m of shoved travel; (4) syncEntityPose/setEntityScale fix all 11 dead TransformHandle in-place mutations that froze rock/fragment visuals; (5) tracked records stay wanted (no more per-frame evict/re-promote momentum loss), dormant bodies re-ground, wake snaps to the live surface, eviction write-back uses snapY.",
+    "why": "User reports: traction loss on grades (was torque-limited at 25 deg), broken pieces stacked inside one another (frozen visuals + interpenetrating spawns), missing push trails; plus the falling-rocks fix needs persistent records and anchor-aware write-back."
+  },
+  {
+    "id": "0545",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/population.test.ts",
+    "what": "Re-anchor test rewritten for settle-to-target semantics (targets equal the bilinear surface immediately; one update moves ~12% of the gap; 120 updates converge), plus a new test pinning scatter anchor sync and that showcase-hidden instances never settle until snapY restores them.",
+    "why": "Pin the 0542/0543 behavior change: exact-snap assertions would fail (and would re-allow) the falling-rocks regression."
+  },
+  {
+    "id": "0546",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcase.test.ts",
+    "what": "Three new tests: 25 deg grade climb on the scene's exact traction constants (no stall, slip < 0.35), layoutBreakFragments separation/down-push unit test, and a full push-then-smash integration test (creep wakes and shoves a rock 0.6 m stamping furrow+mound, full-speed ram breaks it into 9 pairwise-separated fragments with collision-matched visual scales).",
+    "why": "Regression pins for the 0544 traction/fragment/trail work that can only be observed through the live scene (entity poses, trail pools, break debris)."
+  },
+  {
+    "id": "0547",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "New 2026-10-06 entry: TransformHandle copy getters, tracked-records-must-stay-wanted, LOD Y-snap root cause, torque-vs-power traction sizing, sub-cell deformation stamps are no-ops, and the same-file parallel edit race.",
+    "why": "Durable, slow-to-rediscover findings from this session's debugging (several took direct engine experiments to isolate)."
+  },
+  {
+    "id": "0548",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/df49511b-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries 0542-0548 for the showcase rock-physics session (falling rocks, traction, fragments, push trails).",
+    "why": "Maintenance rules: one change entry per file touched."
+  },
+  {
+    "id": "0549",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "pr-merge",
+    "pr": 60,
+    "branch": "arena/df49511b-forge-engine",
+    "base": "main",
+    "title": "Fix falling rocks, rover traction, fragment stacking, and add push trails",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Four Mars showcase reports fixed with regression pins: (1) falling rocks on streamed-in terrain were single-frame LOD remesh Y-snaps (measured -2.46 m at ~400 m) — now bilinear mesh-matching heights plus per-instance anchor targets with 8/s exponential settling (0 drops over 0.5 m on re-run), dormant-body re-grounding, surface-snapped wake-ups, and snapY write-back; (2) traction was torque-limited, not slip-limited — 14 N.m / 2500 W / 1800 rpm motor, mu 1.4, rr 0.035, stiffer Pacejka curves, 2860 N tractive (~37 deg climbs, same 1.75 m/s top speed); (3) stacked fragments were interpenetrating spawns plus frozen visuals (TransformHandle getters return copies, so all 11 in-place pose writes were no-ops) — separated golden-angle layout, collision-matched scales, stronger scatter, 1 s min-awake, speed caps, assignment-based pose helpers; (4) push trails are furrow + backside-mound decal pools (sub-cell deformation stamps are no-ops), which required keeping tracked rock records wanted so shoved rocks keep momentum and roll. Gate in sandbox: population 33/33, marsShowcase 11/11 (3 new), vehicle/physics/architecture/terrain-interaction suites green, typecheck + lint:arch clean; browser gate not runnable in sandbox (no Chromium/WebGPU), so merge relies on CI including the advisory WebGPU gate.",
+    "files": [
+      "change-log.md",
+      "engine/src/population/world.ts",
+      "engine/src/scene/population.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "mnemosyne.md",
+      "tests/marsShowcase.test.ts",
+      "tests/population.test.ts"
+    ]
   }
 ]
 ```

@@ -8,27 +8,39 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   Clock,
+  ElectricMotor,
   GraphicsDevice,
   Logger,
   MARS_GEN_PARAMS,
   MarsTerrainStage,
   ParticleWorld,
+  PopulationWorld,
   Profiler,
+  ReductionDrive,
   Renderable,
   SplatMaterial,
   SystemScratch,
   TaskScheduler,
   TerrainWorld,
   Vec3,
+  Vehicle,
   VehicleComponent,
   chunkCoordKey,
+  createVehicleConfig,
+  heightFunctionGround,
+  slopeGround,
   type Engine,
   type SystemContext,
   type TerrainTile,
 } from "@forge/engine";
 import { createWorkerThreadPool } from "./support/workerThreads.js";
 import { OrbitControls } from "../examples/src/controls/orbitControls.js";
-import { buildMarsShowcaseScene, MARS_SHOWCASE_SITE } from "../examples/src/scenes/marsShowcaseScene.js";
+import {
+  buildMarsShowcaseScene,
+  layoutBreakFragments,
+  MARS_ROVER_TRACTION,
+  MARS_SHOWCASE_SITE,
+} from "../examples/src/scenes/marsShowcaseScene.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -314,6 +326,250 @@ describe("Mars Showcase — ported terrain integration", () => {
     expect(chipEmissionsOnSide([1, 3, 5])).toBeGreaterThan(0);
     for (const wheel of component.vehicle.wheels) {
       expect(Math.abs(wheel.contactY - terrain.getHeightAt(wheel.contactX, wheel.contactZ))).toBeLessThan(0.001);
+    }
+  });
+
+  it("climbs a 25° regolith grade on the scene's traction constants without stalling or spinning", () => {
+    // The exact drivetrain the scene builds (motor/gearing/tires/rolling resistance), on an
+    // analytic grade. The old tune stalled here (≈0.01 m/s: torque-limited, not slip-limited).
+    const traction = MARS_ROVER_TRACTION;
+    const motor = new ElectricMotor({
+      peakTorque: traction.peakTorque,
+      peakPower: traction.peakPower,
+      ratedRpm: traction.ratedRpm,
+      maxRpm: 3800,
+      regenTorque: 4.2,
+      dragTorque: 0.12,
+      inertia: 0.02,
+    });
+    const config = {
+      ...createVehicleConfig({
+        mass: 1025,
+        gravity: 3.72,
+        mu: traction.mu,
+        wheelRadius: 0.264,
+        wheelbase: 2.26,
+        track: 2.18,
+        cgToFront: 1.095,
+        cgHeight: 0.54,
+        longitudinal: traction.longitudinal,
+        lateral: traction.lateral,
+        springRate: (1025 * 3.72) / (6 * 0.05),
+        aero: null,
+        maxBrakeTorque: 4200,
+        absEnabled: false,
+        rollingResistance: traction.rollingResistance,
+        engine: motor,
+        transmission: new ReductionDrive(60),
+      }),
+      wheels: [
+        { x: -1.091, z: 1.095, steered: true, driven: true, handbrake: false },
+        { x: 1.091, z: 1.095, steered: true, driven: true, handbrake: false },
+        { x: -1.213, z: -0.09, steered: false, driven: true, handbrake: false },
+        { x: 1.213, z: -0.09, steered: false, driven: true, handbrake: false },
+        { x: -1.091, z: -1.165, steered: true, driven: true, handbrake: true },
+        { x: 1.091, z: -1.165, steered: true, driven: true, handbrake: true },
+      ],
+    };
+    config.suspensionRest = 0.32;
+    config.suspensionTravel = 0.16;
+    config.maxSteerAngle = 0.62;
+    const rover = new Vehicle(config);
+    const grade = slopeGround((25 * Math.PI) / 180);
+    rover.placeOnGround(grade);
+    rover.input.throttle = 1;
+    for (let i = 0; i < 600; i++) rover.step(1 / 60, grade);
+    // Sustained climb: ~0.4 m/s → 4 m over 10 s. The stalled tune managed ≈0.1 m.
+    expect(rover.distance).toBeGreaterThan(1.5);
+    expect(rover.speed).toBeGreaterThan(0.2);
+    // The wheels grip instead of spinning: slip ratios stay well under the curve peak (~0.4).
+    for (const wheel of rover.wheels) {
+      expect(Math.abs(wheel.kappa)).toBeLessThan(0.35);
+    }
+  });
+
+  it("lays break fragments out separated with a down-push bias", () => {
+    // Largest-first footprints like a real break (chunks, then pebbles).
+    const radii = [0.2, 0.18, 0.15, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04];
+    let s = 12345;
+    const random = (): number => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+    const spots = layoutBreakFragments(radii, 10, -3, 0, 1, random);
+    expect(spots).toHaveLength(radii.length);
+    // No two spawn interpenetrating (7 cm clearance by construction; assert 6 for float slop).
+    for (let a = 0; a < spots.length; a++) {
+      for (let b = a + 1; b < spots.length; b++) {
+        const dist = Math.hypot(spots[a]!.x - spots[b]!.x, spots[a]!.z - spots[b]!.z);
+        expect(dist).toBeGreaterThanOrEqual(radii[a]! + radii[b]! + 0.06);
+      }
+    }
+    // The pile favors the push direction (+z here).
+    const meanZ = spots.reduce((total, spot) => total + spot.z, 0) / spots.length;
+    expect(meanZ).toBeGreaterThan(-3);
+  });
+
+  it("shoving a rock leaves a furrow trail and mound; smashing it scatters separated fragments", async () => {
+    const { scene, terrain, component, tick, key } = await fixture();
+    const population = scene.object<PopulationWorld>("population")!;
+    const rover = component.vehicle;
+    const entitiesWithPrefix = (prefix: string) => {
+      const out: Array<NonNullable<ReturnType<typeof scene.world.facade>>> = [];
+      for (const id of scene.world.liveEntityIds()) {
+        if (!scene.world.name(id).startsWith(prefix)) continue;
+        const entity = scene.world.facade(id);
+        if (entity) out.push(entity);
+      }
+      return out;
+    };
+    // Mirror the scene's round-rock collision radius to pick a shoveable-then-breakable rock:
+    // type-1, round, r in [0.35, 1.0] (large enough to break at speed, small enough to push).
+    const roundRockRadius = (blockScales: ArrayLike<number>, p: number): number | null => {
+      const rawSx = blockScales[p]! * 0.8;
+      const rawSy = blockScales[p + 1]! * 0.8;
+      const rawSz = blockScales[p + 2]! * 0.8;
+      const minDim = Math.min(rawSx, rawSy, rawSz);
+      const sy = minDim;
+      const sx = rawSx === minDim ? rawSy : rawSx;
+      const sz = rawSz === minDim ? rawSy : rawSz;
+      if (sy < 0.7 * Math.max(sx, sz)) return null;
+      return Math.max(0.12, ((sx + sy + sz) / 3) * 0.55);
+    };
+    for (let i = 0; i < 120; i++) tick();
+    let target: { chunkKey: string; index: number; x: number; z: number; radius: number } | null = null;
+    for (const [chunkKey] of terrain.chunks) {
+      const block = population.chunkPopulation(chunkKey, 1);
+      if (!block) continue;
+      for (let i = 0; i < block.count; i++) {
+        const p = i * 3;
+        if (block.scales[p] === 0 && block.scales[p + 1] === 0) continue;
+        const radius = roundRockRadius(block.scales, p);
+        if (radius === null || radius < 0.35 || radius > 1.0) continue;
+        const dx = block.positions[p]! - rover.position.x;
+        const dz = block.positions[p + 2]! - rover.position.z;
+        if (Math.hypot(dx, dz) > 30) continue;
+        target = { chunkKey, index: i, x: block.positions[p]!, z: block.positions[p + 2]!, radius };
+        break;
+      }
+      if (target) break;
+    }
+    expect(target, "a round type-1 rock within 30 m of spawn").not.toBeNull();
+    const rockId = `${target!.chunkKey}:rocks:${target!.index}`;
+
+    const ground = heightFunctionGround((x: number, z: number) => terrain.getHeightAt(x, z));
+    const teleportBehind = (x: number, z: number, gap: number): void => {
+      rover.position.set(x, terrain.getHeightAt(x, z - gap) + 1.0, z - gap);
+      rover.placeOnGround(ground);
+      key("keydown", "KeyS");
+      for (let i = 0; i < 30; i++) tick();
+      key("keyup", "KeyS");
+    };
+    const isActive = (): boolean => {
+      const fresh = population.chunkPopulation(target!.chunkKey, 1)!;
+      return fresh.scales[target!.index * 3] === 0;
+    };
+
+    // Phase 1 — creep into the rock (adaptive W pulses, never faster than a gentle nudge) so
+    // it wakes and rolls without breaking.
+    teleportBehind(target!.x, target!.z, 1.6 + target!.radius + 0.12);
+    let contactSpeed = 0;
+    for (let i = 0; i < 800 && !isActive(); i++) {
+      if (rover.speed < 0.12) {
+        key("keydown", "KeyW");
+        tick();
+        tick();
+        key("keyup", "KeyW");
+      } else {
+        tick();
+      }
+      contactSpeed = rover.speed;
+    }
+    expect(isActive(), "the creep wakes the rock").toBe(true);
+    expect(contactSpeed).toBeLessThan(0.35);
+    expect(entitiesWithPrefix("rock-chunk-")).toHaveLength(0);
+    expect(entitiesWithPrefix("rock-pebble-")).toHaveLength(0);
+    const activeRock = (): NonNullable<ReturnType<typeof scene.world.facade>> =>
+      entitiesWithPrefix(`active-rock-${rockId}`)[0]!;
+    expect(activeRock(), "waking promotes the rock to an entity").toBeDefined();
+    const pushStartX = activeRock().transform.position.x;
+    const pushStartZ = activeRock().transform.position.z;
+    // The shove carries the rock well past the 0.3 m trail spacing; hold the brakes so the
+    // rover does not follow it into the pile.
+    key("keydown", "KeyS");
+    let pushed = 0;
+    for (let i = 0; i < 600; i++) {
+      tick();
+      pushed = Math.hypot(
+        activeRock().transform.position.x - pushStartX,
+        activeRock().transform.position.z - pushStartZ,
+      );
+      if (pushed >= 0.6) break;
+    }
+    key("keyup", "KeyS");
+    expect(pushed).toBeGreaterThanOrEqual(0.6);
+    // Every stretch of shoved travel stamps a furrow segment and a backside dirt mound.
+    const furrows = entitiesWithPrefix("mars-furrow-").filter(
+      (entity) => entity.get(Renderable)?.visible,
+    );
+    const mounds = entitiesWithPrefix("mars-mound-").filter(
+      (entity) => entity.get(Renderable)?.visible,
+    );
+    expect(furrows.length).toBeGreaterThanOrEqual(1);
+    expect(mounds.length).toBeGreaterThanOrEqual(1);
+
+    // Phase 2 — let the rock come to rest, then ram it at full speed and check the debris.
+    key("keydown", "KeyS");
+    let restX = activeRock().transform.position.x;
+    let restZ = activeRock().transform.position.z;
+    for (let i = 0; i < 900; i++) {
+      tick();
+      const nowX = activeRock().transform.position.x;
+      const nowZ = activeRock().transform.position.z;
+      if (Math.hypot(nowX - restX, nowZ - restZ) < 1e-4 && i > 60) break;
+      restX = nowX;
+      restZ = nowZ;
+    }
+    key("keyup", "KeyS");
+    teleportBehind(restX, restZ, 4);
+    key("keydown", "KeyW");
+    let fragCount = 0;
+    for (let i = 0; i < 600; i++) {
+      tick();
+      fragCount =
+        entitiesWithPrefix("rock-chunk-").length + entitiesWithPrefix("rock-pebble-").length;
+      if (fragCount >= 9) break;
+    }
+    key("keyup", "KeyW");
+    expect(fragCount).toBeGreaterThanOrEqual(9);
+    const chunks = entitiesWithPrefix("rock-chunk-");
+    const pebbles = entitiesWithPrefix("rock-pebble-");
+    // Rendered size matches the collider: entity scale is collision-half-extent ÷ geometry
+    // radius, so round fragments (spherical collision on squashed geometry) have a fixed
+    // Y/X scale ratio — 1.0/0.85/0.45 on the old size-blind scales.
+    for (const pebble of pebbles) {
+      const scale = pebble.transform.scale;
+      expect(scale.y / scale.x).toBeCloseTo(0.22 / (0.22 * (1 - 0.2)), 2);
+    }
+    for (const chunk of chunks) {
+      const scale = chunk.transform.scale;
+      // Suffix "-c": c % 2 === 0 is a flat slab (sy/s = 0.45), c = 1 is round.
+      const suffix = Number(scene.world.name(chunk.id).split("-").pop());
+      const shapeRatio = suffix % 2 === 0 ? 0.45 : 1;
+      expect(scale.y / scale.x).toBeCloseTo(shapeRatio * (0.6 / (0.6 * (1 - 0.35))), 2);
+    }
+    // No two fragments rest inside one another: pairwise XZ distance covers both footprints.
+    const discs = [
+      ...chunks.map((entity) => ({ entity, radius: entity.transform.scale.x * 0.6 })),
+      ...pebbles.map((entity) => ({ entity, radius: entity.transform.scale.x * 0.22 })),
+    ];
+    for (let a = 0; a < discs.length; a++) {
+      for (let b = a + 1; b < discs.length; b++) {
+        const pa = discs[a]!.entity.transform.position;
+        const pb = discs[b]!.entity.transform.position;
+        const dist = Math.hypot(pa.x - pb.x, pa.z - pb.z);
+        expect(dist).toBeGreaterThanOrEqual(discs[a]!.radius + discs[b]!.radius);
+      }
     }
   });
 

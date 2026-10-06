@@ -285,23 +285,138 @@ const WHEEL_RADIUS = 0.264;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
 
 /**
+ * Traction constants the rover build below consumes (exported so the traction tests pin the
+ * exact numbers the scene drives on — grip regressions must fail loudly, not feel vague).
+ */
+export const MARS_ROVER_TRACTION = {
+  /** Stall torque (N·m). 14 N·m through the 60:1 reduction ≈ 840 N·m at the wheels. */
+  peakTorque: 14,
+  /** Field-weakening power cap (W). Sized so full torque survives through crawl/climb speeds. */
+  peakPower: 2500,
+  /** Base speed (rpm): constant torque below, constant power above. 1800 rpm ≈ 0.83 m/s. */
+  ratedRpm: 1800,
+  /** Tire/soil friction. 1.4 ≈ chevron-grouser wheels biting into regolith. */
+  mu: 1.4,
+  /** Rolling resistance. 0.035 keeps the torque margin positive on 25°+ grades. */
+  rollingResistance: 0.035,
+  /** Stiffer-than-default longitudinal curve (default B:10): grousers build force fast. */
+  longitudinal: { B: 14, C: 1.65, E: 0.97 },
+  /** Stiffer-than-default lateral curve (default B:8.5): holds to large slip angles. */
+  lateral: { B: 12, C: 1.3, E: 0.97 },
+};
+
+/**
  * Electric traction — the real rovers are battery-electric, and the old combustion defaults
  * (340 N·m through a 5-speed gearbox) geared the 1025 kg rover past 200 km/h equivalent, which
- * is the "way too fast, wheels fly off at hill crests" report. A ~1 kW motor behind a 60:1
- * reduction gives ≈570 N·m at the wheels (≈2160 N tractive — climbs ~34° regolith at Mars
+ * is the "way too fast, wheels fly off at hill crests" report. A ~2.5 kW motor behind a 60:1
+ * reduction gives ≈840 N·m at the wheels (≈2860 N tractive — climbs ~37° regolith at Mars
  * gravity) and the motor's no-load speed caps the rover at ≈1.75 m/s ≈ 6 km/h. `regenTorque`
  * blends ≈955 N of regenerative braking in ahead of the friction pads (see `ElectricMotor`).
  */
 const ROVER_MOTOR = {
-  peakTorque: 9.5,
-  peakPower: 1000,
-  ratedRpm: 1000,
+  peakTorque: MARS_ROVER_TRACTION.peakTorque,
+  peakPower: MARS_ROVER_TRACTION.peakPower,
+  ratedRpm: MARS_ROVER_TRACTION.ratedRpm,
   maxRpm: 3800,
   regenTorque: 4.2,
   dragTorque: 0.12,
   inertia: 0.02,
 };
 const ROVER_REDUCTION = 60;
+/**
+ * Peak tractive force (N) the rock-contact bridge may spend: 14 N·m × 60:1 × 0.9 efficiency /
+ * 0.264 m wheel radius ≈ 2860 N. Keep in sync with `MARS_ROVER_TRACTION` above.
+ */
+const ROVER_TRACTIVE_FORCE = 2860;
+
+/**
+ * Fragment geometry half-extents (see `rockGeometrySource`: Y is squashed by `(1 − flatten)`).
+ * Fragment entity scales are collision-half-extent ÷ these radii, so the rendered rock matches
+ * the simulated shape instead of floating inside (or outside) its collider.
+ */
+const CHUNK_GEO_RADIUS_XZ = 0.6;
+const CHUNK_GEO_RADIUS_Y = 0.6 * (1 - 0.35);
+const PEBBLE_GEO_RADIUS_XZ = 0.22;
+const PEBBLE_GEO_RADIUS_Y = 0.22 * (1 - 0.2);
+
+/**
+ * Deterministic-ish golden-angle placement for rock-break fragments: rings expand from the
+ * impact point and every candidate is rejection-tested against all already-placed fragments,
+ * so no two spawn interpenetrating (the old ring packed 9 fragments into ~0.5 m and they
+ * rested stacked inside one another). `radii` must be largest-first so big chunks claim the
+ * inner ring. `random` defaults to `Math.random`; tests inject a seeded stream.
+ */
+export function layoutBreakFragments(
+  radii: readonly number[],
+  originX: number,
+  originZ: number,
+  pushX: number,
+  pushZ: number,
+  random: () => number = Math.random,
+): Array<{ x: number; z: number }> {
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+  const placed: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < radii.length; i++) {
+    const r = Math.max(0.03, radii[i]!);
+    let px = originX;
+    let pz = originZ;
+    let ok = false;
+    for (let attempt = 0; attempt < 48 && !ok; attempt++) {
+      // A fresh ring every 6 attempts; radius jitter keeps the scatter organic.
+      const ring = Math.floor(attempt / 6);
+      const ringR = r + 0.1 + ring * 0.24 + random() * 0.1;
+      const a = i * GOLDEN_ANGLE + attempt * 0.9 + random() * 0.6;
+      const cx = originX + Math.cos(a) * ringR + pushX * 0.22;
+      const cz = originZ + Math.sin(a) * ringR + pushZ * 0.22;
+      ok = true;
+      for (let j = 0; j < placed.length; j++) {
+        const q = placed[j]!;
+        const need = r + Math.max(0.03, radii[j]!) + 0.07;
+        const dx = cx - q.x;
+        const dz = cz - q.z;
+        if (dx * dx + dz * dz < need * need) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        px = cx;
+        pz = cz;
+      }
+    }
+    if (!ok) {
+      // Deterministic overflow: far out on its own golden spoke, biased down-push.
+      const a = i * GOLDEN_ANGLE;
+      const ringR = 1.4 + i * 0.2;
+      px = originX + Math.cos(a) * ringR + pushX * 0.4;
+      pz = originZ + Math.sin(a) * ringR + pushZ * 0.4;
+    }
+    placed.push({ x: px, z: pz });
+  }
+  return placed;
+}
+
+/**
+ * `Entity.transform` getters return fresh throwaway copies — mutating them in place
+ * (`transform.position.copyFrom(...)`, `transform.scale.set(...)`) silently discards the write
+ * and freezes the visual at its creation pose. Poses must go through the setters (assignment),
+ * which copy the components into the slot immediately, so these shared scratch objects are safe
+ * to reuse. Every entity-pose write in this scene funnels through these two helpers.
+ */
+const poseScratchPosition = new Vec3();
+const poseScratchRotation = new Quat();
+const poseScratchScale = new Vec3();
+
+/** Assign an entity's position + rotation (the per-frame body-following path). */
+function syncEntityPose(entity: Entity, position: Vec3, rotation: Quat): void {
+  entity.transform.position = poseScratchPosition.set(position.x, position.y, position.z);
+  entity.transform.rotation = poseScratchRotation.copyFrom(rotation);
+}
+
+/** Assign an entity's non-uniform scale (fragment sizing, trail stamps). */
+function setEntityScale(entity: Entity, x: number, y: number, z: number): void {
+  entity.transform.scale = poseScratchScale.set(x, y, z);
+}
 
 /**
  * Stowed head centroid relative to the mast hinge, from the converter report (`mast.headOffset`
@@ -777,18 +892,23 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     ...createVehicleConfig({
       mass: 1025,
       gravity: 3.72,
-      mu: 1.1,
+      mu: MARS_ROVER_TRACTION.mu,
       wheelRadius: WHEEL_RADIUS,
       wheelbase: 2.26,
       track: 2.18,
       cgToFront: 1.095,
       cgHeight: 0.54,
+      // Stiffer-than-default tire curves (see MARS_ROVER_TRACTION): grouser wheels on
+      // regolith build force fast and hold it to large slip angles, so the wheels bite instead
+      // of spinning.
+      longitudinal: MARS_ROVER_TRACTION.longitudinal,
+      lateral: MARS_ROVER_TRACTION.lateral,
       springRate: WHEEL_SPRING_RATE,
       damperRate: 2 * Math.sqrt(WHEEL_SPRING_RATE * (1025 / 6)) * 0.55,
       aero: null,
       maxBrakeTorque: 4200,
       absEnabled: false,
-      rollingResistance: 0.06,
+      rollingResistance: MARS_ROVER_TRACTION.rollingResistance,
       engine: motor,
       transmission: new ReductionDrive(ROVER_REDUCTION),
     }),
@@ -852,6 +972,13 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     origScaleX: number;
     origScaleY: number;
     origScaleZ: number;
+    /** Resting height of the body center above the ground (hy for slabs, radius for rounds). */
+    restOffsetY: number;
+    /** Horizontal half-extent of the collision shape, for sizing push-trail stamps. */
+    trailRadius: number;
+    /** Last push-trail stamp position (NaN until the rock first moves while awake). */
+    lastTrailX: number;
+    lastTrailZ: number;
     activeEntity: Entity | null;
     awake: boolean;
     settledTimer: number;
@@ -868,9 +995,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     scale: number;
     awake: boolean;
     settledTimer: number;
+    /** Seconds since spawn. Fragments must stay awake (`MIN_FRAGMENT_AWAKE`) so the scatter has
+     * time to separate the pile before anything is allowed to fall asleep mid-stack. */
+    age: number;
   }
   const fragments: FragmentRecord[] = [];
   const MAX_FRAGMENTS = 64;
+  /** Minimum seconds a fresh fragment simulates before it may fall asleep. */
+  const MIN_FRAGMENT_AWAKE = 1.0;
+  /** Safety cap (m/s) on fragment and shoved-rock speeds: solver separations must fling rocks
+   * apart, never launch them skyward. */
+  const MAX_ROCK_SPEED = 6;
 
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
   const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
@@ -891,6 +1026,86 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let nextTrack = 0;
   let visibleTrackMarks = 0;
   const trackRotation = new Quat();
+
+  // Push-trail pools: shoving a rock gouges a dark furrow behind it and piles a dirt mound on
+  // its backside. Ring buffers like the wheel tracks (the deformation field's 4 m cells are far
+  // too coarse for rock-scale ruts, so trails are decals, not heightfield edits).
+  const furrowMesh = createBox(gpu, { width: 1, height: 0.012, depth: 1 });
+  const furrowMaterial = Material.unlit({ label: "mars-push-furrows", color: 0x3a241c, opacity: 0.55, transparent: true });
+  const furrowMarks = Array.from({ length: 128 }, (_, index) => {
+    const entity = scene.createTransformedEntity(`mars-furrow-${index}`, new Vec3(0, -400, 0));
+    const renderable = new Renderable();
+    renderable.geometry = furrowMesh;
+    renderable.material = furrowMaterial;
+    renderable.castShadow = false;
+    renderable.receiveShadow = false;
+    renderable.transparent = true;
+    renderable.visible = false;
+    scene.world.addComponent(entity.id, renderable);
+    return { entity, renderable };
+  });
+  let nextFurrow = 0;
+  const moundMesh = createSphere(gpu, { radius: 0.5 });
+  const moundMaterial = new Material({ label: "mars-push-mounds", color: 0x8a5a3c, roughness: 1 });
+  const moundMarks = Array.from({ length: 64 }, (_, index) => {
+    const entity = scene.createTransformedEntity(`mars-mound-${index}`, new Vec3(0, -400, 0));
+    const renderable = new Renderable();
+    renderable.geometry = moundMesh;
+    renderable.material = moundMaterial;
+    renderable.castShadow = false;
+    renderable.receiveShadow = true;
+    renderable.visible = false;
+    scene.world.addComponent(entity.id, renderable);
+    return { entity, renderable };
+  });
+  let nextMound = 0;
+  const trailRotation = new Quat();
+
+  /**
+   * Stamp one furrow segment + backside mound for a rock that moved from (fromX, fromZ) to
+   * (toX, toZ). The furrow spans the segment (widened to the rock's footprint); the mound sits
+   * just behind the rock's leading edge, where the shoved dirt piles up.
+   */
+  const stampPushTrail = (
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    rockRadius: number,
+  ): void => {
+    const segX = toX - fromX;
+    const segZ = toZ - fromZ;
+    const segLen = Math.hypot(segX, segZ);
+    if (segLen < 1e-6) return;
+    const dirX = segX / segLen;
+    const dirZ = segZ / segLen;
+    const midX = (fromX + toX) / 2;
+    const midZ = (fromZ + toZ) / 2;
+    const furrow = furrowMarks[nextFurrow]!;
+    nextFurrow = (nextFurrow + 1) % furrowMarks.length;
+    trailRotation.setAxisAngle(AXIS_Y, Math.atan2(dirX, dirZ));
+    syncEntityPose(
+      furrow.entity,
+      new Vec3(midX, deformedGroundHeight(midX, midZ) + 0.015, midZ),
+      trailRotation,
+    );
+    setEntityScale(furrow.entity, rockRadius * 2.2, 1, segLen + rockRadius * 1.2);
+    furrow.renderable.visible = true;
+    const moundW = rockRadius * (1.0 + Math.random() * 0.5);
+    const moundH = moundW * 0.38;
+    const moundX = toX - dirX * rockRadius * 1.1;
+    const moundZ = toZ - dirZ * rockRadius * 1.1;
+    const mound = moundMarks[nextMound]!;
+    nextMound = (nextMound + 1) % moundMarks.length;
+    syncEntityPose(
+      mound.entity,
+      new Vec3(moundX, deformedGroundHeight(moundX, moundZ) + moundH * 0.3, moundZ),
+      // Mounds are never rotated (radially symmetric) — identity keeps the slot untouched.
+      new Quat(),
+    );
+    setEntityScale(mound.entity, moundW, moundH, moundW);
+    mound.renderable.visible = true;
+  };
   const INTERACTION_RADIUS = 48;
   const MAX_INTERACTIVE_ROCKS = 64;
 
@@ -905,15 +1120,24 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const baseFlatten = typeId === 2 ? 0.38 : 0;
         for (let i = 0; i < block.count; i++) {
           const p = i * 3;
-          if (block.scales[p] === 0 && block.scales[p + 1] === 0) continue;
-          const dx = block.positions[p]! - vehicle.position.x;
-          const dz = block.positions[p + 2]! - vehicle.position.z;
-          if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
           const id = `${chunkKey}:${typeId === 1 ? "rocks" : "boulders"}:${i}`;
           if (brokenInteractiveRockIds.has(id)) continue;
-          if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
+          const existing = interactiveRocks.get(id);
+          // Zeroed scales mark a removed instance — unless a live record already tracks it, in
+          // which case this is an awake/settled rock whose entity replaced the instance. Those
+          // stay wanted: evicting them every frame would discard the body's momentum (shoved
+          // rocks could never roll), churn the entity every other frame, and wipe per-record
+          // state like the push-trail cursor.
+          if (!existing && block.scales[p] === 0 && block.scales[p + 1] === 0) continue;
+          // Tracked rocks anchor to the BODY (the hidden instance sits at a stale spot).
+          const anchorX = existing ? existing.proxy.body.position.x : block.positions[p]!;
+          const anchorZ = existing ? existing.proxy.body.position.z : block.positions[p + 2]!;
+          const dx = anchorX - vehicle.position.x;
+          const dz = anchorZ - vehicle.position.z;
+          if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
+          if (!existing && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
           wanted.add(id);
-          if (interactiveRocks.has(id)) continue;
+          if (existing) continue;
 
           const rawSx = block.scales[p]! * baseRadius;
           const rawSy = block.scales[p + 1]! * baseRadius * (1 - baseFlatten);
@@ -986,6 +1210,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             origScaleX: block.scales[p]!,
             origScaleY: block.scales[p + 1]!,
             origScaleZ: block.scales[p + 2]!,
+            restOffsetY: restingY - groundY,
+            trailRadius: climbRadius,
+            lastTrailX: Number.NaN,
+            lastTrailZ: Number.NaN,
             activeEntity: null,
             awake: false,
             settledTimer: 0,
@@ -1001,7 +1229,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const q = record.proxy.body.rotation;
         const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
         record.block.positions[p] = record.proxy.body.position.x;
-        record.block.positions[p + 1] = record.proxy.body.position.y - (record.isFlat ? record.origScaleY * 0.4 : record.origScaleY * 0.5);
+        // snapY: the restored Y is authoritative, so the anchor target moves with it — Y
+        // settling must never drag a restored rock back toward a stale remesh target.
+        record.block.snapY(record.index, record.proxy.body.position.y - (record.isFlat ? record.origScaleY * 0.4 : record.origScaleY * 0.5));
         record.block.positions[p + 2] = record.proxy.body.position.z;
         record.block.scales[p] = record.origScaleX;
         record.block.scales[p + 1] = record.origScaleY;
@@ -1048,52 +1278,91 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     const numChunks = 3;
     const numPebbles = 6;
 
+    // Size every fragment before placing any: the layout needs all footprints upfront (and
+    // largest-first) so no two spawn interpenetrating.
+    interface FragmentSize {
+      readonly scale: number;
+      readonly sy: number;
+      readonly isFlat: boolean;
+      readonly radius: number;
+    }
+    const sizes: FragmentSize[] = [];
     for (let c = 0; c < numChunks; c++) {
-      if (fragments.length >= MAX_FRAGMENTS) {
-        const oldest = fragments.shift()!;
-        interactivePhysics.removeBody(oldest.body);
-        scene.world.destroyEntity(oldest.entity.id);
-      }
-      const angle = (c / numChunks) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
-      const dist = origScale * (0.2 + 0.15 * Math.random());
-      const fx = posX + Math.cos(angle) * dist + nx * 0.25;
-      const fz = posZ + Math.sin(angle) * dist + nz * 0.25;
-      const groundH = deformedGroundHeight(fx, fz);
-
       // Strict constraint: chunk scale strictly < original scale
-      const chunkScale = Math.min(origScale * 0.45, Math.max(0.12, origScale * (0.30 + 0.10 * Math.random())));
+      const chunkScale = Math.min(origScale * 0.45, Math.max(0.12, origScale * (0.3 + 0.1 * Math.random())));
       const isFlatChunk = c % 2 === 0;
-      const chunkSy = isFlatChunk ? chunkScale * 0.45 : chunkScale * 0.85;
+      sizes.push({
+        scale: chunkScale,
+        // Round chunks collide as spheres, so their visual Y matches XZ exactly (a squashed
+        // visual on a spherical collider would float its belly above the ground).
+        sy: isFlatChunk ? chunkScale * 0.45 : chunkScale,
+        isFlat: isFlatChunk,
+        radius: chunkScale * 0.5,
+      });
+    }
+    for (let p = 0; p < numPebbles; p++) {
+      // Strict constraint: pebble scale strictly < original scale
+      const pebbleScale = Math.min(origScale * 0.18, Math.max(0.05, origScale * (0.1 + 0.06 * Math.random())));
+      sizes.push({ scale: pebbleScale, sy: pebbleScale, isFlat: false, radius: pebbleScale * 0.5 });
+    }
+    const spots = layoutBreakFragments(
+      sizes.map((s) => s.radius),
+      posX,
+      posZ,
+      nx,
+      nz,
+    );
+
+    const evictOldestFragment = (): void => {
+      if (fragments.length < MAX_FRAGMENTS) return;
+      const oldest = fragments.shift()!;
+      interactivePhysics.removeBody(oldest.body);
+      scene.world.destroyEntity(oldest.entity.id);
+    };
+
+    for (let c = 0; c < numChunks; c++) {
+      evictOldestFragment();
+      const size = sizes[c]!;
+      const spot = spots[c]!;
+      const fx = spot.x;
+      const fz = spot.z;
+      const groundH = deformedGroundHeight(fx, fz);
 
       let chunkShape: Shape;
       let restingY: number;
-      if (isFlatChunk) {
-        chunkShape = new BoxShape(chunkScale * 0.5, chunkSy * 0.5, chunkScale * 0.5);
-        restingY = groundH + chunkSy * 0.5;
+      if (size.isFlat) {
+        chunkShape = new BoxShape(size.scale * 0.5, size.sy * 0.5, size.scale * 0.5);
+        restingY = groundH + size.sy * 0.5;
       } else {
-        const r = chunkScale * 0.5;
+        const r = size.scale * 0.5;
         chunkShape = new SphereShape(r);
         restingY = groundH + r;
       }
 
-      const chunkMass = Math.max(1, chunkScale * chunkScale * chunkScale * 120);
+      const chunkMass = Math.max(1, size.scale * size.scale * size.scale * 120);
       const chunkBody = new RigidBody({
         type: "dynamic",
         shape: chunkShape,
         mass: chunkMass,
         position: { x: fx, y: restingY, z: fz },
-        friction: isFlatChunk ? 0.95 : 0.6,
-        linearDamping: isFlatChunk ? 0.2 : 0.03,
-        angularDamping: isFlatChunk ? 8.0 : 0.05,
+        friction: size.isFlat ? 0.95 : 0.6,
+        linearDamping: size.isFlat ? 0.2 : 0.03,
+        angularDamping: size.isFlat ? 8.0 : 0.05,
         restitution: 0.1,
       });
 
-      const impulseSpeed = Math.max(0.4, approach * 0.7);
-      chunkBody.linearVelocity.x = nx * impulseSpeed + Math.cos(angle) * 0.45;
-      chunkBody.linearVelocity.y = 0.25 + Math.random() * 0.35;
-      chunkBody.linearVelocity.z = nz * impulseSpeed + Math.sin(angle) * 0.45;
+      // Scatter outward from the impact point plus the push-through, hard enough that gravity
+      // and the solver separate the pile instead of freezing it mid-stack.
+      const pushSpeed = 0.6 + approach * 0.9;
+      const outSpeed = 1.0 + Math.random() * 1.0;
+      const radial = Math.hypot(fx - posX, fz - posZ);
+      const dirX = radial > 1e-6 ? (fx - posX) / radial : Math.cos((c / numChunks) * Math.PI * 2);
+      const dirZ = radial > 1e-6 ? (fz - posZ) / radial : Math.sin((c / numChunks) * Math.PI * 2);
+      chunkBody.linearVelocity.x = nx * pushSpeed + dirX * outSpeed;
+      chunkBody.linearVelocity.y = 0.8 + Math.random() * 0.7;
+      chunkBody.linearVelocity.z = nz * pushSpeed + dirZ * outSpeed;
 
-      if (!isFlatChunk) {
+      if (!size.isFlat) {
         chunkBody.angularVelocity.x = (Math.random() - 0.5) * 8;
         chunkBody.angularVelocity.y = (Math.random() - 0.5) * 4;
         chunkBody.angularVelocity.z = (Math.random() - 0.5) * 8;
@@ -1108,41 +1377,42 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       renderable.castShadow = true;
       renderable.receiveShadow = true;
       scene.world.addComponent(entity.id, renderable);
-      entity.transform.scale.set(chunkScale, chunkSy, chunkScale);
+      // Visual matches collision: collision half-extent ÷ geometry radius, per axis.
+      setEntityScale(
+        entity,
+        (size.scale * 0.5) / CHUNK_GEO_RADIUS_XZ,
+        (size.sy * 0.5) / CHUNK_GEO_RADIUS_Y,
+        (size.scale * 0.5) / CHUNK_GEO_RADIUS_XZ,
+      );
 
       fragments.push({
         id: `chunk-${id}-${c}`,
         body: chunkBody,
         entity,
-        isFlat: isFlatChunk,
-        scale: chunkScale,
+        isFlat: size.isFlat,
+        scale: size.scale,
         awake: true,
         settledTimer: 0,
+        age: 0,
       });
     }
 
     for (let p = 0; p < numPebbles; p++) {
-      if (fragments.length >= MAX_FRAGMENTS) {
-        const oldest = fragments.shift()!;
-        interactivePhysics.removeBody(oldest.body);
-        scene.world.destroyEntity(oldest.entity.id);
-      }
-      const angle = (p / numPebbles) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
-      const dist = origScale * (0.1 + 0.25 * Math.random());
-      const fx = posX + Math.cos(angle) * dist + nx * 0.15;
-      const fz = posZ + Math.sin(angle) * dist + nz * 0.15;
+      evictOldestFragment();
+      const size = sizes[numChunks + p]!;
+      const spot = spots[numChunks + p]!;
+      const fx = spot.x;
+      const fz = spot.z;
       const groundH = deformedGroundHeight(fx, fz);
 
-      // Strict constraint: pebble scale strictly < original scale
-      const pebbleScale = Math.min(origScale * 0.18, Math.max(0.05, origScale * (0.10 + 0.06 * Math.random())));
-      const pebbleR = pebbleScale * 0.5;
+      const pebbleR = size.scale * 0.5;
       const pebbleShape = new SphereShape(pebbleR);
       const restingY = groundH + pebbleR;
 
       const pebbleBody = new RigidBody({
         type: "dynamic",
         shape: pebbleShape,
-        mass: Math.max(0.1, pebbleScale * pebbleScale * pebbleScale * 120),
+        mass: Math.max(0.1, size.scale * size.scale * size.scale * 120),
         position: { x: fx, y: restingY, z: fz },
         friction: 0.7,
         linearDamping: 0.05,
@@ -1150,10 +1420,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         restitution: 0.15,
       });
 
-      const pSpeed = Math.max(0.25, approach * 0.5);
-      pebbleBody.linearVelocity.x = nx * pSpeed + Math.cos(angle) * 0.5;
-      pebbleBody.linearVelocity.y = 0.2 + Math.random() * 0.3;
-      pebbleBody.linearVelocity.z = nz * pSpeed + Math.sin(angle) * 0.5;
+      const pPush = 0.5 + approach * 0.7;
+      const pOut = 1.2 + Math.random() * 1.2;
+      const pRadial = Math.hypot(fx - posX, fz - posZ);
+      const pDirX = pRadial > 1e-6 ? (fx - posX) / pRadial : Math.cos((p / numPebbles) * Math.PI * 2);
+      const pDirZ = pRadial > 1e-6 ? (fz - posZ) / pRadial : Math.sin((p / numPebbles) * Math.PI * 2);
+      pebbleBody.linearVelocity.x = nx * pPush + pDirX * pOut;
+      pebbleBody.linearVelocity.y = 0.9 + Math.random() * 0.8;
+      pebbleBody.linearVelocity.z = nz * pPush + pDirZ * pOut;
       pebbleBody.angularVelocity.x = (Math.random() - 0.5) * 12;
       pebbleBody.angularVelocity.z = (Math.random() - 0.5) * 12;
 
@@ -1166,16 +1440,23 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       renderable.castShadow = true;
       renderable.receiveShadow = true;
       scene.world.addComponent(entity.id, renderable);
-      entity.transform.scale.set(pebbleScale, pebbleScale, pebbleScale);
+      // Visual matches collision: collision half-extent ÷ geometry radius, per axis.
+      setEntityScale(
+        entity,
+        pebbleR / PEBBLE_GEO_RADIUS_XZ,
+        pebbleR / PEBBLE_GEO_RADIUS_Y,
+        pebbleR / PEBBLE_GEO_RADIUS_XZ,
+      );
 
       fragments.push({
         id: `pebble-${id}-${p}`,
         body: pebbleBody,
         entity,
         isFlat: false,
-        scale: pebbleScale,
+        scale: size.scale,
         awake: true,
         settledTimer: 0,
+        age: 0,
       });
     }
   };
@@ -1204,18 +1485,27 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const approach = vx * nx + vz * nz;
         if (approach > 0.04) {
           record.awake = true;
-          record.proxy.body.type = "dynamic";
+          // Clean handoff: wake exactly on today's surface (never a stale resting Y), with the
+          // integration history synced so the first dynamic step starts from rest, not from a
+          // teleport the solver would answer with a velocity kick.
+          const waking = record.proxy.body;
+          waking.type = "dynamic";
+          waking.position.y = deformedGroundHeight(waking.position.x, waking.position.z) + record.restOffsetY;
+          waking.prevPosition.copyFrom(waking.position);
+          waking.renderPosition.copyFrom(waking.position);
+          waking.linearVelocity.set(0, 0, 0);
+          waking.angularVelocity.set(0, 0, 0);
           const assessment = bridgeRockContact(record.proxy, {
             roverMass: 1025,
             relativeSpeed: approach,
-            availableForce: 2160,
+            availableForce: ROVER_TRACTIVE_FORCE,
             obstacleHeight,
             vehicleVelocity: vehicle.velocity,
           }, { x: nx, y: 0, z: nz });
           applyRoverImpactDamage(roverDamage, assessment, {
             roverMass: 1025,
             relativeSpeed: approach,
-            availableForce: 2160,
+            availableForce: ROVER_TRACTIVE_FORCE,
             obstacleHeight,
           }, obstacleHeight, dt);
 
@@ -1232,12 +1522,16 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       breakRock(item.record, item.nx, item.nz, item.approach);
     }
 
-    // Keep uncontacted rocks stationary so they never shoot up or jitter
+    // Keep uncontacted rocks stationary so they never shoot up or jitter. Dormant bodies
+    // also re-ground every frame: when the terrain mesh refines under a chunk, a stale resting Y
+    // would otherwise make the rock drop (or pop) the moment the rover touches it.
     for (const record of interactiveRocks.values()) {
       if (!record.awake) {
-        record.proxy.body.type = "static";
-        record.proxy.body.linearVelocity.set(0, 0, 0);
-        record.proxy.body.angularVelocity.set(0, 0, 0);
+        const dormant = record.proxy.body;
+        dormant.type = "static";
+        dormant.linearVelocity.set(0, 0, 0);
+        dormant.angularVelocity.set(0, 0, 0);
+        dormant.position.y = deformedGroundHeight(dormant.position.x, dormant.position.z) + record.restOffsetY;
       }
     }
 
@@ -1263,6 +1557,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         renderable.receiveShadow = true;
         scene.world.addComponent(entity.id, renderable);
         record.activeEntity = entity;
+        // The entity replaces the hidden instance at the instance's scale (constant for life).
+        setEntityScale(entity, record.origScaleX, record.origScaleY, record.origScaleZ);
 
         record.block.scales[record.index * 3] = 0;
         record.block.scales[record.index * 3 + 1] = 0;
@@ -1270,14 +1566,24 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         record.block.markModified();
       }
 
+      const rockSpeed = body.linearVelocity.length();
+      if (rockSpeed > MAX_ROCK_SPEED) body.linearVelocity.scale(MAX_ROCK_SPEED / rockSpeed);
+
       // Update full 3D pose: pitch, roll, and yaw!
-      record.activeEntity.transform.position.copyFrom(body.position);
-      record.activeEntity.transform.rotation.copyFrom(body.rotation);
-      record.activeEntity.transform.scale.set(
-        record.origScaleX,
-        record.origScaleY,
-        record.origScaleZ,
-      );
+      syncEntityPose(record.activeEntity, body.position, body.rotation);
+
+      // Push trail: every stretch of shoved (or rolling) travel gouges a furrow segment and
+      // piles a dirt mound on the rock's backside.
+      const trailX = body.position.x;
+      const trailZ = body.position.z;
+      if (!Number.isFinite(record.lastTrailX)) {
+        record.lastTrailX = trailX;
+        record.lastTrailZ = trailZ;
+      } else if (Math.hypot(trailX - record.lastTrailX, trailZ - record.lastTrailZ) >= 0.3) {
+        stampPushTrail(record.lastTrailX, record.lastTrailZ, trailX, trailZ, record.trailRadius);
+        record.lastTrailX = trailX;
+        record.lastTrailZ = trailZ;
+      }
 
       const spd = body.linearVelocity.length() + body.angularVelocity.length();
       if (spd < 0.03) {
@@ -1304,10 +1610,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         fragments.splice(f, 1);
         continue;
       }
-      frag.entity.transform.position.copyFrom(frag.body.position);
-      frag.entity.transform.rotation.copyFrom(frag.body.rotation);
+      frag.age += dt;
+      const fragSpeed = frag.body.linearVelocity.length();
+      if (fragSpeed > MAX_ROCK_SPEED) frag.body.linearVelocity.scale(MAX_ROCK_SPEED / fragSpeed);
+      syncEntityPose(frag.entity, frag.body.position, frag.body.rotation);
       const spd = frag.body.linearVelocity.length() + frag.body.angularVelocity.length();
-      if (spd < 0.03) {
+      if (spd < 0.03 && frag.age >= MIN_FRAGMENT_AWAKE) {
         frag.settledTimer += dt;
         if (frag.settledTimer > 0.5) {
           frag.body.linearVelocity.set(0, 0, 0);
@@ -2059,6 +2367,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       kickDustMaterial.dispose();
       trackMesh.dispose();
       trackMaterial.dispose();
+      furrowMesh.dispose();
+      furrowMaterial.dispose();
+      moundMesh.dispose();
+      moundMaterial.dispose();
       population.dispose();
       for (const record of interactiveRocks.values()) {
         interactivePhysics.removeBody(record.proxy.body);

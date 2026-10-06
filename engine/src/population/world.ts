@@ -96,12 +96,17 @@ interface ChunkRecord {
   tileRef: TerrainTile | null;
 }
 
-/** Adapts a resident terrain tile to the scatter's sampling interface. */
+/**
+ * Adapts a resident terrain tile to the scatter's sampling interface. Bilinear sampling matches
+ * the piecewise-linear rendered mesh facets exactly: bicubic overshoots the triangles on rough
+ * terrain, which floats rocks above the visible ground and snaps them by meters when a chunk
+ * remeshes at another LOD (which reads as rocks falling from the sky on streamed-in terrain).
+ */
 class HeightmapSampler implements PopulationSurfaceSampler {
   constructor(private readonly tile: TerrainTile) {}
 
   heightAt(worldX: number, worldZ: number): number {
-    return this.tile.heightmap.getHeight(worldX, worldZ);
+    return this.tile.heightmap.getHeightBilinear(worldX, worldZ);
   }
 
   normalYAt(worldX: number, worldZ: number): number {
@@ -120,6 +125,12 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
 
   private readonly populated = new Map<string, ChunkRecord>();
   private readonly pending: string[] = [];
+  /**
+   * Y-settling rate (1/s) toward re-anchored targets. 8 converges 99% in ~0.6 s — fast enough that
+   * a remeshed chunk's rocks never visibly float, slow enough that a meter-scale LOD height
+   * correction reads as a glide instead of a fall.
+   */
+  private static readonly anchorSettleRate = 8;
   private readonly pendingSet = new Set<string>();
   private readonly generationsPerFrame: number;
   private readonly scratchMatrix = new Mat4();
@@ -161,10 +172,11 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
 
   // ------------------------------------------------------------------ streaming
 
-  override update(_context: SystemContext, _dt: number): void {
+  override update(_context: SystemContext, dt: number): void {
     this.diffChunks();
     this.processPending();
     this.reanchorRemeshed();
+    this.settleAnchoredY(dt);
   }
 
   /** Enqueue newly ready terrain chunks; drop records for evicted ones. */
@@ -199,25 +211,59 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
     }
   }
 
-  /** Re-anchor Y positions (and bounds) of chunks whose tile was remeshed at another LOD. */
+  /**
+   * Re-anchor the Y *targets* of chunks whose tile was remeshed at another LOD. The rendered Y
+   * damps toward the new surface in `settleAnchoredY` instead of snapping: on rough terrain a
+   * coarse<->fine LOD swap moves the sampled surface by meters, and an instant snap reads as rocks
+   * falling from the sky on newly streamed-in chunks. Uploads and bounds rebuilds happen in the
+   * settling pass, only for blocks that actually moved.
+   */
   private reanchorRemeshed(): void {
     for (const record of this.populated.values()) {
       const chunk = this.terrain.chunks.get(record.key);
       if (!chunk || chunk.state !== "ready" || !chunk.tile || chunk.tile === record.tileRef) continue;
       const sampler = new HeightmapSampler(chunk.tile);
       for (const type of record.types) {
-        const spec = type.spec;
         const block = type.block;
         if (block.count === 0) continue;
         for (let k = 0; k < block.count; k++) {
-          block.positions[k * 3 + 1] =
-            sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - spec.embed * block.scales[k * 3 + 1]!;
+          block.targetY[k] =
+            sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - type.spec.embed * block.scales[k * 3 + 1]!;
         }
-        // The device-resident buffer (Phase 14.3) must re-upload: Y positions moved.
-        block.markModified();
-        if (type.submission) this.buildBounds(type, type.submission);
       }
       record.tileRef = chunk.tile;
+    }
+  }
+
+  /**
+   * Exponential Y settling toward the anchored targets (`PopulationInstanceBlock.targetY`).
+   * Framerate-independent; converges to <2mm and snaps. Skips showcase-hidden instances (zero
+   * Y scale), whose rendered Y is parked out of sight until write-back restores them.
+   */
+  private settleAnchoredY(dt: number): void {
+    if (dt <= 0) return;
+    const step = 1 - Math.exp(-PopulationWorld.anchorSettleRate * dt);
+    for (const record of this.populated.values()) {
+      for (const type of record.types) {
+        const block = type.block;
+        if (block.count === 0) continue;
+        let moved = false;
+        for (let k = 0; k < block.count; k++) {
+          // Zero Y scale marks a showcase-hidden instance — its parked Y must not settle.
+          if (block.scales[k * 3 + 1] === 0) continue;
+          const target = block.targetY[k]!;
+          const y = block.positions[k * 3 + 1]!;
+          const delta = target - y;
+          if (delta === 0) continue;
+          block.positions[k * 3 + 1] = Math.abs(delta) < 0.002 ? target : y + delta * step;
+          moved = true;
+        }
+        if (moved) {
+          // The device-resident buffer (Phase 14.3) must re-upload: Y positions moved.
+          block.markModified();
+          if (type.submission) this.buildBounds(type, type.submission);
+        }
+      }
     }
   }
 
@@ -232,6 +278,9 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
         const settleOpts = typeof this.settlePhysics === "object" ? this.settlePhysics : undefined;
         settlePopulationBlockWithPhysics(block, spec, sampler, settleOpts);
       }
+      // Freshly scattered instances start exactly on their anchor: settling only ever kicks in
+      // after a remesh re-anchor moves the targets.
+      block.snapAllY();
       const geometry = input.geometry ?? null;
       const material = input.material ?? null;
       const submission: PopulationSubmission | null =
