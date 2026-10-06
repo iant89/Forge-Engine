@@ -1301,3 +1301,6 @@ Traps worth keeping:
   clean. No rendering changes; the real-WebGPU browser sweep was not run.
 - PR preparation: `npm run verify` also passed the full 816-test / 57-suite run, typecheck and
   WGSL validation before committing the rollback.
+- PR #62 merge preparation: implementation CPU CI passed; GitHub reports no required checks, and
+  `.github/workflows/ci.yml` explicitly makes the still-running WebGPU job advisory. The merge-history
+  summary is recorded before squash-merging; keep the Arena session branch rather than deleting it.
