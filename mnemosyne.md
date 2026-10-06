@@ -1189,3 +1189,26 @@ Traps worth keeping:
   do not use it as a normal oracle at an edge.
 - The re-landed branch's gate: 766 tests / 53 files (main was 758/52), `lint:arch`, `check:testmap`
   (51 claimed suites), `docs:check` (100 capabilities, 48 limitations), `demo:build` green.
+
+## 2026-10-06 — Status reconciliation: Phase 9 flip, Phase 6 interpretation, Phase 14 follow-up checkboxes
+
+- **Phase 9 closed its own phase line and then left the markers behind.** The 2026-10-05 note says
+  "closed the phase in ROADMAP.md", but the state block still read `[~] IN PROGRESS` and
+  `ROADMAP_PHASE_STATUS["9"]` still said `inProgress`, while the baseline block claimed
+  IMPLEMENTED / VERIFIED. Every 9.x capability in the registry is `verified`, all 9.1–9.6 items are
+  `[x]` with evidence, and `docs:check` cross-checks only the state block against the registry — so
+  the baseline prose could drift against the state block without any gate noticing. Flip all four
+  places together, or the drift is silent.
+- **Phase 6's `[!]` is not a defect list — do not "harden" it into new scope.** The four open vehicle
+  limitations in `docs/KNOWN-ISSUES.md` §Vehicles are design-tracked: `vehicles.tireModel` and
+  `vehicles.transmission` are `partial` with `closesWith: "16.6"`, `vehicles.wheelVisuals` is
+  `planned` for 16.6, `physics.ccd` closes with 25.1. The interpretation note now sits in the
+  baseline block so the next session does not invent Phase 6 work.
+- **The baseline block lists Phase 14 follow-ups that no section owned.** They were prose in the
+  top block only — `docs:check` cannot see them. They are now `[ ]` checkboxes under 14.1 (sampling
+  resolution independence), 14.5 (per-instance culling, explicitly the same work as the 13.5
+  leftover) and 14.6 (worker generation, population raycast), each naming its KNOWN-ISSUES bullet.
+- **Baseline-gate cost note for this sandbox:** a full `npm run check:browser` is ~21 min and its
+  last step (Mars showcase W-drive) is the known frame-rate-bound flake (the gate's own header says
+  it has aborted on main); the focused arms (`--workers-only`, `--terrain-layers`, `--mars-workers`)
+  are minutes. Budget the full run for shader/pipeline changes, the arms for the rest.

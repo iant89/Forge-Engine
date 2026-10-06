@@ -9,7 +9,18 @@ STATUS:
     Active Development
 
 CURRENT CODEBASE BASELINE:
-    Phases 0-7: IMPLEMENTED / VERIFIED
+    Phases 0-5, 7:  IMPLEMENTED / VERIFIED
+    Phase 6:  IMPLEMENTED BUT REQUIRES HARDENING
+                (Reconciled 2026-10-06: the top block previously claimed "Phases 0-7:
+                IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
+                registry's `6: partial`. The registry is right: the open vehicle limitations
+                are the four bullets in docs/KNOWN-ISSUES.md §Vehicles — solved longitudinal
+                slip (vehicles.tireModel), box wheel visuals (vehicles.wheelVisuals), reverse
+                as a ratio not a control (vehicles.transmission) and discrete-contact impacts
+                (physics.ccd). None is a Phase 6 defect — the model itself is pinned by
+                tests/vehicles.test.ts and tests/vehiclePhysics.test.ts — and the registry
+                closes all four under 16.6 / 25.1. No separate Phase 6 hardening work is
+                scheduled; this note records the interpretation rather than inventing scope.)
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
@@ -26,12 +37,17 @@ CURRENT CODEBASE BASELINE:
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
                 surface sampling, worker generation and population raycast)
+                (2026-10-06 reconcile: those four follow-ups now carry [ ] checkboxes under
+                14.1, 14.5 and 14.6, so the [~] is backed by items, not only prose.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
                 real Chromium/SwiftShader verified an ETC1S-to-BC7 six-mip upload.
                 KTX2 3D volumes are explicitly deferred; core glTF/GLB geometry decode is
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
+                The `15+` label covers Phase 15 only: Phases 16 through 28 are NOT STARTED
+                ([ ]) in their sections below, and Phase 29 is a roll-up (see the status
+                block; `docs:check` verifies the `15+` registry key directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -112,7 +128,7 @@ PHASE 8B - Weather / Clouds / Water / Lightning
     [x]
 
 PHASE 9 - ENGINE HARDENING
-    [~] IN PROGRESS
+    [x]
 
 PHASE 10 - Terrain 2.0 / Streaming
     [!] IMPLEMENTED BUT REQUIRES HARDENING
@@ -1024,6 +1040,12 @@ GOAL:
         and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
         never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population.test.ts.
 
+    [ ] Load-order-independent surface sampling (follow-up, added 2026-10-06 to make the phase's
+        remaining work checkable — the baseline block names all four of these): acceptance samples
+        must come from a resolution-independent surface, so the same chunk scatters the same
+        instances whichever LOD its tile first became ready at (docs/KNOWN-ISSUES.md
+        § World population "Placement depends on the tile resolution…").
+
 
 14.2 Population Types
 
@@ -1100,6 +1122,11 @@ GOAL:
         limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
         of its instances (per-instance device culling is not built).
 
+    [ ] Per-instance culling inside a batch (follow-up, added 2026-10-06): the same work as the
+        13.5 leftover "Per-instance culling inside a batch" — one visible instance keeps its batch
+        today; closing either line closes both limitations (docs/KNOWN-ISSUES.md § World population
+        "Device culling is per chunk, not per instance").
+
 
 14.6 Population Streaming
 
@@ -1109,6 +1136,15 @@ GOAL:
         ready chunks get populations within a per-frame budget, evicted chunks lose them, and an
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
         Zero ECS entities are created — pinned by tests/population.test.ts.
+
+    [ ] Population generation on workers (follow-up, added 2026-10-06): the scatter pass is
+        main-thread inline, budgeted by `generationsPerFrame`; moving it behind `TaskScheduler`
+        needs the heightmap samples available off-thread, like terrain cells in 10.2
+        (docs/KNOWN-ISSUES.md § World population "Population generation is main-thread inline").
+
+    [ ] Population raycast (follow-up, added 2026-10-06): picking and debug tools cannot hit
+        population instances today; add a deterministic spatial query over the instance blocks
+        (docs/KNOWN-ISSUES.md § World population "Population rendering has no raycast…").
 
 
 EXIT CRITERIA:

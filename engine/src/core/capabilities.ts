@@ -79,7 +79,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "7": "verified",
   "8a": "verified",
   "8b": "verified",
-  "9": "inProgress",
+  "9": "verified",
   "10": "partial",
   "11": "verified",
   "12": "verified",
