@@ -1432,12 +1432,14 @@ GOAL:
 
 15.5.4 Sand Deformation and Wheel Tracks
 
-    [~] Persistent per-tile deformation state.
+    [x] Persistent per-tile deformation state.
 
-        `TerrainDeformationField` now stores bounded, chunk-keyed shallow wheel deltas separately from
-        the procedural generator, supports sampling, revision tracking and serialize/restore, and the
-        Mars Showcase records load-bearing wheel impressions into it. Rendering, collision application
-        and eviction-time persistence wiring are still open.
+        `TerrainDeformationField` stores bounded, chunk-keyed shallow wheel deltas separately from the
+        procedural generator, supports sampling, revision tracking and serialize/restore, and the Mars
+        Showcase records load-bearing wheel impressions into it. The rover ground query, camera clamp
+        and interactive-rock heightfield consume the deltas, while the showcase snapshot API preserves
+        them across eviction/save boundaries. Terrain-mask rendering and material-specific resistance
+        remain future refinements rather than hidden gaps in the persistence contract.
 
     [x] Visual tracks first.
 
