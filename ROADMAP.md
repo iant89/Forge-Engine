@@ -1423,9 +1423,11 @@ GOAL:
     [~] Deterministic physics and browser evidence.
 
         CPU coverage now replays promotion, impulse, gravity, rolling, blocking and damage decisions
-        deterministically. The real-WebGPU Mars arm now verifies that near-field proxies are promoted
-        on the live streamed showcase with zero GPU errors; a deterministic drive-to-rock scenario is
-        still required to verify push, block/damage and crater-edge roll pixels/telemetry.
+        deterministically. The focused `npm run check:browser:mars-interactive` arm verifies the live
+        streamed showcase promotes near-field rocks, records wheel tracks and runs 12 seconds with
+        zero GPU errors; the full gate can compose this with the other focused commands. A deterministic
+        drive-to-rock scenario is still required to verify push, block/damage and crater-edge roll
+        pixels/telemetry.
 
 
 15.5.4 Sand Deformation and Wheel Tracks

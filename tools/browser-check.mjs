@@ -121,8 +121,9 @@ import { installMarsWorkerProbe, verifyMarsWorkers } from "./browser-mars-worker
 // Explicitly scoped fast path: worker round trips + actual showcase uploads/rendering, NOT the
 // all-scene renderer/drive/HGA/arm gate. Its distinct command/output cannot masquerade as a full pass.
 const MARS_WORKERS_ONLY = process.argv.includes("--mars-workers");
+const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
-const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : "check:browser";
+const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const workerSmokeOnly = process.argv.includes("--workers-only");
@@ -466,6 +467,37 @@ async function checkShowcaseLayers() {
 }
 
 /** The default gate still runs every renderer/scene/vehicle/articulation check. */
+async function checkMarsInteractiveOnly() {
+  await page.waitForFunction(() => {
+    const state = window.__forge.marsState?.();
+    return state?.modelLoaded === true && state?.terrainRoverChunkReady === true;
+  }, null, { timeout: 90000 });
+  const settled = await page.evaluate(() => ({ state: window.__forge.marsState(), stats: window.__forge.stats() }));
+  if (!(settled.state.interactiveRocks > 0)) {
+    throw new Error(`mars interactive: no near-field rocks were promoted (${settled.state.interactiveRocks})`);
+  }
+  if (settled.stats.gpuErrors !== 0 || settled.stats.lastError) {
+    throw new Error(`mars interactive: GPU error before interaction (${settled.stats.lastError})`);
+  }
+  await page.keyboard.down("KeyW");
+  try {
+    await page.waitForTimeout(12000);
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  const driven = await page.evaluate(() => ({ state: window.__forge.marsState(), stats: window.__forge.stats() }));
+  if (driven.stats.gpuErrors !== 0 || driven.stats.lastError) {
+    throw new Error(`mars interactive: GPU error after drive (${driven.stats.lastError})`);
+  }
+  if (!(driven.state.visibleTrackMarks > 0)) {
+    throw new Error(`mars interactive: wheel tracks were not recorded (${driven.state.visibleTrackMarks})`);
+  }
+  console.log(`mars interactive: rocks=${driven.state.interactiveRocks}, tracks=${driven.state.visibleTrackMarks}, ` +
+    `deformation=${driven.state.deformationSamples}, damage=${driven.state.roverDamageHull.toFixed(2)}/${driven.state.roverDamageSuspension.toFixed(2)}, ` +
+    `gpuErrors=${driven.stats.gpuErrors}`);
+  await page.screenshot({ path: "tools/.browser-check-mars-interactive.png", timeout: 60000 });
+}
+
 async function checkAllScenes(backend) {
   await checkTerrainLayerPixels();
   const landingOption = await page.evaluate(
@@ -2008,7 +2040,7 @@ let exitCode = 0;
 try {
   // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
   // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
-  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
+  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
   let boot;
   try {
     await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
@@ -2035,7 +2067,10 @@ try {
 
   const backend = await page.evaluate(() => window.__forge.backend);
   if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
-  if (TERRAIN_LAYERS_ONLY) {
+  if (MARS_INTERACTIVE_ONLY) {
+    await checkMarsInteractiveOnly();
+    console.log("Focused Mars interactive checks only; the all-scene renderer, HGA and arm suite was not run.");
+  } else if (TERRAIN_LAYERS_ONLY) {
     await checkTerrainLayerPixels();
     await page.selectOption("#scene-select", "mars-showcase", { force: true });
     await verifyMarsWorkers(page);

@@ -32,6 +32,7 @@
     "check:browser:workers": "node tools/browser-check.mjs --workers-only",
     "check:browser:terrain-layers": "node tools/browser-check.mjs --terrain-layers",
     "check:browser:mars-workers": "node tools/browser-check.mjs --mars-workers",
+    "check:browser:mars-interactive": "node tools/browser-check.mjs --mars-interactive",
     "demo:build": "vite build --config examples/vite.config.ts",
     "bench:build": "tsc -p benchmarks/tsconfig.json"
   },
