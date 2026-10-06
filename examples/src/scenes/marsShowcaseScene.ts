@@ -40,6 +40,7 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  Geometry,
   type Engine,
   type Entity,
   type EntityId,
@@ -62,6 +63,7 @@ import {
   P_MAX_LIFE,
   P_SIZE,
   ParticleWorld,
+  PopulationWorld,
   Renderable,
   Scene,
   SizeOverLifeModule,
@@ -80,6 +82,9 @@ import {
   createSphere,
   createVehicleConfig,
   heightFunctionGround,
+  buildLodGeometry,
+  rockGeometrySource,
+  unindexedLodWindow,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
@@ -444,6 +449,62 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   scene.add(terrain);
   const terrainGeneration = (): "workers" | "inline" =>
     !terrain.syncGeneration && engine.tasks && !engine.tasks.isInline ? "workers" : "inline";
+
+  // Reuse the terrain demo's deterministic rock population on the showcase surface. The
+  // population follows the Mars tiles (rather than a second terrain) so every rock is anchored to
+  // the same heightmap the rover's wheels query. Rocks and boulders use the same merged hi/lo
+  // geometry and GPU-selected LOD as the terrain demo; the lower density keeps the close rover
+  // composition readable while the per-chunk culler handles the distant field.
+  const rockMaterial = new Material({
+    label: "mars-showcase-rock",
+    color: Color.fromSrgbHex(0x9a6a4e),
+    roughness: 0.96,
+    metallic: 0.03,
+  });
+  const rockLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 7, seed: 7, roughness: 0.34 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.34 })),
+  });
+  const boulderLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.3, flatten: 0.4 })),
+  });
+  const rockGeometry = Geometry.create(gpu, rockLod.source);
+  const boulderGeometry = Geometry.create(gpu, boulderLod.source);
+  const population = new PopulationWorld({
+    terrain,
+    types: [
+      {
+        id: 1,
+        label: "rocks",
+        densityGrid: 6,
+        scaleMin: 0.3,
+        scaleMax: 1.7,
+        scaleExponent: 1.7,
+        slopeLimit: 0.55,
+        tintJitter: 0.3,
+        maxDistance: 550,
+        geometry: rockGeometry,
+        material: rockMaterial,
+        lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
+      },
+      {
+        id: 2,
+        label: "boulders",
+        densityGrid: 2,
+        scaleMin: 0.6,
+        scaleMax: 1.4,
+        slopeLimit: 0.4,
+        tintJitter: 0.25,
+        embed: 0.25,
+        maxDistance: 800,
+        geometry: boulderGeometry,
+        material: rockMaterial,
+        lod: { hiTriangles: boulderLod.hiTriangles, distance: 420 },
+      },
+    ],
+  });
+  scene.add(population);
 
   // Sun + rust-coloured bounce fill (terrain demo's lights).
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(200, 300, 200));
@@ -1106,6 +1167,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     }),
     marsState: () => {
       const terrainStats = terrain.stats();
+      const populationStats = population.stats();
       let readyChunks = 0;
       for (const chunk of terrain.chunks.values()) if (chunk.state === "ready") readyChunks++;
       const roverChunkKey = chunkCoordKey(
@@ -1127,6 +1189,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         terrainReadyChunks: readyChunks,
         terrainRoverChunkReady: terrain.chunks.get(roverChunkKey)?.state === "ready",
         terrainGroundHeight: terrain.getHeightAt(vehicle.position.x, vehicle.position.z),
+        populationChunks: Number(populationStats.chunks ?? 0),
+        populationInstances: Number(populationStats.instances ?? 0),
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
@@ -1183,6 +1247,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
+      population.dispose();
+      rockGeometry.dispose();
+      boulderGeometry.dispose();
+      rockMaterial.dispose();
       scene.dispose(); // tile materials/masks before the shared arrays they reference
       terrainMat.dispose();
       disposePbrTextureSet(marsMaps);
