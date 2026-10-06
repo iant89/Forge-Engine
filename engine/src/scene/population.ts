@@ -51,6 +51,13 @@ export class PopulationInstanceBlock {
   readonly rotations: Float32Array;
   /** Packed 0xAARRGGBB tint per instance; 0 means "no tint" (white), as on `Renderable.tint`. */
   readonly tints: Uint32Array;
+  /**
+   * Anchored Y target per instance, stride 1. Rendered `positions` Y damps toward this value
+   * (PopulationWorld Y settling) instead of snapping when the terrain mesh refines under a chunk,
+   * so distant rocks glide instead of visibly falling from the sky. Scatter writes the live prefix
+   * via `snapAllY`; the remesh re-anchor writes targets only.
+   */
+  readonly targetY: Float32Array;
   readonly capacity: number;
   /** Live instance count — always ≤ capacity. */
   count = 0;
@@ -73,6 +80,22 @@ export class PopulationInstanceBlock {
     this.scales = new Float32Array(this.capacity * 3);
     this.rotations = new Float32Array(this.capacity);
     this.tints = new Uint32Array(this.capacity);
+    this.targetY = new Float32Array(this.capacity);
+  }
+
+  /**
+   * Set both the rendered Y and the anchor target for one instance. Use when an instance moves
+   * authoritatively (initial scatter sync, showcase hide/restore write-back) so Y settling never
+   * drags it back to a stale target.
+   */
+  snapY(index: number, y: number): void {
+    this.positions[index * 3 + 1] = y;
+    this.targetY[index] = y;
+  }
+
+  /** Snap every live instance's anchor target to its current rendered Y (post-scatter sync). */
+  snapAllY(): void {
+    for (let i = 0; i < this.count; i++) this.targetY[i] = this.positions[i * 3 + 1]!;
   }
 
   clear(): void {

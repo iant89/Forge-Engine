@@ -928,6 +928,7 @@ describe("Population - terrain-following streaming (14.6)", () => {
     expect(block).not.toBeNull();
     expect(block!.count).toBeGreaterThan(0);
     const xzBefore = [...block!.positions].filter((_, i) => i % 3 !== 1);
+    const yBeforeRemesh = [...block!.positions].filter((_, i) => i % 3 === 1);
     const scalesBefore = [...block!.scales];
 
     // Force a remesh at a coarser resolution by applying a fresh cell to the ready chunk.
@@ -942,15 +943,86 @@ describe("Population - terrain-following streaming (14.6)", () => {
     expect(after.count).toBe(block!.count);
     expect([...after.positions].filter((_, i) => i % 3 !== 1)).toEqual(xzBefore);
     expect([...after.scales]).toEqual(scalesBefore);
-    // Y follows the *new* surface exactly (embed 0.15 of the Y scale), so rocks never float when
-    // the mesh refines under them.
+    // The anchor targets follow the *new* surface exactly (bilinear, matching the mesh facets;
+    // embed 0.15 of the Y scale), so rocks never float when the mesh refines under them — and
+    // the rendered Y glides toward the targets instead of snapping (no falling rocks).
     const tile = chunk.tile!;
+    const expectedY: number[] = [];
     for (let k = 0; k < after.count; k++) {
       const expected =
-        tile.heightmap.getHeight(after.positions[k * 3]!, after.positions[k * 3 + 2]!) -
+        tile.heightmap.getHeightBilinear(after.positions[k * 3]!, after.positions[k * 3 + 2]!) -
         0.15 * after.scales[k * 3 + 1]!;
-      expect(after.positions[k * 3 + 1]!).toBeCloseTo(expected, 4);
+      expectedY.push(expected);
+      expect(after.targetY[k]!).toBeCloseTo(expected, 4);
     }
+    // After a single update the rendered Y has moved only partway (one 8/s settling step moves
+    // ~12% of the gap), unless the gap was already within the 2 mm snap threshold.
+    const step = 1 - Math.exp(-8 * 0.016);
+    for (let k = 0; k < after.count; k++) {
+      const gap = Math.abs(expectedY[k]! - yBeforeRemesh[k]!);
+      const moved = Math.abs(after.positions[k * 3 + 1]! - yBeforeRemesh[k]!);
+      if (gap < 0.002) {
+        expect(after.positions[k * 3 + 1]!).toBeCloseTo(expectedY[k]!, 6);
+      } else {
+        expect(moved).toBeCloseTo(gap * step, 4);
+      }
+    }
+    // Pump frames until the rendered Y converges onto the new anchors (rate 8/s settles
+    // millimeter-close in well under two simulated seconds).
+    for (let i = 0; i < 120; i++) population.update(ctx, 0.016);
+    for (let k = 0; k < after.count; k++) {
+      expect(after.positions[k * 3 + 1]!).toBeCloseTo(expectedY[k]!, 3);
+    }
+    population.dispose();
+    scene.dispose();
+  });
+
+  it("syncs anchors on scatter and parks showcase-hidden instances out of Y settling", () => {
+    const spec: PopulationTypeSpec = { id: 1, label: "rocks", densityGrid: 3, scaleMin: 1, scaleMax: 1 };
+    const { scene, terrain, population, ctx } = terrainFixture({ types: [spec] });
+    terrain.update(ctx, 0.016);
+    population.update(ctx, 0.016);
+    const key = chunkCoordKey(0, 0);
+    const block = population.chunkPopulation(key, 1)!;
+    expect(block.count).toBeGreaterThan(1);
+    // Fresh scatter starts exactly on its anchors — settling only kicks in after a remesh.
+    for (let k = 0; k < block.count; k++) {
+      expect(block.targetY[k]!).toBe(block.positions[k * 3 + 1]!);
+    }
+
+    // Hide instance 0 the way the showcase write-back does: zeroed scales, Y parked deep.
+    const restoredScales = [block.scales[0]!, block.scales[1]!, block.scales[2]!];
+    const parkedY = -500;
+    block.scales[0] = 0;
+    block.scales[1] = 0;
+    block.scales[2] = 0;
+    block.positions[1] = parkedY;
+
+    // Force a remesh, then pump frames: visible instances glide onto the new surface while the
+    // hidden one stays parked (a settling pass must never un-hide a broken rock).
+    const chunk = terrain.chunks.get(key)!;
+    const pipeline = GeneratorPipeline.createDefault(991);
+    const cell = createWorldCell(0, 0, 64, 5, 991);
+    pipeline.execute(cell);
+    chunk.applyCell(cell);
+    for (let i = 0; i < 120; i++) population.update(ctx, 0.016);
+    expect(block.positions[1]!).toBe(parkedY);
+    for (let k = 1; k < block.count; k++) {
+      expect(block.positions[k * 3 + 1]!).toBeCloseTo(block.targetY[k]!, 3);
+    }
+
+    // Restore through snapY (authoritative move): rendered Y and anchor agree again and the
+    // instance tracks the surface like any other.
+    block.scales[0] = restoredScales[0]!;
+    block.scales[1] = restoredScales[1]!;
+    block.scales[2] = restoredScales[2]!;
+    const tile = chunk.tile!;
+    const surfaceY =
+      tile.heightmap.getHeightBilinear(block.positions[0]!, block.positions[2]!) - 0.15 * restoredScales[1]!;
+    block.snapY(0, surfaceY);
+    for (let i = 0; i < 10; i++) population.update(ctx, 0.016);
+    expect(block.positions[1]!).toBeCloseTo(surfaceY, 4);
+    expect(block.targetY[0]!).toBeCloseTo(surfaceY, 4);
     population.dispose();
     scene.dispose();
   });
