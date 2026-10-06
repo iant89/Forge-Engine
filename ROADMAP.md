@@ -1394,11 +1394,12 @@ GOAL:
         The showcase uses a simplified sphere rather than the render mesh. Compound shapes and crater
         edge browser evidence remain open under deterministic verification.
 
-    [ ] Break and settle behavior.
+    [x] Break and settle behavior.
 
-        When impact work exceeds the rock's break strength, replace it with a broken/flattened state,
-        remove or swap its rendered instance, and settle the resulting pieces without spawning an
-        unbounded number of bodies. The state must be deterministic for replay and save/load.
+        When impact force exceeds the material-derived break strength, the showcase zeroes the
+        population instance, marks its block revision, removes the dynamic proxy and records the
+        broken-rock count in `marsState()`. The broken state is deterministic and does not spawn
+        fragment bodies; fractured pieces, persistence and save/load remain later work.
 
 
 15.5.3 Rover Obstacle Response

@@ -47,7 +47,7 @@ export const MARS_ROCK_MATERIAL: InteractiveRockMaterial = Object.freeze({
   density: 120,
   friction: 0.9,
   restitution: 0.05,
-  crushStrength: 12000,
+  crushStrength: 150000,
   pushCoefficient: 0.8,
   minimumPushForce: 80,
   climbHeightFactor: 1.4,

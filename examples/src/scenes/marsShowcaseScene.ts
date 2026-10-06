@@ -623,6 +623,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     sampleHeight: (x, z) => terrain.getHeightAt(x, z),
   }));
   const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
+  let brokenInteractiveRocks = 0;
   const INTERACTION_RADIUS = 48;
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
@@ -659,7 +660,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     syncInteractiveRocks();
     const vx = vehicle.velocity.x;
     const vz = vehicle.velocity.z;
-    for (const record of interactiveRocks.values()) {
+    for (const [id, record] of interactiveRocks) {
       const body = record.proxy.body;
       const dx = body.position.x - vehicle.position.x;
       const dz = body.position.z - vehicle.position.z;
@@ -679,10 +680,15 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             vehicle.velocity.x *= 0.35;
             vehicle.velocity.z *= 0.35;
           } else if (assessment.outcome === "crushed") {
+            // Break now, then remove the proxy from the active world. The zeroed instance is a
+            // deterministic settled/broken state; no fragment bodies are spawned in this first slice.
             record.block.scales[record.index * 3] = 0;
             record.block.scales[record.index * 3 + 1] = 0;
             record.block.scales[record.index * 3 + 2] = 0;
             record.block.markModified();
+            interactivePhysics.removeBody(body);
+            interactiveRocks.delete(id);
+            brokenInteractiveRocks++;
           }
         }
       }
@@ -1288,6 +1294,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
         interactiveRocks: interactiveRocks.size,
+        brokenInteractiveRocks,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
