@@ -126,6 +126,30 @@ export function assessRockContact(spec: InteractiveRockSpec, input: RockContactI
  * A promoted near-field rock. The proxy owns its rigid body, but not the population render instance;
  * the caller applies `position`/`rotation` to the instance block and removes it when `broken`.
  */
+export interface VehicleRockContactInput extends RockContactInput {
+  /** Mutable rover velocity in world space; the bridge removes the component transferred to the rock. */
+  readonly vehicleVelocity: Vec3Ops;
+}
+
+/**
+ * Bridge one vehicle contact into both participants. Damage is intentionally not decided here;
+ * this step only transfers normal momentum and leaves the impact assessment for the next phase item.
+ */
+export function bridgeRockContact(
+  proxy: InteractiveRockProxy,
+  input: VehicleRockContactInput,
+  normal: Vec3Ops,
+): RockContactAssessment {
+  const assessment = proxy.contact(input, normal);
+  const normalSpeed = input.vehicleVelocity.x * normal.x + input.vehicleVelocity.y * normal.y + input.vehicleVelocity.z * normal.z;
+  if (normalSpeed <= 0) return assessment;
+  const transfer = assessment.outcome === "blocked" ? 0.9 : assessment.outcome === "pushed" ? 0.15 : 1;
+  input.vehicleVelocity.x -= normal.x * normalSpeed * transfer;
+  input.vehicleVelocity.y -= normal.y * normalSpeed * transfer;
+  input.vehicleVelocity.z -= normal.z * normalSpeed * transfer;
+  return assessment;
+}
+
 export class InteractiveRockProxy {
   readonly spec: InteractiveRockSpec;
   readonly body: RigidBody;

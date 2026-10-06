@@ -5,6 +5,7 @@ import {
   MARS_ROCK_MATERIAL,
   PhysicsWorld,
   assessRockContact,
+  bridgeRockContact,
   createInteractiveRockSpec,
   type InteractiveRockSpec,
 } from "@forge/engine";
@@ -99,6 +100,21 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     expect(result.outcome).toBe("pushed");
     expect(proxy.body.linearVelocity.x).toBeGreaterThan(before);
     expect(proxy.broken).toBe(false);
+  });
+
+  it("transfers blocked contact momentum back through the vehicle bridge", () => {
+    const proxy = new InteractiveRockProxy(rock({ crushStrength: 500000 }), { x: 0, y: 1, z: 0 });
+    const velocity = { x: 2, y: 0, z: 0 };
+    const result = bridgeRockContact(proxy, {
+      roverMass: 1025,
+      relativeSpeed: 2,
+      availableForce: 10,
+      obstacleHeight: 1,
+      vehicleVelocity: velocity,
+    }, { x: 1, y: 0, z: 0 });
+    expect(result.outcome).toBe("blocked");
+    expect(velocity.x).toBeCloseTo(0.2, 8);
+    expect(velocity.z).toBe(0);
   });
 
   it("marks a fractured rock without leaving a live dynamic body decision to the caller", () => {

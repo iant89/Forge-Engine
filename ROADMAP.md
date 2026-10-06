@@ -1404,11 +1404,13 @@ GOAL:
 
 15.5.3 Rover Obstacle Response
 
-    [ ] Vehicle/rock contact bridge.
+    [x] Vehicle/rock contact bridge.
 
-        Feed proxy contacts into the rover's vehicle system in addition to the terrain heightfield;
-        do not treat a rock as another terrain height sample. Preserve wheel suspension and avoid
-        tunnelling at rover speeds.
+        `bridgeRockContact` transfers the assessed normal contact through the rover velocity and the
+        dynamic rock proxy, while the showcase keeps wheel suspension on the terrain heightfield.
+        Blocked contacts retain tangential motion but remove most inward velocity; pushable contacts
+        transfer a smaller share to the rock. Continuous collision/tunnelling protection and per-wheel
+        contact manifolds remain part of the next response step.
 
     [ ] Climb, push and damage rules.
 

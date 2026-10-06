@@ -86,6 +86,7 @@ import {
   createVehicleConfig,
   heightFunctionGround,
   InteractiveRockProxy,
+  bridgeRockContact,
   MARS_ROCK_MATERIAL,
   createInteractiveRockSpec,
   buildLodGeometry,
@@ -670,16 +671,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const nz = dz / distance;
         const approach = vx * nx + vz * nz;
         if (approach > 0.05) {
-          const assessment = record.proxy.contact({
+          const assessment = bridgeRockContact(record.proxy, {
             roverMass: 1025,
             relativeSpeed: approach,
             availableForce: 2160,
             obstacleHeight: (body.shape as SphereShape).radius * 2,
+            vehicleVelocity: vehicle.velocity,
           }, { x: nx, y: 0, z: nz });
-          if (assessment.outcome === "blocked") {
-            vehicle.velocity.x *= 0.35;
-            vehicle.velocity.z *= 0.35;
-          } else if (assessment.outcome === "crushed") {
+          if (assessment.outcome === "crushed") {
             // Break now, then remove the proxy from the active world. The zeroed instance is a
             // deterministic settled/broken state; no fragment bodies are spawned in this first slice.
             record.block.scales[record.index * 3] = 0;
