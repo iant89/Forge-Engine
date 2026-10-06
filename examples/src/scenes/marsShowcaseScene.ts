@@ -915,10 +915,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           wanted.add(id);
           if (interactiveRocks.has(id)) continue;
 
-          const sx = block.scales[p]! * baseRadius;
-          const sy = block.scales[p + 1]! * baseRadius * (1 - baseFlatten);
-          const sz = block.scales[p + 2]! * baseRadius;
-          const isFlat = sy < 0.65 * Math.max(sx, sz);
+          const rawSx = block.scales[p]! * baseRadius;
+          const rawSy = block.scales[p + 1]! * baseRadius * (1 - baseFlatten);
+          const rawSz = block.scales[p + 2]! * baseRadius;
+
+          // Natural stability: rocks resting on terrain lie flat on their thinnest dimension
+          const minDim = Math.min(rawSx, rawSy, rawSz);
+          const sy = minDim;
+          const sx = rawSx === minDim ? rawSy : rawSx;
+          const sz = rawSz === minDim ? rawSy : rawSz;
+
+          const isFlat = sy < 0.70 * Math.max(sx, sz);
 
           const posX = block.positions[p]!;
           const posZ = block.positions[p + 2]!;
@@ -958,8 +965,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           proxy.body.renderRotation.copyFrom(proxy.body.rotation);
 
           if (isFlat) {
-            proxy.body.angularDamping = 8.0;
-            proxy.body.linearDamping = 0.2;
+            proxy.body.angularDamping = 0.25;
+            proxy.body.linearDamping = 0.15;
             proxy.body.friction = 0.95;
           } else {
             proxy.body.angularDamping = 0.05;

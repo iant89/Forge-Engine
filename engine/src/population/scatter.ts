@@ -173,12 +173,16 @@ export function scatterPopulationChunk(
       if (y < r.minHeight || y > r.maxHeight) continue;
       if (1 - sampler.normalYAt(x, z) > r.slopeLimit) continue;
 
-      const sx = r.scaleMin + (r.scaleMax - r.scaleMin) * su;
-      const rawSy = r.scaleMin + (r.scaleMax - r.scaleMin) * sv;
-      const sz = r.scaleMin + (r.scaleMax - r.scaleMin) * sw;
-      // Natural rock proportions: rocks resting on terrain should never be extreme needle spikes.
-      const maxNaturalY = Math.max(sx, sz) * 1.2;
-      const sy = Math.max(r.scaleMin, Math.min(rawSy, maxNaturalY));
+      const d1 = r.scaleMin + (r.scaleMax - r.scaleMin) * su;
+      const d2 = r.scaleMin + (r.scaleMax - r.scaleMin) * sv;
+      const d3 = r.scaleMin + (r.scaleMax - r.scaleMin) * sw;
+      // In nature, rocks resting on the ground lie flat on their flattest, widest side
+      // (minimum gravitational potential energy). The shortest dimension is always vertical (sy),
+      // preventing flat rocks from standing straight up on edge like monoliths.
+      const dims = [d1, d2, d3].sort((a, b) => a - b);
+      const sy = dims[0]!;
+      const sx = jitterX > 0.5 ? dims[1]! : dims[2]!;
+      const sz = sx === dims[1]! ? dims[2]! : dims[1]!;
       const k = out.count;
       out.positions[k * 3] = x;
       out.positions[k * 3 + 1] = y - r.embed * sy;

@@ -213,7 +213,7 @@ describe("Phase 15.5 interactive terrain foundation", () => {
       position: { x: 0, y: 0.1, z: 0 },
       friction: 0.9,
       linearDamping: 0.2,
-      angularDamping: 8.0,
+      angularDamping: 0.25,
     });
     flatBox.applyImpulse({ x: 0, y: 0, z: 15 });
     world.addBody(flatBox);
@@ -351,5 +351,64 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     // Stepping physics now moves the dynamic rock
     world.step(1 / 60);
     expect(proxy.body.linearVelocity.x).toBeGreaterThan(0);
+  });
+
+  it("flat rocks resting on a heightfield settle firmly without micro-bouncing", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 0 }));
+
+    // Flat rock laying on surface (hx = 0.5, hy = 0.1, hz = 0.5)
+    const flatBox = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(0.5, 0.1, 0.5),
+      mass: 30,
+      position: { x: 0, y: 0.1, z: 0 },
+      friction: 0.95,
+      linearDamping: 0.15,
+      angularDamping: 0.25,
+      restitution: 0.05,
+    });
+    world.addBody(flatBox);
+
+    let maxSeparatingVelocity = 0;
+    for (let i = 0; i < 90; i++) {
+      world.step(1 / 60);
+      if (flatBox.linearVelocity.y > maxSeparatingVelocity) {
+        maxSeparatingVelocity = flatBox.linearVelocity.y;
+      }
+    }
+
+    // Must not micro-bounce or jitter into the air
+    expect(maxSeparatingVelocity).toBeLessThan(0.02);
+    expect(flatBox.position.y).toBeCloseTo(0.1, 2);
+    expect(Math.abs(flatBox.linearVelocity.y)).toBeLessThan(0.01);
+  });
+
+  it("tall slab standing on edge naturally topples over under gravity to rest on its flat face", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 0 }));
+
+    // Slab standing on a narrow edge (hx = 0.1, hy = 0.6, hz = 0.4), tilted past its stability limit (hx/hy = 0.167)
+    const slab = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(0.1, 0.6, 0.4),
+      mass: 25,
+      position: { x: 0, y: 0.6, z: 0 },
+      friction: 0.8,
+      linearDamping: 0.05,
+      angularDamping: 0.25,
+      restitution: 0.05,
+    });
+    slab.rotation.setAxisAngle(new Vec3(0, 0, 1), 0.25);
+    world.addBody(slab);
+
+    // Step physics for 2.0 seconds (120 steps)
+    for (let i = 0; i < 120; i++) world.step(1 / 60);
+
+    // Slab must topple over: its center of mass elevation drops from 0.6 down towards ~0.1 - 0.2
+    expect(slab.position.y).toBeLessThan(0.35);
+    // It should have rotated significantly (tilt angle past 1.0 rad, near PI/2 where it lies flat)
+    const angle = 2 * Math.acos(Math.min(1, Math.abs(slab.rotation.w)));
+    expect(angle).toBeGreaterThan(0.8);
   });
 });

@@ -52,10 +52,29 @@ export function settlePopulationBlockWithPhysics(
     const p = k * 3;
     let x = block.positions[p]!;
     let z = block.positions[p + 2]!;
-    const sx = block.scales[p]!;
-    const sy = block.scales[p + 1]!;
-    const sz = block.scales[p + 2]!;
+    let sx = block.scales[p]!;
+    let sy = block.scales[p + 1]!;
+    let sz = block.scales[p + 2]!;
     let rot = block.rotations[k]!;
+
+    // A rock resting on the ground in nature topples over onto its widest, flattest face
+    // (minimum gravitational potential energy). Ensure the thinnest dimension is vertical (sy),
+    // toppling any slab standing on a narrow edge.
+    const minDim = Math.min(sx, sy, sz);
+    if (sy > minDim) {
+      if (sx === minDim) {
+        const temp = sx;
+        sx = sy;
+        sy = temp;
+      } else {
+        const temp = sz;
+        sz = sy;
+        sy = temp;
+      }
+      block.scales[p] = sx;
+      block.scales[p + 1] = sy;
+      block.scales[p + 2] = sz;
+    }
 
     const isFlat = sy < 0.65 * Math.max(sx, sz);
     const mu = isFlat ? flatFriction : defaultFriction;
