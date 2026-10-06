@@ -15,4 +15,5 @@ export * from "./realisticMaterial.js";
 export * from "./cache.js";
 export * from "./budget.js";
 export * from "./horizon.js";
+export * from "./interaction.js";
 export * from "./mars/index.js";

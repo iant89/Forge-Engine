@@ -47,7 +47,7 @@ CURRENT CODEBASE BASELINE:
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
                 The `15+` label covers Phase 15 only; the interactive terrain work is tracked
                 separately as Phase 15.5 below.
-    Phase 15.5: [ ] NOT STARTED (interactive terrain and object dynamics: physical near-field
+    Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
                 rocks, push/roll/destruction, rover impact response and persistent sand tracks)
                 Phases 16 through 28 remain NOT STARTED ([ ]) in their sections below, and
                 Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
@@ -153,7 +153,7 @@ PHASE 15+
     [x] IMPLEMENTED / VERIFIED
 
 PHASE 15.5 - Interactive Terrain / Object Dynamics
-    [ ] NOT STARTED
+    [~] IN PROGRESS
 
 
 ================================================================================

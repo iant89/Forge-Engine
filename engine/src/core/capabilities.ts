@@ -86,7 +86,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "13": "inProgress",
   "14": "inProgress",
   "15+": "verified",
-  "15.5": "planned",
+  "15.5": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -800,7 +800,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "world.interactiveTerrain",
     phase: "15.5",
-    status: "planned",
+    status: "inProgress",
     summary: "Near-field physical rocks, pushable and rollable destruction, rover impact response and persistent sand track deformation",
     closesWith: "15.5",
     notes: "Roadmap only: current population objects are render-only instanced batches and terrain is not yet deformable.",
