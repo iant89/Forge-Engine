@@ -1423,9 +1423,9 @@ GOAL:
     [~] Deterministic physics and browser evidence.
 
         CPU coverage now replays promotion, impulse, gravity, rolling, blocking and damage decisions
-        deterministically. A dedicated real-WebGPU showcase arm is still required to verify that a
-        pushable rock moves, an immovable rock blocks/damages the rover and a crater edge can start a
-        roll without GPU errors.
+        deterministically. The real-WebGPU Mars arm now verifies that near-field proxies are promoted
+        on the live streamed showcase with zero GPU errors; a deterministic drive-to-rock scenario is
+        still required to verify push, block/damage and crater-edge roll pixels/telemetry.
 
 
 15.5.4 Sand Deformation and Wheel Tracks

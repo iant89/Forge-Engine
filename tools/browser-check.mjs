@@ -1916,7 +1916,10 @@ async function checkAllScenes(backend) {
     }
     return clearance;
   };
-  console.log(`mars terrain: ${marsSettled.terrainGenerator} analytic-only, ${marsSettled.terrainReadyChunks} ready tiles, clearance=${checkMarsSurface(marsSettled).toFixed(3)}m`);
+  if (!(marsSettled.interactiveRocks > 0)) {
+    throw new Error(`mars showcase: no near-field interactive rocks were promoted (${marsSettled.interactiveRocks})`);
+  }
+  console.log(`mars terrain: ${marsSettled.terrainGenerator} analytic-only, ${marsSettled.terrainReadyChunks} ready tiles, clearance=${checkMarsSurface(marsSettled).toFixed(3)}m, interactive rocks=${marsSettled.interactiveRocks}`);
   const marsStatsBefore = await page.evaluate(() => window.__forge.stats());
   if (marsStatsBefore.gpuErrors !== 0 || marsStatsBefore.lastError) {
     throw new Error(`mars showcase GPU errors before driving: ${marsStatsBefore.lastError}`);
