@@ -52,7 +52,7 @@ const knownIssues = read("docs/KNOWN-ISSUES.md");
 // ----------------------------------------------------------------- helpers
 
 /** Normalizes a phase heading to the registry's key form: `8B` -> `8b`, `10+` -> `10+`. */
-const phaseKey = (raw) => raw.toLowerCase().replace(/[^0-9a-z+]/g, "");
+const phaseKey = (raw) => raw.toLowerCase().replace(/[^0-9a-z+.]/g, "");
 
 /** Markers used in ROADMAP.md, e.g. `[x]` -> `x`. */
 const markerChar = (marker) => marker.replace(/[[\]]/g, "");
@@ -66,7 +66,7 @@ function parsePhaseState(text) {
   const state = new Map();
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const heading = lines[i].match(/^PHASE\s+([0-9]+[A-Za-z+]*)/);
+    const heading = lines[i].match(/^PHASE\s+([0-9]+(?:\.[0-9]+)?[A-Za-z+]*)/);
     if (!heading) continue;
     const marker = (lines[i + 1] ?? "").match(/^\s*\[(.?)\]/);
     if (marker) state.set(phaseKey(heading[1]), `[${marker[1]}]`);
@@ -87,7 +87,7 @@ function parseRoadmapPhases(text) {
   const phases = new Set();
   for (const line of text.split("\n")) {
     // Phase banners are indented in the roadmap; the state block's lines are not.
-    const m = line.match(/^\s*PHASE\s+([0-9]+[A-Za-z+]*)/);
+    const m = line.match(/^\s*PHASE\s+([0-9]+(?:\.[0-9]+)?[A-Za-z+]*)/);
     if (m) phases.add(phaseKey(m[1]));
   }
   return phases;

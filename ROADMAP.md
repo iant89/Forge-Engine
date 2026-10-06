@@ -45,9 +45,13 @@ CURRENT CODEBASE BASELINE:
                 real Chromium/SwiftShader verified an ETC1S-to-BC7 six-mip upload.
                 KTX2 3D volumes are explicitly deferred; core glTF/GLB geometry decode is
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
-                The `15+` label covers Phase 15 only: Phases 16 through 28 are NOT STARTED
-                ([ ]) in their sections below, and Phase 29 is a roll-up (see the status
-                block; `docs:check` verifies the `15+` registry key directly).
+                The `15+` label covers Phase 15 only; the interactive terrain work is tracked
+                separately as Phase 15.5 below.
+    Phase 15.5: [ ] NOT STARTED (interactive terrain and object dynamics: physical near-field
+                rocks, push/roll/destruction, rover impact response and persistent sand tracks)
+                Phases 16 through 28 remain NOT STARTED ([ ]) in their sections below, and
+                Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
+                keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -147,6 +151,9 @@ PHASE 14 - World Population
 
 PHASE 15+
     [x] IMPLEMENTED / VERIFIED
+
+PHASE 15.5 - Interactive Terrain / Object Dynamics
+    [ ] NOT STARTED
 
 
 ================================================================================
@@ -1332,6 +1339,124 @@ EXIT CRITERIA:
     are reported before invalid assets become live.
     Supported KTX2/Basis assets upload on a real WebGPU implementation with device-appropriate
     compression or an RGBA fallback.
+
+
+================================================================================
+              PHASE 15.5 - INTERACTIVE TERRAIN / OBJECT DYNAMICS
+================================================================================
+
+GOAL:
+
+    Turn selected streamed terrain population into physically meaningful, near-field
+    interactions without making every GPU instance a rigid body. Small rocks can be pushed,
+    roll under gravity and break under sufficient load; large obstacles can stop or damage the
+    rover; and soft sand can retain shallow wheel-track impressions.
+
+
+15.5.1 Interactive Population Proxies
+
+    [ ] Stable population instance identity.
+
+        Give each streamed population instance a deterministic `(seed, chunk, type, index)` identity
+        that survives remeshing and eviction. Keep rendering instanced, but allow a nearby instance
+        to acquire a physics proxy without creating an ECS entity for every distant rock.
+
+    [ ] Near-field proxy admission and eviction.
+
+        Register simplified sphere/box/capsule proxies only inside an interaction radius around the
+        rover. Remove them when chunks leave that radius, and preserve the authoritative instance
+        transform/state so a proxy cannot respawn at its original pose after being pushed or broken.
+
+    [ ] Shared render/physics transforms.
+
+        The proxy must use the same terrain heightmap, chunk coordinates, scale, rotation and local
+        origin as the population renderer. A debug mode should show proxy bounds and the active-body
+        budget so mismatches are diagnosable.
+
+
+15.5.2 Push, Roll and Destruction
+
+    [ ] Material and strength model.
+
+        Add mass/density, friction, restitution, crush strength, break threshold and roll resistance
+        to the population type/instance data. A small rock whose mass is below the rover's available
+        tractive force can be pushed; a heavy or tall rock remains an obstacle.
+
+    [ ] Dynamic rock bodies.
+
+        Promote an eligible proxy to a dynamic rigid body on contact. Apply impulses through the
+        existing PhysicsWorld so a rock can slide or roll when it is pushed, including when it loses
+        support at a crater rim. Keep the collision shape cheaper than the render mesh.
+
+    [ ] Break and settle behavior.
+
+        When impact work exceeds the rock's break strength, replace it with a broken/flattened state,
+        remove or swap its rendered instance, and settle the resulting pieces without spawning an
+        unbounded number of bodies. The state must be deterministic for replay and save/load.
+
+
+15.5.3 Rover Obstacle Response
+
+    [ ] Vehicle/rock contact bridge.
+
+        Feed proxy contacts into the rover's vehicle system in addition to the terrain heightfield;
+        do not treat a rock as another terrain height sample. Preserve wheel suspension and avoid
+        tunnelling at rover speeds.
+
+    [ ] Climb, push and damage rules.
+
+        Distinguish a climbable rock, a pushable rock and an immovable obstacle using contact height,
+        normal, relative velocity, rover mass and available traction. Apply bounded damage to the
+        rover for impacts that exceed the chassis, wheel or suspension limits, and expose the result
+        in `marsState()` and the showcase HUD.
+
+    [ ] Deterministic physics and browser evidence.
+
+        Add CPU tests for threshold decisions, rolling and damage, plus a real-WebGPU showcase arm
+        that verifies a pushable rock moves, an immovable rock blocks/damages the rover and a crater
+        edge can start a roll.
+
+
+15.5.4 Sand Deformation and Wheel Tracks
+
+    [ ] Persistent per-tile deformation state.
+
+        Store shallow track/deformation samples keyed by terrain chunk and world-local coordinates,
+        separate from the procedural generator output. Eviction must serialize the state and reapply
+        it when the tile returns; the base analytic Mars surface remains reproducible.
+
+    [ ] Visual tracks first.
+
+        Render wheel impressions and displaced sand edges through a tile-owned mask/decal layer so
+        tracks remain visible without rebuilding the full terrain mesh every wheel contact.
+
+    [ ] Physical track response.
+
+        Feed bounded deformation into rover ground queries and traction: the rover should press into
+        loose sand slightly, while rock/crust layers resist deformation. Clamp depth, smooth edges,
+        and keep updates within the terrain upload budget.
+
+
+15.5.5 Performance, Streaming and Save/Load
+
+    [ ] Bound the interaction budget.
+
+        Cap active physics proxies, dynamic bodies, deformation samples and per-frame terrain updates.
+        Distant rocks remain render-only and the GPU population path remains instanced.
+
+    [ ] Persistence and diagnostics.
+
+        Serialize pushed/broken rocks and track state by stable world identity. Add HUD/debug counters
+        for active proxies, dynamic rocks, impacts, rover damage, track samples and deformation bytes.
+
+
+EXIT CRITERIA:
+
+    Near-field rocks have stable identities and bounded physics proxies.
+    Small rocks can be pushed; rocks can roll when unsupported; excessive impacts can break rocks.
+    Heavy/tall obstacles block or damage the rover without tunnelling or destabilizing terrain contact.
+    Wheel tracks are visible, persist through terrain streaming, and produce bounded sand response.
+    CPU determinism, memory budgets, focused browser checks and real-WebGPU evidence are documented.
 
 
 ================================================================================
