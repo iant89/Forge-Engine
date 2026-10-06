@@ -555,7 +555,13 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   camera.far = 8000;
   scene.world.addComponent(cameraEntity.id, camera);
   // ---------------------------------------------------------------- rover (six wheels)
-  const ground = heightFunctionGround((x, z) => terrain.getHeightAt(x, z));
+  const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
+  const deformedGroundHeight = (x: number, z: number): number => {
+    const cx = Math.floor(x / terrain.chunkSize);
+    const cz = Math.floor(z / terrain.chunkSize);
+    return terrain.getHeightAt(x, z) + deformation.sample(chunkCoordKey(cx, cz), x - cx * terrain.chunkSize, z - cz * terrain.chunkSize, terrain.chunkSize);
+  };
+  const ground = heightFunctionGround(deformedGroundHeight);
   const motor = new ElectricMotor({ ...ROVER_MOTOR });
   const config = {
     ...createVehicleConfig({
@@ -623,12 +629,11 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   // remains instanced; these bodies are a bounded interaction layer, not one rigid body per rock.
   const interactivePhysics = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
   interactivePhysics.setHeightfield(new HeightfieldShape({
-    sampleHeight: (x, z) => terrain.getHeightAt(x, z),
+    sampleHeight: deformedGroundHeight,
   }));
   const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
   let brokenInteractiveRocks = 0;
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
-  const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
   const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
   const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
   const trackMarks = Array.from({ length: 256 }, (_, index) => {
@@ -1150,7 +1155,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // Must stay below CHASE_LOOK_OFFSET_Y + hang so the surface clamp cannot hoist the look-at
       // above the chassis (that tip-over-rover-into-haze bug returned whenever clearance was 2 m).
       groundClearance: MARS_CHASE_GROUND_CLEARANCE,
-      groundHeight: (x, z) => terrain.getHeightAt(x, z),
+      groundHeight: deformedGroundHeight,
       keyboard: false,
     },
     followTarget: () => ({
@@ -1161,7 +1166,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     update(dt: number): void {
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
-      scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
+      scene.settings.sky.seaLevel = deformedGroundHeight(vehicle.position.x, vehicle.position.z);
       stepInteractiveRocks(dt);
       // Record shallow wheel impressions separately from the procedural heightfield. The renderer
       // and ground-query consumers do not apply this delta yet; this keeps the runtime state ready
@@ -1343,7 +1348,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         terrainSplatTiles: [...terrain.chunks.values()].filter((chunk) => chunk.tile?.gpuMaterial !== null && chunk.tile?.gpuMaterial !== undefined).length,
         terrainReadyChunks: readyChunks,
         terrainRoverChunkReady: terrain.chunks.get(roverChunkKey)?.state === "ready",
-        terrainGroundHeight: terrain.getHeightAt(vehicle.position.x, vehicle.position.z),
+        terrainGroundHeight: deformedGroundHeight(vehicle.position.x, vehicle.position.z),
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
         interactiveRocks: interactiveRocks.size,

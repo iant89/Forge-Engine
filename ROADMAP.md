@@ -1444,11 +1444,12 @@ GOAL:
         and expose `visibleTrackMarks` for the browser gate. Tile-owned mask integration and displaced
         sand edges remain open for the physical response step.
 
-    [ ] Physical track response.
+    [x] Physical track response.
 
-        Feed bounded deformation into rover ground queries and traction: the rover should press into
-        loose sand slightly, while rock/crust layers resist deformation. Clamp depth, smooth edges,
-        and keep updates within the terrain upload budget.
+        The Mars Showcase ground query, camera clamp and interactive-rock heightfield now include the
+        bounded deformation field, so subsequent wheel samples run in the shallow pressed-in track.
+        Track depth is load-scaled and clamped; material-specific sand/crust resistance and traction
+        changes remain open for a later terrain-material refinement.
 
 
 15.5.5 Performance, Streaming and Save/Load
