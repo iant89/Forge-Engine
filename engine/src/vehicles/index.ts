@@ -55,3 +55,16 @@ export {
 } from "./vehicle.js";
 export { VehicleComponent, createVehicleComponent } from "./components.js";
 export { VehicleSystem } from "./system.js";
+export {
+  createVehicleDamageZones,
+  applyBodyDamage,
+  applyWheelDamage,
+  computeBodyCrushOffset,
+  WHEEL_DETACH_DAMAGE,
+  WHEEL_BEND_MAX,
+  BODY_CRUSH_SPAN_X,
+  BODY_CRUSH_SPAN_Z,
+  BODY_CRUSH_MAX,
+  BODY_CRUSH_SINK,
+  type VehicleDamageZones,
+} from "./damage.js";

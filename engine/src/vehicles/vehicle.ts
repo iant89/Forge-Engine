@@ -162,6 +162,19 @@ export interface WheelState {
   nx: number;
   ny: number;
   nz: number;
+  /**
+   * Torn-off / destroyed wheel: excluded from ground sampling, load transfer, torque split and
+   * steering, so the vehicle keeps driving on the survivors. Set by the scene when wheel damage
+   * passes `WHEEL_DETACH_DAMAGE` (vehicles/damage.ts); the sampler also zeroes the contact state
+   * so a disabled wheel hangs at full droop and reports no load.
+   */
+  disabled: boolean;
+  /**
+   * Visual-only camber tilt (radians) for a bent-but-attached wheel; VehicleSystem leans the
+   * wheel root by this after steering/spin. Scenes drive it from per-wheel damage, up to
+   * `WHEEL_BEND_MAX` (vehicles/damage.ts).
+   */
+  bend: number;
 }
 
 const WHEEL_COUNT = 4;
@@ -327,6 +340,8 @@ export class Vehicle {
       nx: 0,
       ny: 1,
       nz: 0,
+      disabled: false,
+      bend: 0,
     }));
     this.rpm = config.engine.idleRpm;
     if (config.engine.omega < 1 && config.engine.idleRpm > 0) config.engine.rpm = config.engine.idleRpm;
@@ -555,7 +570,7 @@ export class Vehicle {
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       const input = this.torqueInputs[i]!;
-      input.driven = w.driven;
+      input.driven = w.driven && !w.disabled;
       input.omega = w.omega;
     }
     const shares = splitDriveTorque(wheelTorqueTotal, this.torqueInputs, c.differential, c.lsdBias, this.torqueShares);
@@ -914,6 +929,21 @@ export class Vehicle {
     const uy = this.up.y > 0.2 ? this.up.y : 0.2;
     for (const w of this.wheels) {
       w.steerAngle = w.steered ? steerAngle(this.input.steer, c.maxSteerAngle, this.speed) * (w.z < 0 ? -1 : 1) : 0;
+      if (w.disabled) {
+        // Torn-off wheel: no ground contact, no load, no steering — it hangs at full droop
+        // (compression 0) while the survivors carry the vehicle. Stale contact/normal values
+        // are harmless: every consumer is guarded by `inContact`.
+        w.inContact = false;
+        w.compression = 0;
+        w.compressionRate = 0;
+        w.normalLoad = 0;
+        w.longForce = 0;
+        w.latForce = 0;
+        w.kappa = 0;
+        w.alpha = 0;
+        w.steerAngle = 0;
+        continue;
+      }
       const hx = this.position.x + this.right.x * w.x + this.forward.x * w.z;
       const hy = this.position.y + this.right.y * w.x + this.forward.y * w.z;
       const hz = this.position.z + this.right.z * w.x + this.forward.z * w.z;

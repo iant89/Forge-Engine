@@ -7059,6 +7059,102 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/population.test.ts",
     "what": "Added far-remesh test: refining a populated chunk beyond settleSnapDistance lands every rendered Y exactly on its new anchor in one update (guards the vacuity case by requiring a >1 cm gap).",
     "why": "Pin the distant-falling-rocks fix alongside the existing near-glide test."
+  },
+  {
+    "id": "0557",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/damage.ts",
+    "what": "New pure damage helpers: per-panel crush zones with impact-direction split, per-wheel damage with a detach threshold, bend-angle cap, and model-space crush offsets with a zone-edge falloff.",
+    "why": "Give scenes a deterministic, testable vocabulary for area-dependent visible damage (crushed nose, bent/torn-off wheels) alongside the existing numeric wear."
+  },
+  {
+    "id": "0558",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/vehicle.ts",
+    "what": "WheelState gains disabled (torn-off: no contact, load, torque share, or steering; hangs at full droop) and bend (visual camber). The torque split excludes disabled wheels even if driven is left on.",
+    "why": "Mechanical backbone for detached wheels: the vehicle keeps driving on the survivors with no torque wasted into a missing hub."
+  },
+  {
+    "id": "0559",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/system.ts",
+    "what": "VehicleSystem leans each wheel root by its bend (camber plus matching toe) after steering/spin, so mangled wheels roll crookedly without moving their hubs.",
+    "why": "Bent-wheel visuals must live in the posing system: it overwrites wheel roots every fixed step, so scene-side tilts would be wiped."
+  },
+  {
+    "id": "0560",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/index.ts",
+    "what": "Exported the vehicles/damage.ts helpers and constants through the barrel.",
+    "why": "Scenes and tests import damage support from @forge/engine like the rest of the vehicle stack."
+  },
+  {
+    "id": "0561",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Assessed rock contacts now accumulate per-zone body crush and nearest-wheel damage (blocked grinds, shattering hits; clean shoves stay harmless): panels sink inward with a deterministic crumple tilt, battered wheels bend, wheels at 100% detach (disabled, hidden, dropped as a ground prop), suspension wear visibly sags the ride, and zones/wheels/detached list flow into marsState plus a HUD damage line.",
+    "why": "Visible damage that depends on the actual damaged area: ram the nose and the nose crushes; keep it up and you lose the wheel you hit with."
+  },
+  {
+    "id": "0562",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/vehicles.test.ts",
+    "what": "Added area-damage tests: zone split by impact direction with clamping, crush-offset falloff (nose sinks, deck never moves), wheel clamp/detach threshold, disabled-wheel mechanics (no contact/load/torque/steer, car drives on), and VehicleSystem bend (hub fixed, orientation leans).",
+    "why": "Pin the engine damage math and the disabled/bend mechanics at the unit level."
+  },
+  {
+    "id": "0563",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcaseDamage.test.ts",
+    "what": "New scene suite with a mocked rover model (procedural boxes at known spots): pristine checks, then full-speed rams crush the nose (tail/deck unmoved), bend FL, tear it off (hidden meshes, ground prop, disabled, HUD cross) while the far side and tail stay at zero.",
+    "why": "End-to-end proof that the visible damage matches the actual damaged area, without loading the 10 MB GLB."
+  },
+  {
+    "id": "0564",
+    "date": "2026-10-06T20:31:08Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Registered tests/marsShowcaseDamage.test.ts under the ex-orbit demo subsystem.",
+    "why": "Every suite must be claimed exactly once or the subsystem drift test fails."
   }
 ]
 ```
