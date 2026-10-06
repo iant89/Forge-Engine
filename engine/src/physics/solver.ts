@@ -12,6 +12,7 @@ export interface SolverOptions {
   baumgarte?: number;
   penetrationSlop?: number;
   velocityRestThreshold?: number;
+  maxPositionBias?: number;
 }
 
 export class SequentialImpulseSolver {
@@ -20,6 +21,7 @@ export class SequentialImpulseSolver {
   baumgarte: number;
   penetrationSlop: number;
   velocityRestThreshold: number;
+  maxPositionBias: number;
 
   constructor(options: SolverOptions = {}) {
     this.velocityIterations = options.velocityIterations ?? 8;
@@ -27,6 +29,7 @@ export class SequentialImpulseSolver {
     this.baumgarte = options.baumgarte ?? 0.2;
     this.penetrationSlop = options.penetrationSlop ?? 0.005; // 5mm slop
     this.velocityRestThreshold = options.velocityRestThreshold ?? 0.25; // 0.25 m/s rest cutoff
+    this.maxPositionBias = options.maxPositionBias ?? 2.0; // 2.0 m/s max recovery velocity
   }
 
   solve(manifolds: ContactManifold[], dt: number): void {
@@ -88,11 +91,14 @@ export class SequentialImpulseSolver {
         restitutionBias = -m.restitution * vn;
       }
 
-      // Baumgarte stabilization for penetration recovery
+      // Baumgarte stabilization for penetration recovery. When multiple contacts share
+      // the manifold load (e.g. 4 corners of a resting box), distribute the bias across
+      // the contacts so multi-point contact does not produce an N-fold upward over-impulse (micro-bounce).
       const penetrationExcess = Math.max(0, c.penetration - this.penetrationSlop);
-      const positionBias = (this.baumgarte / dt) * penetrationExcess;
+      const positionBias = Math.min(this.maxPositionBias, (this.baumgarte / dt) * penetrationExcess);
+      const contactCount = Math.max(1, m.contacts.length);
 
-      c.velocityBias = restitutionBias + positionBias;
+      c.velocityBias = restitutionBias + positionBias / contactCount;
 
       // Warm starting: apply fraction of previous impulse to accelerate convergence
       const Pn = c.normalImpulse;

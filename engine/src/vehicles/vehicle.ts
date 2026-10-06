@@ -107,6 +107,8 @@ export interface VehicleConfig {
   /** |κ| above which ABS starts cutting brake. Defaults to the longitudinal Pacejka peak. */
   absSlip: number;
   absStrength: number;
+  /** Rolling resistance coefficient (e.g. 0.015 for tarmac, 0.06 for regolith/sand). */
+  rollingResistance: number;
   engine: EngineModel;
   transmission: Transmission;
   wheels: VehicleWheelConfig[];
@@ -116,6 +118,7 @@ export interface VehicleOptions {
   mass?: number;
   gravity?: number;
   mu?: number;
+  rollingResistance?: number;
   wheelbase?: number;
   track?: number;
   cgHeight?: number;
@@ -221,6 +224,7 @@ export function createVehicleConfig(options: VehicleOptions = {}): VehicleConfig
     tcStrength: 6,
     absSlip: pacejkaPeakSlip(long),
     absStrength: 10,
+    rollingResistance: options.rollingResistance ?? 0,
     engine: options.engine ?? new EngineModel({ peakTorque: 340, inertia: 0.28, idleRpm: 800, redlineRpm: 6800 }),
     transmission: options.transmission ?? new Transmission(),
     wheels: defaultWheels(wheelbase, track, cgToFront, layout),
@@ -669,6 +673,15 @@ export class Vehicle {
     if (this.speed > 0.05) {
       fx -= (this.velocity.x / this.speed) * aero.drag;
       fz -= (this.velocity.z / this.speed) * aero.drag;
+    }
+    if (this.speed > 0.01 && contactCount > 0 && c.rollingResistance > 0) {
+      let totalLoad = 0;
+      for (let i = 0; i < this.wheels.length; i++) {
+        if (this.wheels[i]!.inContact) totalLoad += this.wheels[i]!.normalLoad;
+      }
+      const rollForce = Math.min(c.rollingResistance * totalLoad, (c.mass * this.speed) / dt);
+      fx -= (this.velocity.x / this.speed) * rollForce;
+      fz -= (this.velocity.z / this.speed) * rollForce;
     }
     fy -= aero.downforce;
     fy -= c.mass * c.gravity;
