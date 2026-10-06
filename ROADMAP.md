@@ -436,6 +436,13 @@ CURRENT PROBLEMS (addressed in this phase):
             chunks and 32 m skirts. tests/marsShowcase.test.ts pins scene assembly, driving,
             streaming budgets and LOD edges; check:browser asserts the port/mode, resident
             rover tile, terrain clearance and forward W-drive with wheel dust.
+        [x] A site inspector beside the showcase: `?scene=mars-generator` streams the same port with
+            a free orbit camera and the site from the URL (`MARS_SITE_PRESETS` keys or any `lat,lon`
+            pair), reporting site, band, skirts, generation/material mode and splat tiles through
+            `window.__forge.marsGeneratorState()`. Pinned by tests/marsGeneratorScene.test.ts and the
+            check:browser arm of the same name (volcano preset: workers + layered, zero GPU errors;
+            `?marssite=0,0` crater field: a resident tile genuinely blends two channels, its
+            non-dominant one over 25 % of the mask mass — the volcano stays flat). docs/MARS-TERRAIN.md §5.
         [x] Analytic Mars cells run on workers from a complete serialized configuration (including
             custom planet settings, site radius/heading, detail and curvature flags), byte-identical
             to the original live pipeline. The showcase opts into the scheduler with nine warm-up

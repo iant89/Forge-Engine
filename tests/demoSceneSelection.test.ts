@@ -12,6 +12,7 @@ describe("demo scene URL routing", () => {
       "cubes",
       "terrain",
       "realistic",
+      "mars-generator",
       "vehicle",
       "particles",
       "sky",
@@ -24,6 +25,10 @@ describe("demo scene URL routing", () => {
   it("preserves the demo's scene aliases", () => {
     expect(resolveDemoSceneName("mars")).toBe("terrain");
     expect(resolveDemoSceneName("realistic-terrain")).toBe("realistic");
+    expect(resolveDemoSceneName("mars-port")).toBe("mars-generator");
+    expect(resolveDemoSceneName("mars-generator-port")).toBe("mars-generator");
+    // `?scene=mars` keeps meaning the hand-written Martian terrain demo, not the port.
+    expect(resolveDemoSceneName("mars")).toBe("terrain");
     expect(resolveDemoSceneName("vehicle-playground")).toBe("vehicle");
     expect(resolveDemoSceneName("showcase")).toBe("mars-showcase");
   });

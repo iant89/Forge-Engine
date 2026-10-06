@@ -124,6 +124,14 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   class mismatches and 1e-6 agreement) but sums them in a different order, so `mars-port-check`
   compares against the generator's float32 output with a tolerance rather than for bit equality.
   (`docs/MARS-TERRAIN.md` §6) (capability: terrain.marsGeneratorPort)
+* **The port's material regions are coarse relative to a demo tile.** `terrain.marsGeneratorPort`'s
+  geology assigns a material per terrain *region* (crater floors and rims, the volcano's flank, the
+  canyon's walls), so the four splat channels a 128 m tile carries are usually near one dominant
+  channel: a 54-site scan (15° latitude × 60° longitude) found only crater fields mixing two dominant
+  channels inside a single 640 m window, and the volcano-summit preset bakes one colour for kilometres.
+  That is the port's geology, not a wiring failure — albedo variety *within* a site would need finer
+  regional rules, not a different material path. `?scene=mars-generator&marssite=0,0` is the shipped
+  site where the mix is real enough to see. (capability: terrain.marsGeneratorPort)
 * **Mars material weights still inherit LOD sampling.** The four PBR layers now render, with
   phase-aligned tiled maps and clamped texel-centre mask sampling. That removes shader-introduced
   border wrapping, not differences in the input data: slope-derived biome weights can change when
