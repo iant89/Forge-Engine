@@ -264,7 +264,7 @@ skirts.
 
 ### `tests/marsShowcase.test.ts` — the port in the actual demo
 
-Eight integration tests assemble `buildMarsShowcaseScene` on the strict mock GPU; only the DOM and
+Eleven integration tests assemble `buildMarsShowcaseScene` on the strict mock GPU; only the DOM and
 pending GLB fetch are stubbed (the actual model is covered by `roverGlb.test` and `check:browser`).
 They assert the real scene uses `MarsTerrainStage` with the unmodified seed 1337, equatorial site,
 fine detail, curvature compensation, no erosion fields and no terrain fetch. The surveyed spawn has
@@ -275,6 +275,13 @@ collision mesh.
 
 A six-second W-input traverse runs the scene's real vehicle system, stays grounded with ≥4 contacts,
 moves forward >6 m and emits wheel dust plus ballistic rock chips; it is not a replay of a separate copied rover configuration.
+The speed regression also exercises that shipped vehicle directly on flat ground: it pins the
+original 9.5 N·m / 1000 W / 1000 rpm motor, 60:1 reduction and 0.06 rolling resistance, checks
+full-throttle speed stays below 1.2 m/s after one second and below 1.75 m/s over forty seconds,
+and retains a no-wheelspin climb check on a modest 15° grade. The boosted tune's 25° climb is no
+longer promised. `tests/roverCourse.test.ts` separately pins the same motor and flat-ground speed
+bounds on the course's Earth-gravity vehicle, alongside assembly, driving, cone reset, track
+geometry and barrier collision checks (six tests); obstacles are not used as a fake speed cap.
 Zoom/relocation keeps the camera ≥0.5 m above the same surface and the sky reference under the rover.
 Streaming starts nine tiles once, then at most one per update, produces several LOD densities with
 identical shared raw samples in both X/Z directions, and its 32 m skirts enclose measured morph gaps.

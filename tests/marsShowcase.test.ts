@@ -23,10 +23,9 @@ import {
   TaskScheduler,
   TerrainWorld,
   Vec3,
-  Vehicle,
   VehicleComponent,
   chunkCoordKey,
-  createVehicleConfig,
+  flatGround,
   heightFunctionGround,
   slopeGround,
   type Engine,
@@ -38,7 +37,6 @@ import { OrbitControls } from "../examples/src/controls/orbitControls.js";
 import {
   buildMarsShowcaseScene,
   layoutBreakFragments,
-  MARS_ROVER_TRACTION,
   MARS_SHOWCASE_SITE,
 } from "../examples/src/scenes/marsShowcaseScene.js";
 
@@ -329,63 +327,53 @@ describe("Mars Showcase — ported terrain integration", () => {
     }
   });
 
-  it("climbs a 25° regolith grade on the scene's traction constants without stalling or spinning", () => {
-    // The exact drivetrain the scene builds (motor/gearing/tires/rolling resistance), on an
-    // analytic grade. The old tune stalled here (≈0.01 m/s: torque-limited, not slip-limited).
-    const traction = MARS_ROVER_TRACTION;
-    const motor = new ElectricMotor({
-      peakTorque: traction.peakTorque,
-      peakPower: traction.peakPower,
-      ratedRpm: traction.ratedRpm,
+  it("keeps the original gentle drive tune, bounded speed and modest-grade grip", async () => {
+    // Exercise the shipped vehicle, not a copied config that could miss a scene-only speedup.
+    const { component } = await fixture();
+    const rover = component.vehicle;
+    expect(rover.config.engine).toBeInstanceOf(ElectricMotor);
+    expect(rover.config.engine).toMatchObject({
+      peakTorque: 9.5,
+      peakPower: 1000,
+      ratedRpm: 1000,
       maxRpm: 3800,
       regenTorque: 4.2,
-      dragTorque: 0.12,
-      inertia: 0.02,
     });
-    const config = {
-      ...createVehicleConfig({
-        mass: 1025,
-        gravity: 3.72,
-        mu: traction.mu,
-        wheelRadius: 0.264,
-        wheelbase: 2.26,
-        track: 2.18,
-        cgToFront: 1.095,
-        cgHeight: 0.54,
-        longitudinal: traction.longitudinal,
-        lateral: traction.lateral,
-        springRate: (1025 * 3.72) / (6 * 0.05),
-        aero: null,
-        maxBrakeTorque: 4200,
-        absEnabled: false,
-        rollingResistance: traction.rollingResistance,
-        engine: motor,
-        transmission: new ReductionDrive(60),
-      }),
-      wheels: [
-        { x: -1.091, z: 1.095, steered: true, driven: true, handbrake: false },
-        { x: 1.091, z: 1.095, steered: true, driven: true, handbrake: false },
-        { x: -1.213, z: -0.09, steered: false, driven: true, handbrake: false },
-        { x: 1.213, z: -0.09, steered: false, driven: true, handbrake: false },
-        { x: -1.091, z: -1.165, steered: true, driven: true, handbrake: true },
-        { x: 1.091, z: -1.165, steered: true, driven: true, handbrake: true },
-      ],
-    };
-    config.suspensionRest = 0.32;
-    config.suspensionTravel = 0.16;
-    config.maxSteerAngle = 0.62;
-    const rover = new Vehicle(config);
-    const grade = slopeGround((25 * Math.PI) / 180);
-    rover.placeOnGround(grade);
+    expect(rover.config.transmission).toBeInstanceOf(ReductionDrive);
+    expect(rover.config.transmission.ratio).toBe(60);
+    expect(rover.config.rollingResistance).toBe(0.06);
+
+    const level = flatGround(0);
+    rover.position.set(0, 0, 0);
+    rover.yaw = 0;
+    rover.placeOnGround(level);
+    rover.setVelocity(0, 0, 0);
+    rover.input.brake = 0;
+    rover.input.handbrake = 0;
     rover.input.throttle = 1;
+    for (let i = 0; i < 60; i++) rover.step(1 / 60, level);
+    // Restores the softer launch as well as the power cap; the 2.5 kW tune exceeds this band.
+    expect(rover.speed).toBeGreaterThan(0.5);
+    expect(rover.speed).toBeLessThan(1.2);
+    let maxSpeed = rover.speed;
+    for (let i = 60; i < 60 * 40; i++) {
+      rover.step(1 / 60, level);
+      maxSpeed = Math.max(maxSpeed, rover.speed);
+    }
+    expect(maxSpeed).toBeLessThan(1.75);
+    expect(rover.speed).toBeGreaterThan(0.6);
+
+    // The reverted motor no longer promises the boosted tune's 25° climb. Preserve the grip
+    // check on a modest grade it can sustain, without raising power to make that test pass.
+    const grade = slopeGround((15 * Math.PI) / 180);
+    rover.position.set(0, 0, 0);
+    rover.placeOnGround(grade);
+    rover.setVelocity(0, 0, 0);
+    rover.distance = 0;
     for (let i = 0; i < 600; i++) rover.step(1 / 60, grade);
-    // Sustained climb: ~0.4 m/s → 4 m over 10 s. The stalled tune managed ≈0.1 m.
     expect(rover.distance).toBeGreaterThan(1.5);
     expect(rover.speed).toBeGreaterThan(0.2);
-    // The wheels grip instead of spinning: slip ratios stay well under the curve peak (~0.4).
-    for (const wheel of rover.wheels) {
-      expect(Math.abs(wheel.kappa)).toBeLessThan(0.35);
-    }
+    for (const wheel of rover.wheels) expect(Math.abs(wheel.kappa)).toBeLessThan(0.35);
   });
 
   it("lays break fragments out separated with a down-push bias", () => {
