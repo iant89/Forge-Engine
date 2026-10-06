@@ -693,6 +693,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   );
   const population = new PopulationWorld({
     terrain,
+    settlePhysics: { gravity: 3.72, maxSteps: 90 },
     types: [
       {
         id: 1,
@@ -966,6 +967,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             proxy.body.friction = 0.6;
           }
 
+          // Uncontacted rocks remain dormant static colliders until touched
+          proxy.body.type = "static";
           interactivePhysics.addBody(proxy.body);
           interactiveRocks.set(id, {
             block,
@@ -1194,6 +1197,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const approach = vx * nx + vz * nz;
         if (approach > 0.04) {
           record.awake = true;
+          record.proxy.body.type = "dynamic";
           const assessment = bridgeRockContact(record.proxy, {
             roverMass: 1025,
             relativeSpeed: approach,
@@ -1224,6 +1228,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     // Keep uncontacted rocks stationary so they never shoot up or jitter
     for (const record of interactiveRocks.values()) {
       if (!record.awake) {
+        record.proxy.body.type = "static";
         record.proxy.body.linearVelocity.set(0, 0, 0);
         record.proxy.body.angularVelocity.set(0, 0, 0);
       }
@@ -1273,6 +1278,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         if (record.settledTimer > 0.5) {
           body.linearVelocity.set(0, 0, 0);
           body.angularVelocity.set(0, 0, 0);
+          body.type = "static";
           record.awake = false;
         }
       } else {

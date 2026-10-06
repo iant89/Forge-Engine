@@ -35,6 +35,10 @@ import {
   type ResolvedPopulationTypeSpec,
 } from "./scatter.js";
 import {
+  settlePopulationBlockWithPhysics,
+  type PopulationPhysicsSettlingOptions,
+} from "./settle.js";
+import {
   PopulationInstanceBlock,
   type PopulationCollector,
   type PopulationSource,
@@ -68,6 +72,12 @@ export interface PopulationWorldOptions {
    * over a few dozen frames instead of one.
    */
   generationsPerFrame?: number;
+  /**
+   * When enabled (or options provided), applies physical settling (gravity, terrain slope contact,
+   * static/kinetic friction, downslope rolling/sliding) to every spawned object when a chunk is populated,
+   * ensuring all objects settle into stable equilibrium at world generation.
+   */
+  settlePhysics?: boolean | PopulationPhysicsSettlingOptions;
 }
 
 interface TypeRecord {
@@ -106,6 +116,7 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   readonly terrain: TerrainWorld;
   readonly seed: number;
   readonly types: readonly ResolvedPopulationTypeSpec[];
+  readonly settlePhysics: boolean | PopulationPhysicsSettlingOptions;
 
   private readonly populated = new Map<string, ChunkRecord>();
   private readonly pending: string[] = [];
@@ -119,6 +130,7 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
     this.terrain = options.terrain;
     this.seed = options.seed ?? options.terrain.seed;
     this.generationsPerFrame = Math.max(0, Math.floor(options.generationsPerFrame ?? 4));
+    this.settlePhysics = options.settlePhysics ?? false;
     const ids = new Set<number>();
     this.types = options.types.map((type) => {
       if (type.lod) {
@@ -216,6 +228,10 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
       const input = this.typeInputs[index]!;
       const block = new PopulationInstanceBlock(spec.maxPerChunk);
       scatterPopulationChunk(spec, this.seed, cx, cz, chunkSize, sampler, block);
+      if (this.settlePhysics) {
+        const settleOpts = typeof this.settlePhysics === "object" ? this.settlePhysics : undefined;
+        settlePopulationBlockWithPhysics(block, spec, sampler, settleOpts);
+      }
       const geometry = input.geometry ?? null;
       const material = input.material ?? null;
       const submission: PopulationSubmission | null =

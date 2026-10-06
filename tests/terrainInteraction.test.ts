@@ -12,6 +12,7 @@ import {
   bridgeRockContact,
   createInteractiveRockSpec,
   type InteractiveRockSpec,
+  Vec3,
 } from "@forge/engine";
 
 function rock(overrides: Partial<InteractiveRockSpec> = {}): InteractiveRockSpec {
@@ -290,5 +291,65 @@ describe("Phase 15.5 interactive terrain foundation", () => {
 
     // Never should the broken pieces exceed the original size or volume
     expect(totalFragmentVolume).toBeLessThan(origVolume);
+  });
+
+  it("keeps uncontacted rocks dormant on slopes so approaching rovers do not cause distant rocks to roll", () => {
+    // Terrain with a 35-degree slope: height(x) = 0.7 * x
+    const slope = 0.7;
+    const hf = new HeightfieldShape({
+      sampleHeight: (x) => slope * x,
+      sampleNormal: (_x, _z, out = new Vec3()) => {
+        const len = Math.hypot(slope, 1);
+        return out.set(-slope / len, 1 / len, 0);
+      },
+    });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    world.setHeightfield(hf);
+
+    const radius = 0.5;
+    const startX = 20;
+    const restingY = slope * startX + radius;
+    const proxy = new InteractiveRockProxy(
+      createInteractiveRockSpec({
+        id: "chunk0:rocks:0",
+        shape: new SphereShape(radius),
+        material: MARS_ROCK_MATERIAL,
+        climbRadius: radius,
+      }),
+      { x: startX, y: restingY, z: 0 },
+    );
+
+    // Dormant rock: static collider
+    proxy.body.type = "static";
+    world.addBody(proxy.body);
+
+    // Rover is in the distance approaching (e.g. at x = 0, moving towards rock)
+    // Run 60 frames of physics world stepping
+    for (let i = 0; i < 60; i++) world.step(1 / 60);
+
+    // Uncontacted rock MUST NOT roll down the hill!
+    expect(proxy.body.position.x).toBe(startX);
+    expect(proxy.body.position.y).toBe(restingY);
+    expect(proxy.body.position.z).toBe(0);
+    expect(proxy.body.linearVelocity.x).toBe(0);
+    expect(proxy.body.linearVelocity.y).toBe(0);
+    expect(proxy.body.linearVelocity.z).toBe(0);
+
+    // When the rover arrives and makes contact: awaken to dynamic!
+    proxy.body.type = "dynamic";
+    const assessment = proxy.contact(
+      {
+        roverMass: 1025,
+        relativeSpeed: 0.8,
+        availableForce: 2160,
+        obstacleHeight: radius * 2,
+      },
+      { x: 1, y: 0, z: 0 },
+    );
+    expect(assessment.outcome).toBe("pushed");
+
+    // Stepping physics now moves the dynamic rock
+    world.step(1 / 60);
+    expect(proxy.body.linearVelocity.x).toBeGreaterThan(0);
   });
 });

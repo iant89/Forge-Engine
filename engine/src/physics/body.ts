@@ -26,8 +26,24 @@ export interface RigidBodyOptions {
 
 export class RigidBody {
   id = 0;
-  type: BodyType;
+  private _type: BodyType = "dynamic";
+  private _configuredMass?: number;
   shape: Shape;
+
+  get type(): BodyType {
+    return this._type;
+  }
+
+  set type(value: BodyType) {
+    if (this._type === value) return;
+    this._type = value;
+    if (value === "static" || value === "kinematic") {
+      this.linearVelocity.set(0, 0, 0);
+      this.angularVelocity.set(0, 0, 0);
+    }
+    this.setupMass(this._configuredMass);
+    this.updateInertiaWorld();
+  }
 
   // Simulation state
   readonly position = new Vec3();
@@ -66,7 +82,8 @@ export class RigidBody {
   sleepTime = 0;
 
   constructor(options: RigidBodyOptions) {
-    this.type = options.type ?? "dynamic";
+    this._type = options.type ?? "dynamic";
+    this._configuredMass = options.mass;
     this.shape = options.shape;
 
     if (options.position) this.position.copyFrom(options.position);
@@ -91,7 +108,10 @@ export class RigidBody {
   }
 
   setupMass(customMass?: number): void {
-    if (this.type === "static" || this.type === "kinematic") {
+    if (customMass !== undefined) {
+      this._configuredMass = customMass;
+    }
+    if (this._type === "static" || this._type === "kinematic") {
       this.mass = 0;
       this.invMass = 0;
       this.inertiaLocal.set(0, 0, 0);
@@ -100,11 +120,12 @@ export class RigidBody {
     }
 
     const props: MassProperties = this.shape.computeMass(1000);
-    this.mass = customMass !== undefined ? Math.max(1e-4, customMass) : Math.max(1e-4, props.mass);
+    const m = this._configuredMass ?? customMass;
+    this.mass = m !== undefined ? Math.max(1e-4, m) : Math.max(1e-4, props.mass);
     this.invMass = 1.0 / this.mass;
 
     // Scale inertia proportionally if customMass was provided
-    const scale = customMass !== undefined && props.mass > 0 ? customMass / props.mass : 1.0;
+    const scale = m !== undefined && props.mass > 0 ? m / props.mass : 1.0;
     this.inertiaLocal.set(props.inertia.x * scale, props.inertia.y * scale, props.inertia.z * scale);
     this.invInertiaLocal.set(
       this.inertiaLocal.x > 0 ? 1 / this.inertiaLocal.x : 0,

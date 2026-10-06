@@ -53,6 +53,7 @@ import {
   rockGeometrySource,
   rosetteGeometrySource,
   scatterPopulationChunk,
+  settlePopulationBlockWithPhysics,
   unpackColor,
   unindexedLodWindow,
   type PopulationCollector,
@@ -1113,5 +1114,63 @@ describe("Population - rock primitive", () => {
       const n = Math.hypot(a.normals![i]!, a.normals![i + 1]!, a.normals![i + 2]!);
       expect(n).toBeCloseTo(1, 3);
     }
+  });
+
+  describe("Physics-based population settling (Phase 14 / 15.5)", () => {
+    it("leaves objects on gentle slopes at rest in static equilibrium", () => {
+      const block = new PopulationInstanceBlock(4);
+      // Place one rock at (0, 0, 0)
+      block.positions[0] = 0;
+      block.positions[1] = 0;
+      block.positions[2] = 0;
+      block.scales[0] = 1;
+      block.scales[1] = 1;
+      block.scales[2] = 1;
+      block.rotations[0] = 0;
+      block.count = 1;
+
+      // Gentle slope: tan(theta) = 0.15 (slope < round rock friction 0.60)
+      const sampler = {
+        heightAt: (x: number) => 0.15 * x,
+        normalYAt: () => Math.cos(Math.atan(0.15)),
+      };
+      const spec = resolvePopulationTypeSpec(rockSpec({ embed: 0 }));
+
+      const settled = settlePopulationBlockWithPhysics(block, spec, sampler, { gravity: 3.72, maxSteps: 60 });
+      expect(settled).toBe(1);
+      // In static equilibrium, gravity is balanced by static friction: object stays in place
+      expect(block.positions[0]).toBeCloseTo(0, 3);
+      expect(block.positions[2]).toBeCloseTo(0, 3);
+      expect(block.positions[1]).toBeCloseTo(0, 3);
+    });
+
+    it("rolls or slides objects on steep slopes downhill into stable ground", () => {
+      const block = new PopulationInstanceBlock(4);
+      // Place one round rock at x = 5 on a steep slope (tan=1.2, exceeding friction 0.6) with valley at x <= 0
+      block.positions[0] = 5;
+      block.positions[1] = 6;
+      block.positions[2] = 0;
+      block.scales[0] = 1;
+      block.scales[1] = 1;
+      block.scales[2] = 1;
+      block.rotations[0] = 0;
+      block.count = 1;
+
+      // Steep hillside descending to a flat valley at x <= 0
+      const sampler = {
+        heightAt: (x: number) => Math.max(0, 1.2 * x),
+        normalYAt: (x: number) => (x > 0 ? 1 / Math.hypot(1.2, 1) : 1),
+      };
+      const spec = resolvePopulationTypeSpec(rockSpec({ embed: 0 }));
+
+      settlePopulationBlockWithPhysics(block, spec, sampler, { gravity: 3.72, maxSteps: 180 });
+
+      // Object should have rolled downhill towards negative x into the valley
+      expect(block.positions[0]).toBeLessThan(1.0);
+      // Height should follow the terrain valley surface
+      expect(block.positions[1]).toBeCloseTo(sampler.heightAt(block.positions[0]!), 2);
+      // Rotation should have accumulated from rolling downhill
+      expect(block.rotations[0]).toBeGreaterThan(0.5);
+    });
   });
 });

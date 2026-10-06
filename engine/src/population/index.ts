@@ -16,6 +16,10 @@ export {
   type PopulationTypeSpec,
   type ResolvedPopulationTypeSpec,
 } from "./scatter.js";
+export {
+  settlePopulationBlockWithPhysics,
+  type PopulationPhysicsSettlingOptions,
+} from "./settle.js";
 export { PopulationWorld, type PopulationType, type PopulationWorldOptions } from "./world.js";
 export {
   buildLodGeometry,
