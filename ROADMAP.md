@@ -1463,10 +1463,13 @@ GOAL:
         deformation field caps runtime state at 128 chunks, and the visual track ring caps marks at
         256. Budgets are exposed through `marsState()` where applicable.
 
-    [ ] Persistence and diagnostics.
+    [x] Persistence and diagnostics.
 
-        Serialize pushed/broken rocks and track state by stable world identity. Add HUD/debug counters
-        for active proxies, dynamic rocks, impacts, rover damage, track samples and deformation bytes.
+        The Mars Showcase exposes `saveInteractiveTerrain()` / `restoreInteractiveTerrain()` snapshots
+        containing stable broken-rock identities and serialized deformation chunks. Restore removes
+        matching active proxies before they can respawn. `marsState()` reports active/budgeted proxies,
+        broken rocks, damage, deformation chunks/samples/revision and visible track marks; malformed or
+        unsupported snapshots are rejected.
 
 
 EXIT CRITERIA:

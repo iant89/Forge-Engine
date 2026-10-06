@@ -180,6 +180,10 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
    * GLB has landed, `on`/`off` force the overlay either way.
    */
   setDebugBounds(mode: "auto" | "on" | "off"): void;
+  /** Serialize interactive rock and terrain deformation state for save/load. */
+  saveInteractiveTerrain(): string;
+  /** Restore a prior interactive terrain snapshot. Invalid snapshots are rejected. */
+  restoreInteractiveTerrain(serialized: string): void;
 }
 
 /** Footprint boxes for the rover debug overlay, in each entity's local space (metres). */
@@ -633,6 +637,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   }));
   const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
   let brokenInteractiveRocks = 0;
+  const brokenInteractiveRockIds = new Set<string>();
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
   const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
   const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
@@ -666,6 +671,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const dz = block.positions[p + 2]! - vehicle.position.z;
         if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
         const id = `${chunkKey}:rocks:${i}`;
+        if (brokenInteractiveRockIds.has(id)) continue;
         if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
         wanted.add(id);
         if (interactiveRocks.has(id)) continue;
@@ -722,6 +728,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             record.block.markModified();
             interactivePhysics.removeBody(body);
             interactiveRocks.delete(id);
+            brokenInteractiveRockIds.add(id);
             brokenInteractiveRocks++;
           }
         }
@@ -1401,6 +1408,36 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     },
     setDebugBounds(mode: "auto" | "on" | "off"): void {
       debugBoundsMode = mode;
+    },
+    saveInteractiveTerrain(): string {
+      return JSON.stringify({
+        version: 1,
+        brokenRockIds: [...brokenInteractiveRockIds],
+        deformation: deformation.serialize(),
+      });
+    },
+    restoreInteractiveTerrain(serialized: string): void {
+      let snapshot: { version?: number; brokenRockIds?: unknown; deformation?: unknown };
+      try {
+        snapshot = JSON.parse(serialized) as typeof snapshot;
+      } catch {
+        throw new Error("invalid interactive terrain snapshot: malformed JSON");
+      }
+      if (snapshot.version !== 1 || !Array.isArray(snapshot.brokenRockIds) || !Array.isArray(snapshot.deformation)) {
+        throw new Error("invalid interactive terrain snapshot: unsupported shape");
+      }
+      for (const id of snapshot.brokenRockIds) if (typeof id === "string") brokenInteractiveRockIds.add(id);
+      deformation.restore(snapshot.deformation as Parameters<typeof deformation.restore>[0]);
+      for (const [id, record] of interactiveRocks) {
+        if (!brokenInteractiveRockIds.has(id)) continue;
+        interactivePhysics.removeBody(record.proxy.body);
+        record.block.scales[record.index * 3] = 0;
+        record.block.scales[record.index * 3 + 1] = 0;
+        record.block.scales[record.index * 3 + 2] = 0;
+        record.block.markModified();
+        interactiveRocks.delete(id);
+      }
+      brokenInteractiveRocks = brokenInteractiveRockIds.size;
     },
     dispose(): void {
       disposed = true;
