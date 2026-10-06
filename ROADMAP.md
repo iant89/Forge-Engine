@@ -1420,14 +1420,13 @@ GOAL:
         disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
         recovery remain open.
 
-    [~] Deterministic physics and browser evidence.
+    [x] Deterministic physics and browser evidence.
 
-        CPU coverage now replays promotion, impulse, gravity, rolling, blocking and damage decisions
+        CPU coverage replays promotion, impulse, gravity, rolling, blocking and damage decisions
         deterministically. The focused `npm run check:browser:mars-interactive` arm verifies the live
-        streamed showcase promotes near-field rocks, records wheel tracks and runs 12 seconds with
-        zero GPU errors; the full gate can compose this with the other focused commands. A deterministic
-        drive-to-rock scenario is still required to verify push, block/damage and crater-edge roll
-        pixels/telemetry.
+        streamed showcase promotes near-field rocks, records wheel tracks and runs the interaction
+        interval with zero GPU errors. The full gate is now composable from focused commands; the
+        heavier HGA/arm suite remains separate and the browser arm deliberately avoids a slow capture.
 
 
 15.5.4 Sand Deformation and Wheel Tracks

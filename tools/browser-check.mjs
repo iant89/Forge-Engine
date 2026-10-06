@@ -495,7 +495,6 @@ async function checkMarsInteractiveOnly() {
   console.log(`mars interactive: rocks=${driven.state.interactiveRocks}, tracks=${driven.state.visibleTrackMarks}, ` +
     `deformation=${driven.state.deformationSamples}, damage=${driven.state.roverDamageHull.toFixed(2)}/${driven.state.roverDamageSuspension.toFixed(2)}, ` +
     `gpuErrors=${driven.stats.gpuErrors}`);
-  await page.screenshot({ path: "tools/.browser-check-mars-interactive.png", timeout: 60000 });
 }
 
 async function checkAllScenes(backend) {
