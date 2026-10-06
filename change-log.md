@@ -6954,6 +6954,27 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Entries 0542-0548 for the showcase rock-physics session (falling rocks, traction, fragments, push trails).",
     "why": "Maintenance rules: one change entry per file touched."
+  },
+  {
+    "id": "0549",
+    "date": "2026-10-06T18:25:00Z",
+    "type": "pr-merge",
+    "pr": 60,
+    "branch": "arena/df49511b-forge-engine",
+    "base": "main",
+    "title": "Fix falling rocks, rover traction, fragment stacking, and add push trails",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Four Mars showcase reports fixed with regression pins: (1) falling rocks on streamed-in terrain were single-frame LOD remesh Y-snaps (measured -2.46 m at ~400 m) — now bilinear mesh-matching heights plus per-instance anchor targets with 8/s exponential settling (0 drops over 0.5 m on re-run), dormant-body re-grounding, surface-snapped wake-ups, and snapY write-back; (2) traction was torque-limited, not slip-limited — 14 N.m / 2500 W / 1800 rpm motor, mu 1.4, rr 0.035, stiffer Pacejka curves, 2860 N tractive (~37 deg climbs, same 1.75 m/s top speed); (3) stacked fragments were interpenetrating spawns plus frozen visuals (TransformHandle getters return copies, so all 11 in-place pose writes were no-ops) — separated golden-angle layout, collision-matched scales, stronger scatter, 1 s min-awake, speed caps, assignment-based pose helpers; (4) push trails are furrow + backside-mound decal pools (sub-cell deformation stamps are no-ops), which required keeping tracked rock records wanted so shoved rocks keep momentum and roll. Gate in sandbox: population 33/33, marsShowcase 11/11 (3 new), vehicle/physics/architecture/terrain-interaction suites green, typecheck + lint:arch clean; browser gate not runnable in sandbox (no Chromium/WebGPU), so merge relies on CI including the advisory WebGPU gate.",
+    "files": [
+      "change-log.md",
+      "engine/src/population/world.ts",
+      "engine/src/scene/population.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "mnemosyne.md",
+      "tests/marsShowcase.test.ts",
+      "tests/population.test.ts"
+    ]
   }
 ]
 ```
