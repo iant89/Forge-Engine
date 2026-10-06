@@ -6387,6 +6387,30 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Rebase resolution: placed the branch's 2026-09-26 sections before main's 2026-09-30/2026-10-05 sections, and recorded the rebase outcome.",
     "why": "The file is chronological oldest-first; appending the older sections at the tail would have broken that invariant."
+  },
+  {
+    "id": "0503",
+    "date": "2026-10-06T02:13:26.000Z",
+    "type": "change",
+    "pr": 53,
+    "branch": "arena/97f7e5e3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/diag/iosReport.ts",
+    "what": "Salvaged from PR #31: the device panel now prints `raw probes: running (N device(s) done)` while the raw-WebGPU probe suite is still in flight.",
+    "why": "The suite is the slowest part of the report on a phone; without a progress line, a screenshot taken before it finishes is indistinguishable from a device that returned no probe results. Main never gained this when it reimplemented #31's smoothstep work."
+  },
+  {
+    "id": "0504",
+    "date": "2026-10-06T02:13:26.000Z",
+    "type": "change",
+    "pr": 53,
+    "branch": "arena/97f7e5e3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Salvaged from PR #31: the WebKit bullet now also records constant-argument strictness, and that the sandbox's Chromium is newer and more permissive than the one the advisory gate downloads.",
+    "why": "A locally green check:wgsl on the sandbox Chromium does not prove the strict-compiler rules; saying so keeps the limitation honest about which compiler actually decided."
   }
 ]
 ```
