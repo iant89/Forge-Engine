@@ -653,6 +653,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let visibleTrackMarks = 0;
   const trackRotation = new Quat();
   const INTERACTION_RADIUS = 48;
+  const MAX_INTERACTIVE_ROCKS = 64;
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
     for (const [chunkKey, chunk] of terrain.chunks) {
@@ -665,6 +666,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         const dz = block.positions[p + 2]! - vehicle.position.z;
         if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
         const id = `${chunkKey}:rocks:${i}`;
+        if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
         wanted.add(id);
         if (interactiveRocks.has(id)) continue;
         const radius = Math.max(0.12, block.scales[p]! * 0.65);
@@ -1352,6 +1354,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
         interactiveRocks: interactiveRocks.size,
+        interactiveRockBudget: MAX_INTERACTIVE_ROCKS,
         brokenInteractiveRocks,
         roverDamageHull: roverDamage.hull,
         roverDamageWheels: roverDamage.wheels,

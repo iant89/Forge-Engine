@@ -1456,10 +1456,12 @@ GOAL:
 
 15.5.5 Performance, Streaming and Save/Load
 
-    [ ] Bound the interaction budget.
+    [x] Bound the interaction budget.
 
-        Cap active physics proxies, dynamic bodies, deformation samples and per-frame terrain updates.
-        Distant rocks remain render-only and the GPU population path remains instanced.
+        The Mars Showcase caps active interactive rock proxies at 64 inside the 48 m interaction
+        radius; distant rocks remain render-only and the population path remains instanced. The
+        deformation field caps runtime state at 128 chunks, and the visual track ring caps marks at
+        256. Budgets are exposed through `marsState()` where applicable.
 
     [ ] Persistence and diagnostics.
 
