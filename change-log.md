@@ -7239,6 +7239,39 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "Registered examples/src/scenes/roverCourseScene.ts and tests/roverCourse.test.ts under the ex-orbit demo subsystem.",
     "why": "Every source and suite must be claimed exactly once or the subsystem drift test fails."
+  },
+  {
+    "id": "0572",
+    "date": "2026-10-06T22:17:00Z",
+    "type": "pr-merge",
+    "pr": 61,
+    "branch": "arena/f97af55a-forge-engine",
+    "base": "main",
+    "title": "Rover physics fixes, area-dependent vehicle damage, and new rover-course demo scene",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Three stacked changes: (1) rover physics fixes — spawn jump, rock-launch pushes, rock variety, distant falling rocks (settleSnapDistance 120 m snaps far remesh re-anchors, second rock variant + craggier roughness, 5 regression pins); (2) area-dependent visible vehicle damage — assessed rock contacts crush per-zone body panels with deterministic crumple tilt, bend wheels via camber/toe in VehicleSystem, detach wheels at 100% (hidden meshes, ground prop, disabled mechanics), suspension wear sags the ride, zones/wheels/detached list in marsState + HUD (5 engine tests + mocked-model scene suite: 1 break per ram, far zones zero); (3) new rover-course demo scene (?scene=rover-course, `course` alias) — Perseverance GLB on a ~143 m asphalt loop over dirt at frozen golden-hour dusk, Earth gravity with rescaled springs, 20 knockable cones (R reset + counter), 8 spotlight lamp poles, Jersey-barrier chicane + tire stacks with collision (laps/mast/damage cut per scope; exported track geometry pinned by tests, which caught 4 misplaced cones pre-commit). Gate: 815/815 tests, typecheck, lint:arch, demo:build green; CPU gates pass, advisory WebGPU gate fails on the pre-existing HGA wall-clock timeout (untouched code, fails on main too).",
+    "files": [
+      "change-log.md",
+      "engine/src/population/world.ts",
+      "engine/src/terrain/interaction.ts",
+      "engine/src/vehicles/damage.ts",
+      "engine/src/vehicles/index.ts",
+      "engine/src/vehicles/system.ts",
+      "engine/src/vehicles/vehicle.ts",
+      "examples/index.html",
+      "examples/src/main.ts",
+      "examples/src/sceneSelection.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "examples/src/scenes/roverCourseScene.ts",
+      "tests/demoSceneSelection.test.ts",
+      "tests/marsShowcaseDamage.test.ts",
+      "tests/population.test.ts",
+      "tests/roverCourse.test.ts",
+      "tests/terrainInteraction.test.ts",
+      "tests/vehicles.test.ts",
+      "tools/test-subsystems.mjs"
+    ]
   }
 ]
 ```
