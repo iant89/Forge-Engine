@@ -45,8 +45,11 @@ export interface DemoSceneHandle {
   /**
    * GPU fountain accounting only. `emitted` is the cumulative spawn counter (CPU-side);
    * there is no concurrent live-count readback. Prefer `ready` + `emitted` over any fake alive.
+   * `ribbons` reports the trail-ribbon draw state (Phase 12.4/12.7).
    */
-  particleState?: () => { capacity: number; emitted: number; ready: boolean };
+  particleState?: () => { capacity: number; emitted: number; ready: boolean; ribbons?: boolean };
+  /** Toggle the trail-ribbon draw (12.4/12.7) without rebuilding the scene. */
+  setParticleRibbons?: (on: boolean) => void;
   /** Browser verification hook for scenes with local spotlights. */
   setSpotShadows?: (enabled: boolean) => void;
   /** Browser verification hook for scenes with shadow-casting point lights. */

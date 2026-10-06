@@ -616,6 +616,8 @@ async function main(): Promise<void> {
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
     /** Fountain emitted/capacity/ready while the particle scene is loaded; null otherwise (no fake alive). */
     particleState: () => currentHandle?.particleState?.() ?? null,
+    /** Toggle the trail-ribbon draw (Phase 12.4/12.7) in the loaded particle scene. */
+    setParticleRibbons: (on: boolean) => currentHandle?.setParticleRibbons?.(!!on),
     /** Mars showcase: rover model state, dust counts and pose; null on other scenes. */
     marsState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
@@ -721,6 +723,21 @@ async function main(): Promise<void> {
      * returns `gpuExecuted: false`; a real adapter that ran the compute shader returns true.
      */
     runParticleGravityCheck: (options?: ParticleGravityCheckOptions) => runParticleGravityCheck(engine.gpu.device, options ?? {}),
+    /** Deterministic offscreen oracle: same-seed fountains with/without trail ribbons (Phase 12.4/12.7). */
+    runParticleRibbonCheck: async () => {
+      const running = engine.isRunning;
+      const resumeAnimation = animating;
+      animating = false;
+      engine.stop();
+      try {
+        await engine.gpu.device.queue.onSubmittedWorkDone();
+        const { runParticleRibbonCheck } = await import("./diag/particleRibbonCheck.js");
+        return await runParticleRibbonCheck();
+      } finally {
+        animating = resumeAnimation;
+        if (running) engine.start();
+      }
+    },
     /** Real-renderer pixel oracle on a small offscreen device; pause this device during the check. */
     runTerrainLayerCheck: async () => {
       const running = engine.isRunning;

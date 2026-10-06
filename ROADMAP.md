@@ -628,11 +628,12 @@ CURRENT STATE:
         - Frustum + distance cull compact into an indirect draw list.
         - Render-graph passes `particle.sim` / `particle.sort` / `particle.render` /
           `particle.resolve` draw billboards, stretched billboards, and soft particles.
-        - Trail history (4 samples per particle) is written on GPU; ribbon mesh draw is deferred.
+        - Trail history (4 samples per particle) is written on GPU and drawn as camera-facing
+          ribbon strips by the vertex stage (no mesh, 18 verts/particle from the same compacted list).
 
     Still deferred / stretch:
 
-        - Ribbon mesh generation and draw; mesh particles.
+        - Mesh particles (a ribbon is now drawn; per-particle user geometry is not).
         - HiZ / depth occlusion culling.
         - Terrain / depth-buffer / SDF particle collision (soft fade samples depth only; no bounce).
         - 500K / 1M stress gates.
@@ -672,7 +673,13 @@ CURRENT STATE:
 
     [x] GPU trail history (4-sample ring per particle written in full-sim).
 
-    [!] Ribbon generation — deferred; history is stored, ribbon mesh not drawn.
+    [x] Ribbon generation and draw — the vertex stage sorts the ring newest-first (fixed network,
+        deterministic), triangulates three quads per strip (18 verts, `PARTICLE_RIBBON_VERTS`),
+        tapers and fades toward the tail, and samples the same soft depth as billboards; the cull
+        pass counts survivors into the second indirect record while the ribbon flag is set, and the
+        resolve pass keeps it zeroed. `GpuParticleWorld.setRibbon` toggles live; the demo builds
+        ribbons on (`?ribbons=0` pins them off). No mesh or CPU geometry exists — by design.
+        (tests/particles.test.ts; capability: particles.gpuRendering; docs/PARTICLES.md)
 
 
 12.5 GPU Particle Culling
@@ -701,7 +708,7 @@ CURRENT STATE:
         [x] billboard
         [x] stretched billboard (velocity stretch factor)
         [>] mesh particle — deferred
-        [!] ribbon — history only; ribbon draw deferred
+        [x] ribbon — trail strips from the ring, drawn from the same compacted list as the billboards (12.4)
         [x] soft particle (depth-buffer fade)
 
 

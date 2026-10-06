@@ -1400,6 +1400,61 @@ async function checkAllScenes(backend) {
   if (particleStats.gpuErrors !== 0 || particleStats.lastError) throw new Error(`particle scene GPU errors: ${particleStats.lastError}`);
   await page.screenshot({ path: "tools/.browser-check-particles.png" });
 
+  // Phase 12.4/12.7: trail ribbons. The scene builds with ribbons ON, so every assertion above was
+  // already met with the ribbon pipeline, its bind group and its drawIndirect record in the frame —
+  // zero device errors is the compile+validation proof. What remains is the *live* behaviour:
+  //  1. the `__forge` toggle reaches the running system (state plumbing through demo, world and system),
+  //  2. turning the draw off mid-run keeps the frame clean — the resolve pass must keep the ribbon
+  //     record at zero instances, or the stale count would draw garbage,
+  //  3. the strips are real geometry in the picture. The *animated* demo scene cannot decide that:
+  //     its fountain density drifts between sample windows by more than the ribbon delta (a first
+  //     gate implementation compared alternating mean-luma windows and failed on exactly that
+  //     drift, in both directions depending on machine load). `runParticleRibbonCheck` instead
+  //     re-renders two same-seed fountains — ribbons on vs off — on an isolated offscreen device
+  //     and reads their final frames back: both frames hold the same particles, so only the
+  //     ribbon draw can move the numbers. Draw order may still differ (the compact list is
+  //     atomic-filled), hence margins over pixels rather than per-pixel equality.
+  if (particles.ribbons !== true) {
+    throw new Error(`particle scene should default to ribbons ON for the gate (got ${JSON.stringify(particles.ribbons)})`);
+  }
+  await page.evaluate(() => window.__forge.setParticleRibbons(false));
+  await settle(6);
+  const ribbonOff = await page.evaluate(() => ({ particles: window.__forge.particleState(), stats: window.__forge.stats() }));
+  if (ribbonOff.particles?.ribbons !== false) {
+    throw new Error("setParticleRibbons(false) did not reach the live system");
+  }
+  if (ribbonOff.stats.gpuErrors !== 0 || ribbonOff.stats.lastError) {
+    throw new Error(`particle scene GPU errors with ribbons off: ${ribbonOff.stats.lastError}`);
+  }
+  await page.screenshot({ path: "tools/.browser-check-particles-noribbons.png" });
+  await page.evaluate(() => window.__forge.setParticleRibbons(true));
+  await settle(6);
+  const ribbonOn = await page.evaluate(() => ({ particles: window.__forge.particleState(), stats: window.__forge.stats() }));
+  if (ribbonOn.particles?.ribbons !== true) throw new Error("setParticleRibbons(true) did not restore the draw");
+  if (ribbonOn.stats.gpuErrors !== 0 || ribbonOn.stats.lastError) {
+    throw new Error(`particle scene GPU errors after restoring ribbons: ${ribbonOn.stats.lastError}`);
+  }
+  const ribbonCheck = await page.evaluate(() => window.__forge.runParticleRibbonCheck());
+  console.log(
+    `ribbon trails: offscreen oracle — lit ${ribbonCheck?.litOn} vs ${ribbonCheck?.litOff}, ` +
+      `mean luma ${ribbonCheck?.meanOn?.toFixed(2)} vs ${ribbonCheck?.meanOff?.toFixed(2)}, ` +
+      `darker px ${ribbonCheck?.darkerPixels}/${ribbonCheck?.totalPixels} (draw-order noise, reported not asserted), ` +
+      `errors ${ribbonCheck?.gpuErrors}; live-toggle errors ${ribbonOff.stats.gpuErrors}/${ribbonOn.stats.gpuErrors}`,
+  );
+  if (!ribbonCheck || ribbonCheck.gpuExecuted !== true) {
+    throw new Error(`ribbon oracle did not run on the real device: ${JSON.stringify(ribbonCheck)}`);
+  }
+  if (ribbonCheck.gpuErrors !== 0) throw new Error(`ribbon oracle hit GPU errors: ${ribbonCheck.gpuErrors}`);
+  if (!(ribbonCheck.litOn > ribbonCheck.litOff * 1.1 && ribbonCheck.meanOn > ribbonCheck.meanOff * 1.05)) {
+    throw new Error(
+      `ribbons did not measurably grow the rendered ember field (lit ${ribbonCheck.litOn} vs ${ribbonCheck.litOff}; ` +
+        `mean ${ribbonCheck.meanOn.toFixed(2)} vs ${ribbonCheck.meanOff.toFixed(2)})`,
+    );
+  }
+  if (ribbonCheck.litOff > ribbonCheck.totalPixels * 0.75) {
+    throw new Error("the check's fountain saturates its canvas — the margins are meaningless until size/alpha come down");
+  }
+
   // Phase 8a: the sky pass compiles and runs on the real GPU, and the day/night cycle changes what
   // it draws. Noon must be brighter than midnight (sun disc + scattered light vs stars), the pass
   // must disappear when the sky is switched off, and the Mars preset must still render cleanly.

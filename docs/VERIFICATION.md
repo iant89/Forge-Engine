@@ -1094,8 +1094,10 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   loaded disc looks, or how long a hitch a chunk takes to generate on a given machine.
 * **Particle *rendering* completeness.** Unit suites and the browser gate prove the Phase 12 GPU
   fountain path: GPU emit/sim, frustum+distance compact, and `drawIndirect` billboard / soft-particle
-  render through `particle.sim` / `particle.sort` / `particle.render` / `particle.resolve`. They do
-  not prove mesh particles, ribbon draw, HiZ occlusion cull, or particle/terrain collision — those
+  render through `particle.sim` / `particle.sort` / `particle.render` / `particle.resolve`, plus the
+  ribbon strips the vertex stage builds from the trail ring (the gate toggles them live and asserts
+  the fountain brightens). They do
+  not prove mesh particles, HiZ occlusion cull, or particle/terrain collision — those
   remain deferred (`docs/PARTICLES.md`, `docs/KNOWN-ISSUES.md`). The Phase 7 CPU path still poses
   sprite entities for weather/Mars dust demos; that is not the Phase 12 fountain.
 * **Vehicle handling quality.** The unit suite proves the analytic stop, the slope, load transfer,

@@ -135,6 +135,15 @@ export class GpuParticleWorld extends SceneObject {
     });
   }
 
+  /**
+   * Toggle trail ribbons (12.4/12.7). Applies to the live system when ready; also updates the
+   * options, so a later re-attach (device switch) starts with the same setting.
+   */
+  setRibbon(enabled: boolean): void {
+    this.options.ribbons = enabled;
+    this._system?.setRibbons(enabled);
+  }
+
   /** Enqueue particle.sim / sort / render / resolve. No-op until init finishes. */
   enqueue(
     graph: RenderGraph,

@@ -1212,3 +1212,45 @@ Traps worth keeping:
   last step (Mars showcase W-drive) is the known frame-rate-bound flake (the gate's own header says
   it has aborted on main); the focused arms (`--workers-only`, `--terrain-layers`, `--mars-workers`)
   are minutes. Budget the full run for shader/pipeline changes, the arms for the rest.
+
+## 2026-10-06 — Ribbon trails (12.4/12.7): what the ring contract actually cost
+
+- **The trail ring is a hash bucket ring, not a temporal ring.** `PARTICLE_FULL_SIM_SHADER` stores
+  samples at `u32(age·30) % 4`, so "read the neighbours in index order" draws scrambled trails.
+  The vertex stage must sort the four samples by age — five fixed comparators (`if (s[a].w < s[b].w)`
+  ×5) keep it a pure function of the buffer bytes, which is what makes the ribbon deterministic like
+  every other GPU pass. Also: the emit pass has to zero the recycled slot's ring (binding 2 joins
+  the emit layout), or the next life starts by drawing its predecessor's tail.
+- **Second indirect record, same pass.** The ribbon draw is a second `drawIndirect` at byte 16 of the
+  same 32-byte buffer inside `particle.render` — cull counts survivors into word 5 only while
+  `CullParams.flags` bit 0 is set (byte 84 — a new field where the struct had padding, the 96-byte
+  layout never changed), resolve stores vertexCount 18 into word 4 and zeroes word 5 every frame.
+  That zeroing is what makes `setRibbons(false)` mid-run safe: the stale count can never draw garbage.
+- **Backticks inside the `/* wgsl */` template literal** are a TS1005 syntax error, and **Tint
+  rejects a non-empty `switch` case without `break;`** — neither is catchable by the mock, both
+  were. `tools/wgsl-check.mjs` (runs against `engine/dist`) is the loop to close that gap; register
+  every new shader constant there.
+- **Animated scenes cannot be pixel-frozen through `setAnimating(false)`, and no live window
+  protocol rescues it either.** `animating` gates only the demo's input/scene update; the renderer
+  drives `prepareFrame` per rendered frame, so the GPU fountain keeps running and any frozen-scene
+  A/B quietly becomes "compare two different moments." Single-window mean-luma A/B measured +2.3%
+  under load vs +11% fresh; the alternating A/B/A min-vs-max form then failed the OTHER way (the
+  fountain decayed between the first ON window and the OFF window — drift beat the effect in both
+  directions). A live scene is a broken oracle; build the pixel check the way `runTerrainLayerCheck`
+  does it: same seed, fixed steps, offscreen device, both arms re-rendered — bit-identical particle
+  state, so only the feature under test can move the metrics (blend ORDER still jitters ~0.4%, so
+  margin over pixels, never per-pixel equality).
+- **Mock command-log per-frame filtering:** `gpu.mock.commandLog` spans the whole device lifetime
+  — clear it (`length = 0`) at the start of each simulated frame or second-frame assertions count
+  the first frame's draws (766→ this bit on the toggle test).
+- **Calibrate a ribbon/particle oracle by its failure mode, not its happy path.** The first offscreen
+  check showed `litOn === litOff` EXACTLY — the ring recycled faster than particles died, so both
+  arms had empty trail history and the draw was a visual no-op. Rules of thumb: emit ≤
+  capacity / lifeMaxFrames so a slot survives until death, and give trails ≥ one particle width of
+  separation (speed × ring-span) or strips hide under their own head billboards. And the
+  zero-age ring marker is a POSITION (0,0,0): the vertex stage must skip segments whose older sample
+  is unwritten, or young particles spike triangles at the world origin — that artifact only showed
+  up on the real device, never in the mock suites.
+- The particles demo now **builds with ribbons on**; `?ribbons=0` deep-links the A/B. Capability
+  `particles.gpuRendering` stays `partial` on purpose — mesh particles remain deferred, and
+  rule-6 flips (`partial`→`verified` while a `closesWith` item is open) break `docs:check`.

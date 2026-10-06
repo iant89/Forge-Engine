@@ -26,6 +26,9 @@ import {
   PARTICLE_FLOATS,
   PARTICLE_FULL_SIM_SHADER,
   PARTICLE_RENDER_SHADER,
+  PARTICLE_RIBBON_SHADER,
+  PARTICLE_RIBBON_RECORD_BYTES,
+  PARTICLE_RIBBON_VERTS,
   PARTICLE_RESOLVE_SHADER,
   PARTICLE_SIM_SHADER,
   PARTICLE_STRIDE,
@@ -304,12 +307,13 @@ describe("particles — emitter does not use Math.random", () => {
 });
 
 describe("particles — Phase 12 GPU system", () => {
-  it("validates emit / full-sim / cull / render / resolve shaders structurally", () => {
+  it("validates emit / full-sim / cull / render / ribbon / resolve shaders structurally", () => {
     for (const [name, src] of [
       ["emit", PARTICLE_EMIT_SHADER],
       ["fullSim", PARTICLE_FULL_SIM_SHADER],
       ["cull", PARTICLE_CULL_SHADER],
       ["render", PARTICLE_RENDER_SHADER],
+      ["ribbon", PARTICLE_RIBBON_SHADER],
       ["resolve", PARTICLE_RESOLVE_SHADER],
     ] as const) {
       const issues = validateWgsl(src);
@@ -786,6 +790,198 @@ describe("particles — Phase 12 GPU system", () => {
         GpuParticleSystem.prototype.init = originalInit;
       }
       world.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+});
+
+describe("particles — Phase 12.4/12.7 GPU ribbon trails", () => {
+  const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const FRAME = {
+    dt: 1 / 60,
+    viewProj: IDENTITY,
+    cameraPos: { x: 0, y: 1, z: 4 },
+    cameraRight: { x: 1, y: 0, z: 0 },
+    cameraUp: { x: 0, y: 1, z: 0 },
+  };
+
+  /** Run one seeded frame graph over the system and return the `particle.render` draws. */
+  async function runRibbonFrame(gpu: GraphicsDevice, system: GpuParticleSystem) {
+    // The mock log spans the whole device lifetime; the assertions are per-frame.
+    gpu.mock.commandLog.length = 0;
+    system.prepare(FRAME);
+    const graph = new RenderGraph(gpu);
+    const swap = gpu.device.createTexture({
+      label: "swap-ribbon",
+      size: { width: 32, height: 16 },
+      format: gpu.format,
+      usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC,
+    });
+    const depth = gpu.device.createTexture({
+      label: "depth-ribbon",
+      size: { width: 32, height: 16 },
+      format: gpu.depthFormat,
+      usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+    });
+    graph.begin();
+    const color = graph.importTexture("swapchain", swap);
+    const depthHandle = graph.importTexture("depth", depth);
+    graph.addPass({
+      name: "seed",
+      color: [{ texture: color }],
+      depth: { texture: depthHandle },
+      execute: (ctx) => {
+        ctx.beginRenderPass().end();
+      },
+    });
+    system.enqueue(graph, { color, depth: depthHandle, colorFormat: gpu.format, depthFormat: gpu.depthFormat });
+    graph.execute();
+    const draws = gpu.mock.commandLog.filter(
+      (r) => r.type === "draw" && (r as { label?: string }).label === "particle.render",
+    );
+    swap.destroy();
+    depth.destroy();
+    return draws;
+  }
+
+  it("pins the ribbon contract across emit, cull, resolve and the vertex stage", () => {
+    expect(PARTICLE_RIBBON_VERTS).toBe(18);
+    expect(PARTICLE_RIBBON_RECORD_BYTES).toBe(16);
+    // emit: a recycled slot's ring is zeroed in place, so a new life never reads its predecessor.
+    expect(PARTICLE_EMIT_SHADER).toContain("trails[tb + 0u] = vec4<f32>(p.position, 0.0);");
+    expect(PARTICLE_EMIT_SHADER).toContain("trails[tb + 3u] = vec4<f32>(p.position, 0.0);");
+    // cull: the ribbon instance count counts the *same* survivors, gated by the frame's flag word.
+    expect(PARTICLE_CULL_SHADER).toContain("if ((params.flags & 1u) == 1u) {");
+    expect(PARTICLE_CULL_SHADER).toContain("atomicAdd(&indirect[5], 1u);");
+    // resolve: the vertex record is stored once and the ribbon counter zeroed for the next frame.
+    expect(PARTICLE_RESOLVE_SHADER).toContain(`atomicStore(&indirect[4], ${PARTICLE_RIBBON_VERTS}u);`);
+    expect(PARTICLE_RESOLVE_SHADER).toContain("atomicStore(&indirect[5], 0u);");
+    // vertex: three quads per strip (6 vertices each), degenerate outside, sorted ring, soft flag.
+    expect(PARTICLE_RIBBON_SHADER).toContain("let seg = vid / 6u;");
+    // A recycled slot's zero-age marker must not spike a segment at the world origin.
+    expect(PARTICLE_RIBBON_SHADER).toContain("if (pa.w <= 0.0) {");
+    expect(PARTICLE_RIBBON_SHADER).toContain("out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);");
+    expect(PARTICLE_RIBBON_SHADER).toContain("out.softEnabled = params.flags & 1u;");
+    expect(PARTICLE_RIBBON_SHADER.match(/if \(s\[\d\]\.w < s\[\d\]\.w\)/g)?.length ?? 0).toBe(5);
+  });
+
+  it("draws the ribbon record ahead of the billboards in the same particle.render pass", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 5, maxEmitsPerFrame: 16, ribbons: true });
+      await system.init();
+      const draws = await runRibbonFrame(gpu, system);
+      expect(draws.length).toBe(2);
+      expect(draws[0]).toMatchObject({
+        indirect: true,
+        offset: PARTICLE_RIBBON_RECORD_BYTES,
+        vertexCount: PARTICLE_RIBBON_VERTS,
+        instanceCount: 64,
+      });
+      expect(draws[1]).toMatchObject({ indirect: true, offset: 0, vertexCount: 6, instanceCount: 64 });
+      const stats = system.stats();
+      expect(stats.ribbons).toBe(true);
+      expect(stats.ribbonVerts).toBe(PARTICLE_RIBBON_VERTS);
+      expect(stats.ribbonDrawn).toBe(true);
+      expect(gpu.mock.errors).toEqual([]);
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("the ribbon draw follows the live toggle without a pipeline rebuild", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 32, seed: 9, maxEmitsPerFrame: 8 });
+      await system.init();
+      expect(system.stats().ribbons).toBe(false);
+      let draws = await runRibbonFrame(gpu, system);
+      expect(draws.length).toBe(1); // billboards only — the ribbon record stays unissued
+      expect(draws[0]).toMatchObject({ offset: 0, vertexCount: 6 });
+      expect(system.stats().ribbonDrawn).toBe(false);
+      system.setRibbons(true);
+      draws = await runRibbonFrame(gpu, system);
+      expect(draws.length).toBe(2);
+      expect(draws[0]).toMatchObject({ offset: PARTICLE_RIBBON_RECORD_BYTES, vertexCount: PARTICLE_RIBBON_VERTS });
+      system.setRibbons(false);
+      draws = await runRibbonFrame(gpu, system);
+      expect(draws.length).toBe(1);
+      expect(gpu.mock.errors).toEqual([]);
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("a sub-workgroup capacity still fills one workgroup of ribbon instances", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 8, seed: 4, maxEmitsPerFrame: 4, ribbons: true });
+      await system.init();
+      expect(system.capacity).toBe(64); // floored to one workgroup, like every other pass
+      const draws = await runRibbonFrame(gpu, system);
+      expect(draws[0]).toMatchObject({ vertexCount: PARTICLE_RIBBON_VERTS, instanceCount: 64 });
+      expect(gpu.mock.errors).toEqual([]);
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("same-seed systems with ribbons stay in lockstep", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const make = () => new GpuParticleSystem(gpu, { capacity: 128, seed: 1234, maxEmitsPerFrame: 64, ribbons: true });
+      const a = make();
+      const b = make();
+      await a.init();
+      await b.init();
+      for (let i = 0; i < 3; i++) {
+        a.prepare(FRAME);
+        b.prepare(FRAME);
+      }
+      expect(b.emitted).toBe(a.emitted);
+      expect(b.lastEmitBudget).toBe(a.lastEmitBudget);
+      expect(b.stepCount).toBe(a.stepCount);
+      a.dispose();
+      b.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("dispose releases the ribbon uniform with everything else", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const before = { ...gpu.mock.outstanding, buffers: gpu.mock.outstanding.buffers.slice(), textures: gpu.mock.outstanding.textures.slice() };
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 1, ribbons: true, softParticles: true });
+      await system.init();
+      await runRibbonFrame(gpu, system);
+      system.dispose();
+      expect(gpu.mock.outstanding.buffers).toEqual(before.buffers);
+      expect(gpu.mock.outstanding.textures).toEqual(before.textures);
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
+  it("GpuParticleWorld.setRibbon drives the live system and persists across options", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const world = new GpuParticleWorld({ capacity: 64, seed: 6, name: "ribbons", ribbons: false });
+      await world.attachDevice(gpu);
+      expect(world.system?.ribbons).toBe(false);
+      world.setRibbon(true);
+      expect(world.system?.ribbons).toBe(true);
+      expect(world.stats().ribbons).toBe(true);
+      // A re-attach reuses the mutated options, so the toggle survives a device switch.
+      world.dispose();
+      const again = new GpuParticleWorld({ capacity: 64, seed: 6, name: "ribbons2", ribbons: true });
+      await again.attachDevice(gpu);
+      expect(again.system?.ribbons).toBe(true);
+      again.dispose();
     } finally {
       await gpu.dispose();
     }

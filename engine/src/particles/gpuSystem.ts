@@ -1,7 +1,8 @@
 /**
  * GPU-authoritative particle system (Phase 12).
  *
- * One storage buffer holds every particle. Simulation, emission, culling and billboard drawing all
+ * One storage buffer holds every particle. Simulation, emission, culling, billboard drawing and
+ * (when {@link GpuParticleSystemOptions.ribbons} is set) trail-history ribbon drawing all
  * run as compute/render passes against that buffer — 100k particles never become 100k ECS entities.
  * The CPU path ({@link ParticleSimulation}) remains the reference; this class is the GPU authority
  * when a device is available.
@@ -17,6 +18,9 @@ import {
   PARTICLE_FULL_SIM_SHADER,
   PARTICLE_RENDER_SHADER,
   PARTICLE_RESOLVE_SHADER,
+  PARTICLE_RIBBON_RECORD_BYTES,
+  PARTICLE_RIBBON_SHADER,
+  PARTICLE_RIBBON_VERTS,
   PARTICLE_WORKGROUP,
 } from "./shader.js";
 
@@ -60,6 +64,15 @@ export interface GpuParticleSystemOptions {
   /** Distance cull radius (world units). */
   cullDistance?: number;
   softScale?: number;
+  /**
+   * Draw camera-facing ribbon strips from the 4-sample trail history (12.4/12.7). Off by default:
+   * the strips are real geometry and change pixels; scenes opt in.
+   */
+  ribbons?: boolean;
+  /** Ribbon width in units of the particle's current size. */
+  ribbonSizeScale?: number;
+  /** Width multiplier at the faded tail end of a strip (0 = point, 1 = no taper). */
+  ribbonTailWidth?: number;
   emitter?: Partial<GpuParticleEmitterConfig>;
   modules?: Partial<GpuParticleModulesConfig>;
 }
@@ -76,7 +89,9 @@ const EMIT_UNIFORM_BYTES = 96;
 const SIM_UNIFORM_BYTES = 112;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
-const INDIRECT_BYTES = 16;
+const RIBBON_UNIFORM_BYTES = 128;
+/** Two 4-word records: billboard draw (words 0-3) and ribbon draw (words 4-7). */
+const INDIRECT_BYTES = 32;
 
 function defaultEmitter(partial: Partial<GpuParticleEmitterConfig> = {}): GpuParticleEmitterConfig {
   return {
@@ -114,6 +129,11 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
 /**
  * Authoritative GPU particle buffer + emit/sim/cull/render/resolve pipelines.
  * Create once per device; enqueue into the render graph every frame.
+ *
+ * The `particle.render` pass submits through the *same* compacted visible list twice when
+ * {@link GpuParticleSystemOptions.ribbons} is set: the ribbon pipeline (trail-history strips,
+ * 12.4/12.7) draws first and the billboard pipeline caps it. Both reads are vertex pulls against
+ * the storage buffers; there is no per-particle geometry, mesh, or entity anywhere.
  */
 export class GpuParticleSystem {
   readonly capacity: number;
@@ -123,6 +143,12 @@ export class GpuParticleSystem {
   stretch: number;
   cullDistance: number;
   softScale: number;
+  /** Draw trail-history ribbons in `particle.render` (12.4/12.7). Toggles take effect next frame. */
+  ribbons: boolean;
+  ribbonSizeScale: number;
+  ribbonTailWidth: number;
+  /** Ribbon draws issued by the most recent {@link prepare}+graph-executed frame (mock arm). */
+  lastRibbonDrawn = false;
   emitter: GpuParticleEmitterConfig;
   modules: GpuParticleModulesConfig;
 
@@ -157,11 +183,19 @@ export class GpuParticleSystem {
   /** Render WGSL module, created + latched in init (same assertShader path as compute). */
   private renderModule: GPUShaderModule | null = null;
 
+  /** Ribbon draw (12.4/12.7): pipeline, module, uniform and bind group, all latched in init. */
+  private ribbonPipeline: GPURenderPipeline | null = null;
+  private ribbonPipelineFormat: GPUTextureFormat | null = null;
+  private ribbonDepthFormat: GPUTextureFormat | null = null;
+  private ribbonModule: GPUShaderModule | null = null;
+  private ribbonUniform: GPUBuffer | null = null;
+
   private emitLayout: GPUBindGroupLayout | null = null;
   private simLayout: GPUBindGroupLayout | null = null;
   private cullLayout: GPUBindGroupLayout | null = null;
   private resolveLayout: GPUBindGroupLayout | null = null;
   private renderLayout: GPUBindGroupLayout | null = null;
+  private ribbonLayout: GPUBindGroupLayout | null = null;
 
   /** Cached bind groups — recreated on dispose/re-init or when bound resources change. */
   private emitBindGroup: GPUBindGroup | null = null;
@@ -169,8 +203,11 @@ export class GpuParticleSystem {
   private cullBindGroup: GPUBindGroup | null = null;
   private resolveBindGroup: GPUBindGroup | null = null;
   private renderBindGroup: GPUBindGroup | null = null;
+  private ribbonBindGroup: GPUBindGroup | null = null;
   /** Physical depth texture last bound into {@link renderBindGroup} (soft-particle sample). */
   private renderBindDepth: GPUTexture | null = null;
+  /** Depth texture last bound into {@link ribbonBindGroup}; same rebuild rule. */
+  private ribbonBindDepth: GPUTexture | null = null;
 
   private writeHead = 0;
   private emitAccumulator = 0;
@@ -195,6 +232,9 @@ export class GpuParticleSystem {
     this.stretch = options.stretch ?? 0;
     this.cullDistance = options.cullDistance ?? 80;
     this.softScale = options.softScale ?? 40;
+    this.ribbons = options.ribbons === true;
+    this.ribbonSizeScale = options.ribbonSizeScale ?? 0.7;
+    this.ribbonTailWidth = options.ribbonTailWidth ?? 0.25;
     this.emitter = defaultEmitter(options.emitter);
     this.modules = defaultModules(options.modules);
   }
@@ -246,6 +286,11 @@ export class GpuParticleSystem {
       size: RENDER_UNIFORM_BYTES,
       usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST,
     });
+    this.ribbonUniform = d.createBuffer({
+      label: "gpuParticles.ribbonParams",
+      size: RIBBON_UNIFORM_BYTES,
+      usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST,
+    });
 
     // Clear particle + trail storage.
     // Real GPU: visible starts as 0xFFFFFFFF (culled sentinel); cull compact fills [0,V) and drawIndirect uses V.
@@ -256,12 +301,33 @@ export class GpuParticleSystem {
       const sequential = new Uint32Array(this.capacity);
       for (let i = 0; i < this.capacity; i++) sequential[i] = i;
       d.queue.writeBuffer(this.visibleBuffer, 0, gpuSource(sequential));
-      d.queue.writeBuffer(this.indirectBuffer, 0, gpuSource(new Uint32Array([6, this.capacity, 0, 0])));
+      d.queue.writeBuffer(
+        this.indirectBuffer,
+        0,
+        gpuSource(
+          new Uint32Array([
+            6,
+            this.capacity,
+            0,
+            0,
+            PARTICLE_RIBBON_VERTS,
+            this.ribbons ? this.capacity : 0,
+            0,
+            0,
+          ]),
+        ),
+      );
     } else {
       const sentinels = new Uint32Array(this.capacity);
       sentinels.fill(0xffffffff);
       d.queue.writeBuffer(this.visibleBuffer, 0, gpuSource(sentinels));
-      d.queue.writeBuffer(this.indirectBuffer, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
+      // Words 1 and 5 (the instance counts) are reset by `prepare` every frame; these seeds are
+      // the backstop that makes a frame-before-prepare draw harmless.
+      d.queue.writeBuffer(
+        this.indirectBuffer,
+        0,
+        gpuSource(new Uint32Array([6, 0, 0, 0, PARTICLE_RIBBON_VERTS, 0, 0, 0])),
+      );
     }
 
     this.emitLayout = d.createBindGroupLayout({
@@ -269,6 +335,9 @@ export class GpuParticleSystem {
       entries: [
         { binding: 0, visibility: ShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 1, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" } },
+        // The ring of a reused slot is reset at spawn so a new particle never draws the previous
+        // occupant's trail — that binding is part of the emit contract, not ribbon-only state.
+        { binding: 2, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     this.simLayout = d.createBindGroupLayout({
@@ -301,22 +370,35 @@ export class GpuParticleSystem {
         { binding: 3, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d" } },
       ],
     });
+    this.ribbonLayout = d.createBindGroupLayout({
+      label: "gpuParticles.ribbon",
+      entries: [
+        { binding: 0, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d" } },
+      ],
+    });
 
     const emitMod = d.createShaderModule({ label: "gpuParticles.emit", code: PARTICLE_EMIT_SHADER });
     const simMod = d.createShaderModule({ label: "gpuParticles.fullSim", code: PARTICLE_FULL_SIM_SHADER });
     const cullMod = d.createShaderModule({ label: "gpuParticles.cull", code: PARTICLE_CULL_SHADER });
     const resolveMod = d.createShaderModule({ label: "gpuParticles.resolve", code: PARTICLE_RESOLVE_SHADER });
     const renderMod = d.createShaderModule({ label: "gpuParticles.render", code: PARTICLE_RENDER_SHADER });
+    const ribbonMod = d.createShaderModule({ label: "gpuParticles.ribbon", code: PARTICLE_RIBBON_SHADER });
     await Promise.all([
       this.assertShader(emitMod),
       this.assertShader(simMod),
       this.assertShader(cullMod),
       this.assertShader(resolveMod),
       this.assertShader(renderMod),
+      this.assertShader(ribbonMod),
     ]);
     // dispose() may have run while we awaited shader validation — do not create pipelines or latch ready.
     if (this.disposed) return;
     this.renderModule = renderMod;
+    this.ribbonModule = ribbonMod;
 
     this.emitPipeline = d.createComputePipeline({
       label: "gpuParticles.emit",
@@ -392,6 +474,53 @@ export class GpuParticleSystem {
     return this.renderPipeline;
   }
 
+  /** Ribbon pipeline: same color/depth contract as the billboards, different vertex program. */
+  private ensureRibbonPipeline(colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat): GPURenderPipeline {
+    if (this.ribbonPipeline && this.ribbonPipelineFormat === colorFormat && this.ribbonDepthFormat === depthFormat) {
+      return this.ribbonPipeline;
+    }
+    const d = this.device;
+    const mod = this.ribbonModule;
+    if (!mod) {
+      throw new Error("gpuParticles.ribbon module missing; call init() before enqueue");
+    }
+    this.ribbonPipeline = d.createRenderPipeline({
+      label: "gpuParticles.ribbon",
+      layout: d.createPipelineLayout({ bindGroupLayouts: [this.ribbonLayout!] }),
+      vertex: { module: mod, entryPoint: "vsRibbon", buffers: [] },
+      fragment: {
+        module: mod,
+        entryPoint: "fsRibbon",
+        targets: [
+          {
+            format: colorFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+            writeMask: 0xf,
+          },
+        ],
+      },
+      // Double-sided on purpose: the strip's winding follows the camera/segment geometry, and a
+      // camera-facing construction makes back-face rejection meaningless (and flip-prone).
+      primitive: { topology: "triangle-list", cullMode: "none" },
+      depthStencil: {
+        format: depthFormat,
+        depthWriteEnabled: false,
+        depthCompare: "less-equal",
+      },
+    });
+    this.ribbonPipelineFormat = colorFormat;
+    this.ribbonDepthFormat = depthFormat;
+    return this.ribbonPipeline;
+  }
+
+  /** Toggle trail ribbons. Takes effect on the next {@link prepare}; no pipeline rebuild needed. */
+  setRibbons(enabled: boolean): void {
+    this.ribbons = enabled;
+  }
+
   /** Advance CPU emit accumulator and write all uniforms for this frame. */
   prepare(frame: GpuParticleFrameInput): void {
     if (!this.ready || this.disposed) return;
@@ -409,12 +538,34 @@ export class GpuParticleSystem {
     this.writeSimUniforms(dt);
     this.writeCullUniforms(frame);
     this.writeRenderUniforms(frame);
+    this.writeRibbonUniforms(frame);
     // Reset indirect instanceCount before cull; keep vertexCount=6. Do not rewrite visible[] —
     // cull compact owns [0,V); drawIndirect uses the compacted count (mock keeps capacity).
+    // The ribbon record (words 4-7) counts survivors through the same pass, so its seeded count
+    // is reset with the same rule; when ribbons are off the second draw is never issued at all.
     if (this.isMock) {
-      this.device.queue.writeBuffer(this.indirectBuffer!, 0, gpuSource(new Uint32Array([6, this.capacity, 0, 0])));
+      this.device.queue.writeBuffer(
+        this.indirectBuffer!,
+        0,
+        gpuSource(
+          new Uint32Array([
+            6,
+            this.capacity,
+            0,
+            0,
+            PARTICLE_RIBBON_VERTS,
+            this.ribbons ? this.capacity : 0,
+            0,
+            0,
+          ]),
+        ),
+      );
     } else {
-      this.device.queue.writeBuffer(this.indirectBuffer!, 0, gpuSource(new Uint32Array([6, 0, 0, 0])));
+      this.device.queue.writeBuffer(
+        this.indirectBuffer!,
+        0,
+        gpuSource(new Uint32Array([6, 0, 0, 0, PARTICLE_RIBBON_VERTS, 0, 0, 0])),
+      );
     }
   }
 
@@ -497,6 +648,9 @@ export class GpuParticleSystem {
     f[18] = frame.cameraPos.z;
     u[19] = this.capacity;
     f[20] = this.cullDistance;
+    // Bit 0: the ribbon draw is active, so the cull pass counts survivors into indirect word 5 as
+    // well. A ribbon draw of a list the culler never filled would be a read of stale indices.
+    u[21] = this.ribbons ? 1 : 0;
     this.device.queue.writeBuffer(this.cullUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 
@@ -522,6 +676,32 @@ export class GpuParticleSystem {
     f[30] = 1;
     f[31] = 1;
     this.device.queue.writeBuffer(this.renderUniform!, 0, gpuSource(new Uint8Array(buf)));
+  }
+
+  /**
+   * Ribbon uniforms share the frame's camera basis but are their own 128-byte block — writing them
+   * next to the billboard ones is what keeps the two stages' sizes/tapers independent.
+   */
+  private writeRibbonUniforms(frame: GpuParticleFrameInput): void {
+    const buf = new ArrayBuffer(RIBBON_UNIFORM_BYTES);
+    const f = new Float32Array(buf);
+    const u = new Uint32Array(buf);
+    f.set(frame.viewProj as ArrayLike<number>, 0);
+    f[16] = frame.cameraPos.x;
+    f[17] = frame.cameraPos.y;
+    f[18] = frame.cameraPos.z;
+    f[19] = this.softScale;
+    f[20] = frame.cameraRight.x;
+    f[21] = frame.cameraRight.y;
+    f[22] = frame.cameraRight.z;
+    f[23] = this.ribbonSizeScale;
+    f[24] = this.ribbonTailWidth;
+    u[25] = this.softParticles ? 1 : 0;
+    f[28] = 1;
+    f[29] = 1;
+    f[30] = 1;
+    f[31] = 1;
+    this.device.queue.writeBuffer(this.ribbonUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 
   /**
@@ -578,6 +758,7 @@ export class GpuParticleSystem {
         entries: [
           { binding: 0, resource: { buffer: this.emitUniform! } },
           { binding: 1, resource: { buffer: this.particleBuffer! } },
+          { binding: 2, resource: { buffer: this.trailBuffer! } },
         ],
       });
     }
@@ -640,13 +821,33 @@ export class GpuParticleSystem {
     return this.renderBindGroup;
   }
 
+  /** Same rebuild rule as {@link ensureRenderBindGroup}: the view belongs to the pooled texture. */
+  private ensureRibbonBindGroup(depthTex: GPUTexture): GPUBindGroup {
+    if (!this.ribbonBindGroup || this.ribbonBindDepth !== depthTex) {
+      this.ribbonBindDepth = depthTex;
+      this.ribbonBindGroup = this.device.createBindGroup({
+        layout: this.ribbonLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.ribbonUniform! } },
+          { binding: 1, resource: { buffer: this.particleBuffer! } },
+          { binding: 2, resource: { buffer: this.visibleBuffer! } },
+          { binding: 3, resource: { buffer: this.trailBuffer! } },
+          { binding: 4, resource: depthTex.createView({ aspect: "depth-only" }) },
+        ],
+      });
+    }
+    return this.ribbonBindGroup;
+  }
+
   private clearBindGroups(): void {
     this.emitBindGroup = null;
     this.simBindGroup = null;
     this.cullBindGroup = null;
     this.resolveBindGroup = null;
     this.renderBindGroup = null;
+    this.ribbonBindGroup = null;
     this.renderBindDepth = null;
+    this.ribbonBindDepth = null;
   }
 
   private encodeSim(ctx: RenderGraphPassContext): void {
@@ -682,6 +883,17 @@ export class GpuParticleSystem {
     const pipeline = this.ensureRenderPipeline(colorFormat, depthFormat);
     const depthTex = ctx.texture(depthHandle);
     const pass = ctx.beginRenderPass("particle.render");
+    // Ribbons first: in an alpha-blended pass the draw order is the compositor, and the strips
+    // read as trails *under* the sparks that cap them. The billboards keep the same depth rules
+    // either way — both pipelines read the prepass/main depth without writing it.
+    this.lastRibbonDrawn = false;
+    if (this.ribbons) {
+      const ribbonPipeline = this.ensureRibbonPipeline(colorFormat, depthFormat);
+      pass.setPipeline(ribbonPipeline);
+      pass.setBindGroup(0, this.ensureRibbonBindGroup(depthTex));
+      pass.drawIndirect(this.indirectBuffer!, PARTICLE_RIBBON_RECORD_BYTES);
+      this.lastRibbonDrawn = true;
+    }
     const group = this.ensureRenderBindGroup(depthTex);
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
@@ -720,6 +932,11 @@ export class GpuParticleSystem {
       soft: this.softParticles,
       stretch: this.stretch,
       ready: this.ready,
+      // Ribbons draw inside `particle.render`; the record's vertex count is the geometry size,
+      // and `ribbonDrawn` reports whether the most recent encoded frame issued the draw.
+      ribbons: this.ribbons,
+      ribbonVerts: PARTICLE_RIBBON_VERTS,
+      ribbonDrawn: this.lastRibbonDrawn,
     };
   }
 
@@ -736,6 +953,7 @@ export class GpuParticleSystem {
       this.simUniform,
       this.cullUniform,
       this.renderUniform,
+      this.ribbonUniform,
     ]) {
       try {
         b?.destroy();
@@ -751,6 +969,7 @@ export class GpuParticleSystem {
     this.simUniform = null;
     this.cullUniform = null;
     this.renderUniform = null;
+    this.ribbonUniform = null;
     this.emitPipeline = null;
     this.simPipeline = null;
     this.cullPipeline = null;
@@ -759,11 +978,16 @@ export class GpuParticleSystem {
     this.renderPipelineFormat = null;
     this.renderDepthFormat = null;
     this.renderModule = null;
+    this.ribbonPipeline = null;
+    this.ribbonPipelineFormat = null;
+    this.ribbonDepthFormat = null;
+    this.ribbonModule = null;
     this.emitLayout = null;
     this.simLayout = null;
     this.cullLayout = null;
     this.resolveLayout = null;
     this.renderLayout = null;
+    this.ribbonLayout = null;
     this.clearBindGroups();
     this.lastEnqueuedPasses = [];
   }
