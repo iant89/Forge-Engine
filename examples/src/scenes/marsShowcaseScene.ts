@@ -13,7 +13,7 @@
  *   the real rovers are battery-electric; the no-load motor speed caps the rover near 6 km/h,
  *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
  *   driven, Mars gravity 3.72 m/s², aero off), posed by `VehicleSystem`; the GLB arrives async —
- *   a box-body placeholder drives until it lands, then the real body/wheel meshes swap in
+ *   the rover stays invisible until the real body/wheel meshes land
  *   (`assets/glb.ts` reads `examples/assets/Perseverance.glb`, produced by
  *   `scripts/convert-perseverance.mjs`);
  * - high-gain antenna: the NASA model ships without an HGA, so the scene builds one procedurally
@@ -578,36 +578,28 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   vehicle.position.x = SPAWN_X;
   vehicle.position.z = SPAWN_Z;
   vehicle.placeOnGround(ground);
+  // Hold the newly spawned rover until the user explicitly asks it to move. This covers both
+  // rolling on the landing slope and input arriving before the async GLB has finished building.
+  let startupBrake = true;
+  vehicle.input.brake = 1;
+  vehicle.input.handbrake = 1;
   // Local Y that puts the model's ground plane on the terrain at equilibrium (≈ radius + rest − sag).
   const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
   const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
 
   scene.world.registerSystem(new VehicleSystem());
 
-  // Bright unlit body: beige PBR used to disappear into Mars haze when the GLB was still loading
-  // (or failed) on slower iOS networks — the captain then reported "no rover" with only terrain+sky.
-  const placeholderBodyMesh = createBox(gpu, { width: 1.5, height: 0.6, depth: 3.2 });
-  const placeholderBodyMaterial = Material.unlit({ label: "rover-placeholder", color: 0xff8a1f });
+  // Keep the vehicle's physics chassis and wheel roots alive while the GLB loads, but do not add
+  // placeholder renderables. Showing a temporary orange box makes the loading state look like a
+  // spawned rover and also encourages users to drive before the real model is ready.
   const chassis = scene.createTransformedEntity(
     "rover-chassis",
     new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z),
   );
-  const placeholderBody = new Renderable();
-  placeholderBody.geometry = placeholderBodyMesh;
-  placeholderBody.material = placeholderBodyMaterial;
-  scene.world.addComponent(chassis.id, placeholderBody);
-
-  const placeholderWheelMesh = createBox(gpu, { width: 0.3, height: 0.5, depth: 0.5 });
-  const placeholderWheelMaterial = new Material({ label: "rover-wheel-placeholder", color: 0x4a4a4e, roughness: 0.8, metallic: 0.05 });
   const wheelRoots: Entity[] = [];
   const wheelIds: number[] = [];
   for (let i = 0; i < WHEELS.length; i++) {
     const wheel = scene.createTransformedEntity(`rover-${WHEELS[i]!.name}`, new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z));
-    const renderable = new Renderable();
-    renderable.geometry = placeholderWheelMesh;
-    renderable.material = placeholderWheelMaterial;
-    renderable.castShadow = true;
-    scene.world.addComponent(wheel.id, renderable);
     wheelRoots.push(wheel);
     wheelIds.push(wheel.id);
   }
@@ -980,7 +972,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       .catch((error: unknown) => {
         if (attempt !== loadAttempt) return;
         modelError = error instanceof Error ? error.message : String(error);
-        console.error("mars showcase: rover model failed to load, keeping the placeholder", error);
+        console.error("mars showcase: rover model failed to load; rover remains invisible", error);
       });
   };
   startModelLoad();
@@ -1089,10 +1081,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
       const keySteer =
         (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-      vehicle.input.throttle = Math.max(keyThrottle, pad.throttle);
-      vehicle.input.brake = Math.max(keyBrake, pad.brake);
+      const throttle = Math.max(keyThrottle, pad.throttle);
+      // The first non-zero throttle input is the user's acknowledgement that the rover should
+      // move. Until then both brakes stay engaged, including while the GLB is still loading.
+      if (throttle > 0.01) startupBrake = false;
+      vehicle.input.throttle = throttle;
+      vehicle.input.brake = Math.max(keyBrake, startupBrake ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
-      vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
+      vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
 
       // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded),
       // pose the pivots when anything moved, and keep the sticks shown exactly while unfolded.
@@ -1240,10 +1236,6 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       loaded = null;
       for (const resource of hgaResources) resource.dispose();
       hgaResources.length = 0;
-      placeholderBodyMesh.dispose();
-      placeholderBodyMaterial.dispose();
-      placeholderWheelMesh.dispose();
-      placeholderWheelMaterial.dispose();
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
