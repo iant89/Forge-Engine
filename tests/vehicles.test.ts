@@ -496,4 +496,24 @@ describe("vehicles — brakes and the parking brake", () => {
       expect(w.spin).toBeGreaterThanOrEqual(0);
     }
   });
+
+  it("decelerates an unpowered coasting vehicle under rolling resistance", () => {
+    const { vehicle, ground } = parked({ rollingResistance: 0.05, aero: null });
+    vehicle.setVelocity(0, 0, 5);
+    vehicle.input.throttle = 0;
+    vehicle.input.brake = 0;
+    run(vehicle, ground, 2);
+    // Speed should have decreased due to rolling resistance
+    expect(vehicle.speed).toBeLessThan(4.5);
+    expect(vehicle.speed).toBeGreaterThan(0);
+  });
+
+  it("firm braking stops the vehicle promptly without endless sliding", () => {
+    const { vehicle, ground } = parked({ rollingResistance: 0.05, maxBrakeTorque: 5000, absEnabled: false });
+    vehicle.setVelocity(0, 0, 5);
+    vehicle.input.throttle = 0;
+    vehicle.input.brake = 1;
+    run(vehicle, ground, 1.2);
+    expect(vehicle.speed).toBeLessThan(0.05);
+  });
 });

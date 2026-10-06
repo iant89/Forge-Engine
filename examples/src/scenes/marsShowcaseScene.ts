@@ -44,6 +44,9 @@ import {
   HeightfieldShape,
   PhysicsWorld,
   SphereShape,
+  BoxShape,
+  RigidBody,
+  type Shape,
   type Engine,
   type Entity,
   type EntityId,
@@ -671,15 +674,23 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     metallic: 0.03,
   });
   const rockLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 7, seed: 7, roughness: 0.34 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.34 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.35 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.35 })),
   });
   const boulderLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.3, flatten: 0.4 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.32, flatten: 0.38 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.32, flatten: 0.38 })),
   });
   const rockGeometry = Geometry.create(gpu, rockLod.source);
   const boulderGeometry = Geometry.create(gpu, boulderLod.source);
+  const chunkGeometry = Geometry.create(
+    gpu,
+    rockGeometrySource({ radius: 0.6, segments: 8, seed: 23, roughness: 0.35, flatten: 0.35 }),
+  );
+  const pebbleGeometry = Geometry.create(
+    gpu,
+    rockGeometrySource({ radius: 0.22, segments: 6, seed: 37, roughness: 0.28, flatten: 0.2 }),
+  );
   const population = new PopulationWorld({
     terrain,
     types: [
@@ -774,7 +785,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       springRate: WHEEL_SPRING_RATE,
       damperRate: 2 * Math.sqrt(WHEEL_SPRING_RATE * (1025 / 6)) * 0.55,
       aero: null,
-      maxBrakeTorque: 3600,
+      maxBrakeTorque: 4200,
+      absEnabled: false,
+      rollingResistance: 0.06,
       engine: motor,
       transmission: new ReductionDrive(ROVER_REDUCTION),
     }),
@@ -829,9 +842,35 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   interactivePhysics.setHeightfield(new HeightfieldShape({
     sampleHeight: deformedGroundHeight,
   }));
-  const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
+  interface InteractiveRockRecord {
+    block: NonNullable<ReturnType<typeof population.chunkPopulation>>;
+    index: number;
+    proxy: InteractiveRockProxy;
+    typeId: number;
+    isFlat: boolean;
+    origScaleX: number;
+    origScaleY: number;
+    origScaleZ: number;
+    activeEntity: Entity | null;
+    awake: boolean;
+    settledTimer: number;
+  }
+  const interactiveRocks = new Map<string, InteractiveRockRecord>();
   let brokenInteractiveRocks = 0;
   const brokenInteractiveRockIds = new Set<string>();
+
+  interface FragmentRecord {
+    id: string;
+    body: RigidBody;
+    entity: Entity;
+    isFlat: boolean;
+    scale: number;
+    awake: boolean;
+    settledTimer: number;
+  }
+  const fragments: FragmentRecord[] = [];
+  const MAX_FRAGMENTS = 64;
+
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
   const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
   const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
@@ -853,98 +892,418 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const trackRotation = new Quat();
   const INTERACTION_RADIUS = 48;
   const MAX_INTERACTIVE_ROCKS = 64;
+
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
     for (const [chunkKey, chunk] of terrain.chunks) {
       if (chunk.state !== "ready") continue;
-      const block = population.chunkPopulation(chunkKey, 1); // type 1 is the terrain demo's rocks
-      if (!block) continue;
-      for (let i = 0; i < block.count; i++) {
-        const p = i * 3;
-        const dx = block.positions[p]! - vehicle.position.x;
-        const dz = block.positions[p + 2]! - vehicle.position.z;
-        if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
-        const id = `${chunkKey}:rocks:${i}`;
-        if (brokenInteractiveRockIds.has(id)) continue;
-        if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
-        wanted.add(id);
-        if (interactiveRocks.has(id)) continue;
-        const radius = Math.max(0.12, block.scales[p]! * 0.65);
-        const proxy = new InteractiveRockProxy(createInteractiveRockSpec({
-          id,
-          shape: new SphereShape(radius),
-          material: MARS_ROCK_MATERIAL,
-          climbRadius: radius,
-        }), { x: block.positions[p]!, y: block.positions[p + 1]!, z: block.positions[p + 2]! });
-        interactivePhysics.addBody(proxy.body);
-        interactiveRocks.set(id, { block, index: i, proxy });
+      for (const typeId of [1, 2]) {
+        const block = population.chunkPopulation(chunkKey, typeId);
+        if (!block) continue;
+        const baseRadius = typeId === 2 ? 2.4 : 0.8;
+        const baseFlatten = typeId === 2 ? 0.38 : 0;
+        for (let i = 0; i < block.count; i++) {
+          const p = i * 3;
+          if (block.scales[p] === 0 && block.scales[p + 1] === 0) continue;
+          const dx = block.positions[p]! - vehicle.position.x;
+          const dz = block.positions[p + 2]! - vehicle.position.z;
+          if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
+          const id = `${chunkKey}:${typeId === 1 ? "rocks" : "boulders"}:${i}`;
+          if (brokenInteractiveRockIds.has(id)) continue;
+          if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
+          wanted.add(id);
+          if (interactiveRocks.has(id)) continue;
+
+          const sx = block.scales[p]! * baseRadius;
+          const sy = block.scales[p + 1]! * baseRadius * (1 - baseFlatten);
+          const sz = block.scales[p + 2]! * baseRadius;
+          const isFlat = sy < 0.65 * Math.max(sx, sz);
+
+          const posX = block.positions[p]!;
+          const posZ = block.positions[p + 2]!;
+          const groundY = deformedGroundHeight(posX, posZ);
+
+          let shape: Shape;
+          let restingY: number;
+          let climbRadius: number;
+          if (isFlat) {
+            const hx = Math.max(0.12, sx * 0.5);
+            const hy = Math.max(0.06, sy * 0.5);
+            const hz = Math.max(0.12, sz * 0.5);
+            shape = new BoxShape(hx, hy, hz);
+            restingY = groundY + hy;
+            climbRadius = Math.max(hx, hz);
+          } else {
+            const radius = Math.max(0.12, ((sx + sy + sz) / 3) * 0.55);
+            shape = new SphereShape(radius);
+            restingY = groundY + radius;
+            climbRadius = radius;
+          }
+
+          const spec = createInteractiveRockSpec({
+            id,
+            shape,
+            material: MARS_ROCK_MATERIAL,
+            climbRadius,
+          });
+
+          const proxy = new InteractiveRockProxy(spec, { x: posX, y: restingY, z: posZ });
+          proxy.body.linearVelocity.set(0, 0, 0);
+          proxy.body.angularVelocity.set(0, 0, 0);
+          proxy.body.rotation.setAxisAngle(new Vec3(0, 1, 0), block.rotations[i]!);
+          proxy.body.prevPosition.copyFrom(proxy.body.position);
+          proxy.body.prevRotation.copyFrom(proxy.body.rotation);
+          proxy.body.renderPosition.copyFrom(proxy.body.position);
+          proxy.body.renderRotation.copyFrom(proxy.body.rotation);
+
+          if (isFlat) {
+            proxy.body.angularDamping = 8.0;
+            proxy.body.linearDamping = 0.2;
+            proxy.body.friction = 0.95;
+          } else {
+            proxy.body.angularDamping = 0.05;
+            proxy.body.linearDamping = 0.02;
+            proxy.body.friction = 0.6;
+          }
+
+          interactivePhysics.addBody(proxy.body);
+          interactiveRocks.set(id, {
+            block,
+            index: i,
+            proxy,
+            typeId,
+            isFlat,
+            origScaleX: block.scales[p]!,
+            origScaleY: block.scales[p + 1]!,
+            origScaleZ: block.scales[p + 2]!,
+            activeEntity: null,
+            awake: false,
+            settledTimer: 0,
+          });
+        }
       }
     }
     for (const [id, record] of interactiveRocks) {
       if (wanted.has(id)) continue;
       interactivePhysics.removeBody(record.proxy.body);
+      if (record.activeEntity) {
+        const p = record.index * 3;
+        const q = record.proxy.body.rotation;
+        const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+        record.block.positions[p] = record.proxy.body.position.x;
+        record.block.positions[p + 1] = record.proxy.body.position.y - (record.isFlat ? record.origScaleY * 0.4 : record.origScaleY * 0.5);
+        record.block.positions[p + 2] = record.proxy.body.position.z;
+        record.block.scales[p] = record.origScaleX;
+        record.block.scales[p + 1] = record.origScaleY;
+        record.block.scales[p + 2] = record.origScaleZ;
+        record.block.rotations[record.index] = yaw;
+        record.block.markModified();
+        scene.world.destroyEntity(record.activeEntity.id);
+      }
       interactiveRocks.delete(id);
     }
   };
+
+  const breakRock = (
+    record: InteractiveRockRecord,
+    nx: number,
+    nz: number,
+    approach: number,
+  ): void => {
+    const id = record.proxy.spec.id;
+    const body = record.proxy.body;
+    const posX = body.position.x;
+    const posZ = body.position.z;
+
+    // 1. Remove original rock from population block and physics
+    record.block.scales[record.index * 3] = 0;
+    record.block.scales[record.index * 3 + 1] = 0;
+    record.block.scales[record.index * 3 + 2] = 0;
+    record.block.markModified();
+
+    if (record.activeEntity) {
+      scene.world.destroyEntity(record.activeEntity.id);
+      record.activeEntity = null;
+    }
+    interactivePhysics.removeBody(body);
+    interactiveRocks.delete(id);
+    brokenInteractiveRockIds.add(id);
+    brokenInteractiveRocks++;
+
+    // 2. Spawn smaller rocks: a few large chunks, then a small pile of pebbles
+    // "Never should the broken pieces be larger then the original"
+    const origBaseScale = record.typeId === 2 ? 2.4 : 0.8;
+    const origScale = ((record.origScaleX + record.origScaleY + record.origScaleZ) / 3) * origBaseScale;
+
+    const numChunks = 3;
+    const numPebbles = 6;
+
+    for (let c = 0; c < numChunks; c++) {
+      if (fragments.length >= MAX_FRAGMENTS) {
+        const oldest = fragments.shift()!;
+        interactivePhysics.removeBody(oldest.body);
+        scene.world.destroyEntity(oldest.entity.id);
+      }
+      const angle = (c / numChunks) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+      const dist = origScale * (0.2 + 0.15 * Math.random());
+      const fx = posX + Math.cos(angle) * dist + nx * 0.25;
+      const fz = posZ + Math.sin(angle) * dist + nz * 0.25;
+      const groundH = deformedGroundHeight(fx, fz);
+
+      // Strict constraint: chunk scale strictly < original scale
+      const chunkScale = Math.min(origScale * 0.45, Math.max(0.12, origScale * (0.30 + 0.10 * Math.random())));
+      const isFlatChunk = c % 2 === 0;
+      const chunkSy = isFlatChunk ? chunkScale * 0.45 : chunkScale * 0.85;
+
+      let chunkShape: Shape;
+      let restingY: number;
+      if (isFlatChunk) {
+        chunkShape = new BoxShape(chunkScale * 0.5, chunkSy * 0.5, chunkScale * 0.5);
+        restingY = groundH + chunkSy * 0.5;
+      } else {
+        const r = chunkScale * 0.5;
+        chunkShape = new SphereShape(r);
+        restingY = groundH + r;
+      }
+
+      const chunkMass = Math.max(1, chunkScale * chunkScale * chunkScale * 120);
+      const chunkBody = new RigidBody({
+        type: "dynamic",
+        shape: chunkShape,
+        mass: chunkMass,
+        position: { x: fx, y: restingY, z: fz },
+        friction: isFlatChunk ? 0.95 : 0.6,
+        linearDamping: isFlatChunk ? 0.2 : 0.03,
+        angularDamping: isFlatChunk ? 8.0 : 0.05,
+        restitution: 0.1,
+      });
+
+      const impulseSpeed = Math.max(0.4, approach * 0.7);
+      chunkBody.linearVelocity.x = nx * impulseSpeed + Math.cos(angle) * 0.45;
+      chunkBody.linearVelocity.y = 0.25 + Math.random() * 0.35;
+      chunkBody.linearVelocity.z = nz * impulseSpeed + Math.sin(angle) * 0.45;
+
+      if (!isFlatChunk) {
+        chunkBody.angularVelocity.x = (Math.random() - 0.5) * 8;
+        chunkBody.angularVelocity.y = (Math.random() - 0.5) * 4;
+        chunkBody.angularVelocity.z = (Math.random() - 0.5) * 8;
+      }
+
+      interactivePhysics.addBody(chunkBody);
+
+      const entity = scene.createTransformedEntity(`rock-chunk-${id}-${c}`, new Vec3(fx, restingY, fz));
+      const renderable = new Renderable();
+      renderable.geometry = chunkGeometry;
+      renderable.material = rockMaterial;
+      renderable.castShadow = true;
+      renderable.receiveShadow = true;
+      scene.world.addComponent(entity.id, renderable);
+      entity.transform.scale.set(chunkScale, chunkSy, chunkScale);
+
+      fragments.push({
+        id: `chunk-${id}-${c}`,
+        body: chunkBody,
+        entity,
+        isFlat: isFlatChunk,
+        scale: chunkScale,
+        awake: true,
+        settledTimer: 0,
+      });
+    }
+
+    for (let p = 0; p < numPebbles; p++) {
+      if (fragments.length >= MAX_FRAGMENTS) {
+        const oldest = fragments.shift()!;
+        interactivePhysics.removeBody(oldest.body);
+        scene.world.destroyEntity(oldest.entity.id);
+      }
+      const angle = (p / numPebbles) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+      const dist = origScale * (0.1 + 0.25 * Math.random());
+      const fx = posX + Math.cos(angle) * dist + nx * 0.15;
+      const fz = posZ + Math.sin(angle) * dist + nz * 0.15;
+      const groundH = deformedGroundHeight(fx, fz);
+
+      // Strict constraint: pebble scale strictly < original scale
+      const pebbleScale = Math.min(origScale * 0.18, Math.max(0.05, origScale * (0.10 + 0.06 * Math.random())));
+      const pebbleR = pebbleScale * 0.5;
+      const pebbleShape = new SphereShape(pebbleR);
+      const restingY = groundH + pebbleR;
+
+      const pebbleBody = new RigidBody({
+        type: "dynamic",
+        shape: pebbleShape,
+        mass: Math.max(0.1, pebbleScale * pebbleScale * pebbleScale * 120),
+        position: { x: fx, y: restingY, z: fz },
+        friction: 0.7,
+        linearDamping: 0.05,
+        angularDamping: 0.1,
+        restitution: 0.15,
+      });
+
+      const pSpeed = Math.max(0.25, approach * 0.5);
+      pebbleBody.linearVelocity.x = nx * pSpeed + Math.cos(angle) * 0.5;
+      pebbleBody.linearVelocity.y = 0.2 + Math.random() * 0.3;
+      pebbleBody.linearVelocity.z = nz * pSpeed + Math.sin(angle) * 0.5;
+      pebbleBody.angularVelocity.x = (Math.random() - 0.5) * 12;
+      pebbleBody.angularVelocity.z = (Math.random() - 0.5) * 12;
+
+      interactivePhysics.addBody(pebbleBody);
+
+      const entity = scene.createTransformedEntity(`rock-pebble-${id}-${p}`, new Vec3(fx, restingY, fz));
+      const renderable = new Renderable();
+      renderable.geometry = pebbleGeometry;
+      renderable.material = rockMaterial;
+      renderable.castShadow = true;
+      renderable.receiveShadow = true;
+      scene.world.addComponent(entity.id, renderable);
+      entity.transform.scale.set(pebbleScale, pebbleScale, pebbleScale);
+
+      fragments.push({
+        id: `pebble-${id}-${p}`,
+        body: pebbleBody,
+        entity,
+        isFlat: false,
+        scale: pebbleScale,
+        awake: true,
+        settledTimer: 0,
+      });
+    }
+  };
+
   const stepInteractiveRocks = (dt: number): void => {
     syncInteractiveRocks();
     const vx = vehicle.velocity.x;
     const vz = vehicle.velocity.z;
-    for (const [id, record] of interactiveRocks) {
+    const toBreak: Array<{ record: InteractiveRockRecord; nx: number; nz: number; approach: number }> = [];
+
+    for (const record of interactiveRocks.values()) {
       const body = record.proxy.body;
       const dx = body.position.x - vehicle.position.x;
       const dz = body.position.z - vehicle.position.z;
       const distance = Math.hypot(dx, dz);
-      if (distance > 1e-4 && distance < 1.6 + (body.shape as SphereShape).radius) {
+      const collisionRadius = record.isFlat
+        ? Math.max(record.origScaleX, record.origScaleZ) * (record.typeId === 2 ? 1.2 : 0.4)
+        : (body.shape instanceof SphereShape ? body.shape.radius : 0.5);
+      const obstacleHeight = record.isFlat
+        ? record.origScaleY * (record.typeId === 2 ? 1.44 : 0.8)
+        : collisionRadius * 2;
+
+      if (distance > 1e-4 && distance < 1.6 + collisionRadius) {
         const nx = dx / distance;
         const nz = dz / distance;
         const approach = vx * nx + vz * nz;
-        if (approach > 0.05) {
+        if (approach > 0.04) {
+          record.awake = true;
           const assessment = bridgeRockContact(record.proxy, {
             roverMass: 1025,
             relativeSpeed: approach,
             availableForce: 2160,
-            obstacleHeight: (body.shape as SphereShape).radius * 2,
+            obstacleHeight,
             vehicleVelocity: vehicle.velocity,
           }, { x: nx, y: 0, z: nz });
           applyRoverImpactDamage(roverDamage, assessment, {
             roverMass: 1025,
             relativeSpeed: approach,
             availableForce: 2160,
-            obstacleHeight: (body.shape as SphereShape).radius * 2,
-          }, (body.shape as SphereShape).radius * 2, dt);
-          if (assessment.outcome === "crushed") {
-            // Break now, then remove the proxy from the active world. The zeroed instance is a
-            // deterministic settled/broken state; no fragment bodies are spawned in this first slice.
-            record.block.scales[record.index * 3] = 0;
-            record.block.scales[record.index * 3 + 1] = 0;
-            record.block.scales[record.index * 3 + 2] = 0;
-            record.block.markModified();
-            interactivePhysics.removeBody(body);
-            interactiveRocks.delete(id);
-            brokenInteractiveRockIds.add(id);
-            brokenInteractiveRocks++;
+            obstacleHeight,
+          }, obstacleHeight, dt);
+
+          const isLargeRock = record.typeId === 2 || collisionRadius >= 0.35;
+          const significantImpact = assessment.outcome === "crushed" || (approach >= 0.35 && assessment.impactForce >= 20000);
+          if ((isLargeRock && significantImpact) || assessment.outcome === "crushed") {
+            toBreak.push({ record, nx, nz, approach });
           }
         }
       }
     }
-    interactivePhysics.step(dt);
+
+    for (const item of toBreak) {
+      breakRock(item.record, item.nx, item.nz, item.approach);
+    }
+
+    // Keep uncontacted rocks stationary so they never shoot up or jitter
     for (const record of interactiveRocks.values()) {
-      const p = record.index * 3;
+      if (!record.awake) {
+        record.proxy.body.linearVelocity.set(0, 0, 0);
+        record.proxy.body.angularVelocity.set(0, 0, 0);
+      }
+    }
+
+    interactivePhysics.step(dt);
+
+    for (const record of interactiveRocks.values()) {
       const body = record.proxy.body;
-      const q = body.rotation;
-      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
-      const moved =
-        Math.abs(record.block.positions[p]! - body.position.x) > 1e-5 ||
-        Math.abs(record.block.positions[p + 1]! - body.position.y) > 1e-5 ||
-        Math.abs(record.block.positions[p + 2]! - body.position.z) > 1e-5 ||
-        Math.abs(record.block.rotations[record.index]! - yaw) > 1e-5;
-      if (!moved) continue;
-      record.block.positions[p] = body.position.x;
-      record.block.positions[p + 1] = body.position.y;
-      record.block.positions[p + 2] = body.position.z;
-      record.block.rotations[record.index] = yaw;
-      record.block.markModified();
+      if (!record.awake) {
+        body.linearVelocity.set(0, 0, 0);
+        body.angularVelocity.set(0, 0, 0);
+        continue;
+      }
+
+      if (!record.activeEntity) {
+        const entity = scene.createTransformedEntity(
+          `active-rock-${record.proxy.spec.id}`,
+          new Vec3(body.position.x, body.position.y, body.position.z),
+        );
+        const renderable = new Renderable();
+        renderable.geometry = record.typeId === 2 ? boulderGeometry : rockGeometry;
+        renderable.material = rockMaterial;
+        renderable.castShadow = true;
+        renderable.receiveShadow = true;
+        scene.world.addComponent(entity.id, renderable);
+        record.activeEntity = entity;
+
+        record.block.scales[record.index * 3] = 0;
+        record.block.scales[record.index * 3 + 1] = 0;
+        record.block.scales[record.index * 3 + 2] = 0;
+        record.block.markModified();
+      }
+
+      // Update full 3D pose: pitch, roll, and yaw!
+      record.activeEntity.transform.position.copyFrom(body.position);
+      record.activeEntity.transform.rotation.copyFrom(body.rotation);
+      record.activeEntity.transform.scale.set(
+        record.origScaleX,
+        record.origScaleY,
+        record.origScaleZ,
+      );
+
+      const spd = body.linearVelocity.length() + body.angularVelocity.length();
+      if (spd < 0.03) {
+        record.settledTimer += dt;
+        if (record.settledTimer > 0.5) {
+          body.linearVelocity.set(0, 0, 0);
+          body.angularVelocity.set(0, 0, 0);
+          record.awake = false;
+        }
+      } else {
+        record.settledTimer = 0;
+      }
+    }
+
+    // Step fragments
+    for (let f = fragments.length - 1; f >= 0; f--) {
+      const frag = fragments[f]!;
+      const dx = frag.body.position.x - vehicle.position.x;
+      const dz = frag.body.position.z - vehicle.position.z;
+      if (dx * dx + dz * dz > (INTERACTION_RADIUS + 12) * (INTERACTION_RADIUS + 12)) {
+        interactivePhysics.removeBody(frag.body);
+        scene.world.destroyEntity(frag.entity.id);
+        fragments.splice(f, 1);
+        continue;
+      }
+      frag.entity.transform.position.copyFrom(frag.body.position);
+      frag.entity.transform.rotation.copyFrom(frag.body.rotation);
+      const spd = frag.body.linearVelocity.length() + frag.body.angularVelocity.length();
+      if (spd < 0.03) {
+        frag.settledTimer += dt;
+        if (frag.settledTimer > 0.5) {
+          frag.body.linearVelocity.set(0, 0, 0);
+          frag.body.angularVelocity.set(0, 0, 0);
+          frag.awake = false;
+        }
+      } else {
+        frag.settledTimer = 0;
+      }
     }
   };
 
@@ -1487,8 +1846,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // The first non-zero throttle input is the user's acknowledgement that the rover should
       // move. Until then both brakes stay engaged, including while the GLB is still loading.
       if (throttle > 0.01) startupBrake = false;
+      const brake = Math.max(keyBrake, pad.brake);
       vehicle.input.throttle = roverDamage.disabled ? 0 : throttle;
-      vehicle.input.brake = Math.max(keyBrake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
+      vehicle.input.brake = Math.max(brake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
 
@@ -1661,6 +2021,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       for (const [id, record] of interactiveRocks) {
         if (!brokenInteractiveRockIds.has(id)) continue;
         interactivePhysics.removeBody(record.proxy.body);
+        if (record.activeEntity) scene.world.destroyEntity(record.activeEntity.id);
         record.block.scales[record.index * 3] = 0;
         record.block.scales[record.index * 3 + 1] = 0;
         record.block.scales[record.index * 3 + 2] = 0;
@@ -1686,11 +2047,21 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       trackMesh.dispose();
       trackMaterial.dispose();
       population.dispose();
-      for (const record of interactiveRocks.values()) interactivePhysics.removeBody(record.proxy.body);
+      for (const record of interactiveRocks.values()) {
+        interactivePhysics.removeBody(record.proxy.body);
+        if (record.activeEntity) scene.world.destroyEntity(record.activeEntity.id);
+      }
       interactiveRocks.clear();
+      for (const frag of fragments) {
+        interactivePhysics.removeBody(frag.body);
+        scene.world.destroyEntity(frag.entity.id);
+      }
+      fragments.length = 0;
       interactivePhysics.setHeightfield(null);
       rockGeometry.dispose();
       boulderGeometry.dispose();
+      chunkGeometry.dispose();
+      pebbleGeometry.dispose();
       rockMaterial.dispose();
       scene.dispose(); // tile materials/masks before the shared arrays they reference
       terrainMat.dispose();

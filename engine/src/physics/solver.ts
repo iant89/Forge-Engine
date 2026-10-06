@@ -12,6 +12,7 @@ export interface SolverOptions {
   baumgarte?: number;
   penetrationSlop?: number;
   velocityRestThreshold?: number;
+  maxPositionBias?: number;
 }
 
 export class SequentialImpulseSolver {
@@ -20,6 +21,7 @@ export class SequentialImpulseSolver {
   baumgarte: number;
   penetrationSlop: number;
   velocityRestThreshold: number;
+  maxPositionBias: number;
 
   constructor(options: SolverOptions = {}) {
     this.velocityIterations = options.velocityIterations ?? 8;
@@ -27,6 +29,7 @@ export class SequentialImpulseSolver {
     this.baumgarte = options.baumgarte ?? 0.2;
     this.penetrationSlop = options.penetrationSlop ?? 0.005; // 5mm slop
     this.velocityRestThreshold = options.velocityRestThreshold ?? 0.25; // 0.25 m/s rest cutoff
+    this.maxPositionBias = options.maxPositionBias ?? 2.0; // 2.0 m/s max recovery velocity
   }
 
   solve(manifolds: ContactManifold[], dt: number): void {
@@ -90,7 +93,7 @@ export class SequentialImpulseSolver {
 
       // Baumgarte stabilization for penetration recovery
       const penetrationExcess = Math.max(0, c.penetration - this.penetrationSlop);
-      const positionBias = (this.baumgarte / dt) * penetrationExcess;
+      const positionBias = Math.min(this.maxPositionBias, (this.baumgarte / dt) * penetrationExcess);
 
       c.velocityBias = restitutionBias + positionBias;
 

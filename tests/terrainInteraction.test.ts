@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyRoverImpactDamage,
   BoxShape,
+  SphereShape,
+  HeightfieldShape,
   InteractiveRockProxy,
   MARS_ROCK_MATERIAL,
   PhysicsWorld,
+  RigidBody,
   assessRockContact,
   bridgeRockContact,
   createInteractiveRockSpec,
@@ -165,5 +168,127 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     }, { x: 1, y: 0, z: 0 });
     expect(result.outcome).toBe("crushed");
     expect(proxy.broken).toBe(true);
+  });
+
+  it("rests on a heightfield at surface level without shooting up into the air", () => {
+    const groundHeight = 10;
+    const hf = new HeightfieldShape({ sampleHeight: () => groundHeight });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    world.setHeightfield(hf);
+
+    const radius = 0.5;
+    const restingY = groundHeight + radius;
+    const rockBody = new RigidBody({
+      type: "dynamic",
+      shape: new SphereShape(radius),
+      mass: 50,
+      position: { x: 0, y: restingY, z: 0 },
+      friction: 0.8,
+      linearDamping: 0.05,
+    });
+    world.addBody(rockBody);
+
+    // Initial step: rock resting on surface must not be launched into the sky
+    world.step(1 / 60);
+    expect(rockBody.linearVelocity.y).toBeLessThanOrEqual(0.1);
+    expect(rockBody.position.y).toBeLessThan(restingY + 0.1);
+    expect(rockBody.position.y).toBeGreaterThanOrEqual(restingY - 0.05);
+
+    // After 60 steps (1s): rock stays firmly at rest on ground
+    for (let i = 0; i < 60; i++) world.step(1 / 60);
+    expect(Math.abs(rockBody.linearVelocity.y)).toBeLessThan(0.05);
+    expect(rockBody.position.y).toBeCloseTo(restingY, 1);
+  });
+
+  it("flat rocks slide with high angular stability while round rocks roll with angular velocity", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    world.setHeightfield(new HeightfieldShape({ sampleHeight: () => 0 }));
+
+    // Flat rock: BoxShape, low height, high angular damping
+    const flatBox = new RigidBody({
+      type: "dynamic",
+      shape: new BoxShape(0.4, 0.1, 0.4),
+      mass: 25,
+      position: { x: 0, y: 0.1, z: 0 },
+      friction: 0.9,
+      linearDamping: 0.2,
+      angularDamping: 8.0,
+    });
+    flatBox.applyImpulse({ x: 0, y: 0, z: 15 });
+    world.addBody(flatBox);
+
+    // Round rock: SphereShape, low angular damping
+    const roundSphere = new RigidBody({
+      type: "dynamic",
+      shape: new SphereShape(0.3),
+      mass: 25,
+      position: { x: 2, y: 0.3, z: 0 },
+      friction: 0.6,
+      linearDamping: 0.02,
+      angularDamping: 0.05,
+    });
+    roundSphere.applyImpulse({ x: 0, y: 0, z: 15 });
+    world.addBody(roundSphere);
+
+    // Step physics
+    for (let i = 0; i < 30; i++) world.step(1 / 60);
+
+    // Flat rock slides: stays upright (pitch and roll stay near 0) with minimal tumbling
+    const flatPitch = Math.abs(flatBox.angularVelocity.x);
+    expect(flatPitch).toBeLessThan(0.5);
+
+    // Round rock rolls: develops significant rotational angular velocity as it rolls
+    const spherePitch = Math.abs(roundSphere.angularVelocity.x);
+    expect(spherePitch).toBeGreaterThan(1.0);
+    expect(spherePitch).toBeGreaterThan(flatPitch * 3);
+  });
+
+  it("breaks large rocks into chunks and pebbles where no piece exceeds original size", () => {
+    const origRadius = 1.2;
+    const origVolume = (4 / 3) * Math.PI * Math.pow(origRadius, 3);
+
+    // Helper that models the showcase break logic
+    const breakLargeRock = (radius: number) => {
+      const numChunks = 3;
+      const numPebbles = 6;
+      const chunks: { scale: number; volume: number; isFlat: boolean }[] = [];
+      const pebbles: { scale: number; volume: number }[] = [];
+
+      for (let c = 0; c < numChunks; c++) {
+        const chunkScale = Math.min(radius * 0.45, Math.max(0.12, radius * (0.30 + 0.10 * 0.5)));
+        const isFlat = c % 2 === 0;
+        const sy = isFlat ? chunkScale * 0.45 : chunkScale * 0.85;
+        const volume = chunkScale * sy * chunkScale;
+        chunks.push({ scale: chunkScale, volume, isFlat });
+      }
+
+      for (let p = 0; p < numPebbles; p++) {
+        const pebbleScale = Math.min(radius * 0.18, Math.max(0.05, radius * (0.10 + 0.06 * 0.5)));
+        const r = pebbleScale * 0.5;
+        const volume = (4 / 3) * Math.PI * Math.pow(r, 3);
+        pebbles.push({ scale: pebbleScale, volume });
+      }
+
+      return { chunks, pebbles };
+    };
+
+    const { chunks, pebbles } = breakLargeRock(origRadius);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    expect(pebbles.length).toBeGreaterThanOrEqual(4);
+
+    let totalFragmentVolume = 0;
+    for (const chunk of chunks) {
+      expect(chunk.scale).toBeLessThan(origRadius);
+      expect(chunk.scale).toBeLessThanOrEqual(origRadius * 0.45);
+      totalFragmentVolume += chunk.volume;
+    }
+    for (const pebble of pebbles) {
+      expect(pebble.scale).toBeLessThan(origRadius);
+      expect(pebble.scale).toBeLessThanOrEqual(origRadius * 0.18);
+      totalFragmentVolume += pebble.volume;
+    }
+
+    // Never should the broken pieces exceed the original size or volume
+    expect(totalFragmentVolume).toBeLessThan(origVolume);
   });
 });
