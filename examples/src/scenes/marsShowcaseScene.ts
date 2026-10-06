@@ -402,8 +402,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   scene.setSky({ atmosphere: marsAtmosphere, quality: "medium", sunIntensity: 20 });
   const sunDirection = new Vec3(200, 300, 200).normalize();
   const horizon = new AtmosphereModel(marsAtmosphere).horizonColor(sunDirection, 0, new Float64Array(3));
+  // Match the terrain demo's readable streaming-edge haze: distant Mars ground and the newly
+  // shared rock population should fade together instead of leaving rocks floating over fog.
   scene.setFog("exp2", {
-    density: 0.0014,
+    density: 0.0008,
     color: new Color(horizon[0]!, horizon[1]!, horizon[2]!),
   });
 
