@@ -224,8 +224,9 @@ export const subsystems = {
       "examples/src/scenes/vehiclePlaygroundScene.ts",
       "examples/src/scenes/marsShowcaseScene.ts",
       "examples/src/scenes/marsGeneratorScene.ts",
+      "examples/src/scenes/roverCourseScene.ts",
     ],
-    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts"],
+    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts"],
     deps: [
       "ex-ui",
       "ex-rover",

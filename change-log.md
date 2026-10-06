@@ -7155,6 +7155,90 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/test-subsystems.mjs",
     "what": "Registered tests/marsShowcaseDamage.test.ts under the ex-orbit demo subsystem.",
     "why": "Every suite must be claimed exactly once or the subsystem drift test fails."
+  },
+  {
+    "id": "0565",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverCourseScene.ts",
+    "what": "New rover-course demo scene: NASA Perseverance GLB on a ~143 m rounded-rectangle asphalt loop (ribbon + edge lines + start strip + gantry) over dirt, frozen golden-hour dusk, Earth gravity with rescaled rover springs, 20 knockable cones with R reset and HUD hit counter, 8 lamp poles with real non-shadow spotlights, Jersey-barrier chicane and tire stacks with pushback collision, rock-pile decor. Track sampler, ribbon builder and prop layouts are exported so tests pin them.",
+    "why": "The requested driving-course demo: asphalt loop, cones, street lights and obstacles for the Perseverance rover, with laps/mast/damage explicitly cut."
+  },
+  {
+    "id": "0566",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/sceneSelection.ts",
+    "what": "Registered the rover-course slug with a `course` alias.",
+    "why": "The demo picker and ?scene= deep links need the new scene addressable."
+  },
+  {
+    "id": "0567",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "Wired the rover-course scene branch, import, scene-vehicle body class and showcase allowlist entry.",
+    "why": "Selecting the scene must actually build it, with the same vehicle-mode treatment as the other driving scenes."
+  },
+  {
+    "id": "0568",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Added the Rover Course option to the demo scene picker.",
+    "why": "Users need to discover and select the new scene from the UI."
+  },
+  {
+    "id": "0569",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/roverCourse.test.ts",
+    "what": "New suite with a mocked rover model: assembly counts, straight-line drive threading the slalom, cone knock plus R reset, chicane blocking under throttle, and track-geometry pins (loop closure, unit tangents, upward ribbon winding, cones on asphalt, lamps off it) — the last caught four west-corner cones misplaced into the infield before commit.",
+    "why": "Prove the course plays correctly and its layout math is right without GPU or the 10 MB GLB."
+  },
+  {
+    "id": "0570",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/demoSceneSelection.test.ts",
+    "what": "Pinned the rover-course slug and `course` alias.",
+    "why": "Scene slugs are a public contract; the alias must not silently break."
+  },
+  {
+    "id": "0571",
+    "date": "2026-10-06T21:02:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Registered examples/src/scenes/roverCourseScene.ts and tests/roverCourse.test.ts under the ex-orbit demo subsystem.",
+    "why": "Every source and suite must be claimed exactly once or the subsystem drift test fails."
   }
 ]
 ```
