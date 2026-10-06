@@ -4,14 +4,16 @@ Guidance for coding agents (and humans) contributing to Forge, a browser-native 
 Read this before running anything. `ARCHITECTURE.md` explains *why* the code is shaped the way it is;
 this file is about *how to work in it* without breaking the things the tests were written to protect.
 
-## 0. Start here: one command sets up the toolchain
+## 0. Start here: set up the toolchain before testing
 
-> **There is a dependency install script. Use it first — it makes building and testing much quicker
-> than discovering missing pieces one failed command at a time.**
+> **Before running any tests, run `scripts/setup-deps.sh` (or `npm run setup`) and let it finish. It
+> provisions the npm dependencies and installs/extracts headless Chromium + SwiftShader for the
+> browser checks. Do not begin testing until this setup step has run.**
 >
 > ```sh
-> npm run setup            # or: scripts/setup-deps.sh
-> npm run setup:check      # verify only; exits 1 if anything is missing or at the wrong version
+> scripts/setup-deps.sh    # required before testing; provisions dependencies and Chromium
+> npm run setup            # equivalent npm entry point
+> npm run setup:check      # verify only; does not install missing dependencies or Chromium
 > ```
 
 `scripts/setup-deps.sh` is idempotent: it probes every dependency, compares versions against the

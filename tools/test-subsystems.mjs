@@ -128,7 +128,14 @@ export const subsystems = {
   terrain: {
     title: "Terrain (chunks, heightmaps, LOD, streaming, generators)",
     src: ["engine/src/terrain"],
-    tests: ["tests/terrain.test.ts", "tests/realisticTerrain.test.ts", "tests/marsTerrain.test.ts", "tests/terrainMaterials.test.ts"],
+    tests: [
+      "tests/terrain.test.ts",
+      "tests/realisticTerrain.test.ts",
+      "tests/marsTerrain.test.ts",
+      "tests/terrainDeformation.test.ts",
+      "tests/terrainInteraction.test.ts",
+      "tests/terrainMaterials.test.ts",
+    ],
     deps: ["core", "gpu", "math", "rendering", "resources", "scene"],
   },
   population: {

@@ -1,8 +1,6 @@
 /**
- * Electric drivetrain (`ElectricMotor`, `ReductionDrive`) plus the two rover fixes it carries:
- * the top-speed cap (the combustion defaults geared a 1-tonne rover past 200 km/h) and the
- * suspension-anchored wheel visuals (`Vehicle.wheelCenterPosition` via `VehicleSystem` — wheels
- * that ride the suspension instead of sticking to the terrain contact).
+ * Electric drivetrain (`ElectricMotor`, `ReductionDrive`) plus the rover fixes it carries: the
+ * top-speed cap, suspension-anchored wheel travel, and terrain-aligned wheel orientation.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -20,6 +18,7 @@ import {
   VehicleSystem,
   createVehicleConfig,
   flatGround,
+  slopeGround,
   type GroundQuery,
   type SystemContext,
   Vec3,
@@ -251,7 +250,7 @@ describe("regenerative braking", () => {
   });
 });
 
-describe("wheel visuals — anchored to the suspension, not the terrain", () => {
+describe("wheel visuals — suspension travel and terrain-aligned orientation", () => {
   /** Flat at 0 with a 0.4 m ridge under the front axle (the crest-overload case). */
   function ridgeGround(): GroundQuery {
     return {
@@ -336,6 +335,72 @@ describe("wheel visuals — anchored to the suspension, not the terrain", () => 
       vehicle.position.y + hardpoint.y - up.y * (vehicle.config.suspensionRest - w.compression),
       4,
     );
+    world.dispose();
+  });
+
+  it("aligns each wheel to its terrain normal while retaining chassis heading, steering, and spin", () => {
+    const ground = slopeGround((12 * Math.PI) / 180, "z");
+    const vehicle = roverVehicle(0);
+    vehicle.yaw = 0.35;
+    vehicle.placeOnGround(ground);
+    expect(Math.hypot(vehicle.pitch, vehicle.roll)).toBeGreaterThan(0.15);
+    vehicle.input.parkingBrake = 1;
+    vehicle.input.steer = 0.3;
+    vehicle.wheels[0]!.spin = 1.1;
+
+    const world = new EntityWorld();
+    const entity = world.createEntity("rover");
+    entity.add(new Transform());
+    const component = new VehicleComponent(vehicle, ground);
+    const wheelIds: number[] = [];
+    for (let i = 0; i < vehicle.wheels.length; i++) {
+      const wheelEntity = world.createEntity(`wheel-${i}`);
+      wheelEntity.add(new Transform());
+      component.wheelEntities.push(wheelEntity.id);
+      wheelIds.push(wheelEntity.id);
+    }
+    entity.add(component);
+    world.registerSystem(new VehicleSystem());
+    world.runSystems(ctx(world, 1 / 60, 1));
+
+    const wheel = vehicle.wheels[0]!;
+    const transform = world.getComponent(wheelIds[0]!, Transform)!;
+    expect(wheel.inContact).toBe(true);
+    expect(wheel.steerAngle).toBeGreaterThan(0);
+    expect(wheel.spin).toBeCloseTo(1.1, 6); // parking brake keeps the spin pose stable
+
+    const normal = new Vec3(wheel.nx, wheel.ny, wheel.nz).normalize();
+    const visualSpin = wheel.x < 0 ? -wheel.spin : wheel.spin;
+    const withoutSpin = transform.rotation.clone().multiply(new Quat().setEulerComponents(-visualSpin, 0, 0));
+    const actualUp = withoutSpin.rotateVector(Vec3.unitY, new Vec3());
+    expect(actualUp.x).toBeCloseTo(normal.x, 5);
+    expect(actualUp.y).toBeCloseTo(normal.y, 5);
+    expect(actualUp.z).toBeCloseTo(normal.z, 5);
+
+    // Remove the local-X spin to inspect the steered ground-plane heading independently.
+    const actualForward = withoutSpin.rotateVector(Vec3.unitZ, new Vec3());
+    const chassisForward = vehicle.writeRotation(new Quat()).rotateVector(Vec3.unitZ, new Vec3());
+    const expectedForward = chassisForward.sub(normal.clone().scale(chassisForward.dot(normal))).normalize();
+    const expectedRight = normal.clone().cross(expectedForward).normalize();
+    expectedForward
+      .scale(Math.cos(wheel.steerAngle))
+      .add(expectedRight.scale(Math.sin(wheel.steerAngle)))
+      .normalize();
+    expect(actualForward.x).toBeCloseTo(expectedForward.x, 5);
+    expect(actualForward.y).toBeCloseTo(expectedForward.y, 5);
+    expect(actualForward.z).toBeCloseTo(expectedForward.z, 5);
+    const actualAxle = withoutSpin.rotateVector(Vec3.unitX, new Vec3());
+    const expectedAxle = normal.clone().cross(expectedForward).normalize();
+    expect(actualAxle.x).toBeCloseTo(expectedAxle.x, 5);
+    expect(actualAxle.y).toBeCloseTo(expectedAxle.y, 5);
+    expect(actualAxle.z).toBeCloseTo(expectedAxle.z, 5);
+
+    // Spin is still applied about the axle after the contact-aligned basis is built.
+    const actualRadial = transform.rotation.rotateVector(Vec3.unitY, new Vec3());
+    const expectedRadial = normal.clone().scale(Math.cos(visualSpin)).add(expectedForward.clone().scale(Math.sin(visualSpin)));
+    expect(actualRadial.x).toBeCloseTo(expectedRadial.x, 5);
+    expect(actualRadial.y).toBeCloseTo(expectedRadial.y, 5);
+    expect(actualRadial.z).toBeCloseTo(expectedRadial.z, 5);
     world.dispose();
   });
 });

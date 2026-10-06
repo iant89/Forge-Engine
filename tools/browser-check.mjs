@@ -73,7 +73,7 @@
  * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
  * Perseverance GLB on the ported analytic Mars pipeline, make the rover's tile resident, settle its
  * six wheels into terrain contact, then drive forward under W far enough to prove the drivetrain
- * and produce wheel-kick dust — with clearance above that same surface and no new GPU errors. These waits
+ * and produce wheel-kick dust plus thrown regolith chips — with clearance above that same surface and no new GPU errors. These waits
  * use wall-clock caps because the showcase presents well under 1 fps on the software rasteriser, and
  * a frame-count settle would
  * either race the model fetch or stall the gate for minutes.
@@ -1904,8 +1904,8 @@ async function checkAllScenes(backend) {
 
   // Mars showcase: the Perseverance GLB must load (a fetch that 404s or a bad magic number used
   // to leave the placeholder driving around), the six model wheels must be found and settle into
-  // terrain contact, and W must actually drive it — with the kick dust that proves the wheels are
-  // spinning, and zero new GPU errors. Everything here polls against *states* with wall-clock caps
+  // terrain contact, and W must actually drive it — with dust and ballistic rock chips that prove
+  // the wheels are scrubbing the regolith, and zero new GPU errors. Everything here polls against *states* with wall-clock caps
   // instead of counting frames: SwiftShader presents the showcase at well under 1 fps, so a fixed
   // frame budget would either crawl for minutes or race the model fetch. The viewport is the
   // 900×520 the panel check above just left us on — the heaviest scene runs ~4× slower at 1280×720.
@@ -1963,6 +1963,7 @@ async function checkAllScenes(backend) {
   await page.keyboard.down("KeyW");
   let maxSpeed = 0;
   let maxKick = 0;
+  let maxChips = 0;
   let marsDriven = null;
   try {
     const deadline = Date.now() + 45000;
@@ -1970,6 +1971,7 @@ async function checkAllScenes(backend) {
       marsDriven = await page.evaluate(() => window.__forge.marsState());
       maxSpeed = Math.max(maxSpeed, marsDriven.speed ?? 0);
       maxKick = Math.max(maxKick, marsDriven.kickDust ?? 0);
+      maxChips = Math.max(maxChips, marsDriven.kickDebris ?? 0);
       if (marsDriven.z - zStart > 0.5) break;
       await page.waitForTimeout(500);
     }
@@ -1978,13 +1980,14 @@ async function checkAllScenes(backend) {
   }
   const marsDz = marsDriven ? marsDriven.z - zStart : 0;
   console.log(
-    `mars showcase drive: dz=${marsDz.toFixed(2)}m maxSpeed=${maxSpeed.toFixed(2)}m/s maxKickDust=${maxKick} ` +
-      `contact=${marsDriven?.contactWheels}`,
+    `mars showcase drive: dz=${marsDz.toFixed(2)}m maxSpeed=${maxSpeed.toFixed(2)}m/s ` +
+      `maxKickDust=${maxKick} maxRockChips=${maxChips} contact=${marsDriven?.contactWheels}`,
   );
   if (!(marsDz > 0.5)) throw new Error(`mars showcase: W did not drive the rover forward (dz ${marsDz.toFixed(3)}m in 45s)`);
   checkMarsSurface(marsDriven);
   if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
   if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
+  if (!(maxChips > 0)) throw new Error("mars showcase: driving produced no ballistic rock chips");
   // High-gain antenna: it arms when the GLB lands and unfurls five seconds of sim time later, so
   // "deploying" on the real device proves the countdown + pivots are wired. Convergence onto the
   // Earth target is only ~3 more seconds of sim time — minutes at SwiftShader's showcase frame

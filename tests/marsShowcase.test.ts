@@ -12,6 +12,7 @@ import {
   Logger,
   MARS_GEN_PARAMS,
   MarsTerrainStage,
+  ParticleWorld,
   Profiler,
   Renderable,
   SplatMaterial,
@@ -257,18 +258,34 @@ describe("Mars Showcase — ported terrain integration", () => {
   });
 
   it("drives the scene's six-wheel rover with W on the ported grid and throws wheel dust", async () => {
-    const { handle, terrain, component, tick, key } = await fixture();
+    const { handle, scene, terrain, component, tick, key } = await fixture();
+    const wheelDust = scene.objects.filter(
+      (object): object is ParticleWorld =>
+        object instanceof ParticleWorld && object.name.startsWith("dust-kick-wheel-"),
+    );
+    const wheelChips = scene.objects.filter(
+      (object): object is ParticleWorld =>
+        object instanceof ParticleWorld && object.name.startsWith("rover-debris-wheel-"),
+    );
+    expect(wheelDust.map((dust) => dust.name).sort()).toEqual(
+      Array.from({ length: 6 }, (_, index) => `dust-kick-wheel-${index}`),
+    );
+    expect(wheelChips.map((chips) => chips.name).sort()).toEqual(
+      Array.from({ length: 6 }, (_, index) => `rover-debris-wheel-${index}`),
+    );
     tick();
     const start = handle.marsState();
     key("keydown", "KeyW");
     let minContact = 6;
     let maxKick = 0;
+    let maxChips = 0;
     let maxSpeed = 0;
     for (let i = 0; i < 360; i++) {
       tick();
       const state = handle.marsState();
       minContact = Math.min(minContact, state.contactWheels);
       maxKick = Math.max(maxKick, state.kickDust);
+      maxChips = Math.max(maxChips, state.kickDebris);
       maxSpeed = Math.max(maxSpeed, state.speed);
       expect(state.terrainRoverChunkReady).toBe(true);
       expect(state.y - state.terrainGroundHeight).toBeGreaterThan(0.35);
@@ -280,6 +297,21 @@ describe("Mars Showcase — ported terrain integration", () => {
     expect(maxSpeed).toBeGreaterThan(1);
     expect(maxSpeed).toBeLessThan(2.5); // Gentle uphill, not the runaway downhill summit spawn.
     expect(maxKick).toBeGreaterThan(0);
+    expect(maxChips).toBeGreaterThan(0);
+    const emissionsByWheel = new Map(
+      wheelDust.map((dust) => [Number(dust.name.replace("dust-kick-wheel-", "")), dust.simulation.emitted]),
+    );
+    const chipsByWheel = new Map(
+      wheelChips.map((chips) => [Number(chips.name.replace("rover-debris-wheel-", "")), chips.simulation.emitted]),
+    );
+    const emissionsOnSide = (wheelIndices: number[]): number =>
+      wheelIndices.reduce((total, index) => total + (emissionsByWheel.get(index) ?? 0), 0);
+    expect(emissionsOnSide([0, 2, 4])).toBeGreaterThan(0); // Left front, middle and rear.
+    expect(emissionsOnSide([1, 3, 5])).toBeGreaterThan(0); // Right front, middle and rear.
+    const chipEmissionsOnSide = (wheelIndices: number[]): number =>
+      wheelIndices.reduce((total, index) => total + (chipsByWheel.get(index) ?? 0), 0);
+    expect(chipEmissionsOnSide([0, 2, 4])).toBeGreaterThan(0);
+    expect(chipEmissionsOnSide([1, 3, 5])).toBeGreaterThan(0);
     for (const wheel of component.vehicle.wheels) {
       expect(Math.abs(wheel.contactY - terrain.getHeightAt(wheel.contactX, wheel.contactZ))).toBeLessThan(0.001);
     }

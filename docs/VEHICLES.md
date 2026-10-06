@@ -86,10 +86,13 @@ The Mars showcase rover is the reference config: ≈1 kW `ElectricMotor` + `Redu
 
 `VehicleSystem` poses each wheel entity with `Vehicle.wheelCenterPosition`: the hardpoint (the
 wheel's config x/z on the body axes) hangs the current suspension length along the body up-axis,
-clamped to `[rest − travel, rest]`. The wheel is a child of the *suspension*, never of the terrain:
-anchoring it to the ray contact made a wheel stick to the ground over a crest while the chassis
-flew on, then teleport back to the body the moment the ray released — the "wheels fly off the
-rover and snap back" bug. An unloaded wheel now droops to full rest and rides with the chassis.
+clamped to `[rest − travel, rest]`. Wheel centres remain suspension-anchored rather than snapping
+to the ray contact; that avoids a wheel sticking to the ground over a crest while the chassis flies
+on, then teleporting back to the body when the ray releases. An unloaded wheel droops to full rest
+and rides with the chassis. While in contact, each tire's local up-axis follows its sampled terrain
+normal and its forward axis follows chassis heading projected onto that surface, with steering and
+spin composed afterward. Airborne wheels use the chassis orientation instead of a stale ground
+normal, so wheel travel stays stable while the tire face sits flush against slopes when planted.
 
 ## Brakes
 
