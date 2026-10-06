@@ -64,13 +64,15 @@ export function buildTerrainScene(engine: Engine | null): DemoSceneHandle {
   const marsAtmosphere = createAtmosphere({}, MARS_ATMOSPHERE);
   scene.setSky({ atmosphere: marsAtmosphere, quality: "low", sunIntensity: 20 });
 
-  // Dust haze. exp² at this density leaves ~75 % of the terrain colour at 400 m and ~15 % at 1 km
-  // (the streaming radius), so the disc's edge dissolves. The colour is the model's own horizon
-  // radiance for this sun, which is what keeps the terrain/sky seam invisible.
+  // Dust haze. Keep enough transmission at the 1 km streaming edge that the heightfield remains
+  // readable behind the instanced rocks: exp² at this density leaves ~90 % of the terrain colour
+  // at 400 m and ~53 % at 1 km. The colour is the model's own horizon radiance for this sun, which
+  // keeps the terrain/sky seam invisible without making distant rocks look like they float above a
+  // completely fogged ground plane.
   const sunDirection = new Vec3(200, 300, 200).normalize();
   const horizon = new AtmosphereModel(marsAtmosphere).horizonColor(sunDirection, 0, new Float64Array(3));
   scene.setFog("exp2", {
-    density: 0.0014,
+    density: 0.0008,
     color: new Color(horizon[0]!, horizon[1]!, horizon[2]!),
   });
 
