@@ -3,6 +3,7 @@ import {
   BoxShape,
   InteractiveRockProxy,
   MARS_ROCK_MATERIAL,
+  PhysicsWorld,
   assessRockContact,
   createInteractiveRockSpec,
   type InteractiveRockSpec,
@@ -70,6 +71,20 @@ describe("Phase 15.5 interactive terrain foundation", () => {
       shape: new BoxShape(0.5, 0.5, 0.5),
       material: { ...MARS_ROCK_MATERIAL, density: -1 },
     })).toThrow(/density/);
+  });
+
+  it("simulates promoted rocks as dynamic bodies that can fall and receive rolling torque", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+    const proxy = new InteractiveRockProxy(rock({ crushStrength: 50000 }), { x: 0, y: 3, z: 0 });
+    world.addBody(proxy.body);
+    const startY = proxy.body.position.y;
+    world.stepDeterministic(30);
+    expect(proxy.body.position.y).toBeLessThan(startY);
+
+    const startAngular = proxy.body.angularVelocity.length();
+    proxy.body.applyImpulse({ x: 0, y: 0, z: 4 }, { x: 0.4, y: 3, z: 0 });
+    world.stepDeterministic(1);
+    expect(proxy.body.angularVelocity.length()).toBeGreaterThan(startAngular);
   });
 
   it("promotes a rock to a dynamic body and applies a push impulse", () => {

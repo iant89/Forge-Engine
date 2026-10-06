@@ -1386,11 +1386,13 @@ GOAL:
         validated before a dynamic proxy is created. Roll resistance and per-instance geology remain
         open for the later break/settle step.
 
-    [ ] Dynamic rock bodies.
+    [x] Dynamic rock bodies.
 
-        Promote an eligible proxy to a dynamic rigid body on contact. Apply impulses through the
-        existing PhysicsWorld so a rock can slide or roll when it is pushed, including when it loses
-        support at a crater rim. Keep the collision shape cheaper than the render mesh.
+        `InteractiveRockProxy` owns a dynamic `RigidBody`; the Mars Showcase admits nearby proxies to
+        a Mars-gravity `PhysicsWorld` with a shared terrain heightfield. Contact impulses move the
+        body, and ordinary rigid-body gravity/inertia allow it to slide or roll when support is lost.
+        The showcase uses a simplified sphere rather than the render mesh. Compound shapes and crater
+        edge browser evidence remain open under deterministic verification.
 
     [ ] Break and settle behavior.
 
