@@ -629,6 +629,24 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   let brokenInteractiveRocks = 0;
   const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
   const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
+  const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
+  const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
+  const trackMarks = Array.from({ length: 256 }, (_, index) => {
+    const entity = scene.createTransformedEntity(`mars-track-${index}`, new Vec3(0, -400, 0));
+    const renderable = new Renderable();
+    renderable.geometry = trackMesh;
+    renderable.material = trackMaterial;
+    renderable.castShadow = false;
+    renderable.receiveShadow = false;
+    renderable.transparent = true;
+    renderable.visible = false;
+    scene.world.addComponent(entity.id, renderable);
+    return { entity, renderable };
+  });
+  const lastTrack = WHEELS.map(() => ({ x: Number.NaN, z: Number.NaN }));
+  let nextTrack = 0;
+  let visibleTrackMarks = 0;
+  const trackRotation = new Quat();
   const INTERACTION_RADIUS = 48;
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
@@ -1159,6 +1177,17 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           radius: 0.18,
           depth: 0.008 * Math.min(1.5, Math.max(0.2, wheel.normalLoad / 625)),
         }, terrain.chunkSize);
+        const last = lastTrack[vehicle.wheels.indexOf(wheel)]!;
+        if (!Number.isFinite(last.x) || Math.hypot(wheel.contactX - last.x, wheel.contactZ - last.z) >= 0.32) {
+          const mark = trackMarks[nextTrack]!;
+          mark.entity.transform.position = new Vec3(wheel.contactX, wheel.contactY + 0.008, wheel.contactZ);
+          mark.entity.transform.rotation = trackRotation.setAxisAngle(AXIS_Y, vehicle.yaw);
+          mark.renderable.visible = true;
+          last.x = wheel.contactX;
+          last.z = wheel.contactZ;
+          nextTrack = (nextTrack + 1) % trackMarks.length;
+          visibleTrackMarks = Math.min(trackMarks.length, visibleTrackMarks + 1);
+        }
       }
       // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
       // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
@@ -1326,6 +1355,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         deformationChunks: deformation.chunkCount,
         deformationSamples: deformation.sampleCount,
         deformationRevision: deformation.revision,
+        visibleTrackMarks,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
@@ -1378,6 +1408,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
+      trackMesh.dispose();
+      trackMaterial.dispose();
       population.dispose();
       for (const record of interactiveRocks.values()) interactivePhysics.removeBody(record.proxy.body);
       interactiveRocks.clear();

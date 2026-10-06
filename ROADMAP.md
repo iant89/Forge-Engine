@@ -1437,10 +1437,12 @@ GOAL:
         Mars Showcase records load-bearing wheel impressions into it. Rendering, collision application
         and eviction-time persistence wiring are still open.
 
-    [ ] Visual tracks first.
+    [x] Visual tracks first.
 
-        Render wheel impressions and displaced sand edges through a tile-owned mask/decal layer so
-        tracks remain visible without rebuilding the full terrain mesh every wheel contact.
+        The Mars Showcase now records load-bearing wheel contacts into a bounded ring of translucent
+        terrain decals. Track marks are placed above the shared streamed surface, reuse one mesh/material,
+        and expose `visibleTrackMarks` for the browser gate. Tile-owned mask integration and displaced
+        sand edges remain open for the physical response step.
 
     [ ] Physical track response.
 
