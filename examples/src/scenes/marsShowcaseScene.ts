@@ -22,9 +22,9 @@
  *   after the model lands and then keeps the boresight on `EARTH_DIRECTION` in world space —
  *   driving or turning is compensated by slew-limited gimbals every frame. One-way: there is no
  *   stow control anywhere.
- * - dust: an ambient field that drifts around the camera and a wheel-kick puff emitted behind the
- *   rear hubs when the rover is moving — each a `ParticleWorld` driven by a SceneObject so the
- *   emitter follows the camera / chassis every engine frame.
+ * - dust and regolith: an ambient field, six load- and slip-responsive wheel plumes, and occasional
+ *   low-poly rock chips kicked into ballistic arcs. Puffs trail rearward/outward; airborne wheels
+ *   stop emitting. The particles are stepped by scene objects every engine frame.
  *
  * - robotic arm: the GLB's five-joint `arm` chain becomes nested pivot entities under the chassis,
  *   posed every frame from `RoverArmController` (`roverArm.ts`): R / the D·ARM pad button unfolds
@@ -64,13 +64,18 @@ import {
   P_AGE,
   P_FLAGS,
   P_MAX_LIFE,
+  P_SEED,
   P_SIZE,
+  P_VX,
+  P_VZ,
+  isAlive,
   ParticleWorld,
   PopulationWorld,
   Renderable,
   Scene,
   SizeOverLifeModule,
   TerrainWorld,
+  Transform,
   type TransformHandle,
   Vec3,
   Vehicle,
@@ -132,6 +137,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     contactWheels: number;
     ambientDust: number;
     kickDust: number;
+    /** Live rock/regolith fragments in ballistic flight. */
+    kickDebris: number;
     /** Mast deployment 0 (stowed flat) … 1 (raised); overshoots slightly on the latch. */
     mastT: number;
     /** Commanded mast state (the MAST button / `setMast` target). */
@@ -316,11 +323,14 @@ const MAST_ELEVATION_WN = 6.0;
 const MAST_ELEVATION_ZETA = 0.8;
 const AMBIENT_DUST_SPRITES = 420;
 const KICK_DUST_SPRITES = 500;
+const KICK_DUST_SPRITES_PER_WHEEL = Math.ceil(KICK_DUST_SPRITES / WHEELS.length);
+const ROCK_CHIP_SPRITES_PER_WHEEL = 10;
 const AXIS_X = { x: 1, y: 0, z: 0 };
 const AXIS_Y = { x: 0, y: 1, z: 0 };
 
 /** Grows a wheel puff across its life, then shrinks it away — the shared material has no
- * per-particle alpha (see docs/KNOWN-ISSUES.md), so dissipation rides on size instead. */
+ * per-particle alpha (see docs/KNOWN-ISSUES.md), so dissipation rides on size instead. Seeded size
+ * variation keeps a plume from reading as a row of identical bubbles. */
 class DustPuffSizeModule implements ParticleModule {
   readonly name = "dustPuffSize";
   constructor(
@@ -333,9 +343,10 @@ class DustPuffSizeModule implements ParticleModule {
     const maxLife = state[o + P_MAX_LIFE]!;
     if (!(maxLife > 0)) return;
     const t = Math.min(1, Math.max(0, state[o + P_AGE]! / maxLife));
-    const grow = this.start + (this.end - this.start) * Math.min(1, t / 0.65);
-    const shrink = t > 0.7 ? Math.max(0.03, 1 - (t - 0.7) / 0.3) : 1;
-    state[o + P_SIZE] = grow * shrink;
+    const grow = this.start + (this.end - this.start) * Math.min(1, t / 0.58);
+    const shrink = t > 0.68 ? Math.max(0.025, 1 - (t - 0.68) / 0.32) : 1;
+    const variation = 0.72 + state[o + P_SEED]! * 0.56;
+    state[o + P_SIZE] = grow * shrink * variation;
   }
 }
 
@@ -363,40 +374,223 @@ class AmbientDustField extends ParticleWorld {
   }
 }
 
-/** Kick-up behind the rear hubs while the rover rolls: rate follows speed, direction the heading. */
+interface WheelKickSample {
+  x: number;
+  y: number;
+  z: number;
+  speed: number;
+  velocityX: number;
+  velocityZ: number;
+  yaw: number;
+  side: -1 | 1;
+  normalLoad: number;
+  slipRatio: number;
+  slipAngle: number;
+  longitudinalForce: number;
+  lateralForce: number;
+  throttle: number;
+  brake: number;
+}
+
+/**
+ * One tire's regolith plume. Each wheel has its own deterministic emitter, so all six contact
+ * patches leave a bilateral trail and a wheel that is airborne cannot keep throwing dust.
+ */
 class WheelKickDust extends ParticleWorld {
-  constructor(private readonly sampleKick: () => { x: number; y: number; z: number; fx: number; fz: number; speed: number } | null) {
-    super({ name: "dust-kick", capacity: KICK_DUST_SPRITES, gravity: { x: 0, y: -1.7, z: 0 }, drag: 1.1, seed: 11 });
+  constructor(
+    wheelIndex: number,
+    private readonly sampleKick: () => WheelKickSample | null,
+  ) {
+    super({
+      name: `dust-kick-wheel-${wheelIndex}`,
+      capacity: KICK_DUST_SPRITES_PER_WHEEL,
+      gravity: { x: 0, y: -0.85, z: 0 },
+      drag: 0.72,
+      seed: 11 + wheelIndex,
+    });
     const emitter = this.simulation.emitter;
     emitter.rate = 0;
-    emitter.lifeMin = 0.55;
-    emitter.lifeMax = 1.2;
-    emitter.size = 0.12;
-    emitter.cone = { direction: { x: 0, y: 1, z: 0 }, angle: 0.55, speedMin: 1.6, speedMax: 4 };
-    emitter.color = { r: 1, g: 1, b: 1, a: 1 };
-    this.simulation.modules.push(new DustPuffSizeModule(0.1, 0.8));
+    emitter.lifeMin = 0.8;
+    emitter.lifeMax = 1.45;
+    emitter.size = 0.1;
+    emitter.jitter.x = 0.16;
+    emitter.jitter.y = 0.05;
+    emitter.jitter.z = 0.16;
+    emitter.cone = { direction: { x: 0, y: 1, z: 0 }, angle: 0.72, speedMin: 0.6, speedMax: 1.8 };
+    this.simulation.modules.push(new DustPuffSizeModule(0.08, 0.46));
   }
 
   override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
     const kick = this.sampleKick();
     const emitter = this.simulation.emitter;
-    // Thresholds are tuned to the electric rover's band (≤ ~1.75 m/s, see ROVER_MOTOR): the old
-    // 0.7 m/s cut-in with a /7 rate ramp was sized for a combustion-default rover ten times
-    // faster, and left the wheels throwing nothing at realistic speeds.
-    if (kick && kick.speed > 0.22) {
-      emitter.position.x = kick.x;
-      emitter.position.y = kick.y;
-      emitter.position.z = kick.z;
-      // Back along the heading, tilted up: a rooster tail behind the wheels.
-      const len = Math.hypot(kick.fx, 1.15, kick.fz) || 1;
-      emitter.cone.direction.x = -kick.fx / len;
-      emitter.cone.direction.y = 1.15 / len;
-      emitter.cone.direction.z = -kick.fz / len;
-      emitter.rate = 26 + Math.min(kick.speed / 1.6, 1) * 300;
+    // The rover tops out around 1.75 m/s: fade in at walking pace, then scale emission with
+    // wheel load and tire scrub instead of using a combustion-car speed curve.
+    if (kick && kick.speed > 0.2 && kick.normalLoad > 0) {
+      const speedFactor = Math.max(0, Math.min(1, (kick.speed - 0.2) / 1.55));
+      const slip = Math.max(
+        Math.min(1, Math.abs(kick.slipRatio) / 0.22),
+        Math.min(1, Math.abs(kick.slipAngle) / 0.28),
+      );
+      const loadFactor = Math.max(0.3, Math.min(1.45, kick.normalLoad / ((1025 * 3.72) / 6)));
+      const traction = Math.max(
+        0,
+        Math.min(1, Math.hypot(kick.longitudinalForce, kick.lateralForce) / Math.max(kick.normalLoad, 1)),
+      );
+      const effort =
+        0.62 +
+        Math.max(0, Math.min(1, kick.throttle)) * 0.2 +
+        Math.max(0, Math.min(1, kick.brake)) * 0.1 +
+        slip * 0.45 +
+        traction * 0.1;
+      emitter.rate = Math.min(60, (4 + speedFactor * 48) * loadFactor * effort);
+
+      // Use actual ground velocity so reverse and lateral scrub throw dust the right way. Add a
+      // small outward fan from each tire, with more spread and loft when the tread slips.
+      const moveX = kick.velocityX / kick.speed;
+      const moveZ = kick.velocityZ / kick.speed;
+      const rightX = Math.cos(kick.yaw) * kick.side;
+      const rightZ = -Math.sin(kick.yaw) * kick.side;
+      emitter.position.x = kick.x - moveX * 0.05 + rightX * 0.035;
+      emitter.position.y = kick.y + 0.025;
+      emitter.position.z = kick.z - moveZ * 0.05 + rightZ * 0.035;
+      const dx = -moveX * 0.72 + rightX * 0.34;
+      const dy = 1.05 + slip * 0.3;
+      const dz = -moveZ * 0.72 + rightZ * 0.34;
+      const length = Math.hypot(dx, dy, dz) || 1;
+      emitter.cone.direction.x = dx / length;
+      emitter.cone.direction.y = dy / length;
+      emitter.cone.direction.z = dz / length;
+      emitter.cone.angle = 0.62 + slip * 0.24;
+      emitter.cone.speedMin = 0.5 + speedFactor * 0.25;
+      emitter.cone.speedMax = 1.3 + speedFactor * 0.7 + slip * 0.35;
+      const spread = 0.1 + speedFactor * 0.04 + slip * 0.05;
+      emitter.jitter.x = spread;
+      emitter.jitter.y = spread * 0.35;
+      emitter.jitter.z = spread;
     } else {
       emitter.rate = 0;
     }
     super.update(context, dt);
+
+    // Billow each sprite into a soft, wind-stretched ellipsoid aligned with its own travel vector.
+    // The shared sphere geometry stays cheap; only the per-sprite transform changes.
+    const scene = this.scene;
+    if (!scene) return;
+    const state = this.simulation.state;
+    let sprite = 0;
+    for (let slot = 0; slot < this.simulation.capacity && sprite < this.spriteEntities.length; slot++) {
+      if (!isAlive(state, slot)) continue;
+      const entity = this.spriteEntities[sprite++];
+      if (entity === undefined || !scene.world.exists(entity)) continue;
+      const transform = scene.world.getComponent(entity, Transform);
+      const o = slot * PARTICLE_FLOATS;
+      const size = state[o + P_SIZE]!;
+      const yaw = Math.atan2(state[o + P_VX]!, state[o + P_VZ]!);
+      transform?.setRotationEuler(0, yaw, 0);
+      transform?.setScale(size * 0.92, size * 0.72, size * 1.35);
+    }
+  }
+}
+
+/** Keeps the fragments pebble-sized while varying them from particle to particle. */
+class RockChipSizeModule implements ParticleModule {
+  readonly name = "rockChipSize";
+  apply(state: Float32Array, index: number, _dt: number): void {
+    const o = index * PARTICLE_FLOATS;
+    if (state[o + P_FLAGS]! < 0.5) return;
+    state[o + P_SIZE] = 0.028 + state[o + P_SEED]! * 0.035;
+  }
+}
+
+/** Rare ballistic regolith chips: unlike the suspended dust, these arc under Martian gravity. */
+class WheelRockChips extends ParticleWorld {
+  constructor(
+    wheelIndex: number,
+    private readonly sampleKick: () => WheelKickSample | null,
+  ) {
+    super({
+      name: `rover-debris-wheel-${wheelIndex}`,
+      capacity: ROCK_CHIP_SPRITES_PER_WHEEL,
+      gravity: { x: 0, y: -3.72, z: 0 },
+      drag: 0.12,
+      seed: 101 + wheelIndex,
+    });
+    const emitter = this.simulation.emitter;
+    emitter.rate = 0;
+    emitter.lifeMin = 0.45;
+    emitter.lifeMax = 1.05;
+    emitter.size = 0.04;
+    emitter.jitter.x = 0.06;
+    emitter.jitter.y = 0.025;
+    emitter.jitter.z = 0.06;
+    emitter.cone = { direction: { x: 0, y: 1, z: 0 }, angle: 0.38, speedMin: 1.2, speedMax: 3.2 };
+    this.simulation.modules.push(new RockChipSizeModule());
+  }
+
+  override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
+    const kick = this.sampleKick();
+    const emitter = this.simulation.emitter;
+    if (kick && kick.speed > 0.25 && kick.normalLoad > 0) {
+      const speedFactor = Math.max(0, Math.min(1, (kick.speed - 0.2) / 1.55));
+      const slip = Math.max(
+        Math.min(1, Math.abs(kick.slipRatio) / 0.22),
+        Math.min(1, Math.abs(kick.slipAngle) / 0.28),
+      );
+      const effort = Math.max(
+        slip,
+        Math.max(0, Math.min(1, kick.throttle)) * 0.55,
+        Math.max(0, Math.min(1, kick.brake)) * 0.4,
+      );
+      if (effort > 0.18) {
+        const loadFactor = Math.max(0.3, Math.min(1.4, kick.normalLoad / ((1025 * 3.72) / 6)));
+        emitter.rate = Math.min(8, (1 + speedFactor * 2 + (effort - 0.18) * 12) * loadFactor);
+
+        const moveX = kick.velocityX / kick.speed;
+        const moveZ = kick.velocityZ / kick.speed;
+        const rightX = Math.cos(kick.yaw) * kick.side;
+        const rightZ = -Math.sin(kick.yaw) * kick.side;
+        emitter.position.x = kick.x - moveX * 0.06 + rightX * 0.045;
+        emitter.position.y = kick.y + 0.045;
+        emitter.position.z = kick.z - moveZ * 0.06 + rightZ * 0.045;
+        const dx = -moveX * 0.78 + rightX * 0.46;
+        const dy = 0.9 + slip * 0.35;
+        const dz = -moveZ * 0.78 + rightZ * 0.46;
+        const length = Math.hypot(dx, dy, dz) || 1;
+        emitter.cone.direction.x = dx / length;
+        emitter.cone.direction.y = dy / length;
+        emitter.cone.direction.z = dz / length;
+        emitter.cone.angle = 0.28 + slip * 0.22;
+        emitter.cone.speedMin = 1.1 + speedFactor * 0.3;
+        emitter.cone.speedMax = 2.1 + speedFactor * 0.8 + slip * 1.2;
+        const spread = 0.035 + slip * 0.035;
+        emitter.jitter.x = spread;
+        emitter.jitter.y = spread * 0.35;
+        emitter.jitter.z = spread;
+      } else {
+        emitter.rate = 0;
+      }
+    } else {
+      emitter.rate = 0;
+    }
+    super.update(context, dt);
+
+    // Low-poly chips tumble on all axes while following their own ballistic arcs.
+    const scene = this.scene;
+    if (!scene) return;
+    const state = this.simulation.state;
+    let sprite = 0;
+    for (let slot = 0; slot < this.simulation.capacity && sprite < this.spriteEntities.length; slot++) {
+      if (!isAlive(state, slot)) continue;
+      const entity = this.spriteEntities[sprite++];
+      if (entity === undefined || !scene.world.exists(entity)) continue;
+      const transform = scene.world.getComponent(entity, Transform);
+      const o = slot * PARTICLE_FLOATS;
+      const age = state[o + P_AGE]!;
+      const seed = state[o + P_SEED]!;
+      const spin = 7 + seed * 13;
+      const phase = seed * Math.PI * 2;
+      transform?.setRotationEuler(phase + age * spin * 0.73, age * spin, phase * 0.6 + age * spin * 0.41);
+    }
   }
 }
 
@@ -767,36 +961,66 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   );
 
   // ---------------------------------------------------------------- dust (ambient + wheel kick)
-  const forward = (): { fx: number; fz: number } => ({ fx: Math.sin(vehicle.yaw), fz: Math.cos(vehicle.yaw) });
-  const sampleKick = (): { x: number; y: number; z: number; fx: number; fz: number; speed: number } | null => {
-    // Rear axle hubs: the wheels that throw the visible plume under throttle.
-    const rear = vehicle.wheels[4];
-    if (!rear) return null;
-    const { fx, fz } = forward();
-    return { x: rear.contactX - fx * 0.3, y: rear.contactY + 0.08, z: rear.contactZ - fz * 0.3, fx, fz, speed: vehicle.speed };
+  const sampleKick = (wheelIndex: number): WheelKickSample | null => {
+    const wheel = vehicle.wheels[wheelIndex];
+    if (!wheel || !wheel.inContact || wheel.normalLoad <= 0) return null;
+    return {
+      x: wheel.contactX,
+      y: wheel.contactY,
+      z: wheel.contactZ,
+      speed: vehicle.speed,
+      velocityX: vehicle.velocity.x,
+      velocityZ: vehicle.velocity.z,
+      yaw: vehicle.yaw,
+      side: wheel.x < 0 ? -1 : 1,
+      normalLoad: wheel.normalLoad,
+      slipRatio: wheel.kappa,
+      slipAngle: wheel.alpha,
+      longitudinalForce: wheel.longForce,
+      lateralForce: wheel.latForce,
+      throttle: vehicle.input.throttle,
+      brake: vehicle.input.brake,
+    };
   };
 
   const ambientDust = new AmbientDustField(cameraEntity);
   scene.add(ambientDust);
-  const kickDust = new WheelKickDust(sampleKick);
-  scene.add(kickDust);
+  const kickDustWheels = vehicle.wheels.map((_, index) => {
+    const dust = new WheelKickDust(index, () => sampleKick(index));
+    scene.add(dust);
+    return dust;
+  });
+  const wheelRockChips = vehicle.wheels.map((_, index) => {
+    const chips = new WheelRockChips(index, () => sampleKick(index));
+    scene.add(chips);
+    return chips;
+  });
+  const kickDustAlive = (): number => kickDustWheels.reduce((total, dust) => total + dust.simulation.alive, 0);
+  const wheelRockChipsAlive = (): number => wheelRockChips.reduce((total, chips) => total + chips.simulation.alive, 0);
 
-  const dustMesh = createBox(gpu, { width: 1, height: 1, depth: 1 });
+  // Smooth spheres replace the hard-edged cubes; low alpha lets overlapping, seeded puffs build a
+  // translucent ochre plume instead of painting opaque tan blocks across the ground.
+  const dustMesh = createSphere(gpu, { radius: 0.5, widthSegments: 12, heightSegments: 8 });
   const ambientDustMaterial = Material.unlit({ label: "dust-ambient", color: 0xc4a17e, opacity: 0.11, transparent: true });
-  const kickDustMaterial = Material.unlit({ label: "dust-kick", color: 0xd9c1a0, opacity: 0.5, transparent: true });
-  const spawnSprites = (world: ParticleWorld, count: number, material: Material, prefix: string): void => {
+  const kickDustMaterial = Material.unlit({ label: "dust-kick", color: 0xc68f5b, opacity: 0.25, transparent: true });
+  const spawnSprites = (
+    world: ParticleWorld,
+    count: number,
+    material: Material,
+    prefix: string,
+    geometry: Geometry = dustMesh,
+  ): void => {
     const ids: number[] = [];
     for (let i = 0; i < count; i++) {
       const mote = scene.createTransformedEntity(`${prefix}-${i}`, new Vec3(0, -400, 0));
       const renderable = new Renderable();
-      renderable.geometry = dustMesh;
+      renderable.geometry = geometry;
       renderable.material = material;
       renderable.castShadow = false;
       renderable.receiveShadow = false;
-      // The renderer picks blending from the Renderable, not the material: without this the dust
-      // drew as solid, depth-writing boxes, and while driving the kick-up and the motes passing
-      // the lens painted flat cream/tan blocks over the view.
-      renderable.transparent = true;
+      // The renderer picks blending from the Renderable, not the material; mirror it explicitly so
+      // the puffs layer while the rock chips retain opaque, depth-tested silhouettes.
+      renderable.transparent = material.transparent;
       renderable.visible = false;
       scene.world.addComponent(mote.id, renderable);
       ids.push(mote.id);
@@ -804,7 +1028,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     world.spriteEntities = ids;
   };
   spawnSprites(ambientDust, AMBIENT_DUST_SPRITES, ambientDustMaterial, "dust-mote");
-  spawnSprites(kickDust, KICK_DUST_SPRITES, kickDustMaterial, "dust-puff");
+  for (const [index, dust] of kickDustWheels.entries()) {
+    spawnSprites(dust, KICK_DUST_SPRITES_PER_WHEEL, kickDustMaterial, `dust-puff-wheel-${index}`);
+  }
+  for (const [index, chips] of wheelRockChips.entries()) {
+    spawnSprites(chips, ROCK_CHIP_SPRITES_PER_WHEEL, rockMaterial, `rover-rock-chip-wheel-${index}`, rockGeometry);
+  }
 
   // ---------------------------------------------------------------- NASA GLB (async swap-in)
   let modelLoaded = false;
@@ -1323,7 +1552,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
-        `dust ${ambientDust.simulation.alive}+${kickDust.simulation.alive}  NASA/JPL-Caltech (public domain)`
+        `dust ${ambientDust.simulation.alive}+${kickDustAlive()} · chips ${wheelRockChipsAlive()}  NASA/JPL-Caltech (public domain)`
       );
     },
     vehicleState: () => ({
@@ -1374,7 +1603,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
-        kickDust: kickDust.simulation.alive,
+        kickDust: kickDustAlive(),
+        kickDebris: wheelRockChipsAlive(),
         mastT,
         mastDeployed: mastTarget === 1,
         armT: arm.progress,
