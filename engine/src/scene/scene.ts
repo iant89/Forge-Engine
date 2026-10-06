@@ -674,12 +674,12 @@ export class Scene {
 
   /**
    * Raycast scene objects first (terrain can answer much cheaper than brute-forcing triangles),
-   * then entity Renderables via their world AABBs. `results` is sorted by distance.
+   * then entity Renderables through their local mesh BVHs. Renderables without triangle data retain
+   * a conservative world-AABB hit. `results` is sorted by distance.
    */
   raycast(origin: Vec3, direction: Vec3, maxDistance = Infinity, results: RaycastResult[] = []): RaycastResult[] {
     results.length = 0;
     const ray = new Ray(origin, direction, maxDistance);
-    const invDir = new Vec3(1 / (direction.x || 1e-9), 1 / (direction.y || 1e-9), 1 / (direction.z || 1e-9));
     for (const o of this.objects) {
       if (!o.enabled || !o.raycast) continue;
       const hit = new RayHit();
@@ -694,11 +694,22 @@ export class Scene {
     for (let r = 0; r < query.count; r++) {
       const entity = this.world.facade(query.entity(r));
       const renderable = query.value(0, r) as Renderable;
-      if (!renderable.visible || !entity) continue;
+      if (!renderable.visible || !entity || !renderable.geometry) continue;
       renderable.resolveBounds(local);
-      local.transformByMatrix(this.world.getWorldMatrix(entity.id, SCRATCH_MAT), worldBox);
+      const worldMatrix = this.world.getWorldMatrix(entity.id, SCRATCH_MAT);
+      local.transformByMatrix(worldMatrix, worldBox);
       const hit = new RayHit();
-      if (worldBox.intersectsRay(origin, invDir, T_MINMAX, hit) && hit.distance <= maxDistance) {
+      T_MINMAX[0] = 0;
+      T_MINMAX[1] = maxDistance;
+      if (!worldBox.intersectsRay(ray.origin, ray.invDirection, T_MINMAX, hit)) continue;
+      const bvh = renderable.geometry.getMeshBvh();
+      if (bvh && renderable.geometry.raycast(ray, worldMatrix, hit)) {
+        results.push({ entity, object: null, hit, distance: hit.distance, material: renderable.material });
+      } else if (!bvh) {
+        // Preserve bounds picking for non-triangle renderables (for example, editor gizmos).
+        hit.distance = T_MINMAX[0]!;
+        ray.at(hit.distance, hit.point);
+        hit.isValid = true;
         results.push({ entity, object: null, hit, distance: hit.distance, material: renderable.material });
       }
     }

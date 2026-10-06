@@ -6,6 +6,7 @@ export * from "./shapes.js";
 export * from "./body.js";
 export * from "./collision.js";
 export * from "./solver.js";
+export * from "./broadphase.js";
 export * from "./world.js";
 export * from "./components.js";
 export * from "./system.js";

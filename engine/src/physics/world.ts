@@ -13,6 +13,7 @@ import { RigidBody } from "./body.js";
 import { ContactManifold, collideBodies } from "./collision.js";
 import { SequentialImpulseSolver, type SolverOptions } from "./solver.js";
 import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js";
+import { SweepAndPruneBroadphase, type BroadphaseStats } from "./broadphase.js";
 
 export interface RaycastFilter {
   /** Skip these rigid bodies (e.g. the casting vehicle chassis). */
@@ -33,6 +34,7 @@ export interface PhysicsWorldOptions {
 export class PhysicsWorld {
   readonly bodies: RigidBody[] = [];
   private nextBodyId = 1;
+  private readonly broadphase = new SweepAndPruneBroadphase();
 
   readonly gravity = new Vec3(0, -9.81, 0);
   /** Mutable so adopt paths ({@link applyOptions}) can retune without rebuilding the world. */
@@ -53,6 +55,11 @@ export class PhysicsWorld {
     this.fixedDt = options.fixedDt ?? 1 / 60;
     this.maxSubsteps = options.maxSubsteps ?? 8;
     this.solver = new SequentialImpulseSolver(options.solverOptions);
+  }
+
+  /** Snapshot counters from the most recent broadphase query. */
+  get broadphaseStats(): Readonly<BroadphaseStats> {
+    return this.broadphase.stats;
   }
 
   /**
@@ -192,23 +199,16 @@ export class PhysicsWorld {
     // 2. Broadphase & Narrowphase: generate contact manifolds
     const manifolds: ContactManifold[] = [];
 
-    // Deterministic pair ordering by (bodyA.id < bodyB.id)
-    for (let i = 0; i < n; i++) {
-      const bA = this.bodies[i]!;
-      for (let j = i + 1; j < n; j++) {
-        const bB = this.bodies[j]!;
-
-        // Skip static-static or kinematic-static pairs
-        if (bA.invMass === 0 && bB.invMass === 0) continue;
-
-        // AABB overlap test
-        if (!bA.aabb.intersectsAABB(bB.aabb)) continue;
-
-        const manifold = collideBodies(bA, bB);
-        if (manifold && manifold.contacts.length > 0) {
-          manifolds.push(manifold);
-        }
-      }
+    // Keep every proxy current (including externally moved kinematics) before generating candidates.
+    for (const body of this.bodies) body.updateAABB();
+    // The sweep-and-prune index reduces pair checks; candidate order is restored to insertion order,
+    // preserving deterministic manifold/solver ordering from the original nested loop.
+    const pairs = this.broadphase.query(this.bodies);
+    for (const pair of pairs) {
+      const bA = this.bodies[pair.a]!;
+      const bB = this.bodies[pair.b]!;
+      const manifold = collideBodies(bA, bB);
+      if (manifold && manifold.contacts.length > 0) manifolds.push(manifold);
     }
 
     // 3. Solve velocity & position constraints
@@ -238,10 +238,17 @@ export class PhysicsWorld {
     const exclude = filter?.excludeBodies;
 
     for (const body of this.bodies) {
+      // RigidBody pose fields are intentionally authorable; refresh before using the AABB as a ray
+      // broadphase so direct pose edits cannot produce stale-bound false negatives.
+      body.updateAABB();
       if (filter?.skipKinematic && body.type === "kinematic") continue;
       if (filter?.skipStatic && body.type === "static") continue;
       if (exclude && exclude.length > 0 && exclude.includes(body)) continue;
       const shape = body.shape;
+      if (!(shape instanceof PlaneShape)) {
+        const boundsHit = PhysicsWorld.rayAabbScratch;
+        if (!ray.intersectsAABB(body.aabb, boundsHit) || boundsHit.distance >= closestDist) continue;
+      }
       if (shape instanceof SphereShape) {
         const t = ray.intersectsSphere(body.position, shape.radius);
         if (t >= 0 && t < ray.maxDistance && t < closestDist) {
@@ -295,6 +302,7 @@ export class PhysicsWorld {
 
   clear(): void {
     this.bodies.length = 0;
+    this.broadphase.query(this.bodies);
     this.heightfieldBody = null;
     this.heightfieldShape = null;
     this.accumulator = 0;
@@ -303,6 +311,7 @@ export class PhysicsWorld {
   }
 
   private static readonly rayScratch = new RayHit();
+  private static readonly rayAabbScratch = new RayHit();
 }
 
 /** Scratch for heightfield raycast normals (avoids per-hit Vec3 alloc in default sampler). */

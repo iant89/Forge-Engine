@@ -143,11 +143,51 @@ export {
 } from "./gpu/formats.js";
 
 // Resources
-export { ResourceRegistry, ResourceHandle, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
+export { ResourceRegistry, ResourceHandle, DetachedResource, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
 export { AssetId, hashContent, type AssetIdInfo } from "./resources/assetId.js";
 export { AssetGraph } from "./resources/assetGraph.js";
 export { AssetStreamer, type StreamerOptions, type StreamedLoad, type StreamingState, type StreamingStats } from "./resources/streaming.js";
+export { AssetHotReloader, HOT_RELOAD_PRIORITY, type HotReloadOptions, type HotReloadResult } from "./resources/hotReload.js";
+export {
+  AssetValidationError,
+  validateMeshData,
+  validateTextureData,
+  validateMaterialData,
+  validateAssetDependencies,
+  validateMemoryBudget,
+  validateRegistryMemory,
+  validationResult,
+  type AssetDiagnostic,
+  type AssetDiagnosticSeverity,
+  type AssetValidationResult,
+  type MeshValidationData,
+  type TextureValidationData,
+  type TextureValidationOptions,
+  type MaterialValidationData,
+  type MaterialValidationOptions,
+  type RequiredTextureReference,
+} from "./resources/validation.js";
 export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
+export { decodeGltfMesh, loadGltfMesh, type DecodeGltfMeshOptions, type GltfMeshDocumentInput, type GltfMeshInput, type LoadGltfMeshOptions } from "./resources/gltf.js";
+export type {
+  DecodedGltfAsset,
+  DecodedGltfMaterial,
+  DecodedGltfMesh,
+  DecodedGltfNode,
+  DecodedGltfPrimitive,
+  DecodedGltfScene,
+  GltfMeshDecodePayload,
+} from "./resources/gltf.js";
+export {
+  loadKtx2Texture,
+  chooseKtx2Target,
+  detectKtx2Srgb,
+  hasKtx2Identifier,
+  type Ktx2Target,
+  type Ktx2ColorSpace,
+  type Ktx2TextureOptions,
+  type Ktx2TargetChoice,
+} from "./resources/ktx2.js";
 
 // Scene / ECS
 export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type SceneSsaoSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";

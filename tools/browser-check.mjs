@@ -98,12 +98,13 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { gpuLaunchEnv, ICD_SOURCE_TEXT, LOADER_SOURCE_TEXT } from "./gpu-env.mjs";
 
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
+const workerSmokeOnly = process.argv.includes("--workers-only");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function httpOk(url, timeoutMs = 1500) {
@@ -425,13 +426,73 @@ try {
   if (requestedScene !== "pbr") throw new Error(`?scene=pbr did not select the PBR fixture (active scene "${requestedScene}")`);
   console.log(`landing default: ${landingOption}; browser fixture: ${requestedScene}`);
 
+  // Phase 9.1: prove the shipping module-worker can parse a real GLB and return its decoded mesh
+  // through the scheduler without inline fallback. `--workers-only` runs this focused probe without
+  // spending the full rendering gate's minutes on SwiftShader scene checks.
+  const toFsUrl = (rel) => `/@fs${resolve(rel).replaceAll("\\", "/")}`;
+  const workerProbe = await page.evaluate(async ({ engineUrl, fixtureUrl }) => {
+    let scheduler = null;
+    try {
+      const { TaskScheduler, decodeGltfMesh } = await import(engineUrl);
+      const response = await fetch(fixtureUrl);
+      if (!response.ok) throw new Error(`GLB fixture fetch failed (${response.status})`);
+      const bytes = await response.arrayBuffer();
+      scheduler = new TaskScheduler({ workerCount: 1, maxConcurrent: 1 });
+      const decoded = await decodeGltfMesh(bytes, { scheduler, source: "browser-worker-triangle.glb", transferInput: true });
+      const primitive = decoded.meshes[0]?.primitives[0];
+      return {
+        ok: true,
+        stats: scheduler.stats,
+        meshCount: decoded.meshes.length,
+        primitiveCount: decoded.primitiveCount,
+        vertexCount: decoded.vertexCount,
+        positions: primitive ? Array.from(primitive.attributes.POSITION ?? []) : [],
+        indices: primitive?.indices ? Array.from(primitive.indices) : [],
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+    } finally {
+      scheduler?.dispose();
+    }
+  }, {
+    engineUrl: toFsUrl("engine/src/index.ts"),
+    fixtureUrl: toFsUrl("tests/fixtures/triangle.glb"),
+  });
+  console.log(
+    `Phase 9.1 browser worker: workers=${workerProbe.stats?.workers ?? 0} ` +
+      `completed=${workerProbe.stats?.completed ?? 0} inlineFallbacks=${workerProbe.stats?.inlineFallbacks ?? 0} ` +
+      `mesh=${workerProbe.meshCount ?? 0} vertices=${workerProbe.vertexCount ?? 0}`,
+  );
+  if (!workerProbe.ok) throw new Error(`Phase 9.1 browser GLB worker round-trip failed: ${workerProbe.error}`);
+  if (workerProbe.stats?.inline || workerProbe.stats?.workers !== 1 || workerProbe.stats?.completed !== 1 ||
+      workerProbe.stats?.inlineFallbacks !== 0 || workerProbe.stats?.workerFailures !== 0 ||
+      workerProbe.meshCount !== 1 || workerProbe.primitiveCount !== 1 || workerProbe.vertexCount !== 3 ||
+      JSON.stringify(workerProbe.positions) !== JSON.stringify([0, 0, 0, 1, 0, 0, 0, 1, 0]) ||
+      JSON.stringify(workerProbe.indices) !== JSON.stringify([0, 1, 2])) {
+    throw new Error(`Phase 9.1 browser worker result failed its round-trip assertions: ${JSON.stringify(workerProbe)}`);
+  }
+  if (workerSmokeOnly) {
+    console.log("check:browser --workers-only passed (real browser module worker, no inline fallback)");
+    await browser.close();
+    vite.kill("SIGKILL");
+    process.exit(0);
+  }
+
   const before = await page.evaluate(() => window.__forge.stats());
-  await sleep(2500);
+  // SwiftShader can take several seconds to finish a frame under the initial PBR workload. Wait for
+  // actual frame progress instead of treating any frame slower than a fixed 2.5 s as a stalled loop.
+  let frameAdvanced = false;
+  try {
+    await page.waitForFunction((frame) => window.__forge.stats().frame > frame, before.frame, { polling: 100, timeout: 15000 });
+    frameAdvanced = true;
+  } catch {
+    // Keep the detailed stats below as the diagnostic for a true timeout.
+  }
   const after = await page.evaluate(() => window.__forge.stats());
   console.log("BEFORE STATS:", JSON.stringify(before));
   console.log("AFTER STATS:", JSON.stringify(after));
   console.log(`backend=${backend} frame ${before.frame} -> ${after.frame}, drawCalls=${after.drawCalls}, tris=${after.triangles}, fps=${after.fps.toFixed(1)}`);
-  if (!(after.frame > before.frame)) throw new Error(`loop stalled at frame ${after.frame}`);
+  if (!frameAdvanced || !(after.frame > before.frame)) throw new Error(`loop stalled at frame ${after.frame} (15 s frame-progress timeout)`);
   if (!(after.drawCalls >= 1)) throw new Error(`no draw calls after ${after.frame} frames`);
   if (!(after.triangles >= 12)) throw new Error(`suspiciously few triangles: ${after.triangles}`);
   if (!(after.entities >= 8)) throw new Error(`scene entities missing: ${after.entities}`);

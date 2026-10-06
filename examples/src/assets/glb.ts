@@ -5,8 +5,9 @@
  * Scope, deliberately small: static triangle meshes with POSITION / NORMAL / TEXCOORD_0, the core
  * PBR material block (base-colour + metallic-roughness factors, base-colour / normal /
  * metallic-roughness textures), WebP / PNG / JPEG images decoded through `createImageBitmap`, and
- * node translation. No animation, skinning, cameras or lights — the engine has no asset pipeline
- * yet (see docs/KNOWN-ISSUES.md); this is demo-side plumbing on the public `@forge/engine` API.
+ * node translation. No animation, skinning, cameras or lights — this showcase adapter predates the
+ * engine's generic worker-backed geometry decoder and still owns its demo-specific articulation and
+ * material assembly (see docs/KNOWN-ISSUES.md); it is plumbing on the public `@forge/engine` API.
  *
  * Conventions the converter guarantees and this loader relies on:
  * - body primitives are already baked to model-root space (identity node transforms),

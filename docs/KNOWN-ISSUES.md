@@ -76,26 +76,31 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Core (Phase 1)
 
-Two entries left this section when Phase 9 landed: the worker round-trip and resource-eviction test gaps
-are gone (`tests/tasks.test.ts`, `tests/resources.test.ts`). What remains is the part of 9.1 that could not
-be verified, plus the index that now exists but is not used.
+The worker round-trip and resource-eviction test gaps are gone (`tests/tasks.test.ts`,
+`tests/resources.test.ts`). Phase 9.1 also verifies core glTF/GLB mesh decoding on Node and browser
+workers. `MeshBvh` now backs triangle-accurate scene picking and large-mesh frustum refinement;
+PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
-* **No asset decoder.** There is no glTF/GLB decoder, so "verify mesh decoding can execute outside the
-  main thread" has nothing to run.
-  (capability: assets.meshDecoding)
+* **Core glTF import is geometry-first.** `decodeGltfMesh` handles static, uncompressed triangle
+  primitives and returns typed vertex/index arrays, bounds, node transforms, scene roots and material
+  factors. It does not decode images/textures, assemble GPU materials/meshes, import skins/animations/
+  morph targets/instancing, or decode Draco/meshopt compression; those are tracked for the extended
+  glTF importer.
+  (capability: assets.gltfAdvanced)
 
-* **Streaming is admission scheduling, not mid-load interruption.** `AssetStreamer` (Phase 15.3) gates
-  when loads *start* — priority, concurrency cap, per-frame upload budget — but an aborted in-flight
-  load still runs to completion and only then disposes its output, and the streamer only schedules: a
-  composite loader still pulls its own dependencies through `context.registry` (the graph is metadata,
-  not a scheduler). Heavy main-thread decoding stays the bottleneck until the 15.1 worker decoder
-  lands.
-  (capability: assets.streaming)
+* **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads
+  *start* — priority, concurrency cap and per-frame upload budget — and safely disposes a completed
+  in-flight result after cancellation. JavaScript cannot interrupt an arbitrary synchronous loader
+  body, so loaders must poll `ResourceLoadContext.signal`; queued cancellation remains immediate.
+  The glTF decoder polls worker cancellation, while `.gltf` sidecar network fetches remain host-side.
+  (capability: assets.loaderPreemption)
 
-* **The BVH is built, not used.** `MeshBvh` (median split, deterministic, buildable in a worker) exists
-  and is tested, but terrain raycasts are still grid-marched, the broadphase is pairwise, and the
-  renderer culls with per-batch AABBs — so the tree saves nothing at runtime yet.
-  (capability: physics.spatialIndex)
+## Asset Pipeline (Phase 15)
+
+* **KTX2 3D/volume textures are not supported.** The current Basis JS binding exposes mip/layer/face
+  transcoding but not volume slices; `loadKtx2Texture` rejects depth-bearing inputs instead of
+  silently uploading an incomplete image. 2D, 2D-array, cube and cube-array paths are supported.
+  (capability: assets.ktx2Volume)
 
 
 ## Terrain (Phase 10)

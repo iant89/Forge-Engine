@@ -23,6 +23,7 @@
  */
 
 import { AABB, Frustum, Ray, RayHit } from "./geometry.js";
+import { Mat4 } from "./mat.js";
 import type { Vec3Ops } from "./vec.js";
 
 export interface MeshBvhBuildOptions {
@@ -91,6 +92,8 @@ export class MeshBvh {
 
   private readonly scratchT: Float32Array;
   private readonly stack: Int32Array;
+  private readonly frustumLocalBox = new AABB();
+  private readonly frustumWorldBox = new AABB();
   /** The geometry the index was built over. Kept by reference; it must stay unchanged. */
   private readonly positions: Float32Array;
   private readonly indices: Uint32Array;
@@ -124,9 +127,21 @@ export class MeshBvh {
     indices: ArrayLike<number>,
     options: MeshBvhBuildOptions = {},
   ): MeshBvh {
+    if (positions.length % 3 !== 0) throw new RangeError(`MeshBvh.build: positions length ${positions.length} is not a multiple of 3`);
+    if (indices.length % 3 !== 0) throw new RangeError(`MeshBvh.build: index length ${indices.length} is not a multiple of 3`);
+    const vertexCount = positions.length / 3;
+    for (let i = 0; i < indices.length; i++) {
+      const index = indices[i]!;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= vertexCount) {
+        throw new RangeError(`MeshBvh.build: index ${index} at offset ${i} is outside ${vertexCount} vertices`);
+      }
+    }
     const pos = positions instanceof Float32Array ? positions : Float32Array.from(positions);
+    for (let i = 0; i < pos.length; i++) {
+      if (!Number.isFinite(pos[i])) throw new RangeError(`MeshBvh.build: position at offset ${i} is not finite in float32`);
+    }
     const idx = indices instanceof Uint32Array ? indices : Uint32Array.from(indices);
-    const triangleCount = Math.floor(idx.length / 3);
+    const triangleCount = idx.length / 3;
     const leafSize = Math.max(1, Math.floor(options.leafSize ?? 8));
     const maxDepthLimit = Math.max(0, Math.floor(options.maxDepth ?? 24));
 
@@ -400,6 +415,33 @@ export class MeshBvh {
     );
     writeTriangleNormal(this.positions, this.indices, bestTri, out);
     return true;
+  }
+
+  /**
+   * Return whether any leaf bound intersects `frustum`. When `localToWorld` is supplied, node AABBs
+   * are conservatively transformed before the test. This is a candidate test: intersecting bounds
+   * do not guarantee that a triangle itself is visible, but a false result is safe to cull.
+   */
+  intersectsFrustum(frustum: Frustum, localToWorld?: Mat4): boolean {
+    if (this.nodeCount === 0) return false;
+    const localBox = this.frustumLocalBox;
+    const worldBox = this.frustumWorldBox;
+    const stack = this.stack;
+    let top = 0;
+    stack[top++] = 0;
+    while (top > 0) {
+      const node = stack[--top]!;
+      readNodeBounds(this.nodeBounds, node, localBox);
+      const testBox = localToWorld ? localBox.transformByMatrix(localToWorld, worldBox) : localBox;
+      if (!frustum.intersectsAABB(testBox)) continue;
+      if (this.nodeTriCount[node]! > 0) return true;
+      const left = this.nodeLeftFirst[node]!;
+      if (left >= 0) {
+        stack[top++] = left;
+        stack[top++] = left + 1;
+      }
+    }
+    return false;
   }
 
   /**

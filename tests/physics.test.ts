@@ -13,6 +13,7 @@ import {
   Ray,
   RayHit,
   collideBodies,
+  SweepAndPruneBroadphase,
 } from "@forge/engine";
 
 describe("Physics - Free Fall & Dynamics Integration", () => {
@@ -247,6 +248,42 @@ describe("Physics - Spatial Queries & Raycast", () => {
  * cases pin the parts that can silently disagree with the height field: the contact normal's sign,
  * the penetration measured from the sampled height, and the cornerwise box test.
  */
+describe("Physics - Indexed Broadphase", () => {
+  it("matches brute-force AABB pairs in deterministic body order while pruning sparse candidates", () => {
+    const bodies = Array.from({ length: 48 }, (_, i) => {
+      const type = i % 9 === 0 ? "static" : i % 11 === 0 ? "kinematic" : "dynamic";
+      const x = (i % 8) * 0.8;
+      const y = (Math.floor(i / 8) % 3) * 0.8;
+      const z = Math.floor(i / 24) * 4;
+      return new RigidBody({ type, shape: new BoxShape(0.45, 0.45, 0.45), position: new Vec3(x, y, z) });
+    });
+    const expected: [number, number][] = [];
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i]!;
+        const b = bodies[j]!;
+        if (a.invMass === 0 && b.invMass === 0) continue;
+        if (a.aabb.intersectsAABB(b.aabb)) expected.push([i, j]);
+      }
+    }
+
+    const broadphase = new SweepAndPruneBroadphase();
+    const actual = broadphase.query(bodies).map(({ a, b }) => [a, b]);
+    expect(actual).toEqual(expected);
+    expect(broadphase.stats.overlapPairs).toBe(expected.length);
+    expect(broadphase.stats.axisCandidates).toBeLessThan(broadphase.stats.possiblePairs);
+    expect(broadphase.stats.overlapPairs).toBeLessThan(broadphase.stats.possiblePairs);
+
+    const world = new PhysicsWorld({ gravity: new Vec3() });
+    world.addBody(new RigidBody({ shape: new SphereShape(0.5), position: new Vec3(0, 0, 0) }));
+    world.addBody(new RigidBody({ shape: new SphereShape(0.5), position: new Vec3(10, 0, 0) }));
+    world.stepOnce();
+    expect(world.broadphaseStats).toMatchObject({ bodyCount: 2, possiblePairs: 1, axisCandidates: 0, overlapPairs: 0 });
+    world.clear();
+    expect(world.broadphaseStats).toMatchObject({ bodyCount: 0, possiblePairs: 0, axisCandidates: 0, overlapPairs: 0 });
+  });
+});
+
 describe("Physics - Heightfield Contacts", () => {
   /** A flat field at y = 0 with an analytic +Y normal: nothing to interpolate, nothing to fudge. */
   const flatField = (): HeightfieldShape => new HeightfieldShape({ sampleHeight: () => 0 });

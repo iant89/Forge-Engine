@@ -92,13 +92,17 @@ const FORMATS: Record<string, FormatInfo> = {
   "bc5-rg-unorm": F("bc5-rg-unorm", 16, 2, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "bc6h-rgb-ufloat": F("bc6h-rgb-ufloat", 16, 3, { blockWidth: 4, blockHeight: 4, sampleType: "float", filterable: true, isCompressed: true }),
   "bc7-rgba-unorm": F("bc7-rgba-unorm", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
+  "bc7-rgba-unorm-srgb": F("bc7-rgba-unorm-srgb", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "etc2-rgb8unorm": F("etc2-rgb8unorm", 8, 3, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "etc2-rgb8unorm-srgb": F("etc2-rgb8unorm-srgb", 8, 3, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "etc2-rgba8unorm": F("etc2-rgba8unorm", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "etc2-rgba8unorm-srgb": F("etc2-rgba8unorm-srgb", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "astc-4x4-unorm": F("astc-4x4-unorm", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
+  "astc-4x4-unorm-srgb": F("astc-4x4-unorm-srgb", 16, 4, { blockWidth: 4, blockHeight: 4, sampleType: "unorm", filterable: true, isCompressed: true }),
   "astc-6x6-unorm": F("astc-6x6-unorm", 16, 4, { blockWidth: 6, blockHeight: 6, sampleType: "unorm", filterable: true, isCompressed: true }),
+  "astc-6x6-unorm-srgb": F("astc-6x6-unorm-srgb", 16, 4, { blockWidth: 6, blockHeight: 6, sampleType: "unorm", filterable: true, isCompressed: true }),
   "astc-8x8-unorm": F("astc-8x8-unorm", 16, 4, { blockWidth: 8, blockHeight: 8, sampleType: "unorm", filterable: true, isCompressed: true }),
+  "astc-8x8-unorm-srgb": F("astc-8x8-unorm-srgb", 16, 4, { blockWidth: 8, blockHeight: 8, sampleType: "unorm", filterable: true, isCompressed: true }),
 };
 
 export function formatInfo(format: GPUTextureFormat): FormatInfo {

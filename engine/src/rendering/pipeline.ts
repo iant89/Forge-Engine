@@ -520,7 +520,25 @@ export class PipelineFactory {
     }
   }
 
-  /** Re-create every pipeline after a device loss (modules and layouts are dead with the old one). */
+  /**
+   * Hot-replace a named WGSL module and invalidate dependent pipeline bundles. Built-in labels are
+   * the names passed by `moduleFor` (for example `standard.static.wgsl`, `sky.wgsl`, `post.wgsl`).
+   * Invalid WGSL is rejected before the active pipeline cache is touched.
+   */
+  replaceShaderSource(label: string, source: string): boolean {
+    if (!this.shaders.replaceSource(label, source)) return false;
+    this.invalidate();
+    return true;
+  }
+
+  /** Restore a named shader to the engine's compiled-in source. */
+  clearShaderOverride(label: string): boolean {
+    if (!this.shaders.clearSourceOverride(label)) return false;
+    this.invalidate();
+    return true;
+  }
+
+  /** Re-create every pipeline after device loss or a shader hot reload. */
   invalidate(): void {
     this.generation++;
     this.pipelines.clear();

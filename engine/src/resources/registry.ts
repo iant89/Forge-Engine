@@ -35,6 +35,7 @@ import { EventTarget2 } from "../core/events.js";
 import type { Logger } from "../core/log.js";
 import { AssetGraph } from "./assetGraph.js";
 import { AssetId, type AssetIdInfo } from "./assetId.js";
+import { AssetValidationError, type AssetDiagnostic } from "./validation.js";
 
 export type ResourceState = "idle" | "loading" | "ready" | "failed" | "released";
 
@@ -85,6 +86,11 @@ export interface ResourceDescriptor<T> {
    * `context.registry`. Edges that would close a cycle are rejected with a logged error.
    */
   dependencies?: (value: T) => readonly string[];
+  /**
+   * Phase 15.5: validate decoded output before it becomes visible to consumers. Warnings are
+   * logged; any error diagnostic rejects the load and disposes the output.
+   */
+  validate?: (value: T) => readonly AssetDiagnostic[];
 }
 
 export class ResourceHandle<T> {
@@ -175,9 +181,50 @@ export class Entry<T> {
   disposers = new Set<(v: T) => void>();
 
   constructor(
-    readonly descriptor: ResourceDescriptor<T>,
+    descriptor: ResourceDescriptor<T>,
     readonly registry: ResourceRegistry,
+  ) {
+    this.descriptor = descriptor;
+  }
+
+  descriptor: ResourceDescriptor<T>;
+}
+
+/**
+ * A ready resource whose registry entry has been detached without disposing its value. This is
+ * used only for double-buffered hot reload: the new value is staged first, then adopted into the
+ * existing entry after all live references have been switched.
+ */
+export class DetachedResource<T> {
+  private owned = true;
+
+  constructor(
+    /** @internal Registry which detached this value; prevents cross-registry adoption. */
+    readonly owner: ResourceRegistry,
+    readonly descriptor: ResourceDescriptor<T>,
+    readonly value: T,
+    readonly bytes: number,
+    /** @internal Disposers captured from the detached entry and adopted with its value. */
+    readonly disposers: Set<(value: T) => void>,
+    private readonly disposeDetached: () => void,
   ) {}
+
+  get active(): boolean {
+    return this.owned;
+  }
+
+  /** @internal Transfer ownership into a live registry entry. */
+  adopt(): void {
+    if (!this.owned) throw new ResourceLifecycleError(`Detached resource "${this.descriptor.id}" is no longer owned`);
+    this.owned = false;
+  }
+
+  /** Dispose a staged value that was rejected or cancelled before adoption. */
+  dispose(): void {
+    if (!this.owned) return;
+    this.owned = false;
+    this.disposeDetached();
+  }
 }
 
 export interface ResourceRegistryOptions {
@@ -208,6 +255,8 @@ export class ResourceRegistry {
     contentChanged: new EventTarget2<{ id: string; oldHash: string; newHash: string; dependents: string[] }>(),
     /** Phase 15.2: an asset was invalidated/evicted; `dependents` is the transitive reload list. */
     invalidated: new EventTarget2<{ id: string; dependents: string[]; reason: string }>(),
+    /** Phase 15.4: a staged replacement was committed without exposing a disposed old value. */
+    reloaded: new EventTarget2<{ id: string; kind: string; oldHash?: string; newHash?: string; dependents: string[] }>(),
   };
 
   constructor(options: ResourceRegistryOptions = {}) {
@@ -319,24 +368,32 @@ export class ResourceRegistry {
     };
     const promise = (async () => {
       const value = await descriptor.load(context);
-      if (entry.abort.aborted) {
-        // The load finished after cancellation: dispose what it produced so nothing is orphaned.
-        try {
-          descriptor.dispose?.(value);
-        } catch (e) {
-          this.logger?.warn(`resource ${descriptor.id}: post-cancel dispose failed`, e);
+      let valueOwned = true;
+      try {
+        if (entry.abort.aborted) throw new InternalError(`resource "${descriptor.id}" was cancelled`);
+        if (descriptor.validate) {
+          const diagnostics = descriptor.validate(value) ?? [];
+          for (const diagnostic of diagnostics) {
+            if (diagnostic.severity === "warning") this.logger?.warn(`resource ${descriptor.id}: ${diagnostic.code}: ${diagnostic.message}`);
+          }
+          if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+            throw new AssetValidationError(descriptor.id, diagnostics);
+          }
         }
-        throw new InternalError(`resource "${descriptor.id}" was cancelled`);
+        entry.value = value;
+        entry.bytes = descriptor.bytes ? Math.max(0, descriptor.bytes(value)) : 0;
+        this.totalBytes += entry.bytes;
+        this.registerDependencies(entry, value);
+        entry.state = "ready";
+        valueOwned = false;
+        this.events.loaded.emit(descriptor.id);
+        // Over budget: `evictIdle()` picks the target up from `maxBytes` and ignores the grace period.
+        if (this.maxBytes > 0 && this.totalBytes > this.maxBytes) this.evictIdle();
+        return value;
+      } catch (error) {
+        if (valueOwned) this.disposeValue(descriptor, value, entry.disposers, `resource ${descriptor.id}: rejected output dispose failed`);
+        throw error;
       }
-      entry.value = value;
-      entry.bytes = descriptor.bytes ? Math.max(0, descriptor.bytes(value)) : 0;
-      this.totalBytes += entry.bytes;
-      this.registerDependencies(entry, value);
-      entry.state = "ready";
-      this.events.loaded.emit(descriptor.id);
-      // Over budget: `evictIdle()` picks the target up from `maxBytes` and ignores the grace period.
-      if (this.maxBytes > 0 && this.totalBytes > this.maxBytes) this.evictIdle();
-      return value;
     })().catch((error: unknown) => {
       entry.state = "failed";
       entry.error = error instanceof Error ? error.message : String(error);
@@ -459,13 +516,10 @@ export class ResourceRegistry {
   private releaseEntry(e: Entry<unknown>): void {
     const descriptor = e.descriptor as ResourceDescriptor<unknown>;
     if (e.value !== null && e.state === "ready") {
-      try {
-        for (const d of e.disposers) d(e.value);
-        descriptor.dispose?.(e.value);
-      } catch (error) {
-        this.logger?.error(`resource ${descriptor.id}: dispose failed`, error);
-      }
+      this.disposeValue(descriptor, e.value, e.disposers, `resource ${descriptor.id}: dispose failed`);
     }
+    e.disposers.clear();
+    e.value = null;
     e.abort.aborted = true;
     this.evictedBytesTotal += e.bytes;
     this.totalBytes -= e.bytes;
@@ -475,6 +529,26 @@ export class ResourceRegistry {
     this.graph.unlink(descriptor.id);
     this.evictions++;
     this.events.evicted.emit(descriptor.id);
+  }
+
+  private disposeValue<T>(
+    descriptor: ResourceDescriptor<T>,
+    value: T,
+    disposers: Iterable<(value: T) => void>,
+    message: string,
+  ): void {
+    for (const disposer of disposers) {
+      try {
+        disposer(value);
+      } catch (error) {
+        this.logger?.error(message, error);
+      }
+    }
+    try {
+      descriptor.dispose?.(value);
+    } catch (error) {
+      this.logger?.error(message, error);
+    }
   }
 
   /** Evict one specific id (used by the editor's "reload asset" action). */
@@ -493,7 +567,102 @@ export class ResourceRegistry {
     return true;
   }
 
-  /** Re-load an id, discarding the cached value (hot-reload path). */
+  /**
+   * Retain an already-ready entry without invoking `acquire`'s content-hash invalidation path.
+   * Hot reload uses this lease to keep the previous value alive while a replacement is staged.
+   */
+  retain<T = unknown>(id: string): ResourceHandle<T> | null {
+    const entry = this.entries.get(id) as Entry<T> | undefined;
+    if (!entry || entry.state !== "ready") return null;
+    return new ResourceHandle<T>(entry);
+  }
+
+  /**
+   * Remove a ready, unreferenced entry from the registry but transfer (rather than dispose) its
+   * value. Used for a staged hot-reload result after the streamer's lease has been released.
+   */
+  detach<T = unknown>(id: string): DetachedResource<T> | null {
+    const entry = this.entries.get(id) as Entry<T> | undefined;
+    if (!entry || entry.state !== "ready" || entry.value === null) return null;
+    if (entry.refCount > 0) throw new ResourceLifecycleError(`cannot detach "${id}" while ${entry.refCount} handle(s) still reference it`);
+    const value = entry.value;
+    const descriptor = entry.descriptor;
+    const bytes = entry.bytes;
+    const disposers = entry.disposers;
+    const detached = new DetachedResource<T>(
+      this,
+      descriptor,
+      value,
+      bytes,
+      disposers,
+      () => this.disposeValue(descriptor, value, disposers, `resource ${id}: detached dispose failed`),
+    );
+    entry.value = null;
+    entry.bytes = 0;
+    entry.state = "released";
+    entry.abort.aborted = true;
+    entry.disposers = new Set();
+    this.totalBytes -= bytes;
+    this.entries.delete(id);
+    this.graph.unlink(id);
+    return detached;
+  }
+
+  /**
+   * Atomically adopt a staged value into an existing ready entry. `swap` runs synchronously while
+   * the old value is still valid; once it returns, every registry handle observes the replacement
+   * before the old value is disposed. If `swap` throws, the old entry remains untouched and the
+   * caller still owns (and must dispose) `next`.
+   */
+  replace<T>(
+    id: string,
+    descriptor: ResourceDescriptor<T>,
+    next: DetachedResource<T>,
+    expected: ResourceHandle<T>,
+    swap?: (previous: T, replacement: T) => void,
+  ): T {
+    if (descriptor.id !== id) throw new UsageError(`replace("${id}"): descriptor id must match`);
+    if (next.owner !== this || !next.active) throw new ResourceLifecycleError(`replace("${id}"): replacement is not an active transfer from this registry`);
+    if (expected.releasedFlag) throw new ResourceLifecycleError(`replace("${id}"): expected handle was released`);
+    const entry = this.entries.get(id) as Entry<T> | undefined;
+    if (!entry || entry !== expected.entry || entry.state !== "ready" || entry.value === null) {
+      throw new ResourceLifecycleError(`replace("${id}"): the live resource changed while the replacement was loading`);
+    }
+
+    const previous = entry.value;
+    const previousDescriptor = entry.descriptor;
+    const previousBytes = entry.bytes;
+    const previousDisposers = entry.disposers;
+    const dependents = this.graph.transitive(id, "dependents").filter((dependent) => this.entries.has(dependent));
+    const nextBytes = descriptor.bytes ? Math.max(0, descriptor.bytes(next.value)) : 0;
+    // User binding swaps are required to be synchronous: JS cannot render a frame between this
+    // callback and the registry commit/disposal below.
+    swap?.(previous, next.value);
+
+    next.adopt();
+    entry.descriptor = descriptor;
+    entry.value = next.value;
+    entry.bytes = nextBytes;
+    entry.disposers = next.disposers;
+    entry.error = null;
+    entry.failure = null;
+    entry.state = "ready";
+    entry.lastUse = nowMs();
+    this.totalBytes += nextBytes - previousBytes;
+    this.graph.unlink(id);
+    this.registerDependencies(entry, next.value);
+
+    this.disposeValue(previousDescriptor, previous, previousDisposers, `resource ${id}: previous value dispose failed`);
+    previousDisposers.clear();
+    if (previousDescriptor.contentHash !== undefined && descriptor.contentHash !== undefined && previousDescriptor.contentHash !== descriptor.contentHash) {
+      this.events.contentChanged.emit({ id, oldHash: previousDescriptor.contentHash, newHash: descriptor.contentHash, dependents });
+    }
+    this.events.reloaded.emit({ id, kind: descriptor.kind, oldHash: previousDescriptor.contentHash, newHash: descriptor.contentHash, dependents });
+    if (this.maxBytes > 0 && this.totalBytes > this.maxBytes) this.evictIdle();
+    return next.value;
+  }
+
+  /** Re-load an id, discarding the cached value (legacy non-atomic retry path). */
   async retry<T = unknown>(id: string): Promise<T> {
     const e = this.entries.get(id) as Entry<T> | undefined;
     if (!e) throw new UsageError(`retry("${id}"): no such resource`);
@@ -556,6 +725,11 @@ export class ResourceRegistry {
     const out: string[] = [];
     for (const e of this.entries.values()) if (e.descriptor.kind === kind && e.state === "ready") out.push(e.descriptor.id);
     return out.sort();
+  }
+
+  /** The descriptor for an entry (editor inspection / hot-reload version reporting), or null. */
+  descriptorOf<T = unknown>(id: string): ResourceDescriptor<T> | null {
+    return (this.entries.get(id)?.descriptor as ResourceDescriptor<T> | undefined) ?? null;
   }
 
   /** Bytes evicted since construction (Phase 9.3: `evictedBytes` in the memory report). */

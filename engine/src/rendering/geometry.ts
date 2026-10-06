@@ -11,7 +11,9 @@
  */
 
 import { BufferUsage, gpuSource } from "../gpu/constants.js";
-import { AABB } from "../math/geometry.js";
+import { AABB, Frustum, Ray, RayHit } from "../math/geometry.js";
+import { Mat4 } from "../math/mat.js";
+import { MeshBvh } from "../math/bvh.js";
 import { Vec3 } from "../math/vec.js";
 import { UsageError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -54,57 +56,39 @@ export class Geometry {
   /** Set by `Mesh`/materials when the geometry is used by a skinning pipeline. */
   skinned = false;
 
+  private spatialIndex: MeshBvh | null | undefined;
+  private readonly localRay = new Ray();
+  private readonly localRayHit = new RayHit();
+  private readonly inverseWorld = new Mat4();
+  private readonly localOrigin = new Vec3();
+  private readonly localDirection = new Vec3();
+  private readonly worldPoint = new Vec3();
+  private readonly worldNormal = new Vec3();
+
   private constructor(
     readonly device: GraphicsDevice,
     readonly source: GeometrySource,
   ) {}
 
   /**
-   * Build GPU buffers from interleaved-ready source arrays. `normals`/`uvs`/`tangents` are optional:
-   * missing channels are zero-filled so the fixed layout still holds (a debug/silhouette geometry
-   * then simply ignores them).
+   * Build GPU buffers from source attribute arrays. Missing normals default to +Z; missing UVs and
+   * tangents are zero-filled so the fixed vertex layout always has a complete record.
    */
   static create(device: GraphicsDevice, src: GeometrySource): Geometry {
     const count = Math.floor(src.positions.length / 3);
     if (count === 0) throw new UsageError("Geometry.create: positions array is empty");
     const g = new Geometry(device, src);
     g.vertexCount = count;
-    const interleaved = new Float32Array(count * 12);
-    const positions = src.positions;
-    const normals = src.normals ?? null;
-    const uvs = src.uvs ?? null;
-    const tangents = src.tangents ?? null;
-    for (let i = 0; i < count; i++) {
-      const o = i * 12;
-      interleaved[o] = positions[i * 3]!;
-      interleaved[o + 1] = positions[i * 3 + 1]!;
-      interleaved[o + 2] = positions[i * 3 + 2]!;
-      if (normals) {
-        interleaved[o + 3] = normals[i * 3]!;
-        interleaved[o + 4] = normals[i * 3 + 1]!;
-        interleaved[o + 5] = normals[i * 3 + 2]!;
-      } else {
-        interleaved[o + 5] = 1;
-      }
-      if (uvs) {
-        interleaved[o + 6] = uvs[i * 2]!;
-        interleaved[o + 7] = uvs[i * 2 + 1]!;
-      }
-      if (tangents) {
-        interleaved[o + 8] = tangents[i * 4]!;
-        interleaved[o + 9] = tangents[i * 4 + 1]!;
-        interleaved[o + 10] = tangents[i * 4 + 2]!;
-        interleaved[o + 11] = tangents[i * 4 + 3]!;
-      }
+    const interleaved = interleaveVertices(src, count);
+    g.bounds = src.bounds ? src.bounds.clone() : computeBounds(src.positions);
+    try {
+      g.uploadVertices(interleaved);
+      if (src.indices && src.indices.length > 0) g.uploadIndices(src.indices);
+      return g;
+    } catch (error) {
+      g.release();
+      throw error;
     }
-    if (!normals) {
-      // Default +Z normals keep lighting defined for geometries authored without them.
-      for (let i = 0; i < count; i++) interleaved[i * 12 + 5] = 1;
-    }
-    g.bounds = src.bounds ? src.bounds.clone() : computeBounds(positions);
-    g.uploadVertices(interleaved);
-    if (src.indices && src.indices.length > 0) g.uploadIndices(src.indices);
-    return g;
   }
 
   private uploadVertices(data: Float32Array): void {
@@ -115,27 +99,41 @@ export class Geometry {
       usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,
       mappedAtCreation: false,
     });
-    writeRaw(this.device, buffer, data);
-    this.vertexBuffer = buffer;
+    try {
+      writeRaw(this.device, buffer, data);
+      this.vertexBuffer = buffer;
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
   }
 
-  private uploadIndices(indices: Uint32Array | Uint16Array): void {
-    if (indices instanceof Uint16Array) {
-      this.indexFormat = "uint16";
-      this.indexCount = indices.length;
-    } else {
-      this.indexFormat = "uint32";
-      this.indexCount = indices.length;
-    }
+  private createIndexResource(
+    indices: Uint32Array | Uint16Array,
+    label = this.source.label,
+  ): { buffer: GPUBuffer; count: number; format: GPUIndexFormat } {
+    const format: GPUIndexFormat = indices instanceof Uint16Array ? "uint16" : "uint32";
     const bytes = new Uint8Array(indices.buffer.slice(indices.byteOffset, indices.byteOffset + indices.byteLength));
     const padded = Math.ceil(bytes.byteLength / 4) * 4;
     const buffer = this.device.createBuffer({
-      label: `geometry.index.${this.source.label ?? ""}`,
+      label: `geometry.index.${label ?? ""}`,
       size: Math.max(4, padded),
       usage: BufferUsage.INDEX | BufferUsage.COPY_DST,
     });
-    writeRaw(this.device, buffer, bytes);
-    this.indexBuffer = buffer;
+    try {
+      writeRaw(this.device, buffer, bytes);
+      return { buffer, count: indices.length, format };
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
+  }
+
+  private uploadIndices(indices: Uint32Array | Uint16Array): void {
+    const next = this.createIndexResource(indices);
+    this.indexBuffer = next.buffer;
+    this.indexCount = next.count;
+    this.indexFormat = next.format;
   }
 
   get triangleCount(): number {
@@ -143,26 +141,137 @@ export class Geometry {
     return Math.floor(this.vertexCount / 3);
   }
 
+  /**
+   * Lazily build the CPU spatial index used for picking and mesh-frustum queries. Source arrays are
+   * retained by Geometry, so the cache is invalidated by `updateFrom`; callers should replace data
+   * through that method rather than mutating a source array behind the GPU's back.
+   */
+  getMeshBvh(): MeshBvh | null {
+    if (this.spatialIndex !== undefined) return this.spatialIndex;
+    const triangles = this.triangleCount;
+    if (triangles < 1) {
+      this.spatialIndex = null;
+      return null;
+    }
+    const usedIndexCount = triangles * 3;
+    const sourceIndices = this.source.indices;
+    let indices: Uint32Array;
+    if (sourceIndices && sourceIndices.length > 0) {
+      const used = sourceIndices.subarray(0, usedIndexCount);
+      indices = used instanceof Uint32Array ? used : Uint32Array.from(used);
+    } else {
+      indices = new Uint32Array(usedIndexCount);
+      for (let i = 0; i < usedIndexCount; i++) indices[i] = i;
+    }
+    this.spatialIndex = MeshBvh.build(this.source.positions, indices);
+    return this.spatialIndex;
+  }
+
+  /**
+   * Conservative mesh-aware frustum test. The ordinary world AABB remains the fast first test;
+   * this hierarchical refinement avoids retaining sparse, large meshes whose overall bound overlaps
+   * the camera while all triangle leaves lie outside it. Tiny meshes keep the cheaper AABB path.
+   */
+  intersectsFrustum(frustum: Frustum, localToWorld: Mat4): boolean {
+    if (this.triangleCount < 16) return true;
+    return this.getMeshBvh()?.intersectsFrustum(frustum, localToWorld) ?? true;
+  }
+
+  /**
+   * Raycast actual triangles in world space using the local-space BVH. `localToWorld` may include
+   * non-uniform or negative scale; distance and normals are converted back to the world ray.
+   */
+  raycast(ray: Ray, localToWorld: Mat4, out: RayHit): boolean {
+    out.reset();
+    const bvh = this.getMeshBvh();
+    if (!bvh) return false;
+    const inverse = this.inverseWorld.copyFrom(localToWorld);
+    if (!inverse.invert()) return false;
+    inverse.transformPoint(ray.origin, this.localOrigin);
+    inverse.transformDirection(ray.direction, this.localDirection);
+    const localDirectionScale = Math.hypot(this.localDirection.x, this.localDirection.y, this.localDirection.z);
+    if (!(localDirectionScale > 1e-12) || !Number.isFinite(localDirectionScale)) return false;
+    this.localRay.setFrom(this.localOrigin, this.localDirection, ray.maxDistance * localDirectionScale);
+    if (!bvh.raycast(this.localRay, this.localRayHit)) return false;
+
+    localToWorld.transformPoint(this.localRayHit.point, this.worldPoint);
+    const dx = this.worldPoint.x - ray.origin.x;
+    const dy = this.worldPoint.y - ray.origin.y;
+    const dz = this.worldPoint.z - ray.origin.z;
+    const distance = dx * ray.direction.x + dy * ray.direction.y + dz * ray.direction.z;
+    if (distance < 0 || distance > ray.maxDistance) return false;
+
+    // Normals transform by inverse transpose; a reflection also flips the original winding.
+    inverse.transpose().transformDirection(this.localRayHit.normal, this.worldNormal).normalize();
+    if (localToWorld.determinant() < 0) this.worldNormal.negate();
+    out.distance = distance;
+    out.point.copyFrom(this.worldPoint);
+    out.normal.copyFrom(this.worldNormal);
+    out.index = this.localRayHit.index;
+    out.isValid = true;
+    return true;
+  }
+
   /** Bytes held on the GPU by this geometry (used by the memory budget + the leak tests). */
   get gpuBytes(): number {
     return this.vertexCount * VERTEX_STRIDE + (this.indexCount * (this.indexFormat === "uint16" ? 2 : 4));
   }
 
-  /** Replace the position/normal data in place (terrain chunk updates reuse the same buffer). */
+  /** Replace geometry streams, reusing vertex storage when its size is unchanged. */
   updateFrom(src: GeometrySource): void {
-    if (src.positions.length / 3 !== this.vertexCount) {
+    const count = Math.floor(src.positions.length / 3);
+    const sameVertexCount = count === this.vertexCount;
+    const rebuild = this.released || !this.vertexBuffer || !sameVertexCount;
+    const has = (key: keyof GeometrySource): boolean => Object.prototype.hasOwnProperty.call(src, key);
+    const nextSource: GeometrySource = {
+      ...this.source,
+      ...src,
+      normals: has("normals") ? src.normals ?? null : sameVertexCount ? this.source.normals ?? null : null,
+      uvs: has("uvs") ? src.uvs ?? null : sameVertexCount ? this.source.uvs ?? null : null,
+      tangents: has("tangents") ? src.tangents ?? null : sameVertexCount ? this.source.tangents ?? null : null,
+      indices: has("indices") ? src.indices ?? null : sameVertexCount ? this.source.indices ?? null : null,
+      bounds: src.bounds ?? null,
+      label: src.label ?? this.source.label,
+    };
+
+    if (rebuild) {
+      const next = Geometry.create(this.device, nextSource);
       this.release();
-      const next = Geometry.create(this.device, src);
       this.vertexBuffer = next.vertexBuffer;
       this.indexBuffer = next.indexBuffer;
       this.vertexCount = next.vertexCount;
       this.indexCount = next.indexCount;
       this.indexFormat = next.indexFormat;
+      this.bounds.setFrom(next.bounds.min, next.bounds.max);
+      this.released = false;
+      next.vertexBuffer = null;
+      next.indexBuffer = null;
+      next.released = true;
     } else {
-      writeRaw(this.device, this.vertexBuffer!, src.positions);
+      const indicesChanged = has("indices");
+      const interleaved = interleaveVertices(nextSource, count);
+      const replacement = indicesChanged && nextSource.indices && nextSource.indices.length > 0
+        ? this.createIndexResource(nextSource.indices, nextSource.label)
+        : null;
+      try {
+        writeRaw(this.device, this.vertexBuffer!, interleaved);
+      } catch (error) {
+        replacement?.buffer.destroy();
+        throw error;
+      }
+      if (indicesChanged) {
+        const previous = this.indexBuffer;
+        this.indexBuffer = replacement?.buffer ?? null;
+        this.indexCount = replacement?.count ?? 0;
+        this.indexFormat = replacement?.format ?? null;
+        previous?.destroy();
+      }
+      Object.assign(this.source, nextSource);
+      const bounds = nextSource.bounds ? nextSource.bounds : computeBounds(nextSource.positions);
+      this.bounds.setFrom(bounds.min, bounds.max);
     }
-    Object.assign(this.source, src);
-    this.bounds.setFrom(src.bounds?.min ?? this.bounds.min, src.bounds?.max ?? this.bounds.max);
+    Object.assign(this.source, nextSource);
+    this.spatialIndex = undefined;
   }
 
   release(): void {
@@ -172,6 +281,7 @@ export class Geometry {
     this.indexBuffer?.destroy();
     this.vertexBuffer = null;
     this.indexBuffer = null;
+    this.spatialIndex = undefined;
   }
 
   dispose(): void {
@@ -181,6 +291,39 @@ export class Geometry {
   stats(): Record<string, number | string | boolean> {
     return { vertices: this.vertexCount, indices: this.indexCount, bytes: this.gpuBytes, skinned: this.skinned };
   }
+}
+
+function interleaveVertices(src: GeometrySource, count: number): Float32Array {
+  const interleaved = new Float32Array(count * 12);
+  const positions = src.positions;
+  const normals = src.normals ?? null;
+  const uvs = src.uvs ?? null;
+  const tangents = src.tangents ?? null;
+  for (let i = 0; i < count; i++) {
+    const o = i * 12;
+    interleaved[o] = positions[i * 3]!;
+    interleaved[o + 1] = positions[i * 3 + 1]!;
+    interleaved[o + 2] = positions[i * 3 + 2]!;
+    if (normals) {
+      interleaved[o + 3] = normals[i * 3]!;
+      interleaved[o + 4] = normals[i * 3 + 1]!;
+      interleaved[o + 5] = normals[i * 3 + 2]!;
+    } else {
+      // Default +Z normals keep lighting defined for geometries authored without them.
+      interleaved[o + 5] = 1;
+    }
+    if (uvs) {
+      interleaved[o + 6] = uvs[i * 2]!;
+      interleaved[o + 7] = uvs[i * 2 + 1]!;
+    }
+    if (tangents) {
+      interleaved[o + 8] = tangents[i * 4]!;
+      interleaved[o + 9] = tangents[i * 4 + 1]!;
+      interleaved[o + 10] = tangents[i * 4 + 2]!;
+      interleaved[o + 11] = tangents[i * 4 + 3]!;
+    }
+  }
+  return interleaved;
 }
 
 /**

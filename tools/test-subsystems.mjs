@@ -68,9 +68,9 @@ export const subsystems = {
     deps: ["core", "math"],
   },
   resources: {
-    title: "Resource registry, textures, mip generation, asset ids + dependency graph",
+    title: "Resource registry, streaming, hot reload, validation, KTX2 textures + dependency graph",
     src: ["engine/src/resources"],
-    tests: ["tests/resources.test.ts", "tests/textureMips.test.ts", "tests/assetPipeline.test.ts", "tests/streaming.test.ts"],
+    tests: ["tests/resources.test.ts", "tests/textureMips.test.ts", "tests/assetPipeline.test.ts", "tests/phase15.test.ts", "tests/gltf.test.ts", "tests/streaming.test.ts"],
     deps: ["core", "gpu", "math"],
   },
   scene: {
@@ -99,6 +99,7 @@ export const subsystems = {
       "tests/renderGraph.test.ts",
       "tests/frame.test.ts",
       "tests/pipeline.test.ts",
+      "tests/shaderHotReload.test.ts",
       "tests/shadows.test.ts",
       "tests/clusters.test.ts",
       "tests/lightCulling.test.ts",

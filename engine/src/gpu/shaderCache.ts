@@ -40,6 +40,8 @@ export interface WgslIssue {
 export class ShaderCache {
   private readonly modules = new Map<string, GPUShaderModule>();
   private readonly infos = new Map<string, WgslIssue[]>();
+  /** Runtime shader sources by the same labels used by `get()`; survive cache/device invalidation. */
+  private readonly overrides = new Map<string, string>();
   private created = 0;
   private reused = 0;
   private sourceBytes = 0;
@@ -58,23 +60,24 @@ export class ShaderCache {
   }
 
   get(label: string, source: string, options: { validate?: boolean } = {}): GPUShaderModule {
-    const key = ShaderCache.key(source);
+    const effectiveSource = this.overrides.get(label) ?? source;
+    const key = ShaderCache.key(effectiveSource);
     const cached = this.modules.get(key);
     if (cached) {
       this.reused++;
       return cached;
     }
     if (options.validate !== false) {
-      const issues = validateWgsl(source);
+      const issues = validateWgsl(effectiveSource);
       if (issues.length > 0) {
         throw new UsageError(`shader "${label}" failed static validation:\n  ${issues.map((i) => `${i.kind}: ${i.message}${i.line ? ` (line ${i.line})` : ""}`).join("\n  ")}`);
       }
       this.infos.set(key, issues);
     }
-    const module = this.device.device.createShaderModule({ label, code: source });
+    const module = this.device.device.createShaderModule({ label, code: effectiveSource });
     this.modules.set(key, module);
     this.created++;
-    this.sourceBytes += source.length;
+    this.sourceBytes += effectiveSource.length;
     this.reportCompilationInfo(label, module);
     return module;
   }
@@ -119,11 +122,31 @@ export class ShaderCache {
     return info.messages.filter((m) => m.type === "error").map((m) => `${m.type} line ${m.lineNum}: ${m.message}`);
   }
 
+  /**
+   * Replace a label's source after strict static validation. `PipelineFactory.replaceShaderSource`
+   * clears its pipelines after calling this; direct cache users get a new module on the next `get`.
+   */
+  replaceSource(label: string, source: string): boolean {
+    if (!label) throw new UsageError("shader override label must be non-empty");
+    const issues = validateWgsl(source);
+    if (issues.length > 0) {
+      throw new UsageError(`shader "${label}" failed static validation:\n  ${issues.map((i) => `${i.kind}: ${i.message}${i.line ? ` (line ${i.line})` : ""}`).join("\n  ")}`);
+    }
+    if (this.overrides.get(label) === source) return false;
+    this.overrides.set(label, source);
+    return true;
+  }
+
+  /** Restore the caller's built-in fallback source for a label. */
+  clearSourceOverride(label: string): boolean {
+    return this.overrides.delete(label);
+  }
+
   stats(): ShaderStats {
     return { created: this.created, reused: this.reused, sourceBytes: this.sourceBytes, uniqueSources: this.modules.size };
   }
 
-  /** Drop all modules (device-lost recovery: shaders must be re-created). */
+  /** Drop all modules (device-lost recovery: shaders must be re-created); source overrides survive. */
   clear(): void {
     this.modules.clear();
     this.infos.clear();

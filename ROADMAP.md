@@ -12,7 +12,8 @@ CURRENT CODEBASE BASELINE:
     Phases 0-7: IMPLEMENTED / VERIFIED
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
-    Phase 9:    IN PROGRESS (9.2 - 9.6 landed; 9.1 partial)
+    Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
+                deterministic broadphase, resource hardening, coordinate API and docs gates verified)
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
@@ -25,10 +26,12 @@ CURRENT CODEBASE BASELINE:
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
                 surface sampling, worker generation and population raycast)
-    Phase 15+:  IN PROGRESS (15.1 content addressing, 15.2 dependency graph and 15.3 streaming
-                — priority, cancellation, per-frame upload budget, pumped by Engine.step —
-                landed on the resource registry; 15.4 hot reload, 15.5 validation and
-                15.6 KTX2/Basis remain)
+    Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
+                15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
+                and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
+                real Chromium/SwiftShader verified an ETC1S-to-BC7 six-mip upload.
+                KTX2 3D volumes are explicitly deferred; core glTF/GLB geometry decode is
+                separately verified in Phase 9.1, with extended import in Phase 16.1.)
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -127,7 +130,7 @@ PHASE 14 - World Population
     [~] IN PROGRESS
 
 PHASE 15+
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 
 ================================================================================
@@ -176,15 +179,33 @@ than simply adding features.
 
     [x] Verify BVH/LBVH generation can execute outside the main thread.
         (engine/src/math/bvh.ts + the geometry.bvh task; a worker-built tree is byte-identical to
-        the inline build and answers the same rays — tests/tasks.test.ts, tests/bvh.test.ts.
-        Wiring it into raycasts and culling is later work: capability: physics.spatialIndex)
+        the inline build and answers the same rays — tests/tasks.test.ts, tests/bvh.test.ts.)
 
-    [ ] Verify mesh decoding can execute outside the main thread.
-        No glTF/GLB decoder exists yet (capability: assets.meshDecoding, Phase 15.1).
+    [x] Use spatial indices in runtime queries.
+        Geometry's lazy mesh BVH powers triangle-accurate scene picking and refines large-mesh
+        frustum culling. PhysicsWorld's deterministic sweep-and-prune index prunes rigid-body pairs
+        before narrowphase while preserving the original insertion order. Heightfield raycasts keep
+        their specialized grid traversal. Evidence: tests/ecs.test.ts, tests/rendering.test.ts,
+        tests/physics.test.ts; capability: physics.spatialIndex.
 
-    The remaining open bullet is why 9.1 stays [~]: mesh decoding has nothing to run because no
-    asset decoder exists yet, and a browser-side worker round-trip is still not asserted
-    (capability: workers.browserThreads).
+    [x] Verify mesh decoding can execute outside the main thread.
+
+        `decodeGltfMesh` / `loadGltfMesh` decode core glTF 2.0 and GLB triangle primitives through
+        the `asset.gltf.decode` TaskScheduler task. The worker returns transferable typed arrays,
+        indices, bounds, scene/node transforms and material factors; external `.gltf` buffer fetches
+        are resolved before dispatch. Interleaved and sparse accessors plus normalized integer
+        attributes are covered by `tests/gltf.test.ts`; the same GLB result is compared against the
+        inline decoder and a real Node worker thread (`tests/tasks.test.ts`,
+        `tests/gltf.test.ts`).
+
+    [x] Verify a browser module-worker round-trip.
+
+        `npm run check:browser:workers` loads `tests/fixtures/triangle.glb` in Chromium, asks a real
+        `TaskScheduler` module worker to decode it, and asserts worker count, task completion, decoded
+        geometry, zero inline fallbacks and zero worker failures (`tools/browser-check.mjs`).
+        This is separate from the Node `worker_threads` adapter. Full asset import beyond uncompressed
+        triangle geometry — images/material GPU construction, skin/animation, morph targets,
+        instancing, Draco and meshopt — is tracked under `assets.gltfAdvanced` (Phase 16.1).
 
 
 9.2 Resource Cache
@@ -266,6 +287,7 @@ than simply adding features.
 EXIT CRITERIA:
 
     Worker execution is tested.
+    Mesh queries and large-mesh frustum culling use the spatial index; rigid-body pairs are broadphase-pruned.
     Resource eviction is tested.
     Memory accounting exists.
     Capability state is queryable.
@@ -1158,29 +1180,68 @@ GOAL:
 
 15.4 Hot Reload
 
-    [ ] Mesh reload.
-    [ ] Texture reload.
-    [ ] Material reload.
-    [ ] Shader reload.
+    [x] Mesh, texture and material resource replacement.
+
+        `AssetHotReloader` (`engine/src/resources/hotReload.ts`) stages a replacement under a private
+        id through `AssetStreamer`, keeps the old ready value alive while loading/validating, then
+        runs the caller's synchronous consumer-swap callback before the registry adopts the new value
+        and disposes the old one. The stable id, dependency edges, byte accounting and content-hash
+        events are updated at commit. Failed and cancelled stages leave the live value untouched;
+        same-hash in-flight requests are shared and differing versions serialize. The generic
+        descriptor API covers mesh/texture/material values without imposing a file-watcher or
+        importer on callers. Verified in `tests/phase15.test.ts`.
+
+    [x] Shader reload.
+
+        `PipelineFactory.replaceShaderSource` runs the engine's WGSL structural/layout validator
+        before it invalidates pipeline bundles; `clearShaderOverride` returns to the built-in source.
+        Invalid source leaves the last good pipeline cached. Verified in
+        `tests/shaderHotReload.test.ts`.
 
 
 15.5 Asset Validation
 
-    [ ] Invalid mesh detection.
-    [ ] Missing texture detection.
-    [ ] Unsupported material detection.
-    [ ] Excessive memory detection.
+    [x] Invalid mesh detection.
+    [x] Missing texture detection.
+    [x] Unsupported material detection.
+    [x] Excessive memory detection.
+
+        `engine/src/resources/validation.ts` provides structured mesh-stream/index, texture
+        dimensions/mip/format/capability/block-alignment, material-technique/PBR, dependency and
+        memory-budget diagnostics. `ResourceDescriptor.validate` rejects error-severity output before
+        publication and disposes rejected values; warnings remain observable through the logger.
+        Verified in `tests/phase15.test.ts`.
 
 
 15.6 KTX2 / Basis
 
-    [ ] Complete transcoding when suitable toolchain is available.
+    [x] Transcode supported KTX2/Basis content to the best available WebGPU texture format.
+
+        `loadKtx2Texture` lazily loads the pinned Basis Universal WASM, detects the KTX2 DFD transfer
+        function, transcodes each mip/layer/face, and uploads BC7, ASTC, ETC2 or RGBA8 LDR data;
+        HDR content selects BC6H or RGBA16F. `Texture.writeMipData` preserves block-compressed mip
+        data, including the physical whole-block extents required for lower mips. Automatic selection
+        falls back to RGBA when the device lacks compression support or the base dimensions cannot be
+        represented by a block-compressed WebGPU texture. Verified with a real ETC1S fixture through
+        Basis WASM in `tests/phase15.test.ts`, target-selection/mock-upload coverage there, and a
+        Chromium/SwiftShader WebGPU upload of a 40×40 sRGB texture with six BC7 mips (2,240 GPU bytes,
+        no validation or page errors; see `docs/VERIFICATION.md`).
+
+    [>] KTX2 3D/volume textures.
+
+        The bundled JS transcoder binding does not expose volume slices; `loadKtx2Texture` rejects
+        depth-bearing KTX2 files explicitly. 2D, 2D-array, cube and cube-array textures are supported.
 
 
 EXIT CRITERIA:
 
     Large scenes can load assets incrementally.
     Asset loading does not block the simulation loop.
+    Resource and shader replacements are staged and only committed after validation.
+    Invalid geometry, absent texture dependencies, unsupported material data and excessive memory
+    are reported before invalid assets become live.
+    Supported KTX2/Basis assets upload on a real WebGPU implementation with device-appropriate
+    compression or an RGBA fallback.
 
 
 ================================================================================
@@ -1196,6 +1257,10 @@ GOAL:
 
     [ ] glTF animation import
     [ ] clip sampling
+
+        Phase 9.1 supplies worker-backed static glTF/GLB triangle decode. Skin/animation import,
+        image/material GPU assembly and Draco/meshopt support remain separate extended-import work
+        (`capability: assets.gltfAdvanced`).
 
 
 16.2 Animation State Machines

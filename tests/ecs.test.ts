@@ -14,6 +14,9 @@ import {
   Logger,
   Profiler,
   SystemScratch,
+  Geometry,
+  GraphicsDevice,
+  Renderable,
 } from "@forge/engine";
 
 class TagA extends Component {
@@ -405,5 +408,69 @@ describe("Scene/ECS - System Scheduler", () => {
     expect(stepsCounted).toBe(3);
 
     world.dispose();
+  });
+
+  it("uses the mesh BVH for transformed scene picking, rejecting AABB-only false positives", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const scene = new Scene({ name: "bvh-picking" });
+    const geometry = Geometry.create(device, {
+      positions: new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]),
+      indices: new Uint16Array([0, 1, 2]),
+      label: "pick-triangle",
+    });
+    const entity = scene.createTransformedEntity("triangle", new Vec3(4, 0, 0));
+    entity.transform.scale = new Vec3(2, 0.5, 1);
+    const renderable = new Renderable();
+    renderable.geometry = geometry;
+    scene.world.addComponent(entity.id, renderable);
+    scene.world.updateTransforms([], true);
+
+    const miss = scene.raycast(new Vec3(7.5, 0.75, 1), new Vec3(0, 0, -1), 10);
+    expect(miss).toHaveLength(0); // inside the transformed mesh AABB, outside the triangle
+
+    const hits = scene.raycast(new Vec3(4.5, 0.25, 1), new Vec3(0, 0, -1), 10);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.distance).toBeCloseTo(1);
+    expect(hits[0]!.hit.index).toBe(0);
+    expect(hits[0]!.hit.normal.z).toBeCloseTo(1);
+
+    const builtIndex = geometry.getMeshBvh();
+    const originalVertexBuffer = geometry.vertexBuffer;
+    const originalIndexBuffer = geometry.indexBuffer!;
+    geometry.updateFrom({
+      positions: new Float32Array([100, 0, 0, 102, 0, 0, 100, 2, 0]),
+      indices: new Uint32Array([0, 2, 1]),
+    });
+    expect(geometry.getMeshBvh()).not.toBe(builtIndex);
+    expect(geometry.bounds.min.x).toBe(100);
+    expect(geometry.indexCount).toBe(3);
+    expect(geometry.indexFormat).toBe("uint32");
+    expect(geometry.indexBuffer).not.toBe(originalIndexBuffer);
+    expect((originalIndexBuffer as unknown as { destroyed: boolean }).destroyed).toBe(true);
+    expect(geometry.vertexBuffer).toBe(originalVertexBuffer);
+    const uploadedVertices = new Float32Array(
+      (geometry.vertexBuffer as unknown as { data: ArrayBuffer }).data,
+    );
+    expect(Array.from(uploadedVertices.slice(0, 12))).toEqual([100, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    expect(scene.raycast(new Vec3(4.5, 0.25, 1), new Vec3(0, 0, -1), 10)).toHaveLength(0);
+
+    const resized = Geometry.create(device, {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      indices: new Uint16Array([0, 1, 2]),
+    });
+    const oldResizedVertexBuffer = resized.vertexBuffer;
+    resized.updateFrom({
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+      indices: new Uint16Array([0, 1, 2, 1, 3, 2]),
+    });
+    expect(resized.vertexBuffer).not.toBe(oldResizedVertexBuffer);
+    expect(resized.vertexCount).toBe(4);
+    expect(resized.indexCount).toBe(6);
+    expect(resized.bounds.max.x).toBe(1);
+    resized.dispose();
+
+    scene.dispose();
+    geometry.dispose();
+    await device.dispose();
   });
 });
