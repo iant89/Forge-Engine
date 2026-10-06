@@ -788,15 +788,25 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     roughness: 0.96,
     metallic: 0.03,
   });
+  // Two rock variants with distinct displacement seeds: every instance of one population type
+  // shares a single lump of geometry, and a whole field of the same lump at different scales reads
+  // as unnatural repetition next to the varied break fragments (their own seeds, 23 and 37). The
+  // variants share radius/collision so the interactive layer treats them identically; only the
+  // silhouette and crag differ.
   const rockLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.35 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.35 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.42 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.42 })),
+  });
+  const rockLodB = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 41, roughness: 0.5 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 41, roughness: 0.5 })),
   });
   const boulderLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.32, flatten: 0.38 })),
-    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.32, flatten: 0.38 })),
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.38, flatten: 0.38 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.38, flatten: 0.38 })),
   });
   const rockGeometry = Geometry.create(gpu, rockLod.source);
+  const rockGeometryB = Geometry.create(gpu, rockLodB.source);
   const boulderGeometry = Geometry.create(gpu, boulderLod.source);
   const chunkGeometry = Geometry.create(
     gpu,
@@ -823,6 +833,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         geometry: rockGeometry,
         material: rockMaterial,
         lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
+      },
+      {
+        id: 3,
+        label: "rocks-b",
+        densityGrid: 4,
+        scaleMin: 0.3,
+        scaleMax: 1.7,
+        scaleExponent: 1.7,
+        slopeLimit: 0.55,
+        tintJitter: 0.3,
+        maxDistance: 550,
+        geometry: rockGeometryB,
+        material: rockMaterial,
+        lod: { hiTriangles: rockLodB.hiTriangles, distance: 260 },
       },
       {
         id: 2,
@@ -1108,19 +1132,29 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   };
   const INTERACTION_RADIUS = 48;
   const MAX_INTERACTIVE_ROCKS = 64;
+  /**
+   * Population types the interaction layer promotes, with the collision radii their geometry was
+   * built at. Both rock variants share the 0.8 m radius (only the displacement seed differs), so
+   * one table row each keeps the sync, ids and active-entity geometry in agreement.
+   */
+  const INTERACTIVE_ROCK_TYPES = [
+    { typeId: 1, label: "rocks", baseRadius: 0.8, baseFlatten: 0 },
+    { typeId: 3, label: "rocks-b", baseRadius: 0.8, baseFlatten: 0 },
+    { typeId: 2, label: "boulders", baseRadius: 2.4, baseFlatten: 0.38 },
+  ] as const;
+  const interactiveGeometryForType = (typeId: number): Geometry =>
+    typeId === 2 ? boulderGeometry : typeId === 3 ? rockGeometryB : rockGeometry;
 
   const syncInteractiveRocks = (): void => {
     const wanted = new Set<string>();
     for (const [chunkKey, chunk] of terrain.chunks) {
       if (chunk.state !== "ready") continue;
-      for (const typeId of [1, 2]) {
+      for (const { typeId, label, baseRadius, baseFlatten } of INTERACTIVE_ROCK_TYPES) {
         const block = population.chunkPopulation(chunkKey, typeId);
         if (!block) continue;
-        const baseRadius = typeId === 2 ? 2.4 : 0.8;
-        const baseFlatten = typeId === 2 ? 0.38 : 0;
         for (let i = 0; i < block.count; i++) {
           const p = i * 3;
-          const id = `${chunkKey}:${typeId === 1 ? "rocks" : "boulders"}:${i}`;
+          const id = `${chunkKey}:${label}:${i}`;
           if (brokenInteractiveRockIds.has(id)) continue;
           const existing = interactiveRocks.get(id);
           // Zeroed scales mark a removed instance — unless a live record already tracks it, in
@@ -1551,7 +1585,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           new Vec3(body.position.x, body.position.y, body.position.z),
         );
         const renderable = new Renderable();
-        renderable.geometry = record.typeId === 2 ? boulderGeometry : rockGeometry;
+        renderable.geometry = interactiveGeometryForType(record.typeId);
         renderable.material = rockMaterial;
         renderable.castShadow = true;
         renderable.receiveShadow = true;
@@ -2384,6 +2418,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       fragments.length = 0;
       interactivePhysics.setHeightfield(null);
       rockGeometry.dispose();
+      rockGeometryB.dispose();
       boulderGeometry.dispose();
       chunkGeometry.dispose();
       pebbleGeometry.dispose();

@@ -756,8 +756,19 @@ export class Vehicle {
     this.rebuildBasis();
     this.correctPenetration(ground);
     if (parked) {
+      // A park latches the whole velocity vector, not just the horizontal plane. Gravity already
+      // integrated into velocity.y above while the position latch skipped the matching motion, so
+      // leaving it would bank seconds of fall speed (3.7 m/s per Mars second) and slam the chassis
+      // into the ground the moment the brake releases — the "jump then stuck" spawn report, where
+      // the rover sits parked from load until the first throttle input. Latch prev as well so the
+      // body-frame acceleration below reads 0, not a one-substep gravity spike that would poison
+      // the next step's load transfer.
       this.velocity.x = 0;
+      this.velocity.y = 0;
       this.velocity.z = 0;
+      this.prevVx = 0;
+      this.prevVy = 0;
+      this.prevVz = 0;
       this.yawRate *= 0.5;
       for (const w of this.wheels) if (Math.abs(w.omega) < 2) w.omega = 0;
     }

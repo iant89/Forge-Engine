@@ -6975,6 +6975,90 @@ JSON array below; agents maintain it by hand until then.
       "tests/marsShowcase.test.ts",
       "tests/population.test.ts"
     ]
+  },
+  {
+    "id": "0550",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/vehicle.ts",
+    "what": "Parked brake latch now zeroes the full velocity vector (including Y) and the previous-step velocity used for load-transfer acceleration.",
+    "why": "Gravity integrated into velocity.y every substep while the position latch skipped the matching motion, banking ~3.7 m/s per parked Mars second; releasing the brake (first throttle after load in the showcase) slammed the rover into the ground and the suspension fired it back up — the reported spawn jump-then-stuck."
+  },
+  {
+    "id": "0551",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/terrain/interaction.ts",
+    "what": "Rock pushes are velocity-matched (approach speed x 1.05 + 0.05 m/s separation, capped by per-call force authority) instead of raw force x dt kicks; bridge transfers for pushed/crushed scale with the rock/rover mass ratio (blocked stays 0.9).",
+    "why": "A sub-kilo pebble gained tens of m/s per contact frame from a slow nudge and shot across the terrain, while flat 15%/100% per-frame transfers ground the rover to a halt against small rocks — the reported slow rover / uncontrollable shooting after rock contact."
+  },
+  {
+    "id": "0552",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/population/world.ts",
+    "what": "Added settleSnapDistance (default 120 m): remesh Y re-anchors past that range snap instantly instead of gliding at 8/s; near chunks keep the glide. Hidden (zero-Y-scale) instances keep parked Y on both paths.",
+    "why": "Coarse-to-fine LOD swaps move the sampled surface by metres, and gliding that gap at 300+ m reads as rocks falling from the sky at the render-distance edge; an instant snap is sub-degree at that range."
+  },
+  {
+    "id": "0553",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Added a second rock population variant (type 3, own displacement seed, craggier roughness) alongside the unchanged type-1 rocks; interactive sync/promotion now iterates a shared type table; slight roughness lift for rocks and boulders.",
+    "why": "Every rock of a type shared one identical lump of geometry at different scales, which read as unnatural repetition next to the varied break fragments; the field now mixes two distinct silhouettes."
+  },
+  {
+    "id": "0554",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/vehicles.test.ts",
+    "what": "Added parked-release regression tests: long brake hold banks no fall speed on flat ground (no slam/launch on release) and releases into a gentle roll with sane ground clearance on a 12-degree slope.",
+    "why": "Pin the spawn-jump fix so a future latch regression fails loudly instead of returning as vague driving feel."
+  },
+  {
+    "id": "0555",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/terrainInteraction.test.ts",
+    "what": "Added regression tests: sustained push contact settles a light rock at rover pace without accumulating speed; pushed/crushed bridge transfers equal the mass-share formulas (heavy boulder takes the capped quarter).",
+    "why": "Pin the rock-launch and rover-grind fixes at the contact-model level."
+  },
+  {
+    "id": "0556",
+    "date": "2026-10-06T19:58:14Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f97af55a-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/population.test.ts",
+    "what": "Added far-remesh test: refining a populated chunk beyond settleSnapDistance lands every rendered Y exactly on its new anchor in one update (guards the vacuity case by requiring a >1 cm gap).",
+    "why": "Pin the distant-falling-rocks fix alongside the existing near-glide test."
   }
 ]
 ```

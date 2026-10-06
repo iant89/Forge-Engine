@@ -466,6 +466,53 @@ describe("vehicles — brakes and the parking brake", () => {
     }
   });
 
+  it("banks no fall speed while parked: releasing a long hold neither slams nor launches", () => {
+    // Regression: a park latched only the horizontal velocity while gravity kept integrating into
+    // velocity.y (~9.8 m/s banked per held second), so releasing the brake slammed the chassis
+    // into the ground and the suspension fired it back up. The Mars showcase sits parked from
+    // scene load until the first throttle input, which made every demo open with a jump.
+    for (const input of ["brake", "handbrake", "parkingBrake"] as const) {
+      const { vehicle, ground } = parked();
+      vehicle.input[input] = 1;
+      run(vehicle, ground, 10);
+      expect(vehicle.velocity.y, input).toBe(0);
+      const y0 = vehicle.position.y;
+      vehicle.input[input] = 0;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < 120; i++) {
+        vehicle.step(1 / 60, ground);
+        minY = Math.min(minY, vehicle.position.y);
+        maxY = Math.max(maxY, vehicle.position.y);
+      }
+      expect(y0 - minY, input).toBeLessThan(0.05);
+      expect(maxY - y0, input).toBeLessThan(0.05);
+      expect(vehicle.speed, input).toBe(0);
+    }
+  });
+
+  it("releases a slope park into a gentle roll, not a banked-velocity slam", () => {
+    const theta = (12 * Math.PI) / 180;
+    const ground = slopeGround(theta, "z");
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null, mass: 1200, mu: 1.1 }));
+    vehicle.placeOnGround(ground);
+    vehicle.input.brake = 1;
+    run(vehicle, ground, 6);
+    expect(vehicle.velocity.y).toBe(0);
+    vehicle.input.brake = 0;
+    // The car rolls downhill from rest; its clearance above the surface it rolls on must stay in
+    // the suspension's working band the whole way down — never buried, never airborne.
+    const sample = { height: 0, nx: 0, ny: 1, nz: 0 };
+    for (let i = 0; i < 120; i++) {
+      vehicle.step(1 / 60, ground);
+      ground.sample(vehicle.position.x, vehicle.position.z, sample);
+      const clearance = vehicle.position.y - sample.height;
+      expect(clearance).toBeGreaterThan(0.2);
+      expect(clearance).toBeLessThan(1.0);
+    }
+    expect(vehicle.speed).toBeGreaterThan(0.1);
+  });
+
   it("gives the drive back when the brake is released", () => {
     // A brake held for a long time must not poison the drivetrain for the drive that follows: the
     // browser gate presses W with the parking brake latched, holds it, then releases and expects the

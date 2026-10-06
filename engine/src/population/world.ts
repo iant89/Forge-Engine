@@ -78,6 +78,16 @@ export interface PopulationWorldOptions {
    * ensuring all objects settle into stable equilibrium at world generation.
    */
   settlePhysics?: boolean | PopulationPhysicsSettlingOptions;
+  /**
+   * Remesh Y anchoring beyond this XZ distance (metres, chunk centre to the terrain focus, which
+   * tracks the camera) snaps instantly instead of gliding at the 8/s settle rate. A
+   * coarse↔fine LOD swap moves the sampled surface by metres, and a 0.6 s glide of that gap at
+   * 300+ m reads as rocks falling from the sky on newly streamed-in terrain — while an instant
+   * snap at that range is a sub-degree pop no one can see. Near chunks keep the glide so a
+   * refinement underfoot never visibly teleports a rock. Default 120. `0` snaps everything,
+   * `Infinity` restores the old always-glide behaviour.
+   */
+  settleSnapDistance?: number;
 }
 
 interface TypeRecord {
@@ -135,12 +145,15 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   private readonly generationsPerFrame: number;
   private readonly scratchMatrix = new Mat4();
   private readonly scratchWorldBox = new AABB();
+  /** @see {@link PopulationWorldOptions.settleSnapDistance} */
+  readonly settleSnapDistance: number;
 
   constructor(options: PopulationWorldOptions) {
     super();
     this.terrain = options.terrain;
     this.seed = options.seed ?? options.terrain.seed;
     this.generationsPerFrame = Math.max(0, Math.floor(options.generationsPerFrame ?? 4));
+    this.settleSnapDistance = options.settleSnapDistance ?? 120;
     this.settlePhysics = options.settlePhysics ?? false;
     const ids = new Set<number>();
     this.types = options.types.map((type) => {
@@ -212,23 +225,43 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   }
 
   /**
-   * Re-anchor the Y *targets* of chunks whose tile was remeshed at another LOD. The rendered Y
-   * damps toward the new surface in `settleAnchoredY` instead of snapping: on rough terrain a
-   * coarse<->fine LOD swap moves the sampled surface by meters, and an instant snap reads as rocks
-   * falling from the sky on newly streamed-in chunks. Uploads and bounds rebuilds happen in the
-   * settling pass, only for blocks that actually moved.
+   * Re-anchor the Y of chunks whose tile was remeshed at another LOD. Near chunks only move the
+   * *targets*: the rendered Y damps toward the new surface in `settleAnchoredY` instead of
+   * snapping, so a refinement underfoot never visibly teleports a rock (uploads and bounds
+   * rebuilds happen in the settling pass, only for blocks that actually moved). Far chunks (past
+   * `settleSnapDistance`) snap the rendered Y outright: on rough terrain a coarse<->fine
+   * LOD swap moves the sampled surface by meters, and a 0.6 s glide of that gap at 300+ m reads
+   * as rocks falling from the sky on newly streamed-in chunks, while the snap itself is
+   * sub-degree at that range. Hidden (zero-Y-scale) instances keep their parked Y either way.
    */
   private reanchorRemeshed(): void {
+    const focus = this.terrain.focusPosition;
+    const chunkSize = this.terrain.chunkSize;
     for (const record of this.populated.values()) {
       const chunk = this.terrain.chunks.get(record.key);
       if (!chunk || chunk.state !== "ready" || !chunk.tile || chunk.tile === record.tileRef) continue;
       const sampler = new HeightmapSampler(chunk.tile);
+      // LOD selection measures camera distance to the chunk centre; the snap gate uses the same
+      // point so a chunk and its rocks always agree about which side of a remesh boundary they sit.
+      const centreX = (record.cx + 0.5) * chunkSize;
+      const centreZ = (record.cz + 0.5) * chunkSize;
+      const snap = Math.hypot(centreX - focus.x, centreZ - focus.z) > this.settleSnapDistance;
       for (const type of record.types) {
         const block = type.block;
         if (block.count === 0) continue;
+        let snapped = false;
         for (let k = 0; k < block.count; k++) {
-          block.targetY[k] =
+          const target =
             sampler.heightAt(block.positions[k * 3]!, block.positions[k * 3 + 2]!) - type.spec.embed * block.scales[k * 3 + 1]!;
+          block.targetY[k] = target;
+          if (snap && block.scales[k * 3 + 1] !== 0) {
+            block.positions[k * 3 + 1] = target;
+            snapped = true;
+          }
+        }
+        if (snapped) {
+          block.markModified();
+          if (type.submission) this.buildBounds(type, type.submission);
         }
       }
       record.tileRef = chunk.tile;
