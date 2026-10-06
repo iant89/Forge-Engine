@@ -38,11 +38,35 @@ and colour/size/rotation over life.
 `GpuParticleSystem` owns:
 
 - the authoritative particle storage buffer
-- a 4-sample trail history buffer (ribbon draw deferred)
-- emit / full-sim / frustum+distance cull / billboard+soft render / resolve pipelines
+- a 4-sample trail history buffer (ring written by the full-sim, slot-zeroed by emit on recycle)
+- emit / full-sim / frustum+distance cull / billboard+soft render / ribbon vertex stage / resolve pipelines
 
 Emission is a ring-buffer compute write hashed from `(seed, emitBase + i)` (monotonic across ring wraps) — deterministic for a seed. Draw uses `drawIndirect` over the frustum/distance compacted list.
 Soft particles sample the scene depth attachment; stretched billboards elongate along velocity.
+
+## Ribbon trails (Phase 12.4/12.7)
+
+With `ribbons: true`, the same `particle.render` pass first draws trail ribbons and then the
+billboards, so the sparks cap the strips in the alpha order. There is no CPU mesh and no
+generated geometry: the vertex stage (`PARTICLE_RIBBON_SHADER`) pulls one particle per instance
+from the *same* compacted visible list as the billboards and triangulates its 4-sample trail ring
+in place — three quads, six vertices each, 18 vertices per particle (`PARTICLE_RIBBON_VERTS`),
+duplicated across the diagonal so both triangles of a quad are degenerate-safe.
+
+- The ring is stored by `u32(age·30) % 4`, so the vertex stage sorts the four samples newest-first
+  with a fixed five-comparator network — a pure function of the buffer bytes, no temporal order assumed.
+  A segment whose older sample was never written (the particle is younger than the ring) is skipped,
+  so a brand-new life simply has no ribbon yet instead of a spike toward the ring's zero sample.
+- Width is `size · ribbonSizeScale`, tapered toward the oldest sample by `ribbonTailWidth`; a
+  reused slot's ring is zeroed by the emit pass, so a new life never draws its predecessor's trail.
+- Alpha fades toward the tail as `fade²`; the strip is camera-facing (segment × view-ray cross
+  product, with stable fallbacks when the segment points at the camera).
+- The cull pass counts survivors into a second indirect record (`[18, visible]` at byte 16) only
+  while the frame's ribbon flag is set; the resolve pass zeroes it, so toggling `setRibbons`
+  mid-run can never draw a stale count. With soft particles enabled the strips sample the same
+  scene depth as the billboards.
+- The toggle is live (`GpuParticleWorld.setRibbon`); the `particles` demo builds with ribbons on
+  and `?ribbons=0` pins them off for an A/B link.
 
 ## CPU path (Phase 7 reference)
 
@@ -69,9 +93,12 @@ honest for the Phase 7 reference path only.
 
 `tests/particles.test.ts` covers the CPU reference, the gravity check on the mock device, WGSL
 validation of every Phase 12 shader, the 100k-without-ECS invariant, 10k/50k/100k capacity stress on
-the mock device, and `GpuParticleWorld` creating zero entities.
+the mock device, `GpuParticleWorld` creating zero entities, and the ribbon contract: the 18-vertex
+record drawn before the billboards, the live toggle's effect on the frame, and the emit/cull/resolve
+pins around the ring and the second indirect record.
 
 ## Limitations
 
-See `docs/KNOWN-ISSUES.md` § Particles: ribbon/mesh deferred, HiZ deferred, collision deferred,
-variable-rate CPU `ParticleSystem`.
+See `docs/KNOWN-ISSUES.md` § Particles: mesh particles deferred, HiZ deferred, collision
+deferred, variable-rate CPU `ParticleSystem`. Ribbons draw from a fixed 4-sample ring only — no
+per-particle texture coordinates, no ribbon UV/texturing, no sharp-turn mitring.

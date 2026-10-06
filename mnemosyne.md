@@ -1189,3 +1189,68 @@ Traps worth keeping:
   do not use it as a normal oracle at an edge.
 - The re-landed branch's gate: 766 tests / 53 files (main was 758/52), `lint:arch`, `check:testmap`
   (51 claimed suites), `docs:check` (100 capabilities, 48 limitations), `demo:build` green.
+
+## 2026-10-06 — Status reconciliation: Phase 9 flip, Phase 6 interpretation, Phase 14 follow-up checkboxes
+
+- **Phase 9 closed its own phase line and then left the markers behind.** The 2026-10-05 note says
+  "closed the phase in ROADMAP.md", but the state block still read `[~] IN PROGRESS` and
+  `ROADMAP_PHASE_STATUS["9"]` still said `inProgress`, while the baseline block claimed
+  IMPLEMENTED / VERIFIED. Every 9.x capability in the registry is `verified`, all 9.1–9.6 items are
+  `[x]` with evidence, and `docs:check` cross-checks only the state block against the registry — so
+  the baseline prose could drift against the state block without any gate noticing. Flip all four
+  places together, or the drift is silent.
+- **Phase 6's `[!]` is not a defect list — do not "harden" it into new scope.** The four open vehicle
+  limitations in `docs/KNOWN-ISSUES.md` §Vehicles are design-tracked: `vehicles.tireModel` and
+  `vehicles.transmission` are `partial` with `closesWith: "16.6"`, `vehicles.wheelVisuals` is
+  `planned` for 16.6, `physics.ccd` closes with 25.1. The interpretation note now sits in the
+  baseline block so the next session does not invent Phase 6 work.
+- **The baseline block lists Phase 14 follow-ups that no section owned.** They were prose in the
+  top block only — `docs:check` cannot see them. They are now `[ ]` checkboxes under 14.1 (sampling
+  resolution independence), 14.5 (per-instance culling, explicitly the same work as the 13.5
+  leftover) and 14.6 (worker generation, population raycast), each naming its KNOWN-ISSUES bullet.
+- **Baseline-gate cost note for this sandbox:** a full `npm run check:browser` is ~21 min and its
+  last step (Mars showcase W-drive) is the known frame-rate-bound flake (the gate's own header says
+  it has aborted on main); the focused arms (`--workers-only`, `--terrain-layers`, `--mars-workers`)
+  are minutes. Budget the full run for shader/pipeline changes, the arms for the rest.
+
+## 2026-10-06 — Ribbon trails (12.4/12.7): what the ring contract actually cost
+
+- **The trail ring is a hash bucket ring, not a temporal ring.** `PARTICLE_FULL_SIM_SHADER` stores
+  samples at `u32(age·30) % 4`, so "read the neighbours in index order" draws scrambled trails.
+  The vertex stage must sort the four samples by age — five fixed comparators (`if (s[a].w < s[b].w)`
+  ×5) keep it a pure function of the buffer bytes, which is what makes the ribbon deterministic like
+  every other GPU pass. Also: the emit pass has to zero the recycled slot's ring (binding 2 joins
+  the emit layout), or the next life starts by drawing its predecessor's tail.
+- **Second indirect record, same pass.** The ribbon draw is a second `drawIndirect` at byte 16 of the
+  same 32-byte buffer inside `particle.render` — cull counts survivors into word 5 only while
+  `CullParams.flags` bit 0 is set (byte 84 — a new field where the struct had padding, the 96-byte
+  layout never changed), resolve stores vertexCount 18 into word 4 and zeroes word 5 every frame.
+  That zeroing is what makes `setRibbons(false)` mid-run safe: the stale count can never draw garbage.
+- **Backticks inside the `/* wgsl */` template literal** are a TS1005 syntax error, and **Tint
+  rejects a non-empty `switch` case without `break;`** — neither is catchable by the mock, both
+  were. `tools/wgsl-check.mjs` (runs against `engine/dist`) is the loop to close that gap; register
+  every new shader constant there.
+- **Animated scenes cannot be pixel-frozen through `setAnimating(false)`, and no live window
+  protocol rescues it either.** `animating` gates only the demo's input/scene update; the renderer
+  drives `prepareFrame` per rendered frame, so the GPU fountain keeps running and any frozen-scene
+  A/B quietly becomes "compare two different moments." Single-window mean-luma A/B measured +2.3%
+  under load vs +11% fresh; the alternating A/B/A min-vs-max form then failed the OTHER way (the
+  fountain decayed between the first ON window and the OFF window — drift beat the effect in both
+  directions). A live scene is a broken oracle; build the pixel check the way `runTerrainLayerCheck`
+  does it: same seed, fixed steps, offscreen device, both arms re-rendered — bit-identical particle
+  state, so only the feature under test can move the metrics (blend ORDER still jitters ~0.4%, so
+  margin over pixels, never per-pixel equality).
+- **Mock command-log per-frame filtering:** `gpu.mock.commandLog` spans the whole device lifetime
+  — clear it (`length = 0`) at the start of each simulated frame or second-frame assertions count
+  the first frame's draws (766→ this bit on the toggle test).
+- **Calibrate a ribbon/particle oracle by its failure mode, not its happy path.** The first offscreen
+  check showed `litOn === litOff` EXACTLY — the ring recycled faster than particles died, so both
+  arms had empty trail history and the draw was a visual no-op. Rules of thumb: emit ≤
+  capacity / lifeMaxFrames so a slot survives until death, and give trails ≥ one particle width of
+  separation (speed × ring-span) or strips hide under their own head billboards. And the
+  zero-age ring marker is a POSITION (0,0,0): the vertex stage must skip segments whose older sample
+  is unwritten, or young particles spike triangles at the world origin — that artifact only showed
+  up on the real device, never in the mock suites.
+- The particles demo now **builds with ribbons on**; `?ribbons=0` deep-links the A/B. Capability
+  `particles.gpuRendering` stays `partial` on purpose — mesh particles remain deferred, and
+  rule-6 flips (`partial`→`verified` while a `closesWith` item is open) break `docs:check`.

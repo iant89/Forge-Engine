@@ -79,7 +79,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "7": "verified",
   "8a": "verified",
   "8b": "verified",
-  "9": "inProgress",
+  "9": "verified",
   "10": "partial",
   "11": "verified",
   "12": "verified",
@@ -691,10 +691,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "particles.gpuRendering",
     phase: "12.7",
     status: "partial",
-    summary: "Render-graph particle.sim/sort/render/resolve: billboards, stretched billboards, soft particles from the GPU buffer",
+    summary: "Render-graph particle.sim/sort/render/resolve: billboards, stretched billboards, soft particles and trail ribbons from the GPU buffer",
     evidence: ["tests/particles.test.ts"],
     closesWith: "12.7",
-    notes: "Mesh particles and ribbon draw deferred; trail history is written on GPU. HiZ cull and particle/terrain collision deferred.",
+    notes: "Trail ribbons draw from the 4-sample ring via the vertex stage (12.4/12.7); mesh particles deferred. HiZ cull and particle/terrain collision deferred.",
   },
 
   // ---------------------------------------------------------------- environment

@@ -156,9 +156,10 @@ What remains:
 
 ## Particles (Phase 12)
 
-* **Ribbon draw and mesh particles are deferred.** The GPU full-sim writes a 4-sample trail history
-  per particle; billboards / stretched billboards / soft particles draw from the storage buffer.
-  There is no ribbon mesh pass and no mesh-particle path yet. (capability: particles.gpuRendering)
+* **Mesh particles are deferred.** The GPU full-sim writes a 4-sample trail history per particle and
+  the vertex stage draws it as ribbon strips (12.4/12.7); billboards / stretched billboards / soft
+  particles draw from the storage buffer. There is no mesh-particle path: particles cannot draw user
+  geometry. (capability: particles.gpuRendering)
 * **HiZ / depth occlusion culling is deferred.** Frustum + distance cull compact the draw list;
   hierarchical Z is not built. (capability: particles.gpuRendering)
 * **GPU particle collision is deferred.** Soft particles *sample* the scene depth for a fade; they

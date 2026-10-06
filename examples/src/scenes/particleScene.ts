@@ -34,6 +34,8 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
   scene.settings.bloom.threshold = 0.85;
   scene.settings.bloom.intensity = 0.55;
   scene.settings.shadow.enabled = false;
+  // `?ribbons=0` pins the trail draw off for an A/B link; the fountain shows ribbons by default.
+  const ribbons = new URLSearchParams(window.location.search).get("ribbons") !== "0";
 
   const fountain = new GpuParticleWorld({
     name: "gpu-particles",
@@ -43,6 +45,7 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
     softParticles: true,
     stretch: 0.35,
     cullDistance: 60,
+    ribbons,
     emitter: {
       rate: 6000,
       lifeMin: 1.2,
@@ -123,7 +126,8 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
     overlay(): string {
       const s = fountain.system;
       if (!s) return "gpu particles (initialising)";
-      return `gpu particles capacity ${s.capacity}  emitted ${s.emitted}  entities ${s.entityCount()}  lastEmit ${s.lastEmitBudget}`;
+      const r = s.ribbons ? `ribbons on (${s.ribbonSizeScale.toFixed(2)}x, tail ${s.ribbonTailWidth.toFixed(2)})` : "ribbons off";
+      return `gpu particles capacity ${s.capacity}  emitted ${s.emitted}  entities ${s.entityCount()}  lastEmit ${s.lastEmitBudget}  ${r}`;
     },
     /** Resolves when GpuParticleSystem.init finishes (or fails/latches). */
     ready: deviceReady,
@@ -133,7 +137,13 @@ export function buildParticleScene(engine: Engine): DemoSceneHandle {
         capacity: s?.capacity ?? CAPACITY,
         emitted: s?.emitted ?? 0,
         ready: Boolean(s?.ready),
+        // The setting the system holds *now* — after init latched the scene's `?ribbons` choice —
+        // so the gate never asserts a toggle that a rebuild could drop.
+        ribbons: s ? s.ribbons : ribbons,
       };
+    },
+    setParticleRibbons: (on: boolean) => {
+      fountain.setRibbon(on);
     },
     dispose(): void {
       groundMesh.dispose();

@@ -4,12 +4,24 @@
  * `PARTICLE_SIM_SHADER` stays the tight gravity/drag/life integrator used by
  * {@link runParticleGravityCheck} — it must remain lockstep with {@link integrateParticle}.
  *
- * The Phase 12 path uses emit + full sim + cull + billboard/soft render shaders. Vertex pulling
- * draws from the storage buffer via `drawIndirect` over the compacted visible list; there are no per-particle ECS entities.
+ * The Phase 12 path uses emit + full sim + cull + billboard/soft render shaders (plus the ribbon
+ * vertex stage, {@link PARTICLE_RIBBON_SHADER}, which triangulates the trail ring in place).
+ * Vertex pulling draws from the storage buffer via `drawIndirect` over the compacted visible list;
+ * there are no per-particle ECS entities.
  */
 
 /** Workgroup size shared by every particle compute pass. */
 export const PARTICLE_WORKGROUP = 64;
+
+/**
+ * Vertices the ribbon vertex stage consumes per instance: 3 segments (4 trail samples) × 2
+ * triangles of 6 verts. The indirect record's vertex-count word and the mock's seed both use this
+ * constant so the draw and the shader can never disagree about the count.
+ */
+export const PARTICLE_RIBBON_VERTS = 18;
+
+/** Byte offset of the ribbon indirect record — word 4 of the 8-word (32 B) indirect buffer. */
+export const PARTICLE_RIBBON_RECORD_BYTES = 16;
 
 /**
  * Compute integrator. Must stay in lockstep with {@link integrateParticle}: same semi-implicit
@@ -119,6 +131,10 @@ fn valueNoise3(p: vec3<f32>, seed: u32) -> f32 {
 /**
  * GPU emission. Ring-buffer write: invocation `i` writes slot `(writeHead + i) % capacity`.
  * Spawn parameters are hashed from `(seed, emitBase + i)` (monotonic) so a seed is deterministic across ring wraps.
+ * The four trail samples of the slot are reset to (spawn position, age 0): a reused slot must never
+ * show the *previous* occupant's trail, and the ribbon vertex stage treats `age <= 0` samples as
+ * "no history yet" — so zeroing is what keeps a freshly spawned particle ribbon-free instead of
+ * streaking from wherever it died last life.
  */
 export const PARTICLE_EMIT_SHADER = /* wgsl */ `
 ${PARTICLE_COMMON_WGSL}
@@ -143,6 +159,7 @@ struct EmitParams {
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
 @group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
+@group(0) @binding(2) var<storage, read_write> trails: array<vec4<f32>>;
 
 fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f32, speedMax: f32) -> vec3<f32> {
   var axis = dir;
@@ -195,6 +212,13 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
   p.age = 0.0;
   p.flags = 1.0;
   particles[slot] = p;
+  // Reset the trail ring of the reused slot (see the module comment): age 0 means "no history",
+  // which is what the ribbon vertex stage keys its degenerate-segment test on.
+  let tb = slot * 4u;
+  trails[tb + 0u] = vec4<f32>(p.position, 0.0);
+  trails[tb + 1u] = vec4<f32>(p.position, 0.0);
+  trails[tb + 2u] = vec4<f32>(p.position, 0.0);
+  trails[tb + 3u] = vec4<f32>(p.position, 0.0);
 }
 `;
 
@@ -279,7 +303,7 @@ struct CullParams {
   cameraPos: vec3<f32>,
   count: u32,
   cullDistance: f32,
-  pad0: f32,
+  flags: u32,
   pad1: f32,
   pad2: f32,
 }
@@ -312,12 +336,17 @@ struct CullParams {
   }
   let slot = atomicAdd(&indirect[1], 1u);
   visible[slot] = i;
+  // The ribbon draw consumes the *same* compacted list, so it counts survivors through the same
+  // test in the same invocation. Flag off ⇒ record word 5 never grows ⇒ zero-instance draw.
+  if ((params.flags & 1u) == 1u) {
+    atomicAdd(&indirect[5], 1u);
+  }
 }
 `;
 
 /**
- * Billboard / stretched-billboard / soft-particle render. Mesh particles and ribbon meshes are
- * deferred (trail history is written; ribbon generation is not). Soft fade uses textureLoad on the
+ * Billboard / stretched-billboard / soft-particle render. Mesh particles remain deferred; the
+ * ribbon path lives in {@link PARTICLE_RIBBON_SHADER}. Soft fade uses textureLoad on the
  * scene depth buffer when the soft flag is set.
  */
 export const PARTICLE_RENDER_SHADER = /* wgsl */ `
@@ -428,7 +457,12 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
 }
 `;
 
-/** Reset indirect args + emit counter for the next frame. */
+/**
+ * Reset both indirect records for the next frame: words 0-3 are the billboard draw
+ * (6 verts × compacted instances), words 4-7 the ribbon draw (3 segments × 6 verts = 18 verts ×
+ * the same compacted instances). The instance counters are the only per-frame state; the
+ * vertex-count words are constants the CPU seeds at init as a backstop.
+ */
 export const PARTICLE_RESOLVE_SHADER = /* wgsl */ `
 @group(0) @binding(0) var<storage, read_write> indirect: array<atomic<u32>>;
 
@@ -440,5 +474,161 @@ export const PARTICLE_RESOLVE_SHADER = /* wgsl */ `
   atomicStore(&indirect[1], 0u);
   atomicStore(&indirect[2], 0u);
   atomicStore(&indirect[3], 0u);
+  atomicStore(&indirect[4], 18u);
+  atomicStore(&indirect[5], 0u);
+  atomicStore(&indirect[6], 0u);
+  atomicStore(&indirect[7], 0u);
+}
+`;
+
+/**
+ * Ribbon mesh draw (12.4 / 12.7). One instance per *visible* particle, 18 vertices per instance:
+ * 3 segments × 2 triangles, generated entirely in the vertex stage from the 4-sample trail ring
+ * the full-sim writes and the emitter resets. No mesh buffer, no CPU geometry — the ribbon is
+ * "trail history, triangulated at clip time".
+ *
+ * The four samples are sorted newest-first by age (the ring writes u32(age*30) % 4, so storage
+ * order is not temporal order; sorting makes it so and keeps the logic a pure function of the
+ * buffer bytes). Segment `seg` connects sample `seg+1` (older) to sample `seg` (newer): zero-length
+ * or pre-first-write segments (`age <= 0`) collapse to the degenerate clip sentinel, so a young
+ * particle simply has no ribbon yet. Each strip is camera-facing (right = normalize(cross(dir,
+ * viewDir)), with the camera's right axis as the parallel-ray fallback), its width tapers from
+ * `tailWidth` to 1 across the strip in units of the particle's current size, and its alpha ramps
+ * with `fade²` so the tail dies out. Soft particles keep the same scene-depth fade as billboards.
+ */
+export const PARTICLE_RIBBON_SHADER = /* wgsl */ `
+${PARTICLE_COMMON_WGSL}
+
+struct RibbonParams {
+  viewProj: mat4x4<f32>,
+  cameraPos: vec3<f32>,
+  softScale: f32,
+  cameraRight: vec3<f32>,
+  sizeScale: f32,
+  tailWidth: f32,
+  flags: u32,
+  pad0: f32,
+  pad1: f32,
+  colorMul: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> params: RibbonParams;
+@group(0) @binding(1) var<storage, read> particles: array<Particle>;
+@group(0) @binding(2) var<storage, read> visible: array<u32>;
+@group(0) @binding(3) var<storage, read> trails: array<vec4<f32>>;
+@group(0) @binding(4) var depthTex: texture_depth_2d;
+
+struct RibbonVSOut {
+  @builtin(position) clip: vec4<f32>,
+  @location(0) color: vec4<f32>,
+  @location(1) @interpolate(flat) softEnabled: u32,
+}
+
+fn degenerateRibbon() -> RibbonVSOut {
+  var out: RibbonVSOut;
+  out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  out.color = vec4<f32>(0.0);
+  out.softEnabled = 0u;
+  return out;
+}
+
+@vertex fn vsRibbon(@builtin(vertex_index) vid: u32, @builtin(instance_index) inst: u32) -> RibbonVSOut {
+  let particleIndex = visible[inst];
+  if (particleIndex == 0xffffffffu) {
+    return degenerateRibbon();
+  }
+  let p = particles[particleIndex];
+  if (p.flags < 0.5 || p.life <= 0.0) {
+    return degenerateRibbon();
+  }
+  // Load the ring and sort it newest-first by age. Five fixed comparators on four elements — a
+  // static sorting network, so the result is a pure function of the buffer bytes and every frame
+  // with the same bytes agrees. The full-sim stores samples at u32(age*30) % 4, so storage
+  // order is not temporal order and must not be assumed.
+  var s: array<vec4<f32>, 4u>;
+  s[0] = trails[particleIndex * 4u + 0u];
+  s[1] = trails[particleIndex * 4u + 1u];
+  s[2] = trails[particleIndex * 4u + 2u];
+  s[3] = trails[particleIndex * 4u + 3u];
+  if (s[0].w < s[1].w) { let t = s[0]; s[0] = s[1]; s[1] = t; }
+  if (s[2].w < s[3].w) { let t = s[2]; s[2] = s[3]; s[3] = t; }
+  if (s[1].w < s[2].w) { let t = s[1]; s[1] = s[2]; s[2] = t; }
+  if (s[0].w < s[1].w) { let t = s[0]; s[0] = s[1]; s[1] = t; }
+  if (s[1].w < s[2].w) { let t = s[1]; s[1] = s[2]; s[2] = t; }
+  if (s[0].w <= 0.0) {
+    return degenerateRibbon(); // no written sample yet (spawn frame) — a ribbon needs history
+  }
+  let seg = vid / 6u;
+  if (seg > 2u) {
+    return degenerateRibbon(); // over-eager vertex count guard
+  }
+  let k = vid % 6u;
+  // a = the older endpoint of this segment, b = the newer one; the strip tapers/fades toward a.
+  let pa = s[seg + 1u];
+  let pb = s[seg];
+  // A zero age here is the emit pass's "slot freshly recycled" marker, not a written sample —
+  // drawing to it would spike a triangle at the world origin. Young particles simply lose the
+  // affected segment until their history fills in (bucket 0 is written at age ~1/30).
+  if (pa.w <= 0.0) {
+    return degenerateRibbon();
+  }
+  let dir = pb.xyz - pa.xyz;
+  let dirLen = length(dir);
+  if (dirLen < 1e-5) {
+    return degenerateRibbon(); // same-bucket or duplicated samples ⇒ zero-area triangle anyway
+  }
+  var endSel: u32;
+  var side: f32;
+  switch (k) {
+    case 0u: { endSel = 0u; side = -1.0; break; }
+    case 1u: { endSel = 1u; side = 1.0; break; }
+    case 2u: { endSel = 0u; side = 1.0; break; }
+    case 3u: { endSel = 0u; side = -1.0; break; }
+    case 4u: { endSel = 1u; side = -1.0; break; }
+    default: { endSel = 1u; side = 1.0; break; }
+  }
+  let end = select(pa, pb, endSel == 1u);
+  let mid = (pa.xyz + pb.xyz) * 0.5;
+  let toCam = params.cameraPos - mid;
+  // Camera-facing: the strip's width axis is perpendicular to both the segment and the view ray.
+  // Degenerate (segment pointing straight at the camera) falls back to a perpendicular of the
+  // view axis, then to the camera's right as the last resort, so the ribbon never flips wildly.
+  var rightV = cross(dir, toCam);
+  if (dot(rightV, rightV) < 1e-8) {
+    rightV = cross(dir, vec3<f32>(0.0, 0.0, -1.0));
+  }
+  if (dot(rightV, rightV) < 1e-8) {
+    rightV = params.cameraRight;
+  }
+  let right = normalize(rightV);
+  let span = max(s[0].w - s[3].w, 1e-4);
+  let fadeA = saturate((pa.w - s[3].w) / span);
+  let fadeB = saturate((pb.w - s[3].w) / span);
+  let fade = select(fadeA, fadeB, endSel == 1u);
+  let halfWidth = max(p.size, 0.0) * params.sizeScale * 0.5 * mix(params.tailWidth, 1.0, fade);
+  let world = end.xyz + right * (side * halfWidth);
+  var out: RibbonVSOut;
+  out.clip = params.viewProj * vec4<f32>(world, 1.0);
+  out.color = vec4<f32>(p.color.rgb * params.colorMul.rgb, p.color.a * params.colorMul.a * fade * fade);
+  out.softEnabled = params.flags & 1u;
+  return out;
+}
+
+@fragment fn fsRibbon(in: RibbonVSOut) -> @location(0) vec4<f32> {
+  var alpha = in.color.a;
+  if (in.softEnabled != 0u && params.softScale > 0.0) {
+    // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w),
+    // the same reading the billboard pass uses for its soft fade.
+    let dims = vec2<i32>(textureDimensions(depthTex));
+    let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
+    let sceneDepth = textureLoad(depthTex, px, 0);
+    let ribbonZ = in.clip.z;
+    let soft = saturate((sceneDepth - ribbonZ) * params.softScale * f32(dims.y));
+    alpha = alpha * soft;
+  }
+  if (alpha < 0.004) {
+    discard;
+  }
+  return vec4<f32>(in.color.rgb, alpha);
 }
 `;

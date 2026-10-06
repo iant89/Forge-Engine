@@ -9,7 +9,18 @@ STATUS:
     Active Development
 
 CURRENT CODEBASE BASELINE:
-    Phases 0-7: IMPLEMENTED / VERIFIED
+    Phases 0-5, 7:  IMPLEMENTED / VERIFIED
+    Phase 6:  IMPLEMENTED BUT REQUIRES HARDENING
+                (Reconciled 2026-10-06: the top block previously claimed "Phases 0-7:
+                IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
+                registry's `6: partial`. The registry is right: the open vehicle limitations
+                are the four bullets in docs/KNOWN-ISSUES.md §Vehicles — solved longitudinal
+                slip (vehicles.tireModel), box wheel visuals (vehicles.wheelVisuals), reverse
+                as a ratio not a control (vehicles.transmission) and discrete-contact impacts
+                (physics.ccd). None is a Phase 6 defect — the model itself is pinned by
+                tests/vehicles.test.ts and tests/vehiclePhysics.test.ts — and the registry
+                closes all four under 16.6 / 25.1. No separate Phase 6 hardening work is
+                scheduled; this note records the interpretation rather than inventing scope.)
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
@@ -26,12 +37,17 @@ CURRENT CODEBASE BASELINE:
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
                 surface sampling, worker generation and population raycast)
+                (2026-10-06 reconcile: those four follow-ups now carry [ ] checkboxes under
+                14.1, 14.5 and 14.6, so the [~] is backed by items, not only prose.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
                 real Chromium/SwiftShader verified an ETC1S-to-BC7 six-mip upload.
                 KTX2 3D volumes are explicitly deferred; core glTF/GLB geometry decode is
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
+                The `15+` label covers Phase 15 only: Phases 16 through 28 are NOT STARTED
+                ([ ]) in their sections below, and Phase 29 is a roll-up (see the status
+                block; `docs:check` verifies the `15+` registry key directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -112,7 +128,7 @@ PHASE 8B - Weather / Clouds / Water / Lightning
     [x]
 
 PHASE 9 - ENGINE HARDENING
-    [~] IN PROGRESS
+    [x]
 
 PHASE 10 - Terrain 2.0 / Streaming
     [!] IMPLEMENTED BUT REQUIRES HARDENING
@@ -454,6 +470,23 @@ CURRENT PROBLEMS (addressed in this phase):
             uploads and cache-miss ground queries remain on main. The 4-channel weights now render,
             but coarse-LOD slope/biome sampling can still change the material mix.
 
+            (2026-10-06 triage of this [!]: the first sentence is a blocker, not work — the
+            fidelity check needs the upstream generator's ~30 MB `cache/global/` fields, which
+            this repository deliberately does not ship; `check:mars-port` stays a synthetic-cache
+            smoke test until a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
+            capability: terrain.marsGeneratorPort). The inline-only mesh/upload/ground-query
+            residual is the accepted shape recorded under 10.2 and KNOWN-ISSUES §Terrain, not
+            unmet 10.9 scope. The coarse-LOD material-mix item closes with the 14.1 follow-up
+            "Load-order-independent surface sampling" — the same resolution-independent surface
+            is the fix in both phases — and is worked there, not twice here.)
+
+            NEEDS HUMAN RUN (fidelity half): download the upstream `mars-terrain-gen`
+            `cache/global/` Stage A fields for seed 1337, place them where
+            `tools/mars-port-check.mjs` expects its `--cache` input, run
+            `npm run check:mars-port`, and compare field heights against the generator's
+            float32 output; the gate reports agreement, so anything but a clean match keeps
+            this [!]. Nothing in this sandbox can produce that cache.
+
 
 EXIT CRITERIA:
 
@@ -595,11 +628,12 @@ CURRENT STATE:
         - Frustum + distance cull compact into an indirect draw list.
         - Render-graph passes `particle.sim` / `particle.sort` / `particle.render` /
           `particle.resolve` draw billboards, stretched billboards, and soft particles.
-        - Trail history (4 samples per particle) is written on GPU; ribbon mesh draw is deferred.
+        - Trail history (4 samples per particle) is written on GPU and drawn as camera-facing
+          ribbon strips by the vertex stage (no mesh, 18 verts/particle from the same compacted list).
 
     Still deferred / stretch:
 
-        - Ribbon mesh generation and draw; mesh particles.
+        - Mesh particles (a ribbon is now drawn; per-particle user geometry is not).
         - HiZ / depth occlusion culling.
         - Terrain / depth-buffer / SDF particle collision (soft fade samples depth only; no bounce).
         - 500K / 1M stress gates.
@@ -639,7 +673,13 @@ CURRENT STATE:
 
     [x] GPU trail history (4-sample ring per particle written in full-sim).
 
-    [!] Ribbon generation — deferred; history is stored, ribbon mesh not drawn.
+    [x] Ribbon generation and draw — the vertex stage sorts the ring newest-first (fixed network,
+        deterministic), triangulates three quads per strip (18 verts, `PARTICLE_RIBBON_VERTS`),
+        tapers and fades toward the tail, and samples the same soft depth as billboards; the cull
+        pass counts survivors into the second indirect record while the ribbon flag is set, and the
+        resolve pass keeps it zeroed. `GpuParticleWorld.setRibbon` toggles live; the demo builds
+        ribbons on (`?ribbons=0` pins them off). No mesh or CPU geometry exists — by design.
+        (tests/particles.test.ts; capability: particles.gpuRendering; docs/PARTICLES.md)
 
 
 12.5 GPU Particle Culling
@@ -668,7 +708,7 @@ CURRENT STATE:
         [x] billboard
         [x] stretched billboard (velocity stretch factor)
         [>] mesh particle — deferred
-        [!] ribbon — history only; ribbon draw deferred
+        [x] ribbon — trail strips from the ring, drawn from the same compacted list as the billboards (12.4)
         [x] soft particle (depth-buffer fade)
 
 
@@ -1024,6 +1064,12 @@ GOAL:
         and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
         never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population.test.ts.
 
+    [ ] Load-order-independent surface sampling (follow-up, added 2026-10-06 to make the phase's
+        remaining work checkable — the baseline block names all four of these): acceptance samples
+        must come from a resolution-independent surface, so the same chunk scatters the same
+        instances whichever LOD its tile first became ready at (docs/KNOWN-ISSUES.md
+        § World population "Placement depends on the tile resolution…").
+
 
 14.2 Population Types
 
@@ -1100,6 +1146,11 @@ GOAL:
         limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
         of its instances (per-instance device culling is not built).
 
+    [ ] Per-instance culling inside a batch (follow-up, added 2026-10-06): the same work as the
+        13.5 leftover "Per-instance culling inside a batch" — one visible instance keeps its batch
+        today; closing either line closes both limitations (docs/KNOWN-ISSUES.md § World population
+        "Device culling is per chunk, not per instance").
+
 
 14.6 Population Streaming
 
@@ -1109,6 +1160,15 @@ GOAL:
         ready chunks get populations within a per-frame budget, evicted chunks lose them, and an
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
         Zero ECS entities are created — pinned by tests/population.test.ts.
+
+    [ ] Population generation on workers (follow-up, added 2026-10-06): the scatter pass is
+        main-thread inline, budgeted by `generationsPerFrame`; moving it behind `TaskScheduler`
+        needs the heightmap samples available off-thread, like terrain cells in 10.2
+        (docs/KNOWN-ISSUES.md § World population "Population generation is main-thread inline").
+
+    [ ] Population raycast (follow-up, added 2026-10-06): picking and debug tools cannot hit
+        population instances today; add a deterministic spatial query over the instance blocks
+        (docs/KNOWN-ISSUES.md § World population "Population rendering has no raycast…").
 
 
 EXIT CRITERIA:
