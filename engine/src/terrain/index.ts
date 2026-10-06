@@ -14,5 +14,7 @@ export * from "./realistic.js";
 export * from "./realisticMaterial.js";
 export * from "./cache.js";
 export * from "./budget.js";
+export * from "./deformation.js";
 export * from "./horizon.js";
+export * from "./interaction.js";
 export * from "./mars/index.js";

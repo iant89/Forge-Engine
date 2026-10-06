@@ -45,9 +45,13 @@ CURRENT CODEBASE BASELINE:
                 real Chromium/SwiftShader verified an ETC1S-to-BC7 six-mip upload.
                 KTX2 3D volumes are explicitly deferred; core glTF/GLB geometry decode is
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
-                The `15+` label covers Phase 15 only: Phases 16 through 28 are NOT STARTED
-                ([ ]) in their sections below, and Phase 29 is a roll-up (see the status
-                block; `docs:check` verifies the `15+` registry key directly).
+                The `15+` label covers Phase 15 only; the interactive terrain work is tracked
+                separately as Phase 15.5 below.
+    Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
+                rocks, push/roll/destruction, rover impact response and persistent sand tracks)
+                Phases 16 through 28 remain NOT STARTED ([ ]) in their sections below, and
+                Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
+                keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -147,6 +151,9 @@ PHASE 14 - World Population
 
 PHASE 15+
     [x] IMPLEMENTED / VERIFIED
+
+PHASE 15.5 - Interactive Terrain / Object Dynamics
+    [~] IN PROGRESS
 
 
 ================================================================================
@@ -1332,6 +1339,147 @@ EXIT CRITERIA:
     are reported before invalid assets become live.
     Supported KTX2/Basis assets upload on a real WebGPU implementation with device-appropriate
     compression or an RGBA fallback.
+
+
+================================================================================
+              PHASE 15.5 - INTERACTIVE TERRAIN / OBJECT DYNAMICS
+================================================================================
+
+GOAL:
+
+    Turn selected streamed terrain population into physically meaningful, near-field
+    interactions without making every GPU instance a rigid body. Small rocks can be pushed,
+    roll under gravity and break under sufficient load; large obstacles can stop or damage the
+    rover; and soft sand can retain shallow wheel-track impressions.
+
+
+15.5.1 Interactive Population Proxies
+
+    [x] Stable population instance identity.
+
+        The first showcase bridge uses the deterministic `(chunk, rocks, index)` identity and the
+        reusable `InteractiveRockProxy` contract. The identity is derived from the streamed population
+        block rather than a transient renderer batch index; persistence across deformation and save/load
+        remains open below.
+
+    [x] Near-field proxy admission and eviction.
+
+        `marsShowcaseScene.ts` promotes type-1 rocks only inside the bounded 48 m interaction radius,
+        adds them to a gravity/heightfield `PhysicsWorld`, and removes proxies as chunks or rocks leave
+        that radius. Distant instances remain GPU-only and no ECS entity is created per rock.
+
+    [x] Shared render/physics transforms.
+
+        The showcase bridge uses the same streamed block position/scale and Mars heightfield as the
+        renderer and rover ground query. Proxy motion is copied back into the instance block, including
+        yaw, and the block revision is marked only when a body actually moves. A debug body budget is
+        exposed through `marsState().interactiveRocks`; proxy visualization is still open.
+
+
+15.5.2 Push, Roll and Destruction
+
+    [x] Material and strength model.
+
+        `InteractiveRockMaterial`, `MARS_ROCK_MATERIAL` and `createInteractiveRockSpec` derive mass,
+        friction, restitution, crush strength, push force and climb height from the proxy shape. The
+        Mars Showcase now uses this profile instead of hard-coded per-rock thresholds; values are
+        validated before a dynamic proxy is created. Roll resistance and per-instance geology remain
+        open for the later break/settle step.
+
+    [x] Dynamic rock bodies.
+
+        `InteractiveRockProxy` owns a dynamic `RigidBody`; the Mars Showcase admits nearby proxies to
+        a Mars-gravity `PhysicsWorld` with a shared terrain heightfield. Contact impulses move the
+        body, and ordinary rigid-body gravity/inertia allow it to slide or roll when support is lost.
+        The showcase uses a simplified sphere rather than the render mesh. Compound shapes and crater
+        edge browser evidence remain open under deterministic verification.
+
+    [x] Break and settle behavior.
+
+        When impact force exceeds the material-derived break strength, the showcase zeroes the
+        population instance, marks its block revision, removes the dynamic proxy and records the
+        broken-rock count in `marsState()`. The broken state is deterministic and does not spawn
+        fragment bodies; fractured pieces, persistence and save/load remain later work.
+
+
+15.5.3 Rover Obstacle Response
+
+    [x] Vehicle/rock contact bridge.
+
+        `bridgeRockContact` transfers the assessed normal contact through the rover velocity and the
+        dynamic rock proxy, while the showcase keeps wheel suspension on the terrain heightfield.
+        Blocked contacts retain tangential motion but remove most inward velocity; pushable contacts
+        transfer a smaller share to the rock. Continuous collision/tunnelling protection and per-wheel
+        contact manifolds remain part of the next response step.
+
+    [x] Climb, push and damage rules.
+
+        Contact height, available traction and material-derived push force distinguish climbable,
+        pushable and blocked rocks. `applyRoverImpactDamage` applies bounded hull, wheel and suspension
+        damage to tall blocked impacts; a disabled rover cuts throttle and holds its brake. Damage and
+        disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
+        recovery remain open.
+
+    [x] Deterministic physics and browser evidence.
+
+        CPU coverage replays promotion, impulse, gravity, rolling, blocking and damage decisions
+        deterministically. The focused `npm run check:browser:mars-interactive` arm verifies the live
+        streamed showcase promotes near-field rocks, records wheel tracks and runs the interaction
+        interval with zero GPU errors. The full gate is now composable from focused commands; the
+        heavier HGA/arm suite remains separate and the browser arm deliberately avoids a slow capture.
+
+
+15.5.4 Sand Deformation and Wheel Tracks
+
+    [x] Persistent per-tile deformation state.
+
+        `TerrainDeformationField` stores bounded, chunk-keyed shallow wheel deltas separately from the
+        procedural generator, supports sampling, revision tracking and serialize/restore, and the Mars
+        Showcase records load-bearing wheel impressions into it. The rover ground query, camera clamp
+        and interactive-rock heightfield consume the deltas, while the showcase snapshot API preserves
+        them across eviction/save boundaries. Terrain-mask rendering and material-specific resistance
+        remain future refinements rather than hidden gaps in the persistence contract.
+
+    [x] Visual tracks first.
+
+        The Mars Showcase now records load-bearing wheel contacts into a bounded ring of translucent
+        terrain decals. Track marks are placed above the shared streamed surface, reuse one mesh/material,
+        and expose `visibleTrackMarks` for the browser gate. Tile-owned mask integration and displaced
+        sand edges remain open for the physical response step.
+
+    [x] Physical track response.
+
+        The Mars Showcase ground query, camera clamp and interactive-rock heightfield now include the
+        bounded deformation field, so subsequent wheel samples run in the shallow pressed-in track.
+        Track depth is load-scaled and clamped; material-specific sand/crust resistance and traction
+        changes remain open for a later terrain-material refinement.
+
+
+15.5.5 Performance, Streaming and Save/Load
+
+    [x] Bound the interaction budget.
+
+        The Mars Showcase caps active interactive rock proxies at 64 inside the 48 m interaction
+        radius; distant rocks remain render-only and the population path remains instanced. The
+        deformation field caps runtime state at 128 chunks, and the visual track ring caps marks at
+        256. Budgets are exposed through `marsState()` where applicable.
+
+    [x] Persistence and diagnostics.
+
+        The Mars Showcase exposes `saveInteractiveTerrain()` / `restoreInteractiveTerrain()` snapshots
+        containing stable broken-rock identities and serialized deformation chunks. Restore removes
+        matching active proxies before they can respawn. `marsState()` reports active/budgeted proxies,
+        broken rocks, damage, deformation chunks/samples/revision and visible track marks; malformed or
+        unsupported snapshots are rejected.
+
+
+EXIT CRITERIA:
+
+    Near-field rocks have stable identities and bounded physics proxies.
+    Small rocks can be pushed; rocks can roll when unsupported; excessive impacts can break rocks.
+    Heavy/tall obstacles block or damage the rover without tunnelling or destabilizing terrain contact.
+    Wheel tracks are visible, persist through terrain streaming, and produce bounded sand response.
+    CPU determinism, memory budgets, focused browser checks and real-WebGPU evidence are documented.
 
 
 ================================================================================

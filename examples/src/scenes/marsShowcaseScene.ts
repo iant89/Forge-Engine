@@ -13,7 +13,7 @@
  *   the real rovers are battery-electric; the no-load motor speed caps the rover near 6 km/h,
  *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
  *   driven, Mars gravity 3.72 m/s², aero off), posed by `VehicleSystem`; the GLB arrives async —
- *   a box-body placeholder drives until it lands, then the real body/wheel meshes swap in
+ *   the rover stays invisible until the real body/wheel meshes land
  *   (`assets/glb.ts` reads `examples/assets/Perseverance.glb`, produced by
  *   `scripts/convert-perseverance.mjs`);
  * - high-gain antenna: the NASA model ships without an HGA, so the scene builds one procedurally
@@ -40,6 +40,10 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  Geometry,
+  HeightfieldShape,
+  PhysicsWorld,
+  SphereShape,
   type Engine,
   type Entity,
   type EntityId,
@@ -62,6 +66,7 @@ import {
   P_MAX_LIFE,
   P_SIZE,
   ParticleWorld,
+  PopulationWorld,
   Renderable,
   Scene,
   SizeOverLifeModule,
@@ -80,6 +85,15 @@ import {
   createSphere,
   createVehicleConfig,
   heightFunctionGround,
+  InteractiveRockProxy,
+  applyRoverImpactDamage,
+  bridgeRockContact,
+  MARS_ROCK_MATERIAL,
+  createInteractiveRockSpec,
+  TerrainDeformationField,
+  buildLodGeometry,
+  rockGeometrySource,
+  unindexedLodWindow,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
@@ -166,6 +180,10 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
    * GLB has landed, `on`/`off` force the overlay either way.
    */
   setDebugBounds(mode: "auto" | "on" | "off"): void;
+  /** Serialize interactive rock and terrain deformation state for save/load. */
+  saveInteractiveTerrain(): string;
+  /** Restore a prior interactive terrain snapshot. Invalid snapshots are rejected. */
+  restoreInteractiveTerrain(serialized: string): void;
 }
 
 /** Footprint boxes for the rover debug overlay, in each entity's local space (metres). */
@@ -397,8 +415,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   scene.setSky({ atmosphere: marsAtmosphere, quality: "medium", sunIntensity: 20 });
   const sunDirection = new Vec3(200, 300, 200).normalize();
   const horizon = new AtmosphereModel(marsAtmosphere).horizonColor(sunDirection, 0, new Float64Array(3));
+  // Match the terrain demo's readable streaming-edge haze: distant Mars ground and the newly
+  // shared rock population should fade together instead of leaving rocks floating over fog.
   scene.setFog("exp2", {
-    density: 0.0014,
+    density: 0.0008,
     color: new Color(horizon[0]!, horizon[1]!, horizon[2]!),
   });
 
@@ -445,6 +465,62 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const terrainGeneration = (): "workers" | "inline" =>
     !terrain.syncGeneration && engine.tasks && !engine.tasks.isInline ? "workers" : "inline";
 
+  // Reuse the terrain demo's deterministic rock population on the showcase surface. The
+  // population follows the Mars tiles (rather than a second terrain) so every rock is anchored to
+  // the same heightmap the rover's wheels query. Rocks and boulders use the same merged hi/lo
+  // geometry and GPU-selected LOD as the terrain demo; the lower density keeps the close rover
+  // composition readable while the per-chunk culler handles the distant field.
+  const rockMaterial = new Material({
+    label: "mars-showcase-rock",
+    color: Color.fromSrgbHex(0x9a6a4e),
+    roughness: 0.96,
+    metallic: 0.03,
+  });
+  const rockLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 7, seed: 7, roughness: 0.34 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.34 })),
+  });
+  const boulderLod = buildLodGeometry({
+    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 8, seed: 11, roughness: 0.3, flatten: 0.4 })),
+    lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.3, flatten: 0.4 })),
+  });
+  const rockGeometry = Geometry.create(gpu, rockLod.source);
+  const boulderGeometry = Geometry.create(gpu, boulderLod.source);
+  const population = new PopulationWorld({
+    terrain,
+    types: [
+      {
+        id: 1,
+        label: "rocks",
+        densityGrid: 6,
+        scaleMin: 0.3,
+        scaleMax: 1.7,
+        scaleExponent: 1.7,
+        slopeLimit: 0.55,
+        tintJitter: 0.3,
+        maxDistance: 550,
+        geometry: rockGeometry,
+        material: rockMaterial,
+        lod: { hiTriangles: rockLod.hiTriangles, distance: 260 },
+      },
+      {
+        id: 2,
+        label: "boulders",
+        densityGrid: 2,
+        scaleMin: 0.6,
+        scaleMax: 1.4,
+        slopeLimit: 0.4,
+        tintJitter: 0.25,
+        embed: 0.25,
+        maxDistance: 800,
+        geometry: boulderGeometry,
+        material: rockMaterial,
+        lod: { hiTriangles: boulderLod.hiTriangles, distance: 420 },
+      },
+    ],
+  });
+  scene.add(population);
+
   // Sun + rust-coloured bounce fill (terrain demo's lights).
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(200, 300, 200));
   const sun = new Light();
@@ -483,7 +559,13 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   camera.far = 8000;
   scene.world.addComponent(cameraEntity.id, camera);
   // ---------------------------------------------------------------- rover (six wheels)
-  const ground = heightFunctionGround((x, z) => terrain.getHeightAt(x, z));
+  const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
+  const deformedGroundHeight = (x: number, z: number): number => {
+    const cx = Math.floor(x / terrain.chunkSize);
+    const cz = Math.floor(z / terrain.chunkSize);
+    return terrain.getHeightAt(x, z) + deformation.sample(chunkCoordKey(cx, cz), x - cx * terrain.chunkSize, z - cz * terrain.chunkSize, terrain.chunkSize);
+  };
+  const ground = heightFunctionGround(deformedGroundHeight);
   const motor = new ElectricMotor({ ...ROVER_MOTOR });
   const config = {
     ...createVehicleConfig({
@@ -517,36 +599,28 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   vehicle.position.x = SPAWN_X;
   vehicle.position.z = SPAWN_Z;
   vehicle.placeOnGround(ground);
+  // Hold the newly spawned rover until the user explicitly asks it to move. This covers both
+  // rolling on the landing slope and input arriving before the async GLB has finished building.
+  let startupBrake = true;
+  vehicle.input.brake = 1;
+  vehicle.input.handbrake = 1;
   // Local Y that puts the model's ground plane on the terrain at equilibrium (≈ radius + rest − sag).
   const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
   const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
 
   scene.world.registerSystem(new VehicleSystem());
 
-  // Bright unlit body: beige PBR used to disappear into Mars haze when the GLB was still loading
-  // (or failed) on slower iOS networks — the captain then reported "no rover" with only terrain+sky.
-  const placeholderBodyMesh = createBox(gpu, { width: 1.5, height: 0.6, depth: 3.2 });
-  const placeholderBodyMaterial = Material.unlit({ label: "rover-placeholder", color: 0xff8a1f });
+  // Keep the vehicle's physics chassis and wheel roots alive while the GLB loads, but do not add
+  // placeholder renderables. Showing a temporary orange box makes the loading state look like a
+  // spawned rover and also encourages users to drive before the real model is ready.
   const chassis = scene.createTransformedEntity(
     "rover-chassis",
     new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z),
   );
-  const placeholderBody = new Renderable();
-  placeholderBody.geometry = placeholderBodyMesh;
-  placeholderBody.material = placeholderBodyMaterial;
-  scene.world.addComponent(chassis.id, placeholderBody);
-
-  const placeholderWheelMesh = createBox(gpu, { width: 0.3, height: 0.5, depth: 0.5 });
-  const placeholderWheelMaterial = new Material({ label: "rover-wheel-placeholder", color: 0x4a4a4e, roughness: 0.8, metallic: 0.05 });
   const wheelRoots: Entity[] = [];
   const wheelIds: number[] = [];
   for (let i = 0; i < WHEELS.length; i++) {
     const wheel = scene.createTransformedEntity(`rover-${WHEELS[i]!.name}`, new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z));
-    const renderable = new Renderable();
-    renderable.geometry = placeholderWheelMesh;
-    renderable.material = placeholderWheelMaterial;
-    renderable.castShadow = true;
-    scene.world.addComponent(wheel.id, renderable);
     wheelRoots.push(wheel);
     wheelIds.push(wheel.id);
   }
@@ -554,6 +628,131 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const component = new VehicleComponent(vehicle, ground);
   component.wheelEntities = wheelIds;
   chassis.add(component);
+
+  // Phase 15.5 foundation: promote only nearby rocks to dynamic physics proxies. The population
+  // remains instanced; these bodies are a bounded interaction layer, not one rigid body per rock.
+  const interactivePhysics = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+  interactivePhysics.setHeightfield(new HeightfieldShape({
+    sampleHeight: deformedGroundHeight,
+  }));
+  const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
+  let brokenInteractiveRocks = 0;
+  const brokenInteractiveRockIds = new Set<string>();
+  const roverDamage = { hull: 0, wheels: 0, suspension: 0, disabled: false };
+  const trackMesh = createBox(gpu, { width: 0.22, height: 0.012, depth: 0.72 });
+  const trackMaterial = Material.unlit({ label: "mars-wheel-tracks", color: 0x4b3028, opacity: 0.42, transparent: true });
+  const trackMarks = Array.from({ length: 256 }, (_, index) => {
+    const entity = scene.createTransformedEntity(`mars-track-${index}`, new Vec3(0, -400, 0));
+    const renderable = new Renderable();
+    renderable.geometry = trackMesh;
+    renderable.material = trackMaterial;
+    renderable.castShadow = false;
+    renderable.receiveShadow = false;
+    renderable.transparent = true;
+    renderable.visible = false;
+    scene.world.addComponent(entity.id, renderable);
+    return { entity, renderable };
+  });
+  const lastTrack = WHEELS.map(() => ({ x: Number.NaN, z: Number.NaN }));
+  let nextTrack = 0;
+  let visibleTrackMarks = 0;
+  const trackRotation = new Quat();
+  const INTERACTION_RADIUS = 48;
+  const MAX_INTERACTIVE_ROCKS = 64;
+  const syncInteractiveRocks = (): void => {
+    const wanted = new Set<string>();
+    for (const [chunkKey, chunk] of terrain.chunks) {
+      if (chunk.state !== "ready") continue;
+      const block = population.chunkPopulation(chunkKey, 1); // type 1 is the terrain demo's rocks
+      if (!block) continue;
+      for (let i = 0; i < block.count; i++) {
+        const p = i * 3;
+        const dx = block.positions[p]! - vehicle.position.x;
+        const dz = block.positions[p + 2]! - vehicle.position.z;
+        if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
+        const id = `${chunkKey}:rocks:${i}`;
+        if (brokenInteractiveRockIds.has(id)) continue;
+        if (!interactiveRocks.has(id) && interactiveRocks.size >= MAX_INTERACTIVE_ROCKS) continue;
+        wanted.add(id);
+        if (interactiveRocks.has(id)) continue;
+        const radius = Math.max(0.12, block.scales[p]! * 0.65);
+        const proxy = new InteractiveRockProxy(createInteractiveRockSpec({
+          id,
+          shape: new SphereShape(radius),
+          material: MARS_ROCK_MATERIAL,
+          climbRadius: radius,
+        }), { x: block.positions[p]!, y: block.positions[p + 1]!, z: block.positions[p + 2]! });
+        interactivePhysics.addBody(proxy.body);
+        interactiveRocks.set(id, { block, index: i, proxy });
+      }
+    }
+    for (const [id, record] of interactiveRocks) {
+      if (wanted.has(id)) continue;
+      interactivePhysics.removeBody(record.proxy.body);
+      interactiveRocks.delete(id);
+    }
+  };
+  const stepInteractiveRocks = (dt: number): void => {
+    syncInteractiveRocks();
+    const vx = vehicle.velocity.x;
+    const vz = vehicle.velocity.z;
+    for (const [id, record] of interactiveRocks) {
+      const body = record.proxy.body;
+      const dx = body.position.x - vehicle.position.x;
+      const dz = body.position.z - vehicle.position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 1e-4 && distance < 1.6 + (body.shape as SphereShape).radius) {
+        const nx = dx / distance;
+        const nz = dz / distance;
+        const approach = vx * nx + vz * nz;
+        if (approach > 0.05) {
+          const assessment = bridgeRockContact(record.proxy, {
+            roverMass: 1025,
+            relativeSpeed: approach,
+            availableForce: 2160,
+            obstacleHeight: (body.shape as SphereShape).radius * 2,
+            vehicleVelocity: vehicle.velocity,
+          }, { x: nx, y: 0, z: nz });
+          applyRoverImpactDamage(roverDamage, assessment, {
+            roverMass: 1025,
+            relativeSpeed: approach,
+            availableForce: 2160,
+            obstacleHeight: (body.shape as SphereShape).radius * 2,
+          }, (body.shape as SphereShape).radius * 2, dt);
+          if (assessment.outcome === "crushed") {
+            // Break now, then remove the proxy from the active world. The zeroed instance is a
+            // deterministic settled/broken state; no fragment bodies are spawned in this first slice.
+            record.block.scales[record.index * 3] = 0;
+            record.block.scales[record.index * 3 + 1] = 0;
+            record.block.scales[record.index * 3 + 2] = 0;
+            record.block.markModified();
+            interactivePhysics.removeBody(body);
+            interactiveRocks.delete(id);
+            brokenInteractiveRockIds.add(id);
+            brokenInteractiveRocks++;
+          }
+        }
+      }
+    }
+    interactivePhysics.step(dt);
+    for (const record of interactiveRocks.values()) {
+      const p = record.index * 3;
+      const body = record.proxy.body;
+      const q = body.rotation;
+      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+      const moved =
+        Math.abs(record.block.positions[p]! - body.position.x) > 1e-5 ||
+        Math.abs(record.block.positions[p + 1]! - body.position.y) > 1e-5 ||
+        Math.abs(record.block.positions[p + 2]! - body.position.z) > 1e-5 ||
+        Math.abs(record.block.rotations[record.index]! - yaw) > 1e-5;
+      if (!moved) continue;
+      record.block.positions[p] = body.position.x;
+      record.block.positions[p + 1] = body.position.y;
+      record.block.positions[p + 2] = body.position.z;
+      record.block.rotations[record.index] = yaw;
+      record.block.markModified();
+    }
+  };
 
   // "Where the rover is supposed to be" wireframe (loading screen's companion diagnostic). `auto`
   // keeps the boxes up until the GLB lands so an invisible-model report always has an answer on
@@ -919,7 +1118,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       .catch((error: unknown) => {
         if (attempt !== loadAttempt) return;
         modelError = error instanceof Error ? error.message : String(error);
-        console.error("mars showcase: rover model failed to load, keeping the placeholder", error);
+        console.error("mars showcase: rover model failed to load; rover remains invisible", error);
       });
   };
   startModelLoad();
@@ -965,7 +1164,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // Must stay below CHASE_LOOK_OFFSET_Y + hang so the surface clamp cannot hoist the look-at
       // above the chassis (that tip-over-rover-into-haze bug returned whenever clearance was 2 m).
       groundClearance: MARS_CHASE_GROUND_CLEARANCE,
-      groundHeight: (x, z) => terrain.getHeightAt(x, z),
+      groundHeight: deformedGroundHeight,
       keyboard: false,
     },
     followTarget: () => ({
@@ -976,7 +1175,34 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     update(dt: number): void {
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
-      scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
+      scene.settings.sky.seaLevel = deformedGroundHeight(vehicle.position.x, vehicle.position.z);
+      stepInteractiveRocks(dt);
+      // Record shallow wheel impressions separately from the procedural heightfield. The renderer
+      // and ground-query consumers do not apply this delta yet; this keeps the runtime state ready
+      // for the visual and physical deformation steps without mutating generated Mars cells.
+      for (const wheel of vehicle.wheels) {
+        if (!wheel.inContact) continue;
+        const cx = Math.floor(wheel.contactX / terrain.chunkSize);
+        const cz = Math.floor(wheel.contactZ / terrain.chunkSize);
+        const key = chunkCoordKey(cx, cz);
+        deformation.stamp(key, {
+          x: wheel.contactX - cx * terrain.chunkSize,
+          z: wheel.contactZ - cz * terrain.chunkSize,
+          radius: 0.18,
+          depth: 0.008 * Math.min(1.5, Math.max(0.2, wheel.normalLoad / 625)),
+        }, terrain.chunkSize);
+        const last = lastTrack[vehicle.wheels.indexOf(wheel)]!;
+        if (!Number.isFinite(last.x) || Math.hypot(wheel.contactX - last.x, wheel.contactZ - last.z) >= 0.32) {
+          const mark = trackMarks[nextTrack]!;
+          mark.entity.transform.position = new Vec3(wheel.contactX, wheel.contactY + 0.008, wheel.contactZ);
+          mark.entity.transform.rotation = trackRotation.setAxisAngle(AXIS_Y, vehicle.yaw);
+          mark.renderable.visible = true;
+          last.x = wheel.contactX;
+          last.z = wheel.contactZ;
+          nextTrack = (nextTrack + 1) % trackMarks.length;
+          visibleTrackMarks = Math.min(trackMarks.length, visibleTrackMarks + 1);
+        }
+      }
       // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
       // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
       // onto the latch like the real pyro deployment — and a mid-swing toggle reverses smoothly.
@@ -1028,10 +1254,14 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
       const keySteer =
         (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-      vehicle.input.throttle = Math.max(keyThrottle, pad.throttle);
-      vehicle.input.brake = Math.max(keyBrake, pad.brake);
+      const throttle = Math.max(keyThrottle, pad.throttle);
+      // The first non-zero throttle input is the user's acknowledgement that the rover should
+      // move. Until then both brakes stay engaged, including while the GLB is still loading.
+      if (throttle > 0.01) startupBrake = false;
+      vehicle.input.throttle = roverDamage.disabled ? 0 : throttle;
+      vehicle.input.brake = Math.max(keyBrake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
-      vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
+      vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
 
       // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded),
       // pose the pivots when anything moved, and keep the sticks shown exactly while unfolded.
@@ -1106,6 +1336,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     }),
     marsState: () => {
       const terrainStats = terrain.stats();
+      const populationStats = population.stats();
       let readyChunks = 0;
       for (const chunk of terrain.chunks.values()) if (chunk.state === "ready") readyChunks++;
       const roverChunkKey = chunkCoordKey(
@@ -1126,7 +1357,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         terrainSplatTiles: [...terrain.chunks.values()].filter((chunk) => chunk.tile?.gpuMaterial !== null && chunk.tile?.gpuMaterial !== undefined).length,
         terrainReadyChunks: readyChunks,
         terrainRoverChunkReady: terrain.chunks.get(roverChunkKey)?.state === "ready",
-        terrainGroundHeight: terrain.getHeightAt(vehicle.position.x, vehicle.position.z),
+        terrainGroundHeight: deformedGroundHeight(vehicle.position.x, vehicle.position.z),
+        populationChunks: Number(populationStats.chunks ?? 0),
+        populationInstances: Number(populationStats.instances ?? 0),
+        interactiveRocks: interactiveRocks.size,
+        interactiveRockBudget: MAX_INTERACTIVE_ROCKS,
+        brokenInteractiveRocks,
+        roverDamageHull: roverDamage.hull,
+        roverDamageWheels: roverDamage.wheels,
+        roverDamageSuspension: roverDamage.suspension,
+        roverDisabled: roverDamage.disabled,
+        deformationChunks: deformation.chunkCount,
+        deformationSamples: deformation.sampleCount,
+        deformationRevision: deformation.revision,
+        visibleTrackMarks,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
@@ -1165,6 +1409,36 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     setDebugBounds(mode: "auto" | "on" | "off"): void {
       debugBoundsMode = mode;
     },
+    saveInteractiveTerrain(): string {
+      return JSON.stringify({
+        version: 1,
+        brokenRockIds: [...brokenInteractiveRockIds],
+        deformation: deformation.serialize(),
+      });
+    },
+    restoreInteractiveTerrain(serialized: string): void {
+      let snapshot: { version?: number; brokenRockIds?: unknown; deformation?: unknown };
+      try {
+        snapshot = JSON.parse(serialized) as typeof snapshot;
+      } catch {
+        throw new Error("invalid interactive terrain snapshot: malformed JSON");
+      }
+      if (snapshot.version !== 1 || !Array.isArray(snapshot.brokenRockIds) || !Array.isArray(snapshot.deformation)) {
+        throw new Error("invalid interactive terrain snapshot: unsupported shape");
+      }
+      for (const id of snapshot.brokenRockIds) if (typeof id === "string") brokenInteractiveRockIds.add(id);
+      deformation.restore(snapshot.deformation as Parameters<typeof deformation.restore>[0]);
+      for (const [id, record] of interactiveRocks) {
+        if (!brokenInteractiveRockIds.has(id)) continue;
+        interactivePhysics.removeBody(record.proxy.body);
+        record.block.scales[record.index * 3] = 0;
+        record.block.scales[record.index * 3 + 1] = 0;
+        record.block.scales[record.index * 3 + 2] = 0;
+        record.block.markModified();
+        interactiveRocks.delete(id);
+      }
+      brokenInteractiveRocks = brokenInteractiveRockIds.size;
+    },
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
@@ -1176,13 +1450,18 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       loaded = null;
       for (const resource of hgaResources) resource.dispose();
       hgaResources.length = 0;
-      placeholderBodyMesh.dispose();
-      placeholderBodyMaterial.dispose();
-      placeholderWheelMesh.dispose();
-      placeholderWheelMaterial.dispose();
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
+      trackMesh.dispose();
+      trackMaterial.dispose();
+      population.dispose();
+      for (const record of interactiveRocks.values()) interactivePhysics.removeBody(record.proxy.body);
+      interactiveRocks.clear();
+      interactivePhysics.setHeightfield(null);
+      rockGeometry.dispose();
+      boulderGeometry.dispose();
+      rockMaterial.dispose();
       scene.dispose(); // tile materials/masks before the shared arrays they reference
       terrainMat.dispose();
       disposePbrTextureSet(marsMaps);

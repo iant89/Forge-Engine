@@ -86,6 +86,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "13": "inProgress",
   "14": "inProgress",
   "15+": "verified",
+  "15.5": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -795,6 +796,14 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["tests/population.test.ts", "tests/pipeline.test.ts", "tests/math.test.ts", "tests/primitives.test.ts", "tools/browser-check.mjs"],
     closesWith: "14.5",
     notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented; capability remains partial for per-instance culling, load-order-independent surface sampling, worker generation and population raycast follow-ups — see docs/KNOWN-ISSUES.md § World population",
+  },
+  {
+    id: "world.interactiveTerrain",
+    phase: "15.5",
+    status: "inProgress",
+    summary: "Near-field physical rocks, pushable and rollable destruction, rover impact response and persistent sand track deformation",
+    closesWith: "15.5",
+    notes: "Roadmap only: current population objects are render-only instanced batches and terrain is not yet deformable.",
   },
   {
     id: "assets.contentAddressing",

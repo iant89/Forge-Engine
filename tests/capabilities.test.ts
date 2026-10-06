@@ -44,7 +44,7 @@ const roadmapItems = new Set(
 const roadmapPhases = new Set(
   roadmap
     .split("\n")
-    .map((line) => line.match(/^\s*PHASE\s+([0-9]+[A-Za-z+]*)/)?.[1]?.toLowerCase())
+    .map((line) => line.match(/^\s*PHASE\s+([0-9]+(?:\.[0-9]+)?[A-Za-z+]*)/)?.[1]?.toLowerCase())
     .filter((phase): phase is string => Boolean(phase)),
 );
 
@@ -53,7 +53,7 @@ function roadmapStateBlock(): Map<string, string> {
   const state = new Map<string, string>();
   const lines = roadmap.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const heading = lines[i]?.match(/^PHASE\s+([0-9]+[A-Za-z+]*)/);
+    const heading = lines[i]?.match(/^PHASE\s+([0-9]+(?:\.[0-9]+)?[A-Za-z+]*)/);
     if (!heading) continue;
     const marker = lines[i + 1]?.match(/^\s*\[(.?)\]/);
     if (marker?.[1]) state.set(heading[1]!.toLowerCase(), `[${marker[1]}]`);
