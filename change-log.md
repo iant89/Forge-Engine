@@ -6422,7 +6422,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "examples/src/scenes/marsGeneratorScene.ts",
     "what": "New Phase 10.9 site inspector: streams createMarsPipeline at the advised 128 m / 33^2 sizing with 32 m skirts and worker-backed generation, four scene-tinted marsSurfaceLayers() over createMarsSurfaceTextures arrays, per-tile SplatMaterial via TerrainWorld { layeredMaterial }, a free orbit camera clamped to the ported heightfield, `?marssite=<preset|lat,lon>`, and marsGeneratorState() for the HUD/__forge/gate.",
-    "why": "The showcase drives one surveyed site; the port had no way to inspect any other, so its regional geology (single-channel masks almost everywhere) was invisible."  },
+    "why": "The showcase drives one surveyed site; the port had no way to inspect any other, so its regional geology (single-channel masks almost everywhere) was invisible."
+  },
   {
     "id": "0506",
     "date": "2026-10-06T09:00:00Z",
@@ -6433,7 +6434,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "examples/src/sceneSelection.ts",
     "what": "Add `mars-generator` to DemoSceneName and the switch, with `mars-port` / `mars-generator-port` aliases (`?scene=mars` still means the hand-written Martian terrain demo, `mars-showcase` keeps the default).",
-    "why": "A URL-addressable scene needs a slug, and its aliases must not steal the existing ones."  },
+    "why": "A URL-addressable scene needs a slug, and its aliases must not steal the existing ones."
+  },
   {
     "id": "0507",
     "date": "2026-10-06T09:00:00Z",
@@ -6444,7 +6446,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "examples/src/main.ts",
     "what": "Load the inspector with `?marssite=…`, widen the scene-select guard, and expose `marsGeneratorState()` on `window.__forge`.",
-    "why": "Both the selector and the window API enumerate scenes explicitly."  },
+    "why": "Both the selector and the window API enumerate scenes explicitly."
+  },
   {
     "id": "0508",
     "date": "2026-10-06T09:00:00Z",
@@ -6455,7 +6458,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "examples/index.html",
     "what": "Add the \"Mars Generator (P10.9)\" option to the demo scene selector.",
-    "why": "Every addressable scene is selectable from the toolbar."  },
+    "why": "Every addressable scene is selectable from the toolbar."
+  },
   {
     "id": "0509",
     "date": "2026-10-06T09:00:00Z",
@@ -6466,7 +6470,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tests/marsGeneratorScene.test.ts",
     "what": "New suite: routing/aliases, lat,lon parsing with range rejection, advised sizing + worker-ready analytic config, site movement and unknown-key fallback, per-tile SplatMaterial masks equal to weightPixels(cell) with the chunk renderable using it, the entity budget, and the orbit preset's ground clamp plus sky seaLevel tracking. A final test pins the two-channel blend inside one tile at the 0,0 crater rim (second channel > 0.25 of the mask mass) and the flat single channel over the volcano summit.",
-    "why": "The showcase pins one site; only a suite can pin that the URL chooses the site and that the masks are the stage's own."  },
+    "why": "The showcase pins one site; only a suite can pin that the URL chooses the site and that the masks are the stage's own."
+  },
   {
     "id": "0510",
     "date": "2026-10-06T09:00:00Z",
@@ -6477,7 +6482,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tests/demoSceneSelection.test.ts",
     "what": "Cover the new slug and its aliases, and pin that `?scene=mars` still resolves to the Terrain demo.",
-    "why": "The selector's public contract changed; the older aliases must not have moved."  },
+    "why": "The selector's public contract changed; the older aliases must not have moved."
+  },
   {
     "id": "0511",
     "date": "2026-10-06T09:00:00Z",
@@ -6488,7 +6494,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/test-subsystems.mjs",
     "what": "Add the new scene to `ex-orbit`'s src and its suite to that subsystem's tests.",
-    "why": "An unclaimed source or suite fails the test-map drift guard."  },
+    "why": "An unclaimed source or suite fails the test-map drift guard."
+  },
   {
     "id": "0512",
     "date": "2026-10-06T09:00:00Z",
@@ -6499,7 +6506,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/browser-check.mjs",
     "what": "Add the inspector arm before the showcase: volcano preset must report workers + layered + analytic-only with zero GPU errors, and a real `?scene=mars-generator&marssite=0,0` navigation must read back weight masks where at least one resident tile genuinely blends two channels (a non-dominant channel carrying >= 25 % of the mask mass, ~45/55 rock/crust on the rim).",
-    "why": "Real-adapter coverage for a scene no other arm loads, and mask variety is the only honest proof that the port's splat reaches the tiles."  },
+    "why": "Real-adapter coverage for a scene no other arm loads, and mask variety is the only honest proof that the port's splat reaches the tiles."
+  },
   {
     "id": "0513",
     "date": "2026-10-06T09:00:00Z",
@@ -6510,7 +6518,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "docs/MARS-TERRAIN.md",
     "what": "Document the inspector (§5): URL table, budgets, the 54-site regional-splat finding, the `?marssite=0,0` discriminating site, and the `Heightmap.getNormal` edge clamp; add its suite to §6.",
-    "why": "The port's usage doc should describe the shipped inspector and the two traps its screenshots can hide."  },
+    "why": "The port's usage doc should describe the shipped inspector and the two traps its screenshots can hide."
+  },
   {
     "id": "0514",
     "date": "2026-10-06T09:00:00Z",
@@ -6521,7 +6530,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "docs/KNOWN-ISSUES.md",
     "what": "Add the regional-splat limitation: the port assigns material per terrain region, so a tile is usually single-channel; a 54-site scan found only crater fields mixing within one window.",
-    "why": "Freshly measured behaviour that would otherwise read as a material bug."  },
+    "why": "Freshly measured behaviour that would otherwise read as a material bug."
+  },
   {
     "id": "0515",
     "date": "2026-10-06T09:00:00Z",
@@ -6532,7 +6542,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "docs/VERIFICATION.md",
     "what": "Describe the inspector suite, refresh the test count (765 in 53 files), and name the new browser arm in the gate row.",
-    "why": "The doc lists what each gate proves; a new gate must appear there."  },
+    "why": "The doc lists what each gate proves; a new gate must appear there."
+  },
   {
     "id": "0516",
     "date": "2026-10-06T09:00:00Z",
@@ -6543,7 +6554,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/core/capabilities.ts",
     "what": "Note the inspector in terrain.marsGeneratorPort and add tests/marsGeneratorScene.test.ts to its evidence.",
-    "why": "The registry must describe the shipped state; docs:check cross-checks evidence files."  },
+    "why": "The registry must describe the shipped state; docs:check cross-checks evidence files."
+  },
   {
     "id": "0517",
     "date": "2026-10-06T09:00:00Z",
@@ -6554,7 +6566,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "README.md",
     "what": "List the Mars Generator inspector in the demo tour and the deep-link list.",
-    "why": "The README is where a reader learns which scenes exist and what they do."  },
+    "why": "The README is where a reader learns which scenes exist and what they do."
+  },
   {
     "id": "0518",
     "date": "2026-10-06T09:00:00Z",
@@ -6565,7 +6578,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "ROADMAP.md",
     "what": "Add the inspector as a landed 10.9 sub-item with its evidence, without touching the existing bullets.",
-    "why": "Roadmap sub-items record what actually shipped."  },
+    "why": "Roadmap sub-items record what actually shipped."
+  },
   {
     "id": "0519",
     "date": "2026-10-06T09:05:00Z",
@@ -6576,7 +6590,8 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "mnemosyne.md",
     "what": "Append the rebase note: why step 1 was dropped (measured memory/blend trade against #53), what re-landing on main's SplatMaterial simplified, and three traps (gate arms before the showcase, the port's regional splat, the Heightmap.getNormal edge clamp).",
-    "why": "Or the next agent re-proposes the chunk bake or re-learns the regional-splat and gate-order lessons from scratch."  },
+    "why": "Or the next agent re-proposes the chunk bake or re-learns the regional-splat and gate-order lessons from scratch."
+  },
   {
     "id": "0520",
     "date": "2026-10-06T10:05:00Z",
@@ -6605,6 +6620,33 @@ JSON array below; agents maintain it by hand until then.
       "tests/marsGeneratorScene.test.ts",
       "tools/browser-check.mjs",
       "tools/test-subsystems.mjs"
-    ]  }
+    ]
+  },
+  {
+    "id": "0521",
+    "date": "2026-10-06T10:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/01a10aad-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Reformatted entries 0505-0520 so each closes with its brace on its own line, and split the array's final `]  }`.",
+    "why": "The pen that appended them collapsed the closing `},` onto the last string line: the block still parsed, but it broke the layout every other entry follows (and the collapsed `]  }` at the file's end).",
+    "note": "Formatting follow-up to #54, its own PR. Verified formatting-only: JSON.parse of the block is deep-equal before and after."
+  },
+  {
+    "id": "0522",
+    "date": "2026-10-06T10:50:00Z",
+    "type": "pr-merge",
+    "pr": 55,
+    "branch": "arena/01a10aad-forge-engine",
+    "base": "main",
+    "title": "change-log: restore the entry layout for 0505-0521 (formatting follow-up to #54)",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Formatting follow-up to #54 (merged as 75df6e5): the 16 entries that PR appended had their closing brace collapsed onto the last string line and left the array's final close as `]  }`, which parsed but broke the file's hand-maintained layout. Entries 0505-0520 are re-indented to close on their own line and 0521 records the fix. Formatting only — JSON.parse of the block is deep-equal before and after, and no source, test or docs:check-visible content changed.",
+    "files": ["change-log.md"]
+  }
 ]
 ```
