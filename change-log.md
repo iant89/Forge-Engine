@@ -6666,6 +6666,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/core/capabilities.ts",
     "what": "ROADMAP_PHASE_STATUS[\"9\"] inProgress -> verified.",
     "why": "All Phase 9 items 9.1-9.6 are [x] with evidence, every capability whose phase is 9.x is verified, and the 2026-10-05 session note records the phase as closed; the state block and baseline already said verified, so the registry entry was the last stale marker."
+  },
+  {
+    "id": "0525",
+    "date": "2026-10-06T07:30:00Z",
+    "type": "change",
+    "pr": 56,
+    "branch": "arena/accdbca7-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Triaged the trailing 10.9 [!]: fidelity-vs-real-cache is a blocker needing the upstream Stage A cache (with a documented NEEDS HUMAN RUN procedure matching tools/mars-port-check.mjs flags); the mesh/upload main-thread residual is accepted 10.2 shape; the coarse-LOD material mix closes with the 14.1 sampling follow-up.",
+    "why": "The [!] mixed external-data verification with documented residuals; per the roadmap the blocker is a blocker, not work, and double-tracking the same fix in two phases invites drift."
   }
 ]
 ```

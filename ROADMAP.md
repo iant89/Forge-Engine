@@ -470,6 +470,23 @@ CURRENT PROBLEMS (addressed in this phase):
             uploads and cache-miss ground queries remain on main. The 4-channel weights now render,
             but coarse-LOD slope/biome sampling can still change the material mix.
 
+            (2026-10-06 triage of this [!]: the first sentence is a blocker, not work — the
+            fidelity check needs the upstream generator's ~30 MB `cache/global/` fields, which
+            this repository deliberately does not ship; `check:mars-port` stays a synthetic-cache
+            smoke test until a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
+            capability: terrain.marsGeneratorPort). The inline-only mesh/upload/ground-query
+            residual is the accepted shape recorded under 10.2 and KNOWN-ISSUES §Terrain, not
+            unmet 10.9 scope. The coarse-LOD material-mix item closes with the 14.1 follow-up
+            "Load-order-independent surface sampling" — the same resolution-independent surface
+            is the fix in both phases — and is worked there, not twice here.)
+
+            NEEDS HUMAN RUN (fidelity half): download the upstream `mars-terrain-gen`
+            `cache/global/` Stage A fields for seed 1337, place them where
+            `tools/mars-port-check.mjs` expects its `--cache` input, run
+            `npm run check:mars-port`, and compare field heights against the generator's
+            float32 output; the gate reports agreement, so anything but a clean match keeps
+            this [!]. Nothing in this sandbox can produce that cache.
+
 
 EXIT CRITERIA:
 
