@@ -1355,23 +1355,25 @@ GOAL:
 
 15.5.1 Interactive Population Proxies
 
-    [ ] Stable population instance identity.
+    [x] Stable population instance identity.
 
-        Give each streamed population instance a deterministic `(seed, chunk, type, index)` identity
-        that survives remeshing and eviction. Keep rendering instanced, but allow a nearby instance
-        to acquire a physics proxy without creating an ECS entity for every distant rock.
+        The first showcase bridge uses the deterministic `(chunk, rocks, index)` identity and the
+        reusable `InteractiveRockProxy` contract. The identity is derived from the streamed population
+        block rather than a transient renderer batch index; persistence across deformation and save/load
+        remains open below.
 
-    [ ] Near-field proxy admission and eviction.
+    [x] Near-field proxy admission and eviction.
 
-        Register simplified sphere/box/capsule proxies only inside an interaction radius around the
-        rover. Remove them when chunks leave that radius, and preserve the authoritative instance
-        transform/state so a proxy cannot respawn at its original pose after being pushed or broken.
+        `marsShowcaseScene.ts` promotes type-1 rocks only inside the bounded 48 m interaction radius,
+        adds them to a gravity/heightfield `PhysicsWorld`, and removes proxies as chunks or rocks leave
+        that radius. Distant instances remain GPU-only and no ECS entity is created per rock.
 
-    [ ] Shared render/physics transforms.
+    [x] Shared render/physics transforms.
 
-        The proxy must use the same terrain heightmap, chunk coordinates, scale, rotation and local
-        origin as the population renderer. A debug mode should show proxy bounds and the active-body
-        budget so mismatches are diagnosable.
+        The showcase bridge uses the same streamed block position/scale and Mars heightfield as the
+        renderer and rover ground query. Proxy motion is copied back into the instance block, including
+        yaw, and the block revision is marked only when a body actually moves. A debug body budget is
+        exposed through `marsState().interactiveRocks`; proxy visualization is still open.
 
 
 15.5.2 Push, Roll and Destruction

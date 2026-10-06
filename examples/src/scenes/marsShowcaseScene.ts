@@ -41,6 +41,9 @@ import {
   Camera,
   Color,
   Geometry,
+  HeightfieldShape,
+  PhysicsWorld,
+  SphereShape,
   type Engine,
   type Entity,
   type EntityId,
@@ -82,6 +85,7 @@ import {
   createSphere,
   createVehicleConfig,
   heightFunctionGround,
+  InteractiveRockProxy,
   buildLodGeometry,
   rockGeometrySource,
   unindexedLodWindow,
@@ -610,6 +614,101 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   component.wheelEntities = wheelIds;
   chassis.add(component);
 
+  // Phase 15.5 foundation: promote only nearby rocks to dynamic physics proxies. The population
+  // remains instanced; these bodies are a bounded interaction layer, not one rigid body per rock.
+  const interactivePhysics = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+  interactivePhysics.setHeightfield(new HeightfieldShape({
+    sampleHeight: (x, z) => terrain.getHeightAt(x, z),
+  }));
+  const interactiveRocks = new Map<string, { block: NonNullable<ReturnType<typeof population.chunkPopulation>>; index: number; proxy: InteractiveRockProxy }>();
+  const INTERACTION_RADIUS = 48;
+  const syncInteractiveRocks = (): void => {
+    const wanted = new Set<string>();
+    for (const [chunkKey, chunk] of terrain.chunks) {
+      if (chunk.state !== "ready") continue;
+      const block = population.chunkPopulation(chunkKey, 1); // type 1 is the terrain demo's rocks
+      if (!block) continue;
+      for (let i = 0; i < block.count; i++) {
+        const p = i * 3;
+        const dx = block.positions[p]! - vehicle.position.x;
+        const dz = block.positions[p + 2]! - vehicle.position.z;
+        if (dx * dx + dz * dz > INTERACTION_RADIUS * INTERACTION_RADIUS) continue;
+        const id = `${chunkKey}:rocks:${i}`;
+        wanted.add(id);
+        if (interactiveRocks.has(id)) continue;
+        const radius = Math.max(0.12, block.scales[p]! * 0.65);
+        const proxy = new InteractiveRockProxy({
+          id,
+          shape: new SphereShape(radius),
+          mass: Math.max(8, radius * radius * radius * 38),
+          crushStrength: 50000,
+          pushForce: Math.max(80, radius * radius * 180),
+          climbHeight: Math.max(0.2, radius * 1.4),
+          friction: 0.9,
+          restitution: 0.05,
+        }, { x: block.positions[p]!, y: block.positions[p + 1]!, z: block.positions[p + 2]! });
+        interactivePhysics.addBody(proxy.body);
+        interactiveRocks.set(id, { block, index: i, proxy });
+      }
+    }
+    for (const [id, record] of interactiveRocks) {
+      if (wanted.has(id)) continue;
+      interactivePhysics.removeBody(record.proxy.body);
+      interactiveRocks.delete(id);
+    }
+  };
+  const stepInteractiveRocks = (dt: number): void => {
+    syncInteractiveRocks();
+    const vx = vehicle.velocity.x;
+    const vz = vehicle.velocity.z;
+    for (const record of interactiveRocks.values()) {
+      const body = record.proxy.body;
+      const dx = body.position.x - vehicle.position.x;
+      const dz = body.position.z - vehicle.position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 1e-4 && distance < 1.6 + (body.shape as SphereShape).radius) {
+        const nx = dx / distance;
+        const nz = dz / distance;
+        const approach = vx * nx + vz * nz;
+        if (approach > 0.05) {
+          const assessment = record.proxy.contact({
+            roverMass: 1025,
+            relativeSpeed: approach,
+            availableForce: 2160,
+            obstacleHeight: (body.shape as SphereShape).radius * 2,
+          }, { x: nx, y: 0, z: nz });
+          if (assessment.outcome === "blocked") {
+            vehicle.velocity.x *= 0.35;
+            vehicle.velocity.z *= 0.35;
+          } else if (assessment.outcome === "crushed") {
+            record.block.scales[record.index * 3] = 0;
+            record.block.scales[record.index * 3 + 1] = 0;
+            record.block.scales[record.index * 3 + 2] = 0;
+            record.block.markModified();
+          }
+        }
+      }
+    }
+    interactivePhysics.step(dt);
+    for (const record of interactiveRocks.values()) {
+      const p = record.index * 3;
+      const body = record.proxy.body;
+      const q = body.rotation;
+      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+      const moved =
+        Math.abs(record.block.positions[p]! - body.position.x) > 1e-5 ||
+        Math.abs(record.block.positions[p + 1]! - body.position.y) > 1e-5 ||
+        Math.abs(record.block.positions[p + 2]! - body.position.z) > 1e-5 ||
+        Math.abs(record.block.rotations[record.index]! - yaw) > 1e-5;
+      if (!moved) continue;
+      record.block.positions[p] = body.position.x;
+      record.block.positions[p + 1] = body.position.y;
+      record.block.positions[p + 2] = body.position.z;
+      record.block.rotations[record.index] = yaw;
+      record.block.markModified();
+    }
+  };
+
   // "Where the rover is supposed to be" wireframe (loading screen's companion diagnostic). `auto`
   // keeps the boxes up until the GLB lands so an invisible-model report always has an answer on
   // screen: the yellow footprint + green hub boxes mark the pose even with no mesh attached.
@@ -1032,6 +1131,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = terrain.getHeightAt(vehicle.position.x, vehicle.position.z);
+      stepInteractiveRocks(dt);
       // Mast deployment spring (semi-implicit Euler; the main loop already clamps dt ≤ 0.05).
       // Slightly underdamped on purpose: the head swings up, kisses past vertical, and settles
       // onto the latch like the real pyro deployment — and a mid-swing toggle reverses smoothly.
@@ -1189,6 +1289,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         terrainGroundHeight: terrain.getHeightAt(vehicle.position.x, vehicle.position.z),
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
+        interactiveRocks: interactiveRocks.size,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
         ambientDust: ambientDust.simulation.alive,
@@ -1242,6 +1343,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
       population.dispose();
+      for (const record of interactiveRocks.values()) interactivePhysics.removeBody(record.proxy.body);
+      interactiveRocks.clear();
+      interactivePhysics.setHeightfield(null);
       rockGeometry.dispose();
       boulderGeometry.dispose();
       rockMaterial.dispose();
