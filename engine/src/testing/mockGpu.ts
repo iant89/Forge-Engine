@@ -552,7 +552,10 @@ function readIndirectRecord(buffer: MockGPUBuffer, offset: number, words: number
   return [...view];
 }
 
-function mipRange(t: { width: number; height: number; format: string | undefined }, mip: number, layer: number, layers = 1): { offset: number; bytes: number } {
+function mipRange(t: { width: number; height: number; depthOrArrayLayers: number; format: string | undefined }, mip: number, layer: number): { offset: number; bytes: number } {
+  // Storage is mip-major: skip ALL slices of preceding mips, not just the first slice. Otherwise
+  // a higher mip overlaps another array layer (the four-surface terrain maps expose this).
+  const layers = t.depthOrArrayLayers;
   let offset = 0;
   for (let m = 0; m < mip; m++) {
     const { w, h } = formatMipSize(t.width, t.height, m);

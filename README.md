@@ -6,7 +6,9 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
 npm run test:affected  # run only the suites your change can reach + smoke floor (docs/TESTING.md)
-npm run check:browser  # real WebGPU render gate (headless Chromium + SwiftShader)
+npm run check:browser  # full real-WebGPU gate (headless Chromium + SwiftShader)
+npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
+npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B
 npm run demo           # Vite dev server for examples/
 ```
 
@@ -19,7 +21,11 @@ depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` fo
 The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
 (the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1
 `ReductionDrive`, ≈6 km/h top speed with regenerative braking) driving over streamed, cratered Mars
-terrain beneath a Mars sky, with wind-blown and wheel-kick dust. Use `WASD` / arrow keys to drive
+terrain beneath a Mars sky, with wind-blown and wheel-kick dust. The showcase now uses the ported
+`mars-terrain-gen` surface (seed 1337), starting on a gentle equatorial traverse. It runs **analytic-only**
+without downloading an erosion cache; analytic cell generation uses the worker pool (with an inline
+fallback), while mesh uploads/uncached ground queries stay on main. Its dust/rock/sand/crust weights
+now blend four shared PBR texture-array layers (see `docs/MARS-TERRAIN.md`). Use `WASD` / arrow keys to drive
 and `Space` for the handbrake, `M` to raise the camera mast, and `R` to unfold the front robotic
 arm — once out, jog its swing, shoulder, elbow and turret with `F/H`, `T/G`, `I/K`, `J/L` or the
 two thumbsticks that appear above the drive pad on touch layouts. About five seconds after the

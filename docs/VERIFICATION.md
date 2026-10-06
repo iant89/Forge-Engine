@@ -60,7 +60,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project (Phase 9.6: vitest only *transpiles*, so a test with stale types still ran — the first typechecked run found 37 errors, including `mock.texturesCreated` assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 736 tests in 50 files on the current tree (including Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage and Phase 15 asset-pipeline coverage); see the per-suite notes below | passing |
+| `npm test` | 758 tests in 52 files on the current tree (including Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, and the layered-terrain material + Mars showcase integration suites); see the per-suite notes below | passing |
 | `npm run test:affected` | The same suites as `npm test`, but only the ones the working-tree (or PR) diff can reach: each change is mapped through `tools/test-subsystems.mjs` to its subsystem, expanded to every dependent subsystem, and unioned with the smoke floor (`math`, `ecs`, `renderGraph`, `frame`, `architecture`, `subsystems`). A foundation change (`core`/`math`), a build/test-config change, or a file no subsystem owns falls back to the full suite, and the one-line reason is printed. `--all` forces the full set; PRs run this in CI, `main` runs the full suite | passing |
 | `npm run check:testmap` | The source→test map has not drifted: every suite on disk is claimed by exactly one subsystem (or the smoke floor), every declared source path and `deps` id resolves, and every top-level `engine/src` directory is owned by a subsystem or is a full-run trigger. Guarded a second time from inside vitest by `tests/subsystems.test.ts` | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
@@ -68,6 +68,8 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
 | `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 9.1 module-worker GLB round-trip (zero inline fallback), then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera — now with the Phase 14 population check that the streamed disc actually draws its rock/boulder population (`populationInstances > 100` in ≥ 4 batches) while the entity count stays under 400, proving the instances did not regress into per-rock entities — scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors, plus the Phase 8b weather scene: overcast noon brighter than clear noon, a pinned overcast night darker than a clear night, the sky pass gone underwater, and a triggered strike registered — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m with the speed and kick dust that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/roverArm`, `tests/armTouch` and `tests/vehicleTouch`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — the Phase 13.5 object culling A/B (identical picture between the device culler and the CPU twin, the pass present in one arm only, the HiZ stage off without darkening a pixel) and the Phase 13.6 indirect arm that follows it (`indirectDraws === batches` with the pass's counter identities on a real device, the same picture with the records off and `indirectDraws` back to 0, and a 1 m draw distance that makes the device, not the CPU, zero records), plus startup through the non-blocking 13.7 pipeline path and optional 13.8 timestamp-query reporting (this SwiftShader adapter reported frame/render/compute and per-pass samples), and the 13.9 per-object cascade submissions plus the spot-shadow A/B: on the PBR fixture the spot map/pass appears, disappears when only the spotlight's `castShadow` flag is disabled (directional cascades stay active), and returns when re-enabled; the full-resolution comparison measured 13,464 pixels darker with spot shadows, none brighter, maximum 11 luma levels, with zero GPU errors through that arm — and the point-shadow A/B that follows the same shape for the two orbiting point lights' six-face cubes: the `forge.shadow.point.*` passes appear, disappear when the point lights' `castShadow` flags are disabled (directional cascades stay active), return when re-enabled, and the comparison must darken monotonically with zero GPU errors. The frame suite separately checks spot/point-map counts/layers and range/`firstInstance` ownership because the browser A/B checks rendered output | this local run (real Chromium + SwiftShader) passed the pbr fixture, every rendering A/B (spot/point shadows, bloom, SSAO, prepass, clustered lighting, object/indirect-culling A/Bs, LDR, cascade tint, resize), and the expanded six-type terrain population + GPU-LOD arm: **1,339 instances in 125 batches, 48 GPU-LOD batches, 64 entities, zero GPU errors**. The browser gate's new assertion observed `forge.populationLod` on the real WebGPU adapter; the run was deliberately stopped after this required arm, so later vehicle/sky/Mars input arms are not claimed. The initial fixed 2.5 s frame-start wait was changed to wait up to 15 s for real frame progress because SwiftShader intermittently exceeded that limit. A fresh full run then passed the PBR/render A/B, terrain, compute, vehicle, particles, sky, weather and Mars Showcase load/contact arms, but stopped at the rover-drive threshold: 0.434 m in 45 s versus >0.5 m (max speed 0.61 m/s, four contacts and kick dust); no HGA/arm pass is claimed. The full `check:browser` gate is therefore not green on this run; this is a timing-sensitive SwiftShader result, not a pass. The CI advisory WebGPU job remains authoritative for a complete sweep and now requires a population LOD batch/pass. Phase 15.3 streaming was verified on the same real device with a targeted probe (8 procedural textures streamed through the engine's `AssetStreamer` under a 100 KB/frame upload budget with a priority mix and a mid-queue cancel): the three 85 KB priority-9 textures admitted exactly one per frame, the 20 KB smalls packed at the concurrency cap on later frames, the cancelled load never reached the GPU (no registry entry, `cancelled: 1`, `failed: 0`), all 7 admitted textures came up ready on the real adapter, and the run finished with zero GPU errors and zero console errors — the full gate's sweep stall makes the probe the targeted evidence for this slice.
 | `npm run check:browser:workers` | Focused Chromium + SwiftShader gate: decodes `tests/fixtures/triangle.glb` through a real module `Worker` using `TaskScheduler`; asserts one worker, one completed task, decoded vertices/indices, zero inline fallbacks, and zero worker failures. Local result: passed. | passing |
+| `npm run check:browser:mars-workers` | Native browser Worker Mars task/result messages (not just scheduler statistics), finite typed grids with matching coordinates/resolution/pipeline hash, no worker fallback/errors, resident showcase tiles and ≥4 wheel contacts on the same surface; wait for async render pipelines and inspect `tools/.browser-check-mars-workers.png`. Does **not** run renderer A/Bs, W-drive, HGA or arm checks | passing locally on real Chromium + SwiftShader: 2 native workers, 13/13 Mars jobs returned, 0 fallback/errors, 13 ready tiles, 6 contacts, 0.573 m clearance; screenshot inspected |
+| `npm run check:browser:terrain-layers` | Actual Renderer/RenderGraph on an offscreen real device: four one-hot texture-array channels, a bilinear linear-light mixture, ordinary/prepass parity, normal/roughness/metallic and MR-channel effects; then native workers, resident four-layer Mars tiles, and a ground-only layered/single material A/B with screenshot inspection | focused integration run passed; the final shared checks also passed in the full gate: mixture `[162,147,138]` equals expected, ordinary and prepassed pixels; MR-map/scalar references both `[132,5,5]`; 117,000/117,000 ground-region pixels changed (max channel 129), nine opening splat tiles, six contacts, zero GPU errors. Final rust-palette screenshot inspected |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms), the Phase 13.4 light-count stress benchmark (`benchmarks/src/lights.bench.ts`: prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped and a grid-saturating rig, with shape guards — the fill follows coverage, the counting pass does not, the worst case stays under a second) and the Phase 13.5 object-culling benchmark (`benchmarks/src/culling.bench.ts`: the CPU twin's frustum/distance/HiZ tests at 512/2048/8192 batches plus a 1280×720 pyramid per frame; measured here 1.1 µs/batch and 9.2 ms/frame at the cap, 39.5 ms for the pyramid — the reduction the twin does not do) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 | `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
@@ -249,13 +251,57 @@ agree at every shared vertex to 1e-9 because each vertex is evaluated from its a
 (which is what makes any `chunkSize`/`chunkResolution` work). The batched `MarsCraterScanner` is
 compared against the generator's direct per-vertex loop (same crater set, 0 class mismatches, 1e-6
 agreement), the Stage A field reader is checked against the documented file layout and rejects
-undersized buffers, and the `mars` pipeline stage describes itself with a stable identity while
-refusing to be rebuilt in a worker (`InlineOnlyError`) so the scheduler hands the task back inline.
+undersized buffers. The `mars` pipeline stage round-trips the full analytic configuration through
+structured-cloneable specs; custom planet/site radii, heading, geology and detail/curvature flags
+produce identical grids to the live pipeline. Incomplete or inconsistent specs are rejected. Live
+Stage A fields still throw `InlineOnlyError`; a real-thread recovery test proves the live stage runs
+once and preserves a synthetic +7 m correction without detaching its fields.
 `adviseMarsTile` is pinned at the sizes the docs recommend (128 m/33 → `micro`, 256 m/65 → `micro`,
 256 m/129 → `full`), including the "the generator's own default output is unusable as a tile" verdict
 for 300 km chunks. Finally the whole thing is streamed through a real `TerrainWorld` (`syncGeneration`,
 `skirtDepth: 64`) and asserted to produce ready chunks on the LOD ladder with AABBs that include the
 skirts.
+
+### `tests/marsShowcase.test.ts` — the port in the actual demo
+
+Eight integration tests assemble `buildMarsShowcaseScene` on the strict mock GPU; only the DOM and
+pending GLB fetch are stubbed (the actual model is covered by `roverGlb.test` and `check:browser`).
+They assert the real scene uses `MarsTerrainStage` with the unmodified seed 1337, equatorial site,
+fine detail, curvature compensation, no erosion fields and no terrain fetch. The surveyed spawn has
+six contacts on a <5° slope, and wheel queries do not jump when its full-resolution tile is uploaded:
+mesh grid Y, the heightmap and port samples agree, and the wheel ray hits agree within 1 mm. Between
+grid vertices the contact surface remains the engine's bicubic interpolation, not a triangle-exact
+collision mesh.
+
+A six-second W-input traverse runs the scene's real vehicle system, stays grounded with ≥4 contacts,
+moves forward >6 m and emits kick dust; it is not a replay of a separate copied rover configuration.
+Zoom/relocation keeps the camera ≥0.5 m above the same surface and the sky reference under the rover.
+Streaming starts nine tiles once, then at most one per update, produces several LOD densities with
+identical shared raw samples in both X/Z directions, and its 32 m skirts enclose measured morph gaps.
+Moving the camera streams a new LOD0 tile within the configured chunk/memory budgets. Every fixture
+tears down with zero outstanding mock GPU buffers/textures. Two scheduler fixtures add real workers
+(using the shipping bootstrap) and the no-worker fallback: worker results are uploaded without calling
+the live Mars stage on main, the original spawn surface is unchanged, and failed/fallback counters
+stay zero on the worker path. The no-worker path still produces resident terrain with no failed
+tasks. These are correctness checks, not a frame-time guarantee; mesh building/uploads and missing-
+cell ground queries remain synchronous.
+
+The material fixture also compares every uploaded mask against the helper applied to the **actual**
+Mars cell, asserts shared four-slice arrays and the dust/rock/sand/crust order, and toggles between
+layered and single materials without changing geometry buffers, ground height or six-wheel contacts.
+
+### `tests/terrainMaterials.test.ts` — four-layer GPU data, draws and lifetime
+
+Seven tests pin independent array slices and sRGB-filtered mip contents (including a mock storage
+bug where higher mips used to overlap another slice), bad array inputs, height/slope/biome gating,
+invalid/zero-weight fallbacks, world-phased UVs at negative and large origins, matching mask edges
+across resolutions, and inherited skirt-edge UVs. The strict mock executes the actual terrain
+pipeline alongside ordinary materials and standard shadow/prepass paths, checks the 224-byte extra
+uniform block and stable allocations, and refuses to merge different materials merely because they
+share a geometry/pipeline key. Real streaming moves/evictions release per-tile masks while keeping
+shared maps live; budget estimates include mask/UBO bytes; invalid map construction does not leak a
+new mask. Clones retain the splat technique and borrow textures. Mock tests do **not** prove pixels;
+the offscreen real-WebGPU oracle below provides that evidence.
 
 ### `tests/marsTerrainPlan.test.ts` — the generator-side tooling stays honest
 
@@ -331,9 +377,10 @@ transform dropping a light instead of poisoning the grid.
 Identical keys return the identical bundle and count a cache hit without touching the device; every
 axis of the key (technique, colour/depth formats, blending, culling, instancing, depth write,
 additive, fragment entry) yields a distinct pipeline; the four post entry points compile from one
-shader module; all 22 variants the renderer can ask for (including the two `sky` targets, the three
-`prepass` variants and the three SSAO entry points) pass the mock's validation; `invalidate()` drops
-pipelines and the 11 layouts and the next `get` rebuilds them. **Prepass (13.1):** the `prepass`
+shader module; the 22 foundation variants (including the two `sky` targets, the three
+`prepass` variants and the three SSAO entry points) pass the mock's validation, with the opt-in
+terrain variants additionally exercised in `terrainMaterials.test`; `invalidate()` drops
+pipelines and the 12 layouts and the next `get` rebuilds them. **Prepass (13.1):** the `prepass`
 pipeline's vertex stage is the *same* shader module and entry point as the forward pipeline's
 (static and instanced — the prepass compiles no module of its own), it has no fragment stage,
 `depthCompare: "less"` and zero depth bias (the shadow program has a positive one and is a different
@@ -658,6 +705,14 @@ compiled worker chunk (the worker then dies on a parse error, logged with an emp
 "worker N crashed: unknown"). Crash logs are therefore required to name the entry script and to fall
 back to the event's `filename:line` when there is no `message`.
 
+The real-thread Mars cases compare the transferred height/slope/splat **bytes** against the original
+live pipelines, not two uses of the same reconstruction routine; custom settings and a subsequent
+scatter stage are included, and no worker failure or inline fallback is allowed. A delayed-bootstrap
+regression posts a Mars task and cancels it before handlers are ready, then submits a replacement to
+the same single-worker pool. Before the acknowledgement fix it timed out with `1 queued / 0 running`:
+the discarded result left the slot busy forever. The `cancelled` message now releases that slot only
+after the handler finishes, and a protocol test asserts no premature acknowledgement or late result.
+
 ### `tests/bvh.test.ts` — the mesh BVH (Phase 9.1)
 
 The index the worker builds is useful only if it is correct, deterministic and consumed by runtime
@@ -748,6 +803,25 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
 
 - The no-query scene selector defaults to Mars Showcase, while an explicit `?scene=pbr` still routes to
   the PBR fixture used for the rendering-foundation assertions.
+- **Layered terrain (10.8):** an offscreen pixel oracle uses the actual Renderer/RenderGraph and
+  real texture arrays (not mocked sampling). Four one-hot masks select their expected colours;
+  the centre of a four-corner mask must equal the CPU linear-light mixture within two byte levels,
+  including sRGB decoding/encoding. The same surface must match an ordinary premixed material and
+  the prepassed image. Normal, roughness and metallic changes must affect pixels, and MR textures
+  must match equivalent scalar multipliers. On the streamed Mars scene, the on/off comparison is
+  limited to lower outer ground regions (not the rover or sky); at least 10% of those pixels must change
+  and the maximum channel difference must reach 10. Materials restore, contacts remain and GPU
+  errors stay zero. The focused command runs these checks without the all-scene articulation suite.
+- **Mars worker integration (10.9 / 9.1):** the full gate and `--mars-workers` focused mode both
+  observe native Worker messages via `tools/browser-mars-workers.mjs`. At least one Mars job must
+  actually return finite typed height/slope/splat arrays with the submitted identity, with no fallback
+  or error. The scene must have at least nine ready tiles, a resident rover tile and terrain contact.
+  The focused command also captures the frame but intentionally does not claim the checks below ran.
+- **Mars terrain integration (10.9):** the showcase reports its actual `mars` generator and no erosion
+  fields, and the rover's tile must be resident with ≥4 wheel contacts before driving. The chassis
+  must stay 0.2–1.2 m above that heightfield at rest and after W drives it **forward** >0.5 m (not an
+  absolute-distance check that could pass on a backwards slide), with speed >0.3 m/s and live wheel
+  dust. GPU errors still fail the gate; screenshots are `tools/.browser-check-showcase.png`.
 - Frames advance continuously and draw calls are active (`drawCalls >= 1`, `triangles >= 12`, `entities >= 8`; the PBR scene actually reports 29 draws / 28k triangles).
 - The frame has the Phase 2 structure: `render.hdr` is true, at least one `forge.shadow.` pass,
   exactly one `forge.main` and one `forge.tonemap`, at least three `forge.bloom.` passes,
@@ -923,8 +997,11 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   (`tests/marsTerrain.test.ts`). What that check does *not* prove — and what `npm run
   check:mars-port -- --cache <generator-cache>` is for — is agreement with a real generator cache
   point by point; the comparison to float32 storage tolerance is described in `docs/MARS-TERRAIN.md`
-  §6, and the port's unfinished edges (no demo scene, no hosted erosion cache, splats waiting on the
-  10.8 material path) are in `KNOWN-ISSUES.md` and Phase 10.9 of `ROADMAP.md`.
+  §6. Mars Showcase now drives on the analytic-only port (`tests/marsShowcase.test.ts` and the
+  browser gate). Analytic cells now generate on workers; the unfinished edges — live-cache worker
+  transport, main-thread mesh/query work, no hosted erosion cache, unverified real-cache fidelity and
+  LOD-dependent material masks — remain in
+  `KNOWN-ISSUES.md` and Phase 10.9 of `ROADMAP.md`.
 * **A particle buffer.** The CPU integrator matches `analyticGravity` in `tests/particles.test.ts`,
   including a 100k × 30 step budget. The same curve on a real device is the `runParticleGravityCheck`
   assertion in `check:browser`. Emission, modules, and trails are CPU and covered by the unit suite
@@ -938,7 +1015,10 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
 
 * **Worker execution on real threads.** `tests/tasks.test.ts` runs the shipping worker scope on
   `node:worker_threads`: results, cancellation, progress, deterministic terrain identical to inline
-  generation, and crash recovery. `tests/gltf.test.ts` compares a GLB decoded through a real worker
+  generation, and crash recovery. `tests/gltf.test.ts` compares a GLB decoded through a real worker `check:browser:mars-workers` and the full gate observe **native browser Worker** Mars
+  task/result messages, validate pipeline hashes and finite typed grids, and require those
+  results to reach resident showcase terrain with rover contact. A populated pool or an
+  "inline: false" statistic alone cannot pass (`capability: workers.browserMarsTerrain`).
   thread with the inline result. `npm run check:browser:workers` separately runs the shipping
   `TaskScheduler` module worker in Chromium, decodes `tests/fixtures/triangle.glb`, checks the
   returned vertex/index values and asserts one worker completed the task with zero inline fallbacks

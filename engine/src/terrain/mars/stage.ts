@@ -317,7 +317,9 @@ export class MarsTerrainStage implements TerrainStage {
   /**
    * Every input that changes what this stage produces, as a canonical string. This is the stage's
    * cache-key component (`hashPipelineSpec` hashes the spec, which carries this), so two scenes that
-   * differ only in, say, the dichotomy amplitude must not collide.
+   * differ only in, say, the dichotomy amplitude or the site's radius must not collide. Analytic-only
+   * workers rebuild the stage from this JSON; a non-null globalFields marker keeps cache-backed
+   * stages on the live-instance fallback instead of silently dropping their erosion correction.
    */
   get identity(): string {
     return JSON.stringify({
@@ -326,7 +328,7 @@ export class MarsTerrainStage implements TerrainStage {
       dichotomy: this.params.dichotomy,
       canyon: this.params.canyon,
       volcanoes: this.params.volcanoes,
-      site: { latDeg: this.site.latDeg, lonDeg: this.site.lonDeg, headingDeg: this.site.headingDeg },
+      site: { latDeg: this.site.latDeg, lonDeg: this.site.lonDeg, headingDeg: this.site.headingDeg, radiusM: this.site.radius },
       detail: this.detail,
       curvatureCompensation: this.curvatureCompensation,
       globalFields: this.globalFields ? this.globalFields.availableFaces : null,

@@ -313,6 +313,9 @@ export function installIosReport(
     const failed = rawSuites.reduce((n, suite) => n + suite.results.filter((r) => !r.ok).length, 0);
     const probes = rawSuites.reduce((n, suite) => n + suite.results.length, 0);
     if (probes) lines.push(`raw probes: ${probes - failed}/${probes} pass${failed ? ` — ${failed} suspect (see below)` : ""}`);
+    // Say so while they run: the suite is the slowest part of the report on a phone, and a
+    // screenshot taken before it finishes looks exactly like a device that has no probe results.
+    else if (withRaw) lines.push(`raw probes: running (${rawSuites.length} device(s) done) — this takes about a minute on a phone`);
     const live = captures[0] ?? statsBits(forge);
     lines.push(
       `ua ${navigator.userAgent}`,

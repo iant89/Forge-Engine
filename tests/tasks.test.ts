@@ -17,6 +17,8 @@ import {
   AABB,
   GeneratorPipeline,
   HeightGenerator,
+  MARS_RADIUS_M,
+  MarsTerrainStage,
   MeshBvh,
   Ray,
   RayHit,
@@ -27,6 +29,7 @@ import {
   TaskScheduler,
   TaskPriority,
   builtinTaskHandlersReady,
+  createMarsPipeline,
   createPipelineFromSpec,
   createWorldCell,
   describePipeline,
@@ -35,6 +38,7 @@ import {
   installWorkerScope,
   listTaskHandlers,
   registerTaskHandler,
+  terrainCellPayload,
   type BvhTaskPayload,
   type BvhTaskResult,
   type TaskStats,
@@ -42,7 +46,7 @@ import {
   type TerrainCellTaskResult,
   type WorkerIncomingMessage,
 } from "@forge/engine";
-import { createWorkerThreadPool, type WorkerThreadPool } from "./support/workerThreads.js";
+import { createWorkerThreadPool, workerHarnessPaths, type WorkerThreadPool } from "./support/workerThreads.js";
 
 /** Deterministic triangle soup for the `geometry.bvh` task (Phase 9.1). */
 function bvhSoup(cells = 12, spacing = 2.5): { positions: Float32Array; indices: Uint32Array } {
@@ -177,10 +181,13 @@ describe("Phase 9.1 — worker scope protocol", () => {
     await new Promise((r) => setTimeout(r, 0));
     scope.deliver({ type: "cancel", id: 9 });
     await new Promise((r) => setTimeout(r, 0));
+    expect(scope.messages.filter((m) => (m as { type: string }).type === "cancelled")).toHaveLength(0);
     release!();
     await new Promise((r) => setTimeout(r, 0));
-    // The handler had already started: it finishes, but the worker posts nothing for a cancelled id.
+    // The handler had already started: its result is discarded, but a completion ack releases
+    // the scheduler's worker slot. Never acknowledge *before* the handler has actually finished.
     expect(scope.messages.filter((m) => (m as { type: string }).type === "result")).toHaveLength(0);
+    expect(scope.messages.filter((m) => (m as { type: string }).type === "cancelled")).toEqual([{ type: "cancelled", id: 9 }]);
   });
 
   it("installing twice on the same scope does not double-handle messages", async () => {
@@ -385,6 +392,40 @@ describe("Phase 9.1 — real worker threads", () => {
     }
   });
 
+  it("generates analytic Mars cells on real workers without fallback, byte-identical to live pipelines", async () => {
+    const pipelines = [
+      createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } }),
+      createMarsPipeline({
+        paramsOverrides: { seed: 771, radius: MARS_RADIUS_M * 1.03, dichotomy: { amplitude: 712, seed: 8 }, canyon: [], volcanoes: [] },
+        site: { latDeg: -11, lonDeg: 41, headingDeg: 76, radiusM: MARS_RADIUS_M * 0.9 },
+      }).addStage(new ScatterGenerator({ countPerChunk: 8 })),
+      createMarsPipeline({ site: { latDeg: 30, lonDeg: 110, headingDeg: -21 }, detail: false, curvatureCompensation: false }),
+    ];
+    const before = scheduler.stats;
+    const jobs = pipelines.map((pipeline, i) => {
+      const stage = pipeline.stages[0] as MarsTerrainStage;
+      const payload = terrainCellPayload(pipeline, stage.seed, -2 + i, i, 128, 33 - i * 8);
+      return { pipeline, payload };
+    });
+    const results = await Promise.all(jobs.map(({ payload }, i) =>
+      scheduler.submit<TerrainCellTaskPayload, TerrainCellTaskResult>({ name: "terrain.cell", key: `mars:cell:${i}`, payload })));
+    for (const [i, { pipeline, payload }] of jobs.entries()) {
+      const expected = createWorldCell(payload.cx, payload.cz, payload.size, payload.resolution, payload.seed);
+      pipeline.execute(expected);
+      const actual = results[i]!;
+      for (const field of ["heights", "slopes", "biomes"] as const) {
+        expect(new Uint8Array(actual[field].buffer)).toEqual(new Uint8Array(expected[field].buffer));
+      }
+      expect(actual.scatters).toEqual(expected.scatters);
+      expect(actual.pipelineHash).toBeGreaterThan(0);
+    }
+    expect(scheduler.stats.completed - before.completed).toBe(jobs.length);
+    expect(scheduler.stats.inlineFallbacks).toBe(before.inlineFallbacks);
+    expect(scheduler.stats.workerFailures).toBe(before.workerFailures);
+    expect(scheduler.stats.failed).toBe(before.failed);
+    expect(scheduler.stats.inline).toBe(false);
+  });
+
   it("reports worker-side progress to the main thread", async () => {
     const payload = cellPayload(4, 4);
     const seen: number[] = [];
@@ -523,5 +564,43 @@ describe("Phase 9.1 — real worker threads", () => {
     }
     await scheduler.drain(30000);
     expect(scheduler.pending).toBe(0);
+  });
+});
+
+
+describe("Mars worker startup cancellation", () => {
+  it("reuses a worker after a Mars task is cancelled while its handlers are still loading", async () => {
+    // Browser module imports can be slow. Hold that boot phase explicitly so both the task and
+    // its cancel arrive before ready; a discarded result must still release the scheduler slot.
+    const pool = await createWorkerThreadPool({
+      installEngineHandlers: false,
+      adapter: `
+        import { installWorkerScope } from ${JSON.stringify(`${workerHarnessPaths.engineSrc}/core/tasks/workerScope.ts`)};
+        import { installTerrainTaskHandlers } from ${JSON.stringify(`${workerHarnessPaths.engineSrc}/terrain/tasks.ts`)};
+        installWorkerScope(self, { installHandlers: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          installTerrainTaskHandlers();
+        }});
+      `,
+    });
+    const scheduler = new TaskScheduler({ workerCount: 1, createWorker: (i) => pool.createWorker(i) });
+    try {
+      const payload = terrainCellPayload(createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } }), 1337, -2, 0, 128, 9);
+      const cancelled = scheduler.submit({ name: "terrain.cell", key: "mars:old", payload });
+      const rejection = expect(cancelled).rejects.toBeInstanceOf(TaskCancelledError);
+      expect(scheduler.cancel("mars:old")).toBe(true);
+      await rejection;
+      const replacement = scheduler.submit<TerrainCellTaskPayload, TerrainCellTaskResult>({ name: "terrain.cell", key: "mars:new", payload });
+      void replacement.catch(() => undefined); // A failed drain still tears down without an unhandled cancellation.
+      await scheduler.drain(2000);
+      expect((await replacement).heights.length).toBe(81);
+      expect(scheduler.stats.completed).toBe(1);
+      expect(scheduler.stats.cancelled).toBe(1);
+      expect(scheduler.stats.inlineFallbacks).toBe(0);
+      expect(scheduler.stats.workerFailures).toBe(0);
+    } finally {
+      scheduler.dispose();
+      await pool.dispose();
+    }
   });
 });

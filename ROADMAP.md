@@ -207,6 +207,11 @@ than simply adding features.
         triangle geometry — images/material GPU construction, skin/animation, morph targets,
         instancing, Draco and meshopt — is tracked under `assets.gltfAdvanced` (Phase 16.1).
 
+    [x] Browser-side worker round trip: check:browser:mars-workers observes native Worker Mars
+        task/result messages, validates typed grids + pipeline identity, and requires uploaded
+        showcase tiles with rover contact. The full browser gate includes the same check.
+        (capability: workers.browserMarsTerrain)
+
 
 9.2 Resource Cache
 
@@ -398,13 +403,19 @@ CURRENT PROBLEMS (addressed in this phase):
 
 10.8 Terrain Material Improvements
 
-    [!] Layered materials — `LayeredTerrainMaterial` helper + CPU blend tests exist;
-        not wired into `TerrainWorld` / demos yet (single `Material` still used).
-    [x] Macro variation (helper)
-    [x] Micro detail (helper)
-    [x] Slope blending (helper)
-    [x] Height blending (helper)
-    [x] Material-specific surface properties (helper)
+    [x] Layered materials — TerrainWorld and Mars Showcase use per-tile weight maps and four
+        shared albedo/normal/metallic-roughness texture-array layers. SplatMaterial shares the
+        standard vertex, prepass, shadow and PBR lighting paths; ordinary materials keep their
+        existing layout. Tile eviction/remesh releases masks and uniforms; shared arrays persist.
+    [x] Macro variation (world-phased shader modulation)
+    [x] Micro detail (per-layer textures + albedo-driven detail)
+    [x] Slope blending (cell-grid gates before filtered/renormalized GPU splat blending)
+    [x] Height blending (cell-grid altitude gates)
+    [x] Material-specific surface properties (albedo, tangent normals, roughness and metallic)
+
+        tests/terrainMaterials.test.ts, tests/marsShowcase.test.ts and the real-WebGPU pixel oracle
+        in check:browser:terrain-layers pin the path. Four fixed layers; the horizon apron remains
+        a representative single material. This does not add triplanar projection or material painting.
 
 
 10.9 Mars Generator Port
@@ -420,9 +431,21 @@ CURRENT PROBLEMS (addressed in this phase):
             tests/marsTerrain.test.ts; region planner + port verification tooling
             (tools/mars-terrain, tools/mars-port-check.mjs) pinned by
             tests/marsTerrainPlan.test.ts.
-        [!] No demo scene uses the port yet, the repo hosts no Stage A cache (so the demos
-            would render the analytic-only surface), and the 4-channel splat weights it
-            writes are not consumable until 10.8 lands.
+        [x] Mars Showcase uses the analytic-only port (seed 1337, equatorial plain), with a
+            surveyed rover spawn, shared tile/vehicle/camera height queries, 128 m / 33-vertex
+            chunks and 32 m skirts. tests/marsShowcase.test.ts pins scene assembly, driving,
+            streaming budgets and LOD edges; check:browser asserts the port/mode, resident
+            rover tile, terrain clearance and forward W-drive with wheel dust.
+        [x] Analytic Mars cells run on workers from a complete serialized configuration (including
+            custom planet settings, site radius/heading, detail and curvature flags), byte-identical
+            to the original live pipeline. The showcase opts into the scheduler with nine warm-up
+            requests then one per frame; real-thread and native-browser checks pin the path, and
+            a cancellation acknowledgement keeps a task cancelled during worker bootstrap from
+            stranding its worker slot.
+        [!] The repo hosts no Stage A erosion cache; fidelity against the real generator cache
+            remains unverified. Live field-cache pipelines are still inline-only; mesh building,
+            uploads and cache-miss ground queries remain on main. The 4-channel weights now render,
+            but coarse-LOD slope/biome sampling can still change the material mix.
 
 
 EXIT CRITERIA:
