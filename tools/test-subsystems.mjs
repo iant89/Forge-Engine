@@ -94,6 +94,7 @@ export const subsystems = {
       "tests/animationBlendTree.test.ts",
       "tests/animationIK.test.ts",
       "tests/animationSkinning.test.ts",
+      "tests/mechanicalAnimation.test.ts",
     ],
     deps: ["math", "scene"],
   },
@@ -129,14 +130,16 @@ export const subsystems = {
     deps: ["core", "math", "scene", "vehicles"],
   },
   vehicles: {
-    title: "Vehicles (Pacejka, drivetrain, electric motor, ground query)",
+    title: "Vehicles (Pacejka, drivetrain, electric motor, ground query, wheel rig)",
     src: ["engine/src/vehicles"],
     tests: [
       "tests/vehicles.test.ts",
       "tests/vehiclePhysics.test.ts",
       "tests/electricMotor.test.ts",
     ],
-    deps: ["math", "physics", "scene"],
+    // The wheel rig binds wheel telemetry to animation joints, so a vehicle change can reach the
+    // animation suites.
+    deps: ["animation", "math", "physics", "scene"],
   },
   terrain: {
     title: "Terrain (chunks, heightmaps, LOD, streaming, generators)",
@@ -242,7 +245,7 @@ export const subsystems = {
       "examples/src/scenes/alpineRescueScene.ts",
       "examples/src/scenes/alpineSnowpack.ts",
     ],
-    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts", "tests/skinningScene.test.ts", "tests/alpineSnowpack.test.ts"],
+    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts", "tests/skinningScene.test.ts", "tests/alpineSnowpack.test.ts", "tests/mechanicalScene.test.ts"],
     deps: [
       "ex-ui",
       "ex-rover",
@@ -252,6 +255,7 @@ export const subsystems = {
       "terrain",
       "environment",
       "vehicles",
+      "animation",
       "particles",
       "resources",
       "gpu",

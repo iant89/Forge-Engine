@@ -14,6 +14,8 @@
  *  - `blendTree.ts`: `BlendTree1D` / `BlendTree2D` compute continuous blend weights from
  *    gameplay parameters for directional locomotion and similar use cases.
  *  - `assembly.ts`: converts worker-decoded glTF animation data into engine clips.
+ *  - `mechanical.ts` + `mechanicalSystem.ts`: machine joints driven by channels instead of clips
+ *    (Phase 16.6) — see the module docs for the joint kinds and what makes a rig deterministic.
  *
  * The animation subsystem depends on `scene` (Transform, EntityWorld) and `math` (Vec3, Quat)
  * only. It never imports `rendering`, `physics`, `terrain`, or any other sibling.
@@ -47,3 +49,9 @@ export { computeJointPalette, validateSkinningData, createIdentitySkinningData, 
 export type { SkinningVertexData } from "./skinning.js";
 
 export { assembleClip, assembleClips } from "./assembly.js";
+
+export { MechanicalRig } from "./mechanical.js";
+export type { MechanicalJointKind, MechanicalJointOptions, AxisLike } from "./mechanical.js";
+
+export { MechanicalSystem, MechanicalRigComponent } from "./mechanicalSystem.js";
+export type { MechanicalChannelSource } from "./mechanicalSystem.js";

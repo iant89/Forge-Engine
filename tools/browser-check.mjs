@@ -143,7 +143,8 @@ const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
 const SKINNING_ONLY = process.argv.includes("--skinning");
 const RESCUE_ONLY = process.argv.includes("--rescue");
-const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : RESCUE_ONLY ? "check:browser:rescue" : "check:browser";
+const MECHANICAL_ONLY = process.argv.includes("--mechanical");
+const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : RESCUE_ONLY ? "check:browser:rescue" : MECHANICAL_ONLY ? "check:browser:mechanical" : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const workerSmokeOnly = process.argv.includes("--workers-only");
@@ -550,6 +551,83 @@ async function checkSkinning() {
   // Coiled pose left on screen for inspection, like the other focused modes.
   await page.screenshot({ path: "tools/.browser-check-skinning.png", timeout: 60000 });
   return { ...first.skinning, differing: diff.differing, pixels: diff.pixels, maxDiff: diff.max };
+}
+
+/**
+ * Phase 16.6, focused: the vehicle playground's mechanical wheel assemblies on a real adapter.
+ *
+ * The unit suites prove the joint arithmetic and the scene wiring on the mock device; only a device
+ * proves the composed hierarchy (`base ∘ motion` per joint, aim joints solved against the store)
+ * actually moves vertices through the renderer. The rig's gate hook poses all four corners from
+ * fixed values, so two frames of the *same* uploaded geometry differ only by the wheel pose: a rig
+ * that stops being driven (or a system left out of the world) freezes the pixels and fails.
+ */
+async function checkMechanical() {
+  await page.waitForFunction(
+    () => {
+      const state = window.__forge.vehicleState?.();
+      return Boolean(state && state.mechanical && state.mechanical.joints > 0);
+    },
+    null,
+    { polling: 250, timeout: 60000 },
+  );
+  await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+  await waitPresentedFrames(2);
+  const first = await page.evaluate(() => ({
+    vehicle: window.__forge.vehicleState(),
+    stats: window.__forge.stats(),
+    pipelines: window.__forge.engine.renderer.pipelines.stats(),
+  }));
+  const mechanical = first.vehicle.mechanical;
+  // travel + steer + spin per wheel, plus the arm and damper of every corner.
+  const expectedJoints = first.vehicle.mechanical.joints;
+  if (expectedJoints !== 20) throw new Error(`the wheel rig has ${expectedJoints} joints, expected 20 (4 corners x 5)`);
+  if (mechanical.channels !== 12) throw new Error(`the wheel rig has ${mechanical.channels} channels, expected 12 (steer/spin/travel per wheel)`);
+  if (first.pipelines.failures !== 0) throw new Error(`pipelines did not compile: ${JSON.stringify(first.pipelines)}`);
+  if (first.stats.gpuErrors !== 0 || first.stats.lastError) {
+    throw new Error(`GPU error before the wheel A/B: ${first.stats.lastError}`);
+  }
+  console.log(`mechanical rig: ${mechanical.joints} joints, ${mechanical.channels} channels, ${first.pipelines.pipelines} pipelines`);
+
+  // Two deterministic poses of the same car: parked straight, then steered + compressed + rolled.
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await page.evaluate(() => window.__forge.setWheelOverride({ steer: 0, travel: 0, spin: 0 }));
+  await waitPresentedFrames(2);
+  await keepLuma("wheel-pose-a");
+  await page.evaluate(() => window.__forge.setWheelOverride({ steer: 0.46, travel: 0.14, spin: 1.6 }));
+  await waitPresentedFrames(2);
+  await keepLuma("wheel-pose-b");
+  const posed = await page.evaluate(() => window.__forge.vehicleState().mechanical);
+  console.log(
+    `wheel pose B: steer=${posed.steer.map((v) => v.toFixed(2)).join(",")} ` +
+    `travel=${posed.travel.map((v) => v.toFixed(3)).join(",")} spin=${posed.spin.map((v) => v.toFixed(2)).join(",")}`,
+  );
+  if (Math.abs(posed.steer[0] - 0.46) > 1e-3) throw new Error(`the rig did not read the steer channel (${posed.steer[0]})`);
+  if (Math.abs(posed.travel[0] - 0.14) > 1e-3) throw new Error(`the rig did not read the travel channel (${posed.travel[0]})`);
+  // Left wheels negate the odometer, right wheels do not: the same channel rolls both sides forward.
+  if (!(posed.spin[0] < -1.5 && posed.spin[1] > 1.5)) {
+    throw new Error(`the left/right spin signs are wrong: ${posed.spin.join(",")}`);
+  }
+  // Only the steered corners yaw: the rig carries the Ackermann solver's per-wheel decision, so the
+  // rear knuckles hold 0 even while the override asks for lock.
+  if (!(Math.abs(posed.steer[2]) < 1e-6)) {
+    throw new Error(`the un-steered rear wheel yawed to ${posed.steer[2]}`);
+  }
+  const diff = await compareRgb("wheel-pose-a", "wheel-pose-b");
+  const cover = await samplePixels();
+  console.log(`wheel poses: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max} of 255), frame mean ${cover.mean.toFixed(1)}, ${cover.distinct} colours`);
+  if (!(diff.differing >= 500)) {
+    throw new Error(`the two wheel poses differ in only ${diff.differing} pixels; the rig is not posing the assembly`);
+  }
+  if (!(diff.max >= 20)) throw new Error(`the two wheel poses differ by at most ${diff.max}/255 levels`);
+  if (!(cover.distinct >= 8)) throw new Error(`only ${cover.distinct} distinct colours; the vehicle scene is not rendering`);
+  if (!(cover.mean >= 6)) throw new Error(`frame is almost black (mean luminance ${cover.mean.toFixed(1)})`);
+  await page.screenshot({ path: "tools/.browser-check-mechanical.png", timeout: 60000 });
+  const after = await page.evaluate(() => window.__forge.stats());
+  if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU error after the wheel A/B: ${after.lastError}`);
+  // Hand the rigs back to telemetry before anything downstream samples the scene.
+  await page.evaluate(() => window.__forge.setWheelOverride(null));
+  return { ...mechanical, differing: diff.differing, pixels: diff.pixels, maxDiff: diff.max };
 }
 
 /** Focused Alpine rescue smoke: selector wiring, dynamic physics, cargo mission, storm, and drive. */
@@ -2240,6 +2318,22 @@ async function checkAllScenes(backend) {
     60000,
     (s) => s.armT, // the unfold clock rises only while the spring is running
   );
+  // Phase 16.6: the pivots are posed by MechanicalSystem from the controller's channels, so the
+  // angle read back off the pivot must leave the stowed pose and turn the same way as the command.
+  // Poll rather than sample: the store is posed on the engine frame after the controller updates, so
+  // the pivot reading trails the command by a frame (seconds at SwiftShader's showcase frame rate).
+  // Only "it moved" and the sign are asserted: the elbow advances tens of degrees per frame here, so
+  // demanding agreement with the command would assert the frame rate, not the rig.
+  const armPivotsMoving = await pollMars(
+    "mars showcase: the arm pivots never followed the commanded unfold (is MechanicalSystem posing them?)",
+    (s) => Math.abs(s.armPivotDeg?.[2] ?? 0) > 1 && Math.sign(s.armPivotDeg?.[2] ?? 0) === Math.sign(s.armJoints?.[2] ?? 0),
+    20000,
+    () => 0, // a settled rig is not progress; only the predicate ending the wait counts
+  );
+  console.log(
+    `mars showcase arm pivots: elbow commanded ${(armPivotsMoving.armJoints?.[2] ?? 0).toFixed(1)}°, ` +
+      `pivot ${(armPivotsMoving.armPivotDeg?.[2] ?? 0).toFixed(1)}°`,
+  );
   await page.evaluate(() => window.__forge.setArm(false));
   const armStowed = await pollMars(
     "mars showcase: robotic arm did not stow back (no arm progress for 90s)",
@@ -2252,6 +2346,20 @@ async function checkAllScenes(backend) {
       `→ stowed joints=[${armStowed.armJoints.map((v) => v.toFixed(1)).join(", ")}] sticks=${armStowed.armSticksVisible}`,
   );
   if (armStowed.armJoints.some((v) => v !== 0)) throw new Error(`mars showcase: stowed arm joints not zero: ${armStowed.armJoints}`);
+  // Same one-frame trail: wait for the rig to write the rest pose, then read it back. This is what
+  // proves the joints are still driven after the unfold, not only during it.
+  if (armStowed.armPivotDeg?.length !== 5) {
+    throw new Error(`mars showcase: the arm rig is not reporting five pivots (${JSON.stringify(armStowed.armPivotDeg)})`);
+  }
+  const armSettled = await pollMars(
+    "mars showcase: stowed arm pivots did not return to rest (MechanicalSystem stopped posing them?)",
+    (s) => (s.armPivotDeg ?? []).every((v) => Math.abs(v) < 1e-3),
+    20000,
+    () => 0,
+  );
+  if (armSettled.armPivotDeg.some((v) => !Number.isFinite(v))) {
+    throw new Error(`mars showcase: non-finite stowed pivot angles: ${armSettled.armPivotDeg}`);
+  }
   if (armStowed.armSticksVisible) throw new Error("mars showcase: arm thumbsticks still shown with the arm stowed");
   const marsStatsArm = await page.evaluate(() => window.__forge.stats());
   if (marsStatsArm.gpuErrors !== marsStatsAfter.gpuErrors || marsStatsArm.lastError) {
@@ -2321,6 +2429,16 @@ try {
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();
     console.log("Focused Alpine rescue mission/physics/weather checks only; the full renderer and Mars suite was not run.");
+  } else if (MECHANICAL_ONLY) {
+    await waitPresentedFrames(1);
+    await page.selectOption("#scene-select", "vehicle", { force: true });
+    await page.waitForFunction(() => window.__forge.sceneName === "vehicle", null, { timeout: 10000 });
+    const mechanical = await checkMechanical();
+    console.log(
+      `mechanical wheels: joints=${mechanical.joints} channels=${mechanical.channels} ` +
+      `poses differ in ${mechanical.differing}/${mechanical.pixels} px (max ${mechanical.maxDiff}/255)`,
+    );
+    console.log("Focused mechanical-animation checks only; the all-scene renderer, drive and Mars suite was not run.");
   } else if (MARS_WORKERS_ONLY) {
     await verifyMarsWorkers(page);
     // Pending pipelines deliberately skip draws. Wait for the normal async startup to finish

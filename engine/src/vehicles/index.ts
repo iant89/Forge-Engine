@@ -54,6 +54,14 @@ export {
   type WheelTelemetry,
 } from "./vehicle.js";
 export { VehicleComponent, createVehicleComponent } from "./components.js";
+export {
+  createVehicleWheelRig,
+  VehicleWheelSource,
+  wheelChannelName,
+  wheelHubRestPosition,
+  type WheelRigMounts,
+  type WheelRigOptions,
+} from "./wheelRig.js";
 export { VehicleSystem } from "./system.js";
 export {
   createVehicleDamageZones,

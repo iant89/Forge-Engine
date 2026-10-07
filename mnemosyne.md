@@ -1645,3 +1645,53 @@ will stop".
 ## 2026-10-07 — live pull-request check dashboard
 
 - `npm run pr:checks -- <PR>` (or `node tools/pr-checks.mjs <PR>`) wraps repeated one-shot `gh pr checks` calls so it works with older GitHub CLI versions that lack JSON output for checks. It extracts job IDs from `/job/<id>` links, groups names containing “advisory”, colorizes pass/fail markers, and repaints the same TTY screen with a 15-second countdown; `--once`, `--repo`, and `--interval` are available. Redirected output prints one snapshot per refresh. The CLI-level tests use a fake `gh` binary, so they need no GitHub credentials.
+
+## 2026-10-07 — Phase 16.6 mechanical animation: channel-fed joints, and two gate failures worth remembering
+
+- **Shape of the phase.** Phase 16.5 ended with a GPU consumer for skinned skeletons (authored clips →
+  sampled TRS → joint palette). 16.6 adds the *other* input to the animation band: machine state.
+  `engine/src/animation/mechanical.ts` is a rig of 1-DOF joints — `revolute`, `prismatic`, `aim` —
+  each bound to one entity and fed by a named channel; `MechanicalSystem` (order 310, right after
+  `AnimationSystem`) asks the component's `MechanicalChannelSource` for this frame's values, then
+  advances (clamps + `slew`) and poses. Two consumers landed: the Phase 6 playground's wheel
+  assemblies (`vehicles/wheelRig.ts` binds wheel telemetry to hub-carrier travel, the wheel's *own*
+  Ackermann angle, an odometer axle and arm/damper aims) and the Mars rover's five-joint GLB arm.
+- **Idempotence is the design rule that made everything else simple.** Every joint stores the local
+  TRS it was authored with and recomposes `base ∘ motion` from it each frame, so posing is a pure
+  function of the channel values: no accumulation, no drift, and `reset()` is just posing zeros. Aim
+  joints solve against the *live local store* (not the cached world matrices, which band 500 writes
+  later), which is why joint order is meaningful — the hub carrier is declared before the arm and
+  damper that aim at it, and they see its pose from the same frame.
+- **Two real gate failures, both caught by pixels/telemetry rather than by the unit suites.**
+  1. *The HUD reported `spin = +1.6` on every wheel.* The scene was reading raw channel values, so
+     the left-side negating `ratio` the rig applies was invisible. `getChannel` is not the posed
+     value; the rig now exposes `valueOf(channel)` (after ratio/bias/clamp/slew) and a channel-level
+     saturation read-back (`saturatedChannel`, distinct from the index-level `saturatedAt`), and the
+     gate compares pixels against the posed values. Lesson: read back what the pose used.
+  2. *The rig turned all four wheels into a crab turn* (`steer = 0.46` on the rears too) when the
+     gate's override pinned the channel. The Ackermann solver deliberately leaves unsteered wheels at
+     zero, so the override now steers only `wheels[i].steered` corners and the gate asserts the rear
+     knuckles hold 0. Lesson: a verification hook that bypasses the physics must reproduce the
+     *shape* of the physics' decision, or it verifies a car that cannot exist.
+- **The Mars arm now proves a second consumer.** Its pivot angles used to be written by a hand-rolled
+  loop in the showcase; they are joints on a `MechanicalRig` now, with `wrap: false` — load-bearing,
+  because the unfold deliberately takes the elbow the long way round (−242°) and wrapping into
+  (−π, π] would flip it through the ground. `marsState().armPivotDeg` reads the angles back off the
+  transform store, and the browser gate asserts the elbow left the stowed pose and turned the same
+  way as the command. It deliberately does *not* assert command agreement: at SwiftShader's showcase
+  frame rate the elbow advances tens of degrees per frame, so `|pivot − command| < 40°` would have
+  been a frame-rate assertion, not a rig assertion.
+- **Evidence.** `tests/mechanicalAnimation.test.ts` 33/33; `tests/mechanicalScene.test.ts` 5/5;
+  `npm run check:browser:mechanical` passed on a real adapter (20 joints, 12 channels, two
+  deterministic wheel poses differing in 2,313/921,600 px, max 206/255, rear steer held at 0);
+  `npm test` 1013 passed; `docs:check`, `lint:arch`, `check:wgsl`, `check:testmap` clean.
+- **Do not edit tracked sources while `check:browser` is running.** The first full-gate attempt died
+  in the SSAO A/B with `page.evaluate: Execution context was destroyed, most likely because of a
+  navigation` — I had edited `examples/src/scenes/vehiclePlaygroundScene.ts` (a HUD tweak) mid-run, so
+  Vite pushed a full reload into the page the gate was driving. The fix is to land every edit first
+  and run the gate against a frozen tree; the failed run's own log shows it as a navigation, not a
+  rendering error.
+- **Knowledge that is useful next time.** `snap`-free telemetry matters: the wheel source writes the
+  physics' own `steerAngle`/`spin`/`compression`, and the only slew added is the steering knuckle's
+  6 rad/s actuator lag. Terrain-normal wheel orientation is deliberately *not* the rig's job — that
+  stays `VehicleSystem`'s world-space wheel path, which is what the six-wheel rover uses.

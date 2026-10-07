@@ -41,7 +41,19 @@ export interface DemoSceneHandle {
     y: number;
     z: number;
     parkingBrake?: number;
+    /** Phase 16.6: the mechanical rig's channel and posed values (the playground drives one). */
+    mechanical?: {
+      joints: number;
+      channels: number;
+      values: number[];
+      steer: number[];
+      travel: number[];
+      spin: number[];
+      saturated: boolean[];
+    };
   };
+  /** Phase 16.6 gate hook: pose a wheel rig from fixed values (or `null` for telemetry). */
+  setWheelOverride?: (override: { steer: number; travel: number; spin: number } | null) => void;
   /**
    * GPU fountain accounting only. `emitted` is the cumulative spawn counter (CPU-side);
    * there is no concurrent live-count readback. Prefer `ready` + `emitted` over any fake alive.
