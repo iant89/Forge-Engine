@@ -85,6 +85,12 @@ export const subsystems = {
     tests: ["tests/environment.test.ts", "tests/environment8b.test.ts"],
     deps: ["math", "scene"],
   },
+  animation: {
+    title: "Animation (clips, sampling, playback, blending, IK, skinning)",
+    src: ["engine/src/animation"],
+    tests: ["tests/animation.test.ts"],
+    deps: ["math", "scene"],
+  },
   particles: {
     title: "Particles (CPU simulation + compute integrator, trails)",
     src: ["engine/src/particles"],

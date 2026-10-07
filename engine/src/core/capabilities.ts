@@ -87,6 +87,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "14": "inProgress",
   "15+": "verified",
   "15.5": "inProgress",
+  "16": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -861,9 +862,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "animation.clips",
     phase: "16.1",
-    status: "planned",
-    summary: "glTF animation import, clip sampling, state machines, blend trees, IK and GPU skinning",
-    closesWith: "16.1",
+    status: "inProgress",
+    summary: "glTF animation import, clip sampling, playback, blending, state machines, blend trees, IK and GPU skinning",
+    evidence: ["tests/animation.test.ts", "tests/gltf.test.ts"],
+    closesWith: "16.6",
+    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. glTF animation decode (STEP/LINEAR/CUBICSPLINE, translation/rotation/scale channels) passes through the worker decoder and main-thread assembler. State machines (16.2), blend trees (16.3), IK (16.4), GPU skinning (16.5) and mechanical animation (16.6) remain.",
   },
   {
     id: "scripting.lifecycle",

@@ -7662,6 +7662,162 @@ JSON array below; agents maintain it by hand until then.
       "tests/vehicles.test.ts",
       "tools/browser-check.mjs"
     ]
+  },
+  {
+    "id": "0603",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/clip.ts",
+    "what": "Create AnimationClip and AnimationTrack data types: TrackPath, Interpolation, createClip, validateTrack, componentsPerKey. Pure data container — no runtime state, no ECS dependency.",
+    "why": "Phase 16.1 foundation: clips are the data model the sampler and system consume."
+  },
+  {
+    "id": "0604",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/sampler.ts",
+    "what": "Create stateless clip sampler: sampleClip, initIdentity, NODE_STRIDE=10. STEP/LINEAR/CUBICSPLINE interpolation, SLERP with NLERP fallback for rotation, Hermite cubic spline, before-first/after-last key clamping.",
+    "why": "Phase 16.1 core: the sampler is a pure function of (clip, time, buffer) — deterministic and testable."
+  },
+  {
+    "id": "0605",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/tasks/gltfAnimation.ts",
+    "what": "Create glTF animation decoder: decodeGltfAnimations reads animations[] from a parsed glTF document, extracts STEP/LINEAR/CUBICSPLINE samplers and translation/rotation/scale channels, validates monotonic timestamps and interpolation modes, skips morph-target weight channels. Worker-safe (no DOM/GPU deps).",
+    "why": "Phase 16.1 glTF import: extends the existing mesh decoder output with animation data."
+  },
+  {
+    "id": "0606",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/component.ts",
+    "what": "Create AnimationComponent extending Component: clip playback state (addClip, play, pause, stop, stopAll, setSpeed/Looping/Weight/Time, getPlayingClips), nodeToEntity mapping, registered with registerComponent.",
+    "why": "Phase 16.1 ECS integration: the component is the per-entity animation state container."
+  },
+  {
+    "id": "0607",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/system.ts",
+    "what": "Create AnimationSystem (order 300): queries AnimationComponent entities, advances clip time by dt×speed, wraps looping clips, clamps+stops non-looping, multi-clip NLERP blend with weight normalisation, applies sampled TRS to Transform components. Stats: animationClipsPlayed, animationKeysSampled.",
+    "why": "Phase 16.1 system: drives animation playback every frame at order 300 (between gameplay and world)."
+  },
+  {
+    "id": "0608",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/assembly.ts",
+    "what": "Create assembleClip/assembleClips: converts DecodedGltfAnimation into engine AnimationClip objects, bridging worker-decoded data and runtime types.",
+    "why": "Phase 16.1 assembly layer: separate from the decoder so the worker has no engine deps."
+  },
+  {
+    "id": "0609",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/index.ts",
+    "what": "Create animation subsystem barrel: re-exports clip, sampler, component, system, assembly types and functions.",
+    "why": "Public API for the animation subsystem."
+  },
+  {
+    "id": "0610",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Export animation subsystem and glTF animation decoder from the engine barrel.",
+    "why": "Make animation public API accessible to tests and demos via @forge/engine."
+  },
+  {
+    "id": "0611",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "Update animation.clips capability from planned to inProgress with evidence and notes.",
+    "why": "AGENTS.md requires capability state to match implementation status."
+  },
+  {
+    "id": "0612",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Register animation subsystem in the test-subsystems map with src, tests and deps.",
+    "why": "tests/subsystems.test.ts fails if a suite is unclaimed."
+  },
+  {
+    "id": "0613",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/animation.test.ts",
+    "what": "Create animation test suite: 44 tests covering clip creation/validation, STEP/LINEAR/CUBICSPLINE sampling, quaternion SLERP, multi-track, AnimationComponent state, glTF decode, assembly, determinism, edge cases.",
+    "why": "Phase 16.1 verification: automated tests are required by the definition of done."
+  },
+  {
+    "id": "0614",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Add Phase 16 to the current engine state block as IN PROGRESS; mark 16.1 checkboxes as complete with implementation details.",
+    "why": "ROADMAP.md must reflect the actual implementation state."
+  },
+  {
+    "id": "0615",
+    "date": "2026-10-07T05:15:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Append Phase 16.1 session notes: data model design, sampler gotchas, ECS query API, component registration requirement, next-step pointers for state machines.",
+    "why": "Future sessions must not rediscover the ECS query signature or the before-first-key sampler edge case."
   }
 ]
 ```

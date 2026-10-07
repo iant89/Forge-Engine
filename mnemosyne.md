@@ -1385,3 +1385,43 @@ will stop".
   *lateral* peak returns exactly `1.0` — that is the grid's end, not a real peak. And any temporary
   suite left in `tests/` fails `tests/subsystems.test.ts` (the map has no claim for it) — delete
   scratch harnesses before running `npm run verify`.
+
+## 2026-10-07 — Phase 16 Animation: first slice (16.1 clips, sampling, system)
+
+- **`engine/src/animation/`** is the new subsystem directory. Architecture puts animation at
+  system order 300 (between gameplay and world), and the subsystem depends on `scene` and `math`
+  only — never rendering, physics, or terrain. AnimationComponent extends Component and is
+  registered with `registerComponent`.
+- **Clip data model** (`clip.ts`): `AnimationTrack` targets one node and one property
+  (translation/rotation/scale) with monotonically increasing Float32Array timestamps and packed
+  values. STEP/LINEAR/CUBICSPLINE interpolation per track. `createClip` auto-computes duration
+  from the max track end time and drops empty tracks. `validateTrack` checks value count, monotonic
+  timestamps, and zero-quaternion detection.
+- **Sampler** (`sampler.ts`): stateless `sampleClip(clip, t, output)` writes TRS into a
+  caller-owned `Float32Array` with `NODE_STRIDE=10` per node (tx ty tz rx ry rz rw sx sy sz).
+  SLERP with NLERP fallback for near-parallel quaternions; Hermite cubic for CUBICSPLINE using
+  the standard glTF formula (tangent × Δt). Before-first-key and after-last-key are both handled
+  (snap to first/last value, not zero).
+- **glTF decoder** (`core/tasks/gltfAnimation.ts`): extends the worker-decoded output with
+  `DecodedGltfAnimation[]`. Reads animation accessors from the same resolved buffer pool as the
+  mesh decoder, validates monotonic timestamps and interpolation modes, and silently skips morph-
+  target weight channels (they need mesh morph data that the static decoder doesn't produce).
+  The assembly layer (`assembly.ts`) converts decoded data into engine `AnimationClip` objects.
+- **AnimationSystem** (`system.ts`): order 300, queries entities with AnimationComponent.
+  Advances time per dt×speed, wraps looping clips, clamps+stops non-looping clips. Multi-clip
+  blend uses NLERP with weight normalisation. Joint TRS is applied to Transform components via
+  `sync()`. Stats: `animationClipsPlayed`, `animationKeysSampled`.
+- **44 tests** in `tests/animation.test.ts`: clip creation/validation, STEP/LINEAR/CUBICSPLINE
+  sampling, quaternion SLERP and shortest-arc, multi-track multi-node, AnimationComponent state
+  management, glTF animation decode (LINEAR trans+rot, invalid interp, out-of-range node, morph
+  skip, non-monotonic rejection), assembly, determinism (100 samples identical), and edge cases
+  (single-key, negative time, beyond-duration, degenerate quat).
+- **Gotcha for the next session:** the ECS query API takes an array of Component *constructors*,
+  not strings. `AnimationComponent` must extend `Component` and be registered with
+  `registerComponent` before any query or `getComponent` call can use it. The `Query` object has
+  `.entities: EntityId[]` and `.refresh()` — it's not a plain array, so you must call refresh
+  before reading entities.
+- **State machines (16.2) and blend trees (16.3)** are the natural next step: the
+  `AnimationComponent` already supports multiple clips with blend weights, so a state machine
+  layer that manages transitions (crossfade, fixed-duration, interruptible) sits on top without
+  changing the system.

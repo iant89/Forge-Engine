@@ -155,6 +155,9 @@ PHASE 15+
 PHASE 15.5 - Interactive Terrain / Object Dynamics
     [~] IN PROGRESS
 
+PHASE 16 - ANIMATION
+    [~] IN PROGRESS (16.1 clip import, sampling and playback landed)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -1493,8 +1496,22 @@ GOAL:
 
 16.1 Animation Clips
 
-    [ ] glTF animation import
-    [ ] clip sampling
+    [x] glTF animation import (STEP, LINEAR, CUBICSPLINE; translation, rotation, scale channels;
+        worker-decoded via `decodeGltfAnimations`, assembled into engine clips via `assembleClip`;
+        tests/animation.test.ts, tests/gltf.test.ts)
+
+    [x] clip sampling (stateless `sampleClip` with STEP/LINEAR/CUBICSPLINE interpolation,
+        quaternion SLER with NLERP fallback, Hermite spline for cubic, identity initialisation,
+        per-track validation; 44 tests in tests/animation.test.ts)
+
+    [x] animation component and system (AnimationComponent extends Component, registered;
+        AnimationSystem at order 300: dt advance, loop wrap, clamp-stop, multi-clip NLERP blend
+        with weight normalisation, per-joint TRS application to Transform; stats: clipsPlayed,
+        keysSampled)
+
+    [x] skeleton node mapping (nodeToEntity array, per-node TRS buffer with NODE_STRIDE=10,
+        identity initialisation for un-targeted joints, blend with existing transform for
+        weight < 1)
 
         Phase 9.1 supplies worker-backed static glTF/GLB triangle decode. Skin/animation import,
         image/material GPU assembly and Draco/meshopt support remain separate extended-import work

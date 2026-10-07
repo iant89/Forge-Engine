@@ -178,6 +178,12 @@ export type {
   DecodedGltfScene,
   GltfMeshDecodePayload,
 } from "./resources/gltf.js";
+export { decodeGltfAnimations, transferablesForAnimations } from "./core/tasks/gltfAnimation.js";
+export type {
+  DecodedGltfAnimation,
+  DecodedAnimationChannel,
+  DecodedAnimationSampler,
+} from "./core/tasks/gltfAnimation.js";
 export {
   loadKtx2Texture,
   chooseKtx2Target,
@@ -238,6 +244,9 @@ export * from "./particles/index.js";
 
 // Environment (phases 8a + 8b): sun/sky/fog/day-night plus weather, clouds, water, lightning.
 export * from "./environment/index.js";
+
+// Animation (Phase 16): clips, sampling, playback, blend, IK, skinning.
+export * from "./animation/index.js";
 
 // Rendering
 export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
