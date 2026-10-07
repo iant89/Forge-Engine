@@ -517,7 +517,13 @@ async function main(): Promise<void> {
     controls?.update();
 
     const st = engine.stats();
-    const health = st.deviceLost ? "DEVICE LOST" : st.gpuErrors > 0 ? `gpu errors ${st.gpuErrors}` : "gpu ok";
+    const health = st.deviceLost
+      ? "DEVICE LOST"
+      : st.deviceFatal
+        ? "GPU FAILED — reload the page"
+        : st.gpuErrors > 0
+          ? `gpu errors ${st.gpuErrors}`
+          : "gpu ok";
     const r = st.render;
     const path = r.hdr ? `hdr rgba16float${r.bloomMips > 0 ? ` · bloom ${r.bloomMips} mips` : ""}` : "ldr direct";
     const shadowMaps =

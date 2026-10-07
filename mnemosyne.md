@@ -1542,3 +1542,102 @@ will stop".
   material group). `MockGPUDevice.beginDraw` now enforces the same rule, so the CPU suites catch it.
 - **Next: mechanical animation (16.6)** — rover wheels, suspension, steering, robotic arm: drive the
   joints from the physics/vehicle layer with the animation system, which now has a GPU consumer.
+
+## 2026-10-07 — "Buffer with 'population.instances' label is invalid" is a dead device, not a population bug
+
+- **Symptom:** in a real browser (wgpu WebGPU), `createBindGroup` for `population.lod.group`
+  reports `Buffer with 'population.instances' label is invalid`. Looks like a population LOD bug;
+  is not.
+- **Root cause (verified in gfx-rs/wgpu source, `wgpu-core/src/device/resource.rs` +
+  `resource.rs`):** the browser's `createBuffer` *never throws* when an allocation fails
+  (VRAM exhaustion / resource overcommit). `Device::create_buffer` reports the error and returns
+  `Buffer::invalid(...)` — a resource in the `Invalid` state. Every later use reports its own
+  error: `writeBuffer`, the draw group's `createBindGroup`, the LOD group's `createBindGroup`
+  (the reported message). `InvalidResourceError` displays as `{type} with '{label}' label is
+  invalid`; a *destroyed* buffer would say "has been destroyed", and a lost *device* would say
+  "Parent device is lost" (the device is checked first in `create_bind_group_inner`). So
+  "is invalid" = the buffer's own creation failed. For a ~3 KB `STORAGE|COPY_DST` buffer that
+  only happens on a device that is already out of resources.
+- **The engine's gap:** it had no way to know the returned buffer was dead (the spec API exposes
+  no buffer validity), so it kept driving the dead resource — one more error per operation,
+  forever.
+- **Fix (this session, refined later the same day — see next entry):**
+  `GraphicsDevice.fatal`/`fatalReason` (the *device* is fatal when lost or out of memory),
+  `GraphicsDevice.deadResourceLabels`/`isResourceDead` (a resource error retires only the
+  labelled resource), `Renderer.deviceLost` frame gate covers fatal, the population path retires
+  its records when `population.instances` is dead, `Engine.step()` halts + logs once,
+  `stats().deviceFatal`, demo HUD "GPU FAILED — reload". Pinned by
+  `tests/gpuDeviceFatal.test.ts` (registered under the `gpu` subsystem).
+- **Second bug found along the way:** the mock dispatched bare errors to `uncapturederror`
+  listeners; a real `GPUDevice` dispatches a `{ error }` event. `GraphicsDevice`'s listener read
+  `event.error` → `undefined`, so `stats().lastError` would have recorded "GPUError: undefined".
+  Fixed in `mockGpu.ts` (event envelope) + new `mock.reportUncapturedError()` hook (strict-mode
+  `reportError` throws, which is not how the browser reports allocation failures).
+- **Lesson:** when a user pastes "Buffer/Texture with 'X' label is invalid" from a browser, the
+  named resource is the *victim*. Read wgpu's error taxonomy: "is invalid" = creation of that
+  resource failed (allocation failure → device heading for loss); "has been destroyed" = engine
+  used a resource after `destroy()`; "Parent device is lost" = everything is dead. The first
+  device error in the console (often scrolled past) is the real cause — now the engine's
+  `lastError`/HUD pin it and the frame loop stops instead of re-reporting.
+
+## 2026-10-07 — refinement: a dead *resource* must not take the whole device (and every demo) down
+
+- **Trigger:** after the fatal-halt fix, the user reported "the new animation demo does not work
+  as well" — the Phase 16.5 skinning arm at `?scene=skinning`. It renders fine here (focused
+  `check:browser:skinning` green on real WebGPU: 4 joints, 1 skinned batch, two poses differ in
+  16,974 px, zero GPU errors).
+- **Diagnosis:** the first fix was one level too aggressive. WebGPU kills only the *named
+  resource* when a buffer/texture errors — the rest of the device keeps working. But
+  `GraphicsDevice.fatal` flipped on *any* uncaptured error, so the one failed population buffer
+  marked the whole device fatal and `Engine.step()` halted **every** demo scene, including the
+  skinning arm, which never touches population. One dead chunk → black screens everywhere.
+- **Fix:** two-level semantics.
+  - *Device-fatal* (halt, HUD "GPU FAILED — reload"): device loss, or an uncaptured
+    **out-of-memory / allocation** error (the device is out of resources; further allocations
+    will keep failing — `isDeviceFatalError` matches `GPUOutOfMemoryError`, "out of memory",
+    "Allocation of … failed", "…device is lost").
+  - *Resource-dead* (retire, keep rendering): "X with 'label' label is invalid / has been
+    destroyed" → label goes into `GraphicsDevice.deadResourceLabels`. The population path
+    (`syncPopulationDevice`) retires every record when `population.instances` is dead — no new
+    buffer probed, no further errors — and the rest of the scene (and every other demo) keeps
+    rendering.
+- **Pinned:** `tests/gpuDeviceFatal.test.ts` now 10 tests — OOM→fatal, loss-phrasing→fatal,
+  resource error→dead set (not fatal), scoped→neither; renderer retires the dead population and
+  the control mesh in the same scene keeps drawing (no new buffers/submissions/errors); Engine
+  halts on OOM but **keeps stepping on a resource error**. 968/968 green.
+- **Real-device evidence (headless Chromium + SwiftShader, 3 GB box):** the skinning demo renders
+  healthily first (`skinnedBatches=1, skinJoints=4, gpuErrors=0`); then 30×128 MiB *written*
+  buffers exhaust the machine and SwiftShader's Vulkan instance dies → the device is lost with
+  the driver message → `deviceFatal=true`, rendering halts (the `getMappedRange`/loss errors land
+  after the probe's own listener was removed — read the engine's stats, not your own listener).
+  48 MiB × 50 did not OOM (page cache absorbed it) — the allocation-fails-but-device-salvageable
+  window is timing-sensitive on a 3 GB box; the strict-mock suite pins that classification.
+- **Lesson:** in WebGPU, "the device" and "a resource on the device" are different failure
+  domains. Halting the whole engine on a single resource error turns a local failure into a
+  global one — which is exactly how a population bug ends up taking the animation demo down.
+  Escalate to device-fatal only on OOM/loss; retire and continue on resource errors.
+
+## 2026-10-07 — sandbox egress breaks npm's fetcher on big downloads: seed the cache from curl
+
+- **Symptom:** in the Arena sandbox, `npm ci` dies with `ERR_SSL_CIPHER_OPERATION_FAILED`
+  (OpenSSL `ossl_gcm_stream_update: cipher operation failed`) — always on the one big download:
+  the ~70 MB `@sparticuz/chromium` tarball. Every smaller package fetches fine, and a plain
+  `curl -sSL` of the same registry URL completes instantly. The sandbox's outbound TLS stack
+  cannot sustain the long stream; it is not a registry or lockfile problem.
+- **Fix (now in `scripts/setup-deps.sh`, step 4, before `npm ci`):** download the tarball with
+  curl, verify its sha512 against `package-lock.json` (print `sha512-…` / `expect sha512-…`,
+  refuse on mismatch), then seed npm's cache — content **and** index entry — via the `cacache`
+  module bundled inside npm itself (`require(<npm root>/node_modules/cacache)`,
+  `cacache.put(cacheDir, <resolved URL>, <bytes>, { integrity })`). `npm ci` then treats the URL
+  as a cache hit and never touches the network for it. Verified on a fully cold machine (no
+  node_modules, no `~/.npm`, no tarball): `npm ci` in ~3 s where it previously failed.
+- **Gotchas that cost time:**
+  - Placing only the cacache *content* blob is not enough on a fresh machine — make-fetch-happen
+    needs the *index* entry keyed by the URL, and `cacache.put` writes both.
+  - `readlink -f $(which npm)` → `dirname dirname` is the npm install root (its `bin/npm-cli.js`
+    symlinks out one level deeper than you'd guess); cacache sits at `<root>/node_modules/cacache`.
+  - npm's own log prints `http cache <name>@<url>` — the real cache key is the bare URL.
+  - `require('@sparticuz/chromium/package.json')` throws (`exports` map); read the file directly.
+- **Lesson:** when a package manager fails on exactly the largest artifact but `curl` works,
+  suspect the egress TLS stack, not the package — and keep the lockfile authoritative by feeding
+  the verified bytes into the package manager's cache instead of bypassing it.
