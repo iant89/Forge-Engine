@@ -1340,3 +1340,48 @@ Traps worth keeping:
   sandbox (`dz=0.55m throttle=1.00s over 12 presented frames`, HGA `az=168.0°`, arm stows to zero,
   `check:browser passed`, exit 0), and the showcase screenshot shows the rover presented on the terrain
   — not a black screen.
+
+## 2026-10-07 — rover reports: +50% speed, slope brake runaway, throttle+steer stall
+
+Four user reports about the Perseverance rover (Mars Showcase and Rover Course, the same motor):
+"increase the rover's speed by 50%", "brake on a slope and the speed increases drastically",
+"on obstacle course the rover doesn't move hardly at all", "if you steer while hitting the gas it
+will stop".
+
+- **Brake on a slope drove the rover faster — the slip solve left the peak on the wrong side.**
+  `balanceLongitudinal` solved `κ` with a Newton step from the current `κ` and clamped the result
+  to `±peakSlip`. Once the demand passed the tire peak (`D·μ·Fz`), the step overshot the falling
+  flank, landed outside the clamp and was pinned at the *mirrored* slip limit: a full-brake demand
+  (`drive = −37.8 N·m` of regen plus pads, `F = −16.0 kN` against `peak 2.4 kN`) returned
+  `κ = +0.285` — peak **forward** force with the brake pinned. Measured: 25° downhill, entry
+  6.95 m/s → brake → 43–49 m/s in 3 s (κ logged to ≈+0.29 exactly), and on the flat a braked
+  rover could creep at ~0.4 m/s. Fix: the demand picks the face — bracket
+  `[min(0, side·peakSlip), max(0, side·peakSlip)]`, Newton with a bisection fallback, 12 iters,
+  1 N tolerance. Two side conditions: regen arrives as *negative* drive torque, so the TC "aided"
+  test must be `driveTorque > 1` (not `|driveTorque| > 1`) or the past-grip branch is skipped
+  entirely, and `stepWheelSpeed` needs a hold guard (`|brake| ≥ |drive| && next·ω ≤ 0 → 0`) so a
+  locked wheel cannot be wound backwards by pads + regen (−2500 rad/s, κ ≈ −1700, no tire force).
+  Now: 5°/12°/25° brake-to-hold all stop in ≈1 s or less; parking on a slope still holds.
+- **Throttle + steering crawled because every wheel steered in parallel.** `sampleWheels` gave all
+  steered wheels the same angle, so the corner wheels sat off their own turn circles; the Pacejka
+  lateral answer at that slip angle was mostly drag along the body axis — on a ~1 kW rover that is
+  the whole traction budget. Full left lock under full throttle: 0.133 m/s (a crawl), and the same
+  defect is what made the obstacle course read as "doesn't move". Fix: `Vehicle.applySteering()`
+  builds one turn centre — the commanded lock is the **inner** wheel's angle; the pivot line is the
+  unsteered axle when there is one (the rover's middle pair, a car's rear axle), else the CG; the
+  centre sits `innerX + reach/tan|lock|` to the turn side, and each steered wheel takes
+  `atan2(sign·(z − pivotZ), −sign·(x − centreX))`. Front and rear wheels therefore get *different*
+  angles (the rover's rear pair steers opposite, as before). Now 1.88 m/s at full lock under full
+  throttle, α ≈ 0, and the real course W+D run holds >2 m/s. Do not revert this to parallel steer.
+- **+50% speed is a scale of the speed axis, not the rejected power boost.** User asked for +50%:
+  keep `peakTorque: 9.5`, scale `ratedRpm 1000 → 1500`, `peakPower 1000 → 1500` (continuous with
+  the base speed: `τ·ω`), `maxRpm 3800 → 5700`. Loaded speeds measured 1.574 → 2.361 m/s on the
+  course and 1.625 → 2.438 m/s on Mars regolith — exactly 1.50×; no-load 2.63 m/s. This is *not*
+  the 14 N·m / 2500 W / 1800 rpm tune the user rejected in PR #62 — the launch torque is unchanged,
+  only the speed envelope grew. Pins live in `tests/electricMotor.test.ts`,
+  `tests/marsShowcase.test.ts`, `tests/roverCourse.test.ts`; the engine-level regressions for the
+  two bug families live in `tests/vehicles.test.ts` ("reported rover-course regressions").
+- **Gotcha for the next session:** `pacejkaPeakSlip` samples slip on a 0.0025..1.0 grid, so the
+  *lateral* peak returns exactly `1.0` — that is the grid's end, not a real peak. And any temporary
+  suite left in `tests/` fails `tests/subsystems.test.ts` (the map has no claim for it) — delete
+  scratch harnesses before running `npm run verify`.

@@ -169,14 +169,14 @@ describe("Rover Course — proving ground assembly", () => {
     expect(handle.courseState().conesHit).toBe(0);
   });
 
-  it("keeps the original 1 kW motor and gentle full-throttle acceleration", async () => {
+  it("keeps the 1.5× speed tune and its 50%-faster full-throttle speed", async () => {
     const { component } = await fixture();
     const rover = component.vehicle;
     expect(rover.config.engine).toMatchObject({
       peakTorque: 9.5,
-      peakPower: 1000,
-      ratedRpm: 1000,
-      maxRpm: 3800,
+      peakPower: 1500,
+      ratedRpm: 1500,
+      maxRpm: 5700,
       regenTorque: 4.2,
     });
     expect(rover.config.transmission.ratio).toBe(60);
@@ -187,14 +187,16 @@ describe("Rover Course — proving ground assembly", () => {
     rover.input.throttle = 1;
     for (let i = 0; i < 60; i++) rover.step(1 / 60, component.ground);
     expect(rover.speed).toBeGreaterThan(0.5);
-    expect(rover.speed).toBeLessThan(1.2);
+    expect(rover.speed).toBeLessThan(1.6);
     let maxSpeed = rover.speed;
     for (let i = 60; i < 60 * 40; i++) {
       rover.step(1 / 60, component.ground);
       maxSpeed = Math.max(maxSpeed, rover.speed);
     }
-    expect(maxSpeed).toBeLessThan(1.75);
-    expect(rover.speed).toBeGreaterThan(0.6);
+    // 5700 rpm through 60:1 on 0.264 m wheels is ≈2.63 m/s no-load; the requested +50% over the
+    // old 3800 rpm tune's ≈1.75 m/s. Loaded on asphalt it settles at ≈2.36 m/s — still slow.
+    expect(maxSpeed).toBeLessThan(2.65);
+    expect(rover.speed).toBeGreaterThan(1.5);
   });
 
   it("drives the rover down the home straight without clipping the slalom", async () => {
@@ -208,6 +210,22 @@ describe("Rover Course — proving ground assembly", () => {
     expect(rover.speed).toBeGreaterThan(0.5);
     // Straight down the middle threads every slalom cone (1.6 m aside, body half-width 1.3).
     expect(handle.courseState().conesHit).toBe(0);
+  });
+
+  it("steers under full throttle instead of stalling in the corners", async () => {
+    const { handle, component, tick, key } = await fixture();
+    const rover = component.vehicle;
+    key("keydown", "KeyW");
+    key("keydown", "KeyD");
+    for (let i = 0; i < 180; i++) tick();
+    key("keyup", "KeyW");
+    key("keyup", "KeyD");
+    // Regression: throttle + steering used to scrub off nearly everything — the rover crawled
+    // at ≈0.13 m/s with the throttle pinned, which reads as "it doesn't move on the course".
+    expect(handle.courseState().speed).toBeGreaterThan(1);
+    expect(rover.speed).toBeGreaterThan(1);
+    // …and it is the steering that turned it, not a straight line with the wheels dragging.
+    expect(Math.abs(handle.courseState().yaw - Math.PI / 2)).toBeGreaterThan(0.5);
   });
 
   it("knocks a cone on contact, counts it, and R stands everything back up", async () => {

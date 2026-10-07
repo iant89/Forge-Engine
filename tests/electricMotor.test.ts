@@ -173,9 +173,9 @@ function roverVehicle(regenTorque: number, maxBrakeTorque = 3600): Vehicle {
       maxBrakeTorque,
       engine: new ElectricMotor({
         peakTorque: 9.5,
-        peakPower: 1000,
-        ratedRpm: 1000,
-        maxRpm: 3800,
+        peakPower: 1500,
+        ratedRpm: 1500,
+        maxRpm: 5700,
         regenTorque,
         dragTorque: 0.12,
         inertia: 0.02,
@@ -193,14 +193,14 @@ function roverVehicle(regenTorque: number, maxBrakeTorque = 3600): Vehicle {
 }
 
 describe("electric rover — the 'way too fast' regression", () => {
-  it("caps a pinned-throttle rover near walking pace, not 200 km/h", () => {
+  it("caps a pinned-throttle rover at a fast walk, not 200 km/h", () => {
     const vehicle = roverVehicle(4.2);
     vehicle.input.throttle = 1;
     for (let i = 0; i < 60 * 40; i++) vehicle.step(1 / 60, flatGround(0));
-    // No-load motor speed (3800 rpm ÷ 60:1 × 0.264 m) is ≈1.75 m/s; never anywhere near the old
+    // No-load motor speed (5700 rpm ÷ 60:1 × 0.264 m) is ≈2.63 m/s; never anywhere near the old
     // combustion top gear, whose equivalent exceeded 200 km/h (55+ m/s).
-    expect(vehicle.speed).toBeLessThan(2.2);
-    expect(vehicle.speed).toBeGreaterThan(0.6);
+    expect(vehicle.speed).toBeLessThan(2.65);
+    expect(vehicle.speed).toBeGreaterThan(1.2);
   });
 
   it("stops the motor with the wheels: no idle hold while parked in gear", () => {

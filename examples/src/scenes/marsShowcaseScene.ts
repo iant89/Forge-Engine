@@ -9,8 +9,8 @@
  *   requests then one per frame; mesh uploads and missing-cell ground queries remain on main;
  * - sky: `MARS_ATMOSPHERE` through `forge.sky` with the horizon-coloured haze (same recipe as the
  *   terrain demo, quality raised to medium — this scene spends its budget on the rover up close);
- * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1 kW + `ReductionDrive` 60:1 —
- *   the real rovers are battery-electric; the no-load motor speed caps the rover near 6 km/h,
+ * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1.5 kW + `ReductionDrive` 60:1 —
+ *   the real rovers are battery-electric; the no-load motor speed caps the rover near 9.5 km/h,
  *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
  *   driven, Mars gravity 3.72 m/s², aero off), posed by `VehicleSystem`; the GLB arrives async —
  *   the rover stays invisible until the real body/wheel meshes land
@@ -304,16 +304,20 @@ const BASE_SUSPENSION_REST = 0.32;
 const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
 
 /**
- * Traction constants the rover build below consumes. The gentle 1 kW drive tune and regolith
- * rolling resistance keep acceleration and loaded speed down; grouser grip is retained.
+ * Traction constants the rover build below consumes. The gentle drive tune and regolith rolling
+ * resistance keep acceleration and loaded speed down; grouser grip is retained.
+ *
+ * The speed envelope is the original gentle tune scaled 1.5× in speed (the reported rover was
+ * "too slow"): same 9.5 N·m peak torque, so the launch feels unchanged, but the base speed, the
+ * power cap and the no-load speed are all 50% higher — ≈2.4 m/s loaded instead of ≈1.6 m/s.
  */
 export const MARS_ROVER_TRACTION = {
   /** Stall torque (N·m). 9.5 N·m through the 60:1 reduction ≈ 570 N·m before losses. */
   peakTorque: 9.5,
-  /** Field-weakening power cap (W): the original, gentler rover tune. */
-  peakPower: 1000,
-  /** Base speed (rpm): constant torque below, constant power above. 1000 rpm ≈ 0.46 m/s. */
-  ratedRpm: 1000,
+  /** Field-weakening power cap (W): 1.5× the original tune, continuous with the base speed. */
+  peakPower: 1500,
+  /** Base speed (rpm): constant torque below, constant power above. 1500 rpm ≈ 0.69 m/s. */
+  ratedRpm: 1500,
   /** Tire/soil friction. 1.4 ≈ chevron-grouser wheels biting into regolith. */
   mu: 1.4,
   /** Rolling resistance of regolith/sand, restored with the original drive tune. */
@@ -327,16 +331,18 @@ export const MARS_ROVER_TRACTION = {
 /**
  * Electric traction — the real rovers are battery-electric, and the old combustion defaults
  * (340 N·m through a 5-speed gearbox) geared the 1025 kg rover past 200 km/h equivalent, which
- * is the "way too fast, wheels fly off at hill crests" report. A ~1 kW motor behind a 60:1
+ * is the "way too fast, wheels fly off at hill crests" report. A ~1.5 kW motor behind a 60:1
  * reduction gives ≈513 N·m at the wheels after losses (≈1943 N peak tractive force), and
- * the motor's no-load speed caps the rover at ≈1.75 m/s ≈ 6 km/h. `regenTorque` blends ≈859 N
- * of regenerative braking in ahead of the friction pads after losses (see `ElectricMotor`).
+ * the motor's no-load speed caps the rover at ≈2.63 m/s ≈ 9.5 km/h (`maxRpm` is 1.5× the
+ * original 3800 so the loaded top speed rises 50%, from ≈1.6 m/s to ≈2.4 m/s).
+ * `regenTorque` blends ≈859 N of regenerative braking in ahead of the friction pads after
+ * losses (see `ElectricMotor`).
  */
 const ROVER_MOTOR = {
   peakTorque: MARS_ROVER_TRACTION.peakTorque,
   peakPower: MARS_ROVER_TRACTION.peakPower,
   ratedRpm: MARS_ROVER_TRACTION.ratedRpm,
-  maxRpm: 3800,
+  maxRpm: 5700,
   regenTorque: 4.2,
   dragTorque: 0.12,
   inertia: 0.02,
@@ -558,10 +564,10 @@ class WheelKickDust extends ParticleWorld {
   override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
     const kick = this.sampleKick();
     const emitter = this.simulation.emitter;
-    // The rover tops out around 1.75 m/s: fade in at walking pace, then scale emission with
+    // The rover tops out around 2.4 m/s: fade in at walking pace, then scale emission with
     // wheel load and tire scrub instead of using a combustion-car speed curve.
     if (kick && kick.speed > 0.2 && kick.normalLoad > 0) {
-      const speedFactor = Math.max(0, Math.min(1, (kick.speed - 0.2) / 1.55));
+      const speedFactor = Math.max(0, Math.min(1, (kick.speed - 0.2) / 2.2));
       const slip = Math.max(
         Math.min(1, Math.abs(kick.slipRatio) / 0.22),
         Math.min(1, Math.abs(kick.slipAngle) / 0.28),

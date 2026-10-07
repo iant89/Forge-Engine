@@ -155,12 +155,12 @@ const COURSE_WHEELS = [
   { name: "wheel_RR", x: 1.091, z: -1.165, steered: true, driven: true, handbrake: true },
 ] as const;
 
-/** Original gentle 1 kW rover tune, matching the Mars showcase's motor. */
+/** The Mars showcase's motor: 9.5 N·m / 1.5 kW, spread 1.5× in speed (≈2.63 m/s no-load). */
 const COURSE_MOTOR = {
   peakTorque: 9.5,
-  peakPower: 1000,
-  ratedRpm: 1000,
-  maxRpm: 3800,
+  peakPower: 1500,
+  ratedRpm: 1500,
+  maxRpm: 5700,
   regenTorque: 4.2,
   dragTorque: 0.12,
   inertia: 0.02,
