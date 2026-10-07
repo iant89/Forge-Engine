@@ -147,8 +147,6 @@ What remains:
 * **Longitudinal slip is solved, not freely integrated, while the tire can balance the demand.**
   Past the peak, and only when TC/ABS are not clamping, the residual torque spins the wheel. Do not
   expect a stable explicit-Euler wheel at 120 Hz — that path limit-cycles, which is why it was removed. (capability: vehicles.tireModel)
-* **Wheel visuals are boxes.** Spin is an euler on that box. No tyre mesh, no steered geometry beyond
-  the yaw, no suspension-arm skinning. (capability: vehicles.wheelVisuals)
 * **Reverse is a ratio, not a control.** Set `transmission.gear = -1`. The automatic only shifts
   forward gears, and the playground has no reverse key. (capability: vehicles.transmission)
 * **No continuous collision detection.** High-speed impacts use discrete contacts; tunneling a thin

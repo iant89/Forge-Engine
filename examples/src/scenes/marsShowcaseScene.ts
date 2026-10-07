@@ -79,7 +79,6 @@ import {
   SizeOverLifeModule,
   TerrainWorld,
   Transform,
-  type TransformHandle,
   Vec3,
   Vehicle,
   VehicleComponent,
@@ -108,6 +107,11 @@ import {
   computeBodyCrushOffset,
   WHEEL_DETACH_DAMAGE,
   WHEEL_BEND_MAX,
+  TRS,
+  MechanicalRig,
+  MechanicalRigComponent,
+  MechanicalSystem,
+  type MechanicalChannelSource,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
@@ -173,6 +177,12 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     armSticksVisible: boolean;
     /** Arm joint angles in degrees, stowed = 0: azimuth, shoulder, elbow, wrist, turret. */
     armJoints: number[];
+    /**
+     * The same five angles *read back from the pivots* (Phase 16.6). `armJoints` is the controller's
+     * command; this is what `MechanicalSystem` actually wrote through the rig, so the browser gate
+     * can catch a rig that stopped being driven instead of trusting the controller's own report.
+     */
+    armPivotDeg: number[];
     /**
      * High-gain antenna telemetry. It arms itself when the rover model lands, unfurls
      * `HGA_DEPLOY_DELAY_SECONDS` later and then tracks Earth — one-way, no stow control.
@@ -984,6 +994,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
 
   scene.world.registerSystem(new VehicleSystem());
+  // Phase 16.6: machine joints from channels — the rover's robotic arm is a MechanicalRig here.
+  scene.world.registerSystem(new MechanicalSystem());
 
   // Keep the vehicle's physics chassis and wheel roots alive while the GLB loads, but do not add
   // placeholder renderables. Showing a temporary orange box makes the loading state look like a
@@ -2002,9 +2014,37 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   // still plays once they do.
   const arm = new RoverArmController();
   const armPose = new Float64Array(ARM_JOINT_COUNT);
-  const armQ = new Quat();
+  const armTrsScratch = new TRS();
   const armInput: ArmJogInput = { swing: 0, shoulder: 0, elbow: 0, turret: 0 };
-  let armPivots: { transform: TransformHandle; axis: Vec3 }[] = [];
+  let armPivots: { entity: Entity; axis: Vec3 }[] = [];
+  // Mechanical half of the arm (Phase 16.6): one revolute joint per GLB pivot, posed by
+  // `MechanicalSystem` from the controller's channels rather than by a hand-written write loop.
+  // `wrap: false` is load-bearing: the unfold takes the elbow the long way round (−242°, see
+  // roverArm.ts) and wrapping the value into (−π, π] would flip it to the short way through the
+  // ground. Slew is 0 for the same reason it is in `RoverArmController`: the choreography already
+  // runs through an acceleration ramp, so the joint follows it exactly.
+  let armRig: MechanicalRig | null = null;
+  const armSource: MechanicalChannelSource = {
+    writeChannels(rig) {
+      arm.pose(armPose);
+      for (let j = 0; j < armPivots.length; j++) rig.setChannel(`arm${j}`, armPose[j] ?? 0);
+    },
+  };
+  const bindArmRig = (): void => {
+    if (armRig || armPivots.length === 0) return;
+    armRig = new MechanicalRig(scene.world);
+    for (let j = 0; j < armPivots.length; j++) {
+      const pivot = armPivots[j]!;
+      armRig.addJoint({
+        entity: pivot.entity.id,
+        kind: "revolute",
+        axis: pivot.axis,
+        channel: `arm${j}`,
+        wrap: false,
+      });
+    }
+    chassis.add(new MechanicalRigComponent(armRig, armSource));
+  };
 
   const attachGlb = (glb: LoadedGlb): void => {
     // Body: drop the placeholder box, parent the model-root-space parts under the chassis with the
@@ -2143,7 +2183,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     // everything outboard of it, exactly like the GLB node hierarchy.
     if (glb.arm && glb.arm.joints.length === ARM_JOINT_COUNT) {
       let parent: Entity = chassis;
-      const pivots: { transform: TransformHandle; axis: Vec3 }[] = [];
+      const pivots: { entity: Entity; axis: Vec3 }[] = [];
       for (const [j, joint] of glb.arm.joints.entries()) {
         const [ox, oy, oz] = joint.offset;
         const at = new Vec3(ox, j === 0 ? oy + bodyOffsetY : oy, oz);
@@ -2161,11 +2201,11 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
           r.receiveShadow = true;
           scene.world.addComponent(child.id, r);
         }
-        pivots.push({ transform: pivot.transform, axis: new Vec3(joint.axis[0], joint.axis[1], joint.axis[2]) });
+        pivots.push({ entity: pivot, axis: new Vec3(joint.axis[0], joint.axis[1], joint.axis[2]) });
         parent = pivot;
       }
       armPivots = pivots;
-      writeArmPose();
+      bindArmRig();
     }
     // High-gain antenna: the NASA model ships without one — no `hga` nodes, and a vertex scan of
     // the body meshes finds nothing above the front-right deck — so the assembly is procedural:
@@ -2241,16 +2281,6 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const setMast = (deployed: boolean): void => {
     mastTarget = deployed ? 1 : 0;
     touch.setMast(deployed);
-  };
-
-  /** Pose every arm pivot from the controller (no-op until the GLB lands). */
-  const writeArmPose = (): void => {
-    if (armPivots.length === 0) return;
-    arm.pose(armPose);
-    for (let j = 0; j < armPivots.length; j++) {
-      const pivot = armPivots[j]!;
-      pivot.transform.rotation = armQ.setAxisAngle(pivot.axis, armPose[j] ?? 0);
-    }
   };
 
   /** Command the arm; the button/keys call this, the controller animates it. */
@@ -2433,14 +2463,15 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
 
-      // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded),
-      // pose the pivots when anything moved, and keep the sticks shown exactly while unfolded.
+      // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded), and
+      // keep the sticks shown exactly while unfolded. Posing is the mechanical rig's job now: the
+      // source above publishes this pose into the joints' channels in the animation band.
       const sticks = armTouch.sample();
       armInput.swing = unit(sticks.swing + keyAxis("KeyH", "KeyF"));
       armInput.shoulder = unit(sticks.shoulder + keyAxis("KeyT", "KeyG"));
       armInput.elbow = unit(sticks.elbow + keyAxis("KeyI", "KeyK"));
       armInput.turret = unit(sticks.turret + keyAxis("KeyL", "KeyJ"));
-      if (armPivots.length > 0 && arm.update(dt, armInput)) writeArmPose();
+      if (armPivots.length > 0) arm.update(dt, armInput);
       armTouch.setVisible(arm.unfolded);
     },
     overlay(): string {
@@ -2575,6 +2606,12 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         armUnfolded: arm.unfolded,
         armSticksVisible: armTouch.visible,
         armJoints: Array.from(arm.pose(armPose), (v) => (v * 180) / Math.PI),
+        armPivotDeg: armPivots.map((pivot) => {
+          const q = scene.world.getTRS(pivot.entity.id, armTrsScratch).rotation;
+          const alongAxis = q.x * pivot.axis.x + q.y * pivot.axis.y + q.z * pivot.axis.z;
+          const magnitude = 2 * Math.atan2(Math.hypot(q.x, q.y, q.z), q.w);
+          return ((alongAxis < 0 ? -magnitude : magnitude) * 180) / Math.PI;
+        }),
         antenna: {
           phase: hga.phase,
           countdown: hga.countdown,

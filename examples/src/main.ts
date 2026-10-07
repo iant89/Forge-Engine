@@ -619,6 +619,12 @@ async function main(): Promise<void> {
     camera: () => controls?.state() ?? null,
     /** Chassis speed/rpm while a vehicle scene is loaded; null otherwise. */
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
+    /**
+     * Vehicle playground (Phase 16.6): pose its wheel rig from fixed values so a gate can A/B wheel
+     * geometry deterministically; `null` hands the rigs back to physics telemetry. A no-op elsewhere.
+     */
+    setWheelOverride: (override: { steer: number; travel: number; spin: number } | null) =>
+      currentHandle?.setWheelOverride?.(override),
     /** Mission, cargo, relay, weather and vehicle snapshot while Alpine Rescue is loaded. */
     alpineRescueState: () => (currentHandle as AlpineRescueSceneHandle | null)?.snapshot?.() ?? null,
     /** Try the current rescue interaction; returns false when the objective is out of reach. */

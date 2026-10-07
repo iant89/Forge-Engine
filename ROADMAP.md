@@ -14,13 +14,15 @@ CURRENT CODEBASE BASELINE:
                 (Reconciled 2026-10-06: the top block previously claimed "Phases 0-7:
                 IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
                 registry's `6: partial`. The registry is right: the open vehicle limitations
-                are the four bullets in docs/KNOWN-ISSUES.md §Vehicles — solved longitudinal
-                slip (vehicles.tireModel), box wheel visuals (vehicles.wheelVisuals), reverse
-                as a ratio not a control (vehicles.transmission) and discrete-contact impacts
-                (physics.ccd). None is a Phase 6 defect — the model itself is pinned by
-                tests/vehicles.test.ts and tests/vehiclePhysics.test.ts — and the registry
-                closes all four under 16.6 / 25.1. No separate Phase 6 hardening work is
-                scheduled; this note records the interpretation rather than inventing scope.)
+                were box wheel visuals (vehicles.wheelVisuals) plus three intentional model
+                limits — solved longitudinal slip (vehicles.tireModel), reverse as a ratio not
+                a control (vehicles.transmission) and discrete-contact impacts (physics.ccd).
+                None is a Phase 6 defect — the model itself is pinned by tests/vehicles.test.ts
+                and tests/vehiclePhysics.test.ts. Phase 16.6 closed the visual limitation
+                (tyre assemblies, steered geometry, suspension/damper animation) and its bullet
+                is gone from docs/KNOWN-ISSUES.md §Vehicles; the three model limits stay, and
+                no separate Phase 6 hardening work is scheduled for them. This note records the
+                interpretation rather than inventing scope.)
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
@@ -1586,6 +1588,41 @@ GOAL:
         steering
         robotic arm
         mechanical joints
+
+    [x] mechanical rig (`animation/mechanical.ts`): 1-DOF joints of kind revolute (angle about a
+        parent-frame axis), prismatic (offset along it) and aim (solved so the joint's local
+        direction points at a target entity, optionally stretching a telescoping link to it).
+        Poses are recomposed as `base ∘ motion` from the authored TRS every frame, so re-posing is
+        idempotent (no drift); min/max clamps, `slew` rate limits (units/s, 0 = follow directly),
+        angle wrap for odometers, and aim joints solved against the live local store so a joint
+        declared after the ones it watches sees their pose from the same frame. Allocation-free
+        scratch; tests/mechanicalAnimation.test.ts
+
+    [x] MechanicalSystem + MechanicalRigComponent (`animation/mechanicalSystem.ts`): per component,
+        the channel source writes this frame's values, then the rig advances (limits + slew) and
+        poses; order 310, after AnimationSystem (300) and after the fixed simulation band that
+        produces the state the source reads; stats mechanicalRigs / mechanicalJoints /
+        mechanicalJointsPosed / mechanicalJointsSolved / mechanicalJointsSaturated
+
+    [x] rover wheels + suspension + steering (`vehicles/wheelRig.ts`): `createVehicleWheelRig` binds
+        a Vehicle's per-wheel telemetry to joints — hub carrier (travel, prismatic), steering
+        knuckle (the wheel's *own* Ackermann angle, so the rear knuckles the solver left at zero stay
+        at zero), axle (odometer, sign-flipped on the left so both sides roll forward), trailing arm
+        and damper (aim joints, telescoping to the carrier) — and `VehicleWheelSource` feeds them
+        each frame. The Phase 6 playground builds the tyre/rim/cleat/nut geometry per corner and
+        drops its box wheels; tests/mechanicalScene.test.ts, `npm run check:browser:mechanical`
+        (deterministic wheel poses A/B'd on a real adapter)
+
+    [x] robotic arm: the Mars showcase's five-joint GLB arm chain is posed by a MechanicalRig
+        (`MechanicalSystem` registered on that world) from the controller's channels instead of a
+        hand-written pose loop; `wrap: false` is load-bearing, because the unfold deliberately takes
+        the elbow the long way round (−242°) and wrapping would flip it through the ground. The
+        browser gate reads the pivot angles back off the transform store and asserts they follow the
+        command out of the stowed pose
+
+    The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
+    Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
+    material assembly, morph/instancing, Draco/meshopt) is still open under 16.1.
 
 
 EXIT CRITERIA:

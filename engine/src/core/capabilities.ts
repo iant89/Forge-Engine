@@ -645,8 +645,8 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "Longitudinal slip is solved, not freely integrated, while the tire can balance the demand",
     evidence: ["tests/vehicles.test.ts"],
-    closesWith: "16.6",
-    notes: "Phase 11 stress tests exercise the tire under unload/impact; the solved-slip integrator remains intentional",
+    closesWith: "6",
+    notes: "The solved-slip integrator is an intentional model limit, not a defect: an explicit-Euler wheel at 120 Hz limit-cycles, which is why it was removed. Phase 16.6 closed the *visual* limitation only (vehicles.wheelVisuals); no separate Phase 6 hardening work is scheduled for this one.",
   },
   {
     id: "vehicles.transmission",
@@ -654,15 +654,24 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "Reverse is a gear ratio, not a control; the automatic shifts forward gears only",
     evidence: ["tests/vehicles.test.ts"],
-    closesWith: "16.6",
-    notes: "Playground still has no reverse key; not in Phase 11 scope",
+    closesWith: "6",
+    notes: "Reverse stays a ratio (`transmission.gear = -1`) by design; the playground has no reverse key. Not closed by Phase 16.6, which is visual, and not in Phase 11 scope.",
+  },
+  {
+    id: "animation.mechanical",
+    phase: "16.6",
+    status: "verified",
+    summary: "Mechanical joints driven by machine state: channel-fed rigs of revolute/prismatic/aim joints",
+    evidence: ["tests/mechanicalAnimation.test.ts", "tests/mechanicalScene.test.ts"],
+    notes: "`MechanicalRig` recomposes `base ∘ motion` from the authored pose each frame (idempotent), clamps to min/max, rate-limits with `slew`, wraps angles and solves aim joints against the live local store so a joint sees the same frame's pose. `MechanicalSystem` (order 310) writes channels from a source, advances and poses. Consumers: the vehicle wheel assembly (`vehicles/wheelRig.ts`) and the Mars rover's robotic arm.",
   },
   {
     id: "vehicles.wheelVisuals",
     phase: "16.6",
-    status: "planned",
+    status: "verified",
     summary: "Tyre meshes, steered geometry and suspension-arm animation",
-    closesWith: "16.6",
+    evidence: ["tests/mechanicalAnimation.test.ts", "tests/mechanicalScene.test.ts", "tools/browser-check.mjs"],
+    notes: "The playground (Phase 6) draws a tyre/rim/cleat/nut assembly per corner: a hub carrier riding suspension travel, a knuckle carrying the wheel's own Ackermann angle, an axle rolling at the tire's odometer, and arm/damper links aimed at the hub. `npm run check:browser:mechanical` A/Bs two deterministic wheel poses on a real adapter (2,313/921,600 pixels differ, max 206/255; the rear knuckles hold 0 while the fronts take lock).",
   },
 
   // ---------------------------------------------------------------- particles
@@ -862,7 +871,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "animation.clips",
     phase: "16.1",
-    status: "inProgress",
+    status: "verified",
     summary: "glTF animation import, clip sampling, playback, blending, state machines, blend trees, IK and GPU skinning",
     evidence: [
       "tests/animation.test.ts",
@@ -871,8 +880,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "tests/renderingSkinning.test.ts",
       "tests/skinningScene.test.ts",
     ],
-    closesWith: "16.6",
-    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. The GPU path is implemented: JOINTS_0/WEIGHTS_0 upload as a second vertex buffer slot, the renderer fills one mesh-local palette per skinned batch into a single storage arena each frame, and the skinned colour/depth-prepass/shadow variants draw through it; a skinned mesh deforms on a real adapter in the demo (npm run check:browser:skinning A/Bs two poses of the same uploaded vertices: 16,974/921,600 pixels differ in the focused mode and 8,859/468,000 in the full gate, max 211/255, zero GPU errors). Mechanical animation (16.6) remains.",
+    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. The GPU path is implemented: JOINTS_0/WEIGHTS_0 upload as a second vertex buffer slot, the renderer fills one mesh-local palette per skinned batch into a single storage arena each frame, and the skinned colour/depth-prepass/shadow variants draw through it; a skinned mesh deforms on a real adapter in the demo (npm run check:browser:skinning A/Bs two poses of the same uploaded vertices: 16,974/921,600 pixels differ in the focused mode and 8,859/468,000 in the full gate, max 211/255, zero GPU errors). Mechanical animation (16.6) landed on top of it: `animation/mechanical.ts` poses rig joints from channels and `MechanicalSystem` (order 310) drives them, with the vehicle wheel assembly and the Mars rover arm as consumers.",
   },
   {
     id: "scripting.lifecycle",
