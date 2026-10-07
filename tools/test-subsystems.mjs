@@ -93,6 +93,7 @@ export const subsystems = {
       "tests/animationStateMachine.test.ts",
       "tests/animationBlendTree.test.ts",
       "tests/animationIK.test.ts",
+      "tests/animationSkinning.test.ts",
     ],
     deps: ["math", "scene"],
   },

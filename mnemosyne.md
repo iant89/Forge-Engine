@@ -1472,3 +1472,24 @@ will stop".
   and add a vertex-stage skinning path. This is the first animation feature that touches the
   renderer. The `SkinBinding` interface already exists in `rendering/mesh.ts`; the new work is
   uploading the per-frame joint palette and modifying the vertex shader to apply it.
+
+## 2026-10-07 — Phase 16.5: joint palette and skinning data
+
+- **`computeJointPalette`** (`skinning.ts`): computes `palette[i] = worldMatrix[joint] × IBM[i]`
+  per joint. Uses temporary `Mat4` wrappers around the raw Float32Arrays and the existing
+  `multiplyMatrices` method. Missing joints get identity (so the mesh doesn't explode). Returns
+  the number of joints written.
+- **Gotcha: IBM semantics.** The IBM (inverse bind matrix) is `inverse(bindPoseWorldMatrix)`.
+  So `world × IBM` maps a vertex from mesh-local space to the current animated world space.
+  If the bind pose placed the joint at translation(1,0,0), then IBM = translation(-1,0,0), and
+  `world(3) × IBM(-1) = translation(2)`. The test initially expected `translation(1) ×
+  translation(3) = translation(2)` but `translation(3) × translation(1) = translation(4)` — the
+  IBM in the test was the bind pose, not its inverse. Fixed by correcting the test comment.
+- **`validateSkinningData`**: checks joint/weight array lengths against `vertexCount × 4` and
+  that weights sum to ~1 per vertex. `createIdentitySkinningData` produces joint 0 / weight 1
+  for all vertices as a non-skinned fallback.
+- **Next: GPU upload pipeline (16.5 follow-up)** — upload the joint palette to a GPU storage
+  buffer each frame, add JOINTS_0/WEIGHTS_0 as a second vertex buffer slot, and add a skinning
+  variant of the standard vertex shader. This touches `renderer.ts`, `pipeline.ts`,
+  `shaders/standard.ts`, and `geometry.ts`. The existing fixed 48-byte vertex layout stays
+  unchanged — skinning data goes in a separate buffer slot.

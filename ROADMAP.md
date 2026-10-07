@@ -156,8 +156,9 @@ PHASE 15.5 - Interactive Terrain / Object Dynamics
     [~] IN PROGRESS
 
 PHASE 16 - ANIMATION
-    [~] IN PROGRESS (16.1-16.4 landed: clip import, sampling, playback, state machines,
-        blend trees, IK; GPU skinning and mechanical animation remain)
+    [~] IN PROGRESS (16.1-16.5 landed: clip import, sampling, playback, state machines,
+        blend trees, IK, joint palette computation and skinning data validation;
+        GPU upload pipeline and mechanical animation remain)
 
 
 ================================================================================
@@ -1557,7 +1558,14 @@ GOAL:
 
 16.5 Skinning
 
-    [ ] GPU skinning
+    [x] Joint palette computation (computeJointPalette: world × inverseBindMatrix per joint,
+        missing-joint identity fallback, multi-joint support; tests/animationSkinning.test.ts)
+
+    [x] Skinning data validation (validateSkinningData: weight sum check, joint/weight count,
+        createIdentitySkinningData for default non-skinned fallback; tests/animationSkinning.test.ts)
+
+    [ ] GPU upload pipeline (per-frame joint palette to storage buffer, vertex shader skinning
+        variant with JOINTS_0/WEIGHTS_0 attributes, skinned pipeline variant in PipelineFactory)
 
 
 16.6 Mechanical Animation

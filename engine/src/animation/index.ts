@@ -43,4 +43,7 @@ export type { BlendTreeClip, BlendResult } from "./blendTree.js";
 export { solveTwoBoneIK, solveFABRIK } from "./ik.js";
 export type { TwoBoneIKConfig, FABRIKConfig } from "./ik.js";
 
+export { computeJointPalette, validateSkinningData, createIdentitySkinningData, MAX_JOINTS_PER_VERTEX, JOINT_MATRIX_BYTES } from "./skinning.js";
+export type { SkinningVertexData } from "./skinning.js";
+
 export { assembleClip, assembleClips } from "./assembly.js";

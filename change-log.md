@@ -7998,6 +7998,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Append Phase 16.4 session notes: TwoBoneIK/FABRIK design, FABRIK iteration gotcha, pole target sign gotcha, next-step pointers for GPU skinning.",
     "why": "Future sessions must not rediscover the cross-product sign or the FABRIK convergence check timing."
+  },
+  {
+    "id": "0631",
+    "date": "2026-10-07T06:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/skinning.ts",
+    "what": "Create skinning module: computeJointPalette (world × inverseBindMatrix per joint, missing-joint identity fallback, multi-joint support), validateSkinningData (weight sum check, joint/weight count validation), createIdentitySkinningData, MAX_JOINTS_PER_VERTEX and JOINT_MATRIX_BYTES constants. 16 tests in tests/animationSkinning.test.ts.",
+    "why": "Phase 16.5 skinning: CPU-side joint palette computation and skinning data validation — the data path that feeds the GPU upload pipeline."
+  },
+  {
+    "id": "0632",
+    "date": "2026-10-07T06:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/index.ts",
+    "what": "Re-export computeJointPalette, validateSkinningData, createIdentitySkinningData, MAX_JOINTS_PER_VERTEX, JOINT_MATRIX_BYTES and SkinningVertexData from the animation barrel.",
+    "why": "Make skinning data accessible via the public API."
+  },
+  {
+    "id": "0633",
+    "date": "2026-10-07T06:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/animationSkinning.test.ts",
+    "what": "Create skinning test suite: 16 tests covering computeJointPalette (empty, too-small output, identity, translation, IBM multiplication, missing joints, multi-joint, determinism), validateSkinningData (valid, wrong count, weight sum), createIdentitySkinningData, constants.",
+    "why": "Phase 16.5 verification."
+  },
+  {
+    "id": "0634",
+    "date": "2026-10-07T06:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Register animationSkinning.test.ts in the animation subsystem's test list.",
+    "why": "tests/subsystems.test.ts fails if a suite is unclaimed."
+  },
+  {
+    "id": "0635",
+    "date": "2026-10-07T06:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Mark Phase 16.5 joint palette and skinning data validation as [x]; GPU upload pipeline remains [ ]. Update state block.",
+    "why": "ROADMAP.md must reflect actual implementation state."
   }
 ]
 ```
