@@ -8625,6 +8625,31 @@ JSON array below; agents maintain it by hand until then.
     "file": "scripts/setup-deps.sh",
     "what": "Before `npm ci`, fetch the @sparticuz/chromium tarball with `curl` (not npm's fetcher) and seed npm's cache — content plus index entry, through the cacache bundled inside npm itself — so `npm ci` serves it from cache. The URL and the sha512 the download is verified against come from package-lock.json; a present tarball is reused only when its sha512 matches. Every failure degrades to 'let npm fetch it itself'. Moved TMP up so the step-4 seed and the step-5 browser share it.",
     "why": "In sandboxed egress environments npm's fetcher aborts the ~70 MB chromium download with ERR_SSL_CIPHER_OPERATION_FAILED while a plain curl of the same registry URL completes, so `npm ci` (and thus the whole setup) failed before any test could run. Seeding the cache from a curl-fetched, hash-verified tarball keeps the lockfile authoritative (still `npm ci`, never `npm install`) while removing the one fetch that cannot succeed."
+  },
+  {
+    "id": "0688",
+    "date": "2026-10-07T14:41:54Z",
+    "type": "pr-merge",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "base": "main",
+    "title": "Halt on a fatal device, retire a dead resource; fetch the Chromium tarball with curl",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Three fixes from the 'Buffer with population.instances label is invalid' report. (1) GraphicsDevice now distinguishes device-level failure (loss, or an uncaptured OOM/allocation error — fatal: the frame gate, Engine.step and the HUD halt with a one-shot log and 'GPU FAILED — reload the page') from resource-level failure ('X with label Y is invalid' — the label lands in deadResourceLabels and only the owner retires it), so the population path quietly retires its dead buffer class while every other scene keeps rendering. (2) The mock now dispatches uncapturederror as the { error } event a real GPUDevice does (listeners read event.error) and gains reportUncapturedError() for tests. (3) setup-deps.sh fetches the @sparticuz/chromium tarball with curl — npm's fetcher aborts the ~70 MB download in sandboxed egress with ERR_SSL_CIPHER_OPERATION_FAILED — verifies its sha512 against package-lock.json, and seeds the verified bytes into npm's cache so npm ci stays authoritative and succeeds. Pinned by tests/gpuDeviceFatal.test.ts (10 tests, gpu subsystem); 968/968 green, all CPU gates, check:browser:skinning and the advisory WebGPU sweep green on CI.",
+    "files": [
+      "change-log.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/engine.ts",
+      "engine/src/gpu/device.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/testing/mockGpu.ts",
+      "examples/src/main.ts",
+      "mnemosyne.md",
+      "scripts/setup-deps.sh",
+      "tests/gpuDeviceFatal.test.ts",
+      "tools/test-subsystems.mjs"
+    ]
   }
 ]
 ```
