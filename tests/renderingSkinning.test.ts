@@ -492,6 +492,16 @@ describe("Renderer with skinned renderables", () => {
     const skinBindings = mock.commandLog.filter((e) => e.type === "setBindGroup" && e.index === 3);
     expect(skinBindings.length).toBeGreaterThanOrEqual(1);
     for (const bind of skinBindings) expect((bind.dynamicOffsets as number[]).length).toBe(1);
+    // The shadow and prepass skinned layouts interpose an *empty* group 2 (their programs have no
+    // material group, and the palette stays at group 3). Chromium invalidates a command buffer whose
+    // draw leaves a declared group unbound — empty or not — so the pass must bind one there, and the
+    // mock refuses the draw outright if it does not (which is how the CI runner's Chromium 131 caught
+    // a frame that renders fine on a newer build).
+    // (Index 2 also carries the material group in the colour pass, hence the group-label filter.)
+    const gapBindings = mock.commandLog.filter(
+      (e) => e.type === "setBindGroup" && e.index === 2 && e.group === "skin.gap.bindgroup",
+    );
+    expect(gapBindings.length).toBeGreaterThanOrEqual(2); // once per skinned shadow + prepass draw
     const pipelines = mock.commandLog.filter((e) => e.type === "setPipeline").map((e) => String(e.pipeline));
     // Pipeline labels are the cache keys, so the skinned variant shows up as the `|skin|` slot.
     expect(pipelines.some((p) => p.startsWith("pipeline.standard|") && p.includes("|skin|"))).toBe(true);

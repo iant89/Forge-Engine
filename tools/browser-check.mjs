@@ -499,7 +499,10 @@ async function checkSkinning() {
     return state !== null && state !== undefined && state.skinnedBatches > 0;
   }, null, { polling: 250, timeout: 60000 });
   // Async pipeline compilation: the skinned modules are created on first use, and a batch whose
-  // pipeline is still pending is skipped rather than drawn (the renderer never blocks a frame).
+  // pipeline is still pending is skipped rather than drawn (the renderer never blocks a frame). Wait
+  // for the queue to drain, but assert on `failures` only: the scene keeps asking for variants (the
+  // ground's unskinned ones, the prepass probe's), so sampling "pending" a frame later can legitimately
+  // catch a new compile — and the pose A/B below is what proves the skinned pipelines actually drew.
   await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
   await waitPresentedFrames(2);
   const first = await page.evaluate(() => ({
@@ -511,14 +514,15 @@ async function checkSkinning() {
   if (first.skinning.skinnedBatches !== 1) throw new Error(`the arm did not batch as one skinned draw (${first.skinning.skinnedBatches})`);
   if (first.skinning.skinJoints !== 4) throw new Error(`the frame uploaded ${first.skinning.skinJoints} joint matrices, expected 4`);
   if (first.skinning.skinFallbacks !== 0) throw new Error(`the arm fell back to the unskinned path (${first.skinning.skinFallbacks})`);
-  if (first.pipelines.failures !== 0 || first.pipelines.pipelinesPending !== 0) {
+  if (first.pipelines.failures !== 0) {
     throw new Error(`skinned pipelines did not compile: ${JSON.stringify(first.pipelines)}`);
   }
   if (first.stats.gpuErrors !== 0 || first.stats.lastError) {
     throw new Error(`GPU error on the skinned arm: ${first.stats.lastError}`);
   }
   console.log(
-    `skinned pipelines: ${first.pipelines.pipelines} created (${first.pipelines.creates} creates, ${first.pipelines.cacheHits} hits)`,
+    `skinned pipelines: ${first.pipelines.pipelines} created (${first.pipelines.creates} creates, ` +
+    `${first.pipelines.cacheHits} hits, ${first.pipelines.pipelinesPending} still compiling, ${first.pipelines.failures} failures)`,
   );
 
   // Freeze the idle wave and A/B two of its poses. Both frames upload the same geometry and run the

@@ -1532,5 +1532,13 @@ will stop".
 - **The demo arm** is four boxes welded into one mesh, rigidly weighted to four chained joints; its
   inverse bind matrices are the rest-pose translations. Nothing touches vertices after upload, so a
   bent arm on screen *is* the palette working.
+- **Gotcha (cost a CI run): every group a pipeline layout declares must be *bound* before a draw, even
+  an empty one.** The skinned shadow/prepass layouts interpose an empty placeholder at group 2 so the
+  palette can stay at group 3 in every skinned program — and Chromium (through at least 131, the build
+  the CI runner installs) invalidates the whole command buffer with "No bind group set at group index 2"
+  if nothing is set there. A newer Chromium (153, this sandbox) accepts it, so the failure only appears
+  in CI. The fix: `Renderer.ensureSkinGapBindGroup()` — an empty `createBindGroup` — bound at group 2 by
+  `bindSkinning(..., gap: true)` for the depth/prepass passes only (the colour pass's group 2 is the
+  material group). `MockGPUDevice.beginDraw` now enforces the same rule, so the CPU suites catch it.
 - **Next: mechanical animation (16.6)** — rover wheels, suspension, steering, robotic arm: drive the
   joints from the physics/vehicle layer with the animation system, which now has a GPU consumer.

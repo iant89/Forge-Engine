@@ -1080,7 +1080,11 @@ and `check:wgsl` + `tests/wgsl.test.ts` run both. No automated check compiles th
   poses of the same uploaded mesh differ in 17k pixels — the palette deformed the vertices. What is not
   claimed: importing skins from glTF (the static mesh decoder still rejects `node.skin`; animated assets
   are assembled through the engine API), skinning on morph/instanced populations, and mechanical
-  animation (16.6).
+  animation (16.6). The skinned shadow/prepass layouts interpose an empty placeholder group before the
+  palette so it stays group 3 everywhere; the pass binds an empty bind group there, because Chromium
+  invalidates a command buffer whose draw leaves a declared group unbound — a rule `MockGPUDevice` now
+  enforces at draw time, after the CI runner's older Chromium caught it and this sandbox's newer build
+  did not.
 * **A particle buffer.** The CPU integrator matches `analyticGravity` in `tests/particles.test.ts`,
   including a 100k × 30 step budget. The same curve on a real device is the `runParticleGravityCheck`
   assertion in `check:browser`. Emission, modules, and trails are CPU and covered by the unit suite

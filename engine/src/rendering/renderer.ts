@@ -282,6 +282,14 @@ const POINT_MASK_BASE = MAX_CASCADES + MAX_SPOT_SHADOWS;
 /** Bind group the skinned pipeline layouts carry the joint palette in (see `shaders/standard.ts`). */
 const SKIN_BINDING_GROUP = SKIN_BINDINGS.palette.group;
 
+/**
+ * The empty group the skinned shadow/prepass layouts interpose before the palette. Nothing reads it —
+ * it exists so the palette stays group 3 in every skinned program — but a draw must still *set* a bind
+ * group there: Chromium (through at least 131) invalidates a command buffer whose draw leaves a
+ * declared group unbound, empty or not, and the CI runner runs that build.
+ */
+const SKIN_GAP_BINDING_GROUP = SKIN_BINDING_GROUP - 1;
+
 interface ShadowInstanceRange {
   /** First instance relative to this batch's dynamic storage-buffer offset. */
   firstInstance: number;
@@ -711,6 +719,7 @@ export class Renderer implements RenderFrameContext {
   private skinBindGroup: GPUBindGroup | null = null;
   private skinBindGroupBuffer: GPUBuffer | null = null;
   private skinBindGroupWindow = 0;
+  private skinGapBindGroup: GPUBindGroup | null = null;
   /** Scene whose joints the palette lookup reads; set for the duration of `collectBatches`. */
   private skinWorld: import("../scene/world.js").EntityWorld | null = null;
 
@@ -1497,7 +1506,7 @@ export class Renderer implements RenderFrameContext {
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
-      if (skinned) this.bindSkinning(pass, b);
+      if (skinned) this.bindSkinning(pass, b, true);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
         const range = b.shadowRanges[rangeIndex]!;
@@ -1541,7 +1550,7 @@ export class Renderer implements RenderFrameContext {
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-      if (skinned) this.bindSkinning(pass, b);
+      if (skinned) this.bindSkinning(pass, b, true);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         pass.drawIndexed(b.indexCount, b.count, b.indexStart);
@@ -1627,7 +1636,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-      if (batchSkinned) this.bindSkinning(pass, b);
+      if (batchSkinned) this.bindSkinning(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         if (records) {
@@ -3401,9 +3410,18 @@ export class Renderer implements RenderFrameContext {
    * Only ever called for a batch whose pipeline was fetched with `skinned: true`, because a
    * non-skinned pipeline layout has no group 3 and no second vertex slot.
    */
-  private bindSkinning(pass: GPURenderPassEncoder, b: Batch): void {
+  private bindSkinning(pass: GPURenderPassEncoder, b: Batch, gap: boolean): void {
+    // `gap` is the shadow and prepass passes: their layouts declare the empty group 2 (see
+    // `SKIN_GAP_BINDING_GROUP`), and Chromium refuses the draw unless something is bound there.
+    if (gap) pass.setBindGroup(SKIN_GAP_BINDING_GROUP, this.ensureSkinGapBindGroup());
     pass.setVertexBuffer(1, b.geometry.skinBuffer!);
     pass.setBindGroup(SKIN_BINDING_GROUP, this.ensureSkinBindGroup(), [b.skinOffset]);
+  }
+
+  /** The (empty) bind group for the skinned depth/prepass gap; a group with no entries, created once. */
+  private ensureSkinGapBindGroup(): GPUBindGroup {
+    this.skinGapBindGroup ??= this.device.device.createBindGroup({ label: "skin.gap.bindgroup", layout: this.pipelines.bindGroupLayouts.skinGap, entries: [] });
+    return this.skinGapBindGroup;
   }
 
   /**
@@ -3707,6 +3725,7 @@ export class Renderer implements RenderFrameContext {
     this.skinBindGroup = null;
     this.skinBindGroupBuffer = null;
     this.skinBindGroupWindow = 0;
+    this.skinGapBindGroup = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
     this.ssaoBlurGroups.clear();

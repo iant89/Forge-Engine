@@ -178,6 +178,13 @@ export class PipelineFactory {
     ssao: GPUBindGroupLayout;
     ssaoBlur: GPUBindGroupLayout;
     skin: GPUBindGroupLayout;
+    /**
+     * The empty placeholder the skinned shadow/prepass layouts declare at group 2 (their programs
+     * have no material group, and the palette has to stay at group 3 so it is one index everywhere).
+     * A draw must *set* a bind group for it — an empty one — because Chromium rejects a draw whose
+     * layout declares a group that was never bound; `Renderer.ensureSkinGapBindGroup` creates it.
+     */
+    skinGap: GPUBindGroupLayout;
   } {
     this.ensureLayouts();
     return {
@@ -193,6 +200,7 @@ export class PipelineFactory {
       ssao: this.ssaoBindGroupLayout!,
       ssaoBlur: this.ssaoBlurBindGroupLayout!,
       skin: this.skinBindGroupLayout!,
+      skinGap: this.skinPlaceholderLayout!,
     };
   }
 

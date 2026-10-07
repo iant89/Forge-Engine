@@ -8346,6 +8346,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/renderer.ts",
     "what": "Guard the mesh-matrix inverse used for the mesh-local palette: a singular world matrix (invert() returns false and leaves the matrix untouched) now falls back to identity instead of baking the mesh transform into the palette twice.",
     "why": "The palette must never silently double-apply a transform; identity is the defined answer for a matrix that has no inverse."
+  },
+  {
+    "id": "0667",
+    "date": "2026-10-07T08:10:00Z",
+    "type": "change",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/testing/mockGpu.ts",
+    "what": "beginDraw now reports a draw with no bind group set at an index the pipeline layout declares (empty layouts included), mirroring Chromium's \"No bind group set at group index N\"; setBindGroup log entries carry the group's own label; the header's validation list documents the rule.",
+    "why": "The CI runner's Chromium 131 invalidated the skinned shadow pass's command buffer over its empty placeholder group 2 while a newer Chromium accepted the frame — the mock now rejects it on the CPU gates too."
+  },
+  {
+    "id": "0668",
+    "date": "2026-10-07T08:10:00Z",
+    "type": "change",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Bind an empty gap bind group at group 2 for skinned shadow/prepass draws (SKIN_GAP_BINDING_GROUP, ensureSkinGapBindGroup, cleared on dispose); bindSkinning takes a `gap` flag so the colour pass keeps binding its material group there.",
+    "why": "Chromium requires a bind group for every group the pipeline layout declares — even the empty placeholder the skinned depth/prepass layouts interpose before the palette at group 3."
+  },
+  {
+    "id": "0669",
+    "date": "2026-10-07T08:10:00Z",
+    "type": "change",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/pipeline.ts",
+    "what": "Expose the empty skin placeholder layout as bindGroupLayouts.skinGap for the renderer's gap bind group.",
+    "why": "The renderer needs the layout to create the empty bind group the gap index requires."
+  },
+  {
+    "id": "0670",
+    "date": "2026-10-07T08:10:00Z",
+    "type": "change",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/renderingSkinning.test.ts",
+    "what": "Assert the skinned shadow and prepass draws bind the empty skin gap group at index 2 (at least two bindings, by group label), which the mock's new rule also enforces structurally.",
+    "why": "Pin the rule the CI browser gate learned the hard way, rather than relying on \"no validation errors\"."
+  },
+  {
+    "id": "0671",
+    "date": "2026-10-07T08:10:00Z",
+    "type": "change",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "checkSkinning asserts pipeline `failures` instead of an instantaneous `pipelinesPending === 0` sample (the scene keeps compiling variants, and the pose A/B is what proves the skinned draws happened) and logs the pending count.",
+    "why": "The full-gate run raced a legitimately in-flight compile and failed a check whose real subject — the skinned pixels — had already been produced."
   }
 ]
 ```
