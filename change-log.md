@@ -8445,6 +8445,114 @@ JSON array below; agents maintain it by hand until then.
       "tools/test-subsystems.mjs",
       "tools/wgsl-check.mjs"
     ]
+  },
+  {
+    "id": "0673",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/gpu/device.ts",
+    "what": "GraphicsDevice now tracks a fatal state: lost, or an uncaptured device error (the browser's uncapturederror event) has been reported. fatal/fatalReason expose the first fatal report; the lost handler records the driver's message alongside the reason enum.",
+    "why": "Real WebGPU never throws from createBuffer when an allocation fails: it reports a device error and returns a dead resource, so every later use reports its own error (the reported symptom: 'Buffer with population.instances label is invalid' in a population bind group). The first report already means the device cannot be driven safely; tracking it lets the engine halt instead of generating the cascade."
+  },
+  {
+    "id": "0674",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Renderer.deviceLost (the frame gate for renderScene) now also covers device.fatal, so a fatal device gets no further allocations, encodes or submissions.",
+    "why": "Cuts the error cascade at the source: after the first fatal report no new population buffers, bind groups or passes are created on the dead device."
+  },
+  {
+    "id": "0675",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/engine.ts",
+    "what": "Engine.step() halts rendering when the device is fatal (subsumes the old lost-only guard) and logs the first fatal reason once; stats() gains deviceFatal alongside deviceLost.",
+    "why": "The loop must stop driving a dead device (same reason as the renderer gate), and the HUD needs a stats flag to tell the user to reload."
+  },
+  {
+    "id": "0676",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "Demo HUD health line shows 'GPU FAILED - reload the page' when stats.deviceFatal is set (before the DEVICE LOST case still applies, after the plain error count).",
+    "why": "Makes the fatal state visible without devtools: frozen last frame + red first-error box + an explicit reload hint."
+  },
+  {
+    "id": "0677",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/testing/mockGpu.ts",
+    "what": "Two fixes: (1) uncapturederror listeners now receive the { error } event envelope a real GPUDevice dispatches (they got the bare error, so GraphicsDevice's listener read event.error and recorded 'GPUError: undefined'); (2) new reportUncapturedError() test hook reports an error through the same dispatch path without the strict-mode throw, modelling how the browser reports allocation failures (createBuffer never throws on OOM).",
+    "why": "(1) The mock diverged from real WebGPU event shape, so the engine's first-error pinning was untested against the shape the browser actually sends. (2) A test simulating the 'Buffer ... is invalid' failure needs the real reporting path without the strict throw."
+  },
+  {
+    "id": "0678",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/gpuDeviceFatal.test.ts",
+    "what": "New suite: GraphicsDevice.fatal flips on the first uncaptured device error and on loss (first reason kept, scoped errors excluded); a renderer frame after a fatal report allocates nothing, submits nothing and appends no further errors (the population LOD cascade, cut off); Engine.step halts and reports deviceFatal.",
+    "why": "Pins the handling of the 'Buffer with population.instances label is invalid' bug report: the dead resource is a symptom, the fatal device is the cause, and the engine must stop cleanly instead of spamming per-resource errors."
+  },
+  {
+    "id": "0679",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Claimed tests/gpuDeviceFatal.test.ts under the gpu subsystem.",
+    "why": "Every suite must be claimed exactly once or check:testmap drifts."
+  },
+  {
+    "id": "0680",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "npm test row updated to 965 tests in 65 files (new device-failure suite).",
+    "why": "Keep the gate table truthful when the suite count moves."
+  },
+  {
+    "id": "0681",
+    "date": "2026-10-07T10:25:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Session entry: the 'Buffer with population.instances label is invalid' diagnosis (failed createBuffer returns a dead resource; the device error cascade misdirects) and the fatal-state halt fix.",
+    "why": "Repo convention: record hard-won diagnostics for future sessions."
   }
 ]
 ```

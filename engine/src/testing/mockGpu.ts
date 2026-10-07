@@ -2215,7 +2215,8 @@ export class MockGPUDevice {
   lastShaderSource = "";
   shaderModulesCreated = 0;
   private errorStack = new ErrorStack();
-  private errorListeners: ((e: GPUError) => void)[] = [];
+  /** `uncapturederror` listeners; the real device passes a `{ error }` event, so they do too. */
+  private errorListeners: ((e: { error: GPUError }) => void)[] = [];
   private textureBytes = 0;
   private resolveLost!: (v: LostInfo) => void;
   readonly throwOnError: boolean;
@@ -2324,25 +2325,40 @@ export class MockGPUDevice {
     return this.errorStack.pop();
   }
 
+  /**
+   * Real `GPUDevice` dispatches a `GPUDeviceErrorEvent` (an object with an `.error` member), not
+   * the bare error — `GraphicsDevice`'s listener reads `event.error`, so the mock must agree.
+   */
   addEventListener(type: string, listener: (e: unknown) => void): void {
-    if (type === "uncapturederror") this.errorListeners.push(listener as (e: GPUError) => void);
+    if (type === "uncapturederror") this.errorListeners.push(listener as (e: { error: GPUError }) => void);
   }
 
   removeEventListener(type: string, listener: (e: unknown) => void): void {
     if (type === "uncapturederror") {
-      const i = this.errorListeners.indexOf(listener as (e: GPUError) => void);
+      const i = this.errorListeners.indexOf(listener as (e: { error: GPUError }) => void);
       if (i >= 0) this.errorListeners.splice(i, 1);
     }
   }
 
-  reportError(message: string): void {
+  /**
+   * Report a device error the way a *real* WebGPU device reports one — as an `uncapturederror`
+   * event — without the strict-mode throw. This is how allocation failures surface in the
+   * browser: `createBuffer`/`createTexture` never throw when the GPU cannot allocate; they return
+   * a dead resource and the device reports the failure, so a test that simulates that failure
+   * cannot use `reportError` on a strict device.
+   */
+  reportUncapturedError(message: string): void {
     this.errors.push(message);
     const error: MockError = { message, kind: "validation" };
     this.errorStack.report(error);
     if (this.errorStack.unhandled.length > 0) {
-      for (const l of this.errorListeners) l(error);
+      for (const l of this.errorListeners) l({ error });
       this.onuncapturederror?.({ error });
     }
+  }
+
+  reportError(message: string): void {
+    this.reportUncapturedError(message);
     if (this.throwOnError) throw new Error(`WebGPU validation error: ${message}`);
   }
 

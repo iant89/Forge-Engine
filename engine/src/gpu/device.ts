@@ -179,6 +179,8 @@ export class GraphicsDevice {
       ? lostPromise.then((info) => {
           this._lost = true;
           this._lostReason = info?.reason ?? "unknown";
+          // `reason` is an enum; the driver's `message` is the part a human can act on.
+          this.markFatal(info?.message ? `device lost (${this._lostReason}: ${info.message})` : `device lost (${this._lostReason})`);
           for (const fn of this.lostHandlers) {
             try {
               fn(this._lostReason);
@@ -196,7 +198,12 @@ export class GraphicsDevice {
         target.addEventListener("uncapturederror", (event) => {
           const error = (event as { error?: { message?: string; constructor?: { name?: string } } }).error;
           const kind = error?.constructor?.name ?? "GPUError";
-          this.recordError("uncaptured error", `${kind}: ${error?.message ?? String(error)}`);
+          const message = `${kind}: ${error?.message ?? String(error)}`;
+          this.recordError("uncaptured error", message);
+          // An error the engine did not scope is a device-level failure (allocation failures,
+          // invalidation cascades): mark the device fatal so the engine halts instead of letting
+          // the dead device produce one more error per subsequent operation.
+          this.markFatal(message);
         });
       } catch {
         /* a device that cannot register listeners still works; it just reports less */
@@ -326,6 +333,8 @@ export class GraphicsDevice {
 
   private _lost = false;
   private _lostReason = "";
+  private _fatal = false;
+  private _fatalReason: string | null = null;
   private readonly lostPromise: Promise<void>;
   private swapchain: SwapchainInfo = { width: 1, height: 1, devicePixelRatio: 1, format: "bgra8unorm" };
   private samplerCache = new Map<string, GPUSampler>();
@@ -359,6 +368,36 @@ export class GraphicsDevice {
 
   get lostReason(): string {
     return this._lostReason;
+  }
+
+  /**
+   * Whether the device has failed in a way the engine cannot recover from: it is lost, or it has
+   * reported an uncaptured device error.
+   *
+   * A real WebGPU device never throws from `createBuffer`/`createTexture` when an *allocation*
+   * fails: it reports a device error and returns a resource in an invalid state, so every later
+   * use of it (a `createBindGroup`, a `setBindGroup`, a dispatch) reports its own error — a
+   * cascade of messages that names the most recent victim (e.g. `Buffer with 'population.instances'
+   * label is invalid` in a population bind group) rather than the cause (the device ran out of
+   * resources). On such a device every further allocation is likely to fail the same way, so the
+   * engine treats the first report as fatal and stops rendering instead of generating the cascade.
+   * Errors the engine deliberately captures in error scopes are *not* uncaptured and never set
+   * this flag.
+   */
+  get fatal(): boolean {
+    return this._lost || this._fatal;
+  }
+
+  /** The first fatal report (the lost reason or the first uncaptured error), or `null`. */
+  get fatalReason(): string | null {
+    if (this._fatal) return this._fatalReason;
+    return this._lost ? (this._lostReason || "lost") : null;
+  }
+
+  private markFatal(reason: string): void {
+    if (this._fatal) return;
+    this._fatal = true;
+    this._fatalReason = reason;
   }
 
   /** Resolves when the device is lost (never, for a healthy device). */

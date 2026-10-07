@@ -97,6 +97,12 @@ export interface EngineStats {
   /** Phase 15.3: the frame-driven asset streamer (queue depth, in-flight, budget). */
   streaming: Readonly<StreamingStats>;
   deviceLost: boolean;
+  /**
+   * The device is unrecoverable: lost, or it reported an uncaptured device error (a failed
+   * allocation and its error cascade). When this is `true`, `step()` no longer renders — the HUD
+   * should tell the user to reload.
+   */
+  deviceFatal: boolean;
   gpuErrors: number;
   /**
    * The most recent failure the engine knows about — a GPU validation/compile error or a render
@@ -142,6 +148,8 @@ export class Engine {
   private lastSimMs = 0;
   private lastRenderMs = 0;
   private lastRenderError: string | null = null;
+  /** One-shot: log the fatal device failure once, not on every halted frame. */
+  private gpuFatalLogged = false;
   private fpsEwma = 0;
   private presentationMode: RenderMode = "always";
   private readonly frameContext: EngineFrameContext;
@@ -349,7 +357,17 @@ export class Engine {
     this.frameCounter++;
     const dt = this.clock.deltaTime;
 
-    if (this.gpu.lost) {
+    // A fatal device (lost, or one that reported an uncaptured device error — on real WebGPU a
+    // failed allocation returns a dead resource and the device is heading for loss) must not be
+    // driven any further: every other operation would just append its own error to the cascade
+    // that named the first victim. `gpu.fatal` subsumes `gpu.lost`.
+    if (this.gpu.fatal) {
+      if (!this.gpuFatalLogged) {
+        this.gpuFatalLogged = true;
+        this.logger.error(
+          `gpu device failed (${this.gpu.fatalReason ?? "unknown reason"}) — rendering stopped; reload the page to recover`,
+        );
+      }
       this.profiler.endFrame();
       return tick;
     }
@@ -511,6 +529,7 @@ export class Engine {
       resources: { entries: this.resources.size, bytes: this.resources.bytes, pending: this.resources.stats().pending },
       streaming: this.streamer.stats(),
       deviceLost: this.gpu.lost,
+      deviceFatal: this.gpu.fatal,
       gpuErrors: this.gpu.totalErrorCount,
       lastError: this.gpu.lastError ?? this.lastRenderError,
       renderPasses: this.renderer.passNames,

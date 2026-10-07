@@ -831,8 +831,13 @@ export class Renderer implements RenderFrameContext {
     });
   }
 
+  /**
+   * The frame gate: the renderer must not touch the device once it is lost *or fatal* (it has
+   * reported an uncaptured device error — e.g. a failed allocation whose dead resource would make
+   * every further create/validate call report the same thing). See `GraphicsDevice.fatal`.
+   */
   get deviceLost(): boolean {
-    return this.lost || this.device.lost;
+    return this.lost || this.device.lost || this.device.fatal;
   }
 
   get width(): number {

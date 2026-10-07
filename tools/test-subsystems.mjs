@@ -64,7 +64,7 @@ export const subsystems = {
   gpu: {
     title: "GPU device, buffer/struct writers, formats, shader cache",
     src: ["engine/src/gpu"],
-    tests: ["tests/gpuMemory.test.ts"],
+    tests: ["tests/gpuMemory.test.ts", "tests/gpuDeviceFatal.test.ts"],
     deps: ["core", "math"],
   },
   resources: {

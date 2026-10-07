@@ -1542,3 +1542,36 @@ will stop".
   material group). `MockGPUDevice.beginDraw` now enforces the same rule, so the CPU suites catch it.
 - **Next: mechanical animation (16.6)** — rover wheels, suspension, steering, robotic arm: drive the
   joints from the physics/vehicle layer with the animation system, which now has a GPU consumer.
+
+## 2026-10-07 — "Buffer with 'population.instances' label is invalid" is a dead device, not a population bug
+
+- **Symptom:** in a real browser (wgpu WebGPU), `createBindGroup` for `population.lod.group`
+  reports `Buffer with 'population.instances' label is invalid`. Looks like a population LOD bug;
+  is not.
+- **Root cause (verified in gfx-rs/wgpu source, `wgpu-core/src/device/resource.rs` +
+  `resource.rs`):** the browser's `createBuffer` *never throws* when an allocation fails
+  (VRAM exhaustion / resource overcommit). `Device::create_buffer` reports the error and returns
+  `Buffer::invalid(...)` — a resource in the `Invalid` state. Every later use reports its own
+  error: `writeBuffer`, the draw group's `createBindGroup`, the LOD group's `createBindGroup`
+  (the reported message). `InvalidResourceError` displays as `{type} with '{label}' label is
+  invalid`; a *destroyed* buffer would say "has been destroyed", and a lost *device* would say
+  "Parent device is lost" (the device is checked first in `create_bind_group_inner`). So
+  "is invalid" = the buffer's own creation failed. For a ~3 KB `STORAGE|COPY_DST` buffer that
+  only happens on a device that is already out of resources.
+- **The engine's gap:** it had no way to know the returned buffer was dead (the spec API exposes
+  no buffer validity), so it kept driving the dead device — one more error per operation, forever.
+- **Fix (this session):** `GraphicsDevice.fatal`/`fatalReason` (lost, or first *uncaptured*
+  device error; scoped/captured errors excluded), `Renderer.deviceLost` frame gate covers fatal,
+  `Engine.step()` halts + logs once, `stats().deviceFatal`, demo HUD "GPU FAILED — reload".
+  Pinned by `tests/gpuDeviceFatal.test.ts` (registered under the `gpu` subsystem).
+- **Second bug found along the way:** the mock dispatched bare errors to `uncapturederror`
+  listeners; a real `GPUDevice` dispatches a `{ error }` event. `GraphicsDevice`'s listener read
+  `event.error` → `undefined`, so `stats().lastError` would have recorded "GPUError: undefined".
+  Fixed in `mockGpu.ts` (event envelope) + new `mock.reportUncapturedError()` hook (strict-mode
+  `reportError` throws, which is not how the browser reports allocation failures).
+- **Lesson:** when a user pastes "Buffer/Texture with 'X' label is invalid" from a browser, the
+  named resource is the *victim*. Read wgpu's error taxonomy: "is invalid" = creation of that
+  resource failed (allocation failure → device heading for loss); "has been destroyed" = engine
+  used a resource after `destroy()`; "Parent device is lost" = everything is dead. The first
+  device error in the console (often scrolled past) is the real cause — now the engine's
+  `lastError`/HUD pin it and the frame loop stops instead of re-reporting.
