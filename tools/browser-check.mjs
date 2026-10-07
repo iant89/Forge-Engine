@@ -46,7 +46,7 @@
  * of the *same* uploaded vertices: only the palette differs, so a frame that does not move is a
  * palette that never reached the vertex stage. `checkSkinning` runs both ways: on the default gate's
  * scene walk (`loadScene("skinning")`, right after the particles) and as the focused `--skinning`
- * mode, which skips the other scene sections.
+ * mode, which switches to the arm through the dropdown and skips the other scene sections.
  *
  * Parking-brake addition: on the vehicle playground `P` must latch the parking brake (state 1, and
  * the pad's P/PARK lamp lit), full throttle with it latched must not move the car — the wheels are
@@ -142,7 +142,8 @@ const MARS_WORKERS_ONLY = process.argv.includes("--mars-workers");
 const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
 const SKINNING_ONLY = process.argv.includes("--skinning");
-const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : "check:browser";
+const RESCUE_ONLY = process.argv.includes("--rescue");
+const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : RESCUE_ONLY ? "check:browser:rescue" : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const workerSmokeOnly = process.argv.includes("--workers-only");
@@ -245,7 +246,7 @@ try {
 
 const problems = [];
 const context = await browser.newContext({
-  viewport: MARS_WORKERS_ONLY || TERRAIN_LAYERS_ONLY ? { width: 900, height: 520 } : { width: 1280, height: 720 },
+  viewport: RESCUE_ONLY ? { width: 800, height: 600 } : MARS_WORKERS_ONLY || TERRAIN_LAYERS_ONLY ? { width: 900, height: 520 } : { width: 1280, height: 720 },
   deviceScaleFactor: 1,
 });
 const page = await context.newPage();
@@ -549,6 +550,57 @@ async function checkSkinning() {
   // Coiled pose left on screen for inspection, like the other focused modes.
   await page.screenshot({ path: "tools/.browser-check-skinning.png", timeout: 60000 });
   return { ...first.skinning, differing: diff.differing, pixels: diff.pixels, maxDiff: diff.max };
+}
+
+/** Focused Alpine rescue smoke: selector wiring, dynamic physics, cargo mission, storm, and drive. */
+async function checkAlpineRescue() {
+  await waitPresentedFrames(2);
+  await page.selectOption("#scene-select", "alpine-rescue", { force: true });
+  await page.waitForFunction(() => window.__forge.sceneName === "alpine-rescue", null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const state = window.__forge.alpineRescueState?.();
+    return state?.physicsSteps >= 3 && state?.physicsBodies >= 20;
+  }, null, { polling: 250, timeout: 90000 });
+  const initial = await page.evaluate(() => ({ state: window.__forge.alpineRescueState(), stats: window.__forge.stats() }));
+  if (initial.state.stage !== "load-kit") throw new Error(`rescue started at ${initial.state.stage}, expected load-kit`);
+  if (initial.state.dynamicProps < 8) throw new Error(`only ${initial.state.dynamicProps} dynamic props were registered`);
+  if (initial.state.objectiveDistance > 11) throw new Error(`starting cargo is out of interaction range (${initial.state.objectiveDistance.toFixed(1)} m)`);
+  if (initial.stats.gpuErrors !== 0 || initial.stats.lastError) throw new Error(`rescue scene GPU error: ${initial.stats.lastError}`);
+
+  const pickedUp = await page.evaluate(() => ({ ok: window.__forge.interactRescue(), state: window.__forge.alpineRescueState() }));
+  if (!pickedUp.ok || pickedUp.state.stage !== "relay-1" || !pickedUp.state.cargoLoaded) {
+    throw new Error(`medical kit pickup failed: ${JSON.stringify(pickedUp.state)}`);
+  }
+  await page.locator("#rescue-weather").click();
+  await page.waitForFunction(() => {
+    const state = window.__forge.alpineRescueState?.();
+    return state?.weatherTarget === "storm" && state?.weatherIntensity >= 0.99;
+  }, null, { polling: 100, timeout: 15000 });
+  await page.waitForFunction(() => window.__forge.alpineRescueState()?.snowAlive > 0, null, { polling: 100, timeout: 15000 });
+
+  await page.locator("#rescue-headlights").click();
+  const lights = await page.evaluate(() => window.__forge.alpineRescueState());
+  if (lights.headlightsOn) throw new Error("rescue headlight action did not toggle the lamps off");
+  const beforeDrive = lights.positionZ;
+  await page.keyboard.down("KeyW");
+  try {
+    await page.waitForFunction((z) => window.__forge.alpineRescueState()?.positionZ > z + 0.45, beforeDrive, { polling: 100, timeout: 45000 });
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  const driven = await page.evaluate(() => ({ state: window.__forge.alpineRescueState(), stats: window.__forge.stats() }));
+  if (!(driven.state.speedKph > 0)) throw new Error("rescue vehicle has no speed after W input");
+  await page.locator("#rescue-park").click();
+  const parked = await page.evaluate(() => window.__forge.alpineRescueState());
+  if (!parked.parked) throw new Error("rescue parking-brake action did not latch");
+  if (driven.stats.gpuErrors !== 0 || driven.stats.lastError) throw new Error(`rescue drive GPU error: ${driven.stats.lastError}`);
+  await page.screenshot({ path: "tools/.browser-check-alpine-rescue.png", timeout: 60000 });
+  console.log(
+    `alpine rescue: ${initial.state.physicsBodies} physics bodies / ${initial.state.physicsSteps} steps, ` +
+      `cargo=${pickedUp.state.cargoLoaded}, storm=${lights.weatherIntensity.toFixed(2)}, ` +
+      `snow=${driven.state.snowAlive}, drive=${(driven.state.positionZ - beforeDrive).toFixed(2)} m`,
+  );
+  return driven.state;
 }
 
 /** The default gate still runs every renderer/scene/vehicle/articulation check. */
@@ -2208,7 +2260,7 @@ let exitCode = 0;
 try {
   // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
   // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
-  await page.goto(`${URL}?scene=${SKINNING_ONLY ? "skinning" : MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
+  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
   let boot;
   try {
     await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
@@ -2246,6 +2298,11 @@ try {
     console.log("Focused layered-material pixel/worker/upload checks only; the all-scene drive/articulation suite was not run.");
   } else if (SKINNING_ONLY) {
     await waitPresentedFrames(1);
+    // Exercise the same selector path users take from one demo to another; the scene's direct URL
+    // route is covered by the resolver tests, while this catches a dropdown option that is accepted
+    // by the URL but omitted from the change handler.
+    await page.selectOption("#scene-select", "skinning", { force: true });
+    await page.waitForFunction(() => window.__forge.sceneName === "skinning", null, { timeout: 10000 });
     const skinning = await checkSkinning();
     console.log(
       `skinned arm: joints=${skinning.joints} skinnedBatches=${skinning.skinnedBatches} ` +
@@ -2253,6 +2310,9 @@ try {
         `poses differ in ${skinning.differing}/${skinning.pixels} px (max ${skinning.maxDiff}/255)`,
     );
     console.log("Focused GPU-skinning checks only; the all-scene renderer, drive and articulation suite was not run.");
+  } else if (RESCUE_ONLY) {
+    await checkAlpineRescue();
+    console.log("Focused Alpine rescue mission/physics/weather checks only; the full renderer and Mars suite was not run.");
   } else if (MARS_WORKERS_ONLY) {
     await verifyMarsWorkers(page);
     // Pending pipelines deliberately skip draws. Wait for the normal async startup to finish

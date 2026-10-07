@@ -9,6 +9,7 @@ npm run test:affected  # run only the suites your change can reach + smoke floor
 npm run check:browser  # full real-WebGPU gate (headless Chromium + SwiftShader)
 npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
 npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B
+npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
 npm run demo           # Vite dev server for examples/
 ```
 
@@ -31,7 +32,7 @@ arm — once out, jog its swing, shoulder, elbow and turret with `F/H`, `T/G`, `
 two thumbsticks that appear above the drive pad on touch layouts. About five seconds after the
 model lands, the high-gain antenna unfurls by itself and tracks Earth for the life of the scene —
 slew-limited gimbals compensate every rover move, and there is no stow control. The
-scene selector still offers all nine demos: **PBR Showcase** (Phase 2: instanced material grid,
+scene selector also offers these demos: **PBR Showcase** (Phase 2: instanced material grid,
 emissive bloom source, three shadow cascades, HDR / bloom / shadow / prepass / SSAO / cascade-tint
 toggles in the panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Martian sky and dust haze, with Phase 14's
 deterministic rock and boulder populations streaming in per chunk — thousands of instanced rocks, zero entities per
@@ -39,7 +40,15 @@ rock), **Realistic
 (Alpine)** (Phase 4), **Mars Generator (P10.9)** (the ported planet as a *site inspector*: free orbit camera, no rover, and the site from the URL — `?marssite=vallesRift`, or `?marssite=0,0` for the crater field where the four material layers actually mix), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
 handbrake, `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`
-scrub the clock, `T` pauses it, `M` swaps Earth for Mars), and **Weather / Water** (Phase 8b: storm
-presets with rain, lightning, a Gerstner lake and an underwater dive). `?scene=pbr`, `?scene=terrain`,
-`?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`, `?scene=sky`, `?scene=weather` and `?scene=mars-showcase` open
-scenes directly (`?scene=mars` is an alias for the Mars-flavoured Terrain demo, `?scene=mars-port` for the generator inspector).
+scrub the clock, `T` pauses it, `M` swaps Earth for Mars), **Weather / Water** (Phase 8b: storm
+presets with rain, lightning, a Gerstner lake and an underwater dive), **Rover Course** (Perseverance
+on an Earth-gravity obstacle track with cones, gates and knockable props), **Skinned Arm (P16.5)**
+(a standalone GPU-skinning demo: four linked box segments bend around four joints in a travelling-wave
+pose; it is not another Mars/rover scene), and **Alpine Search & Rescue: Whiteout Run** (a drivable
+mountain rescue 4×4 mission: load medical supplies, visit three distress beacons, deliver the kit,
+and return as snowfall and wind build; dynamic crates and roadside rocks use the shared terrain/vehicle
+physics world). Direct links include `?scene=pbr`, `?scene=cubes`,
+`?scene=terrain`, `?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`,
+`?scene=sky`, `?scene=weather`, `?scene=mars-showcase`, `?scene=rover-course`, `?scene=skinning`,
+and `?scene=alpine-rescue` (`?scene=mars` is an alias for the Mars-flavoured Terrain demo,
+`?scene=mars-port` for the generator inspector).

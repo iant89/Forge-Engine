@@ -56,12 +56,14 @@ import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScen
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
-import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
+import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
+import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
+const rescueHud = document.getElementById("rescue-hud") as HTMLDivElement | null;
 const errorBox = document.getElementById("error") as HTMLDivElement;
 
 const sceneSelect = document.getElementById("scene-select") as HTMLSelectElement | null;
@@ -131,14 +133,12 @@ async function main(): Promise<void> {
     controls = null;
 
     activeSceneName = name;
-    // The sky and weather buttons are the interface for their scenes on every device, shown by CSS
-    // on `body.scene-sky` / `body.scene-weather`; the vehicle pad stays touch-only on
-    // `body.scene-vehicle` (shared with the Mars showcase's rover controls). Each module binds the
-    // same paths as the keys, whichever is visible.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course");
+    // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
+    document.body.classList.toggle("scene-rescue", name === "alpine-rescue");
     if (sceneSelect && sceneSelect.value !== name) sceneSelect.value = name;
 
     // The loading screen belongs to the Mars showcase (model fetch + terrain warm-up); every
@@ -178,6 +178,8 @@ async function main(): Promise<void> {
       currentHandle = buildRoverCourseScene(engine);
     } else if (name === "skinning") {
       currentHandle = buildSkinningScene(engine);
+    } else if (name === "alpine-rescue") {
+      currentHandle = buildAlpineRescueScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -286,21 +288,7 @@ async function main(): Promise<void> {
 
   sceneSelect?.addEventListener("change", () => {
     const next = sceneSelect.value;
-    if (
-      next === "pbr" ||
-      next === "cubes" ||
-      next === "terrain" ||
-      next === "realistic" ||
-      next === "mars-generator" ||
-      next === "vehicle" ||
-      next === "particles" ||
-      next === "sky" ||
-      next === "weather" ||
-      next === "mars-showcase" ||
-      next === "rover-course"
-    ) {
-      loadScene(next);
-    }
+    if (isDemoSceneName(next)) loadScene(next);
   });
 
   function setToneMapping(mode: ToneMapping): void {
@@ -555,7 +543,11 @@ async function main(): Promise<void> {
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
     const extra = currentHandle?.overlay?.();
-    if (extra) hud.textContent += `\n${extra}`;
+    if (activeSceneName === "alpine-rescue") {
+      if (rescueHud) rescueHud.textContent = extra ?? "";
+    } else if (extra) {
+      hud.textContent += `\n${extra}`;
+    }
 
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
@@ -625,8 +617,16 @@ async function main(): Promise<void> {
     renderPasses: () => engine.stats().renderPasses,
     /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */
     camera: () => controls?.state() ?? null,
-    /** Chassis speed/rpm while the vehicle playground is loaded; null otherwise. */
+    /** Chassis speed/rpm while a vehicle scene is loaded; null otherwise. */
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
+    /** Mission, cargo, relay, weather and vehicle snapshot while Alpine Rescue is loaded. */
+    alpineRescueState: () => (currentHandle as AlpineRescueSceneHandle | null)?.snapshot?.() ?? null,
+    /** Try the current rescue interaction; returns false when the objective is out of reach. */
+    interactRescue: () => (currentHandle as AlpineRescueSceneHandle | null)?.interact?.() ?? false,
+    /** Set the Alpine Rescue weather target for a deterministic browser smoke check. */
+    setRescueWeather: (preset: "clear" | "overcast" | "rain" | "storm") => {
+      (currentHandle as AlpineRescueSceneHandle | null)?.setWeatherTarget?.(preset);
+    },
     /** Fountain emitted/capacity/ready while the particle scene is loaded; null otherwise (no fake alive). */
     particleState: () => currentHandle?.particleState?.() ?? null,
     /** Toggle the trail-ribbon draw (Phase 12.4/12.7) in the loaded particle scene. */
