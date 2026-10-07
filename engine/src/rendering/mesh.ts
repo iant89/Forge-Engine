@@ -24,15 +24,31 @@ export interface Submesh {
 export interface SkinBinding {
   /** Joint entities, in the order the GPU sees them (bone index = array index). */
   joints: EntityId[];
-  /** 16 floats per joint, column-major inverse bind matrices. */
+  /**
+   * 16 floats per joint, column-major inverse bind matrices, in the *mesh's bind-pose local space*
+   * (see `rendering/skinning.ts`): the skinned vertex stage places the result with the draw's own
+   * model matrix, so a rig that hangs off the mesh's entity needs no extra bookkeeping. An importer
+   * that only has a joint's bind-pose world matrix must fold the mesh node's bind transform in.
+   */
   inverseBindMatrices: Float32Array;
   /** Skeleton root; when null the joints are direct children of the mesh's entity. */
   root: EntityId | null;
+  /** Authoring names, resolved into `joints` against the scene by `bindJoints`. */
+  jointNames?: string[];
+}
+
+/** A skin as authored: the joint names replace the entities until the scene resolves them. */
+export interface SkinSource extends Omit<SkinBinding, "joints" | "root"> {
+  jointNames?: string[];
+  /** `JOINTS_0`: `SKIN_JOINTS_PER_VERTEX` joint indices per vertex, indexing `jointNames`. */
+  joints?: Uint16Array | Uint32Array;
+  /** `WEIGHTS_0`: `SKIN_JOINTS_PER_VERTEX` blend weights per vertex. */
+  weights?: Float32Array;
 }
 
 export interface MeshSource extends GeometrySource {
   submeshes?: Submesh[];
-  skin?: Omit<SkinBinding, "joints" | "root"> & { jointNames?: string[] };
+  skin?: SkinSource;
 }
 
 export class Mesh {
@@ -48,7 +64,13 @@ export class Mesh {
   }
 
   static from(device: GraphicsDevice, src: MeshSource): Mesh {
-    const geometry = Geometry.create(device, src);
+    // The skin's per-vertex attributes are a geometry stream (a second vertex buffer slot), while
+    // the joint list and the inverse bind matrices belong to the mesh — glTF splits them the same
+    // way (`JOINTS_0`/`WEIGHTS_0` on the primitive, the joints and the IBMs on the skin).
+    const skinning = src.skin?.joints && src.skin.weights
+      ? { joints: src.skin.joints, weights: src.skin.weights }
+      : null;
+    const geometry = Geometry.create(device, skinning ? { ...src, skinning } : src);
     const count = geometry.indexCount > 0 ? geometry.indexCount : geometry.vertexCount;
     const submeshes = src.submeshes && src.submeshes.length > 0 ? src.submeshes : [{ start: 0, count, materialIndex: 0 }];
     for (const sm of submeshes) {
@@ -62,8 +84,8 @@ export class Mesh {
         joints: [],
         inverseBindMatrices: src.skin.inverseBindMatrices,
         root: null,
+        jointNames: src.skin.jointNames,
       };
-      geometry.skinned = true;
     }
     return mesh;
   }
@@ -83,7 +105,7 @@ export class Mesh {
   /** Resolve joint names against a scene after loading (the asset pipeline defers this). */
   bindJoints(resolve: (name: string) => EntityId | null, root: EntityId | null): boolean {
     if (!this.skin) return false;
-    const names = (this.skin as { jointNames?: string[] }).jointNames;
+    const names = this.skin.jointNames;
     if (!names) return this.skin.joints.length > 0;
     const joints: EntityId[] = [];
     for (const n of names) {

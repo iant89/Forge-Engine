@@ -39,6 +39,15 @@
  * state, and the two can only disagree if the buttons were wired to something else) — and it must
  * still be shown when the window goes back to a desktop width.
  *
+ * Phase 16.5 addition: the demo's skinned arm is the only place a real adapter ever compiles the
+ * skinned modules, and the only place a palette can move a pixel. The check asserts the arm's batch
+ * went through the skinned pipeline with four joints and no fallback, that no pipeline is pending (a
+ * skinned module the device refused to compile skips its draw), and then A/Bs two deterministic poses
+ * of the *same* uploaded vertices: only the palette differs, so a frame that does not move is a
+ * palette that never reached the vertex stage. `checkSkinning` runs both ways: on the default gate's
+ * scene walk (`loadScene("skinning")`, right after the particles) and as the focused `--skinning`
+ * mode, which skips the other scene sections.
+ *
  * Parking-brake addition: on the vehicle playground `P` must latch the parking brake (state 1, and
  * the pad's P/PARK lamp lit), full throttle with it latched must not move the car — the wheels are
  * locked, so a parked car whose visual wheels used to keep turning stays put — and a second press
@@ -132,7 +141,8 @@ import { installMarsWorkerProbe, verifyMarsWorkers } from "./browser-mars-worker
 const MARS_WORKERS_ONLY = process.argv.includes("--mars-workers");
 const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
-const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : "check:browser";
+const SKINNING_ONLY = process.argv.includes("--skinning");
+const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const workerSmokeOnly = process.argv.includes("--workers-only");
@@ -473,6 +483,68 @@ async function checkShowcaseLayers() {
   await waitPresentedFrames(2);
   const after = await page.evaluate(() => ({ state: window.__forge.marsState(), stats: window.__forge.stats() }));
   if (after.state.terrainMaterialMode !== "layered" || after.stats.gpuErrors || after.stats.lastError) throw new Error(`terrain layers failed to restore: ${JSON.stringify(after)}`);
+}
+
+/**
+ * Phase 16.5, focused: the demo's GPU-skinned arm on a real adapter. The mock suites prove the
+ * palette arithmetic and that the right bind group is bound; only a device can prove the skinned
+ * modules *compile* — a vertex location the pipeline's buffer layout does not provide, or a storage
+ * binding the layout does not declare, is a shader-creation failure no other suite can reach — and
+ * only pixels can prove the palette deformed the vertices. Two deterministic poses of the same
+ * uploaded mesh isolate the second from everything else the frame draws.
+ */
+async function checkSkinning() {
+  await page.waitForFunction(() => {
+    const state = window.__forge.skinningState?.();
+    return state !== null && state !== undefined && state.skinnedBatches > 0;
+  }, null, { polling: 250, timeout: 60000 });
+  // Async pipeline compilation: the skinned modules are created on first use, and a batch whose
+  // pipeline is still pending is skipped rather than drawn (the renderer never blocks a frame).
+  await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+  await waitPresentedFrames(2);
+  const first = await page.evaluate(() => ({
+    skinning: window.__forge.skinningState(),
+    stats: window.__forge.stats(),
+    pipelines: window.__forge.engine.renderer.pipelines.stats(),
+  }));
+  if (first.skinning.joints !== 4) throw new Error(`the arm has ${first.skinning.joints} joints, expected 4`);
+  if (first.skinning.skinnedBatches !== 1) throw new Error(`the arm did not batch as one skinned draw (${first.skinning.skinnedBatches})`);
+  if (first.skinning.skinJoints !== 4) throw new Error(`the frame uploaded ${first.skinning.skinJoints} joint matrices, expected 4`);
+  if (first.skinning.skinFallbacks !== 0) throw new Error(`the arm fell back to the unskinned path (${first.skinning.skinFallbacks})`);
+  if (first.pipelines.failures !== 0 || first.pipelines.pipelinesPending !== 0) {
+    throw new Error(`skinned pipelines did not compile: ${JSON.stringify(first.pipelines)}`);
+  }
+  if (first.stats.gpuErrors !== 0 || first.stats.lastError) {
+    throw new Error(`GPU error on the skinned arm: ${first.stats.lastError}`);
+  }
+  console.log(
+    `skinned pipelines: ${first.pipelines.pipelines} created (${first.pipelines.creates} creates, ${first.pipelines.cacheHits} hits)`,
+  );
+
+  // Freeze the idle wave and A/B two of its poses. Both frames upload the same geometry and run the
+  // same pipelines, so any pixel difference is the palette: the mock suite can see the bind group,
+  // but only a device turns the matrices into moved vertices.
+  await page.evaluate(() => window.__forge.setAnimating(false));
+  await page.evaluate(() => window.__forge.setSkinPose(0));
+  await waitPresentedFrames(2);
+  await keepLuma("skin-pose-a");
+  await page.evaluate(() => window.__forge.setSkinPose(1.1));
+  await waitPresentedFrames(2);
+  await keepLuma("skin-pose-b");
+  const diff = await compareRgb("skin-pose-a", "skin-pose-b");
+  const cover = await samplePixels();
+  console.log(`skinned poses: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max} of 255), frame mean ${cover.mean.toFixed(1)}, ${cover.distinct} colours`);
+  if (!(diff.differing >= 2000)) {
+    throw new Error(`the two arm poses differ in only ${diff.differing} pixels; the palette is not deforming the mesh`);
+  }
+  if (!(diff.max >= 20)) throw new Error(`the two arm poses differ by at most ${diff.max}/255 levels`);
+  if (!(cover.distinct >= 8)) throw new Error(`only ${cover.distinct} distinct colours; the arm scene is not rendering`);
+  if (!(cover.mean >= 6)) throw new Error(`frame is almost black (mean luminance ${cover.mean.toFixed(1)})`);
+  const after = await page.evaluate(() => window.__forge.stats());
+  if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU error after the pose A/B: ${after.lastError}`);
+  // Coiled pose left on screen for inspection, like the other focused modes.
+  await page.screenshot({ path: "tools/.browser-check-skinning.png", timeout: 60000 });
+  return { ...first.skinning, differing: diff.differing, pixels: diff.pixels, maxDiff: diff.max };
 }
 
 /** The default gate still runs every renderer/scene/vehicle/articulation check. */
@@ -1495,6 +1567,19 @@ async function checkAllScenes(backend) {
     throw new Error("the check's fountain saturates its canvas — the margins are meaningless until size/alpha come down");
   }
 
+  // Phase 16.5: the skinned arm in the full gate too — the focused `--skinning` mode is a fast path,
+  // not the only evidence. Same assertions, on the demo's own route through `loadScene`.
+  await page.evaluate(() => window.__forge.loadScene("skinning"));
+  // The pose A/B needs the scene's own `update` out of the way (it would overwrite `setSkinPose`), and
+  // it restores what it found: sections below decide for themselves whether the loop runs.
+  const skinningWasAnimating = await page.evaluate(() => window.__forge.animating());
+  const skinning = await checkSkinning();
+  await page.evaluate((animating) => window.__forge.setAnimating(animating), skinningWasAnimating);
+  console.log(
+    `skinned arm (full gate): joints=${skinning.joints} batches=${skinning.skinnedBatches} ` +
+      `poses differ in ${skinning.differing}/${skinning.pixels} px (max ${skinning.maxDiff})`,
+  );
+
   // Phase 8a: the sky pass compiles and runs on the real GPU, and the day/night cycle changes what
   // it draws. Noon must be brighter than midnight (sun disc + scattered light vs stars), the pass
   // must disappear when the sky is switched off, and the Mars preset must still render cleanly.
@@ -2119,7 +2204,7 @@ let exitCode = 0;
 try {
   // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
   // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
-  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
+  await page.goto(`${URL}?scene=${SKINNING_ONLY ? "skinning" : MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
   let boot;
   try {
     await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
@@ -2155,6 +2240,15 @@ try {
     await verifyMarsWorkers(page);
     await checkShowcaseLayers();
     console.log("Focused layered-material pixel/worker/upload checks only; the all-scene drive/articulation suite was not run.");
+  } else if (SKINNING_ONLY) {
+    await waitPresentedFrames(1);
+    const skinning = await checkSkinning();
+    console.log(
+      `skinned arm: joints=${skinning.joints} skinnedBatches=${skinning.skinnedBatches} ` +
+        `skinJoints=${skinning.skinJoints} fallbacks=${skinning.skinFallbacks} ` +
+        `poses differ in ${skinning.differing}/${skinning.pixels} px (max ${skinning.maxDiff}/255)`,
+    );
+    console.log("Focused GPU-skinning checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (MARS_WORKERS_ONLY) {
     await verifyMarsWorkers(page);
     // Pending pipelines deliberately skip draws. Wait for the normal async startup to finish

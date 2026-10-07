@@ -34,13 +34,14 @@
 
 import { ShaderStage } from "../gpu/constants.js";
 import { ObjectUniforms, InstanceStruct, MaterialUniforms, SplatUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
-import { VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
-import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, DEPTH_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS } from "./shaders/standard.js";
+import { VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
+import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
 import { SSAO_SHADER, SSAO_BINDINGS, type SsaoEntryPoint } from "./shaders/ssao.js";
+import { JOINT_PALETTE_BYTES } from "./skinning.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
 import { InternalError } from "../core/errors.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -62,6 +63,13 @@ export interface PipelineKeyOptions {
    * carries its `hiTriangles` boundary.
    */
   lod?: boolean;
+  /**
+   * Phase 16.5: the skinned entries (`vertexMainSkinned` / `vertexMainInstancedSkinned`), which read
+   * the second vertex buffer slot (`SKIN_VERTEX_LAYOUT`) and the joint palette at group 3. Applies
+   * to the standard/unlit/emissive, depth-prepass and shadow techniques; `skinnable()` below is the
+   * single decision every other branch (key, layout, vertex buffers, module) consults.
+   */
+  skinned?: boolean;
   sampleCount?: number;
   writeDepth?: boolean;
   /** Fragment entry point for techniques that expose several (`post`, `ssao`). */
@@ -88,6 +96,31 @@ export interface PipelineFactoryOptions {
    * is only used to keep deterministic command-recording tests concise.
    */
   asyncCompilation?: boolean;
+}
+
+/**
+ * Whether a pipeline key describes a skinned program. One decision, consulted by `keyOf`,
+ * `describe` and `moduleFor`, so a key can never name two different pipelines:
+ *
+ *  - `lod` batches never skin — the population-LOD geometry is a merged static buffer, and its
+ *    entries have no second vertex slot to read;
+ *  - only the techniques whose vertex stage the renderer can feed a skin buffer take the skinned
+ *    path: the standard module (colour/unlit/emissive), the depth prepass (same module) and the
+ *    shadow pass (`DEPTH_SKINNED_VERTEX`). The fullscreen programs and terrain/water have no
+ *    skinned entry, and asking for one is a no-op rather than a shader that fails to compile.
+ */
+function skinnable(options: PipelineKeyOptions): boolean {
+  if (options.skinned !== true || options.lod === true) return false;
+  switch (options.technique) {
+    case "standard":
+    case "unlit":
+    case "emissive":
+    case "depth":
+    case "prepass":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export class PipelineFactory {
@@ -119,6 +152,11 @@ export class PipelineFactory {
   private ssaoLayout: GPUPipelineLayout | null = null;
   private ssaoBlurBindGroupLayout: GPUBindGroupLayout | null = null;
   private ssaoBlurLayout: GPUPipelineLayout | null = null;
+  private skinBindGroupLayout: GPUBindGroupLayout | null = null;
+  private skinPlaceholderLayout: GPUBindGroupLayout | null = null;
+  private skinLayout: GPUPipelineLayout | null = null;
+  private skinDepthLayout: GPUPipelineLayout | null = null;
+  private skinPrepassLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -139,6 +177,7 @@ export class PipelineFactory {
     water: GPUBindGroupLayout;
     ssao: GPUBindGroupLayout;
     ssaoBlur: GPUBindGroupLayout;
+    skin: GPUBindGroupLayout;
   } {
     this.ensureLayouts();
     return {
@@ -153,6 +192,7 @@ export class PipelineFactory {
       water: this.waterBindGroupLayout!,
       ssao: this.ssaoBindGroupLayout!,
       ssaoBlur: this.ssaoBlurBindGroupLayout!,
+      skin: this.skinBindGroupLayout!,
     };
   }
 
@@ -268,9 +308,31 @@ export class PipelineFactory {
       entries: [ssaoUniform, { binding: SSAO_BINDINGS.ao.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } }],
     });
     this.ssaoBlurLayout = d.createPipelineLayout({ bindGroupLayouts: [this.ssaoBlurBindGroupLayout] });
+    // Phase 16.5: group 3 is the joint palette. It is a dynamic-offset *storage* binding because a
+    // frame uploads one palette per skinned batch into one buffer (rendering/skinning.ts); the
+    // skinned variants of each program get their own layout, which is what keeps a non-skinned
+    // pipeline from declaring — and a non-skinned draw from having to bind — a group it never reads.
+    this.skinBindGroupLayout = d.createBindGroupLayout({
+      label: "skin.palette.layout",
+      entries: [
+        {
+          binding: SKIN_BINDINGS.palette.binding,
+          visibility: ShaderStage.VERTEX,
+          buffer: { type: "read-only-storage", hasDynamicOffset: true, minBindingSize: JOINT_PALETTE_BYTES },
+        },
+      ],
+    });
+    // The shadow and prepass programs have no material group, but a pipeline layout has to be
+    // *dense*: group 3 exists only if groups 0..2 do. An empty layout is the placeholder for the
+    // index those programs do not use (and their shaders never declare), which keeps the palette at
+    // group 3 in every skinned module — the renderer binds one group index, whichever pass it is.
+    this.skinPlaceholderLayout = d.createBindGroupLayout({ label: "skin.gap.layout", entries: [] });
+    this.skinLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout, this.skinBindGroupLayout] });
+    this.skinDepthLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.skinPlaceholderLayout, this.skinBindGroupLayout] });
+    this.skinPrepassLayout = d.createPipelineLayout({ bindGroupLayouts: [this.prepassFrameLayout, this.drawLayout, this.skinPlaceholderLayout, this.skinBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean; ssao?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean; ssao?: boolean; skinned?: boolean } {
     switch (key.technique) {
       case "ssao": {
         const module = this.shaders.get("ssao.wgsl", SSAO_SHADER);
@@ -290,6 +352,12 @@ export class PipelineFactory {
         return { vertex: module, fragment: module, vertexEntry: key.instanced ? "vertexMainInstanced" : "vertexMain", fragmentEntry: "fragmentMain" };
       }
       case "depth":
+        // Skinned casters get their own module: the input struct and the palette binding differ, and
+        // the entry point has to be claimed in the pipeline's vertex state.
+        if (skinnable(key)) {
+          const module = this.shaders.get("depth.skinned.wgsl", DEPTH_SKINNED_VERTEX);
+          return { vertex: module, fragment: module, vertexEntry: key.instanced ? "vertexMainInstancedSkinned" : "vertexMainSkinned", fragmentEntry: "fragmentMain", skinned: true };
+        }
         // The shadow module carries the LOD instanced entry too: population casters draw through
         // the merged buffer and must honour the same per-instance window bit.
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? (key.lod ? "vertexMainInstancedLod" : "vertexMainInstanced") : "vertexMain", fragmentEntry: "fragmentMain" };
@@ -302,6 +370,15 @@ export class PipelineFactory {
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: key.fragmentEntry ?? "fsTonemap", post: true };
       }
       default: {
+        // The skinned module is its own source: its `VertexInput` carries locations 4/5, which the
+        // unskinned pipelines must not declare (a location the vertex state does not provide is a
+        // validation error, not an unused slot).
+        if (skinnable(key)) {
+          const skinnedSource = key.instanced ? STANDARD_SKINNED_INSTANCED_VERTEX : STANDARD_SKINNED_VERTEX;
+          const skinnedEntry = key.instanced ? "vertexMainInstancedSkinned" : "vertexMainSkinned";
+          const module = this.shaders.get(`standard.skinned.${key.instanced ? "instanced" : "static"}.wgsl`, `${skinnedSource}\n${STANDARD_FRAGMENT_BODY}`);
+          return { vertex: module, fragment: module, vertexEntry: skinnedEntry, fragmentEntry: "fragmentMain", skinned: true };
+        }
         // One module for both stages: drivers accept multiple entry points per module, and one
         // compile instead of two is measurably faster on scene load. The fragment stage's defines are
         // already embedded in the vertex source, so the fragment body is appended without them.
@@ -328,6 +405,7 @@ export class PipelineFactory {
       options.doubleSided ? "two" : "one",
       options.instanced ? "inst" : "static",
       options.lod ? "lod" : "-",
+      skinnable(options) ? "skin" : "-",
       options.sampleCount ?? 1,
       options.writeDepth === false ? "nodepthwrite" : "depthwrite",
       options.noDepthTest ? "nodepthtest" : "depthtest",
@@ -436,7 +514,7 @@ export class PipelineFactory {
 
   private describe(options: PipelineKeyOptions, key: string): { descriptor: GPURenderPipelineDescriptor; topology: GPUPrimitiveTopology } {
     // `prepass` falls through to the standard module in moduleFor: same source, same vertex entry.
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, ssao } = this.moduleFor(options);
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, ssao, skinned } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
     const isShadowDepth = options.technique === "depth";
     const isPrepass = options.technique === "prepass";
@@ -456,11 +534,17 @@ export class PipelineFactory {
                 ? fragmentEntry === "fsSsao"
                   ? this.ssaoLayout!
                   : this.ssaoBlurLayout!
-                : isPrepass
-                  ? this.prepassLayout!
-                  : isShadowDepth
-                    ? this.depthOnlyLayout!
-                    : options.technique === "terrain" ? this.terrainLayout! : this.layout!;
+                : skinned
+                  ? isPrepass
+                    ? this.skinPrepassLayout!
+                    : isShadowDepth
+                      ? this.skinDepthLayout!
+                      : this.skinLayout!
+                  : isPrepass
+                    ? this.prepassLayout!
+                    : isShadowDepth
+                      ? this.depthOnlyLayout!
+                      : options.technique === "terrain" ? this.terrainLayout! : this.layout!;
     const blend: GPUBlendState | undefined = options.additive
       ? {
           color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -478,7 +562,10 @@ export class PipelineFactory {
       vertex: {
         module: vertex,
         entryPoint: vertexEntry,
-        buffers: fullscreen ? [] : debug ? [debugVertexBuffer()] : [VERTEX_LAYOUT],
+        // A skinned pipeline declares the second vertex slot (`SKIN_VERTEX_LAYOUT`, locations 4/5);
+        // every other pipeline's shader asks for locations 0..3 only, which is why slot 1 stays
+        // unbound for them (and why a skinned batch must never draw through a non-skinned pipeline).
+        buffers: fullscreen ? [] : debug ? [debugVertexBuffer()] : skinned ? [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT] : [VERTEX_LAYOUT],
       },
       fragment: isDepthOnly
         ? undefined
@@ -585,6 +672,11 @@ export class PipelineFactory {
     this.ssaoLayout = null;
     this.ssaoBlurBindGroupLayout = null;
     this.ssaoBlurLayout = null;
+    this.skinBindGroupLayout = null;
+    this.skinPlaceholderLayout = null;
+    this.skinLayout = null;
+    this.skinDepthLayout = null;
+    this.skinPrepassLayout = null;
     this.shaders.clear();
   }
 
@@ -594,14 +686,15 @@ export class PipelineFactory {
 
   stats(): { pipelines: number; pipelinesPending: number; failures: number; creates: number; cacheHits: number; layouts: number } {
     // Bind group layouts: frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky,
-    // water, ssao, ssao blur, terrain material.
+    // water, ssao, ssao blur, terrain material, skin palette (+ the skinned colour/depth/prepass
+    // pipeline layouts that pair them with the frame and draw groups).
     return {
       pipelines: this.pipelines.size,
       pipelinesPending: this.pending.size,
       failures: this.failures.size,
       creates: this.creates,
       cacheHits: this.hits,
-      layouts: 12,
+      layouts: 16,
     };
   }
 }

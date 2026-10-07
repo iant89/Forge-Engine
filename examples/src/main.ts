@@ -55,6 +55,7 @@ import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
+import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -175,6 +176,8 @@ async function main(): Promise<void> {
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else if (name === "rover-course") {
       currentHandle = buildRoverCourseScene(engine);
+    } else if (name === "skinning") {
+      currentHandle = buildSkinningScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -636,6 +639,12 @@ async function main(): Promise<void> {
     setMast: (deployed: boolean) => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       handle?.setMast?.(deployed);
+    },
+    /** Skinned-arm scene (Phase 16.5): skinned-batch/joint counters; null on other scenes. */
+    skinningState: () => (currentHandle as SkinningSceneHandle | null)?.skinningState?.() ?? null,
+    /** Skinned-arm scene: freeze the idle wave on the pose at `t` for a pixel A/B. */
+    setSkinPose: (t: number) => {
+      (currentHandle as SkinningSceneHandle | null)?.setSkinPose?.(t);
     },
     /** Mars showcase: unfold (true) or stow (false) the robotic arm; a no-op on other scenes. */
     setArm: (deployed: boolean) => {

@@ -32,12 +32,47 @@ export const VERTEX_LAYOUT: GPUVertexBufferLayout = {
   attributes: VERTEX_ATTRIBUTES.map((a) => ({ format: a.format, offset: a.offset, shaderLocation: a.shaderLocation })),
 };
 
+/** Joints that can influence one vertex (glTF 2.0's `JOINTS_0`/`WEIGHTS_0` set). */
+export const SKIN_JOINTS_PER_VERTEX = 4;
+
+/**
+ * Skinning vertex stream: `SKIN_JOINTS_PER_VERTEX` joint indices then weights per vertex.
+ *
+ * It is a *second* vertex buffer slot rather than four more floats in the fixed 48-byte record,
+ * for three reasons: a mesh without a skin keeps paying 48 bytes per vertex (most of them do),
+ * skinning data is optional per draw (`Mesh.skin`), and the depth/shadow pipelines can then share
+ * one `VERTEX_LAYOUT` while the skinned entries add theirs. Indices are `u32` here (they are
+ * `u16` in `SkinningVertexData`, which is the asset-side form) because `uint32x4` needs no
+ * zero-extension rule to reason about and the cost is 8 bytes per vertex.
+ */
+export const SKIN_VERTEX_STRIDE = 32;
+
+export const SKIN_VERTEX_ATTRIBUTES = [
+  { name: "joints", shaderLocation: 4, format: "uint32x4" as GPUVertexFormat, offset: 0 },
+  { name: "weights", shaderLocation: 5, format: "float32x4" as GPUVertexFormat, offset: 16 },
+];
+
+export const SKIN_VERTEX_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: SKIN_VERTEX_STRIDE,
+  attributes: SKIN_VERTEX_ATTRIBUTES.map((a) => ({ format: a.format, offset: a.offset, shaderLocation: a.shaderLocation })),
+};
+
+/** Per-vertex skinning attributes, as the asset pipeline hands them to `Geometry`. */
+export interface SkinVertexStream {
+  /** `SKIN_JOINTS_PER_VERTEX` joint indices per vertex, indexing the skin's joint list. */
+  joints: Uint16Array | Uint32Array;
+  /** `SKIN_JOINTS_PER_VERTEX` blend weights per vertex; they are expected to sum to 1. */
+  weights: Float32Array;
+}
+
 export interface GeometrySource {
   positions: Float32Array;
   normals?: Float32Array | null;
   uvs?: Float32Array | null;
   /** xyzw, w = handedness (±1). */
   tangents?: Float32Array | null;
+  /** Optional per-vertex skin attributes; they upload as `SKIN_VERTEX_LAYOUT` (slot 1). */
+  skinning?: SkinVertexStream | null;
   indices?: Uint32Array | Uint16Array | null;
   /** Explicit bounds; computed from positions when absent. */
   bounds?: AABB | null;
@@ -47,14 +82,14 @@ export interface GeometrySource {
 export class Geometry {
   vertexBuffer: GPUBuffer | null = null;
   indexBuffer: GPUBuffer | null = null;
+  /** `SKIN_VERTEX_LAYOUT` stream (slot 1); null for an unskinned geometry. */
+  skinBuffer: GPUBuffer | null = null;
   indexCount = 0;
   vertexCount = 0;
   indexFormat: GPUIndexFormat | null = null;
   bounds = new AABB();
   topology: GPUPrimitiveTopology = "triangle-list";
   released = false;
-  /** Set by `Mesh`/materials when the geometry is used by a skinning pipeline. */
-  skinned = false;
 
   private spatialIndex: MeshBvh | null | undefined;
   private readonly localRay = new Ray();
@@ -83,12 +118,18 @@ export class Geometry {
     g.bounds = src.bounds ? src.bounds.clone() : computeBounds(src.positions);
     try {
       g.uploadVertices(interleaved);
+      if (src.skinning) g.uploadSkinning(src.skinning);
       if (src.indices && src.indices.length > 0) g.uploadIndices(src.indices);
       return g;
     } catch (error) {
       g.release();
       throw error;
     }
+  }
+
+  /** True when this geometry carries a skin vertex stream (a skinned pipeline can draw it). */
+  get skinned(): boolean {
+    return this.skinBuffer !== null;
   }
 
   private uploadVertices(data: Float32Array): void {
@@ -134,6 +175,43 @@ export class Geometry {
     this.indexBuffer = next.buffer;
     this.indexCount = next.count;
     this.indexFormat = next.format;
+  }
+
+  /**
+   * Upload (or replace) the per-vertex skinning attributes. The stream is indexed by the same
+   * vertex order as `positions`, so a mismatched length is an authoring error, not something to
+   * pad: the skinned vertex stage would read another vertex's joints.
+   */
+  uploadSkinning(data: SkinVertexStream): void {
+    const expected = this.vertexCount * SKIN_JOINTS_PER_VERTEX;
+    if (data.joints.length !== expected || data.weights.length !== expected) {
+      throw new UsageError(
+        `Geometry.uploadSkinning: expected ${expected} joint indices and ${expected} weights for ${this.vertexCount} vertices, got ${data.joints.length} and ${data.weights.length}`,
+      );
+    }
+    const size = Math.max(4, this.vertexCount * SKIN_VERTEX_STRIDE);
+    const buffer = this.device.createBuffer({
+      label: `geometry.skin.${this.source.label ?? ""}`,
+      size,
+      usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,
+    });
+    try {
+      const interleaved = interleaveSkinVertices(data, this.vertexCount);
+      writeRaw(this.device, buffer, interleaved);
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
+    this.skinBuffer?.destroy();
+    this.skinBuffer = buffer;
+    this.source.skinning = data;
+  }
+
+  /** Drop the skin vertex stream (the geometry becomes drawable only by unskinned pipelines). */
+  clearSkinning(): void {
+    this.skinBuffer?.destroy();
+    this.skinBuffer = null;
+    this.source.skinning = null;
   }
 
   get triangleCount(): number {
@@ -214,7 +292,9 @@ export class Geometry {
 
   /** Bytes held on the GPU by this geometry (used by the memory budget + the leak tests). */
   get gpuBytes(): number {
-    return this.vertexCount * VERTEX_STRIDE + (this.indexCount * (this.indexFormat === "uint16" ? 2 : 4));
+    return this.vertexCount * VERTEX_STRIDE
+      + (this.skinBuffer ? this.vertexCount * SKIN_VERTEX_STRIDE : 0)
+      + (this.indexCount * (this.indexFormat === "uint16" ? 2 : 4));
   }
 
   /** Replace geometry streams, reusing vertex storage when its size is unchanged. */
@@ -229,6 +309,7 @@ export class Geometry {
       normals: has("normals") ? src.normals ?? null : sameVertexCount ? this.source.normals ?? null : null,
       uvs: has("uvs") ? src.uvs ?? null : sameVertexCount ? this.source.uvs ?? null : null,
       tangents: has("tangents") ? src.tangents ?? null : sameVertexCount ? this.source.tangents ?? null : null,
+      skinning: has("skinning") ? src.skinning ?? null : sameVertexCount ? this.source.skinning ?? null : null,
       indices: has("indices") ? src.indices ?? null : sameVertexCount ? this.source.indices ?? null : null,
       bounds: src.bounds ?? null,
       label: src.label ?? this.source.label,
@@ -239,6 +320,7 @@ export class Geometry {
       this.release();
       this.vertexBuffer = next.vertexBuffer;
       this.indexBuffer = next.indexBuffer;
+      this.skinBuffer = next.skinBuffer;
       this.vertexCount = next.vertexCount;
       this.indexCount = next.indexCount;
       this.indexFormat = next.indexFormat;
@@ -246,9 +328,14 @@ export class Geometry {
       this.released = false;
       next.vertexBuffer = null;
       next.indexBuffer = null;
+      next.skinBuffer = null;
       next.released = true;
     } else {
       const indicesChanged = has("indices");
+      if (has("skinning")) {
+        if (nextSource.skinning) this.uploadSkinning(nextSource.skinning);
+        else this.clearSkinning();
+      }
       const interleaved = interleaveVertices(nextSource, count);
       const replacement = indicesChanged && nextSource.indices && nextSource.indices.length > 0
         ? this.createIndexResource(nextSource.indices, nextSource.label)
@@ -279,8 +366,10 @@ export class Geometry {
     this.released = true;
     this.vertexBuffer?.destroy();
     this.indexBuffer?.destroy();
+    this.skinBuffer?.destroy();
     this.vertexBuffer = null;
     this.indexBuffer = null;
+    this.skinBuffer = null;
     this.spatialIndex = undefined;
   }
 
@@ -291,6 +380,27 @@ export class Geometry {
   stats(): Record<string, number | string | boolean> {
     return { vertices: this.vertexCount, indices: this.indexCount, bytes: this.gpuBytes, skinned: this.skinned };
   }
+}
+
+/**
+ * Pack the skin attributes into one `SKIN_VERTEX_STRIDE`-byte record per vertex: four `u32` joint
+ * indices then four `f32` weights, both views over the same buffer so there is no second copy.
+ */
+function interleaveSkinVertices(src: SkinVertexStream, count: number): Uint8Array {
+  const buffer = new ArrayBuffer(count * SKIN_VERTEX_STRIDE);
+  const u32 = new Uint32Array(buffer);
+  const f32 = new Float32Array(buffer);
+  const joints = src.joints;
+  const weights = src.weights;
+  for (let i = 0; i < count; i++) {
+    const base = (i * SKIN_VERTEX_STRIDE) >> 2;
+    const at = i * SKIN_JOINTS_PER_VERTEX;
+    for (let j = 0; j < SKIN_JOINTS_PER_VERTEX; j++) {
+      u32[base + j] = joints[at + j] ?? 0;
+      f32[base + SKIN_JOINTS_PER_VERTEX + j] = weights[at + j] ?? 0;
+    }
+  }
+  return new Uint8Array(buffer);
 }
 
 function interleaveVertices(src: GeometrySource, count: number): Float32Array {

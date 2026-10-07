@@ -120,7 +120,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "AGENTS.md",
-    "what": "Added \u00a77 directing agents to use mnemosyne.md for free-form session notes and change-log.md for per-change + per-PR entries.",
+    "what": "Added §7 directing agents to use mnemosyne.md for free-form session notes and change-log.md for per-change + per-PR entries.",
     "why": "The notes/log convention only works if every session knows about it before starting work."
   },
   {
@@ -414,7 +414,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "examples/index.html",
-    "what": "D\u00b7ARM pad button (Mars-only, id-keyed lit rule), the #arm-touch overlay with two labelled thumbsticks (above the drive controls on touch layouts, bottom corners on desktop, beside the pad on short landscape), and a max-width fix so the longer Mars hint stays on one line.",
+    "what": "D·ARM pad button (Mars-only, id-keyed lit rule), the #arm-touch overlay with two labelled thumbsticks (above the drive controls on touch layouts, bottom corners on desktop, beside the pad on short landscape), and a max-width fix so the longer Mars hint stays on one line.",
     "why": "The arm needs its toggle and, when unfolded, its two sticks above the rover controls."
   },
   {
@@ -486,7 +486,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "examples/src/scenes/roverArm.ts",
-    "what": "New: pure arm controller \u2014 keyframed unfold/stow choreography (lift, swing, long-path elbow, turret aim), smoothed jog rates, joint limits, wrist auto-level, ground guard, acceleration-limited progress with jog offsets that fade on stow.",
+    "what": "New: pure arm controller — keyframed unfold/stow choreography (lift, swing, long-path elbow, turret aim), smoothed jog rates, joint limits, wrist auto-level, ground guard, acceleration-limited progress with jog offsets that fade on stow.",
     "why": "All arm behaviour in one testable module; the choreography and limits were voxel-swept against the model."
   },
   {
@@ -628,8 +628,8 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/vehicles/vehicle.ts",
-    "what": "Add `VehicleInput.parkingBrake` (latched, `parkingBrakeTorque` 7000 N\u00b7m on every wheel) and make a brake remove wheel speed only: `brakeTorqueAt`, a `STATIC_HOLD_SPEED` (0.35 m/s) standstill lock that sets `\u03c9 = 0` with the ground's slip, a past-the-peak skid lock instead of a reversing wheel, `stepWheelSpeed` for unloaded/airborne wheels, a parked pose hold in `integrate`, and ABS gated on the foot brake (`absActive`).",
-    "why": "Reported: \"All the wheels spin when brake is applied.\" `spin` is the odometer `VehicleSystem` poses the visual wheels from and it integrated an \u03c9 the slip solve handed back for a *holding* slip (4.7 rad/s in gear) or a backwards-spinning wheel, and a lingering ~0.4 m/s creep with the brake fully on."
+    "what": "Add `VehicleInput.parkingBrake` (latched, `parkingBrakeTorque` 7000 N·m on every wheel) and make a brake remove wheel speed only: `brakeTorqueAt`, a `STATIC_HOLD_SPEED` (0.35 m/s) standstill lock that sets `ω = 0` with the ground's slip, a past-the-peak skid lock instead of a reversing wheel, `stepWheelSpeed` for unloaded/airborne wheels, a parked pose hold in `integrate`, and ABS gated on the foot brake (`absActive`).",
+    "why": "Reported: \"All the wheels spin when brake is applied.\" `spin` is the odometer `VehicleSystem` poses the visual wheels from and it integrated an ω the slip solve handed back for a *holding* slip (4.7 rad/s in gear) or a backwards-spinning wheel, and a lingering ~0.4 m/s creep with the brake fully on."
   },
   {
     "id": "0048",
@@ -700,7 +700,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tests/vehicles.test.ts",
-    "what": "Add the `\"vehicles \u2014 brakes and the parking brake\"` suite (6 tests): parked wheels stopped and `spin` frozen on any brake, a 12\u00b0 slope held under full throttle, the parking brake on all four wheels where the handbrake covers the rears, a brake-to-stop with `spin` frozen, an airborne braked wheel stopped, and the drive back after a long brake hold.",
+    "what": "Add the `\"vehicles — brakes and the parking brake\"` suite (6 tests): parked wheels stopped and `spin` frozen on any brake, a 12° slope held under full throttle, the parking brake on all four wheels where the handbrake covers the rears, a brake-to-stop with `spin` frozen, an airborne braked wheel stopped, and the drive back after a long brake hold.",
     "why": "Pins the fix for \"all the wheels spin when brake is applied\" and the latched parking brake; all six fail on the pre-fix engine (`git stash engine/src/vehicles/vehicle.ts`)."
   },
   {
@@ -724,7 +724,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tools/browser-check.mjs",
-    "what": "Add the parking-brake gate section (`P` latches \u2192 state 1 + pad lamp lit, full throttle 15 s \u2192 `maxSpeed < 0.05` and `|dz| < 0.02`, `P` releases \u2192 `W` drives > 0.5 m) and resume the demo loop the earlier pixel A/Bs froze, asserting the new `__forge.animating()` before driving input.",
+    "what": "Add the parking-brake gate section (`P` latches → state 1 + pad lamp lit, full throttle 15 s → `maxSpeed < 0.05` and `|dz| < 0.02`, `P` releases → `W` drives > 0.5 m) and resume the demo loop the earlier pixel A/Bs froze, asserting the new `__forge.animating()` before driving input.",
     "why": "Real-device proof of the key/input/lamp wiring; the missing resume made the parked half pass for the wrong reason (a frozen loop applies no input, and a parked car looks exactly like a car that cannot move)."
   },
   {
@@ -784,7 +784,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "change-log.md",
-    "what": "Append the id 0047\u20130060 entries for PR #37.",
+    "what": "Append the id 0047–0060 entries for PR #37.",
     "why": "Per-file history for the parking-brake and brake-spin work."
   },
   {
@@ -797,7 +797,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Vehicle playground: latched parking brake, and a brake that stops the wheels",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "A parking brake toggle (`P` / the new P/PARK pad button, lamp + `aria-pressed`, `PARK` in the HUD) as a latched `VehicleInput.parkingBrake` \u00d7 `parkingBrakeTorque` on every wheel, and the fix for \"all the wheels spin when brake is applied\": a brake only ever removes wheel speed (standstill lock below 0.35 m/s with the pose held, past-the-peak skid lock instead of a reversing wheel, airborne wheels stopped, the drive back on release). 6 new tests in `tests/vehicles.test.ts` (all fail on the pre-fix engine) and 3 in `tests/vehicleTouch.test.ts`; 475 tests in 36 files pass. The real-WebGPU gate gained the parking-brake section (latched=1 lamp=true, hold maxSpeed 0.0000 dz 0.0000m, released drove 0.52m under W) and resumes the demo loop the pixel A/Bs froze, asserting the new `__forge.animating()` \u2014 without it the parked half passed for the wrong reason because a frozen loop applies no input at all.",
+    "summary": "A parking brake toggle (`P` / the new P/PARK pad button, lamp + `aria-pressed`, `PARK` in the HUD) as a latched `VehicleInput.parkingBrake` × `parkingBrakeTorque` on every wheel, and the fix for \"all the wheels spin when brake is applied\": a brake only ever removes wheel speed (standstill lock below 0.35 m/s with the pose held, past-the-peak skid lock instead of a reversing wheel, airborne wheels stopped, the drive back on release). 6 new tests in `tests/vehicles.test.ts` (all fail on the pre-fix engine) and 3 in `tests/vehicleTouch.test.ts`; 475 tests in 36 files pass. The real-WebGPU gate gained the parking-brake section (latched=1 lamp=true, hold maxSpeed 0.0000 dz 0.0000m, released drove 0.52m under W) and resumes the demo loop the pixel A/Bs froze, asserting the new `__forge.animating()` — without it the parked half passed for the wrong reason because a frozen loop applies no input at all.",
     "files": [
       "engine/src/vehicles/vehicle.ts",
       "examples/index.html",
@@ -836,7 +836,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/vehicles/vehicle.ts",
-    "what": "Fold regenerative braking into the drivetrain demand (brake \u00d7 `regenTorque`, faded below 0.5 m/s, riding the normal slip solve) and add `Vehicle.wheelCenterPosition` (hardpoint hangs the current suspension length along the body up-axis, clamped to [rest\u2212travel, rest]).",
+    "what": "Fold regenerative braking into the drivetrain demand (brake × `regenTorque`, faded below 0.5 m/s, riding the normal slip solve) and add `Vehicle.wheelCenterPosition` (hardpoint hangs the current suspension length along the body up-axis, clamped to [rest−travel, rest]).",
     "why": "Regen must share the signed slip solve so TC/ABS/friction-circle stay consistent; the wheel pose helper makes the visual wheel a child of the suspension, not the terrain ray."
   },
   {
@@ -849,7 +849,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/vehicles/system.ts",
     "what": "Pose wheel entities from `Vehicle.wheelCenterPosition` instead of the terrain contact point.",
-    "why": "Contact-anchored wheels stuck to the ground over a crest and teleported back when the ray released \u2014 the 'wheels fly off the rover and snap back' bug."
+    "why": "Contact-anchored wheels stuck to the ground over a crest and teleported back when the ray released — the 'wheels fly off the rover and snap back' bug."
   },
   {
     "id": "0065",
@@ -872,7 +872,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "examples/src/scenes/highGainAntenna.ts",
-    "what": "Add `HighGainAntennaController`: one-way stowed\u2192deploying\u2192tracking state machine, armed on model load, unfurls after a 5 s delay, then re-solves Earth's direction in chassis-local space every frame with slew-limited gimbals and elevation clamps. No stow API.",
+    "what": "Add `HighGainAntennaController`: one-way stowed→deploying→tracking state machine, armed on model load, unfurls after a 5 s delay, then re-solves Earth's direction in chassis-local space every frame with slew-limited gimbals and elevation clamps. No stow API.",
     "why": "The rover's high-gain antenna must deploy automatically ~5 s after the model lands, track Earth as the rover moves, and never lay back down."
   },
   {
@@ -884,7 +884,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "examples/src/scenes/marsShowcaseScene.ts",
-    "what": "Swap the rover to `ElectricMotor` + `ReductionDrive(60)` (~1 kW, \u22486 km/h cap, regen), build a procedural HGA (post, azimuth/elevation pivots, dish, feed) on the front-right deck when the GLB lands, wire the controller into the update loop, and surface antenna + motor telemetry in the HUD and `marsState`.",
+    "what": "Swap the rover to `ElectricMotor` + `ReductionDrive(60)` (~1 kW, ≈6 km/h cap, regen), build a procedural HGA (post, azimuth/elevation pivots, dish, feed) on the front-right deck when the GLB lands, wire the controller into the update loop, and surface antenna + motor telemetry in the HUD and `marsState`.",
     "why": "Electric rover (speed fix) plus the automatic Earth-tracking antenna the NASA model omits."
   },
   {
@@ -896,7 +896,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tests/electricMotor.test.ts",
-    "what": "Add 18 tests: the EV torque envelope (regions, taper, throttle, drag, I\u00b7\u03b1, limiter, power sign), `ReductionDrive` (fixed ratio, never shifts, reverse), the rover top-speed regression (<2.2 m/s at pinned throttle), regen braking (shorter stops, no backwards creep), and the suspension-anchored wheel visuals (helper contract, droop/bump-stop clamps, cliff and VehicleSystem ridge cases).",
+    "what": "Add 18 tests: the EV torque envelope (regions, taper, throttle, drag, I·α, limiter, power sign), `ReductionDrive` (fixed ratio, never shifts, reverse), the rover top-speed regression (<2.2 m/s at pinned throttle), regen braking (shorter stops, no backwards creep), and the suspension-anchored wheel visuals (helper contract, droop/bump-stop clamps, cliff and VehicleSystem ridge cases).",
     "why": "Pin the electric drivetrain and both rover fixes at the unit level; all fail on the pre-fix engine."
   },
   {
@@ -908,7 +908,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tests/highGainAntenna.test.ts",
-    "what": "Add 8 tests: no motion before arming, countdown respected, unfurl duration and snap-free motion, boresight-on-Earth across attitudes, slew-limited re-aim after a 150\u00b0 teleport turn, elevation clamps under hard attitudes, and a 2000-step fuzz proving the phase can never leave tracking.",
+    "what": "Add 8 tests: no motion before arming, countdown respected, unfurl duration and snap-free motion, boresight-on-Earth across attitudes, slew-limited re-aim after a 150° teleport turn, elevation clamps under hard attitudes, and a 2000-step fuzz proving the phase can never leave tracking.",
     "why": "The antenna's automatic one-way Earth tracking is a behaviour contract, not an animation."
   },
   {
@@ -956,7 +956,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "change-log.md",
-    "what": "Append the id 0062\u20130073 entries for the electric drivetrain, rover speed/suspension fixes and the high-gain antenna.",
+    "what": "Append the id 0062–0073 entries for the electric drivetrain, rover speed/suspension fixes and the high-gain antenna.",
     "why": "Per-file history for this session's work."
   },
   {
@@ -969,7 +969,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Electric drivetrain; rover speed + wheel-anchoring fixes; automatic Earth-tracking high-gain antenna",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "ElectricMotor (traction envelope: constant torque \u2192 constant power \u2192 taper, no idle, drag, powerKW) + ReductionDrive (fixed ratio, never shifts) power the Mars rover at ~1 kW through 60:1 \u2014 \u22482160 N tractive and a \u22486 km/h no-load cap replacing combustion defaults geared past 200 km/h ('way too fast'); regen braking blends brake \u00d7 regenTorque into the signed slip solve, faded below 0.5 m/s. VehicleSystem poses wheel entities from Vehicle.wheelCenterPosition (hardpoint \u2212 up\u00b7(rest \u2212 compression), clamped to travel) instead of the terrain ray \u2014 the 'wheels fly off at crests then snap back' fix \u2014 and the kick-dust cut-in dropped 0.7 \u2192 0.22 m/s to match the electric band. HighGainAntennaController arms on GLB load, unfurls 5 s later at a 40\u00b0/s slew, then re-solves Earth in gimbal space every frame at 70\u00b0/s with elevation clamped 12\u00b0\u201385\u00b0; one-way, no stow control anywhere; the assembly is procedural (post, two pivots, dish, feed) because the NASA GLB ships no HGA. 26 new tests (envelope, reduction, top-speed regression, regen, wheel anchoring, antenna contract); the browser gate drives the rover (dz 0.54 m, kick dust, HGA deploying, 0 GPU errors). 501 tests in 38 files; verify, lint:arch, docs:check, check:browser all green.",
+    "summary": "ElectricMotor (traction envelope: constant torque → constant power → taper, no idle, drag, powerKW) + ReductionDrive (fixed ratio, never shifts) power the Mars rover at ~1 kW through 60:1 — ≈2160 N tractive and a ≈6 km/h no-load cap replacing combustion defaults geared past 200 km/h ('way too fast'); regen braking blends brake × regenTorque into the signed slip solve, faded below 0.5 m/s. VehicleSystem poses wheel entities from Vehicle.wheelCenterPosition (hardpoint − up·(rest − compression), clamped to travel) instead of the terrain ray — the 'wheels fly off at crests then snap back' fix — and the kick-dust cut-in dropped 0.7 → 0.22 m/s to match the electric band. HighGainAntennaController arms on GLB load, unfurls 5 s later at a 40°/s slew, then re-solves Earth in gimbal space every frame at 70°/s with elevation clamped 12°–85°; one-way, no stow control anywhere; the assembly is procedural (post, two pivots, dish, feed) because the NASA GLB ships no HGA. 26 new tests (envelope, reduction, top-speed regression, regen, wheel anchoring, antenna contract); the browser gate drives the rover (dz 0.54 m, kick dust, HGA deploying, 0 GPU errors). 501 tests in 38 files; verify, lint:arch, docs:check, check:browser all green.",
     "files": [
       "engine/src/vehicles/electric.ts",
       "engine/src/vehicles/vehicle.ts",
@@ -1348,7 +1348,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tools/test-subsystems.mjs",
-    "what": "Add the source\u2192test subsystem map: each subsystem's owned source paths, suites and deps, plus pure helpers (classify, dependents closure, selectForChanges), a self-check, and an --explain/--list/--check CLI.",
+    "what": "Add the source→test subsystem map: each subsystem's owned source paths, suites and deps, plus pure helpers (classify, dependents closure, selectForChanges), a self-check, and an --explain/--list/--check CLI.",
     "why": "Selective testing needs a single source of truth for which suites a change can reach; a static import graph can't provide it because every suite imports the @forge/engine barrel."
   },
   {
@@ -1421,7 +1421,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "docs/VERIFICATION.md",
     "what": "Add `npm run test:affected` and `npm run check:testmap` rows to the green-today table, stating what each proves.",
-    "why": "VERIFICATION.md must stay truthful when gates change (AGENTS.md \u00a74)."
+    "why": "VERIFICATION.md must stay truthful when gates change (AGENTS.md §4)."
   },
   {
     "id": "0109",
@@ -1432,7 +1432,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "AGENTS.md",
-    "what": "Document the new commands and the tools in the repo map, and add \u00a78 'Selective testing \u2014 run only what a change can reach'.",
+    "what": "Document the new commands and the tools in the repo map, and add §8 'Selective testing — run only what a change can reach'.",
     "why": "Contributors need the selective-testing workflow and the rule to update the map when suites/files move."
   },
   {
@@ -1457,7 +1457,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "mnemosyne.md",
     "what": "Append a dated note on the selective-testing map: why it's hand-written, the real deps cycles, the full-run triggers, and the subprocess-driven drift test.",
-    "why": "Session-memory conventions (AGENTS.md \u00a77): record hard-won repo facts for future sessions."
+    "why": "Session-memory conventions (AGENTS.md §7): record hard-won repo facts for future sessions."
   },
   {
     "id": "0112",
@@ -1469,7 +1469,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/test-subsystems.mjs",
     "what": "Split the single `examples` subsystem into scene-aligned subsystems (ex-ui, ex-weather, ex-rover, ex-antenna, ex-orbit) with per-file source ownership and accurate deps; the pure-UI touch controls depend on nothing.",
-    "why": "So a leaf engine change pulls only the demo pieces it can actually reach \u2014 e.g. a vehicles change no longer runs the pure-UI vehicleTouch suite (19\u219211 suites)."
+    "why": "So a leaf engine change pulls only the demo pieces it can actually reach — e.g. a vehicles change no longer runs the pure-UI vehicleTouch suite (19→11 suites)."
   },
   {
     "id": "0113",
@@ -1492,7 +1492,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "AGENTS.md",
-    "what": "Update \u00a78's subsystem list to name the scene-split demo subsystems and note the touch controls have no engine coupling.",
+    "what": "Update §8's subsystem list to name the scene-split demo subsystems and note the touch controls have no engine coupling.",
     "why": "Contributor guidance must match the actual subsystem set."
   },
   {
@@ -1817,7 +1817,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Phase 13.3: clustered (Forward+) lighting, and no fixed light list",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Phase 13.3 clustered (Forward+) lighting. Local lights are indexed on the CPU into a 16x8x24 view-space grid (3,072 clusters, engine/src/rendering/clusters.ts) and the fragment stage walks only its own cluster's list, so a frame carries 256 local lights instead of a fixed 16-entry uniform block that writeLights truncated silently; a cluster over 32 candidates evicts its least influential lights (intensity x Rec.709 luma) and reports it. Directional lights stay in the uniform list \u2014 they reach every pixel, and the cascade caster's shadowIndex lives there. Clustering adds no pass and no pixel: both loops call the one lightContribution() over the same lights in the same order, so on/off is bit-identical while a scene fits the old list (real WebGPU: 0 px differ at 4 lights, same 18 passes), and at 40 lights the demo's static 36-lamp rig carries all 39 locals with none dropped \u2014 88,036 of 921,600 px brighter than the truncated uniform path and none darker. Generated ClusterUniforms/ClusterLightBlock/ClusterGridBlock on frame bindings 6-8 (~428 KB resident, only the used prefixes uploaded), perFrame.flags bit 5, EngineConfig/SceneSettings switches (off on minimal/low), seven new stats plus Renderer.clusterBuildInfo, and demo Clustered / +36 lamps buttons with a HUD lights line. Two bugs only the real GPU could see became CPU gates: WGSL's reserved words (the grid's offset array shipped as `meta`, which Tint rejects at parse time \u2014 every pipeline came back invalid and every frame failed to submit, while the mock device, check:wgsl and 537 unit tests stayed green because none of them compile WGSL) are now rejected by validateWgsl; and projecting a light's box at its nearest depth only is not conservative, because ndc.x = proj*x/z moves toward the centre as z grows, which cost an off-axis lamp the inner crescent of its own pool (181 darker px) \u2014 it is now projected at both depths and pinned by a 2 cm walk of the ground that fails on the old code (1,986 misses to 0 over 145,323 CPU probes). CLUSTER_INDEX_CAPACITY is sized for the worst case (CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER) so the cap, never the buffer, is what limits a cluster. rendering.clusteredLighting verified; rendering.clusterCoverage partial (CPU-built grid, perspective-only, 256/32 caps) closing with 13.4. 543 tests in 40 files; verify, check:wgsl, lint:arch, check:testmap, docs:check and check:browser green, in the sandbox and in CI.",
+    "summary": "Phase 13.3 clustered (Forward+) lighting. Local lights are indexed on the CPU into a 16x8x24 view-space grid (3,072 clusters, engine/src/rendering/clusters.ts) and the fragment stage walks only its own cluster's list, so a frame carries 256 local lights instead of a fixed 16-entry uniform block that writeLights truncated silently; a cluster over 32 candidates evicts its least influential lights (intensity x Rec.709 luma) and reports it. Directional lights stay in the uniform list — they reach every pixel, and the cascade caster's shadowIndex lives there. Clustering adds no pass and no pixel: both loops call the one lightContribution() over the same lights in the same order, so on/off is bit-identical while a scene fits the old list (real WebGPU: 0 px differ at 4 lights, same 18 passes), and at 40 lights the demo's static 36-lamp rig carries all 39 locals with none dropped — 88,036 of 921,600 px brighter than the truncated uniform path and none darker. Generated ClusterUniforms/ClusterLightBlock/ClusterGridBlock on frame bindings 6-8 (~428 KB resident, only the used prefixes uploaded), perFrame.flags bit 5, EngineConfig/SceneSettings switches (off on minimal/low), seven new stats plus Renderer.clusterBuildInfo, and demo Clustered / +36 lamps buttons with a HUD lights line. Two bugs only the real GPU could see became CPU gates: WGSL's reserved words (the grid's offset array shipped as `meta`, which Tint rejects at parse time — every pipeline came back invalid and every frame failed to submit, while the mock device, check:wgsl and 537 unit tests stayed green because none of them compile WGSL) are now rejected by validateWgsl; and projecting a light's box at its nearest depth only is not conservative, because ndc.x = proj*x/z moves toward the centre as z grows, which cost an off-axis lamp the inner crescent of its own pool (181 darker px) — it is now projected at both depths and pinned by a 2 cm walk of the ground that fails on the old code (1,986 misses to 0 over 145,323 CPU probes). CLUSTER_INDEX_CAPACITY is sized for the worst case (CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER) so the cap, never the buffer, is what limits a cluster. rendering.clusteredLighting verified; rendering.clusterCoverage partial (CPU-built grid, perspective-only, 256/32 caps) closing with 13.4. 543 tests in 40 files; verify, check:wgsl, lint:arch, check:testmap, docs:check and check:browser green, in the sandbox and in CI.",
     "files": [
       "ARCHITECTURE.md",
       "ROADMAP.md",
@@ -1881,7 +1881,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/rendering/uniforms.ts",
     "what": "ClusterRangeEntry (packed key + influence) and ClusterRangeBlock (count + 256 entries, 2052 B, storage-only) added to the registries, so the shader embeds generated declarations instead of a hand-written copy.",
-    "why": "The range block is the CPU\u2192GPU interface for the assignment pass: the WGSL decode and `packRanges` have to agree bit for bit, and the way this repo keeps two languages in step is to generate the struct once and assert the shader text contains it verbatim."
+    "why": "The range block is the CPU→GPU interface for the assignment pass: the WGSL decode and `packRanges` have to agree bit for bit, and the way this repo keeps two languages in step is to generate the struct once and assert the shader text contains it verbatim."
   },
   {
     "id": "0145",
@@ -1893,7 +1893,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/rendering/renderer.ts",
     "what": "RendererOptions.lightCulling (\"auto\" | \"cpu\" | \"gpu\"; auto = GPU unless the device is the mock), a runtime `lightCulling` setter and RenderStats.clusterFill; buildClusters runs prepare + count always and rasterize only on the CPU path, uploads only the counts (not the index prefix) when the device fills, and buildFrame records `forge.lights.assign` when this frame fills a grid on the device; the culler is disposed with the renderer and when the mode returns to cpu.",
-    "why": "The mock device validates and records compute but cannot execute WGSL, so an unqualified auto has to stay on the CPU there \u2014 the same isMock test GpuParticleSystem makes. Auto-resolving once against the device keeps the fast path the default on real hardware without any configuration."
+    "why": "The mock device validates and records compute but cannot execute WGSL, so an unqualified auto has to stay on the CPU there — the same isMock test GpuParticleSystem makes. Auto-resolving once against the device keeps the fast path the default on real hardware without any configuration."
   },
   {
     "id": "0146",
@@ -1916,7 +1916,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tests/lightCulling.test.ts",
-    "what": "New: pins the GPU fill against the CPU one \u2014 `assignClustersOnCpu` versus `ClusterGrid.rasterize` byte for byte over hand-written scenes (scattered lamps, a full-grid light, spots, off-frame and degenerate lights, a scene saturated at the 32-per-cluster cap, a tie-heavy scene) and a 60-scene deterministic sweep with tie-heavy influences; `coversKey` versus the coverage the CPU fill actually walks; the range upload (keys and influences, live prefix only); one dispatch over the whole grid; the bind group following the grid buffer; dispose; the aggregates computed without a readback.",
+    "what": "New: pins the GPU fill against the CPU one — `assignClustersOnCpu` versus `ClusterGrid.rasterize` byte for byte over hand-written scenes (scattered lamps, a full-grid light, spots, off-frame and degenerate lights, a scene saturated at the 32-per-cluster cap, a tie-heavy scene) and a 60-scene deterministic sweep with tie-heavy influences; `coversKey` versus the coverage the CPU fill actually walks; the range upload (keys and influences, live prefix only); one dispatch over the whole grid; the bind group following the grid buffer; dispose; the aggregates computed without a readback.",
     "why": "The GPU fill is only worth having if it is the same fill: the fragment stage indexes the grid with the CPU's counts, so a device that wrote different lists would light a surface differently from the CPU path, and no screenshot of one path can show it. The mock cannot execute WGSL, so equivalence has to be provable on the CPU side of the boundary."
   },
   {
@@ -1977,7 +1977,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/browser-check.mjs",
     "what": "Clustering's picture A/B now pins the CPU fill explicitly; a new section A/Bs the two fills on the fixture (pixels and every grid stat must match, the GPU arm must add exactly `forge.lights.assign`), then stacks 40 lamps into one ball to force the eviction path and compares the two fills channel by channel (luma can hide a hue change at equal brightness); `keepLuma` keeps the RGB bytes too, and the many-light rig now runs on the GPU fill.",
-    "why": "The only place the actual WGSL executes is a real device, and \"the lists are the same\" is a pixel claim: the split's worst failure \u2014 a shader that keeps 32 lamps but different ones \u2014 is exactly what an A/B of the eviction path catches and the unit tests cannot, because the mock never runs the shader."
+    "why": "The only place the actual WGSL executes is a real device, and \"the lists are the same\" is a pixel claim: the split's worst failure — a shader that keeps 32 lamps but different ones — is exactly what an A/B of the eviction path catches and the unit tests cannot, because the mock never runs the shader."
   },
   {
     "id": "0153",
@@ -2026,7 +2026,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/gpu/shaderCache.ts",
     "what": "New validateWgsl rule (mixedOperatorIssues): a nesting level that holds a relational operator and an unparenthesised `&`, `|` or `^` is rejected, which is the shape Tint refuses at createShaderModule with \"mixing '<' and '&' requires parenthesis\". Shifts with comparisons and the logical operators stay legal (checked against Tint), a `->` arrow is not a comparison, and a `<` jammed against identifiers is a type parameter list.",
-    "why": "The Phase 13.4 assignment shader generated exactly that shape from RANGE_KEY_BITS and only the browser gate saw it: the mock recorded the pass, check:wgsl was structurally green and the unit suite passed, while every frame failed to submit on a real device. Same policy as the reserved-word rule after 13.3 \u2014 what the browser gate finds becomes a CPU gate."
+    "why": "The Phase 13.4 assignment shader generated exactly that shape from RANGE_KEY_BITS and only the browser gate saw it: the mock recorded the pass, check:wgsl was structurally green and the unit suite passed, while every frame failed to submit on a real device. Same policy as the reserved-word rule after 13.3 — what the browser gate finds becomes a CPU gate."
   },
   {
     "id": "0157",
@@ -2037,7 +2037,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/lightCulling.ts",
-    "what": "The generated packed-range decode is now `((key >> shift) & mask)` \u2014 parenthesised as a whole \u2014 and the doc comment records why.",
+    "what": "The generated packed-range decode is now `((key >> shift) & mask)` — parenthesised as a whole — and the doc comment records why.",
     "why": "`slice < (key >> 14u) & 31u` is a parse error to Tint; the parentheses are what stops the valid grammar rule from being read as precedence the language does not have."
   },
   {
@@ -2145,7 +2145,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/RENDERING.md",
-    "what": "New \u00a74c (GPU light culling): why the fill moved and `prepare`/`count` did not, the no-read-back argument, the pass's shape (12 workgroups x 256, at most `counts[c]` entries per cluster), the packed range keys and the Tint parenthesisation rule, fill switching and the release-the-culler trap, and what the real-device gate proves; \u00a71's pass table, \u00a74b's identity/buffer paragraphs and \u00a79's limits updated to match.",
+    "what": "New §4c (GPU light culling): why the fill moved and `prepare`/`count` did not, the no-read-back argument, the pass's shape (12 workgroups x 256, at most `counts[c]` entries per cluster), the packed range keys and the Tint parenthesisation rule, fill switching and the release-the-culler trap, and what the real-device gate proves; §1's pass table, §4b's identity/buffer paragraphs and §9's limits updated to match.",
     "why": "The document is the reference the code comments and capability notes point at; it described a CPU-only build whose fill is now a compute pass."
   },
   {
@@ -2181,7 +2181,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "ARCHITECTURE.md",
-    "what": "\u00a75.5's as-built note: the fill is one compute pass (`forge.lights.assign`) whenever the device can execute it, with `lightCulling: \"cpu\"` as the fallback; only the worker-side build and spot/point shadows remain unbuilt.",
+    "what": "§5.5's as-built note: the fill is one compute pass (`forge.lights.assign`) whenever the device can execute it, with `lightCulling: \"cpu\"` as the fallback; only the worker-side build and spot/point shadows remain unbuilt.",
     "why": "The section is the architecture contract, and it still listed GPU-side assignment as not built."
   },
   {
@@ -2230,7 +2230,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/browser-check.mjs",
     "what": "The stacked-rig visibility check now compares idle -> rig (`compareLuma(\"fill-cpu\", \"stacked-cpu\")`), so `brighter` counts the light the rig adds, plus a new assertion that the rig cannot remove light (`darker === 0`).",
-    "why": "`compareLuma(a, b)` counts *b* brighter than *a*; the reversed arguments made the rig's own 2,414 px of light report as `darker`, so the gate threw `the stacked rig lit only 0 px` on a rig that was working \u2014 a false product failure that hid the real check (the per-cluster eviction's cpu-vs-gpu agreement) behind it. The section had never run before: the many-light assertion upstream threw first, every time the culler bug was present."
+    "why": "`compareLuma(a, b)` counts *b* brighter than *a*; the reversed arguments made the rig's own 2,414 px of light report as `darker`, so the gate threw `the stacked rig lit only 0 px` on a rig that was working — a false product failure that hid the real check (the per-cluster eviction's cpu-vs-gpu agreement) behind it. The section had never run before: the many-light assertion upstream threw first, every time the culler bug was present."
   },
   {
     "id": "0174",
@@ -2255,7 +2255,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Phase 13.4: the device fills the cluster grid (GPU light assignment)",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Phase 13.4: the device fills the cluster grid. The cluster build splits into three stages with three cost curves \u2014 prepare is O(lights), count is O(lights x slices + clusters) (a per-slice difference plane, so a lamp sweeping the grid costs the same corner writes as one in a single tile), and the fill (the lists) is O(coverage). Only the fill was worth moving: benchmarks/src/lights.bench.ts measures the demo-shaped rig at ~0.5 ms / 7,749 entries and a saturating rig (256 lamps, every cluster) at 50-75 ms / 98,304 entries = 3,072 clusters x the 32-entry cap, against 0.04-0.09 ms for the same frames' counting pass. prepare and count stay on the CPU because their output is needed exactly and immediately (the fragment stage indexes with counts, stats reports them, lightsDropped is a correctness signal) and neither grows with coverage; nothing is read back, so clustersUsed / clusterIndices / maxLightsPerCluster / lightsDropped are the CPU's own numbers for the same frame. The pass is forge.lights.assign, first in the frame (shadow/prepass never read the grid, forge.main's fragment stage does), one invocation per cluster in 12 workgroups of 256, reading the frame's packed ranges (ClusterRangeBlock, 2 KB; each light's tile/slice extents packed into one u32 by RANGE_KEY_BITS) and the grid's own counts, writing at most counts[c] entries per cluster so a wrong count trims a list instead of spilling into the next one; the shader is a transcription of the CPU fill (same light order, same intensity x Rec.709 luma eviction with ties keeping the earlier light, same re-sort), and assignClustersOnCpu is its TypeScript twin, pinned byte for byte by tests/lightCulling.test.ts including saturated lists. The grid block became fixed-stride (counts + indices, CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER = 98,304 u32, 405,504 B; ~416 KB resident) and RendererOptions.lightCulling = auto|cpu|gpu with stats.clusterFill and the demo's ?lightculling=cpu|gpu plus HUD drive it. Two bugs, both invisible to the CPU gates: Tint rejects a shift mixed with a comparison without parentheses (a *parse* error that invalidated every pipeline built from the module while the mock, check:wgsl and 537 tests stayed green), so the generated decode is ((key >> shift) & mask)u and validateWgsl (mixedOperatorIssues) now fails on that shape on the CPU side; and switching the fill to \"cpu\" disposed the GpuLightCuller but kept the reference, so the ??= reused a dead culler whose record() returns immediately \u2014 forge.lights.assign silently vanished after a cpu->gpu round trip (19 passes -> 18, while stats.clusterFill still said \"gpu\") and the grid was never refilled, which the real device showed as ~110k pixels darker in tile-shaped bands on the demo's 36-lamp rig. The setter now clears the field, tests/frame.test.ts pins the round trip, and check:browser asserts the pass is back in the frame before it reads a pixel, that the gpu arm owns the pass while the cpu arm lacks it, that the many-light frame is strictly brighter than the truncated uniform path with no pixel darker, and that the two fills agree over the fixture and past the per-cluster cap (a 40-lamp ball at the origin, where only the eviction path runs). That last section had never executed before this PR's culler fix \u2014 the many-light assertion upstream threw on every run \u2014 and it failed on a reversed pixel comparison (compareLuma counts the *second* argument brighter; the check asked for idle-vs-rig and so reported the rig's own 2,434 px as \"darker\"), now fixed and paired with an assertion that the rig can never remove light. Verified on a real device: fill handover back in the frame, many-light 81,499-88,596 px brighter with none darker, fill A/B 0 px differ with the pass owned by the gpu arm, stacked rig 2,414-2,434 px brighter with cap 32 reached and no cpu-vs-gpu difference; 565 tests in 41 files, bench guards, lint:arch, check:testmap, docs:check all green. rendering.gpuLightCulling verified; rendering.clusterCoverage deferred (perspective-only, 256/32 caps, ~416 KB resident \u2014 the roadmap schedules no work for it).",
+    "summary": "Phase 13.4: the device fills the cluster grid. The cluster build splits into three stages with three cost curves — prepare is O(lights), count is O(lights x slices + clusters) (a per-slice difference plane, so a lamp sweeping the grid costs the same corner writes as one in a single tile), and the fill (the lists) is O(coverage). Only the fill was worth moving: benchmarks/src/lights.bench.ts measures the demo-shaped rig at ~0.5 ms / 7,749 entries and a saturating rig (256 lamps, every cluster) at 50-75 ms / 98,304 entries = 3,072 clusters x the 32-entry cap, against 0.04-0.09 ms for the same frames' counting pass. prepare and count stay on the CPU because their output is needed exactly and immediately (the fragment stage indexes with counts, stats reports them, lightsDropped is a correctness signal) and neither grows with coverage; nothing is read back, so clustersUsed / clusterIndices / maxLightsPerCluster / lightsDropped are the CPU's own numbers for the same frame. The pass is forge.lights.assign, first in the frame (shadow/prepass never read the grid, forge.main's fragment stage does), one invocation per cluster in 12 workgroups of 256, reading the frame's packed ranges (ClusterRangeBlock, 2 KB; each light's tile/slice extents packed into one u32 by RANGE_KEY_BITS) and the grid's own counts, writing at most counts[c] entries per cluster so a wrong count trims a list instead of spilling into the next one; the shader is a transcription of the CPU fill (same light order, same intensity x Rec.709 luma eviction with ties keeping the earlier light, same re-sort), and assignClustersOnCpu is its TypeScript twin, pinned byte for byte by tests/lightCulling.test.ts including saturated lists. The grid block became fixed-stride (counts + indices, CLUSTER_COUNT x MAX_LIGHTS_PER_CLUSTER = 98,304 u32, 405,504 B; ~416 KB resident) and RendererOptions.lightCulling = auto|cpu|gpu with stats.clusterFill and the demo's ?lightculling=cpu|gpu plus HUD drive it. Two bugs, both invisible to the CPU gates: Tint rejects a shift mixed with a comparison without parentheses (a *parse* error that invalidated every pipeline built from the module while the mock, check:wgsl and 537 tests stayed green), so the generated decode is ((key >> shift) & mask)u and validateWgsl (mixedOperatorIssues) now fails on that shape on the CPU side; and switching the fill to \"cpu\" disposed the GpuLightCuller but kept the reference, so the ??= reused a dead culler whose record() returns immediately — forge.lights.assign silently vanished after a cpu->gpu round trip (19 passes -> 18, while stats.clusterFill still said \"gpu\") and the grid was never refilled, which the real device showed as ~110k pixels darker in tile-shaped bands on the demo's 36-lamp rig. The setter now clears the field, tests/frame.test.ts pins the round trip, and check:browser asserts the pass is back in the frame before it reads a pixel, that the gpu arm owns the pass while the cpu arm lacks it, that the many-light frame is strictly brighter than the truncated uniform path with no pixel darker, and that the two fills agree over the fixture and past the per-cluster cap (a 40-lamp ball at the origin, where only the eviction path runs). That last section had never executed before this PR's culler fix — the many-light assertion upstream threw on every run — and it failed on a reversed pixel comparison (compareLuma counts the *second* argument brighter; the check asked for idle-vs-rig and so reported the rig's own 2,434 px as \"darker\"), now fixed and paired with an assertion that the rig can never remove light. Verified on a real device: fill handover back in the frame, many-light 81,499-88,596 px brighter with none darker, fill A/B 0 px differ with the pass owned by the gpu arm, stacked rig 2,414-2,434 px brighter with cap 32 reached and no cpu-vs-gpu difference; 565 tests in 41 files, bench guards, lint:arch, check:testmap, docs:check all green. rendering.gpuLightCulling verified; rendering.clusterCoverage deferred (perspective-only, 256/32 caps, ~416 KB resident — the roadmap schedules no work for it).",
     "files": [
       "ARCHITECTURE.md",
       "ROADMAP.md",
@@ -2307,7 +2307,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/gpu/layout.ts",
     "what": "New `atomicU32` `FieldType` (4 bytes, emits `atomic<u32>`) and a `uniformLayoutProblems` rule that rejects it in the uniform address space. `alignOf`/`sizeOf`/`wgslType` handle it.",
-    "why": "WGSL only allows atomics in the storage address space, so the struct generator has to be able to say `atomic<u32>` \u2014 and only there. The registry then keeps its promise that a struct it emits for `uniform` is legal in that space.",
+    "why": "WGSL only allows atomics in the storage address space, so the struct generator has to be able to say `atomic<u32>` — and only there. The registry then keeps its promise that a struct it emits for `uniform` is legal in that space.",
     "note": "The first real-device run of Phase 13.5 is what surfaced this: `check:wgsl`, the mock device and 584 tests were all green on a `u32` counter block that no GPU would compile."
   },
   {
@@ -2321,7 +2321,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "engine/src/rendering/objectCulling.ts",
     "what": "New module: `cullPlanesFrom` (the same six planes `Frustum.setFromViewProjection` derives, unnormalized), `cullBatchesOnCpu` (the shader's twin: frustum sphere test, per-batch distance limit, HiZ rectangle + texel walk), `buildHizOnCpu`/`hizLevelCount`/`hizLevelSize` (view-space-metre pyramid, 2x2 max per level), `HIZ_DEPTH_SHADER`/`HIZ_REDUCE_SHADER`/`OBJECT_CULL_SHADER` (generated from the structs and constants, one invocation per batch, `atomicAdd` into the counters), and `GpuObjectCuller` (pipelines, bounds/stats/HiZ buffers, per-frame `hizLevelsFrame`, `mapAsync` readback of the counters one frame late, `dispose`).",
     "why": "Phase 13.5: decide batch visibility on the device (frustum, per-batch distance, HiZ occlusion), with a CPU twin the mock device can run so every CPU gate still sees real verdicts.",
-    "note": "Two real-device bugs found here, both invisible to the CPU gates: a depth texture's `textureLoad` needs the mip level explicitly (Chromium accepts the two-argument form, Tint does not), and the HiZ pixel row is the negated NDC y (texel row 0 is the top) \u2014 the mirrored rectangle tested the other half of the screen and culled floating geometry against the ground below it."
+    "note": "Two real-device bugs found here, both invisible to the CPU gates: a depth texture's `textureLoad` needs the mip level explicitly (Chromium accepts the two-argument form, Tint does not), and the HiZ pixel row is the negated NDC y (texel row 0 is the top) — the mirrored rectangle tested the other half of the screen and culled floating geometry against the ground below it."
   },
   {
     "id": "0179",
@@ -2434,7 +2434,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tests/wgsl.test.ts",
     "what": "The storage-registry assertion now lists all seven names (ClusterGrid/Light/Range/RangeEntry + ObjectBatchBlock/ObjectBatchEntry/ObjectCullStatsBlock).",
-    "why": "Adding a storage struct to `RENDERING_STORAGE_STRUCTS` without extending the exact-key list broke the suite \u2014 the list is the guard that every registered struct is validated."
+    "why": "Adding a storage struct to `RENDERING_STORAGE_STRUCTS` without extending the exact-key list broke the suite — the list is the guard that every registered struct is validated."
   },
   {
     "id": "0188",
@@ -2470,7 +2470,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tools/browser-check.mjs",
     "what": "New Phase 13.5 section (plus a doc-header entry): freezes the PBR fixture, A/Bs the device culler against the CPU twin (identical pixels, `forge.objects.cull` owned by the gpu arm only, the device counters either zero or the frame's batch count), then switches HiZ off and asserts the pyramid passes are gone, nothing got darker and no pixel moved; restores `auto` and checks the mode resolves back to the device path.",
-    "why": "The mock cannot execute a compute shader: only a real device can prove the pass compiles, runs, and draws the same frame the twin draws. \"HiZ off never darkens a pixel\" is the assertion that catches a cull too many \u2014 it is what caught the mirrored-rectangle bug.",
+    "why": "The mock cannot execute a compute shader: only a real device can prove the pass compiles, runs, and draws the same frame the twin draws. \"HiZ off never darkens a pixel\" is the assertion that catches a cull too many — it is what caught the mirrored-rectangle bug.",
     "note": "The two culls of the same frame: 0 px differ, 0 px darker with HiZ off, 4 pyramid passes on and 0 off."
   },
   {
@@ -2531,7 +2531,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/core/capabilities.ts",
-    "what": "`rendering.gpuCulling` is `verified` (with evidence and the gate's claims); `rendering.depthReuse` now names the HiZ pyramid as a consumer and closes with 13.1 rather than 13.5; new `rendering.cullCoverage` (`partial`, closes with 13.6) records the honest limits \u2014 per-batch granularity, uploads that still happen, no occlusion on the CPU twin, the 8192 cap, the lagged device counters.",
+    "what": "`rendering.gpuCulling` is `verified` (with evidence and the gate's claims); `rendering.depthReuse` now names the HiZ pyramid as a consumer and closes with 13.1 rather than 13.5; new `rendering.cullCoverage` (`partial`, closes with 13.6) records the honest limits — per-batch granularity, uploads that still happen, no occlusion on the CPU twin, the 8192 cap, the lagged device counters.",
     "why": "The registry is the source of truth `docs:check` enforces: a verified capability may not keep a known-issue bullet, and work that is still missing needs an entry that names what closes it."
   },
   {
@@ -2543,7 +2543,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/RENDERING.md",
-    "what": "New \u00a74d \"GPU object culling (Phase 13.5)\": the one-word-per-batch contract and how a culled batch collapses, the three tests and why each is conservative, the CPU twin and why `auto` picks it on a mock, the pass order and the per-frame level count, the atomic counters and the one-frame lag, growth/lifetime, what it does not do (13.6 owns compaction), and what the browser gate proves; \u00a71's frame diagram, settings table and stats list updated to match.",
+    "what": "New §4d \"GPU object culling (Phase 13.5)\": the one-word-per-batch contract and how a culled batch collapses, the three tests and why each is conservative, the CPU twin and why `auto` picks it on a mock, the pass order and the per-frame level count, the atomic counters and the one-frame lag, growth/lifetime, what it does not do (13.6 owns compaction), and what the browser gate proves; §1's frame diagram, settings table and stats list updated to match.",
     "why": "This is the document that describes what the renderer does today; the mirrored-row and depth-texture findings belong next to the test that pins them, so the next person cannot \"fix\" the sign back."
   },
   {
@@ -2556,7 +2556,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "docs/KNOWN-ISSUES.md",
     "what": "The prepass-depth entry now names three consumers (SSAO, soft particles, HiZ culling) and drops \"no GPU/HiZ culling\"; a new entry records the culling limits (per batch, uploads still happen, twin has no occlusion, 8192 cap, lagged counters).",
-    "why": "`docs:check` fails a bullet that references a verified capability, so the entries have to move with the registry \u2014 and the limits are real, so they belong in writing."
+    "why": "`docs:check` fails a bullet that references a verified capability, so the entries have to move with the registry — and the limits are real, so they belong in writing."
   },
   {
     "id": "0198",
@@ -2592,7 +2592,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "change-log.md",
     "what": "This file: one `change` entry per Phase 13.5 file (22 of them), plus the `pr-merge` summary appended before the merge.",
-    "why": "`AGENTS.md` \u00a77 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
+    "why": "`AGENTS.md` §7 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
   },
   {
     "id": "0201",
@@ -2604,7 +2604,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Phase 13.5: the device culls objects (frustum, distance, HiZ occlusion)",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Phase 13.5: the device culls objects. `GpuObjectCuller` (`engine/src/rendering/objectCulling.ts`) takes the frame's batches as one bounds entry each (AABB + the batch's per-object distance limit in `min.w`) and writes one u32 visibility word per batch, which the standard shader's vertex stage reads at `batchVisibility[objectData.visibilityIndex]` and answers by pushing the whole batch below the near plane (`cullBatch` -> `vec4(0,0,-1,1)`; a draw cannot express \"zero instances\" without 13.6's indirect path). Three tests run on the device in one pass: frustum (the six planes from `viewProj`, sphere against plane), distance (per batch, the merged limit), and HiZ occlusion against a four-level max-pyramid the same module builds from `scene.depth` (2x2 reduce, view-space metres, level k = max of its four children, rectangle chosen per level by the batch's screen span, one texel walk; conservatively visible when the near plane straddles the bounds or the pyramid is not there). Counters are `atomic<u32>` and read back one frame late, because that is what the gate found first: Tint has no plain-`u32` `atomicAdd` overload and the mock, `check:wgsl` and 584 tests were all green on a shader no GPU would compile (same class as 13.4's parenthesised shift). The pass order is `forge.prepass` -> `forge.hiz.0..3` -> `forge.objects.cull` -> SSAO, so occlusion tests what the prepass just laid down; the culler keeps `hizLevelsFrame` apart from `hizLevels` so a frame with no prepass cannot make a pass read a texture nothing wrote (the render graph's own rule, previously a `UsageError`). `RendererOptions.objectCulling = auto|cpu|gpu` and `occlusionCulling`, plus `RenderStats.cullTested/cullFrustum/cullDistance/cullOccluded` and the demo's `?objectculling=`/`?occlusionculling=` and HUD line drive it; the CPU twin `cullBatchesOnCpu`/`buildHizOnCpu` is what the mock device runs, so every existing CPU gate sees real verdicts, and `Renderable.maxDistance` is the new per-object knob. The second real-device-only bug was the HiZ rectangle's y: NDC +y is up and texel row 0 is the top, so the mirrored rectangle proved floating geometry occluded against rows nearer than it \u2014 the gate saw it as `16161 px differ by up to 162.0 luma levels` in the prepass A/B, and the fix (`pixel.y = (0.5 - ndc.y * 0.5) * extent.y`, the same shape in the twin) is pinned by a floor-depth test that fails if the twin's sign is flipped. Measured: `tests/objectCulling.test.ts` 16 tests (mirrors, pyramid sizing/metres/limit, frustum + distance + occlusion sweeps, `MAX_CULLED_BATCHES`, the two-frame level count), `tests/frame.test.ts` 24 (default is `cpu` with zeroed words and `cullTested === batches`; the sky camera's batch is `CullReason.Frustum`; the gpu arm adds `forge.objects.cull` + `forge.hiz.0` and dispatches ceil(batches/64); a cpu->gpu round trip re-adds the pass rather than reusing a disposed culler), 42 suites / 584 tests, and the real-device gate: gpu vs cpu over the fixture 5 batches / 5 tested / max luma diff 0.00 / 0 px beyond one level, `forge.objects.cull` owned by the gpu arm and absent from the cpu arm, occlusion on->off 4 HiZ passes -> 0 with 0 px darker and 0 px beyond one level, restored to `mode gpu, occlusion true` -- and no new GPU errors. benchmarks/src/culling.bench.ts (in `npm run bench`) measures the twin at 0.892 us/batch over 2048 batches and 1.118 us at 8192 (1.25x for 4x the batches); the 8192 cap costs 9.16 ms/frame (3.01 frustum, 3.70 with the distance limits), and the 1280x720 four-level pyramid 39.52 ms/frame -- the reduction the twin does not do and the reason the device is the default. Docs: `docs/RENDERING.md` section 4d (the one-word contract, the twin, the pass order, the atomics and their one-frame lag, the 13.6 boundary), `docs/KNOWN-ISSUES.md` and `docs/ROADMAP.md` (13.5 closed; two follow-ups opened: per-instance culling and cascade culling through the same pass), `docs/VERIFICATION.md` (including the note that the Mars HGA poll is environment-bound here). Capabilities: `rendering.gpuCulling` verified, `rendering.cullCoverage` partial (closes 13.6's per-batch boundary, the 8192 cap, the twin has no occlusion, uploads still happen), `rendering.depthReuse` now names its three consumers. `npm run verify`, `lint:arch`, `check:testmap`, `tsc -p benchmarks` and `docs:check` are green (92 capabilities: 47 verified / 25 partial / 16 planned / 4 deferred). One gate caveat recorded rather than hidden: `check:browser` exits 1 on this sandbox's Mars HGA poll, reproduced at `2c24cec` before any of this code \u2014 and the same commit's full gate, that poll included, is green in CI.",
+    "summary": "Phase 13.5: the device culls objects. `GpuObjectCuller` (`engine/src/rendering/objectCulling.ts`) takes the frame's batches as one bounds entry each (AABB + the batch's per-object distance limit in `min.w`) and writes one u32 visibility word per batch, which the standard shader's vertex stage reads at `batchVisibility[objectData.visibilityIndex]` and answers by pushing the whole batch below the near plane (`cullBatch` -> `vec4(0,0,-1,1)`; a draw cannot express \"zero instances\" without 13.6's indirect path). Three tests run on the device in one pass: frustum (the six planes from `viewProj`, sphere against plane), distance (per batch, the merged limit), and HiZ occlusion against a four-level max-pyramid the same module builds from `scene.depth` (2x2 reduce, view-space metres, level k = max of its four children, rectangle chosen per level by the batch's screen span, one texel walk; conservatively visible when the near plane straddles the bounds or the pyramid is not there). Counters are `atomic<u32>` and read back one frame late, because that is what the gate found first: Tint has no plain-`u32` `atomicAdd` overload and the mock, `check:wgsl` and 584 tests were all green on a shader no GPU would compile (same class as 13.4's parenthesised shift). The pass order is `forge.prepass` -> `forge.hiz.0..3` -> `forge.objects.cull` -> SSAO, so occlusion tests what the prepass just laid down; the culler keeps `hizLevelsFrame` apart from `hizLevels` so a frame with no prepass cannot make a pass read a texture nothing wrote (the render graph's own rule, previously a `UsageError`). `RendererOptions.objectCulling = auto|cpu|gpu` and `occlusionCulling`, plus `RenderStats.cullTested/cullFrustum/cullDistance/cullOccluded` and the demo's `?objectculling=`/`?occlusionculling=` and HUD line drive it; the CPU twin `cullBatchesOnCpu`/`buildHizOnCpu` is what the mock device runs, so every existing CPU gate sees real verdicts, and `Renderable.maxDistance` is the new per-object knob. The second real-device-only bug was the HiZ rectangle's y: NDC +y is up and texel row 0 is the top, so the mirrored rectangle proved floating geometry occluded against rows nearer than it — the gate saw it as `16161 px differ by up to 162.0 luma levels` in the prepass A/B, and the fix (`pixel.y = (0.5 - ndc.y * 0.5) * extent.y`, the same shape in the twin) is pinned by a floor-depth test that fails if the twin's sign is flipped. Measured: `tests/objectCulling.test.ts` 16 tests (mirrors, pyramid sizing/metres/limit, frustum + distance + occlusion sweeps, `MAX_CULLED_BATCHES`, the two-frame level count), `tests/frame.test.ts` 24 (default is `cpu` with zeroed words and `cullTested === batches`; the sky camera's batch is `CullReason.Frustum`; the gpu arm adds `forge.objects.cull` + `forge.hiz.0` and dispatches ceil(batches/64); a cpu->gpu round trip re-adds the pass rather than reusing a disposed culler), 42 suites / 584 tests, and the real-device gate: gpu vs cpu over the fixture 5 batches / 5 tested / max luma diff 0.00 / 0 px beyond one level, `forge.objects.cull` owned by the gpu arm and absent from the cpu arm, occlusion on->off 4 HiZ passes -> 0 with 0 px darker and 0 px beyond one level, restored to `mode gpu, occlusion true` -- and no new GPU errors. benchmarks/src/culling.bench.ts (in `npm run bench`) measures the twin at 0.892 us/batch over 2048 batches and 1.118 us at 8192 (1.25x for 4x the batches); the 8192 cap costs 9.16 ms/frame (3.01 frustum, 3.70 with the distance limits), and the 1280x720 four-level pyramid 39.52 ms/frame -- the reduction the twin does not do and the reason the device is the default. Docs: `docs/RENDERING.md` section 4d (the one-word contract, the twin, the pass order, the atomics and their one-frame lag, the 13.6 boundary), `docs/KNOWN-ISSUES.md` and `docs/ROADMAP.md` (13.5 closed; two follow-ups opened: per-instance culling and cascade culling through the same pass), `docs/VERIFICATION.md` (including the note that the Mars HGA poll is environment-bound here). Capabilities: `rendering.gpuCulling` verified, `rendering.cullCoverage` partial (closes 13.6's per-batch boundary, the 8192 cap, the twin has no occlusion, uploads still happen), `rendering.depthReuse` now names its three consumers. `npm run verify`, `lint:arch`, `check:testmap`, `tsc -p benchmarks` and `docs:check` are green (92 capabilities: 47 verified / 25 partial / 16 planned / 4 deferred). One gate caveat recorded rather than hidden: `check:browser` exits 1 on this sandbox's Mars HGA poll, reproduced at `2c24cec` before any of this code — and the same commit's full gate, that poll included, is green in CI.",
     "files": [
       "ROADMAP.md",
       "benchmarks/run.mjs",
@@ -2714,7 +2714,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0208",
     "file": "tests/frame.test.ts",
-    "what": "Three tests for the submission path. One asserts the frame's records came from the batch (index count, one instance) and that a culled batch's record is zeroed \u2014 with the identities over the pass's counters and the list/records agreeing batch by batch. One A/Bs the two paths on a fixture with a 1 m draw distance (so the device, not the CPU, is what drops a batch the frame built) and asserts the direct arm pays for exactly the culled batches' vertices (`indexCount * instanceCount`, read out of `draw.uniforms`). One asserts `CULL_FLAG_RECORDS` follows `indirectDraws`: set and records written on the indirect path, clear and no writes on the direct path, and the CPU twin's records submitting a frame of their own.",
+    "what": "Three tests for the submission path. One asserts the frame's records came from the batch (index count, one instance) and that a culled batch's record is zeroed — with the identities over the pass's counters and the list/records agreeing batch by batch. One A/Bs the two paths on a fixture with a 1 m draw distance (so the device, not the CPU, is what drops a batch the frame built) and asserts the direct arm pays for exactly the culled batches' vertices (`indexCount * instanceCount`, read out of `draw.uniforms`). One asserts `CULL_FLAG_RECORDS` follows `indirectDraws`: set and records written on the indirect path, clear and no writes on the direct path, and the CPU twin's records submitting a frame of their own.",
     "why": "Roadmap 13.6's acceptance: the records drive real draws, a culled batch costs nothing, and the switch really switches."
   },
   {
@@ -2726,7 +2726,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0209",
     "file": "examples/src/main.ts",
-    "what": "`?indirectdraws=0|1`, `setIndirectDraws` / `indirectDraws` on `__forge`, and `setObjectDistance(metres)` (negative restores each entity's own `Renderable.maxDistance`) so a gate can make the device cull a batch the frame built. The HUD's cull line now reads `N tested (...) \u2192 M drawn, K indirect (Z zero)`.",
+    "what": "`?indirectdraws=0|1`, `setIndirectDraws` / `indirectDraws` on `__forge`, and `setObjectDistance(metres)` (negative restores each entity's own `Renderable.maxDistance`) so a gate can make the device cull a batch the frame built. The HUD's cull line now reads `N tested (...) → M drawn, K indirect (Z zero)`.",
     "why": "Roadmap 13.6's demo surface, and a distance knob is the only way to exercise the pass's own distance verdict on a scene the CPU frame has already accepted."
   },
   {
@@ -2738,7 +2738,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0210",
     "file": "tools/browser-check.mjs",
-    "what": "A new arm after 13.5's: freeze the fixture, capture luma with indirect draws on, switch them off, capture again \u2014 assert `indirectDraws === batches` on one arm and `0` on the other with zero pixels between the two pictures, then check the pass's identities per arm (the direct arm must have zeroed no records). Then set a 1 m draw distance with the indirect path on and assert `cullDistance > 0`, `recordZeroed === frustum + distance + occluded` and `visible === batches - recordZeroed`, restoring the scene's own limits and the switch afterwards.",
+    "what": "A new arm after 13.5's: freeze the fixture, capture luma with indirect draws on, switch them off, capture again — assert `indirectDraws === batches` on one arm and `0` on the other with zero pixels between the two pictures, then check the pass's identities per arm (the direct arm must have zeroed no records). Then set a 1 m draw distance with the indirect path on and assert `cullDistance > 0`, `recordZeroed === frustum + distance + occluded` and `visible === batches - recordZeroed`, restoring the scene's own limits and the switch afterwards.",
     "why": "Only a real device can prove the record words are the draw commands; the mock proves the arithmetic, the gate proves the submission."
   },
   {
@@ -2750,7 +2750,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0211",
     "file": "benchmarks/src/culling.bench.ts",
-    "what": "A note on why 13.6 adds no curve: the record write is one store and one `atomicAdd` inside the invocation the sweep already times, so the existing numbers still bound the pass, and the saving 13.6 introduces is per *instance* (a zeroed record never enters the vertex stage) which the mock can only count \u2014 measured as a difference in `tests/frame.test.ts` and on a device by the gate.",
+    "what": "A note on why 13.6 adds no curve: the record write is one store and one `atomicAdd` inside the invocation the sweep already times, so the existing numbers still bound the pass, and the saving 13.6 introduces is per *instance* (a zeroed record never enters the vertex stage) which the mock can only count — measured as a difference in `tests/frame.test.ts` and on a device by the gate.",
     "why": "A reader of the benchmark should not think the indirect path's cost is untested, nor that the file is where it is measured."
   },
   {
@@ -2762,7 +2762,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0212",
     "file": "docs/RENDERING.md",
-    "what": "New \u00a74e (indirect draws and compaction): the 32-byte record and why the CPU owns the index window while the pass owns one word, the single verdict that drives the word/counters/list/record, the compaction list and its device order, the `MAX_CULLED_BATCHES` rule that keeps untested batches drawable, the two submission paths and their pixel identity, what the mock reads back, and what the gate proves on a device. \u00a74d's closing paragraph now points at 13.6 as delivered instead of pending.",
+    "what": "New §4e (indirect draws and compaction): the 32-byte record and why the CPU owns the index window while the pass owns one word, the single verdict that drives the word/counters/list/record, the compaction list and its device order, the `MAX_CULLED_BATCHES` rule that keeps untested batches drawable, the two submission paths and their pixel identity, what the mock reads back, and what the gate proves on a device. §4d's closing paragraph now points at 13.6 as delivered instead of pending.",
     "why": "The architecture doc is the long form of the roadmap item; the record layout and the flag are contracts a next session must not re-derive."
   },
   {
@@ -2786,7 +2786,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0214",
     "file": "engine/src/core/capabilities.ts",
-    "what": "`rendering.indirectDraw` promoted planned -> verified (the record, the submission switch, the compaction list, stats, the gate's evidence), and `rendering.cullCoverage` re-scoped now that 13.6 consumes the verdict: what remains is per-instance culling, the instance-arena upload and a `firstInstance` rewrite from the compaction list \u2014 none of it scheduled; `rendering.gpuCulling`'s note now says the pass also writes the records and the list.",
+    "what": "`rendering.indirectDraw` promoted planned -> verified (the record, the submission switch, the compaction list, stats, the gate's evidence), and `rendering.cullCoverage` re-scoped now that 13.6 consumes the verdict: what remains is per-instance culling, the instance-arena upload and a `firstInstance` rewrite from the compaction list — none of it scheduled; `rendering.gpuCulling`'s note now says the pass also writes the records and the list.",
     "why": "The registry is what `docs:check` and the next session read as the truth about what a phase delivered."
   },
   {
@@ -2798,7 +2798,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "id": "0215",
     "file": "docs/KNOWN-ISSUES.md",
-    "what": "Two limitations rewritten for 13.6: the per-batch entry now says a culled batch is a zero-instance record (so it no longer enters the vertex stage), keeps the upload/one-instance/8192-cap/no-occlusion-on-the-twin caveats and points at \u00a74e; and a new entry says the compaction list is produced but not consumed \u2014 the instance arena is still written and bound for every renderable, records exist only when `indirectDraws` is on, the cascades keep their own AABB test, and the occlusion test is still perspective-only.",
+    "what": "Two limitations rewritten for 13.6: the per-batch entry now says a culled batch is a zero-instance record (so it no longer enters the vertex stage), keeps the upload/one-instance/8192-cap/no-occlusion-on-the-twin caveats and points at §4e; and a new entry says the compaction list is produced but not consumed — the instance arena is still written and bound for every renderable, records exist only when `indirectDraws` is on, the cascades keep their own AABB test, and the occlusion test is still perspective-only.",
     "why": "`docs:check` fails a stale limitation, and a reader needs to know which half of 13.6 landed and which did not (capability: rendering.cullCoverage)."
   },
   {
@@ -2835,7 +2835,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "0218",
     "file": "change-log.md",
     "what": "This file: one `change` entry per Phase 13.6 file (13), plus the `pr-merge` summary appended before the merge.",
-    "why": "`AGENTS.md` \u00a77 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
+    "why": "`AGENTS.md` §7 requires one entry per touched file and a PR summary, with the JSON fence still parsing."
   },
   {
     "id": "0219",
@@ -2847,7 +2847,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Phase 13.6: the cull pass writes the draws (indirect records + compaction list)",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Phase 13.6: indirect rendering. The cull pass no longer stops at a verdict \u2014 it writes the frame's draw commands. One 32-byte record per batch (`DRAW_RECORD_WORDS` 8, `DRAW_RECORD_BYTES` 32, `DRAW_RECORD_INSTANCES` 1, 16-aligned slots so `drawIndexedIndirect` and `drawIndirect` both read them) lives in `cull.drawRecords` (`STORAGE | INDIRECT | COPY_DST`, grown in 256-byte steps): the CPU seeds the index window from the batch (indexCount / count / indexStart, 0 for a non-indexed batch) and the pass owns **word 1 alone** \u2014 the batch's instance count (uploaded as `ObjectBatchEntry.max.w`) when the verdict is visible, `0` plus `recordZeroed` when it is not. The verdict is computed once (`cullReasonOf`, extracted), and one write site turns it into the visibility word, the counter, `slot = atomicAdd(&counts.visible, 1u)` into `cull.visibleBatches` (the compacted list of survivors, at most `MAX_CULLED_BATCHES`, in the device's own order) and the record, so nothing in the frame can disagree with what the vertex stage read. The twin writes exactly the same words (`cullBatchesOnCpu` with `ObjectCullOutputs`, behind `CULL_FLAG_RECORDS`), and the pass only touches `index < min(batchCount, MAX_CULLED_BATCHES)` \u2014 the renderer pre-fills every slot with the batch's own count, so a slot past the cap keeps saying \"draw\". `Renderer.indirectDraws` (default on, `invalidate()` on change) submits `forge.main` through `drawIndexedIndirect` / `drawIndirect` at `batch.cullIndex * DRAW_RECORD_BYTES`; the direct arm is kept as the A/B \u2014 same batches, same words, same pixels \u2014 and sets no `CULL_FLAG_RECORDS`, so it pays for no record it will not read. Shadow and prepass keep their own draws and their own culling. `RenderStats` gained `cullVisible`, `cullRecordZeroed` and `indirectDraws` (the first two through the same one-frame-late readback as 13.5's counters). The mock device now parses the record out of `buffer.data` for both indirect draws and logs its fields, which is the only reason a CPU gate can assert the device-side instance count: `tests/objectCulling.test.ts` (19, was 16) pins the shader's single write site, the twin's outputs and both identities (`visible = tested - culled`, `recordZeroed = sum(culled)`), and \u2014 with sentinel-filled buffers \u2014 that a frame without the flag writes nothing and that past the cap the CPU's count survives; `tests/frame.test.ts` (27, was 24) asserts the records drive the frame, that the two submission paths differ by exactly the culled batches' `indexCount * instanceCount` vertices (read out of `draw.uniforms`, on a fixture whose 1 m draw distance makes the device, not the CPU, the decider), and that the flag follows the switch. `npm run verify` (42 files / 590 tests + check:wgsl), `lint:arch`, `check:testmap` and `docs:check` (92 capabilities: 48 verified / 25 partial / 15 planned / 4 deferred) are green. `check:browser` gained the arm that only a device can settle: a 1 m draw distance over the fixture makes the device drop batches the frame built, the two submission paths then have to draw the same picture to the pixel (one through a zero-instance record, one through 13.5's collapsed clip position), the direct arm must issue zero indirect draws and the same number of draw calls, and the pass's counters must satisfy `recordZeroed = culled` on the record arm and `0` on the direct one. It **did not run locally** \u2014 the sandbox snapshot has no browser (`~/.cache` is excluded and the Playwright CDN is unreachable), so the gate exits 2 with `NOT RUN \u2014 no launchable browser`, which `docs/VERIFICATION.md` now documents as its own state \u2014 but the PR's advisory WebGPU job ran it on a real SwiftShader adapter and passed end to end: `check:browser passed (real WebGPU, headless Chromium + SwiftShader) \u2014 gpu: adapter ok (google / swiftshader)`, the Phase 13.6 arm included, ~17 minutes after the push.",
+    "summary": "Phase 13.6: indirect rendering. The cull pass no longer stops at a verdict — it writes the frame's draw commands. One 32-byte record per batch (`DRAW_RECORD_WORDS` 8, `DRAW_RECORD_BYTES` 32, `DRAW_RECORD_INSTANCES` 1, 16-aligned slots so `drawIndexedIndirect` and `drawIndirect` both read them) lives in `cull.drawRecords` (`STORAGE | INDIRECT | COPY_DST`, grown in 256-byte steps): the CPU seeds the index window from the batch (indexCount / count / indexStart, 0 for a non-indexed batch) and the pass owns **word 1 alone** — the batch's instance count (uploaded as `ObjectBatchEntry.max.w`) when the verdict is visible, `0` plus `recordZeroed` when it is not. The verdict is computed once (`cullReasonOf`, extracted), and one write site turns it into the visibility word, the counter, `slot = atomicAdd(&counts.visible, 1u)` into `cull.visibleBatches` (the compacted list of survivors, at most `MAX_CULLED_BATCHES`, in the device's own order) and the record, so nothing in the frame can disagree with what the vertex stage read. The twin writes exactly the same words (`cullBatchesOnCpu` with `ObjectCullOutputs`, behind `CULL_FLAG_RECORDS`), and the pass only touches `index < min(batchCount, MAX_CULLED_BATCHES)` — the renderer pre-fills every slot with the batch's own count, so a slot past the cap keeps saying \"draw\". `Renderer.indirectDraws` (default on, `invalidate()` on change) submits `forge.main` through `drawIndexedIndirect` / `drawIndirect` at `batch.cullIndex * DRAW_RECORD_BYTES`; the direct arm is kept as the A/B — same batches, same words, same pixels — and sets no `CULL_FLAG_RECORDS`, so it pays for no record it will not read. Shadow and prepass keep their own draws and their own culling. `RenderStats` gained `cullVisible`, `cullRecordZeroed` and `indirectDraws` (the first two through the same one-frame-late readback as 13.5's counters). The mock device now parses the record out of `buffer.data` for both indirect draws and logs its fields, which is the only reason a CPU gate can assert the device-side instance count: `tests/objectCulling.test.ts` (19, was 16) pins the shader's single write site, the twin's outputs and both identities (`visible = tested - culled`, `recordZeroed = sum(culled)`), and — with sentinel-filled buffers — that a frame without the flag writes nothing and that past the cap the CPU's count survives; `tests/frame.test.ts` (27, was 24) asserts the records drive the frame, that the two submission paths differ by exactly the culled batches' `indexCount * instanceCount` vertices (read out of `draw.uniforms`, on a fixture whose 1 m draw distance makes the device, not the CPU, the decider), and that the flag follows the switch. `npm run verify` (42 files / 590 tests + check:wgsl), `lint:arch`, `check:testmap` and `docs:check` (92 capabilities: 48 verified / 25 partial / 15 planned / 4 deferred) are green. `check:browser` gained the arm that only a device can settle: a 1 m draw distance over the fixture makes the device drop batches the frame built, the two submission paths then have to draw the same picture to the pixel (one through a zero-instance record, one through 13.5's collapsed clip position), the direct arm must issue zero indirect draws and the same number of draw calls, and the pass's counters must satisfy `recordZeroed = culled` on the record arm and `0` on the direct one. It **did not run locally** — the sandbox snapshot has no browser (`~/.cache` is excluded and the Playwright CDN is unreachable), so the gate exits 2 with `NOT RUN — no launchable browser`, which `docs/VERIFICATION.md` now documents as its own state — but the PR's advisory WebGPU job ran it on a real SwiftShader adapter and passed end to end: `check:browser passed (real WebGPU, headless Chromium + SwiftShader) — gpu: adapter ok (google / swiftshader)`, the Phase 13.6 arm included, ~17 minutes after the push.",
     "files": [
       "ROADMAP.md",
       "benchmarks/src/culling.bench.ts",
@@ -2926,7 +2926,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/core/capabilities.ts",
     "what": "Promoted rendering.asyncPipelines and rendering.gpuTiming to verified with test evidence; clarified the profiler is partial only for missing suite/UI.",
-    "why": "Synchronize capability states and known limitations with Phases 13.7\u201313.8."
+    "why": "Synchronize capability states and known limitations with Phases 13.7–13.8."
   },
   {
     "id": "0225",
@@ -2962,7 +2962,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/debug/profiler.ts",
     "what": "Accepted GPU samples with their originating frame index and merged delayed pass/frame times into that matching record.",
-    "why": "Async map readback must not attribute a previous frame\u2019s timing to the currently active frame."
+    "why": "Async map readback must not attribute a previous frame’s timing to the currently active frame."
   },
   {
     "id": "0228",
@@ -3009,7 +3009,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/lightCulling.ts",
-    "what": "Recorded clustered-light assignment through the graph\u2019s timestamp-aware compute-pass helper.",
+    "what": "Recorded clustered-light assignment through the graph’s timestamp-aware compute-pass helper.",
     "why": "Expose GPU duration for the clustered-light fill pass."
   },
   {
@@ -3058,7 +3058,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/rendering/renderer.ts",
     "what": "Used nonblocking pipeline lookups with startup depth/AO fallbacks; surfaced async pipeline and GPU timing stats and forwarded samples to the matching Profiler frame.",
-    "why": "Integrate Phases 13.7\u201313.8 into normal frame rendering and engine diagnostics."
+    "why": "Integrate Phases 13.7–13.8 into normal frame rendering and engine diagnostics."
   },
   {
     "id": "0236",
@@ -3141,7 +3141,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "mnemosyne.md",
-    "what": "Recorded Phase 13.7\u201313.8 implementation and verification, the browser readback synchronization lesson, the known HGA timeout, and the lack of reliable Phase 13.6 duration evidence.",
+    "what": "Recorded Phase 13.7–13.8 implementation and verification, the browser readback synchronization lesson, the known HGA timeout, and the lack of reliable Phase 13.6 duration evidence.",
     "why": "Preserve implementation traps and factual verification/time provenance for the next session without inventing task durations."
   },
   {
@@ -3153,8 +3153,8 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "change-log.md",
-    "what": "Appended one change entry per Phase 13.7\u201313.8 file touched in this work.",
-    "why": "Follow AGENTS.md \u00a77 activity-history requirements and preserve a parseable JSON record."
+    "what": "Appended one change entry per Phase 13.7–13.8 file touched in this work.",
+    "why": "Follow AGENTS.md §7 activity-history requirements and preserve a parseable JSON record."
   },
   {
     "id": "0244",
@@ -3381,7 +3381,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/shaders/standard.ts",
-    "what": "Added 3\u00d73 PCF spot sampling with map-specific depth/normal bias and routed spot light indices to their atlas layers.",
+    "what": "Added 3×3 PCF spot sampling with map-specific depth/normal bias and routed spot light indices to their atlas layers.",
     "why": "Apply spot-map visibility to both clustered and uniform light shading through the shared light function."
   },
   {
@@ -3537,7 +3537,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/uniforms.ts",
-    "what": "Added MAX_POINT_SHADOWS (2) and POINT_SHADOW_FACES (6), extended MAX_SHADOW_LAYERS to twenty depth-pass slots, and added pointViewProj/pointParams/pointCount to ShadowUniforms (656 \u2192 1456 B).",
+    "what": "Added MAX_POINT_SHADOWS (2) and POINT_SHADOW_FACES (6), extended MAX_SHADOW_LAYERS to twenty depth-pass slots, and added pointViewProj/pointParams/pointCount to ShadowUniforms (656 → 1456 B).",
     "why": "Phase 13.9 point shadows: each point light renders six cube faces into the shared atlas and the shader needs per-face matrices plus per-light bias/texel parameters."
   },
   {
@@ -3549,7 +3549,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/shadows.ts",
-    "what": "Added computePointShadow + PointShadowFit/PointShadowFace: six 90\u00b0 perspective projections around a point light's position with the range as the far plane, degenerate-input rejection, and reusable face records.",
+    "what": "Added computePointShadow + PointShadowFit/PointShadowFace: six 90° perspective projections around a point light's position with the range as the far plane, degenerate-input rejection, and reusable face records.",
     "why": "Pure-math cube fitting that tests can pin without a device, matching the computeCascades/computeSpotShadow pattern."
   },
   {
@@ -3573,7 +3573,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/shaders/standard.ts",
-    "what": "Added pointShadowFaceIndex + pointShadowAttenuation (dominant-face selection, texel-scaled normal offset, 3\u00d73 PCF on the shared comparison sampler) and dispatched kind==1 lights to it in lightContribution.",
+    "what": "Added pointShadowFaceIndex + pointShadowAttenuation (dominant-face selection, texel-scaled normal offset, 3×3 PCF on the shared comparison sampler) and dispatched kind==1 lights to it in lightContribution.",
     "why": "WebGPU has no depth-cube comparison sampling, so the fragment picks the face explicitly and samples the atlas layer."
   },
   {
@@ -3609,7 +3609,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/core/capabilities.ts",
-    "what": "Updated rendering.frustumCulling/shadows/shadowCascades/shadowMemory for the point cubes: twenty-layer worst case (~320 MiB at 2048\u00b2, ~1.25 GiB at 4096\u00b2), contact/adaptive still open.",
+    "what": "Updated rendering.frustumCulling/shadows/shadowCascades/shadowMemory for the point cubes: twenty-layer worst case (~320 MiB at 2048², ~1.25 GiB at 4096²), contact/adaptive still open.",
     "why": "docs:check cross-references these entries against ROADMAP.md and KNOWN-ISSUES.md; they must describe the new coverage."
   },
   {
@@ -3705,7 +3705,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/RENDERING.md",
-    "what": "Documented the point cubes: frame diagram, pass-gate table row, point-shadow subsection in \u00a74, stats line, updated ShadowUniforms size (1456 B) and the \u00a79 limitations (bounds, face seams, twenty-layer memory).",
+    "what": "Documented the point cubes: frame diagram, pass-gate table row, point-shadow subsection in §4, stats line, updated ShadowUniforms size (1456 B) and the §9 limitations (bounds, face seams, twenty-layer memory).",
     "why": "The renderer docs describe the frame as built; point shadows are now part of it."
   },
   {
@@ -3790,7 +3790,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Phase 13.9: bounded point-light cube shadows",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Phase 13.9, third subtask: point shadows. The first two valid shadow-casting point lights each render six 90\u00b0 cube faces into the shared depth24plus atlas after the spot maps, at the frame's capped resolution: computePointShadow()/createPointShadowFaces() as pure math with degenerate-input rejection and reusable fits; the renderer adds per-face frustums behind a range-sphere pre-test (mask bits 8-19), forge.shadow.point.<p>.<face> passes, point matrices/params/count in ShadowUniforms (656 \u2192 1456 B, layout re-pinned in tests/wgsl.test.ts) and slots preserved on the uniform and clustered light paths, with stats.pointShadowMaps; the fragment shader picks the dominant face per receiver (WebGPU has no depth-cube comparison sampling) and runs the same texel-scaled normal offset + 3\u00d73 PCF, with the face-edge lit-fallback seam documented in KNOWN-ISSUES and RENDERING.md (twenty-layer worst case ~320 MiB at 2048\u00b2, ~1.25 GiB at 4096\u00b2). Four fitting tests plus four frame tests (both light paths, per-face assignment, two-cube cap + point-only frame, cube drop); the PBR demo's orbiting point lights cast by default with a setPointShadows hook, HUD 'point Nx6f', and a point A/B arm in tools/browser-check.mjs. verify (611 tests / 42 files + WGSL), lint:arch, check:testmap, docs:check and demo:build green; local check:browser passed the point A/B (141,517 px darker, 0 brighter, zero GPU errors) and every arm through the weather scene before the pre-existing flaky Mars W-drive check failed at 0.335 m (no point lights in that scene), so the advisory CI WebGPU job remains the full-pass evidence. Contact shadows and adaptive resolution remain under 13.9.",
+    "summary": "Phase 13.9, third subtask: point shadows. The first two valid shadow-casting point lights each render six 90° cube faces into the shared depth24plus atlas after the spot maps, at the frame's capped resolution: computePointShadow()/createPointShadowFaces() as pure math with degenerate-input rejection and reusable fits; the renderer adds per-face frustums behind a range-sphere pre-test (mask bits 8-19), forge.shadow.point.<p>.<face> passes, point matrices/params/count in ShadowUniforms (656 → 1456 B, layout re-pinned in tests/wgsl.test.ts) and slots preserved on the uniform and clustered light paths, with stats.pointShadowMaps; the fragment shader picks the dominant face per receiver (WebGPU has no depth-cube comparison sampling) and runs the same texel-scaled normal offset + 3×3 PCF, with the face-edge lit-fallback seam documented in KNOWN-ISSUES and RENDERING.md (twenty-layer worst case ~320 MiB at 2048², ~1.25 GiB at 4096²). Four fitting tests plus four frame tests (both light paths, per-face assignment, two-cube cap + point-only frame, cube drop); the PBR demo's orbiting point lights cast by default with a setPointShadows hook, HUD 'point Nx6f', and a point A/B arm in tools/browser-check.mjs. verify (611 tests / 42 files + WGSL), lint:arch, check:testmap, docs:check and demo:build green; local check:browser passed the point A/B (141,517 px darker, 0 brighter, zero GPU errors) and every arm through the weather scene before the pre-existing flaky Mars W-drive check failed at 0.335 m (no point lights in that scene), so the advisory CI WebGPU job remains the full-pass evidence. Contact shadows and adaptive resolution remain under 13.9.",
     "files": [
       "ARCHITECTURE.md",
       "ROADMAP.md",
@@ -4275,7 +4275,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/rendering/renderer.ts",
     "what": "Population batch path: collectPopulationBatches after the renderable walk, addPopulationBatch (chunk frustum pre-test, shadow-only retention, maxInstancesPerBatch slicing), emitPopulationSlice (arena records, two-level shadow assignment, per-chunk bounds), stats.populationBatches/populationInstances, disabled objects skipped",
-    "why": "Each (chunk, type) submission becomes its own instanced batch so the Phase 13.5/13.6 device culler, prepass and indirect records apply to populations unchanged \u2014 thousands of instances, zero entities."
+    "why": "Each (chunk, type) submission becomes its own instanced batch so the Phase 13.5/13.6 device culler, prepass and indirect records apply to populations unchanged — thousands of instances, zero entities."
   },
   {
     "id": "0333",
@@ -4476,10 +4476,10 @@ JSON array below; agents maintain it by hand until then.
     "pr": 49,
     "branch": "arena/01a0f188-forge-engine",
     "base": "main",
-    "title": "Phase 14: world population \u2014 deterministic scatter, compact instance blocks, instanced batches with zero entities",
+    "title": "Phase 14: world population — deterministic scatter, compact instance blocks, instanced batches with zero entities",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "First slice of Phase 14 (world population): 14.1 deterministic scatter (scatterPopulationChunk, a pure function of type/seed/chunk/sampler over a stratified jittered grid), 14.3 compact SoA instance blocks (PopulationInstanceBlock), a renderer seam in scene/population.ts that turns each (chunk, type) submission into its own instanced batch \u2014 instance records composed into the frame arena via the new composeYTRS, two-level conservative shadow assignment, per-chunk bounds so the Phase 13.5/13.6 device culler and indirect records apply unchanged \u2014 and 14.6 PopulationWorld streaming that follows TerrainWorld chunks (budgeted populate, eviction, Y re-anchor on LOD remesh) with zero ECS entities. 14.2 partial: rocks + boulders in the terrain demo via the new rockGeometrySource primitive. Full suite 659 passing (19 new population tests); check:browser passed every arm through the weather scene including the new population arm (959 instances / 48 batches / 64 entities / 0 GPU errors) and died only on the pre-existing Mars Showcase W-drive SwiftShader flake. CI on the PR: CPU gates green; the advisory WebGPU browser gate passed every arm through the weather scene (population arm included; the W-drive check passed at 0.50 m) and then failed at the next arm \u2014 the Mars Showcase high-gain-antenna deployment poll (HGA never started deploying in 300s), in marsShowcaseScene.ts/highGainAntenna.ts, files this PR does not touch. Open remainder \u2014 14.4 GPU LOD, vegetation/debris/decals/props, device-resident instance buffers \u2014 documented in KNOWN-ISSUES and the world.population capability (partial, closesWith 14.4).",
+    "summary": "First slice of Phase 14 (world population): 14.1 deterministic scatter (scatterPopulationChunk, a pure function of type/seed/chunk/sampler over a stratified jittered grid), 14.3 compact SoA instance blocks (PopulationInstanceBlock), a renderer seam in scene/population.ts that turns each (chunk, type) submission into its own instanced batch — instance records composed into the frame arena via the new composeYTRS, two-level conservative shadow assignment, per-chunk bounds so the Phase 13.5/13.6 device culler and indirect records apply unchanged — and 14.6 PopulationWorld streaming that follows TerrainWorld chunks (budgeted populate, eviction, Y re-anchor on LOD remesh) with zero ECS entities. 14.2 partial: rocks + boulders in the terrain demo via the new rockGeometrySource primitive. Full suite 659 passing (19 new population tests); check:browser passed every arm through the weather scene including the new population arm (959 instances / 48 batches / 64 entities / 0 GPU errors) and died only on the pre-existing Mars Showcase W-drive SwiftShader flake. CI on the PR: CPU gates green; the advisory WebGPU browser gate passed every arm through the weather scene (population arm included; the W-drive check passed at 0.50 m) and then failed at the next arm — the Mars Showcase high-gain-antenna deployment poll (HGA never started deploying in 300s), in marsShowcaseScene.ts/highGainAntenna.ts, files this PR does not touch. Open remainder — 14.4 GPU LOD, vegetation/debris/decals/props, device-resident instance buffers — documented in KNOWN-ISSUES and the world.population capability (partial, closesWith 14.4).",
     "files": [
       "AGENTS.md",
       "ARCHITECTURE.md",
@@ -4529,7 +4529,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/testing/mockGpu.ts",
     "what": "Mock writeBuffer now implements the spec's element-count semantics: element size from the source's BYTES_PER_ELEMENT (DataView = 1), integer-range checks, start = dataOffset * elementBytes, write size = size * elementBytes or the remaining view.",
-    "why": "The mock's stale byte semantics accepted oversized writes that real devices reject \u2014 that is why every unit suite passed while the real-WebGPU population renders failed; the mock is the foundation the mock-GPU suites assert against."
+    "why": "The mock's stale byte semantics accepted oversized writes that real devices reject — that is why every unit suite passed while the real-WebGPU population renders failed; the mock is the foundation the mock-GPU suites assert against."
   },
   {
     "id": "0352",
@@ -4577,7 +4577,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "tests/population.test.ts",
     "what": "Seam + streamed-terrain suites now pin the device-resident behaviour: one upload per content revision, zero per-frame uploads in steady state, buffer destruction when the source stops offering the chunk, and the re-anchor re-upload.",
-    "why": "14.3's contract is 'upload once, copy never' \u2014 without these assertions the per-frame-copy regression the issue describes would be invisible to the suite."
+    "why": "14.3's contract is 'upload once, copy never' — without these assertions the per-frame-copy regression the issue describes would be invisible to the suite."
   },
   {
     "id": "0356",
@@ -4648,7 +4648,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/population/lod.ts",
-    "what": "New: the 14.4 CPU side \u2014 buildLodGeometry (merges hi/lo unindexed windows into one buffer with hi first, returning the hiTriangles boundary) and populationLodIndex (the CPU twin of the shader's distance > lodDistance decision).",
+    "what": "New: the 14.4 CPU side — buildLodGeometry (merges hi/lo unindexed windows into one buffer with hi first, returning the hiTriangles boundary) and populationLodIndex (the CPU twin of the shader's distance > lodDistance decision).",
     "why": "The merged source must be built once per prototype, and a CPU twin is what lets the mock renderer and the tests verify the GPU's per-instance verdict against a pure function."
   },
   {
@@ -4660,7 +4660,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/rendering/shaders/populationLod.ts",
-    "what": "New: the forge.populationLod compute shader \u2014 one workgroup of 64, per-instance camera distance from the instance's row-3 origin, sets bit 0 of the record's flags (0 = near/high, 1 = far/low) preserving other bits.",
+    "what": "New: the forge.populationLod compute shader — one workgroup of 64, per-instance camera distance from the instance's row-3 origin, sets bit 0 of the record's flags (0 = near/high, 1 = far/low) preserving other bits.",
     "why": "The selection is the GPU half of 14.4: it reads the 14.3 device-resident buffer and writes a bit in its existing headroom, so the shadow and colour passes share one buffer and one selection."
   },
   {
@@ -4696,8 +4696,8 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/VERIFICATION.md",
-    "what": "check:browser result cell rewritten for this diff: the local run's stall attribution (bundled SwiftShader only, no system Vulkan installable offline, baseline-on-clean-tree stall evidence) plus the entered-sweep run's passes through the terrain population arm (959 instances / 48 batches / entities 64, zero GPU errors \u2014 the 14.3 upload path on real WebGPU), with the CI advisory gate mirroring it.",
-    "why": "The verification doc records what each gate actually proved for this diff, including failure attribution \u2014 the convention set by the Phase 14 entry."
+    "what": "check:browser result cell rewritten for this diff: the local run's stall attribution (bundled SwiftShader only, no system Vulkan installable offline, baseline-on-clean-tree stall evidence) plus the entered-sweep run's passes through the terrain population arm (959 instances / 48 batches / entities 64, zero GPU errors — the 14.3 upload path on real WebGPU), with the CI advisory gate mirroring it.",
+    "why": "The verification doc records what each gate actually proved for this diff, including failure attribution — the convention set by the Phase 14 entry."
   },
   {
     "id": "0366",
@@ -5056,7 +5056,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/KNOWN-ISSUES.md",
-    "what": "Replaced the stale \u201conly rocks and boulders\u201d limitation with the remaining population raycast/per-instance-visibility caveats.",
+    "what": "Replaced the stale “only rocks and boulders” limitation with the remaining population raycast/per-instance-visibility caveats.",
     "why": "Do not leave a known-issue entry claiming the newly implemented types are still absent."
   },
   {
@@ -5105,7 +5105,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/resources/assetId.ts",
     "what": "New: AssetId (forPath/forContent/parse/isValid/kindOf/display, canonical `<kind>:<address>` form with `c/<sha256>[~name]` content addressing) plus hashContent (SHA-256 via WebCrypto, the pipeline's single hasher).",
-    "why": "Phase 15.1: stable, structured resource identity with content hashes \u2014 the fix for rename-sensitive ids and the stale-cache-under-a-stable-path failure."
+    "why": "Phase 15.1: stable, structured resource identity with content hashes — the fix for rename-sensitive ids and the stale-cache-under-a-stable-path failure."
   },
   {
     "id": "0400",
@@ -5116,7 +5116,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/resources/assetGraph.ts",
-    "what": "New: AssetGraph \u2014 (dependent -> dependency) edges in both directions with wouldCycle/link cycle rejection, dependenciesOf/dependentsOf, transitive subgraphs, unlink/clear/stats. Pure data, no resource-state knowledge.",
+    "what": "New: AssetGraph — (dependent -> dependency) edges in both directions with wouldCycle/link cycle rejection, dependenciesOf/dependentsOf, transitive subgraphs, unlink/clear/stats. Pure data, no resource-state knowledge.",
     "why": "Phase 15.2: the Vehicle->Mesh/Material/Texture dependency graph, stored live so eviction safety, invalidation propagation and editor queries have something to ask."
   },
   {
@@ -5224,8 +5224,8 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/resources/streaming.ts",
-    "what": "New: AssetStreamer \u2014 request() queues, pump() admits highest-priority-first under a maxConcurrent cap and a per-frame uploadBudgetBytes (charged by descriptor.estimatedBytes), newFrame() resets the budget, cancel(id) drops queued loads outright and aborts in-flight ones via the registry, settle() simulates frames until drained, dispose() rejects queued loads. Holds one registry handle per in-flight load (released before the caller's continuation runs) so in-flight entries are eviction-safe and settled entries are evictable.",
-    "why": "Phase 15.3: large scenes must load assets incrementally without blocking the simulation loop \u2014 the registry loads-on-acquire shape cannot prioritize, cap or budget."
+    "what": "New: AssetStreamer — request() queues, pump() admits highest-priority-first under a maxConcurrent cap and a per-frame uploadBudgetBytes (charged by descriptor.estimatedBytes), newFrame() resets the budget, cancel(id) drops queued loads outright and aborts in-flight ones via the registry, settle() simulates frames until drained, dispose() rejects queued loads. Holds one registry handle per in-flight load (released before the caller's continuation runs) so in-flight entries are eviction-safe and settled entries are evictable.",
+    "why": "Phase 15.3: large scenes must load assets incrementally without blocking the simulation loop — the registry loads-on-acquire shape cannot prioritize, cap or budget."
   },
   {
     "id": "0410",
@@ -5236,7 +5236,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/resources/registry.ts",
-    "what": "ResourceDescriptor gains estimatedBytes (pre-load upload estimate for the streamer's budget); new cancelLoad(id) sets the in-flight entry's abort flag (output disposed, entry fails with a cancellation error, next acquire retries); startLoad now gives every attempt a fresh abort signal (previously a cancelLoad'd retry inherited aborted=true and discarded its own output \u2014 a pre-existing latent bug the acquire-retry path could hit; retry()'s manual reset is now redundant and removed). Header rules 5-7 document the 15.x additions.",
+    "what": "ResourceDescriptor gains estimatedBytes (pre-load upload estimate for the streamer's budget); new cancelLoad(id) sets the in-flight entry's abort flag (output disposed, entry fails with a cancellation error, next acquire retries); startLoad now gives every attempt a fresh abort signal (previously a cancelLoad'd retry inherited aborted=true and discarded its own output — a pre-existing latent bug the acquire-retry path could hit; retry()'s manual reset is now redundant and removed). Header rules 5-7 document the 15.x additions.",
     "why": "Cancellation is a first-class registry operation the streamer drives; the abort-signal fix makes cancel-then-reload actually work."
   },
   {
@@ -5249,7 +5249,7 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "file": "engine/src/core/engine.ts",
     "what": "Engine now owns an AssetStreamer (engine.streamer, also in services): step() calls newFrame()+pump() before systems run so a scene can use assets that land that frame; stats() exposes streaming; settle() drains it; dispose() drops it before the registry.",
-    "why": "Phase 15.3 exit criteria: asset loading must not block the simulation loop \u2014 the pump belongs to the frame, not to callers."
+    "why": "Phase 15.3 exit criteria: asset loading must not block the simulation loop — the pump belongs to the frame, not to callers."
   },
   {
     "id": "0412",
@@ -5332,7 +5332,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/KNOWN-ISSUES.md",
-    "what": "Core section: new bullet \u2014 streaming is admission scheduling, not mid-load interruption (aborted in-flight loads finish and then dispose; the streamer schedules, it does not orchestrate the graph; main-thread decode bottleneck until the 15.1 worker decoder).",
+    "what": "Core section: new bullet — streaming is admission scheduling, not mid-load interruption (aborted in-flight loads finish and then dispose; the streamer schedules, it does not orchestrate the graph; main-thread decode bottleneck until the 15.1 worker decoder).",
     "why": "Document the honest limits of the 15.3 mechanism rather than claiming them."
   },
   {
@@ -6294,7 +6294,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/index.ts",
-    "what": "Rebase resolution: unioned the barrel \u2014 added SplatUniforms to the uniforms export while retaining main's STANDARD_LOD_INSTANCED_VERTEX and POPULATION_LOD_SHADER exports.",
+    "what": "Rebase resolution: unioned the barrel — added SplatUniforms to the uniforms export while retaining main's STANDARD_LOD_INSTANCED_VERTEX and POPULATION_LOD_SHADER exports.",
     "why": "wgsl-check and the renderer reach all four through dist; dropping either side's symbol breaks the other phase's gate."
   },
   {
@@ -6438,7 +6438,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "examples/src/main.ts",
-    "what": "Load the inspector with `?marssite=\u2026`, widen the scene-select guard, and expose `marsGeneratorState()` on `window.__forge`.",
+    "what": "Load the inspector with `?marssite=…`, widen the scene-select guard, and expose `marsGeneratorState()` on `window.__forge`.",
     "why": "Both the selector and the window API enumerate scenes explicitly."
   },
   {
@@ -6510,7 +6510,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "docs/MARS-TERRAIN.md",
-    "what": "Document the inspector (\u00a75): URL table, budgets, the 54-site regional-splat finding, the `?marssite=0,0` discriminating site, and the `Heightmap.getNormal` edge clamp; add its suite to \u00a76.",
+    "what": "Document the inspector (§5): URL table, budgets, the 54-site regional-splat finding, the `?marssite=0,0` discriminating site, and the `Heightmap.getNormal` edge clamp; add its suite to §6.",
     "why": "The port's usage doc should describe the shipped inspector and the two traps its screenshots can hide."
   },
   {
@@ -6595,7 +6595,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "Terrain 10.9: ported Mars generator as a site inspector (?scene=mars-generator), re-landed on main's #53",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Rebase of this session's branch onto c1cff62 (#53): step 1 (per-chunk bakeChunkMaterial, f7a1c12) is dropped as superseded \u2014 #53's per-tile SplatMaterial blends four texture arrays per vertex for ~4,580 B/tile at identical draw calls, where the bake spent 80 B/chunk for one colour per 128 m chunk \u2014 and only the port's site inspector is re-landed, rebuilt on main's API rather than carried over: TerrainWorld.layeredMaterial / chunk.tile.gpuMaterial supply model, createMarsSurfaceTextures the shared arrays, and syncGeneration:false now genuinely means worker generation. Ships ?scene=mars-generator (aliases mars-port / mars-generator-port; ?scene=mars still means the hand-written Martian demo) with ?marssite=<preset|lat,lon>, window.__forge.marsGeneratorState(), an orbit camera clamped to the ported surface, 8 tests (weightPixels(cell) per tile, advised sizing, entity budget, camera clamp, and the measured material contrast: the crater rim at 0,0 blends ~45/55 rock/crust inside one 128 m tile while the volcano summit bakes one channel), a check:browser arm placed before the Mars Showcase section, and the docs/log updates (regional-splat and Heightmap.getNormal edge-clamp limits in KNOWN-ISSUES/MARS-TERRAIN, capability notes, roadmap sub-item, README). Gate on the new base: verify 766 tests / 53 files (main: 758/52), lint:arch, check:testmap, docs:check, demo:build, and check:browser green through both inspector arms (volcano 11 chunks / 11 splat tiles / workers + layered / zero GPU errors; ?marssite=0,0 13 tiles, best-mixed mask [0, 0.458, 0, 0.542]) before the pre-existing Mars Showcase W-drive threshold (dz 0.303 m vs > 0.5 m) aborts the sandbox run.",
+    "summary": "Rebase of this session's branch onto c1cff62 (#53): step 1 (per-chunk bakeChunkMaterial, f7a1c12) is dropped as superseded — #53's per-tile SplatMaterial blends four texture arrays per vertex for ~4,580 B/tile at identical draw calls, where the bake spent 80 B/chunk for one colour per 128 m chunk — and only the port's site inspector is re-landed, rebuilt on main's API rather than carried over: TerrainWorld.layeredMaterial / chunk.tile.gpuMaterial supply model, createMarsSurfaceTextures the shared arrays, and syncGeneration:false now genuinely means worker generation. Ships ?scene=mars-generator (aliases mars-port / mars-generator-port; ?scene=mars still means the hand-written Martian demo) with ?marssite=<preset|lat,lon>, window.__forge.marsGeneratorState(), an orbit camera clamped to the ported surface, 8 tests (weightPixels(cell) per tile, advised sizing, entity budget, camera clamp, and the measured material contrast: the crater rim at 0,0 blends ~45/55 rock/crust inside one 128 m tile while the volcano summit bakes one channel), a check:browser arm placed before the Mars Showcase section, and the docs/log updates (regional-splat and Heightmap.getNormal edge-clamp limits in KNOWN-ISSUES/MARS-TERRAIN, capability notes, roadmap sub-item, README). Gate on the new base: verify 766 tests / 53 files (main: 758/52), lint:arch, check:testmap, docs:check, demo:build, and check:browser green through both inspector arms (volcano 11 chunks / 11 splat tiles / workers + layered / zero GPU errors; ?marssite=0,0 13 tiles, best-mixed mask [0, 0.458, 0, 0.542]) before the pre-existing Mars Showcase W-drive threshold (dz 0.303 m vs > 0.5 m) aborts the sandbox run.",
     "files": [
       "README.md",
       "ROADMAP.md",
@@ -6638,7 +6638,7 @@ JSON array below; agents maintain it by hand until then.
     "title": "change-log: restore the entry layout for 0505-0521 (formatting follow-up to #54)",
     "model": "Arena Agent Mode",
     "modelVersion": null,
-    "summary": "Formatting follow-up to #54 (merged as 75df6e5): the 16 entries that PR appended had their closing brace collapsed onto the last string line and left the array's final close as `]  }`, which parsed but broke the file's hand-maintained layout. Entries 0505-0520 are re-indented to close on their own line and 0521 records the fix. Formatting only \u2014 JSON.parse of the block is deep-equal before and after, and no source, test or docs:check-visible content changed.",
+    "summary": "Formatting follow-up to #54 (merged as 75df6e5): the 16 entries that PR appended had their closing brace collapsed onto the last string line and left the array's final close as `]  }`, which parsed but broke the file's hand-maintained layout. Entries 0505-0520 are re-indented to close on their own line and 0521 records the fix. Formatting only — JSON.parse of the block is deep-equal before and after, and no source, test or docs:check-visible content changed.",
     "files": [
       "change-log.md"
     ]
@@ -6796,7 +6796,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "tools/wgsl-check.mjs",
-    "what": "Real-GPU ribbon arm in the particles scene: asserts the scene ships ribbons on, the toggle reaches the live system both ways with zero GPU errors across the mid-run switch, and the deterministic offscreen oracle (window.__forge.runParticleRibbonCheck) must show lit area +10% and mean luma +5% with ribbons on \u2014 a first attempt compared mean-luma windows of the animated demo fountain and failed on density drift (fixed margins are meaningless on a running sim; isolated same-seed re-runs are not).",
+    "what": "Real-GPU ribbon arm in the particles scene: asserts the scene ships ribbons on, the toggle reaches the live system both ways with zero GPU errors across the mid-run switch, and the deterministic offscreen oracle (window.__forge.runParticleRibbonCheck) must show lit area +10% and mean luma +5% with ribbons on — a first attempt compared mean-luma windows of the animated demo fountain and failed on density drift (fixed margins are meaningless on a running sim; isolated same-seed re-runs are not).",
     "why": "Phase 12.4/12.7: the trail history was written but never drawn; the vertex stage now turns it into ribbons in the existing particle.render pass, verified on mock (draw records) and real GPU (browser gate) with the demo fountain on by default."
   },
   {
@@ -8058,6 +8058,294 @@ JSON array below; agents maintain it by hand until then.
     "file": "ROADMAP.md",
     "what": "Mark Phase 16.5 joint palette and skinning data validation as [x]; GPU upload pipeline remains [ ]. Update state block.",
     "why": "ROADMAP.md must reflect actual implementation state."
+  },
+  {
+    "id": "0643",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/skinning.ts",
+    "what": "Create the renderer-side skinning module: fillJointPalette (palette = inverse(meshWorld) × jointWorld × inverseBind per joint, taking a world-matrix callback and a caller-owned output to stay allocation-free) and JointPaletteArena (one storage buffer holding every skinned batch's palette for the frame, PALETTE_SLOT_ALIGN-aligned slots, a binding window sized from the frame's largest palette, one writeBuffer per flush, grow-only reallocation).",
+    "why": "Phase 16.5 GPU upload pipeline: the renderer needs a joint palette it can fill from the joints' live world matrices without importing the animation subsystem (ARCHITECTURE.md §2)."
+  },
+  {
+    "id": "0644",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/geometry.ts",
+    "what": "Add the skinning vertex stream: SKIN_JOINTS_PER_VERTEX, SKIN_VERTEX_STRIDE (32 bytes), SKIN_VERTEX_ATTRIBUTES (JOINTS_0 at location 4, WEIGHTS_0 at location 5) and SKIN_VERTEX_LAYOUT; uploadSkinning validates the joint/weight counts against the vertex count and interleaves them into a second vertex buffer, clearSkinning drops it, updateFrom replaces/keeps/drops it, gpuBytes counts it and release destroys it. The old `skinned` flag becomes a getter over skinBuffer.",
+    "why": "The skin attributes belong in their own buffer slot so unskinned meshes keep paying 48 bytes per vertex and the depth/shadow pipelines can share one vertex layout."
+  },
+  {
+    "id": "0645",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/mesh.ts",
+    "what": "SkinBinding documents the mesh-local inverse bind matrices and carries optional jointNames; new SkinSource type holds the authored joints/weights; Mesh.from routes a skin's per-vertex attributes into the geometry stream (glTF splits them the same way) and stops setting the removed `skinned` flag.",
+    "why": "The asset-side contract for a skin, and the single place a MeshSource with skin data becomes a skinned Geometry."
+  },
+  {
+    "id": "0646",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/standard.ts",
+    "what": "Add the skinned shader variants: SKIN_BINDINGS (palette at group 3, binding 0, read-only storage, dynamic offset), VERTEX_INPUT_SKINNED (the 48-byte inputs plus locations 4/5), STANDARD_SKIN_HELPERS (weight normalisation + the four-joint blend), STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX and DEPTH_SKINNED_VERTEX (shadow pass, plus a skin-aware cullBatch-free depth entry), splitting COMMON/BINDINGS so the skinned modules are self-contained.",
+    "why": "The vertex shader skinning variant Phase 16.5 requires, kept as its own module so an unskinned pipeline never declares a location its vertex state does not provide."
+  },
+  {
+    "id": "0647",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/pipeline.ts",
+    "what": "Add the skinned pipeline variants: a `skinned` key option, the skinnable() decision (lod batches excluded; colour/unlit/emissive, prepass and depth only), the palette bind-group layout plus the skinned colour/depth/prepass pipeline layouts (an empty placeholder group keeps the palette at group 3 where the program has no material group), skinned module/entry selection, `skinned` in the vertex buffers ([VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]) and a `skin` field in the cache key; stats().layouts becomes 16.",
+    "why": "PipelineFactory is the single place shader/state compatibility is decided, so the skinned variant has to be keyed, laid out and described there or a key could name two different pipelines."
+  },
+  {
+    "id": "0648",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Render the skinning path: a JointPaletteArena plus the group-3 bind group (rebuilt when the arena buffer or window changes); batches carry the skin, its palette offset and joint count; collectBatches fills a mesh-local palette per skinned batch and counts skinnedBatches/skinJoints/skinFallbacks; the shadow, prepass and colour passes fetch the skinned pipeline variant and bind slot 1 + the palette; uploadArenas flushes the arena once per frame; dispose/recycled batch slots release or clear the state.",
+    "why": "Phase 16.5: the per-frame palette upload and the draws that read it."
+  },
+  {
+    "id": "0649",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Export the skinning API: SKIN_VERTEX_LAYOUT/STRIDE/ATTRIBUTES/JOINTS_PER_VERTEX, SkinVertexStream, SkinSource, the skinned shader constants, SKIN_BINDINGS, and JointPaletteArena/fillJointPalette/JOINT_PALETTE_BYTES/PALETTE_SLOT_ALIGN/WorldMatrixLookup.",
+    "why": "Everything a consumer (demo, tests) needs must come through the public entry point (AGENTS.md §4)."
+  },
+  {
+    "id": "0650",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/renderingSkinning.test.ts",
+    "what": "Create the GPU-skinning suite (18 tests): skinned geometry upload/validation/updateFrom/lifetime, fillJointPalette maths and fallbacks, JointPaletteArena alignment/window/single-upload/reuse, the skinned pipeline variants (key, module, entries, vertex buffers, layout identity), and the renderer path (slot-1 and group-3 bindings, stats, per-frame re-upload, skinless fallback).",
+    "why": "Phase 16.5 verification on the strict mock device."
+  },
+  {
+    "id": "0651",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/pipeline.test.ts",
+    "what": "Expect 16 layout objects and extend the key-variant table with the skinned colour/depth/prepass keys.",
+    "why": "The pipeline cache grew layout objects and key fields; the honesty test has to pin them."
+  },
+  {
+    "id": "0652",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/wgsl-check.mjs",
+    "what": "Validate the three new skinned modules (standard.skinned.static/instanced + fragment, depth.skinned) alongside their unskinned siblings.",
+    "why": "check:wgsl must cover every shipped shader module, and the skinned sources are new modules."
+  },
+  {
+    "id": "0653",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Register tests/renderingSkinning.test.ts (rendering) and tests/skinningScene.test.ts with examples/src/scenes/skinningScene.ts (ex-orbit).",
+    "why": "An unclaimed suite fails check:testmap."
+  },
+  {
+    "id": "0654",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/skinningScene.ts",
+    "what": "Create the skinned-arm demo scene: four boxes welded into one mesh, rigidly weighted to four chained joints, with the inverse bind matrices of the rest pose, a travelling-wave idle pose, an overlay line reporting the skinned counters, and a setSkinPose(t) hook that freezes a deterministic pose for a pixel A/B.",
+    "why": "Phase 16.5 needs a scene where a real adapter compiles the skinned modules and a palette can move pixels; nothing in the demo was skinned before."
+  },
+  {
+    "id": "0655",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/skinningScene.test.ts",
+    "what": "Create the demo-scene suite (2 tests): the arm batches as one skinned draw with four joints and no fallback, and the palette upload is sized to those joints and follows the pose the scene writes.",
+    "why": "Guards the demo's rig/mesh wiring (joint list, inverse bind matrices) that the browser gate would otherwise only catch late."
+  },
+  {
+    "id": "0656",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Add the Phase 16.5 skinning check, run both by the default gate's scene walk (loadScene(\"skinning\") after the particles) and as the focused --skinning mode: loads the scene, waits for the skinned batch and for async pipelines to settle, asserts joints/skinnedBatches/skinJoints/fallbacks, zero pipeline failures and zero GPU errors, then A/Bs two deterministic poses of the same uploaded mesh per pixel (>= 2000 pixels, >= 20 levels) and screenshots the coiled pose. The section restores the demo loop's animating flag it found.",
+    "why": "A mock device rasterises nothing, and no CPU gate compiles WGSL on a real adapter — this is the only evidence that the skinned modules compile and deform vertices."
+  },
+  {
+    "id": "0657",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "package.json",
+    "what": "Add the check:browser:skinning script (node tools/browser-check.mjs --skinning).",
+    "why": "The focused gate needs a stable command name, like the other focused browser modes."
+  },
+  {
+    "id": "0658",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "Build the skinning scene on ?scene=skinning and expose window.__forge.skinningState() and setSkinPose(t).",
+    "why": "The demo routes every scene through loadScene, and the gate drives scenes only through __forge."
+  },
+  {
+    "id": "0659",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/sceneSelection.ts",
+    "what": "Add \"skinning\" to DemoSceneName and to the direct-link switch.",
+    "why": "Deep links and the selector validate against this union."
+  },
+  {
+    "id": "0660",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Add the \"Skinned Arm (P16.5)\" option to the demo scene selector.",
+    "why": "Every direct-linkable scene is listed in the selector."
+  },
+  {
+    "id": "0661",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/demoSceneSelection.test.ts",
+    "what": "Cover the new \"skinning\" slug in the direct-link list.",
+    "why": "The selection suite pins every scene name."
+  },
+  {
+    "id": "0662",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "animation.clips: record the implemented GPU path (vertex stream, palette arena, skinned variants, real-adapter evidence via check:browser:skinning) and add the skinning suites to evidence; mechanical animation (16.6) remains.",
+    "why": "The registry must describe what is actually implemented, and the docs gate compares it against the roadmap state block."
+  },
+  {
+    "id": "0663",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Mark the Phase 16.5 GPU upload pipeline [x] with what landed, and update the Phase 16 state block to \"mechanical animation (16.6) remains\".",
+    "why": "ROADMAP.md must reflect actual implementation state."
+  },
+  {
+    "id": "0664",
+    "date": "2026-10-07T06:30:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Refresh the runs-green table (958 tests in 64 files), add the check:browser:skinning row, add the tests/renderingSkinning.test.ts + tests/skinningScene.test.ts per-suite section and a Verified-capabilities bullet for GPU skinning.",
+    "why": "Verification claims have to name the suites and the browser evidence that back them."
+  },
+  {
+    "id": "0665",
+    "date": "2026-10-07T06:45:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Record the full-gate skinned arm in the check:browser row, and (earlier edit) the runs-green tallies, the check:browser:skinning row and the GPU-skinning per-suite + Verified-capabilities sections.",
+    "why": "The browser evidence a claim cites has to name the arm that produced it."
+  },
+  {
+    "id": "0666",
+    "date": "2026-10-07T07:20:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/3a81fc11-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Guard the mesh-matrix inverse used for the mesh-local palette: a singular world matrix (invert() returns false and leaves the matrix untouched) now falls back to identity instead of baking the mesh transform into the palette twice.",
+    "why": "The palette must never silently double-apply a transform; identity is the defined answer for a matrix that has no inverse."
   }
 ]
 ```

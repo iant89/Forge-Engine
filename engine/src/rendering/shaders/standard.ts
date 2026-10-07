@@ -50,6 +50,16 @@ export const BINDINGS = {
   sampler: { group: 2, binding: 4 },
 } as const;
 
+/**
+ * Group 3: the skinning palette, bound (with a dynamic offset) only by pipelines whose vertices
+ * are skinned. `rendering/skinning.ts` owns the arena it points into; the layout lives in
+ * `PipelineFactory` so a non-skinned pipeline never declares a group it cannot bind.
+ */
+export const SKIN_BINDINGS = {
+  /** `array<mat4x4<f32>>`, one entry per joint of this draw's skin, starting at the dynamic offset. */
+  palette: { group: 3, binding: 0 },
+} as const;
+
 const STRUCTS = [
   PerFrameUniforms.toWgsl("uniform"),
   LightUniforms.toWgsl("uniform"),
@@ -67,14 +77,37 @@ const STRUCTS = [
   InstanceStruct.toWgsl("storage"),
 ].join("\n\n");
 
-const COMMON = /* wgsl */ `
+/**
+ * Vertex inputs of the unskinned entries: exactly the fixed 48-byte layout (`rendering/geometry.ts`).
+ * A module's input struct *is* its entry point's vertex interface, so a skinned module cannot reuse
+ * this one — WebGPU requires every declared location to be provided by the pipeline's vertex state,
+ * and requiring an unskinned draw to bind a skin buffer it does not have would be wrong.
+ */
+const VERTEX_INPUT_STANDARD = /* wgsl */ `
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
 }
+`;
 
+/**
+ * Vertex inputs of the skinned entries: the 48-byte record plus the second vertex buffer slot
+ * (`SKIN_VERTEX_LAYOUT`: `uint32x4` joint indices at location 4, `float32x4` weights at location 5).
+ */
+const VERTEX_INPUT_SKINNED = /* wgsl */ `
+struct VertexInput {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) tangent: vec4<f32>,
+  @location(4) joints: vec4<u32>,
+  @location(5) weights: vec4<f32>,
+}
+`;
+
+const COMMON_TAIL = /* wgsl */ `
 struct VertexOutput {
   @builtin(position) @invariant clipPos: vec4<f32>,
   @location(0) worldPos: vec3<f32>,
@@ -119,6 +152,10 @@ fn unpackTint(packed: u32) -> vec4<f32> {
   return vec4<f32>(r, g, b, a);
 }
 `;
+
+/** The shared half of both standard modules: structs and helpers that do not touch the inputs. */
+const COMMON = `${VERTEX_INPUT_STANDARD}\n${COMMON_TAIL}`;
+const SKINNED_COMMON = `${VERTEX_INPUT_SKINNED}\n${COMMON_TAIL}`;
 
 const SHADOW_HELPERS = /* wgsl */ `
 // Cascade whose slice contains this view depth (0-based); 'count' when past the last split.
@@ -298,12 +335,11 @@ fn cascadeDebugTint(viewDepth: f32) -> vec3<f32> {
 }
 `;
 
-export const STANDARD_DEFINES = /* wgsl */ `
-${STRUCTS}
-
-${COMMON}
-
-@group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
+/**
+ * Group/binding declarations plus the helpers that read them — identical for the unskinned and the
+ * skinned module, except for the palette the skinned one adds at group 3.
+ */
+const STANDARD_BINDINGS = /* wgsl */ `@group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
 @group(0) @binding(1) var<uniform> lights: LightBlock;
 @group(0) @binding(2) var<uniform> uniforms_shadow: ShadowUniforms;
 @group(0) @binding(3) var shadowMap: texture_depth_2d_array;
@@ -346,6 +382,47 @@ const FLAGS_INSTANCED: u32 = 1u;
 const FLAGS_CLUSTERED: u32 = 32u;
 `;
 
+/**
+ * The joint palette, as the skinned entries see it: one `mat4x4<f32>` per joint of this draw's
+ * skin, the binding's dynamic offset moved to the batch's slot by the renderer, so index 0 is the
+ * first joint. `input.joints` indexes it directly (indices are validated to be in range by the
+ * asset pipeline; WebGPU's out-of-bounds rules make a stray index read zero rather than fault).
+ *
+ * The weights are normalised here rather than trusted: `validateSkinningData` checks the sum at
+ * import, and the divide is what keeps a badly authored vertex from shrinking to the origin.
+ */
+const STANDARD_SKIN_HELPERS = /* wgsl */ `
+@group(3) @binding(0) var<storage, read> jointPalette: array<mat4x4<f32>>;
+
+fn skinMatrix(input: VertexInput) -> mat4x4<f32> {
+  let w = input.weights;
+  let j = input.joints;
+  let total = w.x + w.y + w.z + w.w;
+  let inv = select(1.0, 1.0 / total, total > 1e-6);
+  let blended = w.x * jointPalette[j.x] + w.y * jointPalette[j.y] + w.z * jointPalette[j.z] + w.w * jointPalette[j.w];
+  return blended * inv;
+}
+`;
+
+export const STANDARD_DEFINES = /* wgsl */ `
+${STRUCTS}
+
+${COMMON}
+
+${STANDARD_BINDINGS}
+`;
+
+/** Declarations of a module whose vertex stage skins (see `STANDARD_SKIN_HELPERS`). */
+const STANDARD_SKINNED_DEFINES = `
+${STRUCTS}
+
+${SKINNED_COMMON}
+
+${STANDARD_BINDINGS}
+
+${STANDARD_SKIN_HELPERS}
+`;
+
 /** Vertex stage for the colour pass (non-instanced path). */
 export const STANDARD_VERTEX = /* wgsl */ `
 ${STANDARD_DEFINES}
@@ -384,6 +461,61 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   out.clipPos = perFrame.viewProj * world;
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+  out.uv = input.uv;
+  out.tangent = input.tangent;
+  out.viewDepth = out.clipPos.w;
+  out.tint = unpackTint(inst.tint);
+  out.clipPos = cullBatch(out.clipPos);
+  return out;
+}
+`;
+
+/**
+ * Skinned variants of the colour-pass entries: same maths as their unskinned twins, with the
+ * vertex's position and normal pushed through the joint palette first (`skinMatrix`).
+ *
+ * The palette is mesh-local by construction (see `rendering/skinning.ts`), so `objectData.model`
+ * stays the draw's own matrix on both paths — a skinned mesh is placed exactly like an unskinned
+ * one, and the depth prepass, which compiles *these* entry points, writes the same depth the
+ * forward pass tests against. The normal uses the palette's rotation/scale block (translation is
+ * dropped by the `w = 0` term); a joint chain that shears would want the inverse transpose, which
+ * no glTF asset needs and which would cost a per-vertex 3×3 inverse.
+ */
+export const STANDARD_SKINNED_VERTEX = /* wgsl */ `
+${STANDARD_SKINNED_DEFINES}
+
+@vertex
+fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
+  var out: VertexOutput;
+  let model = objectData.model;
+  let skin = skinMatrix(input);
+  let world = model * (skin * vec4<f32>(input.position, 1.0));
+  out.clipPos = perFrame.viewProj * world;
+  out.worldPos = world.xyz;
+  out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
+  out.uv = input.uv;
+  out.tangent = input.tangent;
+  out.viewDepth = out.clipPos.w;
+  out.tint = vec4<f32>(1.0);
+  out.clipPos = cullBatch(out.clipPos);
+  return out;
+}
+`;
+
+/** Skinned variant of the instanced colour entry: the batch's skin drives every instance. */
+export const STANDARD_SKINNED_INSTANCED_VERTEX = /* wgsl */ `
+${STANDARD_SKINNED_DEFINES}
+
+@vertex
+fn vertexMainInstancedSkinned(input: VertexInput, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
+  var out: VertexOutput;
+  let inst = instances[instanceIndex];
+  let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
+  let skin = skinMatrix(input);
+  let world = model * (skin * vec4<f32>(input.position, 1.0));
+  out.clipPos = perFrame.viewProj * world;
+  out.worldPos = world.xyz;
+  out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
@@ -704,6 +836,68 @@ fn vertexMainInstancedLod(input: In, @builtin(instance_index) instanceIndex: u32
     clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
   }
   out.clip = clip;
+  return out;
+}
+
+@fragment
+fn fragmentMain() {}
+`;
+
+/**
+ * Skinned depth-only program for the shadow pass (`forge.shadow.*`). Separate from `DEPTH_VERTEX`
+ * rather than a permutation of it because the vertex inputs differ (locations 4/5 and the palette
+ * binding), and mirroring the unskinned program's structure keeps the two readable side by side:
+ * the same `ShadowPassUniforms`/`ObjectUniforms` groups 0 and 1, plus the palette at group 3.
+ *
+ * The entry points are the colour pass's skinned maths with the colour output dropped, so a
+ * skinned caster's shadow lands exactly where its lit pixels are.
+ */
+export const DEPTH_SKINNED_VERTEX = /* wgsl */ `
+${ShadowPassUniforms.toWgsl("uniform")}
+${ObjectUniforms.toWgsl("uniform")}
+${InstanceStruct.toWgsl("storage")}
+
+// Group 0 is the per-shadow-layer block, not the camera's per-frame block: its matrix is the
+// directional cascade or spotlight projection fit in rendering/shadows.ts.
+@group(0) @binding(0) var<uniform> shadowPass: ShadowPassUniforms;
+@group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
+@group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
+@group(3) @binding(0) var<storage, read> jointPalette: array<mat4x4<f32>>;
+
+struct In {
+  @location(0) position: vec3<f32>,
+  @location(4) joints: vec4<u32>,
+  @location(5) weights: vec4<f32>,
+}
+
+struct Out {
+  @builtin(position) clip: vec4<f32>,
+}
+
+fn skinMatrix(input: In) -> mat4x4<f32> {
+  let w = input.weights;
+  let j = input.joints;
+  let total = w.x + w.y + w.z + w.w;
+  let inv = select(1.0, 1.0 / total, total > 1e-6);
+  let blended = w.x * jointPalette[j.x] + w.y * jointPalette[j.y] + w.z * jointPalette[j.z] + w.w * jointPalette[j.w];
+  return blended * inv;
+}
+
+@vertex
+fn vertexMainSkinned(input: In) -> Out {
+  var out: Out;
+  let skinned = skinMatrix(input) * vec4<f32>(input.position, 1.0);
+  out.clip = shadowPass.viewProj * objectData.model * skinned;
+  return out;
+}
+
+@vertex
+fn vertexMainInstancedSkinned(input: In, @builtin(instance_index) instanceIndex: u32) -> Out {
+  var out: Out;
+  let i = instances[instanceIndex];
+  let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
+  let skinned = skinMatrix(input) * vec4<f32>(input.position, 1.0);
+  out.clip = shadowPass.viewProj * model * skinned;
   return out;
 }
 
