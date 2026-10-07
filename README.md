@@ -10,6 +10,7 @@ npm run check:browser  # full real-WebGPU gate (headless Chromium + SwiftShader)
 npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
 npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B
 npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
+npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard
 npm run demo           # Vite dev server for examples/
 ```
 

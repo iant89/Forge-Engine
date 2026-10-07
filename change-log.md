@@ -8650,6 +8650,90 @@ JSON array below; agents maintain it by hand until then.
       "tests/gpuDeviceFatal.test.ts",
       "tools/test-subsystems.mjs"
     ]
+  },
+  {
+    "id": "0689",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/pr-checks.mjs",
+    "what": "Added a live PR-check dashboard that polls `gh pr checks`, renders check names/statuses/job IDs with advisory grouping and color, and overwrites the terminal display while watching.",
+    "why": "The stock watch output is difficult to scan; the requested view needs clear pass/fail markers, job IDs, a 15-second refresh countdown, and in-place updates."
+  },
+  {
+    "id": "0690",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/prChecks.test.ts",
+    "what": "Added CLI tests for sample pass/pending formatting, repository/PR/job IDs, ANSI green/red markers, failed-check exit status, and repeated polling until checks finish, using a fake gh executable.",
+    "why": "Pins the requested dashboard output without depending on GitHub or a locally authenticated gh session."
+  },
+  {
+    "id": "0691",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Registered the PR-check dashboard tool and its suite under the pr-checks subsystem.",
+    "why": "The affected-test map requires every new test suite and owned tool to be claimed."
+  },
+  {
+    "id": "0692",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "package.json",
+    "what": "Added the `pr:checks` npm script.",
+    "why": "Provides a short, consistent entry point for running the new dashboard with a PR number."
+  },
+  {
+    "id": "0693",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "README.md",
+    "what": "Documented `npm run pr:checks -- 68 --watch --interval 15` as the live, colorized pull-request dashboard command.",
+    "why": "Makes the new terminal command discoverable alongside the repository’s other developer commands."
+  },
+  {
+    "id": "0694",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Recorded the new live PR-check dashboard command and its behavior.",
+    "why": "Preserves the repository’s requested session memory for future contributors."
+  },
+  {
+    "id": "0695",
+    "date": "2026-10-07T17:33:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d45fd0f4-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Appended entries 0689–0695 covering the dashboard, tests, command, docs, subsystem map, memory note, and this log update.",
+    "why": "Maintains the required per-file machine-readable activity history."
   }
 ]
 ```

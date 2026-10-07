@@ -21,8 +21,8 @@ import {
   Geometry,
   Light,
   LightningSystem,
+  GpuParticleWorld,
   Material,
-  ParticleWorld,
   Renderable,
   Scene,
   Vec3,
@@ -49,7 +49,7 @@ export interface WeatherSceneHandle extends DemoSceneHandle {
   triggerLightning(): void;
   setUnderwater(on: boolean): void;
   setTimeOfDay(hours: number): void;
-  /** Alive rain-streak particles (the browser gate asserts rain is actually visible). */
+  /** Estimated rain billboards currently alive (the GPU buffer deliberately has no CPU readback). */
   rainDrops(): number;
 }
 
@@ -57,52 +57,82 @@ const PRESETS: WeatherPresetName[] = ["clear", "overcast", "rain", "storm"];
 
 /** 1 real second = 1 simulated minute, and the rate `T` restores when the clock resumes. */
 const TIME_SCALE = 60;
-
-/** Rain streaks: capacity and the drops/s a full `precipitation01` asks for. */
-const RAIN_SPRITES = 2400;
-const RAIN_RATE = 1600;
+const RAIN_CAPACITY = 8192;
+const RAIN_RATE = 4200;
 
 /**
- * Camera-following rain. A `ParticleWorld` of thin unlit streaks whose emitter rides ~16 m above
- * the camera each frame: rate follows `weather.state.precipitation01` (0 when clear or while the
- * lake floods the camera), the spawn cone slants down `weather.meanWind()`, and drops fall at
- * terminal velocity with no gravity term — the streak is the motion, not an acceleration curve.
+ * Camera-following rain as soft, velocity-stretched GPU billboards. Short-lived drops fall at a
+ * near-terminal speed; their camera-centered spawn slab and wind-slanted cone keep the streaks in
+ * view without the rigid, fixed-axis box geometry that made the old rain look like needles.
  */
-class RainField extends ParticleWorld {
+class RainField extends GpuParticleWorld {
   constructor(
     private readonly weather: WeatherSystem,
+    private readonly cameraEntity: ReturnType<Scene["createTransformedEntity"]>,
     private readonly isUnderwater: () => boolean,
   ) {
-    super({ name: "rain", capacity: RAIN_SPRITES, gravity: { x: 0, y: 0, z: 0 }, drag: 0, seed: 41 });
-    const emitter = this.simulation.emitter;
-    emitter.rate = 0;
-    emitter.lifeMin = 1.5;
-    emitter.lifeMax = 2.3;
-    emitter.size = 1;
-    // 56×8×56 m slab of air over the lake, y 12–20: drops fall ~11 m/s × ~1.9 s ≈ 21 m, so they
-    // die right at the surface — in frame from every orbit angle (a camera-centered spawn put
-    // the volume above/behind the frustum; instances stayed at scene-object count).
-    emitter.jitter = { x: 56, y: 8, z: 56 };
-    emitter.cone = { direction: { x: 0, y: -1, z: 0 }, angle: 0.05, speedMin: 9, speedMax: 13 };
-    emitter.color = { r: 1, g: 1, b: 1, a: 1 };
+    super({
+      name: "rain",
+      capacity: RAIN_CAPACITY,
+      seed: 41,
+      maxEmitsPerFrame: 1024,
+      softParticles: true,
+      softScale: 28,
+      stretch: 4.2,
+      cullDistance: 120,
+      emitter: {
+        rate: 0,
+        lifeMin: 0.9,
+        lifeMax: 1.4,
+        size: 0.03,
+        position: { x: 16, y: 21, z: -20 },
+        jitter: { x: 52, y: 5, z: 52 },
+        coneDir: { x: 0, y: -1, z: 0 },
+        coneAngle: 0.04,
+        speedMin: 18,
+        speedMax: 24,
+        color: { r: 0.63, g: 0.75, b: 0.86, a: 0.72 },
+      },
+      modules: {
+        gravity: { x: 0, y: 0, z: 0 },
+        drag: 0,
+        turbulence: 0.14,
+        noiseScale: 0.06,
+        colorFrom: { r: 0.63, g: 0.75, b: 0.86, a: 0.72 },
+        colorTo: { r: 0.63, g: 0.75, b: 0.86, a: 0 },
+        sizeStart: 0.03,
+        sizeEnd: 0.022,
+        rotationSpeed: 0,
+      },
+    });
   }
 
-  override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
-    const emitter = this.simulation.emitter;
-    // The spawn volume is fixed over the lake (the orbit always looks at it); each particle is
-    // jittered inside it by the emitter, so a whole batch born in one slow frame still fills
-    // the slab instead of clumping at a single point.
-    emitter.position.x = 0;
-    emitter.position.y = 16;
-    emitter.position.z = 0;
-    const precipitation = this.weather.state.precipitation01;
-    emitter.rate = this.isUnderwater() ? 0 : precipitation * RAIN_RATE;
-    // Horizontal wind (m/s) against the ~11 m/s fall: unit cone direction, speedMin/Max on top.
-    const wind = this.weather.meanWind();
-    const len = Math.hypot(wind.x, 11, wind.y) || 1;
-    emitter.cone.direction.x = wind.x / len;
-    emitter.cone.direction.y = -11 / len;
-    emitter.cone.direction.z = wind.y / len;
+  /** Approximate live count for HUD/gate diagnostics; GPU particle state stays GPU-authoritative. */
+  get aliveEstimate(): number {
+    const system = this.system;
+    if (!system?.ready || this.isUnderwater() || system.emitter.rate <= 0) return 0;
+    const meanLife = (system.emitter.lifeMin + system.emitter.lifeMax) * 0.5;
+    return Math.min(system.capacity, system.emitted, Math.ceil(system.emitter.rate * meanLife));
+  }
+
+  override update(context: Parameters<NonNullable<GpuParticleWorld["update"]>>[0], dt: number): void {
+    const system = this.system;
+    if (system) {
+      const emitter = system.emitter;
+      const eye = this.cameraEntity.transform.position;
+      emitter.position.x = eye.x;
+      emitter.position.y = eye.y + 13;
+      emitter.position.z = eye.z;
+      const precipitation = this.weather.state.precipitation01;
+      emitter.rate = this.isUnderwater() ? 0 : precipitation * RAIN_RATE;
+      // Wind gives the drops a realistic slant while their fixed fall speed keeps each streak crisp.
+      const wind = this.weather.meanWind();
+      const fallSpeed = 21;
+      const length = Math.hypot(wind.x, fallSpeed, wind.y) || 1;
+      emitter.coneDir.x = wind.x / length;
+      emitter.coneDir.y = -fallSpeed / length;
+      emitter.coneDir.z = wind.y / length;
+    }
     super.update(context, dt);
   }
 }
@@ -212,34 +242,11 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   const lightning = new LightningSystem({ name: "lightning", weatherName: "weather", rate: 0.5, areaRadius: 300, cloudHeight: 1200 });
   scene.add(lightning);
 
-  // Rain: thin unlit streaks posed by the ParticleWorld only (no ParticleSystem on this scene).
-  // The RainField SceneObject drives rate/wind/spawn from the live weather each frame, including
-  // while the browser gate has the demo's own rAF frozen — the engine loop still steps it.
+  // GPU particles avoid thousands of per-drop ECS entities; the world updates precipitation,
+  // wind, underwater state, and its emitter relative to the active camera each engine frame.
   const isUnderwater = (): boolean => scene.settings.water.level >= 1;
-  const rain = new RainField(weather, isUnderwater);
+  const rain = new RainField(weather, cameraEntity, isUnderwater);
   scene.add(rain);
-  const rainMesh = createBox(engine.gpu, { width: 0.058, height: 0.6, depth: 0.058 });
-  const rainMaterial = Material.unlit({
-    label: "weather.rain-streak",
-    // Slate, not white: the storm fog reads bright, so the streaks have to sit *under* it in
-    // luminance to stay visible (pale blue-white vanished into the haze).
-    color: 0x5c7186,
-    opacity: 0.9,
-    transparent: true,
-  });
-  const rainIds: number[] = [];
-  for (let i = 0; i < RAIN_SPRITES; i++) {
-    const drop = scene.createTransformedEntity(`rain-${i}`, new Vec3(0, -500, 0));
-    const streak = new Renderable();
-    streak.geometry = rainMesh;
-    streak.material = rainMaterial;
-    streak.castShadow = false;
-    streak.receiveShadow = false;
-    streak.visible = false;
-    scene.world.addComponent(drop.id, streak);
-    rainIds.push(drop.id);
-  }
-  rain.spriteEntities = rainIds;
 
   // One action per shortcut, shared by the on-screen panel (the interface) and the keys (kept as
   // shortcuts). `preset` tracks the last requested one (the weather itself only knows where it is
@@ -330,12 +337,12 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       const c = scene.settings.clouds;
       return (
         `${cycle.clockText}  wind ${s.windSpeed.toFixed(1)} m/s ${(s.windDirection / Math.PI) * 180 < 180 ? "E" : "W"}  ` +
-        `T ${s.temperatureC.toFixed(1)}°C  rain ${s.precipitation01.toFixed(2)}  drops ${rain.simulation.alive}  storm ${s.storm01.toFixed(2)}\n` +
+        `T ${s.temperatureC.toFixed(1)}°C  rain ${s.precipitation01.toFixed(2)}  drops ≈${rain.aliveEstimate}  storm ${s.storm01.toFixed(2)}\n` +
         `cover ${c.coverage.toFixed(2)}  deck wind (${c.windX.toFixed(1)}, ${c.windZ.toFixed(1)})  ` +
         `lake t+${scene.settings.water.time.toFixed(1)}s  strikes ${lightning.strikeCount}  flash ${lightning.flashTotal.toFixed(2)}`
       );
     },
-    rainDrops: () => rain.simulation.alive,
+    rainDrops: () => rain.aliveEstimate,
     setWeather,
     setCoverage,
     triggerLightning(): void {
@@ -350,8 +357,6 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       touch.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();
-      rainMesh.dispose();
-      rainMaterial.dispose();
       scene.dispose();
     },
   };

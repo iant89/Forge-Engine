@@ -50,6 +50,8 @@ export interface GpuParticleModulesConfig {
   colorTo: { r: number; g: number; b: number; a: number };
   sizeStart: number;
   sizeEnd: number;
+  /** Stable random multiplier in the range `1 ± sizeVariation`, derived from each particle's life. */
+  sizeVariation: number;
   rotationSpeed: number;
 }
 
@@ -86,7 +88,7 @@ export interface GpuParticleFrameInput {
 }
 
 const EMIT_UNIFORM_BYTES = 96;
-const SIM_UNIFORM_BYTES = 112;
+const SIM_UNIFORM_BYTES = 128;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -122,6 +124,7 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     colorTo: partial.colorTo ?? { r: 0.75, g: 0.1, b: 0.04, a: 0 },
     sizeStart: partial.sizeStart ?? 0.28,
     sizeEnd: partial.sizeEnd ?? 0.04,
+    sizeVariation: partial.sizeVariation ?? 0,
     rotationSpeed: partial.rotationSpeed ?? 0.6,
   };
 }
@@ -635,6 +638,7 @@ export class GpuParticleSystem {
     f[25] = m.velocityBoost.y;
     f[26] = m.velocityBoost.z;
     u[27] = this.seed;
+    f[28] = Math.max(0, Math.min(1, m.sizeVariation));
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 

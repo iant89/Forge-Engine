@@ -321,6 +321,24 @@ describe("particles — Phase 12 GPU system", () => {
     }
   });
 
+  it("keeps velocity-stretched billboards aligned and gives flakes stable size variation", async () => {
+    expect(PARTICLE_RENDER_SHADER).toContain("select(p.seed * 6.28318530718, 0.0, params.stretch > 0.0)");
+    expect(PARTICLE_FULL_SIM_SHADER).toContain("fract(p.maxLife * 31.713)");
+    expect(PARTICLE_FULL_SIM_SHADER).toContain("params.sizeVariation");
+
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const flakes = new GpuParticleSystem(gpu, {
+        capacity: 64,
+        modules: { sizeVariation: 0.55 },
+      });
+      expect(flakes.modules.sizeVariation).toBe(0.55);
+      flakes.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   it("simulates and draws 100k particles without creating 100k ECS entities", async () => {
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {
