@@ -7914,6 +7914,90 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/animationBlendTree.test.ts",
     "what": "Create blend tree test suite: 19 tests covering BlendTree1D (two/three-clip, boundaries, unsorted, non-uniform thresholds, determinism) and BlendTree2D (centre, corners, edges, clamping, non-unit rectangle, determinism).",
     "why": "Phase 16.3 verification."
+  },
+  {
+    "id": "0624",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/ik.ts",
+    "what": "Create IK solvers: TwoBoneIK (analytic 2-joint solver with law of cosines, Rodrigues rotation, pole target, bend direction, unreachable clamping, weight blend, zero-length safety) and FABRIK (iterative N-joint forward/backward reaching with convergence tolerance, maxIterations, fixedRoot, unreachable stretch, weight blend). 18 tests in tests/animationIK.test.ts.",
+    "why": "Phase 16.4 IK: post-sampling constraint passes that modify the TRS buffer before transforms are applied."
+  },
+  {
+    "id": "0625",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/index.ts",
+    "what": "Re-export solveTwoBoneIK, solveFABRIK and their config types from the animation barrel.",
+    "why": "Make IK solvers accessible via the public API."
+  },
+  {
+    "id": "0626",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Register animationIK.test.ts in the animation subsystem's test list.",
+    "why": "tests/subsystems.test.ts fails if a suite is unclaimed."
+  },
+  {
+    "id": "0627",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/animationIK.test.ts",
+    "what": "Create IK test suite: 18 tests covering TwoBoneIK (straight chain, bone length preservation, unreachable stretch, pole target, weight blend, zero-length bones, determinism) and FABRIK (2-joint, bone preservation, unreachable stretch, fixedRoot, free root, convergence, maxIterations, weight, short chain, determinism).",
+    "why": "Phase 16.4 verification."
+  },
+  {
+    "id": "0628",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Mark Phase 16.4 (Two-bone IK, FABRIK) as [x] complete; update state block to 16.1-16.4 landed.",
+    "why": "ROADMAP.md must reflect actual implementation state."
+  },
+  {
+    "id": "0629",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "Update animation.clips capability notes to reflect IK solver implementation.",
+    "why": "Keep capability notes in sync with implementation state."
+  },
+  {
+    "id": "0630",
+    "date": "2026-10-07T05:50:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Append Phase 16.4 session notes: TwoBoneIK/FABRIK design, FABRIK iteration gotcha, pole target sign gotcha, next-step pointers for GPU skinning.",
+    "why": "Future sessions must not rediscover the cross-product sign or the FABRIK convergence check timing."
   }
 ]
 ```

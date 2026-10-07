@@ -40,4 +40,7 @@ export type {
 export { BlendTree1D, BlendTree2D } from "./blendTree.js";
 export type { BlendTreeClip, BlendResult } from "./blendTree.js";
 
+export { solveTwoBoneIK, solveFABRIK } from "./ik.js";
+export type { TwoBoneIKConfig, FABRIKConfig } from "./ik.js";
+
 export { assembleClip, assembleClips } from "./assembly.js";

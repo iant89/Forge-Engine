@@ -156,8 +156,8 @@ PHASE 15.5 - Interactive Terrain / Object Dynamics
     [~] IN PROGRESS
 
 PHASE 16 - ANIMATION
-    [~] IN PROGRESS (16.1-16.3 landed: clip import, sampling, playback, state machines,
-        blend trees; IK, GPU skinning and mechanical animation remain)
+    [~] IN PROGRESS (16.1-16.4 landed: clip import, sampling, playback, state machines,
+        blend trees, IK; GPU skinning and mechanical animation remain)
 
 
 ================================================================================
@@ -1546,8 +1546,13 @@ GOAL:
 
 16.4 IK
 
-    [ ] Two-bone IK
-    [ ] FABRIK
+    [x] Two-bone IK (analytic 2-joint solver: law of cosines for mid/root angles, Rodrigues'
+        rotation, pole target / bend direction, unreachable-target clamping, weight blending,
+        zero-length bone safety; tests/animationIK.test.ts)
+
+    [x] FABRIK (iterative N-joint solver: forward/backward reaching, bone length preservation,
+        convergence tolerance, maxIterations, fixedRoot option, unreachable-target stretch,
+        weight blending; tests/animationIK.test.ts)
 
 
 16.5 Skinning

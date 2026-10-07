@@ -1450,3 +1450,25 @@ will stop".
 - **Next: IK (16.4)** — two-bone IK and FABRIK are post-sampling constraint passes that modify the
   sampled TRS buffer before it's applied to transforms. They don't change the clip/sampler/blend
   architecture; they sit between `sampleClip` and `applyToTransforms` in the system.
+
+## 2026-10-07 — Phase 16.4: IK solvers
+
+- **TwoBoneIK** (`ik.ts`): analytic 2-joint solver using the law of cosines for the mid/root
+  angles, Rodrigues' rotation for the bend axis. Supports pole target (cross product of
+  root→target × root→pole), bend direction hint, unreachable-target clamping (caps at
+  upperLen + lowerLen), weight blending (0=original, 1=full IK), and zero-length bone safety.
+  Operates on the TRS buffer directly — writes corrected positions for mid and end joints.
+- **FABRIK** (`ik.ts`): iterative N-joint solver (forward/backward reaching). Configurable
+  maxIterations (default 10), tolerance (default 0.001), fixedRoot (default true). Unreachable
+  targets: stretches the chain toward the target. Returns iteration count. Weight blending on
+  the final positions.
+- **Gotcha for the next session:** FABRIK always runs at least one iteration pass even when
+  the end effector is already at the target — the convergence check happens after each pass.
+  Tests should expect `iters <= 1`, not `iters == 0`, for the "already at target" case.
+- **Pole target sign**: the cross product (root→target) × (root→pole) determines the bend
+  direction. The sign depends on the cross product order, so the test should compare the
+  *magnitude* of the Z offset (with vs. without pole) rather than asserting a specific sign.
+- **Next: GPU skinning (16.5)** — upload the sampled joint matrices to a GPU storage buffer
+  and add a vertex-stage skinning path. This is the first animation feature that touches the
+  renderer. The `SkinBinding` interface already exists in `rendering/mesh.ts`; the new work is
+  uploading the per-frame joint palette and modifying the vertex shader to apply it.
