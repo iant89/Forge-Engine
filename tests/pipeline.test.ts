@@ -19,7 +19,7 @@ describe("PipelineFactory cache", () => {
     const a = factory.get(base);
     const b = factory.get({ ...base });
     expect(b).toBe(a);
-    expect(factory.stats()).toEqual({ pipelines: 1, pipelinesPending: 0, failures: 0, creates: 1, cacheHits: 1, layouts: 12 });
+    expect(factory.stats()).toEqual({ pipelines: 1, pipelinesPending: 0, failures: 0, creates: 1, cacheHits: 1, layouts: 16 });
     expect(factory.keyOf(base)).toBe(a.key);
     factory.invalidate();
     await device.dispose();
@@ -108,6 +108,13 @@ describe("PipelineFactory cache", () => {
       { ...base, technique: "prepass", colorFormat: null, instanced: true },
       { ...base, technique: "prepass", colorFormat: null, instanced: true, lod: true },
       { ...base, technique: "prepass", colorFormat: null, doubleSided: true },
+      // Phase 16.5: skinning is a pipeline variant of the colour, prepass and shadow programs.
+      { ...base, skinned: true },
+      { ...base, skinned: true, instanced: true },
+      { ...base, skinned: true, transparent: true },
+      { ...base, technique: "depth", colorFormat: null, skinned: true },
+      { ...base, technique: "depth", colorFormat: null, skinned: true, instanced: true },
+      { ...base, technique: "prepass", colorFormat: null, skinned: true },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsSsao" },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurH" },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurV" },

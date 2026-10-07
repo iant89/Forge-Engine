@@ -1493,3 +1493,52 @@ will stop".
   variant of the standard vertex shader. This touches `renderer.ts`, `pipeline.ts`,
   `shaders/standard.ts`, and `geometry.ts`. The existing fixed 48-byte vertex layout stays
   unchanged — skinning data goes in a separate buffer slot.
+
+## 2026-10-07 — Phase 16.5: the GPU skinning path (renderer → pipeline → WGSL)
+
+- **`rendering/skinning.ts` (new).** `fillJointPalette` writes `palette[i] = inverse(meshWorld) ×
+  jointWorld[i] × IBM[i]` — mesh *local*, so the vertex stage keeps applying the draw's own
+  `objectData.model` exactly as it does unskinned (the depth prepass and the colour pass then agree
+  by construction). It takes a `worldMatrixOf` callback rather than the animation module's `Map`
+  (the renderer must not import `animation/`, ARCHITECTURE §2) and writes into a caller-owned
+  `Float32Array`: the 200-joint case is 200 multiplies through module-level scratch `Mat4`s, no
+  allocation. `JointPaletteArena` holds the whole frame's palettes in one buffer, one
+  `PALETTE_SLOT_ALIGN`-aligned slot per skinned batch, and uploads once per `flush()`.
+- **Vertex stream** (`geometry.ts`): `JOINTS_0`/`WEIGHTS_0` are a *second* vertex buffer slot
+  (`uint32x4` + `float32x4`, 32 B/vertex) rather than eight more floats in the fixed 48-byte record —
+  unskinned meshes keep paying 48 B, and a pipeline declares the skin slot only where the shader
+  reads it. `updateFrom` replaces/keeps/drops the stream; `gpuBytes` and `release` include it.
+- **Skinned modules are separate sources**, not extra entry points on the standard module: a WGSL
+  `struct VertexInput` *is* the entry's vertex interface, so a module that declares locations 4/5
+  would force every unskinned pipeline to bind a skin buffer it does not have. `skinnable()` in
+  `pipeline.ts` is the single decision (colour/unlit/emissive, prepass, depth; never LOD) that
+  `keyOf`, `moduleFor` and `describe` all consult.
+- **The palette lives at group 3.** Depth/prepass programs have no material group, but a pipeline
+  layout must be dense: `skinDepthLayout`/`skinPrepassLayout` insert an *empty* `skin.gap.layout` at
+  group 2 so the palette stays at group 3 in every skinned program and the renderer binds one index
+  for all passes. (Real WebGPU: a layout may declare a group the shader never uses.)
+- **Batch merging keys on the skin object**: one palette slot drives a whole batch, so two
+  renderables may only share a batch when they share the skin. A renderable whose skin has no
+  vertex stream counts `stats.skinFallbacks` and draws unskinned.
+- **Gotcha for the next session:** `stats.skinnedBatches`/`skinJoints` are counted in
+  `collectBatches` (once per batch), *not* in `bindSkinning` (which runs once per pass and would
+  triple-count). `check:wgsl` is structural only — it cannot prove the skinned modules compile, so
+  `npm run check:browser:skinning` exists: it A/Bs two deterministic poses of the demo's arm
+  (`examples/src/scenes/skinningScene.ts`, `?scene=skinning`, hooked through `__forge.setSkinPose`).
+  Measured on SwiftShader: 16,974/921,600 pixels differ between poses in the focused mode
+  (8,859/468,000 in the full sweep), max 211/255, zero GPU errors.
+  The same check runs inside the default gate's scene walk (`loadScene("skinning")`, after the
+  particles), so the skinned modules compile in the full sweep too — not only in the focused mode.
+- **The demo arm** is four boxes welded into one mesh, rigidly weighted to four chained joints; its
+  inverse bind matrices are the rest-pose translations. Nothing touches vertices after upload, so a
+  bent arm on screen *is* the palette working.
+- **Gotcha (cost a CI run): every group a pipeline layout declares must be *bound* before a draw, even
+  an empty one.** The skinned shadow/prepass layouts interpose an empty placeholder at group 2 so the
+  palette can stay at group 3 in every skinned program — and Chromium (through at least 131, the build
+  the CI runner installs) invalidates the whole command buffer with "No bind group set at group index 2"
+  if nothing is set there. A newer Chromium (153, this sandbox) accepts it, so the failure only appears
+  in CI. The fix: `Renderer.ensureSkinGapBindGroup()` — an empty `createBindGroup` — bound at group 2 by
+  `bindSkinning(..., gap: true)` for the depth/prepass passes only (the colour pass's group 2 is the
+  material group). `MockGPUDevice.beginDraw` now enforces the same rule, so the CPU suites catch it.
+- **Next: mechanical animation (16.6)** — rover wheels, suspension, steering, robotic arm: drive the
+  joints from the physics/vehicle layer with the animation system, which now has a GPU consumer.

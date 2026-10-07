@@ -17,7 +17,8 @@ export type DemoSceneName =
   | "sky"
   | "weather"
   | "mars-showcase"
-  | "rover-course";
+  | "rover-course"
+  | "skinning";
 
 /** Resolve a scene query slug, defaulting to the rover showcase. */
 export function resolveDemoSceneName(requestedScene: string | null): DemoSceneName {
@@ -33,6 +34,7 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "weather":
     case "mars-showcase":
     case "rover-course":
+    case "skinning":
       return requestedScene;
     case "mars":
       return "terrain";

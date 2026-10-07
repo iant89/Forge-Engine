@@ -157,8 +157,9 @@ PHASE 15.5 - Interactive Terrain / Object Dynamics
 
 PHASE 16 - ANIMATION
     [~] IN PROGRESS (16.1-16.5 landed: clip import, sampling, playback, state machines,
-        blend trees, IK, joint palette computation and skinning data validation;
-        GPU upload pipeline and mechanical animation remain)
+        blend trees, IK, joint palette computation, skinning data validation and the GPU skinning
+        upload/render path — a skinned mesh deforms in the demo on a real device;
+        mechanical animation (16.6) remains)
 
 
 ================================================================================
@@ -1564,8 +1565,16 @@ GOAL:
     [x] Skinning data validation (validateSkinningData: weight sum check, joint/weight count,
         createIdentitySkinningData for default non-skinned fallback; tests/animationSkinning.test.ts)
 
-    [ ] GPU upload pipeline (per-frame joint palette to storage buffer, vertex shader skinning
-        variant with JOINTS_0/WEIGHTS_0 attributes, skinned pipeline variant in PipelineFactory)
+    [x] GPU upload pipeline (per-frame joint palette into one storage buffer, one
+        `PALETTE_SLOT_ALIGN`-aligned slot per skinned batch, filled mesh-local
+        (`inverse(meshWorld) × jointWorld × IBM`) from the joints' live world matrices and uploaded
+        in a single write; JOINTS_0/WEIGHTS_0 as a second vertex buffer slot with the skinned vertex
+        entries `vertexMainSkinned`/`vertexMainInstancedSkinned`; skinned variants of the colour,
+        depth-prepass and shadow programs keyed by `skinned` in PipelineFactory, with the palette at
+        group 3 behind an empty placeholder group for the programs that have no material group;
+        RenderStats.skinnedBatches/skinJoints/skinFallbacks;
+        tests/renderingSkinning.test.ts, tests/skinningScene.test.ts, and the demo's skinned arm
+        pixel-verified on a real adapter by `npm run check:browser:skinning`)
 
 
 16.6 Mechanical Animation

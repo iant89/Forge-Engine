@@ -19,7 +19,10 @@
  *  - pipelines: vertex buffer stride/attribute bounds, shader location uniqueness, fragment target
  *    count, depth format validity, sample count consistency
  *  - passes: attachment format match against the pipeline, load/store ops, viewport/scissor,
- *    draw-after-pipeline, vertex buffer coverage, index range, dynamic-offset counts
+ *    draw-after-pipeline, vertex buffer coverage, index range, dynamic-offset counts, and a bind
+ *    group bound for *every* group the pipeline layout declares (empty ones included — Chromium
+ *    invalidates the command buffer otherwise, which is how the skinned shadow pass's placeholder
+ *    group was caught)
  *  - encoder copies: buffer/texture usage bits, bytesPerRow 256-alignment, bounds
  *  - `resolveQuerySet` (usage + alignment), timestamp emulation (monotonic fake clocks)
  *  - memory accounting + create/destroy counters → leak assertions
@@ -1543,7 +1546,15 @@ export class MockGPURenderPassEncoder extends MockPassBase {
       }
     }
     this.bindGroups.set(index, group);
-    this.encoder.device.record({ type: "setBindGroup", label: this.label, index, dynamicOffsets: dyn.values ? Array.from(dyn.values) : [] });
+    this.encoder.device.record({
+      type: "setBindGroup",
+      label: this.label,
+      index,
+      // The *group's* own label, not the pass's: an assertion about which bind group landed at an
+      // index (the skin gap's empty group, say) can only be written if the log carries it.
+      group: group.desc.label ?? "(anonymous)",
+      dynamicOffsets: dyn.values ? Array.from(dyn.values) : [],
+    });
   }
 
   setVertexBuffer(slot: number, buffer: MockGPUBuffer | null, offset = 0, size?: number): void {
@@ -1698,6 +1709,16 @@ export class MockGPURenderPassEncoder extends MockPassBase {
     if (this.pipeline.destroyed) {
       this.err("draw with a destroyed pipeline");
       return false;
+    }
+    // Every group the pipeline layout declares must be set before a draw — *including an empty one*.
+    // Chromium (through at least 131) refuses the command buffer otherwise ("No bind group set at
+    // group index N"), which is how the skinned shadow pass, whose palette sits at group 3 behind an
+    // empty placeholder group 2, produced validation errors on the CI runner while a newer Chromium
+    // accepted the same frame. Enforcing the rule here means the CPU gates cannot miss it again.
+    for (let index = 0; index < (this.pipeline.layout?.layouts.length ?? 0); index++) {
+      if (!this.bindGroups.has(index)) {
+        this.err(`draw: no bind group at group index ${index}, which the pipeline layout declares (bind one, even for an empty layout)`);
+      }
     }
     return true;
   }

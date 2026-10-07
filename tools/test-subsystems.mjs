@@ -117,6 +117,7 @@ export const subsystems = {
       "tests/lightCulling.test.ts",
       "tests/objectCulling.test.ts",
       "tests/primitives.test.ts",
+      "tests/renderingSkinning.test.ts",
       "tests/wgsl.test.ts",
     ],
     deps: ["core", "environment", "gpu", "math", "particles", "resources", "scene"],
@@ -237,8 +238,9 @@ export const subsystems = {
       "examples/src/scenes/marsShowcaseScene.ts",
       "examples/src/scenes/marsGeneratorScene.ts",
       "examples/src/scenes/roverCourseScene.ts",
+      "examples/src/scenes/skinningScene.ts",
     ],
-    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts"],
+    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts", "tests/skinningScene.test.ts"],
     deps: [
       "ex-ui",
       "ex-rover",

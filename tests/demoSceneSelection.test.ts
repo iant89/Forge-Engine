@@ -19,6 +19,7 @@ describe("demo scene URL routing", () => {
       "weather",
       "mars-showcase",
       "rover-course",
+      "skinning",
     ];
     for (const scene of scenes) expect(resolveDemoSceneName(scene)).toBe(scene);
   });

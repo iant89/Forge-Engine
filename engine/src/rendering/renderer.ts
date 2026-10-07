@@ -36,6 +36,7 @@ import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { SKIN_BINDINGS } from "./shaders/standard.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
@@ -62,9 +63,11 @@ import { findGpuParticleWorld } from "../particles/gpuWorld.js";
 import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
+import { JointPaletteArena, fillJointPalette, type WorldMatrixLookup } from "./skinning.js";
 import { Material } from "./material.js";
 import { Camera, Light, Renderable } from "../scene/components/index.js";
 import type { GraphicsDevice } from "../gpu/device.js";
+import type { SkinBinding } from "./mesh.js";
 import type { Scene, SceneSkySettings, SceneSsaoSettings, SkyQuality } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import type { RenderFrameContext, SkyParams, PickResult } from "../scene/renderContext.js";
@@ -210,6 +213,19 @@ export interface RenderStats {
   depthPrepass: boolean;
   /** Draw calls issued by the depth prepass (not counted in `drawCalls`, like `shadowsDrawn`). */
   prepassDraws: number;
+  /**
+   * Batches submitted through the skinned entry points this frame (colour, prepass and shadow
+   * passes each draw them; this counts the batches, not the draws, so it is comparable with
+   * `batches`).
+   */
+  skinnedBatches: number;
+  /** Joint matrices uploaded for them (`Σ joints` over the frame's skinned batches). */
+  skinJoints: number;
+  /**
+   * Renderables whose `skin` could not be honoured because their geometry has no skin vertex
+   * stream: drawn unskinned rather than skipped, and counted here so the mismatch is visible.
+   */
+  skinFallbacks: number;
   /** True when the SSAO estimate + blur passes ran and the forward pass applied their result. */
   ssao: boolean;
   /**
@@ -262,6 +278,17 @@ export interface RenderStats {
 
 /** Mask-bit base of the point lights' cube faces (cascades 0..3, spots 4..7, then six bits per point light). */
 const POINT_MASK_BASE = MAX_CASCADES + MAX_SPOT_SHADOWS;
+
+/** Bind group the skinned pipeline layouts carry the joint palette in (see `shaders/standard.ts`). */
+const SKIN_BINDING_GROUP = SKIN_BINDINGS.palette.group;
+
+/**
+ * The empty group the skinned shadow/prepass layouts interpose before the palette. Nothing reads it —
+ * it exists so the palette stays group 3 in every skinned program — but a draw must still *set* a bind
+ * group there: Chromium (through at least 131) invalidates a command buffer whose draw leaves a
+ * declared group unbound, empty or not, and the CI runner runs that build.
+ */
+const SKIN_GAP_BINDING_GROUP = SKIN_BINDING_GROUP - 1;
 
 interface ShadowInstanceRange {
   /** First instance relative to this batch's dynamic storage-buffer offset. */
@@ -325,6 +352,16 @@ interface Batch {
   lodDistance: number;
   /** This batch's `PopulationLodUniforms` slot in the per-frame LOD uniform arena (-1 = none). */
   lodUniformOffset: number;
+  /**
+   * Phase 16.5: the skin this batch's vertices are deformed by (null = an ordinary batch). Batches
+   * share a skin only when they share the skin *object*, because one palette slot drives the whole
+   * batch.
+   */
+  skin: SkinBinding | null;
+  /** This batch's palette slot in the frame's joint-palette arena, in bytes (dynamic offset). */
+  skinOffset: number;
+  /** Joints in that slot (0 for an unskinned batch). */
+  skinJoints: number;
 }
 
 interface PostParams {
@@ -474,6 +511,9 @@ export class Renderer implements RenderFrameContext {
     underwater: false,
     depthPrepass: false,
     prepassDraws: 0,
+    skinnedBatches: 0,
+    skinJoints: 0,
+    skinFallbacks: 0,
     ssao: false,
     clusteredLighting: false,
     lights: 0,
@@ -669,6 +709,30 @@ export class Renderer implements RenderFrameContext {
   private graphEpoch = -1;
   private deviceLostUnsub: { dispose(): void } | null = null;
 
+  /**
+   * Phase 16.5: the frame's joint palettes (one slot per skinned batch) and the group-3 binding
+   * that exposes them to the skinned vertex entries. Filled during `collectBatches` — the same
+   * pass that reads the renderables' world matrices, so a joint's animated pose is the one the
+   * TransformSystem just wrote — uploaded once in `uploadArenas`, and bound per skinned draw.
+   */
+  private readonly skinPalettes: JointPaletteArena;
+  private skinBindGroup: GPUBindGroup | null = null;
+  private skinBindGroupBuffer: GPUBuffer | null = null;
+  private skinBindGroupWindow = 0;
+  private skinGapBindGroup: GPUBindGroup | null = null;
+  /** Scene whose joints the palette lookup reads; set for the duration of `collectBatches`. */
+  private skinWorld: import("../scene/world.js").EntityWorld | null = null;
+
+  /**
+   * Joint entity → world matrix, as `fillJointPalette` wants it: allocation-free, and an entity
+   * without a `Transform` (or a stale id) reads as "missing joint" (identity) rather than throwing.
+   */
+  private readonly jointWorldMatrix: WorldMatrixLookup = (entity) => {
+    const world = this.skinWorld;
+    if (!world || !world.hasTransform(entity)) return null;
+    return world.transforms.worldView(world.transformSlot(entity, false));
+  };
+
   // Batches (pooled: the same objects are reused every frame).
   private readonly batchPool: Batch[] = [];
   private batchCount = 0;
@@ -747,6 +811,7 @@ export class Renderer implements RenderFrameContext {
     readonly options: RendererOptions = {},
   ) {
     this.pipelines = new PipelineFactory(device, { asyncCompilation: options.asyncPipelines ?? !device.isMock });
+    this.skinPalettes = new JointPaletteArena(device, "skin.palettes");
     this.graph = new RenderGraph(device, { gpuTimestamps: options.gpuTimestamps ?? false });
     this.stats.gpuTimingAvailable = this.graph.stats.gpuTimingAvailable;
     // The mock device validates and records compute passes but cannot execute WGSL, so an
@@ -1430,16 +1495,18 @@ export class Renderer implements RenderFrameContext {
       this.stats.shadowInstancesCulled += b.count - assignedInstances;
       const isLod = b.lodHiTriangles > 0;
       const instanced = b.count > 1 || isLod;
-      const state = (instanced ? 2 : 0) | (isLod ? 1 : 0);
+      const skinned = b.skin !== null;
+      const state = (instanced ? 2 : 0) | (isLod ? 1 : 0) | (skinned ? 4 : 0);
       if (state !== lastState) {
         lastState = state;
-        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced, lod: isLod })?.pipeline ?? null;
+        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced, lod: isLod, skinned })?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
+      if (skinned) this.bindSkinning(pass, b, true);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
         const range = b.shadowRanges[rangeIndex]!;
@@ -1472,16 +1539,18 @@ export class Renderer implements RenderFrameContext {
     for (let i = 0; i < list.length; i++) {
       const b = list[i]!;
       const state = prepassState(b);
+      const skinned = b.skin !== null;
       if (state !== lastState) {
         lastState = state;
         // LOD batches always draw instanced (see the shadow pass above).
-        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 || b.lodHiTriangles > 0, lod: b.lodHiTriangles > 0 })?.pipeline ?? null;
+        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 || b.lodHiTriangles > 0, lod: b.lodHiTriangles > 0, skinned })?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+      if (skinned) this.bindSkinning(pass, b, true);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         pass.drawIndexed(b.indexCount, b.count, b.indexStart);
@@ -1535,6 +1604,7 @@ export class Renderer implements RenderFrameContext {
       // device buffer even at count 1) — the prepass probe must ask for the same variant.
       const batchInstanced = b.count > 1 || b.lodHiTriangles > 0;
       const batchLod = b.lodHiTriangles > 0;
+      const batchSkinned = b.skin !== null;
       const prepassReady = b.prepass && this.pipelines.getReady({
         technique: "prepass",
         colorFormat: null,
@@ -1543,6 +1613,7 @@ export class Renderer implements RenderFrameContext {
         doubleSided: b.material.doubleSided,
         instanced: batchInstanced,
         lod: batchLod,
+        skinned: batchSkinned,
       }) !== null;
       const mainPipelineOptions = {
         technique: isWater ? "water" as const : b.material.technique === "terrain" ? "terrain" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
@@ -1552,6 +1623,7 @@ export class Renderer implements RenderFrameContext {
         doubleSided: b.material.doubleSided,
         instanced: batchInstanced,
         lod: batchLod,
+        skinned: batchSkinned,
       };
       // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
       // variant is still compiling, the depth-writing forward variant remains correct at equal depth
@@ -1564,6 +1636,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+      if (batchSkinned) this.bindSkinning(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         if (records) {
@@ -1646,6 +1719,9 @@ export class Renderer implements RenderFrameContext {
     s.underwater = false;
     s.depthPrepass = false;
     s.prepassDraws = 0;
+    s.skinnedBatches = 0;
+    s.skinJoints = 0;
+    s.skinFallbacks = 0;
     s.indirectDraws = 0;
     s.ssao = false;
     s.clusteredLighting = false;
@@ -2264,6 +2340,8 @@ export class Renderer implements RenderFrameContext {
     this.objectArena.reset();
     this.instanceArena.reset();
     this.populationLodArena.reset();
+    this.skinPalettes.begin();
+    this.skinWorld = scene.world;
     const store = scene.world.store(Renderable);
     const camPos = camera.positionRender;
     const maxInstances = this.maxInstancesPerBatch;
@@ -2296,7 +2374,15 @@ export class Renderer implements RenderFrameContext {
         if (!caster || shadowMask === 0) continue;
         shadowOnly = true;
       }
-      const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}`;
+      // Phase 16.5: a batch skins when the renderable names a skin *and* its geometry carries the
+      // vertex stream the skinned entry points read. A skin without attributes cannot deform
+      // anything; drawing it unskinned (and counting it) beats dropping the mesh or asserting on a
+      // device we cannot inspect. The skin object is part of the batch key: one palette slot drives
+      // a whole batch, so two renderables may share a batch only when they share the skin.
+      const skinnable = r.skin !== null && r.skin.joints.length > 0 && r.geometry.skinBuffer !== null;
+      if (r.skin !== null && !skinnable) this.stats.skinFallbacks++;
+      const skin = skinnable ? r.skin : null;
+      const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}|${skin ? "sk" : "-"}`;
       // Merge only when this record lands exactly at the previous batch's end — instances must
       // be contiguous to share one draw, which is why batches are emitted in one pass. A new
       // batch starts 256-aligned (the WebGPU dynamic-offset rule for the window in setBindGroup);
@@ -2311,6 +2397,8 @@ export class Renderer implements RenderFrameContext {
         // A pipeline key describes shader/state compatibility, not uniforms or texture identity.
         // Distinct splat masks (and ordinary material values/maps) must never share one bind group.
         previous.material === r.material &&
+        // ...nor may two different skins share one palette slot.
+        previous.skin === skin &&
         previous.count < maxInstances &&
         previous.instanceOffset + previous.count * INSTANCE_STRIDE === this.instanceArena.usedBytes;
       const instanceOffset = canMerge ? this.instanceArena.reserve(INSTANCE_STRIDE, 1) : this.instanceArena.reserve(INSTANCE_STRIDE, 256);
@@ -2355,6 +2443,37 @@ export class Renderer implements RenderFrameContext {
       b.bounds.setFrom(box.min, box.max);
       b.shadowRangeCount = 0;
       this.addShadowRange(b, 0, shadowMask);
+      if (skin) {
+        // The palette is mesh-local (rendering/skinning.ts): cancel the draw's own world matrix, so
+        // the vertex stage can keep applying `objectData.model` exactly as it does unskinned.
+        const joints = skin.joints;
+        b.skin = skin;
+        b.skinJoints = joints.length;
+        this.stats.skinnedBatches++;
+        this.stats.skinJoints += joints.length;
+        b.skinOffset = this.skinPalettes.reserve(joints.length);
+        this.scratchMat.m.set(matrix);
+        // A singular world matrix has no inverse (`invert` leaves the matrix untouched, which would
+        // bake the mesh transform into the palette *and* apply it again in the shader). Identity is
+        // the defined answer: the palette stays world-space, and the draw's own model matrix
+        // collapses the mesh either way.
+        if (!this.scratchMat.invert()) this.scratchMat.setIdentity();
+        const written = fillJointPalette(
+          joints,
+          skin.inverseBindMatrices,
+          this.jointWorldMatrix,
+          this.skinPalettes.paletteView(b.skinOffset, joints.length),
+          this.scratchMat.m,
+        );
+        if (written === 0) {
+          // Degenerate input (an empty or truncated skin): fall back to the unskinned path rather
+          // than reserving a slot nothing wrote.
+          b.skin = null;
+          b.skinJoints = 0;
+          b.skinOffset = 0;
+          this.stats.skinFallbacks++;
+        }
+      }
     }
 
     // Phase 14: population sources. Everything above walked one `Renderable` at a time; a
@@ -2814,6 +2933,9 @@ export class Renderer implements RenderFrameContext {
         lodHiTriangles: 0,
         lodDistance: 0,
         lodUniformOffset: -1,
+        skin: null,
+        skinOffset: 0,
+        skinJoints: 0,
       };
       this.batchPool.push(b);
     }
@@ -2823,6 +2945,11 @@ export class Renderer implements RenderFrameContext {
     b.lodHiTriangles = 0;
     b.lodDistance = 0;
     b.lodUniformOffset = -1;
+    // A recycled slot must not keep the previous frame's skin either: a batch drawn through the
+    // skinned entry point without a palette would read another frame's joints.
+    b.skin = null;
+    b.skinOffset = 0;
+    b.skinJoints = 0;
     this.batchCount++;
     return b;
   }
@@ -2892,6 +3019,9 @@ export class Renderer implements RenderFrameContext {
       this.ensurePopulationLodBuffer();
       this.device.device.queue.writeBuffer(this.populationLodBuffer!, 0, gpuSource(lodBytes));
     }
+    // Phase 16.5: the joint palettes, filled during `collectBatches`. One upload per frame with
+    // skinned batches, none at all for a frame without them.
+    this.skinPalettes.flush();
   }
 
   private ensureBuffers(): void {
@@ -3274,6 +3404,47 @@ export class Renderer implements RenderFrameContext {
     if (rebuilt) this.rebuildPopulationGroups();
   }
 
+  /**
+   * Bind the two resources a skinned draw adds to an unskinned one: the skin vertex stream at slot
+   * 1 and the joint palette at group 3 (the pipeline's dynamic offset selects this batch's slot).
+   * Only ever called for a batch whose pipeline was fetched with `skinned: true`, because a
+   * non-skinned pipeline layout has no group 3 and no second vertex slot.
+   */
+  private bindSkinning(pass: GPURenderPassEncoder, b: Batch, gap: boolean): void {
+    // `gap` is the shadow and prepass passes: their layouts declare the empty group 2 (see
+    // `SKIN_GAP_BINDING_GROUP`), and Chromium refuses the draw unless something is bound there.
+    if (gap) pass.setBindGroup(SKIN_GAP_BINDING_GROUP, this.ensureSkinGapBindGroup());
+    pass.setVertexBuffer(1, b.geometry.skinBuffer!);
+    pass.setBindGroup(SKIN_BINDING_GROUP, this.ensureSkinBindGroup(), [b.skinOffset]);
+  }
+
+  /** The (empty) bind group for the skinned depth/prepass gap; a group with no entries, created once. */
+  private ensureSkinGapBindGroup(): GPUBindGroup {
+    this.skinGapBindGroup ??= this.device.device.createBindGroup({ label: "skin.gap.bindgroup", layout: this.pipelines.bindGroupLayouts.skinGap, entries: [] });
+    return this.skinGapBindGroup;
+  }
+
+  /**
+   * The palette bind group, rebuilt when the frame's palette window changes or the arena's buffer
+   * was reallocated. Its declared size is the frame's window (one slot), which is what makes the
+   * dynamic offsets of every slot legal: `ensureArenas`' counterpart in `JointPaletteArena.flush`
+   * always leaves one whole window of slack past the written region.
+   */
+  private ensureSkinBindGroup(): GPUBindGroup {
+    const buffer = this.skinPalettes.buffer;
+    const window = this.skinPalettes.windowBytes;
+    if (this.skinBindGroup && this.skinBindGroupBuffer === buffer && this.skinBindGroupWindow === window) return this.skinBindGroup;
+    const { skin } = this.pipelines.bindGroupLayouts;
+    this.skinBindGroup = this.device.device.createBindGroup({
+      label: "skin.palette.bindgroup",
+      layout: skin,
+      entries: [{ binding: SKIN_BINDINGS.palette.binding, resource: { buffer: buffer!, size: window } }],
+    });
+    this.skinBindGroupBuffer = buffer;
+    this.skinBindGroupWindow = window;
+    return this.skinBindGroup;
+  }
+
   private materialGroupCache = new WeakMap<Material, { revision: number; group: GPUBindGroup }>();
 
   private ensureMaterialGroup(material: Material): GPUBindGroup {
@@ -3550,6 +3721,11 @@ export class Renderer implements RenderFrameContext {
     this.skyBindGroup = null;
     this.waterBindGroup = null;
     this.prepassBindGroup = null;
+    this.skinPalettes.release();
+    this.skinBindGroup = null;
+    this.skinBindGroupBuffer = null;
+    this.skinBindGroupWindow = 0;
+    this.skinGapBindGroup = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
     this.ssaoBlurGroups.clear();
@@ -3591,7 +3767,7 @@ function isPrepassEligible(b: Batch): boolean {
 /** Prepass pipeline variant: instancing × culling × population LOD (eight pipelines at most). */
 function prepassState(b: Batch): number {
   const lod = b.lodHiTriangles > 0;
-  return (b.count > 1 || lod ? 1 : 0) | (b.material.doubleSided ? 2 : 0) | (lod ? 4 : 0);
+  return (b.count > 1 || lod ? 1 : 0) | (b.material.doubleSided ? 2 : 0) | (lod ? 4 : 0) | (b.skin ? 8 : 0);
 }
 
 /** Fewest pipeline switches first, then front to back (`depthSort` is −distance², so larger is nearer). */

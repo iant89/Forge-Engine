@@ -864,9 +864,15 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "16.1",
     status: "inProgress",
     summary: "glTF animation import, clip sampling, playback, blending, state machines, blend trees, IK and GPU skinning",
-    evidence: ["tests/animation.test.ts", "tests/gltf.test.ts"],
+    evidence: [
+      "tests/animation.test.ts",
+      "tests/gltf.test.ts",
+      "tests/animationSkinning.test.ts",
+      "tests/renderingSkinning.test.ts",
+      "tests/skinningScene.test.ts",
+    ],
     closesWith: "16.6",
-    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. GPU upload pipeline (storage buffer, vertex shader skinning variant, pipeline factory integration) and mechanical animation (16.6) remain.",
+    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. The GPU path is implemented: JOINTS_0/WEIGHTS_0 upload as a second vertex buffer slot, the renderer fills one mesh-local palette per skinned batch into a single storage arena each frame, and the skinned colour/depth-prepass/shadow variants draw through it; a skinned mesh deforms on a real adapter in the demo (npm run check:browser:skinning A/Bs two poses of the same uploaded vertices: 16,974/921,600 pixels differ in the focused mode and 8,859/468,000 in the full gate, max 211/255, zero GPU errors). Mechanical animation (16.6) remains.",
   },
   {
     id: "scripting.lifecycle",
