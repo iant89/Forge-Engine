@@ -142,6 +142,9 @@ export const ARM_LINKS_UV: readonly (readonly [number, number])[] = [
 ];
 /** Lowest the turret joint may be jogged, metres above the contact plane (the turret body reaches ≈0.47 m below it). */
 export const ARM_MIN_TURRET_HEIGHT = 0.5;
+/** Perseverance GLB shoulder pivot in the rover chassis' right/forward axes. */
+export const ARM_SHOULDER_ROVER_RIGHT = 0.28549613;
+export const ARM_SHOULDER_ROVER_FORWARD = 1.0977767;
 
 /** Jog axes, each −1…1 (sticks are dead-zoned by the input layer). */
 export interface ArmJogInput {
@@ -199,6 +202,93 @@ export function turretJointHeight(shoulder: number, elbow: number, wrist: number
     l2[0] * Math.sin(s2) + l2[1] * Math.cos(s2) +
     l3[0] * Math.sin(s3) + l3[1] * Math.cos(s3)
   );
+}
+
+export interface RoverArmPlanarPoint {
+  reach: number;
+  height: number;
+}
+
+/** Turret-post position in the arm plane for a full five-joint pose, in chassis-local metres. */
+export function turretJointPoint(pose: ArrayLike<number>, out: RoverArmPlanarPoint = { reach: 0, height: 0 }): RoverArmPlanarPoint {
+  const shoulder = pose[1] ?? 0;
+  const elbow = pose[2] ?? 0;
+  const wrist = pose[3] ?? 0;
+  const s1 = shoulder;
+  const s2 = s1 + elbow;
+  const s3 = s2 + wrist;
+  const [l1, l2, l3] = ARM_LINKS_UV as readonly [readonly [number, number], readonly [number, number], readonly [number, number]];
+  out.reach =
+    l1[0] * Math.cos(s1) - l1[1] * Math.sin(s1) +
+    l2[0] * Math.cos(s2) - l2[1] * Math.sin(s2) +
+    l3[0] * Math.cos(s3) - l3[1] * Math.sin(s3);
+  out.height =
+    ARM_SHOULDER_HEIGHT +
+    l1[0] * Math.sin(s1) + l1[1] * Math.cos(s1) +
+    l2[0] * Math.sin(s2) + l2[1] * Math.cos(s2) +
+    l3[0] * Math.sin(s3) + l3[1] * Math.cos(s3);
+  return out;
+}
+
+const ARM_LINK_ANGLES = [
+  Math.atan2(ARM_LINKS_UV[0]![1], ARM_LINKS_UV[0]![0]),
+  Math.atan2(ARM_LINKS_UV[1]![1], ARM_LINKS_UV[1]![0]),
+] as const;
+const READY_TURRET_PITCH = ARM_READY_DEG[1]! + ARM_READY_DEG[2]! + ARM_READY_DEG[3]!;
+const READY_WRIST_REACH =
+  ARM_LINKS_UV[2]![0] * Math.cos(READY_TURRET_PITCH * DEG) - ARM_LINKS_UV[2]![1] * Math.sin(READY_TURRET_PITCH * DEG);
+const READY_WRIST_HEIGHT =
+  ARM_LINKS_UV[2]![0] * Math.sin(READY_TURRET_PITCH * DEG) + ARM_LINKS_UV[2]![1] * Math.cos(READY_TURRET_PITCH * DEG);
+
+/**
+ * Two-link inverse kinematics for the shoulder/elbow, with the wrist kept level like the ready
+ * pose. `right/forward/height` are chassis-local coordinates for the turret post; `out` is
+ * caller-owned so a servo can solve repeatedly without allocating. Returns null outside the safe
+ * joint limits or arm reach.
+ */
+export function solveArmPoseForPoint(
+  right: number,
+  forward: number,
+  height: number,
+  turretSpin: number,
+  out: Float64Array,
+): Float64Array | null {
+  const dx = right - ARM_SHOULDER_ROVER_RIGHT;
+  const dz = forward - ARM_SHOULDER_ROVER_FORWARD;
+  const reach = Math.hypot(dx, dz);
+  const azimuth = Math.atan2(dz, -dx);
+  const wristReach = reach - READY_WRIST_REACH;
+  const wristHeight = height - READY_WRIST_HEIGHT;
+  const l1 = Math.hypot(ARM_LINKS_UV[0]![0], ARM_LINKS_UV[0]![1]);
+  const l2 = Math.hypot(ARM_LINKS_UV[1]![0], ARM_LINKS_UV[1]![1]);
+  const cosine = (wristReach * wristReach + (wristHeight - ARM_SHOULDER_HEIGHT) ** 2 - l1 * l1 - l2 * l2) / (2 * l1 * l2);
+  if (cosine < -1 - 1e-6 || cosine > 1 + 1e-6) return null;
+  const relativeElbow = -Math.acos(clamp(cosine, -1, 1));
+  const q1 =
+    Math.atan2(wristHeight - ARM_SHOULDER_HEIGHT, wristReach) -
+    Math.atan2(l2 * Math.sin(relativeElbow), l1 + l2 * Math.cos(relativeElbow));
+  const q2 = q1 + relativeElbow;
+  const shoulder = q1 - ARM_LINK_ANGLES[0];
+  const elbow = q2 - ARM_LINK_ANGLES[1] - shoulder;
+  const wrist = (READY_TURRET_PITCH * DEG) - shoulder - elbow;
+  const upperArmDeg = (shoulder + ARM_LINK_ANGLES[0]) / DEG;
+  // The controller limits the forearm relative to the upper arm, not its world-plane angle.
+  const forearmDeg = (elbow + ARM_LINK_ANGLES[1] - ARM_LINK_ANGLES[0]) / DEG;
+  const azimuthDeg = azimuth / DEG;
+  const turretDeg = turretSpin / DEG;
+  if (
+    azimuthDeg < LIMIT_AZIMUTH_DEG[0] - 1e-4 || azimuthDeg > LIMIT_AZIMUTH_DEG[1] + 1e-4 ||
+    upperArmDeg < LIMIT_UPPER_ARM_DEG[0] - 1e-4 || upperArmDeg > LIMIT_UPPER_ARM_DEG[1] + 1e-4 ||
+    forearmDeg < LIMIT_ELBOW_RELATIVE_DEG[0] - 1e-4 || forearmDeg > LIMIT_ELBOW_RELATIVE_DEG[1] + 1e-4 ||
+    turretDeg < LIMIT_TURRET_SPIN_DEG[0] - 1e-4 || turretDeg > LIMIT_TURRET_SPIN_DEG[1] + 1e-4 ||
+    height < ARM_MIN_TURRET_HEIGHT
+  ) return null;
+  out[0] = azimuth;
+  out[1] = shoulder;
+  out[2] = elbow;
+  out[3] = wrist;
+  out[4] = turretSpin;
+  return out;
 }
 
 /** Jog-driven joints (the wrist, index 3, is slaved). */

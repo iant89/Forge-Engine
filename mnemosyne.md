@@ -1695,3 +1695,25 @@ will stop".
   physics' own `steerAngle`/`spin`/`compression`, and the only slew added is the steering knuckle's
   6 rad/s actuator lag. Terrain-normal wheel orientation is deliberately *not* the rig's job — that
   stays `VehicleSystem`'s world-space wheel path, which is what the six-wheel rover uses.
+
+## 2026-10-07 — Mars rover drill tools and impact-safe rocks
+
+- Mars basalt proxies now use a 1,000,000,000 N crush strength, and the showcase fractures them only
+  when the material assessment says `crushed`. Rover rams can shove rocks and damage the vehicle but
+  are no longer a gameplay fracture action. The drill has a separate deterministic 8% split chance,
+  limited to genuinely small round rocks (radius ≤0.32 m) or thin slabs (thickness ≤0.22 m).
+- `examples/src/scenes/roverTools.ts` converts each Perseverance turret mount into chassis/world
+  tool-tip coordinates, solves safe poses, and maps joint error to the arm controller. The scene
+  automatically servos to and from reachable contacts; drilling leaves a persistent dark hole and
+  rim, drifting tool dust, and five small dynamic rubble pieces. Abrade and PIXL-style Analyze are
+  optional actions using the same reach panel. Tool dust has a separate 96-sprite pool; marks,
+  rubble, listeners, and GPU resources are disposed with the scene.
+- **Kinematics bug found while testing the second tool mode:** the inverse solver compared the
+  forearm's absolute arm-plane angle to a relative elbow limit, so it accepted poses the controller
+  then clamped at its −281.96° stop. `roverArm.ts` now checks the forearm relative to the upper arm;
+  the reachable fixture test pins poses inside the controller's true joint range.
+- Evidence: `npm test` passed (71 files, 1,024 tests); typecheck, WGSL, docs, architecture, test-map
+  checks passed. Focused real-WebGPU `check:browser:mars-interactive` and `check:browser:mars-workers`
+  passed with zero GPU errors; the Mars workers screenshot was inspected. The full `check:browser`
+  run reached the slow Mars showcase portion but exceeded the 30-minute command limit, so it was
+  stopped before the complete gate result.

@@ -400,8 +400,8 @@ describe("Mars Showcase — ported terrain integration", () => {
     expect(meanZ).toBeGreaterThan(-3);
   });
 
-  it("shoving a rock leaves a furrow trail and mound; smashing it scatters separated fragments", async () => {
-    const { scene, terrain, component, tick, key } = await fixture();
+  it("shoving leaves a furrow and mound; a full-speed ram keeps the rock intact without fragments", async () => {
+    const { handle, scene, terrain, component, tick, key } = await fixture();
     const population = scene.object<PopulationWorld>("population")!;
     const rover = component.vehicle;
     const entitiesWithPrefix = (prefix: string) => {
@@ -413,8 +413,8 @@ describe("Mars Showcase — ported terrain integration", () => {
       }
       return out;
     };
-    // Mirror the scene's round-rock collision radius to pick a shoveable-then-breakable rock:
-    // type-1, round, r in [0.35, 1.0] (large enough to break at speed, small enough to push).
+    // Mirror the scene's round-rock collision radius to pick a shoveable target:
+    // type-1, round, r in [0.35, 1.0] (small enough to move under rover contact).
     const roundRockRadius = (blockScales: ArrayLike<number>, p: number): number | null => {
       const rawSx = blockScales[p]! * 0.8;
       const rawSy = blockScales[p + 1]! * 0.8;
@@ -461,7 +461,7 @@ describe("Mars Showcase — ported terrain integration", () => {
     };
 
     // Phase 1 — creep into the rock (adaptive W pulses, never faster than a gentle nudge) so
-    // it wakes and rolls without breaking.
+    // it wakes and rolls. Impacts are not a fracture action.
     teleportBehind(target!.x, target!.z, 1.6 + target!.radius + 0.12);
     let contactSpeed = 0;
     for (let i = 0; i < 800 && !isActive(); i++) {
@@ -508,7 +508,8 @@ describe("Mars Showcase — ported terrain integration", () => {
     expect(furrows.length).toBeGreaterThanOrEqual(1);
     expect(mounds.length).toBeGreaterThanOrEqual(1);
 
-    // Phase 2 — let the rock come to rest, then ram it at full speed and check the debris.
+    // Phase 2 — let the shoved rock settle, then ram it at full speed. It can move again, but
+    // rover contact must not remove its population identity or spawn fracture fragments.
     key("keydown", "KeyS");
     let restX = activeRock().transform.position.x;
     let restZ = activeRock().transform.position.z;
@@ -522,45 +523,26 @@ describe("Mars Showcase — ported terrain integration", () => {
     }
     key("keyup", "KeyS");
     teleportBehind(restX, restZ, 4);
+    const brokenBeforeRam = handle.marsState().brokenInteractiveRocks;
     key("keydown", "KeyW");
-    let fragCount = 0;
+    let impactObserved = false;
     for (let i = 0; i < 600; i++) {
       tick();
-      fragCount =
-        entitiesWithPrefix("rock-chunk-").length + entitiesWithPrefix("rock-pebble-").length;
-      if (fragCount >= 9) break;
-    }
-    key("keyup", "KeyW");
-    expect(fragCount).toBeGreaterThanOrEqual(9);
-    const chunks = entitiesWithPrefix("rock-chunk-");
-    const pebbles = entitiesWithPrefix("rock-pebble-");
-    // Rendered size matches the collider: entity scale is collision-half-extent ÷ geometry
-    // radius, so round fragments (spherical collision on squashed geometry) have a fixed
-    // Y/X scale ratio — 1.0/0.85/0.45 on the old size-blind scales.
-    for (const pebble of pebbles) {
-      const scale = pebble.transform.scale;
-      expect(scale.y / scale.x).toBeCloseTo(0.22 / (0.22 * (1 - 0.2)), 2);
-    }
-    for (const chunk of chunks) {
-      const scale = chunk.transform.scale;
-      // Suffix "-c": c % 2 === 0 is a flat slab (sy/s = 0.45), c = 1 is round.
-      const suffix = Number(scene.world.name(chunk.id).split("-").pop());
-      const shapeRatio = suffix % 2 === 0 ? 0.45 : 1;
-      expect(scale.y / scale.x).toBeCloseTo(shapeRatio * (0.6 / (0.6 * (1 - 0.35))), 2);
-    }
-    // No two fragments rest inside one another: pairwise XZ distance covers both footprints.
-    const discs = [
-      ...chunks.map((entity) => ({ entity, radius: entity.transform.scale.x * 0.6 })),
-      ...pebbles.map((entity) => ({ entity, radius: entity.transform.scale.x * 0.22 })),
-    ];
-    for (let a = 0; a < discs.length; a++) {
-      for (let b = a + 1; b < discs.length; b++) {
-        const pa = discs[a]!.entity.transform.position;
-        const pb = discs[b]!.entity.transform.position;
-        const dist = Math.hypot(pa.x - pb.x, pa.z - pb.z);
-        expect(dist).toBeGreaterThanOrEqual(discs[a]!.radius + discs[b]!.radius);
+      const p = activeRock().transform.position;
+      if (Math.hypot(p.x - restX, p.z - restZ) > 0.05) {
+        impactObserved = true;
+        break;
       }
     }
+    key("keyup", "KeyW");
+    expect(impactObserved, "the full-speed rover contacts and pushes the rock").toBe(true);
+    expect(handle.marsState().brokenInteractiveRocks).toBe(brokenBeforeRam);
+    expect(isActive(), "the rock remains promoted rather than broken").toBe(true);
+    expect(activeRock().get(Renderable), "the original rock entity stays visible").toBeDefined();
+    expect(entitiesWithPrefix("rock-chunk-")).toHaveLength(0);
+    expect(entitiesWithPrefix("rock-pebble-")).toHaveLength(0);
+    const snapshot = JSON.parse(handle.saveInteractiveTerrain()) as { brokenRockIds: string[] };
+    expect(snapshot.brokenRockIds).not.toContain(rockId);
   });
 
   it("keeps the chase camera and sky reference on the same surface while zooming and relocating", async () => {

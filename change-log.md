@@ -8734,8 +8734,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Appended entries 0689–0695 covering the dashboard, tests, command, docs, subsystem map, memory note, and this log update.",
     "why": "Maintains the required per-file machine-readable activity history."
-  }
-,
+  },
   {
     "id": "0696",
     "date": "2026-10-07T19:36:00Z",
@@ -8964,7 +8963,7 @@ JSON array below; agents maintain it by hand until then.
     "what": "Recorded the Phase 16.6 session: rig design, the two gate failures and their fixes, the arm-rig migration, and the lesson that editing sources mid-gate makes Vite HMR reload the page (which the gate sees as a destroyed execution context).",
     "why": "Preserves the repository's requested session memory for future contributors."
   },
-{
+  {
     "id": "0715",
     "date": "2026-10-07T21:20:00Z",
     "type": "pr-merge",
@@ -8996,6 +8995,174 @@ JSON array below; agents maintain it by hand until then.
       "tools/browser-check.mjs",
       "tools/test-subsystems.mjs"
     ]
+  },
+  {
+    "id": "0716",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/terrain/interaction.ts",
+    "what": "Raised the Mars rock crush strength to 1,000,000,000 N.",
+    "why": "Rover impacts must remain far below the fracture threshold, including against a minimum-size pebble."
+  },
+  {
+    "id": "0717",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Added the proximity-gated Mars turret panel with Drill, Abrade and Analyze actions, status and progress.",
+    "why": "Give reachable rocks a visible, accessible touch action without covering the rover drive controls."
+  },
+  {
+    "id": "0718",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Added reachable-rock targeting, closed-loop arm alignment/retraction, drilling and optional surface/PIXL actions, persistent tool marks, drifting dust, rubble, telemetry and disposal; rover impacts now fracture only on the material crushed outcome.",
+    "why": "Implement the requested automatic drill interaction and visible effects while reserving rock splitting for the rare eligible drilling path."
+  },
+  {
+    "id": "0719",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverArm.ts",
+    "what": "Added chassis-space arm geometry and inverse kinematics, and corrected the safe forearm check to use its angle relative to the upper arm.",
+    "why": "Tool automation must select poses the existing jog controller can actually reach without clamping."
+  },
+  {
+    "id": "0720",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcase.test.ts",
+    "what": "Updated the rover shove/ram integration assertion to require an intact active rock, unchanged broken-rock count and no fracture fragments.",
+    "why": "Pin that ordinary rover contact never breaks rocks."
+  },
+  {
+    "id": "0721",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcaseDamage.test.ts",
+    "what": "Added a five-pivot arm fixture and integration coverage for impact-safe rocks, automated drilling, hole/rim, dust, rubble, abrasion and PIXL analysis.",
+    "why": "Exercise the new interaction through the real Mars scene logic without a network GLB fetch."
+  },
+  {
+    "id": "0722",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/terrainInteraction.test.ts",
+    "what": "Added a 20 m/s minimum-pebble impact assertion below the new Mars crush threshold.",
+    "why": "Prove even an extreme rover-like collision cannot crush the weakest Mars rock proxy."
+  },
+  {
+    "id": "0723",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Registered the rover tool helpers, touch controller and their test suites in ex-rover/ex-ui.",
+    "why": "Keep the new source and regression tests covered by the selective-test map."
+  },
+  {
+    "id": "0724",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/controls/roverToolTouch.ts",
+    "what": "Created the small UI controller for reach visibility, tool dispatch, busy state, progress and listener disposal.",
+    "why": "Keep the touch panel behavior independently testable and safe when the target leaves arm reach."
+  },
+  {
+    "id": "0725",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverTools.ts",
+    "what": "Created per-instrument tool specs, coordinate transforms, safe-pose solving, servo mapping and deterministic 8% eligible-rock split rules.",
+    "why": "Separate pure rover tool kinematics and drilling fracture odds from scene orchestration."
+  },
+  {
+    "id": "0726",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/roverToolTouch.test.ts",
+    "what": "Added tests for reach-gated display, action dispatch, busy/progress state, hiding and cleanup.",
+    "why": "Protect the new touch control behavior without requiring a browser."
+  },
+  {
+    "id": "0727",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/roverTools.test.ts",
+    "what": "Added tests for mount-offset round trips, world/chassis transforms, servo direction/clamping, safe arm reach and eligible split chance.",
+    "why": "Pin the tool geometry math and low-probability drilling-only fracture rule."
+  },
+  {
+    "id": "0728",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Recorded the Mars tool design, the forearm-limit solver bug and verification outcomes.",
+    "why": "Preserve the implementation decisions and the full-browser timeout for the next session."
+  },
+  {
+    "id": "0729",
+    "date": "2026-10-07T23:28:02Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Appended entries 0716–0729 for the Mars rover tool implementation and its regression coverage.",
+    "why": "Maintain the repository’s required per-file activity history."
   }
 ]
 ```
