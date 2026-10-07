@@ -7419,7 +7419,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "0584",
     "type": "change",
     "date": "2026-10-06T23:55:00Z",
-    "pr": null,
+    "pr": 63,
     "branch": "arena/9cd06a4d-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
@@ -7431,7 +7431,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "0585",
     "type": "change",
     "date": "2026-10-06T23:55:00Z",
-    "pr": null,
+    "pr": 63,
     "branch": "arena/9cd06a4d-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
@@ -7443,7 +7443,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "0586",
     "type": "change",
     "date": "2026-10-06T23:55:00Z",
-    "pr": null,
+    "pr": 63,
     "branch": "arena/9cd06a4d-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
@@ -7455,13 +7455,31 @@ JSON array below; agents maintain it by hand until then.
     "id": "0587",
     "type": "change",
     "date": "2026-10-06T23:55:00Z",
-    "pr": null,
+    "pr": 63,
     "branch": "arena/9cd06a4d-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "change-log.md",
     "what": "Append per-file change entries for the browser-gate timing fix.",
     "why": "The repository requires one activity-history entry per file created, modified or deleted."
+  },
+  {
+    "id": "0588",
+    "type": "pr-merge",
+    "date": "2026-10-07T01:10:00Z",
+    "pr": 63,
+    "branch": "arena/9cd06a4d-forge-engine",
+    "base": "main",
+    "title": "Fix the real-WebGPU gate's Mars Showcase waits: budget on the scene's clocks",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "The real-WebGPU gate's Mars Showcase section budgeted its waits on the wall clock, which on SwiftShader's ~0.35 fps showcase measures the rasteriser, not the scene: the W-drive arm's 45 s window was only ~0.8 s of throttle (0.41 m from rest under the gentle tune restored in #62), failing 'W did not drive the rover forward', and the HGA poll's 300 s window timed out on a countdown the demo loop advances at 0.05 s per presented frame. The W-drive arm now holds W until engine.clock.fixedTime has advanced two simulated seconds (early break at 0.5 m) and reports throttle seconds plus presented frames; pollMars renews its timeout while the state keeps improving for the HGA and both arm polls; the showcase screenshot gets 120 s. Verified end to end on real Chromium + SwiftShader (dz=0.55 m, throttle=1.00 s over 12 frames, HGA az=168.0, arm stows to zero, check:browser passed, exit 0) with 816 tests, typecheck, WGSL, arch, test-map and docs gates green. docs/VERIFICATION.md, mnemosyne.md and change-log.md updated.",
+    "files": [
+      "change-log.md",
+      "docs/VERIFICATION.md",
+      "mnemosyne.md",
+      "tools/browser-check.mjs"
+    ]
   }
 ]
 ```
