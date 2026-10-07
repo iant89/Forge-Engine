@@ -1,27 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { resolveDemoSceneName, type DemoSceneName } from "../examples/src/sceneSelection.js";
+import { DEMO_SCENE_NAMES, isDemoSceneName, resolveDemoSceneName } from "../examples/src/sceneSelection.js";
 
-describe("demo scene URL routing", () => {
+describe("demo scene routing", () => {
   it("lands on the Mars rover showcase when there is no scene query", () => {
     expect(resolveDemoSceneName(null)).toBe("mars-showcase");
   });
 
   it("supports direct links to every scene", () => {
-    const scenes: DemoSceneName[] = [
-      "pbr",
-      "cubes",
-      "terrain",
-      "realistic",
-      "mars-generator",
-      "vehicle",
-      "particles",
-      "sky",
-      "weather",
-      "mars-showcase",
-      "rover-course",
-      "skinning",
-    ];
-    for (const scene of scenes) expect(resolveDemoSceneName(scene)).toBe(scene);
+    for (const scene of DEMO_SCENE_NAMES) expect(resolveDemoSceneName(scene)).toBe(scene);
+  });
+
+  it("accepts every canonical scene in the selector switch path", () => {
+    for (const scene of DEMO_SCENE_NAMES) expect(isDemoSceneName(scene)).toBe(true);
+    expect(isDemoSceneName("not-a-scene")).toBe(false);
   });
 
   it("preserves the demo's scene aliases", () => {
@@ -34,6 +25,7 @@ describe("demo scene URL routing", () => {
     expect(resolveDemoSceneName("vehicle-playground")).toBe("vehicle");
     expect(resolveDemoSceneName("showcase")).toBe("mars-showcase");
     expect(resolveDemoSceneName("course")).toBe("rover-course");
+    expect(resolveDemoSceneName("alpine-rescue")).toBe("alpine-rescue");
   });
 
   it("falls back to the rover showcase for unknown query values", () => {

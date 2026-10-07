@@ -150,7 +150,70 @@
       body.scene-sky #sky-touch { display: block; }
       body.scene-weather #weather-touch { display: block; }
       body.scene-sky #controls-hint,
-      body.scene-weather #controls-hint { display: none; }
+      body.scene-weather #controls-hint,
+      body.scene-rescue #controls-hint { display: none; }
+      #rescue-touch {
+        display: none;
+        position: fixed;
+        z-index: 15;
+        left: 50%;
+        bottom: max(18px, env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        width: max-content;
+        max-width: calc(100vw - 24px);
+        gap: 8px;
+        justify-content: center;
+        pointer-events: none;
+      }
+      body.scene-rescue #rescue-touch { display: flex; }
+      .rescue-action {
+        flex: 1 1 82px;
+        min-width: 76px;
+        max-width: 142px;
+        min-height: 44px;
+        padding: 8px 12px;
+        border: 1px solid rgb(148 163 184 / 0.62);
+        border-radius: 9px;
+        background: rgb(10 20 27 / 0.82);
+        color: #e6f1f4;
+        font: 700 11px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.035em;
+        white-space: nowrap;
+        backdrop-filter: blur(8px);
+        pointer-events: auto;
+        touch-action: manipulation;
+      }
+      .rescue-action:hover:not(:disabled) { background: rgb(25 43 51 / 0.94); }
+      .rescue-action:active:not(:disabled), .rescue-action.active { border-color: #7de4cf; color: #b9fff0; }
+      .rescue-action.rescue-primary { border-color: #fb9867; background: rgb(111 46 26 / 0.9); }
+      .rescue-action:disabled { opacity: 0.52; cursor: not-allowed; }
+      @media (pointer: coarse), (max-width: 820px) {
+        body.scene-rescue #rescue-touch { bottom: max(158px, calc(env(safe-area-inset-bottom) + 156px)); }
+        .rescue-action { font-size: 9px; padding: 7px 8px; }
+      }
+      #rescue-hud {
+        display: none;
+        position: fixed;
+        z-index: 4;
+        top: max(10px, env(safe-area-inset-top));
+        left: max(10px, env(safe-area-inset-left));
+        width: min(500px, calc(100vw - 24px));
+        max-height: min(32vh, 220px);
+        overflow: hidden;
+        padding: 10px 13px;
+        border: 1px solid rgb(153 196 203 / 0.28);
+        border-left: 3px solid #fa8a5c;
+        border-radius: 8px;
+        background: rgb(8 17 22 / 0.76);
+        color: #edf5f5;
+        font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-line;
+        text-shadow: 0 1px 2px #091217;
+        pointer-events: none;
+        backdrop-filter: blur(8px);
+      }
+      body.scene-rescue #hud { display: none; }
+      body.scene-rescue #rescue-hud { display: block; }
       .veh-stick {
         pointer-events: auto;
         position: fixed;
@@ -475,6 +538,7 @@
   <body>
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
+    <div id="rescue-hud" aria-live="off" aria-label="Alpine Rescue mission status"></div>
     <div id="toolbar">
       <button type="button" id="toolbar-toggle" aria-label="Demo settings" aria-controls="toolbar-panels" aria-expanded="false" title="Demo settings">☰</button>
       <div id="toolbar-panels">
@@ -493,6 +557,7 @@
             <option value="mars-showcase" selected>Mars Showcase (Perseverance)</option>
             <option value="rover-course">Rover Course (Perseverance)</option>
             <option value="skinning">Skinned Arm (P16.5)</option>
+            <option value="alpine-rescue">Alpine Search &amp; Rescue: Whiteout Run</option>
           </select>
         </div>
         <div class="panel">
@@ -531,6 +596,12 @@
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>
       </div>
+    </div>
+    <div id="rescue-touch" role="group" aria-label="Alpine Rescue mission actions">
+      <button type="button" id="rescue-interact" class="rescue-action rescue-primary" aria-label="Interact with the rescue objective">INTERACT · E</button>
+      <button type="button" id="rescue-headlights" class="rescue-action" aria-label="Toggle rescue headlights">LIGHTS ON · F</button>
+      <button type="button" id="rescue-weather" class="rescue-action" aria-label="Toggle the whiteout storm">CALL STORM · G</button>
+      <button type="button" id="rescue-park" class="rescue-action" aria-label="Toggle parking brake" aria-pressed="false">PARK · P</button>
     </div>
     <div id="arm-touch" aria-hidden="true">
       <div id="arm-stick-left" class="arm-stick arm-stick-left" role="application" aria-label="Arm stick. Left and right swing the arm, up and down raise or lower the shoulder.">
