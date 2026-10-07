@@ -8553,6 +8553,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Session entry: the 'Buffer with population.instances label is invalid' diagnosis (failed createBuffer returns a dead resource; the device error cascade misdirects) and the fatal-state halt fix.",
     "why": "Repo convention: record hard-won diagnostics for future sessions."
+  },
+  {
+    "id": "0682",
+    "date": "2026-10-07T13:13:35Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/gpu/device.ts",
+    "what": "Split uncaptured-error handling into two levels: device-fatal (loss, or out-of-memory/allocation-failure messages) vs resource-dead ('X with label Y is invalid/has been destroyed' now lands in deadResourceLabels, queryable via isResourceDead, instead of flipping fatal).",
+    "why": "User follow-up: after the fatal-halt fix the skinning animation demo 'does not work as well' — a single failed population buffer marked the whole device fatal and Engine.step() halted every demo scene. WebGPU kills only the named resource; the rest of the device keeps working, so only OOM/loss may halt the engine."
+  },
+  {
+    "id": "0683",
+    "date": "2026-10-07T13:13:35Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "syncPopulationDevice retires population records (destroy + delete, no re-probe) when GraphicsDevice.isResourceDead('population.instances') is true; the label is now the POPULATION_INSTANCE_LABEL constant.",
+    "why": "Cuts the population error cascade at the source without halting the frame loop: the dead chunk stops being driven, the rest of the scene (and every other demo) keeps rendering."
+  },
+  {
+    "id": "0684",
+    "date": "2026-10-07T13:13:35Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/gpuDeviceFatal.test.ts",
+    "what": "Suite rewritten to the two-level semantics (10 tests): OOM and loss-phrasing flip fatal; the bug report's resource error lands in deadResourceLabels without flipping fatal; scoped errors flip neither; the renderer retires the dead population while a control mesh in the same scene keeps drawing (no new buffers, submissions or errors); Engine.step halts on OOM but keeps stepping on a resource error.",
+    "why": "Pins the follow-up: a resource error must not take the whole engine (and every demo scene) down."
+  },
+  {
+    "id": "0685",
+    "date": "2026-10-07T13:13:35Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Corrected the morning entry's fix bullet to the two-level semantics and added a new entry: dead resource vs dead device, the skinning-demo follow-up diagnosis, and the real-device OOM/loss evidence from a 3 GB SwiftShader box.",
+    "why": "Repo convention: the refined lesson (escalate to device-fatal only on OOM/loss; retire and continue on resource errors) must not be lost."
+  },
+  {
+    "id": "0686",
+    "date": "2026-10-07T13:13:35Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "npm test row updated to 968 tests in 65 files; the device-failure suite description now reflects the two-level semantics (halt on loss/OOM, retire a dead population without stopping the scene).",
+    "why": "Keep the gate table truthful when the suite count and its meaning move."
   }
 ]
 ```

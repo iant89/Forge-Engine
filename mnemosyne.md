@@ -1559,11 +1559,15 @@ will stop".
   "is invalid" = the buffer's own creation failed. For a ~3 KB `STORAGE|COPY_DST` buffer that
   only happens on a device that is already out of resources.
 - **The engine's gap:** it had no way to know the returned buffer was dead (the spec API exposes
-  no buffer validity), so it kept driving the dead device — one more error per operation, forever.
-- **Fix (this session):** `GraphicsDevice.fatal`/`fatalReason` (lost, or first *uncaptured*
-  device error; scoped/captured errors excluded), `Renderer.deviceLost` frame gate covers fatal,
-  `Engine.step()` halts + logs once, `stats().deviceFatal`, demo HUD "GPU FAILED — reload".
-  Pinned by `tests/gpuDeviceFatal.test.ts` (registered under the `gpu` subsystem).
+  no buffer validity), so it kept driving the dead resource — one more error per operation,
+  forever.
+- **Fix (this session, refined later the same day — see next entry):**
+  `GraphicsDevice.fatal`/`fatalReason` (the *device* is fatal when lost or out of memory),
+  `GraphicsDevice.deadResourceLabels`/`isResourceDead` (a resource error retires only the
+  labelled resource), `Renderer.deviceLost` frame gate covers fatal, the population path retires
+  its records when `population.instances` is dead, `Engine.step()` halts + logs once,
+  `stats().deviceFatal`, demo HUD "GPU FAILED — reload". Pinned by
+  `tests/gpuDeviceFatal.test.ts` (registered under the `gpu` subsystem).
 - **Second bug found along the way:** the mock dispatched bare errors to `uncapturederror`
   listeners; a real `GPUDevice` dispatches a `{ error }` event. `GraphicsDevice`'s listener read
   `event.error` → `undefined`, so `stats().lastError` would have recorded "GPUError: undefined".
@@ -1575,3 +1579,40 @@ will stop".
   used a resource after `destroy()`; "Parent device is lost" = everything is dead. The first
   device error in the console (often scrolled past) is the real cause — now the engine's
   `lastError`/HUD pin it and the frame loop stops instead of re-reporting.
+
+## 2026-10-07 — refinement: a dead *resource* must not take the whole device (and every demo) down
+
+- **Trigger:** after the fatal-halt fix, the user reported "the new animation demo does not work
+  as well" — the Phase 16.5 skinning arm at `?scene=skinning`. It renders fine here (focused
+  `check:browser:skinning` green on real WebGPU: 4 joints, 1 skinned batch, two poses differ in
+  16,974 px, zero GPU errors).
+- **Diagnosis:** the first fix was one level too aggressive. WebGPU kills only the *named
+  resource* when a buffer/texture errors — the rest of the device keeps working. But
+  `GraphicsDevice.fatal` flipped on *any* uncaptured error, so the one failed population buffer
+  marked the whole device fatal and `Engine.step()` halted **every** demo scene, including the
+  skinning arm, which never touches population. One dead chunk → black screens everywhere.
+- **Fix:** two-level semantics.
+  - *Device-fatal* (halt, HUD "GPU FAILED — reload"): device loss, or an uncaptured
+    **out-of-memory / allocation** error (the device is out of resources; further allocations
+    will keep failing — `isDeviceFatalError` matches `GPUOutOfMemoryError`, "out of memory",
+    "Allocation of … failed", "…device is lost").
+  - *Resource-dead* (retire, keep rendering): "X with 'label' label is invalid / has been
+    destroyed" → label goes into `GraphicsDevice.deadResourceLabels`. The population path
+    (`syncPopulationDevice`) retires every record when `population.instances` is dead — no new
+    buffer probed, no further errors — and the rest of the scene (and every other demo) keeps
+    rendering.
+- **Pinned:** `tests/gpuDeviceFatal.test.ts` now 10 tests — OOM→fatal, loss-phrasing→fatal,
+  resource error→dead set (not fatal), scoped→neither; renderer retires the dead population and
+  the control mesh in the same scene keeps drawing (no new buffers/submissions/errors); Engine
+  halts on OOM but **keeps stepping on a resource error**. 968/968 green.
+- **Real-device evidence (headless Chromium + SwiftShader, 3 GB box):** the skinning demo renders
+  healthily first (`skinnedBatches=1, skinJoints=4, gpuErrors=0`); then 30×128 MiB *written*
+  buffers exhaust the machine and SwiftShader's Vulkan instance dies → the device is lost with
+  the driver message → `deviceFatal=true`, rendering halts (the `getMappedRange`/loss errors land
+  after the probe's own listener was removed — read the engine's stats, not your own listener).
+  48 MiB × 50 did not OOM (page cache absorbed it) — the allocation-fails-but-device-salvageable
+  window is timing-sensitive on a 3 GB box; the strict-mock suite pins that classification.
+- **Lesson:** in WebGPU, "the device" and "a resource on the device" are different failure
+  domains. Halting the whole engine on a single resource error turns a local failure into a
+  global one — which is exactly how a population bug ends up taking the animation demo down.
+  Escalate to device-fatal only on OOM/loss; retire and continue on resource errors.

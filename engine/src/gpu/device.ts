@@ -200,10 +200,17 @@ export class GraphicsDevice {
           const kind = error?.constructor?.name ?? "GPUError";
           const message = `${kind}: ${error?.message ?? String(error)}`;
           this.recordError("uncaptured error", message);
-          // An error the engine did not scope is a device-level failure (allocation failures,
-          // invalidation cascades): mark the device fatal so the engine halts instead of letting
-          // the dead device produce one more error per subsequent operation.
-          this.markFatal(message);
+          // A resource error only invalidates *that* resource — the rest of the device keeps
+          // working, so the engine must not halt over it. What is fatal is the device itself:
+          // it was lost, or it cannot allocate (an OOM is a resource-exhaustion signal; further
+          // allocations will fail the same way). Anything else is routed to the dead-resource
+          // registry by label, which the renderer uses to stop driving the dead object.
+          if (this.isDeviceFatalError(kind, message)) {
+            this.markFatal(message);
+          } else {
+            const label = this.deadResourceLabel(message);
+            if (label !== null) this.deadResources.add(label);
+          }
         });
       } catch {
         /* a device that cannot register listeners still works; it just reports less */
@@ -335,6 +342,12 @@ export class GraphicsDevice {
   private _lostReason = "";
   private _fatal = false;
   private _fatalReason: string | null = null;
+  /**
+   * Labels of resources the device has reported invalid or destroyed. A WebGPU resource error
+   * kills only the resource named in it — the device itself keeps working — so the engine retires
+   * the labelled object (e.g. the `population.instances` buffer) instead of halting.
+   */
+  private readonly deadResources = new Set<string>();
   private readonly lostPromise: Promise<void>;
   private swapchain: SwapchainInfo = { width: 1, height: 1, devicePixelRatio: 1, format: "bgra8unorm" };
   private samplerCache = new Map<string, GPUSampler>();
@@ -371,18 +384,22 @@ export class GraphicsDevice {
   }
 
   /**
-   * Whether the device has failed in a way the engine cannot recover from: it is lost, or it has
-   * reported an uncaptured device error.
+   * Whether the *device* has failed in a way the engine cannot recover from: it is lost, or it
+   * has reported an uncaptured out-of-memory / allocation error.
    *
    * A real WebGPU device never throws from `createBuffer`/`createTexture` when an *allocation*
-   * fails: it reports a device error and returns a resource in an invalid state, so every later
-   * use of it (a `createBindGroup`, a `setBindGroup`, a dispatch) reports its own error — a
-   * cascade of messages that names the most recent victim (e.g. `Buffer with 'population.instances'
-   * label is invalid` in a population bind group) rather than the cause (the device ran out of
-   * resources). On such a device every further allocation is likely to fail the same way, so the
-   * engine treats the first report as fatal and stops rendering instead of generating the cascade.
-   * Errors the engine deliberately captures in error scopes are *not* uncaptured and never set
-   * this flag.
+   * fails: it reports an error and returns the resource in an invalid state, so every later use
+   * of it (a `createBindGroup`, a `setBindGroup`, a dispatch) reports its own error — a cascade
+   * of messages naming the most recent victim (e.g. `Buffer with 'population.instances' label is
+   * invalid` in a population bind group) instead of the cause. An allocation failure means the
+   * device is out of resources and further allocations will keep failing, so it is fatal and the
+   * engine stops rendering.
+   *
+   * A *resource* error is different: WebGPU invalidates only the named resource; the rest of the
+   * device keeps working. Those are routed to {@link deadResourceLabels} instead, and the
+   * renderer retires the labelled object (e.g. the dead population buffer) without halting the
+   * frame loop. Errors the engine deliberately captures in error scopes are *not* uncaptured and
+   * affect neither this flag nor the dead-resource set.
    */
   get fatal(): boolean {
     return this._lost || this._fatal;
@@ -398,6 +415,50 @@ export class GraphicsDevice {
     if (this._fatal) return;
     this._fatal = true;
     this._fatalReason = reason;
+  }
+
+  /** Labels of resources the device reported invalid/destroyed (see the `deadResources` field). */
+  get deadResourceLabels(): ReadonlySet<string> {
+    return this.deadResources;
+  }
+
+  /** Whether the device has reported a resource with this label invalid or destroyed. */
+  isResourceDead(label: string): boolean {
+    return this.deadResources.has(label);
+  }
+
+  /**
+   * Whether an uncaptured device error means the *device* cannot be driven any further.
+   *
+   * - device loss is fatal by definition (also covered by the lost handler);
+   * - an out-of-memory / allocation failure is fatal: the device is out of resources and further
+   *   allocations will keep failing, so the engine halts instead of re-probing it every frame;
+   * - a resource error ("Buffer with '…' label is invalid", "…has been destroyed") is **not**
+   *   device-fatal — WebGPU invalidates only the named resource. It is routed to the
+   *   dead-resource registry instead.
+   */
+  private isDeviceFatalError(kind: string, message: string): boolean {
+    if (kind === "GPUOutOfMemoryError") return true;
+    // Message fallbacks for adapters (and the mock) that report the OOM in the text: wgpu says
+    // "Allocation of <n> bytes failed", the spec string is "out of memory", and a use-after-loss
+    // names the device itself.
+    return /out of memory|gpuoutofmemoryerror|memory allocation|allocation (?:of .+ )?failed|device (?:is |has been )?lost|parent device is lost/i.test(
+      message,
+    );
+  }
+
+  /**
+   * The label of the resource an uncaptured error declares invalid/destroyed, or `null` when the
+   * error names no labelled resource. wgpu renders these as
+   * `{Type} with '…' label is invalid` / `{Type} with '…' label has been destroyed`.
+   */
+  private deadResourceLabel(message: string): string | null {
+    const m =
+      message.match(
+        /(?:Buffer|Texture|Sampler|BindGroup|CommandBuffer|CommandEncoder|QuerySet|Pipeline|StorageTexture|ExternalTexture) with '([^']*)' label (?:is invalid|has been destroyed)/,
+      ) ??
+      message.match(/with '([^']*)' label is invalid/);
+    return m?.[1] ?? null;
   }
 
   /** Resolves when the device is lost (never, for a healthy device). */

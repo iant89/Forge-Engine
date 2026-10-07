@@ -414,6 +414,12 @@ const TONE_MAP_MODE: Record<string, number> = { none: 0, reinhard: 1, aces: 2, f
  * record of a batch carries that alignment; the shader walks the rest at this stride.
  */
 const INSTANCE_STRIDE = InstanceStruct.byteSize("storage");
+/**
+ * Label of every population instance buffer. A device that reports *this* label invalid has failed
+ * an allocation, and (the label being shared) every chunk's buffer may be dead — the renderer uses
+ * `GraphicsDevice.isResourceDead` to retire the population path without halting the whole frame.
+ */
+const POPULATION_INSTANCE_LABEL = "population.instances";
 /** Dynamic-offset stride for uniform records (`minUniformBufferOffsetAlignment` baseline). */
 const UNIFORM_SLOT = 256;
 const MAX_POST_PASSES = 24;
@@ -2616,6 +2622,16 @@ export class Renderer implements RenderFrameContext {
     const block = submission.instances;
     const count = block.count;
     let rec: PopulationDeviceRecord | null = this.populationDevice.get(submission) ?? null;
+    // The device reported this buffer class invalid (a failed allocation on a resource-exhausted
+    // device). Every buffer created under this label may now be dead, and driving any of them only
+    // re-reports the same error — so retire the record and stop. The rest of the scene (and the
+    // device itself) keeps rendering; this is why a dead population must not be treated as a dead
+    // device.
+    if (rec && this.device.isResourceDead(POPULATION_INSTANCE_LABEL)) {
+      this.destroyPopulationRecord(rec);
+      this.populationDevice.delete(submission);
+      rec = null;
+    }
     if (rec && rec.count !== count) {
       // A scatter is fixed per chunk; a different count means the source re-scattered at another
       // cap. Recreate the record rather than trusting a wrong-sized buffer.
@@ -2626,9 +2642,12 @@ export class Renderer implements RenderFrameContext {
     if (rec) rec.seen = true;
     if (!rec) {
       if (count <= 0) return null;
+      // The label is already known dead: do not re-probe the device with another allocation that
+      // will fail the same way and re-report the error.
+      if (this.device.isResourceDead(POPULATION_INSTANCE_LABEL)) return null;
       const d = this.device.device;
       const size = count * INSTANCE_STRIDE;
-      const buffer = d.createBuffer({ label: "population.instances", size, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
+      const buffer = d.createBuffer({ label: POPULATION_INSTANCE_LABEL, size, usage: BufferUsage.STORAGE | BufferUsage.COPY_DST });
       const data = this.populationComposeData(size);
       const firstMatrix = new Float32Array(16);
       this.composePopulationRecords(block, data, firstMatrix);
