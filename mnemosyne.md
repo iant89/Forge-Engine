@@ -1304,3 +1304,39 @@ Traps worth keeping:
 - PR #62 merge preparation: implementation CPU CI passed; GitHub reports no required checks, and
   `.github/workflows/ci.yml` explicitly makes the still-running WebGPU job advisory. The merge-history
   summary is recorded before squash-merging; keep the Arena session branch rather than deleting it.
+
+## 2026-10-06 — the browser gate's Mars showcase waits measured the rasteriser, not the scene
+
+- **`check:browser` failed on the drive tune it exists to protect:**
+  `mars showcase: W did not drive the rover forward (dz 0.471m in 45s)`. The showcase presents at
+  ~0.35 fps under SwiftShader, `Clock` admits at most `maxSubSteps` (5) fixed steps per *presented*
+  frame (`engine/src/core/time.ts`), and `VehicleSystem` integrates the chassis once per fixed step
+  (`context.fixedDt`) — so 45 s of wall clock was only ≈0.8 s of throttle. Measured on the shipped
+  vehicle (`MARS_ROVER_TRACTION`, flat ground): 0.41 m at 0.75 s, 0.67 m at 1.0 s, 1.63 m/s top.
+  The >0.5 m threshold was written against the boosted motor's acceleration; PR #62's gentler tune
+  could not reach it inside the window no matter how healthy the drivetrain was.
+- **Fix: budget on the scene's own clock.** The drive arm reads
+  `window.__forge.engine.clock.fixedTime` — *not* `elapsedTime`, which also accumulates the clamped
+  frame dt whose catch-up the rover never felt — and holds W until two seconds of throttle have run,
+  breaking early the moment 0.5 m is covered (so a fast machine, and any run that already passes,
+  costs no extra wall clock). Verified on real Chromium + SwiftShader:
+  `dz=0.55m maxSpeed=1.00m/s … throttle=1.00s over 12 presented frames`.
+- **The same bug was waiting one arm later.** The HGA poll gave 300 s of wall clock to a countdown
+  the *demo loop* advances by its own `Math.min(0.05, …)` dt (`examples/src/main.ts`): 5 s of
+  countdown = 100 presented frames ≈ 6 minutes at a third of a frame per second. It timed out with
+  `countdown 0.75` still on the clock — the exact symptom `docs/VERIFICATION.md` had already recorded
+  twice and attributed to the sandbox. `pollMars` now takes an optional monotone `progressOf` and
+  renews its timeout while the state keeps improving (hard backstop 900 s); the HGA and both arm
+  polls pass one. A genuinely stuck scene still fails — progress stops, the stall budget runs out.
+- **Rule for this gate:** in a sub-1 fps scene every wall-clock wait is a frame-rate measurement in
+  disguise. Fixed-step simulation → `clock.fixedTime`; presentation clocks (HGA countdown, arm/mast
+  springs) → the demo's 0.05-clamped dt, ≈1/20 s per presented frame. Budget the wait on whichever
+  one the thing you are waiting for actually reads.
+- **The last step had its own trap.** `page.screenshot` uses a 30 s default; on the showcase the
+  capture has to be handed a compositor frame, which at ~3.5 s/frame blew past 30 s *after* every
+  assertion in the section had passed — the most expensive place to lose a 20-minute run. The other
+  Mars captures already pass `timeout: 60000`; the showcase one now passes 120 s.
+- **Result:** with the waits budgeted on the scene's clocks, `check:browser` passes end to end on this
+  sandbox (`dz=0.55m throttle=1.00s over 12 presented frames`, HGA `az=168.0°`, arm stows to zero,
+  `check:browser passed`, exit 0), and the showcase screenshot shows the rover presented on the terrain
+  — not a black screen.
