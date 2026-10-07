@@ -8406,6 +8406,45 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "checkSkinning asserts pipeline `failures` instead of an instantaneous `pipelinesPending === 0` sample (the scene keeps compiling variants, and the pose A/B is what proves the skinned draws happened) and logs the pending count.",
     "why": "The full-gate run raced a legitimately in-flight compile and failed a check whose real subject — the skinned pixels — had already been produced."
+  },
+  {
+    "id": "0672",
+    "date": "2026-10-07T08:40:00Z",
+    "type": "pr-merge",
+    "pr": 66,
+    "branch": "arena/3a81fc11-forge-engine",
+    "base": "main",
+    "title": "Complete Phase 16.5: the GPU skinning path",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "ROADMAP Phase 16.5 is complete: skinning no longer stops at the CPU. (1) Data path — new rendering/skinning.ts: fillJointPalette computes inverse(meshWorld) x jointWorld x IBM per joint through a world-matrix callback into a caller-owned Float32Array (no per-joint allocation, no import of animation/), and JointPaletteArena holds one frame's palettes in one storage buffer with PALETTE_SLOT_ALIGN-aligned slots, one writeBuffer per frame and grow-only reallocation; Geometry carries JOINTS_0/WEIGHTS_0 as a second vertex buffer slot (32 B/vertex, validated, replaceable, released) and Mesh.from routes a SkinSource's attributes into it. (2) Shaders and pipelines — the skinned modules are their own sources (a WGSL input struct is the entry's vertex interface, so locations 4/5 must not appear in unskinned pipelines): vertexMainSkinned, vertexMainInstancedSkinned and DEPTH_SKINNED_VERTEX, with the palette at group 3 behind an empty placeholder where the program has no material group; one skinnable() decision keys the variant (colour/unlit/emissive, prepass, depth; never LOD) and stats().layouts becomes 16. (3) Renderer — batches carry their skin/palette offset/joint count, collectBatches fills a mesh-local palette per skinned batch and counts skinnedBatches/skinJoints/skinFallbacks, and the shadow, prepass and colour passes bind slot 1 + group 3. (4) Evidence — tests/renderingSkinning.test.ts (18 tests) and tests/skinningScene.test.ts (2) on the mock; the demo's four-link arm at ?scene=skinning; and check:browser:skinning, which also runs inside the default gate: the skinned modules compile on a real adapter and two deterministic poses of the same uploaded vertices differ in 8,859/468,000 pixels (16,974/921,600 focused), max 211/255, zero GPU errors. (5) CI catch — the skinned shadow/prepass layouts declare an empty group 2, and Chromium (through at least 131, the runner's build) invalidates a draw that leaves a declared group unbound even when empty; the passes now bind an empty gap bind group there (ensureSkinGapBindGroup), MockGPUDevice.beginDraw enforces the same rule so the CPU gates catch it, and checkSkinning asserts pipeline failures rather than an instantaneous pending sample. Gates: verify (958 tests in 64 files), lint:arch, docs:check, check:testmap, the full check:browser sweep and check:browser:skinning, all green.",
+    "files": [
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/index.ts",
+      "engine/src/rendering/geometry.ts",
+      "engine/src/rendering/mesh.ts",
+      "engine/src/rendering/pipeline.ts",
+      "engine/src/rendering/renderer.ts",
+      "engine/src/rendering/shaders/standard.ts",
+      "engine/src/rendering/skinning.ts",
+      "engine/src/testing/mockGpu.ts",
+      "examples/index.html",
+      "examples/src/main.ts",
+      "examples/src/sceneSelection.ts",
+      "examples/src/scenes/skinningScene.ts",
+      "mnemosyne.md",
+      "package.json",
+      "tests/demoSceneSelection.test.ts",
+      "tests/pipeline.test.ts",
+      "tests/renderingSkinning.test.ts",
+      "tests/skinningScene.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs",
+      "tools/wgsl-check.mjs"
+    ]
   }
 ]
 ```
