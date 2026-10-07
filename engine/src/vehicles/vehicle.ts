@@ -924,11 +924,71 @@ export class Vehicle {
     return { pitch, roll };
   }
 
+  /**
+   * Steering geometry: every steered wheel aims at **one** turn centre (Ackermann), instead of
+   * every wheel taking the full lock angle in parallel.
+   *
+   * The commanded lock is the *inner* wheel's angle — the wheel that reaches the steering stop
+   * first — and it sets the centre. The pivot line is the unsteered axle when there is one (a
+   * car's rear axle, a six-wheel rover's middle pair — those wheels keep pointing straight and
+   * stay tangent), otherwise the CG. The centre sits `radius` out on the turn side, and each
+   * steered wheel takes the heading that points it at that centre.
+   *
+   * Parallel steer is why steering used to cancel the drive: at full lock the corner wheels sat
+   * well off their own turn circle (≈0.15 rad on the rover), and a Pacejka tire at that slip
+   * angle answers with most of its grip in the *lateral* direction, whose component along the
+   * body axis is pure drag. On a ~1 kW rover that is the whole traction budget — the reported
+   * "steer the rover while hitting the gas and it stops". Aimed at the centre, the tires roll
+   * (α ≈ 0), so the rover turns and accelerates together.
+   */
+  private applySteering(lock: number): void {
+    const steered: WheelState[] = [];
+    let pivotZ = 0;
+    let pivotCount = 0;
+    for (const w of this.wheels) {
+      if (w.disabled) {
+        w.steerAngle = 0;
+        continue;
+      }
+      if (w.steered) {
+        steered.push(w);
+        continue;
+      }
+      w.steerAngle = 0;
+      pivotZ += w.z;
+      pivotCount++;
+    }
+    if (steered.length === 0) return;
+    if (lock === 0) {
+      for (const w of steered) w.steerAngle = 0;
+      return;
+    }
+    if (pivotCount > 0) pivotZ /= pivotCount;
+    const sign = lock > 0 ? 1 : -1;
+    // Reference axle: the steered wheel furthest from the pivot line (the front axle, on both the
+    // car and the rover layouts); its inner-side wheel is the one held at the commanded lock.
+    let refZ = pivotZ;
+    for (const w of steered) {
+      if (Math.abs(w.z - pivotZ) > Math.abs(refZ - pivotZ)) refZ = w.z;
+    }
+    let innerX = 0;
+    for (const w of steered) {
+      if (Math.sign(w.x) !== sign) continue;
+      innerX = Math.max(innerX, Math.abs(w.x));
+    }
+    const reach = Math.abs(refZ - pivotZ);
+    const radius = innerX + reach / Math.max(1e-3, Math.tan(Math.abs(lock)));
+    const centreX = sign * radius;
+    for (const w of steered) {
+      w.steerAngle = Math.atan2(sign * (w.z - pivotZ), -sign * (w.x - centreX));
+    }
+  }
+
   private sampleWheels(ground: GroundQuery, dt: number): void {
     const c = this.config;
     const uy = this.up.y > 0.2 ? this.up.y : 0.2;
+    this.applySteering(steerAngle(this.input.steer, c.maxSteerAngle, this.speed));
     for (const w of this.wheels) {
-      w.steerAngle = w.steered ? steerAngle(this.input.steer, c.maxSteerAngle, this.speed) * (w.z < 0 ? -1 : 1) : 0;
       if (w.disabled) {
         // Torn-off wheel: no ground contact, no load, no steering — it hangs at full droop
         // (compression 0) while the survivors carry the vehicle. Stale contact/normal values
@@ -1067,7 +1127,11 @@ export class Vehicle {
     // ABS modulates the foot brake only: the handbrake and the parking brake are mechanical and
     // a released hydraulic circuit must not free a locked wheel.
     const absActive = c.absEnabled && brake * c.maxBrakeTorque > 1 && Math.abs(vLong) > 0.4;
-    const aided = (c.tcEnabled && w.driven && Math.abs(driveTorque) > 1) || absActive;
+    // Only *positive* drive torque is traction-controlled. Regenerative braking arrives here as
+    // negative drive torque, and treating that as "aided" skipped the past-the-grip branch for a
+    // braking wheel — which then solved (see below) to the mirrored clamp and drove the vehicle
+    // forward while the brake was held.
+    const aided = (c.tcEnabled && w.driven && driveTorque > 1) || absActive;
     if (Math.abs(demandF) > peakF && !aided) {
       const excess = demand - Math.sign(demand || 1) * peakF * r;
       w.omega = stepWheelSpeed(w.omega, excess, driveTorque, brakeTorque, c.wheelInertia, dt);
@@ -1075,13 +1139,34 @@ export class Vehicle {
       return;
     }
 
-    let kappa = clamp((w.omega * r - vLong) / ref, -peakSlip, peakSlip);
+    // The demand picks the face of the slip axis: a drive demand solves on the forward-force face
+    // (κ ≥ 0), a brake demand on the braking face (κ ≤ 0). Both faces are monotone, so the root
+    // for any demand inside the grip limit is unique there, and a demand *past* the limit lands
+    // on that face's clamp — peak grip, in the demand's own direction.
+    //
+    // Solving across zero instead is what shipped: a full-brake demand the tire cannot deliver
+    // walked off the peak (where dF < 0) with a step to the far clamp and stopped there, so the
+    // tire held peak *forward* force with the brake pinned — the reported "brake on a slope and
+    // the speed climbs drastically" (and, with the throttle pinned in traffic, an alternating
+    // full-drive/full-brake limit cycle that pinned the rover near standstill). A bracketed
+    // Newton (bisecting whenever a step would leave the bracket) cannot do either.
+    const side = demandF >= 0 ? 1 : -1;
+    const endLo = Math.min(0, side * peakSlip);
+    const endHi = Math.max(0, side * peakSlip);
+    let lo = endLo;
+    let hi = endHi;
+    let kappa = clamp((w.omega * r - vLong) / ref, endLo, endHi);
     const coeff = { ...c.longitudinal, D };
-    for (let n = 0; n < 5; n++) {
+    for (let n = 0; n < 12; n++) {
       const F = pacejka(kappa, coeff);
+      const err = F - demandF;
+      if (Math.abs(err) < 1) break;
+      if (err > 0) hi = kappa;
+      else lo = kappa;
       const dF = pacejkaDerivative(kappa, coeff);
-      if (Math.abs(dF) < 1e-2) break;
-      kappa = clamp(kappa + (demandF - F) / dF, -peakSlip, peakSlip);
+      let next = Math.abs(dF) > 1e-2 ? kappa - err / dF : (lo + hi) * 0.5;
+      if (!(next > lo && next < hi)) next = (lo + hi) * 0.5;
+      kappa = next;
     }
     if (c.tcEnabled && w.driven && driveTorque > 1) kappa = Math.min(kappa, c.tcSlip);
     if (c.tcEnabled && w.driven && driveTorque < -1) kappa = Math.max(kappa, -c.tcSlip);
@@ -1180,7 +1265,15 @@ function stepWheelSpeed(omega: number, torque: number, driveTorque: number, brak
   const next = omega + (torque / inertia) * dt;
   if (brakeTorque <= 1) return f32(next);
   const driveOnly = omega + (driveTorque / inertia) * dt;
-  return next * driveOnly <= 0 ? 0 : f32(next);
+  // The brake holds a wheel the drive alone would not have carried through zero…
+  if (next * driveOnly <= 0) return 0;
+  // …and a locked wheel cannot be spun by the brake that locked it. The first test misses the
+  // case where the drive is *already* turning the free wheel the same way the brake would push
+  // it: a pad torque the tire cannot transmit (past the peak) with even a little regenerative
+  // torque behind it then wound the wheel up backwards — −2500 rad/s, κ ≈ −1700, no tire force —
+  // instead of leaving it skidding at a stop. A brake that out-torques the drive holds ω at zero.
+  if (Math.abs(brakeTorque) >= Math.abs(driveTorque) && next * omega <= 0) return 0;
+  return f32(next);
 }
 
 function steerAngle(input: number, maxAngle: number, speed: number): number {

@@ -327,16 +327,16 @@ describe("Mars Showcase — ported terrain integration", () => {
     }
   });
 
-  it("keeps the original gentle drive tune, bounded speed and modest-grade grip", async () => {
+  it("keeps the 1.5× speed tune, bounded full-throttle speed and modest-grade grip", async () => {
     // Exercise the shipped vehicle, not a copied config that could miss a scene-only speedup.
     const { component } = await fixture();
     const rover = component.vehicle;
     expect(rover.config.engine).toBeInstanceOf(ElectricMotor);
     expect(rover.config.engine).toMatchObject({
       peakTorque: 9.5,
-      peakPower: 1000,
-      ratedRpm: 1000,
-      maxRpm: 3800,
+      peakPower: 1500,
+      ratedRpm: 1500,
+      maxRpm: 5700,
       regenTorque: 4.2,
     });
     expect(rover.config.transmission).toBeInstanceOf(ReductionDrive);
@@ -352,19 +352,21 @@ describe("Mars Showcase — ported terrain integration", () => {
     rover.input.handbrake = 0;
     rover.input.throttle = 1;
     for (let i = 0; i < 60; i++) rover.step(1 / 60, level);
-    // Restores the softer launch as well as the power cap; the 2.5 kW tune exceeds this band.
+    // The launch is the gentler tune's (same 9.5 N·m); only the speed axis moved up 1.5×.
     expect(rover.speed).toBeGreaterThan(0.5);
-    expect(rover.speed).toBeLessThan(1.2);
+    expect(rover.speed).toBeLessThan(1.6);
     let maxSpeed = rover.speed;
     for (let i = 60; i < 60 * 40; i++) {
       rover.step(1 / 60, level);
       maxSpeed = Math.max(maxSpeed, rover.speed);
     }
-    expect(maxSpeed).toBeLessThan(1.75);
-    expect(rover.speed).toBeGreaterThan(0.6);
+    // 5700 rpm through 60:1 on 0.264 m wheels is ≈2.63 m/s no-load (≈9.5 km/h on Mars), the
+    // requested +50% over the old 3800 rpm tune; loaded in regolith it settles at ≈2.44 m/s.
+    expect(maxSpeed).toBeLessThan(2.65);
+    expect(rover.speed).toBeGreaterThan(1.5);
 
-    // The reverted motor no longer promises the boosted tune's 25° climb. Preserve the grip
-    // check on a modest grade it can sustain, without raising power to make that test pass.
+    // The reverted 2.5 kW tune's 25° climb is still not promised. Preserve the grip check on a
+    // modest grade the tune can sustain, without raising power to make that test pass.
     const grade = slopeGround((15 * Math.PI) / 180);
     rover.position.set(0, 0, 0);
     rover.placeOnGround(grade);

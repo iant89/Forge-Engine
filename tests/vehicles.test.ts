@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   Clock,
+  ElectricMotor,
   EngineModel,
   EntityWorld,
   Logger,
   Profiler,
+  ReductionDrive,
   SystemScratch,
   Transmission,
   Transform,
@@ -687,5 +689,97 @@ describe("vehicles — area damage", () => {
       bent.qx * straight.qx + bent.qy * straight.qy + bent.qz * straight.qz + bent.qw * straight.qw,
     );
     expect(dot).toBeLessThan(0.999);
+  });
+});
+
+describe("vehicles — reported rover-course regressions", () => {
+  /** The rover course's shipped vehicle: 1025 kg, six wheels, 9.5 N·m / 1.5 kW through 60:1. */
+  function courseRover(): Vehicle {
+    const springRate = (1025 * 9.81) / (6 * 0.05);
+    const vehicle = new Vehicle({
+      ...createVehicleConfig({
+        mass: 1025,
+        gravity: 9.81,
+        mu: 1.4,
+        wheelRadius: 0.264,
+        wheelbase: 2.26,
+        track: 2.18,
+        cgToFront: 1.095,
+        cgHeight: 0.54,
+        longitudinal: { B: 14, C: 1.65, E: 0.97 },
+        lateral: { B: 12, C: 1.3, E: 0.97 },
+        springRate,
+        damperRate: 2 * Math.sqrt(springRate * (1025 / 6)) * 0.55,
+        aero: null,
+        maxBrakeTorque: 4200,
+        absEnabled: false,
+        rollingResistance: 0.035,
+        engine: new ElectricMotor({
+          peakTorque: 9.5,
+          peakPower: 1500,
+          ratedRpm: 1500,
+          maxRpm: 5700,
+          regenTorque: 4.2,
+          dragTorque: 0.12,
+          inertia: 0.02,
+        }),
+        transmission: new ReductionDrive(60),
+      }),
+      wheels: [
+        { x: -1.091, z: 1.095, steered: true, driven: true, handbrake: false },
+        { x: 1.091, z: 1.095, steered: true, driven: true, handbrake: false },
+        { x: -1.213, z: -0.09, steered: false, driven: true, handbrake: false },
+        { x: 1.213, z: -0.09, steered: false, driven: true, handbrake: false },
+        { x: -1.091, z: -1.165, steered: true, driven: true, handbrake: true },
+        { x: 1.091, z: -1.165, steered: true, driven: true, handbrake: true },
+      ],
+    });
+    vehicle.config.suspensionRest = 0.32;
+    vehicle.config.suspensionTravel = 0.16;
+    vehicle.config.maxSteerAngle = 0.62;
+    return vehicle;
+  }
+
+  it("brakes a downhill rover to a hold instead of driving it faster", () => {
+    const ground = slopeGround((25 * Math.PI) / 180, "z");
+    const vehicle = courseRover();
+    vehicle.position.set(0, 0, 0);
+    vehicle.placeOnGround(ground);
+    vehicle.yaw = Math.PI; // faces -Z, downhill on slopeGround
+    vehicle.placeOnGround(ground);
+    vehicle.input.throttle = 0;
+    vehicle.input.brake = 0;
+    run(vehicle, ground, 2); // coast up to speed
+    const entry = vehicle.speed;
+    expect(entry).toBeGreaterThan(3);
+
+    vehicle.input.brake = 1;
+    let maxAfter = 0;
+    for (let i = 0; i < 60 * 3; i++) {
+      vehicle.step(1 / 60, ground);
+      maxAfter = Math.max(maxAfter, vehicle.speed);
+    }
+    // Regression: a brake demand past the tire's grip used to solve to the mirrored slip clamp,
+    // so the pinned brake delivered peak *forward* force and the rover ran away downhill
+    // (~49 m/s in three seconds on 12°). A held brake must stop it, and never speed it up.
+    expect(maxAfter).toBeLessThan(entry + 0.01);
+    expect(vehicle.speed).toBeLessThan(0.05);
+  });
+
+  it("keeps accelerating with the throttle pinned and the steering at full lock", () => {
+    const ground = flatGround(0);
+    const vehicle = courseRover();
+    vehicle.placeOnGround(ground);
+    vehicle.input.throttle = 1;
+    vehicle.input.steer = -1; // full left lock
+    run(vehicle, ground, 3);
+    // Regression: steering every wheel in parallel put them at their own slip angles, and the
+    // lateral answer ate the rover's whole traction budget — throttle + steer crawled at
+    // ≈0.13 m/s. Ackermann keeps the tires rolling while the rover turns and accelerates.
+    expect(vehicle.speed).toBeGreaterThan(1);
+    expect(Math.abs(vehicle.yaw)).toBeGreaterThan(0.5);
+    // …and the wheels are still aimed at their own turn centre, not all at the same angle.
+    const steerAngles = vehicle.wheels.filter((w) => w.steered).map((w) => w.steerAngle);
+    expect(new Set(steerAngles.map((a) => a.toFixed(4))).size).toBeGreaterThan(1);
   });
 });

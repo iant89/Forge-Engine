@@ -283,12 +283,18 @@ collision mesh.
 A six-second W-input traverse runs the scene's real vehicle system, stays grounded with ≥4 contacts,
 moves forward >6 m and emits wheel dust plus ballistic rock chips; it is not a replay of a separate copied rover configuration.
 The speed regression also exercises that shipped vehicle directly on flat ground: it pins the
-original 9.5 N·m / 1000 W / 1000 rpm motor, 60:1 reduction and 0.06 rolling resistance, checks
-full-throttle speed stays below 1.2 m/s after one second and below 1.75 m/s over forty seconds,
-and retains a no-wheelspin climb check on a modest 15° grade. The boosted tune's 25° climb is no
-longer promised. `tests/roverCourse.test.ts` separately pins the same motor and flat-ground speed
-bounds on the course's Earth-gravity vehicle, alongside assembly, driving, cone reset, track
-geometry and barrier collision checks (six tests); obstacles are not used as a fake speed cap.
+1.5×-speed 9.5 N·m / 1500 W / 1500 rpm motor, 60:1 reduction and 0.06 rolling resistance, checks
+full-throttle speed stays below 1.6 m/s after one second and below the ≈2.63 m/s no-load speed
+over forty seconds (settling at ≈2.44 m/s), and retains a no-wheelspin climb check on a modest
+15° grade. The rejected 14 N·m / 2500 W boost's 25° climb is still not promised.
+`tests/roverCourse.test.ts` separately pins the same motor and flat-ground speed bounds on the
+course's Earth-gravity vehicle (≈2.36 m/s loaded), alongside assembly, driving, cone reset, track
+geometry, barrier collision and — new — a full-throttle steering check that the rover keeps
+>1 m/s and actually turns where parallel steering used to stall it (seven tests). Obstacles are
+not used as a fake speed cap. `tests/vehicles.test.ts` adds the engine-level regressions behind
+those reports on the same six-wheel course configuration: a held brake stops a 25° descent
+without ever speeding it up, and full-lock steering under full throttle still accelerates past
+1 m/s with the wheels aimed at their own turn centre.
 Zoom/relocation keeps the camera ≥0.5 m above the same surface and the sky reference under the rover.
 Streaming starts nine tiles once, then at most one per update, produces several LOD densities with
 identical shared raw samples in both X/Z directions, and its 32 m skirts enclose measured morph gaps.

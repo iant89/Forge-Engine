@@ -1999,8 +1999,9 @@ async function checkAllScenes(backend) {
   // chassis once per fixed step, and `Clock` caps catch-up at `maxSubSteps` (5) of them per presented
   // frame, so this scene — well under 1 fps on SwiftShader — advances at most 1/12 s of throttle per
   // frame, whatever the wall clock did. A 45 s wall-clock cap therefore bought only ≈0.8 s of
-  // throttle, and the shipped gentle tune covers 0.41 m in its first 0.75 s from rest on flat ground
-  // (tests/marsShowcase pins <1.2 m/s after one second): the >0.5 m assertion was measuring the
+  // throttle, and the tune it was written against covered 0.41 m in its first 0.75 s from rest on
+  // flat ground (tests/marsShowcase now pins the 1.5×-speed tune below 1.6 m/s after one second):
+  // the >0.5 m assertion was measuring the
   // software rasteriser's frame rate through the drive tune, and it failed on exactly the tune it is
   // meant to protect. Hold W until the simulation has run DRIVE_THROTTLE_SECONDS of throttle; the
   // distance break still fires first wherever the rover is quick enough, so a real GPU (and a

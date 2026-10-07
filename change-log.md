@@ -7480,6 +7480,150 @@ JSON array below; agents maintain it by hand until then.
       "mnemosyne.md",
       "tools/browser-check.mjs"
     ]
+  },
+  {
+    "id": "0589",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/vehicle.ts",
+    "what": "Solve the wheel slip on the demand's own face: bracket Newton to [min(0, side*peakSlip), max(0, side*peakSlip)] with a bisection fallback; treat only positive drive torque as traction-controlled (regen is negative drive); add a stepWheelSpeed hold guard so a brake that out-torques the drive keeps the wheel at zero; replace parallel steering with applySteering(), an Ackermann turn centre (unsteered axle as the pivot line, commanded lock on the inner wheel).",
+    "why": "The brake demand could leave the tire's peak on the falling flank and clamp to the mirrored slip limit, so a pinned brake delivered peak forward force and the rover ran away downhill (43-49 m/s in 3 s); regen behind a pad torque wound a locked wheel backwards to -2500 rad/s; and parallel steer put the corner wheels at their own slip angles, whose lateral answer ate the rover's whole traction budget (throttle + steer crawled at 0.133 m/s)."
+  },
+  {
+    "id": "0590",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Scale the reference rover's speed axis 1.5x: peakPower 1000 -> 1500 W, ratedRpm 1000 -> 1500, maxRpm 3800 -> 5700, torque unchanged at 9.5 N.m; update the module, traction and dust comments to the new 2.63 m/s no-load / 2.44 m/s loaded envelope.",
+    "why": "The user asked for 50% more rover speed; keeping the torque identical preserves the launch feel and avoids the rejected 14 N.m / 2500 W boost while raising the loaded top speed from 1.63 to 2.44 m/s on Mars regolith."
+  },
+  {
+    "id": "0591",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverCourseScene.ts",
+    "what": "Give the course the same 1.5x speed tune as the Mars showcase (1500 W, 1500 rpm base, 5700 rpm no-load).",
+    "why": "Both scenes deliberately share one motor, and the course is where the reported 'doesn't move' and 'steering stops it' were felt; the loaded asphalt speed rises from 1.57 to 2.36 m/s."
+  },
+  {
+    "id": "0592",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/vehicles.test.ts",
+    "what": "Add a 'reported rover-course regressions' suite on the shipped six-wheel course configuration: a held brake on a 25 deg descent must stop it without ever speeding it up, and full-lock steering under full throttle must still pass 1 m/s with the wheels aimed at different angles.",
+    "why": "Pin the two reported defects at the engine level, where the root causes lived, so a future retune cannot reintroduce the slope runaway or the parallel-steer stall."
+  },
+  {
+    "id": "0593",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/roverCourse.test.ts",
+    "what": "Retune the motor/speed pin to 1500 W / 1500 rpm / 5700 rpm with the >1.5 m/s loaded and <2.65 m/s no-load bounds, and add a full-throttle + steering check that the rover keeps >1 m/s and actually turns.",
+    "why": "The old pin asserted the pre-request speed envelope, and the course had no test that throttle + steering still drives the rover - the reported 'it doesn't move' symptom."
+  },
+  {
+    "id": "0594",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcase.test.ts",
+    "what": "Retune the shipped-vehicle pin to the 1.5x speed tune (1500 W / 1500 rpm / 5700 rpm) with the one-second band widened and the forty-second bound set under the 2.63 m/s no-load speed; keep the 15 deg grip check.",
+    "why": "The scene's motor changed by the requested +50% speed, and the test exists to catch scene-only speedups, so it must track the requested tune without readmitting the rejected boost."
+  },
+  {
+    "id": "0595",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/electricMotor.test.ts",
+    "what": "Update the replicated shipped-rover drivetrain to the 1.5x tune (1500 W / 1500 rpm / 5700 rpm) and widen the 40 s full-throttle bound to <2.65 m/s.",
+    "why": "The 'way too fast' regression is written against the shipped numbers; it should keep guarding the real tune, which is still an order of magnitude below the old combustion top speed."
+  },
+  {
+    "id": "0596",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VEHICLES.md",
+    "what": "Document the 9.5 N.m / 1500 W / 1500 rpm motor, the 2.63 m/s no-load speed and the 1.5x speed-axis scaling of the gentle tune.",
+    "why": "The reference-config paragraph described the pre-request motor and had to stay truthful about what ships."
+  },
+  {
+    "id": "0597",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Record the new speed pins and the added steering/slope-brake regressions in the Mars Showcase and rover-course rows.",
+    "why": "AGENTS.md requires the verification prose to describe what the suites actually assert."
+  },
+  {
+    "id": "0598",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Append the root causes, fixes and measured before/after numbers for the slope-brake runaway, regen/TC interaction, brake-hold wheel winding, parallel-steer stall and the +50% speed scaling.",
+    "why": "Future sessions must not reinstate parallel steering, the rejected power boost, or a cross-zero slip solve."
+  },
+  {
+    "id": "0599",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Append per-file entries for the rover speed increase and the reported drive/brake/steering fixes.",
+    "why": "Maintain the repository activity-history contract."
+  },
+  {
+    "id": "0600",
+    "date": "2026-10-07T01:55:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Update the drive-arm comment that cites the Mars showcase speed pin to the 1.5x tune (below 1.6 m/s after one second).",
+    "why": "The comment referenced the pre-request test bound; the gate's behaviour is unchanged."
   }
 ]
 ```

@@ -78,13 +78,16 @@ the friction pads, and a negative demand at a standstill would creep the car bac
 park logic). `ElectricMotor.powerKW` reads the last delivered shaft power — negative while
 regenerating, which is what the Mars showcase HUD shows.
 
-The Mars showcase rover is the reference config: the gentle 9.5 N·m / 1000 W / 1000 rpm base-speed
+The Mars showcase rover is the reference config: the 9.5 N·m / 1500 W / 1500 rpm base-speed
 `ElectricMotor` + `ReductionDrive(60)` on a 1025 kg six-wheel chassis — ≈1943 N peak tractive force
 with 0.9 drivetrain efficiency, regolith rolling resistance 0.06, and a no-load speed near
-1.75 m/s ≈ 6 km/h (3800 rpm). The rover course uses the same motor/reduction with Earth-gravity
-springs and its asphalt rolling resistance. This restores the original drive tune instead of the
-boosted 14 N·m / 2500 W / 1800 rpm setup; grouser tire grip, braking and suspension fixes remain.
-The no-load motor speed is not a downhill speed limiter.
+2.63 m/s ≈ 9.5 km/h (5700 rpm). The rover course uses the same motor/reduction with Earth-gravity
+springs and its asphalt rolling resistance. The torque is the original gentle tune's, so the
+launch is unchanged; base speed, power cap and no-load speed are scaled 1.5× for the requested
++50% loaded speed (≈2.36 m/s on asphalt, ≈2.44 m/s on Mars regolith). This is not the rejected
+14 N·m / 2500 W / 1800 rpm boost — grouser tire grip, braking and suspension fixes remain, and the
+top speed is still an order of magnitude below the old combustion tune. The no-load motor speed is
+not a downhill speed limiter.
 
 ## Wheel visuals are suspension-anchored
 
