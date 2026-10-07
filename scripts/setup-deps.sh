@@ -11,7 +11,9 @@
 #   3. git           — required for the workflow (not for the build itself).
 #   4. npm packages  — every devDependency's installed version must equal the version pinned in
 #                      package-lock.json; otherwise `npm ci` (never `npm install`, so the lockfile
-#                      stays authoritative).
+#                      stays authoritative). The @sparticuz/chromium payload tarball (the one ≈70 MB
+#                      download npm's fetcher fails on in sandboxed egress) is fetched with curl and
+#                      seeded into npm's cache first, so `npm ci` serves it from the cache.
 #   5. Headless Chromium + SwiftShader (optional, for `npm run check:browser`) — extracted from the
 #                      bundled @sparticuz/chromium package into $TMPDIR (where tools/browser-check.mjs
 #                      already looks), and its reported version is checked against the package. Falls
@@ -51,6 +53,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+TMP="${TMPDIR:-/tmp}"   # where the chromium tarball + @sparticuz payload live (step 4 and 5)
 
 MODE="install"          # install | check
 BROWSER="auto"          # auto | required | skip
@@ -115,6 +119,86 @@ print(v if isinstance(v,str) else json.dumps(v))' "$file" "$path"
   else
     grep -o "\"${path##*.}\": *\"[^\"]*\"" "$file" | head -n1 | sed 's/.*: *"\(.*\)"/\1/'
   fi
+}
+
+# The @sparticuz/chromium payload is the one tarball (≈70 MB) that npm's fetcher fails on in
+# sandboxed egress environments: ERR_SSL_CIPHER_OPERATION_FAILED mid-download, while a plain curl
+# of the same registry URL completes fine. Fetch it with curl and seed npm's cache (content plus
+# index entry, through the cacache bundled inside npm itself) so the `npm ci` that follows serves
+# it from the cache and never touches the network for that URL. The download URL and the sha512 it
+# is verified against both come from package-lock.json, so the script stays correct when the
+# package bumps. Every failure mode degrades to "let npm try to fetch it itself" — this is a
+# best-effort precondition for `npm ci`, not a new gate, and it never fails the run.
+seed_chromium_tarball() {
+  local url integrity version tarball major
+  url="$(json_get package-lock.json packages.node_modules/@sparticuz/chromium.resolved 2>/dev/null || true)"
+  integrity="$(json_get package-lock.json packages.node_modules/@sparticuz/chromium.integrity 2>/dev/null || true)"
+  version="$(json_get package-lock.json packages.node_modules/@sparticuz/chromium.version 2>/dev/null || true)"
+  if [[ -z "$url" || -z "$integrity" || -z "$version" ]]; then
+    return 0   # not in the lockfile (or no lockfile): npm handles it as before
+  fi
+  if ! have curl || ! have node; then
+    return 0   # no way to seed here; npm handles it as before
+  fi
+  major="${version%%.*}"
+  tarball="$TMP/chromium-$major.tgz"
+  # Reuse a verified copy instead of re-downloading 70 MB.
+  if [[ -f "$tarball" ]]; then
+    local h
+    h="$(node -e 'console.log(require("crypto").createHash("sha512").update(require("fs").readFileSync(process.argv[1])).digest("base64"))' "$tarball" 2>/dev/null || true)"
+    if [[ "sha512-$h" == "$integrity" ]]; then
+      detail "reusing sha512-verified $tarball"
+    else
+      detail "$tarball present but does not match the lockfile — re-downloading"
+      rm -f "$tarball"
+    fi
+  fi
+  if [[ ! -f "$tarball" ]]; then
+    detail "curl -sSL --retry 3 -o $tarball $url"
+    if ! curl -sSL --retry 3 -o "$tarball" "$url"; then
+      detail "curl could not fetch the chromium tarball — npm ci will try the registry itself"
+      rm -f "$tarball"
+      return 0
+    fi
+    ls -la "$tarball" || true
+  fi
+  # Verify the sha512 against the lockfile before letting npm trust the file.
+  local hashout
+  if ! hashout="$(node -e '
+      const fs = require("fs"), crypto = require("crypto");
+      const b = fs.readFileSync(process.argv[1]);
+      const h = crypto.createHash("sha512").update(b).digest("base64");
+      console.log("sha512-" + h);
+      console.log("expect " + process.argv[2]);
+      if ("sha512-" + h !== process.argv[2]) process.exit(1);
+    ' "$tarball" "$integrity")"; then
+    detail "$hashout"
+    detail "sha512 mismatch — refusing to seed; npm ci will try the registry itself"
+    rm -f "$tarball"
+    return 0
+  fi
+  detail "$hashout"
+  # Seed npm's cache (content + index entry) with the cacache that ships inside npm itself.
+  local npm_real cacache_dir cache_dir
+  npm_real="$(readlink -f "$(command -v npm)" 2>/dev/null || true)"
+  cacache_dir="$(dirname "$(dirname "$npm_real")")/node_modules/cacache"
+  cache_dir="$(npm config get cache 2>/dev/null || echo "$HOME/.npm")"
+  if [[ -z "$npm_real" || ! -d "$cacache_dir" ]]; then
+    detail "cannot locate cacache inside this npm install — npm ci will try the registry itself"
+    return 0
+  fi
+  if node -e '
+      const cacache = require(process.argv[1]);
+      const fs = require("fs");
+      cacache.put(process.argv[2], process.argv[3], fs.readFileSync(process.argv[4]), { integrity: process.argv[5] })
+        .then(() => process.exit(0))
+        .catch((e) => { console.error(String(e)); process.exit(1); });
+    ' "$cacache_dir" "$cache_dir" "$url" "$tarball" "$integrity"; then
+    detail "npm cache seeded with the chromium tarball (sha512-verified) — npm ci will use it"
+  else
+    detail "could not seed the npm cache — npm ci will try the registry itself"
+  fi
+  return 0
 }
 
 # ------------------------------------------------------------------------------- 1. Node.js
@@ -235,6 +319,9 @@ if [[ $NODE_OK -eq 1 ]]; then
   else
     for d in "${PKG_DRIFT[@]}"; do detail "$d"; done
     if can_install; then
+      # The one tarball npm's fetcher cannot get in sandboxed egress: fetch it with curl and seed
+      # the cache so the ci below does not have to fetch it.
+      seed_chromium_tarball
       detail "running npm ci"
       if run npm ci --no-audit --no-fund --loglevel=error; then
         fixed "npm ci restored node_modules to the lockfile (${#PKG_DRIFT[@]} package(s) were off)"
@@ -280,7 +367,6 @@ playwright_browser_path() {
 # tools/browser-check.mjs discovers a browser in this order: $PLAYWRIGHT_CHROMIUM, $TMPDIR/chromium
 # (the @sparticuz/chromium payload), then Playwright's managed install. We provision in the same
 # order so what this script validates is exactly what the checker will launch.
-TMP="${TMPDIR:-/tmp}"
 SPARTICUZ_BIN="$TMP/chromium"
 SPARTICUZ_LIBS="$TMP/al2023/lib"
 SPARTICUZ_ICD="$TMP/vk_swiftshader_icd.json"

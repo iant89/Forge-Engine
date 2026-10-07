@@ -1616,3 +1616,28 @@ will stop".
   domains. Halting the whole engine on a single resource error turns a local failure into a
   global one — which is exactly how a population bug ends up taking the animation demo down.
   Escalate to device-fatal only on OOM/loss; retire and continue on resource errors.
+
+## 2026-10-07 — sandbox egress breaks npm's fetcher on big downloads: seed the cache from curl
+
+- **Symptom:** in the Arena sandbox, `npm ci` dies with `ERR_SSL_CIPHER_OPERATION_FAILED`
+  (OpenSSL `ossl_gcm_stream_update: cipher operation failed`) — always on the one big download:
+  the ~70 MB `@sparticuz/chromium` tarball. Every smaller package fetches fine, and a plain
+  `curl -sSL` of the same registry URL completes instantly. The sandbox's outbound TLS stack
+  cannot sustain the long stream; it is not a registry or lockfile problem.
+- **Fix (now in `scripts/setup-deps.sh`, step 4, before `npm ci`):** download the tarball with
+  curl, verify its sha512 against `package-lock.json` (print `sha512-…` / `expect sha512-…`,
+  refuse on mismatch), then seed npm's cache — content **and** index entry — via the `cacache`
+  module bundled inside npm itself (`require(<npm root>/node_modules/cacache)`,
+  `cacache.put(cacheDir, <resolved URL>, <bytes>, { integrity })`). `npm ci` then treats the URL
+  as a cache hit and never touches the network for it. Verified on a fully cold machine (no
+  node_modules, no `~/.npm`, no tarball): `npm ci` in ~3 s where it previously failed.
+- **Gotchas that cost time:**
+  - Placing only the cacache *content* blob is not enough on a fresh machine — make-fetch-happen
+    needs the *index* entry keyed by the URL, and `cacache.put` writes both.
+  - `readlink -f $(which npm)` → `dirname dirname` is the npm install root (its `bin/npm-cli.js`
+    symlinks out one level deeper than you'd guess); cacache sits at `<root>/node_modules/cacache`.
+  - npm's own log prints `http cache <name>@<url>` — the real cache key is the bare URL.
+  - `require('@sparticuz/chromium/package.json')` throws (`exports` map); read the file directly.
+- **Lesson:** when a package manager fails on exactly the largest artifact but `curl` works,
+  suspect the egress TLS stack, not the package — and keep the lockfile authoritative by feeding
+  the verified bytes into the package manager's cache instead of bypassing it.

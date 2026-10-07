@@ -8613,6 +8613,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "npm test row updated to 968 tests in 65 files; the device-failure suite description now reflects the two-level semantics (halt on loss/OOM, retire a dead population without stopping the scene).",
     "why": "Keep the gate table truthful when the suite count and its meaning move."
+  },
+  {
+    "id": "0687",
+    "date": "2026-10-07T14:24:12Z",
+    "type": "change",
+    "pr": 67,
+    "branch": "arena/6b54c7f5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "scripts/setup-deps.sh",
+    "what": "Before `npm ci`, fetch the @sparticuz/chromium tarball with `curl` (not npm's fetcher) and seed npm's cache — content plus index entry, through the cacache bundled inside npm itself — so `npm ci` serves it from cache. The URL and the sha512 the download is verified against come from package-lock.json; a present tarball is reused only when its sha512 matches. Every failure degrades to 'let npm fetch it itself'. Moved TMP up so the step-4 seed and the step-5 browser share it.",
+    "why": "In sandboxed egress environments npm's fetcher aborts the ~70 MB chromium download with ERR_SSL_CIPHER_OPERATION_FAILED while a plain curl of the same registry URL completes, so `npm ci` (and thus the whole setup) failed before any test could run. Seeding the cache from a curl-fetched, hash-verified tarball keeps the lockfile authoritative (still `npm ci`, never `npm install`) while removing the one fetch that cannot succeed."
   }
 ]
 ```
