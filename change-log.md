@@ -7636,6 +7636,32 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Record the 2026-10-07 real-WebGPU gate re-run (drive dz=0.52 m at maxSpeed=1.13 m/s in 0.92 s of throttle over 11 presented frames, contact=6, HGA az=168.0, arm stow, zero GPU errors).",
     "why": "The verification doc's `check:browser` row is the gate's evidence log; a passing run after the rover speed and traction changes belongs in it."
+  },
+  {
+    "id": "0602",
+    "date": "2026-10-07T02:50:00Z",
+    "type": "pr-merge",
+    "pr": 64,
+    "branch": "arena/f0d99231-forge-engine",
+    "base": "main",
+    "title": "Fix the rover's slope-brake runaway and steering stall; raise its speed 50%",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Three independent rover defects fixed, plus the requested +50% speed. (1) Braking on a slope drove the rover faster: `balanceLongitudinal` solved the wheel slip with a cross-zero Newton step clamped to ±peakSlip, so a full-brake demand the tire cannot deliver walked off the Pacejka peak, overshot and settled on the mirrored clamp — peak forward force with the brake pinned (25 deg descent, 6.95 m/s -> ~49 m/s in 3 s, kappa pinned at +0.285). The solve now brackets the demand's own face ([min(0, side*peakSlip), max(0, side*peakSlip)]), Newton with a bisection fallback; regenerative braking (negative drive torque) no longer counts as traction-controlled, and `stepWheelSpeed` holds a wheel whose brake out-torques the drive instead of winding it backwards past zero. (2) Throttle + steering stalled the rover: every steered wheel took the same angle, so the corner wheels sat off their own turn circles and their lateral tire force acted as drag on a ~1 kW drivetrain — full throttle + full lock crawled at 0.133 m/s, which is also why the obstacle course read as not moving. New `applySteering` builds one Ackermann turn centre (commanded lock on the inner wheel, unsteered axle as the pivot line); full lock under full throttle now reaches 1.88 m/s, and the real course W+D run holds >2 m/s. (3) Speed: the requested +50% scales the speed axis, not the power boost PR #62 rejected — torque stays 9.5 N.m, base speed 1000->1500 rpm, power cap 1000->1500 W (continuous at the base speed), no-load 3800->5700 rpm (2.63 m/s). Measured loaded speeds 1.574 -> 2.361 m/s on the course and 1.625 -> 2.438 m/s on Mars regolith, exactly 1.500x, with an unchanged launch. Validation: npm run verify passed 819 tests in 57 suites (typecheck + WGSL), lint:arch/check:testmap/docs:check green, CPU CI passed, and the real-WebGPU gate passed on this box (dz=0.52 m at maxSpeed=1.13 m/s in 0.92 s of throttle over 11 presented frames, contact=6, HGA az=168.0, arm stowed, zero GPU errors).",
+    "files": [
+      "change-log.md",
+      "docs/VEHICLES.md",
+      "docs/VERIFICATION.md",
+      "engine/src/vehicles/vehicle.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "examples/src/scenes/roverCourseScene.ts",
+      "mnemosyne.md",
+      "tests/electricMotor.test.ts",
+      "tests/marsShowcase.test.ts",
+      "tests/roverCourse.test.ts",
+      "tests/vehicles.test.ts",
+      "tools/browser-check.mjs"
+    ]
   }
 ]
 ```
