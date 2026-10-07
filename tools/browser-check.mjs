@@ -73,10 +73,19 @@
  * 0`), the landing-page scene selector must default to Mars Showcase, and the showcase must load the
  * Perseverance GLB on the ported analytic Mars pipeline, make the rover's tile resident, settle its
  * six wheels into terrain contact, then drive forward under W far enough to prove the drivetrain
- * and produce wheel-kick dust plus thrown regolith chips — with clearance above that same surface and no new GPU errors. These waits
- * use wall-clock caps because the showcase presents well under 1 fps on the software rasteriser, and
- * a frame-count settle would
- * either race the model fetch or stall the gate for minutes.
+ * and produce wheel-kick dust plus thrown regolith chips — with clearance above that same surface and no new GPU errors.
+ * Every wait in this section is budgeted on the scene's own progress, never on the wall clock, and
+ * that is not stylistic: the showcase presents at a fraction of a frame per second on the software
+ * rasteriser, and a wall-clock window measures *that* through whatever it is waiting for. So the
+ * state polls renew their timeout while the state keeps changing (a scene that is genuinely stuck
+ * still fails, just on its own clock), and the W-drive arm budgets in simulated throttle seconds —
+ * `VehicleSystem` integrates the chassis once per fixed step and `Clock` caps catch-up at five of
+ * them per presented frame, so the wall clock buys only ≈1/12 s of throttle per frame and a distance
+ * judged over a wall-clock window failed the gentle drive tune it exists to protect. W is held until
+ * the chassis' own fixed clock has run two seconds of throttle, breaking early as soon as the
+ * distance is covered so nothing that already passes gets slower, and the log reports throttle
+ * seconds and presented frames next to the distance so a slow frame rate is never mistaken for a
+ * drivetrain that will not drive.
  *
  * Phase 10.9 addition: the ported Mars generator is also addressable as a *site inspector*
  * (`?scene=mars-generator`, site from `?marssite=<preset|lat,lon>`). Two arms: the volcano preset must
@@ -1905,17 +1914,43 @@ async function checkAllScenes(backend) {
   // Mars showcase: the Perseverance GLB must load (a fetch that 404s or a bad magic number used
   // to leave the placeholder driving around), the six model wheels must be found and settle into
   // terrain contact, and W must actually drive it — with dust and ballistic rock chips that prove
-  // the wheels are scrubbing the regolith, and zero new GPU errors. Everything here polls against *states* with wall-clock caps
+  // the wheels are scrubbing the regolith, and zero new GPU errors. Everything here polls against *states*
   // instead of counting frames: SwiftShader presents the showcase at well under 1 fps, so a fixed
-  // frame budget would either crawl for minutes or race the model fetch. The viewport is the
+  // frame budget would either crawl for minutes or race the model fetch. The polls' timeouts are
+  // *stall* budgets renewed while the scene keeps making progress, because at a third of a frame per
+  // second a wall-clock cap measures the rasteriser rather than the choreography (see `pollMars`).
+  // The viewport is the
   // 900×520 the panel check above just left us on — the heaviest scene runs ~4× slower at 1280×720.
   await page.evaluate(() => window.__forge.loadScene("mars-showcase"));
-  const pollMars = async (label, predicate, timeoutMs) => {
-    const deadline = Date.now() + timeoutMs;
+  /**
+   * Poll `window.__forge.marsState()` until `predicate` holds.
+   *
+   * `timeoutMs` is a *stall* budget rather than a wall-clock one whenever `progressOf` is supplied.
+   * It has to be: the showcase presents at a fraction of a frame per second under SwiftShader, and
+   * the scene's own choreography clocks (the HGA countdown, the arm spring) are advanced by the demo
+   * loop's `dt`, which `main.ts` clamps to 0.05 s per presented frame — so the antenna's five-second
+   * countdown is ~100 presented frames, i.e. ~6 minutes of wall clock at a third of a frame per
+   * second. A fixed wall-clock cap measures the rasteriser instead of the choreography, which is
+   * exactly how "HGA never started deploying in 300s" failed with 0.75 s still on the countdown.
+   * With `progressOf`, the budget is renewed while the measure keeps improving and only `timeoutMs`
+   * of *no* progress fails the poll, so a scene that is genuinely stuck still fails, and slower
+   * machines stop being read as broken ones. `hardCapMs` bounds the whole wait regardless.
+   */
+  const pollMars = async (label, predicate, timeoutMs, progressOf = null, hardCapMs = 900000) => {
+    const hardDeadline = Date.now() + hardCapMs;
+    let deadline = Date.now() + timeoutMs;
     let last = null;
-    while (Date.now() < deadline) {
+    let best = -Infinity;
+    while (Date.now() < deadline && Date.now() < hardDeadline) {
       last = await page.evaluate(() => window.__forge.marsState());
       if (last && predicate(last)) return last;
+      if (last && progressOf) {
+        const value = progressOf(last);
+        if (Number.isFinite(value) && value > best + 1e-9) {
+          best = value;
+          deadline = Date.now() + timeoutMs;
+        }
+      }
       await page.waitForTimeout(400);
     }
     throw new Error(`${label} (last state ${JSON.stringify(last)})`);
@@ -1960,45 +1995,80 @@ async function checkAllScenes(backend) {
   const marsAtDrive = await page.evaluate(() => window.__forge.marsState());
   checkMarsSurface(marsAtDrive);
   const zStart = marsAtDrive.z;
+  // Budget the drive in *simulated* throttle seconds, not wall-clock ones. `VehicleSystem` steps the
+  // chassis once per fixed step, and `Clock` caps catch-up at `maxSubSteps` (5) of them per presented
+  // frame, so this scene — well under 1 fps on SwiftShader — advances at most 1/12 s of throttle per
+  // frame, whatever the wall clock did. A 45 s wall-clock cap therefore bought only ≈0.8 s of
+  // throttle, and the shipped gentle tune covers 0.41 m in its first 0.75 s from rest on flat ground
+  // (tests/marsShowcase pins <1.2 m/s after one second): the >0.5 m assertion was measuring the
+  // software rasteriser's frame rate through the drive tune, and it failed on exactly the tune it is
+  // meant to protect. Hold W until the simulation has run DRIVE_THROTTLE_SECONDS of throttle; the
+  // distance break still fires first wherever the rover is quick enough, so a real GPU (and a
+  // SwiftShader run that gets there) costs no more wall clock than the old fixed cap did.
+  const MARS_DRIVE_MIN_DZ = 0.5;
+  const DRIVE_THROTTLE_SECONDS = 2;
+  /** Backstop for a rover that never reaches the distance: 1 s of throttle measured ≈58 s here. */
+  const DRIVE_WALL_CAP_MS = 180000;
+  // The fixed clock is the one the chassis is integrated on (`elapsedTime` also counts the dropped
+  // catch-up time, which the rover never felt).
+  const marsSimSeconds = () => page.evaluate(() => window.__forge.engine.clock.fixedTime);
+  const simStart = await marsSimSeconds();
+  const frameStart = (await page.evaluate(() => window.__forge.stats())).frame;
   await page.keyboard.down("KeyW");
   let maxSpeed = 0;
   let maxKick = 0;
   let maxChips = 0;
   let marsDriven = null;
+  let simDriven = simStart;
   try {
-    const deadline = Date.now() + 45000;
+    const deadline = Date.now() + DRIVE_WALL_CAP_MS;
     while (Date.now() < deadline) {
       marsDriven = await page.evaluate(() => window.__forge.marsState());
+      simDriven = await marsSimSeconds();
       maxSpeed = Math.max(maxSpeed, marsDriven.speed ?? 0);
       maxKick = Math.max(maxKick, marsDriven.kickDust ?? 0);
       maxChips = Math.max(maxChips, marsDriven.kickDebris ?? 0);
-      if (marsDriven.z - zStart > 0.5) break;
+      if (marsDriven.z - zStart > MARS_DRIVE_MIN_DZ) break;
+      if (simDriven - simStart >= DRIVE_THROTTLE_SECONDS) break;
       await page.waitForTimeout(500);
     }
   } finally {
     await page.keyboard.up("KeyW");
   }
   const marsDz = marsDriven ? marsDriven.z - zStart : 0;
+  const simThrottle = Math.max(0, simDriven - simStart);
+  const driveFrames = (await page.evaluate(() => window.__forge.stats())).frame - frameStart;
   console.log(
     `mars showcase drive: dz=${marsDz.toFixed(2)}m maxSpeed=${maxSpeed.toFixed(2)}m/s ` +
-      `maxKickDust=${maxKick} maxRockChips=${maxChips} contact=${marsDriven?.contactWheels}`,
+      `maxKickDust=${maxKick} maxRockChips=${maxChips} contact=${marsDriven?.contactWheels} ` +
+      `throttle=${simThrottle.toFixed(2)}s over ${driveFrames} presented frames`,
   );
-  if (!(marsDz > 0.5)) throw new Error(`mars showcase: W did not drive the rover forward (dz ${marsDz.toFixed(3)}m in 45s)`);
+  if (!(marsDz > MARS_DRIVE_MIN_DZ)) {
+    throw new Error(
+      `mars showcase: W did not drive the rover forward (dz ${marsDz.toFixed(3)}m ` +
+        `after ${simThrottle.toFixed(2)}s of throttle in ${driveFrames} frames)`,
+    );
+  }
   checkMarsSurface(marsDriven);
   if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
   if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
   if (!(maxChips > 0)) throw new Error("mars showcase: driving produced no ballistic rock chips");
-  // High-gain antenna: it arms when the GLB lands and unfurls five seconds of sim time later, so
+  // High-gain antenna: it arms when the GLB lands and unfurls five seconds of the demo loop's dt
+  // later — ~100 presented frames on this rasteriser, since main.ts clamps that dt to 0.05 s — so
   // "deploying" on the real device proves the countdown + pivots are wired. Convergence onto the
-  // Earth target is only ~3 more seconds of sim time — minutes at SwiftShader's showcase frame
-  // rate — so like the robotic arm above, on-target tracking is pinned by tests/highGainAntenna
+  // Earth target is only ~3 more seconds of dt — minutes at SwiftShader's showcase frame
+  // rate — so like the robotic arm below, on-target tracking is pinned by tests/highGainAntenna
   // and the gate asserts the choreography started and the dish left its stowed pose.
   const hgaMoving = await pollMars(
-    "mars showcase: HGA never started deploying in 300s",
+    "mars showcase: HGA never started deploying (no antenna progress for 300s)",
     (s) =>
       (s.antenna?.phase === "deploying" || s.antenna?.phase === "tracking") &&
       Math.abs(((s.antenna.azimuthDeg - 180 + 540) % 360) - 180) > 10, // off the stowed (aft) pose
     300000,
+    // Progress toward the unfurl: the countdown falls to zero, then the deploy clock rises. Monotone
+    // without hard-coding the delay, and a countdown that stops falling — or a phase that never
+    // flips — stops renewing the budget, so a genuinely stuck antenna still fails the poll.
+    (s) => (s.antenna ? (s.antenna.phase === "stowed" ? -s.antenna.countdown : 1 + s.antenna.deployT) : Number.NaN),
   );
   console.log(
     `mars showcase HGA: phase=${hgaMoving.antenna.phase} az=${hgaMoving.antenna.azimuthDeg.toFixed(1)}° ` +
@@ -2015,15 +2085,17 @@ async function checkAllScenes(backend) {
   // tests/armTouch and tests/vehicleTouch instead.
   await page.keyboard.press("KeyR");
   const armMoving = await pollMars(
-    "mars showcase: R did not start the robotic-arm unfold in 60s",
+    "mars showcase: R did not start the robotic-arm unfold (no arm progress for 60s)",
     (s) => s.armDeployed === true && s.armT > 0.05 && Math.abs(s.armJoints?.[2] ?? 0) > 1,
     60000,
+    (s) => s.armT, // the unfold clock rises only while the spring is running
   );
   await page.evaluate(() => window.__forge.setArm(false));
   const armStowed = await pollMars(
-    "mars showcase: robotic arm did not stow back in 90s",
+    "mars showcase: robotic arm did not stow back (no arm progress for 90s)",
     (s) => s.armDeployed === false && s.armT === 0,
     90000,
+    (s) => -s.armT, // stowing runs the same clock backwards
   );
   console.log(
     `mars showcase arm: unfold t=${armMoving.armT.toFixed(2)} joints=[${armMoving.armJoints.map((v) => v.toFixed(1)).join(", ")}] ` +
@@ -2035,7 +2107,11 @@ async function checkAllScenes(backend) {
   if (marsStatsArm.gpuErrors !== marsStatsAfter.gpuErrors || marsStatsArm.lastError) {
     throw new Error(`mars showcase GPU errors while moving the arm: ${marsStatsArm.lastError}`);
   }
-  await page.screenshot({ path: "tools/.browser-check-showcase.png" });
+  // Explicit timeout like the other Mars captures: this is the heaviest scene in the gate, it
+  // presents at a fraction of a frame per second here, and Playwright's capture has to be handed a
+  // compositor frame. The 30 s default timed out on the gate's last step, after every assertion in
+  // this section had already passed — the most expensive possible place to lose the run.
+  await page.screenshot({ path: "tools/.browser-check-showcase.png", timeout: 120000 });
 }
 
 let exitCode = 0;
