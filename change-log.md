@@ -8963,6 +8963,39 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Recorded the Phase 16.6 session: rig design, the two gate failures and their fixes, the arm-rig migration, and the lesson that editing sources mid-gate makes Vite HMR reload the page (which the gate sees as a destroyed execution context).",
     "why": "Preserves the repository's requested session memory for future contributors."
+  },
+{
+    "id": "0715",
+    "date": "2026-10-07T21:20:00Z",
+    "type": "pr-merge",
+    "pr": 70,
+    "branch": "arena/41af75b0-forge-engine",
+    "base": "main",
+    "title": "Phase 16.6: mechanical animation (channel-fed rigs, wheel assemblies, rover arm)",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "ROADMAP Phase 16.6 is complete; Phase 16 now remains open only for `assets.gltfAdvanced` (16.1). (1) Rig - engine/src/animation/mechanical.ts: `MechanicalRig` binds one entity per joint to a named channel and poses it as `base ∘ motion` recomposed from the authored TRS every frame, so re-posing is idempotent (no drift): `revolute` (angle about a parent-frame axis), `prismatic` (offset along it) and `aim` (solved so the joint's local direction points at a target entity, with `stretch` scaling the link to the target distance so a damper reaches its hub). `min`/`max` clamps, `slew` rate limits in units/s, `wrap` for odometers, allocation-free module scratch, and aim solves against the *live local store* rather than the cached world matrices (band 500 writes those later), so a joint declared after the ones it watches sees their pose from the same frame. `valueOf(channel)` / `saturatedChannel(channel)` read the posed value back after ratio/bias/clamp/slew - what a HUD or a gate must compare pixels against, not the raw channel. (2) System - animation/mechanicalSystem.ts: `MechanicalChannelSource` writes a frame's channels, then `MechanicalSystem` (order 310, after AnimationSystem and after the fixed simulation band that produces the inputs) advances (limits + slew) and poses per `MechanicalRigComponent`; stats mechanicalRigs / mechanicalJoints / ...Posed / ...Solved / ...Saturated. (3) Vehicles - vehicles/wheelRig.ts: `createVehicleWheelRig` binds wheel telemetry to joints in solve order (hub-carrier travel, the wheel's *own* Ackermann angle - so the rear knuckles the solver left at zero stay at zero - the odometer axle with its ratio sign-flipped on the left so both sides roll forward, then arm and damper aims), and `VehicleWheelSource` feeds them. The Phase 6 playground drops its per-corner boxes for real assemblies (tyre, rim, 14 cleats, 8 wheel-nuts, upright, trailing arm, damper) and gains a `setWheelOverride` gate hook plus posed-value telemetry. (4) Second consumer - the Mars rover's five-joint GLB arm is posed by a rig from the controller's channels instead of a hand-written loop (`wrap: false` is load-bearing: the unfold deliberately takes the elbow the long way round at -242 degrees, and wrapping into (-pi, pi] would flip it through the ground), and `marsState().armPivotDeg` reads the angles back off the transform store. (5) Evidence - tests/mechanicalAnimation.test.ts (33) and tests/mechanicalScene.test.ts (5); npm test 1013 passed; `npm run check:browser:mechanical` on a real adapter (headless Chromium + SwiftShader): 20 joints / 12 channels, two deterministic wheel poses differ in 2,313/921,600 px (max 206/255), rear steer held at 0, gpuErrors 0; the full `npm run check:browser` gate passed end-to-end with new Mars arm assertions, both polled because the store is posed one engine frame after the controller updates. Docs: registry flips (animation.clips and vehicles.wheelVisuals to verified, new animation.mechanical; vehicles.tireModel and vehicles.transmission re-pointed from closesWith 16.6 to phase 6, which is a visual phase and does not close them), roadmap 16.6 slices checked off, the stale wheel-visuals limitation deleted from docs/KNOWN-ISSUES.md, change-log 0696-0714, mnemosyne notes. Gates: verify, test:affected, check:testmap, docs:check, lint:arch and check:browser:mechanical all green; CI CPU gates and the advisory WebGPU browser gate both succeeded on the merge head.",
+    "files": [
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "engine/src/animation/index.ts",
+      "engine/src/animation/mechanical.ts",
+      "engine/src/animation/mechanicalSystem.ts",
+      "engine/src/core/capabilities.ts",
+      "engine/src/vehicles/index.ts",
+      "engine/src/vehicles/wheelRig.ts",
+      "examples/src/main.ts",
+      "examples/src/scenes/cubesScene.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "examples/src/scenes/vehiclePlaygroundScene.ts",
+      "mnemosyne.md",
+      "package.json",
+      "tests/mechanicalAnimation.test.ts",
+      "tests/mechanicalScene.test.ts",
+      "tools/browser-check.mjs",
+      "tools/test-subsystems.mjs"
+    ]
   }
 ]
 ```
