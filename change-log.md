@@ -7818,6 +7818,102 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Append Phase 16.1 session notes: data model design, sampler gotchas, ECS query API, component registration requirement, next-step pointers for state machines.",
     "why": "Future sessions must not rediscover the ECS query signature or the before-first-key sampler edge case."
+  },
+  {
+    "id": "0616",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/stateMachine.ts",
+    "what": "Create AnimationStateMachine: named states, parameter-driven transitions (priority-sorted, wildcard source, interruptible), crossfade blending (easeInOut smoothstep or linear), forced transitionTo, debug query. 22 tests in tests/animationStateMachine.test.ts.",
+    "why": "Phase 16.2 animation state machines: manages discrete state transitions and crossfade blending on top of AnimationComponent."
+  },
+  {
+    "id": "0617",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/blendTree.ts",
+    "what": "Create BlendTree1D (sorted threshold array, linear interpolation between bracketing clips) and BlendTree2D (rectangle layout, bilinear interpolation, parameter clamping). 19 tests in tests/animationBlendTree.test.ts.",
+    "why": "Phase 16.3 blend trees: computes continuous blend weights from gameplay parameters for directional locomotion."
+  },
+  {
+    "id": "0618",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/animation/index.ts",
+    "what": "Re-export AnimationStateMachine, BlendTree1D, BlendTree2D and their types from the animation barrel.",
+    "why": "Make state machines and blend trees accessible via the public API."
+  },
+  {
+    "id": "0619",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "Update animation.clips capability notes to reflect state machine and blend tree implementation.",
+    "why": "Keep capability notes in sync with implementation state."
+  },
+  {
+    "id": "0620",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Mark Phase 16.2 (states, transitions, blending) and 16.3 (1D, 2D) as [x] complete; update state block to 16.1-16.3 landed.",
+    "why": "ROADMAP.md must reflect actual implementation state."
+  },
+  {
+    "id": "0621",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/test-subsystems.mjs",
+    "what": "Register animationStateMachine.test.ts and animationBlendTree.test.ts in the animation subsystem's test list.",
+    "why": "tests/subsystems.test.ts fails if a suite is unclaimed."
+  },
+  {
+    "id": "0622",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/animationStateMachine.test.ts",
+    "what": "Create state machine test suite: 22 tests covering state management, transition evaluation (priority, wildcard, interruptible), crossfade blending (weight ramp, easeInOut vs linear), forced transitions, debug, edge cases.",
+    "why": "Phase 16.2 verification."
+  },
+  {
+    "id": "0623",
+    "date": "2026-10-07T05:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/36c9f5a3-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/animationBlendTree.test.ts",
+    "what": "Create blend tree test suite: 19 tests covering BlendTree1D (two/three-clip, boundaries, unsorted, non-uniform thresholds, determinism) and BlendTree2D (centre, corners, edges, clamping, non-unit rectangle, determinism).",
+    "why": "Phase 16.3 verification."
   }
 ]
 ```

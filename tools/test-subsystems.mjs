@@ -86,9 +86,13 @@ export const subsystems = {
     deps: ["math", "scene"],
   },
   animation: {
-    title: "Animation (clips, sampling, playback, blending, IK, skinning)",
+    title: "Animation (clips, sampling, playback, state machines, blend trees, IK, skinning)",
     src: ["engine/src/animation"],
-    tests: ["tests/animation.test.ts"],
+    tests: [
+      "tests/animation.test.ts",
+      "tests/animationStateMachine.test.ts",
+      "tests/animationBlendTree.test.ts",
+    ],
     deps: ["math", "scene"],
   },
   particles: {

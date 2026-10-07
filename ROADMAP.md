@@ -156,7 +156,8 @@ PHASE 15.5 - Interactive Terrain / Object Dynamics
     [~] IN PROGRESS
 
 PHASE 16 - ANIMATION
-    [~] IN PROGRESS (16.1 clip import, sampling and playback landed)
+    [~] IN PROGRESS (16.1-16.3 landed: clip import, sampling, playback, state machines,
+        blend trees; IK, GPU skinning and mechanical animation remain)
 
 
 ================================================================================
@@ -1520,15 +1521,27 @@ GOAL:
 
 16.2 Animation State Machines
 
-    [ ] states
-    [ ] transitions
-    [ ] blending
+    [x] states (named states backed by clips with looping/speed config;
+        AnimationStateMachine.addState/removeState/start/stop; tests/animationStateMachine.test.ts)
+
+    [x] transitions (parameter-driven condition functions, priority-sorted evaluation,
+        wildcard source state `*`, interruptible crossfade override, crossfadeDuration config;
+        AnimationStateMachine.addTransition/removeTransition; tests/animationStateMachine.test.ts)
+
+    [x] blending (crossfade with configurable duration, easeInOut smoothstep or linear blend
+        curve, proper weight ramp on outgoing/incoming clips, interruption of in-progress
+        crossfade by higher-priority transition, forced transitionTo bypassing conditions;
+        tests/animationStateMachine.test.ts)
 
 
 16.3 Blend Trees
 
-    [ ] 1D
-    [ ] 2D
+    [x] 1D (BlendTree1D: sorted threshold array, linear interpolation between bracketing clips,
+        values outside range clamp to nearest clip, at most 2 non-zero weights; tests/animationBlendTree.test.ts)
+
+    [x] 2D (BlendTree2D: rectangle layout with four corner clips, bilinear interpolation,
+        parameter clamping to rectangle extents, four weights summing to 1;
+        tests/animationBlendTree.test.ts)
 
 
 16.4 IK

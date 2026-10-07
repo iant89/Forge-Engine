@@ -1425,3 +1425,28 @@ will stop".
   `AnimationComponent` already supports multiple clips with blend weights, so a state machine
   layer that manages transitions (crossfade, fixed-duration, interruptible) sits on top without
   changing the system.
+
+## 2026-10-07 — Phase 16.2–16.3: state machines and blend trees
+
+- **`AnimationStateMachine`** (`stateMachine.ts`): sits on top of `AnimationComponent`. Manages
+  named states (each backed by a clip with looping/speed config), parameter-driven transitions
+  (priority-sorted, wildcard `*` source, interruptible flag), and crossfade blending (easeInOut
+  smoothstep by default, optional linear). `transitionTo(target, duration)` for forced gameplay
+  events. Debug method returns currentState, crossfade progress, state/transition counts.
+- **Transition evaluation order**: transitions are sorted by `priority` descending (highest first),
+  insertion order for ties. First matching transition wins. Non-interruptible transitions cannot fire
+  during a crossfade; only transitions with `interruptible: true` can override an in-progress blend.
+  When a crossfade is interrupted, the `from` state is whatever was *incoming* (not the original
+  source), so the blend ramps from the mid-crossfade state, not from the old outgoing clip.
+- **`BlendTree1D`** (`blendTree.ts`): sorted threshold array, linear interpolation between the two
+  bracketing clips. Values outside the range clamp to the nearest clip. At most 2 non-zero weights
+  at any time. Entries are sorted at construction time so callers can pass them in any order.
+- **`BlendTree2D`** (`blendTree.ts`): rectangle layout with four corner clips. Bilinear interpolation.
+  Parameter is clamped to the rectangle extents. Non-unit rectangles work (not just ±1).
+- **Gotcha for the next session:** the crossfade's `elapsed` is advanced by `dt` *inside* the same
+  `update` call that evaluates transitions. So a crossfade with duration 0.1s and dt=0.1s completes
+  in the same frame. If a test expects the crossfade to still be in progress, use a duration
+  significantly larger than the dt, or use dt=0 for the transition frame and advance on the next.
+- **Next: IK (16.4)** — two-bone IK and FABRIK are post-sampling constraint passes that modify the
+  sampled TRS buffer before it's applied to transforms. They don't change the clip/sampler/blend
+  architecture; they sit between `sampleClip` and `applyToTransforms` in the system.
