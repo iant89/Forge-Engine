@@ -155,6 +155,11 @@ PHASE 15+
 PHASE 15.5 - Interactive Terrain / Object Dynamics
     [~] IN PROGRESS
 
+PHASE 16 - ANIMATION
+    [~] IN PROGRESS (16.1-16.5 landed: clip import, sampling, playback, state machines,
+        blend trees, IK, joint palette computation and skinning data validation;
+        GPU upload pipeline and mechanical animation remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -1493,8 +1498,22 @@ GOAL:
 
 16.1 Animation Clips
 
-    [ ] glTF animation import
-    [ ] clip sampling
+    [x] glTF animation import (STEP, LINEAR, CUBICSPLINE; translation, rotation, scale channels;
+        worker-decoded via `decodeGltfAnimations`, assembled into engine clips via `assembleClip`;
+        tests/animation.test.ts, tests/gltf.test.ts)
+
+    [x] clip sampling (stateless `sampleClip` with STEP/LINEAR/CUBICSPLINE interpolation,
+        quaternion SLER with NLERP fallback, Hermite spline for cubic, identity initialisation,
+        per-track validation; 44 tests in tests/animation.test.ts)
+
+    [x] animation component and system (AnimationComponent extends Component, registered;
+        AnimationSystem at order 300: dt advance, loop wrap, clamp-stop, multi-clip NLERP blend
+        with weight normalisation, per-joint TRS application to Transform; stats: clipsPlayed,
+        keysSampled)
+
+    [x] skeleton node mapping (nodeToEntity array, per-node TRS buffer with NODE_STRIDE=10,
+        identity initialisation for un-targeted joints, blend with existing transform for
+        weight < 1)
 
         Phase 9.1 supplies worker-backed static glTF/GLB triangle decode. Skin/animation import,
         image/material GPU assembly and Draco/meshopt support remain separate extended-import work
@@ -1503,26 +1522,50 @@ GOAL:
 
 16.2 Animation State Machines
 
-    [ ] states
-    [ ] transitions
-    [ ] blending
+    [x] states (named states backed by clips with looping/speed config;
+        AnimationStateMachine.addState/removeState/start/stop; tests/animationStateMachine.test.ts)
+
+    [x] transitions (parameter-driven condition functions, priority-sorted evaluation,
+        wildcard source state `*`, interruptible crossfade override, crossfadeDuration config;
+        AnimationStateMachine.addTransition/removeTransition; tests/animationStateMachine.test.ts)
+
+    [x] blending (crossfade with configurable duration, easeInOut smoothstep or linear blend
+        curve, proper weight ramp on outgoing/incoming clips, interruption of in-progress
+        crossfade by higher-priority transition, forced transitionTo bypassing conditions;
+        tests/animationStateMachine.test.ts)
 
 
 16.3 Blend Trees
 
-    [ ] 1D
-    [ ] 2D
+    [x] 1D (BlendTree1D: sorted threshold array, linear interpolation between bracketing clips,
+        values outside range clamp to nearest clip, at most 2 non-zero weights; tests/animationBlendTree.test.ts)
+
+    [x] 2D (BlendTree2D: rectangle layout with four corner clips, bilinear interpolation,
+        parameter clamping to rectangle extents, four weights summing to 1;
+        tests/animationBlendTree.test.ts)
 
 
 16.4 IK
 
-    [ ] Two-bone IK
-    [ ] FABRIK
+    [x] Two-bone IK (analytic 2-joint solver: law of cosines for mid/root angles, Rodrigues'
+        rotation, pole target / bend direction, unreachable-target clamping, weight blending,
+        zero-length bone safety; tests/animationIK.test.ts)
+
+    [x] FABRIK (iterative N-joint solver: forward/backward reaching, bone length preservation,
+        convergence tolerance, maxIterations, fixedRoot option, unreachable-target stretch,
+        weight blending; tests/animationIK.test.ts)
 
 
 16.5 Skinning
 
-    [ ] GPU skinning
+    [x] Joint palette computation (computeJointPalette: world × inverseBindMatrix per joint,
+        missing-joint identity fallback, multi-joint support; tests/animationSkinning.test.ts)
+
+    [x] Skinning data validation (validateSkinningData: weight sum check, joint/weight count,
+        createIdentitySkinningData for default non-skinned fallback; tests/animationSkinning.test.ts)
+
+    [ ] GPU upload pipeline (per-frame joint palette to storage buffer, vertex shader skinning
+        variant with JOINTS_0/WEIGHTS_0 attributes, skinned pipeline variant in PipelineFactory)
 
 
 16.6 Mechanical Animation

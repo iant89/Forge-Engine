@@ -87,6 +87,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "14": "inProgress",
   "15+": "verified",
   "15.5": "inProgress",
+  "16": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -861,9 +862,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "animation.clips",
     phase: "16.1",
-    status: "planned",
-    summary: "glTF animation import, clip sampling, state machines, blend trees, IK and GPU skinning",
-    closesWith: "16.1",
+    status: "inProgress",
+    summary: "glTF animation import, clip sampling, playback, blending, state machines, blend trees, IK and GPU skinning",
+    evidence: ["tests/animation.test.ts", "tests/gltf.test.ts"],
+    closesWith: "16.6",
+    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. GPU upload pipeline (storage buffer, vertex shader skinning variant, pipeline factory integration) and mechanical animation (16.6) remain.",
   },
   {
     id: "scripting.lifecycle",

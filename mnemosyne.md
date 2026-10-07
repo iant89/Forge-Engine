@@ -1385,3 +1385,111 @@ will stop".
   *lateral* peak returns exactly `1.0` — that is the grid's end, not a real peak. And any temporary
   suite left in `tests/` fails `tests/subsystems.test.ts` (the map has no claim for it) — delete
   scratch harnesses before running `npm run verify`.
+
+## 2026-10-07 — Phase 16 Animation: first slice (16.1 clips, sampling, system)
+
+- **`engine/src/animation/`** is the new subsystem directory. Architecture puts animation at
+  system order 300 (between gameplay and world), and the subsystem depends on `scene` and `math`
+  only — never rendering, physics, or terrain. AnimationComponent extends Component and is
+  registered with `registerComponent`.
+- **Clip data model** (`clip.ts`): `AnimationTrack` targets one node and one property
+  (translation/rotation/scale) with monotonically increasing Float32Array timestamps and packed
+  values. STEP/LINEAR/CUBICSPLINE interpolation per track. `createClip` auto-computes duration
+  from the max track end time and drops empty tracks. `validateTrack` checks value count, monotonic
+  timestamps, and zero-quaternion detection.
+- **Sampler** (`sampler.ts`): stateless `sampleClip(clip, t, output)` writes TRS into a
+  caller-owned `Float32Array` with `NODE_STRIDE=10` per node (tx ty tz rx ry rz rw sx sy sz).
+  SLERP with NLERP fallback for near-parallel quaternions; Hermite cubic for CUBICSPLINE using
+  the standard glTF formula (tangent × Δt). Before-first-key and after-last-key are both handled
+  (snap to first/last value, not zero).
+- **glTF decoder** (`core/tasks/gltfAnimation.ts`): extends the worker-decoded output with
+  `DecodedGltfAnimation[]`. Reads animation accessors from the same resolved buffer pool as the
+  mesh decoder, validates monotonic timestamps and interpolation modes, and silently skips morph-
+  target weight channels (they need mesh morph data that the static decoder doesn't produce).
+  The assembly layer (`assembly.ts`) converts decoded data into engine `AnimationClip` objects.
+- **AnimationSystem** (`system.ts`): order 300, queries entities with AnimationComponent.
+  Advances time per dt×speed, wraps looping clips, clamps+stops non-looping clips. Multi-clip
+  blend uses NLERP with weight normalisation. Joint TRS is applied to Transform components via
+  `sync()`. Stats: `animationClipsPlayed`, `animationKeysSampled`.
+- **44 tests** in `tests/animation.test.ts`: clip creation/validation, STEP/LINEAR/CUBICSPLINE
+  sampling, quaternion SLERP and shortest-arc, multi-track multi-node, AnimationComponent state
+  management, glTF animation decode (LINEAR trans+rot, invalid interp, out-of-range node, morph
+  skip, non-monotonic rejection), assembly, determinism (100 samples identical), and edge cases
+  (single-key, negative time, beyond-duration, degenerate quat).
+- **Gotcha for the next session:** the ECS query API takes an array of Component *constructors*,
+  not strings. `AnimationComponent` must extend `Component` and be registered with
+  `registerComponent` before any query or `getComponent` call can use it. The `Query` object has
+  `.entities: EntityId[]` and `.refresh()` — it's not a plain array, so you must call refresh
+  before reading entities.
+- **State machines (16.2) and blend trees (16.3)** are the natural next step: the
+  `AnimationComponent` already supports multiple clips with blend weights, so a state machine
+  layer that manages transitions (crossfade, fixed-duration, interruptible) sits on top without
+  changing the system.
+
+## 2026-10-07 — Phase 16.2–16.3: state machines and blend trees
+
+- **`AnimationStateMachine`** (`stateMachine.ts`): sits on top of `AnimationComponent`. Manages
+  named states (each backed by a clip with looping/speed config), parameter-driven transitions
+  (priority-sorted, wildcard `*` source, interruptible flag), and crossfade blending (easeInOut
+  smoothstep by default, optional linear). `transitionTo(target, duration)` for forced gameplay
+  events. Debug method returns currentState, crossfade progress, state/transition counts.
+- **Transition evaluation order**: transitions are sorted by `priority` descending (highest first),
+  insertion order for ties. First matching transition wins. Non-interruptible transitions cannot fire
+  during a crossfade; only transitions with `interruptible: true` can override an in-progress blend.
+  When a crossfade is interrupted, the `from` state is whatever was *incoming* (not the original
+  source), so the blend ramps from the mid-crossfade state, not from the old outgoing clip.
+- **`BlendTree1D`** (`blendTree.ts`): sorted threshold array, linear interpolation between the two
+  bracketing clips. Values outside the range clamp to the nearest clip. At most 2 non-zero weights
+  at any time. Entries are sorted at construction time so callers can pass them in any order.
+- **`BlendTree2D`** (`blendTree.ts`): rectangle layout with four corner clips. Bilinear interpolation.
+  Parameter is clamped to the rectangle extents. Non-unit rectangles work (not just ±1).
+- **Gotcha for the next session:** the crossfade's `elapsed` is advanced by `dt` *inside* the same
+  `update` call that evaluates transitions. So a crossfade with duration 0.1s and dt=0.1s completes
+  in the same frame. If a test expects the crossfade to still be in progress, use a duration
+  significantly larger than the dt, or use dt=0 for the transition frame and advance on the next.
+- **Next: IK (16.4)** — two-bone IK and FABRIK are post-sampling constraint passes that modify the
+  sampled TRS buffer before it's applied to transforms. They don't change the clip/sampler/blend
+  architecture; they sit between `sampleClip` and `applyToTransforms` in the system.
+
+## 2026-10-07 — Phase 16.4: IK solvers
+
+- **TwoBoneIK** (`ik.ts`): analytic 2-joint solver using the law of cosines for the mid/root
+  angles, Rodrigues' rotation for the bend axis. Supports pole target (cross product of
+  root→target × root→pole), bend direction hint, unreachable-target clamping (caps at
+  upperLen + lowerLen), weight blending (0=original, 1=full IK), and zero-length bone safety.
+  Operates on the TRS buffer directly — writes corrected positions for mid and end joints.
+- **FABRIK** (`ik.ts`): iterative N-joint solver (forward/backward reaching). Configurable
+  maxIterations (default 10), tolerance (default 0.001), fixedRoot (default true). Unreachable
+  targets: stretches the chain toward the target. Returns iteration count. Weight blending on
+  the final positions.
+- **Gotcha for the next session:** FABRIK always runs at least one iteration pass even when
+  the end effector is already at the target — the convergence check happens after each pass.
+  Tests should expect `iters <= 1`, not `iters == 0`, for the "already at target" case.
+- **Pole target sign**: the cross product (root→target) × (root→pole) determines the bend
+  direction. The sign depends on the cross product order, so the test should compare the
+  *magnitude* of the Z offset (with vs. without pole) rather than asserting a specific sign.
+- **Next: GPU skinning (16.5)** — upload the sampled joint matrices to a GPU storage buffer
+  and add a vertex-stage skinning path. This is the first animation feature that touches the
+  renderer. The `SkinBinding` interface already exists in `rendering/mesh.ts`; the new work is
+  uploading the per-frame joint palette and modifying the vertex shader to apply it.
+
+## 2026-10-07 — Phase 16.5: joint palette and skinning data
+
+- **`computeJointPalette`** (`skinning.ts`): computes `palette[i] = worldMatrix[joint] × IBM[i]`
+  per joint. Uses temporary `Mat4` wrappers around the raw Float32Arrays and the existing
+  `multiplyMatrices` method. Missing joints get identity (so the mesh doesn't explode). Returns
+  the number of joints written.
+- **Gotcha: IBM semantics.** The IBM (inverse bind matrix) is `inverse(bindPoseWorldMatrix)`.
+  So `world × IBM` maps a vertex from mesh-local space to the current animated world space.
+  If the bind pose placed the joint at translation(1,0,0), then IBM = translation(-1,0,0), and
+  `world(3) × IBM(-1) = translation(2)`. The test initially expected `translation(1) ×
+  translation(3) = translation(2)` but `translation(3) × translation(1) = translation(4)` — the
+  IBM in the test was the bind pose, not its inverse. Fixed by correcting the test comment.
+- **`validateSkinningData`**: checks joint/weight array lengths against `vertexCount × 4` and
+  that weights sum to ~1 per vertex. `createIdentitySkinningData` produces joint 0 / weight 1
+  for all vertices as a non-skinned fallback.
+- **Next: GPU upload pipeline (16.5 follow-up)** — upload the joint palette to a GPU storage
+  buffer each frame, add JOINTS_0/WEIGHTS_0 as a second vertex buffer slot, and add a skinning
+  variant of the standard vertex shader. This touches `renderer.ts`, `pipeline.ts`,
+  `shaders/standard.ts`, and `geometry.ts`. The existing fixed 48-byte vertex layout stays
+  unchanged — skinning data goes in a separate buffer slot.
