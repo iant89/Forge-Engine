@@ -7624,6 +7624,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Update the drive-arm comment that cites the Mars showcase speed pin to the 1.5x tune (below 1.6 m/s after one second).",
     "why": "The comment referenced the pre-request test bound; the gate's behaviour is unchanged."
+  },
+  {
+    "id": "0601",
+    "date": "2026-10-07T02:35:00Z",
+    "type": "change",
+    "pr": 64,
+    "branch": "arena/f0d99231-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Record the 2026-10-07 real-WebGPU gate re-run (drive dz=0.52 m at maxSpeed=1.13 m/s in 0.92 s of throttle over 11 presented frames, contact=6, HGA az=168.0, arm stow, zero GPU errors).",
+    "why": "The verification doc's `check:browser` row is the gate's evidence log; a passing run after the rover speed and traction changes belongs in it."
   }
 ]
 ```
