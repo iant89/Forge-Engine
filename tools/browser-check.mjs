@@ -571,12 +571,16 @@ async function checkAlpineRescue() {
   if (!pickedUp.ok || pickedUp.state.stage !== "relay-1" || !pickedUp.state.cargoLoaded) {
     throw new Error(`medical kit pickup failed: ${JSON.stringify(pickedUp.state)}`);
   }
+  const snowDepthBeforeStorm = await page.evaluate(() => window.__forge.alpineRescueState()?.snowpackDepthM ?? 0);
   await page.locator("#rescue-weather").click();
   await page.waitForFunction(() => {
     const state = window.__forge.alpineRescueState?.();
     return state?.weatherTarget === "storm" && state?.weatherIntensity >= 0.99;
   }, null, { polling: 100, timeout: 15000 });
-  await page.waitForFunction(() => window.__forge.alpineRescueState()?.snowAlive > 0, null, { polling: 100, timeout: 15000 });
+  await page.waitForFunction((before) => {
+    const state = window.__forge.alpineRescueState?.();
+    return state?.snowAlive > 0 && state.snowEmitted > 0 && state.snowpackDepthM >= before + 0.01;
+  }, snowDepthBeforeStorm, { polling: 100, timeout: 15000 });
 
   await page.locator("#rescue-headlights").click();
   const lights = await page.evaluate(() => window.__forge.alpineRescueState());
@@ -594,11 +598,14 @@ async function checkAlpineRescue() {
   const parked = await page.evaluate(() => window.__forge.alpineRescueState());
   if (!parked.parked) throw new Error("rescue parking-brake action did not latch");
   if (driven.stats.gpuErrors !== 0 || driven.stats.lastError) throw new Error(`rescue drive GPU error: ${driven.stats.lastError}`);
+  if (!driven.stats.renderPasses.includes("particle.render")) throw new Error("rescue snowfall did not submit the GPU particle render pass");
+  if (!(driven.state.snowpackDepthM > snowDepthBeforeStorm)) throw new Error("rescue snowpack did not gain depth during snowfall");
   await page.screenshot({ path: "tools/.browser-check-alpine-rescue.png", timeout: 60000 });
   console.log(
     `alpine rescue: ${initial.state.physicsBodies} physics bodies / ${initial.state.physicsSteps} steps, ` +
       `cargo=${pickedUp.state.cargoLoaded}, storm=${lights.weatherIntensity.toFixed(2)}, ` +
-      `snow=${driven.state.snowAlive}, drive=${(driven.state.positionZ - beforeDrive).toFixed(2)} m`,
+      `snow=${driven.state.snowAlive} emitted=${driven.state.snowEmitted}, pack=${driven.state.snowpackDepthM.toFixed(2)} m, ` +
+      `drive=${(driven.state.positionZ - beforeDrive).toFixed(2)} m`,
   );
   return driven.state;
 }
@@ -1770,6 +1777,7 @@ async function checkAllScenes(backend) {
   if (!(wxStormState.coverage > 0.9)) throw new Error(`storm preset did not overcast the deck (coverage ${wxStormState.coverage})`);
   if (!wxStormState.clouds) throw new Error("cloud deck did not report as shading under full overcast");
   if (!(wxStormState.rainDrops > 0)) throw new Error("storm preset spawned no rain (weatherState().rainDrops is 0)");
+  if (!wxStormStats.renderPasses.includes("particle.render")) throw new Error("weather rain did not submit the GPU particle render pass");
   if (wxStormStats.gpuErrors !== 0 || wxStormStats.lastError) throw new Error(`storm weather GPU errors: ${wxStormStats.lastError}`);
   if (!(wxStorm.mean > wxClear.mean * 1.05)) {
     throw new Error(`overcast noon was not brighter than clear noon (${wxStorm.mean.toFixed(1)} vs ${wxClear.mean.toFixed(1)}): the deck is not drawing`);

@@ -240,8 +240,9 @@ export const subsystems = {
       "examples/src/scenes/roverCourseScene.ts",
       "examples/src/scenes/skinningScene.ts",
       "examples/src/scenes/alpineRescueScene.ts",
+      "examples/src/scenes/alpineSnowpack.ts",
     ],
-    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts", "tests/skinningScene.test.ts"],
+    tests: ["tests/orbitControls.test.ts", "tests/marsShowcase.test.ts", "tests/marsShowcaseDamage.test.ts", "tests/marsGeneratorScene.test.ts", "tests/roverCourse.test.ts", "tests/skinningScene.test.ts", "tests/alpineSnowpack.test.ts"],
     deps: [
       "ex-ui",
       "ex-rover",
@@ -278,6 +279,12 @@ export const subsystems = {
     title: "GPU environment provisioning (tools/gpu-env.mjs, setup script)",
     src: ["tools/gpu-env.mjs", "scripts/setup-deps.sh"],
     tests: ["tests/gpuEnv.test.ts"],
+    deps: [],
+  },
+  "pr-checks": {
+    title: "Live pull-request check dashboard (tools/pr-checks.mjs)",
+    src: ["tools/pr-checks.mjs"],
+    tests: ["tests/prChecks.test.ts"],
     deps: [],
   },
 };

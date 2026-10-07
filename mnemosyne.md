@@ -1641,3 +1641,7 @@ will stop".
 - **Lesson:** when a package manager fails on exactly the largest artifact but `curl` works,
   suspect the egress TLS stack, not the package — and keep the lockfile authoritative by feeding
   the verified bytes into the package manager's cache instead of bypassing it.
+
+## 2026-10-07 — live pull-request check dashboard
+
+- `npm run pr:checks -- <PR>` (or `node tools/pr-checks.mjs <PR>`) wraps repeated one-shot `gh pr checks` calls so it works with older GitHub CLI versions that lack JSON output for checks. It extracts job IDs from `/job/<id>` links, groups names containing “advisory”, colorizes pass/fail markers, and repaints the same TTY screen with a 15-second countdown; `--once`, `--repo`, and `--interval` are available. Redirected output prints one snapshot per refresh. The CLI-level tests use a fake `gh` binary, so they need no GitHub credentials.

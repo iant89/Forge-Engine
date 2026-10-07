@@ -4,11 +4,11 @@ import {
   Color,
   DayNightCycle,
   Geometry,
+  GpuParticleWorld,
   HeightfieldShape,
   Light,
   LightningSystem,
   Material,
-  ParticleWorld,
   Quat,
   PhysicsSystem,
   PhysicsWorld,
@@ -30,9 +30,15 @@ import {
   createTorus,
   createVehicleChassis,
   heightFunctionGround,
+  type GeometrySource,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
+import {
+  ALPINE_SNOWPACK_INITIAL_DEPTH_M,
+  ALPINE_SNOWPACK_MAX_DEPTH_M,
+  advanceAlpineSnowpack,
+} from "./alpineSnowpack.js";
 
 const SEED = 7421;
 const BASE_X = 256;
@@ -97,7 +103,12 @@ export interface AlpineRescueSnapshot {
   complete: boolean;
   weatherTarget: WeatherPresetName;
   weatherIntensity: number;
+  /** Estimated active billboard count (the GPU particle buffer is not read back to the CPU). */
   snowAlive: number;
+  /** Cumulative particles emitted by the GPU simulation. */
+  snowEmitted: number;
+  /** Current deposited snow depth on the route surface. */
+  snowpackDepthM: number;
   speedKph: number;
   headlightsOn: boolean;
   parked: boolean;
@@ -583,45 +594,111 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   });
   scene.add(weather);
 
-  const particleGeometry = ownGeometry(createBox(engine.gpu, { width: 0.045, height: 0.58, depth: 0.045 }));
-  const snowMaterial = ownMaterial(Material.unlit({
-    label: "whiteout snow streak",
-    color: 0xc5d9e3,
-    opacity: 0.62,
+  // A terrain-conforming translucent blanket sits just above the ground and the packed rescue
+  // road. The same surface rises as snow deposits, so the storm leaves a visible, growing layer.
+  const snowColumns = 46;
+  const snowRows = 194;
+  const snowMinX = ROUTE_X - 46;
+  const snowMaxX = ROUTE_X + 46;
+  const snowMinZ = BASE_Z - 38;
+  const snowMaxZ = ROUTE_END_Z + 38;
+  const snowVertexWidth = snowColumns + 1;
+  const snowVertexCount = snowVertexWidth * (snowRows + 1);
+  const snowPositions = new Float32Array(snowVertexCount * 3);
+  const snowNormals = new Float32Array(snowVertexCount * 3);
+  const snowUvs = new Float32Array(snowVertexCount * 2);
+  const snowIndices = new Uint32Array(snowColumns * snowRows * 6);
+  const snowBaseHeights = new Float32Array(snowVertexCount);
+  for (let row = 0; row <= snowRows; row++) {
+    const z = snowMinZ + ((snowMaxZ - snowMinZ) * row) / snowRows;
+    const onRoad = z >= DEPOT_APPROACH_Z && z <= ROUTE_END_Z;
+    const centerX = roadCenterX(z);
+    for (let column = 0; column <= snowColumns; column++) {
+      const vertex = row * snowVertexWidth + column;
+      const x = snowMinX + ((snowMaxX - snowMinX) * column) / snowColumns;
+      const roadTop = onRoad && Math.abs(x - centerX) <= ROAD_WIDTH * 0.5;
+      const baseHeight = heightAt(x, z) + (roadTop ? 0.24 : 0.015);
+      snowBaseHeights[vertex] = baseHeight;
+      snowPositions[vertex * 3] = x;
+      snowPositions[vertex * 3 + 1] = baseHeight + ALPINE_SNOWPACK_INITIAL_DEPTH_M;
+      snowPositions[vertex * 3 + 2] = z;
+      snowNormals[vertex * 3 + 1] = 1;
+      snowUvs[vertex * 2] = column / snowColumns;
+      snowUvs[vertex * 2 + 1] = row / snowRows;
+    }
+  }
+  let snowIndex = 0;
+  for (let row = 0; row < snowRows; row++) {
+    for (let column = 0; column < snowColumns; column++) {
+      const a = row * snowVertexWidth + column;
+      const b = a + 1;
+      const c = a + snowVertexWidth;
+      const d = c + 1;
+      // Clockwise in XZ produces +Y-facing triangles.
+      snowIndices.set([a, c, b, b, c, d], snowIndex);
+      snowIndex += 6;
+    }
+  }
+  const snowpackMaterial = ownMaterial(Material.unlit({
+    label: "whiteout accumulating snowpack",
+    color: 0xe3edf1,
+    opacity: 0.58,
     transparent: true,
     doubleSided: true,
   }));
-  const particleWorld = new ParticleWorld({
+  const snowpackGeometry = ownGeometry(Geometry.create(engine.gpu, {
+    positions: snowPositions,
+    normals: snowNormals,
+    uvs: snowUvs,
+    indices: snowIndices,
+    label: "whiteout.snowpack",
+  } satisfies GeometrySource));
+  const snowpackEntity = addRenderable(scene, "Accumulating snowpack", new Vec3(), snowpackGeometry, snowpackMaterial, false);
+  const snowpackRenderable = snowpackEntity.get(Renderable)!;
+  snowpackRenderable.castShadow = false;
+  snowpackRenderable.receiveShadow = false;
+  let snowpackDepthM = ALPINE_SNOWPACK_INITIAL_DEPTH_M;
+  let renderedSnowpackDepthM = snowpackDepthM;
+
+  // GPU camera-facing flakes vary in size, drift with the wind, and flutter instead of falling as
+  // identical high-speed rods. The soft, mostly unstretched billboards read as swirling snow.
+  const snowfall = new GpuParticleWorld({
     name: "Whiteout Run snowfall",
-    capacity: 900,
-    maxEmitsPerFrame: 360,
-    gravity: { x: 0, y: 0, z: 0 },
-    drag: 0,
+    capacity: 18_000,
+    maxEmitsPerFrame: 1024,
     seed: 0x51a7,
+    softParticles: true,
+    softScale: 28,
+    stretch: 0.08,
+    cullDistance: 120,
+    emitter: {
+      rate: 0,
+      lifeMin: 9,
+      lifeMax: 15,
+      size: 0.06,
+      position: { x: vehicle.position.x, y: vehicle.position.y + 22, z: vehicle.position.z },
+      jitter: { x: 58, y: 24, z: 58 },
+      coneDir: { x: 0, y: -1, z: 0 },
+      coneAngle: 0.38,
+      speedMin: 0.2,
+      speedMax: 1.4,
+      color: { r: 0.86, g: 0.94, b: 1, a: 0.82 },
+    },
+    modules: {
+      gravity: { x: 0, y: -1.4, z: 0 },
+      drag: 1.1,
+      turbulence: 1.3,
+      noiseScale: 0.1,
+      velocityBoost: { x: 0, y: 0, z: 0 },
+      colorFrom: { r: 0.86, g: 0.94, b: 1, a: 0.82 },
+      colorTo: { r: 0.86, g: 0.94, b: 1, a: 0.02 },
+      sizeStart: 0.07,
+      sizeEnd: 0.042,
+      sizeVariation: 0.56,
+      rotationSpeed: 0.18,
+    },
   });
-  const snowEmitter = particleWorld.simulation.emitter;
-  snowEmitter.rate = 0;
-  snowEmitter.lifeMin = 2.2;
-  snowEmitter.lifeMax = 3.1;
-  snowEmitter.size = 0.9;
-  snowEmitter.position = { x: vehicle.position.x, y: vehicle.position.y + 20, z: vehicle.position.z };
-  snowEmitter.jitter = { x: 50, y: 20, z: 50 };
-  snowEmitter.cone = { direction: { x: 0.25, y: -0.97, z: 0.12 }, angle: 0.16, speedMin: 7.5, speedMax: 12.5 };
-  snowEmitter.color = { r: 0.86, g: 0.94, b: 1, a: 0.8 };
-  const snowSpriteIds: number[] = [];
-  for (let i = 0; i < particleWorld.simulation.capacity; i++) {
-    const flake = scene.createTransformedEntity(`whiteout-snow-${i}`, new Vec3(0, -500, 0));
-    const renderable = new Renderable();
-    renderable.geometry = particleGeometry;
-    renderable.material = snowMaterial;
-    renderable.castShadow = false;
-    renderable.receiveShadow = false;
-    renderable.visible = false;
-    scene.world.addComponent(flake.id, renderable);
-    snowSpriteIds.push(flake.id);
-  }
-  particleWorld.spriteEntities = snowSpriteIds;
-  scene.add(particleWorld);
+  scene.add(snowfall);
 
   const lightning = new LightningSystem({
     name: "Whiteout Run lightning",
@@ -687,7 +764,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     const speed = Math.round(Math.abs(vehicle.speed) * 3.6);
     const band = weather.state.precipitation01 > 0.48 ? "WHITEOUT" : weather.state.precipitation01 > 0.2 ? "SNOW SQUALL" : "CLOUDING OVER";
     const hint = stage === "complete" ? "F · cycle headlights   P · park" : distance <= INTERACT_RADIUS ? "E / TAP · INTERACT" : "WASD / ARROWS · DRIVE   E / TAP · INTERACT";
-    return `ALPINE SAR  /  WHITEOUT RUN\n${current.title}\n${current.detail}\nRANGE  ${distance.toFixed(0)} m     BEACONS  ${relays}/3     MED KIT  ${cargo}\n${band}  ·  ${weather.state.windSpeed.toFixed(0)} m/s wind     ${speed} km/h\n${hint}`;
+    return `ALPINE SAR  /  WHITEOUT RUN\n${current.title}\n${current.detail}\nRANGE  ${distance.toFixed(0)} m     BEACONS  ${relays}/3     MED KIT  ${cargo}\n${band}  ·  ${weather.state.windSpeed.toFixed(0)} m/s wind     SNOWPACK ${snowpackDepthM.toFixed(2)} m     ${speed} km/h\n${hint}`;
   };
 
   const uiRoot = typeof document !== "undefined" ? document.getElementById("vehicle-touch") : null;
@@ -832,22 +909,32 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     }
 
     const precipitation = weather.state.precipitation01;
-    snowEmitter.rate = 20 + precipitation * 1180;
-    snowEmitter.cone.speedMin = 6.8 + precipitation * 3.4;
-    snowEmitter.cone.speedMax = 11.4 + precipitation * 5.8;
-    snowEmitter.jitter.x = 46 + precipitation * 26;
-    snowEmitter.jitter.y = 18 + precipitation * 9;
-    snowEmitter.jitter.z = 46 + precipitation * 26;
-    const wind = weather.meanWind();
-    const driftX = wind.x + 3.5 + Math.sin(elapsed * 0.13) * 1.8;
-    const driftZ = wind.y + 1.4;
-    const length = Math.hypot(driftX, 11, driftZ) || 1;
-    snowEmitter.cone.direction.x = driftX / length;
-    snowEmitter.cone.direction.y = -11 / length;
-    snowEmitter.cone.direction.z = driftZ / length;
-    snowEmitter.position.x = vehicle.position.x;
-    snowEmitter.position.y = vehicle.position.y + 20;
-    snowEmitter.position.z = vehicle.position.z;
+    const snowSystem = snowfall.system;
+    if (snowSystem) {
+      const emitter = snowSystem.emitter;
+      emitter.rate = precipitation * 1800;
+      emitter.jitter.x = 52 + precipitation * 20;
+      emitter.jitter.y = 22 + precipitation * 8;
+      emitter.jitter.z = 52 + precipitation * 20;
+      emitter.position.x = vehicle.position.x;
+      emitter.position.y = vehicle.position.y + 22;
+      emitter.position.z = vehicle.position.z;
+      const wind = weather.meanWind();
+      snowSystem.modules.velocityBoost.x = wind.x * 0.11;
+      snowSystem.modules.velocityBoost.z = wind.y * 0.11;
+      snowSystem.modules.turbulence = 1.1 + weather.state.gust * 0.9;
+    }
+
+    snowpackDepthM = advanceAlpineSnowpack(snowpackDepthM, precipitation, dt);
+    if (snowpackDepthM - renderedSnowpackDepthM >= 0.002) {
+      for (let vertex = 0; vertex < snowBaseHeights.length; vertex++) {
+        snowPositions[vertex * 3 + 1] = snowBaseHeights[vertex]! + snowpackDepthM;
+      }
+      snowpackGeometry.updateFrom({ positions: snowPositions });
+      snowpackMaterial.opacity = 0.55 + (snowpackDepthM / ALPINE_SNOWPACK_MAX_DEPTH_M) * 0.3;
+      snowpackMaterial.markChanged();
+      renderedSnowpackDepthM = snowpackDepthM;
+    }
     updateUi();
   };
 
@@ -884,6 +971,11 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     setWeatherTarget,
     snapshot: () => {
       const current = objective();
+      const system = snowfall.system;
+      const meanSnowLife = system ? (system.emitter.lifeMin + system.emitter.lifeMax) * 0.5 : 0;
+      const snowAlive = system?.ready && system.emitter.rate > 0
+        ? Math.min(system.capacity, system.emitted, Math.ceil(system.emitter.rate * meanSnowLife))
+        : 0;
       return {
         mission: "Alpine Search & Rescue: Whiteout Run",
         stage,
@@ -896,7 +988,9 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
         complete: stage === "complete",
         weatherTarget,
         weatherIntensity: weather.state.precipitation01,
-        snowAlive: particleWorld.simulation.alive,
+        snowAlive,
+        snowEmitted: system?.emitted ?? 0,
+        snowpackDepthM,
         speedKph: Math.abs(vehicle.speed) * 3.6,
         headlightsOn,
         parked,

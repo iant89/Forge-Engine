@@ -246,6 +246,7 @@ struct FullSimParams {
   rotationSpeed: f32,
   velocityBoost: vec3<f32>,
   seed: u32,
+  sizeVariation: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -280,7 +281,11 @@ struct FullSimParams {
   p.age = p.age + params.dt;
   let t = select(1.0, clamp(p.age / max(p.maxLife, 1e-6), 0.0, 1.0), p.maxLife > 1e-6);
   p.color = mix(params.colorFrom, params.colorTo, t);
-  p.size = mix(params.sizeStart, params.sizeEnd, t);
+  // maxLife is randomized once at emission, so this size multiplier remains stable throughout a
+  // particle's life without needing another particle-buffer field or per-frame random flicker.
+  let sizeRandom = fract(p.maxLife * 31.713);
+  let sizeMultiplier = 1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0);
+  p.size = mix(params.sizeStart, params.sizeEnd, t) * sizeMultiplier;
   p.seed = fract(p.seed + params.rotationSpeed * params.dt * (0.1 + t));
   if (p.life <= 0.0) {
     p.life = 0.0;
@@ -405,7 +410,9 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
     return out;
   }
   let corner = cornerOffset(vid % 6u);
-  let angle = p.seed * 6.28318530718;
+  // Velocity stretch is oriented along motion. Randomly rotating its local axes would turn rain
+  // streaks into diagonal needles; unstretched flakes retain their per-particle rotation.
+  let angle = select(p.seed * 6.28318530718, 0.0, params.stretch > 0.0);
   let ca = cos(angle);
   let sa = sin(angle);
   let local = vec2<f32>(corner.x * ca - corner.y * sa, corner.x * sa + corner.y * ca) * max(p.size, 1e-4);

@@ -17,6 +17,7 @@
     "test:affected": "node tools/affected-tests.mjs",
     "test:affected:print": "node tools/affected-tests.mjs --print",
     "test:all": "node tools/affected-tests.mjs --all",
+    "pr:checks": "node tools/pr-checks.mjs",
     "check:testmap": "node tools/test-subsystems.mjs --check",
     "test:gpu": "vitest run --config vitest.gpu.config.ts",
     "bench": "node benchmarks/run.mjs",
