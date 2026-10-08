@@ -11848,6 +11848,23 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Appended change entries 0934 to 0936 for PROGRESS.md, mnemosyne.md and this log.",
     "why": "Maintain the required per-file activity history described in the maintenance rules at the top of this file."
+  },
+  {
+    "id": "0937",
+    "date": "2026-10-08T08:15:02Z",
+    "type": "pr-merge",
+    "pr": 73,
+    "branch": "arena/25bf65e5-forge-engine",
+    "base": "main",
+    "title": "Add PROGRESS.md checklist of implemented and planned features",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Adds PROGRESS.md at the repo root: a hand-maintained checklist of 100 implemented features (checked) and 60 planned features (unchecked) in 17 sections. Statuses come from ROADMAP.md, engine/src/core/capabilities.ts and docs/KNOWN-ISSUES.md, and partial or deferred items carry a tag. Also logs the change: change-log entries 0934 to 0936 (their pr field set to 73 in f1273ad), and a dated mnemosyne.md note on where PROGRESS.md's status comes from. The note records two stale capability-registry statements, the world.interactiveTerrain note and the every-push CI wording; both are left unfixed. Docs only, with no code or gate changes. Validation: npm run docs:check, lint:arch and test:check pass locally, and CI CPU gates passed on f1273ad; the advisory WebGPU gate is separate and non-blocking.",
+    "files": [
+      "PROGRESS.md",
+      "change-log.md",
+      "mnemosyne.md"
+    ]
   }
 ]
 ```
