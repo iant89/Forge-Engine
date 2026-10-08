@@ -11812,6 +11812,59 @@ JSON array below; agents maintain it by hand until then.
       "vitest.config.ts",
       "vitest.gpu.config.ts"
     ]
+  },
+  {
+    "id": "0934",
+    "date": "2026-10-08T08:08:00Z",
+    "type": "change",
+    "pr": 73,
+    "branch": "arena/25bf65e5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Added PROGRESS.md at the repo root: a checkbox checklist of implemented ([x]) and planned ([ ]) features grouped by subsystem, with partial and deferred tags. Sourced from ROADMAP.md, engine/src/core/capabilities.ts and docs/KNOWN-ISSUES.md.",
+    "why": "The user asked for a simple progress list showing what Forge implements and what is still planned, so status is visible in one place."
+  },
+  {
+    "id": "0935",
+    "date": "2026-10-08T08:08:00Z",
+    "type": "change",
+    "pr": 73,
+    "branch": "arena/25bf65e5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Appended a 2026-10-08 entry on where PROGRESS.md status comes from, plus two status inconsistencies found while writing it: the docs gate does not read PROGRESS.md, and the capability registry note for world.interactiveTerrain is stale against ROADMAP 15.5.4.",
+    "why": "Future sessions need to know PROGRESS.md is not covered by docs:check and that the stale registry note exists, so they do not repeat the discovery."
+  },
+  {
+    "id": "0936",
+    "date": "2026-10-08T08:08:00Z",
+    "type": "change",
+    "pr": 73,
+    "branch": "arena/25bf65e5-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Appended change entries 0934 to 0936 for PROGRESS.md, mnemosyne.md and this log.",
+    "why": "Maintain the required per-file activity history described in the maintenance rules at the top of this file."
+  },
+  {
+    "id": "0937",
+    "date": "2026-10-08T08:15:02Z",
+    "type": "pr-merge",
+    "pr": 73,
+    "branch": "arena/25bf65e5-forge-engine",
+    "base": "main",
+    "title": "Add PROGRESS.md checklist of implemented and planned features",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Adds PROGRESS.md at the repo root: a hand-maintained checklist of 100 implemented features (checked) and 60 planned features (unchecked) in 17 sections. Statuses come from ROADMAP.md, engine/src/core/capabilities.ts and docs/KNOWN-ISSUES.md, and partial or deferred items carry a tag. Also logs the change: change-log entries 0934 to 0936 (their pr field set to 73 in f1273ad), and a dated mnemosyne.md note on where PROGRESS.md's status comes from. The note records two stale capability-registry statements, the world.interactiveTerrain note and the every-push CI wording; both are left unfixed. Docs only, with no code or gate changes. Validation: npm run docs:check, lint:arch and test:check pass locally, and CI CPU gates passed on f1273ad; the advisory WebGPU gate is separate and non-blocking.",
+    "files": [
+      "PROGRESS.md",
+      "change-log.md",
+      "mnemosyne.md"
+    ]
   }
 ]
 ```
