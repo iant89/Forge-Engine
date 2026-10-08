@@ -66,7 +66,7 @@ docs/                   documentation + ADRs in docs/decisions/
 tools/                  asset importer CLI, format converters, validation scripts
 ```
 
-Dependency direction (one-way, verified by `tests/architecture.test.ts`):
+Dependency direction (one-way, verified by `tests/engine/architecture.test.ts`):
 
 ```
 core  <-  gpu  <-  rendering
@@ -324,11 +324,11 @@ Asset side: `AssetManager` gives `AssetHandle<T>` with priorities, cancellation,
 
 | Layer | Tooling | Examples |
 |---|---|---|
-| Unit (math, ECS, terrain, physics, vehicles, particles, assets, serialization) | vitest on Node | ~1200 assertions covering determinism, edge cases, known-good analytic values |
+| Unit/integration suites (math, ECS, terrain, physics, vehicles, particles, assets, serialization) | repository-local selrun on Node; native `node:assert` plus suite helpers | 1,025 passing cases in 71 linked suites covering determinism, edge cases, and known-good analytic values |
 | GPU-logic without a GPU | in-repo **mock WebGPU** (`engine/src/testing/mockGpu.ts`) that validates descriptors, tracks object lifetime, records command streams | pipeline cache reuse, render-graph validation/aliasing, leak checks, bind-group layout, particle buffer math |
-| Real WebGPU | Playwright + headless Chromium (`--enable-unsafe-webgpu`, SwiftShader) | adapter init, first-frame no validation errors, non-empty framebuffer (readback variance), demo page runs with 0 console errors |
+| Real WebGPU and end-to-end smokes | separate Playwright + headless Chromium (`--enable-unsafe-webgpu`, SwiftShader) checks, outside `tests/*.test.ts` | adapter init, first-frame no validation errors, non-empty framebuffer (readback variance), demo page runs with 0 console errors |
 | Benchmarks | custom harness in `benchmarks/` | reported in `docs/PERFORMANCE.md` with the exact host spec and date; never fabricated |
-| Architecture | vitest | import boundaries, no cycles, public API surface snapshot, "no TODO-stub systems" scan |
+| Architecture | selrun suite plus `npm run lint:arch` | import boundaries, no cycles, public API surface snapshot, "no TODO-stub systems" scan |
 
 Every phase ends with: build → typecheck → tests → demo run (headless WebGPU) → benchmarks
 → leak check → docs + ROADMAP update.

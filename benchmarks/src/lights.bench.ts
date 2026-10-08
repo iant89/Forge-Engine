@@ -29,7 +29,7 @@
  * that takes seconds would be a regression, not a slow machine.
  *
  * The GPU fill itself cannot be timed here: the mock device records dispatches but executes no WGSL.
- * What the device's shader *does* is pinned by `tests/lightCulling.test.ts` (its TypeScript twin,
+ * What the device's shader *does* is pinned by `tests/rendering/lightCulling.test.ts` (its TypeScript twin,
  * byte for byte), compiled by `check:browser`, and A/B'd on pixels by the browser gate.
  */
 

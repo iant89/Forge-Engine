@@ -3,7 +3,7 @@
  *
  * The engine's own generators are pure functions of `(seed, cx, cz, pipeline spec)`, so a chunk cell
  * can be produced on any thread and is bit-for-bit identical to the inline result. That property is
- * what makes streaming deterministic, and it is asserted directly in `tests/tasks.test.ts` (a
+ * what makes streaming deterministic, and it is asserted directly in `tests/core/tasks.test.ts` (a
  * worker-generated cell compared field by field against the main-thread cell).
  *
  * This module lives in `terrain/` rather than in `core/tasks/taskHandlers.ts` on purpose: core task

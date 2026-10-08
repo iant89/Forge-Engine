@@ -3,7 +3,7 @@
  * an ozone absorption layer around a spherical planet — the Nishita/O'Neil model with Bruneton's
  * sea-level coefficients. This file is the **reference implementation**: the WGSL in
  * `rendering/shaders/sky.ts` marches the same integral with the same constants (delivered through
- * `SkyUniforms`, never retyped), and `tests/environment.test.ts` pins this code against closed forms
+ * `SkyUniforms`, never retyped), and `tests/environment/environment.test.ts` pins this code against closed forms
  * and published values:
  *
  *  - `rayleighCoefficient(λ)` reproduces the (5.802, 13.558, 33.1)·10⁻⁶ m⁻¹ table for 680/550/440 nm;

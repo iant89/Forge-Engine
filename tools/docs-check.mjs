@@ -14,7 +14,7 @@
  *
  *   1. Registry integrity: unique ids, `verified` entries carry evidence, unfinished entries name
  *      the roadmap work that closes them.
- *   2. Every evidence path exists on disk. "Tested in tests/foo.test.ts" must not point at a file
+ *   2. Every evidence path exists on disk. "Tested in tests/<area>/foo.test.ts" must not point at a file
  *      that was renamed or never written.
  *   3. Every capability's roadmap phase/item exists in ROADMAP.md.
  *   4. ROADMAP.md's "CURRENT ENGINE STATE" block must equal the registry's phase status — the

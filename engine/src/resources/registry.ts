@@ -1,7 +1,7 @@
 /**
  * `ResourceRegistry` — refcounted, budgeted, deduplicated resource ownership.
  *
- * The rules this enforces (and the tests in tests/resources.test.ts assert):
+ * The rules this enforces (and the tests in tests/resources/resources.test.ts assert):
  *  1. **One load per id.** Concurrent `acquire()` calls share a single in-flight promise. Two
  *     copies of the same texture is the classic cause of "the demo leaks 200 MB".
  *  2. **Handles, not raw values.** `ResourceHandle<T>` is refcounted; the resource is released when

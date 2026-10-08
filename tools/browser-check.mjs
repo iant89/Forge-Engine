@@ -52,7 +52,7 @@
  * the pad's P/PARK lamp lit), full throttle with it latched must not move the car — the wheels are
  * locked, so a parked car whose visual wheels used to keep turning stays put — and a second press
  * must release it and give the drive back. The lock rule itself is unit-tested in
- * `tests/vehicles.test.ts`; this is the key/input/lamp wiring on a real device. That section drives
+ * `tests/vehicles/vehicles.test.ts`; this is the key/input/lamp wiring on a real device. That section drives
  * the car through the scene's own `update`, so it resumes the demo loop the earlier pixel A/Bs froze
  * and asserts `animating()` — a frozen loop applies no input, and the parked half of the check would
  * pass for the wrong reason (a car that cannot move looks exactly like a car held by a brake).
@@ -2110,7 +2110,7 @@ async function checkAllScenes(backend) {
   // The deep link is a real navigation (what a URL does), and 0,0 is the site where the port's
   // regional material rules mix channels: its crater rim splits a tile roughly 45/55 rock/crust,
   // while the volcano and canyon presets bake one channel for kilometres (measured over resident
-  // mock tiles in tests/marsGeneratorScene.test.ts). So the claim checked here is *within one tile*:
+  // mock tiles in tests/examples/marsGeneratorScene.test.ts). So the claim checked here is *within one tile*:
   // a non-dominant channel must carry a real share of the mask, which a flat material cannot fake.
   await page.goto(`${URL}?scene=mars-generator&marssite=0,0`, { waitUntil: "load", timeout: 60000 });
   await page.waitForFunction(() => window.__forge !== undefined, null, { timeout: 45000 });
@@ -2227,7 +2227,7 @@ async function checkAllScenes(backend) {
   // frame, so this scene — well under 1 fps on SwiftShader — advances at most 1/12 s of throttle per
   // frame, whatever the wall clock did. A 45 s wall-clock cap therefore bought only ≈0.8 s of
   // throttle, and the tune it was written against covered 0.41 m in its first 0.75 s from rest on
-  // flat ground (tests/marsShowcase now pins the 1.5×-speed tune below 1.6 m/s after one second):
+  // flat ground (`tests/examples/marsShowcase.test.ts` now pins the 1.5×-speed tune below 1.6 m/s after one second):
   // the >0.5 m assertion was measuring the
   // software rasteriser's frame rate through the drive tune, and it failed on exactly the tune it is
   // meant to protect. Hold W until the simulation has run DRIVE_THROTTLE_SECONDS of throttle; the
@@ -2285,7 +2285,7 @@ async function checkAllScenes(backend) {
   // later — ~100 presented frames on this rasteriser, since main.ts clamps that dt to 0.05 s — so
   // "deploying" on the real device proves the countdown + pivots are wired. Convergence onto the
   // Earth target is only ~3 more seconds of dt — minutes at SwiftShader's showcase frame
-  // rate — so like the robotic arm below, on-target tracking is pinned by tests/highGainAntenna
+  // rate — so like the robotic arm below, on-target tracking is pinned by tests/examples/highGainAntenna.test.ts
   // and the gate asserts the choreography started and the dish left its stowed pose.
   const hgaMoving = await pollMars(
     "mars showcase: HGA never started deploying (no antenna progress for 300s)",
@@ -2309,8 +2309,8 @@ async function checkAllScenes(backend) {
   // Robotic arm: R must start the unfold on the real device — joints leaving the stowed pose proves
   // the GLB's arm chain is wired to the pivots — and stowing must bring every joint back to exactly
   // zero with the thumbsticks hidden. A full unfold is 6 s of sim time, minutes at SwiftShader's
-  // showcase frame rate, so the unfolded sticks and jogging are covered by tests/roverArm,
-  // tests/armTouch and tests/vehicleTouch instead.
+  // showcase frame rate, so the unfolded sticks and jogging are covered by
+  // tests/examples/roverArm.test.ts, tests/controls/armTouch.test.ts and tests/controls/vehicleTouch.test.ts instead.
   await page.keyboard.press("KeyR");
   const armMoving = await pollMars(
     "mars showcase: R did not start the robotic-arm unfold (no arm progress for 60s)",

@@ -25,7 +25,7 @@
  *     .lightCulling`); this file keeps the reference implementation the unit tests pin, the
  *     renderer's fallback, and the `build`/`rasterize` entry points that run all three.
  *
- * Pure math: no GPU, no scene imports, nothing allocated per call, so `tests/clusters.test.ts` pins
+ * Pure math: no GPU, no scene imports, nothing allocated per call, so `tests/rendering/clusters.test.ts` pins
  * it directly. The three properties that matter:
  *
  *  - **Conservative, never optimistic.** A light is written to every cluster whose volume can come
@@ -403,7 +403,7 @@ export class ClusterGrid {
    * The rasterisation (the CPU rasteriser): candidate counts, the per-cluster cap, and the lists
    * themselves, in light order with the least influential lights evicted once a cluster is full.
    *
-   * `tests/clusters.test.ts` pins this against conservation; `lightCulling.ts` transcribes the same
+   * `tests/rendering/clusters.test.ts` pins this against conservation; `lightCulling.ts` transcribes the same
    * rules into the compute shader the GPU path runs, and the browser gate A/Bs the two on pixels.
    */
   rasterize(rangePass: ClusterRanges): ClusterBuildResult {
@@ -519,7 +519,7 @@ export class ClusterGrid {
    * counted a frame but did not fill it can still report the aggregates — which is how the renderer
    * hands the fill to the GPU. The gather is the same shape `lightCulling.ts` transcribes into WGSL
    * (light-major, one `covers` test per cluster, evicting the least influential light when a list is
-   * full), and `tests/lightCulling.test.ts` pins the shader's own twin against this loop.
+   * full), and `tests/rendering/lightCulling.test.ts` pins the shader's own twin against this loop.
    */
   private fill(rangePass: ClusterRanges): void {
     const count = rangePass.lights;

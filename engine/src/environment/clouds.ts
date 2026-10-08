@@ -3,7 +3,7 @@
  *
  * The deck is a horizontal plane at `height` metres above sea level. Its density is a pure
  * function of world XZ — fbm noise remapped by the coverage so that `coverage = 0` is a clear sky
- * and `coverage = 1` is overcast, monotonically (pinned by `tests/environment8b.test.ts`). The
+ * and `coverage = 1` is overcast, monotonically (pinned by `tests/environment/environment8b.test.ts`). The
  * same remap and the same shading run on the CPU here and in WGSL (`rendering/shaders/sky.ts`):
  * the two agree on the formulas but not on the noise basis (the CPU samples `math/noise.ts`
  * Perlin fbm, the GPU a float32 value-noise fbm — bit equality was never on the table, and the

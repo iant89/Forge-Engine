@@ -159,7 +159,7 @@ once per fixed step and writes the chassis transform plus each wheel entity. Whe
 
 ## What is tested
 
-`tests/vehicles.test.ts` (23 tests) covers:
+`tests/vehicles/vehicles.test.ts` (23 tests) covers:
 
 - Pacejka is odd, zero at zero slip, and peaks near the sampled slip.
 - A constant torque produces the analytic RPM (`I·α = τ`); the rev limiter holds.

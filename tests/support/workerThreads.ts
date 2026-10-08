@@ -2,7 +2,7 @@
  * Real worker threads for the Node test suites.
  *
  * The engine's task scheduler spawns browser module workers (`new Worker(url, { type: "module" })`).
- * Node has no global `Worker`, and vitest runs TypeScript straight from source, so a test cannot
+ * Node has no global `Worker`, and selrun runs TypeScript suites through `tsx`, so a test cannot
  * just point the scheduler at `worker-entry.ts`. This harness closes that gap honestly:
  *
  *  1. a small adapter module is *generated* into a temp directory,

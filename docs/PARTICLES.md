@@ -91,7 +91,7 @@ honest for the Phase 7 reference path only.
 
 ## What is tested
 
-`tests/particles.test.ts` covers the CPU reference, the gravity check on the mock device, WGSL
+`tests/particles/particles.test.ts` covers the CPU reference, the gravity check on the mock device, WGSL
 validation of every Phase 12 shader, the 100k-without-ECS invariant, 10k/50k/100k capacity stress on
 the mock device, `GpuParticleWorld` creating zero entities, and the ribbon contract: the 18-vertex
 record drawn before the billboards, the live toggle's effect on the frame, and the emit/cull/resolve

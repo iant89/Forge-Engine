@@ -147,7 +147,7 @@ surviving passes. Two transients with identical descriptors and disjoint ranges 
 texture; `stats.aliasedBytes` is the memory that saved. In the default frame the SSAO chain is what
 aliases: `ssao.raw` is dead once `forge.ssao.blur.h` has read it, so `ssao.result` (same descriptor,
 first written by `forge.ssao.blur.v`) gets its memory — `(w/2)·(h/2)·4` bytes, 921,600 B at
-1280×720, asserted by `tests/frame.test.ts` and on real WebGPU by `check:browser`. The bloom mips
+1280×720, asserted by `tests/rendering/frame.test.ts` and on real WebGPU by `check:browser`. The bloom mips
 all differ in size and the HDR target is read by the last pass, so nothing else aliases.
 
 **Physical textures are pooled across frames.** Textures are keyed by their descriptor
@@ -355,7 +355,7 @@ becomes a box, and the box is projected at **both** of its depths, taking the co
 axis the *far* edge at the far depth reaches further in than the near edge at the near depth does.
 Projecting at the near depth alone — the obvious thing to write — cost an off-axis lamp the inner
 crescent of its own pool: `check:browser` saw it as 181 darker pixels in a 40-light frame, and
-`tests/clusters.test.ts` now walks that crescent at 2 cm. A sphere that reaches the near plane projects
+`tests/rendering/clusters.test.ts` now walks that crescent at 2 cm. A sphere that reaches the near plane projects
 without bound and takes every tile; lights fully off frame (NDC beyond ±(1 + 2·`TILE_EPS`)), behind the
 near plane or past the far plane are dropped before they cost anything.
 
@@ -378,7 +378,7 @@ from the first frame, clustered or not. Per clustered frame the CPU uploads the 
 device fill (§4c) uploads 4 B of ranges plus (key, influence) per light instead, and never the lists.
 
 **Why it is pixel-identical below the old cap.** Both light loops call the same `lightContribution()` in
-`shaders/standard.ts` — one definition, two call sites, pinned by `tests/wgsl.test.ts` — and a fragment
+`shaders/standard.ts` — one definition, two call sites, pinned by `tests/rendering/wgsl.test.ts` — and a fragment
 outside a light's range adds exactly `+0.0` on the uniform path while the clustered path simply does not
 list it. `check:browser` proves the result on real WebGPU: the PBR fixture's four lights give a
 bit-identical frame with clustering on and off (0 px differ by even one luma level, same passes), and
@@ -409,7 +409,7 @@ knows. `prepare` is O(lights) with no coverage term at all.
 **Nothing is read back.** `clustersUsed`, `clusterIndices`, `maxLightsPerCluster` and `lightsDropped`
 are functions of `counts` alone, so the CPU computes them before the dispatch is even recorded and the
 GPU path reports the same numbers, for the same frame, with no staging buffer, no `mapAsync` and no
-lag. `tests/frame.test.ts` pins that the two fills' `stats` are equal field for field (bar which half
+lag. `tests/rendering/frame.test.ts` pins that the two fills' `stats` are equal field for field (bar which half
 ran), and `check:browser` re-checks it on a real device.
 
 **The pass.** `forge.lights.assign` runs first in the frame — the shadow and prepass passes never read
@@ -420,18 +420,18 @@ cluster: a wrong count trims a list rather than spilling into the next cluster's
 transcription of the CPU fill and not a variant of it — same light order, same eviction rank
 (intensity × Rec.709 luma of the colour, ties keeping the earlier light), same re-sort afterwards.
 `assignClustersOnCpu` in `rendering/lightCulling.ts` is that algorithm in TypeScript, and
-`tests/lightCulling.test.ts` pins the shader's twin against `ClusterGrid.rasterize` byte for byte,
+`tests/rendering/lightCulling.test.ts` pins the shader's twin against `ClusterGrid.rasterize` byte for byte,
 including the saturated lists where the eviction path runs.
 
 **Packed ranges.** Each light's prepared tile/slice extents cross to the shader as one u32
 (`RANGE_KEY_BITS`: 4+4 bits of tile X, 3+3 of tile Y, 5+5 of slice, one live bit), written by
 `packRanges` and decoded by the shader's `covers()`. The layout lives in one place, so the packer and
-the unpacker cannot drift; `tests/clusters.test.ts` checks that a key carries exactly the coverage the
+the unpacker cannot drift; `tests/rendering/clusters.test.ts` checks that a key carries exactly the coverage the
 CPU fill walks. WGSL needs the parentheses around a shift mixed with a comparison — `slice < (key >> 14u)
 & 31u` is a Tint *parse* error ("mixing `<` and `&` requires parenthesis"), and it invalidates every
 pipeline built from the module, not just that expression — so the generated decode is
 `((key >> shift) & mask)u`, and `validateWgsl` now fails on that shape (`mixedOperatorIssues`, pinned by
-`tests/wgsl.test.ts`). The browser gate was the only gate that could see it; now the CPU gates can too.
+`tests/rendering/wgsl.test.ts`). The browser gate was the only gate that could see it; now the CPU gates can too.
 
 **Choosing a fill, and switching.** `RendererOptions.lightCulling` is `"auto"` (default), `"cpu"` or
 `"gpu"`; `"auto"` resolves to `"cpu"` on the mock device (it records compute passes but executes no WGSL)
@@ -443,7 +443,7 @@ renderer has to drop its reference along with them. A `GpuLightCuller` that has 
 from `record()` without adding the pass, so keeping the released culler would leave every later frame
 with *no* fill at all and shade its lights through whatever index blocks the last upload left on the
 device — a grid describing another frame's lights. `Renderer.lightCulling` documents the trap,
-`tests/frame.test.ts` pins the round trip, and `check:browser` asserts it where it happened: after the
+`tests/rendering/frame.test.ts` pins the round trip, and `check:browser` asserts it where it happened: after the
 fill goes `cpu` → `gpu`, `forge.lights.assign` must be back in the frame's pass list.
 
 **What the gate proves on a real device.** `check:browser` runs the PBR fixture on the GPU fill and A/Bs
@@ -495,7 +495,7 @@ a batch that is invisible, never drop one that is visible.
   half of the screen — for a batch floating over nearer ground that half is filled with a *nearer*
   surface, so the batch is dropped and vanishes from the frame. That bug reached the real-WebGPU gate
   (`disabling occlusion culling changed 16 161 px`); the CPU twin, the shader text and the gate now
-  pin the sign (`tests/objectCulling.test.ts`).
+  pin the sign (`tests/rendering/objectCulling.test.ts`).
 
 **The twin, and why it exists.** `cullBatchesOnCpu` is the same three tests in TypeScript, and the
 shader is a transcription of it (same slop, pad, epsilon, plane order, level choice).
@@ -590,8 +590,8 @@ between them.
 **The mock reads the record.** `MockGPUDevice.drawIndexedIndirect` / `drawIndirect` parse the record
 out of the buffer's bytes and log its fields, so a unit test sees what the device would run (including
 a 20-byte indexed record whose instance count the cull pass zeroed) rather than what the renderer
-believed it wrote. That is what closes the loop for `tests/objectCulling.test.ts` and
-`tests/frame.test.ts`, which is why the indirect arm can be asserted without a GPU.
+believed it wrote. That is what closes the loop for `tests/rendering/objectCulling.test.ts` and
+`tests/rendering/frame.test.ts`, which is why the indirect arm can be asserted without a GPU.
 
 **What the gate proves on a real device.** `check:browser` freezes the PBR fixture and A/Bs the two
 cullers: identical frames (max luma diff 0.00, 0 px beyond one level), `forge.objects.cull` in the gpu
@@ -642,7 +642,7 @@ uploaded once per chunk, GPU-selected LOD — is in `docs/KNOWN-ISSUES.md` § Wo
 
 ## 5. Conventions
 
-The rules every module above assumes (pinned by `tests/math.test.ts`; the long form is `AGENTS.md`
+The rules every module above assumes (pinned by `tests/math/math.test.ts`; the long form is `AGENTS.md`
 §3):
 
 * +Y up; cameras and lights look down their local +Z; view space is left-handed; `Mat4.setLookAt`
@@ -731,7 +731,7 @@ To add a pass:
 2. Write the body against `RenderGraphPassContext`; build pipelines with `ctx.colorFormat(0)` rather
    than a hard-coded format, and reserve uniform slots from the existing arenas (no per-frame
    buffers).
-3. Add its name to the `passNames` assertions in `tests/frame.test.ts` and, if it is user visible,
+3. Add its name to the `passNames` assertions in `tests/rendering/frame.test.ts` and, if it is user visible,
    to `tools/browser-check.mjs`; update `docs/VERIFICATION.md`.
 
 A pass that only *tests* against the scene depth (the sky is the example) declares
@@ -743,7 +743,7 @@ graph counts the load as a read, so the producer is never culled.
 
 New WGSL uniform structs go in `uniforms.ts` and are generated, never hand-written; `npm run
 check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules are added to
-`tools/wgsl-check.mjs` and `tests/wgsl.test.ts` (the sky module is the template).
+`tools/wgsl-check.mjs` and `tests/rendering/wgsl.test.ts` (the sky module is the template).
 
 ## 9. Limitations (honest list)
 

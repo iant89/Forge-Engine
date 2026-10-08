@@ -592,7 +592,7 @@ function writeTriangleNormal(
 
 /**
  * The brute-force query the BVH must agree with: nearest hit over every triangle, no acceleration
- * structure. Used by callers that need a reference, and by `tests/bvh.test.ts` to assert parity.
+ * structure. Used by callers that need a reference, and by `tests/math/bvh.test.ts` to assert parity.
  */
 export function raycastTriangles(
   positions: ArrayLike<number>,

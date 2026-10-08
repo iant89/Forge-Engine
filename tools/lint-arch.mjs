@@ -2,10 +2,10 @@
 /**
  * lint:arch — the import-boundary linter.
  *
- * `tests/architecture.test.ts` asserts the same boundaries with vitest. This tool exists as well for
- * two reasons:
+ * `tests/engine/architecture.test.ts` asserts the same boundaries through selrun. This tool exists
+ * as well for two reasons:
  *
- *  1. `npm run lint:arch` is cheap (no vitest startup), so it can run first in CI and in a pre-commit
+ *  1. `npm run lint:arch` is cheap (no test-runner startup), so it can run first in CI and in a pre-commit
  *     hook, where a boundary violation should be a one-line explanation rather than a failing suite.
  *  2. It is a second, independent reader of the same rule. `ARCHITECTURE.md` §2 draws the dependency
  *     arrows; a bug in the regex-based test is caught by the tool and vice versa.
@@ -128,7 +128,7 @@ function checkHost(dir, label, { allowBarePackages = false } = {}) {
       const isPublicApi = imp.specifier === "@forge/engine";
       const isRelative = imp.specifier.startsWith("./") || imp.specifier.startsWith("../");
       if (!isPublicApi && !isRelative) {
-        // Tests may use any bare package (vitest, esbuild, node:*); examples are browser code and
+        // Tests may use any bare package (esbuild, node:*); examples are browser code and
         // must come through the engine's public API or their own files.
         if (allowBarePackages) continue;
         violations.push({ file, line: imp.line, message: `${label} ${path.relative(root, file)} imports "${imp.specifier}"` });

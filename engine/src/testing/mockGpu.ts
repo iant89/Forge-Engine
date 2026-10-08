@@ -7,7 +7,7 @@
  * unaligned buffer offsets, destroyed resources still referenced, and GPU resources that are never
  * released. This mock checks all of those, so the engine's GPU-facing code is covered by ordinary
  * unit tests instead of being untested glue. See docs/TESTING.md for the split between this and
- * the real-browser test suite (`npm run test:gpu`).
+ * the separate real-browser smoke suite (`npm run check:browser*`).
  *
  * It implements, with validation:
  *  - adapter/device/queue, canvas context (swapchain-sized textures), error scopes, device loss

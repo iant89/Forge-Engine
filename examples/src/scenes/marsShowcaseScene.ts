@@ -841,7 +841,8 @@ class WheelRockChips extends ParticleWorld {
   }
 }
 
-export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle {
+export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): MarsShowcaseSceneHandle {
+  const loadModel = dependencies.loadGlb ?? loadGlb;
   const scene = new Scene({ name: "mars-showcase" });
 
   scene.settings.hdr = true;
@@ -2463,7 +2464,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     modelLoaded = false;
     modelError = null;
     modelProgress = { phase: "fetch", receivedBytes: 0, totalBytes: null };
-    loadGlb(gpu, modelUrl, (progress) => {
+    loadModel(gpu, modelUrl, (progress) => {
       if (attempt === loadAttempt) modelProgress = progress;
     })
       .then((glb) => {

@@ -188,7 +188,8 @@ export const COURSE_BARRIERS: [number, number][] = [[-7, -8.2], [1, -11.8], [8, 
 /** Tire-stack centres [x, z] outside the corners. */
 export const COURSE_TIRE_STACKS: [number, number][] = [[33, 13], [33, -13], [-33, 13], [-33, -13]];
 
-export function buildRoverCourseScene(engine: Engine): RoverCourseHandle {
+export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): RoverCourseHandle {
+  const loadModel = dependencies.loadGlb ?? loadGlb;
   const gpu = engine.gpu;
   const scene = new Scene({ name: "rover-course" });
   scene.settings.hdr = true;
@@ -575,7 +576,7 @@ export function buildRoverCourseScene(engine: Engine): RoverCourseHandle {
     modelLoaded = false;
     modelError = null;
     modelProgress = { phase: "fetch", receivedBytes: 0, totalBytes: null };
-    loadGlb(gpu, modelUrl, (progress) => {
+    loadModel(gpu, modelUrl, (progress) => {
       if (attempt === loadAttempt) modelProgress = progress;
     })
       .then((glb) => {

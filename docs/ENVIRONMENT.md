@@ -111,7 +111,7 @@ forge.sky    color: sceneColor (load)    depth: sceneDepth (depthReadOnly)   1 t
 * Output follows the forward shader's contract: scene-referred linear radiance on the HDR path,
   exposure + tone curve + sRGB in-shader on the LDR path (`perFrame.flags` bit 1).
 * Cost: `viewSamples × (lightSamples + 1)` exponentials per sky pixel; nothing per frame beyond one
-  128-byte uniform write. The pass adds no transient texture (`tests/frame.test.ts`).
+  128-byte uniform write. The pass adds no transient texture (`tests/rendering/frame.test.ts`).
 
 ### Scene settings
 

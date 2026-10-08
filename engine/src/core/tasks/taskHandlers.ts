@@ -7,7 +7,7 @@
  * not exist and the module graph is limited to `math/` + `core/`.
  *
  * Payload/result contracts are declared next to each handler and mirrored by the tests in
- * tests/tasks.test.ts; that is the contract the worker protocol speaks.
+ * tests/core/tasks.test.ts; that is the contract the worker protocol speaks.
  */
 
 import { registerTaskResultTransfer, type TaskContext } from "./registry.js";
@@ -263,7 +263,7 @@ export function installTaskHandlers(register: <P, R>(name: string, fn: (payload:
  *
  * The payload is plain typed arrays (`positions`/`indices`) plus the build options, so the result is
  * a pure function of the input: the same payload produces the same `hash` on the main thread and in
- * a worker, which is what `tests/tasks.test.ts` asserts. The result carries only the *structure* —
+ * a worker, which is what `tests/core/tasks.test.ts` asserts. The result carries only the *structure* —
  * the geometry stays where it already is — plus the hash that identifies the tree.
  */
 export interface BvhTaskPayload {

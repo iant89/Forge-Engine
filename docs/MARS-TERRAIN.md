@@ -148,7 +148,7 @@ ladder needs 33 → 17 → 9 → 5 → 3), the nearest generator depth, and a re
 (`clamp(chunkSize × 0.25, 8, 128)`— because small tiles on a 300 m-relief planet need real skirts, and
 the engine's default assumes a flat earth).
 
-Practical configurations (all under `MarsTerrainStage`, verified by `tests/marsTerrain.test.ts`):
+Practical configurations (all under `MarsTerrainStage`, verified by `tests/terrain/marsTerrain.test.ts`):
 
 | intent | chunkSize | resolution | spread | skirt |
 |---|---|---|---|---|
@@ -163,7 +163,7 @@ any tile vertex spacing below ~1 m gains nothing — it just samples the same 2.
 ## 4. Determinism and workers
 
 The stage is pure given (seed, params, site, fields): the same tile generated twice is byte-identical
-(`tests/marsTerrain.test.ts` asserts it), and sharing a vertex across tiles/seams gives the same height
+(`tests/terrain/marsTerrain.test.ts` asserts it), and sharing a vertex across tiles/seams gives the same height
 to 1e-9.
 
 **Analytic-only stages now run on workers.** `pipelineSpec.ts` reconstructs the stage from its
@@ -173,7 +173,7 @@ as well as detail and curvature flags. The site radius is distinct from the geol
 it now participates in the cache identity too. Malformed JSON, incomplete fields or scalar options
 that disagree with the identity are rejected instead of silently generating a different surface.
 
-`tests/tasks.test.ts` runs analytic Mars jobs through genuine worker threads and compares the
+`tests/core/tasks.test.ts` runs analytic Mars jobs through genuine worker threads and compares the
 transferred height/slope/splat bytes against the **original live pipelines**, including custom
 planets/sites, disabled detail/curvature and a subsequent scatter stage. The showcase integration
 test spies on the live stage and proves streaming uploads worker results without running that stage
@@ -363,10 +363,10 @@ midpoint); both are derived from the generator's `marsConfig.ts` rather than har
 ## 6. Verification
 
 ```sh
-npx vitest run tests/marsTerrain.test.ts        # mapping, geology, fields, analytic serialization, streaming/fallback
-npx vitest run tests/marsTerrainPlan.test.ts    # 8 tests: tools/mars-terrain/plan.ts vs the engine
-npx vitest run tests/marsShowcase.test.ts       # scene wiring, spawn/drive, camera, streaming/LOD
-npx vitest run tests/marsGeneratorScene.test.ts # inspector: site parsing/URL routing, masks per tile, camera clamp
+npx tsx --tsconfig tests/tsconfig.json tests/terrain/marsTerrain.test.ts        # mapping, geology, fields, analytic serialization, streaming/fallback
+npx tsx --tsconfig tests/tsconfig.json tests/tools/marsTerrainPlan.test.ts    # tools/mars-terrain/plan.ts vs the engine
+npx tsx --tsconfig tests/tsconfig.json tests/examples/marsShowcase.test.ts       # scene wiring, spawn/drive, camera, streaming/LOD
+npx tsx --tsconfig tests/tsconfig.json tests/examples/marsGeneratorScene.test.ts # inspector: site parsing/URL routing, masks per tile, camera clamp
 npm run check:browser:terrain-layers          # real-GPU one-hot/mixed/PBR pixels + showcase material A/B
 npm run check:browser:mars-workers            # native Worker messages + actual showcase uploads/render
 npm run check:browser                         # full suite, including W-drive and articulation

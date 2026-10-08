@@ -17,7 +17,7 @@
  * The sweep below holds the scene fixed and moves the batch count, measuring the three tests
  * separately, then builds a 1280×720 pyramid once per frame to show the stage the twin skips. The GPU
  * pass cannot be timed here — the mock device records dispatches but executes no WGSL — so what the
- * device *does* is pinned by `tests/objectCulling.test.ts` (the twin, byte for byte) and by
+ * device *does* is pinned by `tests/rendering/objectCulling.test.ts` (the twin, byte for byte) and by
  * `check:browser` (the pass compiles, runs, and draws the same frame the twin draws).
  *
  * The guards are shape checks, not stopwatch thresholds, so a slower CI runner does not turn a correct
@@ -32,7 +32,7 @@
  * bound the device pass. What 13.6 changes is what the *draw* costs: a zero-instance record never
  * enters the vertex stage, which is work per instance that a mock device cannot time either (the mock
  * counts the vertices the record asks for; the saving is measured as a difference in
- * `tests/frame.test.ts` and on a real device by `check:browser`'s identical-picture A/B). The budget
+ * `tests/rendering/frame.test.ts` and on a real device by `check:browser`'s identical-picture A/B). The budget
  * argument for `indirectDraws` is the same one 13.5 made for the pass: one word per batch decided on
  * the device beats a per-batch draw call the CPU issues and a vertex stage that runs for nothing.
  */

@@ -1,6 +1,11 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": "..",
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@forge/engine": ["engine/src/index.ts"]
+    },
     "types": [
       "@webgpu/types",
       "node"

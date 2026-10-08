@@ -17,8 +17,8 @@ CURRENT CODEBASE BASELINE:
                 were box wheel visuals (vehicles.wheelVisuals) plus three intentional model
                 limits — solved longitudinal slip (vehicles.tireModel), reverse as a ratio not
                 a control (vehicles.transmission) and discrete-contact impacts (physics.ccd).
-                None is a Phase 6 defect — the model itself is pinned by tests/vehicles.test.ts
-                and tests/vehiclePhysics.test.ts. Phase 16.6 closed the visual limitation
+                None is a Phase 6 defect — the model itself is pinned by tests/vehicles/vehicles.test.ts
+                and tests/vehicles/vehiclePhysics.test.ts. Phase 16.6 closed the visual limitation
                 (tyre assemblies, steered geometry, suspension/damper animation) and its bullet
                 is gone from docs/KNOWN-ISSUES.md §Vehicles; the three model limits stay, and
                 no separate Phase 6 hardening work is scheduled for them. This note records the
@@ -192,7 +192,7 @@ than simply adding features.
 
 9.1 Worker Execution
 
-    [x] Add real worker round-trip tests.   (tests/tasks.test.ts, tests/support/workerThreads.ts)
+    [x] Add real worker round-trip tests.   (tests/core/tasks.test.ts, tests/support/workerThreads.ts)
 
     [x] Test:
 
@@ -210,14 +210,14 @@ than simply adding features.
 
     [x] Verify BVH/LBVH generation can execute outside the main thread.
         (engine/src/math/bvh.ts + the geometry.bvh task; a worker-built tree is byte-identical to
-        the inline build and answers the same rays — tests/tasks.test.ts, tests/bvh.test.ts.)
+        the inline build and answers the same rays — tests/core/tasks.test.ts, tests/math/bvh.test.ts.)
 
     [x] Use spatial indices in runtime queries.
         Geometry's lazy mesh BVH powers triangle-accurate scene picking and refines large-mesh
         frustum culling. PhysicsWorld's deterministic sweep-and-prune index prunes rigid-body pairs
         before narrowphase while preserving the original insertion order. Heightfield raycasts keep
-        their specialized grid traversal. Evidence: tests/ecs.test.ts, tests/rendering.test.ts,
-        tests/physics.test.ts; capability: physics.spatialIndex.
+        their specialized grid traversal. Evidence: tests/scene/ecs.test.ts, tests/rendering/rendering.test.ts,
+        tests/physics/physics.test.ts; capability: physics.spatialIndex.
 
     [x] Verify mesh decoding can execute outside the main thread.
 
@@ -225,9 +225,9 @@ than simply adding features.
         the `asset.gltf.decode` TaskScheduler task. The worker returns transferable typed arrays,
         indices, bounds, scene/node transforms and material factors; external `.gltf` buffer fetches
         are resolved before dispatch. Interleaved and sparse accessors plus normalized integer
-        attributes are covered by `tests/gltf.test.ts`; the same GLB result is compared against the
-        inline decoder and a real Node worker thread (`tests/tasks.test.ts`,
-        `tests/gltf.test.ts`).
+        attributes are covered by `tests/resources/gltf.test.ts`; the same GLB result is compared against the
+        inline decoder and a real Node worker thread (`tests/core/tasks.test.ts`,
+        `tests/resources/gltf.test.ts`).
 
     [x] Verify a browser module-worker round-trip.
 
@@ -246,7 +246,7 @@ than simply adding features.
 
 9.2 Resource Cache
 
-    [x] Add resource eviction tests.   (tests/resources.test.ts)
+    [x] Add resource eviction tests.   (tests/resources/resources.test.ts)
 
     [x] Test:
 
@@ -260,7 +260,7 @@ than simply adding features.
 
 9.3 Resource Statistics
 
-    [x] Add GPU memory accounting.   (tests/gpuMemory.test.ts)
+    [x] Add GPU memory accounting.   (tests/gpu/gpuMemory.test.ts)
 
     [x] Add:
 
@@ -275,7 +275,7 @@ than simply adding features.
 
 9.4 Coordinate Space API
 
-    [x] Formalize coordinate spaces.   (engine/src/scene/spaces.ts, tests/coordinateSpaces.test.ts)
+    [x] Formalize coordinate spaces.   (engine/src/scene/spaces.ts, tests/scene/coordinateSpaces.test.ts)
 
     Required concepts:
 
@@ -289,7 +289,7 @@ than simply adding features.
 9.5 Capability Registry
 
     [x] Add machine-readable feature status.
-        (engine/src/core/capabilities.ts, tests/capabilities.test.ts)
+        (engine/src/core/capabilities.ts, tests/docs/capabilities.test.ts)
 
     Example:
 
@@ -444,7 +444,7 @@ CURRENT PROBLEMS (addressed in this phase):
     [x] Height blending (cell-grid altitude gates)
     [x] Material-specific surface properties (albedo, tangent normals, roughness and metallic)
 
-        tests/terrainMaterials.test.ts, tests/marsShowcase.test.ts and the real-WebGPU pixel oracle
+        tests/terrain/terrainMaterials.test.ts, tests/examples/marsShowcase.test.ts and the real-WebGPU pixel oracle
         in check:browser:terrain-layers pin the path. Four fixed layers; the horizon apron remains
         a representative single material. This does not add triplanar projection or material painting.
 
@@ -459,18 +459,18 @@ CURRENT PROBLEMS (addressed in this phase):
             (crater bands, volcanoes, cinder cones, dichotomy + canyon), Stage A field
             cache reader, `MarsTerrainStage`, `MarsSite`, `adviseMarsTile`, splat layers.
         [x] Deterministic/seamless generation and renderer integration pinned by
-            tests/marsTerrain.test.ts; region planner + port verification tooling
+            tests/terrain/marsTerrain.test.ts; region planner + port verification tooling
             (tools/mars-terrain, tools/mars-port-check.mjs) pinned by
-            tests/marsTerrainPlan.test.ts.
+            tests/tools/marsTerrainPlan.test.ts.
         [x] Mars Showcase uses the analytic-only port (seed 1337, equatorial plain), with a
             surveyed rover spawn, shared tile/vehicle/camera height queries, 128 m / 33-vertex
-            chunks and 32 m skirts. tests/marsShowcase.test.ts pins scene assembly, driving,
+            chunks and 32 m skirts. tests/examples/marsShowcase.test.ts pins scene assembly, driving,
             streaming budgets and LOD edges; check:browser asserts the port/mode, resident
             rover tile, terrain clearance and forward W-drive with wheel dust.
         [x] A site inspector beside the showcase: `?scene=mars-generator` streams the same port with
             a free orbit camera and the site from the URL (`MARS_SITE_PRESETS` keys or any `lat,lon`
             pair), reporting site, band, skirts, generation/material mode and splat tiles through
-            `window.__forge.marsGeneratorState()`. Pinned by tests/marsGeneratorScene.test.ts and the
+            `window.__forge.marsGeneratorState()`. Pinned by tests/examples/marsGeneratorScene.test.ts and the
             check:browser arm of the same name (volcano preset: workers + layered, zero GPU errors;
             `?marssite=0,0` crater field: a resident tile genuinely blends two channels, its
             non-dominant one over 25 % of the mask mass — the volcano stays flat). docs/MARS-TERRAIN.md §5.
@@ -579,7 +579,7 @@ shared heightfield collider, kinematic chassis, physical pitch/roll, telemetry.
 
 11.6 Vehicle / Terrain Agreement
 
-    [x] Required invariant validated in tests/vehiclePhysics.test.ts:
+    [x] Required invariant validated in tests/vehicles/vehiclePhysics.test.ts:
 
         VISUAL TERRAIN
              =
@@ -694,7 +694,7 @@ CURRENT STATE:
         pass counts survivors into the second indirect record while the ribbon flag is set, and the
         resolve pass keeps it zeroed. `GpuParticleWorld.setRibbon` toggles live; the demo builds
         ribbons on (`?ribbons=0` pins them off). No mesh or CPU geometry exists — by design.
-        (tests/particles.test.ts; capability: particles.gpuRendering; docs/PARTICLES.md)
+        (tests/particles/particles.test.ts; capability: particles.gpuRendering; docs/PARTICLES.md)
 
 
 12.5 GPU Particle Culling
@@ -802,7 +802,7 @@ CURRENT STATE:
 13.1 Depth Prepass
 
     [x] Implement depth prepass. (`forge.prepass`; stats `depthPrepass`,
-        `prepassDraws`; tests/frame.test.ts, tests/pipeline.test.ts, check:browser
+        `prepassDraws`; tests/rendering/frame.test.ts, tests/rendering/pipeline.test.ts, check:browser
         pixel identity.)
 
     [~] Reuse depth for:
@@ -831,7 +831,7 @@ CURRENT STATE:
 
     [x] Verify aliasedBytes becomes meaningful in normal frames. (Every frame with
         SSAO: 921,600 B at 1280x720 — PBR fixture 11 transients → 10 textures;
-        tests/frame.test.ts, check:browser.)
+        tests/rendering/frame.test.ts, check:browser.)
 
 
 13.3 Clustered / Forward+ Lighting
@@ -843,8 +843,8 @@ CURRENT STATE:
         `shaders/standard.ts`, behind `perFrame.flags` bit 5; `Renderer.buildClusters`
         uploads the used prefixes and nothing is allocated per frame. Adds no pass —
         the graph is identical with it on or off, and so is the picture while a scene
-        fits the old list. docs/RENDERING.md §4b; tests/clusters.test.ts (18),
-        tests/frame.test.ts (6 clustered), tests/wgsl.test.ts, check:browser.)
+        fits the old list. docs/RENDERING.md §4b; tests/rendering/clusters.test.ts (18),
+        tests/rendering/frame.test.ts (6 clustered), tests/rendering/wgsl.test.ts, check:browser.)
 
     [x] Remove fixed CPU light-list limitations. (The frame now carries 256 local
         lights (`MAX_CLUSTERED_LIGHTS`) with at most 32 per cluster
@@ -872,10 +872,10 @@ CURRENT STATE:
         neither grows with coverage; nothing is read back, so `clustersUsed`,
         `clusterIndices`, `maxLightsPerCluster` and `lightsDropped` are the CPU's own
         numbers for the same frame. `assignClustersOnCpu` is the shader's twin and
-        tests/lightCulling.test.ts pins it byte for byte (evictions included);
+        tests/rendering/lightCulling.test.ts pins it byte for byte (evictions included);
         `RendererOptions.lightCulling` = auto|cpu|gpu, `stats.clusterFill`, demo
-        `?lightculling=cpu|gpu` + HUD. docs/RENDERING.md §4c; tests/lightCulling.test.ts
-        (11), tests/frame.test.ts (round trip), check:browser — the two fills give an
+        `?lightculling=cpu|gpu` + HUD. docs/RENDERING.md §4c; tests/rendering/lightCulling.test.ts
+        (11), tests/rendering/frame.test.ts (round trip), check:browser — the two fills give an
         identical picture and identical grid stats on one frozen scene, the pass is in
         the gpu arm's frame and not the cpu arm's, and the many-light frame is strictly
         brighter than the truncated uniform path with no pixel darker. The generated
@@ -904,8 +904,8 @@ CURRENT STATE:
         one 32-byte entry per batch in draw order, and the verdict lands in
         `ObjectUniforms.visibilityIndex`'s word, which the vertex stage reads as group
         1 binding 2 (minBindingSize 4, reset to zero every frame by one writeBuffer).
-        `cullBatchesOnCpu` is the twin the mock device runs; tests/objectCulling.test.ts
-        (16), tests/frame.test.ts (3), check:browser.)
+        `cullBatchesOnCpu` is the twin the mock device runs; tests/rendering/objectCulling.test.ts
+        (16), tests/rendering/frame.test.ts (3), check:browser.)
 
     [x] GPU distance culling. (`Renderable.maxDistance` is a draw rule: a batch is
         dropped once its bounding sphere no longer touches its limit
@@ -923,7 +923,7 @@ CURRENT STATE:
         across. The pixel row is the negated NDC y (texel row 0 is the top): the
         mirrored rectangle is over the *other half of the screen*, which culled
         floating geometry against the ground rows below it — check:browser saw it as
-        `disabling occlusion culling changed 16161 px`, and tests/objectCulling.test.ts
+        `disabling occlusion culling changed 16161 px`, and tests/rendering/objectCulling.test.ts
         now pins the sign. Perspective-only, off on the CPU twin (no depth), skipped
         when the target cannot build a pyramid; a frame the renderer did not ask to
         occlude neither reads the depth nor declares levels. Stats `cullTested`,
@@ -1077,7 +1077,7 @@ GOAL:
         `(type, seed, chunk coordinate, sampler)`: a `chunkSeed`-derived `Rng` stream over a
         stratified jittered grid (one candidate per `densityGrid²` cell), with slope, height-band
         and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
-        never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population.test.ts.
+        never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population/population.test.ts.
 
     [ ] Load-order-independent surface sampling (follow-up, added 2026-10-06 to make the phase's
         remaining work checkable — the baseline block names all four of these): acceptance samples
@@ -1130,7 +1130,7 @@ GOAL:
         zero per-frame instance copies — `stats.populationUploads` is 0 in steady state — and the
         buffer is destroyed when the source stops offering the chunk (terrain eviction). A remesh
         re-anchor moves the revision and is the only other event that re-uploads. Pinned by
-        tests/population.test.ts (seam + streamed-terrain suites).
+        tests/population/population.test.ts (seam + streamed-terrain suites).
 
 
 14.4 GPU LOD
@@ -1147,8 +1147,8 @@ GOAL:
         takes the instanced entry. The mock compute pass applies the same decision to its backing
         buffer. Tests pin merge/attribute ordering, the distance boundary, camera reselection without
         an instance re-upload, 256-byte uniform slots for multiple LOD batches, all three render
-        paths, and streamed `PopulationWorld` metadata propagation (tests/population.test.ts,
-        tests/pipeline.test.ts). The terrain demo exercises separate hi/lo rock and boulder meshes.
+        paths, and streamed `PopulationWorld` metadata propagation (tests/population/population.test.ts,
+        tests/rendering/pipeline.test.ts). The terrain demo exercises separate hi/lo rock and boulder meshes.
 
 
 14.5 GPU Culling
@@ -1174,7 +1174,7 @@ GOAL:
         `PopulationWorld` (engine/src/population/world.ts) diffs `TerrainWorld.chunks` every update:
         ready chunks get populations within a per-frame budget, evicted chunks lose them, and an
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
-        Zero ECS entities are created — pinned by tests/population.test.ts.
+        Zero ECS entities are created — pinned by tests/population/population.test.ts.
 
     [ ] Population generation on workers (follow-up, added 2026-10-06): the scatter pass is
         main-thread inline, budgeted by `generationsPerFrame`; moving it behind `TaskScheduler`
@@ -1294,14 +1294,14 @@ GOAL:
         events are updated at commit. Failed and cancelled stages leave the live value untouched;
         same-hash in-flight requests are shared and differing versions serialize. The generic
         descriptor API covers mesh/texture/material values without imposing a file-watcher or
-        importer on callers. Verified in `tests/phase15.test.ts`.
+        importer on callers. Verified in `tests/resources/phase15.test.ts`.
 
     [x] Shader reload.
 
         `PipelineFactory.replaceShaderSource` runs the engine's WGSL structural/layout validator
         before it invalidates pipeline bundles; `clearShaderOverride` returns to the built-in source.
         Invalid source leaves the last good pipeline cached. Verified in
-        `tests/shaderHotReload.test.ts`.
+        `tests/rendering/shaderHotReload.test.ts`.
 
 
 15.5 Asset Validation
@@ -1315,7 +1315,7 @@ GOAL:
         dimensions/mip/format/capability/block-alignment, material-technique/PBR, dependency and
         memory-budget diagnostics. `ResourceDescriptor.validate` rejects error-severity output before
         publication and disposes rejected values; warnings remain observable through the logger.
-        Verified in `tests/phase15.test.ts`.
+        Verified in `tests/resources/phase15.test.ts`.
 
 
 15.6 KTX2 / Basis
@@ -1328,7 +1328,7 @@ GOAL:
         data, including the physical whole-block extents required for lower mips. Automatic selection
         falls back to RGBA when the device lacks compression support or the base dimensions cannot be
         represented by a block-compressed WebGPU texture. Verified with a real ETC1S fixture through
-        Basis WASM in `tests/phase15.test.ts`, target-selection/mock-upload coverage there, and a
+        Basis WASM in `tests/resources/phase15.test.ts`, target-selection/mock-upload coverage there, and a
         Chromium/SwiftShader WebGPU upload of a 40×40 sRGB texture with six BC7 mips (2,240 GPU bytes,
         no validation or page errors; see `docs/VERIFICATION.md`).
 
@@ -1503,11 +1503,11 @@ GOAL:
 
     [x] glTF animation import (STEP, LINEAR, CUBICSPLINE; translation, rotation, scale channels;
         worker-decoded via `decodeGltfAnimations`, assembled into engine clips via `assembleClip`;
-        tests/animation.test.ts, tests/gltf.test.ts)
+        tests/animation/animation.test.ts, tests/resources/gltf.test.ts)
 
     [x] clip sampling (stateless `sampleClip` with STEP/LINEAR/CUBICSPLINE interpolation,
         quaternion SLER with NLERP fallback, Hermite spline for cubic, identity initialisation,
-        per-track validation; 44 tests in tests/animation.test.ts)
+        per-track validation; 44 tests in tests/animation/animation.test.ts)
 
     [x] animation component and system (AnimationComponent extends Component, registered;
         AnimationSystem at order 300: dt advance, loop wrap, clamp-stop, multi-clip NLERP blend
@@ -1526,46 +1526,46 @@ GOAL:
 16.2 Animation State Machines
 
     [x] states (named states backed by clips with looping/speed config;
-        AnimationStateMachine.addState/removeState/start/stop; tests/animationStateMachine.test.ts)
+        AnimationStateMachine.addState/removeState/start/stop; tests/animation/animationStateMachine.test.ts)
 
     [x] transitions (parameter-driven condition functions, priority-sorted evaluation,
         wildcard source state `*`, interruptible crossfade override, crossfadeDuration config;
-        AnimationStateMachine.addTransition/removeTransition; tests/animationStateMachine.test.ts)
+        AnimationStateMachine.addTransition/removeTransition; tests/animation/animationStateMachine.test.ts)
 
     [x] blending (crossfade with configurable duration, easeInOut smoothstep or linear blend
         curve, proper weight ramp on outgoing/incoming clips, interruption of in-progress
         crossfade by higher-priority transition, forced transitionTo bypassing conditions;
-        tests/animationStateMachine.test.ts)
+        tests/animation/animationStateMachine.test.ts)
 
 
 16.3 Blend Trees
 
     [x] 1D (BlendTree1D: sorted threshold array, linear interpolation between bracketing clips,
-        values outside range clamp to nearest clip, at most 2 non-zero weights; tests/animationBlendTree.test.ts)
+        values outside range clamp to nearest clip, at most 2 non-zero weights; tests/animation/animationBlendTree.test.ts)
 
     [x] 2D (BlendTree2D: rectangle layout with four corner clips, bilinear interpolation,
         parameter clamping to rectangle extents, four weights summing to 1;
-        tests/animationBlendTree.test.ts)
+        tests/animation/animationBlendTree.test.ts)
 
 
 16.4 IK
 
     [x] Two-bone IK (analytic 2-joint solver: law of cosines for mid/root angles, Rodrigues'
         rotation, pole target / bend direction, unreachable-target clamping, weight blending,
-        zero-length bone safety; tests/animationIK.test.ts)
+        zero-length bone safety; tests/animation/animationIK.test.ts)
 
     [x] FABRIK (iterative N-joint solver: forward/backward reaching, bone length preservation,
         convergence tolerance, maxIterations, fixedRoot option, unreachable-target stretch,
-        weight blending; tests/animationIK.test.ts)
+        weight blending; tests/animation/animationIK.test.ts)
 
 
 16.5 Skinning
 
     [x] Joint palette computation (computeJointPalette: world × inverseBindMatrix per joint,
-        missing-joint identity fallback, multi-joint support; tests/animationSkinning.test.ts)
+        missing-joint identity fallback, multi-joint support; tests/animation/animationSkinning.test.ts)
 
     [x] Skinning data validation (validateSkinningData: weight sum check, joint/weight count,
-        createIdentitySkinningData for default non-skinned fallback; tests/animationSkinning.test.ts)
+        createIdentitySkinningData for default non-skinned fallback; tests/animation/animationSkinning.test.ts)
 
     [x] GPU upload pipeline (per-frame joint palette into one storage buffer, one
         `PALETTE_SLOT_ALIGN`-aligned slot per skinned batch, filled mesh-local
@@ -1575,7 +1575,7 @@ GOAL:
         depth-prepass and shadow programs keyed by `skinned` in PipelineFactory, with the palette at
         group 3 behind an empty placeholder group for the programs that have no material group;
         RenderStats.skinnedBatches/skinJoints/skinFallbacks;
-        tests/renderingSkinning.test.ts, tests/skinningScene.test.ts, and the demo's skinned arm
+        tests/rendering/renderingSkinning.test.ts, tests/examples/skinningScene.test.ts, and the demo's skinned arm
         pixel-verified on a real adapter by `npm run check:browser:skinning`)
 
 
@@ -1596,7 +1596,7 @@ GOAL:
         idempotent (no drift); min/max clamps, `slew` rate limits (units/s, 0 = follow directly),
         angle wrap for odometers, and aim joints solved against the live local store so a joint
         declared after the ones it watches sees their pose from the same frame. Allocation-free
-        scratch; tests/mechanicalAnimation.test.ts
+        scratch; tests/animation/mechanicalAnimation.test.ts
 
     [x] MechanicalSystem + MechanicalRigComponent (`animation/mechanicalSystem.ts`): per component,
         the channel source writes this frame's values, then the rig advances (limits + slew) and
@@ -1610,7 +1610,7 @@ GOAL:
         at zero), axle (odometer, sign-flipped on the left so both sides roll forward), trailing arm
         and damper (aim joints, telescoping to the carrier) — and `VehicleWheelSource` feeds them
         each frame. The Phase 6 playground builds the tyre/rim/cleat/nut geometry per corner and
-        drops its box wheels; tests/mechanicalScene.test.ts, `npm run check:browser:mechanical`
+        drops its box wheels; tests/examples/mechanicalScene.test.ts, `npm run check:browser:mechanical`
         (deterministic wheel poses A/B'd on a real adapter)
 
     [x] robotic arm: the Mars showcase's five-joint GLB arm chain is posed by a MechanicalRig
