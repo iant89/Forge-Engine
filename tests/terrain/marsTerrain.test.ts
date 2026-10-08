@@ -274,21 +274,19 @@ group("Mars terrain - analytic geology", () => {
     const scanner = new MarsCraterScanner(MARS_GEN_PARAMS.seed);
     const reference = (dir: { x: number; y: number; z: number }) =>
       marsSampleCraterDelta(dir.x * MARS_RADIUS_M, dir.y * MARS_RADIUS_M, dir.z * MARS_RADIUS_M, MARS_GEN_PARAMS.seed);
-    let worst = 0;
-    let inCraterMismatch = 0;
+    // Coordinates near the origin occupy the same integer cell triple in every size band. This
+    // specifically guards against accidentally sharing a coordinate-only cache across bands.
+    for (const p of [[0, 0, 0], [100, -200, 300], [-499, 250, -125]] as const) {
+      assert.deepEqual(scanner.deltaAt(p[0], p[1], p[2]), marsSampleCraterDelta(p[0], p[1], p[2], MARS_GEN_PARAMS.seed));
+    }
     for (let j = 0; j < 21; j++) {
       for (let i = 0; i < 21; i++) {
         const dir = marsFaceUVToDirection(3, 0.4 + i * 2e-4, -0.15 + j * 2e-4);
         const fast = scanner.deltaAt(dir.x * MARS_RADIUS_M, dir.y * MARS_RADIUS_M, dir.z * MARS_RADIUS_M);
         const slow = reference(dir);
-        worst = Math.max(worst, Math.abs(fast.delta - slow.delta));
-        if (fast.inCrater !== slow.inCrater) inCraterMismatch++;
+        assert.deepEqual(fast, slow);
       }
     }
-    // Identical set; the only difference is the order the terms are summed in, which shows up in the
-    // last bits of a value that is metres, not nanometres.
-    assert.ok(worst < 1e-6);
-    assert.equal(inCraterMismatch, 0);
   });
 });
 
@@ -419,6 +417,21 @@ group("Mars terrain - MarsTerrainStage", () => {
     }
     // Every vertex is evaluated from its absolute direction, so shared vertices agree exactly.
     assert.ok(worst < 1e-9);
+  });
+
+  test("keeps material weights identical at coincident vertices across terrain LODs", () => {
+    const pipeline = createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } });
+    const coarse = new TerrainTile({ cx: 0, cz: 0, size: 640, resolution: 17 }, pipeline, MARS_GEN_PARAMS.seed);
+    const fine = new TerrainTile({ cx: 0, cz: 0, size: 640, resolution: 33 }, pipeline, MARS_GEN_PARAMS.seed);
+    for (let j = 0; j < 17; j++) {
+      for (let i = 0; i < 17; i++) {
+        const coarseOffset = (j * 17 + i) * 4;
+        const fineOffset = ((j * 2) * 33 + i * 2) * 4;
+        for (let channel = 0; channel < 4; channel++) {
+          assert.equal(coarse.cell.biomes[coarseOffset + channel], fine.cell.biomes[fineOffset + channel]);
+        }
+      }
+    }
   });
 
   test("applies the Stage A erosion correction when fields are supplied", () => {

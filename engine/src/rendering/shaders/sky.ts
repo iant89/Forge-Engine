@@ -9,7 +9,7 @@
  * integral (Rayleigh + Mie + ozone, midpoint rule on cubically spaced view segments, a light ray per
  * sample), the same constants (delivered through `SkyUniforms`, never retyped), the same lit-ground
  * term below the horizon. On top of that it adds what only a per-pixel pass can: the limb-darkened
- * sun disc, a hashed star field that fades in as the scattered light goes away, and (Phase 8b) one
+ * sun disc, an atmosphere-attenuated anti-solar moon, a star field that fades with daylight, and
  * procedural cloud deck (`WGSL_CLOUD`, lit by the same sun/ambient the CPU derives). The scene fog
  * (`WGSL_FOG`) is applied to the planet ground in every mode and to the sky in height mode, so the
  * horizon meets the fogged geometry in front of it (see docs/ENVIRONMENT.md §3).
@@ -197,14 +197,18 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     let cosTheta = dot(dir, sunDir);
     let phaseR = rayleighPhase(cosTheta);
     let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
-    let invN = 1.0 / f32(sky.viewSamples);
+    // Keep the narrow, optically longest horizon band converged at every quality profile.
+    let horizonBand = abs(dir.y) < 0.035;
+    let viewSamples = select(sky.viewSamples, max(sky.viewSamples, 64u), horizonBand);
+    let lightSamples = select(sky.lightSamples, max(sky.lightSamples, 32u), horizonBand);
+    let invN = 1.0 / f32(viewSamples);
     var odR = 0.0;
     var odM = 0.0;
     var odO = 0.0;
     var sumR = vec3<f32>(0.0);
     var sumM = vec3<f32>(0.0);
     var tPrev = 0.0;
-    for (var i = 0; i < sky.viewSamples; i++) {
+    for (var i = 0; i < viewSamples; i++) {
       // Cubic spacing (segment i spans tMax·[(i/N)³, ((i+1)/N)³]): dense where the air is, near the
       // camera. Matches environment/atmosphere.ts sample for sample.
       let u = f32(i + 1) * invN;
@@ -222,7 +226,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       if (raySphereEntry(p, sunDir, R) > 0.0) {
         continue; // the sun is below this sample's horizon
       }
-      let lightOd = opticalDepthToSpace(p, sunDir, sky.lightSamples);
+      let lightOd = opticalDepthToSpace(p, sunDir, lightSamples);
       let od = sky.rayleighScattering * odR + sky.mieExtinction * odM + sky.ozoneAbsorption * odO;
       let attenuation = exp(-(od + lightOd));
       sumR += attenuation * dR;
@@ -235,7 +239,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       let n = normalize(g);
       let nDotL = max(dot(n, sunDir), 0.0);
       if (nDotL > 0.0) {
-        let lightT = exp(-opticalDepthToSpace(g, sunDir, sky.lightSamples));
+        let lightT = exp(-opticalDepthToSpace(g, sunDir, lightSamples));
         radiance += exp(-viewOd) * (sky.groundAlbedo / PI) * sky.sunIntensity * lightT * nDotL;
       }
     }
@@ -252,8 +256,20 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
         let r = clamp(angle / radius, 0.0, 1.0);
         let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - r * r)));
         let edge = 1.0 - smoothstep(radius - 0.001, radius + 0.001, angle);
-        let transmittance = exp(-opticalDepthToSpace(origin, sunDir, sky.lightSamples));
+        let transmittance = exp(-opticalDepthToSpace(origin, sunDir, lightSamples));
         radiance += transmittance * sky.sunIntensity * sky.sunDiscIntensity * limb * edge;
+      }
+    }
+    // A procedural full moon follows the anti-solar direction. It uses the same atmospheric
+    // transmittance and planet occlusion as the sun; phases/orbital inclination remain future data.
+    let moonDir = -sunDir;
+    if (moonDir.y > -0.01 && raySphereEntry(origin, moonDir, R) < 0.0) {
+      let moonAngle = asin(clamp(length(cross(dir, moonDir)), 0.0, 1.0));
+      let moonRadius = 0.0045;
+      if (moonAngle < moonRadius + 0.001) {
+        let moonEdge = 1.0 - smoothstep(moonRadius - 0.001, moonRadius + 0.001, moonAngle);
+        let moonT = exp(-opticalDepthToSpace(origin, moonDir, lightSamples));
+        radiance += moonT * vec3<f32>(0.82, 0.88, 1.0) * (sky.sunIntensity * 0.004 * moonEdge);
       }
     }
     if (sky.starBrightness > 0.0 && dir.y > -0.05) {

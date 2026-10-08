@@ -31,6 +31,8 @@ export class ParticleSimulation {
   alive = 0;
   emitted = 0;
   stepCount = 0;
+  private owner: object | null = null;
+  private ownerLabel = "";
 
   constructor(options: ParticleSimulationOptions = {}) {
     this.capacity = Math.max(1, options.capacity ?? 1024);
@@ -40,6 +42,17 @@ export class ParticleSimulation {
     this.maxEmitsPerFrame = options.maxEmitsPerFrame ?? 512;
     this.emitter = new ParticleEmitter({ seed: options.seed ?? 1 });
     this.trails = new ParticleTrails(this.capacity, options.trailLength ?? 8);
+  }
+
+  /**
+   * Bind the simulation to its single scene/component stepper. Calling this twice with the same
+   * owner is harmless; a different owner is rejected before either can double-integrate it.
+   */
+  claimOwner(owner: object, label: string): void {
+    if (this.owner === owner) return;
+    if (this.owner) throw new Error(`ParticleSimulation is already owned by ${this.ownerLabel}; it cannot also be owned by ${label}`);
+    this.owner = owner;
+    this.ownerLabel = label;
   }
 
   /** Integrate every alive particle. Does not emit. Used by the analytic gravity test. */

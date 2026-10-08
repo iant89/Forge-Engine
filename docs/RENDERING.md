@@ -40,11 +40,11 @@ options:
 | --- | --- |
 | `settings.hdr` (default `true`) | on: `forge.main` renders into an `rgba16float` target and `forge.tonemap` resolves to the swapchain. off: `forge.main` writes the swapchain directly and applies exposure + tone curve + sRGB encode in the standard shader; no post passes exist. |
 | `settings.postProcessing && settings.bloom.enabled` and `RendererOptions.bloom !== false` | adds the bloom chain between `forge.main` and `forge.tonemap`. Requires `hdr`. Skipped silently when the half-resolution mip would be under 16 px. |
-| `settings.shadow.enabled`, the first shadow-casting directional light, an intersecting `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per active cascade, up to `min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
-| `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to four. The first four valid shadow-casting spot lights are supported. |
+| `settings.shadow.enabled`, the highest-priority shadow-casting directional light, an intersecting `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per active cascade, up to `min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
+| `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to four. The four valid shadow-casting spot lights with the highest brightness × influence-area priority are supported. |
 | `settings.shadow.enabled`, a valid `Light.kind = "point"` with `castShadow`, and an intersecting caster | six `forge.shadow.point.<p>.<face>` passes per selected point light (face order +x −x +y −y +z −z), up to two lights. Each light occupies six consecutive atlas layers after the spot maps. |
 | `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | common edge size of every cascade, spot and point-face layer in the shared depth array. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options; all maps use the same per-frame resolution. |
-| `settings.renderScale` (HDR only) | the HDR target and depth buffer are allocated at `round(size × scale)`; tonemap upsamples to the swapchain. |
+| `settings.renderScale` | the HDR or LDR scene target and depth buffer are allocated at `round(size × scale)`; tonemap or the LDR passthrough resolve upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
 | `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`). The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
@@ -152,7 +152,7 @@ all differ in size and the HDR target is read by the last pass, so nothing else 
 
 **Physical textures are pooled across frames.** Textures are keyed by their descriptor
 (`rg.<w>x<h>x<layers>:<format>:u<usage>:s<samples>:m<mips>#n` — that label is what you see in a GPU
-capture and in `mock.outstanding`). A steady frame creates nothing (`texturesCreated: 0` is asserted
+capture and in `mock.outstanding`). A steady frame creates nothing
 on both the mock and real WebGPU). A shape that goes unused survives two idle frames — a setting that
 flips and flips back costs nothing — and is destroyed on the third; `retireAfterFrames` in the
 constructor changes the grace period. `dispose()` destroys everything the graph created; imported
@@ -235,7 +235,7 @@ Up to four valid shadow-casting spot lights are fitted per frame by `computeSpot
 travel direction and outer-cone cosine define a square perspective projection, with the near plane
 kept close to the light and the far plane at `Light.range`. Cone cosines are clamped and ordered at
 light upload, so even reversed user values yield a valid soft-edge interval. The renderer takes the
-first four valid spots in scene order; `Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
+four valid spots with the highest brightness × influence-area priority; `Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
 `depth24plus` 2d-array and the same frame resolution (`settings.shadow.mapSize` capped by
 `RendererOptions.shadowMapSize`); per-light/adaptive resolution is not part of this step.
 
@@ -253,7 +253,7 @@ reports the active spot-map prefix. Contact and adaptive-resolution shadows rema
 Up to two valid shadow-casting point lights are fitted per frame by `computePointShadow()`: six
 square 90° perspective projections around the light, one per cube face (face order +x −x +y −y +z
 −z), all sharing the light's position as the eye, `min(0.1, range × 0.01)` as the near plane and
-`Light.range` as the far plane. The renderer takes the first two valid point lights in scene order;
+`Light.range` as the far plane. The renderer takes the two valid point lights with the highest brightness × influence-area priority;
 `Light.castShadow = false`, a range at or below `1e-4` m or `settings.shadow.enabled = false`
 excludes a cube. Every face shares the frame's capped resolution with the cascades and spots.
 
@@ -751,10 +751,11 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   intersect multiple cascade, spot or point-face frusta, in which case its assigned range is
   submitted to each corresponding map. Off-screen caster coverage is preserved, but overlapping maps
   can repeat vertex work; there is no per-map GPU compaction.
-* Only the first shadow-casting directional light, up to four spot lights and up to two point lights
-  cast. Contact and adaptive-resolution shadows are not implemented yet. Point cube faces are
-  sampled by dominant axis (WebGPU has no depth-cube comparison sampling), so PCF taps crossing a
-  face edge fall back to lit — a thin bright seam at grazing face boundaries.
+* Only the highest-priority shadow-casting directional light, up to four spot lights and up to two point lights
+  cast. Contact shadows and per-light resolution are not implemented yet. Point cube faces are
+  sampled by dominant axis because WebGPU has no depth-cube comparison sampling. Each 90° face uses
+  a two-texel projection guard band, so the 3×3 PCF footprint stays inside overlapping face data at
+  cube boundaries instead of producing a bright seam.
 * At 2048², one `depth24plus` layer costs about 16 MiB: three cascades alone are ≈48 MiB, three
   cascades plus four spots ≈112 MiB, and one point cube adds six more layers (≈96 MiB). The hard
   four-cascade/four-spot/two-point-cube maximum is twenty layers ≈320 MiB; the 4096² ultra profile
@@ -783,9 +784,10 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   projection does not put in `clip.w`, the same reason SSAO is perspective-only — so their local lights
   still go through the fixed 16-entry uniform list.
 * The cluster block preserves assigned spot and point `shadowIndex` values, but unselected spots and
-  point lights still use −1. Only the first four valid shadow-casting spot lights and the first two
-  point lights receive maps; contact and adaptive-resolution shadows remain roadmap 13.9 work.
-* `renderScale` scales the HDR target only; the LDR path always renders at swapchain resolution.
+  point lights still use −1. Only the four highest-priority valid shadow-casting spot lights and two
+  highest-priority point lights receive maps; contact shadows remain roadmap 13.9 work, while shared
+  map resolution adapts to the configured memory budget.
+* `renderScale` scales both HDR and LDR scene/depth targets; HDR tonemaps to the swapchain while LDR uses a color-preserving bilinear resolve.
 * The graph builds one command buffer and submits it. The engine-level `renderTimeMs` remains a CPU
   submission-side measurement; optional GPU timestamps are reported separately in `Renderer.stats`
   as `gpuFrameTimeMs`, `gpuRenderTimeMs`, `gpuComputeTimeMs` and `gpuPassTimes` (§1).

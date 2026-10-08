@@ -171,12 +171,9 @@ function resolveCrater(
  *
  * A chunk is tiny compared with a crater cell (128-512 m against 5-500 km), so its vertices all
  * touch the same handful of cells. Caching "cell -> craters in it" per chunk removes the repeated
- * hashing while keeping the *sampled set* identical: the +-1 window test is still applied per vertex,
- * with the vertex's own cell triple, exactly as the generator does.
- *
- * The only difference from the transcription is the order the surviving terms are summed in, which
- * moves the result in the last bits of the mantissa (and is why `tools/mars-port-check.mjs` compares
- * with a tolerance rather than for bit equality).
+ * hashing while keeping both the sampled set and the band/offset summation order identical: the +-1
+ * window test is still applied per vertex, with the vertex's own cell triple, exactly as the generator
+ * does. The cache resolves immutable crater parameters early but does not reorder candidates.
  */
 /**
  * Unique numeric key for a crater-grid cell (used as a Map key, so it must not collide and must stay
@@ -193,7 +190,10 @@ function marsCellKey(ix: number, iy: number, iz: number): number {
 
 export class MarsCraterScanner {
   private readonly seed: number;
-  private readonly cells = new Map<number, ResolvedCrater[] | null>();
+  // Cell coordinates can coincide across size bands (especially around an axis); keep independent
+  // maps so a cached 5 km candidate can never be reused as a 50 km or 500 km candidate.
+  private readonly cells: Array<Map<number, ResolvedCrater[] | null>> =
+    MARS_CRATER_SCALES.map(() => new Map<number, ResolvedCrater[] | null>());
   /** Per band: the vertex cell triple the candidate list was built for, and that list. */
   private readonly cachedTriple: number[] = [-1, -1, -1];
   private readonly cachedList: ResolvedCrater[][] = [[], [], []];
@@ -205,12 +205,13 @@ export class MarsCraterScanner {
   /** Craters in one cell of one band (negative results are cached too: most cells are empty). */
   private cellCraters(band: number, cix: number, ciy: number, ciz: number): ResolvedCrater[] {
     const key = marsCellKey(cix, ciy, ciz);
-    const cached = this.cells.get(key);
+    const bandCells = this.cells[band]!;
+    const cached = bandCells.get(key);
     if (cached !== undefined) return cached ?? EMPTY_CRATERS;
     const scale = MARS_CRATER_SCALES[band]!;
     const resolved = resolveCrater(band, scale, this.seed, cix, ciy, ciz);
     const list = resolved ? [resolved] : null;
-    this.cells.set(key, list);
+    bandCells.set(key, list);
     return list ?? EMPTY_CRATERS;
   }
 
@@ -266,7 +267,9 @@ export class MarsCraterScanner {
 
   /** Cached cell count (tests / diagnostics). */
   get cellCount(): number {
-    return this.cells.size;
+    let count = 0;
+    for (const cells of this.cells) count += cells.size;
+    return count;
   }
 }
 

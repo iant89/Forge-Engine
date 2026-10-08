@@ -71,14 +71,14 @@ model.transmittance(height, dx, dy, dz, out, samples);          // toward space 
   not measured.
 * **Sampling.** View-ray segment *i* spans `tMax·[(i/N)³, ((i+1)/N)³]`. A horizon ray is ~1000 km
   long and nearly all of its in-scattered blue comes from the first few tens of kilometres; with
-  uniform segments the first sample sat ~60 km out and 8×4 came out 10× too dark in blue. With the
-  cubic spacing 8×4 stays within 0.6–1.1× of a 512×32 reference from 0.5° to 30° elevation
-  (pinned). Light rays are uniform.
-* **Quality tiers.** `SKY_QUALITY_SAMPLES`: `low` 8×4, `medium` 16×8, `high` 32×16 (view × light).
-  The renderer marches with the scene's tier capped by the quality profile
-  (`EngineConfig.skyQuality` → `RendererOptions.skyQuality`; `stats.skySamples` reports the result)
-  and `DayNightCycle` evaluates its horizon colour with the scene's tier, so the fog colour is the
-  horizon the pass draws (under a profile cap the two can differ by the truncation error below).
+  uniform segments the first sample sat ~60 km out and 8×4 came out 10× too dark in blue. Cubic
+  spacing handles the rest of the dome efficiently; the narrow `abs(viewDir.y) < 0.035` horizon band
+  floors both CPU and GPU integration at 64×32 and stays within 12% of a 512×32 reference (pinned).
+  Light rays are uniform.
+* **Quality tiers.** `SKY_QUALITY_SAMPLES`: `low` 8×4, `medium` 16×8, `high` 64×32 (view × light),
+  with the horizon floor above. The renderer uses the scene tier capped by the quality profile
+  (`EngineConfig.skyQuality` → `RendererOptions.skyQuality`; `stats.skySamples` reports the base tier)
+  and `DayNightCycle` uses the same horizon floor, so its driven fog colour matches the drawn horizon.
 * **Hemispherical estimates.** `skyAmbient` (24 Fibonacci directions, cosine-weighted) and
   `horizonColor` (8 azimuths) evaluate the Mie lobe with |g| capped at 0.5: a dust lobe with g 0.7
   cannot be integrated by two dozen directions (whichever sample lands nearest the sun dominates),
@@ -123,7 +123,7 @@ forge.sky    color: sceneColor (load)    depth: sceneDepth (depthReadOnly)   1 t
 | `sunIntensity` (20), `exposure` (1) | sky radiance scale; `exposure` multiplies the sky only. |
 | `turbidity` (2), `rayleigh` (1), `mie` (1) | multipliers on the preset: Mie coefficients are scaled by `mie × turbidity / 2`, Rayleigh by `rayleigh`. |
 | `sunAngularRadius` (0.00465), `sunDiscIntensity` (100) | disc size (the real sun) and radiance relative to `sunIntensity × transmittance` (the physical 14 700× would bloom the frame). |
-| `starBrightness` (1), `nightEnabled` (true) | star field; stars fade with the scattered light so they never show by day. |
+| `starBrightness` (1), `nightEnabled` (true) | Star field plus an atmosphere-attenuated full moon in the anti-solar direction; stars fade with scattered daylight. |
 | `seaLevel` (0) | render-local height of the planet surface; the camera's altitude is `y − seaLevel`. |
 | `quality` (`medium`) | sample tier, see above. |
 | `atmosphere` (`null`) | `AtmosphereParams` or `null` for Earth. Serialised with the scene. |
@@ -184,6 +184,9 @@ Per `apply()` (sun direction from `solarPosition`, then):
 * **Fog colour** (`driveFog`): `scene.settings.fog.color = max(nightAmbient, horizonColor)` at the
   scene's sky quality tier.
 * **Sky** (`driveSky`): `scene.settings.sky.sunDirection = toSun` and `skyEnabled = true` on attach.
+* **Schedules** (`schedules`): callbacks run after built-in outputs with smooth complementary
+  `daylight`/`night` factors. They can synchronize point/spot lamps, emissive materials, fog density,
+  audio or arbitrary scene systems without coupling those systems to the astronomical model.
 * The two hemispherical integrals (~0.25 ms) are re-evaluated only when the sun has moved by more
   than 0.03° since the last evaluation, or after `refresh()`/`setAtmosphere()`.
 
@@ -213,14 +216,11 @@ runs under the Mars preset with exp² dust haze coloured by the model's horizon.
   the sun and Earth's horizon is yellowish rather than white; compensate with `sky.sunIntensity` vs
   the light's intensity (the demo's 20 : 4.2) and `ambientScale`. A multiple-scattering LUT is the
   natural follow-up.
-* **Sample truncation** at the horizon with `low` quality (up to ~35 % dark in blue against the
-  converged integral; `medium` halves it).
-* **No moon, no twilight from below the horizon, no aerial perspective on geometry** (fog is the
-  only distance cue on surfaces), **no per-object sky lighting** (the ambient is one colour).
+* **No twilight from below the horizon or aerial perspective on geometry** (fog is the only distance
+  cue on surfaces), **no per-object sky lighting** (ambient is one colour). The procedural anti-solar
+  moon is always full and has no orbital inclination or calendar phase.
 * **The sun disc is a look control**, not a physical radiance.
 * **Mars' blue sunset aureole** needs a wavelength-dependent Mie lobe; the preset has one `g`.
-* **`DayNightCycle` drives one directional light** and does not touch fog density, point/spot lights
-  or materials.
 
 ## 7. Weather, clouds, water, lightning (Phase 8b)
 
@@ -234,8 +234,10 @@ are the demo keys and the gate's vocabulary. The fields are frozen turbulence ad
 wind: `sampleWindAt` (gust-bounded), `sampleTemperatureAt` (lapse rate + patch field),
 `samplePrecipitationAt` (patch-modulated, dry states dry everywhere) — all pure in
 (x, z, t, seed). `apply` pushes the driven settings: fog density from precipitation, sky turbidity
-from humidity/storm, and cloud coverage + deck wind from cover/mean wind (each behind a `drive*`
-switch; the day/night cycle writes fog *colour* and the sun direction, so the two never fight).
+from humidity/storm, cloud coverage + deck wind from cover/mean wind, and directional/ambient
+attenuation from cloud + storm cover (each behind a `drive*` switch). Lighting attenuation composes
+over fresh `DayNightCycle` output without accumulating; point and spot lights remain local and
+untouched.
 
 ### 7.2 Clouds: one deck inside the sky pass
 
@@ -249,12 +251,15 @@ the deck tracks the day/night cycle for free. The same remap and shading run on 
 WGSL (`rendering/shaders/cloudLayer.ts`, evaluated once per sky pixel before fog), but the noise
 bases differ on purpose (Perlin fbm on the CPU, value-noise fbm on the GPU): the tests pin the CPU
 statistics, the browser gate pins the GPU's presence and direction. The shader advects the field by
-the weather's deck wind over the frame clock.
+the weather's deck wind over the frame clock. Three additional density samples projected toward the
+sun over `thickness` darken cloud cores beneath other cloud structure; this is coherent deck
+self-shadowing, not the vertical structure of a true volume.
 
 ### 7.3 Water: one Gerstner sum, sampled twice
 
 `environment/water.ts` evaluates the Gerstner sum — vertical `A·sin(f)` plus horizontal
-`Q·A·cos(f)` travel with `Q = steepness/(k·A·N)` — with analytic normals and a crest factor that
+`Q·A·cos(f)` travel with `Q = steepness/(k·A·N)` — with exact parametric normals from the full
+horizontal-displacement Jacobian and a shared four-wave CPU/GPU bound. A crest factor
 drives `foamFromCrest`. The water *vertex shader* evaluates the same sum from the same waves
 (`WaterUniforms` carries `k` and `Q` precomputed), so gameplay queries
 (`WaterSurface.sampleHeight`, buoyancy, soundings) agree with the rendered surface. The fragment

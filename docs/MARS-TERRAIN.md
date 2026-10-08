@@ -91,11 +91,11 @@ be described, hashed into the cache key, and sent to workers.
 * **heights** — `marsSampleAnalytic(direction).elevation + bilinear(erosionDelta) + fineDetail`, then
   optional curvature compensation (below).
 * **slopes** — central differences on the height grid.
-* **biomes** — 4 channels per vertex, i.e. splat weights: `0 dust, 1 rock, 2 sand, 3 crust`. Base weights
-  come from the material index the geology rules assigned (regolith/basalt → dust, bedrock/flank → rock,
-  dunes/channel floor → sand, crater/ice/sediment → crust), then a slope bias moves weight towards rock
-  (`clamp((slope − 0.45) / 0.4, 0, 1)`), renormalised. `marsSurfaceLayers()` returns matching
-  `LayeredTerrainMaterial` layers in that channel order.
+* **biomes** — 4 channels per vertex, i.e. splat weights: `0 dust, 1 rock, 2 sand, 3 crust`. Weights
+  come directly from the absolute-position material index assigned by geology (regolith/basalt → dust,
+  bedrock/flank → rock, dunes/channel floor → sand, crater/ice/sediment → crust). They intentionally
+  do not consume mesh-resolution-derived slopes, so coincident vertices keep identical masks across
+  LODs. `marsSurfaceLayers()` returns matching layers in that channel order.
 * **scatters** — deliberately empty. The generator has no scatter pass; the engine's scatterers are
   separate stages.
 
@@ -307,9 +307,9 @@ The showcase arrays are roughly 4 MiB including mipmaps. Mips are filtered indep
 in linear light for albedo and vector space for normals.
 
 This is four fixed layers with grid-sampled gates, not triplanar projection or texture-height
-blending. The distant apron uses a representative single material. Coarse LODs can produce different
-slope-derived biome weights: stable texture phase/filtering does not promise identical geology masks
-between different grids. No generator heights, seed, landing location or rover physics were changed.
+blending. The distant apron uses a representative single material. Geology masks are evaluated from
+absolute position and remain identical at vertices shared by different LOD grids; texture phase and
+filtering are stable as well. No generator heights, seed, landing location or rover physics changed.
 
 ### Other sites and optional erosion fields
 
@@ -376,20 +376,15 @@ npm run check:mars-port -- --cache <generator-cache>   # point-for-point vs the 
 `mars-port-check` is the only check that proves the *transcription* (hash, gradient noise, crater bands,
 volcano profile, dichotomy warp, canyon carve) against the generator rather than against itself; it reads
 `cache/global/face_<n>/baseElevation.f32` and compares each grid point with the port. It needs a real
-cache, so it is not part of CI. It is tolerance-based on purpose: `baseElevation.f32` is float32 while
-the port computes in float64, and the crater sum is evaluated in a different order (see below), so
-agreement is ~1e-3 m, not bit equality.
+cache, so it is not part of CI. It is tolerance-based because `baseElevation.f32` stores the generator's
+float64 computation as float32, so agreement is ~1e-3 m rather than bit equality. The cached
+`MarsCraterScanner` itself preserves the direct generator loop's band/cell order and is regression-tested
+for exact delta, classification and crater-ID equality across a tile.
 
-Two deviations from the generator, both deliberate and both recorded in `docs/KNOWN-ISSUES.md`:
-
-1. **Crater summation order.** `MarsCraterScanner` caches the craters that can influence a tile's
-   vertices (the generator re-walks 27 neighbouring cells per vertex, 81 hash probes each). It samples
-   the *same set* of craters — a test asserts zero `inCrater` mismatches and agreement to 1e-6 — but
-   sums them in a different order, which moves results in the last mantissa bits of a metres-scale value.
-2. **Bilinear erosion sampling.** The generator's Stage A lookup approximates the cube inverse (it uses
-   the naive face-space projection, not the inverse of the spherify warp). The port uses the same
-   approximation so cached fields line up; at face-centre regions the two coincide, near face edges the
-   generator's own lookup is the approximate one.
+One coordinate convention deliberately follows the generator: its Stage A lookup approximates the cube
+inverse (it uses the naive face-space projection, not the inverse of the spherify warp). The port uses the
+same approximation so cached fields line up; at face-centre regions the two coincide, while near face
+edges the generator's own lookup is the approximate one.
 
 ## 7. Tooling in this repo
 

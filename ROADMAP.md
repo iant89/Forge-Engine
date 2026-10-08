@@ -15,13 +15,14 @@ CURRENT CODEBASE BASELINE:
                 IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
                 registry's `6: partial`. The registry is right: the open vehicle limitations
                 were box wheel visuals (vehicles.wheelVisuals) plus three intentional model
-                limits — solved longitudinal slip (vehicles.tireModel), reverse as a ratio not
-                a control (vehicles.transmission) and discrete-contact impacts (physics.ccd).
-                None is a Phase 6 defect — the model itself is pinned by tests/vehicles/vehicles.test.ts
-                and tests/vehicles/vehiclePhysics.test.ts. Phase 16.6 closed the visual limitation
-                (tyre assemblies, steered geometry, suspension/damper animation) and its bullet
-                is gone from docs/KNOWN-ISSUES.md §Vehicles; the three model limits stay, and
-                no separate Phase 6 hardening work is scheduled for them. This note records the
+                limits — solved longitudinal slip (vehicles.tireModel) and discrete-contact impacts
+                (physics.ccd). Reverse was formerly only a ratio with no control; it is now a safely
+                interlocked manual F/N/R selector on keyboard and touch (vehicles.transmission verified).
+                The remaining limits are not Phase 6 defects — the model itself is pinned by
+                tests/vehicles/vehicles.test.ts and tests/vehicles/vehiclePhysics.test.ts. Phase 16.6
+                closed the visual limitation (tyre assemblies, steered geometry, suspension/damper
+                animation), and no separate Phase 6 hardening work is scheduled for the intentional
+                tire and collision model limits. This note records the
                 interpretation rather than inventing scope.)
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED

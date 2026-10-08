@@ -266,7 +266,7 @@ export {
   type GpuTimingFrame,
   type GpuTimingCallback,
 } from "./rendering/renderGraph.js";
-export { computeCascadeSplits, frustumSliceCorners, computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, type Cascade, type CascadeCameraParams, type CascadeOptions, type SpotShadowFit, type PointShadowFit, type PointShadowFace } from "./rendering/shadows.js";
+export { computeCascadeSplits, frustumSliceCorners, computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, shadowLightPriority, type Cascade, type CascadeCameraParams, type CascadeOptions, type SpotShadowFit, type PointShadowFit, type PointShadowFace } from "./rendering/shadows.js";
 export {
   ClusterGrid,
   clusterSliceFor,
@@ -319,6 +319,7 @@ export {
   type ObjectCullStats,
 } from "./rendering/objectCulling.js";
 export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions } from "./rendering/pipeline.js";
+export { fitShadowMapSize, shadowAtlasBytes, DEFAULT_SHADOW_MEMORY_BUDGET, SHADOW_TEXEL_BYTES } from "./rendering/shadowBudget.js";
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, SKIN_VERTEX_LAYOUT, SKIN_VERTEX_STRIDE, SKIN_VERTEX_ATTRIBUTES, SKIN_JOINTS_PER_VERTEX, computeNormalsAndTangents, type GeometrySource, type SkinVertexStream } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding, type SkinSource } from "./rendering/mesh.js";
 export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
@@ -371,7 +372,7 @@ export {
   type WorldMatrixLookup,
 } from "./rendering/skinning.js";
 export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
-export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP } from "./rendering/shaders/post.js";
+export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP, POST_FLAG_PASSTHROUGH } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";
 export { WGSL_CLOUD } from "./rendering/shaders/cloudLayer.js";
@@ -384,3 +385,6 @@ export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } fro
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */
 export const VERSION = "0.1.0";
+
+// Audio
+export { AudioSystem, SpatialAudioEmitter, AudioVoice, EffectRack, FilterEffect, DelayEffect, ConvolutionReverb, CompressorEffect, createThunderBuffer, type ThunderOptions, type AudioSystemOptions, type AudioEffect, type AudioBusName, type AudioClip, type AudioStats, type ListenerTransform, type PlayOptions, type SpatialOptions } from "./audio/index.js";

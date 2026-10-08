@@ -40,7 +40,7 @@ export interface GerstnerWave {
   phase: number;
 }
 
-/** Maximum waves the water shader evaluates (the CPU sums any number). */
+/** Maximum waves evaluated by both the water shader and CPU gameplay queries. */
 export const MAX_WATER_WAVES = 4;
 
 export interface WaterSample {
@@ -62,20 +62,25 @@ export function createWaterSample(): WaterSample {
 }
 
 /**
- * Evaluate the Gerstner sum at a world XZ and time. Normals are the analytic derivatives of the
- * height field (`(−dy/dx, 1, −dy/dz)`, normalised) — the horizontal displacement's Jacobian is
- * ignored, which is the standard approximation and exact for `steepness = 0`.
+ * Evaluate the same bounded Gerstner sum as the shader at a world XZ and time. Normals are the
+ * exact analytic derivatives of the complete horizontally displaced parametric surface.
  */
 export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: number, t: number, out: WaterSample = createWaterSample()): WaterSample {
   let y = 0;
   let dx = 0;
   let dz = 0;
+  let dxdx = 1;
+  let dxdz = 0;
+  let dzdx = 0;
+  let dzdz = 1;
   let dydx = 0;
   let dydz = 0;
   let crestNum = 0;
   let crestDen = 0;
-  const n = Math.max(1, waves.length);
-  for (const w of waves) {
+  const waveCount = Math.min(waves.length, MAX_WATER_WAVES);
+  const n = Math.max(1, waveCount);
+  for (let i = 0; i < waveCount; i++) {
+    const w = waves[i]!;
     if (!(w.amplitude > 0) || !(w.wavelength > 0)) continue;
     const len = Math.hypot(w.directionX, w.directionZ) || 1;
     const dirX = w.directionX / len;
@@ -90,6 +95,11 @@ export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: num
     const q = w.steepness / (k * w.amplitude * n);
     dx += q * w.amplitude * dirX * cosF;
     dz += q * w.amplitude * dirZ * cosF;
+    const horizontalDerivative = q * w.amplitude * k * sinF;
+    dxdx -= horizontalDerivative * dirX * dirX;
+    dxdz -= horizontalDerivative * dirX * dirZ;
+    dzdx -= horizontalDerivative * dirX * dirZ;
+    dzdz -= horizontalDerivative * dirZ * dirZ;
     const slope = k * w.amplitude * cosF;
     dydx += dirX * slope;
     dydz += dirZ * slope;
@@ -99,10 +109,14 @@ export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: num
   out.y = y;
   out.dx = dx;
   out.dz = dz;
-  const inv = 1 / (Math.hypot(dydx, 1, dydz) || 1);
-  out.nx = -dydx * inv;
-  out.ny = inv;
-  out.nz = -dydz * inv;
+  // Exact normal of the horizontally displaced parametric surface: cross(dP/dz, dP/dx).
+  const nx = dydz * dzdx - dzdz * dydx;
+  const ny = dzdz * dxdx - dxdz * dzdx;
+  const nz = dxdz * dydx - dydz * dxdx;
+  const inv = 1 / (Math.hypot(nx, ny, nz) || 1);
+  out.nx = nx * inv;
+  out.ny = ny * inv;
+  out.nz = nz * inv;
   out.crest = crestDen > 0 ? crestNum / crestDen : 0;
   return out;
 }
@@ -115,7 +129,10 @@ export function waterHeightAt(waves: readonly GerstnerWave[], level: number, x: 
 /** Sum of amplitudes — the surface never leaves `level ± totalAmplitude`. */
 export function totalWaveAmplitude(waves: readonly GerstnerWave[]): number {
   let sum = 0;
-  for (const w of waves) if (w.amplitude > 0 && w.wavelength > 0) sum += w.amplitude;
+  for (let i = 0; i < Math.min(waves.length, MAX_WATER_WAVES); i++) {
+    const w = waves[i]!;
+    if (w.amplitude > 0 && w.wavelength > 0) sum += w.amplitude;
+  }
   return sum;
 }
 

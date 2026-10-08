@@ -99,6 +99,7 @@ pins around the ring and the second indirect record.
 
 ## Limitations
 
-See `docs/KNOWN-ISSUES.md` § Particles: mesh particles deferred, HiZ deferred, collision
-deferred, variable-rate CPU `ParticleSystem`. Ribbons draw from a fixed 4-sample ring only — no
+See `docs/KNOWN-ISSUES.md` § Particles: mesh particles deferred, HiZ deferred, and collision
+deferred. CPU and GPU simulation consume the engine's fixed substeps; GPU culling/rendering still
+runs once per presented frame. Ribbons draw from a fixed 4-sample ring only — no
 per-particle texture coordinates, no ribbon UV/texturing, no sharp-turn mitring.

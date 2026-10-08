@@ -11,18 +11,10 @@ the honest detail lives; nothing here is hidden behind a green gate.
   each map. A single-map heuristic is intentionally not used because it could drop valid shadows.
   `stats.shadowInstancesDrawn` and `shadowInstancesCulled` expose the work.
   (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
-* **Shadowed-light coverage is bounded.** Only the first shadow-casting directional light, up to
-  four valid spot lights and up to two valid point lights receive maps. Contact shadows and
-  adaptive resolution remain deferred; all maps share the frame's capped `shadow.mapSize`
-  resolution. (capability: rendering.shadows)
-* **Point cube faces seam at grazing angles.** WebGPU has no comparison sampling for depth cubes,
-  so the shader picks the dominant face per fragment; PCF taps that cross a face edge fall back to
-  lit, which can leave a thin bright seam where faces meet at shallow receiver angles.
-  (`docs/RENDERING.md` §4) (capability: rendering.shadows)
-* **Shadow atlas memory.** One 2048² `depth24plus` layer is about 16 MiB; the
-  four-cascade/four-spot/two-point-cube maximum is twenty layers — about 320 MiB at 2048² and
-  1.25 GiB at the 4096² ultra cap. Quality profiles cap `shadowMapSize`; maps are not adaptive.
-  (capability: rendering.shadowMemory)
+* **Shadowed-light coverage is bounded.** The highest-priority shadow-casting directional light,
+  up to four spot lights and up to two point lights receive maps; priority combines brightness and
+  local-light influence area rather than scene order. Contact shadows remain deferred. Maps share
+  a resolution that adapts to the configured shadow-memory budget. (capability: rendering.shadows)
 * **The prepass depth has three consumers so far.** SSAO, the soft-particle fade and the object
   culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
   (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
@@ -66,8 +58,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   orthographic projection does not put in `clip.w` (the same reason SSAO is perspective-only), so their
   local lights still go through the fixed 16-entry uniform list and still truncate at
   `MAX_LIGHTS_PER_FRAME`. (`docs/RENDERING.md` §4b) (capability: rendering.clusterCoverage)
-* **`renderScale` applies to the HDR path only.** The LDR path always renders at swapchain size. (capability: rendering.renderScale)
-* **No profiler UI.** The profiler receives asynchronous GPU pass samples, but this build has no timeline or pass-timing overlay. (capability: diagnostics.profiler)
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves
   presence and direction (A/B luminance) and the pass structure; visual quality is an eyeball check
   on `tools/.browser-check.png`. (capability: rendering.postFxVerification)
@@ -119,11 +109,6 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   worker yet: those pipelines require the live-instance fallback, preferably `syncGeneration: true`
   to bypass the rejected worker hop. Missing/blocked workers also fall back inline. This is a
   chunk-count budget, not a millisecond guarantee. (capability: terrain.marsGeneratorPort)
-* **The Mars port's crater sum is order-sensitive in the last mantissa bits.** `MarsCraterScanner`
-  batches the generator's per-vertex 27-cell scan (it samples the same craters — a test asserts zero
-  class mismatches and 1e-6 agreement) but sums them in a different order, so `mars-port-check`
-  compares against the generator's float32 output with a tolerance rather than for bit equality.
-  (`docs/MARS-TERRAIN.md` §6) (capability: terrain.marsGeneratorPort)
 * **The port's material regions are coarse relative to a demo tile.** `terrain.marsGeneratorPort`'s
   geology assigns a material per terrain *region* (crater floors and rims, the volcano's flank, the
   canyon's walls), so the four splat channels a 128 m tile carries are usually near one dominant
@@ -132,12 +117,6 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   That is the port's geology, not a wiring failure — albedo variety *within* a site would need finer
   regional rules, not a different material path. `?scene=mars-generator&marssite=0,0` is the shipped
   site where the mix is real enough to see. (capability: terrain.marsGeneratorPort)
-* **Mars material weights still inherit LOD sampling.** The four PBR layers now render, with
-  phase-aligned tiled maps and clamped texel-centre mask sampling. That removes shader-introduced
-  border wrapping, not differences in the input data: slope-derived biome weights can change when
-  a tile is regenerated at a coarser resolution. There is no independent high-resolution global
-  material map, triplanar cliff projection or material-mask geomorph. The distant horizon apron
-  retains a representative single material. (capability: terrain.marsGeneratorPort)
 
 ## Vehicles (Phase 6 / 11)
 
@@ -147,8 +126,6 @@ What remains:
 * **Longitudinal slip is solved, not freely integrated, while the tire can balance the demand.**
   Past the peak, and only when TC/ABS are not clamping, the residual torque spins the wheel. Do not
   expect a stable explicit-Euler wheel at 120 Hz — that path limit-cycles, which is why it was removed. (capability: vehicles.tireModel)
-* **Reverse is a ratio, not a control.** Set `transmission.gear = -1`. The automatic only shifts
-  forward gears, and the playground has no reverse key. (capability: vehicles.transmission)
 * **No continuous collision detection.** High-speed impacts use discrete contacts; tunneling a thin
   prop at extreme speed is still possible. (capability: physics.ccd)
 
@@ -162,11 +139,6 @@ What remains:
   hierarchical Z is not built. (capability: particles.gpuRendering)
 * **GPU particle collision is deferred.** Soft particles *sample* the scene depth for a fade; they
   do not bounce off terrain or the depth buffer. (capability: particles.gpuRendering)
-* **`ParticleSystem` (CPU) is still variable-rate.** One step per frame, not per physics substep.
-  The GPU path is also frame-driven via the render graph. The analytic gravity check passes an
-  explicit `dt`. (capability: particles.fixedStep)
-* **One owner per CPU simulation.** `ParticleWorld` and `ParticleSystem` both call `step`. Attaching
-  both to the same sim double-integrates. The GPU demo uses `GpuParticleWorld` only. (capability: particles.fixedStep)
 
 ## Environment (Phase 8a)
 
@@ -180,39 +152,27 @@ What remains:
   path. The planet ground the pass draws below the horizon *is* fogged in every mode, and
   `DayNightCycle.driveFog` keeps the fog colour equal to the sky just above the horizon, so seams
   only appear when a scene sets a fog colour that disagrees with its sky. (`docs/ENVIRONMENT.md` §4) (capability: environment.skyFogModes)
-* **Sample-count truncation is visible at the horizon.** With `quality: "low"` (8×4) the horizon sky
-  is up to ~35 % darker in blue than the converged integral (`tests/environment/environment.test.ts` pins the
-  bound); `medium` halves that. The cubic view-ray spacing is what makes even `low` usable. (capability: environment.skyQuality)
-* **No moon, no twilight glow from below the horizon, no aerial perspective on geometry.** Nights are
-  stars over an ambient floor (`nightAmbient`). Geometry gets fog, not the sky's in-scattering. (capability: environment.aerialPerspective)
+* **No twilight glow from below the horizon or aerial perspective on geometry.** Nights include an
+  atmosphere-attenuated anti-solar full moon and stars over `nightAmbient`, but the moon has no phases
+  or orbital inclination. Geometry gets fog, not the sky's in-scattering. (capability: environment.aerialPerspective)
 * **The sun disc is not a physical radiance.** `sunDiscIntensity` (default 100× the sun's
   transmitted irradiance) is a look control; the real disc (~14 700×) would bloom the whole frame. (capability: environment.sunDisc)
 * **Mars' blue sunset aureole is not modelled.** It needs a wavelength-dependent Mie lobe; the preset
   has one `g`. The daytime butterscotch sky and the bright forward aureole are there. (capability: environment.multipleScattering)
-* **`DayNightCycle` drives one directional light.** Point/spot lights, emissive materials and the
-  fog *density* are untouched; only the light's direction/colour/intensity, `ambientColor`,
-  `fog.color` and `sky.sunDirection` are written. (roadmap: 17)
 * **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
   the view direction (the sky's horizon average is used). (roadmap: 17)
 
 ## Environment (Phase 8b)
 
 * **One flat cloud layer, not a volume.** The deck is a single noise-textured plane at a fixed
-  height with no vertical structure and no self-shadowing; `thickness` in `CloudUniforms` is
-  reserved for a volumetric follow-up. The CPU and GPU noise bases differ (Perlin vs value-noise
-  fbm), so the twins agree on formulas and statistics, never bit-exactly. (capability: environment.clouds)
-* **Weather does not dim the sun.** Storms whiten the sky and thicken the fog, but the directional
-  light and the ambient keep their clear-day values — the browser gate's "overcast noon is brighter
-  than clear noon" direction depends on this. A storm-darkened sun is later work. (capability: environment.stormLighting)
+  height with no vertical structure. `thickness` drives a three-sample projected self-shadow, not a
+  true volumetric march. The CPU and GPU noise bases differ (Perlin vs value-noise fbm), so the twins
+  agree on formulas and statistics, never bit-exactly. (capability: environment.clouds)
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
   the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
-  The vertex normals ignore the horizontal displacement's Jacobian (exact for `steepness = 0`), and
-  the GPU evaluates 4 waves while the CPU sums any number. (capability: environment.water)
-* **Lightning has no thunder and one shared light.** Strikes are silent (a sound system can read
-  time/position/energy); the flash light sits at the brightest live strike, so two simultaneous
-  bolts share one light; bolts draw as debug lines only (no emissive mesh, no bloom seeding beyond
-  the sky flash). (capability: environment.lightning)
+  CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
+  (capability: environment.water)
 
 ## World population (Phase 14)
 

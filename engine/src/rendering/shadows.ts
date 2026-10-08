@@ -290,6 +290,24 @@ export function createPointShadowFaces(): PointShadowFace[] {
  * light's sphere lands in at least one face. Returns false for a degenerate position, range or
  * resolution instead of emitting singular matrices.
  */
+/**
+ * Potential shadow influence used when atlas slots are oversubscribed. Local lights include their
+ * influence area, so a dim short-range light cannot displace a broadly influential one merely by
+ * appearing earlier in scene order. Invalid values rank last.
+ */
+export function shadowLightPriority(light: {
+  kind: "directional" | "spot" | "point";
+  intensity: number;
+  range: number;
+  color: { x: number; y: number; z: number };
+}): number {
+  const brightness = Math.max(0, light.intensity) * Math.max(0, light.color.x, light.color.y, light.color.z);
+  if (!Number.isFinite(brightness)) return 0;
+  if (light.kind === "directional") return brightness;
+  const range = Number.isFinite(light.range) ? Math.max(0, light.range) : 0;
+  return brightness * range * range;
+}
+
 export function computePointShadow(position: Vec3, range: number, mapSize: number, out: PointShadowFit): boolean {
   if (
     !Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.z) ||
@@ -299,7 +317,11 @@ export function computePointShadow(position: Vec3, range: number, mapSize: numbe
   }
   const near = Math.min(0.1, range * 0.01);
   const resolution = Math.max(1, Math.floor(mapSize));
-  pointProjection.setPerspective(Math.PI / 2, 1, near, range);
+  // A two-texel guard band makes adjacent cube faces overlap. Dominant-face receivers at exactly
+  // 45° then land at least one UV texel inside the map, so the shader's 3x3 PCF kernel never
+  // samples beyond the face and cannot expose a bright clamp/fallback seam.
+  const guardTan = 1 + 2 / resolution;
+  pointProjection.setPerspective(2 * Math.atan(guardTan), 1, near, range);
   for (let f = 0; f < POINT_FACE_AXES.length; f++) {
     const [axis, up] = POINT_FACE_AXES[f]!;
     const face = out.faces[f]!;
@@ -311,7 +333,7 @@ export function computePointShadow(position: Vec3, range: number, mapSize: numbe
   out.near = near;
   out.far = range;
   out.texelSize = 1 / resolution;
-  // tan(45°) = 1: a 90° face spans two world units per light-space unit at clip.w distance.
-  out.worldTexelScale = 2 / resolution;
+  // Full guarded face width at unit light-space depth, divided by resolution.
+  out.worldTexelScale = (2 * guardTan) / resolution;
   return true;
 }

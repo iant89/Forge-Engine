@@ -28,6 +28,29 @@
         line-height: 1.5;
         z-index: 10;
       }
+      #profiler-panel {
+        display: none;
+        position: fixed;
+        left: max(10px, env(safe-area-inset-left));
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 11;
+        min-width: 360px;
+        max-width: min(620px, calc(100vw - 20px));
+        max-height: 46vh;
+        margin: 0;
+        overflow: auto;
+        padding: 10px 12px;
+        border: 1px solid rgb(96 165 250 / 0.5);
+        border-radius: 6px;
+        background: rgb(5 7 10 / 0.9);
+        color: #dbeafe;
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre;
+        pointer-events: auto;
+        user-select: text;
+        backdrop-filter: blur(6px);
+      }
+      #profiler-panel.shown { display: block; }
       #toolbar {
         position: fixed;
         right: max(10px, env(safe-area-inset-right));
@@ -337,6 +360,40 @@
       body.scene-vehicle:not(.scene-mars) #veh-park { display: flex; }
       /* Latched, not held: lit for as long as the brake is engaged. */
       #veh-park.active { background: rgb(153 27 27 / 0.92); border-color: #fca5a5; transform: scale(0.94); }
+      .veh-gear-switch {
+        display: none;
+        position: fixed;
+        right: max(16px, env(safe-area-inset-right));
+        bottom: max(174px, calc(env(safe-area-inset-bottom) + 174px));
+        grid-template-columns: repeat(3, 42px);
+        padding: 4px;
+        gap: 3px;
+        border: 1px solid rgb(148 163 184 / 0.58);
+        border-radius: 11px;
+        background: rgb(15 23 42 / 0.74);
+        pointer-events: auto;
+        backdrop-filter: blur(6px);
+      }
+      body.scene-vehicle:not(.scene-mars) .veh-gear-switch { display: grid; }
+      .veh-gear {
+        width: 42px;
+        height: 38px;
+        padding: 0;
+        border: 1px solid rgb(148 163 184 / 0.5);
+        border-radius: 7px;
+        background: rgb(51 65 85 / 0.58);
+        color: #cbd5e1;
+        font: 800 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        pointer-events: auto;
+        touch-action: manipulation;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        transition: background 120ms, border-color 120ms, color 120ms, box-shadow 120ms;
+      }
+      .veh-gear.active { color: #ecfdf5; border-color: #6ee7b7; background: rgb(5 150 105 / 0.88); box-shadow: 0 0 10px rgb(52 211 153 / 0.55); }
+      .veh-gear.rejected,
+      .veh-gear.rejected:disabled { opacity: 1; color: #fff1f2; border-color: #fda4af; background: rgb(190 18 60 / 0.94); box-shadow: 0 0 15px rgb(244 63 94 / 0.95); }
       /* Robotic-arm thumbsticks (Mars showcase), shown while the arm is fully unfolded
          (`#arm-touch.shown`, set by the scene) on every device — a desktop mouse can drag them too,
          the keys being the only other way to move the arm. Desktop: the bottom corners. Touch /
@@ -589,6 +646,7 @@
   <body>
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
+    <pre id="profiler-panel" aria-live="polite" aria-label="CPU and GPU profiler timeline"></pre>
     <div id="rescue-hud" aria-live="off" aria-label="Alpine Rescue mission status"></div>
     <div id="toolbar">
       <button type="button" id="toolbar-toggle" aria-label="Demo settings" aria-controls="toolbar-panels" aria-expanded="false" title="Demo settings">☰</button>
@@ -632,6 +690,7 @@
             <button id="btn-stress" title="Many-light rig: put 36 static point lamps into the scene (40 lights in all — more than the old fixed 16-entry uniform list could carry)">+36 lamps</button>
             <button id="btn-cascades">Cascade tint</button>
             <button id="btn-bounds" title="Wireframe AABBs where every renderable (and the rover) is supposed to be">Bounds</button>
+            <button id="btn-profiler" aria-pressed="false" title="Live CPU and asynchronous GPU scope timings">Profiler</button>
           </div>
         </div>
       </div>
@@ -639,6 +698,11 @@
     <div id="vehicle-touch">
       <div id="veh-stick" class="veh-stick" role="application" aria-label="Steering stick. Drag to steer, push up for gas, pull down to brake.">
         <div id="veh-stick-knob" class="veh-knob"></div>
+      </div>
+      <div id="veh-gear-switch" class="veh-gear-switch" role="group" aria-label="Drive direction">
+        <button type="button" id="veh-gear-f" class="veh-gear" aria-label="Forward gear" aria-pressed="true">F</button>
+        <button type="button" id="veh-gear-n" class="veh-gear" aria-label="Neutral gear" aria-pressed="false">N</button>
+        <button type="button" id="veh-gear-r" class="veh-gear" aria-label="Reverse gear" aria-pressed="false">R</button>
       </div>
       <div class="veh-face">
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>

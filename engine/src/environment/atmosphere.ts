@@ -288,6 +288,12 @@ export class AtmosphereModel {
     const cosTheta = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z;
     const phaseR = rayleighPhase(cosTheta);
     const phaseM = miePhase(cosTheta, phaseG);
+    // A narrow horizon ray crosses hundreds of kilometres of dense atmosphere. Pin that visually
+    // sensitive band to the converged profile even when the rest of the sky uses a low-cost preset.
+    if (Math.abs(dy) < 0.035) {
+      viewSamples = Math.max(viewSamples, 64);
+      lightSamples = Math.max(lightSamples, 32);
+    }
     const od = this.od;
     const odl = this.odLight;
     const sum = this.sum;

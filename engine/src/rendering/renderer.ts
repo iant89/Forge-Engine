@@ -51,10 +51,11 @@ import {
   hizLevelCount,
 } from "./objectCulling.js";
 import type { ObjectCullParams } from "./objectCulling.js";
-import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS } from "./shaders/post.js";
+import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_PASSTHROUGH } from "./shaders/post.js";
+import { fitShadowMapSize } from "./shadowBudget.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
-import { computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, type Cascade, type SpotShadowFit, type PointShadowFit } from "./shadows.js";
+import { computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, shadowLightPriority, type Cascade, type SpotShadowFit, type PointShadowFit } from "./shadows.js";
 import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
@@ -78,6 +79,8 @@ export interface RendererOptions {
   clearColor?: number | null;
   /** Shared shadow-map resolution cap for every cascade and spot layer; the scene asks, the profile caps. */
   shadowMapSize?: number;
+  /** Maximum bytes for the complete depth atlas; resolution halves until all active layers fit. */
+  shadowMemoryBudget?: number;
   /** Cascade count cap (1..4); the scene's `shadow.cascades` asks, this caps. */
   shadowCascades?: number;
   /** Master switches from the quality profile. `false` disables regardless of scene settings. */
@@ -1014,12 +1017,21 @@ export class Renderer implements RenderFrameContext {
     for (const l of lights) if (l.kind === "directional") globalCount++;
     const clustered = settings.clusteredLighting && this.options.clusteredLighting !== false && !camera.orthographic && lights.length > globalCount;
     const shadowsWanted = settings.shadow.enabled && this.options.shadows !== false;
-    const sun = shadowsWanted ? (lights.find((l) => l.kind === "directional" && l.castShadow) ?? null) : null;
+    const sun = shadowsWanted ? (lights
+      .filter((l) => l.kind === "directional" && l.castShadow && l.affectScene)
+      .sort((a, b) => shadowLightPriority(b) - shadowLightPriority(a))[0] ?? null) : null;
     const cascadeCount = sun ? Math.max(1, Math.min(MAX_CASCADES, Math.floor(settings.shadow.cascades), this.options.shadowCascades ?? MAX_CASCADES)) : 0;
-    const shadowSize = clampShadowSize(Math.min(settings.shadow.mapSize, this.options.shadowMapSize ?? settings.shadow.mapSize));
+    const requestedShadowSize = clampShadowSize(Math.min(settings.shadow.mapSize, this.options.shadowMapSize ?? settings.shadow.mapSize));
     const shadowDistance = Math.max(camera.near + 1e-3, Math.min(settings.shadow.distance, camera.far));
-    const spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize) : 0;
-    const pointShadowCount = shadowsWanted ? this.preparePointShadows(scene, lights, shadowSize) : 0;
+    let shadowSize = requestedShadowSize;
+    let spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize) : 0;
+    let pointShadowCount = shadowsWanted ? this.preparePointShadows(scene, lights, shadowSize) : 0;
+    const shadowLayers = cascadeCount + spotShadowCount + pointShadowCount * POINT_SHADOW_FACES;
+    shadowSize = fitShadowMapSize(requestedShadowSize, shadowLayers, this.options.shadowMemoryBudget);
+    if (shadowsWanted && shadowSize !== requestedShadowSize) {
+      spotShadowCount = this.prepareSpotShadows(scene, lights, shadowSize);
+      pointShadowCount = this.preparePointShadows(scene, lights, shadowSize);
+    }
     if (!shadowsWanted) {
       this.spotShadowIndices.clear();
       this.pointShadowIndices.clear();
@@ -1054,8 +1066,8 @@ export class Renderer implements RenderFrameContext {
     // 4. Uniforms.
     const hdr = settings.hdr;
     const scale = Math.min(2, Math.max(0.25, settings.renderScale || 1));
-    const renderWidth = hdr ? Math.max(1, Math.round(this.width * scale)) : this.width;
-    const renderHeight = hdr ? Math.max(1, Math.round(this.height * scale)) : this.height;
+    const renderWidth = Math.max(1, Math.round(this.width * scale));
+    const renderHeight = Math.max(1, Math.round(this.height * scale));
     const underwater = isUnderwater(positionRender.y, settings.water);
     this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
@@ -1194,10 +1206,14 @@ export class Renderer implements RenderFrameContext {
       }
     }
 
-    // Main colour pass: HDR transient or the swapchain directly.
+    // Main colour pass: HDR always uses a transient; scaled LDR uses one so it can be bilinearly
+    // resolved to the swapchain without changing the LDR shader's existing sRGB output contract.
+    const scaledLdr = !frame.hdr && (frame.renderWidth !== this.width || frame.renderHeight !== this.height);
     const sceneColor = frame.hdr
       ? g.createTexture("scene.hdr", { width: frame.renderWidth, height: frame.renderHeight, format: HDR_FORMAT, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING })
-      : swapchain;
+      : scaledLdr
+        ? g.createTexture("scene.ldr", { width: frame.renderWidth, height: frame.renderHeight, format: this.device.format, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING })
+        : swapchain;
     const gpuParticleWorld = findGpuParticleWorld(scene);
     if (gpuParticleWorld) gpuParticleWorld.attachDevice(this.device);
     // Depth TEXTURE_BINDING + store only while particles can/will run — not after a latched attach failure.
@@ -1309,6 +1325,28 @@ export class Renderer implements RenderFrameContext {
     this.stats.ssao = frame.ssao;
     this.stats.clouds = frame.sky && scene.settings.clouds.enabled && scene.settings.clouds.coverage > 0.001;
     if (!frame.hdr) {
+      if (scaledLdr) {
+        const slot = this.writePostSlot({
+          srcWidth: frame.renderWidth,
+          srcHeight: frame.renderHeight,
+          outWidth: this.width,
+          outHeight: this.height,
+          threshold: 0,
+          knee: 0,
+          intensity: 0,
+          exposure: 1,
+          toneMapping: 0,
+          radius: 1,
+          flags: POST_FLAG_PASSTHROUGH,
+        });
+        g.addPass({
+          name: "forge.ldr.scale",
+          reads: [sceneColor],
+          color: [{ texture: swapchain }],
+          execute: (ctx) => this.executePostPass(ctx, "fsTonemap", slot, sceneColor, sceneColor, false),
+        });
+        this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
+      }
       const profiler = this.currentFrameContext?.profiler;
       const profilerFrameIndex = profiler?.currentFrameIndex;
       this.applyGraphStats(g.execute((timing) => this.applyGpuTiming(timing, profiler, profilerFrameIndex)));
@@ -1992,8 +2030,9 @@ export class Renderer implements RenderFrameContext {
     } else {
       this.scratchVec.copyFrom(DEFAULT_SUN);
     }
-    // Waves as the vertex shader consumes them: (dirX, dirZ, k, speed) + (amplitude, Q, phase, 0)
-    // with Q = steepness/(k·A·4) — the same normalisation `sampleGerstner` uses over 4 waves.
+    // Waves as the vertex shader consumes them: (dirX, dirZ, k, speed) + (amplitude, Q, phase, 0).
+    // Limit and normalise against the same wave count as CPU gameplay sampling.
+    const waveCount = Math.min(water.waves.length, 4);
     const baseA = a.offsetOf("wavesA");
     const baseB = a.offsetOf("wavesB");
     const strideA = a.arrayStride("wavesA");
@@ -2021,7 +2060,7 @@ export class Renderer implements RenderFrameContext {
       f32[oA + 2] = k;
       f32[oA + 3] = w.speed;
       f32[oB] = w.amplitude;
-      f32[oB + 1] = w.steepness / (k * w.amplitude * 4);
+      f32[oB + 1] = w.steepness / (k * w.amplitude * Math.max(1, waveCount));
       f32[oB + 2] = w.phase;
       f32[oB + 3] = 0;
     }
@@ -2308,8 +2347,11 @@ export class Renderer implements RenderFrameContext {
   private prepareSpotShadows(scene: Scene, lights: readonly Light[], mapSize: number): number {
     this.spotShadowIndices.clear();
     let count = 0;
-    for (const light of lights) {
-      if (light.kind !== "spot" || !light.castShadow || !light.affectScene || count >= MAX_SPOT_SHADOWS) continue;
+    const candidates = lights
+      .filter((light) => light.kind === "spot" && light.castShadow && light.affectScene)
+      .sort((a, b) => shadowLightPriority(b) - shadowLightPriority(a));
+    for (const light of candidates) {
+      if (count >= MAX_SPOT_SHADOWS) break;
       const state = this.spotShadows[count]!;
       state.light = null;
       scene.world.worldPosition(light.entity, state.position);
@@ -2323,15 +2365,18 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * Fit this frame's point-shadow cubes (the first {@link MAX_POINT_SHADOWS} valid shadow-casting
-   * point lights in scene order). Every face shares the light's position and range, so the six
+   * Fit this frame's point-shadow cubes (the highest-priority {@link MAX_POINT_SHADOWS} valid
+   * shadow-casting point lights). Every face shares the light's position and range, so the six
    * frustums together cover the whole influence sphere.
    */
   private preparePointShadows(scene: Scene, lights: readonly Light[], mapSize: number): number {
     this.pointShadowIndices.clear();
     let count = 0;
-    for (const light of lights) {
-      if (light.kind !== "point" || !light.castShadow || !light.affectScene || count >= MAX_POINT_SHADOWS) continue;
+    const candidates = lights
+      .filter((light) => light.kind === "point" && light.castShadow && light.affectScene)
+      .sort((a, b) => shadowLightPriority(b) - shadowLightPriority(a));
+    for (const light of candidates) {
+      if (count >= MAX_POINT_SHADOWS) break;
       const state = this.pointShadows[count]!;
       state.light = null;
       scene.world.worldPosition(light.entity, state.position);
@@ -3595,6 +3640,11 @@ export class Renderer implements RenderFrameContext {
     f[o + 6] = b.z;
     u[o + 7] = color >>> 0;
     this.debugLineCount++;
+  }
+
+  drawEmissiveLine(a: Vec3, b: Vec3, color = 0x00ffffff, intensity = 8): void {
+    const radianceByte = Math.max(1, Math.min(127, Math.round(intensity * 8)));
+    this.drawLine(a, b, ((radianceByte << 24) | (color & 0x00ffffff)) >>> 0);
   }
 
   drawAabb(box: AABB, color = 0xffffff00): void {

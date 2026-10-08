@@ -6,13 +6,13 @@
  * `stormOverride`), and every strike's position, energy and bolt shape comes from a seeded `Rng`
  * stream, so a seeded run reproduces its thunder to the arc. Each strike owns a bolt — a
  * midpoint-displaced polyline from cloud to ground — drawn as debug lines while the flash lives,
- * a point light whose intensity is the flash envelope, and a one-frame sky exposure boost pushed
+ * an independent point light whose intensity is the flash envelope, and a one-frame sky exposure boost pushed
  * through `RenderFrameContext.setSkyOverride`, so the clouds themselves flash.
  *
  * The envelope is a double stroke: a fast attack (`attack`, default 8 ms) and exponential decay
  * (`decay`, default 90 ms), plus an optional return stroke at `restrikeDelay` with
  * `restrikeStrength` of the energy. Nothing here touches the audio graph; thunder is a Phase 9+
- * concern (the strike's time/position/energy are all a sound system needs).
+ * concern inside this subsystem; the weather demo uses `onStrike` to synthesize it.
  */
 
 import { SceneObject, type Scene } from "../scene/scene.js";
@@ -150,6 +150,8 @@ export interface LightningOptions {
   /** Sky exposure added at flash = 1, energy = 1. Default 0.8. */
   skyFlashExposure?: number;
   envelope?: Partial<FlashEnvelope>;
+  /** Called synchronously after a strike is created; audio/gameplay can react without polling. */
+  onStrike?: (strike: LightningStrike) => void;
 }
 
 export class LightningSystem extends SceneObject {
@@ -166,6 +168,7 @@ export class LightningSystem extends SceneObject {
   flashLightIntensity: number;
   skyFlashExposure: number;
   readonly envelope: FlashEnvelope;
+  onStrike?: (strike: LightningStrike) => void;
 
   /** Live strikes (oldest first). */
   readonly strikes: LightningStrike[] = [];
@@ -177,9 +180,7 @@ export class LightningSystem extends SceneObject {
   private readonly rng: Rng;
   private nextStrikeIn = 0;
   private nextId = 1;
-  private light: Light | null = null;
-  private lightEntityId = 0;
-  private readonly scratchPos = new Vec3();
+  private readonly strikeLights = new Map<number, { entityId: number; light: Light }>();
   /** Last frame's bolt polylines (for tests that cannot read debug lines back). */
   readonly lastBolts: Vec3[][] = [];
 
@@ -198,6 +199,7 @@ export class LightningSystem extends SceneObject {
     this.flashLightIntensity = options.flashLightIntensity ?? 60;
     this.skyFlashExposure = options.skyFlashExposure ?? 0.8;
     this.envelope = { ...DEFAULT_FLASH_ENVELOPE, ...options.envelope };
+    this.onStrike = options.onStrike;
     this.rng = new Rng(this.seed === 0 ? 0x9e3779b9 : this.seed);
     this.nextStrikeIn = this.drawInterarrival(1);
   }
@@ -211,10 +213,8 @@ export class LightningSystem extends SceneObject {
 
   /** Schedule a strike now (the demo's thunder key and the browser gate use this). */
   trigger(position?: Vec3, energy = 1): LightningStrike {
-    const scene = this.scene;
     const px = position?.x ?? (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
     const pz = position?.z ?? (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
-    void scene;
     const boltSeed = this.rng.nextU32();
     const start = new Vec3(px, this.cloudHeight, pz);
     const end = new Vec3(px, this.groundY, pz);
@@ -227,30 +227,46 @@ export class LightningSystem extends SceneObject {
       bolt: { points: generateBoltPoints(start, end, boltSeed, this.subdivisions, this.roughness), seed: boltSeed },
     };
     this.strikes.push(strike);
+    if (this.scene) this.createStrikeLight(this.scene, strike);
     this.strikeCount++;
+    this.onStrike?.(strike);
     return strike;
   }
 
   override onAttach(scene: Scene): void {
-    const entity = scene.createTransformedEntity(`${this.name}.flash`, new Vec3(0, this.cloudHeight / 2, 0));
+    for (const strike of this.strikes) this.createStrikeLight(scene, strike);
+  }
+
+  override onDetach(scene: Scene): void {
+    for (const record of this.strikeLights.values()) {
+      const facade = scene.world.facade(record.entityId as never);
+      if (facade) scene.world.destroyEntity(facade.id);
+    }
+    this.strikeLights.clear();
+    this.strikes.length = 0;
+  }
+
+  private createStrikeLight(scene: Scene, strike: LightningStrike): void {
+    if (this.strikeLights.has(strike.id)) return;
+    const entity = scene.createTransformedEntity(
+      `${this.name}.flash.${strike.id}`,
+      new Vec3(strike.position.x, (this.cloudHeight + this.groundY) / 2, strike.position.z),
+    );
     const light = new Light();
     light.kind = "point";
     light.range = Math.max(500, this.areaRadius * 3);
     light.intensity = 0;
     light.setColor(0.75, 0.85, 1);
     scene.world.addComponent(entity.id, light);
-    this.light = light;
-    this.lightEntityId = entity.id as number;
+    this.strikeLights.set(strike.id, { entityId: entity.id as number, light });
   }
 
-  override onDetach(scene: Scene): void {
-    if (this.lightEntityId !== 0) {
-      const facade = scene.world.facade(this.lightEntityId as never);
-      if (facade) scene.world.destroyEntity(facade.id);
-      this.light = null;
-      this.lightEntityId = 0;
-    }
-    this.strikes.length = 0;
+  private destroyStrikeLight(strikeId: number): void {
+    const record = this.strikeLights.get(strikeId);
+    if (!record) return;
+    const facade = this.scene?.world.facade(record.entityId as never);
+    if (facade) this.scene!.world.destroyEntity(facade.id);
+    this.strikeLights.delete(strikeId);
   }
 
   override update(context: SystemContext): void {
@@ -278,7 +294,10 @@ export class LightningSystem extends SceneObject {
     for (let i = this.strikes.length - 1; i >= 0; i--) {
       const s = this.strikes[i]!;
       s.age += seconds;
-      if (s.age >= s.duration) this.strikes.splice(i, 1);
+      if (s.age >= s.duration) {
+        this.destroyStrikeLight(s.id);
+        this.strikes.splice(i, 1);
+      }
     }
     this.flashTotal = 0;
     for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope);
@@ -286,22 +305,9 @@ export class LightningSystem extends SceneObject {
 
   /** Drive the light, the sky flash and the bolt lines for the current state. */
   present(context: SystemContext): void {
-    if (this.light) {
-      // The light sits at the brightest live strike (or goes dark when the sky is quiet).
-      let best: LightningStrike | null = null;
-      let bestFlash = 0;
-      for (const s of this.strikes) {
-        const f = s.energy * flashEnvelope(s.age, this.envelope);
-        if (f > bestFlash) {
-          bestFlash = f;
-          best = s;
-        }
-      }
-      if (best && this.scene) {
-        const facade = this.scene.world.facade(this.lightEntityId as never);
-        if (facade) facade.transform.position = this.scratchPos.set(best.position.x, (this.cloudHeight + this.groundY) / 2, best.position.z);
-      }
-      this.light.intensity = this.flashTotal * this.flashLightIntensity;
+    for (const s of this.strikes) {
+      const record = this.strikeLights.get(s.id);
+      if (record) record.light.intensity = s.energy * flashEnvelope(s.age, this.envelope) * this.flashLightIntensity;
     }
     if (this.flashTotal > 0.001) {
       context.render?.setSkyOverride({ exposure: 1 + this.flashTotal * this.skyFlashExposure });
@@ -313,7 +319,7 @@ export class LightningSystem extends SceneObject {
           if (f <= 0.01) continue;
           this.lastBolts.push(s.bolt.points);
           const pts = s.bolt.points;
-          for (let i = 1; i < pts.length; i++) render.drawLine(pts[i - 1]!, pts[i]!, 0xdde8ffff);
+          for (let i = 1; i < pts.length; i++) render.drawEmissiveLine(pts[i - 1]!, pts[i]!, 0x00e8ffff, 5 + f * 7);
         }
       }
     } else {

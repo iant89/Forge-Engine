@@ -36,6 +36,8 @@ export interface RenderFrameContext {
 
   /** Draw debug geometry (valid only during the frame in which it is called). */
   drawLine(a: Vec3, b: Vec3, color?: number): void;
+  /** Draw an HDR line before bloom; intensity is linear radiance and may exceed one. */
+  drawEmissiveLine(a: Vec3, b: Vec3, color?: number, intensity?: number): void;
   drawAabb(box: AABB, color?: number): void;
   drawSphere(center: Vec3, radius: number, color?: number): void;
   drawGizmo(position: Vec3, size?: number): void;

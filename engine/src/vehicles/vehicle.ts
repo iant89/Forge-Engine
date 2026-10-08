@@ -370,6 +370,25 @@ export class Vehicle {
     return this.config.transmission.gear;
   }
 
+  /**
+   * Select reverse (-1), neutral (0), or first (1). Neutral is always safe; changing between drive
+   * directions while moving is rejected so controls cannot instantaneously reverse drivetrain torque.
+   */
+  selectGear(gear: -1 | 0 | 1, maxShiftSpeed = 0.5): boolean {
+    const transmission = this.config.transmission;
+    if (transmission.gear === gear) return true;
+    if (gear !== 0 && this.speed > Math.max(0, maxShiftSpeed)) return false;
+    transmission.gear = gear;
+    transmission.shiftTimer = gear === 0 ? 0 : transmission.shiftDuration;
+    transmission.shiftCount += 1;
+    return true;
+  }
+
+  /** Select first or reverse through the safe three-position gear API. */
+  selectDriveDirection(reverse: boolean, maxShiftSpeed = 0.5): boolean {
+    return this.selectGear(reverse ? -1 : 1, maxShiftSpeed);
+  }
+
   /** Equilibrium spring compression if every wheel shares the static weight equally. */
   equilibriumCompression(): number {
     const c = this.config;

@@ -5,6 +5,7 @@
  * @covers engine/src/math/mat.ts
  * @covers engine/src/math/vec.ts
  * @covers engine/src/rendering/shadows.ts
+ * @covers engine/src/rendering/shadowBudget.ts
  * @desc Cascaded-shadow-map fitting (engine/src/rendering/shadows.ts), pure math — no GPU
  */
 
@@ -15,7 +16,8 @@ export const suite = {
     "engine/src/index.ts",
     "engine/src/math/mat.ts",
     "engine/src/math/vec.ts",
-    "engine/src/rendering/shadows.ts"
+    "engine/src/rendering/shadows.ts",
+    "engine/src/rendering/shadowBudget.ts"
   ],
   desc: "Cascaded-shadow-map fitting (engine/src/rendering/shadows.ts), pure math — no GPU",
 };
@@ -30,7 +32,7 @@ export const suite = {
 
 import assert from "node:assert/strict";
 import { assertCloseTo, finish, group, test } from "selrun";
-import { computeCascadeSplits, computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams, type PointShadowFit, type SpotShadowFit } from "@forge/engine";
+import { computeCascadeSplits, computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, shadowLightPriority, fitShadowMapSize, shadowAtlasBytes, DEFAULT_SHADOW_MEMORY_BUDGET, frustumSliceCorners, Mat4, Quat, Vec3, type CascadeCameraParams, type PointShadowFit, type SpotShadowFit } from "@forge/engine";
 
 const corners = new Float32Array(24);
 
@@ -183,6 +185,20 @@ group("cascade fitting", () => {
   });
 });
 
+group("shadow-light priority", () => {
+  test("ranks brightness and local influence area instead of scene order", () => {
+    const color = { x: 1, y: 0.5, z: 0.25 };
+    assert.equal(shadowLightPriority({ kind: "directional", intensity: 3, range: 0, color }), 3);
+    assert.equal(shadowLightPriority({ kind: "spot", intensity: 2, range: 10, color }), 200);
+    assert.ok(
+      shadowLightPriority({ kind: "point", intensity: 1, range: 20, color }) >
+      shadowLightPriority({ kind: "point", intensity: 8, range: 5, color }),
+    );
+    assert.equal(shadowLightPriority({ kind: "point", intensity: Number.NaN, range: 10, color }), 0);
+    assert.equal(shadowLightPriority({ kind: "point", intensity: 1, range: -10, color }), 0);
+  });
+});
+
 group("spot-shadow fitting", () => {
   function output(): SpotShadowFit {
     return { viewProj: new Mat4(), fovY: 0, near: 0, far: 0, texelSize: 0, worldTexelScale: 0 };
@@ -262,8 +278,8 @@ group("point-shadow fitting", () => {
     assert.ok(fit.near < fit.far);
     assert.equal(fit.far, 12);
     assert.equal(fit.texelSize, 1 / 512);
-    // tan(45°) = 1, so one texel spans 2/512 world units per light-space unit.
-    assertCloseTo(fit.worldTexelScale, 2 / 512, 12);
+    // The face includes a two-texel guard band beyond the nominal 90-degree cube face.
+    assertCloseTo(fit.worldTexelScale, (2 * (1 + 2 / 512)) / 512, 12);
     for (const face of fit.faces) {
       assert.equal(Array.from(face.viewProj.m).every(Number.isFinite), true);
     }
@@ -322,6 +338,20 @@ group("point-shadow fitting", () => {
     }
   });
 
+  test("keeps cube-boundary receivers inside a one-texel PCF guard band", () => {
+    const fit = output();
+    const resolution = 256;
+    assert.equal(computePointShadow(new Vec3(), 20, resolution, fit), true);
+    // +X/+Z is exactly the dominant-face boundary. It must project inside both overlapping faces,
+    // leaving enough UV margin for a one-texel PCF tap on either side.
+    const receiver = new Vec3(5, 0, 5);
+    for (const face of [0, 4]) {
+      const p = project(fit.faces[face]!.viewProj, receiver.x, receiver.y, receiver.z);
+      const uvMargin = (1 - Math.abs(p.x)) * 0.5;
+      assert.ok(uvMargin >= 0.9 / resolution, `face ${face} margin ${uvMargin}`);
+    }
+  });
+
   test("rejects degenerate positions, ranges and resolutions", () => {
     const fit = output();
     assert.equal(computePointShadow(new Vec3(NaN, 0, 0), 10, 512, fit), false);
@@ -339,6 +369,21 @@ group("point-shadow fitting", () => {
     assert.equal(computePointShadow(new Vec3(5, 1, 2), 4, 512, fit), true);
     assert.equal(fit.faces, faces);
     assert.equal(fit.far, 4);
+  });
+});
+
+group("shadow atlas memory budget", () => {
+  test("halves layer resolution until the complete atlas fits", () => {
+    assert.equal(fitShadowMapSize(2048, 20), 1024);
+    assert.ok(shadowAtlasBytes(1024, 20) <= DEFAULT_SHADOW_MEMORY_BUDGET);
+    assert.ok(shadowAtlasBytes(2048, 20) > DEFAULT_SHADOW_MEMORY_BUDGET);
+    assert.equal(fitShadowMapSize(2048, 4), 2048);
+  });
+
+  test("honours custom budgets and a stable minimum", () => {
+    assert.equal(fitShadowMapSize(1024, 6, 8 * 1024 * 1024, 128), 512);
+    assert.equal(fitShadowMapSize(512, 1000, 1, 128), 128);
+    assert.equal(fitShadowMapSize(1024, 0, 1), 1024);
   });
 });
 

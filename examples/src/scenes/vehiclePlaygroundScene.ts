@@ -321,9 +321,14 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   };
 
   const keys = new Set<string>();
+  let touch: ReturnType<typeof attachVehicleTouch>;
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "KeyP" && !event.repeat) setParkingBrake(!parkingBrake);
+    if (event.code === "KeyR" && !event.repeat) {
+      const reverse = vehicle.gear >= 0;
+      if (vehicle.selectDriveDirection(reverse)) touch.setGear(reverse ? "R" : "F");
+    }
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
   };
   const onKeyUp = (event: KeyboardEvent): void => {
@@ -331,9 +336,11 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   };
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
-  const touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
+  touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
+    onGearSelect: (position) => vehicle.selectGear(position === "F" ? 1 : position === "R" ? -1 : 0),
     onParkToggle: () => setParkingBrake(!parkingBrake),
   });
+  touch.setGear("F");
 
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(-8, 4.5, -4));
   const camera = new Camera();
@@ -384,7 +391,7 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
     scene,
     cameraEntity,
     controlsHint:
-      "WASD / arrows drive · Space handbrake · P parking brake · Drag to orbit · Scroll zoom · camera follows",
+      "WASD / arrows drive · R forward/reverse · Space handbrake · P parking brake · Drag to orbit · Scroll zoom · camera follows",
     camera: {
       target: new Vec3(0, 1.6, 6),
       distance: 12,

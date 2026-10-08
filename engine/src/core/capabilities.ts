@@ -247,9 +247,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "diagnostics.profiler",
     phase: "21.1",
     status: "partial",
-    summary: "CPU scope profiler plus asynchronously merged GPU pass samples with frame records and EWMAs",
+    summary: "CPU scope profiler plus asynchronously merged GPU pass samples, frame records, EWMAs, reports, and a live demo overlay",
     closesWith: "21.1",
-    notes: "GPU pass samples now arrive asynchronously and merge into profiler scope names; there is still no dedicated Profiler suite or profiler UI",
+    notes: "The toolbar Profiler panel refreshes the unified CPU/GPU report at 4 Hz and exposes the same report through window.__forge; a dedicated Profiler unit suite and graphical frame timeline remain open.",
   },
   {
     id: "testing.mockGpu",
@@ -332,7 +332,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "rendering.shadows",
     phase: "2",
     status: "partial",
-    summary: "Cascaded directional maps plus up to four shared-resolution spot maps and two six-face point cubes (first directional caster only)",
+    summary: "Priority-selected directional cascades plus up to four spot maps and two six-face point cubes at memory-budgeted shared resolution",
     evidence: ["tests/rendering/shadows.test.ts", "tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts", "tools/browser-check.mjs"],
     closesWith: "13.9",
   },
@@ -348,19 +348,18 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.shadowMemory",
     phase: "2",
-    status: "partial",
-    summary: "Fixed shared-resolution shadow array, up to twenty layers — four cascades, four spots, two point cubes (~320 MiB at 2048²; ~1.25 GiB at 4096²)",
+    status: "verified",
+    summary: "Shadow atlas resolution adapts by powers of two so all cascade, spot, and point-face layers fit a configurable memory budget",
     evidence: ["tests/rendering/shadows.test.ts", "tests/rendering/frame.test.ts"],
-    closesWith: "13.9",
-    notes: "Quality profiles cap the shared size; there is no adaptive or per-light resolution",
+    notes: "The default budget is 256 MiB with a 128px floor; quality profiles still cap the requested size before budgeting. Resolution is shared across active layers rather than per-light."
   },
   {
     id: "rendering.renderScale",
     phase: "2",
-    status: "partial",
-    summary: "renderScale applies to the HDR path only; the LDR path always renders at swapchain size",
+    status: "verified",
+    summary: "renderScale controls HDR and LDR scene/depth resolution with a full-size swapchain resolve",
     evidence: ["tests/rendering/frame.test.ts"],
-    closesWith: "13",
+    notes: "HDR resolves through tonemapping; scaled LDR resolves already-sRGB scene color through a bilinear passthrough post pass without double encoding."
   },
   {
     id: "rendering.postFxVerification",
@@ -536,8 +535,8 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "direction. Mars Showcase uses the analytic-only port at a surveyed equatorial landing site. " +
       "Analytic cells run in workers; live Stage A fields, mesh building/uploads and missing-cell " +
       "ground queries still run on main. The ~30 MB erosion cache is not hosted, real-cache fidelity " +
-      "is unverified. The showcase consumes its four splat channels as GPU-blended PBR layers; " +
-      "coarse-LOD slope/biome sampling can still change the material mix. A second demo, " +
+      "is unverified. The showcase consumes its four absolute-position splat channels as GPU-blended " +
+      "PBR layers; masks agree exactly at vertices shared across terrain LODs. A second demo, " +
       "`?scene=mars-generator`, inspects any site (`?marssite=<preset|lat,lon>`) with the same port; its " +
       "geology is regional, so most sites bake a single dominant channel.",
   },
@@ -651,11 +650,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "vehicles.transmission",
     phase: "6",
-    status: "partial",
-    summary: "Reverse is a gear ratio, not a control; the automatic shifts forward gears only",
-    evidence: ["tests/vehicles/vehicles.test.ts"],
-    closesWith: "6",
-    notes: "Reverse stays a ratio (`transmission.gear = -1`) by design; the playground has no reverse key. Not closed by Phase 16.6, which is visual, and not in Phase 11 scope.",
+    status: "verified",
+    summary: "Automatic forward gearbox plus safely interlocked manual F/N/R selection",
+    evidence: ["tests/vehicles/vehicles.test.ts", "tests/controls/vehicleTouch.test.ts"],
+    notes: "`Vehicle.selectGear` exposes F/N/R, rejects unsafe drive-direction changes above its low-speed threshold, and permits neutral at speed. The playground provides keyboard and touch controls; rejected touch positions are disabled with timed red feedback. Reverse is intentionally manual, as in a real direction selector, rather than part of the forward automatic schedule.",
   },
   {
     id: "animation.mechanical",
@@ -692,11 +690,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "particles.fixedStep",
     phase: "7",
-    status: "partial",
-    summary: "ParticleSystem advances once per frame, not once per physics substep",
+    status: "verified",
+    summary: "CPU and GPU particle simulation consume the engine's fixed substeps",
     evidence: ["tests/particles/particles.test.ts"],
-    closesWith: "15+",
-    notes: "GPU path is also frame-rate (render-graph); fixed-step particle substepping is still open",
+    notes: "ParticleSystem and ParticleWorld consume fixedSteps × fixedDt alongside physics. GpuParticleWorld carries the same clock into the render graph, encodes one simulation dispatch per substep, skips simulation on zero-step frames, and still culls/renders existing state.",
   },
   {
     id: "particles.gpuRendering",
@@ -728,10 +725,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.skyQuality",
     phase: "8a",
-    status: "partial",
-    summary: "Sample-count truncation darkens the horizon sky by up to ~35% at quality \"low\"",
-    evidence: ["tests/environment/environment.test.ts"],
-    closesWith: "17.1",
+    status: "verified",
+    summary: "Profile-tier sampling with a converged 64×32 floor in the optically longest horizon band",
+    evidence: ["tests/environment/environment.test.ts", "tools/wgsl-check.mjs"],
   },
   {
     id: "environment.sunDisc",
@@ -744,10 +740,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.stormLighting",
     phase: "8b",
-    status: "partial",
-    summary: "Weather whitens the sky and thickens fog but never dims the directional light",
+    status: "verified",
+    summary: "Cloud and storm cover attenuate directional and ambient lighting with configurable floors",
     evidence: ["tests/environment/environment8b.test.ts"],
-    closesWith: "17.4",
+    notes: "WeatherSystem composes attenuation over DayNightCycle output without cumulative dimming, restores undimmed values when disabled, and leaves point/spot lights untouched."
   },
   {
     id: "environment.multipleScattering",
@@ -768,7 +764,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "environment.clouds",
     phase: "17.3",
     status: "partial",
-    summary: "One noise-shaded cloud deck with no vertical structure and no self-shadowing",
+    summary: "One advected noise cloud deck with thickness-projected three-sample self-shadowing but no true vertical volume",
     evidence: ["tests/environment/environment8b.test.ts"],
     closesWith: "17.3",
   },
@@ -776,17 +772,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "environment.water",
     phase: "17.5",
     status: "partial",
-    summary: "Gerstner waves with fresnel-mixed horizon tint; no planar reflection, depth absorption or foam",
+    summary: "Gerstner waves with exact displaced-surface normals, fresnel horizon tint and crest foam; no planar reflection, depth absorption or shore foam",
     evidence: ["tests/environment/environment8b.test.ts"],
     closesWith: "17.5",
   },
   {
     id: "environment.lightning",
     phase: "17.6",
-    status: "partial",
-    summary: "Deterministic cloud-to-ground bolts with a flash light; strikes are silent and share one light",
-    evidence: ["tests/environment/environment8b.test.ts"],
-    closesWith: "17.6",
+    status: "verified",
+    summary: "Deterministic HDR bolts with per-strike flash lights, callbacks, and delayed spatial thunder",
+    evidence: ["tests/environment/environment8b.test.ts", "tests/rendering/wgsl.test.ts"],
+    notes: "Bolt segments use drawEmissiveLine in the HDR scene pass, so their radiance exceeds one and seeds bloom; each live strike owns its own point light and thunder voice."
   },
   {
     id: "environment.aerialPerspective",

@@ -21,11 +21,12 @@ export class ParticleWorld extends SceneObject {
     super();
     this.name = options.name ?? "particles";
     this.simulation = new ParticleSimulation(options);
+    this.simulation.claimOwner(this, `ParticleWorld(${this.name})`);
   }
 
-  override update(_context: SystemContext, dt: number): void {
-    if (!(dt > 0)) return;
-    this.simulation.step(dt);
+  override update(context: SystemContext, _dt: number): void {
+    if (!(context.fixedDt > 0)) return;
+    for (let i = 0; i < context.fixedSteps; i++) this.simulation.step(context.fixedDt);
     const scene = this.scene;
     if (!scene || this.spriteEntities.length === 0) return;
     const state = this.simulation.state;

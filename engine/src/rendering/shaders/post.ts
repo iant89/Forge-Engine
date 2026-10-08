@@ -30,6 +30,7 @@ export const POST_BINDINGS = {
 export const POST_FLAG_BLOOM = 1;
 export const POST_FLAG_KARIS = 2;
 export const POST_FLAG_NO_TONEMAP = 4;
+export const POST_FLAG_PASSTHROUGH = 8;
 
 export const POST_SHADER = /* wgsl */ `
 ${PostUniforms.toWgsl("uniform")}

@@ -63,10 +63,14 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   let inst = instances[instanceIndex];
   let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
   let base = (model * vec4<f32>(input.position, 1.0)).xyz;
-  // The sampleGerstner sum with N = 4 (wavesB.y is Q = steepness/(k·A·4), precomputed per frame).
+  // The bounded sampleGerstner sum (wavesB.y contains Q, normalised by the active count on CPU).
   var y = 0.0;
   var dx = 0.0;
   var dz = 0.0;
+  var dxdx = 1.0;
+  var dxdz = 0.0;
+  var dzdx = 0.0;
+  var dzdz = 1.0;
   var dydx = 0.0;
   var dydz = 0.0;
   var crestNum = 0.0;
@@ -83,6 +87,11 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
     y += b.x * s;
     dx += b.y * b.x * a.x * c;
     dz += b.y * b.x * a.y * c;
+    let horizontalDerivative = b.y * b.x * a.z * s;
+    dxdx -= horizontalDerivative * a.x * a.x;
+    dxdz -= horizontalDerivative * a.x * a.y;
+    dzdx -= horizontalDerivative * a.x * a.y;
+    dzdz -= horizontalDerivative * a.y * a.y;
     let slope = a.z * b.x * c;
     dydx += a.x * slope;
     dydz += a.y * slope;
@@ -92,7 +101,9 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   let displaced = base + vec3<f32>(dx, y, dz);
   var out: WaterVertexOutput;
   out.worldPos = displaced;
-  out.normal = normalize(vec3<f32>(-dydx, 1.0, -dydz));
+  let tangentX = vec3<f32>(dxdx, dydx, dzdx);
+  let tangentZ = vec3<f32>(dxdz, dydz, dzdz);
+  out.normal = normalize(cross(tangentZ, tangentX));
   out.crest = select(0.0, crestNum / crestDen, crestDen > 0.0);
   out.clipPos = perFrame.viewProj * vec4<f32>(displaced, 1.0);
   out.viewDepth = out.clipPos.w;

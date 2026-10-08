@@ -15,6 +15,7 @@
 
 import {
   AABB,
+  AudioSystem,
   Camera,
   DayNightCycle,
   type Engine,
@@ -31,6 +32,7 @@ import {
   type WeatherPresetName,
   createBox,
   createCylinder,
+  createThunderBuffer,
   createPlane,
   createSphere,
   waterGridSource,
@@ -239,8 +241,35 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   });
   water.renderable!.material = new Material({ label: "weather.lake", technique: "water" });
 
-  const lightning = new LightningSystem({ name: "lightning", weatherName: "weather", rate: 0.5, areaRadius: 300, cloudHeight: 1200 });
+  const audio = new AudioSystem({ maxVoices: 12, masterVolume: 0.7 });
+  const thunder = [0, 1, 2, 3].map((seed) => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }));
+  const lightning = new LightningSystem({
+    name: "lightning",
+    weatherName: "weather",
+    rate: 0.5,
+    areaRadius: 300,
+    cloudHeight: 1200,
+    onStrike: (strike) => {
+      if (audio.context.state !== "running") return;
+      const eye = cameraEntity.transform.position;
+      const distance = Math.hypot(strike.position.x - eye.x, strike.position.y - eye.y, strike.position.z - eye.z);
+      audio.play(thunder[strike.id % thunder.length]!, {
+        bus: "ambient",
+        spatial: true,
+        position: strike.position,
+        volume: Math.min(1.4, 0.55 + strike.energy * 0.45),
+        playbackRate: 0.88 + (strike.id % 5) * 0.035,
+        delay: distance / 343,
+        refDistance: 18,
+        maxDistance: 1800,
+        rolloffFactor: 0.65,
+      });
+    },
+  });
   scene.add(lightning);
+  const triggerLightning = (): void => {
+    void audio.resume().then(() => lightning.trigger());
+  };
 
   // GPU particles avoid thousands of per-drop ECS entities; the world updates precipitation,
   // wind, underwater state, and its emitter relative to the active camera each engine frame.
@@ -288,7 +317,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
 
   const onKey = (event: KeyboardEvent): void => {
     if (event.key >= "1" && event.key <= "4") setWeather(PRESETS[Number(event.key) - 1]!);
-    else if (event.key === "l" || event.key === "L") lightning.trigger();
+    else if (event.key === "l" || event.key === "L") triggerLightning();
     else if (event.key === "u" || event.key === "U") setUnderwater(!isUnderwater());
     else if (event.key === "[") scrubHours(-1);
     else if (event.key === "]") scrubHours(1);
@@ -300,7 +329,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   // up, see examples/index.html); the keys above are shortcuts onto these same callbacks.
   const touch = attachWeatherTouch(document.getElementById("weather-touch"), {
     setWeather,
-    triggerLightning: () => lightning.trigger(),
+    triggerLightning,
     toggleUnderwater,
     scrubHours,
     togglePause,
@@ -331,6 +360,12 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       // panel is only painted — the keyboard and `window.__forge` change the same state without
       // going through it — and a frame whose state did not move writes nothing.
       touch.sync(panelState());
+      const eye = cameraEntity.transform.position;
+      const fx = -eye.x;
+      const fy = 4 - eye.y;
+      const fz = -eye.z;
+      const fl = Math.hypot(fx, fy, fz) || 1;
+      audio.setListener({ position: eye, forward: { x: fx / fl, y: fy / fl, z: fz / fl }, up: Vec3.up });
     },
     overlay(): string {
       const s = weather.state;
@@ -345,9 +380,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     rainDrops: () => rain.aliveEstimate,
     setWeather,
     setCoverage,
-    triggerLightning(): void {
-      lightning.trigger();
-    },
+    triggerLightning,
     setUnderwater,
     setTimeOfDay(hours: number): void {
       cycle.setTime(hours).apply();
@@ -355,6 +388,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     dispose(): void {
       window.removeEventListener("keydown", onKey);
       touch.dispose();
+      void audio.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();
       scene.dispose();

@@ -274,8 +274,10 @@ group("atmosphere model", () => {
       const fine = earth.skyRadiance(dir, sun, 0, rgb(), 512, 32);
       for (let c = 0; c < 3; c++) {
         const ratio = coarse[c]! / fine[c]!;
-        assert.ok(ratio > 0.6, `elevation ${el}° channel ${c}`);
-        assert.ok(ratio < 1.1, `elevation ${el}° channel ${c}`);
+        const minRatio = el === 0.5 ? 0.88 : 0.6;
+        const maxRatio = el === 0.5 ? 1.08 : 1.1;
+        assert.ok(ratio > minRatio, `elevation ${el}° channel ${c}, ratio ${ratio}`);
+        assert.ok(ratio < maxRatio, `elevation ${el}° channel ${c}`);
       }
     }
   });
@@ -491,6 +493,29 @@ group("DayNightCycle", () => {
     assertCloseTo(night.r, cycle.nightAmbient.r, 9);
     assert.ok(night.g < dayAmbient.g);
     assert.ok(scene.settings.fog.color.g < dayFog.g);
+  });
+
+  test("publishes smooth schedule factors for arbitrary synchronized scene outputs", () => {
+    const { scene } = makeScene();
+    const lamp = new Light();
+    lamp.kind = "point";
+    let calls = 0;
+    const cycle = new DayNightCycle({
+      latitude: 45, dayOfYear: 172, timeOfDay: 12, timeScale: 0,
+      schedules: [({ scene: drivenScene, daylight, night }) => {
+        calls++;
+        lamp.intensity = 6 * night;
+        drivenScene.settings.fog.density = 0.01 + 0.04 * night;
+        assertCloseTo(daylight + night, 1, 12);
+      }],
+    });
+    scene.addObject(cycle);
+    assert.equal(calls, 1);
+    assertCloseTo(lamp.intensity, 0, 8);
+    cycle.setTime(1).apply();
+    assert.equal(calls, 2);
+    assertCloseTo(lamp.intensity, 6, 8);
+    assertCloseTo(scene.settings.fog.density, 0.05, 8);
   });
 
   test("advances by the fixed-step budget, so the result is frame-rate independent", async () => {

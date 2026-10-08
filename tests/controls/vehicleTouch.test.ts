@@ -1,7 +1,9 @@
 /**
  * @suite controls:vehicleTouch
  * @group unit
+ * @covers examples/index.html
  * @covers examples/src/controls/vehicleTouch.ts
+ * @covers examples/src/scenes/vehiclePlaygroundScene.ts
  * @desc Vehicle touch pad — A/B gas/brake must survive an iOS long-press
  */
 
@@ -9,7 +11,9 @@ export const suite = {
   name: "controls:vehicleTouch",
   group: "unit",
   covers:   [
-    "examples/src/controls/vehicleTouch.ts"
+    "examples/index.html",
+    "examples/src/controls/vehicleTouch.ts",
+    "examples/src/scenes/vehiclePlaygroundScene.ts"
   ],
   desc: "Vehicle touch pad — A/B gas/brake must survive an iOS long-press",
 };
@@ -31,6 +35,7 @@ class StubElement {
   readonly classes = new Set<string>();
   readonly attrs = new Map<string, string>();
   style: { transform?: string } = {};
+  disabled = false;
 
   setAttribute(name: string, value: string): void {
     this.attrs.set(name, value);
@@ -102,6 +107,9 @@ function stubRoot(): {
   mast: StubElement;
   arm: StubElement;
   park: StubElement;
+  gearF: StubElement;
+  gearN: StubElement;
+  gearR: StubElement;
   view: StubElement;
 } {
   const gas = new StubElement();
@@ -111,6 +119,9 @@ function stubRoot(): {
   const mast = new StubElement();
   const arm = new StubElement();
   const park = new StubElement();
+  const gearF = new StubElement();
+  const gearN = new StubElement();
+  const gearR = new StubElement();
   const view = new StubElement();
   const root = {
     querySelector: (sel: string): StubElement | null => {
@@ -121,11 +132,14 @@ function stubRoot(): {
       if (sel === "#veh-mast") return mast;
       if (sel === "#veh-arm") return arm;
       if (sel === "#veh-park") return park;
+      if (sel === "#veh-gear-f") return gearF;
+      if (sel === "#veh-gear-n") return gearN;
+      if (sel === "#veh-gear-r") return gearR;
       return null;
     },
     ownerDocument: { defaultView: view },
   };
-  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, arm, park, view };
+  return { root: root as unknown as HTMLElement, gas, brake, stick, mast, arm, park, gearF, gearN, gearR, view };
 }
 
 group("stickDeflection", () => {
@@ -322,6 +336,44 @@ group("attachVehicleTouch — PARK toggle (vehicle playground)", () => {
     handle!.setPark(true);
     handle!.dispose();
     assert.equal(park.classes.has("active"), false);
+    handle = null;
+  });
+});
+
+group("attachVehicleTouch — F/N/R switch", () => {
+  let handle: VehicleTouchHandle | null = null;
+  afterEach(() => {
+    handle?.dispose();
+    handle = null;
+  });
+
+  test("requests all three positions and lights accepted selection", () => {
+    const { root, gearF, gearN, gearR } = stubRoot();
+    const requested: string[] = [];
+    handle = attachVehicleTouch(root, { onGearSelect: (position) => { requested.push(position); return true; } });
+    handle.setGear("F");
+    assert.equal(gearF.classes.has("active"), true);
+    gearN.fire("pointerdown");
+    gearR.fire("pointerdown");
+    assert.deepEqual(requested, ["N", "R"]);
+    assert.equal(gearF.classes.has("active"), false);
+    assert.equal(gearN.classes.has("active"), false);
+    assert.equal(gearR.classes.has("active"), true);
+    assert.equal(gearR.attrs.get("aria-pressed"), "true");
+  });
+
+  test("disables and marks a rejected position without moving the switch", () => {
+    const { root, gearF, gearR } = stubRoot();
+    handle = attachVehicleTouch(root, { onGearSelect: position => position !== "R", gearRejectMs: 250 });
+    handle.setGear("F");
+    gearR.fire("pointerdown");
+    assert.equal(gearF.classes.has("active"), true);
+    assert.equal(gearR.classes.has("active"), false);
+    assert.equal(gearR.classes.has("rejected"), true);
+    assert.equal(gearR.disabled, true);
+    handle.dispose();
+    assert.equal(gearR.classes.has("rejected"), false);
+    assert.equal(gearR.disabled, false);
     handle = null;
   });
 });

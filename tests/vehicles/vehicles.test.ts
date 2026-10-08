@@ -249,6 +249,22 @@ group("vehicles — chassis", () => {
     return { vehicle, ground };
   }
 
+  test("selects reverse only while effectively stopped", () => {
+    const { vehicle } = car();
+    assert.equal(vehicle.selectDriveDirection(true), true);
+    assert.equal(vehicle.gear, -1);
+    assert.ok(vehicle.config.transmission.shiftTimer > 0);
+    vehicle.setVelocity(0, 0, 2);
+    assert.equal(vehicle.selectDriveDirection(false), false);
+    assert.equal(vehicle.gear, -1);
+    assert.equal(vehicle.selectGear(0), true);
+    assert.equal(vehicle.gear, 0);
+    assert.equal(vehicle.selectGear(1), false);
+    vehicle.setVelocity(0, 0, 0);
+    assert.equal(vehicle.selectDriveDirection(false), true);
+    assert.equal(vehicle.gear, 1);
+  });
+
   test("stops from 20 m/s within 15% of v² / (2μg)", () => {
     const { vehicle, ground } = car({
       mass: 1000,

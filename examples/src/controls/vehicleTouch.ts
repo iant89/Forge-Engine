@@ -6,7 +6,7 @@
  * down is brake, so the stick works on its own. The A/B pair on the bottom-right is the digital
  * version of the same two axes (gas / brake). Keyboard input is combined by the scene, not here.
  *
- * The vehicle playground adds P/PARK, a tap toggle for the latched parking brake
+ * The vehicle playground adds a three-position F/N/R switch and P/PARK, a tap toggle for the latched parking brake
  * (`onParkToggle`). The scene owns the state and reports it back via `setPark`, which lights the
  * button for as long as the brake is engaged — like MAST/ARM below.
  *
@@ -26,8 +26,12 @@ export interface VehicleTouchAxes {
   brake: number;
 }
 
+export type VehicleGearPosition = "F" | "N" | "R";
+
 export interface VehicleTouchHandle {
   sample(): VehicleTouchAxes;
+  /** Move the F/N/R switch without requesting a shift (used to mirror keyboard/telemetry state). */
+  setGear(position: VehicleGearPosition): void;
   /** Light (or unlight) the MAST toggle to match the scene's commanded mast state. */
   setMast(active: boolean): void;
   /** Light (or unlight) the ARM toggle to match the scene's commanded arm state. */
@@ -42,8 +46,12 @@ export interface VehicleTouchOptions {
   onMastToggle?: () => void;
   /** Fired on every ARM pad tap (Mars showcase). Absent on the vehicle playground. */
   onArmToggle?: () => void;
+  /** Fired when an F/N/R position is requested. Return false when the drivetrain rejects it. */
+  onGearSelect?: (position: VehicleGearPosition) => boolean;
   /** Fired on every PARK pad tap (vehicle playground). Absent on the Mars showcase. */
   onParkToggle?: () => void;
+  /** Rejected positions remain disabled/red for this long. Default 2000 ms. */
+  gearRejectMs?: number;
 }
 
 const DEADZONE = 0.14;
@@ -92,6 +100,11 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
   const mast = root?.querySelector<HTMLElement>("#veh-mast") ?? null;
   const arm = root?.querySelector<HTMLElement>("#veh-arm") ?? null;
   const park = root?.querySelector<HTMLElement>("#veh-park") ?? null;
+  const gearF = root?.querySelector<HTMLButtonElement>("#veh-gear-f") ?? null;
+  const gearN = root?.querySelector<HTMLButtonElement>("#veh-gear-n") ?? null;
+  const gearR = root?.querySelector<HTMLButtonElement>("#veh-gear-r") ?? null;
+  const gears: Record<VehicleGearPosition, HTMLButtonElement | null> = { F: gearF, N: gearN, R: gearR };
+  const rejectTimers = new Map<VehicleGearPosition, ReturnType<typeof setTimeout>>();
 
   const listeners: Array<[HTMLElement, string, EventListener]> = [
     ...suppressTouchChrome(stick),
@@ -100,6 +113,9 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
     ...suppressTouchChrome(mast),
     ...suppressTouchChrome(arm),
     ...suppressTouchChrome(park),
+    ...suppressTouchChrome(gearF),
+    ...suppressTouchChrome(gearN),
+    ...suppressTouchChrome(gearR),
   ];
 
   let steer = 0;
@@ -204,6 +220,46 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
       brakeHeld = down;
     }),
   );
+  const setGearVisual = (position: VehicleGearPosition): void => {
+    for (const candidate of ["F", "N", "R"] as const) {
+      const el = gears[candidate];
+      el?.classList.toggle("active", candidate === position);
+      el?.setAttribute("aria-pressed", candidate === position ? "true" : "false");
+    }
+  };
+  const rejectGear = (position: VehicleGearPosition): void => {
+    const el = gears[position];
+    if (!el) return;
+    const old = rejectTimers.get(position);
+    if (old !== undefined) clearTimeout(old);
+    el.disabled = true;
+    el.classList.add("rejected");
+    const timer = setTimeout(() => {
+      el.disabled = false;
+      el.classList.remove("rejected");
+      rejectTimers.delete(position);
+    }, Math.max(250, options.gearRejectMs ?? 2000));
+    rejectTimers.set(position, timer);
+  };
+  const bindGear = (position: VehicleGearPosition): void => {
+    const el = gears[position];
+    if (!el || !options.onGearSelect) return;
+    const onDown = (event: Event): void => {
+      const e = event as PointerEvent;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (el.disabled) return;
+      if (options.onGearSelect!(position)) setGearVisual(position);
+      else rejectGear(position);
+    };
+    el.addEventListener("pointerdown", onDown);
+    listeners.push([el, "pointerdown", onDown]);
+  };
+  bindGear("F");
+  bindGear("N");
+  bindGear("R");
+
   // MAST, ARM and PARK are tap toggles, not holds: fire on press for immediate feedback (the
   // scene's setMast / setArm / setPark lights the button from the commanded state in the same tick).
   const tapToggle = (el: HTMLElement | null, onToggle: (() => void) | undefined): void => {
@@ -254,6 +310,9 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
         brake: Math.max(stickBrake, brakeHeld ? 1 : 0),
       };
     },
+    setGear(position: VehicleGearPosition): void {
+      setGearVisual(position);
+    },
     setMast(active: boolean): void {
       mast?.classList.toggle("active", active);
       mast?.setAttribute("aria-pressed", active ? "true" : "false");
@@ -268,6 +327,15 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
     },
     dispose(): void {
       for (const [el, type, fn] of listeners) el.removeEventListener(type, fn);
+      for (const timer of rejectTimers.values()) clearTimeout(timer);
+      rejectTimers.clear();
+      for (const el of [gearF, gearN, gearR]) {
+        if (!el) continue;
+        el.disabled = false;
+        el.classList.remove("active");
+        el.classList.remove("rejected");
+        el.setAttribute("aria-pressed", "false");
+      }
       gas?.classList.remove("pressed");
       brake?.classList.remove("pressed");
       mast?.classList.remove("active");

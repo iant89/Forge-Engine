@@ -99,13 +99,15 @@ export interface CloudShading {
 /**
  * Cloud radiance (linear RGB) for a view/sun pair at a given density — the formula the sky
  * shader's cloud layer evaluates per pixel. Dense cores transmit less sun
- * (`0.25 + 0.75·e^(−2.5·d)`), everything receives the ambient, and the forward lobe
- * (`(max(cos θ, 0))^6`) silvers the lining around the sun.
+ * (`0.25 + 0.75·e^(−2.5·(d + sunPathDensity))`), everything receives the ambient, and the forward
+ * lobe (`(max(cos θ, 0))^6`) silvers the lining around the sun. `sunPathDensity` is the shader's
+ * three-sample deck self-shadow integral; callers without a spatial density field may omit it.
  */
-export function cloudRadiance(viewDir: Vec3, sunDir: Vec3, density: number, shading: CloudShading, out: Float64Array): Float64Array {
+export function cloudRadiance(viewDir: Vec3, sunDir: Vec3, density: number, shading: CloudShading, out: Float64Array, sunPathDensity = 0): Float64Array {
   const d = clamp(density, 0, 1);
+  const shadow = Math.max(0, sunPathDensity);
   const cosTheta = Math.max(0, viewDir.x * sunDir.x + viewDir.y * sunDir.y + viewDir.z * sunDir.z);
-  const transmitted = 0.25 + 0.75 * Math.exp(-2.5 * d);
+  const transmitted = 0.25 + 0.75 * Math.exp(-2.5 * (d + shadow));
   const silver = 1 + shading.silverLining * cosTheta ** 6;
   out[0] = shading.albedo.r * (shading.sunTint[0]! * transmitted + shading.ambientTint[0]!) * silver;
   out[1] = shading.albedo.g * (shading.sunTint[1]! * transmitted + shading.ambientTint[1]!) * silver;
