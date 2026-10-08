@@ -5,30 +5,31 @@
   "description": "Forge \u2014 a browser-native WebGPU 3D game & real-time simulation engine",
   "type": "module",
   "workspaces": [
-    "engine"
+    "engine",
+    "packages/selrun"
   ],
   "scripts": {
     "setup": "bash scripts/setup-deps.sh",
     "setup:check": "bash scripts/setup-deps.sh --check",
     "build": "tsc -b engine --pretty false",
     "typecheck": "tsc -b engine --pretty false && tsc -p examples/tsconfig.json --noEmit --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:affected": "node tools/affected-tests.mjs",
-    "test:affected:print": "node tools/affected-tests.mjs --print",
-    "test:all": "node tools/affected-tests.mjs --all",
+    "test": "selrun run --all",
+    "test:run": "selrun run --all",
+    "test:serial": "selrun serial",
+    "test:affected": "selrun affected",
+    "test:affected:print": "selrun affected --print",
+    "test:all": "selrun run --all",
+    "test:check": "selrun check",
     "pr:checks": "node tools/pr-checks.mjs",
-    "check:testmap": "node tools/test-subsystems.mjs --check",
-    "test:gpu": "vitest run --config vitest.gpu.config.ts",
     "bench": "node benchmarks/run.mjs",
     "demo": "vite --config examples/vite.config.ts --host 0.0.0.0",
     "demo:mars": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=terrain\"",
     "demo:showcase": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=mars-showcase\"",
     "lint:arch": "node tools/lint-arch.mjs",
-    "docs:check": "vite-node tools/docs-check.mjs",
+    "docs:check": "tsx tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",
-    "check:mars-port": "vite-node tools/mars-port-check.mjs",
+    "check:mars-port": "tsx tools/mars-port-check.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "check:browser:workers": "node tools/browser-check.mjs --workers-only",
     "check:browser:terrain-layers": "node tools/browser-check.mjs --terrain-layers",
@@ -49,8 +50,8 @@
     "@webgpu/types": "^0.1.52",
     "draco3dgltf": "^1.5.7",
     "playwright-core": "^1.49.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7",
-    "vitest": "^2.1.8"
+    "vite": "^6.0.7"
   }
 }

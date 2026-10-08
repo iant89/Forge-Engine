@@ -67,7 +67,7 @@
  *
  * The whole geometry — the plane extraction, the pyramid, the three tests — exists on the CPU too as
  * `cullBatchesOnCpu`, the shader's twin: the `RendererOptions.objectCulling: "cpu"` fallback the mock
- * device and the browser gate's A/B run, and the reference `tests/objectCulling.test.ts` pins against
+ * device and the browser gate's A/B run, and the reference `tests/rendering/objectCulling.test.ts` pins against
  * a brute-force per-pixel occlusion check of the real depth image.
  */
 
@@ -213,7 +213,7 @@ const HIZ_WORKGROUP: u32 = ${HIZ_WORKGROUP}u;
 
 /**
  * `forge.objects.cull` — one invocation per batch, three tests, one word written. The WGSL is the
- * algorithm `cullBatchesOnCpu` restates in TypeScript; `tests/objectCulling.test.ts` pins their
+ * algorithm `cullBatchesOnCpu` restates in TypeScript; `tests/rendering/objectCulling.test.ts` pins their
  * agreement on the decisions the margins make unambiguous, and pins the conservatism of both against
  * a per-pixel scan of the depth image they were given.
  */
@@ -479,7 +479,7 @@ export interface HizLevel {
 /**
  * The six frustum planes `Frustum.setFromViewProjection` builds, in the shader's own order (near, far,
  * left, right, bottom, top) and left unnormalized the way the shader leaves them.
- * `tests/objectCulling.test.ts` pins this against `Frustum.setFromViewProjection`.
+ * `tests/rendering/objectCulling.test.ts` pins this against `Frustum.setFromViewProjection`.
  */
 export function cullPlanesFrom(viewProj: Float32Array, out = new Float32Array(24)): Float32Array {
   const m = viewProj;

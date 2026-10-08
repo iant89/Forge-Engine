@@ -2,7 +2,7 @@
  * Uniform layouts shared by the CPU writes and the WGSL declarations.
  *
  * The shaders in `rendering/shaders/*.ts` embed `StructDef.toWgsl()` output directly, so the WGSL
- * declaration and the CPU writer cannot drift apart. `tools/wgsl-check.mjs` and `tests/wgsl.test.ts`
+ * declaration and the CPU writer cannot drift apart. `tools/wgsl-check.mjs` and `tests/rendering/wgsl.test.ts`
  * additionally fail the build when a definition is illegal in the uniform address space (an array
  * with a stride below 16 bytes, a struct member off a 16-byte boundary). That matters because
  * Chromium compiles such a struct anyway while WebKit rejects the module: the bug renders fine in

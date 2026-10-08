@@ -33,7 +33,7 @@ Flags: `--check` (verify only), `--no-browser` (skip the browser and Vulkan step
 instead of warn when no browser can be provisioned), `--verbose`.
 
 Which ICD the headless gate is launched with is decided by `tools/gpu-env.mjs` (and pinned by
-`tests/gpuEnv.test.ts`): the one bundled next to the browser when it has one — then `VK_ICD_FILENAMES`
+`tests/tools/gpuEnv.test.ts`): the one bundled next to the browser when it has one — then `VK_ICD_FILENAMES`
 and `VK_DRIVER_FILES` point at it and its directory goes on `LD_LIBRARY_PATH` — otherwise nothing at
 all and the system loader picks. `npm run setup` writes that environment to
 `$TMPDIR/forge-gpu-env.sh` so you can `source` it before launching the same browser by hand. Chrome
@@ -44,12 +44,13 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 ## 1. Commands you will actually run
 
 ```sh
-npm run typecheck        # tsc -b engine (strict) + examples tsconfig + tests tsconfig
-npm test                 # vitest: the full suite (math, bvh, renderGraph, shadows, pipeline, frame + rendering, tasks, wgsl, …)
-npm run test:affected    # only the suites your working-tree diff can reach, + the smoke floor (see §8)
-npm run test:affected:print  # show that selection without running it (which subsystems, which suites, why)
-npm run test:all         # force the full suite via the selector (identical set to `npm test`)
-npm run check:testmap    # assert the source→test map (tools/test-subsystems.mjs) has not drifted
+npm run typecheck        # strict engine + examples + tests typecheck
+npm test                 # selrun full suite; ordered, one process per linked suite
+npm run test:serial      # explicitly run the ordered linked suites sequentially
+npm run test:affected    # select from staged/unstaged/deleted/renamed/untracked changes (see §8)
+npm run test:affected:print  # show the working-tree selection and reasons without running it
+npm run test:affected -- --base origin/main  # compare origin/main...HEAD only; ignore working-tree changes
+npm run test:check       # verify suite manifests, explicit covers, links, and declared count
 npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
@@ -88,10 +89,10 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase.
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
-tests/               vitest suites (math, ecs, vehicles, particles, environment, terrain, physics, renderGraph, wgsl, …)
+tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list
+packages/selrun/     local manifest-driven runner, catalog validation, and affected-suite selector
 benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)
-tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B),
-                     test-subsystems.mjs (the source→test map + drift self-check), affected-tests.mjs (runs only affected suites)
+tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B); browser smokes remain separate from Node suites
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
 docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, sky pass, how to add a pass
@@ -111,25 +112,25 @@ no build step between editing engine source and seeing it in the browser.
   `Mat4.setPerspective`/`setOrthographic` map depth to WebGPU's `[0,1]` with `clipW = z`.
   `Frustum.setFromViewProjection` extracts planes for exactly that convention.
   The render pipeline uses `frontFace: "cw"` because outward-wound primitives land clockwise on screen
-  under this projection. These four agree with each other and are pinned by `tests/math.test.ts`;
+  under this projection. These four agree with each other and are pinned by `tests/math/math.test.ts`;
   change one and you must change them all, plus the tests.
 * **`Transform.lookAt(target)` aims local +Z at `target`.** Lights travel along their +Z, so
   `sun.transform.lookAt(x)` shines at `x`; the renderer refreshes `Light.direction` from the world
   matrix every frame while `followRotation` is true.
 * **Matrices are column-major `Float32Array(16)`** and are uploaded as-is. Never transpose on upload.
 * **`Mat4.transformPoint(v, out)` and friends must stay alias-safe** (`out === v` is how the scratch
-  vectors are used). Read the inputs into locals before writing `out`; `tests/math.test.ts` pins it.
+  vectors are used). Read the inputs into locals before writing `out`; `tests/math/math.test.ts` pins it.
 * **Every GPU pass goes through the `RenderGraph`.** Declare what a pass reads and attaches (per
   mip/layer where it matters); never call `encoder.beginRenderPass` on a texture the graph does not
   know about. The graph validates before recording and pools textures by descriptor — a steady frame
-  must report `texturesCreated: 0` (asserted by `tests/frame.test.ts` and `check:browser`).
+  must report `texturesCreated: 0` (asserted by `tests/rendering/frame.test.ts` and `check:browser`).
 * **WGSL uniform structs are generated from `engine/src/rendering/uniforms.ts`.** Do not hand-edit
   struct declarations in `shaders/standard.ts`, `shaders/post.ts` or `shaders/sky.ts`; change the TS
   definition and `check:wgsl` will confirm the 16-byte alignment. Hand-written WGSL must still pass
   `check:wgsl`.
 * **The sky shader and `environment/atmosphere.ts` are twins.** Same integral, same constants (via
   `SkyUniforms`), same cubic sample spacing. A change to one is a change to both, and
-  `tests/environment.test.ts` is where the CPU side is pinned against closed forms.
+  `tests/environment/environment.test.ts` is where the CPU side is pinned against closed forms.
 * **The strictest browser decides what is valid WGSL, and it is not the one `check:browser` runs.**
   Chromium accepts uniform structs with a relaxed layout (`array<u32, 3>` padding, arrays with a
   stride below 16 bytes, struct members off 16-byte boundaries) without being asked; WebKit rejects
@@ -146,7 +147,7 @@ no build step between editing engine source and seeing it in the browser.
   allocation in `Renderer.renderScene`, `collectBatches`, or the transform update; use the scratch
   fields that already exist on the class.
 * **GPU lifetime is explicit.** Anything that creates a `GPUBuffer`/`GPUTexture` must release it in a
-  `dispose()`; `tests/rendering.test.ts` asserts `mock.outstanding` is empty after teardown.
+  `dispose()`; `tests/rendering/rendering.test.ts` asserts `mock.outstanding` is empty after teardown.
 * **Public API only from the demo/tests** (`@forge/engine`), never deep imports into `engine/src`.
 
 ## 4. Editing rules
@@ -172,8 +173,8 @@ no build step between editing engine source and seeing it in the browser.
    not a shader problem; a `UsageError` naming a pass is a wrong `reads`/`color`/`depth` declaration. A black frame on Safari with a green
    `check:browser` is a WebKit-only shader rejection until proven otherwise: run `npm run check:wgsl`
    and look for uniform-layout issues first.
-2. Reproduce the camera/light math in a throwaway vitest file against `Mat4`/`Frustum` directly
-   (fast, no GPU) before touching the renderer.
+2. Reproduce the camera/light math in a throwaway `tsx` script against `Mat4`/`Frustum` directly
+  (fast, no GPU) before touching the renderer.
 3. For lighting: temporarily raise `scene.settings.ambientIntensity` or the light `intensity` in the
    demo to separate "nothing drawn" from "drawn but dark".
 4. Check the winding/`frontFace` pair before suspecting the fragment shader.
@@ -200,31 +201,31 @@ no build step between editing engine source and seeing it in the browser.
   Before each PR merge, append a `pr-merge` entry summarising all changes in that PR. Validate the
   ```json fence still parses after every edit.
 
-## 8. Selective testing — run only what a change can reach
+## 8. Selective testing — explicit production coverage, test-only import tracing
 
-`npm test` runs every suite and is the right thing before a merge. For the edit loop, `npm run
-test:affected` runs only the suites your change can actually reach, plus a fixed smoke floor. The map
-that makes this safe lives in `tools/test-subsystems.mjs` and is documented in `docs/TESTING.md`.
+`npm test` runs every linked suite in the declared order, one process per suite. During the edit loop,
+`npm run test:affected` uses the same catalog to run only suites supported by direct-file, explicit
+coverage, or test-helper evidence. The rules are implemented and tested in `packages/selrun/` and
+summarized in `docs/TESTING.md`.
 
-* **Subsystems own source and suites.** Each subsystem (`math`, `core`, `gpu`, `rendering`, `scene`,
-  `physics`, `vehicles`, `particles`, `environment`, `terrain`, `resources`, `docs`, `gpuenv`, and the
-  scene-split demo subsystems `ex-ui`, `ex-weather`, `ex-rover`, `ex-antenna`, `ex-orbit`) declares the
-  paths it owns, the suites that exercise it, and the subsystems it is built upon (`deps`, derived from
-  the real relative imports). A change to X runs X **and every subsystem that transitively depends on
-  X** — the suites the change can reach — never the rest. (The demo touch controls import nothing from
-  `@forge/engine`, so an engine change cannot reach their suites at all.)
-* **The smoke floor always runs**: `math`, `ecs`, `renderGraph`, `frame`, the `architecture`
-  import-boundary guard, and `subsystems` (the map's own drift test). So even the narrowest run keeps
-  a cheap check on the fundamentals.
-* **Foundation and shared changes expand to full automatically.** A change to `core`/`math`
-  (everything rests on them), to the build/test config, to the public barrel `engine/src/index.ts`,
-  to the strict mock device `engine/src/testing/`, to `tests/support/`, or to a file **no subsystem
-  owns** falls back to the full suite. Selection never trades safety for speed silently — it prints
-  the one-line reason. Verify a selection with `npm run test:affected:print` before trusting it.
-* **The map is guarded.** `tests/subsystems.test.ts` (in the smoke floor) and `npm run check:testmap`
-  both fail if a new suite is unclaimed, a subsystem's source path moves, or a `deps` id is unknown.
-  **When you add a suite or move a subsystem's files, update `tools/test-subsystems.mjs`** — CI will
-  not go green otherwise.
-* **CI**: pull requests run `test:affected` against the PR base; pushes to `main` run the full suite
-  as the safety net. Force a full run on a PR with the `full-test-run` label, a `[full-ci]` token in
-  the head commit message, or a manual `workflow_dispatch` with `full: true`.
+* **Production changes use only explicit `@covers` claims.** Every suite has both a leading JSDoc
+  header and an exported `suite` manifest. Each cover is a repository-backed path (or a deliberate
+  glob); one source file may be covered by many suites, and one suite may cover many source files.
+  Never collapse claims or assign a single owner per source path. Importing `@forge/engine` does not
+  imply coverage of every file re-exported by the public barrel.
+* **Static import closure is test-only.** A changed suite selects itself directly. A changed test
+  helper selects suites whose static imports reach it, including through other test helpers. Dynamic
+  imports are not followed. Production changes are never selected by importing a production module;
+  they require an explicit `@covers` match.
+* **Working-tree and base changes are different inputs.** With no `--base`, selection includes staged,
+  unstaged, deleted, renamed, and untracked paths. `npm run test:affected -- --base REF` compares
+  exactly `REF...HEAD` and ignores all local working-tree state. Rename/copy records include both paths.
+* **The catalog is guarded.** `npm run test:check` validates every suite header/export, unique suite
+  name, repository-backed area, every `@covers` claim, one ordered link per discovered suite in
+  `tests/full.test.ts`, and the `report(n)` count. The linked array is the execution order; do not
+  silently sort it. Suite areas must come from directories in this repository—do not invent names.
+* **Browser smokes remain separate.** The real-WebGPU and end-to-end checks run under
+  `npm run check:browser*`; they are not Node test suites and do not belong in `tests/<area>/*.test.ts`.
+* **CI**: pull requests select against the PR base; pushes to `main` run the full suite. The
+  `full-test-run` label, a `[full-ci]` head-commit token, or a manual dispatch with `full: true` also
+  forces the full run.

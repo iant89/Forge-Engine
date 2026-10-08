@@ -38,21 +38,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck (engine + examples)
+      - name: Typecheck (engine + examples + tests)
         run: npm run typecheck
 
-      # Decide the test scope once, so the reason is visible in the log. A full run happens on pushes
-      # to main (the safety net), on a manual dispatch asking for one, when the PR carries the
-      # `full-test-run` label, or when the head commit message contains `[full-ci]`. Everything else
-      # runs only the suites the PR's diff can reach (foundation/config changes still expand to full
-      # inside the selector — see tools/test-subsystems.mjs).
+      # Decide the test scope once so it is visible in the log. Pushes to main, an explicit full
+      # dispatch, the `full-test-run` label, and `[full-ci]` all run the complete linked suite list.
+      # Other PRs and manual dispatches select against base...HEAD through selrun.
       - name: Decide test scope
         id: scope
         run: |
           FULL=0
+          BASE="${{ github.event.pull_request.base.sha }}"
           case "${{ github.event_name }}" in
             push) FULL=1 ;;
-            workflow_dispatch) [ "${{ inputs.full }}" = "true" ] && FULL=1 ;;
+            workflow_dispatch)
+              [ "${{ inputs.full }}" = "true" ] && FULL=1
+              BASE=origin/main
+              ;;
           esac
           if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-test-run') }}" = "true" ]; then
             FULL=1
@@ -61,15 +63,20 @@ jobs:
             FULL=1
           fi
           echo "full=$FULL" >> "$GITHUB_OUTPUT"
-          echo "Test scope: $([ "$FULL" = "1" ] && echo FULL || echo AFFECTED)"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          if [ "$FULL" = "1" ]; then
+            echo "Test scope: FULL"
+          else
+            echo "Test scope: AFFECTED against ${BASE}...HEAD"
+          fi
 
       - name: Unit tests (affected)
         if: steps.scope.outputs.full != '1'
-        run: node tools/affected-tests.mjs --base "${{ github.event.pull_request.base.sha }}"
+        run: npm run test:affected -- --base "${{ steps.scope.outputs.base }}"
 
       - name: Unit tests (full)
         if: steps.scope.outputs.full == '1'
-        run: node tools/affected-tests.mjs --all
+        run: npm test
 
       - name: WGSL validation
         run: npm run check:wgsl
@@ -77,8 +84,8 @@ jobs:
       - name: Architecture boundaries
         run: npm run lint:arch
 
-      - name: Test-selection map is current
-        run: npm run check:testmap
+      - name: Selrun suite catalog is current
+        run: npm run test:check
 
       - name: Documentation honesty (capability registry, roadmap, known issues)
         run: npm run docs:check

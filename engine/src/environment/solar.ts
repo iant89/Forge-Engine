@@ -5,7 +5,7 @@
  * 25 (low-accuracy solar coordinates) and 28 (equation of time) — evaluated in degrees exactly as
  * NOAA publishes them, then converted to the engine's radians and axes at the very end. The
  * low-accuracy series is good to ~0.01° in the sun's position, which is far below anything a shadow
- * or a sky can show; `tests/environment.test.ts` pins it against Meeus' worked examples.
+ * or a sky can show; `tests/environment/environment.test.ts` pins it against Meeus' worked examples.
  *
  * Time is a Julian day in **UTC**. Longitude is positive **east**, latitude positive north.
  *

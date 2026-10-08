@@ -7,9 +7,11 @@ Newest entries go at the bottom with a date. Keep entries short; link to files, 
 ## Repo facts (stable)
 
 - Monorepo: `engine/` (`@forge/engine`, the WebGPU engine), `examples/` (Vite demo scenes),
-  `tests/` (vitest, Node + mock GPU), `scripts/`, `tools/`, `benchmarks/`, `docs/`.
-- Commands: `npm run typecheck` (engine + examples + tests), `npm run test`,
-  `npm run demo` (Vite on 0.0.0.0), `npm run check:wgsl`. Node >= 20.11.
+  `tests/<area>/` (selrun on Node + mock GPU), `packages/selrun/` (local runner/catalog/selector),
+  `scripts/`, `tools/`, `benchmarks/`, `docs/`.
+- Commands: `npm run typecheck` (engine + examples + tests), `npm test` (selrun ordered suite list),
+  `npm run test:affected` (explicit production covers; test-only import closure), `npm run test:check`,
+  `npm run demo` (Vite on 0.0.0.0), `npm run check:wgsl`. Browser smokes stay separate at `check:browser*`. Node >= 20.11.
 - Session branch convention: work stays on `arena/<id>-forge-engine`; commit + push there, PR from it.
 - Vehicle convention everywhere: **+Z is the nose, +Y up, metres**. Wheel names
   `wheel_FL / FR / ML / MR / RL / RR` (−X = left). `VehicleSystem` (order 110) poses the chassis
@@ -1718,3 +1720,9 @@ will stop".
   passed with zero GPU errors; the Mars workers screenshot was inspected. The full `check:browser`
   run reached the slow Mars showcase portion but exceeded the 30-minute command limit, so it was
   stopped before the complete gate result.
+
+## 2026-10-08 — selrun suite migration
+
+- The unit/integration runner is now the local `packages/selrun` workspace package. `npm view selrun` returned 404, so keep it in-repo rather than depending on a registry package. The ordered list is `tests/full.test.ts`; `npm test` runs one isolated Node process per linked suite.
+- `npm run test:affected` uses every explicit many-to-many `@covers` claim for production paths and follows static imports only for changed test files/helpers. Default selection includes staged, unstaged, deleted, renamed, and untracked paths; `--base REF` means exactly `REF...HEAD` and ignores the working tree.
+- Verified against an archived `HEAD` checkout: the 70 existing non-selector suites retain their individual Vitest baseline case counts (1,017 total). The former 7-case selector-drift suite is replaced by the 8-case selrun suite: current result is 71 linked suites, 1,025 passing cases. Browser/end-to-end smokes remain separate under `check:browser*`.

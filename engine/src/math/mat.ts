@@ -911,7 +911,7 @@ export class Mat4 {
  * at `offset` — no `Mat4`, `Quat` or `Vec3` allocation.
  *
  * This is exactly `Mat4.setCompose(position, Quat.fromAxisAngle(Vec3.up, radians), scale)` (pinned
- * by `tests/math.test.ts`), kept as a standalone scalar function because its two hot callers write
+ * by `tests/math/math.test.ts`), kept as a standalone scalar function because its two hot callers write
  * straight into buffers they already own: the renderer composes population instances into the
  * per-frame instance arena, and the population world transforms per-instance bounds. A Y-only
  * rotation is all scatter placement produces (rocks yaw; they do not tumble), and the direct form

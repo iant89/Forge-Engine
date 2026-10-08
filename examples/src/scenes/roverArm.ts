@@ -48,7 +48,7 @@ const DEG = Math.PI / 180;
 /**
  * Stowed link directions in the arm plane, in degrees above the reach direction (the plane's
  * horizontal once the arm is swung forward): upper arm J2→J3 and forearm J3→J4. Measured from the
- * GLB joint offsets; `tests/roverGlb.test.ts` re-derives them so a reconversion cannot drift.
+ * GLB joint offsets; `tests/examples/roverGlb.test.ts` re-derives them so a reconversion cannot drift.
  */
 export const ARM_STOWED_UPPER_ARM_DEG = 16.2;
 export const ARM_STOWED_FOREARM_DEG = 178.16;

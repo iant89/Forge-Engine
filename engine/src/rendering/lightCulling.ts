@@ -27,7 +27,7 @@
  * influential light once the list is full (the same per-light rank — intensity × colour luma — with
  * ties keeping the earlier light) and restores light order after an eviction. Given the same ranges
  * and the same counts it writes the bytes `ClusterGrid.rasterize` would; `assignClustersOnCpu` below
- * is that algorithm in TypeScript, and `tests/lightCulling.test.ts` pins it against the CPU builder.
+ * is that algorithm in TypeScript, and `tests/rendering/lightCulling.test.ts` pins it against the CPU builder.
  * `tools/wgsl-check.mjs` validates the WGSL and asserts the struct declarations in it are the
  * generated ones, so the shader's view of the grid cannot drift from the writer's.
  *
@@ -208,7 +208,7 @@ fn covers(key: u32, tileX: u32, tileY: u32, slice: u32) -> bool {
  *
  * The twin of the shader's `covers` — same fields, same order, both reading the shifts out of
  * `RANGE_KEY_BITS`, which is also what `ClusterGrid.packRanges` packs with. Exported because the
- * packed key is a shared interface between two languages, and `tests/clusters.test.ts` proves the keys
+ * packed key is a shared interface between two languages, and `tests/rendering/clusters.test.ts` proves the keys
  * carry exactly the coverage the CPU fill walks.
  */
 export function coversKey(key: number, tileX: number, tileY: number, slice: number): boolean {
@@ -229,7 +229,7 @@ const keptLights = new Uint32Array(MAX_LIGHTS_PER_CLUSTER);
  * Reads the packed keys and the influences the shader reads (`counts` is the counting pass's output,
  * which is what the shader reads from the grid buffer) and writes the same lists to the same slots.
  * Exported because it is the executable statement of what the WGSL must do: it is pinned against
- * `ClusterGrid.rasterize` byte for byte in `tests/lightCulling.test.ts`, and `check:browser` compares
+ * `ClusterGrid.rasterize` byte for byte in `tests/rendering/lightCulling.test.ts`, and `check:browser` compares
  * the real shader's picture against the CPU fill on a device.
  */
 export function assignClustersOnCpu(

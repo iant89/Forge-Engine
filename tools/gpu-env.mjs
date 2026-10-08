@@ -11,7 +11,7 @@
  *
  * This module is the single place that decides which of the two applies, so the gate that launches
  * the browser (`tools/browser-check.mjs`), the script that provisions the machine
- * (`scripts/setup-deps.sh`) and the test that pins the rule (`tests/gpuEnv.test.ts`) cannot drift
+ * (`scripts/setup-deps.sh`) and the test that pins the rule (`tests/tools/gpuEnv.test.ts`) cannot drift
  * apart. Getting this wrong is not subtle: with no ICD the page still boots, `navigator.gpu` still
  * exists, and `requestAdapter()` quietly returns null.
  *

@@ -11,7 +11,7 @@
  *    results would change when workers finish in a different order.
  *
  * Both are 32-bit and reproducible in JS and in a future WASM build. Never use
- * `Math.random()` inside a deterministic subsystem (enforced by tests/architecture.test.ts).
+ * `Math.random()` inside a deterministic subsystem (enforced by tests/engine/architecture.test.ts).
  */
 
 import { TAU } from "./scalar.js";

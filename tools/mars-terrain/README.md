@@ -63,7 +63,7 @@ point-by-point with the engine's transcription, per face. Passing means the port
 dichotomy, canyon and noise are the same function the generator's erosion correction was measured
 against; a warning about ~1e-3 m differences is float32 storage, not drift.
 
-## `../../tests/marsTerrainPlan.test.ts` — the planner's own tests
+## `../../tests/tools/marsTerrainPlan.test.ts` — the planner's own tests
 
 `plan.ts` is a *copy* of cube-sphere math that also exists in the engine, so the test suite imports the
 copy directly and asserts it still agrees with `engine/src/terrain/mars/cubeSphere.ts` point-for-point,

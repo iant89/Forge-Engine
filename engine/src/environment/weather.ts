@@ -11,7 +11,7 @@
  *
  * Frozen turbulence: the gust field is noise sampled at `(p − wind·t)`, i.e. eddies are advected by
  * the mean wind instead of evolving. Sampling downwind later equals sampling upwind earlier (pinned
- * by `tests/environment8b.test.ts`), which is both the cheapest plausible gust model and exactly
+ * by `tests/environment/environment8b.test.ts`), which is both the cheapest plausible gust model and exactly
  * deterministic — no history, no grid, no worker round-trip.
  *
  * The system optionally *drives* the scene (all three switches default to on):

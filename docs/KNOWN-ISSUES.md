@@ -72,14 +72,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
   presence and direction (A/B luminance) and the pass structure; visual quality is an eyeball check
   on `tools/.browser-check.png`. (capability: rendering.postFxVerification)
 * **WebKit is not run.** Uniform layout strictness and constant-argument strictness are enforced
-  statically (`check:wgsl`, `tests/wgsl.test.ts`); no Safari build exists in the sandbox, and the
+  statically (`check:wgsl`, `tests/rendering/wgsl.test.ts`); no Safari build exists in the sandbox, and the
   Chromium the sandbox runs is newer — and more permissive — than the one the advisory gate
   downloads. (capability: platform.webkitCompile)
 
 ## Core (Phase 1)
 
-The worker round-trip and resource-eviction test gaps are gone (`tests/tasks.test.ts`,
-`tests/resources.test.ts`). Phase 9.1 also verifies core glTF/GLB mesh decoding on Node and browser
+The worker round-trip and resource-eviction test gaps are gone (`tests/core/tasks.test.ts`,
+`tests/resources/resources.test.ts`). Phase 9.1 also verifies core glTF/GLB mesh decoding on Node and browser
 workers. `MeshBvh` now backs triangle-accurate scene picking and large-mesh frustum refinement;
 PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
@@ -181,7 +181,7 @@ What remains:
   `DayNightCycle.driveFog` keeps the fog colour equal to the sky just above the horizon, so seams
   only appear when a scene sets a fog colour that disagrees with its sky. (`docs/ENVIRONMENT.md` §4) (capability: environment.skyFogModes)
 * **Sample-count truncation is visible at the horizon.** With `quality: "low"` (8×4) the horizon sky
-  is up to ~35 % darker in blue than the converged integral (`tests/environment.test.ts` pins the
+  is up to ~35 % darker in blue than the converged integral (`tests/environment/environment.test.ts` pins the
   bound); `medium` halves that. The cubic view-ray spacing is what makes even `low` usable. (capability: environment.skyQuality)
 * **No moon, no twilight glow from below the horizon, no aerial perspective on geometry.** Nights are
   stars over an ambient floor (`nightAmbient`). Geometry gets fog, not the sky's in-scattering. (capability: environment.aerialPerspective)
