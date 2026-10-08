@@ -1726,3 +1726,10 @@ will stop".
 - The unit/integration runner is now the local `packages/selrun` workspace package. `npm view selrun` returned 404, so keep it in-repo rather than depending on a registry package. The ordered list is `tests/full.test.ts`; `npm test` runs one isolated Node process per linked suite.
 - `npm run test:affected` uses every explicit many-to-many `@covers` claim for production paths and follows static imports only for changed test files/helpers. Default selection includes staged, unstaged, deleted, renamed, and untracked paths; `--base REF` means exactly `REF...HEAD` and ignores the working tree.
 - Verified against an archived `HEAD` checkout: the 70 existing non-selector suites retain their individual Vitest baseline case counts (1,017 total). The former 7-case selector-drift suite is replaced by the 8-case selrun suite: current result is 71 linked suites, 1,025 passing cases. Browser/end-to-end smokes remain separate under `check:browser*`.
+
+## 2026-10-08 — where PROGRESS.md's status comes from
+
+- `PROGRESS.md` (repo root) is hand-maintained. `npm run docs:check` reads ROADMAP.md, docs/KNOWN-ISSUES.md and the capability registry only, so a roadmap status change can leave PROGRESS.md stale without any gate failing. Update both in the same change.
+- ROADMAP §15.5 ticks every item, but its header stays `[~]` because the open work (fractured rocks, per-wheel contact manifolds, sand resistance, damage repair) is written as prose. The registry note on `world.interactiveTerrain` still says terrain "is not yet deformable", which contradicts §15.5.4 (`TerrainDeformationField` in `engine/src/terrain/deformation.ts` has landed). Not fixed in the PROGRESS.md change; the note is stale.
+- ROADMAP's Phase 23 checklist is unticked even though the Mars Showcase already exercises much of it, and the Phase 24 items carry no checkboxes at all. PROGRESS.md lists both as planned, with a caveat for Phase 23.
+- The `core.ciQualityGate` registry note says CI runs "on every push", but `.github/workflows/ci.yml` triggers on `pull_request` and on pushes to `main` only. PROGRESS.md uses the workflow's wording.
