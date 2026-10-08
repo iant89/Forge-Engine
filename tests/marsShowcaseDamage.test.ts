@@ -375,17 +375,18 @@ describe("Mars Showcase — rock-safe impacts and turret tools", () => {
     target!.block.markModified();
     const targetId = `${target!.chunkKey}:rocks:${target!.index}`;
 
-    handle.setArm(true);
-    for (let i = 0; i < 480 && (!handle.marsState().armUnfolded || handle.marsState().toolPrompt === null); i++) tick();
-    const ready = handle.marsState();
-    expect(ready.armUnfolded, "the mock GLB supplies all five real arm pivots").toBe(true);
-    expect(ready.toolPrompt, "an arm-reachable rock exposes the tool prompt").not.toBeNull();
-    expect(ready.toolTargetId).toBe(targetId);
+    for (let i = 0; i < 4 && handle.marsState().toolPrompt === null; i++) tick();
+    const proximity = handle.marsState();
+    expect(proximity.armUnfolded, "the tool prompt does not require a manual arm toggle").toBe(false);
+    expect(proximity.toolPrompt, "a reachable rock exposes the Drill prompt while the arm is stowed").not.toBeNull();
+    expect(proximity.toolTargetId).toBe(targetId);
     expect(handle.useTool("drill")).toBe(true);
     expect(handle.marsState().toolAction).toBe("drill");
+    expect(handle.marsState().toolPhase).toBe("deploy");
+    expect(handle.marsState().armDeployed, "Drill activation unfolds the arm automatically").toBe(true);
 
     let sawWorking = false;
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < 1400; i++) {
       tick();
       const state = handle.marsState();
       if (state.toolPhase === "working") sawWorking = true;

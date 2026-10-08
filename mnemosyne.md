@@ -1703,9 +1703,10 @@ will stop".
   are no longer a gameplay fracture action. The drill has a separate deterministic 8% split chance,
   limited to genuinely small round rocks (radius ≤0.32 m) or thin slabs (thickness ≤0.22 m).
 - `examples/src/scenes/roverTools.ts` converts each Perseverance turret mount into chassis/world
-  tool-tip coordinates, solves safe poses, and maps joint error to the arm controller. The scene
-  automatically servos to and from reachable contacts; drilling leaves a persistent dark hole and
-  rim, drifting tool dust, and five small dynamic rubble pieces. Abrade and PIXL-style Analyze are
+  tool-tip coordinates, solves safe poses, and maps joint error to the arm controller. Proximity is
+  evaluated from the ready pose while stowed; activating a tool unfolds the arm, then it automatically
+  servos to the contact and returns to ready. Drilling leaves a persistent dark hole and rim, drifting
+  tool dust, and five small dynamic rubble pieces. Abrade and PIXL-style Analyze are
   optional actions using the same reach panel. Tool dust has a separate 96-sprite pool; marks,
   rubble, listeners, and GPU resources are disposed with the scene.
 - **Kinematics bug found while testing the second tool mode:** the inverse solver compared the

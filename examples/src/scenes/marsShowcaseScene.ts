@@ -168,7 +168,7 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     toolPrompt: string | null;
     toolTargetId: string | null;
     toolAction: RoverToolAction | null;
-    toolPhase: "idle" | "approach" | "working" | "retract";
+    toolPhase: "idle" | "deploy" | "approach" | "working" | "retract";
     toolProgress: number;
     toolMarks: number;
     toolRubble: number;
@@ -1155,7 +1155,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     age: number;
   }
   const fragments: FragmentRecord[] = [];
-  type RoverToolPhase = "approach" | "working" | "retract";
+  type RoverToolPhase = "deploy" | "approach" | "working" | "retract";
   interface ToolMarkRecord {
     targetId: string;
     entity: Entity;
@@ -2583,9 +2583,11 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
 
   /** Return the nearest rock for which the arm can safely solve a drilling pose. */
   function findReachableToolCandidate(): ToolCandidate | null {
-    if (!modelLoaded || !arm.unfolded || armPivots.length !== ARM_JOINT_COUNT) return null;
+    if (!modelLoaded || armPivots.length !== ARM_JOINT_COUNT) return null;
     arm.pose(armPose);
-    roverToolPointFromPose(armPose, "drill", toolCurrentPointLocal);
+    // Reach is measured from the ready pose even while the arm is stowed or unfolding. This lets
+    // proximity expose the Drill button first; activating it then unfolds and auto-aligns the arm.
+    roverToolPointFromPose(arm.unfolded ? armPose : armReadyPose, "drill", toolCurrentPointLocal);
     roverToolWorldPoint(
       toolCurrentPointLocal,
       vehicle.position.x,
@@ -2781,7 +2783,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   }
 
   function startToolAction(action: RoverToolAction): boolean {
-    if (disposed || toolOperation || !modelLoaded || !arm.unfolded || armPivots.length !== ARM_JOINT_COUNT) return false;
+    if (disposed || toolOperation || !modelLoaded || armPivots.length !== ARM_JOINT_COUNT) return false;
     const candidate = findReachableToolCandidate();
     if (!candidate) return false;
     const targetPose = new Float64Array(ARM_JOINT_COUNT);
@@ -2799,7 +2801,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     const operation: ToolOperation = {
       action,
       targetId: candidate.record.proxy.spec.id,
-      phase: "approach",
+      phase: arm.unfolded ? "approach" : "deploy",
       elapsed: 0,
       workSeconds: ROVER_TOOL_SPECS[action].workSeconds,
       targetPose,
@@ -2808,7 +2810,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       result: "",
     };
     toolOperation = operation;
-    toolOperationProgress = 0;
+    if (!arm.deployed) setArm(true);
+    toolOperationProgress = arm.unfolded ? 0 : arm.progress;
     toolTargetId = operation.targetId;
     toolPrompt = `${ROVER_TOOL_SPECS[action].label} · ${candidate.distance.toFixed(1)} m`;
     candidate.record.proxy.body.linearVelocity.set(0, 0, 0);
@@ -2818,8 +2821,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     candidate.record.settledTimer = 0;
     armTouch.setVisible(false);
     toolTouch?.setTarget(toolPrompt);
-    toolTouch?.setBusy("ALIGNING ARM");
-    toolTouch?.setProgress(0);
+    toolTouch?.setBusy(operation.phase === "deploy" ? "UNFOLDING ARM" : "ALIGNING ARM");
+    toolTouch?.setProgress(toolOperationProgress);
     return true;
   }
 
@@ -2839,7 +2842,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       return;
     }
 
-    if (operation.phase === "approach" && armPoseClose(armPose, operation.targetPose)) {
+    if (operation.phase === "deploy" && arm.unfolded) {
+      operation.phase = "approach";
+      operation.elapsed = 0;
+    } else if (operation.phase === "approach" && armPoseClose(armPose, operation.targetPose)) {
       operation.phase = "working";
       operation.elapsed = 0;
     } else if (operation.phase === "working") {
@@ -2865,7 +2871,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     } else {
       toolDust.setWork(null);
     }
-    if (operation.phase === "approach") {
+    if (operation.phase === "deploy") {
+      toolTouch?.setBusy(`UNFOLDING ARM · ${Math.round(arm.progress * 100)}%`);
+      toolOperationProgress = arm.progress;
+    } else if (operation.phase === "approach") {
       toolTouch?.setBusy(`ALIGNING ${ROVER_TOOL_SPECS[operation.action].displayName.toUpperCase()}`);
       toolOperationProgress = 0;
     } else if (operation.phase === "working") {
@@ -3015,7 +3024,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       armInput.turret = unit(sticks.turret + keyAxis("KeyL", "KeyJ"));
       arm.pose(armPose);
       if (toolOperation) {
-        const servoTarget = toolOperation.phase === "retract" ? armReadyPose : toolOperation.targetPose;
+        const servoTarget = toolOperation.phase === "retract" || toolOperation.phase === "deploy"
+          ? armReadyPose
+          : toolOperation.targetPose;
         roverToolServoInput(armPose, servoTarget, armInput);
       }
       if (armPivots.length > 0) arm.update(dt, armInput);

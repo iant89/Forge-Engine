@@ -9163,6 +9163,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Appended entries 0716–0729 for the Mars rover tool implementation and its regression coverage.",
     "why": "Maintain the repository’s required per-file activity history."
+  },
+  {
+    "id": "0730",
+    "date": "2026-10-08T03:51:37Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Show reachable tool prompts from the arm ready-pose envelope while stowed, and automatically unfold before the closed-loop approach.",
+    "why": "The Drill button should be proximity-triggered without requiring a separate manual ARM toggle."
+  },
+  {
+    "id": "0731",
+    "date": "2026-10-08T03:51:37Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/marsShowcaseDamage.test.ts",
+    "what": "Updated the scene integration case to assert the stowed-arm proximity prompt and automatic deployment on Drill activation.",
+    "why": "Pin the complete hands-free alignment flow in addition to hole, dust and rubble effects."
+  },
+  {
+    "id": "0732",
+    "date": "2026-10-08T03:51:37Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Recorded the stowed-arm proximity behavior and the post-change focused WebGPU verification.",
+    "why": "Keep the final user flow and the scope of the long-running browser-gate result clear for future work."
+  },
+  {
+    "id": "0733",
+    "date": "2026-10-08T03:51:37Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/8ba8f859-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Appended entries 0730–0733 for proximity-triggered arm deployment and its regression coverage.",
+    "why": "Maintain the required per-file activity history."
   }
 ]
 ```
