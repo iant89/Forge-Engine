@@ -47,7 +47,10 @@ export const MARS_ROCK_MATERIAL: InteractiveRockMaterial = Object.freeze({
   density: 120,
   friction: 0.9,
   restitution: 0.05,
-  crushStrength: 150000,
+  // Rover contact must never fracture basalt. The weakest interactive proxy (a 12 cm sphere)
+  // still needs several meganewtons, far above the 1025 kg rover's peak tractive/contact load;
+  // the showcase's robotic arm is the only gameplay path that can split a rock.
+  crushStrength: 1_000_000_000,
   pushCoefficient: 0.8,
   minimumPushForce: 80,
   climbHeightFactor: 1.4,

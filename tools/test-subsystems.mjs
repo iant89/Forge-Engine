@@ -187,6 +187,7 @@ export const subsystems = {
       "examples/src/controls/skyTouch.ts",
       "examples/src/controls/toolbarMenu.ts",
       "examples/src/controls/vehicleTouch.ts",
+      "examples/src/controls/roverToolTouch.ts",
       "examples/src/sceneSelection.ts",
     ],
     tests: [
@@ -194,6 +195,7 @@ export const subsystems = {
       "tests/skyTouch.test.ts",
       "tests/toolbarMenu.test.ts",
       "tests/vehicleTouch.test.ts",
+      "tests/roverToolTouch.test.ts",
       "tests/demoSceneSelection.test.ts",
     ],
     deps: [],
@@ -205,13 +207,14 @@ export const subsystems = {
     deps: ["environment"],
   },
   "ex-rover": {
-    title: "Rover arm kinematics + Perseverance GLB parsing (examples) — self-contained",
+    title: "Rover arm kinematics, turret tools + Perseverance GLB parsing (examples) — self-contained",
     src: [
       "examples/src/scenes/roverArm.ts",
+      "examples/src/scenes/roverTools.ts",
       "examples/src/assets/glb.ts",
       "examples/assets", // the Perseverance.glb the roverGlb suite parses off disk
     ],
-    tests: ["tests/roverArm.test.ts", "tests/roverGlb.test.ts"],
+    tests: ["tests/roverArm.test.ts", "tests/roverTools.test.ts", "tests/roverGlb.test.ts"],
     deps: [],
   },
   "ex-antenna": {

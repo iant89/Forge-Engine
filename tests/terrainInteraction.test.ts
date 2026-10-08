@@ -69,6 +69,23 @@ describe("Phase 15.5 interactive terrain foundation", () => {
     expect(spec.pushForce).toBeGreaterThanOrEqual(MARS_ROCK_MATERIAL.minimumPushForce);
     expect(spec.crushStrength).toBeGreaterThan(0);
     expect(spec.climbHeight).toBeCloseTo(0.7, 8);
+
+    // Even a minimum-size basalt proxy takes many meganewtons to fracture. This test impact is
+    // 20 m/s — far beyond the rover's 2.63 m/s top speed — and still cannot cross the threshold.
+    const smallest = createInteractiveRockSpec({
+      id: "mars-minimum-pebble",
+      shape: new SphereShape(0.12),
+      material: MARS_ROCK_MATERIAL,
+      climbRadius: 0.12,
+    });
+    const extremeRoverImpact = assessRockContact(smallest, {
+      roverMass: 1025,
+      relativeSpeed: 20,
+      availableForce: 1943,
+      obstacleHeight: 0.1,
+    });
+    expect(smallest.crushStrength).toBeGreaterThan(extremeRoverImpact.impactForce * 5);
+    expect(extremeRoverImpact.outcome).not.toBe("crushed");
   });
 
   it("rejects invalid material parameters instead of creating unstable proxies", () => {

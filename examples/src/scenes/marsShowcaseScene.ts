@@ -89,6 +89,7 @@ import {
   createMarsPipeline,
   createBox,
   createCylinder,
+  createTorus,
   createSphere,
   createVehicleConfig,
   heightFunctionGround,
@@ -115,8 +116,21 @@ import {
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
+import { attachRoverToolTouch, type RoverToolTouchHandle } from "../controls/roverToolTouch.js";
 import { loadGlb, type GlbLoadProgress, type GlbPart, type LoadedGlb } from "../assets/glb.js";
-import { ARM_JOINT_COUNT, RoverArmController, type ArmJogInput } from "./roverArm.js";
+import { ARM_JOINT_COUNT, ARM_READY_DEG, RoverArmController, type ArmJogInput } from "./roverArm.js";
+import {
+  ROVER_TOOL_SPECS,
+  roverToolPointFromPose,
+  roverToolServoInput,
+  roverToolWorldPoint,
+  solveArmPoseForToolPoint,
+  shouldSplitRockDuringDrilling,
+  worldPointToRoverLocal,
+  type RoverToolAction,
+  type RoverToolPoint,
+  type RoverToolWorldPoint,
+} from "./roverTools.js";
 import { HighGainAntennaController } from "./highGainAntenna.js";
 import {
   createMarsSurfaceTextures,
@@ -148,8 +162,22 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     terrainGroundHeight: number;
     wheelCount: number;
     contactWheels: number;
-    /** Cumulative interactive rocks the rover has shattered. */
+    /** Cumulative interactive rocks the rover has shattered (rover impacts never count). */
     brokenInteractiveRocks: number;
+    /** Proximity prompt for the closest arm-reachable rock; null when no action is available. */
+    toolPrompt: string | null;
+    toolTargetId: string | null;
+    toolAction: RoverToolAction | null;
+    toolPhase: "idle" | "deploy" | "approach" | "working" | "retract";
+    toolProgress: number;
+    toolMarks: number;
+    toolRubble: number;
+    toolDust: number;
+    toolLastResult: string;
+    drilledRocks: number;
+    abradedRocks: number;
+    analyzedRocks: number;
+    drillSplits: number;
     /** Per-panel crush 0 (pristine) .. 1 (fully crushed in). */
     damageZoneFront: number;
     damageZoneRear: number;
@@ -212,6 +240,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   setMast(deployed: boolean): void;
   /** Unfold (true) or stow (false) the robotic arm; the choreography animates it. */
   setArm(deployed: boolean): void;
+  /** Start a proximity-checked turret operation on the nearest reachable rock. */
+  useTool(action: RoverToolAction): boolean;
   /**
    * Rover "where it is supposed to be" wireframe boxes. `auto` (default) shows them until the
    * GLB has landed, `on`/`off` force the overlay either way.
@@ -474,6 +504,7 @@ const MAST_ELEVATION_ZETA = 0.8;
 const AMBIENT_DUST_SPRITES = 420;
 const KICK_DUST_SPRITES = 500;
 const KICK_DUST_SPRITES_PER_WHEEL = Math.ceil(KICK_DUST_SPRITES / WHEELS.length);
+const TOOL_DUST_SPRITES = 96;
 const ROCK_CHIP_SPRITES_PER_WHEEL = 10;
 const AXIS_X = { x: 1, y: 0, z: 0 };
 const AXIS_Y = { x: 0, y: 1, z: 0 };
@@ -640,6 +671,71 @@ class WheelKickDust extends ParticleWorld {
       transform?.setRotationEuler(0, yaw, 0);
       transform?.setScale(size * 0.92, size * 0.72, size * 1.35);
     }
+  }
+}
+
+/** Low, slow dust puffs from the turret contact point; old particles keep drifting after work ends. */
+class RoverToolDustField extends ParticleWorld {
+  private readonly point = new Vec3();
+  private readonly normal = new Vec3(0, 1, 0);
+  private activeAction: RoverToolAction | null = null;
+  private burstAction: RoverToolAction = "drill";
+  private burstTimer = 0;
+  private readonly burstPoint = new Vec3();
+
+  constructor() {
+    super({ name: "rover-tool-dust", capacity: TOOL_DUST_SPRITES, gravity: { x: 0, y: -0.12, z: 0 }, drag: 0.46, seed: 73 });
+    const emitter = this.simulation.emitter;
+    emitter.rate = 0;
+    emitter.lifeMin = 1.2;
+    emitter.lifeMax = 2.6;
+    emitter.size = 0.08;
+    emitter.jitter.x = 0.1;
+    emitter.jitter.y = 0.045;
+    emitter.jitter.z = 0.1;
+    emitter.cone = { direction: { x: 0, y: 1, z: 0 }, angle: 0.72, speedMin: 0.35, speedMax: 0.9 };
+    this.simulation.modules.push(new DustPuffSizeModule(0.035, 0.24));
+  }
+
+  setWork(action: RoverToolAction | null, point?: Readonly<RoverToolWorldPoint>, normal?: Readonly<{ x: number; y: number; z: number }>): void {
+    this.activeAction = action;
+    if (!action || !point) return;
+    this.point.set(point.x, point.y, point.z);
+    if (normal) this.normal.set(normal.x, normal.y, normal.z);
+  }
+
+  burst(action: RoverToolAction, point: Readonly<RoverToolWorldPoint>, normal: Readonly<{ x: number; y: number; z: number }>): void {
+    this.burstAction = action;
+    this.burstPoint.set(point.x, point.y, point.z);
+    this.normal.set(normal.x, normal.y, normal.z);
+    this.burstTimer = Math.max(this.burstTimer, action === "drill" ? 0.34 : 0.24);
+  }
+
+  override update(context: Parameters<NonNullable<ParticleWorld["update"]>>[0], dt: number): void {
+    const emitter = this.simulation.emitter;
+    const working = this.activeAction !== null && this.activeAction !== "analyze";
+    const bursting = this.burstTimer > 0;
+    if (working || bursting) {
+      const point = working ? this.point : this.burstPoint;
+      const action = working ? this.activeAction! : this.burstAction;
+      emitter.rate = working ? (action === "drill" ? 38 : 25) : 88 * Math.min(1, this.burstTimer / 0.12);
+      emitter.position.x = point.x;
+      emitter.position.y = point.y + 0.025;
+      emitter.position.z = point.z;
+      const lift = action === "drill" ? 0.88 : 0.72;
+      const side = action === "drill" ? 0.26 : 0.4;
+      const length = Math.hypot(this.normal.x * side, lift, this.normal.z * side) || 1;
+      emitter.cone.direction.x = (this.normal.x * side) / length;
+      emitter.cone.direction.y = lift / length;
+      emitter.cone.direction.z = (this.normal.z * side) / length;
+      emitter.cone.angle = action === "drill" ? 0.64 : 0.82;
+      emitter.cone.speedMin = action === "drill" ? 0.42 : 0.3;
+      emitter.cone.speedMax = action === "drill" ? 1.1 : 0.82;
+    } else {
+      emitter.rate = 0;
+    }
+    if (bursting) this.burstTimer = Math.max(0, this.burstTimer - dt);
+    super.update(context, dt);
   }
 }
 
@@ -1059,6 +1155,48 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     age: number;
   }
   const fragments: FragmentRecord[] = [];
+  type RoverToolPhase = "deploy" | "approach" | "working" | "retract";
+  interface ToolMarkRecord {
+    targetId: string;
+    entity: Entity;
+    renderable: Renderable;
+    localPoint: Vec3;
+    localNormal: Vec3;
+    kind: "hole" | "rim" | "abrasion" | "scan";
+    age: number;
+    duration: number;
+    baseScale: number;
+  }
+  interface ToolCandidate {
+    record: InteractiveRockRecord;
+    point: RoverToolWorldPoint;
+    normal: { x: number; y: number; z: number };
+    distance: number;
+  }
+  interface ToolOperation {
+    action: RoverToolAction;
+    targetId: string;
+    phase: RoverToolPhase;
+    elapsed: number;
+    workSeconds: number;
+    targetPose: Float64Array;
+    targetPoint: RoverToolWorldPoint;
+    targetNormal: { x: number; y: number; z: number };
+    result: string;
+  }
+  const toolMarks: ToolMarkRecord[] = [];
+  const toolCounts = { drilled: 0, abraded: 0, analyzed: 0, split: 0, rubble: 0 };
+  let toolLastResult = "";
+  let toolOperation: ToolOperation | null = null;
+  let toolCandidate: ToolCandidate | null = null;
+  let toolPrompt: string | null = null;
+  let toolTargetId: string | null = null;
+  let toolOperationProgress = 0;
+  let toolDrillAttempt = 0;
+  let toolMarkSequence = 0;
+  let toolRubbleSequence = 0;
+  let toolTouch: RoverToolTouchHandle | null = null;
+  const MAX_TOOL_MARKS = 96;
   const MAX_FRAGMENTS = 64;
   /** Minimum seconds a fresh fragment simulates before it may fall asleep. */
   const MIN_FRAGMENT_AWAKE = 1.0;
@@ -1281,6 +1419,20 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   });
   let nextMound = 0;
   const trailRotation = new Quat();
+
+  const toolMarkResources: { dispose(): void }[] = [];
+  const drillHoleGeometry = createCylinder(gpu, { radiusTop: 0.078, radiusBottom: 0.092, height: 0.012, radialSegments: 18, capped: true });
+  const drillRimGeometry = createTorus(gpu, { radius: 0.102, tube: 0.009 });
+  const abrasionMarkGeometry = createCylinder(gpu, { radiusTop: 0.14, radiusBottom: 0.14, height: 0.008, radialSegments: 20, capped: true });
+  const analysisRingGeometry = createTorus(gpu, { radius: 0.16, tube: 0.012 });
+  const drillHoleMaterial = Material.unlit({ label: "mars-drill-hole", color: 0x211610 });
+  const drillRimMaterial = Material.unlit({ label: "mars-drill-rim", color: 0xb96c3e });
+  const abrasionMarkMaterial = Material.unlit({ label: "mars-abrasion-mark", color: 0x714832 });
+  const analysisRingMaterial = Material.emissive(0xffa84d, 1.8, { label: "mars-pixl-scan-ring", transparent: true, opacity: 0.82 });
+  toolMarkResources.push(
+    drillHoleGeometry, drillRimGeometry, abrasionMarkGeometry, analysisRingGeometry,
+    drillHoleMaterial, drillRimMaterial, abrasionMarkMaterial, analysisRingMaterial,
+  );
 
   /**
    * Stamp one furrow segment + backside mound for a rock that moved from (fromX, fromZ) to
@@ -1740,9 +1892,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
             availableForce: ROVER_TRACTIVE_FORCE,
             obstacleHeight,
           }, obstacleHeight, dt);
-          const isLargeRock = record.typeId === 2 || collisionRadius >= 0.35;
-          const significantImpact = assessment.outcome === "crushed" || (approach >= 0.35 && assessment.impactForce >= 20000);
-          const breaking = (isLargeRock && significantImpact) || assessment.outcome === "crushed";
+          // Impacts may shove a rock or damage the rover, but fracture is gated solely by the
+          // material crush threshold. The Mars profile puts that threshold far beyond rover power.
+          const breaking = assessment.outcome === "crushed";
           applyImpactZoneDamage(
             body.position.x,
             body.position.z,
@@ -1908,6 +2060,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
 
   const ambientDust = new AmbientDustField(cameraEntity);
   scene.add(ambientDust);
+  const toolDust = new RoverToolDustField();
+  scene.add(toolDust);
   const kickDustWheels = vehicle.wheels.map((_, index) => {
     const dust = new WheelKickDust(index, () => sampleKick(index));
     scene.add(dust);
@@ -1926,6 +2080,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const dustMesh = createSphere(gpu, { radius: 0.5, widthSegments: 12, heightSegments: 8 });
   const ambientDustMaterial = Material.unlit({ label: "dust-ambient", color: 0xc4a17e, opacity: 0.11, transparent: true });
   const kickDustMaterial = Material.unlit({ label: "dust-kick", color: 0xc68f5b, opacity: 0.25, transparent: true });
+  const toolDustMaterial = Material.unlit({ label: "dust-rover-tool", color: 0xd9a270, opacity: 0.34, transparent: true });
   const spawnSprites = (
     world: ParticleWorld,
     count: number,
@@ -1951,6 +2106,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     world.spriteEntities = ids;
   };
   spawnSprites(ambientDust, AMBIENT_DUST_SPRITES, ambientDustMaterial, "dust-mote");
+  spawnSprites(toolDust, TOOL_DUST_SPRITES, toolDustMaterial, "rover-tool-dust");
   for (const [index, dust] of kickDustWheels.entries()) {
     spawnSprites(dust, KICK_DUST_SPRITES_PER_WHEEL, kickDustMaterial, `dust-puff-wheel-${index}`);
   }
@@ -2014,6 +2170,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   // still plays once they do.
   const arm = new RoverArmController();
   const armPose = new Float64Array(ARM_JOINT_COUNT);
+  const armReadyPose = Float64Array.from(ARM_READY_DEG, (degrees) => (degrees * Math.PI) / 180);
   const armTrsScratch = new TRS();
   const armInput: ArmJogInput = { swing: 0, shoulder: 0, elbow: 0, turret: 0 };
   let armPivots: { entity: Entity; axis: Vec3 }[] = [];
@@ -2287,8 +2444,16 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
   const setArm = (deployed: boolean): void => {
     arm.setDeployed(deployed);
     touch.setArm(deployed);
-    // Stowing hides the sticks at once; unfolding shows them only once the arm is fully out.
-    if (!deployed) armTouch.setVisible(false);
+    if (!deployed) {
+      toolOperation = null;
+      toolOperationProgress = 0;
+      toolDust.setWork(null);
+      toolTouch?.setBusy(null);
+      toolTouch?.setTarget(null);
+      toolTouch?.setProgress(0);
+      // Stowing hides the sticks and cancels an in-flight robotic-tool action immediately.
+      armTouch.setVisible(false);
+    }
   };
 
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
@@ -2327,6 +2492,10 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     if (event.code === "KeyM" && !event.repeat) setMast(mastTarget < 0.5);
     // R toggles the robotic arm, same rule.
     if (event.code === "KeyR" && !event.repeat) setArm(!arm.deployed);
+    // E/Q/V are keyboard shortcuts for the same proximity-gated turret tools as the buttons.
+    if (!event.repeat && event.code === "KeyE") startToolAction("drill");
+    if (!event.repeat && event.code === "KeyQ") startToolAction("abrade");
+    if (!event.repeat && event.code === "KeyV") startToolAction("analyze");
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     keys.delete(event.code);
@@ -2338,14 +2507,389 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     onArmToggle: () => setArm(!arm.deployed),
   });
   const armTouch = attachArmTouch(document.getElementById("arm-touch"));
+  toolTouch = attachRoverToolTouch(document.getElementById("rover-tool-touch"), (action) => startToolAction(action));
   /** One arm jog axis from the keyboard: +1 / −1 while a key of the pair is held. */
   const keyAxis = (positive: string, negative: string): number => (keys.has(positive) ? 1 : 0) - (keys.has(negative) ? 1 : 0);
   const unit = (v: number): number => Math.max(-1, Math.min(1, v));
+  const toolCandidatePoseScratch = new Float64Array(ARM_JOINT_COUNT);
+  const toolCurrentPointLocal: RoverToolPoint = { right: 0, forward: 0, height: 0 };
+  const toolCurrentPointWorld: RoverToolWorldPoint = { x: 0, y: 0, z: 0 };
+  const toolTargetPointLocal: RoverToolPoint = { right: 0, forward: 0, height: 0 };
+  const toolRoverDirection = new Vec3();
+  const toolBoxLocalDirection = new Vec3();
+  const toolBoxPoint = new Vec3();
+  const toolBoxWorldOffset = new Vec3();
+  const toolBoxUp = new Vec3(0, 1, 0);
+  const toolBoxWorldNormal = new Vec3();
+  const toolMarkRelative = new Vec3();
+  const toolMarkLocalPoint = new Vec3();
+  const toolMarkLocalNormal = new Vec3();
+  const toolMarkWorldOffset = new Vec3();
+  const toolMarkWorldNormal = new Vec3();
+  const toolMarkWorldPoint = new Vec3();
+  const toolMarkRotation = new Quat();
+
+  const toolRootY = (): number => vehicle.position.y + bodyOffsetY;
+  const toolClamp = (value: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, value));
+
+  /** Pick a point on the upper, rover-facing surface so the bit approaches from above. */
+  function toolSurfaceTarget(record: InteractiveRockRecord): { point: RoverToolWorldPoint; normal: { x: number; y: number; z: number } } {
+    const body = record.proxy.body;
+    let towardX = vehicle.position.x - body.position.x;
+    let towardZ = vehicle.position.z - body.position.z;
+    let towardLength = Math.hypot(towardX, towardZ);
+    if (towardLength < 1e-5) {
+      towardX = Math.sin(vehicle.yaw);
+      towardZ = Math.cos(vehicle.yaw);
+      towardLength = 1;
+    }
+    towardX /= towardLength;
+    towardZ /= towardLength;
+
+    if (record.isFlat && body.shape instanceof BoxShape) {
+      body.rotation.rotateVectorInverse(toolRoverDirection.set(towardX, 0, towardZ), toolBoxLocalDirection);
+      const half = body.shape.halfExtents;
+      toolBoxPoint.set(
+        toolClamp(toolBoxLocalDirection.x * half.x * 0.46, -half.x * 0.52, half.x * 0.52),
+        half.y,
+        toolClamp(toolBoxLocalDirection.z * half.z * 0.46, -half.z * 0.52, half.z * 0.52),
+      );
+      body.rotation.rotateVector(toolBoxPoint, toolBoxWorldOffset);
+      body.rotation.rotateVector(toolBoxUp, toolBoxWorldNormal);
+      toolBoxWorldNormal.normalize();
+      return {
+        point: {
+          x: body.position.x + toolBoxWorldOffset.x,
+          y: body.position.y + toolBoxWorldOffset.y,
+          z: body.position.z + toolBoxWorldOffset.z,
+        },
+        normal: { x: toolBoxWorldNormal.x, y: toolBoxWorldNormal.y, z: toolBoxWorldNormal.z },
+      };
+    }
+
+    const radius = body.shape instanceof SphereShape ? body.shape.radius : record.trailRadius;
+    const tangent = 0.28;
+    const normalY = Math.sqrt(1 - tangent * tangent);
+    const normal = { x: towardX * tangent, y: normalY, z: towardZ * tangent };
+    return {
+      point: {
+        x: body.position.x + normal.x * radius,
+        y: body.position.y + normal.y * radius,
+        z: body.position.z + normal.z * radius,
+      },
+      normal,
+    };
+  }
+
+  /** Return the nearest rock for which the arm can safely solve a drilling pose. */
+  function findReachableToolCandidate(): ToolCandidate | null {
+    if (!modelLoaded || armPivots.length !== ARM_JOINT_COUNT) return null;
+    arm.pose(armPose);
+    // Reach is measured from the ready pose even while the arm is stowed or unfolding. This lets
+    // proximity expose the Drill button first; activating it then unfolds and auto-aligns the arm.
+    roverToolPointFromPose(arm.unfolded ? armPose : armReadyPose, "drill", toolCurrentPointLocal);
+    roverToolWorldPoint(
+      toolCurrentPointLocal,
+      vehicle.position.x,
+      toolRootY(),
+      vehicle.position.z,
+      vehicle.yaw,
+      toolCurrentPointWorld,
+    );
+    let nearest: ToolCandidate | null = null;
+    for (const record of interactiveRocks.values()) {
+      const surface = toolSurfaceTarget(record);
+      const local = worldPointToRoverLocal(
+        surface.point.x,
+        surface.point.y,
+        surface.point.z,
+        vehicle.position.x,
+        toolRootY(),
+        vehicle.position.z,
+        vehicle.yaw,
+        toolTargetPointLocal,
+      );
+      if (!solveArmPoseForToolPoint(local, "drill", toolCandidatePoseScratch)) continue;
+      const distance = Math.hypot(
+        surface.point.x - toolCurrentPointWorld.x,
+        surface.point.y - toolCurrentPointWorld.y,
+        surface.point.z - toolCurrentPointWorld.z,
+      );
+      if (!nearest || distance < nearest.distance) {
+        nearest = { record, point: surface.point, normal: surface.normal, distance };
+      }
+    }
+    return nearest;
+  }
+
+  function armPoseClose(current: ArrayLike<number>, target: ArrayLike<number>, tolerance = (1.6 * Math.PI) / 180): boolean {
+    for (let i = 0; i < ARM_JOINT_COUNT; i++) {
+      if (Math.abs((current[i] ?? 0) - (target[i] ?? 0)) > tolerance) return false;
+    }
+    return true;
+  }
+
+  function addToolMark(
+    record: InteractiveRockRecord,
+    kind: ToolMarkRecord["kind"],
+    point: RoverToolWorldPoint,
+    normal: Readonly<{ x: number; y: number; z: number }>,
+    geometry: Geometry,
+    material: Material,
+    duration = 0,
+    baseScale = 1,
+  ): void {
+    if (toolMarks.length >= MAX_TOOL_MARKS) {
+      scene.world.destroyEntity(toolMarks[0]!.entity.id);
+      toolMarks.shift();
+    }
+    const body = record.proxy.body;
+    toolMarkRelative.set(point.x - body.position.x, point.y - body.position.y, point.z - body.position.z);
+    body.rotation.rotateVectorInverse(toolMarkRelative, toolMarkLocalPoint);
+    body.rotation.rotateVectorInverse(new Vec3(normal.x, normal.y, normal.z), toolMarkLocalNormal);
+    const localPoint = toolMarkLocalPoint.clone();
+    const localNormal = toolMarkLocalNormal.clone();
+    const at = new Vec3(point.x + normal.x * 0.009, point.y + normal.y * 0.009, point.z + normal.z * 0.009);
+    const entity = scene.createTransformedEntity(`rover-tool-${kind}-${toolMarkSequence++}`, at);
+    toolMarkRotation.fromUnitVectorY(normal);
+    entity.transform.rotation = toolMarkRotation;
+    const renderable = new Renderable();
+    renderable.geometry = geometry;
+    renderable.material = material;
+    renderable.castShadow = false;
+    renderable.receiveShadow = false;
+    renderable.transparent = material.transparent;
+    scene.world.addComponent(entity.id, renderable);
+    setEntityScale(entity, baseScale, 1, baseScale);
+    toolMarks.push({ targetId: record.proxy.spec.id, entity, renderable, localPoint, localNormal, kind, age: 0, duration, baseScale });
+  }
+
+  function stepToolMarks(dt: number): void {
+    for (let i = toolMarks.length - 1; i >= 0; i--) {
+      const mark = toolMarks[i]!;
+      const record = interactiveRocks.get(mark.targetId);
+      if (!record || (mark.duration > 0 && (mark.age += dt) >= mark.duration)) {
+        scene.world.destroyEntity(mark.entity.id);
+        toolMarks.splice(i, 1);
+        continue;
+      }
+      const body = record.proxy.body;
+      body.rotation.rotateVector(mark.localPoint, toolMarkWorldOffset);
+      body.rotation.rotateVector(mark.localNormal, toolMarkWorldNormal);
+      toolMarkWorldNormal.normalize();
+      toolMarkWorldPoint.set(
+        body.position.x + toolMarkWorldOffset.x + toolMarkWorldNormal.x * 0.009,
+        body.position.y + toolMarkWorldOffset.y + toolMarkWorldNormal.y * 0.009,
+        body.position.z + toolMarkWorldOffset.z + toolMarkWorldNormal.z * 0.009,
+      );
+      toolMarkRotation.fromUnitVectorY(toolMarkWorldNormal);
+      syncEntityPose(mark.entity, toolMarkWorldPoint, toolMarkRotation);
+      if (mark.kind === "scan") {
+        const pulse = 0.82 + Math.sin(mark.age * 8) * 0.18;
+        setEntityScale(mark.entity, mark.baseScale * pulse, 1, mark.baseScale * pulse);
+      }
+    }
+  }
+
+  function spawnToolRubble(record: InteractiveRockRecord, normal: Readonly<{ x: number; y: number; z: number }>, count: number): void {
+    const offsets = [
+      { x: 0, z: 0, y: 0, r: 0.052 },
+      { x: 0.086, z: 0.01, y: 0.024, r: 0.041 },
+      { x: -0.084, z: 0.015, y: 0.026, r: 0.039 },
+      { x: 0.015, z: -0.09, y: 0.052, r: 0.034 },
+      { x: 0.09, z: 0.08, y: 0.058, r: 0.03 },
+    ];
+    const horizontalLength = Math.hypot(normal.x, normal.z) || 1;
+    const awayX = normal.x / horizontalLength;
+    const awayZ = normal.z / horizontalLength;
+    const body = record.proxy.body;
+    const baseX = body.position.x + awayX * (record.trailRadius + 0.13);
+    const baseZ = body.position.z + awayZ * (record.trailRadius + 0.13);
+    const evictOldest = (): void => {
+      if (fragments.length < MAX_FRAGMENTS) return;
+      const oldest = fragments.shift()!;
+      interactivePhysics.removeBody(oldest.body);
+      scene.world.destroyEntity(oldest.entity.id);
+    };
+    for (let i = 0; i < Math.min(count, offsets.length); i++) {
+      evictOldest();
+      const piece = offsets[i]!;
+      const radius = piece.r;
+      const x = baseX + piece.x;
+      const z = baseZ + piece.z;
+      const y = deformedGroundHeight(x, z) + radius + piece.y;
+      const rubbleBody = new RigidBody({
+        type: "dynamic",
+        shape: new SphereShape(radius),
+        mass: Math.max(0.05, radius * radius * radius * 120),
+        position: { x, y, z },
+        friction: 0.9,
+        linearDamping: 0.7,
+        angularDamping: 0.6,
+        restitution: 0.04,
+      });
+      rubbleBody.linearVelocity.set(awayX * 0.08, 0.08 + piece.y * 0.3, awayZ * 0.08);
+      rubbleBody.angularVelocity.set(0.6, 0.4, -0.5);
+      interactivePhysics.addBody(rubbleBody);
+      const entity = scene.createTransformedEntity(`tool-rubble-${toolRubbleSequence++}`, new Vec3(x, y, z));
+      const renderable = new Renderable();
+      renderable.geometry = pebbleGeometry;
+      renderable.material = rockMaterial;
+      renderable.castShadow = true;
+      renderable.receiveShadow = true;
+      scene.world.addComponent(entity.id, renderable);
+      setEntityScale(entity, radius / PEBBLE_GEO_RADIUS_XZ, radius / PEBBLE_GEO_RADIUS_Y, radius / PEBBLE_GEO_RADIUS_XZ);
+      fragments.push({ id: `tool-rubble-${toolRubbleSequence}`, body: rubbleBody, entity, isFlat: false, scale: radius * 2, awake: true, settledTimer: 0, age: 0 });
+      toolCounts.rubble++;
+    }
+  }
+
+  function performToolAction(operation: ToolOperation, record: InteractiveRockRecord): string {
+    const targetId = record.proxy.spec.id;
+    if (operation.action === "drill") {
+      toolCounts.drilled++;
+      const shape = record.proxy.body.shape;
+      const thickness = shape instanceof BoxShape ? shape.halfExtents.y * 2 : record.trailRadius * 2;
+      const splits = shouldSplitRockDuringDrilling({
+        id: targetId,
+        radius: record.trailRadius,
+        isFlat: record.isFlat,
+        thickness,
+      }, toolDrillAttempt++);
+      if (splits) {
+        toolCounts.split++;
+        breakRock(record, operation.targetNormal.x, operation.targetNormal.z, 0.15);
+        toolDust.burst(operation.action, operation.targetPoint, operation.targetNormal);
+        return "CORE FRACTURE · small rock split";
+      }
+      addToolMark(record, "hole", operation.targetPoint, operation.targetNormal, drillHoleGeometry, drillHoleMaterial, 0, 1);
+      addToolMark(record, "rim", operation.targetPoint, operation.targetNormal, drillRimGeometry, drillRimMaterial, 0, 1);
+      spawnToolRubble(record, operation.targetNormal, 5);
+      toolDust.burst(operation.action, operation.targetPoint, operation.targetNormal);
+      return "CORE DRILLED · regolith dust settling";
+    }
+    if (operation.action === "abrade") {
+      toolCounts.abraded++;
+      addToolMark(record, "abrasion", operation.targetPoint, operation.targetNormal, abrasionMarkGeometry, abrasionMarkMaterial, 0, 1);
+      spawnToolRubble(record, operation.targetNormal, 3);
+      toolDust.burst(operation.action, operation.targetPoint, operation.targetNormal);
+      return "SURFACE ABRADED · fresh material exposed";
+    }
+    toolCounts.analyzed++;
+    const sample = Math.abs(hashName(targetId)) % 3;
+    const readings = ["Fe/Mg basaltic signal", "silicate-rich trace", "mafic crust signature"];
+    addToolMark(record, "scan", operation.targetPoint, operation.targetNormal, analysisRingGeometry, analysisRingMaterial, 2.5, 1);
+    return `PIXL SAMPLE · ${readings[sample]}`;
+  }
+
+  function startToolAction(action: RoverToolAction): boolean {
+    if (disposed || toolOperation || !modelLoaded || armPivots.length !== ARM_JOINT_COUNT) return false;
+    const candidate = findReachableToolCandidate();
+    if (!candidate) return false;
+    const targetPose = new Float64Array(ARM_JOINT_COUNT);
+    const targetLocal = worldPointToRoverLocal(
+      candidate.point.x,
+      candidate.point.y,
+      candidate.point.z,
+      vehicle.position.x,
+      toolRootY(),
+      vehicle.position.z,
+      vehicle.yaw,
+      toolTargetPointLocal,
+    );
+    if (!solveArmPoseForToolPoint(targetLocal, action, targetPose)) return false;
+    const operation: ToolOperation = {
+      action,
+      targetId: candidate.record.proxy.spec.id,
+      phase: arm.unfolded ? "approach" : "deploy",
+      elapsed: 0,
+      workSeconds: ROVER_TOOL_SPECS[action].workSeconds,
+      targetPose,
+      targetPoint: { ...candidate.point },
+      targetNormal: { ...candidate.normal },
+      result: "",
+    };
+    toolOperation = operation;
+    if (!arm.deployed) setArm(true);
+    toolOperationProgress = arm.unfolded ? 0 : arm.progress;
+    toolTargetId = operation.targetId;
+    toolPrompt = `${ROVER_TOOL_SPECS[action].label} · ${candidate.distance.toFixed(1)} m`;
+    candidate.record.proxy.body.linearVelocity.set(0, 0, 0);
+    candidate.record.proxy.body.angularVelocity.set(0, 0, 0);
+    candidate.record.proxy.body.type = "static";
+    candidate.record.awake = false;
+    candidate.record.settledTimer = 0;
+    armTouch.setVisible(false);
+    toolTouch?.setTarget(toolPrompt);
+    toolTouch?.setBusy(operation.phase === "deploy" ? "UNFOLDING ARM" : "ALIGNING ARM");
+    toolTouch?.setProgress(toolOperationProgress);
+    return true;
+  }
+
+  function advanceToolOperation(dt: number): void {
+    const operation = toolOperation;
+    if (!operation) {
+      toolDust.setWork(null);
+      return;
+    }
+    const record = interactiveRocks.get(operation.targetId);
+    if (!record && operation.phase !== "retract") {
+      toolOperation = null;
+      toolOperationProgress = 0;
+      toolDust.setWork(null);
+      toolTouch?.setBusy(null);
+      toolTouch?.setProgress(0);
+      return;
+    }
+
+    if (operation.phase === "deploy" && arm.unfolded) {
+      operation.phase = "approach";
+      operation.elapsed = 0;
+    } else if (operation.phase === "approach" && armPoseClose(armPose, operation.targetPose)) {
+      operation.phase = "working";
+      operation.elapsed = 0;
+    } else if (operation.phase === "working") {
+      operation.elapsed += dt;
+      toolOperationProgress = Math.min(1, operation.elapsed / operation.workSeconds);
+      if (operation.elapsed >= operation.workSeconds && record) {
+        operation.result = performToolAction(operation, record);
+        toolLastResult = operation.result;
+        operation.phase = "retract";
+        operation.elapsed = 0;
+      }
+    } else if (operation.phase === "retract" && armPoseClose(armPose, armReadyPose, (2.2 * Math.PI) / 180)) {
+      toolOperation = null;
+      toolOperationProgress = 0;
+      toolDust.setWork(null);
+      toolTouch?.setBusy(null);
+      toolTouch?.setProgress(0);
+      return;
+    }
+
+    if (toolOperation?.phase === "working" && operation.action !== "analyze") {
+      toolDust.setWork(operation.action, operation.targetPoint, operation.targetNormal);
+    } else {
+      toolDust.setWork(null);
+    }
+    if (operation.phase === "deploy") {
+      toolTouch?.setBusy(`UNFOLDING ARM · ${Math.round(arm.progress * 100)}%`);
+      toolOperationProgress = arm.progress;
+    } else if (operation.phase === "approach") {
+      toolTouch?.setBusy(`ALIGNING ${ROVER_TOOL_SPECS[operation.action].displayName.toUpperCase()}`);
+      toolOperationProgress = 0;
+    } else if (operation.phase === "working") {
+      toolTouch?.setBusy(`${ROVER_TOOL_SPECS[operation.action].label} · ${Math.round(toolOperationProgress * 100)}%`);
+    } else {
+      toolTouch?.setBusy(`${operation.result} · RETRACTING`);
+      toolOperationProgress = 1;
+    }
+    toolTouch?.setProgress(toolOperationProgress);
+  }
 
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm (TFGH / IJKL move it) · HGA auto-tracks Earth · Drag to orbit · Scroll zoom",
+    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm · E drill / Q abrade / V PIXL when in reach · HGA auto-tracks Earth · Drag to orbit · Scroll zoom",
     camera: {
       // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
       target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
@@ -2372,6 +2916,7 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = deformedGroundHeight(vehicle.position.x, vehicle.position.z);
       stepInteractiveRocks(dt);
+      stepToolMarks(dt);
       // Record shallow wheel impressions separately from the procedural heightfield. The renderer
       // and ground-query consumers do not apply this delta yet; this keeps the runtime state ready
       // for the visual and physical deformation steps without mutating generated Mars cells.
@@ -2462,17 +3007,51 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       vehicle.input.brake = Math.max(brake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
+      if (toolOperation) {
+        // Hold the rover still while the instrument is aligned and in contact with the target.
+        vehicle.input.throttle = 0;
+        vehicle.input.brake = 1;
+        vehicle.input.handbrake = 1;
+        vehicle.input.steer = 0;
+      }
 
-      // Robotic arm: sticks + keys → joint jog (the controller only applies it once unfolded), and
-      // keep the sticks shown exactly while unfolded. Posing is the mechanical rig's job now: the
-      // source above publishes this pose into the joints' channels in the animation band.
+      // Manual jog input remains live when no tool is selected. During an operation it becomes a
+      // closed-loop joint servo, then the arm returns to its ready pose before control is handed back.
       const sticks = armTouch.sample();
       armInput.swing = unit(sticks.swing + keyAxis("KeyH", "KeyF"));
       armInput.shoulder = unit(sticks.shoulder + keyAxis("KeyT", "KeyG"));
       armInput.elbow = unit(sticks.elbow + keyAxis("KeyI", "KeyK"));
       armInput.turret = unit(sticks.turret + keyAxis("KeyL", "KeyJ"));
+      arm.pose(armPose);
+      if (toolOperation) {
+        const servoTarget = toolOperation.phase === "retract" || toolOperation.phase === "deploy"
+          ? armReadyPose
+          : toolOperation.targetPose;
+        roverToolServoInput(armPose, servoTarget, armInput);
+      }
       if (armPivots.length > 0) arm.update(dt, armInput);
-      armTouch.setVisible(arm.unfolded);
+      arm.pose(armPose);
+      advanceToolOperation(dt);
+      toolCandidate = findReachableToolCandidate();
+      if (toolOperation) {
+        const activeRecord = interactiveRocks.get(toolOperation.targetId);
+        toolTargetId = toolOperation.targetId;
+        toolPrompt = activeRecord
+          ? `${ROVER_TOOL_SPECS[toolOperation.action].label} · ${activeRecord.typeId === 2 ? "BOULDER" : "ROCK"}`
+          : "CORE FRACTURE · RETRACTING";
+      } else if (toolCandidate) {
+        toolTargetId = toolCandidate.record.proxy.spec.id;
+        toolPrompt = `${toolCandidate.record.typeId === 2 ? "BOULDER" : "ROCK"} · ${toolCandidate.distance.toFixed(1)} m`;
+      } else {
+        toolTargetId = null;
+        toolPrompt = null;
+      }
+      toolTouch?.setTarget(toolPrompt);
+      if (!toolOperation) {
+        toolTouch?.setBusy(null);
+        toolTouch?.setProgress(0);
+      }
+      armTouch.setVisible(arm.unfolded && !toolOperation && !toolCandidate);
     },
     overlay(): string {
       const contact = vehicle.wheels.filter((w) => w.inContact).length;
@@ -2580,6 +3159,19 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
         interactiveRocks: interactiveRocks.size,
         interactiveRockBudget: MAX_INTERACTIVE_ROCKS,
         brokenInteractiveRocks,
+        toolPrompt,
+        toolTargetId,
+        toolAction: toolOperation?.action ?? null,
+        toolPhase: toolOperation?.phase ?? "idle",
+        toolProgress: toolOperationProgress,
+        toolMarks: toolMarks.length,
+        toolRubble: fragments.filter((fragment) => fragment.id.startsWith("tool-rubble-")).length,
+        toolDust: toolDust.simulation.alive,
+        toolLastResult,
+        drilledRocks: toolCounts.drilled,
+        abradedRocks: toolCounts.abraded,
+        analyzedRocks: toolCounts.analyzed,
+        drillSplits: toolCounts.split,
         roverDamageHull: roverDamage.hull,
         roverDamageWheels: roverDamage.wheels,
         roverDamageSuspension: roverDamage.suspension,
@@ -2636,6 +3228,9 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
     setArm(deployed: boolean): void {
       if (!disposed) setArm(deployed);
     },
+    useTool(action: RoverToolAction): boolean {
+      return startToolAction(action);
+    },
     setDebugBounds(mode: "auto" | "on" | "off"): void {
       debugBoundsMode = mode;
     },
@@ -2676,6 +3271,8 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
       armTouch.dispose();
+      toolTouch?.dispose();
+      toolDust.setWork(null);
       keys.clear();
       loaded?.dispose();
       loaded = null;
@@ -2684,6 +3281,11 @@ export function buildMarsShowcaseScene(engine: Engine): MarsShowcaseSceneHandle 
       dustMesh.dispose();
       ambientDustMaterial.dispose();
       kickDustMaterial.dispose();
+      toolDustMaterial.dispose();
+      for (const mark of toolMarks) scene.world.destroyEntity(mark.entity.id);
+      toolMarks.length = 0;
+      for (const resource of toolMarkResources) resource.dispose();
+      toolMarkResources.length = 0;
       trackMesh.dispose();
       trackMaterial.dispose();
       furrowMesh.dispose();

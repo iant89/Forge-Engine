@@ -1,9 +1,8 @@
 /**
- * Area-dependent visible vehicle damage on the Mars Showcase assembly. The rover model is
+ * Rover impacts on the Mars Showcase do not fracture interactive rocks. The rover model is
  * mocked with procedural boxes at known model-space positions (the real 10 MB GLB never loads,
- * so no network or image decoder is needed): full-speed rams must crush the rammed nose, bend
- * then tear off the struck wheel, drop it as a prop, and report everything through marsState
- * and the overlay — while the far side and tail stay pristine.
+ * so no network or image decoder is needed): a hard ram may dent the rover, but the target rock
+ * and its population identity stay intact, with no fracture debris or saved broken-rock ID.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -24,6 +23,7 @@ import {
 } from "@forge/engine";
 import { buildMarsShowcaseScene } from "../examples/src/scenes/marsShowcaseScene.js";
 import type { LoadedGlb } from "../examples/src/assets/glb.js";
+import { shouldSplitRockDuringDrilling } from "../examples/src/scenes/roverTools.js";
 
 vi.mock("../examples/src/assets/glb.js", () => ({
   loadGlb: async (
@@ -64,7 +64,15 @@ vi.mock("../examples/src/assets/glb.js", () => ({
         }),
       ),
       mast: null,
-      arm: null,
+      arm: {
+        joints: [
+          { name: "arm", joint: "azimuth", offset: [0.45149457, 0.91479832, 1.17553592], axis: [0, 1, 0], parts: [] },
+          { name: "arm_shoulder", joint: "shoulder", offset: [-0.16599844, -0.09205257, -0.07775922], axis: [0, 0, -1], parts: [] },
+          { name: "arm_elbow", joint: "elbow", offset: [-0.78691312, 0.22860408, -0.0218314], axis: [0, 0, -1], parts: [] },
+          { name: "arm_wrist", joint: "wrist", offset: [0.75290355, 0.02422731, -0.01918676], axis: [0, 0, -1], parts: [] },
+          { name: "arm_turret", joint: "turret", offset: [0.1757079, 0.15246472, -0.06037109], axis: [0, 1, 0], parts: [] },
+        ],
+      },
       dispose(): void {
         for (const g of geometries) g.dispose();
         material.dispose();
@@ -122,11 +130,11 @@ async function fixture() {
   const key = (type: "keydown" | "keyup", code: string): void => {
     windowStub.dispatchEvent(Object.assign(new Event(type), { code, repeat: false }));
   };
-  return { handle, scene, terrain, population, component, tick, key };
+  return { handle, scene, terrain, population, component, context, tick, key };
 }
 
-describe("Mars Showcase — area-dependent vehicle damage", () => {
-  it("rams crush the struck nose, bend then tear off the hit wheel, and report it all", async () => {
+describe("Mars Showcase — rock-safe impacts and turret tools", () => {
+  it("keeps the rock intact after a hard ram, with no fracture entities or saved break ID", async () => {
     const { handle, scene, terrain, population, component, tick, key } = await fixture();
     const rover = component.vehicle;
     const ground = heightFunctionGround((x: number, z: number) => terrain.getHeightAt(x, z));
@@ -227,10 +235,10 @@ describe("Mars Showcase — area-dependent vehicle damage", () => {
         }
       }
     }
-    // Smallest first so the wheel bends before it breaks. Lanes are verified at ram time
-    // (teleporting 50 m streams in chunks the spawn scan never saw); blocked lanes are
-    // skipped so every ram is exactly one rock on the front-left wheel.
-    candidates.sort((a, b) => a.radius - b.radius);
+    // Largest first to guarantee a blocking contact on the front-left corner. Lanes are verified
+    // at ram time (teleporting can stream in chunks the spawn scan never saw), and neighboring
+    // rocks are excluded so this proves the crush threshold itself is unreachable by the rover.
+    candidates.sort((a, b) => b.radius - a.radius);
     expect(candidates.length, "a deep bench of big ram targets near spawn").toBeGreaterThanOrEqual(10);
 
     /** Drive W into the target; returns the contact speed, or null when the lane is blocked. */
@@ -257,26 +265,22 @@ describe("Mars Showcase — area-dependent vehicle damage", () => {
       let contactSpeed = 0;
       for (let i = 0; i < 400; i++) {
         tick();
-        contactSpeed = rover.speed;
-        if (handle.marsState().brokenInteractiveRocks > before) break;
+        contactSpeed = Math.max(contactSpeed, rover.speed);
       }
       key("keyup", "KeyW");
-      // Stop dead at the impact: braking through would overrun into rocks past the target
-      // (ram speeds reach 6+ m/s downhill), and the next ram teleports away regardless.
+      // Stop at the contact; the target may be pushed, but its fracture state must not change.
       rover.setVelocity(0, 0, 0);
       rover.yawRate = 0;
       key("keydown", "KeyS");
       for (let i = 0; i < 20; i++) tick();
       key("keyup", "KeyS");
-      expect(handle.marsState().brokenInteractiveRocks - before, "a clean lane breaks exactly its rock").toBe(1);
+      const after = handle.marsState();
+      expect(after.brokenInteractiveRocks, "rover impact cannot fracture a rock").toBe(before);
+      const snapshot = JSON.parse(handle.saveInteractiveTerrain()) as { brokenRockIds: string[] };
+      expect(snapshot.brokenRockIds).not.toContain(`${t.chunkKey}:${t.typeId === 2 ? "boulders" : t.typeId === 3 ? "rocks-b" : "rocks"}:${t.index}`);
+      expect(withPrefix("rock-chunk-")).toHaveLength(0);
+      expect(withPrefix("rock-pebble-")).toHaveLength(0);
       return contactSpeed;
-    };
-    const logState = (tag: string, v: number): void => {
-      const s = handle.marsState();
-      console.log(
-        `${tag} (${v.toFixed(2)} m/s): zones F${s.damageZoneFront.toFixed(2)} R${s.damageZoneRear.toFixed(2)} ` +
-        `L${s.damageZoneLeft.toFixed(2)} R${s.damageZoneRight.toFixed(2)} wheels ${s.damageWheels.map((w: number) => w.toFixed(2)).join(",")}`,
-      );
     };
     const expectAttachedLook = (): void => {
       expect(rover.wheels[0]!.disabled).toBe(false);
@@ -286,50 +290,135 @@ describe("Mars Showcase — area-dependent vehicle damage", () => {
       expect(withPrefix("detached-")).toHaveLength(0);
     };
 
-    // Ram 1: the nose crushes in, the front-left wheel bends, the overlay reports. One ram
-    // can never detach (max single hit 0.65 < 1), so FL is guaranteed still attached here.
-    let v1: number | null = null;
+    // A head-on ram may crumple the rover, but never chips the rock. The saved broken-ID set,
+    // live fragment entities, and population identity all stay intact after a peak-speed impact.
+    let impactSpeed: number | null = null;
     let nextCandidate = 0;
-    while (v1 === null && nextCandidate < candidates.length) v1 = ram(candidates[nextCandidate++]!);
-    expect(v1, "a first ram with a clear lane").not.toBeNull();
-    logState("after ram 1", v1!);
-    const s1 = handle.marsState();
-    expect(s1.damageZoneFront).toBeGreaterThan(0.08);
-    expect(s1.damageZoneFront).toBeGreaterThan(
-      2 * (s1.damageZoneRear + s1.damageZoneLeft + s1.damageZoneRight),
-    );
-    expect(s1.damageWheels[0]).toBeGreaterThan(0.15);
-    expect(s1.detachedWheels).toEqual([]);
-    expect(rover.wheels[0]!.bend).toBeGreaterThan(0);
-    expect(nose.transform.position.z).toBeLessThan(byName("rover-body-tail").transform.position.z - 0.01);
-    expect(byName("rover-body-deck").transform.position.z).toBeCloseTo(0, 8);
-    expect(handle.overlay?.() ?? "").toContain("damage");
+    while (impactSpeed === null && nextCandidate < candidates.length) impactSpeed = ram(candidates[nextCandidate++]!);
+    expect(impactSpeed, "a clean lane for a hard rock impact").not.toBeNull();
+    const afterRam = handle.marsState();
+    expect(afterRam.brokenInteractiveRocks).toBe(0);
+    expect(afterRam.detachedWheels).toEqual([]);
+    expect(handle.saveInteractiveTerrain()).not.toContain('"brokenRockIds":["');
+    expect(withPrefix("rock-chunk-")).toHaveLength(0);
+    expect(withPrefix("rock-pebble-")).toHaveLength(0);
+    expect(rover.wheels[0]!.disabled).toBe(false);
+    for (const part of withPrefix("rover-wheel_FL-part")) expect(part.get(Renderable)?.visible).toBe(true);
+    expect(withPrefix("detached-")).toHaveLength(0);
     expectAttachedLook();
+    // If this heavy target blocks rather than rolling away, the independent vehicle-damage path
+    // still reports localized contact without granting the rover enough crush force to split it.
+    if (afterRam.damageZoneFront > 0) {
+      expect(afterRam.damageZoneFront).toBeGreaterThan(afterRam.damageZoneRear);
+      expect(afterRam.damageZoneRear).toBeLessThan(0.05);
+    }
+  });
 
-    // Keep ramming (skipping blocked lanes) until FL tears off: meshes hidden, wreckage
-    // dropped, rover drives on five wheels.
-    while (handle.marsState().detachedWheels.length === 0 && nextCandidate < candidates.length) {
-      const v = ram(candidates[nextCandidate++]!);
-      if (v !== null) {
-        logState("after ram", v);
-        if (handle.marsState().detachedWheels.length === 0) expectAttachedLook();
+  it("unfolds, auto-aligns and drills a reachable small rock; dust, a hole and rubble remain visible", async () => {
+    const { handle, scene, terrain, population, component, context, tick } = await fixture();
+    const rover = component.vehicle;
+    const sceneOnlyTick = (): void => {
+      context.frame++;
+      context.elapsed += context.dt;
+      scene.update(context, context.dt);
+    };
+    for (let i = 0; i < 12 && !handle.marsState().modelLoaded; i++) await Promise.resolve();
+    expect(handle.marsState().modelLoaded).toBe(true);
+    // Populate the spawn tiles without calling handle.update: the synthetic target is installed
+    // before the interaction layer promotes any instance to a proxy.
+    for (let i = 0; i < 180; i++) sceneOnlyTick();
+
+    let target: { chunkKey: string; block: NonNullable<ReturnType<PopulationWorld["chunkPopulation"]>>; index: number } | null = null;
+    for (const [chunkKey] of terrain.chunks) {
+      const block = population.chunkPopulation(chunkKey, 1);
+      if (!block) continue;
+      for (let index = 0; index < block.count; index++) {
+        const p = index * 3;
+        if (block.scales[p] === 0 || block.scales[p + 1] === 0) continue;
+        const id = `${chunkKey}:rocks:${index}`;
+        if (shouldSplitRockDuringDrilling({ id, radius: 0.3, isFlat: false, thickness: 0.6 }, 0)) continue;
+        target = { chunkKey, block, index };
+        break;
+      }
+      if (target) break;
+    }
+    expect(target, "a nearby round instance suitable for the deterministic non-split drill pass").not.toBeNull();
+
+    const targetX = rover.position.x;
+    const targetZ = rover.position.z + 2.384;
+    for (const [chunkKey] of terrain.chunks) {
+      for (const typeId of [1, 2, 3]) {
+        const block = population.chunkPopulation(chunkKey, typeId);
+        if (!block) continue;
+        let changed = false;
+        for (let index = 0; index < block.count; index++) {
+          if (block === target!.block && typeId === 1 && index === target!.index) continue;
+          const p = index * 3;
+          if (Math.hypot(block.positions[p]! - rover.position.x, block.positions[p + 2]! - rover.position.z) >= 10) continue;
+          block.scales[p] = 0;
+          block.scales[p + 1] = 0;
+          block.scales[p + 2] = 0;
+          changed = true;
+        }
+        if (changed) block.markModified();
       }
     }
-    const s3 = handle.marsState();
-    expect(s3.detachedWheels).toEqual([0]);
-    expect(rover.wheels[0]!.disabled).toBe(true);
-    expect(rover.wheels[0]!.driven).toBe(false);
-    for (const part of withPrefix("rover-wheel_FL-part")) {
-      expect(part.get(Renderable)?.visible).toBe(false);
+    const p = target!.index * 3;
+    const rockScale = 0.68; // 0.8 m procedural geometry × scale × 0.55 proxy factor ≈ 0.30 m radius.
+    target!.block.scales[p] = rockScale;
+    target!.block.scales[p + 1] = rockScale;
+    target!.block.scales[p + 2] = rockScale;
+    target!.block.positions[p] = targetX;
+    target!.block.positions[p + 2] = targetZ;
+    target!.block.rotations[target!.index] = 0;
+    target!.block.snapY(target!.index, terrain.getHeightAt(targetX, targetZ) + rockScale * 0.4);
+    target!.block.markModified();
+    const targetId = `${target!.chunkKey}:rocks:${target!.index}`;
+
+    for (let i = 0; i < 4 && handle.marsState().toolPrompt === null; i++) tick();
+    const proximity = handle.marsState();
+    expect(proximity.armUnfolded, "the tool prompt does not require a manual arm toggle").toBe(false);
+    expect(proximity.toolPrompt, "a reachable rock exposes the Drill prompt while the arm is stowed").not.toBeNull();
+    expect(proximity.toolTargetId).toBe(targetId);
+    expect(handle.useTool("drill")).toBe(true);
+    expect(handle.marsState().toolAction).toBe("drill");
+    expect(handle.marsState().toolPhase).toBe("deploy");
+    expect(handle.marsState().armDeployed, "Drill activation unfolds the arm automatically").toBe(true);
+
+    let sawWorking = false;
+    for (let i = 0; i < 1400; i++) {
+      tick();
+      const state = handle.marsState();
+      if (state.toolPhase === "working") sawWorking = true;
+      if (state.drilledRocks === 1 && state.toolPhase === "idle") break;
     }
-    expect(withPrefix("detached-").length).toBeGreaterThanOrEqual(1);
-    expect(s3.contactWheels).toBeLessThanOrEqual(5);
-    // Area-dependent: the far side and tail are essentially untouched.
-    expect(s3.damageWheels[1]).toBeLessThan(0.05);
-    for (const i of [2, 3, 4, 5]) expect(s3.damageWheels[i]).toBeLessThan(0.05);
-    expect(s3.damageZoneFront).toBeGreaterThan(0.5);
-    expect(s3.damageZoneRear).toBeLessThan(0.05);
-    expect(s3.damageZoneRight).toBeLessThan(0.05);
-    expect(handle.overlay?.() ?? "").toContain("✕");
+    const drilled = handle.marsState();
+    expect(sawWorking, "the arm completes its approach/alignment phase before drilling").toBe(true);
+    expect(drilled.toolPhase).toBe("idle");
+    expect(drilled.drilledRocks).toBe(1);
+    expect(drilled.drillSplits).toBe(0);
+    expect(drilled.toolLastResult).toContain("CORE DRILLED");
+    expect(drilled.toolMarks).toBeGreaterThanOrEqual(2);
+    expect(drilled.toolRubble).toBeGreaterThanOrEqual(5);
+    expect(drilled.toolDust).toBeGreaterThan(0);
+    const marks: Entity[] = [];
+    for (const id of scene.world.liveEntityIds()) {
+      if (!scene.world.name(id).startsWith("rover-tool-hole-")) continue;
+      const entity = scene.world.facade(id);
+      if (entity) marks.push(entity);
+    }
+    expect(marks.length).toBe(1);
+    expect(marks[0]!.get(Renderable)?.visible).toBe(true);
+
+    // The two optional turret modes share the same proximity/servo path: abrasion leaves another
+    // physical trace, while the simulated PIXL pass reports a deterministic material reading.
+    expect(handle.useTool("abrade")).toBe(true);
+    for (let i = 0; i < 900 && (handle.marsState().abradedRocks === 0 || handle.marsState().toolPhase !== "idle"); i++) tick();
+    expect(handle.marsState().abradedRocks).toBe(1);
+    expect(handle.marsState().toolLastResult).toContain("SURFACE ABRADED");
+    expect(handle.useTool("analyze")).toBe(true);
+    for (let i = 0; i < 900 && (handle.marsState().analyzedRocks === 0 || handle.marsState().toolPhase !== "idle"); i++) tick();
+    expect(handle.marsState().analyzedRocks).toBe(1);
+    expect(handle.marsState().toolLastResult).toContain("PIXL SAMPLE");
   });
 });

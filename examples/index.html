@@ -395,6 +395,57 @@
         .arm-stick-left { left: calc(max(16px, env(safe-area-inset-left)) + 144px); }
         .arm-stick-right { right: calc(max(14px, env(safe-area-inset-right)) + 172px); }
       }
+      /* Close-range Mars arm tools. The controller only exposes this panel when a rock is inside
+         the turret's working envelope; drive controls remain unobstructed below it. */
+      #rover-tool-touch {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 16;
+        pointer-events: none;
+      }
+      body.scene-mars #rover-tool-touch { display: block; }
+      #rover-tool-panel {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: max(164px, calc(154px + env(safe-area-inset-bottom)));
+        transform: translateX(-50%);
+        width: min(420px, calc(100vw - 24px));
+        padding: 10px 12px 9px;
+        flex-direction: column;
+        gap: 7px;
+        border: 1px solid rgb(253 186 116 / 0.48);
+        border-radius: 8px;
+        background: rgb(25 16 11 / 0.88);
+        box-shadow: 0 4px 20px rgb(0 0 0 / 0.28);
+        backdrop-filter: blur(7px);
+        pointer-events: auto;
+      }
+      #rover-tool-panel.shown { display: flex; }
+      .rover-tool-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      #rover-tool-target { color: #fed7aa; font-size: 10px; font-weight: 700; letter-spacing: 0.09em; }
+      #rover-tool-status { color: #cbd5e1; font-size: 10px; text-align: right; }
+      .rover-tool-actions { display: flex; gap: 6px; }
+      button.rover-tool-button {
+        flex: 1 1 0;
+        min-height: 40px;
+        padding: 7px 5px;
+        background: rgb(124 45 18 / 0.78);
+        border-color: rgb(251 146 60 / 0.58);
+        color: #fff7ed;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        touch-action: manipulation;
+      }
+      button.rover-tool-button:hover:not(:disabled) { background: rgb(194 65 12 / 0.9); border-color: #fdba74; }
+      button.rover-tool-button:disabled { opacity: 0.55; cursor: default; }
+      .rover-tool-progress-track { height: 3px; overflow: hidden; border-radius: 2px; background: rgb(148 163 184 / 0.24); }
+      #rover-tool-progress { width: 0; height: 100%; background: #fb923c; transition: width 0.12s linear; }
+      @media (max-height: 520px) {
+        #rover-tool-panel { bottom: max(12px, env(safe-area-inset-bottom)); width: min(360px, calc(100vw - 24px)); }
+      }
       /* Shared layout for the sky and weather button panels (markup below). Each panel is a
          fixed, click-through sheet; only the buttons themselves take input. */
       .touch-panel {
@@ -596,6 +647,20 @@
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>
       </div>
+    </div>
+    <div id="rover-tool-touch">
+      <section id="rover-tool-panel" aria-label="Rover turret tools" aria-hidden="true">
+        <div class="rover-tool-heading">
+          <span id="rover-tool-target">ROCK IN ARM REACH</span>
+          <span id="rover-tool-status" role="status" aria-live="polite">Select a turret tool</span>
+        </div>
+        <div class="rover-tool-actions" role="group" aria-label="Rover turret actions">
+          <button type="button" id="mars-tool-drill" class="rover-tool-button" aria-label="Drill a rock">DRILL</button>
+          <button type="button" id="mars-tool-abrade" class="rover-tool-button" aria-label="Abrade a rock surface">ABRADE</button>
+          <button type="button" id="mars-tool-analyze" class="rover-tool-button" aria-label="Analyze a rock with PIXL">ANALYZE</button>
+        </div>
+        <div class="rover-tool-progress-track" aria-hidden="true"><div id="rover-tool-progress"></div></div>
+      </section>
     </div>
     <div id="rescue-touch" role="group" aria-label="Alpine Rescue mission actions">
       <button type="button" id="rescue-interact" class="rescue-action rescue-primary" aria-label="Interact with the rescue objective">INTERACT · E</button>
