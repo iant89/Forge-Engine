@@ -143,6 +143,12 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("sampleCount"), 96);
   });
 
+  test("keeps the moon anti-solar, atmosphere-attenuated and planet-occluded", () => {
+    assert.match(SKY_SHADER, /let moonDir = -sunDir/);
+    assert.match(SKY_SHADER, /raySphereEntry\(origin, moonDir, R\) < 0\.0/);
+    assert.match(SKY_SHADER, /opticalDepthToSpace\(origin, moonDir, lightSamples\)/);
+  });
+
   test("every shipped shader variant passes the strict validator", () => {
     const sources = {
       STANDARD_VERTEX,

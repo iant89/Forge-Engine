@@ -188,6 +188,35 @@ group("weather state", () => {
     assert.equal(scene.settings.clouds.windX, 0);
   });
 
+  test("dims directional and ambient lighting under storms and restores the undimmed values", () => {
+    const scene = new Scene({ name: "storm-lighting" });
+    scene.settings.ambientIntensity = 0.8;
+    const sunEntity = scene.createTransformedEntity("sun", new Vec3());
+    const sun = new Light();
+    sun.kind = "directional";
+    sun.intensity = 5;
+    scene.world.addComponent(sunEntity.id, sun);
+    const weather = new WeatherSystem({ initial: "storm", target: "storm" });
+    scene.add(weather);
+    assert.ok(sun.intensity < 5);
+    assert.ok(scene.settings.ambientIntensity < 0.8);
+    const stormSun = sun.intensity;
+    weather.apply();
+    assertCloseTo(sun.intensity, stormSun, 12);
+    // An upstream DayNightCycle writes fresh undimmed values each frame; weather must attenuate
+    // those values rather than dividing them by the previous factor and cancelling itself out.
+    sun.intensity = 6;
+    scene.settings.ambientIntensity = 0.9;
+    weather.apply();
+    assert.ok(sun.intensity < 6);
+    assert.ok(scene.settings.ambientIntensity < 0.9);
+    weather.driveLighting = false;
+    weather.apply();
+    assertCloseTo(sun.intensity, 6, 12);
+    assertCloseTo(scene.settings.ambientIntensity, 0.9, 12);
+    scene.dispose();
+  });
+
   test("advances from the fixed-step budget through update()", () => {
     const scene = new Scene({ name: "weather-steps" });
     const w = new WeatherSystem({ initial: "clear", target: "storm" });
@@ -295,6 +324,9 @@ group("cloud deck", () => {
     const thin = cloudRadiance(noon, noon, 0.05, { ...shading, ambientTint: new Float64Array(3) }, new Float64Array(3));
     const thick = cloudRadiance(noon, noon, 1, { ...shading, ambientTint: new Float64Array(3) }, new Float64Array(3));
     assert.ok(thin[1] > thick[1]);
+    const selfShadowed = cloudRadiance(noon, noon, 0.5, { ...shading, ambientTint: new Float64Array(3) }, new Float64Array(3), 0.8);
+    const unshadowed = cloudRadiance(noon, noon, 0.5, { ...shading, ambientTint: new Float64Array(3) }, new Float64Array(3));
+    assert.ok(selfShadowed[1]! < unshadowed[1]!);
     // Linear in the sun: double the light, double the sunlit part.
     const doubled = cloudRadiance(noon, noon, 0.5, { ...shading, ambientTint: new Float64Array(3), sunTint: new Float64Array([sunTint[0]! * 2, sunTint[1]! * 2, sunTint[2]! * 2]) }, new Float64Array(3));
     const single = cloudRadiance(noon, noon, 0.5, { ...shading, ambientTint: new Float64Array(3) }, new Float64Array(3));
@@ -378,6 +410,36 @@ group("water surface", () => {
     const d = sampleGerstner(diag, 0, 0, 0);
     assertCloseTo(d.dx, d.dz!, 12);
     assertCloseTo(d.dx, 0.5 / Math.sqrt(2), 12);
+  });
+
+  test("includes the horizontal Gerstner Jacobian in steep-wave normals", () => {
+    const waves = [
+      { directionX: 1, directionZ: 0.4, wavelength: 5, amplitude: 0.7, speed: 1.2, steepness: 0.8, phase: 0.3 },
+      { directionX: -0.3, directionZ: 1, wavelength: 3, amplitude: 0.25, speed: 0.7, steepness: 0.65, phase: 1.1 },
+    ];
+    const x = 0.8, z = -0.4, t = 0.6, h = 1e-4;
+    const center = sampleGerstner(waves, x, z, t);
+    const xp = sampleGerstner(waves, x + h, z, t);
+    const xm = sampleGerstner(waves, x - h, z, t);
+    const zp = sampleGerstner(waves, x, z + h, t);
+    const zm = sampleGerstner(waves, x, z - h, t);
+    const tx = new Vec3(((x + h + xp.dx) - (x - h + xm.dx)) / (2 * h), (xp.y - xm.y) / (2 * h), (xp.dz - xm.dz) / (2 * h));
+    const tz = new Vec3((zp.dx - zm.dx) / (2 * h), (zp.y - zm.y) / (2 * h), ((z + h + zp.dz) - (z - h + zm.dz)) / (2 * h));
+    const normal = new Vec3(center.nx, center.ny, center.nz);
+    assertCloseTo(normal.dot(tx), 0, 5);
+    assertCloseTo(normal.dot(tz), 0, 5);
+    assertCloseTo(normal.length(), 1, 10);
+  });
+
+  test("bounds CPU queries to the same four waves rendered by the GPU", () => {
+    const firstFour = Array.from({ length: 4 }, (_, phase) => ({ ...sine[0]!, phase }));
+    const ignored = { ...sine[0]!, amplitude: 100, phase: 0.25 };
+    const expected = sampleGerstner(firstFour, 0.7, -0.2, 0.4);
+    const actual = sampleGerstner([...firstFour, ignored], 0.7, -0.2, 0.4);
+    for (const key of ["y", "dx", "dz", "nx", "ny", "nz", "crest"] as const) {
+      assertCloseTo(actual[key], expected[key], 12);
+    }
+    assertCloseTo(totalWaveAmplitude([...firstFour, ignored]), totalWaveAmplitude(firstFour), 12);
   });
 
   test("stays inside its amplitude budget with unit normals and 0..1 crests", () => {
@@ -508,20 +570,26 @@ group("lightning", () => {
 
   test("drives the flash light and the sky exposure from the live strikes", () => {
     const scene = new Scene({ name: "lightning-present" });
-    const l = new LightningSystem({ seed: 5, rate: 0, stormOverride: 0 });
+    let announced = 0;
+    const l = new LightningSystem({ seed: 5, rate: 0, stormOverride: 0, onStrike: strike => (announced = strike.id) });
     scene.add(l);
     l.trigger(new Vec3(30, 0, -10), 2);
+    assert.equal(announced, 1);
+    l.trigger(new Vec3(-40, 0, 25), 0.8);
+    assert.equal(announced, 2);
+    assert.equal(scene.world.store(Light).count, 2);
     l.advance(0.02);
     assert.ok(l.flashTotal > 0);
     const calls: { exposure?: number; lines: number } = { lines: 0 };
-    const context = { render: { setSkyOverride: (p: { exposure?: number }) => (calls.exposure = p.exposure), drawLine: () => calls.lines++ } } as never;
+    const context = { render: { setSkyOverride: (p: { exposure?: number }) => (calls.exposure = p.exposure), drawEmissiveLine: () => calls.lines++ } } as never;
     l.present(context);
     assertCloseTo(calls.exposure!, 1 + l.flashTotal * l.skyFlashExposure, 9);
     assert.ok(calls.lines > 0);
-    assert.equal((l.lastBolts).length, 1);
+    assert.equal((l.lastBolts).length, 2);
     l.advance(10);
     l.present(context);
     assert.equal((l.lastBolts).length, 0);
+    assert.equal(scene.world.store(Light).count, 0);
   });
 });
 

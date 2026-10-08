@@ -65,7 +65,17 @@ fn cloudDeck(dir: vec3<f32>, sunDir: vec3<f32>) -> vec4<f32> {
   }
   let alpha = (1.0 - exp(-3.0 * d)) * smoothstep(0.005, 0.08, dir.y);
   let cosT = max(dot(dir, sunDir), 0.0);
-  let transmitted = 0.25 + 0.75 * exp(-2.5 * d);
+  // Approximate optical depth toward the sun through the deck's configured thickness. Sampling the
+  // advected density field produces coherent cloud-on-cloud shadows without a volume texture.
+  var sunPathDensity = 0.0;
+  if (sunDir.y > 0.01 && cloud.thickness > 0.0) {
+    let sunStep = (sunDir.xz / max(sunDir.y, 0.1)) * (cloud.thickness * 250.0) * cloud.scale;
+    for (var si = 1; si <= 3; si++) {
+      let sf = cloudFbm(xz * cloud.scale + sunStep * (f32(si) / 3.0));
+      sunPathDensity += smoothstep(edge0, edge1, sf) * cloud.density / 3.0;
+    }
+  }
+  let transmitted = 0.25 + 0.75 * exp(-2.5 * (d + sunPathDensity));
   let silver = 1.0 + cloud.silverLining * pow(cosT, 6.0);
   let lit = cloud.sunTint * transmitted + cloud.ambientTint;
   return vec4<f32>(cloud.cloudAlbedo * lit * silver, alpha);

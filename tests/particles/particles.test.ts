@@ -327,9 +327,9 @@ group("particles — GPU and scene integration", () => {
     sim.emitter.rate = 60;
     sim.emitter.cone.speedMin = 0;
     sim.emitter.cone.speedMax = 0;
-    const component = new ParticleComponent(sim);
     const host = world.createEntity("emitter");
-    host.add(new ParticleComponent(sim));
+    const component = new ParticleComponent(sim);
+    host.add(component);
     const sprite = world.createEntity("sprite");
     sprite.add(new Transform());
     component.spriteEntities = [sprite.id];
@@ -343,17 +343,44 @@ group("particles — GPU and scene integration", () => {
     world.dispose();
   });
 
+  test("runs CPU components once per fixed substep instead of once per rendered frame", () => {
+    const world = new EntityWorld();
+    const sim = new ParticleSimulation({ capacity: 4 });
+    const host = world.createEntity("fixed emitter");
+    host.add(new ParticleComponent(sim));
+    world.registerSystem(new ParticleSystem());
+    const context = ctx(world, 1 / 30);
+    (context as { fixedDt: number }).fixedDt = 1 / 120;
+    (context as { fixedSteps: number }).fixedSteps = 4;
+    world.runSystems(context);
+    assert.equal(sim.stepCount, 4);
+    (context as { fixedSteps: number }).fixedSteps = 0;
+    world.runSystems(context);
+    assert.equal(sim.stepCount, 4);
+    world.dispose();
+  });
+
+  test("rejects two components stepping the same simulation", () => {
+    const sim = new ParticleSimulation();
+    new ParticleComponent(sim);
+    assert.throws(() => new ParticleComponent(sim), /already owned by ParticleComponent/);
+  });
+
   test("steps a ParticleWorld scene object without a second stepper", () => {
     const scene = new Scene({ name: "particles" });
     const fountain = new ParticleWorld({ capacity: 16, seed: 2, name: "fountain" });
-    fountain.simulation.emitter.rate = 30;
+    fountain.simulation.emitter.rate = 120;
     scene.add(fountain);
     const context = ctx(scene.world, 1 / 60);
+    (context as { fixedDt: number }).fixedDt = 1 / 120;
+    (context as { fixedSteps: number }).fixedSteps = 3;
     fountain.update?.(context, 1 / 60);
-    fountain.update?.(context, 1 / 60);
-    assert.equal(fountain.simulation.stepCount, 2);
+    assert.equal(fountain.simulation.stepCount, 3);
+    (context as { fixedSteps: number }).fixedSteps = 0;
+    fountain.update?.(context, 1 / 20);
+    assert.equal(fountain.simulation.stepCount, 3);
     assert.ok(fountain.simulation.alive > 0);
-    assert.equal(fountain.stats().steps, 2);
+    assert.equal(fountain.stats().steps, 3);
     scene.dispose();
   });
 });
@@ -421,7 +448,8 @@ group("particles — Phase 12 GPU system", () => {
       const viewProj = new Float32Array(16);
       viewProj[0] = viewProj[5] = viewProj[10] = viewProj[15] = 1;
       system.prepare({
-        dt: 1 / 60,
+        dt: 1 / 120,
+        simulationSteps: 4,
         viewProj,
         cameraPos: { x: 0, y: 2, z: 8 },
         cameraRight: { x: 1, y: 0, z: 0 },
@@ -465,7 +493,7 @@ group("particles — Phase 12 GPU system", () => {
       assert.deepEqual(system.lastEnqueuedPasses, ["particle.sim", "particle.sort", "particle.render", "particle.resolve"]);
       assert.equal(system.entityCount(), 0);
       assert.deepEqual(gpu.mock.errors, []);
-      assert.equal(system.stepCount, 1);
+      assert.equal(system.stepCount, 4);
       assert.ok((gpu.device as unknown as { dispatches: number }).dispatches > 0);
       swap.destroy();
       depth.destroy();

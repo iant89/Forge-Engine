@@ -26,8 +26,8 @@
  * scrolled), and the eye is checked against the terrain height the meshes are built from.
  *
  * Phase 8b addition: the weather scene must present the cloud deck, the water and lightning on real
- * WebGPU. Overcast noon is brighter than clear noon (the deck whitens the sky while the sun still
- * lights the ground), pinning the deck coverage to 1 on a clear night darkens the frame (the unlit
+ * WebGPU. Overcast noon is darker than clear noon because cloud cover attenuates sun and ambient;
+ * pinning the deck coverage to 1 on a clear night darkens the frame (the unlit
  * deck occludes the stars — the storm preset cannot prove this because its fog outshines the deck),
  * the underwater toggle removes `forge.sky` from the graph, and a triggered strike registers.
  *
@@ -2467,3 +2467,4 @@ if (exitCode === 0 && fatal.length > 0) {
 await browser.close();
 vite.kill("SIGKILL");
 process.exit(exitCode);
+Code);

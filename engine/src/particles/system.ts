@@ -1,25 +1,25 @@
 /**
- * Particle system, band 400 (world). Variable rate: particles are a presentation effect, and the
- * analytic check calls {@link ParticleSimulation.step} directly with a fixed dt. One step per
- * frame, not once per physics substep — a 5× catch-up must not quintuple a fountain.
+ * Particle system, band 400 (world). CPU simulations run on the engine's fixed clock alongside
+ * physics and vehicles. A catch-up frame executes each fixed substep, keeping emission, gravity,
+ * modules, and trails independent of render cadence.
  *
  * Sprite entities, when the component lists them, are posed from the first alive particles and
  * hidden otherwise. The renderer recomputes world matrices after systems, so a write here is
  * visible the same frame.
  */
 
-import { System, type SystemContext } from "../scene/systems.js";
+import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Renderable, Transform } from "../scene/components/index.js";
 import { ParticleComponent } from "./components.js";
 import { isAlive, P_X, P_Y, P_Z, P_SIZE, PARTICLE_FLOATS } from "./layout.js";
 
-export class ParticleSystem extends System {
+export class ParticleSystem extends FixedSystem {
   readonly name = "particles";
   override readonly order = 400;
   override readonly before = ["transforms"];
 
-  override update(context: SystemContext): void {
-    const dt = context.dt;
+  override fixedStep(context: SystemContext, _stepIndex: number): void {
+    const dt = context.fixedDt;
     if (!(dt > 0)) return;
     const world = context.world;
     const store = world.store(ParticleComponent);

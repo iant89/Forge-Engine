@@ -14,10 +14,11 @@
  * by `tests/environment/environment8b.test.ts`), which is both the cheapest plausible gust model and exactly
  * deterministic — no history, no grid, no worker round-trip.
  *
- * The system optionally *drives* the scene (all three switches default to on):
+ * The system optionally *drives* the scene (all four switches default to on):
  *  - `driveFog`: fog density rises with precipitation (rain is visible as lost visibility);
  *  - `driveSky`: the sky's turbidity (haze) rises with humidity and storm;
- *  - `driveClouds`: `scene.settings.clouds.coverage` follows the weather's cloud cover.
+ *  - `driveClouds`: `scene.settings.clouds.coverage` follows the weather's cloud cover;
+ *  - `driveLighting`: cloud/storm cover attenuates directional and ambient light with safe floors.
  * The base values the drives add onto are captured on attach; only the *deltas* are owned here, so
  * a scene's art direction survives and `driveFog: false` leaves the fog alone entirely.
  */
@@ -27,6 +28,7 @@ import type { SystemContext } from "../scene/systems.js";
 import { fbm2 } from "../math/noise.js";
 import { clamp, lerpAngle, TAU } from "../math/scalar.js";
 import { Vec2 } from "../math/vec.js";
+import { Light } from "../scene/components/index.js";
 
 /** One snapshot of the weather. All fields are plain numbers (serialisable, comparable). */
 export interface WeatherState {
@@ -121,6 +123,16 @@ export function wrapAngle(angle: number): number {
   return m < 0 ? m + TAU : m;
 }
 
+/** Cloud/storm attenuation applied to direct and ambient scene lighting. */
+export function stormLightFactors(coverage: number, storm: number, minimumSun = 0.2, minimumAmbient = 0.5): { sun: number; ambient: number } {
+  const cover = clamp(coverage, 0, 1);
+  const severe = clamp(storm, 0, 1);
+  return {
+    sun: clamp(1 - cover * 0.62 - severe * 0.18, clamp(minimumSun, 0, 1), 1),
+    ambient: clamp(1 - cover * 0.32 - severe * 0.18, clamp(minimumAmbient, 0, 1), 1),
+  };
+}
+
 export interface WeatherOptions {
   name?: string;
   /** Deterministic seed for the gust/temperature/precipitation fields. Default 1337. */
@@ -146,6 +158,12 @@ export interface WeatherOptions {
   stormTurbidity?: number;
   /** Write `scene.settings.clouds.coverage` from the cloud cover. Default true. */
   driveClouds?: boolean;
+  /** Attenuate directional and ambient light under cloud/storm cover. Default true. */
+  driveLighting?: boolean;
+  /** Minimum directional-light multiplier at maximum overcast storm. Default 0.2. */
+  minimumSunLight?: number;
+  /** Minimum ambient-intensity multiplier at maximum overcast storm. Default 0.5. */
+  minimumAmbientLight?: number;
 }
 
 const CLOUD_FBM_OCTAVES = 4;
@@ -165,12 +183,21 @@ export class WeatherSystem extends SceneObject {
   humidityTurbidity: number;
   stormTurbidity: number;
   driveClouds: boolean;
+  driveLighting: boolean;
+  minimumSunLight: number;
+  minimumAmbientLight: number;
   /** Seconds of simulated weather time advanced since creation. */
   simulatedSeconds = 0;
 
   private baseFogDensity = 0;
   private baseTurbidity = 2;
   private captured = false;
+  private previousSunFactor = 1;
+  private previousAmbientFactor = 1;
+  private readonly lightingScratch: Light[] = [];
+  private readonly attenuatedLights = new WeakSet<Light>();
+  private readonly lastLightOutput = new WeakMap<Light, number>();
+  private lastAmbientOutput = Number.NaN;
 
   constructor(options: WeatherOptions = {}) {
     super();
@@ -191,6 +218,9 @@ export class WeatherSystem extends SceneObject {
     this.humidityTurbidity = options.humidityTurbidity ?? 2;
     this.stormTurbidity = options.stormTurbidity ?? 4;
     this.driveClouds = options.driveClouds ?? true;
+    this.driveLighting = options.driveLighting ?? true;
+    this.minimumSunLight = clamp(options.minimumSunLight ?? 0.2, 0, 1);
+    this.minimumAmbientLight = clamp(options.minimumAmbientLight ?? 0.5, 0, 1);
   }
 
   /** Replace the drift target (a preset or a partial state over the current target). */
@@ -255,6 +285,27 @@ export class WeatherSystem extends SceneObject {
       scene.settings.clouds.windX = wind.x;
       scene.settings.clouds.windZ = wind.y;
     }
+    const factors = this.driveLighting
+      ? stormLightFactors(this.state.cloudCoverage, this.state.storm01, this.minimumSunLight, this.minimumAmbientLight)
+      : { sun: 1, ambient: 1 };
+    const lights = scene.collectLights(this.lightingScratch);
+    for (const light of lights) {
+      if (light.kind !== "directional") continue;
+      const lastOutput = this.lastLightOutput.get(light);
+      const unchanged = this.attenuatedLights.has(light) && lastOutput !== undefined && Math.abs(light.intensity - lastOutput) <= 1e-9;
+      const undimmed = unchanged ? light.intensity / Math.max(1e-6, this.previousSunFactor) : light.intensity;
+      light.intensity = undimmed * factors.sun;
+      this.attenuatedLights.add(light);
+      this.lastLightOutput.set(light, light.intensity);
+    }
+    const ambientUnchanged = Number.isFinite(this.lastAmbientOutput) && Math.abs(scene.settings.ambientIntensity - this.lastAmbientOutput) <= 1e-9;
+    const undimmedAmbient = ambientUnchanged
+      ? scene.settings.ambientIntensity / Math.max(1e-6, this.previousAmbientFactor)
+      : scene.settings.ambientIntensity;
+    scene.settings.ambientIntensity = undimmedAmbient * factors.ambient;
+    this.lastAmbientOutput = scene.settings.ambientIntensity;
+    this.previousSunFactor = factors.sun;
+    this.previousAmbientFactor = factors.ambient;
   }
 
   /** Mean wind vector (m/s, +x east / +y north→+z) at the current state. */

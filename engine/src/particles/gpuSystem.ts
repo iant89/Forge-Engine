@@ -80,7 +80,10 @@ export interface GpuParticleSystemOptions {
 }
 
 export interface GpuParticleFrameInput {
+  /** Duration of one simulation substep. */
   dt: number;
+  /** Fixed simulation substeps accumulated for this rendered frame. Defaults to one. */
+  simulationSteps?: number;
   viewProj: Float32Array | number[];
   cameraPos: { x: number; y: number; z: number };
   cameraRight: { x: number; y: number; z: number };
@@ -159,8 +162,10 @@ export class GpuParticleSystem {
   ready = false;
   /** Cumulative spawn count (CPU accounting; GPU is authoritative for state). */
   emitted = 0;
-  /** Frames that have run encodeSim. */
+  /** Fixed simulation substeps encoded so far. */
   stepCount = 0;
+  /** Substeps requested by the most recent prepare. */
+  lastSimulationSteps = 1;
   /** Last encode's emit budget (for overlays / tests). */
   lastEmitBudget = 0;
   /** Pass names enqueued on the most recent {@link enqueue} call. */
@@ -528,8 +533,11 @@ export class GpuParticleSystem {
   prepare(frame: GpuParticleFrameInput): void {
     if (!this.ready || this.disposed) return;
     const dt = Math.max(0, frame.dt);
-    this.time += dt;
-    this.emitAccumulator += Math.max(0, this.emitter.rate) * dt;
+    const simulationSteps = Math.max(0, Math.floor(frame.simulationSteps ?? 1));
+    const elapsed = dt * simulationSteps;
+    this.lastSimulationSteps = simulationSteps;
+    this.time += elapsed;
+    this.emitAccumulator += Math.max(0, this.emitter.rate) * elapsed;
     let budget = Math.floor(this.emitAccumulator);
     if (budget > this.maxEmitsPerFrame) budget = this.maxEmitsPerFrame;
     if (budget > this.capacity) budget = this.capacity;
@@ -722,14 +730,18 @@ export class GpuParticleSystem {
     },
   ): void {
     if (!this.ready || this.disposed) return;
-    const passes = ["particle.sim", "particle.sort", "particle.render", "particle.resolve"];
+    const passes = this.lastSimulationSteps > 0
+      ? ["particle.sim", "particle.sort", "particle.render", "particle.resolve"]
+      : ["particle.sort", "particle.render", "particle.resolve"];
     this.lastEnqueuedPasses = passes;
 
-    graph.addPass({
-      name: "particle.sim",
-      sideEffect: true,
-      execute: (ctx) => this.encodeSim(ctx),
-    });
+    if (this.lastSimulationSteps > 0) {
+      graph.addPass({
+        name: "particle.sim",
+        sideEffect: true,
+        execute: (ctx) => this.encodeSim(ctx),
+      });
+    }
     graph.addPass({
       name: "particle.sort",
       sideEffect: true,
@@ -752,7 +764,7 @@ export class GpuParticleSystem {
       sideEffect: true,
       execute: (ctx) => this.encodeResolve(ctx),
     });
-    this.stepCount++;
+    this.stepCount += this.lastSimulationSteps;
   }
 
   private ensureEmitBindGroup(): GPUBindGroup {
@@ -865,7 +877,9 @@ export class GpuParticleSystem {
     }
     pass.setPipeline(this.simPipeline!);
     pass.setBindGroup(0, simGroup);
-    pass.dispatchWorkgroups(Math.ceil(this.capacity / PARTICLE_WORKGROUP));
+    for (let step = 0; step < this.lastSimulationSteps; step++) {
+      pass.dispatchWorkgroups(Math.ceil(this.capacity / PARTICLE_WORKGROUP));
+    }
     pass.end();
   }
 

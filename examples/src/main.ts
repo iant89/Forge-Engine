@@ -82,6 +82,8 @@ const btnClustered = document.getElementById("btn-clustered") as HTMLButtonEleme
 const btnStress = document.getElementById("btn-stress") as HTMLButtonElement | null;
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
+const btnProfiler = document.getElementById("btn-profiler") as HTMLButtonElement | null;
+const profilerPanel = document.getElementById("profiler-panel") as HTMLPreElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
 const loadingModel = document.getElementById("loading-model") as HTMLDivElement | null;
 const loadingTerrain = document.getElementById("loading-terrain") as HTMLDivElement | null;
@@ -98,6 +100,16 @@ function showError(text: string): void {
 async function main(): Promise<void> {
   const platform = detectPlatform();
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2 } });
+  let profilerVisible = false;
+  let nextProfilerPaint = 0;
+  const setProfilerVisible = (visible: boolean): void => {
+    profilerVisible = visible;
+    btnProfiler?.classList.toggle("active", visible);
+    btnProfiler?.setAttribute("aria-pressed", visible ? "true" : "false");
+    profilerPanel?.classList.toggle("shown", visible);
+    if (visible && profilerPanel) profilerPanel.textContent = engine.profiler.report(16);
+  };
+  btnProfiler?.addEventListener("click", () => setProfilerVisible(!profilerVisible));
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
@@ -549,6 +561,11 @@ async function main(): Promise<void> {
       hud.textContent += `\n${extra}`;
     }
 
+    if (profilerVisible && profilerPanel && now >= nextProfilerPaint) {
+      profilerPanel.textContent = engine.profiler.report(16);
+      nextProfilerPaint = now + 250;
+    }
+
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
       shownError = st.lastError;
@@ -568,6 +585,8 @@ async function main(): Promise<void> {
       return activeSceneName;
     },
     stats: () => engine.stats(),
+    profilerReport: () => engine.profiler.report(16),
+    setProfilerVisible,
     get scene(): Scene {
       return currentHandle!.scene;
     },

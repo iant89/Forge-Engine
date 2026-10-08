@@ -23,6 +23,7 @@ export class GpuParticleWorld extends SceneObject {
   private _system: GpuParticleSystem | null = null;
   private gpu: GraphicsDevice | null = null;
   private lastDt = 1 / 60;
+  private pendingSimulationSteps = 1;
   /** Latched when init throws; stops per-frame attachDevice from dispose/recreate forever. */
   private initFailed = false;
   /** True while an async init is in flight. */
@@ -101,8 +102,9 @@ export class GpuParticleWorld extends SceneObject {
     this.initFailed = false;
   }
 
-  override update(context: SystemContext, dt: number): void {
-    this.lastDt = dt > 0 ? dt : this.lastDt;
+  override update(context: SystemContext, _dt: number): void {
+    this.lastDt = context.fixedDt > 0 ? context.fixedDt : this.lastDt;
+    this.pendingSimulationSteps = Math.max(0, context.fixedSteps);
     // GPU emit/sim/cull/render only run inside renderer.renderScene. Under Engine renderMode
     // "dirty", finishFrame clears invalidated after the first draw; a static camera then skips
     // render forever and particle.sim stalls. Keep continuous GPU particle scenes ticking.
@@ -115,6 +117,7 @@ export class GpuParticleWorld extends SceneObject {
    */
   prepareFrame(input: {
     dt?: number;
+    simulationSteps?: number;
     viewProj: Float32Array | number[] | Mat4;
     cameraPos: { x: number; y: number; z: number };
     /** Camera world-space right axis (from camera world/view, not viewProj columns). */
@@ -128,11 +131,13 @@ export class GpuParticleWorld extends SceneObject {
     // Require explicit basis: viewProj columns are not camera axes under perspective.
     system.prepare({
       dt: input.dt ?? this.lastDt,
+      simulationSteps: input.simulationSteps ?? this.pendingSimulationSteps,
       viewProj: vp,
       cameraPos: input.cameraPos,
       cameraRight: input.cameraRight,
       cameraUp: input.cameraUp,
     });
+    if (input.simulationSteps === undefined) this.pendingSimulationSteps = 0;
   }
 
   /**

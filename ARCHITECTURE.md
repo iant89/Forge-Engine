@@ -49,7 +49,7 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/environment/      sun position (NOAA/Meeus), atmosphere model + presets, fog reference, DayNightCycle (8a);
                         weather, clouds, water, lightning join here in 8b
   src/animation/        clips, states, graphs, IK, skinning
-  src/audio/            WebAudio graph, spatialization, procedural engine audio
+  src/audio/            Web Audio decoding/mixer, live effect racks, bounded voices, HRTF spatialization
   src/input/            devices + action mapping
   src/scripting/        Script base, ScriptComponent, coroutines, timers, events
   src/assets/           AssetManager, cache/handles, importers (glTF/GLB/HDR/WAV/KTX2/…)

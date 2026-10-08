@@ -255,8 +255,9 @@ fn pointShadowFaceIndex(dir: vec3<f32>) -> i32 {
 
 // Point coverage: pick the cube face by the dominant axis of the light->receiver direction,
 // project through that face's perspective matrix and PCF-sample the shared atlas layer. WebGPU has
-// no comparison sampling for depth cubes, so the face is chosen explicitly here; PCF taps that
-// cross a face edge fall back to lit (a slight seam at grazing angles, documented).
+// no comparison sampling for depth cubes, so the face is chosen explicitly here. Each rendered
+// face has a two-texel projection guard band, keeping this 3x3 PCF footprint inside the dominant
+// face even at a 45-degree cube boundary.
 fn pointShadowAttenuation(point: vec3<f32>, normal: vec3<f32>, lightPos: vec3<f32>, range: f32, shadowIndex: i32) -> f32 {
   if (shadowIndex < 0i || shadowIndex >= uniforms_shadow.pointCount) {
     return 1.0;
@@ -923,11 +924,16 @@ struct DebugOut {
 @group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
 
 fn unpackDebugColor(packed: u32) -> vec4<f32> {
-  let a = f32((packed >> 24u) & 0xffu) / 255.0;
+  let alphaByte = (packed >> 24u) & 0xffu;
   let r = f32((packed >> 16u) & 0xffu) / 255.0;
   let g = f32((packed >> 8u) & 0xffu) / 255.0;
   let b = f32(packed & 0xffu) / 255.0;
-  return vec4<f32>(r, g, b, a);
+  // Alpha 0..127 is reserved by drawEmissiveLine as radiance in eighths. Ordinary debug colours
+  // use opaque alpha (255), preserving their existing blend behavior.
+  if (alphaByte < 128u) {
+    return vec4<f32>(vec3<f32>(r, g, b) * (f32(alphaByte) / 8.0), 1.0);
+  }
+  return vec4<f32>(r, g, b, f32(alphaByte) / 255.0);
 }
 
 @vertex

@@ -25,6 +25,18 @@ import { clamp, RAD_TO_DEG, smoothstep } from "../math/scalar.js";
 import { AtmosphereModel, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "./atmosphere.js";
 import { createSolarPosition, daysInYear, julianDayFromDayOfYear, solarPosition, sunDirection, type SolarPosition } from "./solar.js";
 
+export interface DayNightScheduleState {
+  readonly scene: Scene;
+  readonly cycle: DayNightCycle;
+  /** Smooth 0..1 sun-above-horizon factor used by the directional light. */
+  readonly daylight: number;
+  /** Convenience inverse of `daylight`, for lamps, emissives, audio and other night systems. */
+  readonly night: number;
+}
+
+/** Arbitrary synchronized output driven whenever the astronomical clock is applied. */
+export type DayNightSchedule = (state: DayNightScheduleState) => void;
+
 export interface DayNightOptions {
   name?: string;
   /** Degrees north. Default 45. */
@@ -59,6 +71,11 @@ export interface DayNightOptions {
   driveSky?: boolean;
   /** Observer height above sea level used for the transmittance/ambient evaluation, metres. Default 0. */
   observerHeight?: number;
+  /**
+   * Additional clock outputs. Called after the built-in sun/ambient/fog/sky writes with smooth
+   * daylight/night factors; may drive point/spot lights, emissive materials, fog density or audio.
+   */
+  schedules?: readonly DayNightSchedule[];
 }
 
 const HORIZON_RAMP = 0.5 * (Math.PI / 180);
@@ -85,6 +102,7 @@ export class DayNightCycle extends SceneObject {
   observerHeight: number;
   readonly nightAmbient: Color;
   readonly atmosphere: AtmosphereModel;
+  readonly schedules: readonly DayNightSchedule[];
 
   /** Outputs of the last `apply()`. */
   readonly position: SolarPosition = createSolarPosition();
@@ -122,6 +140,7 @@ export class DayNightCycle extends SceneObject {
     this.driveFog = options.driveFog ?? true;
     this.driveSky = options.driveSky ?? true;
     this.observerHeight = options.observerHeight ?? 0;
+    this.schedules = Object.freeze([...(options.schedules ?? [])]);
     const atmo = options.atmosphere;
     const params = atmo && "planetRadius" in atmo && "viewSamples" in atmo ? createAtmosphere({}, atmo as Readonly<AtmosphereParams>) : createAtmosphere(atmo ?? {}, EARTH_ATMOSPHERE);
     this.atmosphere = new AtmosphereModel(params);
@@ -276,6 +295,10 @@ export class DayNightCycle extends SceneObject {
       const sky = scene.settings.sky;
       if (sky.sunDirection) sky.sunDirection.copyFrom(this.sunDirection);
       else sky.sunDirection = this.sunDirection.clone();
+    }
+    if (this.schedules.length > 0) {
+      const state: DayNightScheduleState = { scene, cycle: this, daylight: ramp, night: 1 - ramp };
+      for (const schedule of this.schedules) schedule(state);
     }
   }
 

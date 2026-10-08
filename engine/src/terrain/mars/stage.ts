@@ -399,10 +399,10 @@ export class MarsTerrainStage implements TerrainStage {
    * Four splat weights per vertex, in the channel order `marsSurfaceLayers()` describes:
    * 0 = dust, 1 = rock, 2 = sand, 3 = crust.
    *
-   * The generator's material id drives the base weight; slope biases it towards rock (a
-   * `CraterFloor` on a 40-degree wall should read as rock, not bowl). The engine's own
-   * `BiomeGenerator` writes this same 4-channel layout, so the terrain material stack, the demo's
-   * layer presets and any future splat shader keep working unchanged.
+   * The generator's absolute-position material id drives the weights directly. Deliberately avoid
+   * mesh-resolution-derived slope here: the same world point must keep the same material as terrain
+   * LOD changes. The engine's `BiomeGenerator` uses this same 4-channel layout, so the terrain
+   * material stack and layer presets work unchanged.
    */
   private writeSplats(cell: WorldCell, materialIds: Uint8Array): void {
     const res = cell.resolution;
@@ -439,15 +439,6 @@ export class MarsTerrainStage implements TerrainStage {
             break;
         }
 
-        // Steep ground is rock regardless of what the material classifier decided.
-        const slope = cell.slopes[idx]!;
-        const rockBias = clamp((slope - 0.45) / 0.4, 0, 1);
-        if (rockBias > 0) {
-          rock = Math.max(rock, rockBias);
-          dust *= 1 - rockBias;
-          sand *= 1 - rockBias;
-          crust *= 1 - rockBias;
-        }
 
         const sum = dust + rock + sand + crust;
         const inv = sum > 0 ? 1 / sum : 1;

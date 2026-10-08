@@ -23,7 +23,7 @@ depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` fo
 `docs/MARS-TERRAIN.md` for the ported Mars generator (the same planet as the external
 `mars-terrain-gen`), and `docs/VERIFICATION.md` for what each check proves.
 
-The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
+The demo toolbar includes a live **Profiler** panel showing unified CPU scopes and asynchronous GPU pass timings. The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
 (the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1
 `ReductionDrive`, ≈6 km/h top speed with regenerative braking) driving over streamed, cratered Mars
 terrain beneath a Mars sky, with wind-blown and wheel-kick dust. The showcase now uses the ported
@@ -42,7 +42,7 @@ toggles in the panel), **Cubes** (Phase 1), **Terrain** (Phase 4, beneath the Ma
 deterministic rock and boulder populations streaming in per chunk — thousands of instanced rocks, zero entities per
 rock), **Realistic
 (Alpine)** (Phase 4), **Mars Generator (P10.9)** (the ported planet as a *site inspector*: free orbit camera, no rover, and the site from the URL — `?marssite=vallesRift`, or `?marssite=0,0` for the crater field where the four material layers actually mix), **Vehicle** (Phase 6: WASD on a pad that becomes a 12° ramp, `Space`
-handbrake, `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
+handbrake, `R` to select forward/reverse while stopped, and `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`
 scrub the clock, `T` pauses it, `M` swaps Earth for Mars), **Weather / Water** (Phase 8b: storm
 presets with rain, lightning, a Gerstner lake and an underwater dive), **Rover Course** (Perseverance

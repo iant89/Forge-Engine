@@ -1733,3 +1733,100 @@ will stop".
 - ROADMAP §15.5 ticks every item, but its header stays `[~]` because the open work (fractured rocks, per-wheel contact manifolds, sand resistance, damage repair) is written as prose. The registry note on `world.interactiveTerrain` still says terrain "is not yet deformable", which contradicts §15.5.4 (`TerrainDeformationField` in `engine/src/terrain/deformation.ts` has landed). Not fixed in the PROGRESS.md change; the note is stale.
 - ROADMAP's Phase 23 checklist is unticked even though the Mars Showcase already exercises much of it, and the Phase 24 items carry no checkboxes at all. PROGRESS.md lists both as planned, with a caveat for Phase 23.
 - The `core.ciQualityGate` registry note says CI runs "on every push", but `.github/workflows/ci.yml` triggers on `pull_request` and on pushes to `main` only. PROGRESS.md uses the workflow's wording.
+
+## 2026-10-08 — Web Audio subsystem
+
+- `engine/src/audio` now owns decoding, buses, live effect racks, bounded voices, and HRTF spatial emitters. Format support intentionally follows each browser's `decodeAudioData`; no codec package is bundled. Audio contexts must be resumed from a user gesture because of browser autoplay policy.
+
+## 2026-10-08 — particle simulation ownership
+
+- `ParticleSimulation.claimOwner` now rejects a second `ParticleComponent`/`ParticleWorld` stepper. This closes the documented double-integration trap while leaving direct standalone simulation stepping available for tools and analytic tests.
+
+## 2026-10-08 — safe reverse selection
+
+- `Vehicle.selectDriveDirection(reverse)` is the supported direction-control seam. It rejects shifts above 0.5 m/s by default, opens the clutch for the configured shift duration, and the vehicle playground binds it to `R`; reverse intentionally remains outside automatic forward shifting.
+
+## 2026-10-08 — touch F/N/R selector
+
+- The shared vehicle touch pad now includes an F/N/R switch only in the vehicle playground. `onGearSelect` returns acceptance; rejected positions remain unselected, disabled, and red-glowing for two seconds. `Vehicle.selectGear` permits neutral at speed but interlocks forward/reverse above 0.5 m/s.
+
+## 2026-10-08 — transmission capability closed
+
+- With safe `Vehicle.selectGear`, keyboard R, and the touch F/N/R selector now tested, `vehicles.transmission` is verified. Automatic shifting remains forward-only intentionally; reverse is a manual direction choice and is no longer tracked as a limitation.
+
+## 2026-10-08 — CPU particles moved to fixed time
+
+- `ParticleSystem` now extends `FixedSystem`, and `ParticleWorld` consumes `context.fixedSteps` at `fixedDt`; zero-substep frames do not advance. GPU particles remain frame/render-graph driven, so `particles.fixedStep` stays partial and the known issue is narrowed rather than removed.
+
+## 2026-10-08 — GPU fixed steps and spatial thunder
+
+- `GpuParticleWorld` now carries `fixedSteps`/`fixedDt` into the render graph. `GpuParticleSystem` emits for accumulated fixed time, encodes one simulation dispatch per substep, skips simulation at zero steps, and still culls/renders existing particles; `particles.fixedStep` is verified.
+- `LightningSystem.onStrike` is the subsystem-neutral reaction seam. The weather demo synthesizes deterministic thunder, places it at the strike, and delays playback by distance / 343 m/s after audio is unlocked. Lightning remains partial only because simultaneous strikes share one flash light and bolts are debug lines.
+
+## 2026-10-08 — independent lightning lights
+
+- `LightningSystem` now allocates one point light entity per live strike, drives each from its own envelope, and destroys it when the strike expires. Simultaneous bolts no longer collapse lighting onto the brightest strike; the remaining lightning limitation is debug-line rather than emissive bolt geometry.
+
+## 2026-10-08 — HDR emissive lightning lines
+
+- `RenderFrameContext.drawEmissiveLine` encodes linear radiance in the packed debug vertex alpha byte (values below 128, in eighths); ordinary opaque debug colors retain alpha 255. The debug shader expands emissive RGB before the HDR bloom chain. Lightning uses this path with envelope-scaled radiance, closing `environment.lightning` without allocating bolt meshes.
+
+## 2026-10-08 — LDR render scale
+
+- `renderScale` now applies to LDR as well as HDR. Scaled LDR renders into an sRGB-encoded transient and resolves through `POST_FLAG_PASSTHROUGH`; that flag bypasses exposure, tone mapping, and sRGB encoding to avoid double-encoding. At scale 1 LDR still writes the swapchain directly with no extra pass.
+
+## 2026-10-08 — storm lighting attenuation
+
+- `WeatherSystem.driveLighting` now attenuates directional and ambient light from cloud/storm cover with configurable floors. It remembers its last outputs: unchanged values are unattenuated before reapplication, while fresh values written by `DayNightCycle` are treated as a new base. This avoids both cumulative dimming and accidentally cancelling attenuation.
+
+## 2026-10-08 — live profiler overlay
+
+- The demo toolbar now toggles a bottom-left Profiler panel backed by `engine.profiler.report(16)`, refreshed at 4 Hz to avoid per-frame DOM churn. The same unified CPU/GPU report is exposed as `window.__forge.profilerReport()`. The profiler capability stays partial because a dedicated unit suite and graphical frame timeline remain open.
+
+## 2026-10-08 — adaptive shadow memory budget
+
+- The renderer now computes total cascade + spot + point-face layers and halves their shared map size until the atlas fits `RendererOptions.shadowMemoryBudget` (default 256 MiB, 128px floor). Profile/scene size remains the requested cap; budgeting occurs before allocation and refits local-light projection texel scales at the chosen size.
+
+## 2026-10-08 — seamless point-shadow cube PCF
+
+- Point-shadow face projections now use `2*atan(1 + 2/resolution)` instead of exactly 90°. The two-texel overlap puts a dominant-axis receiver at least one UV texel inside both neighboring faces, so the shader's 3×3 PCF kernel never crosses undefined face data. `worldTexelScale` includes the guard width so normal bias remains consistent.
+
+## 2026-10-08 — exact Gerstner surface normals
+
+- CPU `sampleGerstner` and the water vertex shader now differentiate horizontal displacement as well as height, then use `cross(dP/dz, dP/dx)`. This keeps steep-wave normals perpendicular to the actual displaced surface; the old slope-only normal was exact only at zero steepness.
+
+## 2026-10-08 — bounded water-wave parity
+
+- CPU water sampling, amplitude bounds, renderer uniform packing, and WGSL now share one `MAX_WATER_WAVES = 4` semantic. Extra scene waves are ignored by gameplay exactly as they are by rendering, and Gerstner steepness normalization uses the active bounded count rather than an unconditional divisor of four.
+
+## 2026-10-08 — priority-selected shadow lights
+
+- Oversubscribed directional, spot, and point shadow slots now select by potential visual influence instead of scene insertion order. Priority is linear brightness for directional lights and brightness × range² for finite local lights; stable sort preserves scene order only as a tie-break. Disabled lights cannot claim the directional slot.
+
+## 2026-10-08 — exact Mars crater scanner parity
+
+- The cached `MarsCraterScanner` already preserves the direct generator transcription's band and nested cell-offset order; its old 1e-6 claim was stale. Coverage now requires deep equality of relief delta, crater classification, and crater ID at all 441 sampled tile points. The external cache checker remains tolerance-based only because generator files store float32 values while the port computes float64.
+
+## 2026-10-08 — band-safe Mars crater cache
+
+- Mars crater cell coordinates are only unique within a crater size band. `MarsCraterScanner` now keeps one cell map per band, preventing equal triples near coordinate axes from returning a crater resolved with another band's scale and seed. Exact direct-loop parity now explicitly covers three near-origin points where every band shares a cell triple.
+
+## 2026-10-08 — converged atmosphere horizon band
+
+- CPU atmosphere queries and the WGSL sky integrator now floor the narrow `abs(viewDir.y) < 0.035` band at 64 view × 32 light samples regardless of the base quality tier. The rest of the dome retains its configured 8×4/16×8/32×16 cost. Low-quality horizon blue is now within 12% of a 512×32 reference instead of being up to ~35% dark.
+
+## 2026-10-08 — extensible day/night schedules
+
+- `DayNightCycle` now accepts immutable schedule callbacks that run after its built-in astronomical outputs with complementary smooth `daylight` and `night` factors. This keeps the solar model independent while allowing one clock to synchronize point/spot lights, emissive materials, fog density, audio, and arbitrary scene systems. A regression drives a point lamp and fog density through noon and night.
+
+## 2026-10-08 — LOD-stable Mars material masks
+
+- Mars splat channels now come directly from the geology classifier's absolute-position material ID instead of mixing in slopes estimated from the current mesh grid. Coincident vertices therefore preserve identical dust/rock/sand/crust masks across terrain resolutions; geometry slopes remain available for normals and physics. A 17×17 versus 33×33 regression pins every shared channel exactly.
+
+## 2026-10-08 — atmosphere-attenuated procedural moon
+
+- The sky shader now draws a cool full-moon disc in the anti-solar direction. It uses planet occlusion and the same atmospheric optical-depth transmittance as the sun, naturally rising while the sun is below the horizon. The intentionally minimal model has no calendar phase or orbital inclination yet.
+
+## 2026-10-08 — projected cloud-deck self-shadowing
+
+- The cloud shader now samples three points through the advected density field toward the sun, with path length controlled by `cloud.thickness`. Their integrated density attenuates direct light in cores while preserving ambient and silver lining. This adds coherent deck self-shadowing without claiming a true volumetric cloud model; the CPU radiance twin accepts the same sun-path optical density for tests/tools.

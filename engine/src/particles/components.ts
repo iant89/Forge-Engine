@@ -17,6 +17,7 @@ export class ParticleComponent extends Component {
   constructor(simulation: ParticleSimulation = new ParticleSimulation()) {
     super();
     this.simulation = simulation;
+    simulation.claimOwner(this, "ParticleComponent");
   }
 }
 

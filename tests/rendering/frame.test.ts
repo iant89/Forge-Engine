@@ -288,6 +288,31 @@ group("frame structure", () => {
     await f.dispose();
   });
 
+  test("LDR renderScale resolves the scaled scene to the swapchain", async () => {
+    const f = await fixture();
+    f.scene.settings.hdr = false;
+    f.scene.settings.renderScale = 0.5;
+    f.scene.settings.shadow.cascades = 1;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.deepEqual(f.renderer.passNames, ["forge.shadow.0", ...PREPASS_SSAO, "forge.main", "forge.ldr.scale"]);
+    assert.deepEqual(labels(f), ["forge.shadow.0", ...PREPASS_SSAO, "forge.main", "forge.ldr.scale"]);
+    assert.equal(f.mock.passes[5]!.colorTargets[0]?.includes("swapchain"), false);
+    assert.deepEqual(f.mock.passes[6]!.colorTargets, ["swapchain"]);
+    assert.equal(f.renderer.stats.hdr, false);
+    await f.dispose();
+  });
+
+  test("shadow memory budget reduces the atlas before allocation", async () => {
+    const f = await fixture({ renderer: { shadowMapSize: 256, shadowMemoryBudget: 4 * 128 * 128 } });
+    f.scene.settings.hdr = false;
+    f.scene.settings.shadow.cascades = 1;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assertContains(f.mock.passes[0]!.depthTarget, "128x128x1");
+    await f.dispose();
+  });
+
   test("bloom and shadows are individually switchable, and the quality profile caps the scene", async () => {
     const f = await fixture({ renderer: { shadowCascades: 2, shadowMapSize: 256 } });
     // Without the prepass the chain is exactly the pre-prepass frame (the prepass has its own suite).

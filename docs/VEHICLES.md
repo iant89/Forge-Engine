@@ -11,13 +11,15 @@ physics world lets props collide with the car.
 
 `npm run demo`, then **Vehicle (P6)**, or open `?scene=vehicle`.
 
-WASD or the arrow keys drive. Space is the handbrake. `P` latches the parking brake — a *toggle*,
+WASD or the arrow keys drive. `R` toggles first/reverse while nearly stopped. Space is the handbrake. `P` latches the parking brake — a *toggle*,
 not a hold: the car stays parked with the pedal released, the wheels locked, and the HUD reads
 `PARK` until `P` (or the pad button) releases it. On a phone (or a window narrower than 820px)
 a translucent stick sits in the bottom-left — the knob appears when you touch it and stays inside
 the circle — and two round buttons sit bottom-right, A for gas and B for brake, in the same cluster
 a controller uses. Pushing the stick up is also gas and pulling it down is also brake; left and
-right steer. The parking brake has its own pad button, P/PARK, in the pad's bottom-left slot, lit
+right steer. A three-position F/N/R switch selects direction; an unsafe F/R request while moving
+leaves the current position selected and disables the rejected position with a red glow for two
+seconds. The parking brake has its own pad button, P/PARK, in the pad's bottom-left slot, lit
 while the brake is engaged. Drag orbits, the scroll wheel zooms, and the orbit target follows the
 chassis. Arrow-key panning is off in this scene: both the orbit controller and the car listen on
 `window`, so leaving keyboard pan on would steer the camera instead of the car (`OrbitControls`
