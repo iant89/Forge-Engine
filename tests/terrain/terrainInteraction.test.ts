@@ -36,6 +36,8 @@ import {
   RigidBody,
   assessRockContact,
   bridgeRockContact,
+  canDisplaceRock,
+  separateRoverFromRock,
   createInteractiveRockSpec,
   type InteractiveRockSpec,
   Vec3,
@@ -517,6 +519,117 @@ group("Phase 15.5 interactive terrain foundation", () => {
     // It should have rotated significantly (tilt angle past 1.0 rad, near PI/2 where it lies flat)
     const angle = 2 * Math.acos(Math.min(1, Math.abs(slab.rotation.w)));
     assert.ok(angle > 0.8);
+  });
+});
+
+group("Rover/rock contact separation", () => {
+  test("pushes the rover back out to the contact range instead of leaving it inside the rock", () => {
+    // Rover centre 2.1 m from a rock of radius 0.66, with a 1.6 m rover reach: the pair overlaps by
+    // 0.16 m. Momentum transfer alone leaves exactly this overlap in place, which is the "stuck in
+    // the middle of a rock" report; the correction has to put the rover back on the surface.
+    const separation = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 2.1, rockZ: 0,
+      rockRadius: 0.66, roverRadius: 1.6, slack: 0,
+    });
+    assert.equal(separation.contacted, true);
+    assertCloseTo(separation.penetration, 2.26 - 2.1, 8);
+    assertCloseTo(separation.normalX, 1, 8);
+    assertCloseTo(separation.normalZ, 0, 8);
+    const correctedX = 0 + separation.correctionX;
+    const correctedZ = 0 + separation.correctionZ;
+    assertCloseTo(Math.hypot(2.1 - correctedX, 0 - correctedZ), 1.6 + 0.66, 8);
+  });
+
+  test("resolves along the diagonal normal and reports no correction when the pair is apart", () => {
+    const diagonal = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 1, rockZ: 1,
+      rockRadius: 0.5, roverRadius: 1.6, slack: 0,
+    });
+    assert.equal(diagonal.contacted, true);
+    assertCloseTo(diagonal.normalX, Math.SQRT1_2, 8);
+    assertCloseTo(diagonal.normalZ, Math.SQRT1_2, 8);
+    // Correction is purely along the normal: it never slides the rover sideways around the rock.
+    assertCloseTo(diagonal.correctionX, diagonal.correctionZ, 8);
+
+    const apart = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 3, rockZ: 4,
+      rockRadius: 0.5, roverRadius: 1.6, slack: 0,
+    });
+    assert.equal(apart.contacted, false);
+    assert.equal(apart.penetration, 0);
+    assert.equal(apart.correctionX, 0);
+    assert.equal(apart.correctionZ, 0);
+
+    // Exactly touching counts as contact, but there is nothing to resolve.
+    const touching = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 2.1, rockZ: 0,
+      rockRadius: 0.5, roverRadius: 1.6, slack: 0,
+    });
+    assert.equal(touching.contacted, true);
+    assert.equal(touching.penetration, 0);
+    assert.equal(touching.correctionX, 0);
+  });
+
+  test("lets a yielding rock keep its slack, but caps the overlap there", () => {
+    const shallow = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 2.2, rockZ: 0,
+      rockRadius: 0.66, roverRadius: 1.6, slack: 0.15,
+    });
+    assertCloseTo(shallow.penetration, 0.06, 8);
+    assert.equal(shallow.correctionX, 0, "an overlap inside the slack is left for the rock to clear");
+
+    const deep = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 1.8, rockZ: 0,
+      rockRadius: 0.66, roverRadius: 1.6, slack: 0.15,
+    });
+    // Only the part past the slack is resolved, so the rover settles at range − slack, not inside.
+    assertCloseTo(1.8 - deep.correctionX, 2.26 - 0.15, 8);
+  });
+
+  test("separates coincident centres along the fallback heading instead of welding them together", () => {
+    const coincident = separateRoverFromRock({
+      roverX: 4, roverZ: 4, rockX: 4, rockZ: 4,
+      rockRadius: 0.6, roverRadius: 1.6, slack: 0,
+      fallbackNormalX: Math.sin(0.5), fallbackNormalZ: Math.cos(0.5),
+    });
+    assert.equal(coincident.contacted, true);
+    assertCloseTo(coincident.penetration, 2.2, 8);
+    assertCloseTo(coincident.normalX, Math.sin(0.5), 8);
+    assertCloseTo(coincident.normalZ, Math.cos(0.5), 8);
+    // The full range is resolved, so the rover is ejected clear of the rock's centre.
+    assertCloseTo(
+      Math.hypot(4 - (4 + coincident.correctionX), 4 - (4 + coincident.correctionZ)),
+      2.2,
+      8,
+    );
+
+    // No heading supplied either: it must still pick a usable normal rather than return zeros.
+    const headless = separateRoverFromRock({
+      roverX: 0, roverZ: 0, rockX: 0, rockZ: 0, rockRadius: 0.5, roverRadius: 1.6, slack: 0,
+    });
+    assert.ok(Math.hypot(headless.correctionX, headless.correctionZ) > 0);
+  });
+
+  test("treats a rock as immovable exactly when the contact assessment would block it", () => {
+    // canDisplaceRock is what contact resolution falls back on for a resting contact, where
+    // assessRockContact reports "none" because there is no approach speed to judge. It has to agree
+    // with both blocked branches of the assessment, or the rover would push against a wall that
+    // should stop it (or stop dead at a pebble it should roll over).
+    const wall = rock({ crushStrength: 1e9, pushForce: 5000, climbHeight: 0.25 });
+    const input = { roverMass: 1025, relativeSpeed: 2, availableForce: 1943, obstacleHeight: 1.2 };
+    assert.equal(assessRockContact(wall, input).outcome, "blocked");
+    assert.equal(canDisplaceRock(wall, input.availableForce), false);
+    // The too-tall branch blocks on the same condition, so it must agree too.
+    const tall = rock({ crushStrength: 1e9, pushForce: 3000, climbHeight: 0.25 });
+    assert.equal(assessRockContact(tall, input).outcome, "blocked");
+    assert.equal(canDisplaceRock(tall, input.availableForce), false);
+
+    const pebble = rock({ crushStrength: 1e9, pushForce: 120, climbHeight: 0.25 });
+    assert.equal(assessRockContact(pebble, input).outcome, "pushed");
+    assert.equal(canDisplaceRock(pebble, input.availableForce), true);
+    // Exactly at the threshold the rock is still movable, matching the assessment's `>=`.
+    assert.equal(canDisplaceRock(rock({ pushForce: 1943 }), 1943), true);
+    assert.equal(canDisplaceRock(rock({ pushForce: 1943 }), -5), false);
   });
 });
 
