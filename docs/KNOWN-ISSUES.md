@@ -5,12 +5,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Rendering (Phase 2)
 
-* **Casters can still contribute to multiple shadow maps.** The renderer assigns each renderable a
-  conservative mask from its world AABB and submits only its assigned contiguous instance ranges;
-  when an object's bounds intersect multiple cascade, spot or point-face frusta, it is drawn into
-  each map. A single-map heuristic is intentionally not used because it could drop valid shadows.
-  `stats.shadowInstancesDrawn` and `shadowInstancesCulled` expose the work.
-  (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
+* **Shadow vertex work still repeats across overlapping maps.** The renderer assigns each
+  renderable a conservative mask from its world AABB and submits only assigned instance ranges;
+  adjacent ranges whose masks include the same map are coalesced into one draw. When an object's
+  bounds intersect multiple cascade, spot or point-face frusta, it must still be processed by each
+  map; no per-map GPU compaction is implemented, and non-adjacent assigned runs may need multiple
+  draws. A single-map heuristic is intentionally not used because it could drop valid shadows.
+  `stats.shadowsDrawn` reports draw submissions; `shadowInstancesDrawn` and `shadowInstancesCulled`
+  expose per-map caster work. (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
 * **Shadowed-light coverage is bounded.** The highest-priority shadow-casting directional light,
   up to four spot lights and up to two point lights receive maps; priority combines brightness and
   local-light influence area rather than scene order. Contact shadows remain deferred. Maps share
@@ -109,14 +111,14 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   worker yet: those pipelines require the live-instance fallback, preferably `syncGeneration: true`
   to bypass the rejected worker hop. Missing/blocked workers also fall back inline. This is a
   chunk-count budget, not a millisecond guarantee. (capability: terrain.marsGeneratorPort)
-* **The port's material regions are coarse relative to a demo tile.** `terrain.marsGeneratorPort`'s
-  geology assigns a material per terrain *region* (crater floors and rims, the volcano's flank, the
-  canyon's walls), so the four splat channels a 128 m tile carries are usually near one dominant
-  channel: a 54-site scan (15° latitude × 60° longitude) found only crater fields mixing two dominant
-  channels inside a single 640 m window, and the volcano-summit preset bakes one colour for kilometres.
-  That is the port's geology, not a wiring failure — albedo variety *within* a site would need finer
-  regional rules, not a different material path. `?scene=mars-generator&marssite=0,0` is the shipped
-  site where the mix is real enough to see. (capability: terrain.marsGeneratorPort)
+* **Mars subregional splats are procedural veneers, not upstream geology.** `terrain.marsGeneratorPort`
+  still classifies one dominant material per broad terrain region, but `MarsTerrainStage` now overlays
+  two related dust/rock/sand/crust channels with a seeded 40–170 m planet-space field. This gives
+  128 m tiles deterministic local variation while keeping the classifier's substrate dominant and
+  the masks identical at coincident LOD vertices. It does not change terrain geometry, material IDs,
+  or Stage A erosion, and it does not claim to reproduce measured sediment transport or a finer
+  upstream material map. `?scene=mars-generator&marssite=0,0` remains the shipped inspector for seeing
+  those veneers alongside the real crater-rim material boundary. (capability: terrain.marsGeneratorPort)
 
 ## Vehicles (Phase 6 / 11)
 

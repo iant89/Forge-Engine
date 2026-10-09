@@ -55,17 +55,26 @@ npm run check:wgsl       # structural WGSL validation + strict uniform address-s
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
-npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, asserts on pixels
+npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, all sections
+npm run check:browser:renderer # full-gate PBR/rendering A/B section only
+npm run check:browser:terrain # full-gate terrain population/camera/compute section only
+npm run check:browser:vehicle-particles # full-gate parking-brake + particle section only
+npm run check:browser:animation # full-gate skinned-arm section only
+npm run check:browser:environment # full-gate sky + weather section only
+npm run check:browser:mars # full-gate Mars inspector/showcase/drive/HGA/arm section only
 npm run check:browser:mars-workers # scoped native-worker + Mars upload/render check, NOT the full gate
+npm run check:browser:mars-generator # scoped real-WebGPU crater-rim mask check, NOT the full gate
 npm run check:browser:terrain-layers # scoped real-GPU splat pixel oracle + showcase A/B, NOT the full gate
 npm run demo             # Vite dev server for examples/ (binds 0.0.0.0, allowedHosts: true)
 ```
 
-`verify` is necessary but not sufficient for rendering changes. The mock device cannot tell you whether
-anything is *visible*; `check:browser` can, and it writes `tools/.browser-check.png` — **look at the
-screenshot**, don't just read the pass/fail line. (A previous black-screen bug passed every automated
-gate because the thresholds were too loose; they have since been tightened, but a human/agent eyeball
-on the PNG is still the cheapest check there is.)
+The default `check:browser` runs the six named sections above, in order, in one browser session. Each
+`check:browser:<section>` command starts a fresh browser and runs only that section; a section pass is
+not a full-gate pass. `verify` is necessary but not sufficient for rendering changes. The mock device
+cannot tell you whether anything is *visible*; `check:browser` can, and it writes
+`tools/.browser-check.png` — **look at the screenshot**, don't just read the pass/fail line. (A previous
+black-screen bug passed every automated gate because the thresholds were too loose; they have since
+been tightened, but a human/agent eyeball on the PNG is still the cheapest check there is.)
 
 ## 2. Repository map (what exists today)
 

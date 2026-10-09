@@ -1557,19 +1557,37 @@ export class Renderer implements RenderFrameContext {
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
       if (skinned) this.bindSkinning(pass, b, true);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+      // Distinct full masks can still contribute to the same map. If their instance ranges are
+      // adjacent, one draw is sufficient for this map: it contains exactly the union of the
+      // assigned ranges, so no caster is added or lost. A gap (an instance not assigned to this
+      // map) always terminates the run.
+      let drawFirstInstance = -1;
+      let drawInstanceCount = 0;
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
         const range = b.shadowRanges[rangeIndex]!;
         if ((range.shadowMask & shadowBit) === 0) continue;
-        if (b.geometry.indexBuffer) {
-          pass.drawIndexed(b.indexCount, range.instanceCount, b.indexStart, 0, range.firstInstance);
-        } else {
-          pass.draw(b.indexCount, range.instanceCount, 0, range.firstInstance);
+        if (drawInstanceCount > 0 && drawFirstInstance + drawInstanceCount === range.firstInstance) {
+          drawInstanceCount += range.instanceCount;
+          continue;
         }
-        this.stats.shadowsDrawn++;
-        this.stats.shadowInstancesDrawn += range.instanceCount;
+        if (drawInstanceCount > 0) this.submitShadowRange(pass, b, drawFirstInstance, drawInstanceCount);
+        drawFirstInstance = range.firstInstance;
+        drawInstanceCount = range.instanceCount;
       }
+      if (drawInstanceCount > 0) this.submitShadowRange(pass, b, drawFirstInstance, drawInstanceCount);
     }
     pass.end();
+  }
+
+  /** One shadow draw for a contiguous run whose every instance is assigned to this map. */
+  private submitShadowRange(pass: GPURenderPassEncoder, batch: Batch, firstInstance: number, instanceCount: number): void {
+    if (batch.geometry.indexBuffer) {
+      pass.drawIndexed(batch.indexCount, instanceCount, batch.indexStart, 0, firstInstance);
+    } else {
+      pass.draw(batch.indexCount, instanceCount, 0, firstInstance);
+    }
+    this.stats.shadowsDrawn++;
+    this.stats.shadowInstancesDrawn += instanceCount;
   }
 
   /**

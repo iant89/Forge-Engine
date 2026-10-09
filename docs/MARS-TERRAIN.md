@@ -49,7 +49,7 @@ cache/global/face_<n>/            ~5 MB per face, 6 faces
   erodedElevation.f32             post-simulation surface
   erosionDelta.f32                eroded - base  <- the correction the stage adds
   hardness.f32, flowAccum.f32     Stage A diagnostics (not used for rendering)
-  material.u8                     nearest material index (drives the splat weights)
+  material.u8                     nearest material index (selects the dominant splat substrate)
 ```
 
 `MarsGlobalFieldSet` samples that cache (`sample(direction)` returns `erosionDelta`, `hardness`,
@@ -91,11 +91,14 @@ be described, hashed into the cache key, and sent to workers.
 * **heights** — `marsSampleAnalytic(direction).elevation + bilinear(erosionDelta) + fineDetail`, then
   optional curvature compensation (below).
 * **slopes** — central differences on the height grid.
-* **biomes** — 4 channels per vertex, i.e. splat weights: `0 dust, 1 rock, 2 sand, 3 crust`. Weights
-  come directly from the absolute-position material index assigned by geology (regolith/basalt → dust,
-  bedrock/flank → rock, dunes/channel floor → sand, crater/ice/sediment → crust). They intentionally
-  do not consume mesh-resolution-derived slopes, so coincident vertices keep identical masks across
-  LODs. `marsSurfaceLayers()` returns matching layers in that channel order.
+* **biomes** — 4 channels per vertex, i.e. splat weights: `0 dust, 1 rock, 2 sand, 3 crust`. The
+  absolute-position geology material selects the dominant substrate (regolith/basalt → dust,
+  bedrock/flank → rock, dunes/channel floor → sand, crater/ice/sediment → crust); a seeded,
+  three-octave planet-space FBM then divides a 16–46% veneer between two related channels at roughly
+  40–170 m wavelengths. This is a renderer-side weathering/deposit approximation, not a change to
+  the geology classifier or height. The field deliberately avoids mesh-resolution-derived slopes, so
+  coincident vertices keep identical masks across LODs. `marsSurfaceLayers()` returns matching layers
+  in that channel order.
 * **scatters** — deliberately empty. The generator has no scatter pass; the engine's scatterers are
   separate stages.
 
@@ -254,15 +257,16 @@ repeats it and states **analytic only (no erosion cache)**.
 
 Two things this inspector makes visible, both worth knowing before reading a screenshot:
 
-* **The port's material regions are coarse relative to one 128 m tile.** Its geology assigns a
-  material per terrain region (crater floors and rims, the volcano's flank, the canyon's walls), so a
-  tile's weights sit almost entirely on one channel: the volcano summit and the canyon floor bake a
-  single channel for kilometres. A scan of 54 sites on a 15° × 60° grid, then a per-tile readback,
-  found the one place the *demo* shows a real blend — the 0°N 0°E crater field, where the rim splits a
-  tile roughly 45/55 rock/crust. That is why `?marssite=0,0` is the discriminating site, why the
-  browser check requires a non-dominant channel to carry ≥ 25 % of at least one resident tile's mask
-  mass, and why the unit suite also pins that the volcano summit stays flat (see
-  `docs/KNOWN-ISSUES.md`).
+* **Subregional material variation is a stylized veneer, not recovered upstream geology.** The
+  classifier still chooses a dominant material per terrain region, but `MarsTerrainStage` now layers
+  two related channels over that substrate with a seeded, three-octave planet-space field (about
+  40–170 m wavelengths). The dominant substrate remains 54–84% of the raw stage mask; the exact
+  coincident-vertex equality test also checks that veneer coverage actually varies across a 640 m
+  patch and exercises all four channels. Heights, geology material IDs and Stage A erosion data are
+  unchanged. The added dust/rock/sediment balance is a procedural rendering approximation, not an
+  upstream material map or a transport simulation. The `?marssite=0,0` inspector still targets the
+  real crater-rim class boundary, while the volcano test now requires local sediment/rock variation
+  rather than a flat summit (see `docs/KNOWN-ISSUES.md`).
 * **`Heightmap.getNormal` clamps at tile edges.** It central-differences ±0.25 cells, which at
   `x == 0` or `x == size` samples outside the grid and returns a clamped neighbour, so edge normals can
   sit up to a few degrees off the analytic surface normal. The vertex normals the meshes are built from

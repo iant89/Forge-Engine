@@ -41,7 +41,19 @@ import {
   marsFineDetail,
   marsSampleAnalytic,
 } from "./geology.js";
+import { marsFbm3, type MarsFbm3Options } from "./noise3.js";
 import { MarsGlobalFieldSet, type MarsGlobalSample } from "./globalFields.js";
+
+// A 3-octave, planet-space material field spans roughly 42–167 m per octave. It adds local
+// weathering/veneer within the much larger geology regions without reading mesh-derived slopes.
+const MARS_MATERIAL_PATCH_FREQUENCY = 0.006;
+const MARS_MATERIAL_PATCH_SEED_OFFSET = 811;
+const MARS_MATERIAL_PATCH_OCTAVES = 3;
+const MARS_MATERIAL_VENEER_BASE = 0.32;
+const MARS_MATERIAL_VENEER_SCALE = 0.55;
+const MARS_MATERIAL_VENEER_SPLIT_SCALE = 2;
+const MARS_MATERIAL_VENEER_MIN = 0.16;
+const MARS_MATERIAL_VENEER_MAX = 0.46;
 
 /**
  * A local tangent frame on the Mars sphere, anchored at a latitude/longitude.
@@ -279,12 +291,20 @@ export class MarsTerrainStage implements TerrainStage {
     material: MarsMaterial.Regolith,
     flowAccum: 0,
   };
+  private readonly materialPatchNoise: MarsFbm3Options;
 
   constructor(options: MarsTerrainStageOptions = {}) {
     if (options.params && options.paramsOverrides) {
       throw new UsageError("MarsTerrainStage: pass either `params` or `paramsOverrides`, not both");
     }
     this.params = options.params ?? createMarsGenParams(options.paramsOverrides ?? {});
+    this.materialPatchNoise = {
+      octaves: MARS_MATERIAL_PATCH_OCTAVES,
+      lacunarity: 2,
+      gain: 0.5,
+      frequency: MARS_MATERIAL_PATCH_FREQUENCY,
+      seed: this.params.seed + MARS_MATERIAL_PATCH_SEED_OFFSET,
+    };
     const site = options.site ?? MARS_SITE_PRESETS.olympusMons!;
     this.site = new MarsSite({ radiusM: this.params.radius, ...site });
     this.globalFields = options.globalFields ?? null;
@@ -348,7 +368,6 @@ export class MarsTerrainStage implements TerrainStage {
     const originZ = cell.cz * size;
     const fields = this.globalFields;
     const dir = { x: 0, y: 0, z: 0 };
-    const materialIds = new Uint8Array(res * res);
     // One scan per chunk: its vertices share a handful of crater cells, so the cell hashes are done
     // once instead of per vertex (see `MarsCraterScanner`). A scan is not reused across chunks, so
     // the memo stays bounded by the chunk's own footprint.
@@ -369,12 +388,18 @@ export class MarsTerrainStage implements TerrainStage {
 
         const elevation = analytic.elevation + global.erosionDelta + detail;
         cell.heights[idx] = this.site.planeHeight(elevation, wx, wz, this.curvatureCompensation);
-        materialIds[idx] = analytic.material;
+        this.writeMaterialWeights(
+          cell,
+          idx,
+          analytic.material,
+          dir.x * this.params.radius,
+          dir.y * this.params.radius,
+          dir.z * this.params.radius,
+        );
       }
     }
 
     this.writeSlopes(cell);
-    this.writeSplats(cell, materialIds);
   }
 
   /** Central-difference slope in radians and contact-normal grid, matching the engine's own stages. */
@@ -396,59 +421,95 @@ export class MarsTerrainStage implements TerrainStage {
   }
 
   /**
-   * Four splat weights per vertex, in the channel order `marsSurfaceLayers()` describes:
+   * Write the four splat channels for one vertex, in the `marsSurfaceLayers()` order:
    * 0 = dust, 1 = rock, 2 = sand, 3 = crust.
    *
-   * The generator's absolute-position material id drives the weights directly. Deliberately avoid
-   * mesh-resolution-derived slope here: the same world point must keep the same material as terrain
-   * LOD changes. The engine's `BiomeGenerator` uses this same 4-channel layout, so the terrain
-   * material stack and layer presets work unchanged.
+   * The geology material remains the dominant substrate. A seeded planet-space FBM adds a
+   * resolution-independent weathering/deposit veneer at roughly 40–170 m scales, so large regions
+   * gain local material variation without changing their geological identity. Use planet-space
+   * coordinates rather than `cell.slopes`: coincident vertices then retain identical weights across
+   * LODs, just like the analytic relief.
    */
-  private writeSplats(cell: WorldCell, materialIds: Uint8Array): void {
-    const res = cell.resolution;
-    for (let j = 0; j < res; j++) {
-      for (let i = 0; i < res; i++) {
-        const idx = j * res + i;
-        const material = materialIds[idx]! as MarsMaterial;
-        let dust = 0;
-        let rock = 0;
-        let sand = 0;
-        let crust = 0;
-
-        switch (material) {
-          case MarsMaterial.Regolith:
-          case MarsMaterial.BasaltLowland:
-            dust = 1;
-            break;
-          case MarsMaterial.ExposedBedrock:
-          case MarsMaterial.VolcanicFlank:
-            rock = 1;
-            break;
-          case MarsMaterial.DuneField:
-          case MarsMaterial.ChannelFloor:
-            sand = 1;
-            break;
-          case MarsMaterial.CraterFloor:
-          case MarsMaterial.CraterEjecta:
-          case MarsMaterial.LayeredSediment:
-          case MarsMaterial.PolarIce:
-            crust = 1;
-            break;
-          default:
-            dust = 1;
-            break;
-        }
-
-
-        const sum = dust + rock + sand + crust;
-        const inv = sum > 0 ? 1 / sum : 1;
-        const bIdx = idx * 4;
-        cell.biomes[bIdx] = dust * inv;
-        cell.biomes[bIdx + 1] = rock * inv;
-        cell.biomes[bIdx + 2] = sand * inv;
-        cell.biomes[bIdx + 3] = crust * inv;
-      }
+  private writeMaterialWeights(
+    cell: WorldCell,
+    vertex: number,
+    material: MarsMaterial,
+    px: number,
+    py: number,
+    pz: number,
+  ): void {
+    let substrate: number;
+    let veneerA: number;
+    let veneerB: number;
+    switch (material) {
+      case MarsMaterial.Regolith:
+        substrate = 0; // dust
+        veneerA = 1; // exposed pebbles
+        veneerB = 2; // wind-worked sand
+        break;
+      case MarsMaterial.BasaltLowland:
+        substrate = 0;
+        veneerA = 1; // exposed basalt
+        veneerB = 3; // weathered crust
+        break;
+      case MarsMaterial.ExposedBedrock:
+      case MarsMaterial.VolcanicFlank:
+        substrate = 1; // rock
+        veneerA = 0; // windblown dust
+        veneerB = 2; // loose mineral grains
+        break;
+      case MarsMaterial.DuneField:
+        substrate = 2; // sand
+        veneerA = 0; // dust
+        veneerB = 1; // exposed rock
+        break;
+      case MarsMaterial.ChannelFloor:
+        substrate = 2;
+        veneerA = 1;
+        veneerB = 3; // lithified sediment
+        break;
+      case MarsMaterial.CraterFloor:
+        substrate = 3; // crust
+        veneerA = 0; // windblown dust
+        veneerB = 2; // wind-worked sand
+        break;
+      case MarsMaterial.CraterEjecta:
+        substrate = 3;
+        veneerA = 1;
+        veneerB = 0;
+        break;
+      case MarsMaterial.LayeredSediment:
+        substrate = 3;
+        veneerA = 2;
+        veneerB = 0;
+        break;
+      case MarsMaterial.PolarIce:
+        substrate = 3;
+        veneerA = 0;
+        veneerB = 1;
+        break;
+      default:
+        substrate = 0;
+        veneerA = 1;
+        veneerB = 2;
+        break;
     }
+
+    const patch = marsFbm3(px, py, pz, this.materialPatchNoise);
+    const veneerShare = clamp(
+      MARS_MATERIAL_VENEER_BASE + patch * MARS_MATERIAL_VENEER_SCALE,
+      MARS_MATERIAL_VENEER_MIN,
+      MARS_MATERIAL_VENEER_MAX,
+    );
+    const veneerSplit = clamp(0.5 + patch * MARS_MATERIAL_VENEER_SPLIT_SCALE, 0.2, 0.8);
+    const offset = vertex * 4;
+    cell.biomes[offset] = 0;
+    cell.biomes[offset + 1] = 0;
+    cell.biomes[offset + 2] = 0;
+    cell.biomes[offset + 3] = 0;
+    cell.biomes[offset + substrate] = 1 - veneerShare;
+    cell.biomes[offset + veneerA] = veneerShare * veneerSplit;
+    cell.biomes[offset + veneerB] = veneerShare * (1 - veneerSplit);
   }
 
   /** Sample the assembled surface (analytic + correction + detail) at one world position. */

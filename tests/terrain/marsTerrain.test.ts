@@ -419,19 +419,31 @@ group("Mars terrain - MarsTerrainStage", () => {
     assert.ok(worst < 1e-9);
   });
 
-  test("keeps material weights identical at coincident vertices across terrain LODs", () => {
+  test("keeps varied material veneers identical at coincident vertices across terrain LODs", () => {
     const pipeline = createMarsPipeline({ site: { latDeg: 0, lonDeg: 0 } });
     const coarse = new TerrainTile({ cx: 0, cz: 0, size: 640, resolution: 17 }, pipeline, MARS_GEN_PARAMS.seed);
     const fine = new TerrainTile({ cx: 0, cz: 0, size: 640, resolution: 33 }, pipeline, MARS_GEN_PARAMS.seed);
+    let minSecondShare = 1;
+    let maxSecondShare = 0;
+    const activeChannels = new Set<number>();
     for (let j = 0; j < 17; j++) {
       for (let i = 0; i < 17; i++) {
         const coarseOffset = (j * 17 + i) * 4;
         const fineOffset = ((j * 2) * 33 + i * 2) * 4;
+        const weights: number[] = [];
         for (let channel = 0; channel < 4; channel++) {
-          assert.equal(coarse.cell.biomes[coarseOffset + channel], fine.cell.biomes[fineOffset + channel]);
+          const weight = coarse.cell.biomes[coarseOffset + channel]!;
+          assert.equal(weight, fine.cell.biomes[fineOffset + channel]);
+          weights.push(weight);
+          if (weight > 0.02) activeChannels.add(channel);
         }
+        weights.sort((a, b) => b - a);
+        minSecondShare = Math.min(minSecondShare, weights[1]!);
+        maxSecondShare = Math.max(maxSecondShare, weights[1]!);
       }
     }
+    assert.equal(activeChannels.size, 4, "the crater patch should exercise all four Mars splat layers");
+    assert.ok(maxSecondShare - minSecondShare > 0.15, "the local veneer coverage should vary within the broad geology region");
   });
 
   test("applies the Stage A erosion correction when fields are supplied", () => {

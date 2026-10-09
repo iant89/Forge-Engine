@@ -472,9 +472,10 @@ CURRENT PROBLEMS (addressed in this phase):
             a free orbit camera and the site from the URL (`MARS_SITE_PRESETS` keys or any `lat,lon`
             pair), reporting site, band, skirts, generation/material mode and splat tiles through
             `window.__forge.marsGeneratorState()`. Pinned by tests/examples/marsGeneratorScene.test.ts and the
-            check:browser arm of the same name (volcano preset: workers + layered, zero GPU errors;
-            `?marssite=0,0` crater field: a resident tile genuinely blends two channels, its
-            non-dominant one over 25 % of the mask mass — the volcano stays flat). docs/MARS-TERRAIN.md §5.
+            check:browser arm of the same name (volcano preset: workers + layered, zero GPU errors and
+            sub-tile mask variation; `?marssite=0,0` crater field: rim tile (-1,2) retains rock + crust
+            and a >25 % runner-up share). Coincident LOD vertices keep exact mask equality.
+            docs/MARS-TERRAIN.md §5.
         [x] Analytic Mars cells run on workers from a complete serialized configuration (including
             custom planet settings, site radius/heading, detail and curvature flags), byte-identical
             to the original live pipeline. The showcase opts into the scheduler with nine warm-up
@@ -483,18 +484,21 @@ CURRENT PROBLEMS (addressed in this phase):
             stranding its worker slot.
         [!] The repo hosts no Stage A erosion cache; fidelity against the real generator cache
             remains unverified. Live field-cache pipelines are still inline-only; mesh building,
-            uploads and cache-miss ground queries remain on main. The 4-channel weights now render,
-            but coarse-LOD slope/biome sampling can still change the material mix.
+            uploads and cache-miss ground queries remain on main. A seeded 40–170 m planet-space
+            veneer now breaks up the coarse regional materials while preserving exact raw-mask
+            equality at coincident LOD vertices; it is a rendering approximation, not an upstream
+            material map or sediment-transport simulation.
 
-            (2026-10-06 triage of this [!]: the first sentence is a blocker, not work — the
-            fidelity check needs the upstream generator's ~30 MB `cache/global/` fields, which
-            this repository deliberately does not ship; `check:mars-port` stays a synthetic-cache
-            smoke test until a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
+            (2026-10-09 update: the coarse-LOD material-mask mismatch is closed by pointwise
+            planet-space geology + splat sampling in `MarsTerrainStage`; 14.1's separate
+            "Load-order-independent surface sampling" remains open for population placement, not
+            Mars terrain. The first sentence above is still a blocker, not work — the fidelity check
+            needs the upstream generator's ~30 MB `cache/global/` fields, which this repository
+            deliberately does not ship; `check:mars-port` stays a synthetic-cache smoke test until
+            a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
             capability: terrain.marsGeneratorPort). The inline-only mesh/upload/ground-query
             residual is the accepted shape recorded under 10.2 and KNOWN-ISSUES §Terrain, not
-            unmet 10.9 scope. The coarse-LOD material-mix item closes with the 14.1 follow-up
-            "Load-order-independent surface sampling" — the same resolution-independent surface
-            is the fix in both phases — and is worked there, not twice here.)
+            unmet 10.9 scope.)
 
             NEEDS HUMAN RUN (fidelity half): download the upstream `mars-terrain-gen`
             `cache/global/` Stage A fields for seed 1337, place them where

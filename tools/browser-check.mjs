@@ -98,17 +98,23 @@
  *
  * Phase 10.9 addition: the ported Mars generator is also addressable as a *site inspector*
  * (`?scene=mars-generator`, site from `?marssite=<preset|lat,lon>`). Two arms: the volcano preset must
- * stream the port on workers with the four-layer `SplatMaterial` path and no GPU errors, and a real
- * `?scene=mars-generator&marssite=0,0` navigation (what a URL does — not `loadScene`) must leave a
- * resident tile whose mask blends two channels, read back through `layeredMaterial.weightPixels`.
- * The port's material rules are regional, so the volcano and canyon presets bake one channel for
- * kilometres: a distinct-dominant-channel count over the streamed patch would be true on the crater
- * field and false elsewhere, which is a property of the geology, not of the splat path. The arm runs
- * *before* the showcase section on purpose — the showcase's W-drive threshold is frame-rate bound on
- * SwiftShader and has aborted this gate on main, and an arm placed after it would be coverage on paper.
- * `--mars-workers` runs only native-worker round trips, showcase uploads/contact and a visual
- * capture. The full suite also observes those worker messages in its Mars arm. The focused mode
- * has its own command/output and never claims the renderer A/Bs, W-drive, HGA or arm checks ran.
+ * stream the port on workers with the four-layer `SplatMaterial` path, a locally varying within-tile
+ * mask, and no GPU errors; a real `?scene=mars-generator&marssite=0,0` navigation (what a URL does —
+ * not `loadScene`) must leave a resident tile whose mask blends channels at the real crater-rim boundary.
+ * The geology labels remain regional, but a planet-space veneer now varies the four-layer mix inside
+ * each region. The arm runs *before* the showcase section on purpose — the showcase's W-drive threshold
+ * is frame-rate bound on SwiftShader and has aborted this gate on main, and an arm placed after it
+ * would be coverage on paper. `--mars-generator` isolates the two Phase 10.9 inspector URLs and checks
+ * the raw within-tile field plus the real uploaded crater-rim mask; `--mars-workers` runs only native-
+ * worker round trips, showcase uploads/contact and a visual capture. The full suite also observes those
+ * worker messages in its Mars arm. Focused modes have distinct commands/output and never claim the
+ * full renderer or rover arms ran.
+ *
+ * The full browser gate is composed from six ordered sections: `renderer`, `terrain`,
+ * `vehicle-particles`, `animation`, `environment`, and `mars`. `--section=<name>` runs one section
+ * in a fresh browser; the default command invokes those same functions in order, so splitting the
+ * checks does not create a second, drifting implementation. A focused-section pass says nothing
+ * about the sections it skipped.
  *
  * Browser discovery, in order: PLAYWRIGHT_CHROMIUM env, a @sparticuz/chromium binary already extracted
  * in the temp dir (what this sandbox uses, since the Playwright CDN is blocked here), then the normal
@@ -139,15 +145,50 @@ import { installMarsWorkerProbe, verifyMarsWorkers } from "./browser-mars-worker
 // Explicitly scoped fast path: worker round trips + actual showcase uploads/rendering, NOT the
 // all-scene renderer/drive/HGA/arm gate. Its distinct command/output cannot masquerade as a full pass.
 const MARS_WORKERS_ONLY = process.argv.includes("--mars-workers");
+const MARS_GENERATOR_ONLY = process.argv.includes("--mars-generator");
 const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
 const SKINNING_ONLY = process.argv.includes("--skinning");
 const RESCUE_ONLY = process.argv.includes("--rescue");
 const MECHANICAL_ONLY = process.argv.includes("--mechanical");
-const CHECK_NAME = TERRAIN_LAYERS_ONLY ? "check:browser:terrain-layers" : MARS_WORKERS_ONLY ? "check:browser:mars-workers" : MARS_INTERACTIVE_ONLY ? "check:browser:mars-interactive" : SKINNING_ONLY ? "check:browser:skinning" : RESCUE_ONLY ? "check:browser:rescue" : MECHANICAL_ONLY ? "check:browser:mechanical" : "check:browser";
+const BROWSER_SECTION_NAMES = ["renderer", "terrain", "vehicle-particles", "animation", "environment", "mars"];
+const SECTION_ONLY = (() => {
+  const inline = process.argv.find((arg) => arg.startsWith("--section="));
+  if (inline) return inline.slice("--section=".length);
+  const index = process.argv.indexOf("--section");
+  return index >= 0 ? process.argv[index + 1] ?? "" : null;
+})();
+const workerSmokeOnly = process.argv.includes("--workers-only");
+const otherFocusedMode =
+  MARS_WORKERS_ONLY || MARS_GENERATOR_ONLY || MARS_INTERACTIVE_ONLY || TERRAIN_LAYERS_ONLY ||
+  SKINNING_ONLY || RESCUE_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
+if (SECTION_ONLY !== null && !BROWSER_SECTION_NAMES.includes(SECTION_ONLY)) {
+  console.error(`check:browser NOT RUN — unknown section "${SECTION_ONLY}" (choose ${BROWSER_SECTION_NAMES.join(", ")})`);
+  process.exit(2);
+}
+if (SECTION_ONLY !== null && otherFocusedMode) {
+  console.error("check:browser NOT RUN — --section cannot be combined with a focused browser-check flag");
+  process.exit(2);
+}
+const CHECK_NAME = SECTION_ONLY !== null
+  ? `check:browser:${SECTION_ONLY}`
+  : TERRAIN_LAYERS_ONLY
+    ? "check:browser:terrain-layers"
+    : MARS_WORKERS_ONLY
+      ? "check:browser:mars-workers"
+      : MARS_GENERATOR_ONLY
+        ? "check:browser:mars-generator"
+        : MARS_INTERACTIVE_ONLY
+          ? "check:browser:mars-interactive"
+          : SKINNING_ONLY
+            ? "check:browser:skinning"
+            : RESCUE_ONLY
+              ? "check:browser:rescue"
+              : MECHANICAL_ONLY
+                ? "check:browser:mechanical"
+                : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
-const workerSmokeOnly = process.argv.includes("--workers-only");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function httpOk(url, timeoutMs = 1500) {
@@ -246,8 +287,11 @@ try {
 }
 
 const problems = [];
+const compactViewport =
+  RESCUE_ONLY || MARS_WORKERS_ONLY || TERRAIN_LAYERS_ONLY ||
+  (SECTION_ONLY !== null && SECTION_ONLY !== "renderer");
 const context = await browser.newContext({
-  viewport: RESCUE_ONLY ? { width: 800, height: 600 } : MARS_WORKERS_ONLY || TERRAIN_LAYERS_ONLY ? { width: 900, height: 520 } : { width: 1280, height: 720 },
+  viewport: RESCUE_ONLY ? { width: 800, height: 600 } : compactViewport ? { width: 900, height: 520 } : { width: 1280, height: 720 },
   deviceScaleFactor: 1,
 });
 const page = await context.newPage();
@@ -719,7 +763,166 @@ async function checkMarsInteractiveOnly() {
     `gpuErrors=${driven.stats.gpuErrors}`);
 }
 
-async function checkAllScenes(backend) {
+async function checkMarsGeneratorInspector() {
+  // ---------------------------------------------------------- Phase 10.9: ported-generator inspector
+  // The showcase below drives the port at *one* surveyed site; `?scene=mars-generator` is the other
+  // half of the port's demo coverage — the site comes from the URL, the camera is free, and there is
+  // no rover. Two things need the real adapter rather than the mock: the four-slice PBR arrays must
+  // upload and bind through SplatMaterial, and a site the port's geology actually mixes at (0°N 0°E,
+  // the crater field) must come back with one tile whose mask is a genuine two-channel blend.
+  // It runs before the showcase because the showcase section's W-drive check is frame-rate bound on
+  // SwiftShader and has aborted this gate repeatedly; an arm after it would be coverage on paper only.
+  const waitForGeneratorTiles = async (min, where) => {
+    try {
+      await page.waitForFunction(
+        (n) => {
+          const world = (window.__forge?.scene?.objects ?? []).find((o) => o && o.name === "TerrainWorld");
+          if (!world) return false;
+          const baked = [...world.chunks.values()].filter((c) => c.tile?.gpuMaterial).length;
+          return baked >= n;
+        },
+        min,
+        { polling: 250, timeout: 120000 },
+      );
+    } catch (error) {
+      throw new Error(`the generator inspector streamed no ${min} splat tiles (${where}): ${String(error.message).split("\n")[0]}`);
+    }
+    await settle(2);
+  };
+  /**
+   * Read resident masks from the CPU twins. In addition to tile-wide layer shares, measure the
+   * range of the raw stage mask's runner-up channel across vertices in each individual tile. This
+   * proves sub-tile variation rather than a mixture created only by streaming across region edges.
+   */
+  const generatorMaskStats = () =>
+    page.evaluate(() => {
+      const world = (window.__forge.scene.objects ?? []).find((o) => o && o.name === "TerrainWorld");
+      const layered = world?.layeredMaterial;
+      if (!layered) return null;
+      const counts = [0, 0, 0, 0];
+      let tiles = 0;
+      let bestSecond = 0;
+      let bestShares = null;
+      let rimShares = null;
+      let bestLocalRange = 0;
+      for (const chunk of world.chunks.values()) {
+        const cell = chunk.tile?.cell;
+        if (!cell) continue;
+        const pixels = layered.weightPixels(cell);
+        const sums = [0, 0, 0, 0];
+        for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 4; c++) sums[c] += pixels[i + c];
+        const total = sums[0] + sums[1] + sums[2] + sums[3];
+        if (total <= 0) continue;
+        const shares = sums.map((s) => s / total);
+        if (chunk.cx === -1 && chunk.cz === 2) rimShares = shares.map((s) => +s.toFixed(3));
+        const sorted = [...shares].sort((a, b) => b - a);
+        let top = 0;
+        for (let c = 1; c < 4; c++) if (shares[c] > shares[top]) top = c;
+        counts[top]++;
+        tiles++;
+        if (sorted[1] > bestSecond) {
+          bestSecond = sorted[1];
+          bestShares = shares.map((s) => +s.toFixed(3));
+        }
+
+        let minSecond = 1;
+        let maxSecond = 0;
+        for (let i = 0; i < cell.biomes.length; i += 4) {
+          let first = 0;
+          let second = 0;
+          for (let c = 0; c < 4; c++) {
+            const weight = cell.biomes[i + c];
+            if (weight > first) {
+              second = first;
+              first = weight;
+            } else if (weight > second) second = weight;
+          }
+          minSecond = Math.min(minSecond, second);
+          maxSecond = Math.max(maxSecond, second);
+        }
+        bestLocalRange = Math.max(bestLocalRange, maxSecond - minSecond);
+      }
+      return {
+        tiles,
+        counts,
+        bestSecond: +bestSecond.toFixed(3),
+        bestShares,
+        rimShares,
+        bestLocalRange: +bestLocalRange.toFixed(3),
+      };
+    });
+
+  await page.evaluate(() => window.__forge.loadScene("mars-generator"));
+  await waitForGeneratorTiles(6, "selector path");
+  const generator = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
+  if (!generator.state) throw new Error("?scene=mars-generator did not expose marsGeneratorState()");
+  if (generator.state.site !== "olympusMons") {
+    throw new Error(`the generator inspector did not open the volcano preset: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.state.generation !== "workers") {
+    throw new Error(`the ported generator is not running on workers in the demo: ${generator.state.generation}`);
+  }
+  if (generator.state.materialMode !== "layered" || generator.state.layers.join(",") !== "dust,rock,sand,crust") {
+    throw new Error(`the inspector's four-layer path is not resident: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.state.hasErosionCorrection !== false) {
+    throw new Error("the inspector claims an erosion cache this repo does not ship");
+  }
+  if (generator.state.chunkSize !== 128 || generator.state.skirtDepth !== 32 || generator.state.splatTiles < 6) {
+    throw new Error(`the advised size/skirts did not reach the world: ${JSON.stringify(generator.state)}`);
+  }
+  if (generator.stats.gpuErrors !== 0 || generator.stats.lastError) {
+    throw new Error(`GPU errors in the generator inspector (${generator.stats.gpuErrors}): ${generator.stats.lastError}`);
+  }
+  console.log(
+    `mars generator: ${generator.state.site} — ${generator.state.readyChunks} chunks, ${generator.state.splatTiles} splat tiles, ` +
+      `${generator.state.generation}, ${generator.state.materialMode}`,
+  );
+  const volcanoMask = await generatorMaskStats();
+  if (!volcanoMask || volcanoMask.tiles < 6 || volcanoMask.bestLocalRange < 0.08) {
+    throw new Error(`the volcano has no meaningful sub-tile mask variation: ${JSON.stringify(volcanoMask)}`);
+  }
+  console.log(`mars generator (volcano): ${volcanoMask.tiles} tiles, max within-tile runner-up range ${volcanoMask.bestLocalRange}`);
+  await page.screenshot({ path: "tools/.browser-check-mars-generator-volcano.png", timeout: 60000 });
+
+  // The deep link is a real navigation (what a URL does), and its initial camera frames a known
+  // crater-rim tile. The within-tile requirement is already checked above at the volcano; here the
+  // >=25% tile-wide runner-up share checks that the actual crater boundary and the procedural
+  // veneers both reach the uploaded mask, rather than a flat placeholder.
+  await page.goto(`${URL}?scene=mars-generator&marssite=0,0`, { waitUntil: "load", timeout: 60000 });
+  await page.waitForFunction(() => window.__forge !== undefined, null, { timeout: 45000 });
+  await waitForGeneratorTiles(6, "crater-field deep link");
+  const crater = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
+  if (crater.state?.site !== "lat 0 lon 0") {
+    throw new Error(`?marssite=0,0 did not reach the stage: ${JSON.stringify(crater.state)}`);
+  }
+  const mask = await generatorMaskStats();
+  if (!mask || mask.tiles < 6) throw new Error(`could not read the crater field's weight masks: ${JSON.stringify(mask)}`);
+  const rimShares = mask.rimShares;
+  const rimSecond = rimShares ? [...rimShares].sort((a, b) => b - a)[1] ?? 0 : 0;
+  // Check the known tile itself, not just the best tile in the streamed patch: veneer variation
+  // must not stand in for the real rock/crust class boundary crossing (-1, 2).
+  if (
+    mask.bestSecond < 0.25 || !rimShares || rimShares[1] < 0.2 || rimShares[3] < 0.15 || rimSecond < 0.25
+  ) {
+    throw new Error(
+      `the crater rim's rock/crust mask blend is too weak (${JSON.stringify(mask)}): tile (-1, 2) must ` +
+        "retain both substrates plus a substantial non-dominant share",
+    );
+  }
+  if (crater.stats.gpuErrors !== 0 || crater.stats.lastError) {
+    throw new Error(`GPU errors at the crater field (${crater.stats.gpuErrors}): ${crater.stats.lastError}`);
+  }
+  console.log(
+    `mars generator (crater field): ${mask.tiles} tiles, dominant dust/rock/sand/crust = ${mask.counts.join("/")}, ` +
+      `rim (-1,2) ${JSON.stringify(rimShares)}, best-mixed tile ${JSON.stringify(mask.bestShares)} ` +
+      `(second channel ${mask.bestSecond})`,
+  );
+  await page.screenshot({ path: "tools/.browser-check-mars-generator.png", timeout: 60000 });
+
+}
+
+async function checkRendererSection(backend) {
   await checkTerrainLayerPixels();
   const landingOption = await page.evaluate(
     () => document.querySelector("#scene-select option[selected]")?.getAttribute("value") ?? null,
@@ -1424,6 +1627,9 @@ async function checkAllScenes(backend) {
   if (!(resized.frame > after.frame)) throw new Error(`loop stalled after resize (frame ${resized.frame})`);
   console.log(`after resize: frame ${resized.frame}`);
 
+}
+
+async function checkTerrainSection() {
   // ---------------------------------------------------------------- terrain scene, real camera input
   // The orbit controller is the only way a user reaches the terrain, so drive it: the wheel must
   // change the distance in the direction it was scrolled (and must not be dead because the preset
@@ -1550,6 +1756,9 @@ async function checkAllScenes(backend) {
   if (!(gravity.gpuError < 1e-2)) throw new Error(`particle GPU gravity error ${gravity.gpuError}`);
   if (!(gravity.cpuError < 1e-4)) throw new Error(`particle CPU gravity error ${gravity.cpuError}`);
 
+}
+
+async function checkVehicleParticleSection() {
   // Phase 6/7 scenes must load, present, and (particles) actually emit. Driving input is the
   // playground's job; this only proves the worlds build and the GPU stays quiet.
   //
@@ -1708,6 +1917,9 @@ async function checkAllScenes(backend) {
     throw new Error("the check's fountain saturates its canvas — the margins are meaningless until size/alpha come down");
   }
 
+}
+
+async function checkAnimationSection() {
   // Phase 16.5: the skinned arm in the full gate too — the focused `--skinning` mode is a fast path,
   // not the only evidence. Same assertions, on the demo's own route through `loadScene`.
   await page.evaluate(() => window.__forge.loadScene("skinning"));
@@ -1721,6 +1933,9 @@ async function checkAllScenes(backend) {
       `poses differ in ${skinning.differing}/${skinning.pixels} px (max ${skinning.maxDiff})`,
   );
 
+}
+
+async function checkEnvironmentSection() {
   // Phase 8a: the sky pass compiles and runs on the real GPU, and the day/night cycle changes what
   // it draws. Noon must be brighter than midnight (sun disc + scattered light vs stars), the pass
   // must disappear when the sky is switched off, and the Mars preset must still render cleanly.
@@ -2019,124 +2234,11 @@ async function checkAllScenes(backend) {
   if (desktopPanel.display !== "block") throw new Error(`the weather button panel is not shown at desktop width (display ${desktopPanel.display})`);
   if (desktopPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the weather button panel at desktop width");
 
-  // ---------------------------------------------------------- Phase 10.9: ported-generator inspector
-  // The showcase below drives the port at *one* surveyed site; `?scene=mars-generator` is the other
-  // half of the port's demo coverage — the site comes from the URL, the camera is free, and there is
-  // no rover. Two things need the real adapter rather than the mock: the four-slice PBR arrays must
-  // upload and bind through SplatMaterial, and a site the port's geology actually mixes at (0°N 0°E,
-  // the crater field) must come back with one tile whose mask is a genuine two-channel blend.
-  // It runs before the showcase because the showcase section's W-drive check is frame-rate bound on
-  // SwiftShader and has aborted this gate repeatedly; an arm after it would be coverage on paper only.
-  const waitForGeneratorTiles = async (min, where) => {
-    try {
-      await page.waitForFunction(
-        (n) => {
-          const world = (window.__forge?.scene?.objects ?? []).find((o) => o && o.name === "TerrainWorld");
-          if (!world) return false;
-          const baked = [...world.chunks.values()].filter((c) => c.tile?.gpuMaterial).length;
-          return baked >= n;
-        },
-        min,
-        { polling: 250, timeout: 120000 },
-      );
-    } catch (error) {
-      throw new Error(`the generator inspector streamed no ${min} splat tiles (${where}): ${String(error.message).split("\n")[0]}`);
-    }
-    await settle(2);
-  };
-  /**
-   * Read every resident tile's mask back from the CPU twin of the weights and report how it splits:
-   * the dominant-channel histogram (which tiles look alike) plus the best-mixed tile's shares. The
-   * latter is the discriminating number — a single-channel site leaves it at 0.
-   */
-  const generatorMaskStats = () =>
-    page.evaluate(() => {
-      const world = (window.__forge.scene.objects ?? []).find((o) => o && o.name === "TerrainWorld");
-      const layered = world?.layeredMaterial;
-      if (!layered) return null;
-      const counts = [0, 0, 0, 0];
-      let tiles = 0;
-      let bestSecond = 0;
-      let bestShares = null;
-      for (const chunk of world.chunks.values()) {
-        const cell = chunk.tile?.cell;
-        if (!cell) continue;
-        const pixels = layered.weightPixels(cell);
-        const sums = [0, 0, 0, 0];
-        for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 4; c++) sums[c] += pixels[i + c];
-        const total = sums[0] + sums[1] + sums[2] + sums[3];
-        if (total <= 0) continue;
-        const shares = sums.map((s) => s / total);
-        const sorted = [...shares].sort((a, b) => b - a);
-        let top = 0;
-        for (let c = 1; c < 4; c++) if (shares[c] > shares[top]) top = c;
-        counts[top]++;
-        tiles++;
-        if (sorted[1] > bestSecond) {
-          bestSecond = sorted[1];
-          bestShares = shares.map((s) => +s.toFixed(3));
-        }
-      }
-      return { tiles, counts, bestSecond: +bestSecond.toFixed(3), bestShares };
-    });
+}
 
-  await page.evaluate(() => window.__forge.loadScene("mars-generator"));
-  await waitForGeneratorTiles(6, "selector path");
-  const generator = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
-  if (!generator.state) throw new Error("?scene=mars-generator did not expose marsGeneratorState()");
-  if (generator.state.site !== "olympusMons") {
-    throw new Error(`the generator inspector did not open the volcano preset: ${JSON.stringify(generator.state)}`);
-  }
-  if (generator.state.generation !== "workers") {
-    throw new Error(`the ported generator is not running on workers in the demo: ${generator.state.generation}`);
-  }
-  if (generator.state.materialMode !== "layered" || generator.state.layers.join(",") !== "dust,rock,sand,crust") {
-    throw new Error(`the inspector's four-layer path is not resident: ${JSON.stringify(generator.state)}`);
-  }
-  if (generator.state.hasErosionCorrection !== false) {
-    throw new Error("the inspector claims an erosion cache this repo does not ship");
-  }
-  if (generator.state.chunkSize !== 128 || generator.state.skirtDepth !== 32 || generator.state.splatTiles < 6) {
-    throw new Error(`the advised size/skirts did not reach the world: ${JSON.stringify(generator.state)}`);
-  }
-  if (generator.stats.gpuErrors !== 0 || generator.stats.lastError) {
-    throw new Error(`GPU errors in the generator inspector (${generator.stats.gpuErrors}): ${generator.stats.lastError}`);
-  }
-  console.log(
-    `mars generator: ${generator.state.site} — ${generator.state.readyChunks} chunks, ${generator.state.splatTiles} splat tiles, ` +
-      `${generator.state.generation}, ${generator.state.materialMode}`,
-  );
-
-  // The deep link is a real navigation (what a URL does), and 0,0 is the site where the port's
-  // regional material rules mix channels: its crater rim splits a tile roughly 45/55 rock/crust,
-  // while the volcano and canyon presets bake one channel for kilometres (measured over resident
-  // mock tiles in tests/examples/marsGeneratorScene.test.ts). So the claim checked here is *within one tile*:
-  // a non-dominant channel must carry a real share of the mask, which a flat material cannot fake.
-  await page.goto(`${URL}?scene=mars-generator&marssite=0,0`, { waitUntil: "load", timeout: 60000 });
-  await page.waitForFunction(() => window.__forge !== undefined, null, { timeout: 45000 });
-  await waitForGeneratorTiles(6, "crater-field deep link");
-  const crater = await page.evaluate(() => ({ state: window.__forge.marsGeneratorState(), stats: window.__forge.stats() }));
-  if (crater.state?.site !== "lat 0 lon 0") {
-    throw new Error(`?marssite=0,0 did not reach the stage: ${JSON.stringify(crater.state)}`);
-  }
-  const mask = await generatorMaskStats();
-  if (!mask || mask.tiles < 6) throw new Error(`could not read the crater field's weight masks: ${JSON.stringify(mask)}`);
-  // 25 % is well below the ~45/55 split the crater rim produces and well above the 0 a flat or
-  // single-region site would leave, so this fails on a broken splat without pinning a float.
-  if (mask.bestSecond < 0.25) {
-    throw new Error(
-      `the crater field's masks are single-channel (${JSON.stringify(mask)}): no tile mixes two channels, ` +
-        "so the port's splat is not reaching the tiles",
-    );
-  }
-  if (crater.stats.gpuErrors !== 0 || crater.stats.lastError) {
-    throw new Error(`GPU errors at the crater field (${crater.stats.gpuErrors}): ${crater.stats.lastError}`);
-  }
-  console.log(
-    `mars generator (crater field): ${mask.tiles} tiles, dominant dust/rock/sand/crust = ${mask.counts.join("/")}, ` +
-      `best-mixed tile ${JSON.stringify(mask.bestShares)} (second channel ${mask.bestSecond})`,
-  );
-  await page.screenshot({ path: "tools/.browser-check-mars-generator.png", timeout: 60000 });
+async function checkMarsSection() {
+  // Phase 10.9: the same focused inspector check can run independently.
+  await checkMarsGeneratorInspector();
 
   // Mars showcase: the Perseverance GLB must load (a fetch that 404s or a bad magic number used
   // to leave the placeholder driving around), the six model wheels must be found and settle into
@@ -2372,11 +2474,37 @@ async function checkAllScenes(backend) {
   await page.screenshot({ path: "tools/.browser-check-showcase.png", timeout: 120000 });
 }
 
+const BROWSER_SECTION_RUNNERS = {
+  renderer: (backend) => checkRendererSection(backend),
+  terrain: () => checkTerrainSection(),
+  "vehicle-particles": () => checkVehicleParticleSection(),
+  animation: () => checkAnimationSection(),
+  environment: () => checkEnvironmentSection(),
+  mars: () => checkMarsSection(),
+};
+
+async function runBrowserSection(backend, section) {
+  const run = BROWSER_SECTION_RUNNERS[section];
+  if (typeof run !== "function") {
+    throw new Error(`unknown browser section "${section}" (choose ${BROWSER_SECTION_NAMES.join(", ")})`);
+  }
+  console.log(`\n[check:browser section ${section}] start`);
+  const startedAt = Date.now();
+  await run(backend);
+  console.log(`[check:browser section ${section}] complete in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+}
+
+async function checkAllScenes(backend) {
+  for (const section of BROWSER_SECTION_NAMES) await runBrowserSection(backend, section);
+}
+
+
 let exitCode = 0;
 try {
   // Most product visits use `/` and land on Mars Showcase. Start this rendering-foundation suite on
   // its lightweight PBR fixture explicitly; the showcase is exercised below after the other scenes.
-  await page.goto(`${URL}?scene=${MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : "pbr"}`, { waitUntil: "load", timeout: 60000 });
+  const initialScene = MARS_WORKERS_ONLY || MARS_INTERACTIVE_ONLY ? "mars-showcase" : MARS_GENERATOR_ONLY ? "mars-generator" : "pbr";
+  await page.goto(`${URL}?scene=${initialScene}`, { waitUntil: "load", timeout: 60000 });
   let boot;
   try {
     await page.waitForFunction(() => window.__forge !== undefined || window.__forgeError !== undefined, null, { timeout: 45000 });
@@ -2403,7 +2531,10 @@ try {
 
   const backend = await page.evaluate(() => window.__forge.backend);
   if (backend !== "webgpu") throw new Error(`expected the real WebGPU backend, got "${backend}"\n${await describeGpu()}`);
-  if (MARS_INTERACTIVE_ONLY) {
+  if (MARS_GENERATOR_ONLY) {
+    await checkMarsGeneratorInspector();
+    console.log("Focused Mars generator inspector checks only; the all-scene renderer and rover suite was not run.");
+  } else if (MARS_INTERACTIVE_ONLY) {
     await checkMarsInteractiveOnly();
     console.log("Focused Mars interactive checks only; the all-scene renderer, HGA and arm suite was not run.");
   } else if (TERRAIN_LAYERS_ONLY) {
@@ -2448,6 +2579,9 @@ try {
     const final = await page.evaluate(() => window.__forge.stats());
     if (final.gpuErrors || final.lastError) throw new Error(`Mars worker rendering error: ${final.lastError}`);
     console.log("Focused worker/upload checks only; renderer A/Bs, W-drive, HGA and arm checks were not run.");
+  } else if (SECTION_ONLY !== null) {
+    await runBrowserSection(backend, SECTION_ONLY);
+    console.log(`Focused ${SECTION_ONLY} section only; the other full-gate sections were not run.`);
   } else {
     await checkAllScenes(backend);
   }
@@ -2467,4 +2601,3 @@ if (exitCode === 0 && fatal.length > 0) {
 await browser.close();
 vite.kill("SIGKILL");
 process.exit(exitCode);
-Code);
