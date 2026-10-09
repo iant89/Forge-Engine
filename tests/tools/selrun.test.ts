@@ -196,7 +196,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
     assert.equal(catalog.stats.suitesLinked, 71);
     assert.equal(catalog.stats.suitesNamed, 71);
     assert.equal(catalog.stats.suitesWithCoverage, 71);
-    assert.equal(catalog.stats.coverageClaims, 632);
+    assert.equal(catalog.stats.coverageClaims, 635);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
@@ -254,7 +254,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("checks the package CLI and keeps selrun installed as the local npm workspace", () => {
     const cli = path.join(repoRoot, "packages/selrun/src/cli.mjs");
     const output = execFileSync(process.execPath, [cli, "check"], { cwd: repoRoot, encoding: "utf8" });
-    assert.match(output, /check OK — 71 linked suites, 632 explicit coverage claims/);
+    assert.match(output, /check OK — 71 linked suites, 635 explicit coverage claims/);
 
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));

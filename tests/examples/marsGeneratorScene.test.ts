@@ -131,9 +131,9 @@ async function fixture(site?: string) {
 }
 
 /** Per-tile channel shares of the CPU mask the tiles were built from. */
-function channelShares(terrain: TerrainWorld): number[][] {
+function tileChannelShares(terrain: TerrainWorld): Array<{ cx: number; cz: number; shares: number[] }> {
   const layered = terrain.layeredMaterial!;
-  const out: number[][] = [];
+  const out: Array<{ cx: number; cz: number; shares: number[] }> = [];
   for (const chunk of terrain.chunks.values()) {
     const cell = chunk.tile?.cell;
     if (!cell) continue;
@@ -141,7 +141,7 @@ function channelShares(terrain: TerrainWorld): number[][] {
     const sums = [0, 0, 0, 0];
     for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 4; c++) sums[c] += pixels[i + c];
     const total = sums[0] + sums[1] + sums[2] + sums[3];
-    if (total > 0) out.push(sums.map((s) => s / total));
+    if (total > 0) out.push({ cx: chunk.cx, cz: chunk.cz, shares: sums.map((s) => s / total) });
   }
   return out;
 }
@@ -149,6 +149,12 @@ function channelShares(terrain: TerrainWorld): number[][] {
 /** The largest non-dominant share in a patch — 0 when every tile is one channel. */
 const bestSecondShare = (shares: number[][]): number =>
   shares.length === 0 ? 0 : Math.max(...shares.map((s) => [...s].sort((a, b) => b - a)[1]!));
+
+function meanChannelShares(shares: number[][]): number[] {
+  return shares.length === 0
+    ? [0, 0, 0, 0]
+    : [0, 1, 2, 3].map((channel) => shares.reduce((sum, tile) => sum + tile[channel]!, 0) / shares.length);
+}
 
 group("Mars generator inspector (Phase 10.9)", () => {
   test("is addressable as ?scene=mars-generator, with the port's aliases", () => {
@@ -282,23 +288,28 @@ group("Mars generator inspector (Phase 10.9)", () => {
     assertCloseTo(handle.scene.settings.sky.seaLevel, terrain.getHeightAt(target.x, target.z), 3);
   });
 
-  test("mixes two channels inside one tile at the crater field, and stays flat on the volcano", async () => {
-    // The port assigns a material per terrain *region*, so most sites bake one channel for
-    // kilometres — the volcano summit included. The crater field at 0,0 is the site where a single
-    // 128 m tile straddles the rim, and its mask is the only place the demo shows a real blend.
+  test("adds local material veneers at the crater field and volcano summit", async () => {
+    // The geology label remains regional, but the renderer now adds a seeded, planet-space veneer.
+    // The 0,0 inspector still frames tile (-1, 2), whose 128 m footprint crosses the rock/crust rim.
     const crater = await fixture("0,0");
     crater.tick(10);
-    const mixed = channelShares(crater.terrain);
+    const craterTiles = tileChannelShares(crater.terrain);
+    const mixed = craterTiles.map((tile) => tile.shares);
     assert.ok(mixed.length >= 6);
-    // Measured over the streamed patch: the best tile splits ~45/55 rock/crust, so 0.25 is a floor
-    // a broken or placeholder mask cannot clear without being a genuine two-channel blend.
-    assert.ok(bestSecondShare(mixed) > 0.25);
+    // Pin the known rim tile itself, so local veneers cannot stand in for the real rock/crust class boundary.
+    const rim = craterTiles.find((tile) => tile.cx === -1 && tile.cz === 2);
+    assert.ok(rim, "the inspector should keep the known rim tile resident");
+    assert.ok(rim.shares[1]! > 0.2 && rim.shares[3]! > 0.15, `the rim must retain rock and crust: ${rim.shares}`);
+    assert.ok(bestSecondShare([rim.shares]) > 0.25);
+    assert.ok(meanChannelShares(mixed).every((share) => share > 0.03));
 
     const volcano = await fixture();
     volcano.tick(10);
-    const summit = channelShares(volcano.terrain);
+    const summitTiles = tileChannelShares(volcano.terrain);
+    const summit = summitTiles.map((tile) => tile.shares);
     assert.ok(summit.length >= 6);
-    assert.ok(bestSecondShare(summit) < 0.05);
+    assert.ok(bestSecondShare(summit) > 0.1, "the summit should no longer be a one-channel material patch");
+    assert.ok(meanChannelShares(summit)[2]! > 0.08, "fine sediment should appear over the volcanic substrate");
   });
 });
 

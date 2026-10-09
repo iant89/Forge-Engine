@@ -217,9 +217,11 @@ group 1 the same object/instance layout the main pass uses). During batch collec
 renderable's world AABB is tested against every cascade's light-space frustum and receives a
 conservative bitmask. Adjacent instances with the same mask are retained as ranges inside the colour
 batch; each shadow pass uses `firstInstance` to submit only ranges assigned to its map, without
-splitting the main colour draw. `stats.shadowsCulled` counts batch/map pairs with no assigned
-instances, while `shadowInstancesDrawn`/`shadowInstancesCulled` count per-map caster-instance work.
-Transparent and overlay batches never cast.
+splitting the main colour draw. The pass coalesces neighboring ranges whenever both masks contain its
+map bit, even if the full masks differ, so the draw still covers exactly the assigned instance run.
+`stats.shadowsCulled` counts batch/map pairs with no assigned instances, `shadowsDrawn` counts actual
+shadow draw submissions, and `shadowInstancesDrawn`/`shadowInstancesCulled` count per-map
+caster-instance work. Transparent and overlay batches never cast.
 
 Sampling (`standard.ts`): the cascade is picked by view depth against `cascadeSplits`, the receiver
 is pushed along its normal by `normalBias` texels (normal-offset shadows, which remove acne on
@@ -748,9 +750,10 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 ## 9. Limitations (honest list)
 
 * Shadow assignment is conservative per renderable, not a single-map heuristic: an object's AABB can
-  intersect multiple cascade, spot or point-face frusta, in which case its assigned range is
-  submitted to each corresponding map. Off-screen caster coverage is preserved, but overlapping maps
-  can repeat vertex work; there is no per-map GPU compaction.
+  intersect multiple cascade, spot or point-face frusta, in which case it must be processed by each
+  corresponding map. Adjacent ranges assigned to the same map coalesce into one draw, but separated
+  runs may still require multiple submissions; overlapping maps repeat vertex work, and there is no
+  per-map GPU compaction. Off-screen caster coverage is preserved.
 * Only the highest-priority shadow-casting directional light, up to four spot lights and up to two point lights
   cast. Contact shadows and per-light resolution are not implemented yet. Point cube faces are
   sampled by dominant axis because WebGPU has no depth-cube comparison sampling. Each 90° face uses

@@ -581,9 +581,10 @@ group("frame structure", () => {
     await f.dispose();
   });
 
-  test("assigns per-object cascade ranges without splitting the colour batch", async () => {
+  test("coalesces adjacent cascade submissions without crossing an unassigned gap", async () => {
     const f = await fixture({ includeDefaultBox: false });
     f.scene.settings.shadow.cascades = 4;
+    f.scene.settings.shadow.distance = 24; // keep visible-but-unshadowed instances available as a range gap
     // The cascade fit is camera/light-only, so this setup frame gives us the exact frusta even though
     // there are no casters yet. Candidate bounds are then chosen from the intersection of the real
     // camera frustum and overlapping-but-distinct cascade masks.
@@ -597,30 +598,36 @@ group("frame structure", () => {
       for (const x of [-16, -12, -8, -4, 0, 4, 8, 12, 16]) {
         for (const y of [-1, 0, 1, 2, 4, 8, 12]) {
           const position = new Vec3(x, y, z);
-          const bounds = localBounds.transformByMatrix(new Mat4().translate(position), worldBounds);
-          if (!cameraFrustum.intersectsAABB(bounds)) continue;
+          const localToWorld = new Mat4().translate(position);
+          const bounds = localBounds.transformByMatrix(localToWorld, worldBounds);
+          if (!cameraFrustum.intersectsAABB(bounds) || !f.boxGeometry.intersectsFrustum(cameraFrustum, localToWorld)) continue;
           let mask = 0;
           for (let cascade = 0; cascade < cascadeFrustums.length; cascade++) {
             if (cascadeFrustums[cascade]!.intersectsAABB(bounds)) mask |= 1 << cascade;
           }
-          if (mask !== 0) candidates.push({ position, mask });
+          candidates.push({ position, mask }); // mask 0 is useful as an intentionally unassigned gap
         }
       }
     }
-    let pair: [typeof candidates[number], typeof candidates[number]] | null = null;
-    for (let a = 0; a < candidates.length && !pair; a++) {
-      for (let b = a + 1; b < candidates.length; b++) {
-        const left = candidates[a]!;
-        const right = candidates[b]!;
-        if (left.mask !== right.mask && (left.mask & right.mask) !== 0) {
-          pair = [left, right];
-          break;
-        }
+    let selected: [typeof candidates[number], typeof candidates[number], typeof candidates[number], typeof candidates[number]] | null = null;
+    for (let a = 0; a < candidates.length && !selected; a++) {
+      const first = candidates[a]!;
+      for (let b = a + 1; b < candidates.length && !selected; b++) {
+        const second = candidates[b]!;
+        const overlap = first.mask & second.mask;
+        if (first.mask === second.mask || overlap === 0) continue;
+        // Two adjacent casters share at least one map; put an unassigned caster in the middle of a
+        // later caster on that map. The candidate search order is irrelevant: creation below lays
+        // these four records out as assigned, assigned, gap, assigned.
+        const gap = candidates.find((candidate, index) => index !== a && index !== b && (candidate.mask & overlap) === 0);
+        if (!gap) continue;
+        const tail = candidates.find((candidate, index) => index !== a && index !== b && candidate !== gap && (candidate.mask & overlap) !== 0);
+        if (tail) selected = [first, second, gap, tail];
       }
     }
-    assert.notEqual(pair, null, "fixture has two visible casters with overlapping, distinct cascade masks");
-    const selected = pair!;
-    for (const [index, candidate] of selected.entries()) {
+    assert.notEqual(selected, null, "fixture has adjacent overlapping casters and a later caster separated by an unassigned gap");
+    const casters = selected!;
+    for (const [index, candidate] of casters.entries()) {
       const entity = f.scene.createTransformedEntity(`assigned-caster-${index}`, candidate.position);
       const renderable = new Renderable();
       renderable.geometry = f.boxGeometry;
@@ -636,21 +643,45 @@ group("frame structure", () => {
       for (let bit = 0; bit < 4; bit++) count += (mask >> bit) & 1;
       return count;
     };
-    const expectedInstances = selected.reduce((sum, candidate) => sum + popcount(candidate.mask), 0);
-    assert.equal(f.renderer.stats.batches, 2); // ground + one shared colour batch for both casters
-    assert.equal(f.renderer.stats.shadowInstancesDrawn, expectedInstances);
-    assert.equal(f.renderer.stats.shadowInstancesCulled, 8 - expectedInstances);
-    assert.equal(f.renderer.stats.shadowsDrawn, expectedInstances); // masks differ, so each assigned range is submitted separately
+    const expectedInstances = casters.reduce((sum, candidate) => sum + popcount(candidate.mask), 0);
+    let expectedSubmissionCount = 0;
+    assert.equal(f.renderer.stats.batches, 2); // ground + one shared colour batch for all four casters
+    assert.equal(f.renderer.stats.shadowInstancesDrawn, expectedInstances); // every AABB/map assignment is retained
+    assert.equal(f.renderer.stats.shadowInstancesCulled, 16 - expectedInstances);
 
     for (let cascade = 0; cascade < 4; cascade++) {
-      const expectedFirstInstances = selected.flatMap((candidate, index) => (candidate.mask & (1 << cascade)) !== 0 ? [index] : []);
+      const expectedDraws: { firstInstance: number; instanceCount: number }[] = [];
+      let runStart = -1;
+      let runCount = 0;
+      for (let index = 0; index < casters.length; index++) {
+        const assigned = (casters[index]!.mask & (1 << cascade)) !== 0;
+        if (assigned) {
+          if (runCount > 0 && runStart + runCount === index) {
+            runCount++;
+          } else {
+            if (runCount > 0) expectedDraws.push({ firstInstance: runStart, instanceCount: runCount });
+            runStart = index;
+            runCount = 1;
+          }
+        } else if (runCount > 0) {
+          expectedDraws.push({ firstInstance: runStart, instanceCount: runCount });
+          runStart = -1;
+          runCount = 0;
+        }
+      }
+      if (runCount > 0) expectedDraws.push({ firstInstance: runStart, instanceCount: runCount });
+      expectedSubmissionCount += expectedDraws.length;
+      const expectedInstancesForMap = casters.reduce((sum, candidate) => sum + ((candidate.mask & (1 << cascade)) !== 0 ? 1 : 0), 0);
       const pass = f.mock.passes.find((record) => record.label === `forge.shadow.${cascade}`)!;
-      assert.equal(pass.instances, expectedFirstInstances.length);
-      const actualFirstInstances = f.mock.commandLog
+      assert.equal(pass.instances, expectedInstancesForMap); // coalescing changes calls, not assigned instances
+      assert.equal(pass.drawCalls, expectedDraws.length);
+      const actualDraws = f.mock.commandLog
         .filter((entry) => entry.label === `forge.shadow.${cascade}` && entry.type === "drawIndexed")
-        .map((entry) => Number(entry["firstInstance"]));
-      assert.deepEqual(actualFirstInstances, expectedFirstInstances);
+        .map((entry) => ({ firstInstance: Number(entry["firstInstance"]), instanceCount: Number(entry["instanceCount"]) }));
+      assert.deepEqual(actualDraws, expectedDraws);
     }
+    assert.equal(f.renderer.stats.shadowsDrawn, expectedSubmissionCount);
+    assert.ok(f.renderer.stats.shadowsDrawn < expectedInstances); // the adjacent overlapping pair saves a draw
     assert.deepEqual(f.mock.errors, []);
     await f.dispose();
   });

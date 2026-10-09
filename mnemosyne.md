@@ -1830,3 +1830,89 @@ will stop".
 ## 2026-10-08 — projected cloud-deck self-shadowing
 
 - The cloud shader now samples three points through the advected density field toward the sun, with path length controlled by `cloud.thickness`. Their integrated density attenuates direct light in cores while preserving ambient and silver lining. This adds coherent deck self-shadowing without claiming a true volumetric cloud model; the CPU radiance twin accepts the same sun-path optical density for tests/tools.
+
+## 2026-10-09 — coalesce adjacent shadow-map submissions
+
+- Shadow masks remain conservative and per-instance: an object is still sent to every cascade, spot
+  map or point face whose frustum its world AABB intersects. In `Renderer.executeShadowPass`, adjacent
+  ranges that both include the current map bit can be one draw even when their full masks differ;
+  non-assigned gaps still break the run. This reduces draw calls without changing caster membership
+  or per-map instance totals; the frame regression also proves a visible instance not assigned to
+  the current map keeps two assigned runs separate (`tests/rendering/frame.test.ts`). `shadowsDrawn` is submissions;
+  `shadowInstancesDrawn` is the per-map assigned-instance count. Vertex work across distinct maps
+  and non-contiguous runs remains deferred (no per-map GPU compaction).
+
+## 2026-10-09 — browser-check entrypoint syntax
+
+- Removed the orphan `Code);` after `process.exit` in `tools/browser-check.mjs`, so Node can parse and
+  launch the browser gate. The gate then advanced to real WebGPU and exposed a separate pre-existing
+  sky-shader type error (`max(i32, u32)` at the horizon-sample selection); that is not part of the
+  entrypoint syntax fix.
+
+## 2026-10-09 — sky shader sample-count types and scope
+
+- `SkyUniforms.viewSamples` and `lightSamples` are signed `i32`, so the horizon clamps in
+  `shaders/sky.ts` must use `64i` / `32i`, not `u32` literals. `lightSamples` is also used for the
+  sun and moon after the `tTop` block; define it and `horizonBand` at fragment-function scope. The
+  structural WGSL check alone missed the real-browser type/scope validation; `check:browser` catches it.
+
+## 2026-10-09 — sky shader WebGPU confirmation
+
+- Re-ran `npm run check:browser` after the scope correction. The WebGPU sky noon, night, and Mars
+  checks all rendered with `gpuErrors=0` on Chromium's SwiftShader adapter, confirming the shader
+  compiles and executes on the WebGPU path. The full harness exited later at its separate Mars
+  generator assertion: all 14 crater tiles had a single mask channel (`bestSecond=0`), so no mixed
+  splat was observed. Do not attribute that failure to the sky shader.
+
+## 2026-10-09 — Mars crater-rim inspector framing
+
+- The crater field's geology/mask was correct; the `?marssite=0,0` startup camera stayed over the
+  uniformly classified crater-floor origin, so its resident tiles were all crust. Focus the inspector
+  on tile `(-1, 2)` (center `x=-64, z=320` for 128 m tiles) at 220 m, where the real rock/crust rim
+  crosses a tile. Both the mock regression and `npm run check:browser:mars-generator` now see that
+  boundary; the SwiftShader run measured `[0, 0.637, 0, 0.363]` over 14 tiles with zero GPU errors.
+  The full all-scenes `check:browser` was not rerun; this focused gate shares its Phase 10.9 assertions,
+  and makes no claim about the other browser phases.
+
+## 2026-10-09 — selrun catalog claim count
+
+- The catalog is valid with 71 linked suites and 635 explicit `@covers` claims. The two 632 literals
+  in `tests/tools/selrun.test.ts` had gone stale as coverage was added; keep both snapshots at 635.
+
+## 2026-10-09 — deterministic subregional Mars material veneers
+
+- `MarsTerrainStage` still takes its dominant substrate from the analytic geology ID; it now splits a
+  seeded 16–46% veneer between two related channels with a 3-octave `marsFbm3` field sampled at
+  absolute planet coordinates (`dir * radius`, frequency 0.006, seed +811). The ~40–170 m pattern
+  changes only `cell.biomes`, not relief or classifier output. The dominant substrate stays at least
+  54%, and exact 17×17/33×33 coincident mask equality remains pinned.
+- The crater regression now pins real rim tile `(-1,2)` (rock + crust plus local overlays), while the
+  640 m terrain test proves within-region variation and use of all four channels. The focused real-GPU
+  inspector passes: volcano 11 tiles, max within-tile runner-up range 0.229; crater 14 tiles, rim
+  shares `[0.204, 0.368, 0.155, 0.273]`, zero GPU errors. The screenshot masks are uploaded through
+  the normal `SplatMaterial` path.
+- `npm run verify`, `npm run test:check`, `npm run docs:check`, and `npm run lint:arch` passed. The first
+  full `check:browser` invocation exceeded the shell's 30-minute wait at the Mars showcase drive,
+  without a final status. Re-launched as a managed background process, the full gate completed with
+  exit 0 on Chromium + SwiftShader. All renderer A/Bs and all-scene suites passed; Mars measured
+  volcano 11 tiles (within-tile runner-up 0.229), crater 15 tiles (rim `[0.204, 0.368, 0.155, 0.273]`,
+  best mixed `[0.318, 0, 0.089, 0.592]`), and 30/30 native worker jobs. Rover drive was 0.52 m / max
+  speed 1.13 m/s over 11 frames; the HGA deployed, and arm pivots moved before the rig stowed all
+  joints to zero. The final line was `check:browser passed (real WebGPU, headless Chromium +
+  SwiftShader)`; the full current-source gate is green.
+
+## 2026-10-09 — sectioned WebGPU browser gate
+
+- Extracted six reusable sections from `checkAllScenes`: `renderer`, `terrain`, `vehicle-particles`,
+  `animation`, `environment`, and `mars`. The default `npm run check:browser` still runs all six in
+  the original order; `npm run check:browser:<section>` starts a fresh browser and runs just that
+  section, with explicit output that skipped sections were not run. Added section start/duration logs.
+- Independently verified after extraction on Chromium + SwiftShader: terrain passed in 273 s
+  (1,339 population instances / 125 batches / 48 GPU-LOD batches, camera controls, scene switch and
+  real GPU gravity); vehicle/particles in 87 s (parking hold/release, fountain and ribbon oracle);
+  animation in 24 s; environment in 429 s; Mars in 1,012 s (volcano/crater mask variation, 32/32
+  native jobs, 0.52 m drive, HGA deployment, and arm stow). All exited 0.
+- The renderer section was included in the immediately preceding full-gate pass, before extraction,
+  but was not re-run independently afterward. The aggregate full gate was not repeated after the
+  mechanical split; its section function bodies are the original checks, moved without changing
+  their assertions.

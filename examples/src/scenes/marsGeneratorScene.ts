@@ -10,12 +10,12 @@
  *   generator's own CLI defaults to), the advised demo sizing from `adviseMarsTile` (128 m tiles at
  *   33², the `micro` band, 32 m skirts), and worker-backed cell generation like the showcase.
  * - `?marssite=vallesRift` — a preset key from `MARS_SITE_PRESETS`.
- * - `?marssite=0,0` — any `lat,lon` pair in degrees. This one matters: the port's geology assigns
- *   material per *region*, so a 640 m window of most sites answers with a single dominant splat
- *   channel (the volcano summit bakes one colour for kilometres). The 0°N 0°E crater field is one of
- *   the few places where the dust/rock/sand/crust weights actually mix inside one window, which is
- *   what makes it the honest place to look at the four-layer material. `window.__forge
- *   .marsGeneratorState()` reports what is loaded.
+ * - `?marssite=0,0` — any `lat,lon` pair in degrees. The geology still supplies one dominant
+ *   material per *region*, but a seeded planet-space field now adds deterministic 40–170 m dust,
+ *   rock and sediment veneers inside those regions. The 0°N 0°E crater field remains a useful
+ *   inspector site because it shows those local layers alongside a real crater-rim class boundary.
+ *   The camera frames the known rim one tile northeast of the site origin; the origin's primary
+ *   geology class is still crater floor. `window.__forge.marsGeneratorState()` reports what is loaded.
  *
  * The four layers go to the GPU through `TerrainWorld { layeredMaterial }`: one `SplatMaterial` per
  * resident tile, a per-tile RGBA8 weight mask built from the stage's own splat, sharing the four
@@ -200,15 +200,20 @@ export function buildMarsGeneratorScene(
   scene.world.addComponent(ambientEntity.id, ambient);
   ambientEntity.transform.lookAt(new Vec3(0, 0, 0));
 
-  // Camera over the site. The orbit controller owns the eye from here on: it clamps both the eye and
-  // the look-at to `groundClearance` above the *ported* surface (`terrain.getHeightAt`), the same
-  // heightfield the meshes are built from.
-  const groundY = terrain.getHeightAt(0, 0);
-  const orbitTarget = new Vec3(0, groundY, 0);
+  // The zero/zero crater-field deep link shows both the local material veneers and a real geology
+  // boundary. At the site's origin the analytic classifier is inside the crater floor; a known
+  // boundary crosses tile (-1, 2), whose center is half a tile west and 2.5 tiles north. Frame that
+  // tile closely so the opening stream includes the rock/crust transition as well as the local field.
+  const craterRimPreview = coordinates?.latDeg === 0 && coordinates.lonDeg === 0;
+  const focusX = craterRimPreview ? -tile.chunkSize * 0.5 : 0;
+  const focusZ = craterRimPreview ? tile.chunkSize * 2.5 : 0;
+  const groundY = terrain.getHeightAt(focusX, focusZ);
+  const orbitTarget = new Vec3(focusX, groundY, focusZ);
+  const initialDistance = craterRimPreview ? 220 : 420;
   // Pin sky seaLevel to the surface under the look-at so the atmosphere's observer height tracks the
   // terrain the camera is actually over (a mismatch reads as a flat band under a phantom horizon).
   scene.settings.sky.seaLevel = groundY;
-  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, groundY + 25, 0));
+  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(focusX, groundY + 25, focusZ));
   const camera = new Camera();
   camera.fovY = Math.PI / 3.2;
   camera.near = 2.0;
@@ -240,7 +245,7 @@ export function buildMarsGeneratorScene(
     cameraEntity,
     camera: {
       target: orbitTarget,
-      distance: 420,
+      distance: initialDistance,
       azimuth: 0.4,
       elevation: 0.34,
       minDistance: 6,

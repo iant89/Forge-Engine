@@ -183,6 +183,10 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
   let sunDir = normalize(sky.sunDirection);
   let R = sky.planetRadius;
   let origin = vec3<f32>(0.0, R + max(sky.observerHeight, 0.0), 0.0);
+  // Keep the narrow, optically longest horizon band converged at every quality profile. The light
+  // sample count is also used for the sun, moon and ground terms below the main atmosphere integral.
+  let horizonBand = abs(dir.y) < 0.035;
+  let lightSamples = select(sky.lightSamples, max(sky.lightSamples, 32i), horizonBand);
 
   var radiance = vec3<f32>(0.0);
   var viewOd = vec3<f32>(0.0);
@@ -197,10 +201,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     let cosTheta = dot(dir, sunDir);
     let phaseR = rayleighPhase(cosTheta);
     let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
-    // Keep the narrow, optically longest horizon band converged at every quality profile.
-    let horizonBand = abs(dir.y) < 0.035;
-    let viewSamples = select(sky.viewSamples, max(sky.viewSamples, 64u), horizonBand);
-    let lightSamples = select(sky.lightSamples, max(sky.lightSamples, 32u), horizonBand);
+    let viewSamples = select(sky.viewSamples, max(sky.viewSamples, 64i), horizonBand);
     let invN = 1.0 / f32(viewSamples);
     var odR = 0.0;
     var odM = 0.0;
