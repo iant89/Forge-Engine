@@ -96,6 +96,8 @@ import {
   InteractiveRockProxy,
   applyRoverImpactDamage,
   bridgeRockContact,
+  canDisplaceRock,
+  separateRoverFromRock,
   MARS_ROCK_MATERIAL,
   createInteractiveRockSpec,
   TerrainDeformationField,
@@ -390,6 +392,19 @@ const ROVER_MOTOR = {
 const ROVER_REDUCTION = 60;
 /** Peak tractive force (N) for rock contacts, using the vehicle's default 0.9 efficiency. */
 const ROVER_TRACTIVE_FORCE = (MARS_ROVER_TRACTION.peakTorque * ROVER_REDUCTION * 0.9) / WHEEL_RADIUS;
+
+/**
+ * Horizontal reach of the rover around its centre, in metres. Rocks collide as circles and the
+ * chassis as one bounding circle of this radius, so a pair's contact range is the sum of the two.
+ * 1.6 brackets the six hub positions (±1.21 m across the tracks, −1.17…+1.10 m along the
+ * wheelbase) and matches the chassis debug box's half-length.
+ */
+export const ROVER_CONTACT_RADIUS = 1.6;
+/**
+ * Overlap (m) the rover is allowed to keep against a rock it *can* shove. A yielding rock leads the
+ * rover away, so the bumper may settle a little into it; an immovable rock gets no slack at all.
+ */
+export const PUSH_CONTACT_SLACK = 0.15;
 
 /**
  * Fragment geometry half-extents (see `rockGeometrySource`: Y is squashed by `(1 − flatten)`).
@@ -1847,8 +1862,6 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
 
   const stepInteractiveRocks = (dt: number): void => {
     syncInteractiveRocks();
-    const vx = vehicle.velocity.x;
-    const vz = vehicle.velocity.z;
     const toBreak: Array<{ record: InteractiveRockRecord; nx: number; nz: number; approach: number }> = [];
 
     for (const record of interactiveRocks.values()) {
@@ -1863,54 +1876,100 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         ? record.origScaleY * (record.typeId === 2 ? 1.44 : 0.8)
         : collisionRadius * 2;
 
-      if (distance > 1e-4 && distance < 1.6 + collisionRadius) {
-        const nx = dx / distance;
-        const nz = dz / distance;
-        const approach = vx * nx + vz * nz;
-        if (approach > 0.04) {
-          const firstTouch = !record.awake;
-          record.awake = true;
-          // Clean handoff: wake exactly on today's surface (never a stale resting Y), with the
-          // integration history synced so the first dynamic step starts from rest, not from a
-          // teleport the solver would answer with a velocity kick.
-          const waking = record.proxy.body;
-          waking.type = "dynamic";
-          waking.position.y = deformedGroundHeight(waking.position.x, waking.position.z) + record.restOffsetY;
-          waking.prevPosition.copyFrom(waking.position);
-          waking.renderPosition.copyFrom(waking.position);
-          waking.linearVelocity.set(0, 0, 0);
-          waking.angularVelocity.set(0, 0, 0);
-          const assessment = bridgeRockContact(record.proxy, {
-            roverMass: 1025,
-            relativeSpeed: approach,
-            availableForce: ROVER_TRACTIVE_FORCE,
-            obstacleHeight,
-            vehicleVelocity: vehicle.velocity,
-          }, { x: nx, y: 0, z: nz });
-          applyRoverImpactDamage(roverDamage, assessment, {
-            roverMass: 1025,
-            relativeSpeed: approach,
-            availableForce: ROVER_TRACTIVE_FORCE,
-            obstacleHeight,
-          }, obstacleHeight, dt);
-          // Impacts may shove a rock or damage the rover, but fracture is gated solely by the
-          // material crush threshold. The Mars profile puts that threshold far beyond rover power.
-          const breaking = assessment.outcome === "crushed";
-          applyImpactZoneDamage(
-            body.position.x,
-            body.position.z,
-            nx,
-            nz,
-            collisionRadius,
-            assessment,
-            firstTouch,
-            breaking,
-            dt,
-          );
-          if (breaking) {
-            toBreak.push({ record, nx, nz, approach });
-          }
+      if (distance >= ROVER_CONTACT_RADIUS + collisionRadius) continue;
+
+      // Centres coinciding exactly leaves no normal to derive; fall back to the rover's heading
+      // (forward is (sin yaw, cos yaw)) so the pair can still be told apart and pushed apart.
+      const nx = distance > 1e-6 ? dx / distance : Math.sin(vehicle.yaw);
+      const nz = distance > 1e-6 ? dz / distance : Math.cos(vehicle.yaw);
+      // Read the velocity here rather than once before the loop: an earlier rock in this same frame
+      // may already have taken some of it, and a stale read makes the impact gate order-dependent.
+      const approach = vehicle.velocity.x * nx + vehicle.velocity.z * nz;
+      // Whether this rock is something the rover may shove aside or a wall it must stop at. The
+      // impact branch below already knows from its assessment; a resting contact (no approach
+      // speed, so `assessRockContact` reports "none") still has to decide, because the geometric
+      // solve runs either way.
+      let displaced: boolean;
+      let breaking = false;
+      if (approach > 0.04) {
+        const firstTouch = !record.awake;
+        record.awake = true;
+        // Clean handoff: wake exactly on today's surface (never a stale resting Y), with the
+        // integration history synced so the first dynamic step starts from rest, not from a
+        // teleport the solver would answer with a velocity kick.
+        const waking = record.proxy.body;
+        waking.type = "dynamic";
+        waking.position.y = deformedGroundHeight(waking.position.x, waking.position.z) + record.restOffsetY;
+        waking.prevPosition.copyFrom(waking.position);
+        waking.renderPosition.copyFrom(waking.position);
+        waking.linearVelocity.set(0, 0, 0);
+        waking.angularVelocity.set(0, 0, 0);
+        const assessment = bridgeRockContact(record.proxy, {
+          roverMass: 1025,
+          relativeSpeed: approach,
+          availableForce: ROVER_TRACTIVE_FORCE,
+          obstacleHeight,
+          vehicleVelocity: vehicle.velocity,
+        }, { x: nx, y: 0, z: nz });
+        applyRoverImpactDamage(roverDamage, assessment, {
+          roverMass: 1025,
+          relativeSpeed: approach,
+          availableForce: ROVER_TRACTIVE_FORCE,
+          obstacleHeight,
+        }, obstacleHeight, dt);
+        // Impacts may shove a rock or damage the rover, but fracture is gated solely by the
+        // material crush threshold. The Mars profile puts that threshold far beyond rover power.
+        breaking = assessment.outcome === "crushed";
+        displaced = assessment.outcome !== "blocked";
+        applyImpactZoneDamage(
+          body.position.x,
+          body.position.z,
+          nx,
+          nz,
+          collisionRadius,
+          assessment,
+          firstTouch,
+          breaking,
+          dt,
+        );
+        if (breaking) {
+          toBreak.push({ record, nx, nz, approach });
         }
+      } else {
+        displaced = canDisplaceRock(record.proxy.spec, ROVER_TRACTIVE_FORCE);
+      }
+      // A rock fracturing this frame stops being an obstacle; its fragments spawn on their own.
+      if (breaking) continue;
+
+      // Geometric separation, resolved on every overlap and *not* gated on the approach speed
+      // above. Momentum transfer alone cannot keep the rover out of a rock: taking away the inward
+      // velocity only stops it driving further in, so the overlap earlier frames accumulated stays
+      // put, and a rock that cannot get out of the way leaves the rover parked inside it — the
+      // "drives through rocks and ends up stuck in the middle of one" report. It also runs when the
+      // rover has been brought to a stop against the rock, where `approach` has decayed below the
+      // impact threshold and the old code stopped touching the pair at all.
+      const separation = separateRoverFromRock({
+        roverX: vehicle.position.x,
+        roverZ: vehicle.position.z,
+        rockX: body.position.x,
+        rockZ: body.position.z,
+        rockRadius: collisionRadius,
+        roverRadius: ROVER_CONTACT_RADIUS,
+        slack: displaced ? PUSH_CONTACT_SLACK : 0,
+        fallbackNormalX: nx,
+        fallbackNormalZ: nz,
+      });
+      if (separation.penetration <= 0) continue;
+      vehicle.position.x += separation.correctionX;
+      vehicle.position.z += separation.correctionZ;
+      if (displaced) continue;
+      // Against a wall, also drop the velocity that would drive straight back in on the vehicle
+      // step that follows. Only the normal component goes, so a glancing contact still slides past
+      // instead of sticking; a yielding rock keeps its momentum, or a shove would feel like a wall.
+      const inward = vehicle.velocity.x * nx + vehicle.velocity.z * nz;
+      if (inward > 0) {
+        vehicle.velocity.x -= nx * inward;
+        vehicle.velocity.z -= nz * inward;
       }
     }
 

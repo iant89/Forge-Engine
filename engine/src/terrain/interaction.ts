@@ -162,6 +162,99 @@ export function applyRoverImpactDamage(
 }
 
 /**
+ * Whether the rover can displace this rock at all, given the traction it has.
+ *
+ * {@link assessRockContact} reports `"none"` when the approach speed is ~0, so it cannot answer
+ * this for a rock the rover is merely resting against — but contact resolution still has to know
+ * whether the rock is a wall or something it may shove out of the way. Both blocked branches of
+ * {@link assessRockContact} (`too-tall` and `too-heavy`) are exactly the cases where the rover's
+ * available force falls short of `pushForce`, so this is the displacement test on its own.
+ */
+export function canDisplaceRock(spec: InteractiveRockSpec, availableForce: number): boolean {
+  return Math.max(0, availableForce) >= spec.pushForce;
+}
+
+export interface RockSeparationInput {
+  /** Rover centre, horizontal world space. */
+  readonly roverX: number;
+  readonly roverZ: number;
+  /** Rock centre, horizontal world space. */
+  readonly rockX: number;
+  readonly rockZ: number;
+  /** Horizontal reach of the rock's collision shape. */
+  readonly rockRadius: number;
+  /** Horizontal reach the rover occupies around its centre. */
+  readonly roverRadius: number;
+  /**
+   * Overlap the rover may keep, in metres. An immovable rock gets 0 — the rover has nowhere else
+   * to go — while a rock that yields gets a small slack, so a shove reads as the bumper settling
+   * into the rock and the rock leading the rover away instead of the rover bouncing off a wall.
+   */
+  readonly slack: number;
+  /** Heading used when the two centres coincide exactly and no contact normal can be derived. */
+  readonly fallbackNormalX?: number;
+  readonly fallbackNormalZ?: number;
+}
+
+export interface RockSeparation {
+  /** Whether the two shapes touch at all. */
+  readonly contacted: boolean;
+  /** Raw overlap depth in metres; 0 when they are merely touching or apart. */
+  readonly penetration: number;
+  /** Unit contact normal, pointing from the rover towards the rock. */
+  readonly normalX: number;
+  readonly normalZ: number;
+  /** World-space offset to add to the rover position to resolve the overlap past `slack`. */
+  readonly correctionX: number;
+  readonly correctionZ: number;
+}
+
+/**
+ * Resolve a rover/rock overlap geometrically.
+ *
+ * Momentum transfer alone cannot keep the rover out of a rock: removing the inward velocity only
+ * stops it moving *further* in, so whatever overlap the previous frames accumulated stays put, and
+ * a rock that cannot get out of the way leaves the rover parked inside it. This is the missing
+ * half — it measures the penetration and hands back the position correction that pushes the rover
+ * back out along the contact normal.
+ */
+export function separateRoverFromRock(input: RockSeparationInput): RockSeparation {
+  const range = Math.max(0, input.roverRadius) + Math.max(0, input.rockRadius);
+  const dx = input.rockX - input.roverX;
+  const dz = input.rockZ - input.roverZ;
+  const distance = Math.hypot(dx, dz);
+  let normalX: number;
+  let normalZ: number;
+  let depth = distance;
+  if (distance > 1e-6) {
+    normalX = dx / distance;
+    normalZ = dz / distance;
+  } else {
+    // Centres coincide: there is no normal to derive, so fall back to the caller's heading rather
+    // than returning a zero correction that would weld the rover to the rock's centre forever.
+    depth = 0;
+    const fx = input.fallbackNormalX ?? 0;
+    const fz = input.fallbackNormalZ ?? 1;
+    const length = Math.hypot(fx, fz);
+    normalX = length > 1e-6 ? fx / length : 0;
+    normalZ = length > 1e-6 ? fz / length : 1;
+  }
+  const penetration = Math.max(0, range - depth);
+  const excess = penetration - Math.max(0, input.slack);
+  if (excess <= 0) {
+    return { contacted: depth <= range, penetration, normalX, normalZ, correctionX: 0, correctionZ: 0 };
+  }
+  return {
+    contacted: true,
+    penetration,
+    normalX,
+    normalZ,
+    correctionX: -normalX * excess,
+    correctionZ: -normalZ * excess,
+  };
+}
+
+/**
  * Bridge one vehicle contact into both participants. Damage is intentionally not decided here;
  * this step only transfers normal momentum and leaves the impact assessment for the next phase item.
  *

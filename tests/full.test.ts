@@ -58,6 +58,7 @@ export const linkedSuites = [
   ["tests/examples/marsGeneratorScene.test.ts", () => import("./examples/marsGeneratorScene.test.ts")],
   ["tests/examples/marsShowcase.test.ts", () => import("./examples/marsShowcase.test.ts")],
   ["tests/examples/marsShowcaseDamage.test.ts", () => import("./examples/marsShowcaseDamage.test.ts")],
+  ["tests/examples/marsShowcaseCollision.test.ts", () => import("./examples/marsShowcaseCollision.test.ts")],
   ["tests/examples/mechanicalScene.test.ts", () => import("./examples/mechanicalScene.test.ts")],
   ["tests/examples/orbitControls.test.ts", () => import("./examples/orbitControls.test.ts")],
   ["tests/examples/roverArm.test.ts", () => import("./examples/roverArm.test.ts")],
@@ -75,4 +76,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(71);
+report(72);
