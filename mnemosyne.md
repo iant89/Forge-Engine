@@ -1916,3 +1916,28 @@ will stop".
   but was not re-run independently afterward. The aggregate full gate was not repeated after the
   mechanical split; its section function bodies are the original checks, moved without changing
   their assertions.
+
+## 2026-10-10 — floating drill hole on Mars Showcase rocks
+
+- **Symptom:** the black hole left after drilling a rock hangs in the air above it (user report).
+- **Root cause:** tool points/marks were measured from the collision proxy, and the proxy and the
+  visual disagree by design *and* by placement: the round-rock collider is `0.55 ×` the visual
+  radius and rests `ground + r` on the terrain, while the scattered instance renders from
+  `ground − embed(0.15) × scale` (promoted `activeEntity`s jump to the body pose on wake). At the
+  natural anchor the proxy surface sits ~0.33 m above the visible mesh — the arm was literally
+  drilling air, which is also why the old code's prompt existed for rocks the arm cannot actually
+  touch. Measured with a headless fixture + `raycastTriangles` against
+  `rockGeometrySource({radius:0.8, seed:7, roughness:0.42})`.
+- **Fix (`examples/src/scenes/marsShowcaseScene.ts`):** `toolSurfaceTarget` now raycasts from the
+  rock's *rendered* centre (instance block position while dormant, body pose when promoted) along
+  the unchanged analytic aim directions; marks are stored relative to that same centre so they
+  ride instance re-anchoring and wake transitions. Because `ARM_MIN_TURRET_HEIGHT` keeps the
+  turret ≥ 0.5 m (≈ `ground + 0.35` on flat ground) and a half-buried 0.68-scale rock surfaces
+  around `ground + 0.22`, `solveToolPoseForTarget` retries at the floor — only while the floor
+  stays within one visual radius of the surface point, so pebbles keep not prompting.
+- **Pin (`tests/examples/marsShowcaseDamage.test.ts`):** drill target placed at the natural
+  scatter anchor, plus a stand-off raycast assert (−0.01…0.05 m). Pre-fix it fails at 0.333 m;
+  post-fix the hole sits ~0.009 m proud. The old test anchor (`ground + 0.4 × scale`) happened to
+  align proxy and visual within 2 mm and masked the bug.
+- `npm run verify` (typecheck + 72 suites + check:wgsl), `lint:arch`, `docs:check`, `test:check`
+  all green; real-GPU `check:browser:mars` re-run after the fix.
