@@ -72,6 +72,12 @@ const SPOOL_AHEAD = 0.85;
 const SPOOL_ASTERN = 0.7;
 /** Wash speed at redline (m/s): what the rudder feels with the boat still alongside the dock. */
 const WASH_SPEED = 7.6;
+/**
+ * Prop wash does not start from nothing at idle: the leg sits in the same diameter of disc whether the
+ * engine is loafing or at redline, so even idle rpm throws enough wash over the rudder to answer the helm
+ * leaving the dock. This is the floor of `WASH_SPEED` at idle rpm, scaling up to the full figure at redline.
+ */
+const WASH_IDLE_FLOOR = 0.32;
 
 function smooth01(x: number): number {
   const t = clamp(x, 0, 1);
@@ -548,7 +554,7 @@ export function createBoatConfig(overrides: Partial<BoatConfig> = {}): BoatConfi
     legDragClear: 0.8,
     rudderGain: 260,
     rudderLever: 0.46 * length,
-    washSteering: 0.55,
+    washSteering: 0.9,
     crossflowGain: 0.9,
     weathervaneGain: 190,
     yawDamping: 1.2,
@@ -802,7 +808,7 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
     gear === 0 ? BOAT_IDLE_RPM : BOAT_IDLE_RPM + (BOAT_MAX_RPM - BOAT_IDLE_RPM) * clamp(input.throttle, 0, 1);
   state.rpm = damp(state.rpm, demandedRpm, gear < 0 ? SPOOL_ASTERN : SPOOL_AHEAD, h);
   const rpmRatio = state.rpm / BOAT_MAX_RPM;
-  const wash = WASH_SPEED * rpmRatio;
+  const wash = WASH_SPEED * (WASH_IDLE_FLOOR + (1 - WASH_IDLE_FLOOR) * rpmRatio);
 
   // Relative flow over the hull, in body axes: subtracting the current is the whole point of a river sim.
   env.currentAt(state.x, state.z, scratchCurrent);
@@ -979,7 +985,7 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   // even at tickover.
   const effectiveFlow = Math.sqrt(u * u + wash * wash * config.washSteering);
   const rudderForce =
-    config.rudderGain * Math.sin(state.helm) * effectiveFlow * (0.3 + 0.7 * smooth01(effectiveFlow / 3.2));
+    config.rudderGain * Math.sin(state.helm) * effectiveFlow * (0.35 + 0.65 * smooth01(effectiveFlow / 2));
   addLoad(load, -rudderForce, 0, 0, 0, 0.15, -0.5 * BOAT_LOA * 0.94);
   // Weather helm: the hull turns into the relative flow. Reversing takes the steerage way out of it.
   load.ty += config.weathervaneGain * v * (u >= 0 ? 1 : -0.3);
