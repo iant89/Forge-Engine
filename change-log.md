@@ -14865,6 +14865,137 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Log the floating drill-hole fix and its regression pin.",
     "why": "Maintain the required per-file repository activity history."
+  },
+  {
+    "id": "1188",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonRiver.ts",
+    "what": "New demo-side river module: bounded-curvature meander path integrated into a station table, a cross-section elevation field (thalweg, point bar, cut bank, levee, back-swamp) resolved as the minimum over every channel branch that reaches a point, plus a tributary igarape, four oxbow lakes, journey marks and a channel-following ribbon builder for terrain and the water sheet.",
+    "why": "The Amazon boat demo needs one height field that the terrain mesh, the boat's grounding query and the jungle scatter all agree on. Engine terrain stages cannot carve an authored navigable path (ValleyCarvingGenerator is flow-accumulation driven), and composing features as a min of absolute profiles leaves dry channels and creases, so the floodplain is authored as deltas on one shared upland base."
+  },
+  {
+    "id": "1189",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonBoatSim.ts",
+    "what": "Waterplane-column hull model for the launch: the lofting function is the single source of flotation geometry, each column carries a buoyancy force integrated from a per-column volume table, with heave damping measured against the wave's own vertical motion, planing lift, a wave-making drag hump near Froude 0.42, current-relative flow, prop-wash steering and keel grounding against the bed. Work in progress: statics verified, drag and lift coefficients not yet tuned, no scene imports it.",
+    "why": "Keeping the boat outside engine/src avoids production @covers claims (repo precedent: examples/src/scenes/alpineSnowpack.ts), and deriving draft, trim, gm and roll period by solving the lofted shape means the visual hull and the floating hull cannot drift apart."
+  },
+  {
+    "id": "1190",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the river and hull module constraints that were expensive to find: the curvature bound that keeps a nearest-station query unique near the banks, the branch-minimum elevation rule, the terrace floor, the metre-based oxbow blend, the measured cross-section and performance numbers, and the two hull-model traps (deck-plan buoyancy, solving draft without trim).",
+    "why": "These are properties a future session would otherwise re-break in a minute, and several are pinned only by measurement rather than by a test that exists today."
+  },
+  {
+    "id": "1191",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the Amazon river and hull modules and their notes.",
+    "why": "Maintain the required per-file repository activity history."
+  },
+  {
+    "id": "1192",
+    "date": "2026-10-11T14:10:41Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonBoatSim.ts",
+    "what": "Retuned and repaired the launch's dynamics: the per-column water push is now rotated into body axes before it is accumulated, thrust is a longitudinal force applied at the leg (its lever and its trim-driven vertical component replace the ad-hoc bow-down couple), planing lift now acts at the centroid of the *wetted* columns so the trim is self-limiting, the rocker and leg tilt are angle-of-attack offsets rather than separate forces, the propeller loses its grip with the outboard leg trimmed out and with the bottom out of contact, the outboard leg's interference drag and the crossflow grip are sized with water density and the correct sign, heave and lift are bounded by the displacement, pitch gets its own damping, and floatation is solved by a bisection over draft and trim using the step's own force law. Mass 1450 to 1260 kg; new exports riverChop, legDragArea/legDragDown/legDragClear, legTrimAngle and pitchDamping replace liftCoefficient/rockerLift-only tuning; new state field legTrim drives thrust, trim, yaw damping and drag.",
+    "why": "WOT sat near 2 m/s and any chop produced NaN inside a few seconds. The causes were frame and axis errors, not coefficients: a world vector added to a body-frame accumulator, thrust on the transverse axis, and a rocker term that reached 41 kN against a 14.2 kN displacement. With those out, the hull-speed wall is crossed by rising on her own lift, which is the behaviour the model is supposed to demonstrate."
+  },
+  {
+    "id": "1193",
+    "date": "2026-10-11T14:10:41Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonBoatSim.ts",
+    "what": "Added `riverChop(height, windHeading, downstream)`: a four-train Gerstner wind sea whose wavelengths come from deep-water dispersion, none shorter than the 16 m the water surface can resolve, each crest held under the breaking limit, fanned across the wind so the boats actually roll.",
+    "why": "The hull needs the same wave list the shader gets, and a sea built by hand had 6.5 m crests the water grid cannot resolve plus a slope beyond breaking; the chop the demo drives in should be the chop the sim is tuned against."
+  },
+  {
+    "id": "1194",
+    "date": "2026-10-11T14:10:41Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/examples/amazonBoatHull.test.ts",
+    "what": "New 15-case suite for the launch: lofting sanity, the solved floatation carrying exactly the weight, the integrator settling on the solved draft and trim within 1.5 cm, the attitude matrix matching the transform the scene graph is given, WOT through the hull-speed wall, monotonic throttle ladder, leg trim worth 3 m/s, a bounded 60 s soak in a 1.3 m wind sea, free roll on the reported period, currents moving the ground track but not the water speed, grounding on a shoaling bar and backing off it, helm authority, spool and stopping times, and 30 Hz versus 240 Hz agreement. Linked in tests/full.test.ts.",
+    "why": "Every one of the four dynamics bugs above was invisible to typechecking and to the engine's own gates; they are cheap to re-break and expensive to find again, and the assertions are measurements of behaviour rather than of constants."
+  },
+  {
+    "id": "1195",
+    "date": "2026-10-11T14:10:41Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Replaced the hull model's open retune plan with the outcome: the four bugs and how each was recognised, the wetted-centre-of-pressure formulation that replaced the empirical trim couple, the measured behaviour of the tuned boat, and the `findBankSite` null on a cut bank being correct behaviour callers must handle.",
+    "why": "The next session to touch this hull needs the failure modes, not the recipe that produced them, and several of these are pinned only by the new tests."
+  },
+  {
+    "id": "1196",
+    "date": "2026-10-11T14:10:41Z",
+    "type": "change",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the tuned hull dynamics, the shared wind-sea field and the new behaviour tests.",
+    "why": "Maintain the required per-file repository activity history."
+  },
+  {
+    "id": "1197",
+    "date": "2026-10-11T15:52:41Z",
+    "type": "pr-merge",
+    "pr": 78,
+    "branch": "arena/51731dcd-forge-engine",
+    "base": "main",
+    "title": "Add the Amazon floodplain height field and launch hull model",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "summary": "Two demo-side modules for the Amazon river boat demo, with the hull tuned and pinned by tests. `examples/src/scenes/amazonRiver.ts` authors the floodplain as one height field: a bounded-curvature meander path integrated into a station table (|dtheta/ds| <= 0.0023 so a nearest-station query stays unique inside the channel's influence band), a cross-section profile (thalweg, point bar, cut bank, levee, back swamp) resolved as the minimum over every channel branch that reaches a point, an igarape tributary, four oxbow lakes, journey marks, and a ribbon builder that turns the field into the terrain mesh and the water sheet (4200 m journey, 295 ms terrain build, 3 us per elevation query, 0 dry stations, max drawn edge slope 0.87). `examples/src/scenes/amazonBoatSim.ts` is a waterplane-column hull for a 9.4 m / 1260 kg launch: the lofting function `hullHalfWidth(t, h)` is the only source of flotation geometry, each column carries buoyancy and waterplane-width tables integrated from it, and the design floatation (draft 0.353 m, trim, GM 3.16 m, roll period 1.38 s) is *solved* by bisecting draft and trim against the same force law the integrator uses, so panel loads sum to the displacement weight within 1 N and the settle agrees with the solve to 1.5 mm and 0.01 degrees. Forces: skin friction over the wetted surface with a wave-making hump at Froude 0.42 (the hull-speed wall), planing lift on the *wetted* columns acting at their own centroid so the trim limits itself, heave damping against the water's own vertical motion, slam, current-relative flow, prop-wash steering, outboard leg trim as a control, and grounding against the bed. `riverChop` is the shared wind-sea field: four Gerstner trains, none under 16 m, all under the breaking limit, fanned across the wind. Measured: 15.1 m/s at WOT holding steady on flat water, a 4.3/9.0/11.9/15.1 throttle ladder, leg trim worth 3.2 m/s, a bounded 60 s soak in a 1.3 m quartering sea (8.7 degrees max roll, 0.35 m least freeboard, no NaN), a bar shoaling 11 cm/m grounds her and backing off works in 14 s, and 30 Hz matches 240 Hz to 0.4 m/s. `tests/examples/amazonBoatHull.test.ts` (15 cases) pins all of it, linked in `tests/full.test.ts` (73 suites), with `tests/tools/selrun.test.ts`, `docs/TESTING.md` and `docs/VERIFICATION.md` carrying the new suite and case counts (1 064 cases, 654 coverage claims); `mnemosyne.md` records the four dynamics bugs (world-versus-body force frame, thrust on the transverse axis, a static solve that was not the runtime's force law, and rocker double-counted as a lift force) and that `findBankSite` returning null on a cut bank is correct behaviour. No scene imports either module yet, so nothing is registered and no browser gate applies. This PR also sets the `pr` field on entries 1188-1196.",
+    "files": [
+      "change-log.md",
+      "docs/TESTING.md",
+      "docs/VERIFICATION.md",
+      "examples/src/scenes/amazonBoatSim.ts",
+      "examples/src/scenes/amazonRiver.ts",
+      "mnemosyne.md",
+      "tests/examples/amazonBoatHull.test.ts",
+      "tests/full.test.ts",
+      "tests/tools/selrun.test.ts"
+    ]
   }
 ]
 ```
