@@ -14865,6 +14865,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Log the floating drill-hole fix and its regression pin.",
     "why": "Maintain the required per-file repository activity history."
+  },
+  {
+    "id": "1188",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonRiver.ts",
+    "what": "New demo-side river module: bounded-curvature meander path integrated into a station table, a cross-section elevation field (thalweg, point bar, cut bank, levee, back-swamp) resolved as the minimum over every channel branch that reaches a point, plus a tributary igarape, four oxbow lakes, journey marks and a channel-following ribbon builder for terrain and the water sheet.",
+    "why": "The Amazon boat demo needs one height field that the terrain mesh, the boat's grounding query and the jungle scatter all agree on. Engine terrain stages cannot carve an authored navigable path (ValleyCarvingGenerator is flow-accumulation driven), and composing features as a min of absolute profiles leaves dry channels and creases, so the floodplain is authored as deltas on one shared upland base."
+  },
+  {
+    "id": "1189",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonBoatSim.ts",
+    "what": "Waterplane-column hull model for the launch: the lofting function is the single source of flotation geometry, each column carries a buoyancy force integrated from a per-column volume table, with heave damping measured against the wave's own vertical motion, planing lift, a wave-making drag hump near Froude 0.42, current-relative flow, prop-wash steering and keel grounding against the bed. Work in progress: statics verified, drag and lift coefficients not yet tuned, no scene imports it.",
+    "why": "Keeping the boat outside engine/src avoids production @covers claims (repo precedent: examples/src/scenes/alpineSnowpack.ts), and deriving draft, trim, gm and roll period by solving the lofted shape means the visual hull and the floating hull cannot drift apart."
+  },
+  {
+    "id": "1190",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the river and hull module constraints that were expensive to find: the curvature bound that keeps a nearest-station query unique near the banks, the branch-minimum elevation rule, the terrace floor, the metre-based oxbow blend, the measured cross-section and performance numbers, and the two hull-model traps (deck-plan buoyancy, solving draft without trim).",
+    "why": "These are properties a future session would otherwise re-break in a minute, and several are pinned only by measurement rather than by a test that exists today."
+  },
+  {
+    "id": "1191",
+    "date": "2026-10-11T13:38:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/51731dcd-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the Amazon river and hull modules and their notes.",
+    "why": "Maintain the required per-file repository activity history."
   }
 ]
 ```

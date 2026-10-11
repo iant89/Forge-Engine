@@ -1941,3 +1941,77 @@ will stop".
   align proxy and visual within 2 mm and masked the bug.
 - `npm run verify` (typecheck + 72 suites + check:wgsl), `lint:arch`, `docs:check`, `test:check`
   all green; real-GPU `check:browser:mars` re-run after the fix.
+
+## 2026-10-11 — Amazon river boat demo: river + hull modules (in progress)
+
+Third demo scene requested: a drivable launch up a procedurally built Amazon. Two modules exist on
+`arena/51731dcd-forge-engine`; neither is wired into `main.ts` or `sceneSelection.ts` yet, and neither
+has a test file yet. Read this before touching either.
+
+**`examples/src/scenes/amazonRiver.ts` — the height field everything else reads.**
+
+- Terrain is authored as **deltas on one shared `uplandAt` base**, never as `min` of absolute profiles:
+  an absolute profile that ends its influence mid-slope leaves a crease, and a hill crossing the line
+  leaves a *dry channel* (which is fatal for a boat). Depth is `bedDepth + max(0, base − WATER −
+  BANK_CREST)`, so ground above the bank crest becomes a gorge and the thalweg stays ~5–11 m deep under
+  the stage everywhere (measured min 4.87 m over the whole 4 200 m journey plus 900 m of run-off).
+- **Curvature is bounded on purpose.** `|dθ/ds| ≤ ~0.0023 m⁻¹` (amplitudes `[0.30, 0.055, 0.014, 0.006]`
+  over wavelengths `[1900, 900, 380, 190]`) keeps the radius of curvature ≥ ~440 m, which is *outside* the
+  band (`2.6 × halfWidth`) where the cross-section still has a say. Inside that band a nearest-station
+  query is unique; past it every feature has already handed over to the base, so a station jump is
+  invisible. Tight oxbow-style meanders are what this formulation cannot represent — do not raise the
+  amplitudes without changing how the projection works.
+- A floodplain point can be within reach of **two sides of the same meander**. Scanning only the single
+  nearest station folds the field: measured a 9.8 m step where two branches traded places. `RiverQuery`
+  therefore keeps one winner per *run* of consecutive table indices and `elevationAt` takes the minimum
+  over those branches (a minimum of continuous functions is continuous). Keep the linear per-cell scan:
+  a strided scan with a refine window loses short runs, which is exactly the case at a neck.
+- Points with no candidate in the hash must **not** fall through the segment projection: measured, a
+  point 1.2 km beyond the last station came back with `lateral = 55 m` and a full mid-channel profile.
+  The fallback measures straight from the nearer terminal station and reports a `q` past the influence
+  limit, so the field returns the base terrain.
+- `RIVER_END_OVERSHOOT` (900 m of channel built past each end) is not slack: without it the carved
+  valley meets untouched terrace at the map edge and you can *see* the step, and the water ribbon ends
+  mid-stream. The tributary likewise silts up over its last 320 m so it becomes marsh instead of a
+  cut-off hole.
+- Oxbow/lake blends are measured in **metres outside the one-contour** (`(r−1)/|∇r|`), not in `r`: the
+  ellipse is 3–4× longer than wide, so an `r`-based fade is 20 m thick on the flanks and 90 m at the
+  tips, and the flanks read as a canal cut through reeds.
+- The floodplain floor is soft-clamped at `WATER + 0.6` (terrace): without it the upland noise dips
+  below the stage and the terrain shows dry holes where the demo draws no water sheet.
+- Measured shape of the result: wetted width 205 m mean / 112 m min against a nominal 2×92 m channel
+  (the point bar and cut bank make the shoreline wander, which is the point); max edge slope over the
+  drawn 48.6 k-vertex ribbon is 0.87 (no cliffs); terrain ribbon builds in ~230 ms, `elevationAt` runs
+  ~2.5–3 µs per query (100 k in ~300 ms), which is what makes a 12 k-tree scatter affordable.
+- API traps hit here: the engine's `smoothstep(edge0, edge1, x)` and `shortestAngle(a)` are not the
+  one-argument forms, and passing one argument silently returns `x < edge0 ? 0 : 1`.
+
+**`examples/src/scenes/amazonBoatSim.ts` — the launch, and why the hull is a function.**
+
+- `hullHalfWidth(t, h)` is the lofting spec for the *model* and the only source of flotation geometry, so
+  draft/trim/roll stiffness/grounding all fall out of the shape. Two non-obvious rules were learned the
+  hard way, and both will silently produce a boat that leaps out of the water:
+  1. **A column's buoyancy must integrate the lofted width**, not use its deck-plan area
+     (`ρ g A · submerged`). With planform areas a deep-V floats on 6 mm of water, the waterplane is 3×
+     too stiff, and the static solve and the integrator disagree. Each column now carries
+     `volume[k]`/`width[k]` tables sampled from `hullHalfWidth` at build time; buoyancy reads the volume
+     table, damping and the rest waterplane read the width table.
+  2. **Draft and trim must be solved together.** Solving draft at zero trim then trim at that draft
+     leaves a net upward force at the design attitude (the loads summed to 1.9× the weight), and the first
+     integrator step throws the boat clear of the surface. Relaxing the pair converges to the draft where
+     the column loads exactly balance the weight — assert that sum equals `m·g` in a test.
+- `bodyToWorld` is `Ry(heading)·Rx(−pitch)·Rz(roll)` written out with the pitch sine folded in
+  (`m[5] = +sin(pitch)`). That specific form matches `Quat.setEulerComponents(−pitch, heading, roll)` to
+  3e-8, which is why `applyBoatPose` can hand the attitude to the scene graph without a second
+  convention. Sign conventions to keep: local **+X is port**, `roll` positive = starboard down, `pitch`
+  positive = bow up (the negative of a rotation about +X).
+- **Status: statics verified, forces not.** The hull-speed wall, skin friction and planing lift are still
+  sized wrongly — at 1/60 s for 60 s the boat does not reach `hullSpeed` (it sputters near 2 m/s at WOT
+  because the ad-hoc wave-making term dominates and the lift term is not area-corrected). The retune
+  should be: drag `½ρ·Cf·A_wet·u|u|·(1 + waveGain·hump(Fn))` with `A_wet` tracked from the columns (so
+  rising onto the plane *reduces* the area that is generating drag — that coupling is the whole point),
+  lift `½ρ u²·A_wet·Cl` with `Cl` near `0.45·tan(trim_eff)` plus `0.5·u²·0.012` for the rocker's weathervane
+  lift, a bow-down `kDown·u²` engine moment to balance the bow-up lift and stop the pitch running to its
+  clamp, and outboard **leg tilt** as a control input (tilt up for shallow bars, down to unbalance a wind-
+  blown bow into a head sea). Then the tests written against it: settles within 1 cm of the solved draft
+  in 5 s, bounded roll on a 0.8 m chop, terminal speed in a band, grounding holds her off the bed.
