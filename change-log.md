@@ -14817,6 +14817,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Log the browser-test sectioning changes and validation.",
     "why": "Maintain the required per-file repository activity history."
+  },
+  {
+    "id": "1184",
+    "date": "2026-10-10T00:50:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d1faca38-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsShowcaseScene.ts",
+    "what": "Aim tool targets and marks at the rock's visible mesh: raycast from the rock's rendered centre (scattered instance while dormant, promoted entity otherwise) along the same analytic aim directions, store tool marks relative to that centre, and fall back to a turret-floor-clamped pose when a half-buried rock surfaces below ARM_MIN_TURRET_HEIGHT.",
+    "why": "Tool points were measured from the shrunken collision proxy, which rests on the ground while the rendered instance is sunken into it — the drill hovered and the hole it left floated ~0.3 m above the rock. The floor clamp keeps those rocks drillable without letting a pebble claim a prompt for drilling the air."
+  },
+  {
+    "id": "1185",
+    "date": "2026-10-10T00:50:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d1faca38-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/examples/marsShowcaseDamage.test.ts",
+    "what": "Place the drill target at the natural scatter anchor (embed 0.15 × scale below the terrain sample) and assert the hole's signed stand-off against the hi-detail rock mesh via raycast (must stay within −0.01…0.05 m).",
+    "why": "Pin the floating-hole regression: at the natural anchor the pre-fix code measured 0.333 m of stand-off, while the fixed code sits ~0.009 m proud of the visible surface."
+  },
+  {
+    "id": "1186",
+    "date": "2026-10-10T00:50:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d1faca38-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the proxy-vs-visual rock anchor mismatch, the arm's safety-floor interaction with half-buried rocks, and the verification evidence.",
+    "why": "The mismatch is slow to rediscover and explains both the floating drill hole and why the old code only appeared to work."
+  },
+  {
+    "id": "1187",
+    "date": "2026-10-10T00:50:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/d1faca38-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the floating drill-hole fix and its regression pin.",
+    "why": "Maintain the required per-file repository activity history."
   }
 ]
 ```

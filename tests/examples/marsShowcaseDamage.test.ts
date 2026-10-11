@@ -59,12 +59,16 @@ import {
   Logger,
   PopulationWorld,
   Profiler,
+  Ray,
+  RayHit,
   Renderable,
   SystemScratch,
   TerrainWorld,
   type TaskScheduler,
   VehicleComponent,
   heightFunctionGround,
+  raycastTriangles,
+  rockGeometrySource,
   type Engine,
   type Entity,
   type SystemContext,
@@ -417,7 +421,9 @@ group("Mars Showcase — rock-safe impacts and turret tools", () => {
     target!.block.positions[p] = targetX;
     target!.block.positions[p + 2] = targetZ;
     target!.block.rotations[target!.index] = 0;
-    target!.block.snapY(target!.index, terrain.getHeightAt(targetX, targetZ) + rockScale * 0.4);
+    // Natural scatter anchor (embed 0.15 × scale sunk below the terrain sample): the hole must
+    // sit on the rock where the showcase actually places it, not at a test-only hover height.
+    target!.block.snapY(target!.index, terrain.getHeightAt(targetX, targetZ) - 0.15 * rockScale);
     target!.block.markModified();
     const targetId = `${target!.chunkKey}:rocks:${target!.index}`;
 
@@ -455,6 +461,38 @@ group("Mars Showcase — rock-safe impacts and turret tools", () => {
     }
     assert.equal(marks.length, 1);
     assert.equal(marks[0]!.get(Renderable)?.visible, true);
+    // Regression pin for the floating drill hole: cast from the instance's rendered centre (the
+    // rock's yaw is pinned to 0 above, so world and mesh-local frames coincide) through the hole
+    // entity and compare against the mesh the scene draws. The hole must sit a few millimetres
+    // proud of the visible surface — measuring it from the shrunken collision proxy instead put
+    // it ~0.3 m above the rock as scatter places it.
+    const surfaceSource = rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.42 });
+    assert.ok(surfaceSource.indices, "the rock source is indexed");
+    const scaledPositions = new Float32Array(surfaceSource.positions.length);
+    for (let i = 0; i < surfaceSource.positions.length; i += 3) {
+      scaledPositions[i] = surfaceSource.positions[i]! * rockScale;
+      scaledPositions[i + 1] = surfaceSource.positions[i + 1]! * rockScale;
+      scaledPositions[i + 2] = surfaceSource.positions[i + 2]! * rockScale;
+    }
+    const visualCentre = { x: targetX, y: target!.block.positions[p + 1]!, z: targetZ };
+    const holePos = marks[0]!.transform.position;
+    const holeDir = { x: holePos.x - visualCentre.x, y: holePos.y - visualCentre.y, z: holePos.z - visualCentre.z };
+    const holeDistance = Math.hypot(holeDir.x, holeDir.y, holeDir.z);
+    holeDir.x /= holeDistance;
+    holeDir.y /= holeDistance;
+    holeDir.z /= holeDistance;
+    const surfaceRay = new Ray({ x: 0, y: 0, z: 0 }, holeDir, 100);
+    const surfaceHit = new RayHit();
+    assert.equal(
+      raycastTriangles(scaledPositions, surfaceSource.indices, surfaceRay, surfaceHit),
+      true,
+      "the cast from the rendered centre reaches the rock mesh",
+    );
+    const standOff = holeDistance - surfaceHit.distance; // > 0 proud of the surface, < 0 sunk into it.
+    assert.ok(
+      standOff >= -0.01 && standOff <= 0.05,
+      `the hole sits against the visible rock (stand-off ${standOff.toFixed(3)} m), not floating above it`,
+    );
 
     // The two optional turret modes share the same proximity/servo path: abrasion leaves another
     // physical trace, while the simulated PIXL pass reports a deterministic material reading.

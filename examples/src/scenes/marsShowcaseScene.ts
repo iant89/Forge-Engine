@@ -104,6 +104,9 @@ import {
   buildLodGeometry,
   rockGeometrySource,
   unindexedLodWindow,
+  Ray,
+  RayHit,
+  raycastTriangles,
   createVehicleDamageZones,
   applyBodyDamage,
   applyWheelDamage,
@@ -120,7 +123,7 @@ import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
 import { attachRoverToolTouch, type RoverToolTouchHandle } from "../controls/roverToolTouch.js";
 import { loadGlb, type GlbLoadProgress, type GlbPart, type LoadedGlb } from "../assets/glb.js";
-import { ARM_JOINT_COUNT, ARM_READY_DEG, RoverArmController, type ArmJogInput } from "./roverArm.js";
+import { ARM_JOINT_COUNT, ARM_MIN_TURRET_HEIGHT, ARM_READY_DEG, RoverArmController, type ArmJogInput } from "./roverArm.js";
 import {
   ROVER_TOOL_SPECS,
   roverToolPointFromPose,
@@ -938,16 +941,21 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   // as unnatural repetition next to the varied break fragments (their own seeds, 23 and 37). The
   // variants share radius/collision so the interactive layer treats them identically; only the
   // silhouette and crag differ.
+  // The hi-detail sources are kept: tool targeting raycasts the very triangles the near LOD
+  // draws, so drill marks land on the rock surface the player sees rather than an estimate.
+  const rockSurfaceSource = rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.42 });
+  const rockBSurfaceSource = rockGeometrySource({ radius: 0.8, segments: 10, seed: 41, roughness: 0.5 });
+  const boulderSurfaceSource = rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.38, flatten: 0.38 });
   const rockLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 7, roughness: 0.42 })),
+    hi: unindexedLodWindow(rockSurfaceSource),
     lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 7, roughness: 0.42 })),
   });
   const rockLodB = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 10, seed: 41, roughness: 0.5 })),
+    hi: unindexedLodWindow(rockBSurfaceSource),
     lo: unindexedLodWindow(rockGeometrySource({ radius: 0.8, segments: 4, seed: 41, roughness: 0.5 })),
   });
   const boulderLod = buildLodGeometry({
-    hi: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 12, seed: 11, roughness: 0.38, flatten: 0.38 })),
+    hi: unindexedLodWindow(boulderSurfaceSource),
     lo: unindexedLodWindow(rockGeometrySource({ radius: 2.4, segments: 4, seed: 11, roughness: 0.38, flatten: 0.38 })),
   });
   const rockGeometry = Geometry.create(gpu, rockLod.source);
@@ -2588,11 +2596,88 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   const toolMarkWorldNormal = new Vec3();
   const toolMarkWorldPoint = new Vec3();
   const toolMarkRotation = new Quat();
+  const toolCentre = new Vec3();
+  const toolSurfaceAim = new Vec3();
+  const toolSurfaceLocalDir = new Vec3();
+  const toolSurfaceWorldOffset = new Vec3();
+  const toolSurfaceRay = new Ray();
+  const toolSurfaceHit = new RayHit();
+  const toolSurfaceOrigin = new Vec3(0, 0, 0);
+  const toolSurfacePoint: RoverToolWorldPoint = { x: 0, y: 0, z: 0 };
+  /** Per-axis-scaled copy of the rock source the surface ray walks; grown on first use. */
+  let toolSurfaceScaled = new Float32Array(0);
 
   const toolRootY = (): number => vehicle.position.y + bodyOffsetY;
   const toolClamp = (value: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, value));
 
-  /** Pick a point on the upper, rover-facing surface so the bit approaches from above. */
+  /**
+   * Centre of the rock as the player sees it: a promoted rock draws from its own entity locked to
+   * the body pose, while a dormant one is still the scattered instance — whose anchor sits below
+   * the proxy (the scatter's embed sink plus a deliberately shrunken collider resting on the
+   * ground). Tool points and marks must be measured from whichever of those is on screen.
+   */
+  function toolVisualCentre(record: InteractiveRockRecord, out: Vec3): Vec3 {
+    const body = record.proxy.body;
+    if (record.activeEntity) return out.set(body.position.x, body.position.y, body.position.z);
+    const p = record.index * 3;
+    return out.set(
+      record.block.positions[p]!,
+      record.block.positions[p + 1]!,
+      record.block.positions[p + 2]!,
+    );
+  }
+
+  /**
+   * Cast from the rock's rendered centre along a world-space aim direction and write where that
+   * ray meets the mesh the scene actually draws (hi window triangles under the body's rotation
+   * and the instance's per-axis scale). False only when the instance is degenerate, so callers
+   * keep an analytic fallback.
+   */
+  function toolVisualSurfacePoint(
+    record: InteractiveRockRecord,
+    aimX: number,
+    aimY: number,
+    aimZ: number,
+    out: RoverToolWorldPoint,
+  ): boolean {
+    const scaleX = record.origScaleX;
+    const scaleY = record.origScaleY;
+    const scaleZ = record.origScaleZ;
+    if (!(scaleX > 0 && scaleY > 0 && scaleZ > 0)) return false;
+    const source = record.typeId === 2 ? boulderSurfaceSource : record.typeId === 3 ? rockBSurfaceSource : rockSurfaceSource;
+    const indices = source.indices;
+    if (!indices) return false;
+    const positions = source.positions;
+    if (toolSurfaceScaled.length < positions.length) toolSurfaceScaled = new Float32Array(positions.length);
+    for (let i = 0; i < positions.length; i += 3) {
+      toolSurfaceScaled[i] = positions[i]! * scaleX;
+      toolSurfaceScaled[i + 1] = positions[i + 1]! * scaleY;
+      toolSurfaceScaled[i + 2] = positions[i + 2]! * scaleZ;
+    }
+    const body = record.proxy.body;
+    toolVisualCentre(record, toolCentre);
+    // The mesh vertices are instance-local: pull the world aim into that frame (the ray starts at
+    // the centre, so its local origin is zero) and push the hit back out through the rotation.
+    body.rotation.rotateVectorInverse(toolSurfaceAim.set(aimX, aimY, aimZ), toolSurfaceLocalDir);
+    toolSurfaceRay.setFrom(toolSurfaceOrigin, toolSurfaceLocalDir, Infinity);
+    if (!raycastTriangles(toolSurfaceScaled, indices, toolSurfaceRay, toolSurfaceHit)) return false;
+    body.rotation.rotateVector(toolSurfaceHit.point, toolSurfaceWorldOffset);
+    out.x = toolCentre.x + toolSurfaceWorldOffset.x;
+    out.y = toolCentre.y + toolSurfaceWorldOffset.y;
+    out.z = toolCentre.z + toolSurfaceWorldOffset.z;
+    return true;
+  }
+
+  /**
+   * Pick a point on the upper, rover-facing surface so the bit approaches from above.
+   *
+   * The point lands on the rock's *visible* mesh, not its collision proxy. The proxy is a
+   * shrunken sphere resting on the ground while the rendered instance is sunken into it, so the
+   * proxy surface sat tens of centimetres above the rock on screen — the drill hovered, and the
+   * hole it left read as floating in the air. The returned normal keeps its analytic meaning
+   * (aim direction for round rocks, body up for slabs) so dust, rubble and fracture reuse it
+   * unchanged.
+   */
   function toolSurfaceTarget(record: InteractiveRockRecord): { point: RoverToolWorldPoint; normal: { x: number; y: number; z: number } } {
     const body = record.proxy.body;
     let towardX = vehicle.position.x - body.position.x;
@@ -2606,6 +2691,41 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     towardX /= towardLength;
     towardZ /= towardLength;
 
+    // Same analytic directions as always; only the surface they cross has changed.
+    const tangent = 0.28;
+    const slabTop = record.isFlat && body.shape instanceof BoxShape;
+    let normalX: number;
+    let normalY: number;
+    let normalZ: number;
+    if (slabTop) {
+      body.rotation.rotateVector(toolBoxUp, toolBoxWorldNormal);
+      toolBoxWorldNormal.normalize();
+      normalX = toolBoxWorldNormal.x;
+      normalY = toolBoxWorldNormal.y;
+      normalZ = toolBoxWorldNormal.z;
+    } else {
+      normalX = towardX * tangent;
+      normalY = Math.sqrt(1 - tangent * tangent);
+      normalZ = towardZ * tangent;
+    }
+    // Slab aim: tilt body-up toward the rover so the cast lands on the near half of the top face,
+    // matching where the box-face fallback used to put the point.
+    let aimX = normalX + (slabTop ? towardX * tangent : 0);
+    let aimY = normalY;
+    let aimZ = normalZ + (slabTop ? towardZ * tangent : 0);
+    const aimLength = Math.hypot(aimX, aimY, aimZ) || 1;
+    aimX /= aimLength;
+    aimY /= aimLength;
+    aimZ /= aimLength;
+
+    if (toolVisualSurfacePoint(record, aimX, aimY, aimZ, toolSurfacePoint)) {
+      return {
+        point: { x: toolSurfacePoint.x, y: toolSurfacePoint.y, z: toolSurfacePoint.z },
+        normal: { x: normalX, y: normalY, z: normalZ },
+      };
+    }
+
+    // Analytic proxy surface — reachable only when the mesh query cannot run.
     if (record.isFlat && body.shape instanceof BoxShape) {
       body.rotation.rotateVectorInverse(toolRoverDirection.set(towardX, 0, towardZ), toolBoxLocalDirection);
       const half = body.shape.halfExtents;
@@ -2615,30 +2735,63 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         toolClamp(toolBoxLocalDirection.z * half.z * 0.46, -half.z * 0.52, half.z * 0.52),
       );
       body.rotation.rotateVector(toolBoxPoint, toolBoxWorldOffset);
-      body.rotation.rotateVector(toolBoxUp, toolBoxWorldNormal);
-      toolBoxWorldNormal.normalize();
       return {
         point: {
           x: body.position.x + toolBoxWorldOffset.x,
           y: body.position.y + toolBoxWorldOffset.y,
           z: body.position.z + toolBoxWorldOffset.z,
         },
-        normal: { x: toolBoxWorldNormal.x, y: toolBoxWorldNormal.y, z: toolBoxWorldNormal.z },
+        normal: { x: normalX, y: normalY, z: normalZ },
       };
     }
 
     const radius = body.shape instanceof SphereShape ? body.shape.radius : record.trailRadius;
-    const tangent = 0.28;
-    const normalY = Math.sqrt(1 - tangent * tangent);
-    const normal = { x: towardX * tangent, y: normalY, z: towardZ * tangent };
     return {
       point: {
-        x: body.position.x + normal.x * radius,
-        y: body.position.y + normal.y * radius,
-        z: body.position.z + normal.z * radius,
+        x: body.position.x + normalX * radius,
+        y: body.position.y + normalY * radius,
+        z: body.position.z + normalZ * radius,
       },
-      normal,
+      normal: { x: normalX, y: normalY, z: normalZ },
     };
+  }
+
+  /**
+   * Mean visual radius of the rock — the same `(sx + sy + sz) / 3` convention the collision shape
+   * builds from, but against the full visual extents rather than the 0.55 proxy factor.
+   */
+  function toolVisualRadius(record: InteractiveRockRecord): number {
+    const baseRadius = record.typeId === 2 ? 2.4 : 0.8;
+    const flatten = record.typeId === 2 ? 0.38 : 0;
+    const rawX = record.origScaleX * baseRadius;
+    const rawY = record.origScaleY * baseRadius * (1 - flatten);
+    const rawZ = record.origScaleZ * baseRadius;
+    return (rawX + rawY + rawZ) / 3;
+  }
+
+  /**
+   * Solve the arm for a tool target, falling back to the turret's safety floor when the visible
+   * surface sits below it. A half-buried rock can surface under `ARM_MIN_TURRET_HEIGHT`, and a
+   * plain reject would hide its drill prompt entirely — the bit then works from the floor
+   * directly above the rock while the tool mark still lands on the surface point. The floor is
+   * allowed only while it stays within one visual radius of that point, so a pebble cannot claim
+   * a prompt for drilling the air well over it.
+   */
+  function solveToolPoseForTarget(
+    target: Readonly<RoverToolPoint>,
+    action: RoverToolAction,
+    visualRadius: number,
+    out: Float64Array,
+  ): Float64Array | null {
+    const pose = solveArmPoseForToolPoint(target, action, out);
+    if (pose) return pose;
+    const floor = ARM_MIN_TURRET_HEIGHT + ROVER_TOOL_SPECS[action].mountOffset[1];
+    if (target.height >= floor || floor - target.height > visualRadius) return null;
+    return solveArmPoseForToolPoint(
+      { right: target.right, forward: target.forward, height: floor },
+      action,
+      out,
+    );
   }
 
   /** Return the nearest rock for which the arm can safely solve a drilling pose. */
@@ -2669,7 +2822,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         vehicle.yaw,
         toolTargetPointLocal,
       );
-      if (!solveArmPoseForToolPoint(local, "drill", toolCandidatePoseScratch)) continue;
+      if (!solveToolPoseForTarget(local, "drill", toolVisualRadius(record), toolCandidatePoseScratch)) continue;
       const distance = Math.hypot(
         surface.point.x - toolCurrentPointWorld.x,
         surface.point.y - toolCurrentPointWorld.y,
@@ -2704,7 +2857,10 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       toolMarks.shift();
     }
     const body = record.proxy.body;
-    toolMarkRelative.set(point.x - body.position.x, point.y - body.position.y, point.z - body.position.z);
+    // Store the mark relative to the rendered centre, not the proxy: the mark must ride the
+    // visual through instance re-anchoring and the wake-time switch to the entity pose.
+    toolVisualCentre(record, toolCentre);
+    toolMarkRelative.set(point.x - toolCentre.x, point.y - toolCentre.y, point.z - toolCentre.z);
     body.rotation.rotateVectorInverse(toolMarkRelative, toolMarkLocalPoint);
     body.rotation.rotateVectorInverse(new Vec3(normal.x, normal.y, normal.z), toolMarkLocalNormal);
     const localPoint = toolMarkLocalPoint.clone();
@@ -2737,10 +2893,13 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       body.rotation.rotateVector(mark.localPoint, toolMarkWorldOffset);
       body.rotation.rotateVector(mark.localNormal, toolMarkWorldNormal);
       toolMarkWorldNormal.normalize();
+      // Same anchor addToolMark stored against: the rendered centre keeps the mark glued to the
+      // visible surface (instance anchor while dormant, body pose once promoted).
+      toolVisualCentre(record, toolCentre);
       toolMarkWorldPoint.set(
-        body.position.x + toolMarkWorldOffset.x + toolMarkWorldNormal.x * 0.009,
-        body.position.y + toolMarkWorldOffset.y + toolMarkWorldNormal.y * 0.009,
-        body.position.z + toolMarkWorldOffset.z + toolMarkWorldNormal.z * 0.009,
+        toolCentre.x + toolMarkWorldOffset.x + toolMarkWorldNormal.x * 0.009,
+        toolCentre.y + toolMarkWorldOffset.y + toolMarkWorldNormal.y * 0.009,
+        toolCentre.z + toolMarkWorldOffset.z + toolMarkWorldNormal.z * 0.009,
       );
       toolMarkRotation.fromUnitVectorY(toolMarkWorldNormal);
       syncEntityPose(mark.entity, toolMarkWorldPoint, toolMarkRotation);
@@ -2857,7 +3016,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       vehicle.yaw,
       toolTargetPointLocal,
     );
-    if (!solveArmPoseForToolPoint(targetLocal, action, targetPose)) return false;
+    if (!solveToolPoseForTarget(targetLocal, action, toolVisualRadius(candidate.record), targetPose)) return false;
     const operation: ToolOperation = {
       action,
       targetId: candidate.record.proxy.spec.id,
