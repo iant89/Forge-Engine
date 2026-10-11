@@ -54,6 +54,7 @@ export const linkedSuites = [
   ["tests/particles/particles.test.ts", () => import("./particles/particles.test.ts")],
   ["tests/population/population.test.ts", () => import("./population/population.test.ts")],
   ["tests/examples/alpineSnowpack.test.ts", () => import("./examples/alpineSnowpack.test.ts")],
+  ["tests/examples/amazonBoatHull.test.ts", () => import("./examples/amazonBoatHull.test.ts")],
   ["tests/examples/highGainAntenna.test.ts", () => import("./examples/highGainAntenna.test.ts")],
   ["tests/examples/marsGeneratorScene.test.ts", () => import("./examples/marsGeneratorScene.test.ts")],
   ["tests/examples/marsShowcase.test.ts", () => import("./examples/marsShowcase.test.ts")],
@@ -76,4 +77,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(72);
+report(73);

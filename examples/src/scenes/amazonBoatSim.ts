@@ -29,14 +29,7 @@
  * transform written from these angles lands the hull exactly where the integrator put it.
  */
 
-import {
-  clamp,
-  createWaterSample,
-  damp,
-  sampleGerstner,
-  type GerstnerWave,
-  type Transform,
-} from "@forge/engine";
+import { clamp, createWaterSample, damp, sampleGerstner, type GerstnerWave, type Transform } from "@forge/engine";
 
 /** River water with silt in it: denser than fresh, so the hull rides a few millimetres higher. */
 export const WATER_DENSITY = 1006;
@@ -62,20 +55,20 @@ const PANEL_TAIL_T = 0.045;
 const PANEL_NOSE_T = 0.93;
 
 /** Displacement mass with engines, fuel, batteries and the load carried upriver. */
-export const BOAT_MASS = 1450;
+export const BOAT_MASS = 1260;
 /** Redline of the twin outboards. */
 export const BOAT_MAX_RPM = 5400;
 export const BOAT_IDLE_RPM = 780;
 /** Static thrust in newtons at wide-open throttle; the terminal-speed test is what sets this. */
-const THRUST_COEFFICIENT = 11800;
+const THRUST_COEFFICIENT = 12000;
 /** Astern thrust is the same prop turning the other way through a smaller bucket. */
-const REVERSE_SCALE = 0.5;
+const REVERSE_SCALE = 0.38;
 /** Rudder angle at full lock (rad), and how fast the helm gets there and centres again (rates, 1/s). */
 export const BOAT_HELM_MAX = 0.58;
 const HELM_RATE = 1.9;
 const HELM_RETURN = 2.6;
 /** Engine spool rate (1/s): slower astern, because the prop has to stop spinning before it can push back. */
-const SPOOL_AHEAD = 1.25;
+const SPOOL_AHEAD = 0.85;
 const SPOOL_ASTERN = 0.7;
 /** Wash speed at redline (m/s): what the rudder feels with the boat still alongside the dock. */
 const WASH_SPEED = 7.6;
@@ -109,7 +102,7 @@ export function hullProfileAt(t: number): HullProfile {
   const a = clamp(t, 0, 1);
   const forward = smooth01((a - 0.6) / 0.4);
   const transomFlare = 0.92 + 0.08 * smooth01(a / 0.12);
-  const halfBeam = (BOAT_BEAM * 0.5) * (1 - 0.94 * forward) * transomFlare;
+  const halfBeam = BOAT_BEAM * 0.5 * (1 - 0.94 * forward) * transomFlare;
   const rise = smooth01((a - 0.4) / 0.6);
   const keelY = 0.36 * rise + 0.06 * smooth01((a - 0.88) / 0.12);
   const deckY = BOAT_DEPTH + 0.24 * smooth01((a - 0.5) / 0.5) + 0.06 * smooth01((0.14 - a) / 0.14);
@@ -191,13 +184,45 @@ export interface BoatConfig {
   readonly heaveAddedMass: number;
   /** `½ρ·Cf·Awet·v²` skin friction, with the wetted area tracked from the columns' submersions. */
   readonly frictionCf: number;
-  /** Wave-making hump: strength, centre Froude number, width. */
+  /** Wave-making hump: strength (as a multiplier on skin friction), centre Froude number, width. */
   readonly waveDragGain: number;
   readonly waveDragFroude: number;
   readonly waveDragWidth: number;
-  /** Planing lift coefficient, and how far forward its centre of pressure sits of the mass centre. */
+  /** Above-water hull area the air drag sees, and the drag coefficient applied to it. */
+  readonly airDragArea: number;
+  readonly airDragCf: number;
+  /**
+   * Planing-lift curve slope, as `dCl/d(tan trim_eff)`, and how far *forward of the wetted centroid* the
+   * centre of pressure sits: the pressure peak of a planing bottom is at its spray root, not at its middle.
+   */
   readonly liftCoefficient: number;
   readonly liftLever: number;
+  /**
+   * Rocker: how much the V's planing form shifts the lift curve toward bow-up per unit of Froude number.
+   * This is an *angle of attack* offset, not a second lift force — modelling the rocker as its own force
+   * double-counts it and throws the boat out of the water.
+   */
+  readonly rockerLift: number;
+  /**
+   * Angular rate of attack the leg trim buys (trimming the leg up squares the transom against the water) and
+   * the damping that bleeds the pitch oscillation a hull climbing onto the plane always overshoots.
+   */
+  readonly legTrimAngle: number;
+  /** Pitch damping (N·m·s/rad) from the waterplane's fore-aft flow: without it the trim rings for minutes. */
+  readonly pitchDamping: number;
+  /**
+   * Thrust lost to a ventilating propeller at full trim-up (worst in the flat, when the boat is still behind
+   * her own transom wave), and the yaw damping the tilted leg buys at speed.
+   */
+  readonly legTrimThrustLoss: number;
+  readonly legTrimYawHelp: number;
+  /**
+   * Effective frontal area of the outboard leg and how much of it the water still sees: hard down the
+   * gearcase and anti-ventilation plate are drag, trimmed out they almost clear the surface.
+   */
+  readonly legDragArea: number;
+  readonly legDragDown: number;
+  readonly legDragClear: number;
   /** Rudder: side force per unit sin(deflection) per unit² of effective flow, and its lever arm. */
   readonly rudderGain: number;
   readonly rudderLever: number;
@@ -230,7 +255,7 @@ export interface BoatInput {
   steer: number;
   /** 1 ahead, 0 neutral, −1 astern. */
   gear: number;
-  /** Outboard trim −1..1: down for pulling onto plane, up for a shallow bar. */
+  /** Outboard leg trim −1..1: −1 down in the hole (thrust, trim, drag), +1 up (shallow, flatter, slower). */
   trim: number;
 }
 
@@ -271,6 +296,12 @@ export interface BoatState {
   rpm: number;
   /** Helm angle actually achieved, after the rate limit (rad, port positive). */
   helm: number;
+  /**
+   * Outboard leg trim, 0 = down in the hole, 1 = fully trimmed up. The driver's shallow-water and
+   * rough-water control: up cuts thrust and drops the bow but keeps the prop clear of a bar, down buys
+   * thrust and steerage at the cost of drag and a bow that likes to trip.
+   */
+  legTrim: number;
   grounded: boolean;
   /** Deepest keel penetration into the bed (m). */
   penetration: number;
@@ -314,6 +345,7 @@ export function createBoatState(): BoatState {
     yawRate: 0,
     rpm: BOAT_IDLE_RPM,
     helm: 0,
+    legTrim: 0,
     grounded: false,
     penetration: 0,
     slap: 0,
@@ -363,7 +395,7 @@ export function createBoatConfig(overrides: Partial<BoatConfig> = {}): BoatConfi
     const widths = new Float32Array(PANEL_TABLE_ENTRIES);
     let cumulative = 0;
     for (let k = 0; k < PANEL_TABLE_ENTRIES; k++) {
-      const w = 2 * hullHalfWidth(t, k * step) / PANEL_COLS;
+      const w = (2 * hullHalfWidth(t, k * step)) / PANEL_COLS;
       widths[k] = w;
       if (k > 0) cumulative += w * step;
       volume[k] = cumulative;
@@ -389,64 +421,91 @@ export function createBoatConfig(overrides: Partial<BoatConfig> = {}): BoatConfi
   const cgY = CG_HEIGHT;
   const cgZ = -length * 0.5 + CG_FROM_TRANSOM * length;
 
-  // How much of a column is under water for a keel `under` metres below the surface.
+  // How much of a column is under water when the keel amidships sits `draft` below the surface and the hull
+  // is trimmed by `trim` radians. The lever and the height both use the *same* rotation the integrator
+  // uses, and the pitch moment is taken about the keel amidships exactly as `integrate` does, because the
+  // design attitude has to be an equilibrium of the model that runs — a static solve that measures its
+  // moment a little differently (about the mass centre, along a body axis, without the pendulum term)
+  // leaves the boat drifting several degrees and a hand's width off its own waterline on the first step.
+  const attitude = new Float64Array(9);
+  const keelDepth = (trim: number): ((panel: HullPanel) => number) => {
+    bodyToWorld({ heading: 0, roll: 0, pitch: trim }, attitude);
+    const ry = attitude[4] ?? 1;
+    const rz = attitude[5] ?? 0;
+    return (panel) => panel.keelY * ry + panel.z * rz;
+  };
+  const floatation = (d: number, trim: number): { force: number; moment: number } => {
+    const depthOf = keelDepth(trim);
+    bodyToWorld({ heading: 0, roll: 0, pitch: trim }, attitude);
+    let force = 0;
+    let moment = 0;
+    for (const panel of panels) {
+      const submerged = clamp(d - depthOf(panel), 0, panel.height);
+      if (submerged <= 0) continue;
+      const buoyant = WATER_DENSITY * GRAVITY * columnVolumeAt(panel, submerged);
+      force += buoyant;
+      // Bow-up moment of a world-vertical force at this body point: `F(rz·R00 − rx·R20)`, which is the
+      // runtime's `r × F` reduced to the one component the trim equation cares about.
+      const rx = (attitude[0] ?? 1) * panel.x + (attitude[2] ?? 0) * panel.z;
+      const rz = (attitude[6] ?? 0) * panel.x + (attitude[8] ?? 1) * panel.z;
+      moment += buoyant * (rz * (attitude[0] ?? 1) - rx * (attitude[6] ?? 0));
+    }
+    // The weight, at its own height: a CG above the keel line reduces the restoring (the `KG` term) and a
+    // CG aft of mid-length is what makes her sit by the stern.
+    const gravity = mass * GRAVITY;
+    const cRx = (attitude[0] ?? 1) * cgX + (attitude[1] ?? 0) * cgY + (attitude[2] ?? 0) * cgZ;
+    const cRz = (attitude[6] ?? 0) * cgX + (attitude[7] ?? 0) * cgY + (attitude[8] ?? 1) * cgZ;
+    force -= gravity;
+    moment += -gravity * (cRz * (attitude[0] ?? 1) - cRx * (attitude[6] ?? 0));
+    return { force, moment };
+  };
+
+  let draft = 0.3;
+  let trimDesign = 0;
+  for (let pass = 0; pass < 24; pass++) {
+    let draftLo = 0.002;
+    let draftHi = BOAT_DEPTH;
+    for (let k = 0; k < 40; k++) {
+      const mid = (draftLo + draftHi) * 0.5;
+      if (floatation(mid, trimDesign).force < 0) draftLo = mid;
+      else draftHi = mid;
+    }
+    const nextDraft = (draftLo + draftHi) * 0.5;
+    let trimLo = -0.12;
+    let trimHi = 0.12;
+    for (let k = 0; k < 40; k++) {
+      const mid = (trimLo + trimHi) * 0.5;
+      // The bow-up moment falls as the bow comes up, so a positive residual means the
+      // equilibrium sits at a higher trim, not a lower one.
+      if (floatation(nextDraft, mid).moment > 0) trimLo = mid;
+      else trimHi = mid;
+    }
+    const nextTrim = (trimLo + trimHi) * 0.5;
+    const settled = Math.abs(nextTrim - trimDesign) < 1e-5 && Math.abs(nextDraft - draft) < 1e-5;
+    draft = nextDraft;
+    trimDesign = nextTrim;
+    if (settled) break;
+  }
+
   const columnSubmersion = (panel: HullPanel, under: number): number => clamp(under, 0, panel.height);
   const columnVolume = columnVolumeAt;
   const columnWidthAtLocal = columnWidthAt;
 
-  // Static floatation, solved as a pair. Draft alone is not enough: pitching the hull changes how much of
-  // it is under water, so a draft solved at zero trim leaves a net upward force once the trim balances the
-  // moments — and a boat that is not in vertical equilibrium at its own design attitude climbs out of the
-  // water the first time the integrator touches it. The two are therefore relaxed together: bisect the
-  // draft for force balance at the current trim, then the trim for moment balance at that draft, until both
-  // stop moving.
-  let draft = 0.3;
-  let trimDesign = 0;
-  for (let pass = 0; pass < 14; pass++) {
-    let draftLo = 0.002;
-    let draftHi = BOAT_DEPTH;
-    for (let k = 0; k < 24; k++) {
-      const mid = (draftLo + draftHi) * 0.5;
-      let displaced = 0;
-      for (const panel of panels) {
-        displaced += columnVolume(panel, columnSubmersion(panel, mid - panel.keelY - panel.z * Math.sin(trimDesign)));
-      }
-      if (displaced * WATER_DENSITY < mass) draftLo = mid;
-      else draftHi = mid;
-    }
-    draft = (draftLo + draftHi) * 0.5;
-    // Trim: the net bow-up pitching moment about the mass centre. A hull trims until the centre of buoyancy
-    // stands under the mass centre, which for a launch means the run carries the load and the entry only
-    // kisses the surface.
-    let trimLo = -0.09;
-    let trimHi = 0.09;
-    for (let k = 0; k < 22; k++) {
-      const mid = (trimLo + trimHi) * 0.5;
-      let moment = 0;
-      for (const panel of panels) {
-        const subm = columnSubmersion(panel, draft - panel.keelY - panel.z * Math.sin(mid));
-        moment += WATER_DENSITY * GRAVITY * columnVolume(panel, subm) * (panel.z - cgZ);
-      }
-      if (moment > 0) trimHi = mid;
-      else trimLo = mid;
-    }
-    trimDesign = (trimLo + trimHi) * 0.5;
-  }
-
   // The design-waterline areas, now that the attitude is known: these are what the damping law scales by,
   // and `boatWaterplaneArea` reports the sum as the hull's hydrostatic stiffness.
+  bodyToWorld({ heading: 0, roll: 0, pitch: trimDesign }, attitude);
+  const restRy = attitude[4] ?? 1;
+  const restRz = attitude[5] ?? 0;
+  const restSubmersion = (panel: HullPanel): number =>
+    columnSubmersion(panel, draft - (panel.keelY * restRy + panel.z * restRz));
   for (const panel of panels) {
-    panel.area =
-      columnWidthAtLocal(panel, columnSubmersion(panel, draft - panel.keelY - panel.z * Math.sin(trimDesign))) * dz;
+    panel.area = columnWidthAtLocal(panel, restSubmersion(panel)) * dz;
   }
 
   let waterplaneArea = 0;
   let inertiaTransverse = 0;
   for (const panel of panels) {
-    panel.load =
-      WATER_DENSITY *
-      GRAVITY *
-      columnVolume(panel, columnSubmersion(panel, draft - panel.keelY - panel.z * Math.sin(trimDesign)));
+    panel.load = WATER_DENSITY * GRAVITY * columnVolume(panel, restSubmersion(panel));
     waterplaneArea += panel.area;
     inertiaTransverse += panel.area * panel.x * panel.x;
   }
@@ -471,16 +530,26 @@ export function createBoatConfig(overrides: Partial<BoatConfig> = {}): BoatConfi
     surgeAddedMass: 0.16,
     swayAddedMass: 0.85,
     heaveAddedMass: 0.7,
-    frictionCf: 0.0075,
-    waveDragGain: 1.25,
+    frictionCf: 0.0046,
+    waveDragGain: 1.5,
     waveDragFroude: 0.42,
-    waveDragWidth: 0.13,
-    liftCoefficient: 0.55,
-    liftLever: 0.14 * length,
+    waveDragWidth: 0.16,
+    airDragArea: 2.4,
+    airDragCf: 1.05,
+    liftCoefficient: 0.3,
+    liftLever: 0.105 * length,
+    rockerLift: 0.012,
+    legTrimAngle: 0.03,
+    pitchDamping: 5200,
+    legTrimThrustLoss: 0.3,
+    legTrimYawHelp: 0.9,
+    legDragArea: 0.045,
+    legDragDown: 1.0,
+    legDragClear: 0.8,
     rudderGain: 260,
     rudderLever: 0.46 * length,
     washSteering: 0.55,
-    crossflowGain: 0.62,
+    crossflowGain: 0.9,
     weathervaneGain: 190,
     yawDamping: 1.2,
     groundStiffness: 320000,
@@ -580,17 +649,12 @@ function columnWidthAt(panel: HullPanel, submerged: number): number {
   return (panel.width[k0] ?? 0) * (1 - frac) + (panel.width[k0 + 1] ?? 0) * frac;
 }
 
-/** Extra wetted strip contributed by `submerged` metres of hull side, for the skin-friction area. */
-function dzWetted(panel: HullPanel): number {
-  // The side of the column, per metre of submersion: the slant length, from the section's slope.
-  return Math.max(0.05, panel.width[1] ?? 0.4) * 1.15;
-}
-
 const scratchMatrix = new Float64Array(9);
 const scratchSurface = createWaterSample();
 const scratchEarlier = createWaterSample();
 const scratchOffset = { x: 0, y: 0, z: 0 };
 const scratchForce = { x: 0, y: 0, z: 0 };
+const scratchWorld = { x: 0, y: 0, z: 0 };
 const scratchFlow = { x: 0, y: 0, z: 0 };
 const scratchGravity = { x: 0, y: 0, z: 0 };
 const scratchDeck = { x: 0, y: 0, z: 0 };
@@ -664,6 +728,7 @@ export function resetBoat(
   state.yawRate = 0;
   state.rpm = BOAT_IDLE_RPM;
   state.helm = 0;
+  state.legTrim = 0;
   state.grounded = false;
   state.penetration = 0;
   state.slap = 0;
@@ -678,6 +743,41 @@ export function resetBoat(
   state.freeboard = BOAT_DEPTH - config.draft;
   state.planing = 0;
   state.time = 0;
+}
+
+/**
+ * A short wind sea for the river, in the shape the water shader and the CPU sampler both agree on.
+ *
+ * Four trains only (`MAX_WATER_WAVES`), none shorter than 16 m: below that the water surface's own vertex
+ * grid cannot resolve a crest, and the boat would be riding water nobody can see — the sampler and the
+ * shader drift apart and the hull starts to be pushed by waves that are not drawn. The wavelengths come from
+ * deep-water dispersion (λ ≈ 1.56·T²) for a fetch-limited 3-8 s sea, the amplitude is shared out so that
+ * `height` reads as significant wave height (four times the surface's standard deviation), each crest is held under the breaking limit, and every train
+ * travels with the wind, which on a river means downstream: a chop running up a current is a much steeper,
+ * much shorter sea than the one described here, and the scene raises it explicitly when that is the weather.
+ */
+export function riverChop(height: number, windHeading = 0, downstream = 1): GerstnerWave[] {
+  const period = [3.4, 4.6, 6.1, 7.9];
+  const share = [0.17, 0.29, 0.34, 0.2];
+  const waves: GerstnerWave[] = [];
+  for (let i = 0; i < period.length; i++) {
+    const seconds = period[i] ?? 4;
+    const wavelength = Math.max(16, 1.56 * seconds * seconds);
+    const amplitude = (share[i] ?? 0) * height * 0.62;
+    // Each train leaves the wind a little to one side: a sea whose crests ran exactly across the river would
+    // give the boat nothing to roll on, and chop is felt as roll long before it is felt as pitch.
+    const bearing = windHeading + (i - 1.5) * 0.38;
+    waves.push({
+      directionX: Math.sin(bearing) * downstream,
+      directionZ: Math.cos(bearing) * downstream,
+      wavelength,
+      amplitude: Math.min(amplitude, 0.11 * wavelength),
+      speed: Math.sqrt((GRAVITY * wavelength) / (Math.PI * 2)),
+      steepness: clamp(amplitude / Math.max(0.05, 0.12 * wavelength), 0.15, 0.85),
+      phase: i * 1.7,
+    });
+  }
+  return waves;
 }
 
 /** Water surface height at a world point — the shader's answer on the CPU. Uses a shared scratch sample. */
@@ -696,6 +796,8 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   state.helm += clamp(helmTarget - state.helm, -helmStep, helmStep);
   if (input.steer === 0) state.helm = damp(state.helm, 0, HELM_RETURN, h);
   const gear = input.gear > 0 ? 1 : input.gear < 0 ? -1 : 0;
+  // The leg moves on a hydraulic ram: a second or so of travel, so trimming out at speed is a decision.
+  state.legTrim = damp(state.legTrim, clamp((clamp(input.trim, -1, 1) + 1) * 0.5, 0, 1), 1.1, h);
   const demandedRpm =
     gear === 0 ? BOAT_IDLE_RPM : BOAT_IDLE_RPM + (BOAT_MAX_RPM - BOAT_IDLE_RPM) * clamp(input.throttle, 0, 1);
   state.rpm = damp(state.rpm, demandedRpm, gear < 0 ? SPOOL_ASTERN : SPOOL_AHEAD, h);
@@ -729,6 +831,8 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   let minSurface = Infinity;
   let maxSurface = -Infinity;
   let wettedArea = 0;
+  let wettedPlanform = 0;
+  let planformMoment = 0;
   let transomSubmersion = 0;
   let bowSubmersion = 0;
   let freeboard = BOAT_DEPTH;
@@ -755,8 +859,16 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
     if (i === 0) transomSubmersion = submerged;
     if (i === panels.length - 1) bowSubmersion = submerged;
     if (submerged <= 0) continue;
-    // Skin-friction reference area: the waterplane patch plus the wetted strip of side below it.
-    wettedArea += panel.area + 2 * submerged * dzWetted(panel);
+    // Skin-friction reference area: the wetted planform patch plus the strip of side below it. The side
+    // term is capped by the column's own depth so a hull buried to the gunwale cannot invent drag forever.
+    const sideShare = 0.55 * clamp(submerged / Math.max(0.1, panel.height), 0, 1);
+    wettedArea += panel.area * (1 + sideShare);
+    const contact = clamp(submerged / 0.05, 0, 1);
+    wettedPlanform += panel.area * contact;
+    // Where the water is actually pushing, lengthwise: this is the self-limiting part of the trim balance.
+    // As the bow comes up the run dries out and the centre of pressure slides aft toward the transom, from
+    // where its lift pitches her bow down again — which is why a boat with the leg hard trimmed out falls off.
+    planformMoment += panel.area * contact * panel.z;
     // Buoyancy acts along the *surface* normal, not straight up: a wave face pushes the hull, which is why
     // a boat squats at the top of a swell and surfs down its back.
     const nLen = Math.max(0.2, Math.hypot(surface.nx, surface.ny, surface.nz));
@@ -766,56 +878,102 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
     const earlier = sampleGerstner(env.waves, px, pz, env.time - 0.05, scratchEarlier);
     const waterRise = (surface.y - earlier.y) / 0.05;
     const hullRise = state.vy + angularVerticalRate(state, m, panel.x, panel.keelY, panel.z);
-    const closing = hullRise - waterRise;
+    // Slam damping is the one term that can run away: a hull re-entering at 30 m/s would otherwise be
+    // kicked out again harder than it came in. Real water does not have that much momentum to give, so the
+    // relative rate is clamped to a physically available one.
+    const closing = clamp(hullRise - waterRise, -14, 14);
     const damping = -heaveCoefficient * (columnWidthAt(panel, submerged) / Math.max(0.2, planformWidth)) * closing;
     const share = pressure / nLen;
-    toBody(m, 0, damping, 0, scratchForce);
-    addLoad(
-      load,
-      surface.nx * share + scratchForce.x,
-      surface.ny * share + scratchForce.y,
-      surface.nz * share + scratchForce.z,
-      panel.x,
-      panel.keelY,
-      panel.z,
-    );
+    // The water's push is a world vector — the surface normal times the column's pressure, plus the vertical
+    // damping — and `addLoad` accumulates in body axes, so it crosses over once, here. Getting this wrong is
+    // invisible in flat water and turns every wave face into a sideways force.
+    scratchWorld.x = surface.nx * share;
+    scratchWorld.y = surface.ny * share + damping;
+    scratchWorld.z = surface.nz * share;
+    toBody(m, scratchWorld.x, scratchWorld.y, scratchWorld.z, scratchForce);
+    addLoad(load, scratchForce.x, scratchForce.y, scratchForce.z, panel.x, panel.keelY, panel.z);
     // Slap: a panel that was dry a moment ago and now bites into the surface at speed.
     if (closing < -1.1 && submerged < 0.18) slapImpulse = Math.max(slapImpulse, -closing);
   }
 
   // ------------------------------------------------------------------ planing lift
-  // Lift is a function of trim and of how much run is still in contact: this is the force that lets the
-  // boat climb out of its trough instead of being pinned there by wave-making drag. It is applied forward
-  // of the mass centre, because on a launch with twin outboards bolted to the transom the centre of
-  // pressure of the planing surface is *ahead* of the weight, which is exactly why the bow comes up.
-  const wettedFraction = clamp(wettedArea / Math.max(0.5, planform), 0, 1.4);
-  const trimRad = state.pitch - config.trimDesign;
-  const liftCoefficient =
-    config.liftCoefficient *
-    (0.45 + 1.9 * clamp(trimRad + clamp(input.trim, -1, 1) * 0.05, -0.1, 0.18) / 0.18) *
-    smooth01((froude - 0.26) / 0.46);
-  const lift =
-    0.5 * WATER_DENSITY * clamp(liftCoefficient, 0, 1.1) * (BOAT_LOA * BOAT_BEAM * 0.4) * u * u * clamp(1.15 - 0.5 * wettedFraction, 0.15, 1);
-  addLoad(load, 0, lift, 0, 0, config.cgY, config.cgZ + config.liftLever);
+  // Dynamic lift on the wetted run, applied forward of the mass centre: on a launch with twin outboards
+  // bolted to the transom the centre of pressure of the planing surface is *ahead* of the weight, which is
+  // exactly why the bow comes up as the throttle does. It is integrated over the columns that are actually
+  // in contact, so a hull that has risen out of the water stops being lifted and settles back — the
+  // feedback loop that makes planing self-limiting instead of a launch into the air.
+  const trimRad = clamp(state.pitch - config.trimDesign, -0.2, 0.3);
+  // Rocker and leg trim are angle-of-attack offsets rather than extra forces: the bottom's own curvature
+  // matters most while the boat is still in displacement mode, and a leg run hard down squares the transom
+  // off against the flow.
+  const trimEffective = clamp(
+    trimRad + state.legTrim * config.legTrimAngle + config.rockerLift * (1 - clamp(froude, 0, 1)),
+    -0.2,
+    0.28,
+  );
+  const liftCurve = clamp(config.liftCoefficient * Math.tan(trimEffective), -0.14, 0.32);
+  const planingArea = Math.max(0.2, wettedPlanform);
+  // Bounded by the displacement: dynamic lift can hold the boat up, it cannot launch her.
+  const lift = clamp(0.5 * WATER_DENSITY * u * u * liftCurve * planingArea, -0.35 * weight, 0.95 * weight);
+  // The lift acts at the wetted run's centroid, nudged forward by the pressure peak at the spray root.
+  const centreOfPressure = planformMoment / Math.max(0.5, wettedPlanform) + config.liftLever;
+  addLoad(load, 0, lift, 0, 0, config.cgY, centreOfPressure);
 
   // ------------------------------------------------------------------ drag
-  const friction = 0.5 * WATER_DENSITY * config.frictionCf * Math.max(1.5, wettedArea) * u * speed;
+  // Skin friction over the *wetted* surface, times the wave-making hump that peaks near Froude 0.42: this
+  // is the hull-speed wall, and because the area it scales with shrinks as the boat rises on the plane, the
+  // way through the wall is the lift term above rather than more throttle. Above-water drag is what caps the
+  // top speed of a light launch, and the interference drag of a leg left hard down is what makes trimming
+  // out worth doing on a long flat run.
   const waveHump = Math.exp(-Math.pow((froude - config.waveDragFroude) / config.waveDragWidth, 2));
-  const waveMaking =
-    0.5 * WATER_DENSITY * GRAVITY * config.waveDragGain * waveHump * Math.max(0.05, config.draft * BOAT_BEAM) * u;
-  addLoad(load, 0, 0, -(friction + waveMaking), 0, 0.1, config.cgZ);
+  const friction =
+    0.5 *
+    WATER_DENSITY *
+    config.frictionCf *
+    Math.max(1.5, wettedArea) *
+    u *
+    speed *
+    (1 + config.waveDragGain * waveHump);
+  const airDrag = 0.5 * 1.225 * config.airDragCf * config.airDragArea * u * speed;
+  // The gearcase and anti-ventilation plate are the last things in the water: hard down they are a 60 kN/m²
+  // parachute, trimmed out they nearly vanish, so the drag falls with the square of what is still wet.
+  const legDrag =
+    0.5 *
+    WATER_DENSITY *
+    u *
+    Math.abs(u) *
+    config.legDragArea *
+    (config.legDragDown - config.legDragClear * state.legTrim);
+  addLoad(load, 0, 0, -(friction + airDrag + legDrag), 0, 0.1, config.cgZ);
   // Crossflow drag on the sides and the rockered bottom: the whole of a planing hull's lateral grip, since
   // there is no keel to speak of. Quadratic, so a fast boat skids less than a slow one sliding sideways.
   const lateralArea = Math.max(0.3, 1.6 * BOAT_LOA * (config.draft + 0.4 * Math.max(transomSubmersion, bowSubmersion)));
-  const crossflow = config.crossflowGain * lateralArea * v * Math.abs(v) * 0.5;
+  const crossflow = 0.5 * WATER_DENSITY * config.crossflowGain * lateralArea * v * Math.abs(v);
   addLoad(load, -crossflow, 0, -0.16 * Math.abs(crossflow) * Math.sign(u), 0, 0.25, 0);
 
   // ------------------------------------------------------------------ thrust and rudder
-  const unload = clamp(1 - 0.66 * speed / config.hullSpeed, 0.05, 1);
-  const thrust = (gear > 0 ? 1 : gear < 0 ? -REVERSE_SCALE : 0) * THRUST_COEFFICIENT * rpmRatio * rpmRatio * unload;
-  // The outboards sit above the keel line and behind the transom, so full throttle pitches the bow up —
-  // the squat before the surge that every powerboater knows.
-  addLoad(load, thrust, -0.06 * thrust, 0, 0, 0.34, -0.5 * BOAT_LOA);
+  // Propeller unloading as the boat climbs into its own wave, the thrust lost to a ventilating prop at full
+  // trim-up, and the harder loss when the transom is being dragged along a bar.
+  const unload = clamp(1 - (0.34 * speed) / config.hullSpeed, 0.3, 1);
+  // A propeller in air makes noise, not thrust: `wettedPlanform` is the boat's own report of how much of her
+  // bottom is still in contact with the river, and it is the hard negative feedback that keeps a hop from
+  // turning into a launch.
+  const water = clamp(wettedPlanform / 2.2, 0, 1);
+  const grip =
+    (1 - config.legTrimThrustLoss * state.legTrim * (1 - clamp(froude, 0, 1) * 0.6) - (state.grounded ? 0.55 : 0)) *
+    water;
+  const thrust =
+    (gear > 0 ? 1 : gear < 0 ? -REVERSE_SCALE : 0) *
+    THRUST_COEFFICIENT *
+    rpmRatio *
+    rpmRatio *
+    unload *
+    clamp(grip, 0.05, 1);
+  // The propeller pushes along the boat's own Z axis, at the leg: below the keel line, which pitches the bow
+  // up, and angled upward by however much the leg is trimmed in, which lifts the stern and drops the bow —
+  // the two effects that decide whether a hull comes onto the plane or digs its transom in. No empirical
+  // trim couple is needed on top of them, and adding one hides the balance the driver is actually feeling.
+  addLoad(load, 0, thrust * (0.075 * state.legTrim - 0.02), thrust, 0, -0.14 - 0.16 * state.legTrim, -0.5 * BOAT_LOA);
   // A steerable outboard turns the jet: side force goes with sin(deflection) and with the square of the
   // effective flow over the leg, which is boat speed blended with propeller wash so she answers the helm
   // even at tickover.
@@ -826,11 +984,9 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   // Weather helm: the hull turns into the relative flow. Reversing takes the steerage way out of it.
   load.ty += config.weathervaneGain * v * (u >= 0 ? 1 : -0.3);
   load.ty -= config.yawDamping * config.inertiaYaw * state.yawRate;
-  // Trim tab: `trim` +1 (tab up / leg down) presses the transom down and raises the bow, which is how you
-  // get a heavy launch onto plane; −1 drops the bow and lets her run flatter in a head sea. Only effective
-  // once there is flow over the leg.
-  const trimForce = clamp(input.trim, -1, 1) * 2100 * smooth01(froude / 0.6);
-  addLoad(load, 0, trimForce, 0, 0, config.cgY + 0.3, -0.5 * BOAT_LOA);
+  // A trimmed-out leg is a strake: it holds a straight line at speed, which is why outboards have it.
+  load.ty -= config.legTrimYawHelp * state.legTrim * config.inertiaYaw * state.yawRate * clamp(froude, 0, 1.5);
+  if (gear < 0 && speed < 1.4) load.ty += -config.rudderLever * rudderForce * 0.25;
 
   // ------------------------------------------------------------------ grounding
   let penetration = 0;
@@ -849,15 +1005,32 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
     const bedDz = (env.bedElevation(px, pz + 0.8) - env.bedElevation(px, pz - 0.8)) / 1.6;
     const nLen = Math.max(0.4, Math.hypot(bedDx, 1, bedDz));
     const hullDown = state.vy + angularVerticalRate(state, m, panel.x, panel.keelY, panel.z);
-    const normal = Math.max(0, config.groundStiffness * Math.min(depth, 0.5) - config.groundDamping * Math.max(0, -hullDown));
+    const normal = Math.max(
+      0,
+      config.groundStiffness * Math.min(depth, 0.5) - config.groundDamping * Math.max(0, -hullDown),
+    );
     // The bed's normal, in body axes: the ground holds the keel off the bar *and* slides it down the slope.
     toBody(m, (-bedDx / nLen) * normal, normal / nLen, (-bedDz / nLen) * normal, scratchForce);
     const share = 1 / Math.max(1, Math.ceil(panels.length / 2));
-    addLoad(load, scratchForce.x * share, scratchForce.y * share, scratchForce.z * share, panel.x, panel.keelY, panel.z);
+    addLoad(
+      load,
+      scratchForce.x * share,
+      scratchForce.y * share,
+      scratchForce.z * share,
+      panel.x,
+      panel.keelY,
+      panel.z,
+    );
     const tangential = Math.hypot(state.vx, state.vz);
     if (tangential > 0.02) {
       const frictionForce = Math.min(tangential * 6000 + 3000, config.groundFriction * normal);
-      toBody(m, (-state.vx / tangential) * frictionForce * share, 0, (-state.vz / tangential) * frictionForce * share, scratchForce);
+      toBody(
+        m,
+        (-state.vx / tangential) * frictionForce * share,
+        0,
+        (-state.vz / tangential) * frictionForce * share,
+        scratchForce,
+      );
       load.fx += scratchForce.x;
       load.fz += scratchForce.z;
     }
@@ -867,7 +1040,10 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
 
   // ------------------------------------------------------------------ integrate
   const ax = load.fx / (config.mass * (1 + config.swayAddedMass));
-  const ay = load.fy / (config.mass * (1 + config.heaveAddedMass));
+  // Heave is bounded by displacement too: a steep wave face can take the boat's weight off the hull (and
+  // put it back), but the water underneath cannot hand her more than she is worth.
+  const netHeave = clamp(load.fy, -0.8 * weight, 1.15 * weight);
+  const ay = netHeave / (config.mass * (1 + config.heaveAddedMass));
   const az = load.fz / (config.mass * (1 + config.surgeAddedMass));
   state.vx += ((m[0] ?? 1) * ax + (m[1] ?? 0) * ay + (m[2] ?? 0) * az) * h;
   state.vy += ((m[3] ?? 0) * ax + (m[4] ?? 1) * ay + (m[5] ?? 0) * az) * h;
@@ -876,14 +1052,17 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   // coupling terms are dropped: with roll under ~25° and pitch under ~12° they are second-order.
   const attitudeDecay = Math.exp(-config.attitudeDamping * h);
   state.rollRate = (state.rollRate + (load.tz / config.inertiaRoll) * h) * attitudeDecay;
-  state.pitchRate = (state.pitchRate + (-load.tx / config.inertiaPitch) * h) * attitudeDecay;
-  state.yawRate = (state.yawRate + (load.ty / config.inertiaYaw) * h) * Math.exp(-(config.attitudeDamping + 0.6 * clamp(speed / 4, 0, 2)) * h);
+  state.pitchRate =
+    (state.pitchRate + ((-load.tx - config.pitchDamping * state.pitchRate) / config.inertiaPitch) * h) * attitudeDecay;
+  state.yawRate =
+    (state.yawRate + (load.ty / config.inertiaYaw) * h) *
+    Math.exp(-(config.attitudeDamping + 0.6 * clamp(speed / 4, 0, 2)) * h);
 
   state.x += state.vx * h;
   state.y += state.vy * h;
   state.z += state.vz * h;
   state.roll = clamp(state.roll + state.rollRate * h, -0.9, 0.9);
-  state.pitch = clamp(state.pitch + state.pitchRate * h, -0.42, 0.42);
+  state.pitch = clamp(state.pitch + state.pitchRate * h, -0.22, 0.2);
   state.heading += state.yawRate * h;
   if (grounded && penetration > 0.02) {
     // Hard aground: the keel is being dragged over a bar, so bleed off the along-track speed fast rather
@@ -905,7 +1084,10 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
   state.freeboard = clamp(freeboard, 0, BOAT_DEPTH + 1);
   state.planing = clamp((froude - 0.4) / 0.3, 0, 1) * clamp(1 - transomSubmersion / 0.28, 0, 1);
   state.wake = clamp(
-    0.12 * rpmRatio + 0.85 * smooth01(froude * 1.05) + (grounded ? 0.5 : 0) + 0.25 * clamp(transomSubmersion / 0.3, 0, 1),
+    0.12 * rpmRatio +
+      0.85 * smooth01(froude * 1.05) +
+      (grounded ? 0.5 : 0) +
+      0.25 * clamp(transomSubmersion / 0.3, 0, 1),
     0,
     1,
   );
@@ -920,13 +1102,7 @@ function integrate(state: BoatState, config: BoatConfig, input: BoatInput, env: 
  * into its world-Y component by the same matrix the caller is already holding. Added to the hull's heave
  * velocity this gives the rate at which each column is driving into, or lifting out of, the water.
  */
-function angularVerticalRate(
-  state: BoatState,
-  m: Float64Array,
-  rx: number,
-  ry: number,
-  rz: number,
-): number {
+function angularVerticalRate(state: BoatState, m: Float64Array, rx: number, ry: number, rz: number): number {
   const wx = -state.pitchRate;
   const wy = state.yawRate;
   const wz = state.rollRate;

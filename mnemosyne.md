@@ -1942,7 +1942,7 @@ will stop".
 - `npm run verify` (typecheck + 72 suites + check:wgsl), `lint:arch`, `docs:check`, `test:check`
   all green; real-GPU `check:browser:mars` re-run after the fix.
 
-## 2026-10-11 — Amazon river boat demo: river + hull modules (in progress)
+## 2026-10-11 — Amazon river boat demo: river module + tuned, tested hull (scene pending)
 
 Third demo scene requested: a drivable launch up a procedurally built Amazon. Two modules exist on
 `arena/51731dcd-forge-engine`; neither is wired into `main.ts` or `sceneSelection.ts` yet, and neither
@@ -2005,13 +2005,44 @@ has a test file yet. Read this before touching either.
   3e-8, which is why `applyBoatPose` can hand the attitude to the scene graph without a second
   convention. Sign conventions to keep: local **+X is port**, `roll` positive = starboard down, `pitch`
   positive = bow up (the negative of a rotation about +X).
-- **Status: statics verified, forces not.** The hull-speed wall, skin friction and planing lift are still
-  sized wrongly — at 1/60 s for 60 s the boat does not reach `hullSpeed` (it sputters near 2 m/s at WOT
-  because the ad-hoc wave-making term dominates and the lift term is not area-corrected). The retune
-  should be: drag `½ρ·Cf·A_wet·u|u|·(1 + waveGain·hump(Fn))` with `A_wet` tracked from the columns (so
-  rising onto the plane *reduces* the area that is generating drag — that coupling is the whole point),
-  lift `½ρ u²·A_wet·Cl` with `Cl` near `0.45·tan(trim_eff)` plus `0.5·u²·0.012` for the rocker's weathervane
-  lift, a bow-down `kDown·u²` engine moment to balance the bow-up lift and stop the pitch running to its
-  clamp, and outboard **leg tilt** as a control input (tilt up for shallow bars, down to unbalance a wind-
-  blown bow into a head sea). Then the tests written against it: settles within 1 cm of the solved draft
-  in 5 s, bounded roll on a 0.8 m chop, terminal speed in a band, grounding holds her off the bed.
+- **Forces are tuned now, and these are the four bugs the tuning found** (each one made the boat behave in a
+  way no amount of coefficient chasing could fix, so they are the things to look for first):
+  1. **The per-column water push is a world vector.** `addLoad` accumulates body-frame forces (the
+     integration rotates them back to world at the end), so the sum of the surface-normal pressure has to go
+     through `toBody` once. Feeding world components in looks exactly right in flat water — the two frames
+     coincide when the hull is level — and turns every wave face into a sideways force. Fixing it took the
+     free-roll period from 4.0 s to the config's 1.4 s within the damping correction.
+  2. **Thrust is a longitudinal force.** It went in as `fx` for a long time, which is the *transverse* axis
+     of this hull frame (`+X` is port, `+Z` is forward): the boat "accelerated" sideways while the surge
+     equation had no drive in it at all, and the harness read the resulting 130,000 m/s `hypot(vx, vz)` as
+     a speed problem and sent me tuning drag for an hour.
+  3. **The static solve must use the runtime's own force law.** Solving trim with moments taken about the
+     mass centre along a body axis (instead of about the amidships keel, with the KG pendulum term and the
+     same clamps) left the integrator settling 0.18 m deeper and 7° off the solved trim. `floatation(draft,
+     trim)` now *is* the step's vertical-force and bow-up-moment arithmetic, bisected jointly, and the settle
+     agrees to 1.5 mm and 0.01°. A `restSubmersion()` on the same tables feeds `panel.area`/`panel.load`, so
+     the reference areas the lift and drag read are the ones the flotation actually produced.
+  4. **No empirical force may duplicate a shape effect.** Modelling the rocker as its own lift term reached
+     41 kN against a 14.2 kN displacement and threw the boat out of the water, NaN within 5 s. Rocker, leg
+     trim and the thrust line are *angle-of-attack* and *lever* offsets; the only lift is
+     `½ρu²·A_wetted·Cl(trim_eff)`, and `A_wetted` plus the wetted centroid come from the columns.
+- What replaced the ad-hoc trim couple: the lift acts at `Σ(area·z)/Σ area` of the **wetted** columns nudged
+  forward by `liftLever` (the spray root). That is the self-limiting part of the planing trim — as the bow
+  rises the run dries and the centre of pressure slides aft of the mass centre, where its lift drops the bow
+  again — so the pitch no longer needs a clamp-driven counter-couple and the trim at WOT sits near level
+  instead of pinning at 11°. A propeller in air also makes no thrust (`grip ×= clamp(wettedPlanform/2.2, 0, 1)`),
+  which is the hard feedback that keeps a hop from becoming a launch.
+- Measured on `scratch` harnesses (now `tests/examples/amazonBoatHull.test.ts`, 15 cases, ~2 s): statics
+  draft 0.353 m / trim −1.91° / gm 3.16 m / roll 1.38 s, panel loads summing to the weight within 1 N; WOT
+  15.1 m/s (29.4 kn) holding ±0.15 m/s with the draft down to 0.244 m; throttle ladder 4.3 / 9.0 / 11.9 /
+  15.1; leg trim worth 3.2 m/s (13.5 down, 16.7 up); a 1.3 m wind sea for 60 s at WOT gives 8.7° max roll,
+  10.1° max pitch, 0.35 m least freeboard and stays finite; a bar shoaling 11 cm/m grounds her at 0.27 m of
+  penetration and backs her off in 14 s; 30 Hz vs 240 Hz agree to 0.4 m/s and 0.02 rad after 20 s.
+- `riverChop(height, windHeading, downstream)` is the one wave field both the CPU sampler and the water
+  shader read: four trains (the shader's `MAX_WATER_WAVES`), none under 16 m, each under the Gerstner
+  breaking limit, with the trains fanned ±0.57 rad so a boat actually feels roll — a swell whose crests run
+  exactly across the river excites none, which is how the chop test read 0.0° roll for a whole pass.
+- **Still not done:** no scene imports either module yet (water sheet, jungle scatter, HUD, `--amazon`
+  browser gate). `findBankSite` legitimately returns `null` on the tributary's cut bank (s≈2430, right
+  side): the left side at that station has a 118 m terrace. Callers must try both sides and skip the prop
+  when neither answers, not force a site.
