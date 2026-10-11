@@ -25,6 +25,7 @@
     "demo": "vite --config examples/vite.config.ts --host 0.0.0.0",
     "demo:mars": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=terrain\"",
     "demo:showcase": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=mars-showcase\"",
+    "demo:amazon": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=amazon-river\"",
     "lint:arch": "node tools/lint-arch.mjs",
     "docs:check": "tsx tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
@@ -45,6 +46,7 @@
     "check:browser:skinning": "node tools/browser-check.mjs --skinning",
     "check:browser:mechanical": "node tools/browser-check.mjs --mechanical",
     "check:browser:rescue": "node tools/browser-check.mjs --rescue",
+    "check:browser:amazon": "node tools/browser-check.mjs --amazon",
     "demo:build": "vite build --config examples/vite.config.ts",
     "bench:build": "tsc -p benchmarks/tsconfig.json"
   },

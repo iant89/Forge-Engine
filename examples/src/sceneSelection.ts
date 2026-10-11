@@ -18,6 +18,7 @@ export const DEMO_SCENE_NAMES = [
   "particles",
   "sky",
   "weather",
+  "amazon-river",
   "mars-showcase",
   "rover-course",
   "skinning",
@@ -45,6 +46,7 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "particles":
     case "sky":
     case "weather":
+    case "amazon-river":
     case "mars-showcase":
     case "rover-course":
     case "skinning":
@@ -63,6 +65,9 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
       return "mars-showcase";
     case "course":
       return "rover-course";
+    case "amazon":
+    case "river":
+      return "amazon-river";
     default:
       return "mars-showcase";
   }

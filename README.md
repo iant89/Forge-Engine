@@ -13,8 +13,10 @@ npm run check:browser    # separate real-WebGPU gate (headless Chromium + SwiftS
 npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
 npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B
 npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
+npm run check:browser:amazon # focused Amazon scene / boat-controls smoke
 npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard
-npm run demo           # Vite dev server for examples/
+npm run demo           # Vite dev server for examples/ (Mars Showcase default)
+npm run demo:amazon    # open the Amazon river launch scene directly
 ```
 
 See `AGENTS.md` for working conventions, `ARCHITECTURE.md` for design, `docs/RENDERING.md` for
@@ -45,7 +47,10 @@ rock), **Realistic
 handbrake, `R` to select forward/reverse while stopped, and `P` to latch the parking brake; see `docs/VEHICLES.md`), **Particles** (Phase 7: a CPU fountain of a few hundred sprites; see
 `docs/PARTICLES.md`), **Sky / Day-night** (Phase 8a: a June day at 47°N in six minutes — `[` `]`
 scrub the clock, `T` pauses it, `M` swaps Earth for Mars), **Weather / Water** (Phase 8b: storm
-presets with rain, lightning, a Gerstner lake and an underwater dive), **Rover Course** (Perseverance
+presets with rain, lightning, a Gerstner lake and an underwater dive), **Amazon River: Upriver Run**
+(a 4.2 km launch run through the authored floodplain: shared terrain/water, a tributary and oxbows,
+jungle banks, floating channel marks and five riverside stops; W/↑ throttle, A/D steer, F/N/R shift,
+Q/E trim, with a touch stick/gear/trim pad), **Rover Course** (Perseverance
 on an Earth-gravity obstacle track with cones, gates and knockable props), **Skinned Arm (P16.5)**
 (a standalone GPU-skinning demo: four linked box segments bend around four joints in a travelling-wave
 pose; it is not another Mars/rover scene), and **Alpine Search & Rescue: Whiteout Run** (a drivable
@@ -54,5 +59,6 @@ and return as snowfall and wind build; dynamic crates and roadside rocks use the
 physics world). Direct links include `?scene=pbr`, `?scene=cubes`,
 `?scene=terrain`, `?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`,
 `?scene=sky`, `?scene=weather`, `?scene=mars-showcase`, `?scene=rover-course`, `?scene=skinning`,
-and `?scene=alpine-rescue` (`?scene=mars` is an alias for the Mars-flavoured Terrain demo,
+and `?scene=alpine-rescue`, `?scene=amazon-river` (`?scene=amazon` and `?scene=river` are aliases;
+`npm run check:browser:amazon` runs the focused real-WebGPU scene/controls gate). `?scene=mars` is an alias for the Mars-flavoured Terrain demo,
 `?scene=mars-port` for the generator inspector).

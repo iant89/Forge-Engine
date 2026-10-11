@@ -1942,11 +1942,13 @@ will stop".
 - `npm run verify` (typecheck + 72 suites + check:wgsl), `lint:arch`, `docs:check`, `test:check`
   all green; real-GPU `check:browser:mars` re-run after the fix.
 
-## 2026-10-11 — Amazon river boat demo: river module + tuned, tested hull (scene pending)
+## 2026-10-11 — Amazon River: playable launch integration complete
 
-Third demo scene requested: a drivable launch up a procedurally built Amazon. Two modules exist on
-`arena/51731dcd-forge-engine`; neither is wired into `main.ts` or `sceneSelection.ts` yet, and neither
-has a test file yet. Read this before touching either.
+The third demo scene is now wired: `examples/src/scenes/amazonRiverScene.ts` builds the launch and
+river world from `amazonRiver.ts` + `amazonBoatSim.ts`, `main.ts` routes `?scene=amazon-river`,
+`sceneSelection.ts` accepts `amazon`/`river` aliases, and the selector exposes the scene. The river
+field remains the sole source for terrain, soundings, camera ground constraints and boat grounding.
+Read the module constraints below before changing either pure model.
 
 **`examples/src/scenes/amazonRiver.ts` — the height field everything else reads.**
 
@@ -2042,7 +2044,18 @@ has a test file yet. Read this before touching either.
   shader read: four trains (the shader's `MAX_WATER_WAVES`), none under 16 m, each under the Gerstner
   breaking limit, with the trains fanned ±0.57 rad so a boat actually feels roll — a swell whose crests run
   exactly across the river excites none, which is how the chop test read 0.0° roll for a whole pass.
-- **Still not done:** no scene imports either module yet (water sheet, jungle scatter, HUD, `--amazon`
-  browser gate). `findBankSite` legitimately returns `null` on the tributary's cut bank (s≈2430, right
-  side): the left side at that station has a 118 m terrace. Callers must try both sides and skip the prop
-  when neither answers, not force a site.
+- Scene integration: `WaterSurface` owns the primary river sheet and shared water clock; the tributary
+  and four oxbows use the same water material/waves, while the terrain ribbon reads the composed field.
+  The hull floats from that exact wave set and uses `elevationAt`/`currentAt` for grounding and flow.
+  Jungle trees are deterministic batched meshes; 17 channel buoys resample the CPU Gerstner surface;
+  five authored journey stops get docks/huts only where `findBankSite` finds a safe pad. A missing pad
+  is still a normal result, never a reason to place a prop on a cut bank.
+- `main.ts` exposes river telemetry and a scripted-input hook for tooling, while the actual pilot path is
+  keyboard F/N/R, W/↑ throttle, A/D or arrows for helm, Q/E trim, plus the reused touch stick/gear pad
+  with trim buttons in the brake slot. The focused `npm run check:browser:amazon` exercises keyboard
+  gear/throttle/steering/trim and checks the phone pad's visibility and LEG UP button action; on
+  Chromium + SwiftShader it observed 572 trees, 17 buoys, 5 stops, 8.4 m depth, 6.77 m of W-drive over
+  1.5 simulated seconds, and the touch trim moved 0.05 → 0.12, with zero GPU errors. The inspected
+  desktop/phone captures are `tools/.browser-check-amazon-river.png` and
+  `tools/.browser-check-amazon-touch.png`. `npm run demo:amazon` opens the scene directly; the
+  canonical URL is `?scene=amazon-river` (`amazon` and `river` are aliases).

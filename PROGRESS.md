@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-08_
+_Last updated: 2026-10-11_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -205,6 +205,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [x] **Particles** (`?scene=particles`): CPU particle fountain
 - [x] **Sky / Day-night** (`?scene=sky`): a June day at 47°N, with an Earth/Mars toggle
 - [x] **Weather / Water** (`?scene=weather`): storms, lightning, a Gerstner lake and an underwater dive
+- [x] **Amazon River: Upriver Run** (`?scene=amazon-river`): drivable launch on the shared floodplain/water model, with jungle banks, channel buoys, five stops, river telemetry and touch controls
 - [x] **Skinned Arm** (`?scene=skinning`): GPU-skinned demo
 - [x] **PBR Showcase** (`?scene=pbr`): material grid with bloom, shadows and cascade toggles
 - [x] **Cubes** (`?scene=cubes`): the Phase 1 basic scene
