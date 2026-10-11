@@ -150,6 +150,7 @@ const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
 const SKINNING_ONLY = process.argv.includes("--skinning");
 const RESCUE_ONLY = process.argv.includes("--rescue");
+const AMAZON_ONLY = process.argv.includes("--amazon");
 const MECHANICAL_ONLY = process.argv.includes("--mechanical");
 const BROWSER_SECTION_NAMES = ["renderer", "terrain", "vehicle-particles", "animation", "environment", "mars"];
 const SECTION_ONLY = (() => {
@@ -161,7 +162,7 @@ const SECTION_ONLY = (() => {
 const workerSmokeOnly = process.argv.includes("--workers-only");
 const otherFocusedMode =
   MARS_WORKERS_ONLY || MARS_GENERATOR_ONLY || MARS_INTERACTIVE_ONLY || TERRAIN_LAYERS_ONLY ||
-  SKINNING_ONLY || RESCUE_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
+  SKINNING_ONLY || RESCUE_ONLY || AMAZON_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
 if (SECTION_ONLY !== null && !BROWSER_SECTION_NAMES.includes(SECTION_ONLY)) {
   console.error(`check:browser NOT RUN — unknown section "${SECTION_ONLY}" (choose ${BROWSER_SECTION_NAMES.join(", ")})`);
   process.exit(2);
@@ -184,7 +185,9 @@ const CHECK_NAME = SECTION_ONLY !== null
             ? "check:browser:skinning"
             : RESCUE_ONLY
               ? "check:browser:rescue"
-              : MECHANICAL_ONLY
+              : AMAZON_ONLY
+                ? "check:browser:amazon"
+                : MECHANICAL_ONLY
                 ? "check:browser:mechanical"
                 : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
@@ -672,6 +675,131 @@ async function checkMechanical() {
   // Hand the rigs back to telemetry before anything downstream samples the scene.
   await page.evaluate(() => window.__forge.setWheelOverride(null));
   return { ...mechanical, differing: diff.differing, pixels: diff.pixels, maxDiff: diff.max };
+}
+
+/** Focused Amazon scene smoke: selector, shared river/water/boat state, and real pilot controls. */
+async function checkAmazonRiver() {
+  await waitPresentedFrames(1);
+  await page.selectOption("#scene-select", "amazon-river", { force: true });
+  await page.waitForFunction(() => window.__forge.sceneName === "amazon-river", null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const state = window.__forge.amazonRiverState?.();
+    const scene = window.__forge.scene;
+    return state?.scene === "amazon-river" && state.channelBuoys >= 12 && state.trees > 100 &&
+      state.destinations >= 3 && state.oxbows === 4 && scene.settings.water.enabled && state.boatTime > 0.1;
+  }, null, { polling: 250, timeout: 90000 });
+  await page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { polling: 250, timeout: 90000 });
+  await waitPresentedFrames(2);
+
+  const initial = await page.evaluate(() => ({ state: window.__forge.amazonRiverState(), stats: window.__forge.stats(), water: window.__forge.scene.settings.water }));
+  if (!initial.state || initial.state.depth < initial.state.draft + 0.3 || initial.state.grounded) {
+    throw new Error(`launch did not spawn afloat in the Amazon thalweg: ${JSON.stringify(initial.state)}`);
+  }
+  if (initial.state.destinations < 4) throw new Error(`fewer than four bank destinations were placed: ${initial.state.destinations}`);
+  if (initial.state.channelBuoys < 12) throw new Error(`channel buoys were not scattered: ${initial.state.channelBuoys}`);
+  if (initial.state.trees <= 100) throw new Error(`floodplain jungle scatter is missing: ${initial.state.trees} trees`);
+  if (initial.water.waves.length < 3 || initial.water.time <= 0) throw new Error("the river water clock/wave field did not start");
+  if (!initial.stats.renderPasses.includes("forge.main")) throw new Error(`Amazon scene did not render: ${initial.stats.renderPasses.join(", ")}`);
+  if (initial.stats.gpuErrors !== 0 || initial.stats.lastError) throw new Error(`Amazon scene GPU error: ${initial.stats.lastError}`);
+
+  // Exercise the page's actual key path, not only the test hook: reverse is available at the dock,
+  // then ahead throttle should advance this same hull over the same generated river surface.
+  const press = async (code) => {
+    await page.keyboard.down(code);
+    await page.keyboard.up(code);
+  };
+  await press("KeyR");
+  await page.waitForFunction(() => window.__forge.amazonRiverState()?.gear === "R", null, { polling: 100, timeout: 10000 });
+  await press("KeyF");
+  await page.waitForFunction(() => window.__forge.amazonRiverState()?.gear === "F", null, { polling: 100, timeout: 10000 });
+
+  const start = await page.evaluate(() => window.__forge.amazonRiverState());
+  await page.keyboard.down("KeyW");
+  try {
+    await page.waitForFunction((before) => {
+      const state = window.__forge.amazonRiverState?.();
+      return state?.boatTime >= before.boatTime + 1.5 &&
+        Math.hypot(state.positionX - before.positionX, state.positionZ - before.positionZ) > 0.5 &&
+        state.speedGround > 0.5 && state.throttle > 0.9;
+    }, start, { polling: 150, timeout: 90000 });
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+
+  await page.keyboard.down("KeyA");
+  try {
+    await page.waitForFunction((time) => {
+      const state = window.__forge.amazonRiverState?.();
+      return state?.boatTime > time && state.helm > 0.035;
+    }, (await page.evaluate(() => window.__forge.amazonRiverState()?.boatTime ?? 0)), { polling: 100, timeout: 30000 });
+  } finally {
+    await page.keyboard.up("KeyA");
+  }
+  const helm = await page.evaluate(() => window.__forge.amazonRiverState());
+  if (!(helm.helm > 0)) throw new Error(`port steering did not reach the launch helm: ${helm.helm}`);
+
+  await page.keyboard.down("KeyE");
+  try {
+    await page.waitForFunction((before) => {
+      const state = window.__forge.amazonRiverState?.();
+      return state?.boatTime >= before.boatTime + 1.2 && state.trim > before.trim + 0.015;
+    }, helm, { polling: 150, timeout: 60000 });
+  } finally {
+    await page.keyboard.up("KeyE");
+  }
+  await press("KeyN");
+  await page.waitForFunction(() => window.__forge.amazonRiverState()?.gear === "N", null, { polling: 100, timeout: 10000 });
+
+  const driven = await page.evaluate(() => ({ state: window.__forge.amazonRiverState(), stats: window.__forge.stats() }));
+  const pixels = await samplePixels();
+  if (driven.stats.gpuErrors !== 0 || driven.stats.lastError) throw new Error(`Amazon drive GPU error: ${driven.stats.lastError}`);
+  if (!driven.stats.renderPasses.includes("forge.main")) throw new Error("Amazon river stopped submitting the main render pass");
+  if (pixels.distinct < 12 || pixels.mean < 7) throw new Error(`Amazon scene is not visibly rendered: mean=${pixels.mean.toFixed(1)} colours=${pixels.distinct}`);
+  await page.screenshot({ path: "tools/.browser-check-amazon-river.png", timeout: 60000 });
+
+  // Phone layout: the shared vehicle pad must surface the Amazon-specific leg-trim buttons instead
+  // of the irrelevant brake/PARK controls, while keeping the F/N/R switch and hiding the keyboard hint.
+  await page.setViewportSize({ width: 390, height: 780 });
+  const touchUi = await page.evaluate(() => {
+    const style = (id) => { const el = document.getElementById(id); return el ? getComputedStyle(el).display : "missing"; };
+    return {
+      panel: style("vehicle-touch"),
+      gears: style("veh-gear-switch"),
+      trimUp: style("amazon-trim-up"),
+      trimDown: style("amazon-trim-down"),
+      brake: style("veh-brake"),
+      park: style("veh-park"),
+      hint: style("controls-hint"),
+    };
+  });
+  if (touchUi.panel !== "block" || touchUi.gears !== "grid" || touchUi.trimUp !== "flex" || touchUi.trimDown !== "flex" ||
+      touchUi.brake !== "none" || touchUi.park !== "none" || touchUi.hint !== "none") {
+    throw new Error(`Amazon phone controls are misconfigured: ${JSON.stringify(touchUi)}`);
+  }
+  const trimBeforePad = await page.evaluate(() => window.__forge.amazonRiverState());
+  await page.evaluate(() => window.__forge.setAmazonTrim(-1));
+  await page.waitForFunction((before) => {
+    const state = window.__forge.amazonRiverState?.();
+    return state?.boatTime >= before.boatTime + 0.45 && state.trim < before.trim - 0.005;
+  }, trimBeforePad, { polling: 150, timeout: 45000 });
+  const trimDown = await page.evaluate(() => window.__forge.amazonRiverState());
+  await page.locator("#amazon-trim-up").click();
+  await page.waitForFunction((before) => {
+    const state = window.__forge.amazonRiverState?.();
+    return state?.boatTime >= before.boatTime + 0.55 && state.trim > before.trim + 0.005;
+  }, trimDown, { polling: 150, timeout: 45000 });
+  await page.screenshot({ path: "tools/.browser-check-amazon-touch.png", timeout: 60000 });
+  const finalStats = await page.evaluate(() => window.__forge.stats());
+  if (finalStats.gpuErrors !== 0 || finalStats.lastError) throw new Error(`Amazon touch controls GPU error: ${finalStats.lastError}`);
+  console.log(`amazon touch: ${JSON.stringify(touchUi)}, trim moved ${trimDown.trim.toFixed(2)} → ${(await page.evaluate(() => window.__forge.amazonRiverState()?.trim ?? 0)).toFixed(2)}`);
+  console.log(
+    `amazon river: trees=${initial.state.trees}, buoys=${initial.state.channelBuoys}, stops=${initial.state.destinations}, ` +
+      `water=${initial.water.waves.length} waves, depth=${initial.state.depth.toFixed(1)} m, ` +
+      `drive=${Math.hypot(driven.state.positionX - start.positionX, driven.state.positionZ - start.positionZ).toFixed(2)} m, ` +
+      `helm=${helm.helm.toFixed(2)}, trim=${driven.state.trim.toFixed(2)}, ` +
+      `frame mean=${pixels.mean.toFixed(1)}, GPU errors=${driven.stats.gpuErrors}`,
+  );
+  return driven.state;
 }
 
 /** Focused Alpine rescue smoke: selector wiring, dynamic physics, cargo mission, storm, and drive. */
@@ -2560,6 +2688,9 @@ try {
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();
     console.log("Focused Alpine rescue mission/physics/weather checks only; the full renderer and Mars suite was not run.");
+  } else if (AMAZON_ONLY) {
+    await checkAmazonRiver();
+    console.log("Focused Amazon river scene/controls check only; the full renderer and Mars suite was not run.");
   } else if (MECHANICAL_ONLY) {
     await waitPresentedFrames(1);
     await page.selectOption("#scene-select", "vehicle", { force: true });

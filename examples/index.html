@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Forge Engine — Mars Showcase</title>
+    <title>Forge Engine — Interactive Demos</title>
     <!-- An empty data: icon: without it the browser fetches /favicon.ico, and a 404 there is a
          console error the browser gate (rightly) fails on. -->
     <link rel="icon" href="data:," />
@@ -320,6 +320,14 @@
       }
       button.veh-gas.pressed { background: rgb(21 128 61 / 0.92); transform: scale(0.94); }
       button.veh-brake.pressed { background: rgb(185 28 28 / 0.92); transform: scale(0.94); }
+      /* On the launch, the pad's spare bottom-right and top-right positions adjust outboard trim. */
+      #amazon-trim-down,
+      #amazon-trim-up { display: none; background: rgb(120 86 31 / 0.74); border-color: rgb(250 204 100 / 0.78); color: #fff7df; }
+      #amazon-trim-up { top: 0; right: 0; }
+      #amazon-trim-down { right: 0; bottom: 0; }
+      body.scene-amazon #veh-brake { display: none; }
+      body.scene-amazon #amazon-trim-down,
+      body.scene-amazon #amazon-trim-up { display: flex; }
       /* C/MAST: the Mars showcase's camera-mast toggle. Hidden everywhere else — the pad is
          shared with the vehicle playground, which has no mast to raise. */
       #veh-mast {
@@ -357,7 +365,7 @@
         color: #f8fafc;
         display: none;
       }
-      body.scene-vehicle:not(.scene-mars) #veh-park { display: flex; }
+      body.scene-vehicle:not(.scene-mars):not(.scene-amazon) #veh-park { display: flex; }
       /* Latched, not held: lit for as long as the brake is engaged. */
       #veh-park.active { background: rgb(153 27 27 / 0.92); border-color: #fca5a5; transform: scale(0.94); }
       .veh-gear-switch {
@@ -663,6 +671,7 @@
             <option value="particles">Particles (P12 GPU)</option>
             <option value="sky">Sky / Day-night (P8a)</option>
             <option value="weather">Weather / Water (P8b)</option>
+            <option value="amazon-river">Amazon River · Upriver Run</option>
             <option value="mars-showcase" selected>Mars Showcase (Perseverance)</option>
             <option value="rover-course">Rover Course (Perseverance)</option>
             <option value="skinning">Skinned Arm (P16.5)</option>
@@ -707,6 +716,8 @@
       <div class="veh-face">
         <button type="button" id="veh-gas" class="veh-pad veh-gas" aria-label="Gas"><span class="veh-letter">A</span><span class="veh-caption">GAS</span></button>
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
+        <button type="button" id="amazon-trim-up" class="veh-pad" aria-label="Trim the outboard leg up"><span class="veh-letter">▲</span><span class="veh-caption">LEG UP</span></button>
+        <button type="button" id="amazon-trim-down" class="veh-pad" aria-label="Trim the outboard leg down"><span class="veh-letter">▼</span><span class="veh-caption">LEG DOWN</span></button>
         <button type="button" id="veh-park" class="veh-pad veh-park" aria-label="Toggle parking brake" aria-pressed="false"><span class="veh-letter">P</span><span class="veh-caption">PARK</span></button>
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>

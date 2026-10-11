@@ -14996,6 +14996,150 @@ JSON array below; agents maintain it by hand until then.
       "tests/full.test.ts",
       "tests/tools/selrun.test.ts"
     ]
+  },
+  {
+    "id": "1198",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonRiverScene.ts",
+    "what": "Integrate the authored Amazon river and tuned launch hull into a playable upriver run, with forest scatter, five bank stops, a neutral launch, orbit camera, helm/engine/trim controls, and river telemetry.",
+    "why": "Turn the standalone river and boat modules into an explorable demo while preserving their shared terrain, water, and dynamics models."
+  },
+  {
+    "id": "1199",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "Register and dispose the Amazon scene through the normal demo lifecycle, and expose Amazon state plus scripted input hooks for the browser gate.",
+    "why": "Keep the demo selectable and make real browser interactions measurable without bypassing its runtime."
+  },
+  {
+    "id": "1200",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/sceneSelection.ts",
+    "what": "Add the canonical `amazon-river` demo route and accept `amazon` and `river` as aliases.",
+    "why": "Make direct links resolve consistently through both the selector and URL-based scene loader."
+  },
+  {
+    "id": "1201",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Add Amazon selection and mobile touch-pad styling, and make the page title generic across interactive demos.",
+    "why": "Expose the new run in the example browser and keep the gear/trim controls usable on phone layouts."
+  },
+  {
+    "id": "1202",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/controls/demoSceneSelection.test.ts",
+    "what": "Cover canonical `amazon-river` query selection and the `amazon`/`river` aliases.",
+    "why": "Prevent regressions in direct scene links and alias handling."
+  },
+  {
+    "id": "1203",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Add the `--amazon` browser scenario, checking scene loading, keyboard driving/helm/trim, and phone controls including a real touch trim-button response.",
+    "why": "Provide a focused Chromium + SwiftShader gate for the integrated scene and its desktop/mobile interaction paths."
+  },
+  {
+    "id": "1204",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "package.json",
+    "what": "Add `check:browser:amazon` and `demo:amazon` scripts.",
+    "why": "Make the focused browser gate and direct-launch development command discoverable and repeatable."
+  },
+  {
+    "id": "1205",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "README.md",
+    "what": "Document the Amazon River upriver run, controls, scene aliases, and its focused browser-check and launch commands.",
+    "why": "Help users discover the demo and reproduce its validation."
+  },
+  {
+    "id": "1206",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Record the integrated Amazon River launch demo and its verified controls and focused browser gate.",
+    "why": "Keep the project status aligned with the newly playable scene."
+  },
+  {
+    "id": "1207",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Document the Amazon browser gate and its desktop driving, phone-control, trim-response, and GPU-error checks.",
+    "why": "Make the expected scope and observed result of the focused real-WebGPU validation auditable."
+  },
+  {
+    "id": "1208",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the integrated launch controls, direct route, focused browser-gate behavior, and inspected desktop/phone captures.",
+    "why": "Preserve implementation constraints and measured behavior for future work on the scene."
+  },
+  {
+    "id": "1209",
+    "date": "2026-10-11T16:45:56Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/2fc53181-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Append per-file change records for the integrated Amazon River demo and its checks and documentation.",
+    "why": "Maintain the repository-required activity history."
   }
 ]
 ```

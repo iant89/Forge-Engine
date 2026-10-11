@@ -57,6 +57,7 @@ import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/m
 import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
+import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -146,7 +147,8 @@ async function main(): Promise<void> {
 
     activeSceneName = name;
     // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river");
+    document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
@@ -192,6 +194,8 @@ async function main(): Promise<void> {
       currentHandle = buildSkinningScene(engine);
     } else if (name === "alpine-rescue") {
       currentHandle = buildAlpineRescueScene(engine);
+    } else if (name === "amazon-river") {
+      currentHandle = buildAmazonRiverScene(engine);
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -646,6 +650,13 @@ async function main(): Promise<void> {
       currentHandle?.setWheelOverride?.(override),
     /** Mission, cargo, relay, weather and vehicle snapshot while Alpine Rescue is loaded. */
     alpineRescueState: () => (currentHandle as AlpineRescueSceneHandle | null)?.snapshot?.() ?? null,
+    /** Amazon launch, river-course, current, depth and landmark telemetry; null on other scenes. */
+    amazonRiverState: () => (currentHandle as AmazonRiverSceneHandle | null)?.snapshot?.() ?? null,
+    setAmazonGear: (position: "F" | "N" | "R") =>
+      (currentHandle as AmazonRiverSceneHandle | null)?.setGear?.(position) ?? false,
+    setAmazonTrim: (trim: number) => (currentHandle as AmazonRiverSceneHandle | null)?.setTrim?.(trim),
+    setAmazonInput: (input: Parameters<AmazonRiverSceneHandle["setInput"]>[0]) =>
+      (currentHandle as AmazonRiverSceneHandle | null)?.setInput?.(input),
     /** Try the current rescue interaction; returns false when the objective is out of reach. */
     interactRescue: () => (currentHandle as AlpineRescueSceneHandle | null)?.interact?.() ?? false,
     /** Set the Alpine Rescue weather target for a deterministic browser smoke check. */

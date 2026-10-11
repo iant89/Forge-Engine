@@ -42,6 +42,8 @@ group("demo scene routing", () => {
     assert.equal(resolveDemoSceneName("showcase"), "mars-showcase");
     assert.equal(resolveDemoSceneName("course"), "rover-course");
     assert.equal(resolveDemoSceneName("alpine-rescue"), "alpine-rescue");
+    assert.equal(resolveDemoSceneName("amazon"), "amazon-river");
+    assert.equal(resolveDemoSceneName("river"), "amazon-river");
   });
 
   test("falls back to the rover showcase for unknown query values", () => {
