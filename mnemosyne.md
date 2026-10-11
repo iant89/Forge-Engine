@@ -2059,3 +2059,34 @@ Read the module constraints below before changing either pure model.
   desktop/phone captures are `tools/.browser-check-amazon-river.png` and
   `tools/.browser-check-amazon-touch.png`. `npm run demo:amazon` opens the scene directly; the
   canonical URL is `?scene=amazon-river` (`amazon` and `river` are aliases).
+
+## 2026-10-11 — Amazon launch: dead-in-the-water steering was barely there
+
+- User report: "the boat is hard to control" → follow-up narrowed it to "sluggish / barely turns", on
+  `examples/src/scenes/amazonBoatSim.ts` (the `?scene=amazon-river` launch), not a different vehicle.
+- Measured with a throwaway Node harness (`createBoatConfig`/`createBoatState`/`stepBoat` on flat water,
+  no engine imports needed beyond `clamp`/`damp`/`sampleGerstner` stubs) before touching anything: holding
+  full helm from a standing start at idle rpm (gear F, throttle 0 — i.e. just leaving the dock, which is
+  the first thing a new player does) gave 0.64 deg/s of yaw rate at t=1s rising to only 1.85 deg/s by
+  t=10s, 13.5° of turn in 12s. The existing `tests/examples/amazonBoatHull.test.ts` "helm authority" case
+  only exercises throttle 0.08 ("tickover"), not throttle 0, so true idle steerage had never been pinned
+  and had silently drifted to "does nothing you'd notice for the first several seconds."
+- Root cause: `wash = WASH_SPEED * rpmRatio` scaled from zero at idle, and the rudder's flow gate
+  (`0.3 + 0.7*smooth01(effectiveFlow/3.2)`) needed ~3 m/s of effective flow to be anywhere near fully open,
+  so idle rpm (780/5400 ≈ 0.144 ratio → ~1.1 m/s of wash) landed deep in the gate's floor *and* fed a small
+  `effectiveFlow`, compounding into roughly a 40x authority gap between idle and WOT — far more than a real
+  outboard, whose prop disc doesn't shrink with rpm and still throws usable wash near idle.
+- Fix (`examples/src/scenes/amazonBoatSim.ts`): added `WASH_IDLE_FLOOR = 0.32` so wash is
+  `WASH_SPEED * (0.32 + 0.68*rpmRatio)` instead of scaling from nothing; raised `washSteering` 0.55 → 0.9;
+  widened the rudder gate to `0.35 + 0.65*smooth01(effectiveFlow/2)`. Net effect measured on the same
+  harness: idle-dead-in-the-water yaw rate 1.85 → ~6.2 deg/s (now visibly answers the helm pivoting off the
+  dock), tickover-case turn in 12s 29.4° → 78.2° (test still passes, margin only got bigger), while WOT
+  (full throttle, full helm, already fast) moved only 16.9 → 17.7 deg/s and the ~43 m turn radius barely
+  changed — the planing-speed handling that was already tuned and pinned is untouched by design (the new
+  terms are dominated by `u*u` once the hull is making way, so they only matter when `u` is small).
+- Verified: `npx selrun affected` (the boat suite + `tests/engine/architecture.test.ts`, 21 cases) and the
+  full `npm run test:all` (73 suites) both pass, `npm run typecheck` and `npm run lint:arch` are clean. No
+  other file reads `washSteering`/`rudderGain`/the gate constants, so this was safe to retune in isolation.
+- If steering ever needs retuning again: write the probe harness *first* (flat `plainWater()` environment,
+  `resetBoat` + a manual `stepBoat` loop) rather than guessing from the formula — the gate's nonlinearity
+  makes the idle/WOT ratio easy to misjudge by eye.

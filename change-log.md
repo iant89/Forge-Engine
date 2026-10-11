@@ -15140,6 +15140,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Append per-file change records for the integrated Amazon River demo and its checks and documentation.",
     "why": "Maintain the repository-required activity history."
+  },
+  {
+    "id": "1210",
+    "date": "2026-10-11T17:13:17Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/669f9ace-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/amazonBoatSim.ts",
+    "what": "Gave the outboard a wash floor at idle rpm (`WASH_IDLE_FLOOR = 0.32`, was 0 i.e. wash scaled linearly from nothing), raised `washSteering` 0.55 -> 0.9, and widened the rudder's low-flow gate (divisor 3.2 -> 2, floor 0.3 -> 0.35).",
+    "why": "User report: \"the boat is hard to control\" / barely turns at low speed. Measured with a standalone harness (sail at idle rpm, throttle 0, full helm): old code gave 0.64-2.1 deg/s yaw rate and only 13.5 deg of turn in 12s dead in the water; a real outboard still throws wash over the rudder near idle because the prop disc doesn't shrink with rpm. New constants give ~6-7 deg/s at idle (the boat visibly answers the helm leaving the dock) while barely moving WOT authority (16.9 -> 17.7 deg/s yaw rate at full lock/full throttle, same ~43 m turn radius), so the already-tuned planing-speed handling is unchanged. `tests/examples/amazonBoatHull.test.ts` (15 cases, including \"helm authority is a planing hull's, not a barge's\") and the full 73-suite run still pass; typecheck and lint:arch are clean."
+  },
+  {
+    "id": "1211",
+    "date": "2026-10-11T17:13:17Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/669f9ace-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Record the low-speed steerage fix for the Amazon launch (symptom, measured numbers, and the three constants changed).",
+    "why": "Save the measured idle-vs-WOT yaw-rate numbers so a future session doesn't have to re-derive them before touching rudder tuning again."
+  },
+  {
+    "id": "1212",
+    "date": "2026-10-11T17:13:17Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/669f9ace-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the boat low-speed steering fix.",
+    "why": "Maintain the repository-required activity history."
   }
 ]
 ```
