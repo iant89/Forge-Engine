@@ -15145,7 +15145,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "1210",
     "date": "2026-10-11T17:13:17Z",
     "type": "change",
-    "pr": null,
+    "pr": 80,
     "branch": "arena/669f9ace-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
@@ -15157,7 +15157,7 @@ JSON array below; agents maintain it by hand until then.
     "id": "1211",
     "date": "2026-10-11T17:13:17Z",
     "type": "change",
-    "pr": null,
+    "pr": 80,
     "branch": "arena/669f9ace-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
@@ -15169,13 +15169,25 @@ JSON array below; agents maintain it by hand until then.
     "id": "1212",
     "date": "2026-10-11T17:13:17Z",
     "type": "change",
-    "pr": null,
+    "pr": 80,
     "branch": "arena/669f9ace-forge-engine",
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "change-log.md",
     "what": "Log the boat low-speed steering fix.",
     "why": "Maintain the repository-required activity history."
+  },
+  {
+    "id": "1213",
+    "date": "2026-10-11T23:44:46Z",
+    "type": "change",
+    "pr": 80,
+    "branch": "arena/669f9ace-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Backfilled the PR number (80) onto entries 1210-1212, which were logged before the PR existed.",
+    "why": "Keep the activity history's pr field accurate once the pull request was opened."
   }
 ]
 ```
