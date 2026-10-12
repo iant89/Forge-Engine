@@ -2443,26 +2443,36 @@ async function checkEnvironmentSection() {
     throw new Error(`a deck frozen with zero wind changed between frames (${frozen.differing}/${frozen.pixels} pixels): the deck is not temporally stable`);
   }
 
-  await page.evaluate(() => window.__forge.setCloudOptions({ shadowStrength: 1, surfaceShadows: true }));
+  // The deck back at its shipped shape for the shadow A/B, and *only* `surfaceShadows` moving between
+  // the two captures: that flag gates `cloudSunVisibility`, which nothing in the sky pass calls — the
+  // deck's own shading marches the stack through `shadowStrength`, not through this flag. So a pixel
+  // that moves between these two frames is a surface the deck is shading, and the two mean reads and
+  // the per-pixel count are the same evidence. `compareLuma(a, b)` counts what changed from a to b,
+  // so the off-frame goes first and `darker` is what the shadow took away.
+  await page.evaluate(() => window.__forge.setCloudOptions({ layers: 3, thickness: 400, shadowStrength: 1, surfaceShadows: false }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-shadow-off");
+  const wxShadowOff = await samplePixels();
+  const wxShadowOffState = await page.evaluate(() => window.__forge.weatherState());
+  await page.evaluate(() => window.__forge.setCloudOptions({ surfaceShadows: true }));
   await waitPresentedFrames(3);
   await keepLuma("deck-shadow-on");
   const wxShadowOn = await samplePixels();
   const wxShadowOnState = await page.evaluate(() => window.__forge.weatherState());
   await page.screenshot({ path: "tools/.browser-check-cloud-shadow.png", timeout: 60000 });
-  await page.evaluate(() => window.__forge.setCloudOptions({ surfaceShadows: false }));
-  await waitPresentedFrames(3);
-  await keepLuma("deck-shadow-off");
-  const wxShadowOff = await samplePixels();
-  const shadowDiff = await compareLuma("deck-shadow-on", "deck-shadow-off");
+  const shadowDiff = await compareLuma("deck-shadow-off", "deck-shadow-on");
   console.log(
-    `cloud shadow: on mean ${wxShadowOn.mean.toFixed(2)} vs off ${wxShadowOff.mean.toFixed(2)}; ` +
+    `cloud shadow: off mean ${wxShadowOff.mean.toFixed(2)} vs on ${wxShadowOn.mean.toFixed(2)}; ` +
       `${shadowDiff.darker} pixels darkened, ${shadowDiff.brighter} brightened (of ${shadowDiff.pixels}, max ${shadowDiff.max})`,
   );
   if (!(wxShadowOnState.surfaceShadows === true && wxShadowOnState.shadowStrength === 1)) {
     throw new Error(`the shadow knobs did not reach the scene (${JSON.stringify(wxShadowOnState)})`);
   }
+  if (!(wxShadowOffState.surfaceShadows === false)) {
+    throw new Error(`the shadow knob did not reach the scene for the off capture (${JSON.stringify(wxShadowOffState)})`);
+  }
   if (!(wxShadowOn.mean < wxShadowOff.mean)) {
-    throw new Error(`the deck's shadow did not darken the frame (${wxShadowOn.mean.toFixed(2)} vs ${wxShadowOff.mean.toFixed(2)})`);
+    throw new Error(`the deck's shadow did not darken the frame (${wxShadowOn.mean.toFixed(2)} measured on vs ${wxShadowOff.mean.toFixed(2)} off)`);
   }
   if (!(shadowDiff.darker > shadowDiff.pixels * 0.1)) {
     throw new Error(`the deck's shadow reached too few pixels (${shadowDiff.darker}/${shadowDiff.pixels}): surfaces are not sampling the deck`);
