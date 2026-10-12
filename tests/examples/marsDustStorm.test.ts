@@ -31,7 +31,7 @@ export const suite = {
  * way the engine does, so the vehicle, storm, piles and course all advance together.
  */
 import assert from "node:assert/strict";
-import { afterEach, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
+import { afterEach, assertMatchObject, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
 import {
   Clock,
   GraphicsDevice,
@@ -98,7 +98,7 @@ function fakeButton() {
   });
 }
 
-async function fixture(difficulty: StormDifficulty = "easy") {
+async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true) {
   const windowStub = new EventTarget();
   stubGlobal("window", windowStub);
   const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-hard": fakeButton(), "storm-difficulty": fakeButton() };
@@ -140,7 +140,7 @@ async function fixture(difficulty: StormDifficulty = "easy") {
     windowStub.dispatchEvent(Object.assign(new Event(type), { code, repeat: false }));
   };
   for (let i = 0; i < 60 && !handle.stormState().modelLoaded; i++) {
-    tick();
+    if (tickWhileLoading) tick();
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return { handle, scene, gpu, buttons, vehicle: component.vehicle, tick, key };
@@ -278,6 +278,51 @@ group("Mars Dust Storm Survival — EASY/HARD toggle", () => {
     assert.equal(handle.stormState().penalty, 0);
   });
 });
+
+group("Mars Dust Storm Survival — restart resets everything (fixed seed)", () => {
+  test("R and the EASY/HARD toggle restore the fresh-run state, and the run replays identically", async () => {
+    // No ticks while the mock model loads: this is the state a brand-new run starts from (t = 0).
+    const { handle, scene, vehicle, tick, key } = await fixture("easy", false);
+    const fresh = handle.stormState();
+    assert.equal(fresh.modelLoaded, true);
+    assert.equal(fresh.time, 0);
+    // Play a recorded run: into a gust, devils spawned, piles grown, a beam reached.
+    const replay = (): ReturnType<typeof handle.stormState>[] => {
+      const out = [];
+      start(key, tick);
+      for (let i = 0; i < 160; i++) {
+        tick(0.25);
+        if (i % 20 === 0) out.push(handle.stormState());
+      }
+      return out;
+    };
+    const first = replay();
+    const played = handle.stormState();
+    assert.ok(played.time > 30 && played.devils.length >= 1 && played.piles.every((p) => p.depth > 0));
+    const beam = named(scene, "storm-beam-ring-0")[0]!;
+    vehicle.position.x = beam.transform.position.x;
+    vehicle.position.z = beam.transform.position.z;
+    tick();
+    assert.equal(handle.stormState().checkpoint, 1);
+
+    key("keydown", "KeyR");
+    key("keyup", "KeyR");
+    const afterR = handle.stormState();
+    assert.deepEqual(afterR, fresh, "R restores the fresh-run state");
+    assertMatchObject(afterR, { time: 0, devils: [], checkpoint: 0, burial: 0, elapsed: 0, penalty: 0, resets: 0 });
+    assert.ok(afterR.piles.every((p) => p.depth === 0));
+    const second = replay();
+    assert.deepEqual(second.map(stormOnly), first.map(stormOnly), "same storm, devils and piles after a restart");
+
+    handle.setDifficulty("hard");
+    assert.deepEqual({ ...handle.stormState(), difficulty: "easy" }, fresh, "the toggle restarts everything too");
+  });
+});
+
+/** The seeded storm model (clock, gusts, devils, piles), independent of the driven rover path. */
+function stormOnly(s: ReturnType<Awaited<ReturnType<typeof fixture>>["handle"]["stormState"]>) {
+  return { time: s.time, intensity: s.intensity, phase: s.phase, windSpeed: s.windSpeed, fogDensity: s.fogDensity, devils: s.devils.map((d) => ({ coreRadius: d.coreRadius, swirl: d.swirl })), piles: s.piles };
+}
 
 group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
   test("easy: staying put sticks the rover, adds the penalty once, and throttle pumping rocks it free", async () => {

@@ -513,15 +513,25 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     lastEvent = `${next.toUpperCase()} · RUN RESTARTED`;
   }
 
+  /**
+   * Reset EVERYTHING to the fresh-build state so each restart replays identically under the fixed
+   * seed: storm clock (gust phase), wind, dust devils (spawn stream back to its seed), every boulder
+   * pile and the rover's piles, the course, and the rover itself. R and the EASY/HARD toggle use it.
+   */
   function restart(): void {
-    course.index = 0;
-    course.elapsed = 0;
-    course.penalty = 0;
-    course.resets = 0;
-    course.state = "driving";
+    time = 0;
+    intensity = storm.intensity(0);
+    wind.x = 0;
+    wind.z = 0;
+    devils.reset();
+    accumulation.reset();
+    course.reset();
+    stuck = false;
     placeRover(SPAWN_X, SPAWN_Z);
     startupBrake = true;
     lastEvent = "";
+    applyAtmosphere();
+    stepPiles(0); // re-pose the (now empty) mounds
     refreshBeams();
   }
 

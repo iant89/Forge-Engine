@@ -231,6 +231,13 @@ export class DustDevilField {
     this.rng = new Rng(seed);
   }
 
+  /** Back to the fixed-seed initial state: no devils, the spawn stream replays from its seed. */
+  reset(): void {
+    this.devils.length = 0;
+    this.rng.reset();
+    this.nextId = 0;
+  }
+
   /** Active slots at this storm intensity: one in a lull, all of them at the gust peak. */
   activeSlots(intensity: number): number {
     if (this.maxDevils === 0) return 0;
@@ -426,6 +433,12 @@ export class DustAccumulation {
     this.burial = 0;
     this.lastThrottle = 0;
   }
+
+  /** Empty every prop pile and the rover pile (a run restart). */
+  reset(): void {
+    for (const pile of this.piles) pile.depth = 0;
+    this.resetRover();
+  }
 }
 
 // ---------------------------------------------------------------- course (D4)
@@ -486,6 +499,15 @@ export class StormCourse {
     this.checkpoints = checkpoints;
     this.spawnX = spawnX;
     this.spawnZ = spawnZ;
+  }
+
+  /** Back to the start: first beam active, clock, penalty and resets cleared. */
+  reset(): void {
+    this.index = 0;
+    this.elapsed = 0;
+    this.penalty = 0;
+    this.resets = 0;
+    this.state = "driving";
   }
 
   get total(): number {
