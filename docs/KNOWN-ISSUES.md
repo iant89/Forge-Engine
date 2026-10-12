@@ -175,10 +175,6 @@ What remains:
 
 ## Environment (Phase 8b)
 
-* **One flat cloud layer, not a volume.** The deck is a single noise-textured plane at a fixed
-  height with no vertical structure. `thickness` drives a three-sample projected self-shadow, not a
-  true volumetric march. The CPU and GPU noise bases differ (Perlin vs value-noise fbm), so the twins
-  agree on formulas and statistics, never bit-exactly. (capability: environment.clouds)
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
   the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.

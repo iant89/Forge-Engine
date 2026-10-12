@@ -58,6 +58,7 @@ import {
   DEBUG_SHADER,
   DEPTH_VERTEX,
   LightUniforms,
+  MAX_CLOUD_LAYERS,
   MAX_CLUSTERED_LIGHTS,
   PARTICLE_RENDER_SHADER,
   POST_SHADER,
@@ -74,6 +75,7 @@ import {
   WGSL_RESERVED_WORDS,
   arrayOf,
   f32,
+  derivativeControlFlowIssues,
   mixedOperatorIssues,
   ofStruct,
   preprocessWgsl,
@@ -134,8 +136,12 @@ group("generated uniform structs are legal in every browser's uniform address sp
     // Phase 17.1: `multiScattering` sits between the star field and the sample counts.
     assert.equal(RENDERING_STRUCTS.SkyUniforms.offsetOf("multiScattering"), 120);
     assert.equal(RENDERING_STRUCTS.SkyUniforms.offsetOf("viewSamples"), 124);
-    assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform"), 96);
-    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("wind"), 80);
+    // Phase 17.3: the deck grew its sub-layer stack — 13 scalars, the three tint vectors, the wind
+    // and `layers: array<vec4<f32>, 4>` (drift.xy, centre height, column weight), 16-aligned.
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform"), 192);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("wind"), 112);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), 128);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform") - RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), MAX_CLOUD_LAYERS * 16);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform"), 224);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("wavesB"), 64);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("sunDirection"), 208);
@@ -415,6 +421,81 @@ struct Varyings { @builtin(position) @invariant clipPos: vec4<f32> };
     }
     assertContains(WGSL_RESERVED_WORDS, "meta");
     assert.equal(new Set(WGSL_RESERVED_WORDS).size, WGSL_RESERVED_WORDS.length); // no duplicates
+  });
+});
+
+group("validateWgsl keeps derivatives in uniform control flow", () => {
+  // Phase 17.3's first cloud shader computed its sampling footprint inside a helper whose guard
+  // returned early, and Tint rejected the module — "dpdy must only be called from uniform control
+  // flow" — on the browser gate's real adapter while check:wgsl stayed green. The rule below is
+  // lexical and conservative (it cannot know whether a condition is uniform), and it checks both
+  // halves of the trap: the derivative after a branch, and a call to a function that takes one.
+  const wrap = (body: string) => `@fragment\nfn fragmentMain(in: vec2<f32>) -> @location(0) vec4<f32> {\n${body}\n}\n`;
+
+  test("flags a derivative reached after a branch or a loop", () => {
+    const guarded = wrap([
+      "  let dh = in.y;",
+      "  if (dh <= 0.0) {",
+      "    return vec4<f32>(0.0);",
+      "  }",
+      "  let footprint = max(length(dpdx(in)), length(dpdy(in)));",
+      "  return vec4<f32>(footprint);",
+    ].join("\n"));
+    const issues = derivativeControlFlowIssues(guarded);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]!.kind, "semantics");
+    assert.equal(issues[0]!.line, 7);
+    assertContains(issues[0]!.message, "uniform control flow");
+    assert.ok(validateWgsl(guarded).some((issue) => issue.kind === "semantics"));
+    const looped = wrap(["  for (var i = 0; i < 4; i++) {", "    let d = dpdx(in.x);", "  }", "  return vec4<f32>(1.0);"].join("\n"));
+    assert.equal(derivativeControlFlowIssues(looped).length, 1);
+  });
+
+  test("flags a call to a derivative-taking helper made after a branch", () => {
+    const source = [
+      "fn footprint(p: vec2<f32>) -> f32 {",
+      "  return max(length(dpdx(p)), length(dpdy(p)));",
+      "}",
+      "@fragment",
+      "fn fragmentMain(in: vec2<f32>) -> @location(0) vec4<f32> {",
+      "  if (in.x < 0.0) {",
+      "    return vec4<f32>(0.0);",
+      "  }",
+      "  let f = footprint(in);",
+      "  return vec4<f32>(f);",
+      "}",
+      "",
+    ].join("\n");
+    const issues = derivativeControlFlowIssues(source);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]!.line, 9);
+    assertContains(issues[0]!.message, "function that takes a derivative");
+  });
+
+  test("accepts the shipped shapes: derivative-first helpers and entry-point-first calls", () => {
+    const source = [
+      "fn footprint(p: vec2<f32>) -> f32 {",
+      "  let d = max(length(dpdx(p)), length(dpdy(p)));",
+      "  if (d < 1e-3) {",
+      "    return 0.0;",
+      "  }",
+      "  return d;",
+      "}",
+      "@fragment",
+      "fn fragmentMain(in: vec2<f32>) -> @location(0) vec4<f32> {",
+      "  let f = footprint(in);",
+      "  if (in.y < 0.0) {",
+      "    return vec4<f32>(0.0);",
+      "  }",
+      "  return vec4<f32>(f);",
+      "}",
+      "",
+    ].join("\n");
+    assert.deepEqual(derivativeControlFlowIssues(source), []);
+    assert.deepEqual(validateWgsl(source), []);
+    // A derivative inside a plain `return` is uniform control flow, not a branch.
+    const returned = wrap(["  if (in.x > 0.0) {", "    return vec4<f32>(dpdx(in.x));", "  }", "  return vec4<f32>(0.0);"].join("\n"));
+    assert.equal(derivativeControlFlowIssues(returned).length, 1, "the guarding if is what makes it non-uniform");
   });
 });
 

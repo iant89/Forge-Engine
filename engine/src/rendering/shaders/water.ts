@@ -19,9 +19,10 @@
  * (`instance_index` is 0 for non-instanced draws), so one entry point covers both paths.
  */
 
-import { PerFrameUniforms, SkyUniforms, InstanceStruct, WaterUniforms } from "../uniforms.js";
+import { PerFrameUniforms, SkyUniforms, CloudUniforms, InstanceStruct, WaterUniforms } from "../uniforms.js";
 import { WGSL_AERIAL_PERSPECTIVE, WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG } from "./common.js";
 import { WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./multiScattering.js";
+import { WGSL_CLOUD } from "./cloudLayer.js";
 import { BINDINGS } from "./standard.js";
 
 /** Group/binding map of the water program (frame + draw are shared with the standard program). */
@@ -34,6 +35,7 @@ export const WATER_BINDINGS = {
 export const WATER_SHADER = /* wgsl */ `
 ${PerFrameUniforms.toWgsl("uniform")}
 ${SkyUniforms.toWgsl("uniform")}
+${CloudUniforms.toWgsl("uniform")}
 
 ${InstanceStruct.toWgsl("storage")}
 
@@ -41,6 +43,7 @@ ${WaterUniforms.toWgsl("uniform")}
 
 @group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
 @group(0) @binding(${BINDINGS.sky.binding}) var<uniform> sky: SkyUniforms;
+@group(0) @binding(${BINDINGS.cloud.binding}) var<uniform> cloud: CloudUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(2) @binding(0) var<uniform> water: WaterUniforms;
 
@@ -52,6 +55,7 @@ ${WGSL_ATMOSPHERE_FUNCTIONS}
 ${WGSL_ATMOSPHERE_COMMON}
 ${wgslMultiScatteringSampler(BINDINGS.multiScattering.binding)}
 ${WGSL_AERIAL_PERSPECTIVE}
+${WGSL_CLOUD}
 
 struct WaterVertexInput {
   @location(0) position: vec3<f32>,
@@ -138,6 +142,8 @@ fn waterNoise(p: vec2<f32>) -> f32 {
 
 @fragment
 fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4<f32> {
+  // The deck's shadow's sampling footprint: a derivative, so it is taken before the branches below.
+  let cloudFootprint = cloudSurfaceFootprint(in.worldPos);
   var N = normalize(in.normal);
   if (!frontFacing) {
     N = -N;
@@ -151,7 +157,10 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let R = reflect(-V, N);
   let sunDir = normalize(water.sunDirection);
   let rdotl = max(dot(R, sunDir), 0.0);
-  let glint = water.sunTint * water.sunGlint * (pow(rdotl, 600.0) * 3.0 + pow(rdotl, 60.0) * 0.25);
+  // The deck's shadow reaches the water too (Phase 17.3): the glint is direct sun, so it is the
+  // term a cloud takes away.
+  let sunVisibility = cloudSunVisibility(in.worldPos, cloudFootprint);
+  let glint = water.sunTint * water.sunGlint * sunVisibility * (pow(rdotl, 600.0) * 3.0 + pow(rdotl, 60.0) * 0.25);
   // The reflected sky: the horizon tint, lifted toward the zenith with the reflected elevation.
   let skyRef = water.skyTint * (0.55 + 0.45 * clamp(R.y, 0.0, 1.0));
   var color = mix(diffuse, skyRef, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;

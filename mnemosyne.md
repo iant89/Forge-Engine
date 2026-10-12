@@ -2165,3 +2165,76 @@ Read the module constraints below before changing either pure model.
   `AudioContext.resume()` pending forever with no gesture, so no strike was ever registered. When a
   check fails only on CI, look for a browser API that stays pending until a gesture before assuming the
   runner is slow.
+
+## 2026-10-12 — Phase 17.3: the cloud deck becomes a stack, and starts casting a shadow
+
+- **One plane was the cap on the whole cloud system.** The 8b deck was a single fbm plane shaded by
+  its own density; nothing below it knew it was there, and at a grazing angle one pixel covered
+  kilometres of it, so the deck shimmered as the camera turned. 17.3 attacks all three at once, and
+  the design constraint that makes it tractable is that **the 17.3 deck must be the 8b deck at
+  `layers = 1`**, exactly: same column density, same coverage statistics, same shading law. Every 8b
+  statistic, test and gate arm therefore keeps describing the deck, and the new behaviour is opt-in
+  through the extra knobs rather than a rewrite.
+- **The stack.** `layers` (1-4) sheets spread evenly through a `thickness` slab centred on `height`,
+  layer `i` at `scale*layerScale^i`, seed `(seed+i)|0`, advected by `wind*(1 +/- layerDrift/2)` so
+  the sheets slide through each other, weighted `0.55 + 0.45*sin(pi*(k+0.5)/n)` normalised to one.
+  The weights summing to one is not decoration: it is what keeps a uniform deck's column density
+  equal to the single plane's at any count, and it is why the middle sheet of an odd deck sits at the
+  old plane's height.
+- **The shadow is the reason the stack is worth having.** `cloudDeckShadowTau` marches the slab above
+  the shaded point along the sun ray - the count follows the path length, so the top sheet takes one
+  sample where the ground takes `shadowSteps`. The deck shades itself with it *and* the scene below:
+  standard/terrain/water fragments multiply their directional light by `exp(-2.5*shadowStrength*tau)`.
+  Measured: mean sun transmittance 1.000 / 0.913 / 0.360 / 0.068 / 0.059 at coverage 0 / 0.25 / 0.5 /
+  0.75 / 1, and the device's 3-step march is within 0.2 % of a 24-step reference.
+- **The temporal fix is a Nyquist cut, not a blur.** Take the derivative needed for the pixel's world
+  footprint, fade each octave whose wavelength falls under it, and *stop* once an octave is fully
+  faded. Sweeping 500 azimuths at the gate camera's own angle: the mean sample-to-sample column change
+  at 1.1 degree elevation (6 km per pixel) falls from 0.166 to 0, at 2.9 degrees from 0.103 to 0.021,
+  and at 11.5 degrees - where the deck can still resolve its octaves - 0.03393 becomes 0.03363. A
+  screen-space blur or a fixed octave cap would have paid the same cost everywhere and blurred detail
+  the pixel could hold.
+- **The trap that a "correct" fade walks into:** if the faded octave also shrinks the normaliser, the
+  fade cancels itself out and the octave stays at full contrast - the field looks *identical*, which
+  is exactly why it survives a visual glance. `norm += amp` only for the octaves that pass the fade
+  test (`cloudOctaveWeight` / `cloudFieldLod` on the CPU, `cloudFbm` in WGSL). Both sides now carry
+  that line and the suite pins the WGSL text for it.
+- **`dpdy` may not be called from non-uniform control flow - and `check:wgsl` cannot see that.** The
+  first version derived the footprint inside the shaded branch, passed every structural check, and
+  was rejected by the real adapter with `'dpdy' must only be called from uniform control flow`,
+  failing the environment section before any 17.3 arm ran (a red environment run proves nothing about
+  the phase's own arms - read the failure line, not the exit code). The rule is now enforced in code:
+  `derivativeControlFlowIssues` in `gpu/shaderCache.ts` is part of `validateWgsl`, and it also flags
+  the subtler shape - a helper whose derivative precedes its first branch, called from a function that
+  *does* branch. Take the derivative first, pass the value down.
+- **The gate A/Bs are built to be decidable, not to look convincing:** >5 % of pixels must move when
+  the layer count changes 1 -> 4 -> 1 and the repeat-run noise must be an order of magnitude smaller
+  (a "different picture" check would pass on the same picture with a moving sun), and the shadow arm
+  requires the darker side to win by >10 % with more than 3x as many darker than brighter pixels,
+  plus the state echo the demo actually reports.
+
+## 2026-10-12 — Phase 17.3 follow-up: the gate A/B that counted the wrong direction
+
+- **Symptom:** the first real run of the 17.3 arms failed with `the deck's shadow reached too few
+  pixels (289/468000)` while the same run printed `308734 pixels brightened` — i.e. the shadow was
+  plainly working, upside down.
+- **Root cause:** `compareLuma(a, b)` counts what changed *from a to b*, and this arm passed the
+  shadow-**on** capture first: "darker" then counted the pixels that appeared when the shadow was
+  switched off. Every other A/B in the file passes the off/idle capture first — copying an idiom
+  without reading its direction is how a working feature reads as broken. Fixed by capturing off
+  first and asserting *both* state echoes (`surfaceShadows === false` and `=== true`).
+- **What also had to be true for the count to mean anything:** only `surfaceShadows` may move
+  between the two captures. `cloudSunVisibility` is called from the standard and water fragments
+  and nowhere in the sky pass, so a sky pixel physically cannot change — otherwise "the shadow
+  reached N pixels" would be counting deck-shading changes. The two captures run with the shipped
+  stack (`layers: 3`, `thickness: 400`) so the frame on screen matches the number being asserted.
+- **Green on the real adapter after the fix:** layers 1 vs 4 → 113,674/468,000 pixels (max 145) with
+  3,307 on the repeat (34× margin); shadow off → on → 308,987 darkened vs 164 brightened (of
+  468,000, max 147.7), frame mean 136.94 → 110.17, both state echoes read, zero GPU errors,
+  `check:browser:environment passed` in 683.6 s.
+- **Do not let a doc's numbers outlive the code path they came from.** While writing the 17.3
+  verification row I transcribed an early probe's transmittance ladder (1.000/0.913/0.360/0.068/
+  0.059) and a 0.1 %–0.2 % march error: the shipped march, and the roadmap's own bullet, say
+  0.962672/0.451995/0.120886/0.096972 at a fixed sun and 0.144 % worst case, because the substrate
+  changed after the first probe. Re-measured every figure the row quotes against the suite's own
+  fixture. A number in a doc is a claim; re-derive it or leave it out.

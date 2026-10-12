@@ -21,8 +21,9 @@
  * first one wrote instead of losing pixels to a one-ulp disagreement.
  */
 
-import { PerFrameUniforms, SkyUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, POINT_SHADOW_FACES } from "../uniforms.js";
+import { PerFrameUniforms, SkyUniforms, CloudUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, POINT_SHADOW_FACES } from "../uniforms.js";
 import { WGSL_AERIAL_PERSPECTIVE, WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { WGSL_CLOUD } from "./cloudLayer.js";
 import { WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./multiScattering.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
@@ -42,6 +43,12 @@ export const BINDINGS = {
   clusterGrid: { group: 0, binding: 8 },
   sky: { group: 0, binding: 9 },
   multiScattering: { group: 0, binding: 10 },
+  /**
+   * The cloud deck (Phase 17.3): the shadow the stack casts on the scene. Read by the directional
+   * lights' contribution only, and only while `cloud.surfaceShadows` is set, so a clear sky costs
+   * one uniform compare per light.
+   */
+  cloud: { group: 0, binding: 11 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
   /** Batch visibility words the object culler wrote (`rendering/objectCulling.ts`): 0 = draw. */
@@ -66,6 +73,7 @@ export const SKIN_BINDINGS = {
 const STRUCTS = [
   PerFrameUniforms.toWgsl("uniform"),
   SkyUniforms.toWgsl("uniform"),
+  CloudUniforms.toWgsl("uniform"),
   LightUniforms.toWgsl("uniform"),
   LightBlock.toWgsl("uniform"),
   // Clustered (Forward+) lighting: the quantisation block is a uniform, the grid and the lights it
@@ -354,6 +362,7 @@ const STANDARD_BINDINGS = /* wgsl */ `@group(0) @binding(0) var<uniform> perFram
 @group(0) @binding(7) var<storage, read> clusterLights: ClusterLightBlock;
 @group(0) @binding(8) var<storage, read> clusterGrid: ClusterGridBlock;
 @group(0) @binding(9) var<uniform> sky: SkyUniforms;
+@group(0) @binding(${BINDINGS.cloud.binding}) var<uniform> cloud: CloudUniforms;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 // The object culler's verdict for this draw's batch (0 = draw, see rendering/objectCulling.ts). Only
@@ -610,6 +619,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
 export function createStandardFragmentBody(surfaceSetup = STANDARD_SURFACE_SETUP): string {
   return /* wgsl */ `
 ${SHADOW_HELPERS}
+${WGSL_CLOUD}
 
 // SSAO visibility for this fragment: a 2×2 bilateral fetch from the half-resolution AO target.
 // Each texel carries the view depth it was computed at; texels from another surface (a silhouette
@@ -670,6 +680,8 @@ struct SurfaceShading {
   f0: vec3<f32>,
   metallic: f32,
   roughness: f32,
+  /** Sun visibility through the cloud deck (1 = clear sky), evaluated once per fragment. */
+  cloudSun: f32,
 }
 
 // One light's contribution to one surface. The uniform light list and the cluster lists both
@@ -697,6 +709,12 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
     }
   }
   var power = L.directionIntensity.w * attenuation;
+  if (L.kind == 0i) {
+    // The cloud deck (Phase 17.3) shadows the scene from above: directional lights lose the
+    // fraction of the sun the stack blocks, local lights are untouched. The visibility is
+    // precomputed in uniform control flow (see fragmentMain) because it takes derivatives.
+    power = power * s.cloudSun;
+  }
   if (L.shadowIndex >= 0i) {
     if (L.kind == 0i) {
       power = power * shadowAttenuation(s.worldPos, N, s.viewDepth);
@@ -727,6 +745,10 @@ fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
 
 @fragment
 fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
+  // The deck's shadow samples the fragment's own footprint, and a derivative is only legal in
+  // uniform control flow: take it here, before the surface setup and the unlit/standard split
+  // below can branch on non-uniform data.
+  let cloudFootprint = cloudSurfaceFootprint(in.worldPos);
 ${surfaceSetup}
 
   var color = vec3<f32>(0.0);
@@ -734,7 +756,8 @@ ${surfaceSetup}
     color = albedo.rgb;
   } else {
     let F0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
-    let surface = SurfaceShading(in.worldPos, N, V, in.viewDepth, albedo.rgb, F0, metallic, roughness);
+    let cloudSun = cloudSunVisibility(in.worldPos, cloudFootprint);
+    let surface = SurfaceShading(in.worldPos, N, V, in.viewDepth, albedo.rgb, F0, metallic, roughness, cloudSun);
     // Global lights: the uniform list. With clustering on this holds the directional lights only
     // (they reach every pixel, so there is nothing to cull); with it off it holds everything the
     // fixed 16-entry list can carry, exactly as before.

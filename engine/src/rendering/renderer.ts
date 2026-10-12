@@ -61,7 +61,7 @@ import { computeCascades, computeSpotShadow, computePointShadow, createPointShad
 import { AtmosphereModel, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "../environment/atmosphere.js";
 import { MULTI_SCATTERING_GPU, MultiScatteringField } from "../environment/multiScattering.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
-import { SkyLightingCache } from "../environment/clouds.js";
+import { MAX_CLOUD_LAYERS, SkyLightingCache, cloudLayerCentre, cloudLayerCount, cloudLayerDrift, cloudLayerWeight } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
 import { findGpuParticleWorld } from "../particles/gpuWorld.js";
 import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
@@ -592,6 +592,8 @@ export class Renderer implements RenderFrameContext {
   private readonly skyAccessor = new StructAccessor(SkyUniforms, this.skyBytes, 0, "uniform");
   private readonly cloudBytes = new WriteBuffer(CloudUniforms.byteSize("uniform"));
   private readonly cloudAccessor = new StructAccessor(CloudUniforms, this.cloudBytes, 0, "uniform");
+  /** Scratch for the Phase 17.3 sub-layer records — packed once per frame, no per-frame allocation. */
+  private readonly cloudLayerScratch = new Float32Array(MAX_CLOUD_LAYERS * 4);
   private readonly waterBytes = new WriteBuffer(WaterUniforms.byteSize("uniform"));
   private readonly waterAccessor = new StructAccessor(WaterUniforms, this.waterBytes, 0, "uniform");
   private readonly ssaoBytes = new WriteBuffer(SsaoUniforms.byteSize("uniform"));
@@ -2126,15 +2128,35 @@ export class Renderer implements RenderFrameContext {
     a.setF32("coverage", clouds.coverage);
     a.setF32("density", clouds.density);
     a.setF32("height", clouds.height);
-    a.setF32("thickness", 400);
+    a.setF32("thickness", clouds.thickness);
     a.setF32("scale", clouds.scale);
+    a.setF32("layerScale", clouds.layerScale);
     a.setF32("silverLining", clouds.silverLining);
     a.setF32("seed", clouds.seed);
+    a.setF32("layerCount", cloudLayerCount(clouds));
+    a.setF32("shadowSteps", clouds.shadowSteps);
+    a.setF32("shadowStrength", clouds.shadowStrength);
+    a.setF32("surfaceShadows", clouds.surfaceShadows ? 1 : 0);
     a.setF32("enabled", clouds.enabled ? 1 : 0);
     a.setVec3("sunTint", this.skyLight.sunTint[0]!, this.skyLight.sunTint[1]!, this.skyLight.sunTint[2]!);
     a.setVec3("ambientTint", this.skyLight.ambientTint[0]!, this.skyLight.ambientTint[1]!, this.skyLight.ambientTint[2]!);
     a.setVec3("cloudAlbedo", clouds.albedo.r, clouds.albedo.g, clouds.albedo.b);
     a.setVec2("wind", clouds.windX, clouds.windZ);
+    // Phase 17.3: the sub-layer stack. The CPU owns the geometry (heights, column weights, drift),
+    // so the shader — and the CPU field the tests and tools evaluate — cannot disagree about it.
+    // `perFrame.time.x` is the frame clock the deck is drawn at; the shader's own ageing comes from
+    // the drift offsets this writes, not from a second clock.
+    const seconds = this.currentFrameContext?.elapsed ?? 0;
+    const count = cloudLayerCount(clouds);
+    const layerData = this.cloudLayerScratch;
+    for (let i = 0; i < count; i++) {
+      const drift = cloudLayerDrift(clouds, i, seconds);
+      layerData[i * 4] = drift.x;
+      layerData[i * 4 + 1] = drift.z;
+      layerData[i * 4 + 2] = cloudLayerCentre(clouds, i);
+      layerData[i * 4 + 3] = cloudLayerWeight(clouds, i);
+    }
+    a.setArrayVec4("layers", layerData, 0, count);
     this.device.device.queue.writeBuffer(this.cloudBuffer!, 0, gpuSource(this.cloudBytes.bytes.subarray(0, this.cloudBytes.byteLength)));
   }
 
@@ -3268,6 +3290,7 @@ export class Renderer implements RenderFrameContext {
         { binding: BINDINGS.clusterGrid.binding, resource: { buffer: this.clusterGridBuffer! } },
         { binding: BINDINGS.sky.binding, resource: { buffer: this.skyBuffer! } },
         { binding: BINDINGS.multiScattering.binding, resource: { buffer: msBuffer } },
+        { binding: BINDINGS.cloud.binding, resource: { buffer: this.cloudBuffer! } },
       ],
     });
     this.frameBindGroupView = shadowView;
