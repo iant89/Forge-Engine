@@ -41,6 +41,15 @@ device-side diagnostics, loaded on demand (`examples/src/diag/`):
   instead of guessed at. The panel hides behind a `diag` button, and the numbers are POSTed as JSON
   when the host injects `window.__forgeDiagEndpoint` (the sandbox dev server's scratch config does);
   a plain `npm run demo` only draws the text on screen.
+* The sky bisect (`examples/src/diag/skyBisect.ts`) goes one step further on a device whose sky
+  shades but renders black: it hot-swaps variants of the live `sky.wgsl` through the engine's own
+  hot-reload hook — loop bounds without the per-pixel `select`, compile-time loop bounds, no
+  multiple-scattering storage read, no cloud-deck mix, and a fragment stage short-circuited to a
+  constant — and captures one frame per variant, so the first variant that restores the sky on the
+  failing device *is* the production fix, already device-proven. A variant whose anchor moved is
+  reported as not measured rather than measured as the unmodified shader, and the panel prints the
+  pipeline factory's failure/pending counters beside the pass list, because a module the driver
+  refuses to compile skips its draw forever while every other number stays green.
 * `examples/src/diag/rawGpuTests.ts` runs twelve raw-WebGPU probes against the engine's device *and*
   a freshly requested one — rasterisation, the depth test, `depthReadOnly` loading the previous
   pass's depth (kept as a device probe after the renderer moved to the explicit-load spelling its
