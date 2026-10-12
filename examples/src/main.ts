@@ -100,7 +100,10 @@ function showError(text: string): void {
 
 async function main(): Promise<void> {
   const platform = detectPlatform();
-  const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2 } });
+  // GPU timestamps are on so the profiler panel shows per-pass device time and the browser gate can
+  // report what the new compute passes cost (the render graph degrades to no-op when the adapter
+  // does not expose `timestamp-query`).
+  const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2, gpuTimestamps: true } });
   let profilerVisible = false;
   let nextProfilerPaint = 0;
   const setProfilerVisible = (visible: boolean): void => {
@@ -638,6 +641,15 @@ async function main(): Promise<void> {
     animating: () => animating,
     /** Pass names the render graph executed last frame (what the gate asserts against). */
     renderPasses: () => engine.stats().renderPasses,
+    /**
+     * Phase 17.1: the multiple-scattering LUT the device built, as `(rgb = J_ms / sunIntensity,
+     * a = mean rho)` per texel in stored order, and the CPU twin of the same table for the last sky
+     * frame. `npm run check:browser` compares the two — the real-WebGPU evidence for the compute
+     * passes. Both are diagnostics: the reference costs ~100 ms to build.
+     */
+    multiScatteringLut: () => engine.renderer.readMultiScatteringLut(),
+    multiScatteringBuilds: () => engine.renderer.multiScatteringBuilds,
+    multiScatteringReference: () => Array.from(engine.renderer.multiScatteringReference().data),
     /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */
     camera: () => controls?.state() ?? null,
     /** Chassis speed/rpm while a vehicle scene is loaded; null otherwise. */

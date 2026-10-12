@@ -84,6 +84,7 @@ export const SkyUniforms = new StructDef("SkyUniforms", [
   { name: "sunAngularRadius", type: f32 },
   { name: "sunDiscIntensity", type: f32, comment: "disc radiance relative to sunIntensity × transmittance" },
   { name: "starBrightness", type: f32, comment: "0 disables the star field" },
+  { name: "multiScattering", type: i32, comment: "1 = add the Phase 17.1 table; the pass still reads zeros when 0" },
   { name: "viewSamples", type: i32 },
   { name: "lightSamples", type: i32 },
 ]);

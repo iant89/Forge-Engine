@@ -3,7 +3,9 @@
  * and the weather that moves through it.
  *
  * - `solar.ts`      — NOAA/Meeus sun position for a latitude, longitude and UTC instant.
- * - `atmosphere.ts` — single-scattering sky model + Earth/Mars presets; the CPU twin of the sky shader.
+ * - `atmosphere.ts` — sky model + Earth/Mars presets; the CPU twin of the sky shader.
+ * - `multiScattering.ts` — Phase 17.1 multiple-scattering table (second-and-higher-order light),
+ *                      the CPU twin of the two passes in `rendering/shaders/multiScattering.ts`.
  * - `fog.ts`        — fog transmittance formulas, the CPU twin of the standard shader's fog.
  * - `dayNight.ts`   — `DayNightCycle` scene object that drives the sun light, ambient and fog.
  * - `weather.ts`    — `WeatherSystem`: wind/gusts/temperature/humidity/precipitation/storm state on
@@ -18,6 +20,7 @@
 
 export * from "./solar.js";
 export * from "./atmosphere.js";
+export * from "./multiScattering.js";
 export * from "./fog.js";
 export * from "./dayNight.js";
 export * from "./weather.js";

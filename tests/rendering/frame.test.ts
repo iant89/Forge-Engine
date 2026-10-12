@@ -188,6 +188,12 @@ async function fixture(
 }
 
 const labels = (f: Fixture) => f.mock.passes.map((p) => p.label);
+/**
+ * The multiple-scattering table build (Phase 17.1): two compute passes a *fresh* renderer records
+ * ahead of everything else on its first sky frame. A frame whose sun has not moved records neither,
+ * which is why the steady-state assertions below still pass without them.
+ */
+const MS_BUILD = ["sky.ms.table", "sky.ms.lut"];
 
 /** The pipeline key (`pipeline.<key>`) each draw in `pass` was issued with, in draw order. */
 function drawPipelines(f: Fixture, pass: string): string[] {
@@ -743,6 +749,7 @@ group("frame structure", () => {
     assert.deepEqual(f.mock.errors, []);
     assert.deepEqual(labels(f), [
       "forge.shadow.0",
+      ...MS_BUILD,
       ...PREPASS_SSAO,
       "forge.main",
       "forge.sky",
@@ -753,8 +760,8 @@ group("frame structure", () => {
       "forge.bloom.up.1",
       "forge.tonemap",
     ]);
-    const main = f.mock.passes[5]!;
-    const sky = f.mock.passes[6]!;
+    const main = f.mock.passes[MS_BUILD.length + 5]!;
+    const sky = f.mock.passes[MS_BUILD.length + 6]!;
     // The sky depth-tests against the scene depth, so forge.main must keep it (it discards otherwise),
     // and the sky pass must load it explicitly — the read-only attach's implicit load is exactly the
     // primitive that silently lost the depth on WebKit (flat beige sky-ground over the whole scene).
@@ -769,12 +776,17 @@ group("frame structure", () => {
     assert.equal(s.sky, true);
     assert.equal(s.drawCalls, 2 + 1 + 3 + 6);
     assert.equal(s.transientTextures, 9); // the sky adds no texture: it draws into scene.hdr
-    assert.equal(s.passes, 13);
+    assert.equal(s.passes, 13 + MS_BUILD.length); // the table build is two of them, on this frame only
 
-    // Steady state: nothing is (re)created for the sky.
+    // Steady state: nothing is (re)created for the sky, and a sun that has not moved rebuilds nothing.
     const created = f.device.gpuMemory.texturesCreated;
     const buffers = f.device.gpuMemory.buffersCreated;
-    for (let i = 0; i < 3; i++) f.renderer.renderScene(f.scene);
+    for (let i = 0; i < 3; i++) {
+      f.mock.passes.length = 0;
+      f.renderer.renderScene(f.scene);
+      assert.deepEqual(labels(f).filter((l) => MS_BUILD.includes(l)), []);
+      assert.equal(f.renderer.stats.passes, 13);
+    }
     assert.equal(f.device.gpuMemory.texturesCreated, created);
     assert.equal(f.device.gpuMemory.buffersCreated, buffers);
     assert.equal(f.renderer.stats.texturesCreated, 0);
@@ -823,7 +835,7 @@ group("frame structure", () => {
     assert.equal(f.scene.settings.sky.sunDirection!.y, 1); // normalised copy
     f.renderer.renderScene(f.scene);
     assert.deepEqual(f.mock.errors, []);
-    assert.deepEqual(labels(f), [...PREPASS_SSAO, "forge.main", "forge.sky"]);
+    assert.deepEqual(labels(f), [...MS_BUILD, ...PREPASS_SSAO, "forge.main", "forge.sky"]);
     // A one-frame override is consumed by the next frame and does not persist.
     f.renderer.setSkyOverride({ exposure: 0.5, quality: "high" });
     f.renderer.renderScene(f.scene);

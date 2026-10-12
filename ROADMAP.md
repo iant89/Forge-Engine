@@ -164,6 +164,11 @@ PHASE 16 - ANIMATION
         upload/render path — a skinned mesh deforms in the demo on a real device;
         mechanical animation (16.6) remains)
 
+PHASE 17 - ENVIRONMENT 2.0
+    [~] IN PROGRESS (17.1 landed: the multiple-scattering LUT — the sky gains the higher orders on
+        the CPU and in two compute passes on the device, measured 1.3x at noon and 2-7x at twilight
+        on Earth and 2-5x on Mars, with the remaining limits in KNOWN-ISSUES; 17.2-17.6 remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -1659,11 +1664,21 @@ CURRENTLY COMPLETE:
 
 17.1 Atmosphere Quality
 
-    [ ] Multiple-scattering approximation / LUT.
+    [x] Multiple-scattering approximation / LUT. (Phase 17.1: `environment/multiScattering.ts` is
+        the reference table, `rendering/shaders/multiScattering.ts` the two compute entry points
+        that build it on the device, and the sky pass adds it per march step. Built only when the
+        sun moves past 0.5 deg or the atmosphere changes; the device's table is read back in
+        `npm run check:browser` and compared with the CPU twin.)
 
-    [ ] Improved Mars atmospheric scattering.
+    [x] Improved Mars atmospheric scattering. (The dust sky gains the most from the LUT — 2-5x
+        luminance at every sun elevation the preset is used at — because a thin, strongly
+        forward-scattering atmosphere loses most of its light to higher orders. The remaining
+        wavelength-dependent Mie lobe is in KNOWN-ISSUES.)
 
-    [ ] Better twilight.
+    [x] Better twilight. (Twilight is the second-and-higher orders: the sky integral alone goes to
+        zero the moment the sun crosses the horizon. Measured 2.2x at the zenith and 6x at the
+        horizon away from the sun, six degrees after sunset, Earth; the terminator columns carry an
+        order-of-magnitude accuracy and the limit is documented.)
 
 
 17.2 Aerial Perspective

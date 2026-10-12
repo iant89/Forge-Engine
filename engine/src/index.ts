@@ -372,12 +372,14 @@ export {
   type WorldMatrixLookup,
 } from "./rendering/skinning.js";
 export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
+export { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_WORKGROUP, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_LUT_TEXEL_BYTES, WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./rendering/shaders/multiScattering.js";
+export { GpuMultiScattering, MS_SUN_EPSILON, writeSkyMultiScatteringSignature, skyMultiScatteringSignatureChanged } from "./rendering/skyMultiScattering.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP, POST_FLAG_PASSTHROUGH } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";
 export { WGSL_CLOUD } from "./rendering/shaders/cloudLayer.js";
 export { WATER_SHADER, WATER_BINDINGS } from "./rendering/shaders/water.js";
-export { WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX } from "./rendering/shaders/common.js";
+export { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX } from "./rendering/shaders/common.js";
 
 // Debug + testing
 export { Profiler, ProfileScope, profile, type ProfilerOptions, type ScopeStats, type FrameRecord } from "./debug/profiler.js";

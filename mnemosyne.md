@@ -2090,3 +2090,41 @@ Read the module constraints below before changing either pure model.
 - If steering ever needs retuning again: write the probe harness *first* (flat `plainWater()` environment,
   `resetBoat` + a manual `stepBoat` loop) rather than guessing from the formula — the gate's nonlinearity
   makes the idle/WOT ratio easy to misjudge by eye.
+
+## 2026-10-11 — Phase 17.1 multiple scattering: four approximations that had to be measured
+
+- **What landed:** `environment/multiScattering.ts` (CPU reference field) + `rendering/shaders/multiScattering.ts`
+  (two compute entry points) + `rendering/skyMultiScattering.ts` (`GpuMultiScattering`, readback) + the sky
+  pass's third binding and the `SkyUniforms.multiScattering` flag. The higher orders are an isotropic
+  source (`J₁` = mean `skyRadiance` over Fibonacci directions) summed as `J₁/(1−ρ)`.
+- **The uniform sun axis was the big error.** With a uniform μ_sun axis the table read 5–19× too bright for
+  `μ_sun ≤ 0` (twilight). Test: keep μ fixed and vary the direction count 12 → 768 — the error did not move,
+  so it was *not* quadrature. Warping the sun axis `√|μ|` (dense around the terminator) fixed it. Two
+  related traps: do not store transmittance `T` in the τ table (interpolating across a row's horizon was
+  up to 8× phantom twilight — store τ and exponentiate after mixing), and use `raySphereEntry`/a τ-to-space
+  march, not `AtmosphereModel.transmittance` (uniform segments over a ~1000 km grazing path).
+- **Forward-peaked Mie lobes need their own cap.** `ESTIMATE_MIE_ANISOTROPY = 0.5` (same cap `skyAmbient`
+  uses) applied in *both* twins before the phase function. Without it the 32–48-direction mean of Mars dust
+  (g 0.7) is decided by whichever sample sits nearest the sun: dusk gains up to 146× — physically meaningless.
+  With it, Mars daylight gains land at 1.85–1.93 and the artifact is gone.
+- **Resolution was settled by measurement, not taste.** Against a 1024-direction reference: 48 dirs/24 steps
+  is 0.97–1.01 everywhere, 16/12 is 0.85–0.87 at the ground and 0.53 at the terminator. Hence CPU (32/12,
+  ~9 ms) and GPU (48/24, ~110–136 ms, rebuilt only when the sun moves past 0.5°).
+- **Two things the design deliberately does not do, and both are easy to assume otherwise:** there is **no
+  ground bounce** (at 20 km an albedo-0.1 planet would add 1.5–2.2× to the mean — measured, and the table
+  simply does not contain it; at h=0 the effect is 1.00×, so a low-altitude test cannot see it), and the
+  known-limitation bullets must be measured against a *black* ground or they compare against the wrong
+  reference. Second, ρ peaks around 0.23–0.35 even at Rayleigh ×1000, so `maxSeriesRatio` (0.9) is a guard
+  that no preset reaches — test the range and the clamp-by-lowering, never "the clamp fired".
+- **Terminator columns are the residual, by design:** bilinear interpolation between the two columns that
+  straddle the terminator overshoots at |μ|≈0.07, h=0, because sun transmittance there is a step function
+  no (h, μ) grid can represent. Documented, not chased.
+- **Readback is how the device table is verified:** `GpuMultiScattering.readLut()` (COPY_SRC staging +
+  `mapAsync`) plus `Renderer.multiScatteringReference()` — the CPU twin of the *last sky frame's* effective
+  atmosphere (sunIntensity/turbidity/rayleigh/mie scaling). `npm run check:browser` compares the two within
+  15 % at 12 daylight texels and pins the nadir column at exactly zero. Same-frame, same-params comparison;
+  `AtmosphereModel.multiScattering` is a plain member, so a field built from *other* params is a silent
+  mismatch if anyone ever assigns one.
+- **Suite growth is a repo contract:** adding a linked suite means `tests/full.test.ts` `report(n)` +1
+  *and* `tests/tools/selrun.test.ts`'s literal suite/claim counts (74 / 670) — the latter is the one that
+  fails the run, not the catalog check.

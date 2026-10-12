@@ -1,4 +1,4 @@
-# Environment — as built (Phases 8a + 8b)
+# Environment — as built (Phases 8a + 8b, 17.1)
 
 Phase 8 of `ROADMAP.md` was split in two. This document describes both halves as they exist in the
 tree today: §1–§6 are the first half — **where the sun is, what the sky looks like, how far you
@@ -43,14 +43,15 @@ const { sunrise, sunset, solarNoon, dayLength } = sunEvents(julianDay(2000, 6, 2
 
 ## 2. Atmosphere (`atmosphere.ts` and `shaders/sky.ts`)
 
-A single-scattering Nishita/O'Neil sky around a spherical planet: Rayleigh molecules (scale height
+A Nishita/O'Neil sky around a spherical planet — single scattering, plus the multiple-scattering
+table §8 adds on top: Rayleigh molecules (scale height
 8 km), Mie aerosols (1.2 km, Cornette–Shanks phase with asymmetry `g`), and a tent-shaped ozone
 absorption layer (peak 25 km, half-width 15 km), with Bruneton & Neyret's sea-level coefficients.
 Below the horizon the model returns the sunlit Lambertian ground seen through the whole view path.
 
 `AtmosphereModel` is the **reference implementation** and the sky shader is its GPU twin: same
 integral (midpoint rule on cubically spaced view segments, a light ray per sample), same constants
-(delivered as `SkyUniforms`, 128 B, never retyped), same lit-ground term. A change to one is a change
+(delivered as `SkyUniforms`, 144 B, never retyped), same lit-ground term. A change to one is a change
 to both. What only the pixel pass adds is the limb-darkened sun disc and a hashed star field that
 fades in as the scattered light goes away.
 
@@ -85,10 +86,10 @@ model.transmittance(height, dx, dy, dz, out, samples);          // toward space 
   and widening the lobe keeps the scattered energy while redistributing it to what the sample set can
   resolve. Both estimates land within 25 % of a 4000-direction reference for Earth and Mars (pinned).
 * **Units.** `sunIntensity` is the sun's top-of-atmosphere irradiance per channel in scene units;
-  the model returns linear RGB radiance. Because single scattering misses multiple scattering, the
-  sky is ~3× too dark relative to the sun; the demo renders the sky at `sky.sunIntensity` 20 against
-  a light of 4.2 and scales the derived ambient by 0.6, which reproduces the real sky-to-sun
-  irradiance split (~15–20 %). See §6.
+  the model returns linear RGB radiance. Single scattering alone leaves the sky ~3× too dark
+  relative to the sun; §8's multiple-scattering table closes part of that (measured ~1.3× at noon,
+  2–7× at twilight), and the demo's 20 : 4.2 sky-to-light ratio plus `ambientScale` 0.6 still stands
+  as the art tuning across the whole day. See §6 and §8.
 
 ### The `forge.sky` pass
 
@@ -104,14 +105,16 @@ forge.sky    color: sceneColor (load)    depth: sceneDepth (depthReadOnly)   1 t
   The regular `WGSL_FULLSCREEN_VERTEX` emits z = 0 and would overwrite the scene.
 * View rays come from `invViewProj`: each corner is unprojected at NDC z = 0 and z = 1 and the
   fragment normalises `far − near`, which is exact for perspective *and* orthographic cameras.
-* Own technique (`"sky"`) and bind-group layout: `PerFrameUniforms` (vertex + fragment) and
-  `SkyUniforms`. The post layout only binds `float` textures, which is why the sky does not read the
+* Own technique (`"sky"`) and bind-group layout (group 0): `PerFrameUniforms` (vertex + fragment),
+  `SkyUniforms`, the cloud block, and the multiple-scattering table as a read-only storage buffer at
+  binding 3 (§8). The post layout only binds `float` textures, which is why the sky does not read the
   depth as a texture but tests against it as an attachment — a graph *read*, tracked like any other.
   The mock enforces the spec's rule that a read-only depth attachment carries no load/store ops.
 * Output follows the forward shader's contract: scene-referred linear radiance on the HDR path,
   exposure + tone curve + sRGB in-shader on the LDR path (`perFrame.flags` bit 1).
-* Cost: `viewSamples × (lightSamples + 1)` exponentials per sky pixel; nothing per frame beyond one
-  128-byte uniform write. The pass adds no transient texture (`tests/rendering/frame.test.ts`).
+* Cost: `viewSamples × (lightSamples + 1)` exponentials per sky pixel, plus one table lookup per
+  sample when `multiScattering` is on; nothing per frame beyond one 144-byte uniform write. The pass
+  adds no transient texture (`tests/rendering/frame.test.ts`).
 
 ### Scene settings
 
@@ -126,6 +129,7 @@ forge.sky    color: sceneColor (load)    depth: sceneDepth (depthReadOnly)   1 t
 | `starBrightness` (1), `nightEnabled` (true) | Star field plus an atmosphere-attenuated full moon in the anti-solar direction; stars fade with scattered daylight. |
 | `seaLevel` (0) | render-local height of the planet surface; the camera's altitude is `y − seaLevel`. |
 | `quality` (`medium`) | sample tier, see above. |
+| `multiScattering` (`true`) | add the higher orders from the Phase 17.1 table (§8); `false` draws the raw single-scattering sky. |
 | `atmosphere` (`null`) | `AtmosphereParams` or `null` for Earth. Serialised with the scene. |
 
 `scene.setSky(partial)` applies and turns the sky on; `scene.setBackgroundColor()` turns it off (solid
@@ -212,13 +216,14 @@ runs under the Mars preset with exp² dust haze coloured by the model's horizon.
 
 ## 6. Approximations (what a green gate does not erase)
 
-* **Single scattering.** No multiple scattering, so the sky is ~3× darker than reality relative to
-  the sun and Earth's horizon is yellowish rather than white; compensate with `sky.sunIntensity` vs
-  the light's intensity (the demo's 20 : 4.2) and `ambientScale`. A multiple-scattering LUT is the
-  natural follow-up.
-* **No twilight from below the horizon or aerial perspective on geometry** (fog is the only distance
-  cue on surfaces), **no per-object sky lighting** (ambient is one colour). The procedural anti-solar
-  moon is always full and has no orbital inclination or calendar phase.
+* **Multiple scattering is approximated** (§8): an isotropic source per height and sun elevation,
+  summed as a geometric series, no ground bounce, and twilight columns good to a factor of ~2 rather
+  than a few percent. The sky is still darker than reality relative to the sun, just less so — the
+  demo's `sky.sunIntensity` 20 against the light's 4.2 and `ambientScale` 0.6 are unchanged.
+* **Aerial perspective on geometry** is still fog (the only distance cue on surfaces); **no
+  per-object sky lighting** (ambient is one colour). In-scattered light does not tint distant
+  geometry — that is Phase 17.2. The procedural anti-solar moon is always full and has no orbital
+  inclination or calendar phase.
 * **The sun disc is a look control**, not a physical radiance.
 * **Mars' blue sunset aureole** needs a wavelength-dependent Mie lobe; the preset has one `g`.
 
@@ -300,3 +305,77 @@ width. The sky demo (`7.x`/Phase 8a) follows the same pattern: its `-1h`/`+1h`/`
 vehicle demo keeps keyboard-first controls (its pad stays touch-only). `npm run check:browser`
 drives both panels, at a phone width for weather and a desktop width for sky (see
 `docs/VERIFICATION.md`).
+
+## 8. Multiple scattering (Phase 17.1)
+
+The sky integral in §2 is *single* scattering: it stops after one event, so it misses the light that
+bounces twice or more. That light is what makes a real sky bright, what keeps the twilight after
+sunset (single scattering goes to exactly zero the moment the sun crosses the horizon), and what Mars
+— thin air, dust with a strong forward lobe — leans on almost entirely.
+
+The engine uses the standard approximation instead of integrating it: the higher orders are treated
+as an isotropic source per point,
+
+```
+J₁(x)  = (1/4π) ∫ L₁(x, ω) dω          mean single-scattered radiance around x
+L_ms(x) ≈ J₁(x) · σ_s(x) / (1 − ρ(x))    the whole cascade as a geometric series
+```
+
+`F(x) = (1/4π)∫ T_view(x,ω) · σ_s(x) · L₁(x,ω) dω` — what the table stores, per unit sun intensity,
+per channel — depends on a point only through the height above sea level and the sun's zenith cosine
+there (a spherically symmetric atmosphere), so a `heightSamples × sunSamples` table covers every
+view. `AtmosphereModel.skyRadiance` and the sky shader both march the same way and add
+`Σ T_view · (σ_R·ρ_R + σ_M·ρ_M) · J_ms` per segment, one lookup each.
+
+**Layout.** `MS_LUT_FLOATS_PER_TEXEL = 4`: `rgb = F / sunIntensity` in **linear radiance units** (the
+shader does not rescale it — `sunIntensity` is already in the uniform), `a =` mean ρ (diagnostics).
+Both axes are warped so the interesting parts get columns: height by `sqrt(h / H)` (dense near the
+ground) and sun elevation by `sqrt(|μ|)` around the terminator. `texelValue` reads a texel as stored;
+`sample` bilinearly interpolates — at a texel centre the two agree exactly, which
+`tests/environment/environment17.test.ts` pins for every texel.
+
+* **`MultiScatteringField` (`environment/multiScattering.ts`)** is the reference. Per texel it averages
+  `MULTI_SCATTERING_CPU.directions` (32) Fibonacci directions, marching `steps` (12) cubically spaced
+  segments per direction; it reads a τ-to-space table (24 height × 32 μ, cubically marched, `1e30`
+  where the sun is blocked) and clamps ρ at `maxSeriesRatio` (0.9) so the series cannot diverge. The
+  build costs ~9 ms of JavaScript, allocation-free after construction, and never mutates the model it
+  reads. Assign it to `model.multiScattering` and every radiance that model returns — sky, ambient,
+  horizon colour — includes the term.
+* **`MULTI_SCATTERING_GPU`** (32 × 32, 48 directions, 24 steps) is what the device builds: the three
+  times the directions buy a table within ~±5 % of the sphere mean in daylight, where the CPU's 32 sit
+  within ~±17 %. Both numbers are pinned against a 256-direction reference in
+  `tests/environment/environment17.test.ts`. The Mie lobe is evaluated with |g| capped at
+  `ESTIMATE_MIE_ANISOTROPY` (0.5, the same cap `skyAmbient` uses) because a 48-direction average of a
+  forward-peaked lobe is decided by whichever sample lands nearest the sun.
+* **The two passes.** `forge.sky.ms.table` fills the τ table (768 invocations) and `forge.sky.ms.lut`
+  the field (1024 invocations of 48 × 24 samples each), 64 threads per workgroup, sharing one
+  bind-group layout: `SkyUniforms` (the frame's own uniform buffer), τ storage, LUT storage. They are
+  recorded at the *start* of the frame, before the shadow cascades, so the table is ready for
+  `forge.sky`. `Renderer.recordSkyMultiScattering` records them only when the sun has moved more than
+  `MS_SUN_EPSILON` (cos 0.5°) or the effective atmosphere changed — compared by value, because a
+  day/night cycle mutates `AtmosphereParams` in place. A still frame therefore has the same pass list
+  it had before this phase.
+* **Getting them on.** `scene.settings.sky.multiScattering` (default `true`) writes a flag into
+  `SkyUniforms`; the shader skips the term (and the second pass is not recorded) when it is off. The
+  sky bind group always binds the LUT buffer, so toggling the flag never re-creates bind groups.
+* **Measured.** Earth, CPU configuration, MS on vs off at luminance: zenith at 10° sun ×1.26,
+  horizon away from the sun ×1.30, zenith 6° after sunset ×2.2, horizon away from the sun at that
+  hour ×6.3. Mars: zenith ×2.24, horizon ×4.95, dusk zenith ×4.31 — the thin, forward-scattering
+  atmosphere gains the most. Cost: the headless CPU build is ~9 ms of JavaScript for the CPU
+  configuration; on the device the two dispatches (1.2 M samples) measured 0.11 ms for the table and
+  43 ms for the field on SwiftShader — a software rasteriser, so the number to read is the ratio
+  against the other passes in the same frame, not its absolute size — and nothing at all on a frame
+  whose sun has not moved. On the sky demo at noon, switching the term off darkens 156 062 of
+  468 000 pixels by up to 10 luma levels and brightens none.
+* **Limits.** No ground bounce (the planet is black to the table: at 20 km an albedo-0.1 ground would
+  add 1.5–2.2× to the mean, which the table does not have); the higher orders are isotropic, so no
+  wavelength-dependent aureole (Mars' blue sunset); the terminator columns are good to an
+  order of magnitude rather than a few percent — the source changes by orders of magnitude inside one
+  column and a 48-direction mean cannot resolve the spike; and the CPU path is opt-in, so a scene
+  that wants MS in its derived ambient must assign the field itself. `docs/KNOWN-ISSUES.md` §Environment
+  lists them with their capability references.
+* **Verification.** `tests/environment/environment17.test.ts` (table shape and axes, the sphere-mean
+  identity, the twilight decay and exact zeros, the model/ambient/horizon gains, the renderer's pass
+  bookkeeping, the WGSL/TS config agreement) and, on a real device, `npm run check:browser`: the two
+  passes must run, the sky must draw brighter with the flag on, and the table read back off the device
+  must match `Renderer.multiScatteringReference()` (the CPU twin of the same frame) within 15 %.

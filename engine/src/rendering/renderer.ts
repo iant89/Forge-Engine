@@ -40,6 +40,7 @@ import { SKIN_BINDINGS } from "./shaders/standard.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
+import { GpuMultiScattering, MS_SUN_EPSILON, skyMultiScatteringSignatureChanged, writeSkyMultiScatteringSignature } from "./skyMultiScattering.js";
 import {
   CULL_FLAG_DISTANCE,
   CULL_FLAG_FRUSTUM,
@@ -56,7 +57,8 @@ import { fitShadowMapSize } from "./shadowBudget.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
 import { computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, shadowLightPriority, type Cascade, type SpotShadowFit, type PointShadowFit } from "./shadows.js";
-import { EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, type AtmosphereParams } from "../environment/atmosphere.js";
+import { AtmosphereModel, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "../environment/atmosphere.js";
+import { MULTI_SCATTERING_GPU, MultiScatteringField } from "../environment/multiScattering.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { SkyLightingCache } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
@@ -653,9 +655,20 @@ export class Renderer implements RenderFrameContext {
     nightEnabled: true,
     seaLevel: 0,
     quality: "medium",
+    multiScattering: true,
     atmosphere: null,
   };
   private readonly skySunDirection = new Vec3();
+  /**
+   * Phase 17.1: the two compute passes that build the multiple-scattering table, created on the
+   * first frame that needs it. `msSun` and the signature of the effective atmosphere remember what
+   * the table was built for, so a still frame records neither pass.
+   */
+  private skyMultiScattering: GpuMultiScattering | null = null;
+  private readonly msSun = new Vec3(0, 0, 0);
+  private readonly msSignature = new Float64Array(22).fill(NaN);
+  private readonly msLastSignature = new Float64Array(22).fill(NaN);
+  private msBuilds = 0;
 
   // GPU buffers and bind groups.
   private frameBuffer: GPUBuffer | null = null;
@@ -1230,6 +1243,10 @@ export class Renderer implements RenderFrameContext {
       usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || this.cullOcclusion ? TextureUsage.TEXTURE_BINDING : 0),
     });
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
+    // Multiple scattering (Phase 17.1): rebuild the table before anything samples it. The two
+    // dispatches write a buffer the sky pass reads; they are recorded ahead of every other pass
+    // because nothing in the frame feeds them but the sky uniforms.
+    if (frame.sky && this.skyFrame.multiScattering) this.recordSkyMultiScattering(g);
 
     // Depth prepass: every opaque, non-cutout surface's depth, with no fragment stage at all. The
     // forward pass then loads it and shades each visible pixel once.
@@ -1438,6 +1455,77 @@ export class Renderer implements RenderFrameContext {
     this.pollObjectCulling();
   }
 
+  /** The LUT the sky pass binds; builds the pass owner lazily, exactly once per renderer. */
+  private ensureSkyMultiScatteringLut(): GPUBuffer {
+    this.skyMultiScattering ??= new GpuMultiScattering(this.device, this.pipelines.shaders);
+    return this.skyMultiScattering.prepare(this.skyBuffer!);
+  }
+
+  /**
+   * How many times the multiple-scattering table has been rebuilt since the renderer started
+   * (Phase 17.1). A rebuild happens on a fresh renderer, a sun that moved past `MS_SUN_EPSILON` or
+   * an atmosphere the scene edited, so a still frame — the common case — leaves this unchanged.
+   * `npm run check:browser` asserts both halves on a device, because a counter that only ever
+   * increases would not prove the pass is skipped when nothing changed.
+   */
+  get multiScatteringBuilds(): number {
+    return this.msBuilds;
+  }
+
+  /**
+   * The multiple-scattering LUT a real device built (`null` before the first sky frame that needed
+   * one, or when the sky never ran). Diagnostics/verification only — `npm run check:browser`
+   * compares it with {@link multiScatteringReference}, which is the Phase 17.1 acceptance evidence.
+   */
+  readMultiScatteringLut(): Promise<Float32Array | null> {
+    return this.skyMultiScattering?.readLut() ?? Promise.resolve(null);
+  }
+
+  /**
+   * The CPU twin of the table the compute passes built for the last sky frame: the same effective
+   * atmosphere (the `sunIntensity`/`rayleigh`/`mie`/`turbidity` scaling `writeSky` applies), the
+   * same {@link MULTI_SCATTERING_GPU} configuration, evaluated in JavaScript. Diagnostics and
+   * verification only — it costs ~100 ms and no frame path calls it.
+   */
+  multiScatteringReference(): MultiScatteringField {
+    const sky = this.skyFrame;
+    const base = sky.atmosphere ?? EARTH_ATMOSPHERE;
+    const mieScale = sky.mie * (sky.turbidity / 2);
+    const model = new AtmosphereModel(
+      createAtmosphere(
+        {
+          rayleighScattering: [base.rayleighScattering[0] * sky.rayleigh, base.rayleighScattering[1] * sky.rayleigh, base.rayleighScattering[2] * sky.rayleigh],
+          mieScattering: [base.mieScattering[0] * mieScale, base.mieScattering[1] * mieScale, base.mieScattering[2] * mieScale],
+          mieExtinction: [base.mieExtinction[0] * mieScale, base.mieExtinction[1] * mieScale, base.mieExtinction[2] * mieScale],
+          sunIntensity: sky.sunIntensity * sky.exposure,
+        },
+        base,
+      ),
+    );
+    return new MultiScatteringField(model, MULTI_SCATTERING_GPU);
+  }
+
+  /**
+   * Record `forge.sky.ms.table` + `forge.sky.ms.lut` when the multiple-scattering table can have
+   * changed: a fresh renderer, a sun that has moved past `MS_SUN_EPSILON`, or an atmosphere the
+   * scene edited (the params are compared by value — a day/night cycle mutates them in place). A
+   * still frame with a fixed sun records neither pass, so a steady frame is unchanged.
+   */
+  private recordSkyMultiScattering(graph: RenderGraph): void {
+    const sky = this.skyFrame;
+    const dir = sky.sunDirection!;
+    const params = sky.atmosphere ?? EARTH_ATMOSPHERE;
+    writeSkyMultiScatteringSignature(params, sky.turbidity, sky.rayleigh, sky.mie, this.msSignature);
+    const needsBuild =
+      skyMultiScatteringSignatureChanged(this.msSignature, this.msLastSignature) || this.msSun.dot(dir) < MS_SUN_EPSILON;
+    if (!needsBuild) return;
+    this.skyMultiScattering ??= new GpuMultiScattering(this.device, this.pipelines.shaders);
+    this.skyMultiScattering.record(graph, this.skyBuffer!);
+    this.msBuilds++;
+    this.msLastSignature.set(this.msSignature);
+    this.msSun.copyFrom(dir);
+  }
+
   private executeSkyPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat): void {
     const pass = ctx.beginRenderPass();
     const bundle = this.pipelines.getReady({ technique: "sky", colorFormat, depthFormat: this.device.depthFormat, transparent: false, doubleSided: true, instanced: false, writeDepth: false });
@@ -1464,6 +1552,7 @@ export class Renderer implements RenderFrameContext {
         { binding: 0, resource: { buffer: this.frameBuffer! } },
         { binding: 1, resource: { buffer: this.skyBuffer! } },
         { binding: 2, resource: { buffer: this.cloudBuffer! } },
+        { binding: 3, resource: { buffer: this.ensureSkyMultiScatteringLut() } },
       ],
     });
     return this.skyBindGroup;
@@ -1946,6 +2035,7 @@ export class Renderer implements RenderFrameContext {
     out.nightEnabled = pickSky(base, override, "nightEnabled");
     out.seaLevel = pickSky(base, override, "seaLevel");
     out.quality = pickSky(base, override, "quality");
+    out.multiScattering = pickSky(base, override, "multiScattering");
     out.atmosphere = pickSky(base, override, "atmosphere");
     const dir = this.skySunDirection;
     const explicit = pickSky(base, override, "sunDirection");
@@ -1992,6 +2082,7 @@ export class Renderer implements RenderFrameContext {
     a.setF32("sunAngularRadius", sky.sunAngularRadius);
     a.setF32("sunDiscIntensity", sky.sunDiscIntensity);
     a.setF32("starBrightness", sky.nightEnabled ? sky.starBrightness : 0);
+    a.setI32("multiScattering", sky.multiScattering ? 1 : 0);
     a.setI32("viewSamples", viewSamples);
     a.setI32("lightSamples", lightSamples);
     this.device.device.queue.writeBuffer(this.skyBuffer!, 0, gpuSource(this.skyBytes.bytes.subarray(0, this.skyBytes.byteLength)));
@@ -3779,6 +3870,8 @@ export class Renderer implements RenderFrameContext {
     this.deviceLostUnsub = null;
     this.lightCuller?.dispose();
     this.lightCuller = null;
+    this.skyMultiScattering?.dispose();
+    this.skyMultiScattering = null;
     this.objectCuller?.dispose();
     this.objectCuller = null;
     for (const rec of this.populationDevice.values()) this.destroyPopulationRecord(rec);

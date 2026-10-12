@@ -8,7 +8,8 @@
  * The fragment stage is the GPU twin of `environment/atmosphere.ts`: the same single-scattering
  * integral (Rayleigh + Mie + ozone, midpoint rule on cubically spaced view segments, a light ray per
  * sample), the same constants (delivered through `SkyUniforms`, never retyped), the same lit-ground
- * term below the horizon. On top of that it adds what only a per-pixel pass can: the limb-darkened
+ * term below the horizon, and the same multiple-scattering term (Phase 17.1) read out of the table
+ * the compute passes in `shaders/multiScattering.ts` build. On top of that it adds what only a per-pixel pass can: the limb-darkened
  * sun disc, an atmosphere-attenuated anti-solar moon, a star field that fades with daylight, and
  * procedural cloud deck (`WGSL_CLOUD`, lit by the same sun/ambient the CPU derives). The scene fog
  * (`WGSL_FOG`) is applied to the planet ground in every mode and to the sky in height mode, so the
@@ -23,14 +24,17 @@
  */
 
 import { PerFrameUniforms, SkyUniforms, CloudUniforms } from "../uniforms.js";
-import { WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG } from "./common.js";
 import { WGSL_CLOUD } from "./cloudLayer.js";
+import { WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./multiScattering.js";
 
 /** Group/binding map of the sky pass (its own bind-group layout; see `PipelineFactory`). */
 export const SKY_BINDINGS = {
   perFrame: { group: 0, binding: 0 },
   sky: { group: 0, binding: 1 },
   cloud: { group: 0, binding: 2 },
+  /** The multiple-scattering table `shaders/multiScattering.ts` builds (`MS_BINDINGS.lut`). */
+  multiScattering: { group: 0, binding: 3 },
 } as const;
 
 export const SKY_SHADER = /* wgsl */ `
@@ -72,71 +76,9 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> SkyOut {
   return out;
 }
 
-// Ray/sphere against a sphere at the origin: exit distance, or -1 when it misses / is behind.
-fn raySphereExit(o: vec3<f32>, d: vec3<f32>, radius: f32) -> f32 {
-  let b = dot(o, d);
-  let c = dot(o, o) - radius * radius;
-  let disc = b * b - c;
-  if (disc < 0.0) {
-    return -1.0;
-  }
-  let t = -b + sqrt(disc);
-  return select(t, -1.0, t < 0.0);
-}
-
-// Nearest positive intersection, or -1.
-fn raySphereEntry(o: vec3<f32>, d: vec3<f32>, radius: f32) -> f32 {
-  let b = dot(o, d);
-  let c = dot(o, o) - radius * radius;
-  let disc = b * b - c;
-  if (disc < 0.0) {
-    return -1.0;
-  }
-  let s = sqrt(disc);
-  let t0 = -b - s;
-  if (t0 > 0.0) {
-    return t0;
-  }
-  let t1 = -b + s;
-  return select(t1, -1.0, t1 <= 0.0);
-}
-
-fn ozoneDensity(h: f32) -> f32 {
-  if (sky.ozoneWidth <= 0.0) {
-    return 0.0;
-  }
-  return max(0.0, 1.0 - abs(h - sky.ozoneCenter) / sky.ozoneWidth);
-}
-
-fn rayleighPhase(cosTheta: f32) -> f32 {
-  return (3.0 / (16.0 * PI)) * (1.0 + cosTheta * cosTheta);
-}
-
-fn miePhase(cosTheta: f32, g: f32) -> f32 {
-  let g2 = g * g;
-  let denom = 1.0 + g2 - 2.0 * g * cosTheta;
-  return (3.0 * (1.0 - g2)) / (8.0 * PI * (2.0 + g2)) * ((1.0 + cosTheta * cosTheta) / (denom * sqrt(denom)));
-}
-
-// Optical depth (per channel) from p toward the top of the atmosphere along unit direction d.
-fn opticalDepthToSpace(p: vec3<f32>, d: vec3<f32>, samples: i32) -> vec3<f32> {
-  let tTop = raySphereExit(p, d, sky.planetRadius + sky.atmosphereHeight);
-  if (tTop <= 0.0) {
-    return vec3<f32>(0.0);
-  }
-  let ds = tTop / f32(samples);
-  var dR = 0.0;
-  var dM = 0.0;
-  var dO = 0.0;
-  for (var i = 0; i < samples; i++) {
-    let q = p + d * ((f32(i) + 0.5) * ds);
-    let h = length(q) - sky.planetRadius;
-    dR += exp(-h / sky.rayleighScaleHeight) * ds;
-    dM += exp(-h / sky.mieScaleHeight) * ds;
-    dO += ozoneDensity(h) * ds;
-  }
-  return sky.rayleighScattering * dR + sky.mieExtinction * dM + sky.ozoneAbsorption * dO;
-}
+${WGSL_ATMOSPHERE_FUNCTIONS}
+${WGSL_ATMOSPHERE_COMMON}
+${wgslMultiScatteringSampler(SKY_BINDINGS.multiScattering.binding)}
 
 fn hash13(p: vec3<f32>) -> f32 {
   var q = fract(p * 0.1031);
@@ -190,6 +132,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
 
   var radiance = vec3<f32>(0.0);
   var viewOd = vec3<f32>(0.0);
+  var msSum = vec3<f32>(0.0);
   var hitsGround = false;
   var tGroundOut = 0.0;
   let tTop = raySphereExit(origin, dir, R + sky.atmosphereHeight);
@@ -224,17 +167,27 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       odR += dR;
       odM += dM;
       odO += dO;
-      if (raySphereEntry(p, sunDir, R) > 0.0) {
-        continue; // the sun is below this sample's horizon
+      let blocked = raySphereEntry(p, sunDir, R) > 0.0; // the sun is below this sample's horizon
+      var lightOd = vec3<f32>(0.0);
+      if (!blocked) {
+        lightOd = opticalDepthToSpace(p, sunDir, lightSamples);
       }
-      let lightOd = opticalDepthToSpace(p, sunDir, lightSamples);
       let od = sky.rayleighScattering * odR + sky.mieExtinction * odM + sky.ozoneAbsorption * odO;
-      let attenuation = exp(-(od + lightOd));
-      sumR += attenuation * dR;
-      sumM += attenuation * dM;
+      if (!blocked) {
+        let attenuation = exp(-(od + lightOd));
+        sumR += attenuation * dR;
+        sumM += attenuation * dM;
+      }
+      if (sky.multiScattering != 0) {
+        // Multiple scattering (Phase 17.1) reaches this sample from the whole lit sky, so it lands
+        // even where the sun itself is below the local horizon — that is the twilight glow. The
+        // table already carries the sun's transmittance to the scattering points, so only this
+        // ray's transmittance and the local scattering coefficients remain.
+        msSum += exp(-od) * (sky.rayleighScattering * dR + sky.mieScattering * dM) * msSourceAt(h, p, sunDir);
+      }
     }
     viewOd = sky.rayleighScattering * odR + sky.mieExtinction * odM + sky.ozoneAbsorption * odO;
-    radiance = sky.sunIntensity * (sky.rayleighScattering * sumR * phaseR + sky.mieScattering * sumM * phaseM);
+    radiance = sky.sunIntensity * (sky.rayleighScattering * sumR * phaseR + sky.mieScattering * sumM * phaseM + msSum);
     if (hitsGround) {
       let g = origin + dir * tGround;
       let n = normalize(g);

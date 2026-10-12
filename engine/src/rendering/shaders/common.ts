@@ -99,6 +99,81 @@ fn fogTransmittance(distance: f32, cameraY: f32, surfaceY: f32) -> f32 {
 `;
 
 /**
+ * The analytic atmosphere both the sky pass and the multiple-scattering passes march: ray/sphere
+ * roots, the tent-shaped ozone profile, the Rayleigh and Cornette–Shanks phase functions, and
+ * transmittance to the top of the atmosphere. Everything reads the `sky` uniform (`SkyUniforms`),
+ * so a module including this text must declare that binding first. `environment/atmosphere.ts`
+ * carries the same functions on the CPU — a change here is a change there.
+ */
+export const WGSL_ATMOSPHERE_FUNCTIONS = /* wgsl */ `
+// Ray/sphere against a sphere at the origin: exit distance, or -1 when it misses / is behind.
+fn raySphereExit(o: vec3<f32>, d: vec3<f32>, radius: f32) -> f32 {
+  let b = dot(o, d);
+  let c = dot(o, o) - radius * radius;
+  let disc = b * b - c;
+  if (disc < 0.0) {
+    return -1.0;
+  }
+  let t = -b + sqrt(disc);
+  return select(t, -1.0, t < 0.0);
+}
+
+// Nearest positive intersection, or -1.
+fn raySphereEntry(o: vec3<f32>, d: vec3<f32>, radius: f32) -> f32 {
+  let b = dot(o, d);
+  let c = dot(o, o) - radius * radius;
+  let disc = b * b - c;
+  if (disc < 0.0) {
+    return -1.0;
+  }
+  let s = sqrt(disc);
+  let t0 = -b - s;
+  if (t0 > 0.0) {
+    return t0;
+  }
+  let t1 = -b + s;
+  return select(t1, -1.0, t1 <= 0.0);
+}
+
+fn ozoneDensity(h: f32) -> f32 {
+  if (sky.ozoneWidth <= 0.0) {
+    return 0.0;
+  }
+  return max(0.0, 1.0 - abs(h - sky.ozoneCenter) / sky.ozoneWidth);
+}
+
+fn rayleighPhase(cosTheta: f32) -> f32 {
+  return (3.0 / (16.0 * PI)) * (1.0 + cosTheta * cosTheta);
+}
+
+fn miePhase(cosTheta: f32, g: f32) -> f32 {
+  let g2 = g * g;
+  let denom = 1.0 + g2 - 2.0 * g * cosTheta;
+  return (3.0 * (1.0 - g2)) / (8.0 * PI * (2.0 + g2)) * ((1.0 + cosTheta * cosTheta) / (denom * sqrt(denom)));
+}
+
+// Optical depth (per channel) from p toward the top of the atmosphere along unit direction d.
+fn opticalDepthToSpace(p: vec3<f32>, d: vec3<f32>, samples: i32) -> vec3<f32> {
+  let tTop = raySphereExit(p, d, sky.planetRadius + sky.atmosphereHeight);
+  if (tTop <= 0.0) {
+    return vec3<f32>(0.0);
+  }
+  let ds = tTop / f32(samples);
+  var dR = 0.0;
+  var dM = 0.0;
+  var dO = 0.0;
+  for (var i = 0; i < samples; i++) {
+    let q = p + d * ((f32(i) + 0.5) * ds);
+    let h = length(q) - sky.planetRadius;
+    dR += exp(-h / sky.rayleighScaleHeight) * ds;
+    dM += exp(-h / sky.mieScaleHeight) * ds;
+    dO += ozoneDensity(h) * ds;
+  }
+  return sky.rayleighScattering * dR + sky.mieExtinction * dM + sky.ozoneAbsorption * dO;
+}
+`;
+
+/**
  * Fullscreen-triangle vertex stage: three vertices, no vertex buffer. `uv` has (0,0) at the top-left
  * of the target, matching texture space, so a fragment can sample the source at `in.uv` directly.
  */
