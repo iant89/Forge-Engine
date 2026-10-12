@@ -430,6 +430,23 @@ group("particles — Phase 12 GPU system", () => {
     }
   });
 
+  test("adds an opt-in tangential swirl around the attractor axis (dust devils)", async () => {
+    assertContains(PARTICLE_FULL_SIM_SHADER, "swirlStrength: f32,");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "if (params.swirlStrength != 0.0) {");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;");
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const plain = new GpuParticleSystem(gpu, { capacity: 64 });
+      assert.equal(plain.modules.swirlStrength, 0, "off by default so existing scenes are unchanged");
+      const devil = new GpuParticleSystem(gpu, { capacity: 64, modules: { swirlStrength: -120 } });
+      assert.equal(devil.modules.swirlStrength, -120);
+      plain.dispose();
+      devil.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   test("simulates and draws 100k particles without creating 100k ECS entities", async () => {
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {

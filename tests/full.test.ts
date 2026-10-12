@@ -57,11 +57,13 @@ export const linkedSuites = [
   ["tests/population/population.test.ts", () => import("./population/population.test.ts")],
   ["tests/examples/alpineSnowpack.test.ts", () => import("./examples/alpineSnowpack.test.ts")],
   ["tests/examples/amazonBoatHull.test.ts", () => import("./examples/amazonBoatHull.test.ts")],
+  ["tests/examples/dustStorm.test.ts", () => import("./examples/dustStorm.test.ts")],
   ["tests/examples/highGainAntenna.test.ts", () => import("./examples/highGainAntenna.test.ts")],
   ["tests/examples/marsGeneratorScene.test.ts", () => import("./examples/marsGeneratorScene.test.ts")],
   ["tests/examples/marsShowcase.test.ts", () => import("./examples/marsShowcase.test.ts")],
   ["tests/examples/marsShowcaseDamage.test.ts", () => import("./examples/marsShowcaseDamage.test.ts")],
   ["tests/examples/marsShowcaseCollision.test.ts", () => import("./examples/marsShowcaseCollision.test.ts")],
+  ["tests/examples/marsDustStorm.test.ts", () => import("./examples/marsDustStorm.test.ts")],
   ["tests/examples/mechanicalScene.test.ts", () => import("./examples/mechanicalScene.test.ts")],
   ["tests/examples/orbitControls.test.ts", () => import("./examples/orbitControls.test.ts")],
   ["tests/examples/roverArm.test.ts", () => import("./examples/roverArm.test.ts")],
@@ -79,4 +81,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(75);
+report(77);

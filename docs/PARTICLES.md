@@ -74,8 +74,10 @@ duplicated across the diagonal so both triangles of a quad are degenerate-safe.
 reference. Do not attach both `ParticleWorld` and `ParticleSystem` to the same simulation.
 
 CPU module ports kept for the reference path: gravity, drag, colour-over-life, size-over-life, and
-cone sampling. Velocity boost, attractor, and rotation-over-life are **GPU-only** (configured via
+cone sampling. Velocity boost, attractor, swirl, and rotation-over-life are **GPU-only** (configured via
 `GpuParticleModulesConfig` / `PARTICLE_FULL_SIM_SHADER`); the matching CPU classes were removed.
+`swirlStrength` (default 0, off) adds a tangential 1/r acceleration around the vertical axis through
+`attractorPos`; the Mars Dust Storm Survival scene uses it to spin dust around its nearest dust devil.
 
 ## Accounting (no fake alive)
 

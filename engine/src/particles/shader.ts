@@ -223,7 +223,7 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
 `;
 
 /**
- * Full GPU integrator: gravity, drag, turbulence/noise, attractor, velocity boost,
+ * Full GPU integrator: gravity, drag, turbulence/noise, attractor + optional swirl, velocity boost,
  * colour/size/rotation over life, and a 4-sample trail history ring per particle.
  */
 export const PARTICLE_FULL_SIM_SHADER = /* wgsl */ `
@@ -247,6 +247,7 @@ struct FullSimParams {
   velocityBoost: vec3<f32>,
   seed: u32,
   sizeVariation: f32,
+  swirlStrength: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -267,6 +268,13 @@ struct FullSimParams {
   let toA = params.attractorPos - p.position;
   let distSq = max(dot(toA, toA), 0.25);
   p.velocity = p.velocity + toA * (params.attractorStrength * params.dt / distSq);
+  if (params.swirlStrength != 0.0) {
+    // Tangent around the vertical axis through the attractor; p - axis = -toA, so (toA.z, -toA.x)
+    // is counter-clockwise seen from above (+Y up). 1/r falloff, clamped inside half a metre.
+    let r = max(length(toA.xz), 0.5);
+    let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;
+    p.velocity = p.velocity + tangent * (params.swirlStrength * params.dt / r);
+  }
   if (params.turbulence > 0.0) {
     let np = p.position * params.noiseScale + vec3<f32>(params.time);
     let nx = valueNoise3(np, params.seed);

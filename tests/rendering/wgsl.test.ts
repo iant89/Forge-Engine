@@ -50,6 +50,7 @@ import assert from "node:assert/strict";
 import { assertContains, assertNotContains, assertThrows, finish, group, test } from "selrun";
 import {
   BLIT_SHADER,
+  Material,
   CLUSTER_COUNT,
   CLUSTER_INDEX_CAPACITY,
   ClusterGridBlock,
@@ -371,6 +372,17 @@ group("clustered lighting structs (Phase 13.3)", () => {
     assertContains(FORWARD, "const FLAGS_CLUSTERED: u32 = 32u;");
     assertContains(STANDARD_FRAGMENT_BODY, "if ((perFrame.flags & FLAGS_CLUSTERED) != 0u) {");
     assert.doesNotMatch(FORWARD, /#if[^\n]*CLUSTER/);
+  });
+
+  test("skips fog and aerial perspective only for fog-exempt materials (storm beacons)", () => {
+    assertContains(FORWARD, "const FLAGS_FOG_EXEMPT: u32 = 32u;");
+    assertContains(STANDARD_FRAGMENT_BODY, "if ((material.flags & FLAGS_FOG_EXEMPT) == 0u) {");
+    const beacon = new Material({ technique: "emissive", fogExempt: true });
+    assert.equal(beacon.fogExempt, true);
+    assert.equal(beacon.clone().fogExempt, true, "clones keep the flag");
+    assert.equal(new Material().fogExempt, false, "ordinary materials stay fogged");
+    // A uniform flag, not a pipeline variant: toggling it cannot rebuild or split a batch.
+    assert.equal(beacon.pipelineKey, new Material({ technique: "emissive" }).pipelineKey);
   });
 });
 

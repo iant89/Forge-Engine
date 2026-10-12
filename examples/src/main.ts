@@ -58,6 +58,8 @@ import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
+import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
+import { stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -150,7 +152,7 @@ async function main(): Promise<void> {
 
     activeSceneName = name;
     // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm");
     document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-sky", name === "sky");
@@ -199,6 +201,13 @@ async function main(): Promise<void> {
       currentHandle = buildAlpineRescueScene(engine);
     } else if (name === "amazon-river") {
       currentHandle = buildAmazonRiverScene(engine);
+    } else if (name === "mars-dust-storm") {
+      // `?difficulty=hard` sends a buried or flipped rover back to the last beam (easy rocks free).
+      const query = new URLSearchParams(window.location.search);
+      currentHandle = buildMarsDustStormScene(engine, {
+        difficulty: query.get("difficulty") === "hard" ? "hard" : "easy",
+        quality: stormQualityForPlatform(platform.os),
+      });
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -684,6 +693,8 @@ async function main(): Promise<void> {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
     },
+    /** Mars Dust Storm Survival: storm, course, burial and devil state; null on other scenes. */
+    stormState: () => (currentHandle as MarsDustStormHandle | null)?.stormState?.() ?? null,
     /** Ported Mars generator inspector (`?scene=mars-generator`): site, fidelity, generation mode. */
     marsGeneratorState: () => {
       const handle = currentHandle as MarsGeneratorSceneHandle | null;

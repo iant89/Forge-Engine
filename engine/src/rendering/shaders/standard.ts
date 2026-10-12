@@ -392,6 +392,7 @@ const FLAGS_NORMAL: u32 = 2u;
 const FLAGS_MR: u32 = 4u;
 const FLAGS_DOUBLE_SIDED: u32 = 8u;
 const FLAGS_UNLIT: u32 = 16u;
+const FLAGS_FOG_EXEMPT: u32 = 32u;
 const FLAGS_INSTANCED: u32 = 1u;
 // perFrame.flags bit 5: local lights come from the cluster grid, not from the uniform light list.
 const FLAGS_CLUSTERED: u32 = 32u;
@@ -800,9 +801,12 @@ ${surfaceSetup}
   // Fog: blend toward the fog colour by the transmittance of the air between camera and surface.
   // Scene-referred (before exposure/tone mapping) so the HDR and LDR paths agree; the sky pass is
   // not fogged, so fogColor should match the horizon (DayNightCycle keeps them in step).
-  let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
-  color = mix(perFrame.fogColor, color, fogT);
-  color = applyAerialPerspective(color, in.worldPos);
+  // Fog-exempt materials (storm beacons) keep their own radiance through any fog density.
+  if ((material.flags & FLAGS_FOG_EXEMPT) == 0u) {
+    let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
+    color = mix(perFrame.fogColor, color, fogT);
+    color = applyAerialPerspective(color, in.worldPos);
+  }
   if ((perFrame.flags & 2u) != 0u) {
     // HDR path: the target is a float texture and the post chain applies exposure, bloom, the tone
     // curve and the sRGB encode. Output scene-referred linear radiance untouched.
