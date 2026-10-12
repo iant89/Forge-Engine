@@ -2145,3 +2145,23 @@ Read the module constraints below before changing either pure model.
   can stay pending until a gesture (autoplay resume, permissions, sensors) turns a deterministic check
   into a wall-clock lottery — and the gate's own rule ("budget on the scene's own progress, never the
   wall clock") already says so, for the Mars drive arm.
+
+## 2026-10-12 — two more gate lessons from the same CI run (Mars loader poll, demand-driven frames)
+
+- **The Mars section failed on a flat 20 s wall-clock budget:** `rover GLB did not load in 20s`, with
+  `receivedBytes 8645692 / totalBytes 8645692` and `phase: "build"` — i.e. the 8.6 MB Perseverance GLB
+  had finished downloading and was still building on a shared runner. The section's own `pollMars`
+  helper exists to prevent exactly this (`progressOf` renews the deadline while the measure improves);
+  this one call site just forgot to pass it. Fixed by renewing on `modelProgress.receivedBytes` and
+  raising the budget to 120 s, with the limitation stated in the label: the loader exposes bytes and a
+  phase name, nothing *inside* the build step, so the build half cannot be progress-renewed.
+- **Do not measure a rebuild *rate* on a wall clock in the demo:** the engine renders on demand
+  (`presentationMode`/`needsRender`), so a 2 s `setTimeout` window measured *one* frame even with
+  `setAnimating(true)`. What is decidable instead: ask for N half-hour sun steps and assert exactly one
+  rebuild each, reading the pass list **on the frame the counter moved** (the list describes the last
+  built frame, so polling after a fixed number of frames sees the wrong one).
+- **The gate found a real product bug, not just a flake:** the weather demo's Strike button was
+  `void audio.resume().then(() => lightning.trigger())`. Headless autoplay policy can leave
+  `AudioContext.resume()` pending forever with no gesture, so no strike was ever registered. When a
+  check fails only on CI, look for a browser API that stays pending until a gesture before assuming the
+  runner is slow.

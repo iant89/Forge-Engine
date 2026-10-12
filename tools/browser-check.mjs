@@ -2111,22 +2111,35 @@ async function checkEnvironmentSection() {
     return window.__forge.multiScatteringBuilds() - before;
   });
   if (msStill !== 0) throw new Error(`the table rebuilt itself ${msStill}x with a still sun`);
-  const msMoved = await page.evaluate(async () => {
+  // Four half-hour steps, one at a time: each is 7.5 deg of sun, far past the 0.5 deg threshold, so
+  // each must record the two passes exactly once — no more (the threshold is what bounds the work
+  // while the sun drifts) and no fewer (a stale table would keep the sky's light wrong silently). A
+  // wall-clock rebuild rate is deliberately not measured: the engine is demand-driven here, so frames
+  // — and therefore rebuilds — happen on the steps the gate asks for.
+  const msSteps = await page.evaluate(async () => {
     const before = window.__forge.multiScatteringBuilds();
-    window.__forge.setTimeOfDay((window.__forge.environmentState()?.time ?? 12) + 1);
-    for (let i = 0; i < 8; i++) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      const stats = window.__forge.stats();
-      const builds = window.__forge.multiScatteringBuilds() - before;
-      if (builds > 0) return { builds, passes: stats.renderPasses.filter((name) => name.startsWith("forge.sky.ms.")) };
+    let withPasses = 0;
+    for (let i = 0; i < 4; i++) {
+      const target = window.__forge.multiScatteringBuilds() + 1;
+      window.__forge.setTimeOfDay(9 + i * 0.5);
+      // The pass list describes the last frame the renderer built, so the rebuild has to be caught on
+      // the frame it happened on, not after a fixed number of frames (the engine renders on demand).
+      for (let f = 0; f < 8; f++) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (window.__forge.multiScatteringBuilds() < target) continue;
+        const passes = window.__forge.stats().renderPasses.filter((name) => name.startsWith("forge.sky.ms."));
+        if (passes.join(",") === "forge.sky.ms.table,forge.sky.ms.lut") withPasses++;
+        break;
+      }
     }
-    return { builds: 0, passes: [] };
+    return { builds: window.__forge.multiScatteringBuilds() - before, withPasses };
   });
-  if (msMoved.builds !== 1) throw new Error(`one sun step rebuilt the table ${msMoved.builds} times, not once`);
-  if (msMoved.passes.join(",") !== "forge.sky.ms.table,forge.sky.ms.lut") {
-    throw new Error(`the rebuild frame did not carry both passes: [${msMoved.passes.join(", ")}]`);
-  }
-  console.log(`sky multiple scattering: ${msMoved.builds} rebuild from one sun step (build #${msClock.builds + 1}), still sun left it alone`);
+  if (msSteps.builds !== 4) throw new Error(`four sun steps rebuilt the table ${msSteps.builds} times, not once each`);
+  if (msSteps.withPasses !== 4) throw new Error(`only ${msSteps.withPasses} of four sun steps carried both table passes`);
+  console.log(
+    `sky multiple scattering: ${msSteps.builds} rebuilds over four sun steps (both passes on each), ` +
+      "still sun left it alone (build #" + (msClock.builds + 1) + ")",
+  );
   const [deviceTable, referenceTable] = await page.evaluate(async () => [
     Array.from((await window.__forge.multiScatteringLut()) ?? []),
     window.__forge.multiScatteringReference(),
@@ -2551,10 +2564,16 @@ async function checkMarsSection() {
     }
     throw new Error(`${label} (last state ${JSON.stringify(last)})`);
   };
+  // The loader reports download bytes (always moving while the GLB streams in) and a phase name, but
+  // nothing inside its build step, so the bytes renew the budget and the build half is covered by the
+  // budget itself. It was a flat 20 s, which a shared CI runner exceeded while the 8.6 MB Perseverance
+  // GLB was steadily building (bytes complete, phase `build`, no error) — the same wall-clock mistake
+  // the helper's own comment above describes for the drive arm.
   const marsLoaded = await pollMars(
-    "mars showcase: rover GLB did not load in 20s",
+    "mars showcase: rover GLB did not load (120s without the download advancing; bytes complete and phase building)",
     (s) => s.modelLoaded === true || s.modelError !== null,
-    20000,
+    120000,
+    (s) => s.modelProgress?.receivedBytes ?? 0,
   );
   console.log(
     `mars showcase: modelLoaded=${marsLoaded.modelLoaded} wheels=${marsLoaded.wheelCount} contact=${marsLoaded.contactWheels}`,

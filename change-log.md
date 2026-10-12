@@ -15549,6 +15549,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/weatherScene.ts",
     "what": "`triggerLightning` registers the strike first and resumes the audio context alongside it (`void audio.resume().catch(...)`), instead of chaining the strike behind `audio.resume().then(...)`.",
     "why": "The advisory browser gate failed on CI with `triggered lightning did not register a strike` (strikes=0). Root cause is not the scheduler: the strike was chained behind `AudioSystem.resume()`, and under the headless autoplay policy with no gesture yet `context.resume()` never settles, so the promise never ran `lightning.trigger()`. The demo's own thunder callback already gates on `context.state === \"running\"`, so nothing is lost by letting the strike and the audio resume race: a tap on Strike now always registers a strike, and the thunder follows when the browser lets the context run. Re-run locally: `weather lightning: strikes=2`."
+  },
+  {
+    "id": "1244",
+    "date": "2026-10-12T05:40:00Z",
+    "type": "change",
+    "pr": 81,
+    "branch": "arena/d1891e90-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The Phase 17.1 arms were made decidable instead of merely passing: four half-hour sun steps each must record `forge.sky.ms.table`/`forge.sky.ms.lut` exactly once (read on the frame the build counter moved, since the pass list describes the last built frame), a still sun must record neither, and the wall-clock 'rebuilds per second' probe was dropped — the engine renders on demand, so a `setTimeout` window measured one frame. Separately, the Mars section's rover-loader poll now renews its deadline while `modelProgress.receivedBytes` advances and allows 120 s, and the strike assertion runs against the fixed demo (below).",
+    "why": "The first CI run of this gate failed twice for reasons that were not this phase's code: the rebuild assertion was a fixed wait in a demand-driven engine, and the loader poll was the one call site in the Mars section that used a flat wall-clock budget (the helper's own `progressOf` exists for exactly that). Both are now the checks they were meant to be, and the loader poll's label states what it can and cannot see."
+  },
+  {
+    "id": "1245",
+    "date": "2026-10-12T05:40:00Z",
+    "type": "change",
+    "pr": 81,
+    "branch": "arena/d1891e90-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "The browser-gate row now describes the conditional-rebuild arm, the corrected strike assertion and the measured device timings of the two passes.",
+    "why": "This document is where a claim's evidence lives; the gate changed, so its description had to."
+  },
+  {
+    "id": "1246",
+    "date": "2026-10-12T05:40:00Z",
+    "type": "change",
+    "pr": 81,
+    "branch": "arena/d1891e90-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Added the two gate lessons from the same run (a flat wall-clock budget in a section that has a progress-renewing helper, and measuring a rate on demand-driven frames) and the autoplay-policy strike bug behind the third.",
+    "why": "All three cost a full 20-minute CI cycle to find and would be re-derived otherwise; the rule to remember is that a CI-only failure means looking for a browser API that stays pending, before blaming the runner."
   }
 ]
 ```
