@@ -31,6 +31,7 @@ import {
   createSphere,
 } from "@forge/engine";
 import { attachSkyTouch } from "../controls/skyTouch.js";
+import type { OrbitCameraSetup } from "../controls/orbitControls.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 
 export interface SkySceneHandle extends DemoSceneHandle {
@@ -39,6 +40,23 @@ export interface SkySceneHandle extends DemoSceneHandle {
   setPlanet(planet: "earth" | "mars"): void;
   /** The planet the panel/key currently has active (the browser gate reads it after a tap). */
   planetState(): "earth" | "mars";
+}
+
+/** The sky demo starts looking just above the horizon, with room to orbit higher. */
+export function createSkyCameraSetup(): OrbitCameraSetup {
+  return {
+    // Keep the eye at about 5 m and frame the gnomon near its top so the atmosphere remains visible
+    // below the HUD without pushing the foreground spheres and cubes into the camera.
+    target: new Vec3(0, 9.5, 0),
+    distance: 26,
+    minDistance: 4,
+    maxDistance: 160,
+    azimuth: 2.5,
+    elevation: -0.18,
+    minElevation: -0.65,
+    groundClearance: 0.6,
+    groundHeight: () => 0,
+  };
 }
 
 /** 1 real second = 4 simulated minutes, and the rate `Pause`/`T` restores when the clock resumes. */
@@ -185,17 +203,7 @@ export function buildSkyScene(engine: Engine): SkySceneHandle {
     cameraEntity,
     cycle,
     controlsHint: "Drag to orbit · Scroll to zoom · Use the on-screen clock & planet buttons",
-    camera: {
-      target: new Vec3(0, 3, 0),
-      distance: 26,
-      minDistance: 4,
-      maxDistance: 160,
-      azimuth: 2.5,
-      elevation: 0.18,
-      minElevation: -0.05,
-      groundClearance: 0.6,
-      groundHeight: () => 0,
-    },
+    camera: createSkyCameraSetup(),
     update(): void {
       // The cycle is stepped by Scene.update from the engine's fixed steps; the only per-frame
       // work here is keeping the panel's pressed markers level with the scene's own state (a key

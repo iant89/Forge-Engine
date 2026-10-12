@@ -12,6 +12,7 @@
  * @covers examples/src/controls/orbitControls.ts
  * @covers examples/src/scenes/marsShowcaseScene.ts
  * @covers examples/src/scenes/terrainScene.ts
+ * @covers examples/src/scenes/skyScene.ts
  * @desc OrbitControls — the demo camera controller
  */
 
@@ -29,7 +30,8 @@ export const suite = {
     "engine/src/terrain/world.ts",
     "examples/src/controls/orbitControls.ts",
     "examples/src/scenes/marsShowcaseScene.ts",
-    "examples/src/scenes/terrainScene.ts"
+    "examples/src/scenes/terrainScene.ts",
+    "examples/src/scenes/skyScene.ts"
   ],
   desc: "OrbitControls — the demo camera controller",
 };
@@ -47,6 +49,7 @@ import { assertCloseTo, finish, group, test } from "selrun";
 import { Camera, Scene, TerrainTile, TerrainWorld, Vec3, type Engine, type Entity } from "@forge/engine";
 import { OrbitControls, type OrbitCameraSetup } from "../../examples/src/controls/orbitControls.js";
 import { buildTerrainScene } from "../../examples/src/scenes/terrainScene.js";
+import { createSkyCameraSetup } from "../../examples/src/scenes/skyScene.js";
 import {
   MARS_CHASE_AZIMUTH,
   MARS_CHASE_DISTANCE,
@@ -123,6 +126,22 @@ group("OrbitControls - zoom range", () => {
     pixels.controls.zoomBy(16); // one "line" worth of pixels, already normalised
     lines.controls.zoomByFactor(Math.exp(16 * lines.controls.zoomSpeed));
     assertCloseTo(lines.controls.distance, pixels.controls.distance, 6);
+  });
+});
+
+group("Sky demo framing", () => {
+  test("starts above the horizon so the atmosphere is visible below the HUD", () => {
+    const setup = createSkyCameraSetup();
+    const { controls, entity, scene } = harness(setup);
+    const eye = controls.eyePosition();
+    const forward = cameraForward(entity, scene);
+
+    // A negative orbit elevation places the target above the eye: unlike the old ground-facing
+    // setup, the opening view leaves sky under the diagnostic HUD. The eye stays above the plane,
+    // and dragging farther up remains possible for a full skyward look.
+    assert.ok(eye.y >= setup.groundClearance!);
+    assert.ok(forward.y > 0.15, `camera forward points only ${forward.y.toFixed(3)} above the horizon`);
+    assert.ok(setup.minElevation! <= -0.5, "the sky camera should allow looking further upward");
   });
 });
 

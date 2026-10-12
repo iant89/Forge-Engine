@@ -2238,3 +2238,21 @@ Read the module constraints below before changing either pure model.
   0.962672/0.451995/0.120886/0.096972 at a fixed sun and 0.144 % worst case, because the substrate
   changed after the first probe. Re-measured every figure the row quotes against the suite's own
   fixture. A number in a doc is a claim; re-derive it or leave it out.
+
+## 2026-10-12 — the sky was there, just behind the HUD
+
+- **Symptom:** the sky demo opened with virtually no visible atmosphere, which read as a black/flat
+  backdrop even though `forge.sky` ran cleanly. Its camera target was y=3 with elevation +0.18 rad
+  (looking down ~10°), placing the horizon at or above the bottom of the 218 px diagnostics HUD on a
+  900×520 viewport. The whole-frame noon mean passed because it includes the ground and props; it did
+  not prove that a user could actually see the sky.
+- **Fix:** `createSkyCameraSetup()` in `examples/src/scenes/skyScene.ts` now frames the gnomon near
+  its top (target y=9.5, eye ~4.85 m, elevation −0.18 rad) and permits further upward orbit. The eye
+  remains above the ground constraint, foreground props stay framed, and a real unobscured strip of
+  atmosphere is visible beneath the HUD. `tests/examples/orbitControls.test.ts` pins the camera's
+  upward view; the real-WebGPU environment arm samples a canvas pixel at 20% width / 50% height and
+  requires the blue sky to sit between the HUD and buttons.
+- **Verification:** the focused environment gate passed on Chromium + SwiftShader in 618.2 s; the
+  sample pixel was rgb(204, 227, 238) at (180, 260), below the HUD and above the controls, with zero
+  GPU errors. The sky remains visible at night as a dark star field; this was a framing bug, not a
+  missing shader or WebGPU submission.
