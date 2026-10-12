@@ -167,7 +167,9 @@ PHASE 16 - ANIMATION
 PHASE 17 - ENVIRONMENT 2.0
     [~] IN PROGRESS (17.1 landed: the multiple-scattering LUT — the sky gains the higher orders on
         the CPU and in two compute passes on the device, measured 1.3x at noon and 2-7x at twilight
-        on Earth and 2-5x on Mars, with the remaining limits in KNOWN-ISSUES; 17.2-17.6 remain)
+        on Earth and 2-5x on Mars, with the remaining limits in KNOWN-ISSUES; 17.2 landed: opt-in
+        finite-path atmospheric scattering reaches standard and water geometry, CPU reference and
+        real-WebGPU A/B verified; 17.3-17.6 remain)
 
 
 ================================================================================
@@ -1683,7 +1685,9 @@ CURRENTLY COMPLETE:
 
 17.2 Aerial Perspective
 
-    [ ] Apply atmospheric distance scattering to scene geometry.
+    [x] Apply atmospheric distance scattering to scene geometry. (`SceneSkySettings.aerialPerspective`
+        is opt-in; standard and water fragments integrate finite-path transmittance/in-scattering,
+        with the Phase 17.1 LUT, CPU reference, frame-flag tests and real-WebGPU A/B verification.)
 
 
 17.3 Cloud Improvements

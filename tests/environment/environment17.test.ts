@@ -17,7 +17,7 @@
  * @covers engine/src/scene/components/index.ts
  * @covers engine/src/scene/scene.ts
  * @covers tools/browser-check.mjs
- * @desc Environment (Phase 17.1): the multiple-scattering table, its reader and its two compute passes
+ * @desc Environment (Phases 17.1–17.2): the multiple-scattering LUT and finite-path aerial perspective
  */
 
 export const suite = {
@@ -41,11 +41,11 @@ export const suite = {
     "engine/src/scene/scene.ts",
     "tools/browser-check.mjs",
   ],
-  desc: "Environment (Phase 17.1): the multiple-scattering table, its reader and its two compute passes",
+  desc: "Environment (Phases 17.1–17.2): the multiple-scattering LUT and finite-path aerial perspective",
 };
 /**
- * Environment (Phase 17.1) — multiple scattering: the second-and-higher orders the sky integral
- * leaves out, precomputed into a table and read back by both twins.
+ * Environment (Phases 17.1–17.2) — the sky's higher scattering orders and finite-path transfer to
+ * scene geometry, with the CPU atmosphere as the reference and GPU passes/shaders as its device twin.
  *
  * What these prove, and against what:
  *  - the table's axes are the ones the reader uses (height warped by `sqrt(h / H)`, sun elevation by
@@ -65,7 +65,9 @@ export const suite = {
  *    buffers;
  *  - the numeric CPU/device agreement itself is a real-WebGPU claim: `npm run check:browser` reads
  *    the LUT off the device and compares it with `Renderer.multiScatteringReference()`, and proves
- *    the term reaches pixels by measuring the sky with `sky.multiScattering` on and off.
+ *    the term reaches pixels by measuring the sky with `sky.multiScattering` on and off;
+ *  - the Phase 17.2 CPU transfer is identity outside the shell, loses transmittance and gains
+ *    in-scattering with distance, and receives the optional MS source without changing extinction.
  */
 
 import assert from "node:assert/strict";
@@ -592,6 +594,59 @@ group("the model with the field installed", () => {
     field.texelValue(0, 1, tunedTexel);
     base.multiScattering!.texelValue(0, 1, baseTexel);
     assert.ok(luminance(tunedTexel) > luminance(baseTexel), "more Rayleigh scattering must mean a larger source");
+  });
+});
+
+group("finite-path aerial perspective (Phase 17.2)", () => {
+  test("zero-length paths and rays outside the atmosphere are identity transfers", () => {
+    const model = new AtmosphereModel({ ...EARTH_ATMOSPHERE });
+    const view = dirFrom(15);
+    const sun = dirFrom(55);
+    const transmittance = new Float64Array([9, 9, 9]);
+    const inScattering = new Float64Array([9, 9, 9]);
+
+    model.aerialPerspective(view, 0, 40, sun, transmittance, inScattering, 8, 4);
+    assert.deepEqual([...transmittance], [1, 1, 1]);
+    assert.deepEqual([...inScattering], [0, 0, 0]);
+
+    // Above the shell, looking away from the planet never enters the medium.
+    model.aerialPerspective(new Vec3(0, 1, 0), 1000, 200_000, sun, transmittance, inScattering, 8, 4);
+    assert.deepEqual([...transmittance], [1, 1, 1]);
+    assert.deepEqual([...inScattering], [0, 0, 0]);
+  });
+
+  test("integrates distance-dependent transmittance and in-scattering, including the MS source", () => {
+    const sun = dirFrom(66.3, 90);
+    const view = dirFrom(81, 90);
+    const single = new AtmosphereModel({ ...EARTH_ATMOSPHERE });
+    const transNear = new Float64Array(3);
+    const scatterNear = new Float64Array(3);
+    const transFar = new Float64Array(3);
+    const scatterFar = new Float64Array(3);
+    single.aerialPerspective(view, 500, 0, sun, transNear, scatterNear, 16, 8);
+    single.aerialPerspective(view, 25_000, 0, sun, transFar, scatterFar, 16, 8);
+    assert.ok(transFar.every((value, c) => value < transNear[c]!), `long-path T ${[...transFar]} was not below ${[...transNear]}`);
+    assert.ok(scatterFar.every((value) => value > 0 && Number.isFinite(value)), `long-path in-scattering was ${[...scatterFar]}`);
+    assert.ok(scatterFar.some((value, c) => value > scatterNear[c]!), "in-scattering did not accumulate with distance");
+    const scaledT = new Float64Array(3);
+    const scaledScatter = new Float64Array(3);
+    single.aerialPerspective(
+      new Vec3(view.x * 7, view.y * 7, view.z * 7), 25_000, 0,
+      new Vec3(sun.x * 3, sun.y * 3, sun.z * 3), scaledT, scaledScatter, 16, 8,
+    );
+    for (let c = 0; c < 3; c++) {
+      assertCloseTo(scaledT[c]!, transFar[c]!, 12);
+      assertCloseTo(scaledScatter[c]!, scatterFar[c]!, 12);
+    }
+
+    const withMs = new AtmosphereModel({ ...EARTH_ATMOSPHERE });
+    withMs.multiScattering = new MultiScatteringField(withMs, MULTI_SCATTERING_CPU);
+    const transMs = new Float64Array(3);
+    const scatterMs = new Float64Array(3);
+    withMs.aerialPerspective(view, 25_000, 0, sun, transMs, scatterMs, 16, 8);
+    assert.deepEqual([...transMs], [...transFar], "multiple scattering must not change extinction");
+    assert.ok(scatterMs.every((value, c) => value >= scatterFar[c]! - 1e-12), `MS reduced in-scattering ${[...scatterMs]} below ${[...scatterFar]}`);
+    assert.ok(scatterMs.some((value, c) => value > scatterFar[c]! + 1e-6), "the installed field never reached the finite path");
   });
 });
 

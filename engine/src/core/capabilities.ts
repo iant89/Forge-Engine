@@ -789,9 +789,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.aerialPerspective",
     phase: "17.2",
-    status: "planned",
-    summary: "Atmospheric in-scattering applied to scene geometry, not just the sky pass",
-    closesWith: "17.2",
+    status: "verified",
+    summary: "Opt-in finite-path atmospheric transmittance and in-scattering on standard and water geometry",
+    evidence: ["tests/environment/environment17.test.ts", "tests/environment/environment.test.ts", "tests/rendering/frame.test.ts", "tools/browser-check.mjs"],
+    notes: "SceneSkySettings.aerialPerspective defaults off, serializes, maps to perFrame flag bit 6, and is verified by a real-WebGPU geometry A/B; the CPU reference integrates direct and optional multiple scattering.",
   },
 
   // ---------------------------------------------------------------- world / content

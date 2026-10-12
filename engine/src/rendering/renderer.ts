@@ -36,7 +36,8 @@ import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
-import { SKIN_BINDINGS } from "./shaders/standard.js";
+import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
+import { MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS } from "./shaders/multiScattering.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
@@ -208,6 +209,8 @@ export interface RenderStats {
   bloomMips: number;
   /** True when the `forge.sky` pass ran this frame. */
   sky: boolean;
+  /** True when Phase 17.2 distance scattering was enabled on forward-shaded geometry. */
+  aerialPerspective: boolean;
   /** View samples the sky pass marched with (after the quality cap); 0 when the pass did not run. */
   skySamples: number;
   /** True when the cloud deck shaded pixels this frame (sky ran, deck enabled, coverage > 0). */
@@ -517,6 +520,7 @@ export class Renderer implements RenderFrameContext {
     hdr: false,
     bloomMips: 0,
     sky: false,
+    aerialPerspective: false,
     skySamples: 0,
     clouds: false,
     underwater: false,
@@ -656,6 +660,7 @@ export class Renderer implements RenderFrameContext {
     seaLevel: 0,
     quality: "medium",
     multiScattering: true,
+    aerialPerspective: false,
     atmosphere: null,
   };
   private readonly skySunDirection = new Vec3();
@@ -686,12 +691,15 @@ export class Renderer implements RenderFrameContext {
   private postBuffer: GPUBuffer | null = null;
   private skyBuffer: GPUBuffer | null = null;
   private skyBindGroup: GPUBindGroup | null = null;
+  /** Inert storage fallback (never read) for frames without a built atmospheric LUT. */
+  private aerialMsFallback: GPUBuffer | null = null;
   private cloudBuffer: GPUBuffer | null = null;
   private waterBuffer: GPUBuffer | null = null;
   private waterBindGroup: GPUBindGroup | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
   private frameBindGroupAoView: GPUTextureView | null = null;
+  private frameBindGroupMsBuffer: GPUBuffer | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
   private prepassBindGroup: GPUBindGroup | null = null;
   private ssaoBuffer: GPUBuffer | null = null;
@@ -1082,13 +1090,14 @@ export class Renderer implements RenderFrameContext {
     const renderWidth = Math.max(1, Math.round(this.width * scale));
     const renderHeight = Math.max(1, Math.round(this.height * scale));
     const underwater = isUnderwater(positionRender.y, settings.water);
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered);
+    const skyEnabled = settings.skyEnabled && this.options.sky !== false;
+    const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
+    const aerialPerspective = Boolean(skySettings?.aerialPerspective && !underwater);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered, aerialPerspective);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
     this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, activePointCount, clustered);
     if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
     this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, activePointCount, shadowSize, shadowDistance);
-    const skyEnabled = settings.skyEnabled && this.options.sky !== false;
-    const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
     if (skySettings) this.writeSky(skySettings);
     else this.pendingSky = null;
     this.writeClouds(scene, skySettings, lights);
@@ -1129,6 +1138,7 @@ export class Renderer implements RenderFrameContext {
       prepass,
       ssao,
     });
+    this.stats.aerialPerspective = aerialPerspective;
     this.finishFrame();
   }
 
@@ -1870,6 +1880,7 @@ export class Renderer implements RenderFrameContext {
     s.hdr = false;
     s.bloomMips = 0;
     s.sky = false;
+    s.aerialPerspective = false;
     s.skySamples = 0;
     s.clouds = false;
     s.underwater = false;
@@ -1960,7 +1971,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, cascadeCount: number, underwater = false, ssao = false, clustered = false): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, cascadeCount: number, underwater = false, ssao = false, clustered = false, aerialPerspective = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -1986,7 +1997,7 @@ export class Renderer implements RenderFrameContext {
     a.setI32("cascadeCount", cascadeCount);
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
-    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0);
+    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0) | (aerialPerspective ? 64 : 0);
     a.setU32("flags", flags);
     // With the scene fog off but the camera submerged, exp² carries the murk.
     const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
@@ -2036,6 +2047,7 @@ export class Renderer implements RenderFrameContext {
     out.seaLevel = pickSky(base, override, "seaLevel");
     out.quality = pickSky(base, override, "quality");
     out.multiScattering = pickSky(base, override, "multiScattering");
+    out.aerialPerspective = pickSky(base, override, "aerialPerspective");
     out.atmosphere = pickSky(base, override, "atmosphere");
     const dir = this.skySunDirection;
     const explicit = pickSky(base, override, "sunDirection");
@@ -3225,9 +3237,20 @@ export class Renderer implements RenderFrameContext {
     this.ensureArenas();
   }
 
-  /** The frame bind group depends on which shadow atlas and AO views are bound; rebuilt when either changes. */
+  /** A storage-sized inert fallback; the shader's runtime flags guarantee it is never read. */
+  private ensureAerialMsFallback(): GPUBuffer {
+    this.aerialMsFallback ??= this.device.device.createBuffer({
+      label: "aerial.ms.fallback",
+      size: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES,
+      usage: BufferUsage.STORAGE,
+    });
+    return this.aerialMsFallback;
+  }
+
+  /** The frame group depends on its graph views and the LUT buffer bound for aerial perspective. */
   private ensureFrameBindGroup(shadowView: GPUTextureView, aoView: GPUTextureView): GPUBindGroup {
-    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView) return this.frameBindGroup;
+    const msBuffer = this.skyMultiScattering?.lut ?? this.ensureAerialMsFallback();
+    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView && this.frameBindGroupMsBuffer === msBuffer) return this.frameBindGroup;
     const { frame } = this.pipelines.bindGroupLayouts;
     this.frameBindGroup = this.device.device.createBindGroup({
       label: "perframe.bindgroup",
@@ -3240,13 +3263,16 @@ export class Renderer implements RenderFrameContext {
         { binding: 4, resource: this.device.sampler("shadow-pcf") },
         { binding: 5, resource: aoView },
         // Clustered lighting (perFrame.flags bit 5 says whether the shader reads them).
-        { binding: 6, resource: { buffer: this.clusterBuffer! } },
-        { binding: 7, resource: { buffer: this.clusterLightBuffer! } },
-        { binding: 8, resource: { buffer: this.clusterGridBuffer! } },
+        { binding: BINDINGS.clusters.binding, resource: { buffer: this.clusterBuffer! } },
+        { binding: BINDINGS.clusterLights.binding, resource: { buffer: this.clusterLightBuffer! } },
+        { binding: BINDINGS.clusterGrid.binding, resource: { buffer: this.clusterGridBuffer! } },
+        { binding: BINDINGS.sky.binding, resource: { buffer: this.skyBuffer! } },
+        { binding: BINDINGS.multiScattering.binding, resource: { buffer: msBuffer } },
       ],
     });
     this.frameBindGroupView = shadowView;
     this.frameBindGroupAoView = aoView;
+    this.frameBindGroupMsBuffer = msBuffer;
     return this.frameBindGroup;
   }
 
@@ -3497,6 +3523,7 @@ export class Renderer implements RenderFrameContext {
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
+    this.frameBindGroupMsBuffer = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
     this.ssaoBlurGroups.clear();
@@ -3886,7 +3913,7 @@ export class Renderer implements RenderFrameContext {
     this.visibleList = null;
     this.visibilityBytes = 0;
     this.visibilityWords = new Uint32Array(0);
-    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.populationLodBuffer, this.debugBuffer, this.overlayBuffer]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.populationLodBuffer, this.debugBuffer, this.overlayBuffer, this.aerialMsFallback]) b?.destroy();
     this.populationLodBuffer = null;
     this.populationLodBufferCapacity = 0;
     this.frameBuffer = null;
@@ -3900,6 +3927,7 @@ export class Renderer implements RenderFrameContext {
     this.cascadeBuffer = null;
     this.postBuffer = null;
     this.skyBuffer = null;
+    this.aerialMsFallback = null;
     this.cloudBuffer = null;
     this.waterBuffer = null;
     this.ssaoBuffer = null;
@@ -3929,6 +3957,7 @@ export class Renderer implements RenderFrameContext {
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
+    this.frameBindGroupMsBuffer = null;
     this.cascadeBindGroup = null;
     this.drawBindGroup = null;
     this.postGroups.clear();

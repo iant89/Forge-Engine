@@ -55,14 +55,15 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "cascadeCount", type: i32 },
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
-  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows, bit4 SSAO bound" },
+  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows, bit4 SSAO bound, bit5 clustered lights, bit6 aerial perspective" },
   { name: "fogParams", type: vec4, comment: "(mode: 0 none 1 linear 2 exp2 3 height, height falloff, height base, pad)" },
 ]);
 
 /**
- * The analytic sky (`shaders/sky.ts`), bound as group 0 binding 1 of the `forge.sky` pass. Every
- * physical constant the shader marches with is delivered here from `environment/atmosphere.ts` so
- * the CPU reference model and the GPU never disagree on a coefficient. Lengths in metres,
+ * The analytic sky (`shaders/sky.ts`), bound at group 0 binding 1 in `forge.sky` and binding 9 in
+ * the forward frame for Phase 17.2. Every physical constant the shader marches with is delivered
+ * here from `environment/atmosphere.ts` so the CPU reference model and the GPU never disagree on a
+ * coefficient. Lengths in metres,
  * coefficients in 1/m, radiance in scene units.
  */
 export const SkyUniforms = new StructDef("SkyUniforms", [
@@ -84,7 +85,7 @@ export const SkyUniforms = new StructDef("SkyUniforms", [
   { name: "sunAngularRadius", type: f32 },
   { name: "sunDiscIntensity", type: f32, comment: "disc radiance relative to sunIntensity × transmittance" },
   { name: "starBrightness", type: f32, comment: "0 disables the star field" },
-  { name: "multiScattering", type: i32, comment: "1 = add the Phase 17.1 table; the pass still reads zeros when 0" },
+  { name: "multiScattering", type: i32, comment: "1 = sample the Phase 17.1 table; 0 = skip the lookup" },
   { name: "viewSamples", type: i32 },
   { name: "lightSamples", type: i32 },
 ]);

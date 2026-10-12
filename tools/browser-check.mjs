@@ -2238,6 +2238,55 @@ async function checkEnvironmentSection() {
     if (cycle) cycle.timeScale = previous;
   }, msClock.previous);
 
+  // Phase 17.2: distance scattering must reach ordinary forward geometry, not just the sky pass.
+  // Isolate the physical path from the demo's hand-authored height fog and the sky's MS term, then
+  // compare the same frozen noon frame with only the opt-in flag changed.
+  const aerialPrevious = await page.evaluate(() => {
+    const settings = window.__forge.scene.settings;
+    const cycle = window.__forge.scene.object("dayNight");
+    const previous = {
+      aerialPerspective: settings.sky.aerialPerspective,
+      multiScattering: settings.sky.multiScattering,
+      fogMode: settings.fog.mode,
+      timeScale: cycle?.timeScale ?? 0,
+    };
+    if (cycle) cycle.timeScale = 0;
+    settings.sky.aerialPerspective = false;
+    settings.sky.multiScattering = false;
+    settings.fog.mode = "none";
+    window.__forge.setTimeOfDay(12);
+    return previous;
+  });
+  await settle(6);
+  await keepLuma("aerial-off");
+  const aerialOffStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => {
+    window.__forge.scene.settings.sky.aerialPerspective = true;
+  });
+  await settle(8);
+  await keepLuma("aerial-on");
+  const aerialOnStats = await page.evaluate(() => window.__forge.stats());
+  const aerialDiff = await compareRgb("aerial-off", "aerial-on");
+  console.log(
+    `sky aerial perspective: ${aerialDiff.differing}/${aerialDiff.pixels} px changed, max ${aerialDiff.max}, ` +
+      `flag=${aerialOnStats.render.aerialPerspective}, off=${aerialOffStats.render.aerialPerspective}`,
+  );
+  if (aerialOffStats.render.aerialPerspective) throw new Error("aerial perspective was active with its scene setting off");
+  if (!aerialOnStats.render.aerialPerspective) throw new Error("aerial perspective setting did not reach the per-frame renderer flag");
+  if (!(aerialDiff.differing > 500 && aerialDiff.max > 2)) {
+    throw new Error(`aerial perspective did not measurably change rendered geometry (${aerialDiff.differing} px, max ${aerialDiff.max})`);
+  }
+  if (aerialOnStats.gpuErrors !== 0 || aerialOnStats.lastError) throw new Error(`aerial perspective GPU errors: ${aerialOnStats.lastError}`);
+  await page.evaluate((previous) => {
+    const settings = window.__forge.scene.settings;
+    settings.sky.aerialPerspective = previous.aerialPerspective;
+    settings.sky.multiScattering = previous.multiScattering;
+    settings.fog.mode = previous.fogMode;
+    const cycle = window.__forge.scene.object("dayNight");
+    if (cycle) cycle.timeScale = previous.timeScale;
+  }, aerialPrevious);
+  await settle(4);
+
   await page.evaluate(() => window.__forge.setTimeOfDay(1));
   await settle(6);
   const night = await samplePixels();

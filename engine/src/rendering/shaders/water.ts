@@ -19,8 +19,10 @@
  * (`instance_index` is 0 for non-instanced draws), so one entry point covers both paths.
  */
 
-import { PerFrameUniforms, InstanceStruct, WaterUniforms } from "../uniforms.js";
-import { WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { PerFrameUniforms, SkyUniforms, InstanceStruct, WaterUniforms } from "../uniforms.js";
+import { WGSL_AERIAL_PERSPECTIVE, WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./multiScattering.js";
+import { BINDINGS } from "./standard.js";
 
 /** Group/binding map of the water program (frame + draw are shared with the standard program). */
 export const WATER_BINDINGS = {
@@ -31,17 +33,25 @@ export const WATER_BINDINGS = {
 
 export const WATER_SHADER = /* wgsl */ `
 ${PerFrameUniforms.toWgsl("uniform")}
+${SkyUniforms.toWgsl("uniform")}
 
 ${InstanceStruct.toWgsl("storage")}
 
 ${WaterUniforms.toWgsl("uniform")}
 
 @group(0) @binding(0) var<uniform> perFrame: PerFrameUniforms;
+@group(0) @binding(${BINDINGS.sky.binding}) var<uniform> sky: SkyUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(2) @binding(0) var<uniform> water: WaterUniforms;
 
+const PI: f32 = 3.141592653589793;
+
 ${WGSL_COLOR}
 ${WGSL_FOG}
+${WGSL_ATMOSPHERE_FUNCTIONS}
+${WGSL_ATMOSPHERE_COMMON}
+${wgslMultiScatteringSampler(BINDINGS.multiScattering.binding)}
+${WGSL_AERIAL_PERSPECTIVE}
 
 struct WaterVertexInput {
   @location(0) position: vec3<f32>,
@@ -150,6 +160,7 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   color += water.foamColor * foamMask * 0.85;
   let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
   color = mix(perFrame.fogColor, color, fogT);
+  color = applyAerialPerspective(color, in.worldPos);
   if ((perFrame.flags & 2u) != 0u) {
     return vec4<f32>(color, water.opacity);
   }

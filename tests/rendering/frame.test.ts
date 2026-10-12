@@ -108,6 +108,7 @@ import {
 
 /** The prepass + SSAO chain the default settings put between the shadow passes and forge.main. */
 const PREPASS_SSAO = ["forge.prepass", "forge.ssao", "forge.ssao.blur.h", "forge.ssao.blur.v"] as const;
+const AERIAL_PERSPECTIVE_FLAG = 1 << 6;
 
 interface Fixture {
   device: GraphicsDevice;
@@ -849,6 +850,43 @@ group("frame structure", () => {
     f.renderer.renderScene(f.scene);
     assert.deepEqual(f.mock.errors, []);
     assertContains(f.renderer.passNames, "forge.sky");
+    await f.dispose();
+  });
+
+  test("aerial perspective is opt-in, writes flag 6, binds the inert LUT fallback and respects underwater state", async () => {
+    const f = await fixture();
+    assert.equal(f.scene.settings.sky.aerialPerspective, false);
+    f.scene.setSky({ aerialPerspective: true, multiScattering: false });
+    f.renderer.renderScene(f.scene);
+    assert.equal(frameFlags(f) & AERIAL_PERSPECTIVE_FLAG, AERIAL_PERSPECTIVE_FLAG);
+    assert.equal(f.renderer.stats.aerialPerspective, true);
+    assertContains(f.mock.outstanding.buffers, "aerial.ms.fallback");
+    assertNotContains(labels(f), "sky.ms.table");
+    assert.deepEqual(f.mock.errors, []);
+
+    f.scene.settings.sky.aerialPerspective = false;
+    f.renderer.renderScene(f.scene);
+    assert.equal(frameFlags(f) & AERIAL_PERSPECTIVE_FLAG, 0);
+    assert.equal(f.renderer.stats.aerialPerspective, false);
+
+    // Once the table exists the frame bind group must switch from the inert fallback to its real
+    // storage buffer; the renderer still records the LUT before geometry reads it.
+    f.scene.settings.sky.aerialPerspective = true;
+    f.scene.settings.sky.multiScattering = true;
+    f.renderer.renderScene(f.scene);
+    assert.equal(frameFlags(f) & AERIAL_PERSPECTIVE_FLAG, AERIAL_PERSPECTIVE_FLAG);
+    assertContains(labels(f), "sky.ms.lut");
+    assertContains(f.mock.outstanding.buffers, "sky.ms.lut");
+    assert.deepEqual(f.mock.errors, []);
+
+    // Underwater scenes have their own murk/sky path; avoid applying the dry-air shell there.
+    f.scene.settings.water.enabled = true;
+    f.scene.settings.water.level = 4;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.underwater, true);
+    assert.equal(f.renderer.stats.aerialPerspective, false);
+    assert.equal(frameFlags(f) & AERIAL_PERSPECTIVE_FLAG, 0);
+    assert.deepEqual(f.mock.errors, []);
     await f.dispose();
   });
 

@@ -21,8 +21,9 @@
  * first one wrote instead of losing pixels to a one-ulp disagreement.
  */
 
-import { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, POINT_SHADOW_FACES } from "../uniforms.js";
-import { WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { PerFrameUniforms, SkyUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, ObjectUniforms, InstanceStruct, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, POINT_SHADOW_FACES } from "../uniforms.js";
+import { WGSL_AERIAL_PERSPECTIVE, WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG } from "./common.js";
+import { WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./multiScattering.js";
 
 /** Group/binding map, exported so the pipeline and the shaders cannot disagree. */
 export const BINDINGS = {
@@ -39,6 +40,8 @@ export const BINDINGS = {
   clusterLights: { group: 0, binding: 7 },
   /** The cluster grid: two u32 per cluster, then the flat light-index list (`ClusterGridBlock`, storage). */
   clusterGrid: { group: 0, binding: 8 },
+  sky: { group: 0, binding: 9 },
+  multiScattering: { group: 0, binding: 10 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
   /** Batch visibility words the object culler wrote (`rendering/objectCulling.ts`): 0 = draw. */
@@ -62,6 +65,7 @@ export const SKIN_BINDINGS = {
 
 const STRUCTS = [
   PerFrameUniforms.toWgsl("uniform"),
+  SkyUniforms.toWgsl("uniform"),
   LightUniforms.toWgsl("uniform"),
   LightBlock.toWgsl("uniform"),
   // Clustered (Forward+) lighting: the quantisation block is a uniform, the grid and the lights it
@@ -349,6 +353,7 @@ const STANDARD_BINDINGS = /* wgsl */ `@group(0) @binding(0) var<uniform> perFram
 @group(0) @binding(6) var<uniform> clusters: ClusterUniforms;
 @group(0) @binding(7) var<storage, read> clusterLights: ClusterLightBlock;
 @group(0) @binding(8) var<storage, read> clusterGrid: ClusterGridBlock;
+@group(0) @binding(9) var<uniform> sky: SkyUniforms;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 // The object culler's verdict for this draw's batch (0 = draw, see rendering/objectCulling.ts). Only
@@ -411,6 +416,10 @@ ${STRUCTS}
 ${COMMON}
 
 ${STANDARD_BINDINGS}
+${WGSL_ATMOSPHERE_FUNCTIONS}
+${WGSL_ATMOSPHERE_COMMON}
+${wgslMultiScatteringSampler(BINDINGS.multiScattering.binding)}
+${WGSL_AERIAL_PERSPECTIVE}
 `;
 
 /** Declarations of a module whose vertex stage skins (see `STANDARD_SKIN_HELPERS`). */
@@ -420,6 +429,10 @@ ${STRUCTS}
 ${SKINNED_COMMON}
 
 ${STANDARD_BINDINGS}
+${WGSL_ATMOSPHERE_FUNCTIONS}
+${WGSL_ATMOSPHERE_COMMON}
+${wgslMultiScatteringSampler(BINDINGS.multiScattering.binding)}
+${WGSL_AERIAL_PERSPECTIVE}
 
 ${STANDARD_SKIN_HELPERS}
 `;
@@ -766,6 +779,7 @@ ${surfaceSetup}
   // not fogged, so fogColor should match the horizon (DayNightCycle keeps them in step).
   let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
   color = mix(perFrame.fogColor, color, fogT);
+  color = applyAerialPerspective(color, in.worldPos);
   if ((perFrame.flags & 2u) != 0u) {
     // HDR path: the target is a float texture and the post chain applies exposure, bloom, the tone
     // curve and the sRGB encode. Output scene-referred linear radiance untouched.

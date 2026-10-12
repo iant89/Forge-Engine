@@ -2,8 +2,9 @@
  * Analytic atmosphere (Phase 8a): single-scattering sky with Rayleigh molecules, Mie aerosols and
  * an ozone absorption layer around a spherical planet — the Nishita/O'Neil model with Bruneton's
  * sea-level coefficients. This file is the **reference implementation**: the WGSL in
- * `rendering/shaders/sky.ts` marches the same integral with the same constants (delivered through
- * `SkyUniforms`, never retyped), and `tests/environment/environment.test.ts` pins this code against closed forms
+ * `rendering/shaders/sky.ts` and the forward shaders' aerial-perspective path march the same
+ * atmosphere with the same constants (delivered through `SkyUniforms`, never retyped), and
+ * `tests/environment/environment.test.ts` pins this code against closed forms
  * and published values:
  *
  *  - `rayleighCoefficient(λ)` reproduces the (5.802, 13.558, 33.1)·10⁻⁶ m⁻¹ table for 680/550/440 nm;
@@ -282,6 +283,137 @@ export class AtmosphereModel {
   /** Transmittance toward the sun for an observer at `height` (the colour of direct sunlight). */
   sunTransmittance(sunDir: Vec3, height: number, out: Float64Array, samples = this.params.lightSamples): Float64Array {
     return this.transmittance(height, sunDir.x, sunDir.y, sunDir.z, out, samples);
+  }
+
+  /**
+   * Atmospheric transfer along a finite camera-to-surface segment (Phase 17.2). `viewDir` points
+   * from the observer toward the surface, `distance` is metres, and `height` is observer altitude
+   * above sea level. The spherical atmosphere is centred below the observer at `(0, R + height, 0)`
+   * just like {@link skyRadiance}; paths that miss the atmosphere return unit transmittance and no
+   * in-scattering. Writes `T` and linear-RGB in-scattering into the two caller-owned arrays, so the
+   * final surface radiance is `surfaceRadiance * T + inScattering`. If a multiple-scattering field
+   * is installed, its source is integrated along the same view path too.
+   *
+   * This is the CPU reference for `applyAerialPerspective` in `rendering/shaders/common.ts`; both
+   * directions are normalized internally like the shader. The finite path is adaptively sampled
+   * toward its lower-altitude end; each sample evaluates direct
+   * sunlight and the same Rayleigh/Mie/ozone coefficients as the sky. No per-call allocations.
+   */
+  aerialPerspective(
+    viewDir: Vec3,
+    distance: number,
+    height: number,
+    sunDir: Vec3,
+    transmittanceOut: Float64Array,
+    inScatteringOut: Float64Array,
+    viewSamples = this.params.viewSamples,
+    lightSamples = this.params.lightSamples,
+  ): void {
+    transmittanceOut[0] = transmittanceOut[1] = transmittanceOut[2] = 1;
+    inScatteringOut[0] = inScatteringOut[1] = inScatteringOut[2] = 0;
+    const p = this.params;
+    if (!(distance > 0) || !Number.isFinite(distance) || !(p.planetRadius > 0) || !(p.atmosphereHeight > 0)) return;
+
+    const viewLength = Math.sqrt(viewDir.x * viewDir.x + viewDir.y * viewDir.y + viewDir.z * viewDir.z);
+    const sunLength = Math.sqrt(sunDir.x * sunDir.x + sunDir.y * sunDir.y + sunDir.z * sunDir.z);
+    if (!(viewLength > 0) || !Number.isFinite(viewLength) || !(sunLength > 0) || !Number.isFinite(sunLength)) return;
+    const dx = viewDir.x / viewLength;
+    const dy = viewDir.y / viewLength;
+    const dz = viewDir.z / viewLength;
+    const sunX = sunDir.x / sunLength;
+    const sunY = sunDir.y / sunLength;
+    const sunZ = sunDir.z / sunLength;
+    const observerHeight = Math.max(0, Number.isFinite(height) ? height : 0);
+    const originY = p.planetRadius + observerHeight;
+    const tExit = raySphereExit(0, originY, 0, dx, dy, dz, p.planetRadius + p.atmosphereHeight);
+    if (tExit <= 0) return;
+    let tStart = 0;
+    if (observerHeight > p.atmosphereHeight) {
+      tStart = raySphereEntry(0, originY, 0, dx, dy, dz, p.planetRadius + p.atmosphereHeight);
+      if (tStart <= 0) return;
+    }
+    const tEnd = Math.min(distance, tExit);
+    const pathLength = tEnd - tStart;
+    if (!(pathLength > 0)) return;
+
+    const nView = Math.max(1, Math.min(256, Math.trunc(Number.isFinite(viewSamples) ? viewSamples : p.viewSamples)));
+    const nLight = Math.max(1, Math.min(256, Math.trunc(Number.isFinite(lightSamples) ? lightSamples : p.lightSamples)));
+    const startT = tStart;
+    const endT = tEnd;
+    const sx = dx * startT;
+    const sy = originY + dy * startT;
+    const sz = dz * startT;
+    const ex = dx * endT;
+    const ey = originY + dy * endT;
+    const ez = dz * endT;
+    const startHeight = Math.max(0, Math.sqrt(sx * sx + sy * sy + sz * sz) - p.planetRadius);
+    const endHeight = Math.max(0, Math.sqrt(ex * ex + ey * ey + ez * ez) - p.planetRadius);
+    const descending = endHeight < startHeight;
+    const od = this.od;
+    const odLight = this.odLight;
+    const sums = this.sum;
+    const msSums = this.msSum;
+    const msSource = this.msSource;
+    const ms = this.multiScattering;
+    od.fill(0);
+    sums.fill(0);
+    msSums.fill(0);
+
+    const cosTheta = dx * sunX + dy * sunY + dz * sunZ;
+    const phaseR = rayleighPhase(cosTheta);
+    const phaseM = miePhase(cosTheta, p.mieAnisotropy);
+    let tPrev = 0;
+    for (let i = 0; i < nView; i++) {
+      const u1 = (i + 1) / nView;
+      const v1 = descending ? 1 - (1 - u1) ** 3 : u1 ** 3;
+      const tNext = pathLength * v1;
+      const ds = tNext - tPrev;
+      const t = tStart + 0.5 * (tPrev + tNext);
+      tPrev = tNext;
+      const px = dx * t;
+      const py = originY + dy * t;
+      const pz = dz * t;
+      const h = Math.max(0, Math.sqrt(px * px + py * py + pz * pz) - p.planetRadius);
+      const dR = Math.exp(-h / p.rayleighScaleHeight) * ds;
+      const dM = Math.exp(-h / p.mieScaleHeight) * ds;
+      const dO = this.ozoneDensity(h) * ds;
+      const blocked = raySphereEntry(px, py, pz, sunX, sunY, sunZ, p.planetRadius) > 0;
+      let hasSunPath = false;
+      if (!blocked) {
+        const tLight = raySphereExit(px, py, pz, sunX, sunY, sunZ, p.planetRadius + p.atmosphereHeight);
+        if (tLight > 0) {
+          this.opticalDepth(px, py, pz, sunX, sunY, sunZ, tLight, nLight, odLight);
+          hasSunPath = true;
+        } else {
+          odLight.fill(0);
+        }
+      }
+      if (ms !== null) {
+        const radius = Math.sqrt(px * px + py * py + pz * pz) || 1;
+        ms.sample(h, (px * sunX + py * sunY + pz * sunZ) / radius, msSource);
+      }
+      for (let c = 0; c < 3; c++) {
+        const localOd = p.rayleighScattering[c]! * dR + p.mieExtinction[c]! * dM + p.ozoneAbsorption[c]! * dO;
+        const midOd = od[c]! + 0.5 * localOd;
+        if (hasSunPath) {
+          const attenuation = Math.exp(-(midOd + odLight[c]!));
+          sums[c] += attenuation * dR;
+          sums[3 + c] += attenuation * dM;
+        }
+        if (ms !== null) {
+          msSums[c] += Math.exp(-midOd) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
+        }
+        od[c] = od[c]! + localOd;
+      }
+    }
+    for (let c = 0; c < 3; c++) {
+      transmittanceOut[c] = Math.exp(-od[c]!);
+      inScatteringOut[c] = p.sunIntensity * (
+        p.rayleighScattering[c]! * sums[c]! * phaseR +
+        p.mieScattering[c]! * sums[3 + c]! * phaseM +
+        msSums[c]!
+      );
+    }
   }
 
   /**
