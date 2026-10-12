@@ -37,6 +37,7 @@ import {
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { loadGlb, type GlbLoadProgress, type LoadedGlb } from "../assets/glb.js";
+import { attachStaticRoverModel } from "./marsShared.js";
 
 export interface RoverCourseHandle extends DemoSceneHandle {
   /** Test/gate snapshot: model state, cone score and rover pose. */
@@ -503,71 +504,8 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
   let loaded: LoadedGlb | null = null;
   let disposed = false;
 
-  const attachPart = (parent: Entity, name: string, position: Vec3, part: { geometry: Geometry; material: Material }): void => {
-    const child = scene.createTransformedEntity(name, position);
-    parent.addChild(child);
-    child.transform.position = position;
-    const renderable = new Renderable();
-    renderable.geometry = part.geometry;
-    renderable.material = part.material;
-    renderable.castShadow = true;
-    renderable.receiveShadow = true;
-    scene.world.addComponent(child.id, renderable);
-  };
-
   const attachGlb = (glb: LoadedGlb): void => {
-    for (const part of glb.body) {
-      attachPart(chassis, `rover-body-${part.name}`, new Vec3(0, bodyOffsetY, 0), part);
-    }
-    const byName = new Map(glb.wheels.map((w) => [w.name, w]));
-    for (let i = 0; i < COURSE_WHEELS.length; i++) {
-      const spec = COURSE_WHEELS[i]!;
-      const root = wheelRoots[i]!;
-      const wheel = byName.get(spec.name);
-      if (!wheel) continue;
-      for (const part of wheel.parts) attachPart(root, `rover-${spec.name}-part`, new Vec3(0, 0, 0), part);
-    }
-    // Mast: same three-tier pivots as the showcase, frozen in the stowed pose.
-    if (glb.mast && glb.mast.parts.length > 0 && glb.mast.lowerParts.length > 0) {
-      const [px, py, pz] = glb.mast.pivot;
-      const [jx, jy, jz] = glb.mast.joint;
-      const [hx, hy, hz] = glb.mast.headPivot;
-      const lower = scene.createTransformedEntity("rover-mast-lower", new Vec3(px, py + bodyOffsetY, pz));
-      chassis.addChild(lower);
-      lower.transform.position = new Vec3(px, py + bodyOffsetY, pz);
-      for (const part of glb.mast.lowerParts) attachPart(lower, `rover-${part.name}`, new Vec3(0, 0, 0), part);
-      const upper = scene.createTransformedEntity("rover-mast-upper", new Vec3(jx, jy, jz));
-      lower.addChild(upper);
-      upper.transform.position = new Vec3(jx, jy, jz);
-      const upperOffset = scene.createTransformedEntity("rover-mast-upper-offset", new Vec3(-jx, -jy, -jz));
-      upper.addChild(upperOffset);
-      upperOffset.transform.position = new Vec3(-jx, -jy, -jz);
-      for (const part of glb.mast.upperParts) attachPart(upperOffset, `rover-${part.name}`, new Vec3(0, 0, 0), part);
-      const head = scene.createTransformedEntity("rover-mast-head", new Vec3(hx - jx, hy - jy, hz - jz));
-      upper.addChild(head);
-      head.transform.position = new Vec3(hx - jx, hy - jy, hz - jz);
-      const headOffset = scene.createTransformedEntity("rover-mast-head-offset", new Vec3(-hx, -hy, -hz));
-      head.addChild(headOffset);
-      headOffset.transform.position = new Vec3(-hx, -hy, -hz);
-      for (const part of glb.mast.headParts) attachPart(headOffset, `rover-${part.name}`, new Vec3(0, 0, 0), part);
-    }
-    // Arm: nest one pivot per joint like the GLB chain; identity rotations hold the fold.
-    if (glb.arm && glb.arm.joints.length > 0) {
-      let parent: Entity = chassis;
-      let first = true;
-      for (const joint of glb.arm.joints) {
-        const [ox, oy, oz] = joint.offset;
-        const pivot = scene.createTransformedEntity(
-          `rover-${joint.name}`,
-          new Vec3(ox, oy + (first ? bodyOffsetY : 0), oz),
-        );
-        parent.addChild(pivot);
-        pivot.transform.position = new Vec3(ox, oy + (first ? bodyOffsetY : 0), oz);
-        first = false;
-        for (const part of joint.parts) attachPart(pivot, `rover-${part.name}`, new Vec3(0, 0, 0), part);
-        parent = pivot;
-      }
-    }
+    attachStaticRoverModel(scene, chassis, wheelRoots, COURSE_WHEELS.map((w) => w.name), glb, bodyOffsetY);
   };
 
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
