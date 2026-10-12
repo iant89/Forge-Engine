@@ -15951,6 +15951,90 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "The 17.3 entries (this block).",
     "why": "The maintenance rule counts this file too: it is edited like any other."
+  },
+  {
+    "id": "1275",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/skyScene.ts",
+    "what": "The sky demo now starts with the camera aimed above the horizon, keeping the gnomon in frame while exposing the atmosphere beneath the HUD; the upward orbit limit is wider.",
+    "why": "The old downward-looking start placed nearly all the sky behind the diagnostics overlay, so a correctly rendered sky read as a flat or black backdrop."
+  },
+  {
+    "id": "1276",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/examples/orbitControls.test.ts",
+    "what": "Added a camera-framing regression that builds the sky scene's orbit setup and asserts an upward view, ground clearance, and room to look higher.",
+    "why": "The scene's starting view must leave real sky visible rather than relying on whole-frame color checks that can pass on ground pixels."
+  },
+  {
+    "id": "1277",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The real-WebGPU environment arm samples a known sky pixel beneath the HUD and above the control buttons, checking the opening camera and blue channel before running the sky/weather A/Bs.",
+    "why": "A full-frame noon mean could pass when ground and props rendered but the actual atmosphere was completely hidden from the user."
+  },
+  {
+    "id": "1278",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Updated both selrun catalog snapshots to 682 explicit coverage claims.",
+    "why": "The new sky scene regression explicitly covers its production camera setup."
+  },
+  {
+    "id": "1279",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Documented the new unobscured sky-pixel arm, corrected current suite/coverage counts, and recorded the post-framing real-WebGPU measurements.",
+    "why": "Gate documentation and catalog totals should describe the as-built check and latest inspected environment run."
+  },
+  {
+    "id": "1280",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Recorded the sky framing symptom, cause, fix, visual regression guard, and real-WebGPU result.",
+    "why": "Future work should distinguish a sky shader failure from a sky that is rendered correctly but hidden by the opening camera/HUD composition."
+  },
+  {
+    "id": "1281",
+    "date": "2026-10-12T22:30:30Z",
+    "type": "change",
+    "pr": null,
+    "branch": "arena/50919ec1-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Added per-file change entries for the sky framing fix, its unit/browser regressions, and verification documentation (this block).",
+    "why": "The maintenance rule records the activity log itself alongside every file it describes."
   }
 ]
 ```
