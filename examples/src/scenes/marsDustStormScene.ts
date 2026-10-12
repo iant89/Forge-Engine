@@ -436,7 +436,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const moundRot = new Quat();
   const fogColor = new Color(DUST_R, DUST_G, DUST_B);
 
-  const placeRover = (x: number, z: number): void => {
+  /** Reposition upright, facing the active beam. `clearDust` also empties the rover's pile. */
+  const placeRover = (x: number, z: number, clearDust = true): void => {
     vehicle.position.x = x;
     vehicle.position.z = z;
     vehicle.velocity.set(0, 0, 0);
@@ -449,8 +450,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const target = course.active;
     if (target) vehicle.yaw = Math.atan2(target.x - x, target.z - z);
     vehicle.placeOnGround(ground);
-    accumulation.resetRover();
-    stuck = false;
+    if (clearDust) {
+      accumulation.resetRover();
+      stuck = false;
+    }
     flippedFor = 0;
   };
 
@@ -646,7 +649,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         sendBack("FLIPPED");
       } else {
         course.penalty += rules.timePenalty;
-        placeRover(vehicle.position.x, vehicle.position.z);
+        placeRover(vehicle.position.x, vehicle.position.z, false);
         lastEvent = `FLIPPED · RIGHTED · +${rules.timePenalty}s`;
       }
     }
@@ -719,13 +722,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       z: vehicle.position.z,
     }),
     overlay: () => {
-      const s = stormState();
+      // Read the live state directly: the HUD runs every frame and must not allocate snapshots.
+      const x = vehicle.position.x;
+      const z = vehicle.position.z;
+      const burial = accumulation.burial;
+      const penalty = course.penalty > 0 ? ` (+${course.penalty}s)` : "";
       const lines = [
-        `storm ${s.phase.toUpperCase()} ${Math.round(s.intensity * 100)}% · wind ${s.windSpeed.toFixed(0)} m/s · devils ${s.devils.length} · ${difficulty} · ${qualityTier}`,
-        s.won
-          ? `STORM SURVIVED · ${formatTime(course.total)}${s.penalty > 0 ? ` (incl. +${s.penalty}s)` : ""}`
-          : `beacon ${s.checkpoint + 1}/${s.checkpointCount} ${bearingArrow(s.bearing)} ${s.distanceToBeam.toFixed(0)} m · time ${formatTime(course.total)}${s.penalty > 0 ? ` (+${s.penalty}s)` : ""}`,
-        `burial ${Math.round(s.burial * 100)}%${s.stuck ? " · STUCK — pump throttle" : s.burial > 0.3 ? " · keep moving!" : ""}${s.resets > 0 ? ` · resets ${s.resets}` : ""}`,
+        `storm ${storm.phase(time).toUpperCase()} ${Math.round(intensity * 100)}% · wind ${Math.hypot(wind.x, wind.z).toFixed(0)} m/s · devils ${devils.devils.length} · ${difficulty} · ${qualityTier}`,
+        course.state === "won"
+          ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}`
+          : `beacon ${course.index + 1}/${course.checkpoints.length} ${bearingArrow(course.bearing(x, z, vehicle.yaw))} ${course.distance(x, z).toFixed(0)} m · time ${formatTime(course.total)}${penalty}`,
+        `burial ${Math.round(burial * 100)}%${stuck ? " · STUCK — pump throttle" : burial > 0.3 ? " · keep moving!" : ""}${course.resets > 0 ? ` · resets ${course.resets}` : ""}`,
       ];
       if (!modelLoaded) lines.push(modelError ? `rover model failed: ${modelError}` : "rover model loading…");
       if (lastEvent) lines.push(lastEvent);

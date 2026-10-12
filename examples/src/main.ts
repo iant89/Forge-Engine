@@ -58,7 +58,7 @@ import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
-import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
+import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
 import { stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
@@ -693,8 +693,6 @@ async function main(): Promise<void> {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
     },
-    /** Mars Dust Storm Survival: storm, course, burial and devil state; null on other scenes. */
-    stormState: () => (currentHandle as MarsDustStormHandle | null)?.stormState?.() ?? null,
     /** Ported Mars generator inspector (`?scene=mars-generator`): site, fidelity, generation mode. */
     marsGeneratorState: () => {
       const handle = currentHandle as MarsGeneratorSceneHandle | null;

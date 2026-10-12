@@ -431,10 +431,17 @@ export const CHECKPOINT_REACH = 8;
 export const STORM_CHECKPOINT_COUNT = 6;
 
 /**
+ * Layout seed surveyed on the seed-1337 Mars surface from the showcase spawn: the steepest 4 m
+ * grade on any straight leg is ≈23°, so every beam is reachable without detours (the first seeds
+ * tried crossed 35° crater walls).
+ */
+export const STORM_COURSE_SEED = STORM_SEED + 106;
+
+/**
  * Fixed-seed checkpoint layout: a meandering line of beams 70–110 m apart starting from the spawn,
  * so every run (and every gate) drives the same course.
  */
-export function stormCheckpointLayout(spawnX: number, spawnZ: number, count = STORM_CHECKPOINT_COUNT, seed = STORM_SEED + 7): StormCheckpoint[] {
+export function stormCheckpointLayout(spawnX: number, spawnZ: number, count = STORM_CHECKPOINT_COUNT, seed = STORM_COURSE_SEED): StormCheckpoint[] {
   const rng = new Rng(seed);
   const out: StormCheckpoint[] = [];
   let heading = rng.nextFloat() * Math.PI * 2;
