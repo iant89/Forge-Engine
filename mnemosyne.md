@@ -2212,3 +2212,29 @@ Read the module constraints below before changing either pure model.
   (a "different picture" check would pass on the same picture with a moving sun), and the shadow arm
   requires the darker side to win by >10 % with more than 3x as many darker than brighter pixels,
   plus the state echo the demo actually reports.
+
+## 2026-10-12 — Phase 17.3 follow-up: the gate A/B that counted the wrong direction
+
+- **Symptom:** the first real run of the 17.3 arms failed with `the deck's shadow reached too few
+  pixels (289/468000)` while the same run printed `308734 pixels brightened` — i.e. the shadow was
+  plainly working, upside down.
+- **Root cause:** `compareLuma(a, b)` counts what changed *from a to b*, and this arm passed the
+  shadow-**on** capture first: "darker" then counted the pixels that appeared when the shadow was
+  switched off. Every other A/B in the file passes the off/idle capture first — copying an idiom
+  without reading its direction is how a working feature reads as broken. Fixed by capturing off
+  first and asserting *both* state echoes (`surfaceShadows === false` and `=== true`).
+- **What also had to be true for the count to mean anything:** only `surfaceShadows` may move
+  between the two captures. `cloudSunVisibility` is called from the standard and water fragments
+  and nowhere in the sky pass, so a sky pixel physically cannot change — otherwise "the shadow
+  reached N pixels" would be counting deck-shading changes. The two captures run with the shipped
+  stack (`layers: 3`, `thickness: 400`) so the frame on screen matches the number being asserted.
+- **Green on the real adapter after the fix:** layers 1 vs 4 → 113,674/468,000 pixels (max 145) with
+  3,307 on the repeat (34× margin); shadow off → on → 308,987 darkened vs 164 brightened (of
+  468,000, max 147.7), frame mean 136.94 → 110.17, both state echoes read, zero GPU errors,
+  `check:browser:environment passed` in 683.6 s.
+- **Do not let a doc's numbers outlive the code path they came from.** While writing the 17.3
+  verification row I transcribed an early probe's transmittance ladder (1.000/0.913/0.360/0.068/
+  0.059) and a 0.1 %–0.2 % march error: the shipped march, and the roadmap's own bullet, say
+  0.962672/0.451995/0.120886/0.096972 at a fixed sun and 0.144 % worst case, because the substrate
+  changed after the first probe. Re-measured every figure the row quotes against the suite's own
+  fixture. A number in a doc is a claim; re-derive it or leave it out.

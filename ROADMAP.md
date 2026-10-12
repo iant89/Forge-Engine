@@ -1725,8 +1725,11 @@ CURRENTLY COMPLETE:
         pass, the fragment's own surface for the shadow), with the vertical-derivative term
         (`pixelAngle*(dh/sin el)*max(1, 1/sin el)`) that a horizontal-only model misses: a 1.5 km
         deck at 1.1 deg elevation is 6 km per pixel, not 24 m. Measured pixel-to-pixel change:
-        0.166 -> 0.000 at 1.1 deg, 0.103 -> 0.021 at 2.9 deg, unchanged where the deck can resolve
-        its octaves; a wind-frozen deck does not move a pixel between frames on the real adapter.)
+        0.16583 -> 0.000 at 1.1 deg, 0.10336 -> 0.02146 at 2.9 deg, 0.03393 -> 0.03363 where the
+        deck can resolve its octaves. On the real adapter a deck with the wind pinned moves 3307 of
+        468000 pixels (0.7 %, the gate camera's own dither) between two captures of the same
+        setting, while changing the layer count moves 113674 — 34x the noise floor — so the
+        stability the fade buys is asserted against a measured baseline, not a fixed threshold.)
 
 
 17.4 Weather Integration
