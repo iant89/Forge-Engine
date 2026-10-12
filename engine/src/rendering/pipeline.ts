@@ -40,6 +40,7 @@ import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
+import { MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS } from "./shaders/multiScattering.js";
 import { SSAO_SHADER, SSAO_BINDINGS, type SsaoEntryPoint } from "./shaders/ssao.js";
 import { JOINT_PALETTE_BYTES } from "./skinning.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
@@ -230,6 +231,8 @@ export class PipelineFactory {
         { binding: BINDINGS.clusters.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: ClusterUniforms.byteSize("uniform") } },
         { binding: BINDINGS.clusterLights.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterLightBlock.byteSize("storage") } },
         { binding: BINDINGS.clusterGrid.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterGridBlock.byteSize("storage") } },
+        { binding: BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
+        { binding: BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES } },
       ],
     });
     // The depth prepass only runs the standard vertex entries, which read nothing from group 0 but

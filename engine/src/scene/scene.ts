@@ -125,6 +125,11 @@ export interface SceneSkySettings {
    * carries the CPU twin for fog/ambient colours.
    */
   multiScattering: boolean;
+  /**
+   * Opt-in finite-path atmospheric transmittance and in-scattering on standard/water geometry
+   * (Phase 17.2); default off.
+   */
+  aerialPerspective: boolean;
   /** Planet + atmosphere constants; `null` uses `EARTH_ATMOSPHERE`. */
   atmosphere: AtmosphereParams | null;
 }
@@ -306,6 +311,7 @@ export function defaultSkySettings(): SceneSkySettings {
     seaLevel: 0,
     quality: "medium",
     multiScattering: true,
+    aerialPerspective: false,
     atmosphere: null,
   };
 }
@@ -962,6 +968,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     if (typeof sky["nightEnabled"] === "boolean") t.nightEnabled = sky["nightEnabled"];
     if (sky["quality"] === "low" || sky["quality"] === "medium" || sky["quality"] === "high") t.quality = sky["quality"];
     if (typeof sky["multiScattering"] === "boolean") t.multiScattering = sky["multiScattering"];
+    if (typeof sky["aerialPerspective"] === "boolean") t.aerialPerspective = sky["aerialPerspective"];
     if (sky["atmosphere"] && typeof sky["atmosphere"] === "object") t.atmosphere = { ...(sky["atmosphere"] as AtmosphereParams) };
     else if (sky["atmosphere"] === null) t.atmosphere = null;
   }

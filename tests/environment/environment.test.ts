@@ -424,8 +424,9 @@ group("scene sky/fog settings", () => {
     const scene = new Scene({ name: "settings" });
     assert.equal(scene.settings.fog.mode, "none"); // fog is opt-in
     assert.equal(scene.settings.skyEnabled, true);
+    assert.equal(scene.settings.sky.aerialPerspective, false); // geometry scattering is opt-in too
     scene.setFog("height", { density: 0.01, heightFalloff: 0.2, heightBase: 3 });
-    scene.setSky({ sunDirection: new Vec3(3, 4, 0), quality: "high", turbidity: 5, atmosphere: createAtmosphere({ mieAnisotropy: 0.9 }, MARS_ATMOSPHERE) });
+    scene.setSky({ sunDirection: new Vec3(3, 4, 0), quality: "high", turbidity: 5, aerialPerspective: true, atmosphere: createAtmosphere({ mieAnisotropy: 0.9 }, MARS_ATMOSPHERE) });
     assertCloseTo(scene.settings.sky.sunDirection!.x, 0.6, 9);
     const data = JSON.parse(JSON.stringify(scene.serialize()));
     const copy = new Scene({ name: "copy" });
@@ -438,6 +439,7 @@ group("scene sky/fog settings", () => {
     assert.equal(copy.settings.fog.heightBase, 3);
     assert.equal(copy.settings.sky.quality, "high");
     assert.equal(copy.settings.sky.turbidity, 5);
+    assert.equal(copy.settings.sky.aerialPerspective, true);
     assertCloseTo(copy.settings.sky.sunDirection!.y, 0.8, 9);
     assert.equal(copy.settings.sky.atmosphere?.mieAnisotropy, 0.9);
     assert.equal(copy.settings.sky.atmosphere?.planetRadius, MARS_ATMOSPHERE.planetRadius);

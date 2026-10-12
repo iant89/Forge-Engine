@@ -157,10 +157,6 @@ What remains:
   `AtmosphereModel.multiScattering` (the renderer's own table is built on the device and the derived
   ambient/fog colours gain the term only through that assignment). (`docs/ENVIRONMENT.md` §8)
   (roadmap: 17)
-* **No twilight glow from below the horizon on the CPU path or aerial perspective on geometry.** The
-  sky pass's twilight now comes from the LUT (Phase 17.1) even where the sun is below the local
-  horizon, but the CPU `skyAmbient`/`horizonColor` integrals only gain it when a field is assigned,
-  and geometry still gets fog rather than the sky's in-scattering. (capability: environment.aerialPerspective)
 * **The sky pass is not affected by linear or exp² fog.** Only height fog (whose path integral is
   finite for upward rays) fogs sky pixels; linear/exp² fog would erase the whole sky over an infinite
   path. The planet ground the pass draws below the horizon *is* fogged in every mode, and
@@ -168,7 +164,7 @@ What remains:
   only appear when a scene sets a fog colour that disagrees with its sky. (`docs/ENVIRONMENT.md` §4) (capability: environment.skyFogModes)
 * **Nights are a full-moon sky with no lunar phases.** Nights include an atmosphere-attenuated
   anti-solar full moon and stars over `nightAmbient`, but the moon has no phases or orbital
-  inclination. (capability: environment.aerialPerspective)
+  inclination. (roadmap: 17)
 * **The sun disc is not a physical radiance.** `sunDiscIntensity` (default 100× the sun's
   transmitted irradiance) is a look control; the real disc (~14 700×) would bloom the whole frame. (capability: environment.sunDisc)
 * **Mars' blue sunset aureole is not modelled.** It needs a wavelength-dependent Mie lobe; the preset

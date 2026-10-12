@@ -1,9 +1,10 @@
-# Environment — as built (Phases 8a + 8b, 17.1)
+# Environment — as built (Phases 8a + 8b, 17.1 + 17.2)
 
 Phase 8 of `ROADMAP.md` was split in two. This document describes both halves as they exist in the
 tree today: §1–§6 are the first half — **where the sun is, what the sky looks like, how far you
 can see** — and §7 is the second half — **weather, clouds, water, lightning**, everything that
-reacts to that light with simulation state of its own. `docs/VERIFICATION.md` says which assertion
+reacts to that light with simulation state of its own. §8–§9 describe the Phase 17.1 multiple-scattering
+and Phase 17.2 aerial-perspective additions. `docs/VERIFICATION.md` says which assertion
 proves each claim; `docs/KNOWN-ISSUES.md` lists the approximations a green run does not remove.
 
 Everything lives in `engine/src/environment/` (`solar.ts`, `atmosphere.ts`, `fog.ts`,
@@ -130,6 +131,7 @@ forge.sky    color: sceneColor (load)    depth: sceneDepth (depthReadOnly)   1 t
 | `seaLevel` (0) | render-local height of the planet surface; the camera's altitude is `y − seaLevel`. |
 | `quality` (`medium`) | sample tier, see above. |
 | `multiScattering` (`true`) | add the higher orders from the Phase 17.1 table (§8); `false` draws the raw single-scattering sky. |
+| `aerialPerspective` (`false`) | apply finite-path atmospheric transmittance and in-scattering to standard and water geometry (Phase 17.2, §9); opt-in because it adds per-fragment work. |
 | `atmosphere` (`null`) | `AtmosphereParams` or `null` for Earth. Serialised with the scene. |
 
 `scene.setSky(partial)` applies and turns the sky on; `scene.setBackgroundColor()` turns it off (solid
@@ -220,9 +222,10 @@ runs under the Mars preset with exp² dust haze coloured by the model's horizon.
   summed as a geometric series, no ground bounce, and twilight columns good to a factor of ~2 rather
   than a few percent. The sky is still darker than reality relative to the sun, just less so — the
   demo's `sky.sunIntensity` 20 against the light's 4.2 and `ambientScale` 0.6 are unchanged.
-* **Aerial perspective on geometry** is still fog (the only distance cue on surfaces); **no
-  per-object sky lighting** (ambient is one colour). In-scattered light does not tint distant
-  geometry — that is Phase 17.2. The procedural anti-solar moon is always full and has no orbital
+* **Aerial perspective** (§9) is an opt-in finite-path integration on the standard and water
+  forward shaders, not a full volumetric renderer; custom fog remains a separate effect and is
+  composed before the atmospheric transfer. **Per-object sky lighting** is still not evaluated —
+  ambient remains one colour. The procedural anti-solar moon is always full and has no orbital
   inclination or calendar phase.
 * **The sun disc is a look control**, not a physical radiance.
 * **Mars' blue sunset aureole** needs a wavelength-dependent Mie lobe; the preset has one `g`.
@@ -376,6 +379,56 @@ ground) and sun elevation by `sqrt(|μ|)` around the terminator. `texelValue` re
   lists them with their capability references.
 * **Verification.** `tests/environment/environment17.test.ts` (table shape and axes, the sphere-mean
   identity, the twilight decay and exact zeros, the model/ambient/horizon gains, the renderer's pass
-  bookkeeping, the WGSL/TS config agreement) and, on a real device, `npm run check:browser`: the two
+  bookkeeping, the WGSL/TS config agreement) and, on a real device, `npm run check:browser:environment`
+  (also part of the full browser gate): the two
   passes must run, the sky must draw brighter with the flag on, and the table read back off the device
   must match `Renderer.multiScatteringReference()` (the CPU twin of the same frame) within 15 %.
+
+## 9. Aerial perspective (Phase 17.2)
+
+A sky pixel integrates radiance all the way through the atmosphere shell. A surface pixel used to
+receive only the scene's conventional fog, so distant geometry kept its authored colour instead of
+picking up the same air. When enabled, the forward fragment programs now integrate the finite
+camera-to-surface segment and composite the surface radiance as
+
+```
+Lout = Lsurface · Tview + Lair
+```
+
+`Tview` is the exponential of Rayleigh scattering, Mie extinction and ozone absorption along the
+part of the view ray inside the spherical atmosphere. `Lair` is the direct-sun Rayleigh/Mie source
+integrated along that same segment, plus the Phase 17.1 multiple-scattering source when its flag and
+LUT are enabled. The view ray is clipped to the atmosphere shell, and the sample spacing is biased
+toward its lower-altitude end; sun visibility uses the same ray/sphere and optical-depth helpers as
+the sky shader. The scene's `sky.seaLevel`, camera altitude, effective atmosphere, sun direction,
+scattering multipliers and `sky.exposure` all come from the same `SkyUniforms` written for the frame.
+The arithmetic stays in scene-linear radiance and runs before output exposure/tone mapping, so the
+HDR post path and the LDR forward path share it.
+
+* **Enable it.** `scene.settings.sky.aerialPerspective` defaults to `false` and is serialized. Set
+  it with `scene.setSky({ aerialPerspective: true })` (which also enables the sky) or override it for
+  one frame with `RenderFrameContext.setSkyOverride`. It maps to `perFrame.flags` bit 6. With the bit
+  clear, the fragment function returns the input radiance before doing any path integration.
+* **Shader coverage and cost.** Both the standard PBR/terrain fragment path and the water fragment
+  path call `applyAerialPerspective` after the existing fog blend. The configured sky quality is
+  halved for this per-fragment work and clamped to 4–16 view samples × 4–8 light samples (low 4×4,
+  medium 8×4, high 16×8); each view sample evaluates sun transmittance, and MS adds one LUT lookup.
+  This is a deliberate opt-in trade-off. The sky uniform and LUT are frame bindings 9 and 10; when
+  no built LUT is available an inert storage buffer is bound, and the uniform branch ensures it is
+  never read. Enabling MS records/builds the LUT before `forge.main` consumes it.
+* **CPU reference.** `AtmosphereModel.aerialPerspective(viewDir, distance, height, sunDir, T, Lair,
+  viewSamples?, lightSamples?)` fills caller-owned arrays with the same finite-path transfer and
+  optional `MultiScatteringField` source. Compose it with `surfaceRadiance[c] * T[c] + Lair[c]`.
+  It is allocation-free and is useful for tests/tools; the renderer uses the device implementation.
+* **Composition and model limits.** Existing artistic fog still runs first and remains an independent
+  medium. For a pure physical-air comparison, disable custom fog; stacking both can deliberately
+  tint/fade the air twice. The path assumes the spherical atmosphere's local vertical is render-space
+  +Y and clamps below-sea-level camera altitude to sea level, as the sky pass does. This is surface
+  scattering, not a volumetric cloud, particle, light-shaft or per-object ambient/IBL pass.
+* **Verification.** `tests/environment/environment17.test.ts` checks identity paths, distance-dependent
+  transmittance/in-scattering and the optional CPU MS source. `tests/environment/environment.test.ts`
+  pins the opt-in default and serialization; `tests/rendering/frame.test.ts` reads back bit 6, checks
+  the inert fallback/LUT transition and ensures the underwater path disables it. `check:wgsl` validates
+  the standard, terrain and water modules. On real Chromium + SwiftShader, the environment browser
+  section toggled only this setting at frozen noon: the flag went false→true and 41,658/468,000
+  pixels changed (maximum channel difference 17), with zero GPU errors.

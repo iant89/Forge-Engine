@@ -96,14 +96,14 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 
 ## Environment & weather (Phases 8a, 8b, 17)
 
-- [x] Solar position and a day/night cycle; Earth and Mars sky presets with height fog _(partial: no aerial perspective on geometry)_
+- [x] Solar position and a day/night cycle; Earth and Mars sky presets with height fog
 - [x] Multiple scattering: a height × sun-elevation table built on the CPU and in two compute passes, sampled per march step _(partial: no ground bounce, isotropic higher orders, ~±2× through the terminator)_
 - [x] Weather state: storm presets, fog, sky and turbidity coupling, wind and gust fields
 - [x] Deterministic lightning schedule
 - [x] Gerstner water with a fresnel-tinted horizon, and an underwater state _(partial: no reflections, refraction, absorption or foam)_
 - [x] Cloud deck with noise shading _(partial: one flat layer, no self-shadowing)_
 - [x] Lightning bolts with a flash light _(partial: silent, one shared light)_
-- [ ] Aerial perspective: atmospheric scattering applied to scene geometry (Phase 17.2)
+- [x] Aerial perspective: opt-in atmospheric transmittance and in-scattering on standard/water geometry (Phase 17.2; CPU reference + real-WebGPU A/B verified)
 - [ ] Multi-layer clouds with better shadowing and temporal stability (Phase 17.3)
 - [ ] Weather affecting sunlight, terrain look, particles, visibility, vehicle traction, audio and water (Phase 17.4)
 - [ ] Water reflections, refraction, depth absorption, shorelines and foam (Phase 17.5)

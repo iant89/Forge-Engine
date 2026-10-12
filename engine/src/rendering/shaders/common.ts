@@ -174,6 +174,94 @@ fn opticalDepthToSpace(p: vec3<f32>, d: vec3<f32>, samples: i32) -> vec3<f32> {
 `;
 
 /**
+ * Finite-segment atmospheric transfer for forward-shaded surfaces (Phase 17.2). It is kept next to
+ * `WGSL_ATMOSPHERE_FUNCTIONS` so the sky and geometry consume the same global `SkyUniforms`, phase
+ * functions, optical-depth equations and multiple-scattering field. `perFrame.flags` bit 6 is the
+ * opt-in switch; when it is clear this is a uniform branch with no path integration.
+ *
+ * The view path is clipped to the atmosphere shell, sampled more densely toward its lower-altitude
+ * end, and accumulated as `surface * T + L_air`. This is scene-linear, so both HDR and LDR paths
+ * apply it before exposure/tone mapping. Light-ray samples intentionally use the same helper the
+ * sky shader uses; the Phase 17.1 table contributes its isotropic higher orders when enabled.
+ */
+export const WGSL_AERIAL_PERSPECTIVE = /* wgsl */ `
+fn applyAerialPerspective(surfaceRadiance: vec3<f32>, surfacePosition: vec3<f32>) -> vec3<f32> {
+  if ((perFrame.flags & 64u) == 0u) {
+    return surfaceRadiance;
+  }
+  let R = sky.planetRadius;
+  let atmosphereRadius = R + sky.atmosphereHeight;
+  let observerHeight = max(sky.observerHeight, 0.0);
+  let cameraAtmo = vec3<f32>(0.0, R + observerHeight, 0.0);
+  let viewOffset = surfacePosition - perFrame.cameraPosRender;
+  let distance = length(viewOffset);
+  if (distance <= 1e-4 || sky.atmosphereHeight <= 0.0) {
+    return surfaceRadiance;
+  }
+  let dir = viewOffset / distance;
+  let tExit = raySphereExit(cameraAtmo, dir, atmosphereRadius);
+  if (tExit <= 0.0) {
+    return surfaceRadiance;
+  }
+  var tStart = 0.0;
+  if (observerHeight > sky.atmosphereHeight) {
+    tStart = raySphereEntry(cameraAtmo, dir, atmosphereRadius);
+    if (tStart <= 0.0) {
+      return surfaceRadiance;
+    }
+  }
+  let tEnd = min(distance, tExit);
+  let pathLength = tEnd - tStart;
+  if (pathLength <= 0.0) {
+    return surfaceRadiance;
+  }
+  let startPoint = cameraAtmo + dir * tStart;
+  let endPoint = cameraAtmo + dir * tEnd;
+  let startHeight = max(length(startPoint) - R, 0.0);
+  let endHeight = max(length(endPoint) - R, 0.0);
+  let descending = endHeight < startHeight;
+  let viewSamples = clamp(sky.viewSamples / 2, 4, 16);
+  let lightSamples = clamp(sky.lightSamples / 2, 4, 8);
+  let sunDir = normalize(sky.sunDirection);
+  let cosTheta = dot(dir, sunDir);
+  let phaseR = rayleighPhase(cosTheta);
+  let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
+  var viewOd = vec3<f32>(0.0);
+  var sumR = vec3<f32>(0.0);
+  var sumM = vec3<f32>(0.0);
+  var msSum = vec3<f32>(0.0);
+  var tPrev = 0.0;
+  for (var i = 0; i < viewSamples; i++) {
+    let u = f32(i + 1) / f32(viewSamples);
+    let reverse = 1.0 - u;
+    let curve = select(u * u * u, 1.0 - reverse * reverse * reverse, descending);
+    let tNext = pathLength * curve;
+    let ds = tNext - tPrev;
+    let p = cameraAtmo + dir * (tStart + 0.5 * (tPrev + tNext));
+    tPrev = tNext;
+    let h = max(length(p) - R, 0.0);
+    let dR = exp(-h / sky.rayleighScaleHeight) * ds;
+    let dM = exp(-h / sky.mieScaleHeight) * ds;
+    let dO = ozoneDensity(h) * ds;
+    let localOd = sky.rayleighScattering * dR + sky.mieExtinction * dM + sky.ozoneAbsorption * dO;
+    let midOd = viewOd + 0.5 * localOd;
+    if (raySphereEntry(p, sunDir, R) <= 0.0) {
+      let lightOd = opticalDepthToSpace(p, sunDir, lightSamples);
+      let attenuation = exp(-(midOd + lightOd));
+      sumR += attenuation * dR;
+      sumM += attenuation * dM;
+    }
+    if (sky.multiScattering != 0) {
+      msSum += exp(-midOd) * (sky.rayleighScattering * dR + sky.mieScattering * dM) * msSourceAt(h, p, sunDir);
+    }
+    viewOd += localOd;
+  }
+  let inScattering = sky.sunIntensity * (sky.rayleighScattering * sumR * phaseR + sky.mieScattering * sumM * phaseM + msSum);
+  return surfaceRadiance * exp(-viewOd) + inScattering;
+}
+`;
+
+/**
  * Fullscreen-triangle vertex stage: three vertices, no vertex buffer. `uv` has (0,0) at the top-left
  * of the target, matching texture space, so a fragment can sample the source at `in.uv` directly.
  */
