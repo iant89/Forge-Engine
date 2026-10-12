@@ -26,12 +26,14 @@ import {
   Material,
   Renderable,
   Scene,
+  type SceneCloudSettings,
   Vec3,
   WaterSurface,
   WeatherSystem,
   type WeatherPresetName,
   createBox,
   createCylinder,
+  cloudLayerCount,
   createThunderBuffer,
   createPlane,
   createSphere,
@@ -48,6 +50,8 @@ export interface WeatherSceneHandle extends DemoSceneHandle {
   setWeather(preset: WeatherPresetName): void;
   /** Pin the deck coverage (pauses the weather's cover drive; `setWeather` resumes it). */
   setCoverage(coverage: number): void;
+  /** Phase 17.3 art knobs (`layers`, `thickness`, `surfaceShadows`, `shadowStrength`, …). */
+  setCloudOptions(options: Partial<SceneCloudSettings>): void;
   triggerLightning(): void;
   setUnderwater(on: boolean): void;
   setTimeOfDay(hours: number): void;
@@ -297,6 +301,11 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     weather.driveClouds = false;
     scene.setClouds({ coverage });
   };
+  const setCloudOptions = (options: Partial<SceneCloudSettings>): void => {
+    // A/B hooks for the Phase 17.3 gate (shadow strength, layer count, …) — art knobs only, so the
+    // weather keeps driving the wind and the cover.
+    scene.setClouds(options);
+  };
   const setUnderwater = (on: boolean): void => {
     // Flood the camera instead of moving it: the orbit controller owns the eye, but the sea
     // level is ours. 30 m submerges the 8 m camera with margin for the swell.
@@ -378,13 +387,15 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       return (
         `${cycle.clockText}  wind ${s.windSpeed.toFixed(1)} m/s ${(s.windDirection / Math.PI) * 180 < 180 ? "E" : "W"}  ` +
         `T ${s.temperatureC.toFixed(1)}°C  rain ${s.precipitation01.toFixed(2)}  drops ≈${rain.aliveEstimate}  storm ${s.storm01.toFixed(2)}\n` +
-        `cover ${c.coverage.toFixed(2)}  deck wind (${c.windX.toFixed(1)}, ${c.windZ.toFixed(1)})  ` +
+        `cover ${c.coverage.toFixed(2)}  deck ${cloudLayerCount(c)} layers x ${c.thickness.toFixed(0)} m  ` +
+        `wind (${c.windX.toFixed(1)}, ${c.windZ.toFixed(1)})  shadow ${c.surfaceShadows ? c.shadowStrength.toFixed(2) : "off"}  ` +
         `lake t+${scene.settings.water.time.toFixed(1)}s  strikes ${lightning.strikeCount}  flash ${lightning.flashTotal.toFixed(2)}`
       );
     },
     rainDrops: () => rain.aliveEstimate,
     setWeather,
     setCoverage,
+    setCloudOptions,
     triggerLightning,
     setUnderwater,
     setTimeOfDay(hours: number): void {

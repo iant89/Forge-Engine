@@ -123,6 +123,10 @@ fn stars(dir: vec3<f32>) -> f32 {
 fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
   let dir = normalize(in.farPoint - in.nearPoint);
   let sunDir = normalize(sky.sunDirection);
+  // The cloud deck's sampling footprint. Derivatives are only legal in uniform control flow, and
+  // the deck itself is evaluated inside the ground/sky branches below, so the footprint is taken
+  // here where every pixel of the fullscreen triangle passes through.
+  let deckFootprint = cloudDeckFootprint(dir);
   let R = sky.planetRadius;
   let origin = vec3<f32>(0.0, R + max(sky.observerHeight, 0.0), 0.0);
   // Keep the narrow, optically longest horizon band converged at every quality profile. The light
@@ -235,10 +239,11 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
   }
 
   if (!hitsGround) {
-    // The cloud deck (Phase 8b): one noise-textured plane above the observer, occluding the sky
-    // (and the disc and stars behind it) with its own opacity. Fog applies after, so a fogged
-    // horizon veils the deck's base exactly like any distant geometry.
-    let deck = cloudDeck(dir, sunDir);
+    // The cloud deck (Phase 8b, layered in Phase 17.3): a stack of noise-textured sheets above the
+    // observer, occluding the sky (and the disc and stars behind it) with its own opacity, each
+    // sheet shaded by the deck above it. Fog applies after, so a fogged horizon veils the deck's
+    // base exactly like any distant geometry.
+    let deck = cloudDeck(dir, sunDir, deckFootprint);
     radiance = mix(radiance, deck.rgb, deck.a);
   }
 

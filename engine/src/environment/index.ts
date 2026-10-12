@@ -10,8 +10,9 @@
  * - `dayNight.ts`   — `DayNightCycle` scene object that drives the sun light, ambient and fog.
  * - `weather.ts`    — `WeatherSystem`: wind/gusts/temperature/humidity/precipitation/storm state on
  *                      the fixed-step clock, with frozen-turbulence field sampling.
- * - `clouds.ts`     — the procedural cloud deck: coverage remap, CPU radiance twin of the sky
- *                      shader's cloud layer, and the sun/ambient/horizon lighting cache.
+ * - `clouds.ts`     — the procedural cloud deck: coverage remap, the Phase 17.3 multi-layer stack
+ *                      (column profile, sun-path shadow march, octave LOD fade), the CPU radiance
+ *                      twin of the sky shader's deck, and the sun/ambient/horizon lighting cache.
  * - `water.ts`      — Gerstner waves (CPU sampler + `WaterSurface` mesh owner) and the underwater test.
  * - `lightning.ts`  — `LightningSystem`: Poisson-scheduled strikes, fractal bolts, flash envelope.
  *

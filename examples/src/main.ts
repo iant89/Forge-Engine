@@ -735,6 +735,14 @@ async function main(): Promise<void> {
       const handle = currentHandle as WeatherSceneHandle | null;
       handle?.setCoverage?.(coverage);
     },
+    /**
+     * Weather scene: the Phase 17.3 cloud art knobs (`layers`, `thickness`, `surfaceShadows`,
+     * `shadowStrength`, …), used by `check:browser` to A/B the deck's shadow on the ground.
+     */
+    setCloudOptions: (options: Record<string, unknown>) => {
+      const handle = currentHandle as WeatherSceneHandle | null;
+      handle?.setCloudOptions?.(options as never);
+    },
     /** Weather scene: schedule a strike now; returns the strike count. */
     triggerLightning: () => {
       const handle = currentHandle as WeatherSceneHandle | null;
@@ -759,6 +767,10 @@ async function main(): Promise<void> {
         storm: handle.weather.state.storm01,
         coverage: s.clouds.coverage,
         deckWind: [s.clouds.windX, s.clouds.windZ],
+        deckLayers: s.clouds.layers,
+        deckThickness: s.clouds.thickness,
+        surfaceShadows: s.clouds.surfaceShadows,
+        shadowStrength: s.clouds.shadowStrength,
         waterTime: s.water.time,
         waterLevel: s.water.level,
         strikes: handle.lightning.strikeCount,

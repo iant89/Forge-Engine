@@ -246,6 +246,7 @@ export function validateWgsl(source: string): WgslIssue[] {
   issues.push(...reversedSmoothstepIssues(source));
   issues.push(...reservedWordIssues(source));
   issues.push(...mixedOperatorIssues(source));
+  issues.push(...derivativeControlFlowIssues(source));
 
   // 5. Uniform address-space layout. Chromium's compiler tolerates arrays with a stride below 16
   //    bytes (and other relaxed layouts) inside `var<uniform>` structs; WebKit rejects the module,
@@ -600,6 +601,130 @@ function uniformLayoutIssues(rawSource: string): WgslIssue[] {
     check(type, `var<uniform> ${m[1]}`, new Set());
   }
   return issues;
+}
+
+interface WgslFunctionRange {
+  name: string;
+  /** Body line range, signature line included. */
+  start: number;
+  end: number;
+  /** First branch-shaped statement inside the body, by (line, column). */
+  branch: { line: number; column: number } | null;
+  /** First derivative call inside the body, by (line, column) — null when it takes none. */
+  derivative: { line: number; column: number } | null;
+}
+
+const DERIVATIVE_CALL = /\b(?:dpdx|dpdy|dpdxCoarse|dpdyCoarse|dpdxFine|dpdyFine|fwidth|fwidthCoarse|fwidthFine)\s*\(/;
+// Branch *forms* only: `return`/`break`/`continue`/`discard` do not diverge by themselves (a
+// `return dpdx(x);` is legal), and treating them as branches flagged every function that ends in a
+// return. A derivative inside a guarded early return is still caught — the guarding `if` precedes it.
+const BRANCH_STATEMENT = /\b(?:if|else|for|while|switch|loop)\b/;
+
+/** Split the source into function bodies, with the first branch and derivative each body reaches. */
+function wgslFunctionRanges(cleaned: string): WgslFunctionRange[] {
+  const lines = cleaned.split("\n");
+  const ranges: WgslFunctionRange[] = [];
+  let depth = 0;
+  let current: WgslFunctionRange | null = null;
+  for (const [index, line] of lines.entries()) {
+    if (current === null) {
+      const signature = /\bfn\s+(\w+)\s*\(/.exec(line);
+      if (signature && depth === 0) current = { name: signature[1]!, start: index, end: index, branch: null, derivative: null };
+    }
+    if (current) {
+      if (index > current.start) {
+        const branch = BRANCH_STATEMENT.exec(line);
+        if (branch && current.branch === null) current.branch = { line: index, column: branch.index };
+        const derivative = DERIVATIVE_CALL.exec(line);
+        if (derivative && current.derivative === null) current.derivative = { line: index, column: derivative.index };
+      }
+      for (const character of line) {
+        if (character === "{") depth++;
+        else if (character === "}") depth--;
+      }
+      current.end = index;
+      if (depth === 0 && index > current.start) {
+        ranges.push(current);
+        current = null;
+      }
+      continue;
+    }
+    for (const character of line) {
+      if (character === "{") depth++;
+      else if (character === "}") depth--;
+    }
+  }
+  if (current) ranges.push(current);
+  return ranges;
+}
+
+/**
+ * Derivatives after a branch. Tint requires `dpdx`/`dpdy`/`fwidth` in *uniform* control flow, and it
+ * treats everything after a branch on non-uniform data — an `if` that returns early, a loop, a
+ * `discard` — as non-uniform: the module is then rejected at `createShaderModule` with "dpdy must
+ * only be called from uniform control flow", which no brace or layout rule can see (the first
+ * Phase 17.3 cloud shader shipped exactly that through `npm run check:wgsl` and only failed on the
+ * browser gate's real adapter). The check is lexical, so it is conservative: it cannot know whether
+ * a condition is uniform, so any derivative reached after a branch-shaped statement is reported,
+ * along with any call to a function that takes a derivative — the same trap one level up the call
+ * graph. Take the derivative as the entry point's first statement and pass the value down; comments
+ * are blanked with their newlines preserved so reported lines match the source.
+ */
+export function derivativeControlFlowIssues(source: string): WgslIssue[] {
+  const cleaned = source
+    .replace(/\/\*[\s\S]*?\*\//g, (s) => s.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, " ");
+  const ranges = wgslFunctionRanges(cleaned);
+  // A function that reaches its derivative before any branch is legal to call — but only from
+  // uniform control flow, so its call sites are checked like a derivative of their own.
+  const derivativeFirst = new Set(
+    ranges
+      .filter((range) => range.derivative !== null && before(range.derivative, range.branch))
+      .map((range) => range.name),
+  );
+  const callPattern = derivativeFirst.size > 0 ? new RegExp(`\\b(?:${[...derivativeFirst].join("|")})\\s*\\(`) : null;
+
+  const issues: WgslIssue[] = [];
+  const lines = cleaned.split("\n");
+  for (const range of ranges) {
+    const branch = range.branch;
+    if (!branch) continue;
+    for (let index = range.start; index <= range.end; index++) {
+      const line = lines[index]!;
+      const push = (message: string): void => {
+        issues.push({ kind: "semantics", message, line: index + 1 });
+      };
+      const derivative = DERIVATIVE_CALL.exec(line);
+      if (derivative && after(branch, index, derivative.index)) {
+        push(
+          "a derivative call ('dpdx'/'dpdy'/'fwidth') is reached after a branch, but derivatives are only legal in uniform control flow " +
+            "(Tint rejects the module: \"dpdy must only be called from uniform control flow\"). Take it as the enclosing function's first statement, before any branch, and pass the value down.",
+        );
+      }
+      if (callPattern) {
+        const call = callPattern.exec(line);
+        // The function's own signature names it, and is not a call.
+        if (call && index > range.start && after(branch, index, call.index)) {
+          push(
+            "a call to a function that takes a derivative is reached after a branch: the derivative inside it is then non-uniform, " +
+              "which Tint rejects at createShaderModule. Call it before any branch and pass the value down.",
+          );
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/** True when `point` comes before `other` (or `other` is absent) in source order. */
+function before(point: { line: number; column: number }, other: { line: number; column: number } | null): boolean {
+  if (other === null) return true;
+  return point.line < other.line || (point.line === other.line && point.column < other.column);
+}
+
+/** True when (line, column) comes after `point` in source order. */
+function after(point: { line: number; column: number }, line: number, column: number): boolean {
+  return line > point.line || (line === point.line && column > point.column);
 }
 
 function lineAt(source: string, index: number): number {

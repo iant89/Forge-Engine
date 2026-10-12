@@ -60,7 +60,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 1,089 passing cases in 74 linked suites, including Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
+| `npm test` | 1,104 passing cases in 75 linked suites, including Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
 | `npm run test:check` | The selrun catalog is complete: all 74 suites have matching headers/exported manifests, unique names, repository-backed areas and 670 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
@@ -745,13 +745,66 @@ The table's own contract, then the model that reads it, with no device needed ex
   The renderer/browser evidence for the WGSL path is listed with `tests/rendering/frame.test.ts` and
   the `check:browser:environment` row.
 
+### `tests/environment/environment17_3.test.ts` — multi-layer clouds, shadowing and stability (17.3)
+
+The deck's CPU reference, then the renderer's upload of it, with a mock device where noted:
+
+* **The layer stack.** `cloudDeckColumnAt` against the 8b single plane: the centres spread evenly
+  through the slab (`n = 3`, height 1500, thickness 400 → 1366.667 / 1500 / 1633.333, so the middle
+  sheet is the old plane), the weights `0.55 + 0.45·sin(π(k+0.5)/n)` normalise to one for every
+  count and a one-sheet deck is exactly the 8b field (weight 1, centre at `height`, its unwarped
+  column equal to `cloudDensityAt`), the scales fall by `layerScale^i`, the sheets' seeds and drifts
+  differ while their mean advection stays on the wind, and `layerCount` clamps to `MAX_CLOUD_LAYERS`
+  without changing the slab. The 8b coverage statistics keep describing the deck: a uniform deck's
+  column density is exactly `density` at every layer count, a one-sheet deck's column equals
+  `cloudDensityAt` exactly, and a flat 24×24 sweep over 20 km stays within 10 % of the 8b
+  `meanCloudDensity` at every coverage (measured 0.982-1.000×, e.g. 0.293626 vs 0.297915 at the
+  default cover). The composite is checked too: every layer count reproduces `cloudAlpha(0.6, 1)`
+  for a uniform deck (the weights sum to one) while each added sheet brightens the lit composite
+  (0.637705 at one sheet to 0.790813 at four) — a volume, not a plate, and not the single plane 17.3
+  replaced.
+* **Better shadowing.** `cloudDeckShadowTau` against a 24-sample reference march of the same slab:
+  the device's 3 steps stay within 1 % of the dense reference over 64 positions (measured 0.2 %
+  worst case), the mean tau grows as the sun lowers (asserted at 1.5×, measured 1.1754 at 1.1°
+  elevation vs 0.5607 at 40°), a point inside the stack looks up through less deck than the ground
+  below it (measured 0.2231 vs 0.6680), and a sun on the horizon, a zero-coverage sky and a
+  `density: 0` deck all return exactly zero. `cloudDeckTransmittance` is exactly 1 with
+  `surfaceShadows: false` or `shadowStrength: 0`, at night (a 0.01-elevation sun) and with no cover,
+  and a denser deck shields harder than the same cover thinned out. The mean transmittance over a
+  256-point sweep falls monotonically with coverage (measured 1.000 / 0.913 / 0.360 / 0.068 / 0.059
+  at coverage 0 / 0.25 / 0.5 / 0.75 / 1, asserted: 1 at zero, >0.9 at a quarter, <0.15 overcast).
+* **Temporal stability.** The octave fade: `cloudOctaveWeight` is 1 with no footprint, 0.5 at the
+  band centre and 0 at one footprint, finer octaves die first and every octave is monotone in the
+  footprint, and `cloudOctaveFade(i, scale, metres)` is that weight at `metres·scale`. The field
+  itself flattens as the series thins: its variance over a 16×16 grid is 0.01233 unfaded, 0.00385 at
+  a 700 m footprint and exactly 0 at 3000 m (the field becomes its own mean, so a grazing pixel
+  cannot disagree with its neighbour). The analytic twin `cloudFootprintAt` is pinned at both ends
+  (6000.8 m at a 0.02-radian elevation, 3.389479 m looking straight up from a 1.5 km deck), grows
+  monotonically toward the horizon and is exactly 0 above the deck or below the horizon. Finally the
+  aliasing A/B the phase exists for: sweeping 500 azimuths at the gate camera's own 0.0016 rad/px,
+  the mean sample-to-sample column change at 1.1° (6000.8 m per pixel) drops from 0.16583 unfaded
+  to 0 (asserted ≤ 10 %), at 2.9° (960.8 m) from 0.10336 to 0.02146 (asserted ≤ 35 %), while at
+  11.5° (60.8 m) — where the deck *can* resolve its octaves — 0.03393 becomes 0.03363, within 5 % of
+  the unfaded field: a Nyquist cut, not a blur.
+  Advection at 600 s matches the single plane's (0.9082 vs 0.9093), i.e. the stack does not drift
+  apart.
+* **The uploaded record and the shader contract.** `CloudUniforms` is 192 B with `layers` as its
+  128-byte tail, `writeClouds` uploads every sheet's `(driftX, driftZ, centre height, weight)`
+  record advected by the frame clock (read back off the mock buffer: zero at t = 0, the 60 s drift
+  after a 60 s frame), and the shader sources are
+  held to the twin's names: `STANDARD_FRAGMENT_BODY`, `WATER_SHADER` and `SKY_SHADER` all carry
+  `cloudDeckShadowTau` and the *unfaded* `norm += amp;` divisor (a faded octave that also shrinks
+  the normaliser cancels its own fade), every surface takes its shadow from its own
+  `cloudSurfaceFootprint`, and the sky pass derives the deck's footprint first. The binding contract
+  (group 0 / binding 11 in every material variant) is asserted by `tests/rendering/frame.test.ts`.
+
 ### `tests/rendering/wgsl.test.ts` — the layout rules browsers disagree on
 
 Chromium's compiler accepts uniform structs with a relaxed layout; WebKit rejects the module, which
 on Safari is a black canvas with a live HUD. The suite asserts that every generated struct emits
 scalar padding (never `array<u32, N>`), reports no `uniformLayoutProblems()`, keeps its byte
 offsets/sizes (`PerFrame` 256 with `fogParams` at 240, `Light` 80, `LightBlock` 1296, `Shadow` 656
-(with spot matrices at 288 and parameters at 544), `ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 96 B,
+(with spot matrices at 288 and parameters at 544), `ShadowPass` 80, `Post` 48, `Material` 80, `Object` 176, `Instance` 80, `Sky` 128 B, `Cloud` 192 B (twelve floats plus the six packed Phase 17.3 fields),
 `Water` 224 B, `Ssao` 112 B), that every
 shipped shader variant — including the depth-only and post modules added in Phase 2, the sky
 module added in Phase 8a, the water module added in Phase 8b and the SSAO module added in Phase 13 —

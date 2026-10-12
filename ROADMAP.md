@@ -169,7 +169,10 @@ PHASE 17 - ENVIRONMENT 2.0
         the CPU and in two compute passes on the device, measured 1.3x at noon and 2-7x at twilight
         on Earth and 2-5x on Mars, with the remaining limits in KNOWN-ISSUES; 17.2 landed: opt-in
         finite-path atmospheric scattering reaches standard and water geometry, CPU reference and
-        real-WebGPU A/B verified; 17.3-17.6 remain)
+        real-WebGPU A/B verified; 17.3 landed: the deck is a stack of up to four sheets through
+        a slab, each shaded by the sun-path optical depth the shader marches — the same depth
+        darkens the scene below — with every octave fading against the pixel's own footprint,
+        verified by a CPU reference plus real-WebGPU layer and shadow A/Bs; 17.4-17.6 remain)
 
 
 ================================================================================
@@ -1692,11 +1695,38 @@ CURRENTLY COMPLETE:
 
 17.3 Cloud Improvements
 
-    [ ] Multi-layer clouds.
+    [x] Multi-layer clouds. (`SceneCloudSettings.layers` (1-4, default 3) splits the deck into
+        sheets spread through a slab of `thickness` metres centred on `height`; each sheet carries
+        its own scale (`scale*layerScale^i`), seed and advection (`wind*(1 +/- layerDrift/2)`), and
+        the column weights `0.55 + 0.45*sin(pi*(k+0.5)/n)` normalise to one, so a uniform deck's
+        column density is the Phase 8b plane's at any count and `layers = 1` reproduces 8b exactly.
+        The CPU packs each sheet into `CloudUniforms.layers` — (driftX, driftZ, centre, weight),
+        192 bytes in total — so the shader never re-derives geometry the CPU and the tests could
+        disagree about. The browser gate A/Bs 1 vs 4 sheets at a pinned coverage: >5 % of the
+        frame's pixels must move, more than ten times the repeat-capture noise.)
 
-    [ ] Better shadowing.
+    [x] Better shadowing. (`cloudDeckShadowTau` marches the sun ray through the stack above the
+        shaded point — the sample count follows the path length (3 on the device, 24 as the CPU
+        reference), the secant is clamped at the horizon — so the deck's own sheets are shaded by
+        the depth above them. The same optical depth reaches the scene: standard/terrain/water
+        fragments multiply their directional light by `exp(-2.5*shadowStrength*tau)` while
+        `surfaceShadows` is on, so the ground under the deck darkens. Measured: the 3-sample device
+        march stays within 0.2 % of the 24-sample reference; mean transmittance falls
+        1.000/0.963/0.452/0.121/0.097 across coverage 0/0.25/0.5/0.75/1 at a fixed sun; the
+        real-WebGPU A/B darkens >10 % of the frame's pixels in one direction, with nothing
+        brightened.)
 
-    [ ] Improved temporal stability.
+    [x] Improved temporal stability. (An octave whose wavelength falls under the pixel's sampling
+        footprint fades out across the 1x-3x Nyquist band, and a fully faded octave stops the loop,
+        so a grazing ray stops resolving detail it cannot hold and the far deck costs fewer
+        octaves. The fade scales the octave's contribution and the normaliser keeps counting it —
+        fading the divisor too would cancel the fade, which is the bug the CPU probe caught. The
+        footprint comes from `dpdx`/`dpdy` in uniform control flow (the sky's deck plane in the sky
+        pass, the fragment's own surface for the shadow), with the vertical-derivative term
+        (`pixelAngle*(dh/sin el)*max(1, 1/sin el)`) that a horizontal-only model misses: a 1.5 km
+        deck at 1.1 deg elevation is 6 km per pixel, not 24 m. Measured pixel-to-pixel change:
+        0.166 -> 0.000 at 1.1 deg, 0.103 -> 0.021 at 2.9 deg, unchanged where the deck can resolve
+        its octaves; a wind-frozen deck does not move a pixel between frames on the real adapter.)
 
 
 17.4 Weather Integration

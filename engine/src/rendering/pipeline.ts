@@ -233,6 +233,10 @@ export class PipelineFactory {
         { binding: BINDINGS.clusterGrid.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterGridBlock.byteSize("storage") } },
         { binding: BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
         { binding: BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES } },
+        // The cloud deck (Phase 17.3): directional lights lose the fraction of the sun the stack
+        // blocks. Bound in every frame like the sky block — a bind group layout has no optional
+        // slots — and read only while `cloud.surfaceShadows` is set.
+        { binding: BINDINGS.cloud.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: CloudUniforms.byteSize("uniform") } },
       ],
     });
     // The depth prepass only runs the standard vertex entries, which read nothing from group 0 but

@@ -135,10 +135,12 @@ export interface SceneSkySettings {
 }
 
 /**
- * One procedural cloud deck, drawn inside the `forge.sky` pass (Phase 8b). The density field is a
- * pure function of world XZ (`environment/clouds.ts`); the lighting (sun/ambient/horizon tints)
- * is derived per frame from the 8a atmosphere by the renderer, so clouds track the day/night
- * cycle with no extra wiring. `WeatherSystem` writes `coverage` when its `driveClouds` is on.
+ * The procedural cloud deck, drawn inside the `forge.sky` pass (Phase 8b) and — since Phase 17.3 —
+ * a stack of up to four sub-layers through a slab of `thickness` metres whose shadow reaches the
+ * ground. The density field is a pure function of world XZ (`environment/clouds.ts`); the lighting
+ * (sun/ambient/horizon tints) is derived per frame from the 8a atmosphere by the renderer, so
+ * clouds track the day/night cycle with no extra wiring. `WeatherSystem` writes `coverage` when its
+ * `driveClouds` is on. `layerCount = 1` is the Phase 8b single plane.
  */
 export interface SceneCloudSettings {
   /** Master switch (when false the shader early-outs and the lighting cache is not evaluated). */
@@ -147,14 +149,31 @@ export interface SceneCloudSettings {
   coverage: number;
   /** Vertical optical thickness 0..1 (thin cirrus → thunderhead). */
   density: number;
-  /** Deck altitude above sea level, metres. */
+  /** Deck altitude above sea level, metres — the centre of the slab. */
   height: number;
+  /**
+   * Total vertical extent of the deck, metres. Sub-layers are spread through it, and it sets how
+   * far the sun's ray is marched: a thicker deck self-shadows harder and casts a longer shadow.
+   */
+  thickness: number;
   /** World metres per noise unit (smaller = larger clouds). */
   scale: number;
   /** Deterministic seed of the coverage field. */
   seed: number;
   /** Forward-scattering (silver lining) strength around the sun, 0..2. */
   silverLining: number;
+  /** Sub-layers the deck is split into, 1..4 (1 = one plane, the Phase 8b look). */
+  layers: number;
+  /** Per-layer noise-scale multiplier: layer `i` samples at `scale·layerScale^i`. */
+  layerScale: number;
+  /** Per-layer advection spread, 0..1: upper layers drift slightly faster than lower ones. */
+  layerDrift: number;
+  /** Sun-ray samples per shaded deck pixel (the shader's march; 1 is the cheapest). */
+  shadowSteps: number;
+  /** Shade the scene below with the deck's shadow (Phase 17.3). */
+  surfaceShadows: boolean;
+  /** 0..1 multiplier on the shadow's optical depth (0 = no shadow, 1 = physical). */
+  shadowStrength: number;
   /** Mean wind advecting the deck, m/s (+x east, +z north); written by `WeatherSystem`. */
   windX: number;
   windZ: number;
@@ -316,16 +335,26 @@ export function defaultSkySettings(): SceneSkySettings {
   };
 }
 
-/** A clear sky: the deck is enabled but covers nothing, so existing scenes render unchanged. */
+/**
+ * A clear sky: the deck is enabled but covers nothing, so existing scenes render unchanged (the
+ * shader early-outs on `coverage <= 0`, and no surface evaluates the shadow).
+ */
 export function defaultCloudSettings(): SceneCloudSettings {
   return {
     enabled: true,
     coverage: 0,
     density: 0.8,
     height: 1500,
+    thickness: 400,
     scale: 0.0008,
     seed: 4242,
     silverLining: 0.8,
+    layers: 3,
+    layerScale: 0.9,
+    layerDrift: 0.35,
+    shadowSteps: 3,
+    surfaceShadows: true,
+    shadowStrength: 1,
     windX: 2,
     windZ: 1,
     albedo: new Color(1, 1, 1),
@@ -1004,9 +1033,16 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.coverage = num(clouds["coverage"], t.coverage);
     t.density = num(clouds["density"], t.density);
     t.height = num(clouds["height"], t.height);
+    t.thickness = num(clouds["thickness"], t.thickness);
     t.scale = num(clouds["scale"], t.scale);
     t.seed = num(clouds["seed"], t.seed);
     t.silverLining = num(clouds["silverLining"], t.silverLining);
+    t.layers = num(clouds["layers"], t.layers);
+    t.layerScale = num(clouds["layerScale"], t.layerScale);
+    t.layerDrift = num(clouds["layerDrift"], t.layerDrift);
+    t.shadowSteps = num(clouds["shadowSteps"], t.shadowSteps);
+    t.shadowStrength = num(clouds["shadowStrength"], t.shadowStrength);
+    if (typeof clouds["surfaceShadows"] === "boolean") t.surfaceShadows = clouds["surfaceShadows"];
     t.windX = num(clouds["windX"], t.windX);
     t.windZ = num(clouds["windZ"], t.windZ);
     const albedo = vec(clouds["albedo"]);

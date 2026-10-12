@@ -2405,6 +2405,87 @@ async function checkEnvironmentSection() {
     throw new Error(`overcast noon was not brighter than clear noon (${wxStorm.mean.toFixed(1)} vs ${wxClear.mean.toFixed(1)}): the deck is not drawing`);
   }
 
+  // Phase 17.3: the layered deck, judged on pixels rather than on a mean. At one coverage a
+  // four-sheet stack covers the same sky as the 8b plane (the column weights sum to one), so the
+  // *pattern* is the evidence — a mean would call the two identical. Two A/Bs, on a deck frozen
+  // with the wind pinned to zero so the clock cannot move it under the captures:
+  //  1. sheets: 1 vs 4, then 1 again — the setting must move the frame, the repeat must not;
+  //  2. the shadow: `surfaceShadows` on vs off — the ground under the deck must darken, and it must
+  //     be the only thing that moves (a shadow brightens nothing).
+  await page.evaluate(() => window.__forge.setWeather("overcast"));
+  await page.evaluate(() => window.__forge.setTimeOfDay(10));
+  await page.evaluate(() => window.__forge.setCoverage(0.7));
+  await settle(4);
+  const wx17Before = await page.evaluate(() => window.__forge.weatherState());
+  await page.evaluate(() => window.__forge.setCloudOptions({ layers: 1, thickness: 600, windX: 0, windZ: 0, shadowStrength: 1, surfaceShadows: false }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-sheet-a");
+  await page.evaluate(() => window.__forge.setCloudOptions({ layers: 4 }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-sheets-b");
+  await page.screenshot({ path: "tools/.browser-check-cloud-layers.png", timeout: 60000 });
+  await page.evaluate(() => window.__forge.setCloudOptions({ layers: 1 }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-sheet-a2");
+  const sheets = await compareRgb("deck-sheet-a", "deck-sheets-b");
+  const frozen = await compareRgb("deck-sheet-a", "deck-sheet-a2");
+  console.log(
+    `cloud layers: 1 vs 4 sheets ${sheets.differing}/${sheets.pixels} pixels differ (max ${sheets.max}); ` +
+      `the same setting twice ${frozen.differing}/${frozen.pixels} (max ${frozen.max})`,
+  );
+  if (!(sheets.differing > sheets.pixels * 0.05)) {
+    throw new Error(`splitting the deck into four sheets moved too few pixels (${sheets.differing}/${sheets.pixels}): the stack is not reaching the shader`);
+  }
+  if (!(sheets.differing > frozen.differing * 10)) {
+    throw new Error(`the layer count's effect (${sheets.differing} pixels) is not distinguishable from capture noise (${frozen.differing})`);
+  }
+  if (!(frozen.differing < frozen.pixels * 0.01)) {
+    throw new Error(`a deck frozen with zero wind changed between frames (${frozen.differing}/${frozen.pixels} pixels): the deck is not temporally stable`);
+  }
+
+  await page.evaluate(() => window.__forge.setCloudOptions({ shadowStrength: 1, surfaceShadows: true }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-shadow-on");
+  const wxShadowOn = await samplePixels();
+  const wxShadowOnState = await page.evaluate(() => window.__forge.weatherState());
+  await page.screenshot({ path: "tools/.browser-check-cloud-shadow.png", timeout: 60000 });
+  await page.evaluate(() => window.__forge.setCloudOptions({ surfaceShadows: false }));
+  await waitPresentedFrames(3);
+  await keepLuma("deck-shadow-off");
+  const wxShadowOff = await samplePixels();
+  const shadowDiff = await compareLuma("deck-shadow-on", "deck-shadow-off");
+  console.log(
+    `cloud shadow: on mean ${wxShadowOn.mean.toFixed(2)} vs off ${wxShadowOff.mean.toFixed(2)}; ` +
+      `${shadowDiff.darker} pixels darkened, ${shadowDiff.brighter} brightened (of ${shadowDiff.pixels}, max ${shadowDiff.max})`,
+  );
+  if (!(wxShadowOnState.surfaceShadows === true && wxShadowOnState.shadowStrength === 1)) {
+    throw new Error(`the shadow knobs did not reach the scene (${JSON.stringify(wxShadowOnState)})`);
+  }
+  if (!(wxShadowOn.mean < wxShadowOff.mean)) {
+    throw new Error(`the deck's shadow did not darken the frame (${wxShadowOn.mean.toFixed(2)} vs ${wxShadowOff.mean.toFixed(2)})`);
+  }
+  if (!(shadowDiff.darker > shadowDiff.pixels * 0.1)) {
+    throw new Error(`the deck's shadow reached too few pixels (${shadowDiff.darker}/${shadowDiff.pixels}): surfaces are not sampling the deck`);
+  }
+  if (!(shadowDiff.darker > shadowDiff.brighter * 3)) {
+    throw new Error(`the deck's shadow is not one-directional (${shadowDiff.darker} pixels darker vs ${shadowDiff.brighter} brighter)`);
+  }
+
+  // Put the deck back the way the scene found it: the night comparisons below are the 8b evidence.
+  await page.evaluate(
+    (state) =>
+      window.__forge.setCloudOptions({
+        layers: state.deckLayers,
+        thickness: state.deckThickness,
+        windX: state.deckWind[0],
+        windZ: state.deckWind[1],
+        surfaceShadows: state.surfaceShadows,
+        shadowStrength: state.shadowStrength,
+      }),
+    wx17Before,
+  );
+  await settle(4);
+
   // Night, with the weather held clear so only the deck moves: coverage 1 occludes the star field
   // the clear frame shows, and the deck itself is unlit (no sun, no ambient), so the frame darkens.
   await page.evaluate(() => window.__forge.setTimeOfDay(0));

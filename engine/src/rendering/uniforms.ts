@@ -15,6 +15,7 @@
 
 import { StructDef, atomicU32, f32, i32, u32, vec2, vec3, vec4, mat4x4, arrayOf, ofStruct, type AddressSpace } from "../gpu/layout.js";
 import { CLUSTER_COUNT, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS } from "./clusters.js";
+import { MAX_CLOUD_LAYERS } from "../environment/clouds.js";
 
 /** Max lights the per-frame block can carry (kept in sync with the WGSL array length). */
 export const MAX_LIGHTS_PER_FRAME = 16;
@@ -264,28 +265,50 @@ export const DebugVertexStruct = new StructDef("DebugVertex", [
 ]);
 
 /**
- * The cloud deck (`environment/clouds.ts`), bound as group 0 binding 2 of the `forge.sky` pass.
- * Art parameters come from `scene.settings.clouds`; the lighting (`sunTint`, `ambientTint`) is
- * derived per frame from the 8a atmosphere by `SkyLightingCache`, so the deck tracks the
- * day/night cycle. The shader advects the coverage field by `wind × perFrame.time`.
+ * The cloud deck (`environment/clouds.ts`), bound as group 0 binding 2 of the `forge.sky` pass and
+ * (since Phase 17.3) as `BINDINGS.cloud` of the frame group, so standard/terrain/water fragments
+ * can take the deck's shadow. Art parameters come from `scene.settings.clouds`; the lighting
+ * (`sunTint`, `ambientTint`) is derived per frame from the 8a atmosphere by `SkyLightingCache`, so
+ * the deck tracks the day/night cycle.
+ *
+ * `layers` is the Phase 17.3 stack: one record per sub-layer, `(driftX, driftZ, centreHeight,
+ * weight)` — the CPU (which also evaluates the field for tests and tools) owns the layer
+ * geometry, so the shader never re-derives a height or a weight it could disagree about. The
+ * advection offsets are metres at the frame's clock, i.e. `wind × seconds × the layer's drift
+ * factor`, so the GPU and CPU sample the same field.
  */
 export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "coverage", type: f32 },
   { name: "density", type: f32 },
-  { name: "height", type: f32, comment: "deck altitude above sea level, metres" },
-  { name: "thickness", type: f32, comment: "reserved (vertical extent for a future volumetric pass)" },
-  { name: "scale", type: f32, comment: "world metres per noise unit" },
+  { name: "height", type: f32, comment: "deck altitude above sea level, metres — the slab centre" },
+  { name: "thickness", type: f32, comment: "total vertical extent of the deck, metres" },
+  { name: "scale", type: f32, comment: "world metres per noise unit at the bottom layer" },
+  { name: "layerScale", type: f32, comment: "per-layer scale multiplier: layer i samples at scale*this^i" },
   { name: "silverLining", type: f32 },
   { name: "seed", type: f32 },
+  { name: "layerCount", type: f32, comment: "sub-layers, 1..4 (1 = the Phase 8b single plane)" },
+  { name: "shadowSteps", type: f32, comment: "sun-ray samples per shaded deck pixel" },
+  { name: "shadowStrength", type: f32, comment: "0..1+ multiplier on the deck shadow's optical depth" },
+  { name: "surfaceShadows", type: f32, comment: "0 disables shading the scene below with the deck" },
   { name: "enabled", type: f32, comment: "0 disables the layer (the shader early-outs)" },
-  { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
   { name: "_pad0", type: f32 },
-  { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
   { name: "_pad1", type: f32 },
-  { name: "cloudAlbedo", type: vec3 },
   { name: "_pad2", type: f32 },
+  { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
+  { name: "_pad3", type: f32 },
+  { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
+  { name: "_pad4", type: f32 },
+  { name: "cloudAlbedo", type: vec3 },
+  { name: "_pad5", type: f32 },
   { name: "wind", type: vec2, comment: "mean wind m/s (+x east, +y north→+z); advects the deck" },
-  { name: "_pad3", type: vec2 },
+  { name: "_pad6", type: vec2 },
+  /**
+   * Per-sub-layer record: `(driftX, driftZ, centreHeight, weight)`. The drift is metres of
+   * advection at the frame's clock (`wind × seconds × factor`) and the weight is the layer's share
+   * of the column's optical depth, so `layerCount = 4` with a uniform density has the same column
+   * density as one plane.
+   */
+  { name: "layers", type: arrayOf(vec4, MAX_CLOUD_LAYERS) },
 ]);
 
 /**

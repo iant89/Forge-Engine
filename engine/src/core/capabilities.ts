@@ -290,7 +290,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     summary: "Uniform-layout strictness is enforced statically instead of by compiling on WebKit",
     evidence: ["tests/rendering/wgsl.test.ts", "tools/wgsl-check.mjs"],
     closesWith: "28.5",
-    notes: "No Safari/WebKit build in the sandbox: shaders are validated against WebKit's rules, never compiled by it",
+    notes: "No Safari/WebKit build in the sandbox: shaders are validated against WebKit's rules, never compiled by it (the rules now include keeping derivatives in uniform control flow, the failure the Phase 17.3 cloud shader hit on the real adapter)",
   },
   {
     id: "determinism.simulation",
@@ -765,10 +765,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.clouds",
     phase: "17.3",
-    status: "partial",
-    summary: "One advected noise cloud deck with thickness-projected three-sample self-shadowing but no true vertical volume",
-    evidence: ["tests/environment/environment8b.test.ts"],
-    closesWith: "17.3",
+    status: "verified",
+    summary: "A stack of up to four advected cloud sheets through a slab, shaded by a marched sun-path optical depth that also darkens the scene below, with a per-pixel octave LOD fade",
+    evidence: ["tests/environment/environment17_3.test.ts", "tests/environment/environment8b.test.ts", "tools/browser-check.mjs"],
+    notes: "The stack's geometry (centres, column weights, drift) is computed on the CPU and uploaded per sheet, so the shader cannot disagree with the CPU twin or the shadow march, and `layers = 1` reproduces the Phase 8b plane exactly. The sheets are horizontal samples through the slab shaded by a marched depth, not a true volumetric march, and the CPU/GPU noise bases differ (Perlin vs value noise): the twins agree on formulas and statistics, never bit-exactly. The fade is a per-pixel Nyquist cut, not a temporal filter — a frozen deck is stable, a drifting one still moves.",
   },
   {
     id: "environment.water",

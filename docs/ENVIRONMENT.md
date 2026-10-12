@@ -247,21 +247,45 @@ attenuation from cloud + storm cover (each behind a `drive*` switch). Lighting a
 over fresh `DayNightCycle` output without accumulating; point and spot lights remain local and
 untouched.
 
-### 7.2 Clouds: one deck inside the sky pass
+### 7.2 Clouds: a stack of sheets inside the sky pass (Phase 8b, layered in 17.3)
 
-`environment/clouds.ts` is a horizontal plane at `clouds.height` whose density is fbm noise
-remapped by the coverage: 0 is clear, 1 is overcast at `density`, and the large-area mean rises
-monotonically with the slider. The shading is the documented formula — dense cores transmit less
-sun, everything receives the ambient, a `(cos θ)^6` lobe silvers the lining — lit by the 8a sky,
-not by new constants: `SkyLightingCache` derives the sun/ambient/horizon tints from the live
-`AtmosphereModel` and re-evaluates only when the sun moves (~0.05°) or the atmosphere changes, so
-the deck tracks the day/night cycle for free. The same remap and shading run on the CPU and in
-WGSL (`rendering/shaders/cloudLayer.ts`, evaluated once per sky pixel before fog), but the noise
-bases differ on purpose (Perlin fbm on the CPU, value-noise fbm on the GPU): the tests pin the CPU
-statistics, the browser gate pins the GPU's presence and direction. The shader advects the field by
-the weather's deck wind over the frame clock. Three additional density samples projected toward the
-sun over `thickness` darken cloud cores beneath other cloud structure; this is coherent deck
-self-shadowing, not the vertical structure of a true volume.
+`environment/clouds.ts` splits the deck into `clouds.layers` (1-4, default 3) horizontal sheets
+spread evenly through a slab of `clouds.thickness` metres centred on `clouds.height`. Every sheet
+samples the same fbm coverage field as Phase 8b — its own scale (`scale*layerScale^i`), seed, and
+advection (`wind*(1 +/- layerDrift/2)*seconds`, so the upper sheets slide through the lower ones) —
+and the column weights `0.55 + 0.45*sin(pi*(k+0.5)/n)`, normalised to one, keep a uniform deck's
+column density equal to the single plane's at any count: `layers = 1` reproduces 8b exactly, which
+is what lets the 8b coverage statistics keep describing the deck. The shading is unchanged — dense
+cores transmit less sun, everything receives the ambient, a `(cos t)^6` lobe silvers the lining —
+lit by the 8a sky: `SkyLightingCache` derives the sun/ambient/horizon tints from the live
+`AtmosphereModel` and re-evaluates only when the sun moves (~0.05 deg) or the atmosphere changes, so
+the deck tracks the day/night cycle for free. What Phase 17.3 adds is what shades those sheets and
+what they shade:
+
+- **The sun-path march.** `cloudDeckShadowTau` samples the slab above a point along the sun ray.
+  The count follows the path length (`round(shadowSteps*span/sub-layer thickness)`, at least one —
+  the top sheet is barely shadowed and takes a single sample where the ground takes `shadowSteps`),
+  the secant is clamped at the horizon (a sun under 0.02 elevation casts nothing), and each sample
+  lands in whichever sub-layer holds its height. The deck's own sheets are shaded by the depth
+  above them, and the same depth reaches the scene below: standard, terrain and water fragments
+  multiply their directional light by `exp(-2.5*shadowStrength*tau)` while `surfaceShadows` is on,
+  so the ground under the deck darkens and water glints (direct sun) are what a cloud takes away.
+- **The octave fade.** `dpdx`/`dpdy`, taken in uniform control flow, give the world metres one
+  pixel covers at the plane being sampled: the deck's own plane in the sky pass
+  (`cloudDeckFootprint`) or the fragment's surface for the shadow (`cloudSurfaceFootprint`). An
+  octave whose wavelength falls under that footprint fades out across the 1x-3x Nyquist band, and a
+  fully faded octave stops the loop — a grazing ray stops resolving detail it cannot hold (the
+  horizon shimmer the phase set out to fix) and the far deck costs fewer octaves. The fade scales
+  the octave's contribution and the normaliser keeps counting it at its unfaded amplitude: fading
+  the divisor too would cancel the fade out, which is the trap `cloudOctaveWeight`/`cloudFieldLod`
+  document on both sides of the twin.
+
+The CPU reference and the WGSL still differ only in their noise basis (Perlin fbm vs value-noise
+fbm): the tests pin the CPU arithmetic and its statistics (the 24-sample reference march against the
+device's 3 samples, the coverage means, the per-pixel fade A/B, the upload), the browser gate pins
+the GPU's layering, its shadow and its stability on a real adapter, and the strict WGSL validator
+compiles the shader corpus — including the rule that a derivative must stay in uniform control flow,
+which the first version of this shader broke on the device and no other check saw.
 
 ### 7.3 Water: one Gerstner sum, sampled twice
 
