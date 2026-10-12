@@ -2256,3 +2256,26 @@ Read the module constraints below before changing either pure model.
   sample pixel was rgb(204, 227, 238) at (180, 260), below the HUD and above the controls, with zero
   GPU errors. The sky remains visible at night as a dark star field; this was a framing bug, not a
   missing shader or WebGPU submission.
+
+## 2026-10-12 — a black sky is a sky that rendered, not a sky that is missing
+
+- **Symptom:** iPhone Safari 26.6 showed a flat black void above the horizon in every scene —
+  terrain lit, `gpuErrors 0`, `forge.sky` in the pass list, 45–52 fps. The same commit rendered a
+  blue sky in headless Chromium (dev server *and* the production bundle), so neither the previous
+  session's camera-framing fix nor the Pages bundle was the cause; the void's staircase edge was
+  just the streamed terrain chunks ending against the clear colour.
+- **The decisive measurement:** the `?diag=1` capture matrix. Sky **off** → the background is the
+  clear colour (dark blue). Sky **on** → pure black. A skipped pass shows the clear colour; a pass
+  that runs and returns zero radiance shows black. Compare a missing feature's *off* state before
+  concluding it never ran — "draws nothing" and "draws black" are different faults with the same
+  screenshot.
+- **Device probes beat theory:** the same report's `depth-readonly` FAIL / `depth-load` PASS ruled
+  out the sky pass's attachment spelling (the engine uses the passing one) and left the fragment
+  stage itself. No WebKit build exists in this sandbox, so the bisect ships candidate fixes to the
+  device instead: variants of the live `sky.wgsl` through `replaceShaderSource`, one suspect
+  construct per variant, one capture per variant — the variant that restores the sky on the phone
+  is the fix, proven where the bug lives.
+- **Silence is not health:** a shader module the driver refuses to compile skips its draw forever
+  while `gpuErrors` stays 0 and the pass still appears in the graph list. The diag panel now prints
+  the pipeline factory's failure/pending counters; any future "renders black, stats fine" report
+  should start by reading them.

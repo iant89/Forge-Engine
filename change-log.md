@@ -16036,5 +16036,102 @@ JSON array below; agents maintain it by hand until then.
     "what": "Added per-file change entries for the sky framing fix, its unit/browser regressions, and verification documentation (this block).",
     "why": "The maintenance rule records the activity log itself alongside every file it describes."
   }
+,
+{
+  "id": "1282",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/diag/skyBisect.ts",
+  "what": "New diag module: five bisect variants of the live `sky.wgsl` (loop bounds without the per-pixel `select`, compile-time bounds, no multiple-scattering storage read, no cloud-deck mix, fragment stage short-circuited to a constant), cut from the shipped source by anchored line surgery that returns null when an anchor moves.",
+  "why": "iPhone Safari 26.6 shades the sky pure black while every backend in the sandbox renders it and every stat stays green; with no WebKit build here, the candidate fixes have to run on the device, and a variant that silently fails to mutate would measure the wrong thing."
+},
+{
+  "id": "1283",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/diag/iosReport.ts",
+  "what": "`?diag=1` now runs the sky bisect matrix (one capture per variant through `PipelineFactory.replaceShaderSource`, override always cleared, anchor-missing and rejected variants reported as not measured) and prints the pipeline factory's failure/pending counters plus `pipelineStats` in the posted JSON.",
+  "why": "The phone report that named the black sky could show the pass running but not whether the driver had compiled the module or which construct zeroed the radiance; the matrix and the failure counter are the two readings that separate those faults."
+},
+{
+  "id": "1284",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/skyBisect.test.ts",
+  "what": "New suite (6 cases): the sky label matches the pipeline factory's, every variant cuts and changes the shipped sky module, every variant still passes `validateWgsl`, the const-bounds/no-ms/uniform-bounds mutations actually remove their construct, the constant return precedes the atmosphere integral, and unknown ids or moved anchors yield null.",
+  "why": "A bisect variant that does not compile measures nothing on the phone, and an anchor that moved silently measures the unmodified shader; both failure modes are exactly what a unit suite can catch before a round trip to a device."
+},
+{
+  "id": "1285",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/full.test.ts",
+  "what": "The full run links the new suite and reports 76 suites.",
+  "why": "Suite counts are pinned in this file; an unlisted suite is a suite CI does not run."
+},
+{
+  "id": "1286",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/tools/selrun.test.ts",
+  "what": "The catalog pins move to 76 suites / 683 coverage claims, and the `check OK` fixture with them.",
+  "why": "The tool's self-test hard-codes its own catalog; a stale pin fails the run that would otherwise pass."
+},
+{
+  "id": "1287",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "docs/VERIFICATION.md",
+  "what": "The device-diagnostics section gains the sky bisect bullet: what the variants remove, that the restoring variant is the device-proven fix, and that the panel prints pipeline failure/pending counters.",
+  "why": "The doc is where a future reader learns what `?diag=1` can answer; an instrument that is not described is an instrument nobody runs."
+},
+{
+  "id": "1288",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "mnemosyne.md",
+  "what": "Recorded the black-sky lesson: compare the feature's off state before concluding a pass never ran (clear colour vs zero radiance), let device probes rank theories, and treat a silent pipeline-compilation failure as a distinct fault worth a counter on screen.",
+  "why": "Three sessions in a row read the same screenshot as three different faults; the measurement that separated them was one capture with the sky switched off."
+},
+{
+  "id": "1289",
+  "date": "2026-10-12T23:33:37Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/27a670d5-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "change-log.md",
+  "what": "The bisect entries (this block).",
+  "why": "The maintenance rule counts this file too: it is edited like any other."
+}
 ]
 ```

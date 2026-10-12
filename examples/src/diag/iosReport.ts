@@ -24,10 +24,21 @@
  */
 
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
+import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
 /** The parts of `window.__forge` this module reads. All optional: the panel must never throw. */
 export interface DiagForge {
   stats?: () => unknown;
+  /** The engine itself: the sky bisect hot-swaps `sky.wgsl` through its pipeline factory. */
+  engine?: {
+    renderer?: {
+      pipelines?: {
+        replaceShaderSource?(label: string, source: string): boolean;
+        clearShaderOverride?(label: string): boolean;
+        stats?(): { failures?: number; pipelinesPending?: number };
+      };
+    };
+  };
   scene?: { settings?: { skyEnabled?: boolean; hdr?: boolean; shadow?: { enabled?: boolean } } };
   marsState?: () => unknown;
   camera?: () => unknown;
@@ -262,7 +273,7 @@ export interface DiagHandle {
  */
 export function installIosReport(
   host: DiagHost,
-  options: { tag?: string; toggles?: boolean; raw?: boolean; sceneTour?: boolean } = {},
+  options: { tag?: string; toggles?: boolean; raw?: boolean; sceneTour?: boolean; skyBisect?: boolean } = {},
 ): DiagHandle {
   const { canvas, forge } = host;
   const tag = options.tag ?? "ios";
@@ -317,12 +328,16 @@ export function installIosReport(
     // screenshot taken before it finishes looks exactly like a device that has no probe results.
     else if (withRaw) lines.push(`raw probes: running (${rawSuites.length} device(s) done) — this takes about a minute on a phone`);
     const live = captures[0] ?? statsBits(forge);
+    const pipelineStats = forge.engine?.renderer?.pipelines?.stats?.();
     lines.push(
       `ua ${navigator.userAgent}`,
       `scene ${forge.sceneName ?? "?"}  gpu ${describe(get(host.gpu, "format"))}/${describe(get(host.gpu, "depthFormat"))}` +
         `  canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight} dpr ${window.devicePixelRatio}`,
       `passes ${live.passes.join(" ")}`,
       `draws ${live.draws}  tris ${live.tris}  instances ${live.instances}  gpuErrors ${live.gpuErrors}  lastError ${live.lastError ?? "null"}`,
+      // A sky pipeline WebKit refused to compile skips its draw forever while every other number
+      // stays green; the failure counter is the only thing that says so out loud.
+      `pipelines ${pipelineStats ? `${pipelineStats.failures ?? "?"} failed / ${pipelineStats.pipelinesPending ?? "?"} pending` : "n/a"}`,
       "",
       "captures (label · avg RGB · row colours · draws):",
     );
@@ -405,6 +420,7 @@ export function installIosReport(
       gpu: prune(host.gpu, 1),
       settings: prune(settings ?? null),
       stats: prune(forge.stats?.() ?? null),
+      pipelineStats: prune(forge.engine?.renderer?.pipelines?.stats?.() ?? null),
       passes: (get(forge.stats?.() ?? null, "renderPasses") as string[] | undefined) ?? [],
       camera: cameraState,
       terrainHeight: terrainY,
@@ -469,6 +485,64 @@ export function installIosReport(
       rawSuites.push({ label: "fresh-device", results: [{ name: "device", ok: false, expected: "a second GPUDevice", actual: "threw", error: String(error) }] });
     }
     renderPanel();
+  }
+
+  /** Wait out in-flight pipeline compiles: a capture taken mid-recompile would show a pending sky. */
+  async function settlePipelines(maxFrames = 240): Promise<void> {
+    const stats = () => forge.engine?.renderer?.pipelines?.stats?.();
+    for (let i = 0; i < maxFrames; i++) {
+      const s = stats();
+      if (!s || (s.pipelinesPending ?? 0) === 0) return;
+      await frames(1);
+    }
+  }
+
+  /**
+   * Sky bisect: hot-swap candidate fixes for a sky that shades black (WebKit, 2026-10-12) into the
+   * live `sky.wgsl` and capture one frame per variant. Each variant removes exactly one suspect
+   * construct, so the first variant whose capture shows sky *is* the fix, proven on the device that
+   * fails. The override is always cleared again, and a variant whose anchor moved is reported
+   * rather than measured as the unmodified shader.
+   */
+  async function skyBisect(): Promise<void> {
+    const pipelines = forge.engine?.renderer?.pipelines;
+    if (!forge.scene?.settings?.skyEnabled || typeof pipelines?.replaceShaderSource !== "function") return;
+    for (const variant of SKY_BISECT_VARIANTS) {
+      const source = variant.apply(SKY_BISECT_BASE_SOURCE);
+      if (source === null) {
+        captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: anchor missing — not measured`, frame: { ok: false, error: "anchor missing" } });
+        renderPanel();
+        continue;
+      }
+      let replaced = false;
+      try {
+        replaced = pipelines.replaceShaderSource(SKY_SHADER_LABEL, source) === true;
+      } catch (error) {
+        panel.textContent += `\n[bisect ${variant.id}] replaceShaderSource threw: ${String(error)}`;
+      }
+      if (!replaced) {
+        captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: rejected`, frame: { ok: false, error: "replaceShaderSource refused" } });
+        renderPanel();
+        continue;
+      }
+      // Invalidate recompiles every pipeline: capture only once the factory reports nothing
+      // pending, or the row would measure a still-compiling sky instead of the variant.
+      await frames(2);
+      await settlePipelines();
+      await frames(2);
+      await record(`bisect ${variant.id} (${variant.label})`, null);
+      renderPanel();
+      try {
+        pipelines.clearShaderOverride?.(SKY_SHADER_LABEL);
+      } catch (error) {
+        panel.textContent += `\n[bisect ${variant.id}] clearShaderOverride threw: ${String(error)}`;
+      }
+      await frames(2);
+      await settlePipelines();
+      await frames(2);
+    }
+    await record("bisect restored", null);
+    await post(await build());
   }
 
   /**
@@ -546,6 +620,9 @@ export function installIosReport(
     await frames(3);
     await record("restored", null);
     await post(await build());
+    // The bisect runs on whatever scene the URL loaded (the report that asked for it says which),
+    // before the tour moves the camera somewhere else.
+    if (options.skyBisect !== false) await skyBisect();
     if (withTour) await sceneTour();
     const report = await build();
     await post(report);
