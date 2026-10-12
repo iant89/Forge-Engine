@@ -2083,8 +2083,160 @@ async function checkEnvironmentSection() {
   if (!noonState || !noonState.isDay) throw new Error("day/night cycle did not report daytime at 12:00");
   if (!noonStats.renderPasses.includes("forge.sky")) throw new Error(`sky pass did not run: ${noonStats.renderPasses.join(", ")}`);
   if (noonStats.gpuErrors !== 0 || noonStats.lastError) throw new Error(`sky scene GPU errors: ${noonStats.lastError}`);
+
   const mainIndex = noonStats.renderPasses.indexOf("forge.main");
   if (noonStats.renderPasses.indexOf("forge.sky") !== mainIndex + 1) throw new Error("forge.sky must directly follow forge.main");
+
+  // Phase 17.1: the multiple-scattering table is built by two compute passes on the device, and the
+  // sky pass adds what it holds — so the same scene must draw brighter with `sky.multiScattering` on
+  // than with it off. That is pixels, not just pass names. The device's table is also read back and
+  // compared with the CPU twin of the same frame (same effective atmosphere, same config): the two
+  // implementations of one integral have to agree, which is the numeric half of the same claim.
+  //
+  // The rebuild is *conditional* (a frame whose sun has not moved past `MS_SUN_EPSILON` records
+  // neither pass), and this clock is otherwise running — so the block pauses it first, which makes
+  // both halves decidable: the build counter must not move while the sun holds, then must move by
+  // exactly one, on the frame whose pass list carries both passes. `timeScale` is restored on the
+  // way out; the clock is the sky scene's, not the demo's `setAnimating`, which stops `update()` and
+  // left the sun drifting at ~0.005 h a frame on SwiftShader.
+  const msClock = await page.evaluate(() => {
+    const cycle = window.__forge.scene.object("dayNight");
+    const previous = cycle?.timeScale ?? 0;
+    if (cycle) cycle.timeScale = 0;
+    return { previous, builds: window.__forge.multiScatteringBuilds() };
+  });
+  const msStill = await page.evaluate(async () => {
+    const before = window.__forge.multiScatteringBuilds();
+    for (let i = 0; i < 4; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    return window.__forge.multiScatteringBuilds() - before;
+  });
+  if (msStill !== 0) throw new Error(`the table rebuilt itself ${msStill}x with a still sun`);
+  // Four half-hour steps, one at a time: each is 7.5 deg of sun, far past the 0.5 deg threshold, so
+  // each must record the two passes exactly once — no more (the threshold is what bounds the work
+  // while the sun drifts) and no fewer (a stale table would keep the sky's light wrong silently). A
+  // wall-clock rebuild rate is deliberately not measured: the engine is demand-driven here, so frames
+  // — and therefore rebuilds — happen on the steps the gate asks for.
+  const msSteps = await page.evaluate(async () => {
+    const before = window.__forge.multiScatteringBuilds();
+    let withPasses = 0;
+    for (let i = 0; i < 4; i++) {
+      const target = window.__forge.multiScatteringBuilds() + 1;
+      window.__forge.setTimeOfDay(9 + i * 0.5);
+      // The pass list describes the last frame the renderer built, so the rebuild has to be caught on
+      // the frame it happened on, not after a fixed number of frames (the engine renders on demand).
+      for (let f = 0; f < 8; f++) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (window.__forge.multiScatteringBuilds() < target) continue;
+        const passes = window.__forge.stats().renderPasses.filter((name) => name.startsWith("forge.sky.ms."));
+        if (passes.join(",") === "forge.sky.ms.table,forge.sky.ms.lut") withPasses++;
+        break;
+      }
+    }
+    return { builds: window.__forge.multiScatteringBuilds() - before, withPasses };
+  });
+  if (msSteps.builds !== 4) throw new Error(`four sun steps rebuilt the table ${msSteps.builds} times, not once each`);
+  if (msSteps.withPasses !== 4) throw new Error(`only ${msSteps.withPasses} of four sun steps carried both table passes`);
+  console.log(
+    `sky multiple scattering: ${msSteps.builds} rebuilds over four sun steps (both passes on each), ` +
+      "still sun left it alone (build #" + (msClock.builds + 1) + ")",
+  );
+  const [deviceTable, referenceTable] = await page.evaluate(async () => [
+    Array.from((await window.__forge.multiScatteringLut()) ?? []),
+    window.__forge.multiScatteringReference(),
+  ]);
+  if (deviceTable.length === 0 || deviceTable.length !== referenceTable.length) {
+    throw new Error(`multiple-scattering readback mismatch (${deviceTable.length} vs ${referenceTable.length} floats)`);
+  }
+  // Stored order is height-major, sun-minor over the 32x32 table: rows are heights (sqrt warp, so
+  // row 8 is ~5 km) and columns are sun cosines (sqrt warp around the terminator). Compare texels
+  // with the sun well up in the dense part of the atmosphere — the twilight columns carry the
+  // approximation's own error budget, which `tests/environment/environment.test.ts` pins; this
+  // check is the two implementations agreeing on the same numbers.
+  let worstDelta = 0;
+  let worstAt = "";
+  for (let row = 0; row <= 12; row += 4) {
+    for (let col = 26; col < 32; col++) {
+      const texel = row * 32 + col;
+      for (let c = 0; c < 3; c++) {
+        const device = deviceTable[texel * 4 + c];
+        const reference = referenceTable[texel * 4 + c];
+        const rel = Math.abs(device - reference) / Math.max(1e-9, Math.abs(reference));
+        if (rel > worstDelta) {
+          worstDelta = rel;
+          worstAt = `row ${row} col ${col} ch ${c}`;
+        }
+      }
+    }
+  }
+  // A texel with the sun at the nadir receives nothing: the table's radiance channels must hold an
+  // exact zero there. The fourth channel is the mean scattering ratio, which is a property of the
+  // point, not of the sun — it stays non-zero in the dark columns by design.
+  for (let row = 0; row <= 12; row += 4) {
+    for (let c = 0; c < 3; c++) {
+      if (deviceTable[(row * 32) * 4 + c] !== 0) {
+        throw new Error(`multiple-scattering table is not dark with the sun at the nadir (row ${row}, channel ${c})`);
+      }
+    }
+  }
+  console.log(`sky multiple scattering: worst table delta vs the CPU twin ${(worstDelta * 100).toFixed(2)}% (${worstAt})`);
+  if (!(worstDelta < 0.15)) {
+    throw new Error(`device multiple-scattering table differs from the CPU twin by ${(worstDelta * 100).toFixed(1)}% at ${worstAt}`);
+  }
+  // The pixel half: same scene, same sun (the clock stays paused), the flag the only difference.
+  await page.evaluate(() => window.__forge.setTimeOfDay(12));
+  await settle(4);
+  await keepLuma("ms-on");
+  const msOn = await samplePixels();
+  await page.evaluate(() => {
+    window.__forge.scene.settings.sky.multiScattering = false;
+  });
+  await settle(6);
+  await keepLuma("ms-off");
+  const msOff = await samplePixels();
+  // `compareLuma(a, b)` counts what changed from a to b, so this is the off-frame read against the
+  // on-frame: pixels the term *was* lighting. Only sky pixels are shaded by the pass and the term
+  // only adds light (the tonemap is monotonic), so the sky must lose light and nothing may gain it.
+  const msCompare = await compareLuma("ms-on", "ms-off");
+  console.log(
+    `sky multiple scattering: mean ${msOn.mean.toFixed(2)} on / ${msOff.mean.toFixed(2)} off, ` +
+      `switching it off darkened ${msCompare.darker}/${msCompare.pixels} px (max ${msCompare.max}), brightened ${msCompare.brighter}`,
+  );
+  if (!(msCompare.darker > 20000)) {
+    throw new Error(`sky.multiScattering lit only ${msCompare.darker} pixels`);
+  }
+  if (!(msCompare.brighter === 0)) {
+    throw new Error(`turning sky.multiScattering off brightened ${msCompare.brighter} pixels (the term must only add light)`);
+  }
+  await page.evaluate(() => {
+    window.__forge.scene.settings.sky.multiScattering = true;
+  });
+  await settle(6);
+  // The device's own per-pass times, read back after the frame that rebuilt the table: a
+  // measurement, not a gate (the adapter may not expose `timestamp-query` at all).
+  await page.evaluate(() => window.__forge.setTimeOfDay(12.5));
+  await settle(4);
+  const msTiming = await page.evaluate(() => {
+    const render = window.__forge.stats().render;
+    return {
+      available: render.gpuTimingAvailable,
+      dropped: render.gpuTimingDroppedPasses,
+      skipped: render.gpuTimingSkippedFrames,
+      timed: render.gpuPassTimes?.length ?? 0,
+      // Compute passes are timed under their short `beginComputePass` label (`sky.ms.table`), the
+      // graph pass names carry the `forge.` prefix — the same split as `particle.sim` /
+      // `forge.main`, so match the label here.
+      ms: (render.gpuPassTimes ?? []).filter((pass) => pass.name.startsWith("sky.ms.")).map((pass) => `${pass.name} ${pass.ms.toFixed(2)} ms`),
+    };
+  });
+  console.log(
+    `sky multiple scattering: device times ${msTiming.ms.length ? msTiming.ms.join(", ") : "(none reported)"} ` +
+      `— timestamp-query ${msTiming.available ? "available" : "unavailable"}, ${msTiming.timed} passes timed, ` +
+      `${msTiming.dropped} dropped, ${msTiming.skipped} skipped frames`,
+  );
+  await page.evaluate((previous) => {
+    const cycle = window.__forge.scene.object("dayNight");
+    if (cycle) cycle.timeScale = previous;
+  }, msClock.previous);
 
   await page.evaluate(() => window.__forge.setTimeOfDay(1));
   await settle(6);
@@ -2412,10 +2564,16 @@ async function checkMarsSection() {
     }
     throw new Error(`${label} (last state ${JSON.stringify(last)})`);
   };
+  // The loader reports download bytes (always moving while the GLB streams in) and a phase name, but
+  // nothing inside its build step, so the bytes renew the budget and the build half is covered by the
+  // budget itself. It was a flat 20 s, which a shared CI runner exceeded while the 8.6 MB Perseverance
+  // GLB was steadily building (bytes complete, phase `build`, no error) — the same wall-clock mistake
+  // the helper's own comment above describes for the drive arm.
   const marsLoaded = await pollMars(
-    "mars showcase: rover GLB did not load in 20s",
+    "mars showcase: rover GLB did not load (120s without the download advancing; bytes complete and phase building)",
     (s) => s.modelLoaded === true || s.modelError !== null,
-    20000,
+    120000,
+    (s) => s.modelProgress?.receivedBytes ?? 0,
   );
   console.log(
     `mars showcase: modelLoaded=${marsLoaded.modelLoaded} wheels=${marsLoaded.wheelCount} contact=${marsLoaded.contactWheels}`,

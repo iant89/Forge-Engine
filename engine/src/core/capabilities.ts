@@ -88,6 +88,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "15+": "verified",
   "15.5": "inProgress",
   "16": "inProgress",
+  "17": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -748,10 +749,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.multipleScattering",
     phase: "17.1",
-    status: "planned",
-    summary: "Multiple-scattering approximation / LUT and a better Mars twilight",
-    closesWith: "17.1",
-    notes: "Single scattering makes the sky ~3x darker than a real one and the horizon yellow on Earth",
+    status: "verified",
+    summary: "Multiple-scattering LUT: the higher orders the sky integral leaves out, on the CPU and the device",
+    evidence: ["tests/environment/environment17.test.ts", "tests/rendering/frame.test.ts", "tools/browser-check.mjs"],
+    notes:
+      "Measured against the sphere mean of the model's own single scattering: within ±5 % in daylight below ~25 km for the device table and ±17 % for the CPU one, within a factor of ~2 through the terminator, exactly zero below a height's horizon. Adds ~1.3x luminance at noon on Earth, ~2.2x at dusk and ~2-5x on Mars; no ground bounce, isotropic higher orders, and the CPU-build field is opt-in (assign it to `AtmosphereModel.multiScattering`).",
   },
   {
     id: "environment.weather",

@@ -117,6 +117,14 @@ export interface SceneSkySettings {
   seaLevel: number;
   /** Ray-march sample counts: low 8×4, medium 16×8, high 32×16 (view × light). */
   quality: SkyQuality;
+  /**
+   * Add the multiple-scattering table (Phase 17.1) to the sky. Single scattering counts every
+   * photon once, which leaves the sky ~3× too dark, a yellow horizon and a telescope-sharp
+   * twilight; the table adds the second-and-higher-order light (the dominant term on dusty Mars).
+   * The renderer builds it on the GPU in two compute passes; `AtmosphereModel.multiScattering`
+   * carries the CPU twin for fog/ambient colours.
+   */
+  multiScattering: boolean;
   /** Planet + atmosphere constants; `null` uses `EARTH_ATMOSPHERE`. */
   atmosphere: AtmosphereParams | null;
 }
@@ -297,6 +305,7 @@ export function defaultSkySettings(): SceneSkySettings {
     nightEnabled: true,
     seaLevel: 0,
     quality: "medium",
+    multiScattering: true,
     atmosphere: null,
   };
 }
@@ -952,6 +961,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.seaLevel = num(sky["seaLevel"], t.seaLevel);
     if (typeof sky["nightEnabled"] === "boolean") t.nightEnabled = sky["nightEnabled"];
     if (sky["quality"] === "low" || sky["quality"] === "medium" || sky["quality"] === "high") t.quality = sky["quality"];
+    if (typeof sky["multiScattering"] === "boolean") t.multiScattering = sky["multiScattering"];
     if (sky["atmosphere"] && typeof sky["atmosphere"] === "object") t.atmosphere = { ...(sky["atmosphere"] as AtmosphereParams) };
     else if (sky["atmosphere"] === null) t.atmosphere = null;
   }

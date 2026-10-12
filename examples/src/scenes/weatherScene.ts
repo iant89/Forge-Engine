@@ -268,7 +268,12 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   });
   scene.add(lightning);
   const triggerLightning = (): void => {
-    void audio.resume().then(() => lightning.trigger());
+    // The strike is registered now; the thunder follows whenever the browser lets the context run.
+    // Chaining the strike behind `audio.resume()` made it depend on the autoplay policy instead of
+    // the tap: under a headless autoplay policy with no gesture yet, `context.resume()` never
+    // settles, so a strike that "happened" had no strike count (the browser gate caught this).
+    lightning.trigger();
+    void audio.resume().catch(() => {});
   };
 
   // GPU particles avoid thousands of per-drop ECS entities; the world updates precipitation,

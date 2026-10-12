@@ -20,10 +20,17 @@
  *
  * Nothing here allocates per call once the model exists: outputs are written into caller-provided
  * `Float64Array(3)`/`Vec3`s, so `DayNightCycle` can evaluate ambient and horizon colours every frame.
+ *
+ * Phase 17.1 adds multiple scattering on top: assign a `multiScattering.ts` field to
+ * {@link AtmosphereModel.multiScattering} and every radiance this file returns gains the
+ * second-and-higher-order light the single-scattering integral is missing (`skyRadiance`, and with
+ * it `skyAmbient` and `horizonColor`). The sky shader carries the same term from the table a
+ * compute pass builds (`rendering/shaders/multiScattering.ts`).
  */
 
 import { Vec3 } from "../math/vec.js";
 import type { SkyQuality } from "../scene/scene.js";
+import type { MultiScatteringField } from "./multiScattering.js";
 
 export type RGB = readonly [number, number, number];
 
@@ -204,6 +211,15 @@ export class AtmosphereModel {
   private readonly odLight = new Float64Array(3);
   private readonly sum = new Float64Array(6);
   private readonly tmp = new Float64Array(3);
+  private readonly msSum = new Float64Array(3);
+  private readonly msSource = new Float64Array(3);
+
+  /**
+   * Multiple-scattering source table (Phase 17.1), or `null` for a pure single-scattering sky. It
+   * must be built from *this* model's params (`new MultiScatteringField(model, config)`): the table
+   * bakes the coefficients and scale heights it was built with. `docs/ENVIRONMENT.md` §8.
+   */
+  multiScattering: MultiScatteringField | null = null;
 
   constructor(readonly params: AtmosphereParams) {}
 
@@ -269,8 +285,10 @@ export class AtmosphereModel {
   }
 
   /**
-   * Single-scattered sky radiance (plus the lit ground below the horizon) seen from `height` along
-   * `viewDir` with the sun at `sunDir`. This is the integral the sky shader evaluates per pixel.
+   * Sky radiance (plus the lit ground below the horizon) seen from `height` along `viewDir` with
+   * the sun at `sunDir`. This is the integral the sky shader evaluates per pixel. With
+   * {@link multiScattering} assigned, the multiple-scattering term is added per sample and the
+   * result is the full sky rather than the single-scattering subset.
    */
   skyRadiance(viewDir: Vec3, sunDir: Vec3, height: number, out: Float64Array, viewSamples = this.params.viewSamples, lightSamples = this.params.lightSamples, phaseG = this.params.mieAnisotropy): Float64Array {
     const p = this.params;
@@ -297,7 +315,11 @@ export class AtmosphereModel {
     const od = this.od;
     const odl = this.odLight;
     const sum = this.sum;
+    const ms = this.multiScattering;
+    const msSum = this.msSum;
+    const msSource = this.msSource;
     sum.fill(0);
+    msSum.fill(0);
     let odR = 0;
     let odM = 0;
     let odO = 0;
@@ -322,19 +344,28 @@ export class AtmosphereModel {
       odR += dR;
       odM += dM;
       odO += dO;
-      if (raySphereEntry(px, py, pz, sunDir.x, sunDir.y, sunDir.z, R) > 0) continue; // sun below the local horizon
-      const tLight = raySphereExit(px, py, pz, sunDir.x, sunDir.y, sunDir.z, R + p.atmosphereHeight);
-      if (tLight <= 0) continue;
-      this.opticalDepth(px, py, pz, sunDir.x, sunDir.y, sunDir.z, tLight, lightSamples, odl);
+      const blocked = raySphereEntry(px, py, pz, sunDir.x, sunDir.y, sunDir.z, R) > 0; // sun below the local horizon
+      const tLight = blocked ? 0 : raySphereExit(px, py, pz, sunDir.x, sunDir.y, sunDir.z, R + p.atmosphereHeight);
+      if (tLight > 0) this.opticalDepth(px, py, pz, sunDir.x, sunDir.y, sunDir.z, tLight, lightSamples, odl);
+      // Multiple scattering (Phase 17.1) reaches this sample from the whole lit sky, so it lands
+      // even where the sun itself is below the local horizon — that is the twilight glow. `J_ms`
+      // already carries the sun's transmittance to the scattering points (baked into the table),
+      // so only this ray's transmittance and the local coefficients remain.
+      if (ms !== null) ms.sample(h, (px * sunDir.x + py * sunDir.y + pz * sunDir.z) / (h + R || 1), msSource);
       for (let c = 0; c < 3; c++) {
         od[c] = p.rayleighScattering[c]! * odR + p.mieExtinction[c]! * odM + p.ozoneAbsorption[c]! * odO;
-        const attenuation = Math.exp(-(od[c]! + odl[c]!));
-        sum[c] += attenuation * dR;
-        sum[3 + c] += attenuation * dM;
+        if (tLight > 0) {
+          const attenuation = Math.exp(-(od[c]! + odl[c]!));
+          sum[c] += attenuation * dR;
+          sum[3 + c] += attenuation * dM;
+        }
+        if (ms !== null) {
+          msSum[c] += Math.exp(-od[c]!) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
+        }
       }
     }
     for (let c = 0; c < 3; c++) {
-      out[c] = p.sunIntensity * (p.rayleighScattering[c]! * sum[c]! * phaseR + p.mieScattering[c]! * sum[3 + c]! * phaseM);
+      out[c] = p.sunIntensity * (p.rayleighScattering[c]! * sum[c]! * phaseR + p.mieScattering[c]! * sum[3 + c]! * phaseM + msSum[c]!);
     }
     if (hitsGround) {
       // Lambertian ground lit by the attenuated sun, seen through the whole view path.
@@ -412,7 +443,17 @@ export class AtmosphereModel {
 
 const SCRATCH_DIR = new Vec3();
 /** Widest Mie lobe the hemispherical estimates evaluate (see `AtmosphereModel.skyAmbient`). */
-const ESTIMATE_G = 0.5;
-function clampG(g: number): number {
-  return Math.max(-ESTIMATE_G, Math.min(ESTIMATE_G, g));
+export const ESTIMATE_MIE_ANISOTROPY = 0.5;
+
+/**
+ * Cap a Mie anisotropy at {@link ESTIMATE_MIE_ANISOTROPY} for estimators that average the phase
+ * function over a few dozen directions (the hemispherical ambient/horizon integrals and the
+ * multiple-scattering table). A strongly forward-peaked lobe cannot be integrated that way —
+ * whichever sample lands nearest the sun dominates the mean — and the cap only widens the lobe
+ * without moving its energy, so the estimate converges instead of oscillating.
+ */
+export function clampMieAnisotropy(g: number): number {
+  return Math.max(-ESTIMATE_MIE_ANISOTROPY, Math.min(ESTIMATE_MIE_ANISOTROPY, g));
 }
+
+const clampG = clampMieAnisotropy;

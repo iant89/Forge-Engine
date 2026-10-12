@@ -293,6 +293,10 @@ export class PipelineFactory {
         { binding: SKY_BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } },
         { binding: SKY_BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
         { binding: SKY_BINDINGS.cloud.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: CloudUniforms.byteSize("uniform") } },
+        // Phase 17.1: the multiple-scattering table (`MS_BINDINGS.lut`), written by
+        // `shaders/multiScattering.ts` and sampled once per view sample. Always bound — a frame with
+        // the term switched off reads it through a branch on `sky.multiScattering`.
+        { binding: SKY_BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       ],
     });
     this.skyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.skyBindGroupLayout] });

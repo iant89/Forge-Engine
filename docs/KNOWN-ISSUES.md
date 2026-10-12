@@ -144,23 +144,36 @@ What remains:
 
 ## Environment (Phase 8a)
 
-* **Single scattering only.** The sky pass and `AtmosphereModel` integrate one scattering event per
-  path (Rayleigh + Mie + ozone absorption) with no multiple scattering, so the sky is ~3× darker than
-  a real one relative to the sun and the horizon reads yellow rather than white on Earth. The demo
-  compensates by rendering the sky at `sky.sunIntensity` 20 against a light of 4.2; `ambientScale`
-  trims the derived ambient. A multiple-scattering LUT is the natural 8b/13 follow-up. (capability: environment.multipleScattering)
+* **Multiple scattering is an approximation with a shaped error.** Phase 17.1 adds the second-and-
+  higher orders as an isotropic source (`J₁ = (1/4π)∫L₁dω`) summed as a geometric series with the
+  local scattering ratio, into a `height × sun-elevation` table the sky pass samples per march step.
+  Measured against the sphere mean of the model's own single scattering: the device table holds
+  ±5 % in daylight below ~25 km and the CPU one ±17 %; the terminator columns (|μ_sun| < 0.1, where
+  the table changes by orders of magnitude within one column) are good to a factor of ~2; below each
+  height's own horizon the table is exactly zero. Two terms are deliberately absent: there is **no
+  ground bounce** (the planet is black to the table, worth 1.5-2.2× of the sphere mean at 20 km with
+  the default albedo) and the higher orders are treated as **isotropic**, so a wavelength-dependent
+  Mie lobe is not represented. A field built on the CPU is opt-in: assign it to
+  `AtmosphereModel.multiScattering` (the renderer's own table is built on the device and the derived
+  ambient/fog colours gain the term only through that assignment). (`docs/ENVIRONMENT.md` §8)
+  (roadmap: 17)
+* **No twilight glow from below the horizon on the CPU path or aerial perspective on geometry.** The
+  sky pass's twilight now comes from the LUT (Phase 17.1) even where the sun is below the local
+  horizon, but the CPU `skyAmbient`/`horizonColor` integrals only gain it when a field is assigned,
+  and geometry still gets fog rather than the sky's in-scattering. (capability: environment.aerialPerspective)
 * **The sky pass is not affected by linear or exp² fog.** Only height fog (whose path integral is
   finite for upward rays) fogs sky pixels; linear/exp² fog would erase the whole sky over an infinite
   path. The planet ground the pass draws below the horizon *is* fogged in every mode, and
   `DayNightCycle.driveFog` keeps the fog colour equal to the sky just above the horizon, so seams
   only appear when a scene sets a fog colour that disagrees with its sky. (`docs/ENVIRONMENT.md` §4) (capability: environment.skyFogModes)
-* **No twilight glow from below the horizon or aerial perspective on geometry.** Nights include an
-  atmosphere-attenuated anti-solar full moon and stars over `nightAmbient`, but the moon has no phases
-  or orbital inclination. Geometry gets fog, not the sky's in-scattering. (capability: environment.aerialPerspective)
+* **Nights are a full-moon sky with no lunar phases.** Nights include an atmosphere-attenuated
+  anti-solar full moon and stars over `nightAmbient`, but the moon has no phases or orbital
+  inclination. (capability: environment.aerialPerspective)
 * **The sun disc is not a physical radiance.** `sunDiscIntensity` (default 100× the sun's
   transmitted irradiance) is a look control; the real disc (~14 700×) would bloom the whole frame. (capability: environment.sunDisc)
 * **Mars' blue sunset aureole is not modelled.** It needs a wavelength-dependent Mie lobe; the preset
-  has one `g`. The daytime butterscotch sky and the bright forward aureole are there. (capability: environment.multipleScattering)
+  has one `g`, and the LUT's higher orders are deliberately isotropic (Phase 17.1). The daytime
+  butterscotch sky and the bright forward aureole are there. (roadmap: 17)
 * **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
   the view direction (the sky's horizon average is used). (roadmap: 17)
 
