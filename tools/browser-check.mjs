@@ -2075,6 +2075,34 @@ async function checkEnvironmentSection() {
   const noon = await samplePixels();
   const noonState = await page.evaluate(() => window.__forge.environmentState());
   const noonStats = await page.evaluate(() => window.__forge.stats());
+  // The whole-frame luminance also includes the ground and HUD, so it can pass while the opening
+  // camera points below the horizon and the actual sky is hidden behind the HUD. Sample a known
+  // unobstructed sky pixel in the canvas at half height and prove that it is both blue and on-screen.
+  const skyOpening = await page.evaluate(() =>
+    new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        const source = document.querySelector("canvas");
+        const sample = document.createElement("canvas");
+        sample.width = source.width;
+        sample.height = source.height;
+        const context = sample.getContext("2d", { willReadFrequently: true });
+        context.drawImage(source, 0, 0);
+        const x = Math.floor(sample.width * 0.2);
+        const y = Math.floor(sample.height * 0.5);
+        const pixel = context.getImageData(x, y, 1, 1).data;
+        const hudBottom = document.getElementById("hud").getBoundingClientRect().bottom;
+        const controlsTop = document.getElementById("sk-time-back").getBoundingClientRect().top;
+        resolve({
+          x,
+          y,
+          rgb: [pixel[0], pixel[1], pixel[2]],
+          hudBottom,
+          controlsTop,
+          camera: window.__forge.camera(),
+        });
+      });
+    }),
+  );
   await page.screenshot({ path: "tools/.browser-check-sky-noon.png" });
   console.log(
     `sky noon: mean ${noon.mean.toFixed(2)} distinct=${noon.distinct} el=${noonState?.elevationDeg?.toFixed(1)}° ` +
@@ -2086,6 +2114,20 @@ async function checkEnvironmentSection() {
 
   const mainIndex = noonStats.renderPasses.indexOf("forge.main");
   if (noonStats.renderPasses.indexOf("forge.sky") !== mainIndex + 1) throw new Error("forge.sky must directly follow forge.main");
+  console.log(
+    `sky opening: camera elevation ${skyOpening.camera?.elevation?.toFixed(2)} rad, ` +
+      `pixel (${skyOpening.x},${skyOpening.y}) rgb=${skyOpening.rgb.join(",")} ` +
+      `below HUD=${skyOpening.hudBottom.toFixed(1)} and above controls=${skyOpening.controlsTop.toFixed(1)}`,
+  );
+  if (!skyOpening.camera || skyOpening.camera.elevation >= 0) {
+    throw new Error("sky demo opening camera does not look above the horizon");
+  }
+  if (!(skyOpening.y > skyOpening.hudBottom && skyOpening.y < skyOpening.controlsTop)) {
+    throw new Error(`sky sample pixel is obscured by the HUD or buttons: ${JSON.stringify(skyOpening)}`);
+  }
+  if (!(skyOpening.rgb[2] > skyOpening.rgb[1] + 4)) {
+    throw new Error(`opening view has no blue sky below the HUD (sample pixel ${skyOpening.rgb})`);
+  }
 
   // Phase 17.1: the multiple-scattering table is built by two compute passes on the device, and the
   // sky pass adds what it holds — so the same scene must draw brighter with `sky.multiScattering` on
