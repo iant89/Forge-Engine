@@ -71,6 +71,7 @@ export const linkedSuites = [
   ["tests/examples/roverGlb.test.ts", () => import("./examples/roverGlb.test.ts")],
   ["tests/examples/roverTools.test.ts", () => import("./examples/roverTools.test.ts")],
   ["tests/examples/skinningScene.test.ts", () => import("./examples/skinningScene.test.ts")],
+  ["tests/examples/skyBisect.test.ts", () => import("./examples/skyBisect.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
   ["tests/controls/demoSceneSelection.test.ts", () => import("./controls/demoSceneSelection.test.ts")],
@@ -81,4 +82,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(77);
+report(78);
