@@ -2128,3 +2128,20 @@ Read the module constraints below before changing either pure model.
 - **Suite growth is a repo contract:** adding a linked suite means `tests/full.test.ts` `report(n)` +1
   *and* `tests/tools/selrun.test.ts`'s literal suite/claim counts (74 / 670) — the latter is the one that
   fails the run, not the catalog check.
+
+## 2026-10-12 — the strike that never happened (autoplay policy, not the scheduler)
+
+- **Symptom:** the advisory browser gate failed on CI with `weather lightning: strikes=0 flash=0.000` →
+  `triggered lightning did not register a strike`, while the same gate passed locally (`strikes=1`).
+- **Root cause:** `examples/src/scenes/weatherScene.ts`'s `triggerLightning` was
+  `void audio.resume().then(() => lightning.trigger())`. Under the headless autoplay policy with no user
+  gesture yet, `AudioContext.resume()` never settles, so the `.then` never ran: the button (and the
+  gate) asked for a strike and nothing registered. Locally an earlier click had unlocked the context,
+  which is why the flake only showed on CI.
+- **Fix:** register the strike first — `lightning.trigger(); void audio.resume().catch(() => {});` — and
+  let the audio race it. The demo's thunder callback already gates on `context.state === "running"`, so
+  nothing is lost. Local re-run: `strikes=2`.
+- **Lesson:** never chain a *simulation* action behind an *audio/permission* promise. Any browser API that
+  can stay pending until a gesture (autoplay resume, permissions, sensors) turns a deterministic check
+  into a wall-clock lottery — and the gate's own rule ("budget on the scene's own progress, never the
+  wall clock") already says so, for the Mars drive arm.

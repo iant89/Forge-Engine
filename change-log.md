@@ -15188,8 +15188,7 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Backfilled the PR number (80) onto entries 1210-1212, which were logged before the PR existed.",
     "why": "Keep the activity history's pr field accurate once the pull request was opened."
-  }
-,
+  },
   {
     "id": "1214",
     "date": "2026-10-11T23:58:00Z",
@@ -15538,6 +15537,18 @@ JSON array below; agents maintain it by hand until then.
     "modelVersion": null,
     "summary": "Phase 17.1 of the roadmap: the sky gains the second-and-higher scattering orders. `environment/multiScattering.ts` is the CPU reference — the isotropic-source geometric series (J1 = the sphere mean of the model's own single scattering, L_ms = J1 / (1 - rho)) precomputed into a (height, sun elevation) table with a sqrt-height and a terminator-centred sqrt(|mu|) sun warp, at two resolutions (CPU 16x16/32 directions/12 steps, GPU 32x32/48 directions/24 steps). `rendering/shaders/multiScattering.ts` and `rendering/skyMultiScattering.ts` are the device twin: `forge.sky.ms.table` and `forge.sky.ms.lut` compute passes recorded ahead of the frame and only when a fresh renderer, a sun past MS_SUN_EPSILON or a changed effective atmosphere needs them, with a staging readback (`readLut`) for verification. The sky pass adds T_view*(sigma_R*rho_R + sigma_M*rho_M)*J_ms per march step, gated on `scene.settings.sky.multiScattering` (default on; SkyUniforms 128 -> 144 B, the LUT as the sky layout's fourth binding). Both twins clamp the Mie lobe at ESTIMATE_MIE_ANISOTROPY (0.5): without it a 48-direction mean of Mars' dust (g 0.7) is decided by whichever sample lands nearest the sun and comes out 1.5-2x too bright. Measured against a 256-direction reference the device table is within ~7 % in daylight below 25 km and the CPU one within ~20 %, both exactly zero below each row's horizon, with the terminator columns good to a factor of ~2 (documented, not chased — the source changes by orders of magnitude inside one column). Rendered gains on the CPU configuration: Earth x1.26 zenith / x1.30 horizon away from the sun / x2.2 zenith 6 deg after sunset / x6.3 at that hour's horizon, Mars x2.2-4.95. Cost: CPU build ~9 ms; on SwiftShader the device's own timestamps measured 0.11 ms + 43.43 ms on rebuild frames and nothing on the frames that skip it. Verification: `tests/environment/environment17.test.ts` (22 cases), the frame/wgsl/selrun count updates, `npm run verify` (1,086 cases in 74 suites), and `npm run check:browser:environment` on real Chromium + SwiftShader — the table rebuilt exactly once per sun step and never on a still frame, the table read back off the adapter matching the CPU twin of the same frame within 0.01 % at twelve daylight texels with exactly zero nadir columns, and switching the term off darkening 156,062 of 468,000 pixels (max 10 luma levels) while brightening none.",
     "files": ["PROGRESS.md", "ROADMAP.md", "docs/ENVIRONMENT.md", "docs/KNOWN-ISSUES.md", "docs/VERIFICATION.md", "engine/src/core/capabilities.ts", "engine/src/environment/atmosphere.ts", "engine/src/environment/index.ts", "engine/src/environment/multiScattering.ts", "engine/src/index.ts", "engine/src/rendering/pipeline.ts", "engine/src/rendering/renderer.ts", "engine/src/rendering/shaders/common.ts", "engine/src/rendering/shaders/multiScattering.ts", "engine/src/rendering/shaders/sky.ts", "engine/src/rendering/skyMultiScattering.ts", "engine/src/rendering/uniforms.ts", "engine/src/scene/scene.ts", "examples/src/main.ts", "mnemosyne.md", "tests/environment/environment17.test.ts", "tests/full.test.ts", "tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts", "tests/tools/selrun.test.ts", "tools/browser-check.mjs", "tools/wgsl-check.mjs", "change-log.md"]
+  },
+  {
+    "id": "1243",
+    "date": "2026-10-12T05:05:00Z",
+    "type": "change",
+    "pr": 81,
+    "branch": "arena/d1891e90-forge-engine",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "examples/src/scenes/weatherScene.ts",
+    "what": "`triggerLightning` registers the strike first and resumes the audio context alongside it (`void audio.resume().catch(...)`), instead of chaining the strike behind `audio.resume().then(...)`.",
+    "why": "The advisory browser gate failed on CI with `triggered lightning did not register a strike` (strikes=0). Root cause is not the scheduler: the strike was chained behind `AudioSystem.resume()`, and under the headless autoplay policy with no gesture yet `context.resume()` never settles, so the promise never ran `lightning.trigger()`. The demo's own thunder callback already gates on `context.state === \"running\"`, so nothing is lost by letting the strike and the audio resume race: a tap on Strike now always registers a strike, and the thunder follows when the browser lets the context run. Re-run locally: `weather lightning: strikes=2`."
   }
 ]
 ```
