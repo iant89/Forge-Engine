@@ -8,7 +8,7 @@
  * @covers examples/src/scenes/dustStorm.ts
  * @covers examples/src/scenes/marsDustStormScene.ts
  * @covers examples/src/scenes/marsShared.ts
- * @desc Mars Dust Storm Survival on the strict mock GPU: rover, beams, piles, storm atmosphere, stuck/reset rules
+ * @desc Mars Dust Storm Survival on the strict mock GPU: rover, beams, piles, storm atmosphere, stuck/reset rules, per-devil particle systems, EASY/HARD toggle
  */
 
 export const suite = {
@@ -23,7 +23,7 @@ export const suite = {
     "examples/src/scenes/marsDustStormScene.ts",
     "examples/src/scenes/marsShared.ts"
   ],
-  desc: "Mars Dust Storm Survival on the strict mock GPU: rover, beams, piles, storm atmosphere, stuck/reset rules",
+  desc: "Mars Dust Storm Survival on the strict mock GPU: rover, beams, piles, storm atmosphere, stuck/reset rules, per-devil particle systems, EASY/HARD toggle",
 };
 /**
  * The Perseverance GLB is mocked with procedural boxes (the 10 MB model never loads) and the
@@ -44,9 +44,10 @@ import {
   type SystemContext,
   type TaskScheduler,
   VehicleComponent,
+  findGpuParticleWorlds,
 } from "@forge/engine";
 import { buildMarsDustStormScene } from "../../examples/src/scenes/marsDustStormScene.js";
-import { BURIAL_STUCK, STORM_DIFFICULTY, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
+import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
 
 const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress: GlbLoadProgress) => void): Promise<LoadedGlb> => {
@@ -81,10 +82,27 @@ afterEach(async () => {
   unstubAllGlobals();
 });
 
+/** A toolbar/touch button stand-in: click events plus the class/aria/caption surface the scene writes. */
+function fakeButton() {
+  const classes = new Set<string>();
+  const attrs = new Map<string, string>();
+  const letter = { textContent: "" };
+  const caption = { textContent: "" };
+  return Object.assign(new EventTarget(), {
+    classList: { toggle: (c: string, on: boolean) => (on ? classes.add(c) : classes.delete(c), on), contains: (c: string) => classes.has(c) },
+    setAttribute: (k: string, v: string) => void attrs.set(k, v),
+    getAttribute: (k: string) => attrs.get(k) ?? null,
+    querySelector: (sel: string) => (sel === ".veh-letter" ? letter : sel === ".veh-caption" ? caption : null),
+    letter,
+    caption,
+  });
+}
+
 async function fixture(difficulty: StormDifficulty = "easy") {
   const windowStub = new EventTarget();
   stubGlobal("window", windowStub);
-  stubGlobal("document", { getElementById: () => null });
+  const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-hard": fakeButton(), "storm-difficulty": fakeButton() };
+  stubGlobal("document", { getElementById: (id: string) => (buttons as Record<string, unknown>)[id] ?? null });
   stubGlobal("fetch", spyFunction(() => new Promise<Response>(() => {})));
   const gpu = await GraphicsDevice.create({ forceMock: true });
   const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
@@ -125,7 +143,7 @@ async function fixture(difficulty: StormDifficulty = "easy") {
     tick();
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  return { handle, scene, vehicle: component.vehicle, tick, key };
+  return { handle, scene, gpu, buttons, vehicle: component.vehicle, tick, key };
 }
 
 function named(scene: { world: { liveEntityIds(): Iterable<number>; name(id: number): string; facade(id: number): Entity | null } }, prefix: string): Entity[] {
@@ -187,6 +205,77 @@ group("Mars Dust Storm Survival — scene assembly", () => {
       assert.equal(handle.stormState().checkpoint, i + 1);
     }
     assert.equal(handle.stormState().won, true);
+  });
+});
+
+group("Mars Dust Storm Survival — one GPU particle system per dust devil", () => {
+  test("the sheet and every devil slot own a system; each live devil swirls its own column, within the reduced budget", async () => {
+    const { handle, scene, gpu, tick } = await fixture();
+    const worlds = findGpuParticleWorlds(scene);
+    const reduced = STORM_QUALITY_TIERS.reduced;
+    assert.equal(worlds.length, 1 + reduced.devils);
+    assert.equal(worlds[0]!.name, "storm dust");
+    for (const w of worlds) await w.attachDevice(gpu);
+    assert.equal(worlds[0]!.system!.capacity, reduced.sheetCapacity);
+    for (const w of worlds.slice(1)) assert.equal(w.system!.capacity, reduced.devilCapacity);
+    assert.ok(worlds.reduce((n, w) => n + w.system!.capacity, 0) <= stormParticleBudget(reduced));
+    let guard = 0;
+    while (handle.stormState().devils.length < 1 && guard++ < 400) tick(0.25);
+    tick();
+    const devils = handle.stormState().devils;
+    assert.ok(devils.length >= 1);
+    const sheet = worlds[0]!.system!;
+    assert.equal(sheet.modules.swirlStrength, 0, "the storm sheet does not spin");
+    assert.ok(sheet.emitter.rate > 0);
+    for (let i = 0; i < reduced.devils; i++) {
+      const sys = worlds[1 + i]!.system!;
+      const d = devils[i];
+      if (!d) {
+        assert.equal(sys.emitter.rate, 0, `idle slot ${i}`);
+        continue;
+      }
+      assert.equal(sys.emitter.rate, reduced.devilRate);
+      assert.equal(Math.abs(sys.modules.swirlStrength), 140, `devil ${i} swirls`);
+      assert.equal(Math.sign(sys.modules.swirlStrength), Math.sign(d.swirl || 1));
+      assert.equal(sys.modules.attractorPos.x, d.x);
+      assert.equal(sys.modules.attractorPos.z, d.z);
+      assert.equal(sys.emitter.position.x, d.x);
+    }
+  });
+});
+
+group("Mars Dust Storm Survival — EASY/HARD toggle", () => {
+  test("the toolbar and touch toggles switch the rules and restart the run; the URL value seeds them", async () => {
+    const { handle, scene, buttons, vehicle, tick, key } = await fixture("hard");
+    assert.equal(buttons["btn-storm-hard"].classList.contains("active"), true, "seeded from ?difficulty");
+    assert.equal(buttons["storm-difficulty"].caption.textContent, "HARD");
+    start(key, tick);
+    const beam = named(scene, "storm-beam-ring-0")[0]!;
+    vehicle.position.x = beam.transform.position.x;
+    vehicle.position.z = beam.transform.position.z;
+    tick();
+    assert.equal(handle.stormState().checkpoint, 1);
+    buttons["btn-storm-easy"].dispatchEvent(new Event("click"));
+    let s = handle.stormState();
+    assert.equal(s.difficulty, "easy");
+    assert.equal(s.checkpoint, 0, "run restarted");
+    assert.equal(s.elapsed, 0);
+    assert.equal(buttons["btn-storm-easy"].classList.contains("active"), true);
+    assert.equal(buttons["btn-storm-hard"].getAttribute("aria-pressed"), "false");
+    assert.equal(buttons["storm-difficulty"].letter.textContent, "E");
+    // The touch pad flips between the two.
+    buttons["storm-difficulty"].dispatchEvent(new Event("click"));
+    s = handle.stormState();
+    assert.equal(s.difficulty, "hard");
+    assert.equal(buttons["storm-difficulty"].classList.contains("active"), true);
+    // Hard rules are live after the switch: burial sends the rover back.
+    handle.setDifficulty("hard");
+    start(key, tick);
+    vehicle.position.x += 6;
+    let guard = 0;
+    while (handle.stormState().resets === 0 && guard++ < 2000) tick(0.1);
+    assert.equal(handle.stormState().resets, 1);
+    assert.equal(handle.stormState().penalty, 0);
   });
 });
 

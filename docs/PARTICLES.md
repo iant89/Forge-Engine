@@ -12,6 +12,12 @@ integration (with modules), culling and billboard/soft rendering through render-
 A GPU fountain at 100k capacity. `GpuParticleWorld` attaches to the engine device; the renderer
 enqueues the particle passes. No sprite entities are created.
 
+A scene may hold several `GpuParticleWorld`s: each frame the renderer attaches, prepares and enqueues
+every ready one in scene order (`findGpuParticleWorlds`). The first keeps the bare pass names
+(`particle.sim`, `particle.sort`, `particle.render`, `particle.resolve`); each later one appends
+`#1`, `#2`, … (`passSuffix` on `enqueue`), so profiler scopes and pass lists stay unique. Each world
+owns its buffers and is released by `scene.dispose()`.
+
 ## Layout
 
 16 floats per particle, matching `Particle` in the particle shaders:
@@ -77,7 +83,8 @@ CPU module ports kept for the reference path: gravity, drag, colour-over-life, s
 cone sampling. Velocity boost, attractor, swirl, and rotation-over-life are **GPU-only** (configured via
 `GpuParticleModulesConfig` / `PARTICLE_FULL_SIM_SHADER`); the matching CPU classes were removed.
 `swirlStrength` (default 0, off) adds a tangential 1/r acceleration around the vertical axis through
-`attractorPos`; the Mars Dust Storm Survival scene uses it to spin dust around its nearest dust devil.
+`attractorPos`; the Mars Dust Storm Survival scene gives every dust devil its own system and swirls each column
+around its devil (the reduced iOS tier caps each devil system at 2,000 particles).
 
 ## Accounting (no fake alive)
 

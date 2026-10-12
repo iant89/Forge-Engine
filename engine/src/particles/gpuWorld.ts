@@ -2,8 +2,8 @@
  * Scene-object owner for the Phase 12 GPU particle system.
  *
  * Unlike {@link ParticleWorld}, this never creates or poses sprite entities — the GPU buffer is the
- * authority and the renderer draws billboards from it. Attach at most one GPU particle world per
- * scene (the renderer picks the first ready instance).
+ * authority and the renderer draws billboards from it. A scene may hold several GPU particle
+ * worlds; the renderer simulates and draws each ready one, in scene order, with its own passes.
  */
 
 import { SceneObject } from "../scene/scene.js";
@@ -157,6 +157,7 @@ export class GpuParticleWorld extends SceneObject {
       depth: RenderGraphHandle;
       colorFormat: GPUTextureFormat;
       depthFormat: GPUTextureFormat;
+      passSuffix?: string;
     },
   ): void {
     this._system?.enqueue(graph, opts);
@@ -177,6 +178,18 @@ export class GpuParticleWorld extends SceneObject {
     this._system?.dispose();
     this._system = null;
   }
+}
+
+/**
+ * Every GPU particle world on a scene, in scene order (the renderer draws each one). Writes into
+ * `out` (cleared first) so the per-frame call does not allocate.
+ */
+export function findGpuParticleWorlds(scene: { objects: readonly SceneObject[] }, out: GpuParticleWorld[] = []): GpuParticleWorld[] {
+  out.length = 0;
+  for (const o of scene.objects) {
+    if (o instanceof GpuParticleWorld) out.push(o);
+  }
+  return out;
 }
 
 /** Find the first GPU particle world on a scene, if any. */

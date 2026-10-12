@@ -12,9 +12,9 @@
  *   (D3): easy holds the rover until throttle pumping digs it free and adds a time penalty, hard
  *   sends it back to the last reached beam. Devils that leave it on its side follow the same rule.
  * - Dust devils (D5) push, yaw, lift and can flip the rover through `devilRoverForce`.
- * - Particles: the renderer draws one GPU particle system per scene, so the camera-centred storm
- *   sheet and the devil columns share it: emission alternates between the sheet slab and the devils
- *   frame by frame, and the engine's tangential `swirlStrength` spins dust around the nearest devil.
+ * - Particles: the camera-centred storm sheet is one GPU particle system and every dust devil slot
+ *   owns another (the renderer simulates and draws all of them), each with its own attractor and
+ *   tangential `swirlStrength` centred on its devil, so every column visibly spins.
  * - Beams: tall emissive cylinders with a fog-exempt material, so they read through any density.
  *   The active beam is bright, the next one dim, reached beams switch off.
  * - Quality (D6): `reduced` (iOS Safari, 30 fps target) or `full` (desktop WebGPU) tier.
@@ -111,6 +111,8 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   stormState(): MarsDustStormState;
   /** Restart the run from the spawn (R key). */
   restart(): void;
+  /** Switch EASY/HARD (toolbar + touch toggle) and restart the run under the new rules. */
+  setDifficulty(difficulty: StormDifficulty): void;
 }
 
 export interface MarsDustStormOptions {
@@ -139,8 +141,8 @@ const UP = new Vec3(0, 1, 0);
 
 export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOptions = {}): MarsDustStormHandle {
   const loadModel = options.loadGlb ?? loadGlb;
-  const difficulty: StormDifficulty = options.difficulty ?? "easy";
-  const rules = STORM_DIFFICULTY[difficulty];
+  let difficulty: StormDifficulty = options.difficulty ?? "easy";
+  let rules = STORM_DIFFICULTY[difficulty];
   const qualityTier: StormQualityTier = options.quality ?? "full";
   const quality = STORM_QUALITY_TIERS[qualityTier];
   const gpu = engine.gpu;
@@ -360,49 +362,58 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
   refreshBeams();
 
-  // ---------------------------------------------------------------- particles (one GPU system)
+  // ---------------------------------------------------------------- particles (sheet + one system per devil)
 
-  const dust = new GpuParticleWorld({
-    name: "storm dust",
-    capacity: quality.particleCapacity,
-    maxEmitsPerFrame: 4096,
-    seed: 0x5d0,
-    softParticles: true,
-    softScale: 18,
-    stretch: 0.8,
-    cullDistance: 140,
-    emitter: {
-      rate: 0,
-      lifeMin: 2.2,
-      lifeMax: 3.6,
-      size: 0.08,
-      position: { x: SPAWN_X, y: groundY + 8, z: SPAWN_Z },
-      jitter: { x: 60, y: 9, z: 60 },
-      coneDir: { x: 1, y: 0, z: 0 },
-      coneAngle: 0.25,
-      speedMin: 10,
-      speedMax: 18,
-      color: { r: 0.78, g: 0.48, b: 0.28, a: 0.3 },
-    },
-    modules: {
-      gravity: { x: 0, y: -0.6, z: 0 },
-      drag: 0.05,
-      turbulence: 4,
-      noiseScale: 0.08,
-      attractorPos: { x: SPAWN_X, y: groundY + 6, z: SPAWN_Z },
-      attractorStrength: 0,
-      swirlStrength: 0,
-      velocityBoost: { x: 0, y: 0, z: 0 },
-      colorFrom: { r: 0.78, g: 0.48, b: 0.28, a: 0.3 },
-      colorTo: { r: 0.62, g: 0.36, b: 0.2, a: 0 },
-      sizeStart: 0.06,
-      sizeEnd: 0.14,
-      sizeVariation: 0.5,
-      rotationSpeed: 0.4,
-    },
-  });
-  scene.add(dust);
-  let emitFrame = 0;
+  const dustColor = { r: 0.78, g: 0.48, b: 0.28, a: 0.3 };
+  const makeDust = (name: string, capacity: number, seed: number, maxEmits: number): GpuParticleWorld => {
+    const world = new GpuParticleWorld({
+      name,
+      capacity,
+      maxEmitsPerFrame: maxEmits,
+      seed,
+      softParticles: true,
+      softScale: 18,
+      stretch: 0.8,
+      cullDistance: 140,
+      emitter: {
+        rate: 0,
+        lifeMin: 2.2,
+        lifeMax: 3.6,
+        size: 0.08,
+        position: { x: SPAWN_X, y: groundY + 8, z: SPAWN_Z },
+        jitter: { x: 60, y: 9, z: 60 },
+        coneDir: { x: 1, y: 0, z: 0 },
+        coneAngle: 0.25,
+        speedMin: 10,
+        speedMax: 18,
+        color: { ...dustColor },
+      },
+      modules: {
+        gravity: { x: 0, y: -0.6, z: 0 },
+        drag: 0.05,
+        turbulence: 4,
+        noiseScale: 0.08,
+        attractorPos: { x: SPAWN_X, y: groundY + 6, z: SPAWN_Z },
+        attractorStrength: 0,
+        swirlStrength: 0,
+        velocityBoost: { x: 0, y: 0, z: 0 },
+        colorFrom: { ...dustColor },
+        colorTo: { r: 0.62, g: 0.36, b: 0.2, a: 0 },
+        sizeStart: 0.06,
+        sizeEnd: 0.14,
+        sizeVariation: 0.5,
+        rotationSpeed: 0.4,
+      },
+    });
+    scene.add(world);
+    return world;
+  };
+  const dust = makeDust("storm dust", quality.sheetCapacity, 0x5d0, 4096);
+  /** One GPU system per devil slot; slot i follows `devils.devils[i]` and idles when that slot is empty. */
+  const devilDust: GpuParticleWorld[] = [];
+  for (let i = 0; i < quality.devils; i++) {
+    devilDust.push(makeDust(`devil dust ${i}`, quality.devilCapacity, 0xd0 + i, 1024));
+  }
 
   // ---------------------------------------------------------------- input
 
@@ -417,6 +428,35 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
+  // EASY/HARD toggles: toolbar pair and the touch pad's single switch. Each restarts the run.
+  const btnEasy = document.getElementById("btn-storm-easy");
+  const btnHard = document.getElementById("btn-storm-hard");
+  const touchDifficulty = document.getElementById("storm-difficulty");
+  const syncDifficultyUi = (): void => {
+    const hard = difficulty === "hard";
+    btnEasy?.classList.toggle("active", !hard);
+    btnEasy?.setAttribute("aria-pressed", String(!hard));
+    btnHard?.classList.toggle("active", hard);
+    btnHard?.setAttribute("aria-pressed", String(hard));
+    if (touchDifficulty) {
+      touchDifficulty.classList.toggle("active", hard);
+      touchDifficulty.setAttribute("aria-pressed", String(hard));
+      const letter = touchDifficulty.querySelector(".veh-letter");
+      const caption = touchDifficulty.querySelector(".veh-caption");
+      if (letter) letter.textContent = hard ? "H" : "E";
+      if (caption) caption.textContent = hard ? "HARD" : "EASY";
+    }
+  };
+  const onEasy = (): void => setDifficulty("easy");
+  const onHard = (): void => setDifficulty("hard");
+  const onToggleDifficulty = (event: Event): void => {
+    event.preventDefault();
+    setDifficulty(difficulty === "hard" ? "easy" : "hard");
+  };
+  btnEasy?.addEventListener("click", onEasy);
+  btnHard?.addEventListener("click", onHard);
+  touchDifficulty?.addEventListener("click", onToggleDifficulty);
+  syncDifficultyUi(); // the URL's ?difficulty is the initial value
   const touch = attachVehicleTouch(document.getElementById("vehicle-touch"));
   const drive = readMarsDriveInput(keys, { steer: 0, throttle: 0, brake: 0 });
 
@@ -465,6 +505,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     lastEvent = `${reason} · BACK TO ${course.lastReached < 0 ? "START" : `BEACON ${course.lastReached + 1}`}`;
   };
 
+  function setDifficulty(next: StormDifficulty): void {
+    difficulty = next;
+    rules = STORM_DIFFICULTY[next];
+    syncDifficultyUi();
+    restart();
+    lastEvent = `${next.toUpperCase()} · RUN RESTARTED`;
+  }
+
   function restart(): void {
     course.index = 0;
     course.elapsed = 0;
@@ -500,60 +548,51 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const emitter = system.emitter;
     const modules = system.modules;
     const windLen = Math.hypot(wind.x, wind.z) || 1;
-    // Swirl and inflow around the devil nearest the camera: the one the player can see.
-    let nearest = devils.devils[0] ?? null;
-    let nearestD = Infinity;
-    for (const d of devils.devils) {
-      const dd = Math.hypot(d.x - eye.x, d.z - eye.z);
-      if (dd < nearestD) {
-        nearestD = dd;
-        nearest = d;
+    // Storm sheet: a wind-driven slab upwind of the camera.
+    emitter.rate = quality.sheetRate * (0.25 + 0.75 * intensity);
+    emitter.position.x = eye.x - (wind.x / windLen) * 25;
+    emitter.position.y = groundHeight(eye.x, eye.z) + 7;
+    emitter.position.z = eye.z - (wind.z / windLen) * 25;
+    emitter.coneDir.x = wind.x / windLen;
+    emitter.coneDir.y = -0.05;
+    emitter.coneDir.z = wind.z / windLen;
+    emitter.speedMin = windLen * 0.6;
+    emitter.speedMax = windLen * 1.05;
+    modules.attractorStrength = 0;
+    modules.swirlStrength = 0;
+    // Every devil owns a system: a column rising from its core, pulled in and spun around it.
+    for (let i = 0; i < devilDust.length; i++) {
+      const sys = devilDust[i]!.system;
+      if (!sys) continue;
+      const d = devils.devils[i];
+      if (!d) {
+        sys.emitter.rate = 0;
+        sys.modules.attractorStrength = 0;
+        sys.modules.swirlStrength = 0;
+        continue;
       }
+      const gy = groundHeight(d.x, d.z);
+      const e = sys.emitter;
+      e.rate = quality.devilRate;
+      e.position.x = d.x;
+      e.position.y = gy + 1;
+      e.position.z = d.z;
+      e.jitter.x = d.coreRadius;
+      e.jitter.y = 1;
+      e.jitter.z = d.coreRadius;
+      e.coneDir.x = 0;
+      e.coneDir.y = 1;
+      e.coneDir.z = 0;
+      e.coneAngle = 0.5;
+      e.speedMin = 5;
+      e.speedMax = 11;
+      const m = sys.modules;
+      m.attractorPos.x = d.x;
+      m.attractorPos.y = gy + 10;
+      m.attractorPos.z = d.z;
+      m.attractorStrength = 6;
+      m.swirlStrength = Math.sign(d.swirl || 1) * 140;
     }
-    if (nearest) {
-      modules.attractorPos.x = nearest.x;
-      modules.attractorPos.y = groundHeight(nearest.x, nearest.z) + 10;
-      modules.attractorPos.z = nearest.z;
-      modules.attractorStrength = 6;
-      modules.swirlStrength = Math.sign(nearest.swirl) * 140;
-    } else {
-      modules.attractorStrength = 0;
-      modules.swirlStrength = 0;
-    }
-    // Alternate the shared emitter: even frames feed the storm sheet, odd frames one devil column.
-    const devilCount = devils.devils.length;
-    const sheetFrame = devilCount === 0 || emitFrame % 2 === 0;
-    if (sheetFrame) {
-      emitter.rate = quality.sheetRate * (0.25 + 0.75 * intensity) * (devilCount === 0 ? 1 : 2);
-      emitter.position.x = eye.x - (wind.x / windLen) * 25;
-      emitter.position.y = groundHeight(eye.x, eye.z) + 7;
-      emitter.position.z = eye.z - (wind.z / windLen) * 25;
-      emitter.jitter.x = 60;
-      emitter.jitter.y = 8;
-      emitter.jitter.z = 60;
-      emitter.coneDir.x = wind.x / windLen;
-      emitter.coneDir.y = -0.05;
-      emitter.coneDir.z = wind.z / windLen;
-      emitter.coneAngle = 0.25;
-      emitter.speedMin = windLen * 0.6;
-      emitter.speedMax = windLen * 1.05;
-    } else {
-      const d = devils.devils[(emitFrame >> 1) % devilCount]!;
-      emitter.rate = quality.devilRate * 2 * devilCount;
-      emitter.position.x = d.x;
-      emitter.position.y = groundHeight(d.x, d.z) + 1;
-      emitter.position.z = d.z;
-      emitter.jitter.x = d.coreRadius;
-      emitter.jitter.y = 1;
-      emitter.jitter.z = d.coreRadius;
-      emitter.coneDir.x = 0;
-      emitter.coneDir.y = 1;
-      emitter.coneDir.z = 0;
-      emitter.coneAngle = 0.5;
-      emitter.speedMin = 5;
-      emitter.speedMax = 11;
-    }
-    emitFrame++;
   };
 
   const updateMound = (entity: Entity, renderable: Renderable, x: number, z: number, sx: number, sy: number, sz: number, yaw: number): void => {
@@ -710,7 +749,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · R restart · reach the light beams in order · keep moving or the dust buries you · ?difficulty=hard",
+    controlsHint: "WASD / arrows drive · Space handbrake · R restart · EASY/HARD toggle restarts · reach the light beams in order · keep moving or the dust buries you",
     camera: marsChaseCamera(new Vec3(SPAWN_X, chaseLookY, SPAWN_Z), groundHeight, 60),
     followTarget: marsChaseFollow(vehicle),
     vehicleState: () => ({
@@ -740,12 +779,16 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     },
     stormState,
     restart,
+    setDifficulty,
     update,
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
+      btnEasy?.removeEventListener("click", onEasy);
+      btnHard?.removeEventListener("click", onHard);
+      touchDifficulty?.removeEventListener("click", onToggleDifficulty);
       keys.clear();
       loaded?.dispose();
       loaded = null;

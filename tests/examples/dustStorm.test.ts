@@ -33,6 +33,7 @@ import {
   pileWindwardPoint,
   stormCheckpointLayout,
   stormQualityForPlatform,
+  stormParticleBudget,
   type DustDevil,
 } from "../../examples/src/scenes/dustStorm.js";
 
@@ -183,7 +184,10 @@ group("course and difficulty (D3/D4)", () => {
     assert.equal(STORM_DIFFICULTY.hard.onFlip, "reset");
     assert.equal(stormQualityForPlatform("ios"), "reduced");
     assert.equal(stormQualityForPlatform("macos"), "full");
-    assert.ok(STORM_QUALITY_TIERS.reduced.particleCapacity * 4 < STORM_QUALITY_TIERS.full.particleCapacity);
+    // iOS budget: sheet + every capped devil system stays at 28k particles, well under full.
+    assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) <= 28_000);
+    assert.ok(STORM_QUALITY_TIERS.reduced.devilCapacity <= 2_000);
+    assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) * 4 < stormParticleBudget(STORM_QUALITY_TIERS.full));
     assert.ok(STORM_QUALITY_TIERS.reduced.devils < STORM_QUALITY_TIERS.full.devils);
     assert.equal(isRoverFlipped(0.2, 0.1), false);
     assert.equal(isRoverFlipped(1.6, 0), true);

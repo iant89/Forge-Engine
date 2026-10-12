@@ -58,7 +58,7 @@ export {
   type GpuParticleModulesConfig,
   type GpuParticleFrameInput,
 } from "./gpuSystem.js";
-export { GpuParticleWorld, findGpuParticleWorld, type GpuParticleWorldOptions } from "./gpuWorld.js";
+export { GpuParticleWorld, findGpuParticleWorld, findGpuParticleWorlds, type GpuParticleWorldOptions } from "./gpuWorld.js";
 export { ParticleComponent, createParticleComponent } from "./components.js";
 export { ParticleSystem } from "./system.js";
 export { ParticleWorld } from "./world.js";

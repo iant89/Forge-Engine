@@ -27,11 +27,13 @@ export const STORM_SEED = 0x5d057;
 export type StormQualityTier = "full" | "reduced";
 
 export interface StormQualitySettings {
+  /** Capacity of the camera-centred storm-sheet GPU particle system. */
+  sheetCapacity: number;
   /**
-   * Capacity of the scene's single GPU particle system (the renderer draws one per scene): the
-   * camera-centred storm sheet and every devil column share it.
+   * Capacity of each dust devil's own GPU particle system (one per devil slot). Capped hard on
+   * the reduced tier so sheet + every devil stays inside the iOS particle budget.
    */
-  particleCapacity: number;
+  devilCapacity: number;
   /** Storm-sheet spawn rate at full intensity (particles/s). */
   sheetRate: number;
   /** Simultaneous dust devils, and each column's spawn rate (particles/s). */
@@ -44,7 +46,8 @@ export interface StormQualitySettings {
 
 export const STORM_QUALITY_TIERS: Readonly<Record<StormQualityTier, Readonly<StormQualitySettings>>> = Object.freeze({
   full: Object.freeze({
-    particleCapacity: 160_000,
+    sheetCapacity: 112_000,
+    devilCapacity: 8_000,
     sheetRate: 40_000,
     devils: 6,
     devilRate: 3_000,
@@ -52,7 +55,8 @@ export const STORM_QUALITY_TIERS: Readonly<Record<StormQualityTier, Readonly<Sto
     shadowCascades: 3,
   }),
   reduced: Object.freeze({
-    particleCapacity: 28_000,
+    sheetCapacity: 22_000,
+    devilCapacity: 2_000,
     sheetRate: 7_000,
     devils: 3,
     devilRate: 1_000,
@@ -62,6 +66,11 @@ export const STORM_QUALITY_TIERS: Readonly<Record<StormQualityTier, Readonly<Sto
 });
 
 /** iOS/iPadOS Safari gets the reduced 30 fps tier; everything else runs the full storm. */
+/** Total GPU particles a tier can hold: the sheet plus every devil slot. */
+export function stormParticleBudget(q: Readonly<StormQualitySettings>): number {
+  return q.sheetCapacity + q.devils * q.devilCapacity;
+}
+
 export function stormQualityForPlatform(os: string): StormQualityTier {
   return os === "ios" ? "reduced" : "full";
 }

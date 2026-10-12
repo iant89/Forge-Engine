@@ -155,6 +155,7 @@ async function main(): Promise<void> {
     document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm");
     document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
+    document.body.classList.toggle("scene-storm", name === "mars-dust-storm");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     document.body.classList.toggle("scene-rescue", name === "alpine-rescue");
@@ -202,7 +203,8 @@ async function main(): Promise<void> {
     } else if (name === "amazon-river") {
       currentHandle = buildAmazonRiverScene(engine);
     } else if (name === "mars-dust-storm") {
-      // `?difficulty=hard` sends a buried or flipped rover back to the last beam (easy rocks free).
+      // `?difficulty=hard` is only the starting value: the EASY/HARD toolbar and touch toggles switch
+      // it live and restart the run. Hard sends a buried or flipped rover back to the last beam.
       const query = new URLSearchParams(window.location.search);
       currentHandle = buildMarsDustStormScene(engine, {
         difficulty: query.get("difficulty") === "hard" ? "hard" : "easy",

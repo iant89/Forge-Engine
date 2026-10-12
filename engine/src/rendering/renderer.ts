@@ -63,7 +63,7 @@ import { MULTI_SCATTERING_GPU, MultiScatteringField } from "../environment/multi
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { MAX_CLOUD_LAYERS, SkyLightingCache, cloudLayerCentre, cloudLayerCount, cloudLayerDrift, cloudLayerWeight } from "../environment/clouds.js";
 import { isUnderwater } from "../environment/water.js";
-import { findGpuParticleWorld } from "../particles/gpuWorld.js";
+import { findGpuParticleWorlds, type GpuParticleWorld } from "../particles/gpuWorld.js";
 import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
@@ -826,6 +826,7 @@ export class Renderer implements RenderFrameContext {
   private readonly scratchMat = new Mat4();
   private readonly scratchMatrix = new Float32Array(16);
   private readonly cameraWorld = new Mat4();
+  private readonly gpuParticleWorldScratch: GpuParticleWorld[] = [];
   private readonly view = new Mat4();
   private readonly projection = new Mat4();
   private readonly invProjection = new Mat4();
@@ -1239,14 +1240,14 @@ export class Renderer implements RenderFrameContext {
       : scaledLdr
         ? g.createTexture("scene.ldr", { width: frame.renderWidth, height: frame.renderHeight, format: this.device.format, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING })
         : swapchain;
-    const gpuParticleWorld = findGpuParticleWorld(scene);
-    if (gpuParticleWorld) gpuParticleWorld.attachDevice(this.device);
+    // Every GPU particle world on the scene is simulated and drawn (dust devils each own one).
+    const gpuParticleWorlds = findGpuParticleWorlds(scene, this.gpuParticleWorldScratch);
     // Depth TEXTURE_BINDING + store only while particles can/will run — not after a latched attach failure.
-    const wantGpuParticles = Boolean(
-      gpuParticleWorld &&
-        !gpuParticleWorld.attachFailed &&
-        (gpuParticleWorld.ready || gpuParticleWorld.initPending),
-    );
+    let wantGpuParticles = false;
+    for (const world of gpuParticleWorlds) {
+      world.attachDevice(this.device);
+      if (!world.attachFailed && (world.ready || world.initPending)) wantGpuParticles = true;
+    }
     // Soft particles and SSAO sample the depth buffer; nothing else needs TEXTURE_BINDING on it.
     const sceneDepth = g.createTexture("scene.depth", {
       width: frame.renderWidth,
@@ -1329,22 +1330,26 @@ export class Renderer implements RenderFrameContext {
     }
 
     // Phase 12 GPU particles: sim/sort/render/resolve against the authoritative storage buffer.
-    if (gpuParticleWorld?.system?.ready) {
+    // The first ready world keeps the bare pass names; each later ready one gets `#n` (n = its order among the ready worlds).
+    if (gpuParticleWorlds.length > 0) {
       const m = this.cameraWorld.m;
       const rl = Math.hypot(m[0]!, m[1]!, m[2]!) || 1;
       const ul = Math.hypot(m[4]!, m[5]!, m[6]!) || 1;
-      gpuParticleWorld.prepareFrame({
-        viewProj: this.viewProj,
-        cameraPos: this.lastCameraPos,
-        cameraRight: { x: m[0]! / rl, y: m[1]! / rl, z: m[2]! / rl },
-        cameraUp: { x: m[4]! / ul, y: m[5]! / ul, z: m[6]! / ul },
-      });
-      gpuParticleWorld.enqueue(g, {
-        color: sceneColor,
-        depth: sceneDepth,
-        colorFormat,
-        depthFormat: this.device.depthFormat,
-      });
+      const cameraRight = { x: m[0]! / rl, y: m[1]! / rl, z: m[2]! / rl };
+      const cameraUp = { x: m[4]! / ul, y: m[5]! / ul, z: m[6]! / ul };
+      let drawn = 0;
+      for (const world of gpuParticleWorlds) {
+        if (!world.system?.ready) continue;
+        world.prepareFrame({ viewProj: this.viewProj, cameraPos: this.lastCameraPos, cameraRight, cameraUp });
+        world.enqueue(g, {
+          color: sceneColor,
+          depth: sceneDepth,
+          colorFormat,
+          depthFormat: this.device.depthFormat,
+          passSuffix: drawn === 0 ? "" : `#${drawn}`,
+        });
+        drawn++;
+      }
     }
 
     this.stats.hdr = frame.hdr;

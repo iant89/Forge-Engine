@@ -734,28 +734,31 @@ export class GpuParticleSystem {
       depth: RenderGraphHandle;
       colorFormat: GPUTextureFormat;
       depthFormat: GPUTextureFormat;
+      /** Appended to every pass name so several systems in one frame stay distinguishable. */
+      passSuffix?: string;
     },
   ): void {
     if (!this.ready || this.disposed) return;
-    const passes = this.lastSimulationSteps > 0
+    const sfx = opts.passSuffix ?? "";
+    const passes = (this.lastSimulationSteps > 0
       ? ["particle.sim", "particle.sort", "particle.render", "particle.resolve"]
-      : ["particle.sort", "particle.render", "particle.resolve"];
+      : ["particle.sort", "particle.render", "particle.resolve"]).map((name) => name + sfx);
     this.lastEnqueuedPasses = passes;
 
     if (this.lastSimulationSteps > 0) {
       graph.addPass({
-        name: "particle.sim",
+        name: "particle.sim" + sfx,
         sideEffect: true,
         execute: (ctx) => this.encodeSim(ctx),
       });
     }
     graph.addPass({
-      name: "particle.sort",
+      name: "particle.sort" + sfx,
       sideEffect: true,
       execute: (ctx) => this.encodeCull(ctx),
     });
     graph.addPass({
-      name: "particle.render",
+      name: "particle.render" + sfx,
       reads: [opts.depth],
       color: [{ texture: opts.color, loadOp: "load" }],
       // Read-only on purpose: this pass SAMPLES the scene depth (soft-particle fade), which WebGPU
@@ -767,7 +770,7 @@ export class GpuParticleSystem {
       execute: (ctx) => this.encodeRender(ctx, opts.colorFormat, opts.depthFormat, opts.depth),
     });
     graph.addPass({
-      name: "particle.resolve",
+      name: "particle.resolve" + sfx,
       sideEffect: true,
       execute: (ctx) => this.encodeResolve(ctx),
     });
