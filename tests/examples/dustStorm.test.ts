@@ -17,6 +17,8 @@ import assert from "node:assert/strict";
 import { PARTICLE_FULL_SIM_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  DEVIL_COARSE_FRACTION,
+  DEVIL_COARSE_SCALE,
   BURIAL_STUCK,
   CHECKPOINT_REACH,
   DustAccumulation,
@@ -587,6 +589,15 @@ group("fe-19 review: ending a devil never raises its envelope", () => {
     const before = devilEnvelope(small);
     (f as unknown as { absorb(a: unknown, b: unknown, c: string): void }).absorb(big, small, "consumed");
     assert.ok(devilEnvelope(small) <= before + 1e-9, `envelope rose ${before} -> ${devilEnvelope(small)}`);
+  });
+});
+
+group("fe-21c devil coarse grains", () => {
+  test("a minority of grains are notably larger, and the sim shader applies it", () => {
+    assert.ok(DEVIL_COARSE_FRACTION > 0.05 && DEVIL_COARSE_FRACTION < 0.3);
+    assert.ok(DEVIL_COARSE_SCALE >= 2);
+    assert.match(PARTICLE_FULL_SIM_SHADER, /coarseFraction/);
+    assert.match(PARTICLE_FULL_SIM_SHADER, /params\.coarseScale/);
   });
 });
 

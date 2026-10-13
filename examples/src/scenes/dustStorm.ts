@@ -1265,6 +1265,14 @@ export function devilParticleLook(
 /** Devil grain size over life (m). */
 export const DEVIL_GRAIN_START = 0.12;
 export const DEVIL_GRAIN_END = 0.3;
+/**
+ * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
+ * to fill the voids between fine motes (same particle count, so budgets are unchanged).
+ */
+export const DEVIL_COARSE_FRACTION = 0.14;
+export const DEVIL_COARSE_SCALE = 3.2;
+/** Mild per-grain size spread so the fine layer isn't uniform. */
+export const DEVIL_SIZE_VARIATION = 0.35;
 
 /** Emission rate multiplier for a frame of {@link devilParticleLook}: keeps the per-second mix (and the burst) right. */
 export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "column">, envelope: number, bursting: boolean): number {

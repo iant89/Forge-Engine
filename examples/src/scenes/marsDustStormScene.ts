@@ -86,6 +86,9 @@ import {
   DEVIL_BURST_TIME,
   DEVIL_SWARM_COLOR,
   DEVIL_SWARM_ROCK,
+  DEVIL_COARSE_FRACTION,
+  DEVIL_COARSE_SCALE,
+  DEVIL_SIZE_VARIATION,
   type DevilParticleLook,
   DEVIL_DUST_GRAVITY,
   DEVIL_DUST_DRAG,
@@ -729,6 +732,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         sys.emitter.rate = 0;
         sys.modules.attractorStrength = 0;
         sys.modules.swirlStrength = 0;
+        // Empty slot: drop the axis spring too, so leftover grains drift free instead of
+        // snapping toward a stale axis (fe-21 review).
+        sys.modules.axisPull = 0;
         continue;
       }
       const gy = groundHeight(d.x, d.z);
@@ -774,6 +780,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       m.swirlStrength = look.swirl;
       m.sizeStart = look.sizeStart;
       m.sizeEnd = look.sizeEnd;
+      m.sizeVariation = DEVIL_SIZE_VARIATION;
+      m.coarseFraction = DEVIL_COARSE_FRACTION;
+      m.coarseScale = DEVIL_COARSE_SCALE;
     }
     devilEmitFrame++;
     stepFunnels();

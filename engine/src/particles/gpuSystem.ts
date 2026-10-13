@@ -93,6 +93,13 @@ export interface GpuParticleModulesConfig {
    */
   axisPull?: number;
   axisLean?: { x: number; y: number; z: number };
+  /**
+   * Bimodal size mix: this fraction 0..1 of particles (stable pick from life, independent of
+   * `sizeVariation`) is drawn `coarseScale`× larger — a few big grains filling gaps between fine
+   * ones at no extra particle cost. 0 = off (default).
+   */
+  coarseFraction?: number;
+  coarseScale?: number;
 }
 
 export interface GpuParticleSystemOptions {
@@ -175,6 +182,8 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     colorAlt: partial.colorAlt ?? { r: 0, g: 0, b: 0, a: 1 },
     axisPull: partial.axisPull ?? 0,
     axisLean: partial.axisLean ?? { x: 0, y: 1, z: 0 },
+    coarseFraction: partial.coarseFraction ?? 0,
+    coarseScale: partial.coarseScale ?? 1,
   };
 }
 
@@ -706,6 +715,8 @@ export class GpuParticleSystem {
     f[38] = Math.max(1e-3, m.axisLean?.y ?? 1);
     f[39] = m.axisLean?.x ?? 0;
     f[40] = m.axisLean?.z ?? 0;
+    f[41] = Math.max(0, Math.min(1, m.coarseFraction ?? 0));
+    f[42] = Math.max(0, m.coarseScale ?? 1);
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 

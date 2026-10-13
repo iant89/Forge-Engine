@@ -277,6 +277,8 @@ struct FullSimParams {
   axisHeight: f32,
   axisLeanX: f32,
   axisLeanZ: f32,
+  coarseFraction: f32,
+  coarseScale: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -337,7 +339,9 @@ struct FullSimParams {
   // maxLife is randomized once at emission, so this size multiplier remains stable throughout a
   // particle's life without needing another particle-buffer field or per-frame random flicker.
   let sizeRandom = fract(p.maxLife * 31.713);
-  let sizeMultiplier = 1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0);
+  let coarseRandom = fract(p.maxLife * 73.19 + 0.37);
+  let coarse = select(1.0, params.coarseScale, coarseRandom < params.coarseFraction);
+  let sizeMultiplier = (1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0)) * coarse;
   p.size = mix(params.sizeStart, params.sizeEnd, t) * sizeMultiplier;
   p.seed = fract(p.seed + params.rotationSpeed * params.dt * (0.1 + t));
   if (p.life <= 0.0) {
