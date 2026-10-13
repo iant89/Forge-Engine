@@ -605,11 +605,11 @@ async function checkGltfTextured({ model, file, prefix, minTextures = 1, minDiff
   if (!(state.textures >= minTextures) || !(state.texturedMaterials >= 1)) {
     throw new Error(`${file}: expected textured materials (textures=${state.textures}, texturedMaterials=${state.texturedMaterials})`);
   }
-  await page.evaluate(() => window.__forge.setGltfSkinTextured(false));
+  await page.evaluate(() => window.__forge.setGltfSkinMaterialFeature("albedo", false));
   await waitPresentedFrames(3);
   await keepLuma(`gltf-tex-${model}-off`);
   await page.screenshot({ path: `${prefix}-untextured.png`, timeout: 60000 });
-  await page.evaluate(() => window.__forge.setGltfSkinTextured(true));
+  await page.evaluate(() => window.__forge.setGltfSkinMaterialFeature("albedo", true));
   await waitPresentedFrames(3);
   await keepLuma(`gltf-tex-${model}-on`);
   const shot = `${prefix}-textured.png`;

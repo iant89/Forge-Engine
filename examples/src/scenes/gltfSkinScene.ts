@@ -10,8 +10,8 @@
  * `?model=cesium` loads `examples/assets/CesiumMan.glb` instead (Khronos sample, CC-BY-4.0 — see
  * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle, drawn with its embedded JPEG
  * base-colour texture (Phase 16.1c, `loadGltfTextures`). `?model=perseverance` loads the repo's static
- * `Perseverance.glb` (WebP colour and normal maps) the same way. `setGltfSkinTextured(false)` unbinds the
- * albedo maps so the browser gate can prove the texture changes pixels. `?model=features` loads the
+ * `Perseverance.glb` (WebP colour and normal maps) the same way. `setGltfSkinMaterialFeature("albedo", false)`
+ * unbinds the albedo maps so the browser gate can prove the texture changes pixels. `?model=features` loads the
  * generated `MaterialFeatures.gltf` (CC0): emissive, occlusion, alpha MASK and a clamp/nearest sampler,
  * each toggled by `setGltfSkinMaterialFeature` for the gate's per-feature A/B.
  *
@@ -106,8 +106,6 @@ export interface GltfSkinSceneHandle extends DemoSceneHandle {
   gltfSkinState: () => GltfSkinState;
   /** Freeze the clip at `t` seconds (deterministic pose for a pixel A/B). */
   setGltfSkinTime: (t: number) => void;
-  /** Bind (true) or unbind (false) the imported albedo maps, for a textured-vs-factor pixel A/B. */
-  setGltfSkinTextured: (on: boolean) => void;
   /** Turn one imported material feature off (false) or back on, for a per-feature pixel A/B. */
   setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => void;
 }
@@ -244,10 +242,6 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
           m.markChanged();
         } else m.setSamplers(on ? s.samplers : { albedo: null, normal: null, metallicRoughness: null, emissive: null, occlusion: null });
       }
-    },
-    setGltfSkinTextured: (on: boolean) => {
-      texturesEnabled = on;
-      for (const [m, t] of albedo) m.setMaps({ albedo: on ? t : null });
     },
     setGltfSkinTime: (t: number) => {
       frozenAt = t;

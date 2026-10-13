@@ -746,9 +746,6 @@ async function main(): Promise<void> {
     setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => {
       (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinMaterialFeature?.(feature, on);
     },
-    setGltfSkinTextured: (on: boolean) => {
-      (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTextured?.(on);
-    },
     setGltfSkinTime: (t: number) => {
       (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTime?.(t);
     },
