@@ -62,6 +62,17 @@ struct SkyOut {
   @location(1) farPoint: vec3<f32>,
 }
 
+// Brightest radiance the sky hands the rgba16float HDR target (its finite max is 65504).
+const SKY_RADIANCE_MAX: f32 = 60000.0;
+
+// fe-17: a term that is not finite contributes nothing. WebKit compiles WGSL to Metal with fast math,
+// where whether a NaN/inf appears (and survives clamp/max) depends on how the optimiser happened to
+// schedule this exact source — the device bisect saw the shipped sky black while every trivially
+// edited variant drew. Gating each accumulated term keeps one bad sample from blackening the pixel.
+fn skyFinite3(v: vec3<f32>) -> vec3<f32> {
+  return select(vec3<f32>(0.0), v, msFinite(v.x) && msFinite(v.y) && msFinite(v.z));
+}
+
 @vertex
 fn vertexMain(@builtin(vertex_index) index: u32) -> SkyOut {
   let x = f32(index & 1u) * 4.0 - 1.0;
@@ -179,26 +190,26 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       let od = sky.rayleighScattering * odR + sky.mieExtinction * odM + sky.ozoneAbsorption * odO;
       if (!blocked) {
         let attenuation = exp(-(od + lightOd));
-        sumR += attenuation * dR;
-        sumM += attenuation * dM;
+        sumR += skyFinite3(attenuation * dR);
+        sumM += skyFinite3(attenuation * dM);
       }
       if (sky.multiScattering != 0) {
         // Multiple scattering (Phase 17.1) reaches this sample from the whole lit sky, so it lands
         // even where the sun itself is below the local horizon — that is the twilight glow. The
         // table already carries the sun's transmittance to the scattering points, so only this
         // ray's transmittance and the local scattering coefficients remain.
-        msSum += exp(-od) * (sky.rayleighScattering * dR + sky.mieScattering * dM) * msSourceAt(h, p, sunDir);
+        msSum += skyFinite3(exp(-od) * (sky.rayleighScattering * dR + sky.mieScattering * dM) * msSourceAt(h, p, sunDir));
       }
     }
     viewOd = sky.rayleighScattering * odR + sky.mieExtinction * odM + sky.ozoneAbsorption * odO;
-    radiance = sky.sunIntensity * (sky.rayleighScattering * sumR * phaseR + sky.mieScattering * sumM * phaseM + msSum);
+    radiance = skyFinite3(sky.sunIntensity * (sky.rayleighScattering * sumR * phaseR + sky.mieScattering * sumM * phaseM + msSum));
     if (hitsGround) {
       let g = origin + dir * tGround;
       let n = normalize(g);
       let nDotL = max(dot(n, sunDir), 0.0);
       if (nDotL > 0.0) {
         let lightT = exp(-opticalDepthToSpace(g, sunDir, lightSamples));
-        radiance += exp(-viewOd) * (sky.groundAlbedo / PI) * sky.sunIntensity * lightT * nDotL;
+        radiance += skyFinite3(exp(-viewOd) * (sky.groundAlbedo / PI) * sky.sunIntensity * lightT * nDotL);
       }
     }
   }
@@ -215,7 +226,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
         let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - r * r)));
         let edge = 1.0 - smoothstep(radius - 0.001, radius + 0.001, angle);
         let transmittance = exp(-opticalDepthToSpace(origin, sunDir, lightSamples));
-        radiance += transmittance * sky.sunIntensity * sky.sunDiscIntensity * limb * edge;
+        radiance += skyFinite3(transmittance * sky.sunIntensity * sky.sunDiscIntensity * limb * edge);
       }
     }
     // A procedural full moon follows the anti-solar direction. It uses the same atmospheric
@@ -227,14 +238,14 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
       if (moonAngle < moonRadius + 0.001) {
         let moonEdge = 1.0 - smoothstep(moonRadius - 0.001, moonRadius + 0.001, moonAngle);
         let moonT = exp(-opticalDepthToSpace(origin, moonDir, lightSamples));
-        radiance += moonT * vec3<f32>(0.82, 0.88, 1.0) * (sky.sunIntensity * 0.004 * moonEdge);
+        radiance += skyFinite3(moonT * vec3<f32>(0.82, 0.88, 1.0) * (sky.sunIntensity * 0.004 * moonEdge));
       }
     }
     if (sky.starBrightness > 0.0 && dir.y > -0.05) {
       // Stars fade with the scattered light so they never show through a daytime sky.
       let daylight = clamp(luminance(radiance) * 40.0, 0.0, 1.0);
       let horizonFade = smoothstep(-0.05, 0.12, dir.y);
-      radiance += vec3<f32>(0.9, 0.95, 1.0) * (stars(dir) * 0.03 * sky.starBrightness * (1.0 - daylight) * horizonFade);
+      radiance += skyFinite3(vec3<f32>(0.9, 0.95, 1.0) * (stars(dir) * 0.03 * sky.starBrightness * (1.0 - daylight) * horizonFade));
     }
   }
 
@@ -244,7 +255,8 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     // sheet shaded by the deck above it. Fog applies after, so a fogged horizon veils the deck's
     // base exactly like any distant geometry.
     let deck = cloudDeck(dir, sunDir, deckFootprint);
-    radiance = mix(radiance, deck.rgb, deck.a);
+    let deckA = select(0.0, clamp(deck.a, 0.0, 1.0), msFinite(deck.a));
+    radiance = mix(radiance, skyFinite3(deck.rgb), deckA);
   }
 
   // Scene fog. The planet ground is geometry at a known distance and is fogged in every mode, so
@@ -259,6 +271,11 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     radiance = mix(perFrame.fogColor, radiance, fogTransmittance(SKY_FOG_DISTANCE, cameraY, cameraY + SKY_FOG_DISTANCE * dir.y));
   }
 
+  // fe-17: never hand the HDR target a NaN, an inf or a negative. rgba16float overflows to inf above
+  // 65504 and a single non-finite sky pixel reaches every bloom mip and the tonemap, which shows as a
+  // black sky on iOS Safari. Exponent-bit test, not x != x (WebKit's Metal fast math).
+  let radianceOk = msFinite(radiance.x) && msFinite(radiance.y) && msFinite(radiance.z);
+  radiance = select(vec3<f32>(0.0), clamp(radiance, vec3<f32>(0.0), vec3<f32>(SKY_RADIANCE_MAX)), radianceOk);
   if ((perFrame.flags & 2u) != 0u) {
     return vec4<f32>(radiance, 1.0);
   }

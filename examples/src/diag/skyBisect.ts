@@ -57,6 +57,14 @@ function firstStatement(source: string, line: string): string | null {
 
 export const SKY_BISECT_VARIANTS: readonly SkyBisectVariant[] = [
   {
+    // fe-17 control: byte-different but semantically identical. If this draws while "as-is" is
+    // black, the black is not any construct in the source but the device's compile of that exact
+    // text (WebKit/Metal fast math or a cached library), and the guards are what must hold.
+    id: "recompile",
+    label: "identical shader with a trailing comment (forces a fresh compile, no semantic change)",
+    apply: (source) => (source.includes("fn fragmentMain(") ? `${source}\n// fe-17 recompile control\n` : null),
+  },
+  {
     id: "uniform-bounds",
     label: "loop bounds straight from the uniform (no per-pixel select)",
     apply: (source) => {
