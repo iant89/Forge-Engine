@@ -830,7 +830,10 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
     }
   }
   checkCancelled(ctx, source);
-  const animations = decodeGltfAnimations(doc as Parameters<typeof decodeGltfAnimations>[0], buffers, nodes.length, source);
+  const animations = decodeGltfAnimations(doc as Parameters<typeof decodeGltfAnimations>[0], buffers, nodes.length, source, (index, name, error) => {
+    // Phase 16.1f: an unsupported/broken animation must not fail the whole model load.
+    console.warn(`[gltf] ${source}: skipping animation ${index} (${name}): ${error instanceof Error ? error.message : String(error)}`);
+  });
   for (const animation of animations) {
     for (const sampler of animation.samplers) decodedBytes += sampler.input.byteLength + sampler.output.byteLength;
   }

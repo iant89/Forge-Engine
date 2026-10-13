@@ -180,6 +180,24 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
     assert.deepEqual(validateSkinningData(primitive.skin), []);
   });
 
+  test("an unsupported animation is skipped with console.warn; the model still loads", async () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    try {
+      const asset = await decodeGltfMesh(makeSkinnedGltf({ extra: (doc) => {
+        doc.animations = [{ name: "bezier", channels: [{ sampler: 0, target: { node: 1, path: "rotation" } }], samplers: [{ input: 0, output: 0, interpolation: "BEZIER" }] }];
+      } }));
+      assert.equal(asset.meshes.length, 1);
+      assert.equal(asset.skins.length, 1);
+      assert.deepEqual(asset.animations, []);
+      assert.equal(warnings.length, 1);
+      assert.match(String(warnings[0]![0]), /skipping animation 0 \(bezier\).*unsupported interpolation/);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   test("accepts unsigned-short joints and normalized unsigned-byte weights", async () => {
     const asset = await decodeGltfMesh(makeSkinnedGltf({ jointComponentType: 5123, weightsNormalized: true }));
     const skin = asset.meshes[0]!.primitives[0]!.skin!;

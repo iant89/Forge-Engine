@@ -169,6 +169,7 @@ export function decodeGltfAnimations(
   buffers: ArrayBuffer[],
   nodeCount: number,
   source: string,
+  onSkip?: (animIndex: number, name: string, error: unknown) => void,
 ): DecodedGltfAnimation[] {
   const raw = doc.animations;
   if (!raw || raw.length === 0) return [];
@@ -177,13 +178,39 @@ export function decodeGltfAnimations(
 
   for (let animIndex = 0; animIndex < raw.length; animIndex++) {
     const anim = raw[animIndex]!;
-    const name = anim.name ?? `animation-${animIndex}`;
+    const name = anim?.name ?? `animation-${animIndex}`;
+    if (!onSkip) {
+      const decoded = decodeOneAnimation(doc, buffers, nodeCount, source, anim, animIndex, name);
+      if (decoded) result.push(decoded);
+      continue;
+    }
+    try {
+      const decoded = decodeOneAnimation(doc, buffers, nodeCount, source, anim, animIndex, name);
+      if (decoded) result.push(decoded);
+    } catch (error) {
+      onSkip(animIndex, name, error);
+    }
+  }
+
+  return result;
+}
+
+function decodeOneAnimation(
+  doc: GltfDocumentWithAnimations,
+  buffers: ArrayBuffer[],
+  nodeCount: number,
+  source: string,
+  anim: GltfAnimationDef,
+  animIndex: number,
+  name: string,
+): DecodedGltfAnimation | null {
+  {
 
     // ── samplers ──
     const rawSamplers = anim.samplers ?? [];
     if (rawSamplers.length === 0) {
       // Empty animation — skip silently (glTF allows it).
-      continue;
+      return null;
     }
 
     const samplers: DecodedAnimationSampler[] = [];
@@ -242,12 +269,10 @@ export function decodeGltfAnimations(
     }
 
     // Skip animations with no usable channels (all-morph, etc.).
-    if (channels.length === 0) continue;
+    if (channels.length === 0) return null;
 
-    result.push({ name, channels, samplers, duration });
+    return { name, channels, samplers, duration };
   }
-
-  return result;
 }
 
 /**

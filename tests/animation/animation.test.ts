@@ -591,6 +591,28 @@ group("glTF animation decoder", () => {
     assertThrows(() => decodeGltfAnimations(doc as Record<string, unknown>, buffers, 2, "test.gltf"), "monotonically increasing");
   });
 
+  test("onSkip: skips a broken animation, keeps the good ones, reports index/name/error", () => {
+    const { doc, buffers } = makeGltfWithAnimation();
+    const d = doc as Record<string, unknown>;
+    const good = (d.animations as unknown[])[0]!;
+    d.animations = [
+      { name: "bad-interp", channels: [{ sampler: 0, target: { node: 0, path: "translation" } }], samplers: [{ input: 0, output: 1, interpolation: "BEZIER" }] },
+      good,
+      { channels: [{ sampler: 0, target: { node: 99, path: "translation" } }], samplers: [{ input: 0, output: 1 }] },
+    ];
+    const skipped: [number, string, string][] = [];
+    const anims = decodeGltfAnimations(d, buffers, 2, "test.gltf", (i, name, err) => skipped.push([i, name, (err as Error).message]));
+    assert.equal(anims.length, 1);
+    assert.equal(anims[0]!.name, "walk");
+    assert.equal(skipped.length, 2);
+    assert.equal(skipped[0]![0], 0);
+    assert.equal(skipped[0]![1], "bad-interp");
+    assert.match(skipped[0]![2], /unsupported interpolation/);
+    assert.equal(skipped[1]![0], 2);
+    assert.equal(skipped[1]![1], "animation-2");
+    assert.match(skipped[1]![2], /invalid node/);
+  });
+
   test("transfers typed array buffers for decoded animations", () => {
     const { doc, buffers } = makeGltfWithAnimation();
     const anims = decodeGltfAnimations(doc as Record<string, unknown>, buffers, 2, "test.gltf");
