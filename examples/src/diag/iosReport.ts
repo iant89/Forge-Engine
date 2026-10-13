@@ -23,6 +23,7 @@
  * only when diagnostics are asked for.
  */
 
+import { FORGE_BUILD } from "../buildInfo.js";
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
 import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
@@ -330,6 +331,7 @@ export function installIosReport(
     const live = captures[0] ?? statsBits(forge);
     const pipelineStats = forge.engine?.renderer?.pipelines?.stats?.();
     lines.push(
+      `build ${FORGE_BUILD}`,
       `ua ${navigator.userAgent}`,
       `scene ${forge.sceneName ?? "?"}  gpu ${describe(get(host.gpu, "format"))}/${describe(get(host.gpu, "depthFormat"))}` +
         `  canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight} dpr ${window.devicePixelRatio}`,
@@ -403,6 +405,7 @@ export function installIosReport(
     return {
       tag,
       t: Math.round(performance.now()),
+      build: FORGE_BUILD,
       ua: navigator.userAgent,
       secureContext: globalThis.isSecureContext ?? null,
       visibility: document.visibilityState,
