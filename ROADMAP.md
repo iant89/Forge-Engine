@@ -1570,6 +1570,12 @@ GOAL:
         glb.ts) is unchanged. tests/resources/gltfHandedness.test.ts; browser check: Orientation.gltf
         before/after
 
+    [ ] 16.1i (deferred) Mars showcase on the engine importer: drop examples/src/assets/glb.ts (the
+        showcase's own Perseverance loader) and load the rover through decodeGltfMesh +
+        loadGltfTextures. This also fixes the rover's left/right mirroring (that loader skips the 16.1h
+        handedness conversion); the articulation/arm conventions it relies on must be re-derived and the
+        rover scenes/tests re-checked
+
     [ ] 16.1g (deferred follow-up to 16.1c) second UV set: carry TEXCOORD_1 in the vertex format and
         honour `texCoord: 1` on every texture slot (lightmapped/AO-baked assets use it). Until then such
         maps are dropped with a decode warning.

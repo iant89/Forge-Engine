@@ -13,7 +13,8 @@
  *     deltas x negated; triangle winding swapped (non-indexed triangle lists get an index accessor);
  *   - node translation / rotation / matrix, inverse bind matrices and translation / rotation
  *     animation keys mirrored (q → (x, -y, -z, w), M → S·M·S).
- * A converted file is NOT a correctly oriented glTF for other viewers any more (it is mirrored there).
+ * Use it on a COPY for engine use, never to replace the original: a converted file is NOT a correctly
+ * oriented glTF for other viewers any more (it is mirrored there).
  *
  * Refused (exit 2): sparse accessors, unsigned components that would need negation, non-triangle-list
  * primitives, geometry-compression / instancing extensions, an output that is the input.
@@ -201,7 +202,7 @@ export function run(argv, log = console.log, warn = console.error) {
   const positional = argv.filter((a) => !a.startsWith("--"));
   const unknown = [...flags].filter((f) => f !== "--force" && f !== "--dry-run");
   if (positional.length !== 2 || unknown.length > 0) {
-    warn("usage: node tools/gltf-fix-handedness.mjs <input.gltf|input.glb> <output> [--force] [--dry-run]");
+    warn("usage: node tools/gltf-fix-handedness.mjs <input.gltf|input.glb> <output> [--force] [--dry-run]\n  writes an engine-only copy; keep the original (the output is mirrored in other glTF viewers)");
     return 2;
   }
   const [input, output] = positional;
