@@ -30,8 +30,6 @@ export interface LoadGltfTexturesOptions {
   /** Base URL that external image URIs resolve against (usually the .gltf URL). */
   baseUrl?: string | URL;
   fetcher?: (input: string | URL, init?: RequestInit) => Promise<Response>;
-  /** Build mip chains (default true). */
-  mipmaps?: boolean;
 }
 
 export interface GltfTextureSet {
@@ -115,36 +113,36 @@ export async function loadGltfTextures(device: GraphicsDevice, asset: DecodedGlt
   const built = new Map<string, Texture>();
   const owned: Texture[] = [];
   let disposed = false;
-  try {
-    await Promise.all([...uses].map(async ([index, kinds]) => {
-      const texture = asset.textures[index];
-      if (!texture || texture.source === null) {
-        warn(`texture ${index} has no supported image source; map ignored`);
-        return;
+  await Promise.all([...uses].map(async ([index, kinds]) => {
+    const texture = asset.textures[index];
+    if (!texture || texture.source === null) {
+      warn(`texture ${index} has no supported image source; map ignored`);
+      return;
+    }
+    if (texture.sampler !== null) {
+      const s = asset.samplers[texture.sampler]!;
+      if (s.wrapS !== 10497 || s.wrapT !== 10497 || s.magFilter === 9728) {
+        warn(`texture ${index} sampler ${texture.sampler} (wrap ${s.wrapS}/${s.wrapT}, mag ${s.magFilter}) is approximated with linear-repeat`);
       }
-      if (texture.sampler !== null) {
-        const s = asset.samplers[texture.sampler]!;
-        if (s.wrapS !== 10497 || s.wrapT !== 10497 || s.magFilter === 9728) {
-          warn(`texture ${index} sampler ${texture.sampler} (wrap ${s.wrapS}/${s.wrapT}, mag ${s.magFilter}) is approximated with linear-repeat`);
-        }
-      }
-      const image = await imagePixels(texture.source);
-      if (!image) return;
-      for (const kind of kinds) {
-        const t = Texture.fromRgba8(device, image.width, image.height, image.pixels, {
+    }
+    const image = await imagePixels(texture.source);
+    if (!image) return;
+    for (const kind of kinds) {
+      let t: Texture;
+      try {
+        t = Texture.fromRgba8(device, image.width, image.height, image.pixels, {
           label: `${asset.source}.texture-${index}.${kind}`,
           srgb: kind === "srgb",
           normal: kind === "normal",
-          mipmaps: options.mipmaps ?? true,
         });
-        owned.push(t);
-        built.set(`${index}:${kind === "srgb" ? "srgb" : "linear"}`, t);
+      } catch (error) {
+        warn(`texture ${index} (${kind}) not created: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
       }
-    }));
-  } catch (error) {
-    for (const t of owned) t.release(device);
-    throw error;
-  }
+      owned.push(t);
+      built.set(`${index}:${kind === "srgb" ? "srgb" : "linear"}`, t);
+    }
+  }));
   return {
     textures: owned,
     get(index, colorSpace) {

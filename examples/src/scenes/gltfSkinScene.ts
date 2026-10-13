@@ -157,10 +157,14 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       instance = instantiateGltfScene(engine.gpu, scene, asset, model.id === "simple"
         ? { name: model.file, material: () => material }
         : { name: model.file, textures: textures! });
-      for (const entity of instance.nodes) {
-        const m = entity?.get(Renderable)?.material;
+      // Every renderable, not just node entities: a node's second+ primitives live on child entities.
+      const renderables = scene.world.query([Renderable]);
+      renderables.refresh();
+      for (const id of renderables.entities) {
+        const m = scene.world.getComponent(id, Renderable)?.material;
         if (m?.albedoMap) albedo.set(m, m.albedoMap);
       }
+      scene.world.releaseQuery(renderables);
       if (!texturesEnabled) for (const m of albedo.keys()) m.setMaps({ albedo: null });
       const animation = instance.animation;
       if (animation) {

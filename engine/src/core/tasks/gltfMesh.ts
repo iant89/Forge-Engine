@@ -602,7 +602,7 @@ function materialIndex(index: number | undefined, doc: GltfDocument, source: str
   return indexAt(index, textures.length, "material texture", source);
 }
 
-const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", ktx2: "image/ktx2" };
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 
 function readImages(doc: GltfDocument, buffers: ArrayBuffer[], source: string): DecodedGltfImage[] {
   const views = doc.bufferViews ?? [];
