@@ -2279,3 +2279,28 @@ Read the module constraints below before changing either pure model.
   while `gpuErrors` stays 0 and the pass still appears in the graph list. The diag panel now prints
   the pipeline factory's failure/pending counters; any future "renders black, stats fine" report
   should start by reading them.
+
+## 2026-10-13 — WebKit mis-read the Phase 17.1 storage array
+
+- **Diagnosis:** the iPhone symptom was not a skipped `forge.sky` pass or a missing LUT build. The
+  Phase 17.1 LUT was a fixed-size `var<storage, read>` array shared by compute and fragment modules;
+  Chromium and the mock accepted it, but WebKit's fragment compiler could produce a black sky while
+  leaving the frame and GPU error counters apparently healthy. A texture gives the fragment stage an
+  explicit coordinate and format instead of asking it to index a large storage array.
+- **Fix:** `csField` now writes an `rgba32float` 2D LUT with `textureStore`, and the sky/forward
+  fragments bind it as `texture_2d<f32>` and read it with `textureLoad`. The compute-only
+  transmittance table remains a storage array. The GPU owner uses `STORAGE_BINDING | TEXTURE_BINDING |
+  COPY_SRC`, reads rows back with `copyTextureToBuffer`, and disposes the texture/view with the rest of
+  the multi-scattering resources. The inert aerial fallback is the same texture shape, so the frame
+  bind-group contract never changes when the LUT is absent.
+- **Preventive rule:** `validateWgsl` now rejects fixed-size storage arrays only in modules containing a
+  fragment entry point. Runtime-sized fragment arrays, fixed arrays in compute-only modules, comments,
+  and unrelated declarations remain legal; the rule is tested independently so it catches a regression
+  without banning the legitimate compute-side table.
+- **Bisect reliability:** shader override cleanup now runs through capture and replacement failures,
+  clears stale variants, and waits for the pipeline factory to restore the built-in shader before the
+  next candidate. A failed capture therefore cannot contaminate the next WebKit comparison.
+- **Verification:** `npm run typecheck`, `npx selrun check` (76 linked suites / 683 coverage claims),
+  `npm run test` (76 suites, 0 failed), `npm run check:wgsl`, and the focused real-WebGPU environment
+  gate passed. The latter read back the device LUT with a worst table delta of 0.01% and rendered
+  multiple scattering, aerial perspective, day/night, Mars, clouds, and water with zero GPU errors.

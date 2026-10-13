@@ -741,13 +741,21 @@ The table's own contract, then the model that reads it, with no device needed ex
   *not* when the sun has not moved (`Renderer.multiScatteringBuilds` pins both sides of that — 1 after
   the first frame, still 1 after a still one, +1 for a sun step past `MS_SUN_EPSILON` but not for a
   sub-epsilon nudge, +1 again for an atmosphere edit), they bind the frame's `SkyUniforms` and their
-  own storage buffers, the sky pass binds the LUT at group 0 binding 3 (the compute passes bind it at
-  2, so a shader that hard-coded the index would fail one of the two), toggling
-  `scene.settings.sky.multiScattering` changes the uniform the sky pass sees but not the pass list,
-  the LUT survives a frame with no sky pass, and `dispose` releases the buffers and the pipelines.
+  own storage buffers, while `csField` writes the LUT into an `rgba32float` storage texture with
+  `textureStore`; the sky and forward fragment stages bind that texture as `texture_2d<f32>` and use
+  `textureLoad` at group 0 binding 3/10. The compute passes bind it at 2, so a shader that hard-coded
+  the index would fail one of the two, toggling `scene.settings.sky.multiScattering` changes the
+  uniform the sky pass sees but not the pass list, the LUT survives a frame with no sky pass, and
+  `dispose` releases the texture, buffers and pipelines.
 * **The shader/config agreement.** The WGSL constants (`MS_LUT_TEXELS`, the workgroup, the entry
-  names and the sampler text) are generated from the same numbers the CPU reads, so a config change
-  cannot silently desynchronise the twins.
+  names and the texture reader) are generated from the same numbers the CPU reads, so a config change
+  cannot silently desynchronise the twins. The texture readback uses the same height-major/sun-minor
+  texel order as the CPU field.
+* **The WebKit storage-array guard.** `validateWgsl` rejects a fixed-size `var<storage>` array when
+  a module has a fragment entry point, while leaving compute-only tables and runtime-sized storage
+  arrays legal. `tests/rendering/wgsl.test.ts` pins the exact fragment-only rule and the production
+  shader corpus stays clean, so the LUT cannot silently regress to the array shape that made iPhone
+  Safari shade the sky black.
 * **Finite-path aerial perspective (17.2).** The allocation-free `AtmosphereModel.aerialPerspective`
   reference returns identity for zero-length/out-of-shell paths, reduces transmittance and accumulates
   in-scattering with distance, and adds (never subtracts) the optional CPU MS source along the segment.
