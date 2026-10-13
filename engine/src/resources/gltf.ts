@@ -62,6 +62,21 @@ export interface DecodeGltfMeshOptions {
   signal?: AbortSignal;
   /** External buffers by glTF buffer index (data URIs remain decoded inside the worker). */
   buffers?: readonly (ArrayBuffer | null)[];
+  /**
+   * "convert" (default) mirrors right-handed glTF into the engine's left-handed frame (x → -x, with
+   * winding, tangents, node/skin/animation transforms to match) and warns once per source; files
+   * marked by `npm run gltf:fix-handedness` are already converted and skip both. "preserve" opts out.
+   */
+  handedness?: "convert" | "preserve";
+}
+
+const warnedHandedness = new Set<string>();
+function warnHandedness(asset: DecodedGltfAsset): DecodedGltfAsset {
+  if (asset.handedness === "converted" && !warnedHandedness.has(asset.source)) {
+    warnedHandedness.add(asset.source);
+    console.warn(`[gltf] ${asset.source}: converted from glTF right-handed to engine left-handed coordinates at load (x mirrored); run \`npm run gltf:fix-handedness -- <in> <out>\` to bake it into the file`);
+  }
+  return asset;
 }
 
 export interface LoadGltfMeshOptions extends Omit<DecodeGltfMeshOptions, "buffers"> {
@@ -87,27 +102,27 @@ function byteViewToBuffer(input: ArrayBuffer | ArrayBufferView): ArrayBuffer {
 function makePayload(input: GltfMeshInput, options: DecodeGltfMeshOptions): GltfMeshDecodePayload {
   const source = sourceName(input, options.source);
   if (typeof input === "string") {
-    return { format: "gltf", json: input, buffers: [...(options.buffers ?? [])], source };
+    return { format: "gltf", json: input, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
   }
   if (input && typeof input === "object" && "json" in input) {
     if (typeof input.json !== "string") throw new UsageError("decodeGltfMesh: document.json must be serialized glTF JSON");
-    return { format: "gltf", json: input.json, buffers: [...(input.buffers ?? options.buffers ?? [])], source };
+    return { format: "gltf", json: input.json, buffers: [...(input.buffers ?? options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
   }
   const bytes = byteViewToBuffer(input as ArrayBuffer | ArrayBufferView);
-  if (isGlbBuffer(bytes)) return { format: "glb", glb: bytes, buffers: [...(options.buffers ?? [])], source };
+  if (isGlbBuffer(bytes)) return { format: "glb", glb: bytes, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
   let json: string;
   try {
     json = new TextDecoder().decode(bytes);
   } catch (error) {
     throw new AssetError(`unable to decode glTF JSON bytes: ${String(error)}`, source);
   }
-  return { format: "gltf", json, buffers: [...(options.buffers ?? [])], source };
+  return { format: "gltf", json, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
 }
 
 /** Decode mesh primitives to transferable arrays; pass `scheduler` to run parsing on its worker pool. */
 export async function decodeGltfMesh(input: GltfMeshInput, options: DecodeGltfMeshOptions = {}): Promise<DecodedGltfAsset> {
   const payload = makePayload(input, options);
-  if (!options.scheduler) return decodeGltfMeshTask(payload);
+  if (!options.scheduler) return warnHandedness(decodeGltfMeshTask(payload));
   if (options.signal?.aborted) throw new AssetError("glTF mesh decode cancelled before submission", payload.source ?? "<memory glTF>", "E_ASSET_CANCELLED");
   await builtinTaskHandlersReady();
   const key = options.key ?? `asset.gltf.decode:${nextDecodeKey++}`;
@@ -122,7 +137,7 @@ export async function decodeGltfMesh(input: GltfMeshInput, options: DecodeGltfMe
   const onAbort = () => options.scheduler!.cancel(key, new AssetError("glTF mesh decode cancelled", payload.source ?? "<memory glTF>", "E_ASSET_CANCELLED"));
   options.signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    return await promise;
+    return warnHandedness(await promise);
   } finally {
     options.signal?.removeEventListener("abort", onAbort);
   }

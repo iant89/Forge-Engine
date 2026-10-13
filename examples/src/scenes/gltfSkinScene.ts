@@ -42,7 +42,7 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 const CLIP = "animation-0";
 
 interface SkinModel {
-  id: "simple" | "cesium" | "perseverance" | "features";
+  id: "simple" | "cesium" | "perseverance" | "features" | "orientation";
   label: string;
   file: string;
   url: string;
@@ -75,6 +75,12 @@ const MODELS: Record<SkinModel["id"], SkinModel> = {
     url: new URL("../../assets/MaterialFeatures.gltf", import.meta.url).href,
     cameraPosition: new Vec3(0, 0.9, 5.2), target: new Vec3(0, 0.8, 0), distance: 5.2,
   },
+  // Handedness reference (generated CC0): a letter-F panel and a red square on the asset's left (glTF +X).
+  orientation: {
+    id: "orientation", label: "Orientation, CC0", file: "Orientation.gltf", binary: false,
+    url: new URL("../../assets/Orientation.gltf", import.meta.url).href,
+    cameraPosition: new Vec3(0, 0.9, 4), target: new Vec3(0, 0.8, 0), distance: 4,
+  },
 };
 
 /** Material features the browser gate toggles one at a time (Phase 16.1c). */
@@ -83,7 +89,7 @@ export type GltfMaterialFeature = "albedo" | "emissive" | "occlusion" | "mask" |
 /** `?model=cesium` picks CesiumMan, `?model=perseverance` the rover; anything else (or no query) is SimpleSkin. */
 export function selectSkinModel(search: string): SkinModel {
   const id = new URLSearchParams(search).get("model");
-  return id === "cesium" || id === "perseverance" || id === "features" ? MODELS[id] : MODELS.simple;
+  return id === "cesium" || id === "perseverance" || id === "features" || id === "orientation" ? MODELS[id] : MODELS.simple;
 }
 
 export interface GltfSkinState {
@@ -118,7 +124,7 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   scene.settings.exposure = 1.1;
   scene.world.registerSystem(new AnimationSystem());
   // Occlusion maps only darken the ambient term; lift it so the features quad reads on screen.
-  if (model.id === "features") scene.settings.ambientIntensity = 3;
+  if (model.id === "features") scene.settings.ambientIntensity = 8;
 
   const groundMesh = createPlane(engine.gpu, { width: 20, depth: 20 });
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
@@ -158,7 +164,9 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       const response = await fetch(model.url);
       if (!response.ok) throw new Error(`${model.url}: HTTP ${response.status}`);
       const body = model.binary ? await response.arrayBuffer() : await response.text();
-      const asset = await decodeGltfMesh(body, { source: model.file });
+      // `?handedness=preserve` skips the right→left-handed mirror (before/after screenshots).
+      const handedness = new URLSearchParams(search).get("handedness") === "preserve" ? "preserve" : "convert";
+      const asset = await decodeGltfMesh(body, { source: model.file, handedness });
       if (disposed) return;
       // SimpleSkin has no material, so it gets a demo one; the others keep their own, textured (16.1c).
       if (model.id !== "simple") {
@@ -261,7 +269,8 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
     camera: {
       target: model.target.clone(),
       distance: model.distance,
-      azimuth: 0.1,
+      // The orbit eye sits at -Z at azimuth 0; glTF assets face +Z, so look at them from the front.
+      azimuth: Math.PI + 0.1,
       elevation: 0.1,
       groundHeight: () => 0,
       groundClearance: 0.3,

@@ -20,13 +20,7 @@
    "name": "emissive",
    "mesh": 0,
    "translation": [
-    2.7,
-    0,
-    0
-   ],
-   "rotation": [
-    0,
-    1,
+    -2.7,
     0,
     0
    ]
@@ -35,13 +29,7 @@
    "name": "occlusion",
    "mesh": 1,
    "translation": [
-    0.9000000000000001,
-    0,
-    0
-   ],
-   "rotation": [
-    0,
-    1,
+    -0.9000000000000001,
     0,
     0
    ]
@@ -50,13 +38,7 @@
    "name": "mask",
    "mesh": 2,
    "translation": [
-    -0.8999999999999999,
-    0,
-    0
-   ],
-   "rotation": [
-    0,
-    1,
+    0.8999999999999999,
     0,
     0
    ]
@@ -65,13 +47,7 @@
    "name": "sampler",
    "mesh": 3,
    "translation": [
-    -2.7,
-    0,
-    0
-   ],
-   "rotation": [
-    0,
-    1,
+    2.7,
     0,
     0
    ]

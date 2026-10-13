@@ -83,7 +83,11 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   (16.1c, `loadGltfTextures`) bind baseColor / emissive / metallicRoughness / normal / occlusion maps
   with per-texture samplers, on TEXCOORD_0 only: a map with `texCoord: 1` is dropped with a warning
   (deferred to ROADMAP 16.1g), and KHR_texture_transform and KTX2 images are ignored. alpha MASK
-  cutouts still cast full-quad shadows (the shadow pass has no material). It does not import morph targets/instancing or decode Draco/meshopt
+  cutouts still cast full-quad shadows (the shadow pass has no material). glTF assets are mirrored
+  from glTF's right-handed frame into the engine's left-handed one at import (x → -x, warns once per
+  file); a file baked with `npm run gltf:fix-handedness` loads as-is but is mirrored in other glTF
+  viewers. The Mars showcase's own Perseverance loader (`examples/src/assets/glb.ts`) does not apply
+  this conversion. It does not import morph targets/instancing or decode Draco/meshopt
   compression; those are tracked for the extended glTF importer (16.1b, 16.1d, 16.1e). Skinned primitives cull against posed bounds
   (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
   can be looser than the deformed mesh.

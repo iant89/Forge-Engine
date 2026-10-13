@@ -284,7 +284,7 @@ export function encodeGlb(doc, bin) {
 }
 
 /** Write buffers back into `doc`; returns the GLB BIN bytes (or null) and external files to write. */
-function finishBuffers(doc, buffers, outputPath) {
+export function finishBuffers(doc, buffers, outputPath) {
   const files = [];
   let bin = null;
   const base = path.basename(outputPath).replace(/\.(gltf|glb)$/i, "");

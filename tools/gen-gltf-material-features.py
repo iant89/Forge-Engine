@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate examples/assets/MaterialFeatures.gltf (CC0, made for Forge Engine Phase 16.1c).
 
-Four upright 1.6 m quads facing -Z (the demo orbit camera's side; nodes turned 180 deg about Y), one per material feature, each with a 16x16 data-URI PNG:
+Four upright 1.6 m quads facing glTF +Z (the asset's front), one per material feature, each with a 16x16 data-URI PNG:
   0 emissive   - grey base, emissiveFactor 1, red/black checker emissiveTexture
   1 occlusion  - grey base, stripe occlusionTexture (R), strength 1
   2 mask       - white base, alpha checker, alphaMode MASK, cutoff 0.5, doubleSided
@@ -56,7 +56,7 @@ doc = {
     "asset": {"version": "2.0", "generator": "tools/gen-gltf-material-features.py", "copyright": "CC0 1.0, Forge Engine"},
     "scene": 0,
     "scenes": [{"nodes": [0, 1, 2, 3]}],
-    "nodes": [{"name": m["name"], "mesh": i, "translation": [2.7 - i * 1.8, 0, 0], "rotation": [0, 1, 0, 0]} for i, m in enumerate(meshes)],
+    "nodes": [{"name": m["name"], "mesh": i, "translation": [-2.7 + i * 1.8, 0, 0]} for i, m in enumerate(meshes)],
     "meshes": meshes,
     "materials": [
         {"name": "emissive", "pbrMetallicRoughness": grey, "emissiveFactor": [1, 1, 1], "emissiveTexture": {"index": 0}},

@@ -15,6 +15,7 @@
  * decoding/material upload and animation import are outside this mesh-decoder slice.
  */
 
+import { convertGltfAssetHandedness, GLTF_HANDEDNESS_MARKER } from "./gltfHandedness.js";
 import { AssetError } from "../errors.js";
 import type { TaskContext } from "./registry.js";
 import { decodeGltfAnimations, transferablesForAnimations, type DecodedGltfAnimation } from "./gltfAnimation.js";
@@ -34,6 +35,8 @@ export interface GltfMeshDecodePayload {
   /** Entries correspond to glTF `buffers[]`; data URIs are decoded by the worker and may be null here. */
   buffers?: (ArrayBuffer | null)[];
   source?: string;
+  /** "convert" (default): mirror right-handed glTF into the engine's left-handed frame; "preserve": as authored. */
+  handedness?: "convert" | "preserve";
 }
 
 export interface DecodedGltfPrimitive {
@@ -161,10 +164,15 @@ export interface DecodedGltfAsset {
   vertexCount: number;
   /** Bytes in all decoded vertex/index arrays. */
   decodedBytes: number;
+  /**
+   * "converted": mirrored into engine handedness on this decode; "preconverted": the file carries
+   * the `tools/gltf-fix-handedness.mjs` marker and was used as-is; "preserved": the caller opted out.
+   */
+  handedness: "converted" | "preconverted" | "preserved";
 }
 
 interface GltfDocument {
-  asset?: { version?: string; minVersion?: string };
+  asset?: { version?: string; minVersion?: string; extras?: Record<string, unknown> };
   extensionsRequired?: string[];
   buffers?: { byteLength: number; uri?: string }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number; extensions?: Record<string, unknown> }[];
@@ -957,7 +965,11 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   for (const animation of animations) {
     for (const sampler of animation.samplers) decodedBytes += sampler.input.byteLength + sampler.output.byteLength;
   }
-  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, images, samplers, textures, skins, animations, primitiveCount, vertexCount, decodedBytes };
+  const marked = doc.asset?.extras?.[GLTF_HANDEDNESS_MARKER.key] === GLTF_HANDEDNESS_MARKER.value;
+  const handedness = payload.handedness === "preserve" ? "preserved" : marked ? "preconverted" : "converted";
+  const result: DecodedGltfAsset = { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, images, samplers, textures, skins, animations, primitiveCount, vertexCount, decodedBytes, handedness };
+  if (handedness === "converted") convertGltfAssetHandedness(result);
+  return result;
 }
 
 /** The result arrays are newly allocated and can be transferred without copying. */

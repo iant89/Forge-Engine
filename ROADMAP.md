@@ -1560,6 +1560,16 @@ GOAL:
         tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin` (per-feature pixel
         A/B: albedo, emissive, occlusion, MASK, sampler); capability: assets.gltfMaterials
 
+    [x] 16.1h glTF handedness: glTF is right-handed (front +Z, left +X); the engine is left-handed
+        (+X right), so assets imported as-is were mirrored (verified: Orientation.gltf's letter F read
+        backwards and its left-side marker sat on the viewer's left). `decodeGltfMesh` now mirrors x on
+        import (positions, normals, tangents + sign, winding, bounds, node TRS/matrices, inverse bind
+        matrices, translation/rotation keys) and warns once per file; `handedness: "preserve"` opts out.
+        `npm run gltf:fix-handedness` bakes it into a file and marks `asset.extras.forgeHandedness`, which
+        the importer then uses as-is. The Mars showcase's own Perseverance loader (examples/src/assets/
+        glb.ts) is unchanged. tests/resources/gltfHandedness.test.ts; browser check: Orientation.gltf
+        before/after
+
     [ ] 16.1g (deferred follow-up to 16.1c) second UV set: carry TEXCOORD_1 in the vertex format and
         honour `texCoord: 1` on every texture slot (lightmapped/AO-baked assets use it). Until then such
         maps are dropped with a decode warning.

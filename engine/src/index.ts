@@ -185,6 +185,7 @@ export type {
   DecodedGltfSkin,
   GltfMeshDecodePayload,
 } from "./resources/gltf.js";
+export { convertGltfAssetHandedness, GLTF_HANDEDNESS_MARKER } from "./core/tasks/gltfHandedness.js";
 export { decodeGltfAnimations, transferablesForAnimations } from "./core/tasks/gltfAnimation.js";
 export type {
   DecodedGltfAnimation,

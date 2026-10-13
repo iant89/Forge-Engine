@@ -31,6 +31,7 @@ export const linkedSuites = [
   ["tests/resources/gltf.test.ts", () => import("./resources/gltf.test.ts")],
   ["tests/resources/gltfScene.test.ts", () => import("./resources/gltfScene.test.ts")],
   ["tests/resources/gltfTextures.test.ts", () => import("./resources/gltfTextures.test.ts")],
+  ["tests/resources/gltfHandedness.test.ts", () => import("./resources/gltfHandedness.test.ts")],
   ["tests/resources/phase15.test.ts", () => import("./resources/phase15.test.ts")],
   ["tests/resources/resources.test.ts", () => import("./resources/resources.test.ts")],
   ["tests/resources/streaming.test.ts", () => import("./resources/streaming.test.ts")],
@@ -90,4 +91,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(86);
+report(87);

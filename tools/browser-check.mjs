@@ -3166,6 +3166,56 @@ try {
     }
     const featStats = await page.evaluate(() => window.__forge.stats());
     if (featStats.gpuErrors !== 0 || featStats.lastError) throw new Error(`GPU error on MaterialFeatures.gltf: ${featStats.lastError}`);
+    // Handedness (Orientation.gltf, generated CC0): seen from the front, the letter F must read the right
+    // way round and the red square on the asset's left (glTF +X) must be on the viewer's RIGHT, as in any
+    // glTF viewer. `handedness=preserve` (the pre-fix import) must show both mirrored, proving the probe.
+    const orientationProbe = async (query, shot) => {
+      await page.goto(`${URL}?scene=gltf-skin&model=orientation${query}`, { waitUntil: "load", timeout: 60000 });
+      await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+      await page.waitForFunction(() => { const s = window.__forge.gltfSkinState?.(); return s && (s.error || s.loaded); }, null, { polling: 250, timeout: 60000 });
+      const st = await page.evaluate(() => window.__forge.gltfSkinState());
+      if (st.error) throw new Error(`Orientation.gltf failed to load: ${st.error}`);
+      await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+      await waitPresentedFrames(3);
+      await page.screenshot({ path: shot, timeout: 60000 });
+      await keepLuma("orientation");
+      return page.evaluate(() => {
+        const d = window.__gateRgb.orientation;
+        const w = document.querySelector("canvas").width;
+        const acc = { red: [0, 0], ink: [0, 0], paper: [0, 0] };
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+          const x = p % w;
+          const k = r > 150 && g < 90 && b < 90 ? "red" : r > 190 && g > 185 && b > 160 ? "paper" : null;
+          if (k) { acc[k][0] += x; acc[k][1]++; }
+        }
+        const px = acc.paper[1] ? acc.paper[0] / acc.paper[1] : NaN;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          if (d[i] > 190 && d[i + 1] > 185 && d[i + 2] > 160) {
+            const x = p % w, y = (p / w) | 0;
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          }
+        }
+        // F ink: dark pixels inside the paper's bounding box (shrunk a little to skip its silhouette).
+        const ix = (maxX - minX) * 0.08, iy = (maxY - minY) * 0.08;
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const x = p % w, y = (p / w) | 0;
+          if (x > minX + ix && x < maxX - ix && y > minY + iy && y < maxY - iy && d[i] < 60 && d[i + 1] < 60 && d[i + 2] < 70) { acc.ink[0] += x; acc.ink[1]++; }
+        }
+        const c = (k) => (acc[k][1] ? acc[k][0] / acc[k][1] : NaN);
+        return { red: c("red"), redCount: acc.red[1], ink: c("ink"), inkCount: acc.ink[1], paper: px, paperCount: acc.paper[1] };
+      });
+    };
+    const before = await orientationProbe("&handedness=preserve", `${basePrefix}-orientation-before.png`);
+    const after = await orientationProbe("", `${basePrefix}-orientation-after.png`);
+    console.log(`Orientation.gltf before (preserve): red x=${before.red.toFixed(0)} ink x=${before.ink.toFixed(0)} paper x=${before.paper.toFixed(0)}; after (converted): red x=${after.red.toFixed(0)} ink x=${after.ink.toFixed(0)} paper x=${after.paper.toFixed(0)}`);
+    for (const [label, r, want] of [["converted", after, 1], ["preserve", before, -1]]) {
+      if (!(r.redCount > 50 && r.inkCount > 200 && r.paperCount > 500)) throw new Error(`Orientation.gltf (${label}): marker/letter not found on screen ${JSON.stringify(r)}`);
+      if (Math.sign(r.red - r.paper) !== want || Math.sign(r.paper - r.ink) !== want) {
+        throw new Error(`Orientation.gltf (${label}): expected ${want > 0 ? "the glTF orientation (square right, F stem left)" : "a mirrored picture"}, got ${JSON.stringify(r)}`);
+      }
+    }
     console.log("Focused imported-glTF-skin checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();

@@ -192,18 +192,18 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("links each discovered suite exactly once, reports the exact count, and leaves DOM suites last", () => {
     const catalog = validateCatalog(repoRoot);
     assert.deepEqual(catalog.errors, []);
-    assert.equal(catalog.stats.suitesOnDisk, 86);
-    assert.equal(catalog.stats.suitesLinked, 86);
-    assert.equal(catalog.stats.suitesNamed, 86);
-    assert.equal(catalog.stats.suitesWithCoverage, 86);
-    assert.equal(catalog.stats.coverageClaims, 723);
+    assert.equal(catalog.stats.suitesOnDisk, 87);
+    assert.equal(catalog.stats.suitesLinked, 87);
+    assert.equal(catalog.stats.suitesNamed, 87);
+    assert.equal(catalog.stats.suitesWithCoverage, 87);
+    assert.equal(catalog.stats.coverageClaims, 729);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
     const linkPaths = linked.links.map((link) => link.file);
     assert.equal(linked.reportCounts.length, 1);
-    assert.equal(linked.reportCounts[0], 86);
-    assert.equal(new Set(linkPaths).size, 86);
+    assert.equal(linked.reportCounts[0], 87);
+    assert.equal(new Set(linkPaths).size, 87);
     assert.deepEqual([...linkPaths].sort(), discovered);
 
     const firstDomSuite = linkPaths.findIndex((file) => file?.startsWith("tests/controls/"));
@@ -254,7 +254,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("checks the package CLI and keeps selrun installed as the local npm workspace", () => {
     const cli = path.join(repoRoot, "packages/selrun/src/cli.mjs");
     const output = execFileSync(process.execPath, [cli, "check"], { cwd: repoRoot, encoding: "utf8" });
-    assert.match(output, /check OK — 86 linked suites, 723 explicit coverage claims/);
+    assert.match(output, /check OK — 87 linked suites, 729 explicit coverage claims/);
 
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
