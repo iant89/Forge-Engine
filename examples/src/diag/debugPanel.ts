@@ -335,14 +335,17 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
     apply();
     if (drag.mode === "move" && tracker.update(rect, now())) showGhost();
   };
-  const end = (e: PtrEvent): void => {
+  const end = (e: PtrEvent, cancelled = false): void => {
     if (!drag || e.pointerId !== drag.id) return;
     const mode = drag.mode;
     drag = null;
     stopDwell();
     root.classList.remove("fdp-dragging");
     if (mode === "move") {
-      const snapped = tracker.release();
+      // iOS fires pointercancel for system gestures (edge swipe, notification pull); that is not a
+      // release, so it never commits a pending snap.
+      const released = tracker.release();
+      const snapped = cancelled ? null : released;
       showGhost();
       if (snapped) {
         rect = snapped.rect;
@@ -363,7 +366,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
   for (const t of [bar, grip]) {
     t.addEventListener("pointermove", move as unknown as EventListener);
     t.addEventListener("pointerup", end as unknown as EventListener);
-    t.addEventListener("pointercancel", end as unknown as EventListener);
+    t.addEventListener("pointercancel", ((e: PtrEvent) => end(e, true)) as unknown as EventListener);
   }
 
   // --- buttons ---
