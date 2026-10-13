@@ -11,11 +11,17 @@
  *  - `csField` fills `multiScatteringLut`: `J_ms / sunIntensity` per channel at every
  *    `(height, μ_sun)` texel — the multiple-scattering source the sky pass adds to its integral.
  *
+ * The field is deliberately a storage texture rather than a fixed-size storage array. WebKit's
+ * fragment compiler mis-reads the latter shape (the Phase 17.1 black-sky failure), while a
+ * `rgba32float` texture has one explicit texel per `(sun, height)` coordinate and is read with
+ * `textureLoad` in every fragment stage. The transmittance helper table remains a compute-only
+ * storage array: it never crosses into a fragment module.
+ *
  * Both entry points walk exactly the equations `environment/multiScattering.ts` walks on the CPU
  * (Fibonacci sphere directions, midpoint path segments, the same warped axes), against the same
  * `SkyUniforms` the sky pass binds, so the drawn horizon and the fog colour derived from the CPU
  * table agree. `WGSL_ATMOSPHERE_COMMON` is the shared text: the sky fragment shader includes the
- * same phase/ozone/sphere functions and the same LUT sampler from here, and the acceptance tests
+ * same phase/ozone/sphere functions and the same LUT reader from here, and the acceptance tests
  * read the LUT back off the device and compare it with the CPU build.
  */
 
@@ -43,6 +49,8 @@ export const MS_WORKGROUP = 64;
 const GPU = MULTI_SCATTERING_GPU;
 export const MS_LUT_TEXELS = multiScatteringTexels(GPU);
 export const MS_TABLE_TEXELS = GPU.transmittanceHeights * GPU.transmittanceZeniths;
+/** The format is intentionally unfilterable: fragment stages use `textureLoad`, not a sampler. */
+export const MS_LUT_TEXTURE_FORMAT: GPUTextureFormat = "rgba32float";
 
 /**
  * WGSL shared by the multiple-scattering compute passes and the sky fragment shader: the LUT axes,
@@ -97,13 +105,14 @@ fn msSunFromParam(param: f32) -> f32 {
 `;
 
 /**
- * The LUT declaration (read-only) plus its sampler, for shaders that read the table. The sky pass
- * binds the buffer at `SKY_BINDINGS.multiScattering` and the compute module at `MS_BINDINGS.lut`, so
- * the binding index is a parameter — one buffer, one sampler text, two bind-group layouts.
+ * The LUT declaration (read-only) plus its texel reader, for shaders that read the table. The sky
+ * and forward fragment stages bind the same `rgba32float` texture at different group/binding slots,
+ * so the binding index is a parameter — one texture declaration, two bind-group layouts. `textureLoad`
+ * keeps the format unfilterable and avoids the fixed-size storage-array path WebKit mis-reads.
  */
 export function wgslMultiScatteringSampler(binding: number): string {
   return /* wgsl */ `
-@group(0) @binding(${binding}) var<storage, read> multiScatteringLut: array<vec4<f32>, ${MS_LUT_TEXELS}>;
+@group(0) @binding(${binding}) var multiScatteringLut: texture_2d<f32>;
 
 // J_ms / sunIntensity at a height and a position, bilinearly interpolated on the table axes.
 fn msSourceAt(h: f32, p: vec3<f32>, sunDir: vec3<f32>) -> vec3<f32> {
@@ -115,12 +124,12 @@ fn msSourceAt(h: f32, p: vec3<f32>, sunDir: vec3<f32>) -> vec3<f32> {
   let y0 = clamp(i32(floor(y)), 0, MS_LUT_SUN - 2);
   let fx = x - f32(x0);
   let fy = y - f32(y0);
-  let row0 = x0 * MS_LUT_SUN;
-  let row1 = row0 + MS_LUT_SUN;
-  let a = multiScatteringLut[row0 + y0].rgb;
-  let b = multiScatteringLut[row0 + y0 + 1].rgb;
-  let c = multiScatteringLut[row1 + y0].rgb;
-  let d = multiScatteringLut[row1 + y0 + 1].rgb;
+  let row0 = x0;
+  let row1 = row0 + 1;
+  let a = textureLoad(multiScatteringLut, vec2<i32>(y0, row0), 0).rgb;
+  let b = textureLoad(multiScatteringLut, vec2<i32>(y0 + 1, row0), 0).rgb;
+  let c = textureLoad(multiScatteringLut, vec2<i32>(y0, row1), 0).rgb;
+  let d = textureLoad(multiScatteringLut, vec2<i32>(y0 + 1, row1), 0).rgb;
   return mix(mix(a, b, fy), mix(c, d, fy), fx);
 }
 `;
@@ -135,7 +144,7 @@ ${SkyUniforms.toWgsl("uniform")}
 
 @group(0) @binding(${MS_BINDINGS.sky.binding}) var<uniform> sky: SkyUniforms;
 @group(0) @binding(${MS_BINDINGS.transmittance.binding}) var<storage, read_write> transmittanceTable: array<vec4<f32>, ${MS_TABLE_TEXELS}>;
-@group(0) @binding(${MS_BINDINGS.lut.binding}) var<storage, read_write> multiScatteringLut: array<vec4<f32>, ${MS_LUT_TEXELS}>;
+@group(0) @binding(${MS_BINDINGS.lut.binding}) var multiScatteringLut: texture_storage_2d<rgba32float, write>;
 
 ${WGSL_ATMOSPHERE_COMMON}
 
@@ -271,7 +280,7 @@ fn tableTransmittance(h: f32, muSun: f32) -> vec3<f32> {
   let rho = clamp(accRho * inv, vec3<f32>(0.0), vec3<f32>(MS_MAX_SERIES_RATIO));
   let source = (sky.rayleighScattering * aR + sky.mieScattering * aM) / (vec3<f32>(1.0) - rho);
   let meanRho = (rho.r + rho.g + rho.b) / 3.0;
-  multiScatteringLut[index] = vec4<f32>(source, meanRho);
+  textureStore(multiScatteringLut, vec2<i32>(si, hi), vec4<f32>(source, meanRho));
 }
 `;
 

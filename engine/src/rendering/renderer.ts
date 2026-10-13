@@ -37,7 +37,7 @@ import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
-import { MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS } from "./shaders/multiScattering.js";
+import { MS_LUT_TEXTURE_FORMAT } from "./shaders/multiScattering.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
@@ -693,15 +693,15 @@ export class Renderer implements RenderFrameContext {
   private postBuffer: GPUBuffer | null = null;
   private skyBuffer: GPUBuffer | null = null;
   private skyBindGroup: GPUBindGroup | null = null;
-  /** Inert storage fallback (never read) for frames without a built atmospheric LUT. */
-  private aerialMsFallback: GPUBuffer | null = null;
+  /** Inert rgba32float fallback (never read) for frames without a built atmospheric LUT. */
+  private aerialMsFallback: GPUTexture | null = null;
   private cloudBuffer: GPUBuffer | null = null;
   private waterBuffer: GPUBuffer | null = null;
   private waterBindGroup: GPUBindGroup | null = null;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
   private frameBindGroupAoView: GPUTextureView | null = null;
-  private frameBindGroupMsBuffer: GPUBuffer | null = null;
+  private frameBindGroupMsTexture: GPUTexture | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
   private prepassBindGroup: GPUBindGroup | null = null;
   private ssaoBuffer: GPUBuffer | null = null;
@@ -1467,8 +1467,8 @@ export class Renderer implements RenderFrameContext {
     this.pollObjectCulling();
   }
 
-  /** The LUT the sky pass binds; builds the pass owner lazily, exactly once per renderer. */
-  private ensureSkyMultiScatteringLut(): GPUBuffer {
+  /** The rgba32float LUT texture the sky pass binds; builds the pass owner lazily, exactly once per renderer. */
+  private ensureSkyMultiScatteringLut(): GPUTexture {
     this.skyMultiScattering ??= new GpuMultiScattering(this.device, this.pipelines.shaders);
     return this.skyMultiScattering.prepare(this.skyBuffer!);
   }
@@ -1564,7 +1564,7 @@ export class Renderer implements RenderFrameContext {
         { binding: 0, resource: { buffer: this.frameBuffer! } },
         { binding: 1, resource: { buffer: this.skyBuffer! } },
         { binding: 2, resource: { buffer: this.cloudBuffer! } },
-        { binding: 3, resource: { buffer: this.ensureSkyMultiScatteringLut() } },
+        { binding: 3, resource: this.ensureSkyMultiScatteringLut().createView({ label: "sky.ms.lut.sky-view", dimension: "2d" }) },
       ],
     });
     return this.skyBindGroup;
@@ -3259,20 +3259,21 @@ export class Renderer implements RenderFrameContext {
     this.ensureArenas();
   }
 
-  /** A storage-sized inert fallback; the shader's runtime flags guarantee it is never read. */
-  private ensureAerialMsFallback(): GPUBuffer {
-    this.aerialMsFallback ??= this.device.device.createBuffer({
+  /** A rgba32float inert fallback; the shader's runtime flags guarantee it is never read. */
+  private ensureAerialMsFallback(): GPUTexture {
+    this.aerialMsFallback ??= this.device.device.createTexture({
       label: "aerial.ms.fallback",
-      size: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES,
-      usage: BufferUsage.STORAGE,
+      size: { width: MULTI_SCATTERING_GPU.sunSamples, height: MULTI_SCATTERING_GPU.heightSamples, depthOrArrayLayers: 1 },
+      format: MS_LUT_TEXTURE_FORMAT,
+      usage: TextureUsage.TEXTURE_BINDING,
     });
     return this.aerialMsFallback;
   }
 
-  /** The frame group depends on its graph views and the LUT buffer bound for aerial perspective. */
+  /** The frame group depends on its graph views and the LUT texture bound for aerial perspective. */
   private ensureFrameBindGroup(shadowView: GPUTextureView, aoView: GPUTextureView): GPUBindGroup {
-    const msBuffer = this.skyMultiScattering?.lut ?? this.ensureAerialMsFallback();
-    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView && this.frameBindGroupMsBuffer === msBuffer) return this.frameBindGroup;
+    const msTexture = this.skyMultiScattering?.lut ?? this.ensureAerialMsFallback();
+    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView && this.frameBindGroupMsTexture === msTexture) return this.frameBindGroup;
     const { frame } = this.pipelines.bindGroupLayouts;
     this.frameBindGroup = this.device.device.createBindGroup({
       label: "perframe.bindgroup",
@@ -3289,13 +3290,13 @@ export class Renderer implements RenderFrameContext {
         { binding: BINDINGS.clusterLights.binding, resource: { buffer: this.clusterLightBuffer! } },
         { binding: BINDINGS.clusterGrid.binding, resource: { buffer: this.clusterGridBuffer! } },
         { binding: BINDINGS.sky.binding, resource: { buffer: this.skyBuffer! } },
-        { binding: BINDINGS.multiScattering.binding, resource: { buffer: msBuffer } },
+        { binding: BINDINGS.multiScattering.binding, resource: msTexture.createView({ label: "sky.ms.lut.frame-view", dimension: "2d" }) },
         { binding: BINDINGS.cloud.binding, resource: { buffer: this.cloudBuffer! } },
       ],
     });
     this.frameBindGroupView = shadowView;
     this.frameBindGroupAoView = aoView;
-    this.frameBindGroupMsBuffer = msBuffer;
+    this.frameBindGroupMsTexture = msTexture;
     return this.frameBindGroup;
   }
 
@@ -3546,7 +3547,7 @@ export class Renderer implements RenderFrameContext {
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
-    this.frameBindGroupMsBuffer = null;
+    this.frameBindGroupMsTexture = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
     this.ssaoBlurGroups.clear();
@@ -3980,7 +3981,7 @@ export class Renderer implements RenderFrameContext {
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
-    this.frameBindGroupMsBuffer = null;
+    this.frameBindGroupMsTexture = null;
     this.cascadeBindGroup = null;
     this.drawBindGroup = null;
     this.postGroups.clear();

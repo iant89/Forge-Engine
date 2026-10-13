@@ -1672,8 +1672,10 @@ CURRENTLY COMPLETE:
     [x] Multiple-scattering approximation / LUT. (Phase 17.1: `environment/multiScattering.ts` is
         the reference table, `rendering/shaders/multiScattering.ts` the two compute entry points
         that build it on the device, and the sky pass adds it per march step. Built only when the
-        sun moves past 0.5 deg or the atmosphere changes; the device's table is read back in
-        `npm run check:browser` and compared with the CPU twin.)
+        sun moves past 0.5 deg or the atmosphere changes; the `rgba32float` LUT is written with
+        `textureStore`, read with `textureLoad` in fragment stages, and read back in
+        `npm run check:browser` against the CPU twin. `validateWgsl` rejects fixed-size storage
+        arrays in fragment modules — the WebKit black-sky regression that prompted the texture path.)
 
     [x] Improved Mars atmospheric scattering. (The dust sky gains the most from the LUT — 2-5x
         luminance at every sun elevation the preset is used at — because a thin, strongly

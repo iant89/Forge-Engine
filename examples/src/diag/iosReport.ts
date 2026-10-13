@@ -508,38 +508,45 @@ export function installIosReport(
     const pipelines = forge.engine?.renderer?.pipelines;
     if (!forge.scene?.settings?.skyEnabled || typeof pipelines?.replaceShaderSource !== "function") return;
     for (const variant of SKY_BISECT_VARIANTS) {
-      const source = variant.apply(SKY_BISECT_BASE_SOURCE);
-      if (source === null) {
-        captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: anchor missing — not measured`, frame: { ok: false, error: "anchor missing" } });
-        renderPanel();
-        continue;
-      }
       let replaced = false;
       try {
+        const source = variant.apply(SKY_BISECT_BASE_SOURCE);
+        if (source === null) {
+          captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: anchor missing — not measured`, frame: { ok: false, error: "anchor missing" } });
+          renderPanel();
+          continue;
+        }
         replaced = pipelines.replaceShaderSource(SKY_SHADER_LABEL, source) === true;
+        if (!replaced) {
+          captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: rejected`, frame: { ok: false, error: "replaceShaderSource refused" } });
+          renderPanel();
+          continue;
+        }
+        // Invalidate recompiles every pipeline: capture only once the factory reports nothing
+        // pending, or the row would measure a still-compiling sky instead of the variant.
+        await frames(2);
+        await settlePipelines();
+        await frames(2);
+        await record(`bisect ${variant.id} (${variant.label})`, null);
       } catch (error) {
-        panel.textContent += `\n[bisect ${variant.id}] replaceShaderSource threw: ${String(error)}`;
-      }
-      if (!replaced) {
-        captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: rejected`, frame: { ok: false, error: "replaceShaderSource refused" } });
+        captures.push({ ...statsBits(forge), label: `bisect ${variant.id}: capture threw`, frame: { ok: false, error: String(error) } });
         renderPanel();
-        continue;
+      } finally {
+        // A failed capture must not leave a hot-swapped module installed: the next variant would
+        // otherwise be measured on top of it, and a thrown capture would strand the production sky.
+        try {
+          pipelines.clearShaderOverride?.(SKY_SHADER_LABEL);
+        } catch (error) {
+          panel.textContent += `\n[bisect ${variant.id}] clearShaderOverride threw: ${String(error)}`;
+        }
+        try {
+          await frames(2);
+          await settlePipelines();
+          await frames(2);
+        } catch (error) {
+          panel.textContent += `\n[bisect ${variant.id}] restore settle threw: ${String(error)}`;
+        }
       }
-      // Invalidate recompiles every pipeline: capture only once the factory reports nothing
-      // pending, or the row would measure a still-compiling sky instead of the variant.
-      await frames(2);
-      await settlePipelines();
-      await frames(2);
-      await record(`bisect ${variant.id} (${variant.label})`, null);
-      renderPanel();
-      try {
-        pipelines.clearShaderOverride?.(SKY_SHADER_LABEL);
-      } catch (error) {
-        panel.textContent += `\n[bisect ${variant.id}] clearShaderOverride threw: ${String(error)}`;
-      }
-      await frames(2);
-      await settlePipelines();
-      await frames(2);
     }
     await record("bisect restored", null);
     await post(await build());

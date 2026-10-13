@@ -1,7 +1,7 @@
 /**
  * The multiple-scattering passes on the device (Phase 17.1): owns the transmittance table buffer,
- * the LUT buffer the sky pass samples, the two compute pipelines and their bind group, and records
- * `forge.sky.ms.table` + `forge.sky.ms.lut` into a frame.
+ * the rgba32float LUT texture the sky and forward fragment stages read, the two compute pipelines
+ * and their bind group, and records `forge.sky.ms.table` + `forge.sky.ms.lut` into a frame.
  *
  * The renderer records these only on the frames the table can have changed — a sun that has moved
  * past `MS_SUN_EPSILON`, an atmosphere that was edited, a fresh device. A still frame therefore
@@ -12,11 +12,12 @@
  * the reference/ambient path, never a source of pixels. `docs/ENVIRONMENT.md` §8.
  */
 
-import { BufferUsage, ShaderStage } from "../gpu/constants.js";
+import { BufferUsage, ShaderStage, TextureUsage } from "../gpu/constants.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { ShaderCache } from "../gpu/shaderCache.js";
+import { MULTI_SCATTERING_GPU } from "../environment/multiScattering.js";
 import type { RenderGraph, RenderGraphPassContext } from "./renderGraph.js";
-import { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_WORKGROUP } from "./shaders/multiScattering.js";
+import { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_LUT_TEXTURE_FORMAT, MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_WORKGROUP } from "./shaders/multiScattering.js";
 
 /** Sun movement (dot-product cosine of the angle) that invalidates the table. */
 export const MS_SUN_EPSILON = 0.9999619; // cos(0.5°): half a degree of sun travel
@@ -73,7 +74,8 @@ export function skyMultiScatteringSignatureChanged(a: Float64Array, b: Float64Ar
 
 export class GpuMultiScattering {
   private tableBuffer: GPUBuffer | null = null;
-  private lutBuffer: GPUBuffer | null = null;
+  private lutTexture: GPUTexture | null = null;
+  private lutView: GPUTextureView | null = null;
   private tablePipeline: GPUComputePipeline | null = null;
   private fieldPipeline: GPUComputePipeline | null = null;
   private group: GPUBindGroup | null = null;
@@ -86,19 +88,19 @@ export class GpuMultiScattering {
     private readonly shaders: ShaderCache,
   ) {}
 
-  /** The LUT buffer the sky pass binds at `SKY_BINDINGS.multiScattering`; null before `prepare`. */
-  get lut(): GPUBuffer | null {
-    return this.lutBuffer;
+  /** The rgba32float LUT texture the sky pass binds; null before `prepare`. */
+  get lut(): GPUTexture | null {
+    return this.lutTexture;
   }
 
   /**
-   * Create the buffers and pipelines (idempotent) and return the LUT buffer the sky pass binds. The
-   * sky bind group is built from this even on frames that record no pass, so the frame's binding is
-   * stable while the contents are rebuilt.
+   * Create the buffers, texture and pipelines (idempotent) and return the LUT texture the sky pass
+   * binds. The sky bind group is built from this even on frames that record no pass, so the frame's
+   * binding is stable while the contents are rebuilt.
    */
-  prepare(skyBuffer: GPUBuffer): GPUBuffer {
+  prepare(skyBuffer: GPUBuffer): GPUTexture {
     this.ensureResources(skyBuffer);
-    return this.lutBuffer!;
+    return this.lutTexture!;
   }
 
   /**
@@ -108,26 +110,33 @@ export class GpuMultiScattering {
   record(graph: RenderGraph, skyBuffer: GPUBuffer): void {
     if (this.disposed) return;
     this.ensureResources(skyBuffer);
-    graph.addPass({ name: "forge.sky.ms.table", sideEffect: true, execute: (ctx) => this.encode(ctx, MS_ENTRY.transmittance, this.tableBuffer!) });
-    graph.addPass({ name: "forge.sky.ms.lut", sideEffect: true, execute: (ctx) => this.encode(ctx, MS_ENTRY.field, this.lutBuffer!) });
+    graph.addPass({ name: "forge.sky.ms.table", sideEffect: true, execute: (ctx) => this.encode(ctx, MS_ENTRY.transmittance) });
+    graph.addPass({ name: "forge.sky.ms.lut", sideEffect: true, execute: (ctx) => this.encode(ctx, MS_ENTRY.field) });
   }
 
   /**
-   * Copy the contents of the LUT back and resolve to them as f32 in the stored order
+   * Copy the contents of the LUT texture back and resolve to them as f32 in the stored order
    * (`heightSamples × sunSamples` texels of `(rgb = J_ms / sunIntensity, a = mean ρ)`). This is a
    * diagnostics/verification path, not part of a frame: `tests/environment/environment17.test.ts`
-   * and `npm run check:browser` compare the table a real device built with the CPU twin's.
+   * and `npm run check:browser` compare the texture a real device built with the CPU twin's.
    * Resolves to null before the first build (or after {@link dispose}).
    */
   async readLut(): Promise<Float32Array | null> {
-    const lut = this.lutBuffer;
+    const lut = this.lutTexture;
     if (!lut || this.disposed) return null;
-    const bytes = MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES;
+    const width = MULTI_SCATTERING_GPU.sunSamples;
+    const height = MULTI_SCATTERING_GPU.heightSamples;
+    const rowBytes = width * MS_LUT_TEXEL_BYTES;
+    const bytes = rowBytes * height;
     const d = this.device.device;
     const staging = d.createBuffer({ label: "sky.ms.readback", size: bytes, usage: BufferUsage.COPY_DST | BufferUsage.MAP_READ });
     try {
       const encoder = d.createCommandEncoder({ label: "sky.ms.readback" });
-      encoder.copyBufferToBuffer(lut, 0, staging, 0, bytes);
+      encoder.copyTextureToBuffer(
+        { texture: lut },
+        { buffer: staging, bytesPerRow: rowBytes, rowsPerImage: height },
+        { width, height, depthOrArrayLayers: 1 },
+      );
       d.queue.submit([encoder.finish()]);
       await staging.mapAsync(BufferUsage.MAP_READ);
       return new Float32Array(staging.getMappedRange(0, bytes).slice(0));
@@ -148,8 +157,9 @@ export class GpuMultiScattering {
     this.disposed = true;
     this.tableBuffer?.destroy();
     this.tableBuffer = null;
-    this.lutBuffer?.destroy();
-    this.lutBuffer = null;
+    this.lutTexture?.destroy();
+    this.lutTexture = null;
+    this.lutView = null;
     this.tablePipeline = null;
     this.fieldPipeline = null;
     this.group = null;
@@ -158,7 +168,7 @@ export class GpuMultiScattering {
 
   /**
    * One pipeline per entry point (they differ only in the compute stage), sharing the module and the
-   * layout: a uniform for the sky block and two storage buffers.
+   * layout: a uniform, a compute-only storage table, and the write-only LUT texture.
    */
   private ensureResources(skyBuffer: GPUBuffer): void {
     const d = this.device.device;
@@ -167,13 +177,15 @@ export class GpuMultiScattering {
       size: MS_TABLE_TEXELS * MS_LUT_TEXEL_BYTES,
       usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
     });
-    this.lutBuffer ??= d.createBuffer({
-      label: "sky.ms.lut",
-      size: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES,
-      // COPY_SRC is only for `readLut` — the verification path reads the table back and compares it
-      // with the CPU twin; nothing in a frame copies it.
-      usage: BufferUsage.STORAGE | BufferUsage.COPY_DST | BufferUsage.COPY_SRC,
-    });
+    if (!this.lutTexture) {
+      this.lutTexture = d.createTexture({
+        label: "sky.ms.lut",
+        size: { width: MULTI_SCATTERING_GPU.sunSamples, height: MULTI_SCATTERING_GPU.heightSamples, depthOrArrayLayers: 1 },
+        format: MS_LUT_TEXTURE_FORMAT,
+        usage: TextureUsage.STORAGE_BINDING | TextureUsage.TEXTURE_BINDING | TextureUsage.COPY_SRC,
+      });
+      this.lutView = this.lutTexture.createView({ label: "sky.ms.lut.view", dimension: "2d" });
+    }
     if (!this.tablePipeline) {
       const module = this.shaders.get("sky.ms.wgsl", MULTI_SCATTERING_SHADER);
       const layout = d.createBindGroupLayout({
@@ -181,7 +193,7 @@ export class GpuMultiScattering {
         entries: [
           { binding: MS_BINDINGS.sky.binding, visibility: ShaderStage.COMPUTE, buffer: { type: "uniform" } },
           { binding: MS_BINDINGS.transmittance.binding, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: MS_BINDINGS.lut.binding, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" } },
+          { binding: MS_BINDINGS.lut.binding, visibility: ShaderStage.COMPUTE, storageTexture: { access: "write-only", format: MS_LUT_TEXTURE_FORMAT, viewDimension: "2d" } },
         ],
       });
       const pipelineLayout = d.createPipelineLayout({ label: "sky.ms", bindGroupLayouts: [layout] });
@@ -203,7 +215,7 @@ export class GpuMultiScattering {
         entries: [
           { binding: MS_BINDINGS.sky.binding, resource: { buffer: skyBuffer } },
           { binding: MS_BINDINGS.transmittance.binding, resource: { buffer: this.tableBuffer } },
-          { binding: MS_BINDINGS.lut.binding, resource: { buffer: this.lutBuffer } },
+          { binding: MS_BINDINGS.lut.binding, resource: this.lutView! },
         ],
       });
       this.groupSky = skyBuffer;
@@ -211,7 +223,7 @@ export class GpuMultiScattering {
   }
 
   /** One invocation per texel, `MS_WORKGROUP` per workgroup; both dispatches are trivial. */
-  private encode(ctx: RenderGraphPassContext, entry: string, target: GPUBuffer): void {
+  private encode(ctx: RenderGraphPassContext, entry: string): void {
     const pass = ctx.beginComputePass(`sky.ms.${entry === MS_ENTRY.transmittance ? "table" : "lut"}`);
     const pipeline = entry === MS_ENTRY.transmittance ? this.tablePipeline : this.fieldPipeline;
     if (!pipeline) {
@@ -220,7 +232,7 @@ export class GpuMultiScattering {
     }
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, this.group!);
-    const texels = target === this.tableBuffer ? MS_TABLE_TEXELS : MS_LUT_TEXELS;
+    const texels = entry === MS_ENTRY.transmittance ? MS_TABLE_TEXELS : MS_LUT_TEXELS;
     pass.dispatchWorkgroups(Math.ceil(texels / MS_WORKGROUP));
     pass.end();
   }
