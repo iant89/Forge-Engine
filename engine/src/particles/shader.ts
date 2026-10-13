@@ -456,12 +456,18 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   // otherwise), so the reversed GLSL idiom smoothstep(0.5, 0.35, r) must be written this way.
   let edge = 1.0 - smoothstep(0.35, 0.5, r);
   var alpha = in.color.a * edge;
+  // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
+  // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does
+  // not load a depthReadOnly attachment (device probe), so the hardware test saw stale depth.
+  // less-equal, as the attachment's compare was.
+  let dims = vec2<i32>(textureDimensions(depthTex));
+  let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
+  let sceneDepth = textureLoad(depthTex, px, 0);
+  let particleZ = in.clip.z;
+  if (particleZ > sceneDepth) {
+    discard;
+  }
   if (in.softEnabled != 0u && params.softScale > 0.0) {
-    // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
-    let dims = vec2<i32>(textureDimensions(depthTex));
-    let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
-    let sceneDepth = textureLoad(depthTex, px, 0);
-    let particleZ = in.clip.z;
     let soft = saturate((sceneDepth - particleZ) * params.softScale * f32(dims.y));
     alpha = alpha * soft;
   }
@@ -631,13 +637,19 @@ fn degenerateRibbon() -> RibbonVSOut {
 
 @fragment fn fsRibbon(in: RibbonVSOut) -> @location(0) vec4<f32> {
   var alpha = in.color.a;
+  // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w),
+  // the same reading the billboard pass uses for its soft fade.
+  // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does
+  // not load a depthReadOnly attachment (device probe), so the hardware test saw stale depth.
+  // less-equal, as the attachment's compare was.
+  let dims = vec2<i32>(textureDimensions(depthTex));
+  let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
+  let sceneDepth = textureLoad(depthTex, px, 0);
+  let ribbonZ = in.clip.z;
+  if (ribbonZ > sceneDepth) {
+    discard;
+  }
   if (in.softEnabled != 0u && params.softScale > 0.0) {
-    // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w),
-    // the same reading the billboard pass uses for its soft fade.
-    let dims = vec2<i32>(textureDimensions(depthTex));
-    let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
-    let sceneDepth = textureLoad(depthTex, px, 0);
-    let ribbonZ = in.clip.z;
     let soft = saturate((sceneDepth - ribbonZ) * params.softScale * f32(dims.y));
     alpha = alpha * soft;
   }

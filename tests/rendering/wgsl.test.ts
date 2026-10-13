@@ -77,6 +77,7 @@ import {
   arrayOf,
   f32,
   derivativeControlFlowIssues,
+  fixedStorageArrayIssues,
   mixedOperatorIssues,
   ofStruct,
   preprocessWgsl,
@@ -383,6 +384,31 @@ group("clustered lighting structs (Phase 13.3)", () => {
     assert.equal(new Material().fogExempt, false, "ordinary materials stay fogged");
     // A uniform flag, not a pipeline variant: toggling it cannot rebuild or split a batch.
     assert.equal(beacon.pipelineKey, new Material({ technique: "emissive" }).pipelineKey);
+  });
+});
+
+group("validateWgsl rejects fixed storage arrays in fragment modules", () => {
+  const fragment = (declaration: string) => `${declaration}\n@fragment fn fs() -> @location(0) vec4<f32> {\n  return vec4<f32>(lut[0].rgb, 1.0);\n}`;
+
+  test("flags a fixed-size storage array in a fragment stage", () => {
+    const source = fragment("@group(0) @binding(0) var<storage, read> lut: array<vec4<f32>, 4>;");
+    const issues = fixedStorageArrayIssues(source);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]!.kind, "layout");
+    assert.equal(issues[0]!.line, 1);
+    assertContains(issues[0]!.message, "fixed-size storage arrays in fragment stages");
+    assert.deepEqual(validateWgsl(source), issues);
+  });
+
+  test("allows runtime-sized storage arrays, compute-only fixed arrays, and commented declarations", () => {
+    const runtime = fragment("@group(0) @binding(0) var<storage, read> lut: array<vec4<f32>>;");
+    assert.deepEqual(fixedStorageArrayIssues(runtime), []);
+    assert.deepEqual(validateWgsl(runtime), []);
+    const compute = `@group(0) @binding(0) var<storage, read> lut: array<vec4<f32>, 4>;\n@workgroup_size(1) @compute fn cs() {}`;
+    assert.deepEqual(fixedStorageArrayIssues(compute), []);
+    assert.deepEqual(validateWgsl(compute), []);
+    const commented = `// @group(0) @binding(0) var<storage, read> lut: array<vec4<f32>, 4>;\n${fragment("@group(0) @binding(0) var<storage, read> lut: array<vec4<f32>>;")}`;
+    assert.deepEqual(fixedStorageArrayIssues(commented), []);
   });
 });
 

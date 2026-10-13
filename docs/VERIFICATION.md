@@ -69,9 +69,9 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 1,127 passing cases in 78 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
+| `npm test` | 1,127 passing cases in 81 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 78 suites have matching headers/exported manifests, unique names, repository-backed areas and 692 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
+| `npm run test:check` | The selrun catalog is complete: all 81 suites have matching headers/exported manifests, unique names, repository-backed areas and 701 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -741,13 +741,21 @@ The table's own contract, then the model that reads it, with no device needed ex
   *not* when the sun has not moved (`Renderer.multiScatteringBuilds` pins both sides of that — 1 after
   the first frame, still 1 after a still one, +1 for a sun step past `MS_SUN_EPSILON` but not for a
   sub-epsilon nudge, +1 again for an atmosphere edit), they bind the frame's `SkyUniforms` and their
-  own storage buffers, the sky pass binds the LUT at group 0 binding 3 (the compute passes bind it at
-  2, so a shader that hard-coded the index would fail one of the two), toggling
-  `scene.settings.sky.multiScattering` changes the uniform the sky pass sees but not the pass list,
-  the LUT survives a frame with no sky pass, and `dispose` releases the buffers and the pipelines.
+  own storage buffers, while `csField` writes the LUT into an `rgba32float` storage texture with
+  `textureStore`; the sky and forward fragment stages bind that texture as `texture_2d<f32>` and use
+  `textureLoad` at group 0 binding 3/10. The compute passes bind it at 2, so a shader that hard-coded
+  the index would fail one of the two, toggling `scene.settings.sky.multiScattering` changes the
+  uniform the sky pass sees but not the pass list, the LUT survives a frame with no sky pass, and
+  `dispose` releases the texture, buffers and pipelines.
 * **The shader/config agreement.** The WGSL constants (`MS_LUT_TEXELS`, the workgroup, the entry
-  names and the sampler text) are generated from the same numbers the CPU reads, so a config change
-  cannot silently desynchronise the twins.
+  names and the texture reader) are generated from the same numbers the CPU reads, so a config change
+  cannot silently desynchronise the twins. The texture readback uses the same height-major/sun-minor
+  texel order as the CPU field.
+* **The WebKit storage-array guard.** `validateWgsl` rejects a fixed-size `var<storage>` array when
+  a module has a fragment entry point, while leaving compute-only tables and runtime-sized storage
+  arrays legal. `tests/rendering/wgsl.test.ts` pins the exact fragment-only rule and the production
+  shader corpus stays clean, so the LUT cannot silently regress to the array shape that made iPhone
+  Safari shade the sky black.
 * **Finite-path aerial perspective (17.2).** The allocation-free `AtmosphereModel.aerialPerspective`
   reference returns identity for zero-length/out-of-shell paths, reduces transmittance and accumulates
   in-scattering with distance, and adds (never subtracts) the optional CPU MS source along the segment.

@@ -38,6 +38,7 @@ export const linkedSuites = [
   ["tests/rendering/clusters.test.ts", () => import("./rendering/clusters.test.ts")],
   ["tests/rendering/frame.test.ts", () => import("./rendering/frame.test.ts")],
   ["tests/rendering/lightCulling.test.ts", () => import("./rendering/lightCulling.test.ts")],
+  ["tests/rendering/iosSkyGuards.test.ts", () => import("./rendering/iosSkyGuards.test.ts")],
   ["tests/rendering/objectCulling.test.ts", () => import("./rendering/objectCulling.test.ts")],
   ["tests/rendering/pipeline.test.ts", () => import("./rendering/pipeline.test.ts")],
   ["tests/rendering/primitives.test.ts", () => import("./rendering/primitives.test.ts")],
@@ -72,6 +73,8 @@ export const linkedSuites = [
   ["tests/examples/roverTools.test.ts", () => import("./examples/roverTools.test.ts")],
   ["tests/examples/skinningScene.test.ts", () => import("./examples/skinningScene.test.ts")],
   ["tests/examples/skyBisect.test.ts", () => import("./examples/skyBisect.test.ts")],
+  ["tests/examples/buildInfo.test.ts", () => import("./examples/buildInfo.test.ts")],
+  ["tests/examples/copyText.test.ts", () => import("./examples/copyText.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
   ["tests/controls/demoSceneSelection.test.ts", () => import("./controls/demoSceneSelection.test.ts")],
@@ -82,4 +85,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(78);
+report(81);

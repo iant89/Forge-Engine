@@ -477,11 +477,7 @@ export class GpuParticleSystem {
         ],
       },
       primitive: { topology: "triangle-list", cullMode: "none", frontFace: "cw" },
-      depthStencil: {
-        format: depthFormat,
-        depthWriteEnabled: false,
-        depthCompare: "less-equal",
-      },
+      // No depthStencil: the fragment stage depth-tests against the sampled scene depth (fe-17).
     });
     this.renderPipelineFormat = colorFormat;
     this.renderDepthFormat = depthFormat;
@@ -519,11 +515,7 @@ export class GpuParticleSystem {
       // Double-sided on purpose: the strip's winding follows the camera/segment geometry, and a
       // camera-facing construction makes back-face rejection meaningless (and flip-prone).
       primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: {
-        format: depthFormat,
-        depthWriteEnabled: false,
-        depthCompare: "less-equal",
-      },
+      // No depthStencil: the fragment stage depth-tests against the sampled scene depth (fe-17).
     });
     this.ribbonPipelineFormat = colorFormat;
     this.ribbonDepthFormat = depthFormat;
@@ -761,12 +753,10 @@ export class GpuParticleSystem {
       name: "particle.render" + sfx,
       reads: [opts.depth],
       color: [{ texture: opts.color, loadOp: "load" }],
-      // Read-only on purpose: this pass SAMPLES the scene depth (soft-particle fade), which WebGPU
-      // only allows while the attachment is read-only. The spec's implicit "load" for read-only
-      // depth is the same primitive the sky pass stopped relying on (WebKit lost the main pass's
-      // depth through it on iOS); here a wrong load only fades soft particles, never paints over
-      // the scene, so the read-only attach stays.
-      depth: { texture: opts.depth, depthReadOnly: true },
+      // No depth attachment (fe-17): the pass samples the scene depth and depth-tests in the
+      // fragment shader. A `depthReadOnly` attachment — the only way to attach a texture that is
+      // also sampled — is not loaded by WebKit on iOS (the ?diag=1 depth-readonly probe fails on
+      // device), so the hardware depth test there compared against stale depth.
       execute: (ctx) => this.encodeRender(ctx, opts.colorFormat, opts.depthFormat, opts.depth),
     });
     graph.addPass({

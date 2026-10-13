@@ -247,12 +247,51 @@ export function validateWgsl(source: string): WgslIssue[] {
   issues.push(...reservedWordIssues(source));
   issues.push(...mixedOperatorIssues(source));
   issues.push(...derivativeControlFlowIssues(source));
+  issues.push(...fixedStorageArrayIssues(source));
 
   // 5. Uniform address-space layout. Chromium's compiler tolerates arrays with a stride below 16
   //    bytes (and other relaxed layouts) inside `var<uniform>` structs; WebKit rejects the module,
   //    which is a black canvas on Safari with nothing in the page to say why. Apply the strict rules
   //    everywhere so the strictest browser is the one that decides what ships.
   issues.push(...uniformLayoutIssues(source));
+  return issues;
+}
+
+// ------------------------------------------------------------------ fragment storage textures
+
+/**
+ * Fixed-size storage arrays are legal WGSL, but WebKit's fragment-stage implementation can mis-read
+ * them when the array is the resource a fragment shader consumes. The Phase 17.1 LUT used exactly
+ * that shape: Chromium produced the expected sky while iPhone Safari returned zero radiance with no
+ * GPU error. Compute-only tables are left alone — they never cross the fragment boundary — and
+ * runtime-sized storage arrays remain valid. Fragment consumers should use a texture (`texture_2d`
+ * plus `textureLoad`) instead.
+ */
+export function fixedStorageArrayIssues(rawSource: string): WgslIssue[] {
+  const source = rawSource
+    .replace(/\/\*[\s\S]*?\*\//g, (s) => s.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, " ");
+  if (!/@fragment\s+fn\b/.test(source)) return [];
+
+  const issues: WgslIssue[] = [];
+  const storage = /\bvar\s*<\s*storage\s*(?:,\s*(?:read|read_write))?\s*>\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*/g;
+  let match: RegExpExecArray | null;
+  while ((match = storage.exec(source))) {
+    const semicolon = source.indexOf(";", storage.lastIndex);
+    if (semicolon < 0) break;
+    const type = source.slice(storage.lastIndex, semicolon).trim();
+    if (type.startsWith("array<") && type.endsWith(">")) {
+      const parameters = splitTopLevel(type.slice("array<".length, -1));
+      if (parameters.length >= 2 && parameters[1]!.length > 0) {
+        issues.push({
+          kind: "layout",
+          message: `fragment storage array "${match[1]}" has a fixed element count (${parameters[1]}); WebKit can mis-read fixed-size storage arrays in fragment stages — use a texture_2d with textureLoad or a runtime-sized array`,
+          line: lineAt(source, match.index),
+        });
+      }
+    }
+    storage.lastIndex = semicolon + 1;
+  }
   return issues;
 }
 

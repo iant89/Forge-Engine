@@ -9,7 +9,7 @@
  * pass listed, `gpuErrors 0` and the terrain lit — i.e. the sky fragment stage runs and returns
  * zero radiance. The suspects are the constructs only that stage uses: the per-pixel `select()`
  * that raises the sample counts in the horizon band, the dynamic loop bounds it feeds, the
- * Phase 17.1 multiple-scattering storage-buffer read, and the Phase 17.3 cloud deck mix. Each
+ * Phase 17.1 multiple-scattering LUT texture read, and the Phase 17.3 cloud deck mix. Each
  * variant below removes exactly one of them (or short-circuits the whole stage to a constant), so
  * a capture matrix over the variants names the culprit — and the variant that restores the sky on
  * the device *is* the production fix, already device-proven.
@@ -57,6 +57,14 @@ function firstStatement(source: string, line: string): string | null {
 
 export const SKY_BISECT_VARIANTS: readonly SkyBisectVariant[] = [
   {
+    // fe-17 control: byte-different but semantically identical. If this draws while "as-is" is
+    // black, the black is not any construct in the source but the device's compile of that exact
+    // text (WebKit/Metal fast math or a cached library), and the guards are what must hold.
+    id: "recompile",
+    label: "identical shader with a trailing comment (forces a fresh compile, no semantic change)",
+    apply: (source) => (source.includes("fn fragmentMain(") ? `${source}\n// fe-17 recompile control\n` : null),
+  },
+  {
     id: "uniform-bounds",
     label: "loop bounds straight from the uniform (no per-pixel select)",
     apply: (source) => {
@@ -91,7 +99,7 @@ export const SKY_BISECT_VARIANTS: readonly SkyBisectVariant[] = [
   },
   {
     id: "no-ms",
-    label: "no Phase 17.1 multiple-scattering storage-buffer read",
+    label: "no Phase 17.1 multiple-scattering LUT texture read",
     apply: (source) => replaceLine(source, "if (sky.multiScattering != 0) {", "if (false) {"),
   },
   {

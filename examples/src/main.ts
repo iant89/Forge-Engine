@@ -25,6 +25,7 @@
  * - `window.__forge` interface for automated headless verification (`npm run check:browser`): the
  *   gate flips the toggles and reads pixels back, so every switch here must be reachable from it.
  */
+import { FORGE_BUILD } from "./buildInfo.js";
 import {
   type DayNightCycle,
   Engine,
@@ -116,7 +117,7 @@ async function main(): Promise<void> {
     if (visible && profilerPanel) profilerPanel.textContent = engine.profiler.report(16);
   };
   btnProfiler?.addEventListener("click", () => setProfilerVisible(!profilerVisible));
-  const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}`;
+  const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}  build ${FORGE_BUILD}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
   // Mars Showcase is not buried under three panels; panels stay in the DOM for `__forge`/gates.
