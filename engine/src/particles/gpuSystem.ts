@@ -119,7 +119,7 @@ export interface GpuParticleSystemOptions {
   /** 0 = camera-facing billboard; >0 stretches along velocity. */
   stretch?: number;
   /**
-   * Opt-in soft round sprite: alpha falls off smoothly from the centre (squared smoothstep over the
+   * Opt-in soft round sprite: alpha falls off smoothly from near the centre (smoothstep over the
    * whole radius) instead of the default hard disc with a thin rim fade. Same fragment cost. Default off.
    */
   softSprite?: boolean;

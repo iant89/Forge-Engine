@@ -515,8 +515,8 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   var edge = 1.0 - smoothstep(0.35, 0.5, r);
   if ((params.flags & 2u) != 0u) {
     // Opt-in soft round sprite (bit 1): a smooth centre-to-rim falloff, so grains read as dust puffs.
-    let s = 1.0 - smoothstep(0.0, 0.5, r);
-    edge = s * s;
+    // fe-21g: a plain smoothstep (not squared) keeps a fuller core so the swarm reads dense.
+    edge = 1.0 - smoothstep(0.05, 0.5, r);
   }
   var alpha = in.color.a * edge;
   // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
