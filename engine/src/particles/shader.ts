@@ -155,6 +155,14 @@ struct EmitParams {
   emitBudget: u32,
   capacity: u32,
   emitBase: u32,
+  vortexHeight: f32,
+  vortexBias: f32,
+  vortexRadiusBase: f32,
+  vortexRadiusTop: f32,
+  vortexSpin: f32,
+  vortexOutward: f32,
+  vortexLeanX: f32,
+  vortexLeanZ: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
@@ -209,6 +217,21 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
   p.color = params.color;
   p.size = params.size;
   p.seed = hashToFloat(hash2(params.seed, emitIndex));
+  if (params.vortexHeight > 0.0) {
+    // Vortex column (red-frontier DustDevil.emitColumn): height-biased, flaring, leaning ring spawn.
+    // Inputs are clamped away from 0 before pow: WebKit's pow(0, y) has produced NaN before (fe-17).
+    let h01 = pow(max(hashToFloat(hash2(h5, h3)), 1e-4), params.vortexBias);
+    let spread = 0.72 + 0.55 * hashToFloat(hash2(h1, h4));
+    let r = mix(params.vortexRadiusBase, params.vortexRadiusTop, pow(max(h01, 1e-4), 0.9)) * spread;
+    let a = hashToFloat(hash2(h4, h2)) * 6.28318530718;
+    let ca = cos(a);
+    let sa = sin(a);
+    let lean = pow(max(h01, 1e-4), 1.25);
+    p.position = params.position + vec3<f32>(params.vortexLeanX * lean + ca * r, h01 * params.vortexHeight, params.vortexLeanZ * lean + sa * r);
+    let rim = params.vortexSpin * r;
+    let up = mix(params.speedMin, params.speedMax, hashToFloat(h3)) * (1.0 - 0.42 * h01);
+    p.velocity = vec3<f32>(-sa * rim + ca * params.vortexOutward, up, ca * rim + sa * params.vortexOutward);
+  }
   p.age = 0.0;
   p.flags = 1.0;
   particles[slot] = p;
@@ -250,6 +273,10 @@ struct FullSimParams {
   swirlStrength: f32,
   colorAlt: vec4<f32>,
   colorVariation: f32,
+  axisPull: f32,
+  axisHeight: f32,
+  axisLeanX: f32,
+  axisLeanZ: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -276,6 +303,14 @@ struct FullSimParams {
     let r = max(length(toA.xz), 0.5);
     let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;
     p.velocity = p.velocity + tangent * (params.swirlStrength * params.dt / r);
+  }
+  if (params.axisPull > 0.0) {
+    // Horizontal spring toward the (leaning) vortex axis at this particle's height.
+    let h01 = clamp((p.position.y - params.attractorPos.y) / params.axisHeight, 0.0, 1.0);
+    let lean = pow(max(h01, 1e-4), 1.25);
+    let axis = params.attractorPos.xz + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean;
+    let d = axis - p.position.xz;
+    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * params.dt);
   }
   if (params.turbulence > 0.0) {
     let np = p.position * params.noiseScale + vec3<f32>(params.time);

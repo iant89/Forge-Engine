@@ -46,6 +46,10 @@ import {
   buildFunnelMesh,
   devilFunnelProfile,
   devilParticleLook,
+  devilFunnelSway,
+  devilVortexLife,
+  devilEmitRate,
+  DEVIL_RF_BASE_PER_CORE,
   devilSkirtProfile,
   driftMoundHeightAt,
   driftMoundRadius,
@@ -235,7 +239,9 @@ group("course and difficulty (D3/D4)", () => {
     assert.equal(stormQualityForPlatform("macos"), "full");
     // iOS budget: sheet + every capped devil system stays at 28k particles, well under full.
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) <= 28_000);
-    assert.ok(STORM_QUALITY_TIERS.reduced.devilCapacity <= 2_000);
+    // fe-21: budget rebalanced from the sheet toward the swarm devils (16k sheet + 3 × 4k devils).
+    assert.ok(STORM_QUALITY_TIERS.reduced.devilCapacity <= 4_000);
+    assert.ok(STORM_QUALITY_TIERS.reduced.devilRate * 1.7 <= STORM_QUALITY_TIERS.reduced.devilCapacity * 1.3, "column rate fits its capacity");
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) * 4 < stormParticleBudget(STORM_QUALITY_TIERS.full));
     assert.ok(STORM_QUALITY_TIERS.reduced.devils < STORM_QUALITY_TIERS.full.devils);
     assert.equal(isRoverFlipped(0.2, 0.1), false);
@@ -316,16 +322,33 @@ group("fe-18 dust storm polish", () => {
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) <= 28_000);
   });
 
-  test("devil funnel profile: narrow tall column, pinched above the skirt, widening at the top", () => {
-    assert.ok(devilFunnelProfile(0.5) < 0.4, "narrow mid-column");
-    assert.ok(devilFunnelProfile(1) > devilFunnelProfile(0.5) * 1.5, "widens toward the top");
-    assert.ok(devilFunnelProfile(0.12) <= devilFunnelProfile(0), "waist above the base");
-    for (let u = 0.12; u < 1; u += 0.05) assert.ok(devilFunnelProfile(u + 0.05) >= devilFunnelProfile(u) - 1e-9, "monotonic above the waist");
+  test("devil funnel profile (red-frontier): thin rope at the ground flaring toward the top", () => {
+    assertCloseTo(devilFunnelProfile(0), DEVIL_RF_BASE_PER_CORE * 0.3 * (1 + 0.18 * Math.sin(0)), 9);
+    assert.ok(devilFunnelProfile(1) > devilFunnelProfile(0) * 4, "flares toward the top");
     assert.ok(devilSkirtProfile(0) > devilFunnelProfile(0) * 2.5, "skirt is much wider than the funnel base");
+    // Bulge breathes over time but stays within ±18%.
+    const p0 = devilFunnelProfile(0.5, 0, 0), p1 = devilFunnelProfile(0.5, 2, 0);
+    assert.ok(Math.abs(p0 - p1) > 1e-3 && Math.abs(p0 - p1) / p0 < 0.45);
     const devil = { id: 3, coreRadius: 4, swirl: -20 };
-    const look = devilParticleLook(devil);
-    assert.ok(look.jitterXZ < devil.coreRadius, "particles fed from inside the core");
-    assert.ok(look.swirl < 0, "swirl follows the devil's spin");
+    // Wobble: base planted, top capped at 1.7 footprints.
+    for (let t = 0; t < 60; t += 0.7) {
+      const b = devilFunnelSway(devil, 0, t), top = devilFunnelSway(devil, 1, t);
+      assert.equal(Math.hypot(b.x, b.z), 0);
+      assert.ok(Math.hypot(top.x, top.z) <= devil.coreRadius * DEVIL_RF_BASE_PER_CORE * 1.7 + 1e-9);
+    }
+    // Column vs skirt frames, and the birth burst.
+    const adult = { ...devil, age: 10, life: 30, fadeOut: 4 };
+    const col = devilParticleLook(adult, 0, 1), skirt = devilParticleLook(adult, 0, 0);
+    assert.ok(col.column && !skirt.column);
+    assert.ok(col.vortex.radiusTop > col.vortex.radiusBase * 2 && col.vortex.radiusTop <= devil.coreRadius * 1.1, "swarm is tight at the ground and widens a little with height");
+    assert.ok(col.vortex.spin < 0 && col.swirl < 0, "spin follows the devil");
+    assert.ok(skirt.vortex.outward > 0 && skirt.vortex.height < 2, "skirt blasts outward at the ground");
+    assert.equal(devilParticleLook({ ...adult, age: 0.1 }, 0, 1).column, false, "birth burst is skirt-only");
+    // Growth: the column climbs out of the ground; dying thins it.
+    assert.ok(devilVortexLife({ age: 0.2, life: 30 }).growth < 0.1);
+    assertCloseTo(devilVortexLife({ age: 5, life: 30 }).growth, 1, 9);
+    assert.ok(devilVortexLife({ age: 29.5, life: 30, fadeOut: 4 }).radiusScale < 0.5);
+    assert.ok(devilEmitRate(1000, col, 1, false) <= 1000 && devilEmitRate(1000, col, 0, false) === 0);
     // Mesh: rotates with time (lumps advected), sways at the top, anchored at the ground.
     const h = 44;
     const a = buildFunnelMesh(devil, h, devilFunnelProfile, 1, 0);

@@ -453,6 +453,28 @@ group("particles — Phase 12 GPU system", () => {
     }
   });
 
+  test("opt-in vortex column spawn + leaning axis spring (red-frontier dust devils, fe-21)", async () => {
+    assertContains(PARTICLE_EMIT_SHADER, "vortexHeight: f32,");
+    assertContains(PARTICLE_EMIT_SHADER, "if (params.vortexHeight > 0.0) {");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "axisPull: f32,");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "if (params.axisPull > 0.0) {");
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const plain = new GpuParticleSystem(gpu, { capacity: 64 });
+      assert.equal(plain.emitter.vortex, undefined, "vortex spawn off by default");
+      assert.equal(plain.modules.axisPull, 0, "axis spring off by default");
+      const vortex = { height: 40, bias: 1.35, radiusBase: 0.6, radiusTop: 4, spin: 0.9, outward: 0, leanX: 1, leanZ: -1 };
+      const devil = new GpuParticleSystem(gpu, { capacity: 64, emitter: { vortex }, modules: { axisPull: 5, axisLean: { x: 1, y: 40, z: -1 } } });
+      assert.deepEqual(devil.emitter.vortex, vortex);
+      assert.notEqual(devil.emitter.vortex, vortex, "copied, not aliased");
+      assert.equal(devil.modules.axisPull, 5);
+      plain.dispose();
+      devil.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   test("simulates and draws 100k particles without creating 100k ECS entities", async () => {
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {

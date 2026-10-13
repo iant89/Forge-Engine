@@ -36,6 +36,27 @@ export interface GpuParticleEmitterConfig {
   speedMin: number;
   speedMax: number;
   color: { r: number; g: number; b: number; a: number };
+  /**
+   * Optional vortex-column spawn (dust devils, after red-frontier's `DustDevil.emitColumn`). When
+   * `height > 0` the cone/jitter shape is replaced: each particle spawns at a height fraction
+   * `h01 = rand^bias` up a column of `height` m above `position`, on a ring of radius
+   * `mix(radiusBase, radiusTop, h01^0.9) * (0.72..1.27)` around the axis, which leans by
+   * `lean * h01^1.25` toward the top. Velocity: tangential rim speed `spin * r` (signed), an
+   * outward radial `outward` m/s, and an updraft `speed * (1 - 0.42 * h01)` with speed sampled from
+   * `speedMin..speedMax`. Omitted or `height <= 0` = off (default).
+   */
+  vortex?: GpuParticleVortexSpawn;
+}
+
+export interface GpuParticleVortexSpawn {
+  height: number;
+  bias: number;
+  radiusBase: number;
+  radiusTop: number;
+  spin: number;
+  outward: number;
+  leanX: number;
+  leanZ: number;
 }
 
 export interface GpuParticleModulesConfig {
@@ -64,6 +85,14 @@ export interface GpuParticleModulesConfig {
    */
   colorVariation: number;
   colorAlt: { r: number; g: number; b: number; a: number };
+  /**
+   * Horizontal spring (1/s²) pulling each particle toward the vertical axis through `attractorPos`,
+   * leaned by `axisLean.{x,z} * h01^1.25` where `h01 = (y - attractorPos.y) / axisLean.y` (red-frontier's
+   * per-particle `pullK` anchor). Keeps a vortex column rope-like and bending with its wobble.
+   * 0 = off (default).
+   */
+  axisPull?: number;
+  axisLean?: { x: number; y: number; z: number };
 }
 
 export interface GpuParticleSystemOptions {
@@ -101,8 +130,8 @@ export interface GpuParticleFrameInput {
   cameraUp: { x: number; y: number; z: number };
 }
 
-const EMIT_UNIFORM_BYTES = 96;
-const SIM_UNIFORM_BYTES = 160;
+const EMIT_UNIFORM_BYTES = 128;
+const SIM_UNIFORM_BYTES = 176;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -122,6 +151,7 @@ function defaultEmitter(partial: Partial<GpuParticleEmitterConfig> = {}): GpuPar
     speedMin: partial.speedMin ?? 5,
     speedMax: partial.speedMax ?? 9,
     color: partial.color ?? { r: 1, g: 0.78, b: 0.28, a: 1 },
+    ...(partial.vortex ? { vortex: { ...partial.vortex } } : {}),
   };
 }
 
@@ -143,6 +173,8 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     swirlStrength: partial.swirlStrength ?? 0,
     colorVariation: partial.colorVariation ?? 0,
     colorAlt: partial.colorAlt ?? { r: 0, g: 0, b: 0, a: 1 },
+    axisPull: partial.axisPull ?? 0,
+    axisLean: partial.axisLean ?? { x: 0, y: 1, z: 0 },
   };
 }
 
@@ -615,6 +647,17 @@ export class GpuParticleSystem {
     u[21] = budget >>> 0;
     u[22] = this.capacity >>> 0;
     u[23] = emitBase >>> 0;
+    const v = e.vortex;
+    if (v && v.height > 0) {
+      f[24] = v.height;
+      f[25] = Math.max(0.05, v.bias);
+      f[26] = Math.max(0, v.radiusBase);
+      f[27] = Math.max(0, v.radiusTop);
+      f[28] = v.spin;
+      f[29] = v.outward;
+      f[30] = v.leanX;
+      f[31] = v.leanZ;
+    }
     this.device.queue.writeBuffer(this.emitUniform!, 0, gpuSource(new Uint8Array(buf)));
     this.writeHead = (this.writeHead + budget) % this.capacity;
   }
@@ -659,6 +702,10 @@ export class GpuParticleSystem {
     f[34] = m.colorAlt.b;
     f[35] = m.colorAlt.a;
     f[36] = Math.max(0, Math.min(1, m.colorVariation));
+    f[37] = Math.max(0, m.axisPull ?? 0);
+    f[38] = Math.max(1e-3, m.axisLean?.y ?? 1);
+    f[39] = m.axisLean?.x ?? 0;
+    f[40] = m.axisLean?.z ?? 0;
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 
