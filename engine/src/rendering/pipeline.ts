@@ -40,7 +40,6 @@ import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
 import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
-import { MS_LUT_TEXEL_BYTES, MS_LUT_TEXELS } from "./shaders/multiScattering.js";
 import { SSAO_SHADER, SSAO_BINDINGS, type SsaoEntryPoint } from "./shaders/ssao.js";
 import { JOINT_PALETTE_BYTES } from "./skinning.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
@@ -232,7 +231,7 @@ export class PipelineFactory {
         { binding: BINDINGS.clusterLights.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterLightBlock.byteSize("storage") } },
         { binding: BINDINGS.clusterGrid.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: ClusterGridBlock.byteSize("storage") } },
         { binding: BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
-        { binding: BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage", minBindingSize: MS_LUT_TEXELS * MS_LUT_TEXEL_BYTES } },
+        { binding: BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
         // The cloud deck (Phase 17.3): directional lights lose the fraction of the sun the stack
         // blocks. Bound in every frame like the sky block — a bind group layout has no optional
         // slots — and read only while `cloud.surfaceShadows` is set.
@@ -300,10 +299,10 @@ export class PipelineFactory {
         { binding: SKY_BINDINGS.perFrame.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } },
         { binding: SKY_BINDINGS.sky.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SkyUniforms.byteSize("uniform") } },
         { binding: SKY_BINDINGS.cloud.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: CloudUniforms.byteSize("uniform") } },
-        // Phase 17.1: the multiple-scattering table (`MS_BINDINGS.lut`), written by
-        // `shaders/multiScattering.ts` and sampled once per view sample. Always bound — a frame with
-        // the term switched off reads it through a branch on `sky.multiScattering`.
-        { binding: SKY_BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        // Phase 17.1: the rgba32float multiple-scattering LUT (`MS_BINDINGS.lut`), written by
+        // `shaders/multiScattering.ts` and loaded once per view sample. Always bound — a frame with
+        // the term switched off skips it through a branch on `sky.multiScattering`.
+        { binding: SKY_BINDINGS.multiScattering.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
       ],
     });
     this.skyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.skyBindGroupLayout] });

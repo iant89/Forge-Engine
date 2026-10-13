@@ -109,7 +109,7 @@ export {
 
 // GPU
 export { GraphicsDevice, type DeviceCaps, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
-export { ShaderCache, preprocessWgsl, derivativeControlFlowIssues, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
+export { ShaderCache, preprocessWgsl, derivativeControlFlowIssues, fixedStorageArrayIssues, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
 export { BufferBuilder, StructAccessor, WriteBuffer, FloatAccessor } from "./gpu/bufferWriter.js";
 export { StructDef, diffWgslStruct, alignOf, sizeOf, strideOf, f32, i32, u32, bool_, vec2, vec3, vec4, mat2x2, mat3x3, mat4x4, arrayOf, ofStruct, type AddressSpace, type FieldType } from "./gpu/layout.js";
 export {
@@ -372,7 +372,7 @@ export {
   type WorldMatrixLookup,
 } from "./rendering/skinning.js";
 export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
-export { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_WORKGROUP, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_LUT_TEXEL_BYTES, WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./rendering/shaders/multiScattering.js";
+export { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_WORKGROUP, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_LUT_TEXEL_BYTES, MS_LUT_TEXTURE_FORMAT, WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./rendering/shaders/multiScattering.js";
 export { GpuMultiScattering, MS_SUN_EPSILON, writeSkyMultiScatteringSignature, skyMultiScatteringSignatureChanged } from "./rendering/skyMultiScattering.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP, POST_FLAG_PASSTHROUGH } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";

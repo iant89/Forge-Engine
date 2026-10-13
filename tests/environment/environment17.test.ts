@@ -87,6 +87,7 @@ import {
   MS_LUT_FLOATS_PER_TEXEL,
   MS_LUT_TEXEL_BYTES,
   MS_LUT_TEXELS,
+  MS_LUT_TEXTURE_FORMAT,
   MS_SUN_EPSILON,
   MS_TABLE_TEXELS,
   MS_WORKGROUP,
@@ -294,24 +295,26 @@ group("table axes", () => {
     assert.equal(numeric("MS_LIGHT_SAMPLES"), MULTI_SCATTERING_GPU.lightSamples);
     assertCloseTo(numeric("MS_MAX_SERIES_RATIO"), MULTI_SCATTERING_GPU.maxSeriesRatio, 4);
     assertCloseTo(numeric("MS_ESTIMATE_G"), clampMieAnisotropy(0.8), 4, "the field pass must use the same lobe cap as the CPU build");
-    assert.ok(wgslMultiScatteringSampler(2).includes(`array<vec4<f32>, ${MS_LUT_TEXELS}>`), "the sampler declares the LUT's texel count");
+    assert.ok(wgslMultiScatteringSampler(2).includes("texture_2d<f32>"), "the fragment reader uses a texture");
     assert.ok(MULTI_SCATTERING_SHADER.includes(MS_ENTRY.transmittance) && MULTI_SCATTERING_SHADER.includes(MS_ENTRY.field));
     assert.ok(MULTI_SCATTERING_SHADER.includes(`@workgroup_size(${MS_WORKGROUP}) @compute fn`), "the validator needs @workgroup_size before @compute fn");
+    assert.ok(MULTI_SCATTERING_SHADER.includes("textureStore(multiScatteringLut"), "csField writes the texture");
   });
 
   test("declares the LUT at whatever binding the caller asks for", () => {
     const sampler = wgslMultiScatteringSampler(7);
-    assert.ok(sampler.includes("@group(0) @binding(7) var<storage, read> multiScatteringLut"), sampler.slice(0, 160));
-    assert.ok(sampler.includes(`array<vec4<f32>, ${MS_LUT_TEXELS}>`));
+    assert.ok(sampler.includes("@group(0) @binding(7) var multiScatteringLut: texture_2d<f32>"), sampler.slice(0, 160));
+    assert.ok(sampler.includes("textureLoad(multiScatteringLut"));
     assert.ok(sampler.includes("fn msSourceAt(h: f32, p: vec3<f32>, sunDir: vec3<f32>) -> vec3<f32>"));
     // The sky pass and the compute passes bind it in different slots of different layouts.
     assert.equal(SKY_BINDINGS.multiScattering.binding, 3);
     assert.equal(MS_BINDINGS.lut.binding, 2);
     assert.equal(MS_BINDINGS.sky.binding, 0);
-    assert.equal(SKY_SHADER.includes(`@binding(${SKY_BINDINGS.multiScattering.binding}) var<storage, read> multiScatteringLut`), true);
-    assert.ok(SKY_SHADER.includes("multiScatteringLut[") && SKY_SHADER.includes("msSourceAt"), "the sky pass reads the table");
+    assert.equal(MS_LUT_TEXTURE_FORMAT, "rgba32float");
+    assert.equal(SKY_SHADER.includes(`@binding(${SKY_BINDINGS.multiScattering.binding}) var multiScatteringLut: texture_2d<f32>`), true);
+    assert.ok(SKY_SHADER.includes("textureLoad(multiScatteringLut") && SKY_SHADER.includes("msSourceAt"), "the sky pass reads the texture");
     // A hard-coded binding in the shared text collides with the clouds binding at the same slot.
-    assertNotContains(SKY_SHADER, "@binding(2) var<storage, read> multiScatteringLut");
+    assertNotContains(SKY_SHADER, "@binding(2) var multiScatteringLut");
   });
 });
 
@@ -749,22 +752,23 @@ group("the frame's compute passes (mock device)", () => {
     await f.dispose();
   });
 
-  test("binds the LUT read-only, sizes both buffers and reads the table back", async () => {
+  test("binds the LUT as an rgba32float texture, sizes the table buffer and reads it back", async () => {
     const f = await fixture();
     f.renderer.renderScene(f.scene);
     const layout = f.renderer.pipelines.bindGroupLayouts.sky;
     assert.ok(layout, "the sky bind group layout is missing");
-    // Four bindings now: per-frame, sky, clouds, and the multiple-scattering table at b3.
+    // Four bindings now: per-frame, sky, clouds, and the multiple-scattering texture at b3.
     assert.equal(SKY_BINDINGS.multiScattering.binding, 3);
     const buffers = f.mock.outstanding.buffers;
+    const textures = f.mock.outstanding.textures;
     assertContains(buffers, "sky.ms.table");
-    assertContains(buffers, "sky.ms.lut");
+    assertContains(textures, "sky.ms.lut");
     const table = await f.renderer.readMultiScatteringLut();
     assert.ok(table, "the device table did not come back");
     assert.equal(table!.length, MS_LUT_TEXELS * MS_LUT_FLOATS_PER_TEXEL);
-    // The mock runs no WGSL, so the readback carries the buffers as the CPU last saw them (all
-    // zero: the compute passes only ever write on a device). Lengths and wiring are what is
-    // checkable here; the number-by-number comparison with this reference is the browser gate's job.
+    // The mock runs no WGSL, so the readback carries the texture as the CPU last saw it (all zero:
+    // the compute passes only ever write on a device). Lengths and wiring are what is checkable here;
+    // the number-by-number comparison with this reference is the browser gate's job.
     const reference = f.renderer.multiScatteringReference();
     assert.equal(reference.configUsed.heightSamples, MULTI_SCATTERING_GPU.heightSamples);
     assert.equal(reference.data.length, table!.length);
@@ -786,12 +790,13 @@ group("the frame's compute passes (mock device)", () => {
     await f.dispose();
   });
 
-  test("releases the table buffers on dispose", async () => {
+  test("releases the table buffer and LUT texture on dispose", async () => {
     const f = await fixture();
     f.renderer.renderScene(f.scene);
-    assertContains(f.mock.outstanding.buffers, "sky.ms.lut");
+    assertContains(f.mock.outstanding.textures, "sky.ms.lut");
+    assertContains(f.mock.outstanding.buffers, "sky.ms.table");
     f.renderer.dispose();
-    assertNotContains(f.mock.outstanding.buffers, "sky.ms.lut");
+    assertNotContains(f.mock.outstanding.textures, "sky.ms.lut");
     assertNotContains(f.mock.outstanding.buffers, "sky.ms.table");
     assert.equal(await f.renderer.readMultiScatteringLut(), null);
     f.scene.dispose();
