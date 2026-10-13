@@ -1140,6 +1140,16 @@ export const DEVIL_GROW_TIME = 3.1;
  * swarm wraps (skirt and base cloud keep their fe-21 width) tightly around the restored old-devil core instead of a wide hollow tube.
  */
 export const DEVIL_SWIRL_RADIUS_SCALE = 0.55;
+/**
+ * fe-22c: the swarm's on-screen width is NOT set by where grains spawn. The swirl module's 1/r
+ * tangential push (terminal speed ≈ S/(drag·r)) flings grains out until centrifugal v²/r balances
+ * the axis spring k·r, i.e. r⁴ ≈ (S/drag)²/k — about 6–7 m for fe-21's S=60, k=5, whatever the
+ * emit radius. Width ∝ √S / k^¼, so S×0.55 and k×0.55⁻² give ≈0.55× the radial spread.
+ */
+export const DEVIL_SWIRL_ACCEL_FE21 = 60;
+export const DEVIL_AXIS_PULL_FE21 = 5;
+export const DEVIL_SWIRL_ACCEL = DEVIL_SWIRL_ACCEL_FE21 * DEVIL_SWIRL_RADIUS_SCALE;
+export const DEVIL_AXIS_PULL = DEVIL_AXIS_PULL_FE21 / (DEVIL_SWIRL_RADIUS_SCALE * DEVIL_SWIRL_RADIUS_SCALE);
 
 function devilHash(id: number, k: number): number {
   const x = Math.sin(id * 12.9898 + k * 78.233) * 43758.5453;
@@ -1295,11 +1305,11 @@ export function devilParticleLook(
   const v = o.vortex;
   o.column = column;
   o.base = base;
-  o.axisPull = 5;
+  o.axisPull = DEVIL_AXIS_PULL;
   o.axisHeight = Math.max(1, height);
   o.leanX = top.x;
   o.leanZ = top.z;
-  o.swirl = dir * 60;
+  o.swirl = dir * DEVIL_SWIRL_ACCEL;
   // Fine grain (fe-21b): many small motes read as dense dust, not big flakes.
   o.sizeStart = DEVIL_GRAIN_START;
   o.sizeEnd = DEVIL_GRAIN_END;
@@ -1810,10 +1820,63 @@ export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" 
  * The dense card sits well inside the swirl column; the wispy one stays within the swirl's radius
  * (fe-22 tune: the first 0.8/1.5 cards poked out of the swirl as pale flat bands).
  */
-export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.8, outer: 1.0 });
+export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.5, outer: 0.65 });
 /** Half-width (m) of a core card at height `u`, before its turbulence lumps. */
 /** fe-22: core card opacities (denser than fe-19's 0.85/0.45 cards so the inner funnel reads dark). */
 export const DEVIL_CORE_OPACITY = Object.freeze({ core: 1, outer: 0.7 });
 export function devilCoreCardHalfWidth(coreRadius: number, u: number, widthScale: number): number {
   return devilFunnelProfile(u) * coreRadius * widthScale;
+}
+
+/**
+ * fe-22c: CPU replica of the GPU integrator for a devil's column grains (vortex spawn, gravity,
+ * swirl, ground-wind band weight on the spring, axis spring, drag; no lean, no turbulence), used to
+ * measure the steady-state horizontal spread. Returns the median and 90th-percentile radius (m) of
+ * live column grains above the ground band.
+ */
+export function devilColumnSpread(
+  devil: Pick<DustDevil, "id" | "coreRadius" | "swirl">,
+  opts: { swirlAccel?: number; axisPull?: number; radiusScale?: number; seconds?: number } = {},
+): { p50: number; p90: number } {
+  const S = opts.swirlAccel ?? DEVIL_SWIRL_ACCEL;
+  const k = opts.axisPull ?? DEVIL_AXIS_PULL;
+  const look = devilParticleLook({ ...devil, age: 100, life: 1000, fadeOut: DEVIL_FADE }, 0, DEVIL_SKIRT_FRAMES + DEVIL_BASE_FRAMES);
+  const rs = (opts.radiusScale ?? DEVIL_SWIRL_RADIUS_SCALE) / DEVIL_SWIRL_RADIUS_SCALE;
+  const v = look.vortex;
+  const rng = new Rng(4242 + devil.id);
+  const dt = 1 / 60;
+  const ps: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }[] = [];
+  const radii: number[] = [];
+  const steps = Math.round((opts.seconds ?? 6) * 60);
+  const dir = Math.sign(devil.swirl || 1);
+  for (let n = 0; n < steps; n++) {
+    for (let e = 0; e < 20; e++) {
+      const h01 = Math.pow(Math.max(rng.nextFloat(), 1e-4), v.bias);
+      const spread = 0.72 + 0.55 * rng.nextFloat();
+      const r = (v.radiusBase + (v.radiusTop - v.radiusBase) * Math.pow(Math.max(h01, 1e-4), 0.9)) * spread * rs;
+      const a = rng.nextFloat() * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+      const rim = v.spin * r;
+      const up = (look.speedMin + (look.speedMax - look.speedMin) * rng.nextFloat()) * (1 - 0.42 * h01);
+      ps.push({ x: ca * r, y: h01 * v.height, z: sa * r, vx: -sa * rim + ca * v.outward, vy: up, vz: ca * rim + sa * v.outward, life: look.lifeMin + (look.lifeMax - look.lifeMin) * rng.nextFloat() });
+    }
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i]!;
+      p.vy += DEVIL_DUST_GRAVITY * dt;
+      const rr = Math.max(Math.hypot(p.x, p.z), 0.5);
+      // tangent (toA.z, -toA.x)/r with toA = -p
+      p.vx += (-p.z / rr) * (dir * S * dt / rr);
+      p.vz += (p.x / rr) * (dir * S * dt / rr);
+      const gw = 1 - smooth(Math.max(0, Math.min(1, p.y / DEVIL_BASE_CLOUD.windHeight)));
+      p.vx += -p.x * k * (1 - 0.7 * gw) * dt;
+      p.vz += -p.z * k * (1 - 0.7 * gw) * dt;
+      const damp = Math.max(0, 1 - DEVIL_DUST_DRAG * dt);
+      p.vx *= damp; p.vy *= damp; p.vz *= damp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.life -= dt;
+      if (p.life <= 0) { ps.splice(i, 1); continue; }
+      if (n > 120 && n % 10 === 0 && p.y > DEVIL_BASE_CLOUD.windHeight) radii.push(Math.hypot(p.x, p.z));
+    }
+  }
+  radii.sort((a, b) => a - b);
+  return { p50: radii[Math.floor(radii.length * 0.5)] ?? 0, p90: radii[Math.floor(radii.length * 0.9)] ?? 0 };
 }

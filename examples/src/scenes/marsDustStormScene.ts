@@ -597,7 +597,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     funnels.push({
       shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
       shadowMaterial,
-      core: makeCoreCard(`storm-devil-core-${i}`, 0x3a2418),
+      core: makeCoreCard(`storm-devil-core-${i}`, 0x24140c),
       outer: makeCoreCard(`storm-devil-shell-${i}`, 0x5a3a28),
     });
   }

@@ -17,6 +17,9 @@ import assert from "node:assert/strict";
 import { Material, PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  devilColumnSpread,
+  DEVIL_SWIRL_ACCEL_FE21,
+  DEVIL_AXIS_PULL_FE21,
   DEVIL_SWIRL_RADIUS_SCALE,
   DEVIL_CORE_CARD_WIDTH,
   DEVIL_FADE_NEAR,
@@ -686,6 +689,18 @@ group("fe-22 old-devil core wrapped by a narrower swirl", () => {
     assertCloseTo(m.positions[top + 2]!, sway.z, 4);
     assert.equal(devilShellFade(DEVIL_FADE_NEAR), 0);
     assert.ok(DEVIL_FADE_NEAR <= 5 && devilShellFade(25) === 1, "visible inside the wrap from mid range");
+  });
+  test("fe-22c: steady-state radial spread of column grains is ~55% of fe-21 and wraps the cards", () => {
+    for (const core of [2.5, 5, 8]) {
+      const d = { id: 3, coreRadius: core, swirl: 18 };
+      const old = devilColumnSpread(d, { swirlAccel: DEVIL_SWIRL_ACCEL_FE21, axisPull: DEVIL_AXIS_PULL_FE21, radiusScale: 1 });
+      const nu = devilColumnSpread(d);
+      const ratio = nu.p90 / old.p90;
+      assert.ok(ratio > 0.45 && ratio < 0.62, `core ${core}: p90 ratio ${ratio.toFixed(2)}`);
+      assert.ok(nu.p90 < 4, `core ${core}: p90 ${nu.p90.toFixed(2)} m`);
+      // Both cards stay inside the grains' 90th-percentile radius all the way up.
+      for (const u of [0.1, 0.5, 1]) assert.ok(devilCoreCardHalfWidth(core, u, DEVIL_CORE_CARD_WIDTH.outer) < nu.p90, `core ${core} u ${u}: card inside`);
+    }
   });
   test("transparent depthWrite opt-out (the pale-band fix) defaults to the old behaviour", () => {
     assert.equal(new Material({ transparent: true }).depthWrite, true);
