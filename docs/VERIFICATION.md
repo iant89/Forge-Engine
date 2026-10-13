@@ -1243,8 +1243,12 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
 * **glTF/GLB mesh decoding (Phase 9.1).** `tests/resources/gltf.test.ts` covers GLB parsing, external `.gltf`
   buffer resolution, interleaved and normalized accessors, typed index/bounds output, validation,
   inline execution, and an actual `node:worker_threads` round-trip. The browser-worker gate uses the
-  same fixture and public `decodeGltfMesh` API. Advanced image/material GPU assembly,
-  animation/skin/morph/instancing import, and Draco/meshopt geometry are not claimed
+  same fixture and public `decodeGltfMesh` API. Phase 16.1a adds skin decoding to the same suite:
+  `skins[]`, `node.skin` and JOINTS_0/WEIGHTS_0 (u8/u16 joints, float/normalized weights, identity
+  default inverse bind matrices), eleven spec-violation rejections, transferables and a real
+  worker-thread round-trip (`capability: assets.gltfSkins`; Node only, no browser claim). Advanced
+  image/material GPU assembly, skinned-GLB scene assembly, morph/instancing import, and
+  Draco/meshopt geometry are not claimed
   (`capability: assets.gltfAdvanced`).
 * **Spatial-index runtime use (Phase 9).** `MeshBvh` backs transformed triangle picking and refines
   large-mesh frustum culling; `PhysicsWorld` uses sweep-and-prune to generate body-pair candidates.
@@ -1276,9 +1280,9 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   against a reference image. The same holds for SSAO: the gate proves it darkens contact areas, never
   brightens and is not a global dimmer — not that its occlusion matches a ray-traced reference.
 * **GPU timestamp fidelity on physical adapters.** The mock tests exercise asynchronous timestamp resolves and readback with deterministic nanosecond clocks; no CI assertion compares timestamp-query durations against a physical GPU or another timing source.
-* **Full glTF scene import.** The worker decoder handles static uncompressed triangle geometry and
-  basic node/material metadata, not image/texture decoding, GPU material construction, skins,
-  animation, morph targets, instancing, or Draco/meshopt compression
+* **Full glTF scene import.** The worker decoder handles static uncompressed triangle geometry,
+  basic node/material metadata and skin data, not image/texture decoding, GPU material construction,
+  turning a decoded skin into a drawn skinned scene, morph targets, instancing, or Draco/meshopt compression
   (`capability: assets.gltfAdvanced`).
 * **KTX2 format/device matrix.** The real-browser smoke check covered a 2D ETC1S fixture, BC7 sRGB,
   and its full mip chain on SwiftShader. Tests cover target-selection fallbacks and RGBA mock upload,

@@ -16341,6 +16341,126 @@ JSON array below; agents maintain it by hand until then.
     "tests/rendering/frame.test.ts",
     "tests/rendering/wgsl.test.ts"
   ]
-}
+},
+  {
+    "id": "1306",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/core/tasks/gltfMesh.ts",
+    "what": "Decode skins[], node.skin and JOINTS_0/WEIGHTS_0 into skin arrays with spec validation; transfer them",
+    "why": "Phase 16.1a: skinned GLBs were rejected, so imported assets could not reach the GPU skinning path"
+  },
+  {
+    "id": "1307",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/resources/gltf.ts",
+    "what": "Re-export DecodedGltfSkin/DecodedGltfPrimitiveSkin and transferablesForGltfMesh",
+    "why": "Public types for the 16.1a skin output"
+  },
+  {
+    "id": "1308",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Export the new glTF skin types and transferablesForGltfMesh",
+    "why": "Public API for 16.1a"
+  },
+  {
+    "id": "1309",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "Add assets.gltfSkins (verified); narrow assets.gltfAdvanced",
+    "why": "Registry must match what 16.1a verifies"
+  },
+  {
+    "id": "1310",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/resources/gltf.test.ts",
+    "what": "Skin import tests: decode, u16/normalized, identity IBM, transfer + worker round-trip, rejections",
+    "why": "TDD for 16.1a"
+  },
+  {
+    "id": "1311",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Split 16.1 extended import into 16.1a-16.1f, mark 16.1a; fix stale 'Phases 16-28 NOT STARTED' line",
+    "why": "Roadmap truthfulness"
+  },
+  {
+    "id": "1312",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Narrow the glTF import limitation to what remains after 16.1a",
+    "why": "Limitations must track the registry"
+  },
+  {
+    "id": "1313",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Record what the 16.1a skin tests prove",
+    "why": "Gate docs must stay truthful"
+  },
+  {
+    "id": "1314",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "reports/fe-24-plan.md",
+    "what": "Phase 16 status and sub-phase plan",
+    "why": "fe-24 planning"
+  },
+  {
+    "id": "1315",
+    "date": "2026-10-13T13:58:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "phase-16-animation",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Log the fe-24 / 16.1a changes",
+    "why": "Change-log maintenance rule"
+  }
 ]
 ```

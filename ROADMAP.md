@@ -52,7 +52,8 @@ CURRENT CODEBASE BASELINE:
                 separately as Phase 15.5 below.
     Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
                 rocks, push/roll/destruction, rover impact response and persistent sand tracks)
-                Phases 16 through 28 remain NOT STARTED ([ ]) in their sections below, and
+                Phases 16 and 17 are IN PROGRESS ([~]) and Phases 18 through 28 remain
+                NOT STARTED ([ ]) in their sections below, and
                 Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
                 keys directly).
 
@@ -246,7 +247,7 @@ than simply adding features.
         `TaskScheduler` module worker to decode it, and asserts worker count, task completion, decoded
         geometry, zero inline fallbacks and zero worker failures (`tools/browser-check.mjs`).
         This is separate from the Node `worker_threads` adapter. Full asset import beyond uncompressed
-        triangle geometry — images/material GPU construction, skin/animation, morph targets,
+        triangle geometry and skins — images/material GPU construction, morph targets,
         instancing, Draco and meshopt — is tracked under `assets.gltfAdvanced` (Phase 16.1).
 
     [x] Browser-side worker round trip: check:browser:mars-workers observes native Worker Mars
@@ -1533,9 +1534,24 @@ GOAL:
         identity initialisation for un-targeted joints, blend with existing transform for
         weight < 1)
 
-        Phase 9.1 supplies worker-backed static glTF/GLB triangle decode. Skin/animation import,
-        image/material GPU assembly and Draco/meshopt support remain separate extended-import work
-        (`capability: assets.gltfAdvanced`).
+        Phase 9.1 supplies worker-backed static glTF/GLB triangle decode. The rest of extended
+        import is split into slices (`capability: assets.gltfAdvanced` until all land):
+
+    [x] 16.1a skin import (`skins[]` joints / inverse bind matrices / skeleton, `node.skin`, one
+        JOINTS_0/WEIGHTS_0 set per primitive decoded on the worker into `SkinningVertexData`-shaped
+        arrays, spec validation, more than four influences rejected; decode only, not browser-verified;
+        tests/resources/gltf.test.ts; capability: assets.gltfSkins)
+
+    [ ] 16.1b morph targets (targets, default weights, `weights` animation channel, render path)
+
+    [ ] 16.1c images / samplers / textures and engine material assembly
+
+    [ ] 16.1d EXT_mesh_gpu_instancing
+
+    [ ] 16.1e Draco / meshopt geometry decompression
+
+    [ ] 16.1f skinned GLB scene assembly (joint entities, skin binding, clip playback through the
+        16.5 GPU path) with a browser gate
 
 
 16.2 Animation State Machines
@@ -1637,7 +1653,8 @@ GOAL:
 
     The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
     Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
-    material assembly, morph/instancing, Draco/meshopt) is still open under 16.1.
+    material assembly, morph/instancing, Draco/meshopt, skinned-GLB assembly — 16.1b-16.1f) is
+    still open under 16.1; skin decoding (16.1a) landed.
 
 
 EXIT CRITERIA:

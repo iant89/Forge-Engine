@@ -168,14 +168,16 @@ export {
   type RequiredTextureReference,
 } from "./resources/validation.js";
 export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
-export { decodeGltfMesh, loadGltfMesh, type DecodeGltfMeshOptions, type GltfMeshDocumentInput, type GltfMeshInput, type LoadGltfMeshOptions } from "./resources/gltf.js";
+export { decodeGltfMesh, loadGltfMesh, transferablesForGltfMesh, type DecodeGltfMeshOptions, type GltfMeshDocumentInput, type GltfMeshInput, type LoadGltfMeshOptions } from "./resources/gltf.js";
 export type {
   DecodedGltfAsset,
   DecodedGltfMaterial,
   DecodedGltfMesh,
   DecodedGltfNode,
   DecodedGltfPrimitive,
+  DecodedGltfPrimitiveSkin,
   DecodedGltfScene,
+  DecodedGltfSkin,
   GltfMeshDecodePayload,
 } from "./resources/gltf.js";
 export { decodeGltfAnimations, transferablesForAnimations } from "./core/tasks/gltfAnimation.js";

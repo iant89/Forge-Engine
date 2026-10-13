@@ -77,9 +77,10 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
 * **Core glTF import is geometry-first.** `decodeGltfMesh` handles static, uncompressed triangle
   primitives and returns typed vertex/index arrays, bounds, node transforms, scene roots and material
-  factors. It does not decode images/textures, assemble GPU materials/meshes, import skins/animations/
+  factors, and (Phase 16.1a) skins with four-influence JOINTS_0/WEIGHTS_0 streams. It does not decode
+  images/textures, assemble GPU materials/meshes, build a skinned scene from a decoded GLB, import
   morph targets/instancing, or decode Draco/meshopt compression; those are tracked for the extended
-  glTF importer.
+  glTF importer (16.1b-16.1f).
   (capability: assets.gltfAdvanced)
 
 * **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads
