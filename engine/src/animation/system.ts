@@ -37,6 +37,13 @@ function ensureScratch(minNodes: number): void {
   }
 }
 
+/** Start a sample from the component's rest pose when it has one, identity otherwise. */
+function initRest(buffer: Float32Array, anim: AnimationComponent, jointCount: number): void {
+  const rest = anim.restPose;
+  if (rest && rest.length >= jointCount * NODE_STRIDE) buffer.set(rest.subarray(0, jointCount * NODE_STRIDE));
+  else initIdentity(buffer, jointCount);
+}
+
 export class AnimationSystem extends System {
   readonly name = "animation";
   override readonly order = 300;
@@ -106,7 +113,7 @@ export class AnimationSystem extends System {
       const invWeight = totalWeight > 0 ? 1 / totalWeight : 0;
 
       // Sample the first clip into bufA.
-      initIdentity(bufA, jointCount);
+      initRest(bufA, anim, jointCount);
       const first = stillPlaying[0]!;
       sampleClip(first.clip, first.time, bufA);
       this.stats_clipsPlayed++;
@@ -122,7 +129,7 @@ export class AnimationSystem extends System {
 
         for (let i = 1; i < stillPlaying.length; i++) {
           const playback = stillPlaying[i]!;
-          initIdentity(bufB, jointCount);
+          initRest(bufB, anim, jointCount);
           sampleClip(playback.clip, playback.time, bufB);
           this.stats_clipsPlayed++;
           this.stats_keysSampled += playback.clip.tracks.length;

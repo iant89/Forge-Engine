@@ -57,6 +57,7 @@ import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScen
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
+import { buildGltfSkinScene, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
@@ -224,6 +225,8 @@ async function main(): Promise<void> {
       currentHandle = buildRoverCourseScene(engine);
     } else if (name === "skinning") {
       currentHandle = buildSkinningScene(engine);
+    } else if (name === "gltf-skin") {
+      currentHandle = buildGltfSkinScene(engine);
     } else if (name === "alpine-rescue") {
       currentHandle = buildAlpineRescueScene(engine);
     } else if (name === "amazon-river") {
@@ -736,6 +739,12 @@ async function main(): Promise<void> {
     /** Skinned-arm scene: freeze the idle wave on the pose at `t` for a pixel A/B. */
     setSkinPose: (t: number) => {
       (currentHandle as SkinningSceneHandle | null)?.setSkinPose?.(t);
+    },
+    /** glTF skin scene (Phase 16.1f): load/clip/skinned-batch state; null on other scenes. */
+    gltfSkinState: () => (currentHandle as GltfSkinSceneHandle | null)?.gltfSkinState?.() ?? null,
+    /** glTF skin scene: freeze the imported clip at `t` seconds. */
+    setGltfSkinTime: (t: number) => {
+      (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTime?.(t);
     },
     /** Mars showcase: unfold (true) or stow (false) the robotic arm; a no-op on other scenes. */
     setArm: (deployed: boolean) => {

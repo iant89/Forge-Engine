@@ -169,6 +169,7 @@ export {
 } from "./resources/validation.js";
 export { Texture, TextureDefaults, boxFilterRgba8, type TextureDesc, type Rgba8MipFilter } from "./resources/texture.js";
 export { decodeGltfMesh, loadGltfMesh, transferablesForGltfMesh, type DecodeGltfMeshOptions, type GltfMeshDocumentInput, type GltfMeshInput, type LoadGltfMeshOptions } from "./resources/gltf.js";
+export { instantiateGltfScene, type GltfSceneInstance, type InstantiateGltfSceneOptions } from "./resources/gltfScene.js";
 export type {
   DecodedGltfAsset,
   DecodedGltfMaterial,
@@ -369,6 +370,8 @@ export {
 export {
   JointPaletteArena,
   fillJointPalette,
+  computeJointBounds,
+  posedSkinBounds,
   JOINT_PALETTE_BYTES,
   PALETTE_SLOT_ALIGN,
   type WorldMatrixLookup,

@@ -149,6 +149,7 @@ const MARS_GENERATOR_ONLY = process.argv.includes("--mars-generator");
 const MARS_INTERACTIVE_ONLY = process.argv.includes("--mars-interactive");
 const TERRAIN_LAYERS_ONLY = process.argv.includes("--terrain-layers");
 const SKINNING_ONLY = process.argv.includes("--skinning");
+const GLTF_SKIN_ONLY = process.argv.includes("--gltf-skin");
 const RESCUE_ONLY = process.argv.includes("--rescue");
 const AMAZON_ONLY = process.argv.includes("--amazon");
 const MECHANICAL_ONLY = process.argv.includes("--mechanical");
@@ -162,7 +163,7 @@ const SECTION_ONLY = (() => {
 const workerSmokeOnly = process.argv.includes("--workers-only");
 const otherFocusedMode =
   MARS_WORKERS_ONLY || MARS_GENERATOR_ONLY || MARS_INTERACTIVE_ONLY || TERRAIN_LAYERS_ONLY ||
-  SKINNING_ONLY || RESCUE_ONLY || AMAZON_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
+  SKINNING_ONLY || GLTF_SKIN_ONLY || RESCUE_ONLY || AMAZON_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
 if (SECTION_ONLY !== null && !BROWSER_SECTION_NAMES.includes(SECTION_ONLY)) {
   console.error(`check:browser NOT RUN — unknown section "${SECTION_ONLY}" (choose ${BROWSER_SECTION_NAMES.join(", ")})`);
   process.exit(2);
@@ -183,6 +184,8 @@ const CHECK_NAME = SECTION_ONLY !== null
           ? "check:browser:mars-interactive"
           : SKINNING_ONLY
             ? "check:browser:skinning"
+            : GLTF_SKIN_ONLY
+            ? "check:browser:gltf-skin"
             : RESCUE_ONLY
               ? "check:browser:rescue"
               : AMAZON_ONLY
@@ -532,6 +535,63 @@ async function checkShowcaseLayers() {
   await waitPresentedFrames(2);
   const after = await page.evaluate(() => ({ state: window.__forge.marsState(), stats: window.__forge.stats() }));
   if (after.state.terrainMaterialMode !== "layered" || after.stats.gpuErrors || after.stats.lastError) throw new Error(`terrain layers failed to restore: ${JSON.stringify(after)}`);
+}
+
+/**
+ * Phase 16.1f, focused: an imported skinned glTF (examples/assets/SimpleSkin.gltf) on a real adapter.
+ * The mock suite (tests/resources/gltfScene.test.ts) owns the hierarchy, bind pose and sampled pose
+ * numerically; this proves the imported mesh compiles and draws through the skinned pipelines, that
+ * the live clip advances, and that three frozen clip times put different pixels on screen (the
+ * vertices move only through the palette). Screenshots go to GLTF_SKIN_SHOTS (a path prefix,
+ * default `tools/.browser-check-gltf-skin`) as `<prefix>-<t>s.png`.
+ */
+async function checkGltfSkin({ model = "simple", file = "SimpleSkin.gltf", joints = 2, prefix: shotPrefix = null } = {}) {
+  await page.waitForFunction(() => {
+    const state = window.__forge.gltfSkinState?.();
+    return state && (state.error || (state.loaded && state.skinnedBatches > 0));
+  }, null, { polling: 250, timeout: 60000 });
+  const loaded = await page.evaluate(() => window.__forge.gltfSkinState());
+  if (loaded.model !== model) throw new Error(`the gltf-skin scene loaded model ${loaded.model}, expected ${model}`);
+  if (loaded.error) throw new Error(`${file} failed to load: ${loaded.error}`);
+  await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+  await waitPresentedFrames(2);
+  const first = await page.evaluate(() => ({ state: window.__forge.gltfSkinState(), stats: window.__forge.stats(), pipelines: window.__forge.engine.renderer.pipelines.stats() }));
+  if (first.state.joints !== joints) throw new Error(`${file}: the imported skin has ${first.state.joints} joints, expected ${joints}`);
+  if (first.state.skinnedBatches !== 1) throw new Error(`the imported mesh did not draw as one skinned batch (${first.state.skinnedBatches})`);
+  if (first.state.skinJoints !== joints) throw new Error(`${file}: the frame uploaded ${first.state.skinJoints} joint matrices, expected ${joints}`);
+  if (first.state.skinFallbacks !== 0) throw new Error(`the imported mesh fell back to the unskinned path (${first.state.skinFallbacks})`);
+  if (first.pipelines.failures !== 0) throw new Error(`skinned pipelines did not compile: ${JSON.stringify(first.pipelines)}`);
+  if (first.stats.gpuErrors !== 0 || first.stats.lastError) throw new Error(`GPU error on the imported skin: ${first.stats.lastError}`);
+  // The clip is playing: its time must advance on its own before anything is frozen.
+  const t0 = first.state.clipTime;
+  await sleep(600);
+  await waitPresentedFrames(2);
+  const t1 = (await page.evaluate(() => window.__forge.gltfSkinState())).clipTime;
+  if (t1 === t0) throw new Error(`the imported clip did not advance (time stayed ${t0})`);
+  console.log(`${file} clip advancing: ${t0.toFixed(3)} s -> ${t1.toFixed(3)} s (duration ${first.state.clipDuration} s)`);
+
+  const prefix = shotPrefix ?? process.env.GLTF_SKIN_SHOTS ?? "tools/.browser-check-gltf-skin";
+  const times = [0, 0.5, 1.0];
+  for (const t of times) {
+    await page.evaluate((time) => window.__forge.setGltfSkinTime(time), t);
+    await waitPresentedFrames(3);
+    await keepLuma(`gltf-skin-${model}-${t}`);
+    await page.screenshot({ path: `${prefix}-${t.toFixed(1)}s.png`, timeout: 60000 });
+  }
+  const results = [];
+  for (const [a, b] of [[0, 0.5], [0.5, 1.0], [0, 1.0]]) {
+    const diff = await compareRgb(`gltf-skin-${model}-${a}`, `gltf-skin-${model}-${b}`);
+    results.push({ a, b, ...diff });
+    console.log(`${file} poses t=${a}s vs t=${b}s: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max}/255)`);
+    if (!(diff.differing >= 1500) || !(diff.max >= 20)) {
+      throw new Error(`clip times ${a}s and ${b}s look the same (${diff.differing} px, max ${diff.max}); the imported skin is not deforming`);
+    }
+  }
+  const cover = await samplePixels();
+  if (!(cover.distinct >= 8) || !(cover.mean >= 6)) throw new Error(`the glTF skin scene is not rendering (mean ${cover.mean.toFixed(1)}, ${cover.distinct} colours)`);
+  const after = await page.evaluate(() => window.__forge.stats());
+  if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU error after the glTF skin A/B: ${after.lastError}`);
+  return { ...first.state, results, screenshots: times.map((t) => `${prefix}-${t.toFixed(1)}s.png`) };
 }
 
 /**
@@ -3025,6 +3085,19 @@ try {
         `poses differ in ${skinning.differing}/${skinning.pixels} px (max ${skinning.maxDiff}/255)`,
     );
     console.log("Focused GPU-skinning checks only; the all-scene renderer, drive and articulation suite was not run.");
+  } else if (GLTF_SKIN_ONLY) {
+    await waitPresentedFrames(1);
+    await page.selectOption("#scene-select", "gltf-skin", { force: true });
+    await page.waitForFunction(() => window.__forge.sceneName === "gltf-skin", null, { timeout: 10000 });
+    const gltfSkin = await checkGltfSkin();
+    console.log(`imported glTF skin: joints=${gltfSkin.joints} skinnedBatches=${gltfSkin.skinnedBatches} skinJoints=${gltfSkin.skinJoints} fallbacks=${gltfSkin.skinFallbacks}; screenshots ${gltfSkin.screenshots.join(", ")}`);
+    // Second asset: Khronos CesiumMan (CC-BY-4.0; 19 joints, textured but drawn factor-only) through `?model=cesium`.
+    await page.goto(`${URL}?scene=gltf-skin&model=cesium`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+    const basePrefix = process.env.GLTF_SKIN_SHOTS ?? "tools/.browser-check-gltf-skin";
+    const cesium = await checkGltfSkin({ model: "cesium", file: "CesiumMan.glb", joints: 19, prefix: `${basePrefix}-cesium` });
+    console.log(`imported CesiumMan: joints=${cesium.joints} skinnedBatches=${cesium.skinnedBatches} skinJoints=${cesium.skinJoints} fallbacks=${cesium.skinFallbacks}; screenshots ${cesium.screenshots.join(", ")}`);
+    console.log("Focused imported-glTF-skin checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();
     console.log("Focused Alpine rescue mission/physics/weather checks only; the full renderer and Mars suite was not run.");

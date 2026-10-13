@@ -49,6 +49,13 @@ export class AnimationComponent extends Component {
   /** Node index → entity id mapping (set during skeleton assembly). */
   nodeToEntity: readonly number[] = [];
 
+  /**
+   * Optional rest pose, `NODE_STRIDE` floats (t xyz, r xyzw, s xyz) per node. When set, the system
+   * starts every sample from it instead of identity, so a channel a clip does not animate keeps the
+   * node's authored value (a glTF clip that only rotates a joint must not zero its translation).
+   */
+  restPose: Float32Array | null = null;
+
   /** The max joint count across all attached clips (sized for the TRS buffer). */
   get jointCount(): number {
     return this.nodeToEntity.length;
