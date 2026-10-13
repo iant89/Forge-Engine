@@ -58,6 +58,12 @@ export interface GpuParticleModulesConfig {
    * off as 1/r: a dust-devil swirl. Positive spins counter-clockwise seen from above. 0 = off.
    */
   swirlStrength: number;
+  /**
+   * Per-particle colour variation 0..1: each particle (stable random from its life) blends up to
+   * this far toward `colorAlt` and gets a ±35%·variation brightness jitter. 0 = off (default).
+   */
+  colorVariation: number;
+  colorAlt: { r: number; g: number; b: number; a: number };
 }
 
 export interface GpuParticleSystemOptions {
@@ -96,7 +102,7 @@ export interface GpuParticleFrameInput {
 }
 
 const EMIT_UNIFORM_BYTES = 96;
-const SIM_UNIFORM_BYTES = 128;
+const SIM_UNIFORM_BYTES = 160;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -135,6 +141,8 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     sizeVariation: partial.sizeVariation ?? 0,
     rotationSpeed: partial.rotationSpeed ?? 0.6,
     swirlStrength: partial.swirlStrength ?? 0,
+    colorVariation: partial.colorVariation ?? 0,
+    colorAlt: partial.colorAlt ?? { r: 0, g: 0, b: 0, a: 1 },
   };
 }
 
@@ -646,6 +654,11 @@ export class GpuParticleSystem {
     u[27] = this.seed;
     f[28] = Math.max(0, Math.min(1, m.sizeVariation));
     f[29] = m.swirlStrength;
+    f[32] = m.colorAlt.r;
+    f[33] = m.colorAlt.g;
+    f[34] = m.colorAlt.b;
+    f[35] = m.colorAlt.a;
+    f[36] = Math.max(0, Math.min(1, m.colorVariation));
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 

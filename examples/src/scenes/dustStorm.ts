@@ -176,13 +176,33 @@ export class StormField {
 
 // ---------------------------------------------------------------- dust devils (D5)
 
+export type DevilState = "free" | "orbiting" | "dying";
+
+/** Why a devil left (for the HUD/tests): its life ran out, it drifted away, or an interaction. */
+export type DevilEndCause = "expired" | "far" | "consumed" | "merged" | "orbit-died";
+
+export interface DevilOrbit {
+  /** Host devil id (big–small orbit) or partner id (mutual orbit of two small ones). */
+  otherId: number;
+  mutual: boolean;
+  angle: number;
+  radius: number;
+  /** Signed angular speed (rad/s). */
+  rate: number;
+  /** Seconds left before the outcome is applied. */
+  timer: number;
+  outcome: "consume" | "die" | "combine" | "separate" | "one-dies" | "both-die";
+}
+
 export interface DustDevil {
   id: number;
+  /** Stable GPU particle / impostor slot (0..maxDevils-1); never reused until this devil is gone. */
+  slot: number;
   x: number;
   z: number;
   vx: number;
   vz: number;
-  /** Rankine core radius (m): solid-body rotation inside, 1/r decay outside. */
+  /** Rankine core radius (m): solid-body rotation inside, 1/r decay outside. The devil's width. */
   coreRadius: number;
   /** Beyond this the devil has no effect (m). */
   outerRadius: number;
@@ -190,18 +210,53 @@ export interface DustDevil {
   swirl: number;
   life: number;
   age: number;
+  /** Per-devil look multiplier on the impostor opacity (some devils are denser than others). */
+  opacity: number;
+  /** Fade-out duration (s) of the life envelope; shortened when a devil is consumed. */
+  fadeOut: number;
+  /** Growth target for the core radius after consuming / combining (eased, no pop). */
+  targetCore: number;
+  state: DevilState;
+  orbit: DevilOrbit | null;
+  endCause: DevilEndCause | null;
 }
 
-/** Peak tangential wind of a devil at the core edge, before the life envelope. */
+/** Peak tangential wind of a medium devil at the core edge, before size scaling and envelope. */
 export const DEVIL_SWIRL_MIN = 16;
 export const DEVIL_SWIRL_MAX = 28;
 /** Ramp in/out time (s) so devils never pop. */
 export const DEVIL_FADE = 4;
+/** Fade (s) of a devil swallowed by another (it is dragged into the absorber while it fades). */
+export const DEVIL_CONSUME_FADE = 2;
+/** Spawned width range (m) and the cap growth can reach. */
+export const DEVIL_CORE_MIN = 2;
+export const DEVIL_CORE_MAX_SPAWN = 7;
+export const DEVIL_CORE_CAP = 9;
+/** Reference width: a devil this wide has size factor 1. */
+export const DEVIL_CORE_REF = 4.5;
+/** Below this width a devil counts as small for interactions. */
+export const DEVIL_SMALL_CORE = 3.6;
+/** Big–small pair when the big core is at least this many times the small one. */
+export const DEVIL_BIG_RATIO = 1.4;
+
+/**
+ * Size → wind: the swirl a devil of core radius `core` gets from a base swirl. Square-root scaling
+ * clamped to [0.6, 1.5], so wide devils push and lift the rover harder and narrow ones less.
+ */
+export function devilSizeFactor(core: number): number {
+  return Math.max(0.6, Math.min(1.5, Math.sqrt(core / DEVIL_CORE_REF)));
+}
+
+/** Lifespan (s) for a width: narrow devils die quickly (~10–16 s), wide ones last ~35–50 s. */
+export function devilLifespan(core: number, jitter01: number): number {
+  const w = Math.max(0, Math.min(1, (core - DEVIL_CORE_MIN) / (DEVIL_CORE_MAX_SPAWN - DEVIL_CORE_MIN)));
+  return 10 + 34 * w * w + 6 * jitter01;
+}
 
 /** Life envelope 0..1. */
-export function devilEnvelope(devil: DustDevil): number {
+export function devilEnvelope(devil: Pick<DustDevil, "age" | "life"> & Partial<Pick<DustDevil, "fadeOut">>): number {
   const inRamp = devil.age / DEVIL_FADE;
-  const outRamp = (devil.life - devil.age) / DEVIL_FADE;
+  const outRamp = (devil.life - devil.age) / (devil.fadeOut ?? DEVIL_FADE);
   return Math.max(0, Math.min(1, inRamp, outRamp));
 }
 
@@ -215,19 +270,56 @@ export function devilTangentialSpeed(devil: DustDevil, r: number): number {
   return base * taper * devilEnvelope(devil);
 }
 
+/** Interaction probabilities (seeded rolls; the same seed replays the same story). */
+export interface DevilRules {
+  bigConsumes: number;
+  orbitThenConsumed: number;
+  smallMerge: number;
+  combine: number;
+  separate: number;
+  oneDies: number;
+  orbitMin: number;
+  orbitMax: number;
+}
+
+export const DEVIL_RULES: Readonly<DevilRules> = Object.freeze({
+  /** Big meets small: chance the big one swallows it at once (else the small one orbits it). */
+  bigConsumes: 0.55,
+  /** After orbiting a big one: chance it is consumed (else it dies out). */
+  orbitThenConsumed: 0.6,
+  /** Two small ones touch: chance they merge at once (else they orbit each other). */
+  smallMerge: 0.15,
+  /** Mutual-orbit outcomes (cumulative): combine, separate, one dies, both die. */
+  combine: 0.35,
+  separate: 0.35,
+  oneDies: 0.2,
+  /** Orbit durations (s). */
+  orbitMin: 3,
+  orbitMax: 8,
+});
+
 /**
- * Seeded devil population around the rover. Devils spawn upwind, drift down the storm wind with
- * a seeded wander and a gentle bias toward the rover (so they are an actual hazard), and respawn
- * when their life ends or they drift out of range. More spawn slots are active in gusts.
+ * Seeded devil population around the rover. Devils spawn upwind with their own width, density and
+ * lifespan (narrow ones die fast), drift down the storm wind with a seeded wander and a gentle bias
+ * toward the rover, and interact: a big devil can swallow a small one (growing), or the small one
+ * orbits it before being consumed or dying; two small ones can merge or orbit each other, then
+ * combine, separate, or die. Every devil holds a stable slot so GPU particle systems never jump
+ * between devils; a devil frees its slot only after its envelope has faded to zero.
  */
 export class DustDevilField {
   readonly devils: DustDevil[] = [];
   readonly maxDevils: number;
+  /** Ended devils since the last reset, by cause (tests + HUD). */
+  readonly ended: Record<DevilEndCause, number> = { expired: 0, far: 0, consumed: 0, merged: 0, "orbit-died": 0 };
   private readonly rng: Rng;
   private nextId = 0;
 
-  constructor(maxDevils: number, seed = STORM_SEED + 101) {
+  readonly rules: Readonly<DevilRules>;
+
+  /** `rules` overrides the interaction odds (tests force each outcome); the scene uses the defaults. */
+  constructor(maxDevils: number, seed = STORM_SEED + 101, rules: Readonly<DevilRules> = DEVIL_RULES) {
     this.maxDevils = Math.max(0, Math.floor(maxDevils));
+    this.rules = rules;
     this.rng = new Rng(seed);
   }
 
@@ -236,6 +328,7 @@ export class DustDevilField {
     this.devils.length = 0;
     this.rng.reset();
     this.nextId = 0;
+    for (const k of Object.keys(this.ended) as DevilEndCause[]) this.ended[k] = 0;
   }
 
   /** Active slots at this storm intensity: one in a lull, all of them at the gust peak. */
@@ -244,25 +337,200 @@ export class DustDevilField {
     return Math.max(1, Math.round(this.maxDevils * Math.max(0, Math.min(1, intensity))));
   }
 
-  private spawn(roverX: number, roverZ: number, windX: number, windZ: number): DustDevil {
+  /** The devil that owns GPU slot `slot`, if any. */
+  bySlot(slot: number): DustDevil | undefined {
+    for (const d of this.devils) if (d.slot === slot) return d;
+    return undefined;
+  }
+
+  byId(id: number): DustDevil | undefined {
+    for (const d of this.devils) if (d.id === id) return d;
+    return undefined;
+  }
+
+  /** Living (not fading-out) devils: what counts toward the active-slot target. */
+  liveCount(): number {
+    let n = 0;
+    for (const d of this.devils) if (d.state !== "dying") n++;
+    return n;
+  }
+
+  private freeSlot(): number {
+    for (let s = 0; s < this.maxDevils; s++) if (!this.bySlot(s)) return s;
+    return -1;
+  }
+
+  /** Build a devil with the given width (tests use this to stage encounters). */
+  makeDevil(x: number, z: number, coreRadius: number, slot = this.freeSlot()): DustDevil {
+    const rng = this.rng;
+    const core = Math.max(DEVIL_CORE_MIN * 0.5, coreRadius);
+    return {
+      id: this.nextId++,
+      slot,
+      x,
+      z,
+      vx: 0,
+      vz: 0,
+      coreRadius: core,
+      outerRadius: core * rng.nextRange(3.5, 4.5),
+      swirl: rng.nextRange(DEVIL_SWIRL_MIN, DEVIL_SWIRL_MAX) * devilSizeFactor(core) * (rng.nextFloat() < 0.5 ? -1 : 1),
+      life: devilLifespan(core, rng.nextFloat()),
+      age: 0,
+      opacity: rng.nextRange(0.75, 1.2),
+      fadeOut: DEVIL_FADE,
+      targetCore: core,
+      state: "free",
+      orbit: null,
+      endCause: null,
+    };
+  }
+
+  private spawn(roverX: number, roverZ: number, windX: number, windZ: number, slot: number): DustDevil {
     const rng = this.rng;
     const windLen = Math.hypot(windX, windZ) || 1;
     const upwind = Math.atan2(-windZ / windLen, -windX / windLen);
     const angle = upwind + rng.nextSignedFloat() * 1.1;
     const dist = rng.nextRange(55, 110);
-    const coreRadius = rng.nextRange(3, 6);
-    return {
-      id: this.nextId++,
-      x: roverX + Math.cos(angle) * dist,
-      z: roverZ + Math.sin(angle) * dist,
-      vx: 0,
-      vz: 0,
-      coreRadius,
-      outerRadius: coreRadius * rng.nextRange(3.5, 4.5),
-      swirl: rng.nextRange(DEVIL_SWIRL_MIN, DEVIL_SWIRL_MAX) * (rng.nextFloat() < 0.5 ? -1 : 1),
-      life: rng.nextRange(28, 46),
-      age: 0,
-    };
+    // Skewed width: many narrow rope devils, a few wide dark columns.
+    const u = rng.nextFloat();
+    const core = DEVIL_CORE_MIN + (DEVIL_CORE_MAX_SPAWN - DEVIL_CORE_MIN) * u * u;
+    return this.makeDevil(roverX + Math.cos(angle) * dist, roverZ + Math.sin(angle) * dist, core, slot);
+  }
+
+  /** Start a devil's fade-out (no pop): it keeps its slot until the envelope reaches zero. */
+  private end(d: DustDevil, cause: DevilEndCause, fade = DEVIL_FADE): void {
+    if (d.state === "dying") return;
+    d.state = "dying";
+    d.orbit = null;
+    d.endCause = cause;
+    d.fadeOut = fade;
+    // Continue from the current envelope level: the out-ramp starts at ≥ the current value.
+    d.life = Math.min(d.life, d.age + fade);
+    this.ended[cause]++;
+  }
+
+  /** `big` absorbs `small`: area-conserving width growth (eased), stronger swirl, longer life. */
+  private absorb(big: DustDevil, small: DustDevil, cause: DevilEndCause): void {
+    const grown = Math.min(DEVIL_CORE_CAP, Math.hypot(big.targetCore, small.targetCore));
+    const ratio = grown / Math.max(1e-6, big.targetCore);
+    big.targetCore = grown;
+    big.swirl = Math.sign(big.swirl || 1) * Math.min(DEVIL_SWIRL_MAX * 1.5, Math.abs(big.swirl) * Math.sqrt(ratio));
+    big.life = Math.max(big.life, big.age + 12);
+    big.opacity = Math.min(1.3, big.opacity + 0.05);
+    this.end(small, cause, DEVIL_CONSUME_FADE);
+    small.orbit = { otherId: big.id, mutual: false, angle: 0, radius: 0, rate: 0, timer: 0, outcome: "consume" };
+  }
+
+  private startOrbit(a: DustDevil, b: DustDevil, mutual: boolean): void {
+    const rng = this.rng;
+    const timer = rng.nextRange(this.rules.orbitMin, this.rules.orbitMax);
+    const dir = rng.nextFloat() < 0.5 ? -1 : 1;
+    if (!mutual) {
+      // `a` (small) circles `b` (big) just outside its core.
+      const outcome = rng.nextFloat() < this.rules.orbitThenConsumed ? "consume" : "die";
+      a.state = "orbiting";
+      a.orbit = { otherId: b.id, mutual: false, angle: Math.atan2(a.z - b.z, a.x - b.x), radius: b.coreRadius + a.coreRadius * 1.2, rate: dir * 0.9, timer, outcome };
+      return;
+    }
+    const r = rng.nextFloat();
+    const R = this.rules;
+    const outcome = r < R.combine ? "combine" : r < R.combine + R.separate ? "separate" : r < R.combine + R.separate + R.oneDies ? "one-dies" : "both-die";
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    const radius = Math.max(1.5, Math.hypot(a.x - b.x, a.z - b.z) / 2);
+    // Only the lower id carries the shared orbit; the partner just points back to it.
+    a.state = "orbiting";
+    b.state = "orbiting";
+    a.orbit = { otherId: b.id, mutual: true, angle: Math.atan2(a.z - mz, a.x - mx), radius, rate: dir * 1.4, timer, outcome };
+    b.orbit = { otherId: a.id, mutual: true, angle: 0, radius, rate: 0, timer: Infinity, outcome };
+  }
+
+  /** Close enough to interact: cores overlapping the other's inner swirl. */
+  static touching(a: DustDevil, b: DustDevil): boolean {
+    return Math.hypot(a.x - b.x, a.z - b.z) < (a.coreRadius + b.coreRadius) * 1.6;
+  }
+
+  private interact(dt: number): void {
+    const list = this.devils;
+    // Pair encounters in stable (id) order for determinism.
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]!;
+      if (a.state !== "free") continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j]!;
+        if (b.state !== "free" || a.state !== "free") continue;
+        if (!DustDevilField.touching(a, b)) continue;
+        const big = a.coreRadius >= b.coreRadius ? a : b;
+        const small = big === a ? b : a;
+        if (big.coreRadius >= small.coreRadius * DEVIL_BIG_RATIO) {
+          if (this.rng.nextFloat() < this.rules.bigConsumes) this.absorb(big, small, "consumed");
+          else this.startOrbit(small, big, false);
+        } else if (a.coreRadius < DEVIL_SMALL_CORE && b.coreRadius < DEVIL_SMALL_CORE) {
+          if (this.rng.nextFloat() < this.rules.smallMerge) this.absorb(big, small, "merged");
+          else this.startOrbit(a, b, true);
+        }
+        // Two similar large devils just pass through each other.
+      }
+    }
+    // Advance orbits and resolve outcomes.
+    for (const d of list) {
+      const o = d.orbit;
+      if (!o || d.state !== "orbiting") continue;
+      const other = this.byId(o.otherId);
+      if (!other || other.state === "dying") {
+        // Host or partner vanished: fly free again.
+        d.state = "free";
+        d.orbit = null;
+        continue;
+      }
+      if (o.mutual && o.timer === Infinity) continue; // the partner carries the shared orbit
+      o.timer -= dt;
+      o.angle += o.rate * dt;
+      if (o.mutual) {
+        const mx = (d.x + other.x) / 2;
+        const mz = (d.z + other.z) / 2;
+        o.radius = Math.max(1.2, o.radius - dt * 0.15); // spiral in slowly
+        d.x = mx + Math.cos(o.angle) * o.radius;
+        d.z = mz + Math.sin(o.angle) * o.radius;
+        other.x = mx - Math.cos(o.angle) * o.radius;
+        other.z = mz - Math.sin(o.angle) * o.radius;
+      } else {
+        d.x = other.x + Math.cos(o.angle) * o.radius;
+        d.z = other.z + Math.sin(o.angle) * o.radius;
+      }
+      d.vx = other.vx;
+      d.vz = other.vz;
+      if (o.timer > 0) continue;
+      if (!o.mutual) {
+        if (o.outcome === "consume") this.absorb(other, d, "consumed");
+        else this.end(d, "orbit-died");
+        continue;
+      }
+      const big = d.coreRadius >= other.coreRadius ? d : other;
+      const small = big === d ? other : d;
+      if (o.outcome === "combine") {
+        this.absorb(big, small, "merged");
+        big.state = "free";
+        big.orbit = null;
+      } else if (o.outcome === "separate") {
+        for (const [p, s] of [[d, 1], [other, -1]] as const) {
+          p.state = "free";
+          p.orbit = null;
+          // Fling apart along the orbit radius so they do not re-touch immediately.
+          p.vx += Math.cos(o.angle) * 4 * s;
+          p.vz += Math.sin(o.angle) * 4 * s;
+          p.x += Math.cos(o.angle) * (p.coreRadius * 2) * s;
+          p.z += Math.sin(o.angle) * (p.coreRadius * 2) * s;
+        }
+      } else if (o.outcome === "one-dies") {
+        this.end(small, "orbit-died");
+        big.state = "free";
+        big.orbit = null;
+      } else {
+        this.end(d, "orbit-died");
+        this.end(other, "orbit-died");
+      }
+    }
   }
 
   step(dt: number, intensity: number, windX: number, windZ: number, roverX: number, roverZ: number): void {
@@ -271,10 +539,40 @@ export class DustDevilField {
       const d = this.devils[i]!;
       d.age += dt;
       const far = Math.hypot(d.x - roverX, d.z - roverZ) > 260;
-      if (d.age >= d.life || far) this.devils.splice(i, 1);
+      if (far && d.state !== "dying") {
+        // Out of sight: drop at once (no one sees a pop 260 m away in the storm).
+        this.ended.far++;
+        this.devils.splice(i, 1);
+        continue;
+      }
+      if (d.age >= d.life) {
+        if (d.state !== "dying") this.ended.expired++;
+        this.devils.splice(i, 1);
+      }
     }
-    while (this.devils.length < slots) this.devils.push(this.spawn(roverX, roverZ, windX, windZ));
+    while (this.liveCount() < slots) {
+      const slot = this.freeSlot();
+      if (slot < 0) break;
+      this.devils.push(this.spawn(roverX, roverZ, windX, windZ, slot));
+    }
     for (const d of this.devils) {
+      // Ease width growth (and the outer radius with it) so a consuming devil swells smoothly.
+      if (d.targetCore !== d.coreRadius) {
+        const next = d.coreRadius + (d.targetCore - d.coreRadius) * Math.min(1, dt * 0.8);
+        d.outerRadius *= next / d.coreRadius;
+        d.coreRadius = Math.abs(d.targetCore - next) < 1e-3 ? d.targetCore : next;
+      }
+      if (d.state === "dying" && d.orbit) {
+        // Consumed: dragged into the absorber while it fades.
+        const host = this.byId(d.orbit.otherId);
+        if (host) {
+          const k = Math.min(1, dt * 2);
+          d.x += (host.x - d.x) * k;
+          d.z += (host.z - d.z) * k;
+          continue;
+        }
+      }
+      if (d.state === "orbiting") continue;
       // Drift at ~30% of the storm wind, wander, and steer weakly toward the rover.
       const toX = roverX - d.x;
       const toZ = roverZ - d.z;
@@ -288,6 +586,7 @@ export class DustDevilField {
       d.x += d.vx * dt;
       d.z += d.vz * dt;
     }
+    this.interact(dt);
   }
 }
 
@@ -339,7 +638,8 @@ export function devilRoverForce(devil: DustDevil, x: number, z: number, out: Dev
   out.yawAccel = DEVIL_YAW_GAIN * v;
   if (r < devil.coreRadius) {
     const eye = 1 - r / devil.coreRadius;
-    const strength = Math.abs(devil.swirl) / DEVIL_SWIRL_MAX;
+    // Wide devils carry a stronger swirl (devilSizeFactor), so they lift harder too.
+    const strength = Math.min(1.5, Math.abs(devil.swirl) / DEVIL_SWIRL_MAX);
     const env = devilEnvelope(devil);
     out.lift = DEVIL_LIFT_MAX * (0.4 + 0.6 * eye) * strength * env;
     out.rollAccel = DEVIL_ROLL_GAIN * v * (0.5 + eye);
@@ -1359,4 +1659,30 @@ export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array 
     }
   }
   return px;
+}
+
+// ---------------------------------------------------------------- dust palette + devil look (fe-19)
+
+type Rgba = { r: number; g: number; b: number; a: number };
+/**
+ * Grain colours sampled from the scene's own palette (same space as the particle tints): the
+ * terrain/drift dust (0xc08050 family) as the base and the boulders (0x7a5040) as the alternate.
+ * Each particle blends a stable random amount toward the rock tone plus a brightness jitter.
+ */
+export const STORM_DUST_PALETTE: Readonly<{ dust: Rgba; rock: Rgba; sheetVariation: number; devilVariation: number }> = Object.freeze({
+  dust: Object.freeze({ r: 0.78, g: 0.48, b: 0.28, a: 1 }),
+  rock: Object.freeze({ r: 0.46, g: 0.29, b: 0.22, a: 1 }),
+  sheetVariation: 0.6,
+  devilVariation: 0.85,
+});
+
+/** Devil impostor card opacities (fe-19: darker, closer to the reference's dark column). */
+export const DEVIL_CARD_OPACITY = Object.freeze({ core: 0.85, outer: 0.45 });
+
+/**
+ * Card opacity for a devil: base layer opacity × its own density × life envelope × near-camera
+ * dissolve, with only a light storm-intensity dimming.
+ */
+export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" | "age" | "life" | "fadeOut">, fade: number, intensity: number): number {
+  return Math.min(1, base * devil.opacity * devilEnvelope(devil) * fade * (0.85 + 0.15 * intensity));
 }
