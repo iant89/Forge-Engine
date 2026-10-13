@@ -205,7 +205,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Core glTF 2.0/GLB triangle mesh accessors decode on TaskScheduler workers and return transferable upload-ready arrays",
     evidence: ["tests/resources/gltf.test.ts", "tests/core/tasks.test.ts", "docs/VERIFICATION.md"],
-    notes: "Covers interleaved/sparse accessors, normalized attributes, indices, bounds, nodes/scenes and material factors. Skin import is assets.gltfSkins (16.1a); textures/materials are assets.gltfMaterials (16.1c); the rest (morph/instancing, Draco/meshopt) is tracked separately as assets.gltfAdvanced.",
+    notes: "Covers interleaved/sparse accessors, normalized attributes, indices, bounds, nodes/scenes and material factors. Right-handed glTF is mirrored into the engine's left-handed frame at decode (x → -x with winding, tangents, nodes, skins and animation keys; warns once per file; handedness: \"preserve\" opts out; files baked by npm run gltf:fix-handedness carry asset.extras.forgeHandedness and load as-is). Skin import is assets.gltfSkins (16.1a); textures/materials are assets.gltfMaterials (16.1c); the rest (morph/instancing, Draco/meshopt) is tracked separately as assets.gltfAdvanced.",
   },
   {
     id: "assets.gltfSkins",

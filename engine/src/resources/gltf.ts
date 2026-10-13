@@ -100,23 +100,29 @@ function byteViewToBuffer(input: ArrayBuffer | ArrayBufferView): ArrayBuffer {
 }
 
 function makePayload(input: GltfMeshInput, options: DecodeGltfMeshOptions): GltfMeshDecodePayload {
+  const payload = makeContainerPayload(input, options);
+  if (options.handedness) payload.handedness = options.handedness;
+  return payload;
+}
+
+function makeContainerPayload(input: GltfMeshInput, options: DecodeGltfMeshOptions): GltfMeshDecodePayload {
   const source = sourceName(input, options.source);
   if (typeof input === "string") {
-    return { format: "gltf", json: input, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
+    return { format: "gltf", json: input, buffers: [...(options.buffers ?? [])], source };
   }
   if (input && typeof input === "object" && "json" in input) {
     if (typeof input.json !== "string") throw new UsageError("decodeGltfMesh: document.json must be serialized glTF JSON");
-    return { format: "gltf", json: input.json, buffers: [...(input.buffers ?? options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
+    return { format: "gltf", json: input.json, buffers: [...(input.buffers ?? options.buffers ?? [])], source };
   }
   const bytes = byteViewToBuffer(input as ArrayBuffer | ArrayBufferView);
-  if (isGlbBuffer(bytes)) return { format: "glb", glb: bytes, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
+  if (isGlbBuffer(bytes)) return { format: "glb", glb: bytes, buffers: [...(options.buffers ?? [])], source };
   let json: string;
   try {
     json = new TextDecoder().decode(bytes);
   } catch (error) {
     throw new AssetError(`unable to decode glTF JSON bytes: ${String(error)}`, source);
   }
-  return { format: "gltf", json, buffers: [...(options.buffers ?? [])], source, ...(options.handedness ? { handedness: options.handedness } : {}) };
+  return { format: "gltf", json, buffers: [...(options.buffers ?? [])], source };
 }
 
 /** Decode mesh primitives to transferable arrays; pass `scheduler` to run parsing on its worker pool. */
