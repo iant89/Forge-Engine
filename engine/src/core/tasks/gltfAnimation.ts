@@ -179,15 +179,12 @@ export function decodeGltfAnimations(
   for (let animIndex = 0; animIndex < raw.length; animIndex++) {
     const anim = raw[animIndex]!;
     const name = anim?.name ?? `animation-${animIndex}`;
-    if (!onSkip) {
-      const decoded = decodeOneAnimation(doc, buffers, nodeCount, source, anim, animIndex, name);
-      if (decoded) result.push(decoded);
-      continue;
-    }
     try {
       const decoded = decodeOneAnimation(doc, buffers, nodeCount, source, anim, animIndex, name);
       if (decoded) result.push(decoded);
     } catch (error) {
+      // Without onSkip a bad animation fails the decode; with it, the animation is dropped and reported.
+      if (!onSkip) throw error;
       onSkip(animIndex, name, error);
     }
   }
