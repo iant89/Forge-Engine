@@ -743,6 +743,9 @@ async function main(): Promise<void> {
     /** glTF skin scene (Phase 16.1f): load/clip/skinned-batch state; null on other scenes. */
     gltfSkinState: () => (currentHandle as GltfSkinSceneHandle | null)?.gltfSkinState?.() ?? null,
     /** glTF skin scene: freeze the imported clip at `t` seconds. */
+    setGltfSkinTextured: (on: boolean) => {
+      (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTextured?.(on);
+    },
     setGltfSkinTime: (t: number) => {
       (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTime?.(t);
     },

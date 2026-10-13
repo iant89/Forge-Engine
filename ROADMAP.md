@@ -1546,7 +1546,16 @@ GOAL:
 
     [ ] 16.1b morph targets (targets, default weights, `weights` animation channel, render path)
 
-    [ ] 16.1c images / samplers / textures and engine material assembly
+    [x] 16.1c images / samplers / textures and engine material assembly: the decoder returns
+        `images` (embedded bufferView / data-URI bytes, or an external `uri`), `samplers`, `textures`
+        and `normalTexture.scale`; `loadGltfTextures` decodes each image once on the main thread
+        (createImageBitmap, no premultiply / colour conversion) into sRGB colour or linear data
+        textures with mips, and `instantiateGltfScene({ textures })` binds baseColor,
+        metallicRoughness and normal maps. Not applied: per-texture sampler modes (shared linear-repeat;
+        warns), texCoord != 0 (map dropped, warns), KHR_texture_transform, emissive/occlusion maps, alpha MASK,
+        KTX2. Odd uint16 index counts are now padded for writeBuffer. Verified on CesiumMan and
+        Perseverance.glb: tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin`
+        (bound vs unbound albedo pixel A/B); capability: assets.gltfMaterials
 
     [ ] 16.1d EXT_mesh_gpu_instancing
 
@@ -1557,9 +1566,9 @@ GOAL:
         the joint entities with the decoded inverse bind matrices, and attaches the asset's clips
         (now decoded with the mesh; TRS channels, STEP/LINEAR/CUBICSPLINE) to an AnimationComponent
         whose new `restPose` keeps channels a clip does not animate at their authored values.
-        Materials are factor-only; skinned primitives cull against per-frame posed bounds (per-joint
+        Materials were factor-only until 16.1c; skinned primitives cull against per-frame posed bounds (per-joint
         bind boxes × live joint matrices). Demo scene `?scene=gltf-skin` plays the Khronos SimpleSkin
-        sample (CC0) and `&model=cesium` Khronos CesiumMan (CC-BY-4.0, texture not drawn yet; examples/assets/);
+        sample (CC0) and `&model=cesium` Khronos CesiumMan (CC-BY-4.0, textured since 16.1c; examples/assets/);
         tests/resources/gltfScene.test.ts (hierarchy, bind pose, sampled pose, mock skinned draw) and
         `npm run check:browser:gltf-skin` (real Chromium + SwiftShader: one skinned batch, 2 joints,
         no fallback, the live clip advancing, three clip times A/B'd per pixel);
@@ -1665,8 +1674,8 @@ GOAL:
 
     The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
     Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
-    material assembly, morph/instancing, Draco/meshopt — 16.1b-16.1e) is still open under 16.1;
-    skin decoding (16.1a) and skinned scene assembly (16.1f) landed.
+    morph/instancing, Draco/meshopt — 16.1b, 16.1d, 16.1e) is still open under 16.1;
+    skin decoding (16.1a), skinned scene assembly (16.1f) and textures/materials (16.1c) landed.
 
 
 EXIT CRITERIA:

@@ -14,10 +14,10 @@
  * so a clip that animates only some channels leaves the others as authored. The caller registers an
  * `AnimationSystem` on the world and plays a clip; nothing here starts playback.
  *
- * Scope: materials are built from factors only (base colour, metallic, roughness, double-sided,
- * alpha BLEND → transparent); skinned primitives cull against posed bounds the renderer derives
- * from the skin's per-joint boxes (`SkinBinding.jointBounds`); textures, morph targets, cameras and lights are not imported (16.1c and
- * later). Missing normals/tangents are generated.
+ * Scope: materials are built from factors (base colour, metallic, roughness, double-sided,
+ * alpha BLEND → transparent) plus, when `options.textures` (from `loadGltfTextures`, Phase 16.1c) is
+ * given, the baseColor (sRGB), metallicRoughness and normal maps (with `normalTexture.scale`); skinned primitives cull against posed bounds the renderer derives
+ * from the skin's per-joint boxes (`SkinBinding.jointBounds`); emissive/occlusion maps, alpha MASK cutout, morph targets, cameras and lights are not imported. Missing normals/tangents are generated.
  */
 
 import { UsageError } from "../core/errors.js";
@@ -35,6 +35,7 @@ import { AnimationComponent } from "../animation/component.js";
 import { assembleClips } from "../animation/assembly.js";
 import type { AnimationClip } from "../animation/clip.js";
 import { NODE_STRIDE } from "../animation/sampler.js";
+import type { GltfTextureSet } from "./gltfTextures.js";
 import type { DecodedGltfAsset, DecodedGltfMaterial, DecodedGltfNode, DecodedGltfPrimitive } from "../core/tasks/gltfMesh.js";
 
 export interface InstantiateGltfSceneOptions {
@@ -46,6 +47,11 @@ export interface InstantiateGltfSceneOptions {
   sceneIndex?: number;
   /** Override material construction (receives the glTF material, or null for the default material). */
   material?: (material: DecodedGltfMaterial | null, index: number | null) => Material;
+  /**
+   * Phase 16.1c: textures from `loadGltfTextures`, bound by the default material builder. The set
+   * stays caller-owned: `dispose()` on the instance does not release it.
+   */
+  textures?: GltfTextureSet;
 }
 
 export interface GltfSceneInstance {
@@ -76,7 +82,7 @@ function localTrs(node: DecodedGltfNode, position: Vec3, rotation: Quat, scale: 
   if (node.scale) scale.set(node.scale[0]!, node.scale[1]!, node.scale[2]!);
 }
 
-function defaultMaterial(material: DecodedGltfMaterial | null, index: number | null): Material {
+function defaultMaterial(material: DecodedGltfMaterial | null, index: number | null, textures?: GltfTextureSet): Material {
   if (!material) return new Material({ label: "gltf.default", color: new Color(0.8, 0.8, 0.8, 1), roughness: 0.6, doubleSided: true });
   const f = material.baseColorFactor;
   return new Material({
@@ -87,6 +93,10 @@ function defaultMaterial(material: DecodedGltfMaterial | null, index: number | n
     metallic: material.metallicFactor,
     roughness: material.roughnessFactor,
     doubleSided: material.doubleSided,
+    albedoMap: textures?.get(material.baseColorTexture, "srgb") ?? null,
+    metallicRoughnessMap: textures?.get(material.metallicRoughnessTexture, "linear") ?? null,
+    normalMap: textures?.get(material.normalTexture, "linear") ?? null,
+    normalScale: material.normalScale ?? 1,
   });
 }
 
@@ -168,7 +178,7 @@ export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset
       if (!nodes[i]) restPose.set([0, 0, 0, 0, 0, 0, 1, 1, 1, 1], i * NODE_STRIDE);
     }
 
-    const materialFor = options.material ?? defaultMaterial;
+    const materialFor = options.material ?? ((m: DecodedGltfMaterial | null, i: number | null) => defaultMaterial(m, i, options.textures));
     const materialCache = new Map<number | null, Material>();
     asset.nodes.forEach((node, index) => {
       const entity = nodes[index];

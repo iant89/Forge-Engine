@@ -79,13 +79,14 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   primitives and returns typed vertex/index arrays, bounds, node transforms, scene roots and material
   factors, and (Phase 16.1a) skins with four-influence JOINTS_0/WEIGHTS_0 streams. Extra
   JOINTS_n/WEIGHTS_n sets are ignored when all-zero and rejected when they carry weight; strip them
-  with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). It does not decode
-  images/textures or build textured materials (`instantiateGltfScene`, Phase 16.1f, uses material
-  factors only), import morph targets/instancing, or decode Draco/meshopt compression; those are
-  tracked for the extended glTF importer (16.1b-16.1e). Skinned primitives cull against posed bounds
+  with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). Textures
+  (16.1c, `loadGltfTextures`) bind baseColor / metallicRoughness / normal maps only, all through the
+  shared linear-repeat sampler on TEXCOORD_0: per-texture wrap/filter modes, texCoord 1+,
+  KHR_texture_transform, emissive and occlusion maps, alpha MASK cutout and KTX2 images are not
+  applied (sampler modes and texCoord 1+ warn; the others are silently ignored). It does not import morph targets/instancing or decode Draco/meshopt
+  compression; those are tracked for the extended glTF importer (16.1b, 16.1d, 16.1e). Skinned primitives cull against posed bounds
   (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
-  can be looser than the deformed mesh. CesiumMan's base-colour texture is not drawn (16.1c), so it
-  renders with its white base-colour factor.
+  can be looser than the deformed mesh.
   (capability: assets.gltfAdvanced)
 
 * **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads

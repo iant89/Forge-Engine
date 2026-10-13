@@ -591,7 +591,35 @@ async function checkGltfSkin({ model = "simple", file = "SimpleSkin.gltf", joint
   if (!(cover.distinct >= 8) || !(cover.mean >= 6)) throw new Error(`the glTF skin scene is not rendering (mean ${cover.mean.toFixed(1)}, ${cover.distinct} colours)`);
   const after = await page.evaluate(() => window.__forge.stats());
   if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU error after the glTF skin A/B: ${after.lastError}`);
-  return { ...first.state, results, screenshots: times.map((t) => `${prefix}-${t.toFixed(1)}s.png`) };
+  const screenshots = times.map((t) => `${prefix}-${t.toFixed(1)}s.png`);
+  if (model !== "simple") screenshots.push(await checkGltfTextured({ model, file, prefix }));
+  return { ...first.state, results, screenshots };
+}
+
+/**
+ * Phase 16.1c: the imported base-colour maps are bound and actually change pixels. With the pose
+ * frozen, the frame with the albedo maps bound must differ from the same frame with them unbound.
+ */
+async function checkGltfTextured({ model, file, prefix, minTextures = 1, minDiffering = 1500 }) {
+  const state = await page.evaluate(() => window.__forge.gltfSkinState());
+  if (!(state.textures >= minTextures) || !(state.texturedMaterials >= 1)) {
+    throw new Error(`${file}: expected textured materials (textures=${state.textures}, texturedMaterials=${state.texturedMaterials})`);
+  }
+  await page.evaluate(() => window.__forge.setGltfSkinTextured(false));
+  await waitPresentedFrames(3);
+  await keepLuma(`gltf-tex-${model}-off`);
+  await page.screenshot({ path: `${prefix}-untextured.png`, timeout: 60000 });
+  await page.evaluate(() => window.__forge.setGltfSkinTextured(true));
+  await waitPresentedFrames(3);
+  await keepLuma(`gltf-tex-${model}-on`);
+  const shot = `${prefix}-textured.png`;
+  await page.screenshot({ path: shot, timeout: 60000 });
+  const diff = await compareRgb(`gltf-tex-${model}-off`, `gltf-tex-${model}-on`);
+  console.log(`${file} textured vs factor-only: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max}/255); ${state.textures} textures, ${state.texturedMaterials} textured materials`);
+  if (!(diff.differing >= minDiffering) || !(diff.max >= 20)) throw new Error(`${file}: binding the albedo maps did not change the frame (${diff.differing} px, max ${diff.max})`);
+  const stats = await page.evaluate(() => window.__forge.stats());
+  if (stats.gpuErrors !== 0 || stats.lastError) throw new Error(`GPU error on the textured glTF: ${stats.lastError}`);
+  return shot;
 }
 
 /**
@@ -3091,12 +3119,26 @@ try {
     await page.waitForFunction(() => window.__forge.sceneName === "gltf-skin", null, { timeout: 10000 });
     const gltfSkin = await checkGltfSkin();
     console.log(`imported glTF skin: joints=${gltfSkin.joints} skinnedBatches=${gltfSkin.skinnedBatches} skinJoints=${gltfSkin.skinJoints} fallbacks=${gltfSkin.skinFallbacks}; screenshots ${gltfSkin.screenshots.join(", ")}`);
-    // Second asset: Khronos CesiumMan (CC-BY-4.0; 19 joints, textured but drawn factor-only) through `?model=cesium`.
+    // Second asset: Khronos CesiumMan (CC-BY-4.0; 19 joints, base-colour textured since 16.1c) through `?model=cesium`.
     await page.goto(`${URL}?scene=gltf-skin&model=cesium`, { waitUntil: "load", timeout: 60000 });
     await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
     const basePrefix = process.env.GLTF_SKIN_SHOTS ?? "tools/.browser-check-gltf-skin";
     const cesium = await checkGltfSkin({ model: "cesium", file: "CesiumMan.glb", joints: 19, prefix: `${basePrefix}-cesium` });
     console.log(`imported CesiumMan: joints=${cesium.joints} skinnedBatches=${cesium.skinnedBatches} skinJoints=${cesium.skinJoints} fallbacks=${cesium.skinFallbacks}; screenshots ${cesium.screenshots.join(", ")}`);
+    // Third asset: the repo's static Perseverance.glb (WebP colour + normal maps), textured (16.1c).
+    await page.goto(`${URL}?scene=gltf-skin&model=perseverance`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+    await page.waitForFunction(() => {
+      const state = window.__forge.gltfSkinState?.();
+      return state && (state.error || state.loaded);
+    }, null, { polling: 250, timeout: 90000 });
+    const rover = await page.evaluate(() => window.__forge.gltfSkinState());
+    if (rover.model !== "perseverance") throw new Error(`expected the perseverance model, got ${rover.model}`);
+    if (rover.error) throw new Error(`Perseverance.glb failed to load: ${rover.error}`);
+    await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+    await waitPresentedFrames(3);
+    const roverShot = await checkGltfTextured({ model: "perseverance", file: "Perseverance.glb", prefix: `${basePrefix}-perseverance`, minTextures: 30, minDiffering: 500 });
+    console.log(`imported Perseverance: ${rover.textures} textures, ${rover.texturedMaterials} textured materials; screenshot ${roverShot}`);
     console.log("Focused imported-glTF-skin checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();

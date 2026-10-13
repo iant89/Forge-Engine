@@ -8,8 +8,10 @@
  * an `AnimationSystem` on the world plays the clip, and the renderer's skinned path does the bending.
  *
  * `?model=cesium` loads `examples/assets/CesiumMan.glb` instead (Khronos sample, CC-BY-4.0 — see
- * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle. Its base-colour texture is
- * not imported yet (16.1c), so it draws with the file's base-colour factor only.
+ * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle, drawn with its embedded JPEG
+ * base-colour texture (Phase 16.1c, `loadGltfTextures`). `?model=perseverance` loads the repo's static
+ * `Perseverance.glb` (WebP colour and normal maps) the same way. `setGltfSkinTextured(false)` unbinds the
+ * albedo maps so the browser gate can prove the texture changes pixels.
  *
  * The strip is flat (1 × 2 m in the XY plane), so it is drawn double-sided and lit from the front.
  * `window.__forge.setGltfSkinTime(t)` freezes the clip at `t` seconds for the browser gate.
@@ -28,6 +30,9 @@ import {
   createPlane,
   decodeGltfMesh,
   instantiateGltfScene,
+  loadGltfTextures,
+  type GltfTextureSet,
+  type Texture,
   type GltfSceneInstance,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
@@ -35,7 +40,7 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 const CLIP = "animation-0";
 
 interface SkinModel {
-  id: "simple" | "cesium";
+  id: "simple" | "cesium" | "perseverance";
   label: string;
   file: string;
   url: string;
@@ -56,11 +61,18 @@ const MODELS: Record<SkinModel["id"], SkinModel> = {
     url: new URL("../../assets/CesiumMan.glb", import.meta.url).href,
     cameraPosition: new Vec3(1.6, 1.2, 2.4), target: new Vec3(0, 0.75, 0), distance: 2.9,
   },
+  // Phase 16.1c: static (unskinned) textured check for the repo's rover model.
+  perseverance: {
+    id: "perseverance", label: "Perseverance", file: "Perseverance.glb", binary: true,
+    url: new URL("../../assets/Perseverance.glb", import.meta.url).href,
+    cameraPosition: new Vec3(3.2, 2.2, 4.2), target: new Vec3(0, 1, 0), distance: 5.6,
+  },
 };
 
-/** `?model=cesium` picks CesiumMan; anything else (or no query) is SimpleSkin. */
+/** `?model=cesium` picks CesiumMan, `?model=perseverance` the rover; anything else (or no query) is SimpleSkin. */
 export function selectSkinModel(search: string): SkinModel {
-  return new URLSearchParams(search).get("model") === "cesium" ? MODELS.cesium : MODELS.simple;
+  const id = new URLSearchParams(search).get("model");
+  return id === "cesium" ? MODELS.cesium : id === "perseverance" ? MODELS.perseverance : MODELS.simple;
 }
 
 export interface GltfSkinState {
@@ -73,12 +85,18 @@ export interface GltfSkinState {
   skinnedBatches: number;
   skinJoints: number;
   skinFallbacks: number;
+  /** Phase 16.1c: GPU textures loaded / materials with a bound albedo map (and whether maps are on). */
+  textures: number;
+  texturedMaterials: number;
+  texturesEnabled: boolean;
 }
 
 export interface GltfSkinSceneHandle extends DemoSceneHandle {
   gltfSkinState: () => GltfSkinState;
   /** Freeze the clip at `t` seconds (deterministic pose for a pixel A/B). */
   setGltfSkinTime: (t: number) => void;
+  /** Bind (true) or unbind (false) the imported albedo maps, for a textured-vs-factor pixel A/B. */
+  setGltfSkinTextured: (on: boolean) => void;
 }
 
 export function buildGltfSkinScene(engine: Engine, search = typeof location === "undefined" ? "" : location.search): GltfSkinSceneHandle {
@@ -115,6 +133,9 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   let error: string | null = null;
   let disposed = false;
   let frozenAt: number | null = null;
+  let textures: GltfTextureSet | null = null;
+  let texturesEnabled = true;
+  const albedo = new Map<Material, Texture>();
 
   const material = new Material({ label: "simple-skin", color: 0xd8873a, roughness: 0.45, metallic: 0.1, doubleSided: true });
   void (async () => {
@@ -124,10 +145,23 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       const body = model.binary ? await response.arrayBuffer() : await response.text();
       const asset = await decodeGltfMesh(body, { source: model.file });
       if (disposed) return;
-      // SimpleSkin has no material, so it gets a demo one; CesiumMan keeps its own (factor only).
+      // SimpleSkin has no material, so it gets a demo one; the others keep their own, textured (16.1c).
+      if (model.id !== "simple") {
+        const set = await loadGltfTextures(engine.gpu, asset);
+        if (disposed) {
+          set.dispose();
+          return;
+        }
+        textures = set;
+      }
       instance = instantiateGltfScene(engine.gpu, scene, asset, model.id === "simple"
         ? { name: model.file, material: () => material }
-        : { name: model.file });
+        : { name: model.file, textures: textures! });
+      for (const entity of instance.nodes) {
+        const m = entity?.get(Renderable)?.material;
+        if (m?.albedoMap) albedo.set(m, m.albedoMap);
+      }
+      if (!texturesEnabled) for (const m of albedo.keys()) m.setMaps({ albedo: null });
       const animation = instance.animation;
       if (animation) {
         animation.setLooping(CLIP, true);
@@ -156,6 +190,9 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       skinnedBatches: render.skinnedBatches,
       skinJoints: render.skinJoints,
       skinFallbacks: render.skinFallbacks,
+      textures: textures?.textures.length ?? 0,
+      texturedMaterials: albedo.size,
+      texturesEnabled,
     };
   };
 
@@ -166,10 +203,15 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
     dispose: () => {
       disposed = true;
       instance?.dispose();
+      textures?.dispose();
       groundMesh.dispose();
       scene.dispose();
     },
     gltfSkinState: state,
+    setGltfSkinTextured: (on: boolean) => {
+      texturesEnabled = on;
+      for (const [m, t] of albedo) m.setMaps({ albedo: on ? t : null });
+    },
     setGltfSkinTime: (t: number) => {
       frozenAt = t;
       const animation = instance?.animation;

@@ -27,8 +27,11 @@ import {
 
 export type {
   DecodedGltfAsset,
+  DecodedGltfImage,
   DecodedGltfMaterial,
   DecodedGltfMesh,
+  DecodedGltfSampler,
+  DecodedGltfTexture,
   DecodedGltfNode,
   DecodedGltfPrimitive,
   DecodedGltfPrimitiveSkin,
