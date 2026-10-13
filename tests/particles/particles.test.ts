@@ -468,6 +468,11 @@ group("particles — Phase 12 GPU system", () => {
       assert.deepEqual(devil.emitter.vortex, vortex);
       assert.notEqual(devil.emitter.vortex, vortex, "copied, not aliased");
       assert.equal(devil.modules.axisPull, 5);
+      assert.equal(plain.softSprite, false, "soft sprite is opt-in");
+      const soft = new GpuParticleSystem(gpu, { capacity: 64, softSprite: true });
+      assert.equal(soft.softSprite, true);
+      soft.dispose();
+      assertContains(PARTICLE_RENDER_SHADER, "if ((params.flags & 2u) != 0u) {");
       plain.dispose();
       devil.dispose();
     } finally {

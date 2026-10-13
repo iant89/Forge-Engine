@@ -770,7 +770,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       setRgba(m.colorFrom, DEVIL_SWARM_COLOR, DEVIL_SWARM_COLOR.a * d.opacity);
       setRgba(m.colorTo, DEVIL_SWARM_COLOR, 0);
       setRgba(m.colorAlt, DEVIL_SWARM_ROCK, 1);
-      sys.stretch = 0.15;
+      // fe-21f: no velocity stretch (aligning to swirl velocity foreshortened grains into flat chips)
+      // and the opt-in soft round sprite, so close grains read as dust puffs.
+      sys.stretch = 0;
+      sys.softSprite = true;
       m.axisPull = look.axisPull;
       const lean = (m.axisLean ??= { x: 0, y: 1, z: 0 });
       lean.x = look.leanX;

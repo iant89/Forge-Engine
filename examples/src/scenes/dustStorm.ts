@@ -1204,22 +1204,27 @@ export interface DevilParticleLook {
 export const DEVIL_EMIT_CYCLE = 5;
 export const DEVIL_SKIRT_FRAMES = 1;
 export const DEVIL_BASE_FRAMES = 1;
-export const DEVIL_COLUMN_WEIGHT = 300;
-export const DEVIL_SKIRT_WEIGHT = 90;
-export const DEVIL_BASE_WEIGHT = 90;
+/**
+ * Spawn weights out of {@link DEVIL_WEIGHT_TOTAL} (red-frontier's 420/s). fe-21f: the longer-lived
+ * base cloud is paid for by trimming the column (300 → 210), keeping live counts inside capacity.
+ */
+export const DEVIL_WEIGHT_TOTAL = 420;
+export const DEVIL_COLUMN_WEIGHT = 210;
+export const DEVIL_SKIRT_WEIGHT = 80;
+export const DEVIL_BASE_WEIGHT = 84;
 /** Base cloud: wide, low, slow-swirling skirt of dust around the devil's foot (fe-21d). */
 export const DEVIL_BASE_CLOUD = Object.freeze({
-  height: 1.1,
+  height: 1.6,
   radiusBase: 0.9,
   radiusTop: 1.8,
   spinFactor: 0.22,
   outward: 1.2,
   speedMin: 0.25,
   speedMax: 0.8,
-  lifeMin: 1.4,
-  lifeMax: 2.2,
+  lifeMin: 2.0,
+  lifeMax: 3.0,
   /** Height band (m) where `groundWind` acts and the axis spring relaxes. */
-  windHeight: 2.5,
+  windHeight: 3.0,
 });
 /** Ground-wind acceleration per m/s of storm wind: a lull floor plus a gust boost. */
 export const DEVIL_BASE_WIND_LULL = 0.12;
@@ -1330,7 +1335,7 @@ export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "c
   const vigour = Math.pow(Math.max(0, envelope), 1.15) * (0.3 + 0.7 * envelope);
   // Per-second weights (red-frontier column/skirt plus the fe-21d base cloud), corrected for how
   // many frames of the cycle each kind owns.
-  const total = DEVIL_COLUMN_WEIGHT + DEVIL_SKIRT_WEIGHT + DEVIL_BASE_WEIGHT;
+  const total = DEVIL_WEIGHT_TOTAL;
   const columnFrames = DEVIL_EMIT_CYCLE - DEVIL_SKIRT_FRAMES - DEVIL_BASE_FRAMES;
   const share = look.column
     ? (DEVIL_COLUMN_WEIGHT / total) * (DEVIL_EMIT_CYCLE / columnFrames)

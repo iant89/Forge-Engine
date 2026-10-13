@@ -14,7 +14,7 @@ export const suite = {
   desc: "Mars Dust Storm Survival game model: gust cycles, dust devils, dust accumulation, course and difficulty rules",
 };
 import assert from "node:assert/strict";
-import { PARTICLE_FULL_SIM_SHADER } from "@forge/engine";
+import { PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
   DEVIL_COARSE_FRACTION,
@@ -617,6 +617,7 @@ group("fe-21d devil base cloud", () => {
     assert.equal(kinds.filter((k) => !k.base && !k.column).length, 1, "skirt still present");
     const base = kinds.find((k) => k.base)!, col = kinds.find((k) => k.column)!, skirt = kinds.find((k) => !k.base && !k.column)!;
     assert.ok(base.vortex.height < 2 && base.vortex.height === DEVIL_BASE_CLOUD.height, "short");
+    assert.ok(base.lifeMin >= 2 && base.lifeMax <= 3, "fe-21f: 2-3 s so the tail can trail downwind");
     assert.ok(base.vortex.radiusTop > col.vortex.radiusBase * 3, "wide");
     assert.ok(Math.abs(base.vortex.spin) < Math.abs(col.vortex.spin) * 0.5 && Math.sign(base.vortex.spin) === 1, "slow, same sense");
     assert.ok(base.vortex.outward < skirt.vortex.outward, "drifts, not blasted");
@@ -642,6 +643,7 @@ group("fe-21d devil base cloud", () => {
     assertCloseTo(Math.atan2(dir.z, dir.x), Math.atan2(4, -3), 9);
     assert.equal(DEVIL_SWIRL_MAX > 0, true);
     assert.match(PARTICLE_FULL_SIM_SHADER, /params\.groundWindHeight/);
+    assert.match(PARTICLE_RENDER_SHADER, /params\.flags & 2u/, "opt-in soft sprite bit");
   });
 });
 

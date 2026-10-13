@@ -118,6 +118,11 @@ export interface GpuParticleSystemOptions {
   softParticles?: boolean;
   /** 0 = camera-facing billboard; >0 stretches along velocity. */
   stretch?: number;
+  /**
+   * Opt-in soft round sprite: alpha falls off smoothly from the centre (squared smoothstep over the
+   * whole radius) instead of the default hard disc with a thin rim fade. Same fragment cost. Default off.
+   */
+  softSprite?: boolean;
   /** Distance cull radius (world units). */
   cullDistance?: number;
   softScale?: number;
@@ -212,6 +217,7 @@ export class GpuParticleSystem {
   readonly maxEmitsPerFrame: number;
   softParticles: boolean;
   stretch: number;
+  softSprite: boolean;
   cullDistance: number;
   softScale: number;
   /** Draw trail-history ribbons in `particle.render` (12.4/12.7). Toggles take effect next frame. */
@@ -303,6 +309,7 @@ export class GpuParticleSystem {
     this.maxEmitsPerFrame = Math.max(1, options.maxEmitsPerFrame ?? 4096);
     this.softParticles = options.softParticles !== false;
     this.stretch = options.stretch ?? 0;
+    this.softSprite = options.softSprite === true;
     this.cullDistance = options.cullDistance ?? 80;
     this.softScale = options.softScale ?? 40;
     this.ribbons = options.ribbons === true;
@@ -765,7 +772,8 @@ export class GpuParticleSystem {
     f[24] = frame.cameraUp.x;
     f[25] = frame.cameraUp.y;
     f[26] = frame.cameraUp.z;
-    u[27] = this.softParticles ? 1 : 0;
+    // Bit 0: soft depth fade; bit 1: soft round sprite.
+    u[27] = (this.softParticles ? 1 : 0) | (this.softSprite ? 2 : 0);
     f[28] = 1;
     f[29] = 1;
     f[30] = 1;

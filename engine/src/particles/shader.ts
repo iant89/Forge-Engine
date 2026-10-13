@@ -512,7 +512,12 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   // Radial falloff of the billboard: opaque inside r = 0.35, fading to 0 at the 0.5 discard rim.
   // WGSL requires smoothstep's low edge < high edge (strict compilers reject the module
   // otherwise), so the reversed GLSL idiom smoothstep(0.5, 0.35, r) must be written this way.
-  let edge = 1.0 - smoothstep(0.35, 0.5, r);
+  var edge = 1.0 - smoothstep(0.35, 0.5, r);
+  if ((params.flags & 2u) != 0u) {
+    // Opt-in soft round sprite (bit 1): a smooth centre-to-rim falloff, so grains read as dust puffs.
+    let s = 1.0 - smoothstep(0.0, 0.5, r);
+    edge = s * s;
+  }
   var alpha = in.color.a * edge;
   // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
   // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does
