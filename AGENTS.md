@@ -55,6 +55,7 @@ npm run check:wgsl       # structural WGSL validation + strict uniform address-s
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
+npm run gltf:strip-skin-sets -- in.glb out.glb  # strip extra JOINTS_n/WEIGHTS_n sets (all-zero only; --force for weighted, --dry-run)
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, all sections
 npm run check:browser:renderer # full-gate PBR/rendering A/B section only
 npm run check:browser:terrain # full-gate terrain population/camera/compute section only

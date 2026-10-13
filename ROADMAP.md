@@ -1539,8 +1539,10 @@ GOAL:
 
     [x] 16.1a skin import (`skins[]` joints / inverse bind matrices / skeleton, `node.skin`, one
         JOINTS_0/WEIGHTS_0 set per primitive decoded on the worker into `SkinningVertexData`-shaped
-        arrays, spec validation, more than four influences rejected; decode only, not browser-verified;
-        tests/resources/gltf.test.ts; capability: assets.gltfSkins)
+        arrays, spec validation; extra JOINTS_n/WEIGHTS_n sets are ignored when all-zero and rejected
+        when weighted, with `npm run gltf:strip-skin-sets` (tools/gltf-strip-extra-skin-sets.mjs) to
+        remove them; decode only, not browser-verified; tests/resources/gltf.test.ts,
+        tests/tools/gltfStripSkinSets.test.ts; capability: assets.gltfSkins)
 
     [ ] 16.1b morph targets (targets, default weights, `weights` animation channel, render path)
 

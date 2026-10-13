@@ -76,6 +76,8 @@ interface SkinFixtureOptions {
   jointComponentType?: number;
   ibmCount?: number | null;
   joint?: number;
+  /** Append an all-zero float VEC4 accessor (index returned as `doc.accessors.length - 1`). */
+  zeroSet?: boolean;
   extra?: (doc: Record<string, any>) => void;
 }
 
@@ -89,7 +91,8 @@ function makeSkinnedGltf(options: SkinFixtureOptions = {}): string {
   const posLen = 36, jointLen = 12 * jointBytes, weightLen = 12 * weightBytes, ibmLen = (ibmCount ?? 0) * 64;
   const pad = (n: number): number => (n + 3) & ~3;
   const jointOff = posLen, weightOff = jointOff + pad(jointLen), ibmOff = weightOff + pad(weightLen);
-  const total = ibmOff + ibmLen;
+  const zeroOff = ibmOff + ibmLen, zeroLen = options.zeroSet ? 48 : 0;
+  const total = zeroOff + zeroLen;
   const bytes = new ArrayBuffer(total);
   const view = new DataView(bytes);
   [[0, 0, 0], [1, 0, 0], [0, 1, 0]].forEach((p, i) => p.forEach((v, c) => view.setFloat32(i * 12 + c * 4, v, true)));
@@ -126,6 +129,10 @@ function makeSkinnedGltf(options: SkinFixtureOptions = {}): string {
     bufferViews.push({ buffer: 0, byteOffset: ibmOff, byteLength: ibmLen });
     accessors.push({ bufferView: 3, componentType: 5126, count: ibmCount, type: "MAT4" });
     skin.inverseBindMatrices = 3;
+  }
+  if (options.zeroSet) {
+    bufferViews.push({ buffer: 0, byteOffset: zeroOff, byteLength: zeroLen });
+    accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: 3, type: "VEC4" });
   }
   const doc: Record<string, any> = {
     asset: { version: "2.0" },
@@ -214,12 +221,34 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
     }
   });
 
+  test("ignores extra JOINTS_n/WEIGHTS_n sets whose weights are all zero", async () => {
+    const reference = await decodeGltfMesh(makeSkinnedGltf());
+    const reference2 = await decodeGltfMesh(makeSkinnedGltf({ zeroSet: true }));
+    const padded = await decodeGltfMesh(makeSkinnedGltf({ zeroSet: true, extra: (doc) => {
+      // Exporters pad to eight influences with sets like these.
+      const zeroWeights = doc.accessors.length - 1;
+      Object.assign(doc.meshes[0].primitives[0].attributes, { JOINTS_1: 1, WEIGHTS_1: zeroWeights, JOINTS_2: 1, WEIGHTS_2: zeroWeights });
+    } }));
+    const primitive = padded.meshes[0]!.primitives[0]!;
+    assert.deepEqual(Object.keys(primitive.attributes), ["POSITION"]);
+    assert.deepEqual(primitive.skin, reference.meshes[0]!.primitives[0]!.skin);
+    assert.equal(padded.decodedBytes, reference2.decodedBytes, "ignored sets are not decoded or counted");
+  });
+
+  test("rejects an extra influence set that carries weight and points at the strip script", async () => {
+    await rejectsWith(
+      makeSkinnedGltf({ extra: (doc) => Object.assign(doc.meshes[0].primitives[0].attributes, { JOINTS_1: 1, WEIGHTS_1: 2 }) }),
+      "E_ASSET_GLTF_EXTENSION",
+      /WEIGHTS_1 carries non-zero weights.*tools\/gltf-strip-extra-skin-sets\.mjs/,
+    );
+  });
+
   test("rejects malformed skins and skin streams with clear errors", async () => {
     await rejectsWith(makeSkinnedGltf({ joint: 2 }), "E_ASSET_GLTF", /joint index 2.*skin 0 has 2 joints/);
     await rejectsWith(makeSkinnedGltf({ jointComponentType: 5126 }), "E_ASSET_GLTF", /JOINTS_0 must be unsigned byte or unsigned short/);
     await rejectsWith(makeSkinnedGltf({ ibmCount: 1 }), "E_ASSET_GLTF", /inverseBindMatrices has 1 matrices; expected at least 2/);
     await rejectsWith(makeSkinnedGltf({ extra: (doc) => { delete doc.meshes[0].primitives[0].attributes.WEIGHTS_0; } }), "E_ASSET_GLTF", /JOINTS_0 and WEIGHTS_0 must appear together/);
-    await rejectsWith(makeSkinnedGltf({ extra: (doc) => { doc.meshes[0].primitives[0].attributes.JOINTS_1 = 1; doc.meshes[0].primitives[0].attributes.WEIGHTS_1 = 2; } }), "E_ASSET_GLTF_EXTENSION", /more than four joint influences/);
+    await rejectsWith(makeSkinnedGltf({ extra: (doc) => { doc.meshes[0].primitives[0].attributes.JOINTS_1 = 1; } }), "E_ASSET_GLTF", /JOINTS_1 and WEIGHTS_1 must appear together/);
     await rejectsWith(makeSkinnedGltf({ extra: (doc) => { doc.skins[0].joints = [1, 9]; } }), "E_ASSET_GLTF", /skin 0 joint index 9 is out of range/);
     await rejectsWith(makeSkinnedGltf({ extra: (doc) => { doc.skins[0].joints = [1, 1]; } }), "E_ASSET_GLTF", /skin 0 lists node 1 twice/);
     await rejectsWith(makeSkinnedGltf({ extra: (doc) => { doc.skins[0].joints = []; } }), "E_ASSET_GLTF", /skin 0 has no joints/);
@@ -332,8 +361,6 @@ group("glTF 2.0 mesh decoder", () => {
     await assertRejects(decodeGltfMesh(morphMesh), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
     const morphNode = JSON.stringify({ asset: { version: "2.0" }, meshes: [], nodes: [{ weights: [0] }] });
     await assertRejects(decodeGltfMesh(morphNode), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
-    const skinAttributes = JSON.stringify({ asset: { version: "2.0" }, meshes: [{ primitives: [{ attributes: { POSITION: 0, JOINTS_1: 1 } }] }] });
-    await assertRejects(decodeGltfMesh(skinAttributes), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
     const malformed = new ArrayBuffer(20);
     await assertRejects(decodeGltfMesh(malformed), (error) => error instanceof AssetError);
   });

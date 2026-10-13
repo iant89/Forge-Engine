@@ -10,7 +10,8 @@
  * and sparse overlays), node transforms, scene roots, material factors/references and — since Phase
  * 16.1a — skins: `skins[]`, `node.skin` and one JOINTS_0/WEIGHTS_0 set per primitive (four
  * influences, the GPU skinning path's limit). Compressed geometry extensions (Draco/meshopt), morph
- * targets, more than four influences and GPU instancing are rejected explicitly; image
+ * targets, extra influence sets with non-zero weights (all-zero JOINTS_n/WEIGHTS_n, n >= 1, are
+ * ignored) and GPU instancing are rejected explicitly; image
  * decoding/material upload and animation import are outside this mesh-decoder slice.
  */
 
@@ -699,8 +700,24 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
         fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} is missing POSITION`);
       }
       const label = `mesh ${meshIndex} primitive ${primitiveIndex}`;
-      if (Object.keys(sourceAttributes).some((semantic) => /^(JOINTS|WEIGHTS)_([1-9]\d*)$/.test(semantic))) {
-        fail(source, `${label} has more than four joint influences (JOINTS_1/WEIGHTS_1+), which the skinning path does not support`, "E_ASSET_GLTF_EXTENSION");
+      // Extra influence sets (n >= 1): exporters often emit them padded with zero weights. Those add
+      // nothing to the four-influence skinning path, so they are validated and ignored; a set that
+      // carries any weight would be silently wrong without it, so it is rejected.
+      const extraSets = new Set<string>();
+      for (const semantic of Object.keys(sourceAttributes)) {
+        const match = /^(JOINTS|WEIGHTS)_([1-9]\d*)$/.exec(semantic);
+        if (match) extraSets.add(match[2]!);
+      }
+      for (const n of extraSets) {
+        const jointsAccessor = sourceAttributes[`JOINTS_${n}`];
+        const weightsAccessor = sourceAttributes[`WEIGHTS_${n}`];
+        if (jointsAccessor === undefined || weightsAccessor === undefined) fail(source, `${label}: JOINTS_${n} and WEIGHTS_${n} must appear together`);
+        indexAt(jointsAccessor, accessors.length, `${label} JOINTS_${n} accessor`, source);
+        const weights = readAccessor(doc, buffers, weightsAccessor, source, ctx);
+        if (weights.values.some((value) => value !== 0)) {
+          fail(source, `${label} WEIGHTS_${n} carries non-zero weights: more than four joint influences, which the skinning path does not support. ` +
+            "Strip the extra sets with `node tools/gltf-strip-extra-skin-sets.mjs <in> <out> --force` (accuracy loss) or re-export with four influences", "E_ASSET_GLTF_EXTENSION");
+        }
       }
       if ((sourceAttributes.JOINTS_0 === undefined) !== (sourceAttributes.WEIGHTS_0 === undefined)) {
         fail(source, `${label}: JOINTS_0 and WEIGHTS_0 must appear together`);
@@ -711,6 +728,7 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       let skinWeights: Float32Array | null = null;
       let count = -1;
       for (const [semantic, accessorIndex] of Object.entries(sourceAttributes)) {
+        if (/^(JOINTS|WEIGHTS)_([1-9]\d*)$/.test(semantic)) continue; // validated and ignored above
         if (!Number.isInteger(accessorIndex)) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} attribute ${semantic} has an invalid accessor`);
         const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
         if (count < 0) count = decoded.count;

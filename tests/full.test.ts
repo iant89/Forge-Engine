@@ -6,6 +6,7 @@ export const linkedSuites = [
   ["tests/tools/gpuEnv.test.ts", () => import("./tools/gpuEnv.test.ts")],
   ["tests/tools/marsTerrainPlan.test.ts", () => import("./tools/marsTerrainPlan.test.ts")],
   ["tests/tools/prChecks.test.ts", () => import("./tools/prChecks.test.ts")],
+  ["tests/tools/gltfStripSkinSets.test.ts", () => import("./tools/gltfStripSkinSets.test.ts")],
   ["tests/tools/selrun.test.ts", () => import("./tools/selrun.test.ts")],
   ["tests/docs/capabilities.test.ts", () => import("./docs/capabilities.test.ts")],
   ["tests/math/bvh.test.ts", () => import("./math/bvh.test.ts")],
@@ -87,4 +88,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(83);
+report(84);

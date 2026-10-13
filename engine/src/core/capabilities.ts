@@ -212,8 +212,8 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     phase: "16.1",
     status: "verified",
     summary: "glTF skin import: skins[] (joints, inverse bind matrices, skeleton), node.skin and one JOINTS_0/WEIGHTS_0 set per primitive, decoded on the worker into SkinningVertexData-shaped arrays",
-    evidence: ["tests/resources/gltf.test.ts"],
-    notes: "Phase 16.1a. Validated per the glTF spec (unsigned joint indices in range of every skin using the mesh, float or normalized weights, FLOAT MAT4 inverse bind matrices with at least one per joint, identity when omitted); weights are not renormalized. More than four influences (JOINTS_1+) is rejected because the GPU skinning path takes four. This is decode only: building joint entities and a skinned draw from a decoded GLB is 16.1f, and nothing here is browser-verified.",
+    evidence: ["tests/resources/gltf.test.ts", "tests/tools/gltfStripSkinSets.test.ts"],
+    notes: "Phase 16.1a. Validated per the glTF spec (unsigned joint indices in range of every skin using the mesh, float or normalized weights, FLOAT MAT4 inverse bind matrices with at least one per joint, identity when omitted); weights are not renormalized. Extra influence sets (JOINTS_n/WEIGHTS_n, n >= 1) are ignored when every weight is zero and rejected otherwise, because the GPU skinning path takes four; tools/gltf-strip-extra-skin-sets.mjs (npm run gltf:strip-skin-sets) removes them from an asset. This is decode only: building joint entities and a skinned draw from a decoded GLB is 16.1f, and nothing here is browser-verified.",
   },
   {
     id: "assets.gltfAdvanced",

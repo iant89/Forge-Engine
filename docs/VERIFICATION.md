@@ -1245,8 +1245,14 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   inline execution, and an actual `node:worker_threads` round-trip. The browser-worker gate uses the
   same fixture and public `decodeGltfMesh` API. Phase 16.1a adds skin decoding to the same suite:
   `skins[]`, `node.skin` and JOINTS_0/WEIGHTS_0 (u8/u16 joints, float/normalized weights, identity
-  default inverse bind matrices), eleven spec-violation rejections, transferables and a real
-  worker-thread round-trip (`capability: assets.gltfSkins`; Node only, no browser claim). Advanced
+  default inverse bind matrices), all-zero extra JOINTS_n/WEIGHTS_n sets ignored and a weighted one
+  rejected with a pointer to the strip tool, eleven spec-violation rejections, transferables and a
+  real worker-thread round-trip. `tests/tools/gltfStripSkinSets.test.ts` runs
+  `tools/gltf-strip-extra-skin-sets.mjs` on generated assets: a GLB round trip that drops the set's
+  accessors/views, renumbers what follows, compacts the BIN chunk and decodes identically with the
+  engine loader; idempotence (byte-identical second pass); non-zero sets kept (exit 1) unless
+  `--force` (warning); `--dry-run`; `.gltf` with external `.bin` and data-URI buffers
+  (`capability: assets.gltfSkins`; Node only, no browser claim). Advanced
   image/material GPU assembly, skinned-GLB scene assembly, morph/instancing import, and
   Draco/meshopt geometry are not claimed
   (`capability: assets.gltfAdvanced`).
