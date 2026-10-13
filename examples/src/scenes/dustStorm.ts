@@ -1198,7 +1198,7 @@ export interface DevilParticleLook {
   column: boolean;
   /** fe-21d: this frame feeds the slow, low base dust cloud (wind-stretched via `groundWind`). */
   base: boolean;
-  vortex: { height: number; bias: number; radiusBase: number; radiusTop: number; spin: number; outward: number; leanX: number; leanZ: number; bendX?: number; bendZ?: number; snakeX?: number; snakeZ?: number; bulge?: number };
+  vortex: { height: number; bias: number; radiusBase: number; radiusTop: number; spin: number; outward: number; leanX: number; leanZ: number; bendX?: number; bendZ?: number; snakeX?: number; snakeZ?: number; bulge?: number; kinkX?: number; kinkZ?: number };
   /** fe-22d: the bent, wandering axis this frame (grains, cards and base cloud all follow it). */
   curve: DevilAxisCurve;
   /** fe-22d: spring-softening for the GPU axis spring that yields the curve's bulge (≈ (1+g)² − 1). */
@@ -1304,7 +1304,7 @@ export function devilParticleLook(
     base,
     vortex: { height: 0, bias: 1, radiusBase: 0, radiusTop: 0, spin: 0, outward: 0, leanX: 0, leanZ: 0 },
     speedMin: 0, speedMax: 0, lifeMin: 0, lifeMax: 0, axisPull: 0, axisHeight: 1, leanX: 0, leanZ: 0, swirl: 0, sizeStart: 0, sizeEnd: 0,
-    curve: { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0 },
+    curve: { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, kinkX: 0, kinkZ: 0, bulge: 0 },
     springBulge: 0,
   };
   const curve = devilAxisCurve(devil, t, o.curve);
@@ -1323,20 +1323,20 @@ export function devilParticleLook(
   if (column) {
     v.height = height; v.bias = 1.35; v.radiusBase = colR * 0.35; v.radiusTop = colR * 1.1;
     v.spin = dir * spin * 0.6; v.outward = 0; v.leanX = curve.leanX; v.leanZ = curve.leanZ;
-    v.bendX = curve.bendX; v.bendZ = curve.bendZ; v.snakeX = curve.snakeX; v.snakeZ = curve.snakeZ; v.bulge = curve.bulge;
+    v.bendX = curve.bendX; v.bendZ = curve.bendZ; v.snakeX = curve.snakeX; v.snakeZ = curve.snakeZ; v.bulge = curve.bulge; v.kinkX = curve.kinkX; v.kinkZ = curve.kinkZ;
     o.speedMin = 5.5; o.speedMax = 11.3; o.lifeMin = 0.95; o.lifeMax = 1.7;
   } else if (base) {
     // Base cloud: short, wide, slowly turning dust around the foot; the scene's groundWind drags it.
     const b = DEVIL_BASE_CLOUD;
     v.height = b.height; v.bias = 1.6; v.radiusBase = baseR * b.radiusBase; v.radiusTop = baseR * b.radiusTop;
     v.spin = dir * spin * b.spinFactor; v.outward = b.outward; v.leanX = 0; v.leanZ = 0;
-    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0;
+    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0; v.kinkX = 0; v.kinkZ = 0;
     o.speedMin = b.speedMin; o.speedMax = b.speedMax; o.lifeMin = b.lifeMin; o.lifeMax = b.lifeMax;
   } else {
     // Skirt: a wide ring hugging the ground, thrown outward.
     v.height = 1.2; v.bias = 1; v.radiusBase = baseR * 1.2; v.radiusTop = baseR * 2.4;
     v.spin = 0; v.outward = bursting ? 6 : 8; v.leanX = 0; v.leanZ = 0;
-    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0;
+    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0; v.kinkX = 0; v.kinkZ = 0;
     o.speedMin = bursting ? 1.4 : 0.9; o.speedMax = bursting ? 4 : 2.3; o.lifeMin = 0.55; o.lifeMax = bursting ? 1.4 : 1;
   }
   return o;
@@ -1900,13 +1900,15 @@ export function devilColumnSpread(
 // relaxes. All analytic in (devil id, t): deterministic, allocation-free, no history buffers.
 
 /** Wander amplitude (m) per metre of core radius, and its floor/cap. */
-export const DEVIL_WANDER_PER_CORE = 0.9;
-export const DEVIL_WANDER_MAX = 6;
+export const DEVIL_WANDER_PER_CORE = 1.2;
+export const DEVIL_WANDER_MAX = 10;
 /** Seconds of lag between the base and the top of the column (per-devil 1.2–2.4 s). */
 export const DEVIL_AXIS_LAG_MIN = 1.2;
 export const DEVIL_AXIS_LAG_MAX = 2.4;
 /** Snake (sin 2πh) amplitude per metre of core radius. */
-export const DEVIL_SNAKE_PER_CORE = 0.35;
+export const DEVIL_SNAKE_PER_CORE = 0.6;
+/** fe-22e: second, faster wiggle (sin 3πh) amplitude per metre of core radius. */
+export const DEVIL_KINK_PER_CORE = 0.35;
 /** Bulge: radius gain 0.5..1 (→ 1.5–2×) over 2–3.5 s, one chance per 5–9 s cycle. */
 export const DEVIL_BULGE_GAIN_MIN = 0.5;
 export const DEVIL_BULGE_GAIN_MAX = 1.0;
@@ -1972,6 +1974,9 @@ export interface DevilAxisCurve {
   bendZ: number;
   snakeX: number;
   snakeZ: number;
+  /** fe-22e: faster second wiggle, × sin(3πh). */
+  kinkX: number;
+  kinkZ: number;
   /** Mid-column radius gain (radius × 1 + bulge·sin²πh). */
   bulge: number;
 }
@@ -1982,7 +1987,7 @@ export interface DevilAxisCurve {
  * wobble rides on the lean, and a travelling snake adds an S.
  */
 export function devilAxisCurve(devil: Pick<DustDevil, "id" | "coreRadius">, t: number, out?: DevilAxisCurve): DevilAxisCurve {
-  const o: DevilAxisCurve = out ?? { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0 };
+  const o: DevilAxisCurve = out ?? { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, kinkX: 0, kinkZ: 0, bulge: 0 };
   const lag = devilAxisLag(devil.id);
   const b = devilWander(devil, t, _w0);
   o.baseX = b.x;
@@ -1996,10 +2001,17 @@ export function devilAxisCurve(devil: Pick<DustDevil, "id" | "coreRadius">, t: n
   const l5 = Math.pow(0.5, 1.25);
   o.bendX = mid.x - b.x - o.leanX * l5;
   o.bendZ = mid.z - b.z - o.leanZ * l5;
+  // (kink·sin(3π/2) = −kink at h = 0.5 is compensated after the kink is set below.)
   const sa = devil.coreRadius * DEVIL_SNAKE_PER_CORE;
   const ph = devilHash(devil.id, 70) * 6.2832;
   o.snakeX = sa * Math.sin(t * 1.3 + ph);
   o.snakeZ = sa * Math.cos(t * 0.9 + ph * 1.7);
+  const ka = devil.coreRadius * DEVIL_KINK_PER_CORE;
+  const pk = devilHash(devil.id, 71) * 6.2832;
+  o.kinkX = ka * Math.sin(t * 2.7 + pk);
+  o.kinkZ = ka * Math.cos(t * 2.1 + pk * 1.3);
+  o.bendX += o.kinkX;
+  o.bendZ += o.kinkZ;
   o.bulge = devilBulge(devil.id, t);
   return o;
 }
@@ -2014,8 +2026,9 @@ export function devilAxisAt(c: DevilAxisCurve, h: number, out: { x: number; z: n
   const lean = Math.pow(Math.max(u, 1e-4), 1.25);
   const s1 = Math.sin(Math.PI * u);
   const s2 = Math.sin(2 * Math.PI * u);
-  out.x = c.leanX * lean + c.bendX * s1 + c.snakeX * s2;
-  out.z = c.leanZ * lean + c.bendZ * s1 + c.snakeZ * s2;
+  const s3 = Math.sin(3 * Math.PI * u);
+  out.x = c.leanX * lean + c.bendX * s1 + c.snakeX * s2 + c.kinkX * s3;
+  out.z = c.leanZ * lean + c.bendZ * s1 + c.snakeZ * s2 + c.kinkZ * s3;
   return out;
 }
 /** Radius multiplier at height h for a curve's bulge. */
@@ -2023,3 +2036,13 @@ export function devilBulgeScale(c: Pick<DevilAxisCurve, "bulge">, h: number): nu
   const s = Math.sin(Math.PI * Math.max(0, Math.min(1, h)));
   return 1 + c.bulge * s * s;
 }
+
+/**
+ * fe-22e: the rover push from a devil whose base has wandered: {@link devilRoverForce} evaluated
+ * around the visible (wandered) base at time t, so the physics matches what is drawn.
+ */
+export function devilRoverForceAt(devil: DustDevil, t: number, x: number, z: number, out?: DevilRoverForce): DevilRoverForce {
+  const w = devilWander(devil, t, _wf);
+  return devilRoverForce(devil, x - w.x, z - w.z, out);
+}
+const _wf = { x: 0, z: 0 };

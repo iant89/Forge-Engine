@@ -168,6 +168,8 @@ struct EmitParams {
   vortexSnakeX: f32,
   vortexSnakeZ: f32,
   vortexBulge: f32,
+  vortexKinkX: f32,
+  vortexKinkZ: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
@@ -236,8 +238,10 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
     let lean = pow(max(h01, 1e-4), 1.25);
     // fe-22d: bent axis = lean·h^1.25 + bend·sin(πh) + snake·sin(2πh) (all 0 by default).
     let s2 = sin(6.28318531 * h01);
-    let ax = params.vortexLeanX * lean + params.vortexBendX * bump + params.vortexSnakeX * s2;
-    let az = params.vortexLeanZ * lean + params.vortexBendZ * bump + params.vortexSnakeZ * s2;
+    // fe-22e: + kink·sin(3πh), a second, faster rope wiggle.
+    let s3 = sin(9.42477796 * h01);
+    let ax = params.vortexLeanX * lean + params.vortexBendX * bump + params.vortexSnakeX * s2 + params.vortexKinkX * s3;
+    let az = params.vortexLeanZ * lean + params.vortexBendZ * bump + params.vortexSnakeZ * s2 + params.vortexKinkZ * s3;
     p.position = params.position + vec3<f32>(ax + ca * r, h01 * params.vortexHeight, az + sa * r);
     let rim = params.vortexSpin * r;
     let up = mix(params.speedMin, params.speedMax, hashToFloat(h3)) * (1.0 - 0.42 * h01);
@@ -298,6 +302,8 @@ struct FullSimParams {
   axisSnakeX: f32,
   axisSnakeZ: f32,
   axisBulge: f32,
+  axisKinkX: f32,
+  axisKinkZ: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -327,8 +333,10 @@ struct FullSimParams {
     let lean = pow(max(h01, 1e-4), 1.25);
     bump = sin(3.14159265 * h01);
     let s2 = sin(6.28318531 * h01);
+    let s3 = sin(9.42477796 * h01);
     axisXZ = axisXZ + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean
-      + vec2<f32>(params.axisBendX, params.axisBendZ) * bump + vec2<f32>(params.axisSnakeX, params.axisSnakeZ) * s2;
+      + vec2<f32>(params.axisBendX, params.axisBendZ) * bump + vec2<f32>(params.axisSnakeX, params.axisSnakeZ) * s2
+      + vec2<f32>(params.axisKinkX, params.axisKinkZ) * s3;
   }
   if (params.swirlStrength != 0.0) {
     // Tangent around the vertical axis through the attractor (or the local bent axis point);

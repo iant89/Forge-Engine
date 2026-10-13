@@ -112,7 +112,7 @@ import {
   STORM_SEED,
   StormCourse,
   StormField,
-  devilRoverForce,
+  devilRoverForceAt,
   isRoverFlipped,
   pileWindwardPoint,
   stormCheckpointLayout,
@@ -819,12 +819,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       lean.x = look.leanX;
       lean.y = look.axisHeight;
       lean.z = look.leanZ;
-      const curve = (m.axisCurve ??= { bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0 });
+      const curve = (m.axisCurve ??= { bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0, kinkX: 0, kinkZ: 0 });
       curve.bendX = look.curve.bendX;
       curve.bendZ = look.curve.bendZ;
       curve.snakeX = look.curve.snakeX;
       curve.snakeZ = look.curve.snakeZ;
       curve.bulge = look.springBulge;
+      curve.kinkX = look.curve.kinkX;
+      curve.kinkZ = look.curve.kinkZ;
       // Modules act on every live particle of the system, so they stay fixed across the column/skirt
       // frame alternation (a blend of red-frontier's column 0/0.4 and skirt 1.2/1.6 gravity/drag).
       m.gravity.y = DEVIL_DUST_GRAVITY;
@@ -965,7 +967,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     devils.step(dt, intensity, wind.x, wind.z, vehicle.position.x, vehicle.position.z);
     const clearance = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z);
     for (const devil of devils.devils) {
-      devilRoverForce(devil, vehicle.position.x, vehicle.position.z, force);
+      // fe-22e: push from the visible, wandered base.
+      devilRoverForceAt(devil, time, vehicle.position.x, vehicle.position.z, force);
       if (force.ax === 0 && force.az === 0 && force.yawAccel === 0) continue;
       vehicle.velocity.x += force.ax * dt;
       vehicle.velocity.z += force.az * dt;

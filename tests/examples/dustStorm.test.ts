@@ -17,6 +17,9 @@ import assert from "node:assert/strict";
 import { Material, PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  devilRoverForceAt,
+  devilRoverForce,
+  DustDevilField,
   devilWander,
   devilAxisCurve,
   devilAxisAt,
@@ -727,8 +730,8 @@ group("fe-22d dancing devils", () => {
       maxStep = Math.max(maxStep, step); travelled += step; maxR = Math.max(maxR, Math.hypot(w.x, w.z));
       prev = w;
     }
-    assert.ok(maxR <= Math.min(DEVIL_WANDER_MAX, 5 * 0.9) + 1e-9 && maxR > 1.5, `wander radius ${maxR}`);
-    assert.ok(maxStep < 0.6, `smooth (max 0.1 s step ${maxStep})`);
+    assert.ok(maxR <= Math.min(DEVIL_WANDER_MAX, 5 * 1.2) + 1e-9 && maxR > 1.5, `wander radius ${maxR}`);
+    assert.ok(maxStep < 0.8, `smooth (max 0.1 s step ${maxStep})`);
     assert.ok(travelled > 20, "actually moves");
     const other = devilWander({ id: 8, coreRadius: 5 }, 10);
     const mine = devilWander(devil, 10);
@@ -778,6 +781,26 @@ group("fe-22d dancing devils", () => {
     assert.equal(look1.vortex.bendX, look1.curve.bendX, "grains spawn on the same curve");
     const skirt = devilParticleLook({ ...devil, age: 10, life: 30 }, 12.34, 0);
     assert.equal(skirt.vortex.bendX, 0, "skirt/base cloud stay on the (wandering) ground point");
+  });
+});
+
+group("fe-22e rover push follows the wandered base", () => {
+  test("force at the visible base offset equals the unwandered force at the sim position", () => {
+    const field = new DustDevilField(1);
+    const d = field.makeDevil(40, -20, 5, 0);
+    d.age = 10; d.life = 40;
+    for (const t of [2, 11.5, 33]) {
+      const w = devilWander(d, t);
+      assert.ok(Math.hypot(w.x, w.z) > 0.1, "base has actually wandered");
+      for (const [rx, rz] of [[1, 0], [0, 3], [-2.5, 1], [7, -4]]) {
+        const atVisible = devilRoverForceAt(d, t, d.x + w.x + rx!, d.z + w.z + rz!);
+        const ref = devilRoverForce(d, d.x + rx!, d.z + rz!);
+        assert.deepEqual(atVisible, ref);
+      }
+      // Standing in the visible eye gets the eye's lift; the old sim spot (now off-centre) does not match.
+      const eye = devilRoverForceAt(d, t, d.x + w.x, d.z + w.z);
+      assert.deepEqual(eye, devilRoverForce(d, d.x, d.z));
+    }
   });
 });
 

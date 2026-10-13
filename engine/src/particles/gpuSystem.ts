@@ -63,6 +63,9 @@ export interface GpuParticleVortexSpawn {
   snakeX?: number;
   snakeZ?: number;
   bulge?: number;
+  /** fe-22e: second, faster rope wiggle (× sin 3πh). */
+  kinkX?: number;
+  kinkZ?: number;
 }
 
 export interface GpuParticleModulesConfig {
@@ -103,7 +106,7 @@ export interface GpuParticleModulesConfig {
    * fe-22d: bends the spring axis beyond the lean: `+ bend·sin(πh) + snake·sin(2πh)`, and relaxes
    * the spring by `1/(1+bulge·sin²πh)²` so the mid column swells. Default all 0 (unchanged).
    */
-  axisCurve?: { bendX: number; bendZ: number; snakeX: number; snakeZ: number; bulge: number };
+  axisCurve?: { bendX: number; bendZ: number; snakeX: number; snakeZ: number; bulge: number; kinkX?: number; kinkZ?: number };
   /**
    * Bimodal size mix: this fraction 0..1 of particles (stable pick from life, independent of
    * `sizeVariation`) is drawn `coarseScale`× larger — a few big grains filling gaps between fine
@@ -162,7 +165,7 @@ export interface GpuParticleFrameInput {
 }
 
 const EMIT_UNIFORM_BYTES = 160;
-const SIM_UNIFORM_BYTES = 208;
+const SIM_UNIFORM_BYTES = 224;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -699,6 +702,8 @@ export class GpuParticleSystem {
       f[34] = v.snakeX ?? 0;
       f[35] = v.snakeZ ?? 0;
       f[36] = Math.max(0, v.bulge ?? 0);
+      f[37] = v.kinkX ?? 0;
+      f[38] = v.kinkZ ?? 0;
     }
     this.device.queue.writeBuffer(this.emitUniform!, 0, gpuSource(new Uint8Array(buf)));
     this.writeHead = (this.writeHead + budget) % this.capacity;
@@ -760,6 +765,8 @@ export class GpuParticleSystem {
       f[48] = c.snakeX;
       f[49] = c.snakeZ;
       f[50] = Math.max(0, c.bulge);
+      f[51] = c.kinkX ?? 0;
+      f[52] = c.kinkZ ?? 0;
     }
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }

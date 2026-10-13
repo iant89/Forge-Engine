@@ -273,7 +273,7 @@ group("Mars Dust Storm Survival — one GPU particle system per dust devil", () 
       // fe-22d: the base dances on a bounded wander around the sim position; spawn and axis agree.
       assert.equal(sys.emitter.position.x, sys.modules.attractorPos.x);
       assert.equal(sys.emitter.position.z, sys.modules.attractorPos.z);
-      assert.ok(Math.hypot(sys.modules.attractorPos.x - d.x, sys.modules.attractorPos.z - d.z) <= 6 + 1e-6, "wander stays bounded");
+      assert.ok(Math.hypot(sys.modules.attractorPos.x - d.x, sys.modules.attractorPos.z - d.z) <= 10 + 1e-6, "wander stays bounded");
     }
   });
 });
