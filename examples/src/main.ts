@@ -59,6 +59,8 @@ import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
+import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
+import { stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -151,9 +153,10 @@ async function main(): Promise<void> {
 
     activeSceneName = name;
     // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm");
     document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
+    document.body.classList.toggle("scene-storm", name === "mars-dust-storm");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     document.body.classList.toggle("scene-rescue", name === "alpine-rescue");
@@ -200,6 +203,14 @@ async function main(): Promise<void> {
       currentHandle = buildAlpineRescueScene(engine);
     } else if (name === "amazon-river") {
       currentHandle = buildAmazonRiverScene(engine);
+    } else if (name === "mars-dust-storm") {
+      // `?difficulty=hard` is only the starting value: the EASY/HARD toolbar and touch toggles switch
+      // it live and restart the run. Hard sends a buried or flipped rover back to the last beam.
+      const query = new URLSearchParams(window.location.search);
+      currentHandle = buildMarsDustStormScene(engine, {
+        difficulty: query.get("difficulty") === "hard" ? "hard" : "easy",
+        quality: stormQualityForPlatform(platform.os),
+      });
     } else {
       currentHandle = buildCubesScene(engine);
     }

@@ -53,6 +53,11 @@ export interface GpuParticleModulesConfig {
   /** Stable random multiplier in the range `1 ± sizeVariation`, derived from each particle's life. */
   sizeVariation: number;
   rotationSpeed: number;
+  /**
+   * Tangential acceleration (m/s² at 1 m) around the vertical axis through `attractorPos`, falling
+   * off as 1/r: a dust-devil swirl. Positive spins counter-clockwise seen from above. 0 = off.
+   */
+  swirlStrength: number;
 }
 
 export interface GpuParticleSystemOptions {
@@ -129,6 +134,7 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     sizeEnd: partial.sizeEnd ?? 0.04,
     sizeVariation: partial.sizeVariation ?? 0,
     rotationSpeed: partial.rotationSpeed ?? 0.6,
+    swirlStrength: partial.swirlStrength ?? 0,
   };
 }
 
@@ -639,6 +645,7 @@ export class GpuParticleSystem {
     f[26] = m.velocityBoost.z;
     u[27] = this.seed;
     f[28] = Math.max(0, Math.min(1, m.sizeVariation));
+    f[29] = m.swirlStrength;
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 
@@ -719,28 +726,31 @@ export class GpuParticleSystem {
       depth: RenderGraphHandle;
       colorFormat: GPUTextureFormat;
       depthFormat: GPUTextureFormat;
+      /** Appended to every pass name so several systems in one frame stay distinguishable. */
+      passSuffix?: string;
     },
   ): void {
     if (!this.ready || this.disposed) return;
-    const passes = this.lastSimulationSteps > 0
+    const sfx = opts.passSuffix ?? "";
+    const passes = (this.lastSimulationSteps > 0
       ? ["particle.sim", "particle.sort", "particle.render", "particle.resolve"]
-      : ["particle.sort", "particle.render", "particle.resolve"];
+      : ["particle.sort", "particle.render", "particle.resolve"]).map((name) => name + sfx);
     this.lastEnqueuedPasses = passes;
 
     if (this.lastSimulationSteps > 0) {
       graph.addPass({
-        name: "particle.sim",
+        name: "particle.sim" + sfx,
         sideEffect: true,
         execute: (ctx) => this.encodeSim(ctx),
       });
     }
     graph.addPass({
-      name: "particle.sort",
+      name: "particle.sort" + sfx,
       sideEffect: true,
       execute: (ctx) => this.encodeCull(ctx),
     });
     graph.addPass({
-      name: "particle.render",
+      name: "particle.render" + sfx,
       reads: [opts.depth],
       color: [{ texture: opts.color, loadOp: "load" }],
       // No depth attachment (fe-17): the pass samples the scene depth and depth-tests in the
@@ -750,7 +760,7 @@ export class GpuParticleSystem {
       execute: (ctx) => this.encodeRender(ctx, opts.colorFormat, opts.depthFormat, opts.depth),
     });
     graph.addPass({
-      name: "particle.resolve",
+      name: "particle.resolve" + sfx,
       sideEffect: true,
       execute: (ctx) => this.encodeResolve(ctx),
     });

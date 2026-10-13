@@ -50,18 +50,14 @@ import {
   type Engine,
   type Entity,
   type EntityId,
-  ElectricMotor,
-  ReductionDrive,
   Mat4,
   System,
   type SystemContext,
-  type MarsTerrainStage,
   Light,
-  LayeredTerrainMaterial,
-  marsSurfaceLayers,
   MARS_ATMOSPHERE,
   Material,
   Quat,
+  type ElectricMotor,
   type ParticleModule,
   PARTICLE_FLOATS,
   P_AGE,
@@ -77,21 +73,16 @@ import {
   Renderable,
   Scene,
   SizeOverLifeModule,
-  TerrainWorld,
   Transform,
   Vec3,
-  Vehicle,
   VehicleComponent,
   VehicleSystem,
-  adviseMarsTile,
   chunkCoordKey,
   createAtmosphere,
-  createMarsPipeline,
   createBox,
   createCylinder,
   createTorus,
   createSphere,
-  createVehicleConfig,
   heightFunctionGround,
   InteractiveRockProxy,
   applyRoverImpactDamage,
@@ -137,12 +128,20 @@ import {
   type RoverToolWorldPoint,
 } from "./roverTools.js";
 import { HighGainAntennaController } from "./highGainAntenna.js";
-import {
-  createMarsSurfaceTextures,
-  disposePbrTextureSet,
-  type PbrTextureSet,
-} from "../textures/procedural.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
+import {
+  MARS_BASE_SUSPENSION_REST,
+  MARS_CHASE_LOOK_OFFSET_Y,
+  MARS_ROVER_REDUCTION,
+  MARS_ROVER_TRACTION,
+  MARS_ROVER_WHEELS,
+  MARS_WHEEL_RADIUS,
+  createMarsRoverVehicle,
+  createMarsTerrain,
+  marsChaseCamera,
+  marsChaseFollow,
+  readMarsDriveInput,
+} from "./marsShared.js";
 
 export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   /** Gate-facing snapshot: model load state, dust counts and rover pose. */
@@ -314,87 +313,22 @@ export const MARS_SHOWCASE_SITE = {
 const SPAWN_X = -164;
 const SPAWN_Z = 4;
 
-/**
- * Chase-cam framing tuned so the rover fills a portrait (iPhone) frame with terrain underfoot.
- * Prior values (distance 8.5 / elevation 0.28 / look-at CG+1.35) put the look-at near the mast tip,
- * so on tall FOV-Y viewports the chassis sat in the lower third and read as "lost in the haze"
- * behind on-screen controls — desktop landscape still looked fine, which is why fe-13 screenshots
- * passed while iPhone Safari did not.
- */
-export const MARS_CHASE_DISTANCE = 6;
-export const MARS_CHASE_MIN_DISTANCE = 3;
-export const MARS_CHASE_AZIMUTH = 0.55;
-export const MARS_CHASE_ELEVATION = 0.48;
-/** Metres above the vehicle CG — mid-chassis, not the remote-sensing mast. */
-export const MARS_CHASE_LOOK_OFFSET_Y = 0.55;
-export const MARS_CHASE_GROUND_CLEARANCE = 0.5;
-
-/**
- * Hub centres measured from the converted GLB (`scripts/convert-perseverance.mjs` prints them):
- * front/rear track 2.18 m, middle axle slightly wider, radius 0.264 m — the real Perseverance
- * geometry. Front and rear axles steer (the middle pair is fixed), all six are driven.
- */
-const WHEELS = [
-  { name: "wheel_FL", x: -1.091, z: 1.095, steered: true, driven: true, handbrake: false },
-  { name: "wheel_FR", x: 1.091, z: 1.095, steered: true, driven: true, handbrake: false },
-  { name: "wheel_ML", x: -1.213, z: -0.09, steered: false, driven: true, handbrake: false },
-  { name: "wheel_MR", x: 1.213, z: -0.09, steered: false, driven: true, handbrake: false },
-  { name: "wheel_RL", x: -1.091, z: -1.165, steered: true, driven: true, handbrake: true },
-  { name: "wheel_RR", x: 1.091, z: -1.165, steered: true, driven: true, handbrake: true },
-] as const;
-
-const WHEEL_RADIUS = 0.264;
-/** Pristine suspension rest length; suspension wear sags it up to 30% shorter (visible squat). */
-const BASE_SUSPENSION_REST = 0.32;
-const WHEEL_SPRING_RATE = (1025 * 3.72) / (6 * 0.05); // ~5 cm static sag across six wheels
-
-/**
- * Traction constants the rover build below consumes. The gentle drive tune and regolith rolling
- * resistance keep acceleration and loaded speed down; grouser grip is retained.
- *
- * The speed envelope is the original gentle tune scaled 1.5× in speed (the reported rover was
- * "too slow"): same 9.5 N·m peak torque, so the launch feels unchanged, but the base speed, the
- * power cap and the no-load speed are all 50% higher — ≈2.4 m/s loaded instead of ≈1.6 m/s.
- */
-export const MARS_ROVER_TRACTION = {
-  /** Stall torque (N·m). 9.5 N·m through the 60:1 reduction ≈ 570 N·m before losses. */
-  peakTorque: 9.5,
-  /** Field-weakening power cap (W): 1.5× the original tune, continuous with the base speed. */
-  peakPower: 1500,
-  /** Base speed (rpm): constant torque below, constant power above. 1500 rpm ≈ 0.69 m/s. */
-  ratedRpm: 1500,
-  /** Tire/soil friction. 1.4 ≈ chevron-grouser wheels biting into regolith. */
-  mu: 1.4,
-  /** Rolling resistance of regolith/sand, restored with the original drive tune. */
-  rollingResistance: 0.06,
-  /** Stiffer-than-default longitudinal curve (default B:10): grousers build force fast. */
-  longitudinal: { B: 14, C: 1.65, E: 0.97 },
-  /** Stiffer-than-default lateral curve (default B:8.5): holds to large slip angles. */
-  lateral: { B: 12, C: 1.3, E: 0.97 },
-};
-
-/**
- * Electric traction — the real rovers are battery-electric, and the old combustion defaults
- * (340 N·m through a 5-speed gearbox) geared the 1025 kg rover past 200 km/h equivalent, which
- * is the "way too fast, wheels fly off at hill crests" report. A ~1.5 kW motor behind a 60:1
- * reduction gives ≈513 N·m at the wheels after losses (≈1943 N peak tractive force), and
- * the motor's no-load speed caps the rover at ≈2.63 m/s ≈ 9.5 km/h (`maxRpm` is 1.5× the
- * original 3800 so the loaded top speed rises 50%, from ≈1.6 m/s to ≈2.4 m/s).
- * `regenTorque` blends ≈859 N of regenerative braking in ahead of the friction pads after
- * losses (see `ElectricMotor`).
- */
-const ROVER_MOTOR = {
-  peakTorque: MARS_ROVER_TRACTION.peakTorque,
-  peakPower: MARS_ROVER_TRACTION.peakPower,
-  ratedRpm: MARS_ROVER_TRACTION.ratedRpm,
-  maxRpm: 5700,
-  regenTorque: 4.2,
-  dragTorque: 0.12,
-  inertia: 0.02,
-};
-const ROVER_REDUCTION = 60;
+// Chase framing (fe-15), the six-wheel electric build and its traction live in `marsShared.ts`
+// (fe-16 D7) so the dust storm scene drives the identical rover; re-exported for existing callers.
+export {
+  MARS_CHASE_AZIMUTH,
+  MARS_CHASE_DISTANCE,
+  MARS_CHASE_ELEVATION,
+  MARS_CHASE_GROUND_CLEARANCE,
+  MARS_CHASE_LOOK_OFFSET_Y,
+  MARS_CHASE_MIN_DISTANCE,
+  MARS_ROVER_TRACTION,
+} from "./marsShared.js";
+const WHEELS = MARS_ROVER_WHEELS;
+const WHEEL_RADIUS = MARS_WHEEL_RADIUS;
+const BASE_SUSPENSION_REST = MARS_BASE_SUSPENSION_REST;
 /** Peak tractive force (N) for rock contacts, using the vehicle's default 0.9 efficiency. */
-const ROVER_TRACTIVE_FORCE = (MARS_ROVER_TRACTION.peakTorque * ROVER_REDUCTION * 0.9) / WHEEL_RADIUS;
+const ROVER_TRACTIVE_FORCE = (MARS_ROVER_TRACTION.peakTorque * MARS_ROVER_REDUCTION * 0.9) / WHEEL_RADIUS;
 
 /**
  * Horizontal reach of the rover around its centre, in metres. Rocks collide as circles and the
@@ -891,36 +825,8 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   // Terrain: the same planet as mars-terrain-gen, evaluated per tile rather than loading baked
   // chunks. Each tile consumes its actual geology weights; the four PBR arrays are shared.
   const gpu = engine.gpu;
-  let marsMaps: PbrTextureSet | null = createMarsSurfaceTextures(gpu, 256);
-  // Scene-authored sRGB tints: ferric dust, dark basalt, pale sand, weathered crust. The shared
-  // helper's generic linear palette is intentionally overridable; these are not calibrated NASA data.
-  const surfaceColors = [0xc9784f, 0x5c5046, 0xd1a06b, 0x9a6549];
-  const terrainLayers = new LayeredTerrainMaterial({
-    label: "showcase-mars-layers",
-    layers: marsSurfaceLayers().map((layer, i) => ({ ...layer, color: Color.fromSrgbHex(surfaceColors[i]!), textureSize: i === 2 ? 4 : 8 })),
-    maps: marsMaps,
-  });
-  const terrainMat = terrainLayers.toMaterial(); // horizon apron + reversible diagnostic fallback
-  const pipeline = createMarsPipeline({ site: MARS_SHOWCASE_SITE });
-  const marsStage = pipeline.stages[0] as MarsTerrainStage;
-  const terrain = new TerrainWorld({
-    seed: marsStage.seed,
-    chunkSize: 128,
-    chunkResolution: 33,
-    skirtDepth: adviseMarsTile(128, 33).recommendedSkirtDepth,
-    viewDistance: 1024,
-    maxLOD: 3,
-    visibleChunks: 220,
-    generationsPerFrame: 1,
-    uploadsPerFrame: 2,
-    warmUpChunks: 9,
-    // The analytic configuration round-trips to workers; no Stage A field buffers are needed.
-    // TerrainWorld still falls back inline when there is no scheduler / workers cannot start.
-    syncGeneration: false,
-    material: terrainMat,
-    layeredMaterial: terrainLayers,
-    pipeline,
-  });
+  const terrainBundle = createMarsTerrain(gpu, { site: MARS_SHOWCASE_SITE, label: "showcase-mars-layers" });
+  const { terrain, terrainLayers, marsStage } = terrainBundle;
   scene.add(terrain);
   const terrainGeneration = (): "workers" | "inline" =>
     !terrain.syncGeneration && engine.tasks && !engine.tasks.isInline ? "workers" : "inline";
@@ -1064,46 +970,8 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     return terrain.getHeightAt(x, z) + deformation.sample(chunkCoordKey(cx, cz), x - cx * terrain.chunkSize, z - cz * terrain.chunkSize, terrain.chunkSize);
   };
   const ground = heightFunctionGround(deformedGroundHeight);
-  const motor = new ElectricMotor({ ...ROVER_MOTOR });
-  const config = {
-    ...createVehicleConfig({
-      mass: 1025,
-      gravity: 3.72,
-      mu: MARS_ROVER_TRACTION.mu,
-      wheelRadius: WHEEL_RADIUS,
-      wheelbase: 2.26,
-      track: 2.18,
-      cgToFront: 1.095,
-      cgHeight: 0.54,
-      // Stiffer-than-default tire curves (see MARS_ROVER_TRACTION): grouser wheels on
-      // regolith build force fast and hold it to large slip angles, so the wheels bite instead
-      // of spinning.
-      longitudinal: MARS_ROVER_TRACTION.longitudinal,
-      lateral: MARS_ROVER_TRACTION.lateral,
-      springRate: WHEEL_SPRING_RATE,
-      damperRate: 2 * Math.sqrt(WHEEL_SPRING_RATE * (1025 / 6)) * 0.55,
-      aero: null,
-      maxBrakeTorque: 4200,
-      absEnabled: false,
-      rollingResistance: MARS_ROVER_TRACTION.rollingResistance,
-      engine: motor,
-      transmission: new ReductionDrive(ROVER_REDUCTION),
-    }),
-    wheels: WHEELS.map((w) => ({
-      x: w.x,
-      z: w.z,
-      steered: w.steered,
-      driven: w.driven,
-      handbrake: w.handbrake,
-    })),
-  };
-  config.suspensionRest = BASE_SUSPENSION_REST;
-  config.suspensionTravel = 0.16;
-  config.maxSteerAngle = 0.62;
-  const vehicle = new Vehicle(config);
-  vehicle.position.x = SPAWN_X;
-  vehicle.position.z = SPAWN_Z;
-  vehicle.placeOnGround(ground);
+  const vehicle = createMarsRoverVehicle(ground, SPAWN_X, SPAWN_Z);
+  const motor = vehicle.config.engine as ElectricMotor;
   // Hold the newly spawned rover until the user explicitly asks it to move. This covers both
   // rolling on the landing slope and input arriving before the async GLB has finished building.
   let startupBrake = true;
@@ -2553,6 +2421,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
 
   // ---------------------------------------------------------------- input (playground pattern)
   const keys = new Set<string>();
+  const driveInput = readMarsDriveInput(keys, { steer: 0, throttle: 0, brake: 0 });
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
@@ -3109,27 +2978,9 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     scene,
     cameraEntity,
     controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm · E drill / Q abrade / V PIXL when in reach · HGA auto-tracks Earth · Drag to orbit · Scroll zoom",
-    camera: {
-      // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
-      target: new Vec3(SPAWN_X, chaseLookY, SPAWN_Z),
-      // Closer + higher elevation keeps the chassis in the middle of a portrait FOV-Y frame with
-      // terrain underfoot; users can still zoom out for a wider valley view.
-      distance: MARS_CHASE_DISTANCE,
-      minDistance: MARS_CHASE_MIN_DISTANCE,
-      maxDistance: 120,
-      azimuth: MARS_CHASE_AZIMUTH,
-      elevation: MARS_CHASE_ELEVATION,
-      // Must stay below CHASE_LOOK_OFFSET_Y + hang so the surface clamp cannot hoist the look-at
-      // above the chassis (that tip-over-rover-into-haze bug returned whenever clearance was 2 m).
-      groundClearance: MARS_CHASE_GROUND_CLEARANCE,
-      groundHeight: deformedGroundHeight,
-      keyboard: false,
-    },
-    followTarget: () => ({
-      x: vehicle.position.x,
-      y: vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y,
-      z: vehicle.position.z,
-    }),
+    // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
+    camera: marsChaseCamera(new Vec3(SPAWN_X, chaseLookY, SPAWN_Z), deformedGroundHeight),
+    followTarget: marsChaseFollow(vehicle),
     update(dt: number): void {
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
@@ -3208,24 +3059,20 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       if (hgaYawPivot && hga.update(dt, { yaw: vehicle.yaw, pitch: vehicle.pitch, roll: vehicle.roll })) {
         writeHgaPose();
       }
-      const pad = touch.sample();
-      const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
-      const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
-      const keySteer =
-        (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-      const throttle = Math.max(keyThrottle, pad.throttle);
+      const drive = readMarsDriveInput(keys, touch.sample(), driveInput);
+      const throttle = drive.throttle;
       // The first non-zero throttle input is the user's acknowledgement that the rover should
       // move. Until then both brakes stay engaged, including while the GLB is still loading.
       if (throttle > 0.01) startupBrake = false;
-      const brake = Math.max(keyBrake, pad.brake);
+      const brake = drive.brake;
       // Suspension wear sags the ride: the rest length shortens up to 30% at 100% damage, so
       // a battered rover visibly squats (and bottoms out sooner — travel itself is unchanged).
       vehicle.config.suspensionRest =
         BASE_SUSPENSION_REST * (1 - 0.3 * Math.min(1, roverDamage.suspension / 100));
       vehicle.input.throttle = roverDamage.disabled ? 0 : throttle;
       vehicle.input.brake = Math.max(brake, startupBrake ? 1 : 0, roverDamage.disabled ? 1 : 0);
-      vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
-      vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
+      vehicle.input.steer = drive.steer;
+      vehicle.input.handbrake = drive.handbrake || startupBrake ? 1 : 0;
       if (toolOperation) {
         // Hold the rover still while the instrument is aligned and in contact with the target.
         vehicle.input.throttle = 0;
@@ -3530,9 +3377,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       pebbleGeometry.dispose();
       rockMaterial.dispose();
       scene.dispose(); // tile materials/masks before the shared arrays they reference
-      terrainMat.dispose();
-      disposePbrTextureSet(marsMaps);
-      marsMaps = null;
+      terrainBundle.dispose();
     },
   };
 }

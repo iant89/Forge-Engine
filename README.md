@@ -58,7 +58,8 @@ mountain rescue 4×4 mission: load medical supplies, visit three distress beacon
 and return as snowfall and wind build; dynamic crates and roadside rocks use the shared terrain/vehicle
 physics world). Direct links include `?scene=pbr`, `?scene=cubes`,
 `?scene=terrain`, `?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`,
-`?scene=sky`, `?scene=weather`, `?scene=mars-showcase`, `?scene=rover-course`, `?scene=skinning`,
+`?scene=sky`, `?scene=weather`, `?scene=mars-showcase`, `?scene=mars-dust-storm` (Mars Dust Storm Survival; `?difficulty=hard` sets the starting EASY/HARD toggle),
+`?scene=rover-course`, `?scene=skinning`,
 and `?scene=alpine-rescue`, `?scene=amazon-river` (`?scene=amazon` and `?scene=river` are aliases;
 `npm run check:browser:amazon` runs the focused real-WebGPU scene/controls gate). `?scene=mars` is an alias for the Mars-flavoured Terrain demo,
 `?scene=mars-port` for the generator inspector).

@@ -37,6 +37,8 @@ export interface MaterialOptions {
   metallicRoughnessMap?: Texture | null;
   doubleSided?: boolean;
   transparent?: boolean;
+  /** Skip distance fog and aerial perspective (beacons that must read through dense weather). */
+  fogExempt?: boolean;
   tiling?: [number, number];
   offset?: [number, number];
   normalScale?: number;
@@ -47,6 +49,7 @@ export const FLAG_NORMAL = 2;
 export const FLAG_MR = 4;
 export const FLAG_DOUBLE_SIDED = 8;
 export const FLAG_UNLIT = 16;
+export const FLAG_FOG_EXEMPT = 32;
 
 /** Shared fallback bindings; subclasses may extend group 2 without changing ordinary materials. */
 export interface MaterialDefaults {
@@ -68,6 +71,8 @@ export class Material {
   normalScale = 1;
   transparent = false;
   doubleSided = false;
+  /** Skip distance fog and aerial perspective; a uniform flag, so toggling it never rebuilds a pipeline. */
+  fogExempt = false;
   /** Discard instead of blending (foliage): cheaper and depth-correct. */
   alphaTest = 0;
   albedoMap: Texture | null = null;
@@ -97,6 +102,7 @@ export class Material {
     this.normalScale = options.normalScale ?? 1;
     this.transparent = options.transparent ?? false;
     this.doubleSided = options.doubleSided ?? false;
+    this.fogExempt = options.fogExempt ?? false;
     this.albedoMap = options.albedoMap ?? null;
     this.normalMap = options.normalMap ?? null;
     this.metallicRoughnessMap = options.metallicRoughnessMap ?? null;
@@ -201,7 +207,7 @@ export class Material {
   private writeCpu(): void {
     const a = this.accessor;
     if (!a) return;
-    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0);
+    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0) | (this.fogExempt ? FLAG_FOG_EXEMPT : 0);
     const base = a.struct.field("baseColorFactor", "uniform");
     const f32 = this.cpu!.f32;
     const o = base.offset >> 2;
@@ -251,6 +257,7 @@ export class Material {
       opacity: this.opacity,
       transparent: this.transparent,
       doubleSided: this.doubleSided,
+      fogExempt: this.fogExempt,
       albedoMap: this.albedoMap,
       normalMap: this.normalMap,
       metallicRoughnessMap: this.metallicRoughnessMap,

@@ -22,6 +22,7 @@
  * @covers engine/src/particles/trails.ts
  * @covers engine/src/particles/world.ts
  * @covers engine/src/rendering/renderGraph.ts
+ * @covers engine/src/rendering/renderer.ts
  * @covers engine/src/scene/components/index.ts
  * @covers engine/src/scene/scene.ts
  * @covers engine/src/scene/systems.ts
@@ -54,6 +55,7 @@ export const suite = {
     "engine/src/particles/trails.ts",
     "engine/src/particles/world.ts",
     "engine/src/rendering/renderGraph.ts",
+    "engine/src/rendering/renderer.ts",
     "engine/src/scene/components/index.ts",
     "engine/src/scene/scene.ts",
     "engine/src/scene/systems.ts",
@@ -71,7 +73,11 @@ import {
   GraphicsDevice,
   GpuParticleSystem,
   GpuParticleWorld,
+  Camera,
   Logger,
+  Renderer,
+  Vec3,
+  findGpuParticleWorlds,
   P_A,
   P_AGE,
   P_B,
@@ -430,6 +436,23 @@ group("particles — Phase 12 GPU system", () => {
     }
   });
 
+  test("adds an opt-in tangential swirl around the attractor axis (dust devils)", async () => {
+    assertContains(PARTICLE_FULL_SIM_SHADER, "swirlStrength: f32,");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "if (params.swirlStrength != 0.0) {");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;");
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const plain = new GpuParticleSystem(gpu, { capacity: 64 });
+      assert.equal(plain.modules.swirlStrength, 0, "off by default so existing scenes are unchanged");
+      const devil = new GpuParticleSystem(gpu, { capacity: 64, modules: { swirlStrength: -120 } });
+      assert.equal(devil.modules.swirlStrength, -120);
+      plain.dispose();
+      devil.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   test("simulates and draws 100k particles without creating 100k ECS entities", async () => {
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {
@@ -550,6 +573,55 @@ group("particles — Phase 12 GPU system", () => {
     } finally {
       await gpu.dispose();
     }
+  });
+
+  test("the renderer simulates and draws every GPU particle world in a scene, with distinct passes", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true });
+    gpu.resize(160, 90);
+    const renderer = new Renderer(gpu, { shadowMapSize: 256 });
+    const scene = new Scene({ name: "multi-gpu-particles" });
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 2, -8));
+    scene.world.addComponent(camEntity.id, new Camera());
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+    const worlds = [0, 1, 2].map((i) =>
+      new GpuParticleWorld({ name: `dust ${i}`, capacity: 2_000, seed: 40 + i, emitter: { rate: 500 } }),
+    );
+    for (const w of worlds) scene.add(w);
+    assert.deepEqual(findGpuParticleWorlds(scene), worlds, "every world, in scene order");
+    const out: GpuParticleWorld[] = [worlds[0]!];
+    assert.equal(findGpuParticleWorlds({ objects: [] }, out), out);
+    assert.equal(out.length, 0, "the scratch array is cleared");
+    try {
+      // attachDevice is async: the first frame starts every init, a later one draws them all.
+      for (let i = 0; i < 20 && !worlds.every((w) => w.system?.ready); i++) {
+        renderer.renderScene(scene);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      assert.ok(worlds.every((w) => w.system?.ready), "all three systems attached");
+      renderer.renderScene(scene);
+      const passes = renderer.passNames;
+      for (const name of ["particle.render", "particle.render#1", "particle.render#2", "particle.resolve", "particle.resolve#1", "particle.resolve#2"]) {
+        assertContains(passes, name);
+      }
+      assert.equal(new Set(passes).size, passes.length, "pass names stay unique");
+      assert.deepEqual(worlds[2]!.system!.lastEnqueuedPasses, worlds[0]!.system!.lastEnqueuedPasses.map((n) => `${n}#2`));
+      assert.ok(worlds.every((w) => w.system!.lastEnqueuedPasses.length >= 3));
+      assert.deepEqual(gpu.mock.errors, []);
+      // Removing the first world promotes the next one to the bare pass names.
+      scene.removeObject(worlds[0]!);
+      renderer.renderScene(scene);
+      assertContains(renderer.passNames, "particle.render");
+      assertContains(renderer.passNames, "particle.render#1");
+      assert.equal(renderer.passNames.includes("particle.render#2"), false);
+      worlds[0]!.dispose();
+    } finally {
+      scene.dispose();
+      renderer.dispose();
+      await gpu.dispose();
+    }
+    assert.ok(worlds.every((w) => w.system === null || w.system.ready === false), "scene dispose releases each system");
+    assert.deepEqual(gpu.mock.outstanding.buffers, []);
+    assert.deepEqual(gpu.mock.outstanding.textures, []);
   });
 
   test("emitter seed is deterministic for the same GPU emit index stream", () => {
