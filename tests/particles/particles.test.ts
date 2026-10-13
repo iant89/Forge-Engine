@@ -439,7 +439,9 @@ group("particles — Phase 12 GPU system", () => {
   test("adds an opt-in tangential swirl around the attractor axis (dust devils)", async () => {
     assertContains(PARTICLE_FULL_SIM_SHADER, "swirlStrength: f32,");
     assertContains(PARTICLE_FULL_SIM_SHADER, "if (params.swirlStrength != 0.0) {");
-    assertContains(PARTICLE_FULL_SIM_SHADER, "let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "let tangent = vec3<f32>(toAx.y, 0.0, -toAx.x) / r;");
+    assertContains(PARTICLE_FULL_SIM_SHADER, "axisBulge: f32,");
+    assertContains(PARTICLE_EMIT_SHADER, "vortexBendX: f32,");
     const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
     try {
       const plain = new GpuParticleSystem(gpu, { capacity: 64 });

@@ -57,6 +57,12 @@ export interface GpuParticleVortexSpawn {
   outward: number;
   leanX: number;
   leanZ: number;
+  /** fe-22d: extra axis bend (× sin πh), S-snake (× sin 2πh) and mid bulge (radius × 1+b·sin²πh). */
+  bendX?: number;
+  bendZ?: number;
+  snakeX?: number;
+  snakeZ?: number;
+  bulge?: number;
 }
 
 export interface GpuParticleModulesConfig {
@@ -93,6 +99,11 @@ export interface GpuParticleModulesConfig {
    */
   axisPull?: number;
   axisLean?: { x: number; y: number; z: number };
+  /**
+   * fe-22d: bends the spring axis beyond the lean: `+ bend·sin(πh) + snake·sin(2πh)`, and relaxes
+   * the spring by `1/(1+bulge·sin²πh)²` so the mid column swells. Default all 0 (unchanged).
+   */
+  axisCurve?: { bendX: number; bendZ: number; snakeX: number; snakeZ: number; bulge: number };
   /**
    * Bimodal size mix: this fraction 0..1 of particles (stable pick from life, independent of
    * `sizeVariation`) is drawn `coarseScale`× larger — a few big grains filling gaps between fine
@@ -150,8 +161,8 @@ export interface GpuParticleFrameInput {
   cameraUp: { x: number; y: number; z: number };
 }
 
-const EMIT_UNIFORM_BYTES = 128;
-const SIM_UNIFORM_BYTES = 192;
+const EMIT_UNIFORM_BYTES = 160;
+const SIM_UNIFORM_BYTES = 208;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -683,6 +694,11 @@ export class GpuParticleSystem {
       f[29] = v.outward;
       f[30] = v.leanX;
       f[31] = v.leanZ;
+      f[32] = v.bendX ?? 0;
+      f[33] = v.bendZ ?? 0;
+      f[34] = v.snakeX ?? 0;
+      f[35] = v.snakeZ ?? 0;
+      f[36] = Math.max(0, v.bulge ?? 0);
     }
     this.device.queue.writeBuffer(this.emitUniform!, 0, gpuSource(new Uint8Array(buf)));
     this.writeHead = (this.writeHead + budget) % this.capacity;
@@ -737,6 +753,14 @@ export class GpuParticleSystem {
     f[43] = m.groundWind?.x ?? 0;
     f[44] = m.groundWind?.z ?? 0;
     f[45] = Math.max(0, m.groundWindHeight ?? 0);
+    const c = m.axisCurve;
+    if (c) {
+      f[46] = c.bendX;
+      f[47] = c.bendZ;
+      f[48] = c.snakeX;
+      f[49] = c.snakeZ;
+      f[50] = Math.max(0, c.bulge);
+    }
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 

@@ -777,15 +777,18 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         sys.modules.groundWindHeight = 0;
         continue;
       }
-      const gy = groundHeight(d.x, d.z);
       // red-frontier column/skirt alternation (fe-21): the frame counter only picks the emit shape.
       const look = devilParticleLook(d, time, devilEmitFrame, devilLooks[i]);
       const e = sys.emitter;
       // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
       e.rate = devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME);
-      e.position.x = d.x;
+      // fe-22d: the whole devil (grains, base cloud, cards, shadow) dances on the wandering base.
+      const bx = d.x + look.curve.baseX;
+      const bz = d.z + look.curve.baseZ;
+      const gy = groundHeight(bx, bz);
+      e.position.x = bx;
       e.position.y = gy + 0.3;
-      e.position.z = d.z;
+      e.position.z = bz;
       e.jitter.x = 0;
       e.jitter.y = 0;
       e.jitter.z = 0;
@@ -796,9 +799,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       e.lifeMin = look.lifeMin;
       e.lifeMax = look.lifeMax;
       const m = sys.modules;
-      m.attractorPos.x = d.x;
+      m.attractorPos.x = bx;
       m.attractorPos.y = gy + 0.3;
-      m.attractorPos.z = d.z;
+      m.attractorPos.z = bz;
       m.attractorStrength = 0;
       // fe-21: the swarm is the devil, so its grains carry the darker lifted soil tone (not the pale
       // sunlit sheet colour; colorAlt still blends toward rock) and are not stretched into streaks.
@@ -816,6 +819,12 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       lean.x = look.leanX;
       lean.y = look.axisHeight;
       lean.z = look.leanZ;
+      const curve = (m.axisCurve ??= { bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0 });
+      curve.bendX = look.curve.bendX;
+      curve.bendZ = look.curve.bendZ;
+      curve.snakeX = look.curve.snakeX;
+      curve.snakeZ = look.curve.snakeZ;
+      curve.bulge = look.springBulge;
       // Modules act on every live particle of the system, so they stay fixed across the column/skirt
       // frame alternation (a blend of red-frontier's column 0/0.4 and skirt 1.2/1.6 gravity/drag).
       m.gravity.y = DEVIL_DUST_GRAVITY;
@@ -854,7 +863,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const vl = devilVortexLife(d);
       const height = devilFunnelHeight(d.coreRadius) * vl.growth;
       // fe-22: old-devil core, same axis/sway as the swirl, thinning with it as the devil dies.
-      const gyCore = groundHeight(d.x, d.z);
+      const dc = devilLooks[i]!.curve;
+      const cx = d.x + dc.baseX;
+      const cz = d.z + dc.baseZ;
+      const gyCore = groundHeight(cx, cz);
       const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
       const cards: [CoreCard, number, number, number][] = [
         [f.core, DEVIL_CORE_CARD_WIDTH.core, DEVIL_CORE_OPACITY.core, 0.45],
@@ -863,18 +875,18 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       for (const [rec, wScale, opacity, scroll] of cards) {
         rec.renderable.visible = fade > 0.01;
         if (!rec.renderable.visible) continue;
-        if (rebuild || !rec.mesh) rec.mesh = buildFunnelCard(d, height, wScale * vl.radiusScale, time, eye.x, eye.z, time * scroll + d.id * 0.37, rec.mesh);
+        if (rebuild || !rec.mesh) rec.mesh = buildFunnelCard(d, height, wScale * vl.radiusScale, time, eye.x, eye.z, time * scroll + d.id * 0.37, rec.mesh, dc);
         if (rebuild || !rec.uploaded) {
           rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
           rec.uploaded = true;
         }
-        rec.entity.transform.position = moundPos.set(d.x, gyCore - 0.2, d.z);
+        rec.entity.transform.position = moundPos.set(cx, gyCore - 0.2, cz);
         setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
       }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;
       setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun));
-      updateDrift(f.shadow, d.x + sunAway.x * len, d.z + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
+      updateDrift(f.shadow, cx + sunAway.x * len, cz + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
     }
   };
 

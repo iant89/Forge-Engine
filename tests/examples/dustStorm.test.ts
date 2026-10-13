@@ -17,6 +17,14 @@ import assert from "node:assert/strict";
 import { Material, PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  devilWander,
+  devilAxisCurve,
+  devilAxisAt,
+  devilAxisLag,
+  devilBulge,
+  devilBulgeScale,
+  DEVIL_BULGE_GAIN_MAX,
+  DEVIL_WANDER_MAX,
   devilColumnSpread,
   DEVIL_SWIRL_ACCEL_FE21,
   DEVIL_AXIS_PULL_FE21,
@@ -705,6 +713,71 @@ group("fe-22 old-devil core wrapped by a narrower swirl", () => {
   test("transparent depthWrite opt-out (the pale-band fix) defaults to the old behaviour", () => {
     assert.equal(new Material({ transparent: true }).depthWrite, true);
     assert.equal(new Material({ transparent: true, depthWrite: false }).clone().depthWrite, false);
+  });
+});
+
+group("fe-22d dancing devils", () => {
+  const devil = { id: 7, coreRadius: 5, swirl: 18 };
+  test("base wanders smoothly within bounds and differs per devil", () => {
+    let prev = devilWander(devil, 0, { x: 0, z: 0 });
+    let maxStep = 0, maxR = 0, travelled = 0;
+    for (let t = 0.1; t < 120; t += 0.1) {
+      const w = devilWander(devil, t, { x: 0, z: 0 });
+      const step = Math.hypot(w.x - prev.x, w.z - prev.z);
+      maxStep = Math.max(maxStep, step); travelled += step; maxR = Math.max(maxR, Math.hypot(w.x, w.z));
+      prev = w;
+    }
+    assert.ok(maxR <= Math.min(DEVIL_WANDER_MAX, 5 * 0.9) + 1e-9 && maxR > 1.5, `wander radius ${maxR}`);
+    assert.ok(maxStep < 0.6, `smooth (max 0.1 s step ${maxStep})`);
+    assert.ok(travelled > 20, "actually moves");
+    const other = devilWander({ id: 8, coreRadius: 5 }, 10);
+    const mine = devilWander(devil, 10);
+    assert.ok(Math.hypot(other.x - mine.x, other.z - mine.z) > 1e-3, "varied per devil");
+  });
+  test("axis lag: the top replays the base's past position; mid replays half the lag", () => {
+    for (const t of [3, 17.5, 40]) {
+      const c = devilAxisCurve(devil, t);
+      const lag = devilAxisLag(devil.id);
+      const past = devilWander(devil, t - lag), half = devilWander(devil, t - lag / 2);
+      const sway = devilFunnelSway(devil, 1, t);
+      const top = devilAxisAt(c, 1), mid = devilAxisAt(c, 0.5);
+      // world top (base + offset) = base position lag seconds ago (+ the small top wobble)
+      assertCloseTo(c.baseX + top.x, past.x + sway.x, 6);
+      assertCloseTo(c.baseZ + top.z, past.z + sway.z, 6);
+      // mid sits on the half-lagged base, plus the snake (sin 2π·0.5 = 0)
+      assertCloseTo(c.baseX + mid.x, half.x, 6);
+      assertCloseTo(c.baseZ + mid.z, half.z, 6);
+      const ground = devilAxisAt(c, 0);
+      assert.ok(Math.hypot(ground.x, ground.z) < 1e-3, "axis anchored at the base");
+    }
+    assert.ok(devilAxisLag(1) !== devilAxisLag(2) && devilAxisLag(1) >= 1.2 && devilAxisLag(1) <= 2.4);
+  });
+  test("bulges are bounded, come at random intervals and return to base size", () => {
+    let peak = 0, swells = 0, inSwell = false, zeroTime = 0;
+    for (let t = 0; t < 300; t += 0.05) {
+      const g = devilBulge(devil.id, t);
+      assert.ok(g >= 0 && g <= DEVIL_BULGE_GAIN_MAX + 1e-9);
+      peak = Math.max(peak, g);
+      if (g > 0.05 && !inSwell) { swells++; inSwell = true; }
+      if (g === 0) { inSwell = false; zeroTime += 0.05; }
+    }
+    assert.ok(peak >= 0.45, `swells reach ~1.5x+ (peak ${peak})`);
+    assert.ok(swells >= 15 && swells <= 60, `random intervals (${swells} in 300 s)`);
+    assert.ok(zeroTime > 100, "back to exactly base size between swells");
+    const c = { bulge: 0.8 };
+    assertCloseTo(devilBulgeScale(c, 0.5), 1.8, 9);
+    assertCloseTo(devilBulgeScale(c, 0), 1, 9);
+    assertCloseTo(devilBulgeScale(c, 1), 1, 9);
+  });
+  test("deterministic per devil id and time", () => {
+    const a = devilAxisCurve(devil, 12.34), b = devilAxisCurve({ ...devil }, 12.34);
+    assert.deepEqual(a, b);
+    const look1 = devilParticleLook({ ...devil, age: 10, life: 30 }, 12.34, 3);
+    const look2 = devilParticleLook({ ...devil, age: 10, life: 30 }, 12.34, 3);
+    assert.deepEqual(look1, look2);
+    assert.equal(look1.vortex.bendX, look1.curve.bendX, "grains spawn on the same curve");
+    const skirt = devilParticleLook({ ...devil, age: 10, life: 30 }, 12.34, 0);
+    assert.equal(skirt.vortex.bendX, 0, "skirt/base cloud stay on the (wandering) ground point");
   });
 });
 

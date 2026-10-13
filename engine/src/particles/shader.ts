@@ -163,6 +163,11 @@ struct EmitParams {
   vortexOutward: f32,
   vortexLeanX: f32,
   vortexLeanZ: f32,
+  vortexBendX: f32,
+  vortexBendZ: f32,
+  vortexSnakeX: f32,
+  vortexSnakeZ: f32,
+  vortexBulge: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
@@ -222,12 +227,18 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
     // Inputs are clamped away from 0 before pow: WebKit's pow(0, y) has produced NaN before (fe-17).
     let h01 = pow(max(hashToFloat(hash2(h5, h3)), 1e-4), params.vortexBias);
     let spread = 0.72 + 0.55 * hashToFloat(hash2(h1, h4));
-    let r = mix(params.vortexRadiusBase, params.vortexRadiusTop, pow(max(h01, 1e-4), 0.9)) * spread;
+    // fe-22d: mid-column bulge (sin² bump, 0 at base and top).
+    let bump = sin(3.14159265 * h01);
+    let r = mix(params.vortexRadiusBase, params.vortexRadiusTop, pow(max(h01, 1e-4), 0.9)) * spread * (1.0 + params.vortexBulge * bump * bump);
     let a = hashToFloat(hash2(h4, h2)) * 6.28318530718;
     let ca = cos(a);
     let sa = sin(a);
     let lean = pow(max(h01, 1e-4), 1.25);
-    p.position = params.position + vec3<f32>(params.vortexLeanX * lean + ca * r, h01 * params.vortexHeight, params.vortexLeanZ * lean + sa * r);
+    // fe-22d: bent axis = lean·h^1.25 + bend·sin(πh) + snake·sin(2πh) (all 0 by default).
+    let s2 = sin(6.28318531 * h01);
+    let ax = params.vortexLeanX * lean + params.vortexBendX * bump + params.vortexSnakeX * s2;
+    let az = params.vortexLeanZ * lean + params.vortexBendZ * bump + params.vortexSnakeZ * s2;
+    p.position = params.position + vec3<f32>(ax + ca * r, h01 * params.vortexHeight, az + sa * r);
     let rim = params.vortexSpin * r;
     let up = mix(params.speedMin, params.speedMax, hashToFloat(h3)) * (1.0 - 0.42 * h01);
     p.velocity = vec3<f32>(-sa * rim + ca * params.vortexOutward, up, ca * rim + sa * params.vortexOutward);
@@ -282,6 +293,11 @@ struct FullSimParams {
   groundWindX: f32,
   groundWindZ: f32,
   groundWindHeight: f32,
+  axisBendX: f32,
+  axisBendZ: f32,
+  axisSnakeX: f32,
+  axisSnakeZ: f32,
+  axisBulge: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -302,11 +318,24 @@ struct FullSimParams {
   let toA = params.attractorPos - p.position;
   let distSq = max(dot(toA, toA), 0.25);
   p.velocity = p.velocity + toA * (params.attractorStrength * params.dt / distSq);
+  // fe-22d: with an axis spring, the swirl turns about the local (leaning, bent) axis point at
+  // this height, so a snaking column spins about its own centre line.
+  var axisXZ = params.attractorPos.xz;
+  var bump = 0.0;
+  if (params.axisPull > 0.0) {
+    let h01 = clamp((p.position.y - params.attractorPos.y) / params.axisHeight, 0.0, 1.0);
+    let lean = pow(max(h01, 1e-4), 1.25);
+    bump = sin(3.14159265 * h01);
+    let s2 = sin(6.28318531 * h01);
+    axisXZ = axisXZ + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean
+      + vec2<f32>(params.axisBendX, params.axisBendZ) * bump + vec2<f32>(params.axisSnakeX, params.axisSnakeZ) * s2;
+  }
   if (params.swirlStrength != 0.0) {
-    // Tangent around the vertical axis through the attractor; p - axis = -toA, so (toA.z, -toA.x)
-    // is counter-clockwise seen from above (+Y up). 1/r falloff, clamped inside half a metre.
-    let r = max(length(toA.xz), 0.5);
-    let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;
+    // Tangent around the vertical axis through the attractor (or the local bent axis point);
+    // (toAx.z, -toAx.x) is counter-clockwise seen from above (+Y up). 1/r falloff, clamped at 0.5 m.
+    let toAx = vec2<f32>(axisXZ.x - p.position.x, axisXZ.y - p.position.z);
+    let r = max(length(toAx), 0.5);
+    let tangent = vec3<f32>(toAx.y, 0.0, -toAx.x) / r;
     p.velocity = p.velocity + tangent * (params.swirlStrength * params.dt / r);
   }
   // Ground-band weight: 1 at the attractor's base, 0 above groundWindHeight (0 = band off).
@@ -316,12 +345,11 @@ struct FullSimParams {
     p.velocity = p.velocity + vec3<f32>(params.groundWindX, 0.0, params.groundWindZ) * (groundW * params.dt);
   }
   if (params.axisPull > 0.0) {
-    // Horizontal spring toward the (leaning) vortex axis at this particle's height.
-    let h01 = clamp((p.position.y - params.attractorPos.y) / params.axisHeight, 0.0, 1.0);
-    let lean = pow(max(h01, 1e-4), 1.25);
-    let axis = params.attractorPos.xz + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean;
-    let d = axis - p.position.xz;
-    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * (1.0 - 0.7 * groundW) * params.dt);
+    // Horizontal spring toward the (leaning, fe-22d bent) vortex axis at this particle's height;
+    // the bulge relaxes it (equilibrium radius ∝ pull^-¼, so 1/(1+b)² gives ≈ √(1+b) wider).
+    let soft = 1.0 + params.axisBulge * bump * bump;
+    let d = axisXZ - p.position.xz;
+    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * (1.0 - 0.7 * groundW) * params.dt / (soft * soft));
   }
   if (params.turbulence > 0.0) {
     let np = p.position * params.noiseScale + vec3<f32>(params.time);
