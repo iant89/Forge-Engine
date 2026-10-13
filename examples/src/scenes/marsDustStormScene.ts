@@ -31,6 +31,7 @@ import {
   GpuParticleWorld,
   Light,
   Material,
+  Texture,
   Quat,
   Renderable,
   Rng,
@@ -76,6 +77,14 @@ import {
   DRIFT_VERTEX_COUNT,
   driftFootprintGrowth,
   devilFunnelHeight,
+  buildFunnelCard,
+  devilCardPixels,
+  devilCardOpacity,
+  devilShellFade,
+  CARD_VERTEX_COUNT,
+  DEVIL_CORE_OPACITY,
+  DEVIL_CORE_CARD_WIDTH,
+  type FunnelMesh,
   STORM_DUST_PALETTE,
   STORM_SHEET_LOOK,
   buildDriftMoundMesh,
@@ -86,11 +95,6 @@ import {
   DEVIL_BASE_CLOUD,
   devilVortexLife,
   DEVIL_BURST_TIME,
-  DEVIL_SWARM_COLOR,
-  DEVIL_SWARM_ROCK,
-  DEVIL_COARSE_FRACTION,
-  DEVIL_COARSE_SCALE,
-  DEVIL_SIZE_VARIATION,
   type DevilParticleLook,
   DEVIL_DUST_GRAVITY,
   DEVIL_DUST_DRAG,
@@ -103,7 +107,12 @@ import {
   STORM_SEED,
   StormCourse,
   StormField,
-  devilRoverForce,
+  devilRoverForceAt,
+  devilTerrainTint,
+  DEVIL_SIZE_RANGE,
+  DevilPebbles,
+  PEBBLE_POOL,
+  devilWander,
   isRoverFlipped,
   pileWindwardPoint,
   stormCheckpointLayout,
@@ -367,6 +376,32 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     }
   }
 
+  // fe-22f: small pebbles devils can lift (the boulders above are far too big). One shared tiny
+  // rock mesh; desktop 20 / iOS 8 small draws, no shadows.
+  const pebbles = new DevilPebbles(PEBBLE_POOL[qualityTier === "reduced" ? "reduced" : "full"]);
+  pebbles.scatter(SPAWN_X, SPAWN_Z, groundHeight);
+  const pebbleGeometry = track(createRock(gpu, { radius: 1, segments: 6, seed: 23, roughness: 0.4, flatten: 0.2 }));
+  const pebbleEntities = pebbles.pebbles.map((p, i) => addRenderable(`storm-pebble-${i}`, new Vec3(p.x, p.y, p.z), pebbleGeometry, rockMaterial, false));
+  const pebbleBase = { x: 0, z: 0 };
+  const pebbleBaseAt = (d: DustDevil): { x: number; z: number } => {
+    devilWander(d, time, pebbleBase);
+    pebbleBase.x += d.x;
+    pebbleBase.z += d.z;
+    return pebbleBase;
+  };
+  const stepPebbles = (dt: number): void => {
+    pebbles.step(dt, devils.devils, pebbleBaseAt, groundHeight, vehicle.position.x, vehicle.position.z);
+    for (let i = 0; i < pebbleEntities.length; i++) {
+      const p = pebbles.pebbles[i]!;
+      const ent = pebbleEntities[i]!;
+      ent.transform.position = moundPos.set(p.x, p.y, p.z);
+      ent.transform.scale = pebbleScale.set(p.radius, p.radius * 0.8, p.radius);
+      ent.transform.rotation = pebbleRot.setAxisAngle(UP_AXIS, p.spin);
+    }
+  };
+  const pebbleScale = new Vec3();
+  const pebbleRot = new Quat();
+
   // The rover's own piles: one on the windward face, one skirt around the wheels.
   const roverWindDrift = makeDrift("storm-rover-pile-windward", SPAWN_X, SPAWN_Z);
   const roverSkirtDrift = makeDrift("storm-rover-pile-skirt", SPAWN_X, SPAWN_Z);
@@ -527,6 +562,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const devilDust: GpuParticleWorld[] = [];
   /** Per-slot reusable emitter looks (no per-frame allocation, fe-21b). */
   const devilLooks: DevilParticleLook[] = [];
+  /** Per-slot terrain tint (fe-22f), reused every frame. */
+  const devilTints = Array.from({ length: quality.devils }, () => devilTerrainTint(0));
   const setRgba = (dst: { r: number; g: number; b: number; a: number }, src: { r: number; g: number; b: number }, a: number): void => {
     dst.r = src.r;
     dst.g = src.g;
@@ -545,10 +582,36 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
    * the fe-18 funnel cards and skirt shell are gone. Each slot keeps only a cheap draped ground
    * shadow, which anchors the column to the terrain.
    */
+  interface CoreCard { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material; uploaded?: boolean }
   interface FunnelRecord {
     shadow: DriftRecord;
     shadowMaterial: Material;
+    /** fe-22: the old (fe-18/fe-19) devil, restored as a core inside the swirl: dense + wispy cards. */
+    core: CoreCard;
+    outer: CoreCard;
   }
+  // fe-22: old-devil core cards. No particles (so no particle budget); two thin camera-facing quad
+  // strips per devil, 26 triangles each, transparent and shadowless.
+  const cardTexture = track(Texture.fromRgba8(gpu, 64, 128, devilCardPixels(), { label: "storm-devil-card", srgb: true, mipmaps: true }));
+  const makeCoreCard = (name: string, hex: number): CoreCard => {
+    const geometry = track(Geometry.create(gpu, {
+      label: name,
+      positions: new Float32Array(CARD_VERTEX_COUNT * 3),
+      normals: new Float32Array(CARD_VERTEX_COUNT * 3),
+      uvs: new Float32Array(CARD_VERTEX_COUNT * 2),
+      indices: buildFunnelCard({ id: 0, coreRadius: 1, swirl: 1, x: 0, z: 0 }, 1, 1, 0, 1, 0, 0).indices,
+    }));
+    // Unlit + fog-exempt like the swirl grains around it: lit and fogged, the cards washed out to
+    // pale flat bands in gusts (fe-22 shots). No depth write: a transparent card's whole quad wrote
+    // depth and hid every swirl grain behind it (the pale hard-edged band).
+    const material = track(new Material({ label: name, color: Color.fromSrgbHex(hex), roughness: 1, metallic: 0, opacity: 0, transparent: true, doubleSided: true, technique: "unlit", fogExempt: true, depthWrite: false }));
+    material.albedoMap = cardTexture;
+    material.markChanged();
+    const entity = addRenderable(name, new Vec3(SPAWN_X, groundY, SPAWN_Z), geometry, material, false);
+    const renderable = entity.get(Renderable)!;
+    renderable.visible = false;
+    return { entity, renderable, geometry, mesh: undefined, material };
+  };
   /** Material uniforms upload only after markChanged() (which also rebuilds the bind group), so skip
    * changes too small to see. */
   const setOpacity = (material: Material, value: number): void => {
@@ -562,6 +625,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     funnels.push({
       shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
       shadowMaterial,
+      core: makeCoreCard(`storm-devil-core-${i}`, 0x24140c),
+      outer: makeCoreCard(`storm-devil-shell-${i}`, 0x5a3a28),
     });
   }
   /** Sun direction projected on the ground (the shadow falls away from it). */
@@ -740,15 +805,18 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         sys.modules.groundWindHeight = 0;
         continue;
       }
-      const gy = groundHeight(d.x, d.z);
       // red-frontier column/skirt alternation (fe-21): the frame counter only picks the emit shape.
       const look = devilParticleLook(d, time, devilEmitFrame, devilLooks[i]);
       const e = sys.emitter;
       // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
       e.rate = devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME);
-      e.position.x = d.x;
+      // fe-22d: the whole devil (grains, base cloud, cards, shadow) dances on the wandering base.
+      const bx = d.x + look.curve.baseX;
+      const bz = d.z + look.curve.baseZ;
+      const gy = groundHeight(bx, bz);
+      e.position.x = bx;
       e.position.y = gy + 0.3;
-      e.position.z = d.z;
+      e.position.z = bz;
       e.jitter.x = 0;
       e.jitter.y = 0;
       e.jitter.z = 0;
@@ -759,17 +827,20 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       e.lifeMin = look.lifeMin;
       e.lifeMax = look.lifeMax;
       const m = sys.modules;
-      m.attractorPos.x = d.x;
+      m.attractorPos.x = bx;
       m.attractorPos.y = gy + 0.3;
-      m.attractorPos.z = d.z;
+      m.attractorPos.z = bz;
       m.attractorStrength = 0;
       // fe-21: the swarm is the devil, so its grains carry the darker lifted soil tone (not the pale
       // sunlit sheet colour; colorAlt still blends toward rock) and are not stretched into streaks.
       // Per-devil opacity variety (fe-19) now rides on the swarm's own alpha.
-      setRgba(e.color, DEVIL_SWARM_COLOR, DEVIL_SWARM_COLOR.a * d.opacity);
-      setRgba(m.colorFrom, DEVIL_SWARM_COLOR, DEVIL_SWARM_COLOR.a * d.opacity);
-      setRgba(m.colorTo, DEVIL_SWARM_COLOR, 0);
-      setRgba(m.colorAlt, DEVIL_SWARM_ROCK, 1);
+      // fe-22f: dust takes the colour of the ground under the devil's base (slope bands as the
+      // Mars surface layers), darkened as lifted dust; the cards share it (stepFunnels).
+      const tint = devilTerrainTint(terrain.getSlopeAt(bx, bz), devilTints[i]);
+      setRgba(e.color, tint.color, d.opacity);
+      setRgba(m.colorFrom, tint.color, d.opacity);
+      setRgba(m.colorTo, tint.color, 0);
+      setRgba(m.colorAlt, tint.alt, 1);
       // fe-21f: no velocity stretch (aligning to swirl velocity foreshortened grains into flat chips)
       // and the opt-in soft round sprite, so close grains read as dust puffs.
       sys.stretch = 0;
@@ -779,6 +850,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       lean.x = look.leanX;
       lean.y = look.axisHeight;
       lean.z = look.leanZ;
+      const curve = (m.axisCurve ??= { bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, bulge: 0, kinkX: 0, kinkZ: 0 });
+      curve.bendX = look.curve.bendX;
+      curve.bendZ = look.curve.bendZ;
+      curve.snakeX = look.curve.snakeX;
+      curve.snakeZ = look.curve.snakeZ;
+      curve.bulge = look.springBulge;
+      curve.kinkX = look.curve.kinkX;
+      curve.kinkZ = look.curve.kinkZ;
       // Modules act on every live particle of the system, so they stay fixed across the column/skirt
       // frame alternation (a blend of red-frontier's column 0/0.4 and skirt 1.2/1.6 gravity/drag).
       m.gravity.y = DEVIL_DUST_GRAVITY;
@@ -786,9 +865,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       m.swirlStrength = look.swirl;
       m.sizeStart = look.sizeStart;
       m.sizeEnd = look.sizeEnd;
-      m.sizeVariation = DEVIL_SIZE_VARIATION;
-      m.coarseFraction = DEVIL_COARSE_FRACTION;
-      m.coarseScale = DEVIL_COARSE_SCALE;
+      // fe-22f: fully random continuous grain sizes (log spread) instead of the coarse/fine split.
+      m.sizeVariation = 0;
+      m.coarseFraction = 0;
+      m.coarseScale = 1;
+      m.sizeRange = DEVIL_SIZE_RANGE;
       // fe-21d: the storm wind drags the base cloud downwind, much harder in gusts.
       devilBaseWind(wind.x, wind.z, intensity, (m.groundWind ??= { x: 0, z: 0 }));
       m.groundWindHeight = DEVIL_BASE_CLOUD.windHeight;
@@ -798,20 +879,57 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   let devilEmitFrame = 0;
+  let funnelFrame = 0;
   const stepFunnels = (): void => {
+    funnelFrame++;
+    // Reduced (iOS) tier re-shapes the core cards on alternate frames only: half the vertex uploads.
+    const rebuild = qualityTier !== "reduced" || funnelFrame % 2 === 0;
+    const eye = cameraEntity.transform.position;
     for (let i = 0; i < funnels.length; i++) {
       const f = funnels[i]!;
       const d: DustDevil | undefined = devils.bySlot(i);
       const env = d ? devilEnvelope(d) : 0;
       if (!d || env <= 0.01) {
         f.shadow.renderable.visible = false;
+        f.core.renderable.visible = false;
+        f.outer.renderable.visible = false;
         continue;
       }
-      const height = devilFunnelHeight(d.coreRadius) * devilVortexLife(d).growth;
+      const vl = devilVortexLife(d);
+      const height = devilFunnelHeight(d.coreRadius) * vl.growth;
+      // fe-22: old-devil core, same axis/sway as the swirl, thinning with it as the devil dies.
+      const dc = devilLooks[i]!.curve;
+      const cx = d.x + dc.baseX;
+      const cz = d.z + dc.baseZ;
+      const gyCore = groundHeight(cx, cz);
+      const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
+      const cards: [CoreCard, number, number, number][] = [
+        [f.core, DEVIL_CORE_CARD_WIDTH.core, DEVIL_CORE_OPACITY.core, 0.45],
+        [f.outer, DEVIL_CORE_CARD_WIDTH.outer, DEVIL_CORE_OPACITY.outer, 0.3],
+      ];
+      for (const [rec, wScale, opacity, scroll] of cards) {
+        rec.renderable.visible = fade > 0.01;
+        if (!rec.renderable.visible) continue;
+        if (rebuild || !rec.mesh) rec.mesh = buildFunnelCard(d, height, wScale * vl.radiusScale, time, eye.x, eye.z, time * scroll + d.id * 0.37, rec.mesh, dc);
+        if (rebuild || !rec.uploaded) {
+          rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
+          rec.uploaded = true;
+        }
+        rec.entity.transform.position = moundPos.set(cx, gyCore - 0.2, cz);
+        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
+        // fe-22f: terrain tint (the grey card texture carries only shading); upload only on change.
+        const tc = devilTints[i]!.color;
+        const shade = rec === f.core ? 0.8 : 1.1;
+        const mc = rec.material.baseColor;
+        if (Math.abs(mc.r - tc.r * shade) + Math.abs(mc.g - tc.g * shade) + Math.abs(mc.b - tc.b * shade) > 0.004) {
+          mc.r = tc.r * shade; mc.g = tc.g * shade; mc.b = tc.b * shade;
+          rec.material.markChanged();
+        }
+      }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;
       setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun));
-      updateDrift(f.shadow, d.x + sunAway.x * len, d.z + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
+      updateDrift(f.shadow, cx + sunAway.x * len, cz + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
     }
   };
 
@@ -888,9 +1006,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
 
     // Devils: step, then push / yaw / lift / roll the rover.
     devils.step(dt, intensity, wind.x, wind.z, vehicle.position.x, vehicle.position.z);
+    stepPebbles(dt);
     const clearance = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z);
     for (const devil of devils.devils) {
-      devilRoverForce(devil, vehicle.position.x, vehicle.position.z, force);
+      // fe-22e: push from the visible, wandered base.
+      devilRoverForceAt(devil, time, vehicle.position.x, vehicle.position.z, force);
       if (force.ax === 0 && force.az === 0 && force.yawAccel === 0) continue;
       vehicle.velocity.x += force.ax * dt;
       vehicle.velocity.z += force.az * dt;

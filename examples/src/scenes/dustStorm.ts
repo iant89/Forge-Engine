@@ -1135,6 +1135,21 @@ export function devilFunnelHeight(coreRadius: number): number {
 export const DEVIL_RF_BASE_PER_CORE = 0.9;
 /** Seconds for a newborn column to climb to full height (red-frontier `growth`, 3.1 s). */
 export const DEVIL_GROW_TIME = 3.1;
+/**
+ * fe-22: the swirl column's radius as a fraction of fe-21's, so the particle
+ * swarm wraps (skirt and base cloud keep their fe-21 width) tightly around the restored old-devil core instead of a wide hollow tube.
+ */
+export const DEVIL_SWIRL_RADIUS_SCALE = 0.55;
+/**
+ * fe-22c: the swarm's on-screen width is NOT set by where grains spawn. The swirl module's 1/r
+ * tangential push (terminal speed ≈ S/(drag·r)) flings grains out until centrifugal v²/r balances
+ * the axis spring k·r, i.e. r⁴ ≈ (S/drag)²/k — about 6–7 m for fe-21's S=60, k=5, whatever the
+ * emit radius. Width ∝ √S / k^¼, so S×0.55 and k×0.55⁻² give ≈0.55× the radial spread.
+ */
+export const DEVIL_SWIRL_ACCEL_FE21 = 60;
+export const DEVIL_AXIS_PULL_FE21 = 5;
+export const DEVIL_SWIRL_ACCEL = DEVIL_SWIRL_ACCEL_FE21 * DEVIL_SWIRL_RADIUS_SCALE;
+export const DEVIL_AXIS_PULL = DEVIL_AXIS_PULL_FE21 / (DEVIL_SWIRL_RADIUS_SCALE * DEVIL_SWIRL_RADIUS_SCALE);
 
 function devilHash(id: number, k: number): number {
   const x = Math.sin(id * 12.9898 + k * 78.233) * 43758.5453;
@@ -1183,7 +1198,11 @@ export interface DevilParticleLook {
   column: boolean;
   /** fe-21d: this frame feeds the slow, low base dust cloud (wind-stretched via `groundWind`). */
   base: boolean;
-  vortex: { height: number; bias: number; radiusBase: number; radiusTop: number; spin: number; outward: number; leanX: number; leanZ: number };
+  vortex: { height: number; bias: number; radiusBase: number; radiusTop: number; spin: number; outward: number; leanX: number; leanZ: number; bendX?: number; bendZ?: number; snakeX?: number; snakeZ?: number; bulge?: number; kinkX?: number; kinkZ?: number };
+  /** fe-22d: the bent, wandering axis this frame (grains, cards and base cloud all follow it). */
+  curve: DevilAxisCurve;
+  /** fe-22d: spring-softening for the GPU axis spring that yields the curve's bulge (≈ (1+g)² − 1). */
+  springBulge: number;
   speedMin: number;
   speedMax: number;
   lifeMin: number;
@@ -1242,14 +1261,6 @@ export function devilBaseWind(windX: number, windZ: number, intensity: number, o
   out.z = windZ * k;
   return out;
 }
-/** Devil swarm grain colour, LINEAR (sRGB #6b3d24 dark rust lifted soil; `colorAlt` blends it toward the rock tone per grain). */
-export const DEVIL_SWARM_COLOR = Object.freeze({ r: 0.147, g: 0.047, b: 0.018, a: 1 });
-/**
- * Darker rock tone the per-grain colour variation blends toward (linear of sRGB #4a3226). Particle
- * colours are LINEAR HDR values drawn unlit, then lifted by exposure 1.25, ACES and sRGB encoding —
- * so the old sRGB-looking 0.5/0.31/0.2 came out pale beige (fe-21b).
- */
-export const DEVIL_SWARM_ROCK = Object.freeze({ r: 0.069, g: 0.032, b: 0.019, a: 1 });
 /** Fixed sim modules for devil dust (shared by column and skirt particles of one system). */
 export const DEVIL_DUST_GRAVITY = -0.3;
 export const DEVIL_DUST_DRAG = 0.6;
@@ -1273,7 +1284,7 @@ export function devilParticleLook(
   const fullHeight = devilFunnelHeight(devil.coreRadius);
   const height = fullHeight * life.growth;
   const baseR = devil.coreRadius * DEVIL_RF_BASE_PER_CORE * life.radiusScale;
-  const top = devilFunnelSway(devil, 1, t);
+  const colR = baseR * DEVIL_SWIRL_RADIUS_SCALE;
   const dir = Math.sign(devil.swirl || 1);
   const bursting = (devil.age ?? 1e3) < DEVIL_BURST_TIME;
   const slot = frame % DEVIL_EMIT_CYCLE;
@@ -1285,32 +1296,39 @@ export function devilParticleLook(
     base,
     vortex: { height: 0, bias: 1, radiusBase: 0, radiusTop: 0, spin: 0, outward: 0, leanX: 0, leanZ: 0 },
     speedMin: 0, speedMax: 0, lifeMin: 0, lifeMax: 0, axisPull: 0, axisHeight: 1, leanX: 0, leanZ: 0, swirl: 0, sizeStart: 0, sizeEnd: 0,
+    curve: { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, kinkX: 0, kinkZ: 0, bulge: 0 },
+    springBulge: 0,
   };
+  const curve = devilAxisCurve(devil, t, o.curve);
+  o.springBulge = (1 + curve.bulge) * (1 + curve.bulge) - 1;
   const v = o.vortex;
   o.column = column;
   o.base = base;
-  o.axisPull = 5;
+  o.axisPull = DEVIL_AXIS_PULL;
   o.axisHeight = Math.max(1, height);
-  o.leanX = top.x;
-  o.leanZ = top.z;
-  o.swirl = dir * 60;
+  o.leanX = curve.leanX;
+  o.leanZ = curve.leanZ;
+  o.swirl = dir * DEVIL_SWIRL_ACCEL;
   // Fine grain (fe-21b): many small motes read as dense dust, not big flakes.
   o.sizeStart = DEVIL_GRAIN_START;
   o.sizeEnd = DEVIL_GRAIN_END;
   if (column) {
-    v.height = height; v.bias = 1.35; v.radiusBase = baseR * 0.35; v.radiusTop = baseR * 1.1;
-    v.spin = dir * spin * 0.6; v.outward = 0; v.leanX = top.x; v.leanZ = top.z;
+    v.height = height; v.bias = 1.35; v.radiusBase = colR * 0.35; v.radiusTop = colR * 1.1;
+    v.spin = dir * spin * 0.6; v.outward = 0; v.leanX = curve.leanX; v.leanZ = curve.leanZ;
+    v.bendX = curve.bendX; v.bendZ = curve.bendZ; v.snakeX = curve.snakeX; v.snakeZ = curve.snakeZ; v.bulge = curve.bulge; v.kinkX = curve.kinkX; v.kinkZ = curve.kinkZ;
     o.speedMin = 5.5; o.speedMax = 11.3; o.lifeMin = 0.95; o.lifeMax = 1.7;
   } else if (base) {
     // Base cloud: short, wide, slowly turning dust around the foot; the scene's groundWind drags it.
     const b = DEVIL_BASE_CLOUD;
     v.height = b.height; v.bias = 1.6; v.radiusBase = baseR * b.radiusBase; v.radiusTop = baseR * b.radiusTop;
     v.spin = dir * spin * b.spinFactor; v.outward = b.outward; v.leanX = 0; v.leanZ = 0;
+    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0; v.kinkX = 0; v.kinkZ = 0;
     o.speedMin = b.speedMin; o.speedMax = b.speedMax; o.lifeMin = b.lifeMin; o.lifeMax = b.lifeMax;
   } else {
     // Skirt: a wide ring hugging the ground, thrown outward.
     v.height = 1.2; v.bias = 1; v.radiusBase = baseR * 1.2; v.radiusTop = baseR * 2.4;
     v.spin = 0; v.outward = bursting ? 6 : 8; v.leanX = 0; v.leanZ = 0;
+    v.bendX = 0; v.bendZ = 0; v.snakeX = 0; v.snakeZ = 0; v.bulge = 0; v.kinkX = 0; v.kinkZ = 0;
     o.speedMin = bursting ? 1.4 : 0.9; o.speedMax = bursting ? 4 : 2.3; o.lifeMin = 0.55; o.lifeMax = bursting ? 1.4 : 1;
   }
   return o;
@@ -1319,15 +1337,6 @@ export function devilParticleLook(
 /** Devil grain size over life (m). fe-21g: ~1.7× larger to offset the soft sprite falloff. */
 export const DEVIL_GRAIN_START = 0.2;
 export const DEVIL_GRAIN_END = 0.5;
-/**
- * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
- * to fill the voids between fine motes (same particle count, so budgets are unchanged).
- */
-export const DEVIL_COARSE_FRACTION = 0.2;
-/** fe-21d: more coarse grains but a smaller multiplier, so the largest (end-of-life) stays ≈0.9 m, not a blob. */
-export const DEVIL_COARSE_SCALE = 2.2;
-/** Mild per-grain size spread so the fine layer isn't uniform. */
-export const DEVIL_SIZE_VARIATION = 0.35;
 
 /** Emission rate multiplier for a frame of {@link devilParticleLook}: keeps the per-second mix (and the burst) right. */
 export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "column"> & Partial<Pick<DevilParticleLook, "base">>, envelope: number, bursting: boolean): number {
@@ -1648,3 +1657,558 @@ export const STORM_DUST_PALETTE: Readonly<{ dust: Rgba; rock: Rgba; sheetVariati
   sheetVariation: 0.6,
   devilVariation: 0.85,
 });
+
+// ---------------------------------------------------------------- old-devil core (fe-22)
+//
+// fe-22: the fe-18/fe-19 funnel cards come back as an inner core, wrapped by the narrower fe-21 swirl.
+
+/** Funnel radius at the ground and the top, as fractions of the core radius. */
+export const DEVIL_FUNNEL_BASE = 0.32;
+export const DEVIL_FUNNEL_WAIST = 0.26;
+export const DEVIL_FUNNEL_TOP = 0.62;
+
+/**
+ * Funnel radius (as a fraction of the core radius) at normalized height `u` 0..1: pinched just above
+ * the skirt, narrow for most of the column, widening slightly toward the top (the reference image).
+ */
+export function devilFunnelProfile(u: number): number {
+  const x = Math.max(0, Math.min(1, u));
+  if (x < 0.12) return DEVIL_FUNNEL_BASE + (DEVIL_FUNNEL_WAIST - DEVIL_FUNNEL_BASE) * smooth(x / 0.12);
+  return DEVIL_FUNNEL_WAIST + (DEVIL_FUNNEL_TOP - DEVIL_FUNNEL_WAIST) * Math.pow((x - 0.12) / 0.88, 1.6);
+}
+
+
+/** Rings up a core card. */
+export const FUNNEL_RINGS = 14;
+export interface FunnelMesh { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint16Array }
+// ---------------------------------------------------------------- soft funnel cards (fe-18 captain: soften)
+
+/**
+ * Near-camera dissolve for the funnel impostors: 0 within `DEVIL_FADE_NEAR` m of the devil's axis
+ * (fe-22: inside the wrapping swirl the core stays visible much closer than the fe-18 10–45 m), 1 beyond `DEVIL_FADE_FAR`.
+ */
+export const DEVIL_FADE_NEAR = 4;
+export const DEVIL_FADE_FAR = 20;
+export function devilShellFade(distance: number): number {
+  return smooth((distance - DEVIL_FADE_NEAR) / (DEVIL_FADE_FAR - DEVIL_FADE_NEAR));
+}
+
+/** Columns across a funnel card: left edge, core, right edge (uv.x 0, 0.5, 1). */
+export const CARD_COLUMNS = 3;
+export const CARD_VERTEX_COUNT = FUNNEL_RINGS * CARD_COLUMNS;
+
+function cardIndices(): Uint16Array {
+  const idx: number[] = [];
+  for (let k = 0; k < FUNNEL_RINGS - 1; k++) {
+    for (let c = 0; c < CARD_COLUMNS - 1; c++) {
+      const a = k * CARD_COLUMNS + c;
+      idx.push(a, a + 1, a + 1 + CARD_COLUMNS, a, a + 1 + CARD_COLUMNS, a + CARD_COLUMNS);
+    }
+  }
+  return new Uint16Array(idx);
+}
+const CARD_INDICES = cardIndices();
+
+/**
+ * A camera-facing funnel card: each ring becomes a horizontal span perpendicular to the view, as wide
+ * as the swaying funnel profile, so the soft-edged texture gives a view-angle falloff (thin wispy
+ * edges, dense core) like a fresnel fade, at one quad strip per layer. `vScroll` scrolls the
+ * turbulence texture upward over time. Positions are relative to the devil's ground point.
+ */
+export function buildFunnelCard(
+  devil: Pick<DustDevil, "id" | "coreRadius" | "swirl" | "x" | "z">,
+  height: number,
+  widthScale: number,
+  t: number,
+  camX: number,
+  camZ: number,
+  vScroll: number,
+  out?: FunnelMesh,
+  curve?: DevilAxisCurve,
+): FunnelMesh {
+  const mesh: FunnelMesh = out ?? {
+    positions: new Float32Array(CARD_VERTEX_COUNT * 3),
+    normals: new Float32Array(CARD_VERTEX_COUNT * 3),
+    uvs: new Float32Array(CARD_VERTEX_COUNT * 2),
+    indices: CARD_INDICES,
+  };
+  let tx = camX - devil.x;
+  let tz = camZ - devil.z;
+  const tl = Math.hypot(tx, tz) || 1;
+  tx /= tl;
+  tz /= tl;
+  // Right vector across the view (horizontal, perpendicular to the camera direction).
+  const rx = -tz;
+  const rz = tx;
+  const sway = { x: 0, z: 0 };
+  for (let k = 0; k < FUNNEL_RINGS; k++) {
+    const u = k / (FUNNEL_RINGS - 1);
+    // fe-22d: follow the same bent axis (and bulge) as the grains when a curve is given.
+    if (curve) devilAxisAt(curve, u, sway);
+    else devilFunnelSway(devil, u, t, sway);
+    // Breathing lumps advected upward break up the silhouette.
+    const lump = 1 + 0.22 * Math.sin(u * 11 - t * 2.3 + devil.id) + 0.12 * Math.sin(u * 23 + t * 3.1);
+    // fe-22f: with a curve (the restored core) the card spans the devil's full width under the swirl.
+    const half = (curve ? devilCoreHalfWidth(devil.coreRadius, u) * devilBulgeScale(curve, u) : devilFunnelProfile(u) * devil.coreRadius) * widthScale * lump;
+    for (let c = 0; c < CARD_COLUMNS; c++) {
+      const s = (c / (CARD_COLUMNS - 1)) * 2 - 1;
+      const i = k * CARD_COLUMNS + c;
+      mesh.positions[i * 3] = sway.x + rx * half * s;
+      mesh.positions[i * 3 + 1] = u * height;
+      mesh.positions[i * 3 + 2] = sway.z + rz * half * s;
+      mesh.normals[i * 3] = tx;
+      mesh.normals[i * 3 + 1] = 0;
+      mesh.normals[i * 3 + 2] = tz;
+      mesh.uvs[i * 2] = c / (CARD_COLUMNS - 1);
+      mesh.uvs[i * 2 + 1] = u * 2.5 - vScroll;
+    }
+  }
+  return mesh;
+}
+
+/**
+ * RGBA8 pixels for the funnel card texture: alpha falls off smoothly to 0 at both side edges
+ * (the view-angle fade), is densest at the core, and is broken up by streaky turbulence that
+ * tiles vertically (the card scrolls it upward). Colour darkens toward the core.
+ */
+export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array {
+  const px = new Uint8Array(width * height * 4);
+  const rng = new Rng(seed);
+  const ph = Array.from({ length: 6 }, () => rng.nextFloat() * Math.PI * 2);
+  for (let y = 0; y < height; y++) {
+    const v = y / height;
+    for (let x = 0; x < width; x++) {
+      const u = (x + 0.5) / width;
+      const across = Math.sin(Math.PI * u); // 0 at edges, 1 at core
+      const edge = Math.pow(across, 1.1); // fe-22: fuller core, still soft at the side edges
+      // Tileable in v: integer frequencies of 2π v.
+      const w = 2 * Math.PI * v;
+      const n =
+        0.5 +
+        0.28 * Math.sin(w * 2 + u * 7 + ph[0]!) +
+        0.16 * Math.sin(w * 3 - u * 13 + ph[1]!);
+      // fe-22: only low vertical frequencies; the old 7/13/23-per-tile terms stretched over a
+      // 50–80 m column aliased into horizontal "ladder" rungs.
+      const wisp = Math.max(0, Math.min(1, n));
+      const a = edge * (0.65 + 0.35 * wisp);
+      const dark = 0.55 + 0.45 * (1 - across);
+      const i = (y * width + x) * 4;
+      // fe-22f: neutral grey; the material colour carries the terrain tint.
+      px[i] = Math.round(235 * dark);
+      px[i + 1] = Math.round(235 * dark);
+      px[i + 2] = Math.round(235 * dark);
+      px[i + 3] = Math.round(255 * Math.max(0, Math.min(1, a)));
+    }
+  }
+  return px;
+}
+
+/**
+ * Card opacity for a devil: base layer opacity × its own density × life envelope × near-camera
+ * dissolve, with only a light storm-intensity dimming.
+ */
+export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" | "age" | "life" | "fadeOut">, fade: number, intensity: number): number {
+  return Math.min(1, base * devil.opacity * devilEnvelope(devil) * fade * (0.85 + 0.15 * intensity));
+}
+
+/**
+ * fe-22f: width scales of the two core cards, × {@link devilCoreHalfWidth} (the devil's full width,
+ * swirl radius ÷ 1.15): the dense card fills most of it, the wispy one all of it.
+ */
+export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.8, outer: 0.95 });
+/** Half-width (m) of a core card at height `u`, before its turbulence lumps. */
+/** fe-22: core card opacities (denser than fe-19's 0.85/0.45 cards so the inner funnel reads dark). */
+export const DEVIL_CORE_OPACITY = Object.freeze({ core: 1, outer: 0.7 });
+export function devilCoreCardHalfWidth(coreRadius: number, u: number, widthScale: number): number {
+  return devilFunnelProfile(u) * coreRadius * widthScale;
+}
+
+/**
+ * fe-22c: CPU replica of the GPU integrator for a devil's column grains (vortex spawn, gravity,
+ * swirl, ground-wind band weight on the spring, axis spring, drag; no lean, no turbulence), used to
+ * measure the steady-state horizontal spread. Returns the median and 90th-percentile radius (m) of
+ * live column grains above the ground band.
+ */
+export function devilColumnSpread(
+  devil: Pick<DustDevil, "id" | "coreRadius" | "swirl">,
+  opts: { swirlAccel?: number; axisPull?: number; radiusScale?: number; seconds?: number } = {},
+): { p50: number; p90: number } {
+  const S = opts.swirlAccel ?? DEVIL_SWIRL_ACCEL;
+  const k = opts.axisPull ?? DEVIL_AXIS_PULL;
+  const look = devilParticleLook({ ...devil, age: 100, life: 1000, fadeOut: DEVIL_FADE }, 0, DEVIL_SKIRT_FRAMES + DEVIL_BASE_FRAMES);
+  const rs = (opts.radiusScale ?? DEVIL_SWIRL_RADIUS_SCALE) / DEVIL_SWIRL_RADIUS_SCALE;
+  const v = look.vortex;
+  const rng = new Rng(4242 + devil.id);
+  const dt = 1 / 60;
+  const ps: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }[] = [];
+  const radii: number[] = [];
+  const steps = Math.round((opts.seconds ?? 6) * 60);
+  const dir = Math.sign(devil.swirl || 1);
+  for (let n = 0; n < steps; n++) {
+    for (let e = 0; e < 20; e++) {
+      const h01 = Math.pow(Math.max(rng.nextFloat(), 1e-4), v.bias);
+      const spread = 0.72 + 0.55 * rng.nextFloat();
+      const r = (v.radiusBase + (v.radiusTop - v.radiusBase) * Math.pow(Math.max(h01, 1e-4), 0.9)) * spread * rs;
+      const a = rng.nextFloat() * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+      const rim = v.spin * r;
+      const up = (look.speedMin + (look.speedMax - look.speedMin) * rng.nextFloat()) * (1 - 0.42 * h01);
+      ps.push({ x: ca * r, y: h01 * v.height, z: sa * r, vx: -sa * rim + ca * v.outward, vy: up, vz: ca * rim + sa * v.outward, life: look.lifeMin + (look.lifeMax - look.lifeMin) * rng.nextFloat() });
+    }
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i]!;
+      p.vy += DEVIL_DUST_GRAVITY * dt;
+      const rr = Math.max(Math.hypot(p.x, p.z), 0.5);
+      // tangent (toA.z, -toA.x)/r with toA = -p
+      p.vx += (-p.z / rr) * (dir * S * dt / rr);
+      p.vz += (p.x / rr) * (dir * S * dt / rr);
+      const gw = 1 - smooth(Math.max(0, Math.min(1, p.y / DEVIL_BASE_CLOUD.windHeight)));
+      p.vx += -p.x * k * (1 - 0.7 * gw) * dt;
+      p.vz += -p.z * k * (1 - 0.7 * gw) * dt;
+      const damp = Math.max(0, 1 - DEVIL_DUST_DRAG * dt);
+      p.vx *= damp; p.vy *= damp; p.vz *= damp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.life -= dt;
+      if (p.life <= 0) { ps.splice(i, 1); continue; }
+      if (n > 120 && n % 10 === 0 && p.y > DEVIL_BASE_CLOUD.windHeight) radii.push(Math.hypot(p.x, p.z));
+    }
+  }
+  radii.sort((a, b) => a - b);
+  return { p50: radii[Math.floor(radii.length * 0.5)] ?? 0, p90: radii[Math.floor(radii.length * 0.9)] ?? 0 };
+}
+
+// ---------------------------------------------------------------- dancing devils (fe-22d)
+//
+// The base wanders on smooth per-devil layered noise; the axis is a bent curve whose higher points
+// replay the base's PAST wander (a height-proportional lag), so the top trails the base in a rope /
+// S shape; a small travelling snake adds wobble; and at random intervals the mid column swells and
+// relaxes. All analytic in (devil id, t): deterministic, allocation-free, no history buffers.
+
+/** Wander amplitude (m) per metre of core radius, and its floor/cap. */
+export const DEVIL_WANDER_PER_CORE = 1.2;
+export const DEVIL_WANDER_MAX = 10;
+/** Seconds of lag between the base and the top of the column (per-devil 1.2–2.4 s). */
+export const DEVIL_AXIS_LAG_MIN = 1.2;
+export const DEVIL_AXIS_LAG_MAX = 2.4;
+/** Snake (sin 2πh) amplitude per metre of core radius. */
+export const DEVIL_SNAKE_PER_CORE = 0.6;
+/** fe-22e: second, faster wiggle (sin 3πh) amplitude per metre of core radius. */
+export const DEVIL_KINK_PER_CORE = 0.35;
+/** Bulge: radius gain 0.5..1 (→ 1.5–2×) over 2–3.5 s, one chance per 5–9 s cycle. */
+export const DEVIL_BULGE_GAIN_MIN = 0.5;
+export const DEVIL_BULGE_GAIN_MAX = 1.0;
+
+/** Base wander offset (m) at time t: three incommensurate sine layers per axis, phases per devil. */
+export function devilWander(devil: Pick<DustDevil, "id" | "coreRadius">, t: number, out: { x: number; z: number } = { x: 0, z: 0 }): { x: number; z: number } {
+  const id = devil.id;
+  const amp = Math.min(DEVIL_WANDER_MAX, devil.coreRadius * DEVIL_WANDER_PER_CORE);
+  let x = 0;
+  let z = 0;
+  let w = 0;
+  for (let k = 0; k < 3; k++) {
+    const f = (0.05 + 0.05 * devilHash(id, 20 + k)) * (1 + k * 1.3);
+    const g = 0.55 / (1 + k);
+    x += g * Math.sin(t * f * 6.2832 + devilHash(id, 30 + k) * 6.2832);
+    z += g * Math.cos(t * f * 5.7 + devilHash(id, 40 + k) * 6.2832);
+    w += g;
+  }
+  x /= w;
+  z /= w;
+  // Radial soft cap (continuous, so the path stays smooth) keeps the wander inside `amp`.
+  const r = Math.hypot(x, z);
+  const k = r > 1e-9 ? Math.tanh(r) / r : 1;
+  out.x = x * k * amp;
+  out.z = z * k * amp;
+  return out;
+}
+
+/** Per-devil base-to-top lag (s). */
+export function devilAxisLag(id: number): number {
+  return DEVIL_AXIS_LAG_MIN + (DEVIL_AXIS_LAG_MAX - DEVIL_AXIS_LAG_MIN) * devilHash(id, 50);
+}
+
+/**
+ * Mid-column radius gain 0..{@link DEVIL_BULGE_GAIN_MAX} at time t. Time is cut into per-devil cycles;
+ * each cycle (hashed) may hold one smooth sin² swell, so swells come at random intervals and always
+ * return exactly to 0 between them.
+ */
+export function devilBulge(id: number, t: number): number {
+  const period = 5 + 4 * devilHash(id, 60);
+  const tt = t + period * devilHash(id, 61);
+  const k = Math.floor(tt / period);
+  const local = tt - k * period;
+  const hk = devilHash(id * 131 + k, 62);
+  if (hk < 0.35) return 0; // no swell this cycle
+  const dur = 2 + 1.5 * devilHash(id * 131 + k, 63);
+  const start = (period - dur) * devilHash(id * 131 + k, 64);
+  const x = (local - start) / dur;
+  if (x <= 0 || x >= 1) return 0;
+  const gain = DEVIL_BULGE_GAIN_MIN + (DEVIL_BULGE_GAIN_MAX - DEVIL_BULGE_GAIN_MIN) * devilHash(id * 131 + k, 65);
+  const sx = Math.sin(Math.PI * x);
+  return gain * sx * sx;
+}
+
+export interface DevilAxisCurve {
+  /** Base offset (m) from the devil's sim position (the wander). */
+  baseX: number;
+  baseZ: number;
+  /** Axis offset from the base: lean·h^1.25 + bend·sin(πh) + snake·sin(2πh). */
+  leanX: number;
+  leanZ: number;
+  bendX: number;
+  bendZ: number;
+  snakeX: number;
+  snakeZ: number;
+  /** fe-22e: faster second wiggle, × sin(3πh). */
+  kinkX: number;
+  kinkZ: number;
+  /** Mid-column radius gain (radius × 1 + bulge·sin²πh). */
+  bulge: number;
+}
+
+/**
+ * The bent axis at time t. The top replays the base's wander from `lag` seconds ago and the middle
+ * from `lag/2` ago, so the column trails its moving base like a rope; the old red-frontier top
+ * wobble rides on the lean, and a travelling snake adds an S.
+ */
+export function devilAxisCurve(devil: Pick<DustDevil, "id" | "coreRadius">, t: number, out?: DevilAxisCurve): DevilAxisCurve {
+  const o: DevilAxisCurve = out ?? { baseX: 0, baseZ: 0, leanX: 0, leanZ: 0, bendX: 0, bendZ: 0, snakeX: 0, snakeZ: 0, kinkX: 0, kinkZ: 0, bulge: 0 };
+  const lag = devilAxisLag(devil.id);
+  const b = devilWander(devil, t, _w0);
+  o.baseX = b.x;
+  o.baseZ = b.z;
+  const top = devilWander(devil, t - lag, _w1);
+  const mid = devilWander(devil, t - lag * 0.5, _w2);
+  const sway = devilFunnelSway(devil, 1, t, _w3);
+  o.leanX = top.x - b.x + sway.x;
+  o.leanZ = top.z - b.z + sway.z;
+  // Pin h=0.5 to the half-lagged base: lean·0.5^1.25 + bend = mid − base.
+  const l5 = Math.pow(0.5, 1.25);
+  o.bendX = mid.x - b.x - o.leanX * l5;
+  o.bendZ = mid.z - b.z - o.leanZ * l5;
+  // (kink·sin(3π/2) = −kink at h = 0.5 is compensated after the kink is set below.)
+  const sa = devil.coreRadius * DEVIL_SNAKE_PER_CORE;
+  const ph = devilHash(devil.id, 70) * 6.2832;
+  o.snakeX = sa * Math.sin(t * 1.3 + ph);
+  o.snakeZ = sa * Math.cos(t * 0.9 + ph * 1.7);
+  const ka = devil.coreRadius * DEVIL_KINK_PER_CORE;
+  const pk = devilHash(devil.id, 71) * 6.2832;
+  o.kinkX = ka * Math.sin(t * 2.7 + pk);
+  o.kinkZ = ka * Math.cos(t * 2.1 + pk * 1.3);
+  o.bendX += o.kinkX;
+  o.bendZ += o.kinkZ;
+  o.bulge = devilBulge(devil.id, t);
+  return o;
+}
+const _w0 = { x: 0, z: 0 };
+const _w1 = { x: 0, z: 0 };
+const _w2 = { x: 0, z: 0 };
+const _w3 = { x: 0, z: 0 };
+
+/** Axis offset from the base (m) at normalized height h on a curve. */
+export function devilAxisAt(c: DevilAxisCurve, h: number, out: { x: number; z: number } = { x: 0, z: 0 }): { x: number; z: number } {
+  const u = Math.max(0, Math.min(1, h));
+  const lean = Math.pow(Math.max(u, 1e-4), 1.25);
+  const s1 = Math.sin(Math.PI * u);
+  const s2 = Math.sin(2 * Math.PI * u);
+  const s3 = Math.sin(3 * Math.PI * u);
+  out.x = c.leanX * lean + c.bendX * s1 + c.snakeX * s2 + c.kinkX * s3;
+  out.z = c.leanZ * lean + c.bendZ * s1 + c.snakeZ * s2 + c.kinkZ * s3;
+  return out;
+}
+/** Radius multiplier at height h for a curve's bulge. */
+export function devilBulgeScale(c: Pick<DevilAxisCurve, "bulge">, h: number): number {
+  const s = Math.sin(Math.PI * Math.max(0, Math.min(1, h)));
+  return 1 + c.bulge * s * s;
+}
+
+/**
+ * fe-22e: the rover push from a devil whose base has wandered: {@link devilRoverForce} evaluated
+ * around the visible (wandered) base at time t, so the physics matches what is drawn.
+ */
+export function devilRoverForceAt(devil: DustDevil, t: number, x: number, z: number, out?: DevilRoverForce): DevilRoverForce {
+  const w = devilWander(devil, t, _wf);
+  return devilRoverForce(devil, x - w.x, z - w.z, out);
+}
+const _wf = { x: 0, z: 0 };
+
+// ---------------------------------------------------------------- fe-22f: sizes, core width, terrain tint, pebbles
+
+/** Continuous random grain size: multiplier log-spread over [MIN, MAX] (skewed fine), replacing coarse/fine. */
+export const DEVIL_SIZE_RANGE = Object.freeze({ min: 0.35, max: 3.2 });
+/** Sane cap (m) on the largest devil grain sprite (sizeEnd × max multiplier). */
+export const DEVIL_GRAIN_MAX_SIZE = 1.8;
+/** CPU mirror of the GPU size multiplier for a per-particle random r in [0,1). */
+export function devilGrainSizeMultiplier(r: number, range: { min: number; max: number } = DEVIL_SIZE_RANGE): number {
+  const lo = Math.max(range.min, 1e-3);
+  return lo * Math.pow(Math.max(range.max, lo) / lo, Math.pow(Math.max(r, 1e-4), 1.6));
+}
+
+/** Outer swirl radius ÷ core radius (Ian: the swirl is only slightly bigger than the full-width core). */
+export const DEVIL_SWIRL_OVER_CORE = 1.15;
+/**
+ * Steady-state 90th-percentile swirl radius (m) for a devil width — a fit of {@link devilColumnSpread}
+ * (≈2.95 / 3.07 / 3.61 m at core 2.5 / 5 / 8 m).
+ */
+export function devilSwirlRadius(coreRadius: number): number {
+  return 2.65 + 0.115 * coreRadius;
+}
+/**
+ * Core card half-width (m) at height u: the full devil width under the swirl, i.e. the swirl radius
+ * ÷ {@link DEVIL_SWIRL_OVER_CORE}, flaring slightly with height.
+ */
+export function devilCoreHalfWidth(coreRadius: number, u: number): number {
+  const x = Math.max(0, Math.min(1, u));
+  return (devilSwirlRadius(coreRadius) / DEVIL_SWIRL_OVER_CORE) * (0.85 + 0.3 * x);
+}
+
+/** Linear colour from an sRGB hex. */
+function srgbHexToLinear(hex: number): { r: number; g: number; b: number } {
+  const c = (v: number): number => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return { r: c((hex >> 16) & 255), g: c((hex >> 8) & 255), b: c(hex & 255) };
+}
+/** The storm terrain's surface tints (marsShared createMarsTerrain): ferric dust, basalt, pale sand. */
+export const STORM_TERRAIN_TINTS = Object.freeze({ dust: srgbHexToLinear(0xc9784f), rock: srgbHexToLinear(0x5c5046), sand: srgbHexToLinear(0xd1a06b) });
+/** Lifted-dust darkening of the ground tint (the column is in its own shadow; fe-21 rust ≈ 0.25× dust). */
+export const DEVIL_TINT_DARKEN = 0.3;
+/**
+ * fe-22f: devil dust colour (linear) from the terrain at its base, by the same slope bands the Mars
+ * surface layers use: sand on flats (< 0.35), rock on steep ground (0.4+), ferric dust between.
+ * Returns the swarm colour and the darker per-grain alternate.
+ */
+export function devilTerrainTint(slope: number, out: { color: Rgba; alt: Rgba } = { color: { r: 0, g: 0, b: 0, a: 1 }, alt: { r: 0, g: 0, b: 0, a: 1 } }): { color: Rgba; alt: Rgba } {
+  const s = Math.max(0, slope);
+  const rock = smooth(Math.max(0, Math.min(1, (s - 0.4) / 0.4)));
+  const sand = (1 - smooth(Math.max(0, Math.min(1, (s - 0.1) / 0.25)))) * (1 - rock);
+  const dust = Math.max(0, 1 - rock - sand);
+  const T = STORM_TERRAIN_TINTS;
+  const k = DEVIL_TINT_DARKEN;
+  out.color.r = (T.dust.r * dust + T.rock.r * rock + T.sand.r * sand) * k;
+  out.color.g = (T.dust.g * dust + T.rock.g * rock + T.sand.g * sand) * k;
+  out.color.b = (T.dust.b * dust + T.rock.b * rock + T.sand.b * sand) * k;
+  out.color.a = 1;
+  // Alternate: the same ground half-way toward basalt, darker still.
+  out.alt.r = (out.color.r + T.rock.r * k) * 0.4;
+  out.alt.g = (out.color.g + T.rock.g * k) * 0.4;
+  out.alt.b = (out.color.b + T.rock.b * k) * 0.4;
+  out.alt.a = 1;
+  return out;
+}
+
+// Pebbles: small debris a strong devil lifts, spins round its axis and drops.
+
+/** Pebbles (m radius) a devil may ever lift; the 0.9–2.2 m storm boulders are never candidates. */
+export const PEBBLE_MAX_LIFT_RADIUS = 0.3;
+/** Devil strength (0..~1.5, |swirl|/MAX × envelope) needed to lift any pebble at all. */
+export const PEBBLE_LIFT_STRENGTH = 0.55;
+/** Pool sizes: desktop / reduced (iOS). One small draw each. */
+export const PEBBLE_POOL = Object.freeze({ full: 20, reduced: 8 });
+
+export interface Pebble {
+  x: number; y: number; z: number;
+  radius: number;
+  /** "ground" | carried by devil id | "falling". */
+  state: "ground" | "carried" | "falling";
+  devilId: number;
+  angle: number; orbit: number; height: number;
+  vx: number; vy: number; vz: number;
+  spin: number;
+}
+
+/** Devil lifting strength now: swirl share of the max × life envelope. */
+export function devilLiftStrength(devil: Pick<DustDevil, "swirl" | "age" | "life" | "fadeOut">): number {
+  return (Math.abs(devil.swirl) / DEVIL_SWIRL_MAX) * devilEnvelope(devil);
+}
+/** Largest pebble radius (m) a devil of this strength lifts: 0 below the threshold, capped at {@link PEBBLE_MAX_LIFT_RADIUS}. */
+export function pebbleLiftRadius(strength: number): number {
+  if (strength < PEBBLE_LIFT_STRENGTH) return 0;
+  return Math.min(PEBBLE_MAX_LIFT_RADIUS, 0.08 + (strength - PEBBLE_LIFT_STRENGTH) * 0.5);
+}
+
+/**
+ * fe-22f: a small seeded pebble field around the rover. A devil whose wandered base passes over a
+ * pebble picks it up if it is strong enough for that pebble's size, carries it spinning round its
+ * axis while rising, and drops it (ballistic) when it weakens or the pebble is randomly flung out.
+ * Pebbles too far from the rover are recycled ahead of the nearest devil.
+ */
+export class DevilPebbles {
+  readonly pebbles: Pebble[] = [];
+  private readonly rng: Rng;
+  constructor(count: number, seed = STORM_SEED + 303) {
+    this.rng = new Rng(seed);
+    for (let i = 0; i < count; i++) {
+      this.pebbles.push({ x: 0, y: 0, z: 0, radius: 0.05, state: "ground", devilId: -1, angle: 0, orbit: 0, height: 0, vx: 0, vy: 0, vz: 0, spin: 0 });
+    }
+  }
+  /** Scatter every pebble on the ground around (x, z). */
+  scatter(x: number, z: number, ground: GroundHeightFn, spread = 40): void {
+    for (const p of this.pebbles) this.place(p, x + this.rng.nextSignedFloat() * spread, z + this.rng.nextSignedFloat() * spread, ground);
+  }
+  private place(p: Pebble, x: number, z: number, ground: GroundHeightFn): void {
+    p.x = x; p.z = z;
+    // Mostly gravel, some fist-sized; a few deliberately too big for any devil (never lifted).
+    p.radius = 0.04 + Math.pow(this.rng.nextFloat(), 2) * 0.36;
+    p.y = ground(x, z) + p.radius * 0.5;
+    p.state = "ground"; p.devilId = -1; p.vx = p.vy = p.vz = 0;
+  }
+  step(dt: number, devils: readonly DustDevil[], baseAt: (d: DustDevil) => { x: number; z: number }, ground: GroundHeightFn, roverX: number, roverZ: number): void {
+    for (const p of this.pebbles) {
+      if (p.state === "carried") {
+        const d = devils.find((q) => q.id === p.devilId);
+        const strength = d ? devilLiftStrength(d) : 0;
+        if (!d || pebbleLiftRadius(strength) < p.radius || d.state === "dying") {
+          this.release(p, d, 0.5);
+          continue;
+        }
+        const b = baseAt(d);
+        const w = Math.sign(d.swirl || 1) * (2.2 + 1.5 * strength) / Math.max(0.6, p.orbit);
+        p.angle += w * dt;
+        p.height = Math.min(p.height + (3 + 6 * strength) * dt, 4 + d.coreRadius * 2.5);
+        p.orbit += (0.15 + p.radius) * dt; // slowly spirals outward
+        p.spin += 9 * dt;
+        p.x = b.x + Math.cos(p.angle) * p.orbit;
+        p.z = b.z + Math.sin(p.angle) * p.orbit;
+        p.y = ground(b.x, b.z) + p.height;
+        // Flung out once it spirals past the swirl, or at random.
+        if (p.orbit > devilSwirlRadius(d.coreRadius) * 1.3 || this.rng.nextFloat() < 0.08 * dt) this.release(p, d, 1);
+        continue;
+      }
+      if (p.state === "falling") {
+        p.vy -= 3.71 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+        p.spin += 6 * dt;
+        const gy = ground(p.x, p.z) + p.radius * 0.5;
+        if (p.y <= gy) { p.y = gy; p.state = "ground"; p.vx = p.vy = p.vz = 0; }
+        continue;
+      }
+      // Ground: recycle far pebbles ahead of the nearest devil (or around the rover).
+      if (Math.hypot(p.x - roverX, p.z - roverZ) > 110) {
+        const d = devils[Math.floor(this.rng.nextFloat() * Math.max(1, devils.length))];
+        const c = d ? baseAt(d) : { x: roverX, z: roverZ };
+        this.place(p, c.x + this.rng.nextSignedFloat() * 25, c.z + this.rng.nextSignedFloat() * 25, ground);
+        continue;
+      }
+      for (const d of devils) {
+        if (d.state === "dying") continue;
+        if (pebbleLiftRadius(devilLiftStrength(d)) < p.radius) continue;
+        const b = baseAt(d);
+        const dx = p.x - b.x, dz = p.z - b.z;
+        const r = Math.hypot(dx, dz);
+        if (r > devilSwirlRadius(d.coreRadius)) continue;
+        p.state = "carried"; p.devilId = d.id; p.angle = Math.atan2(dz, dx); p.orbit = Math.max(0.5, r); p.height = p.y - ground(b.x, b.z);
+        break;
+      }
+    }
+  }
+  private release(p: Pebble, d: DustDevil | undefined, fling: number): void {
+    const dir = d ? Math.sign(d.swirl || 1) : 1;
+    const tang = 6 * fling;
+    p.vx = -Math.sin(p.angle) * tang * dir + Math.cos(p.angle) * 2 * fling;
+    p.vz = Math.cos(p.angle) * tang * dir + Math.sin(p.angle) * 2 * fling;
+    p.vy = 1.5 * fling;
+    p.state = "falling";
+    p.devilId = -1;
+  }
+}

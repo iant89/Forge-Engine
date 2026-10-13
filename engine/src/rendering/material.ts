@@ -39,6 +39,12 @@ export interface MaterialOptions {
   transparent?: boolean;
   /** Skip distance fog and aerial perspective (beacons that must read through dense weather). */
   fogExempt?: boolean;
+  /**
+   * Transparent only: write depth (default true, the historical behaviour). Set false for soft
+   * see-through layers (impostor cards) so they never hide transparent draws or depth-tested
+   * particles behind their quad footprint.
+   */
+  depthWrite?: boolean;
   tiling?: [number, number];
   offset?: [number, number];
   normalScale?: number;
@@ -73,6 +79,8 @@ export class Material {
   doubleSided = false;
   /** Skip distance fog and aerial perspective; a uniform flag, so toggling it never rebuilds a pipeline. */
   fogExempt = false;
+  /** Transparent only: write depth (see {@link MaterialOptions.depthWrite}). */
+  depthWrite = true;
   /** Discard instead of blending (foliage): cheaper and depth-correct. */
   alphaTest = 0;
   albedoMap: Texture | null = null;
@@ -103,6 +111,7 @@ export class Material {
     this.transparent = options.transparent ?? false;
     this.doubleSided = options.doubleSided ?? false;
     this.fogExempt = options.fogExempt ?? false;
+    this.depthWrite = options.depthWrite ?? true;
     this.albedoMap = options.albedoMap ?? null;
     this.normalMap = options.normalMap ?? null;
     this.metallicRoughnessMap = options.metallicRoughnessMap ?? null;
@@ -258,6 +267,7 @@ export class Material {
       transparent: this.transparent,
       doubleSided: this.doubleSided,
       fogExempt: this.fogExempt,
+      depthWrite: this.depthWrite,
       albedoMap: this.albedoMap,
       normalMap: this.normalMap,
       metallicRoughnessMap: this.metallicRoughnessMap,
