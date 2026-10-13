@@ -27,7 +27,7 @@ import {
   Color,
   type Engine,
   type Entity,
-  type Geometry,
+  Geometry,
   GpuParticleWorld,
   Light,
   Material,
@@ -40,8 +40,6 @@ import {
   VehicleSystem,
   createCylinder,
   createRock,
-  createSphere,
-  createTorus,
   heightFunctionGround,
   stormLightFactors,
 } from "@forge/engine";
@@ -63,6 +61,34 @@ import {
   BURIAL_STUCK,
   DustAccumulation,
   DustDevilField,
+  DRIFT_LIFT,
+  WaypointArrowState,
+  beamPulse,
+  waypointArrowEnabled,
+  ARROW_IN_MARGIN,
+  ARROW_OUT_MARGIN,
+  buildArrowMesh,
+  buildDrapedRing,
+  buildGuidePath,
+  guidePathEnabled,
+  waypointInView,
+  type StripMesh,
+  DRIFT_VERTEX_COUNT,
+  driftFootprintGrowth,
+  DEVIL_FUNNEL_HEIGHT_PER_CORE,
+  DEVIL_SKIRT_HEIGHT,
+  FUNNEL_VERTEX_COUNT,
+  STORM_SHEET_LOOK,
+  buildDriftMoundMesh,
+  buildFunnelMesh,
+  devilEnvelope,
+  devilFunnelProfile,
+  devilParticleLook,
+  devilSkirtProfile,
+  settleDriftMound,
+  type DriftMoundMesh,
+  type DustDevil,
+  type FunnelMesh,
   LULL_INTENSITY,
   STORM_DIFFICULTY,
   STORM_QUALITY_TIERS,
@@ -137,7 +163,6 @@ const DUST_G = 0.26;
 const DUST_B = 0.12;
 /** Seconds on its side/roof before the difficulty rule fires. */
 const FLIP_GRACE = 1.5;
-const UP = new Vec3(0, 1, 0);
 
 export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOptions = {}): MarsDustStormHandle {
   const loadModel = options.loadGlb ?? loadGlb;
@@ -267,19 +292,45 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
 
   // ---------------------------------------------------------------- boulders + their dust piles
 
-  const dustMaterial = track(new Material({ label: "storm-dust-pile", color: Color.fromSrgbHex(0xc08050), roughness: 1, metallic: 0 }));
+  const dustMaterial = track(new Material({ label: "storm-dust-pile", color: Color.fromSrgbHex(0xc08050), roughness: 1, metallic: 0, doubleSided: true }));
   const rockMaterial = track(new Material({ label: "storm-boulder", color: Color.fromSrgbHex(0x7a5040), roughness: 0.95, metallic: 0.02 }));
   const boulderGeometry = track(createRock(gpu, { radius: 1, segments: 10, seed: 11, roughness: 0.36, flatten: 0.3 }));
-  // A unit dome: the bottom half sits under the ground, so scaling Y raises a mound.
-  const moundGeometry = track(createSphere(gpu, { radius: 1, widthSegments: 16, heightSegments: 8 }));
+  /**
+   * fe-18: every pile owns a small draped mesh (centre + rings + sunken skirt) rebuilt only when its
+   * shape changes. Vertices sample the heightfield so the pile hugs slopes with no void under its
+   * edge, and the angle-of-repose settle stretches it downhill instead of overhanging.
+   */
+  interface DriftRecord {
+    entity: Entity;
+    renderable: Renderable;
+    geometry: Geometry;
+    mesh: DriftMoundMesh | undefined;
+    lastX: number;
+    lastZ: number;
+    lastH: number;
+    lastHeading: number;
+  }
+  const emptyDrift = (label: string): Geometry => track(Geometry.create(gpu, {
+    label,
+    positions: new Float32Array(DRIFT_VERTEX_COUNT * 3),
+    normals: new Float32Array(DRIFT_VERTEX_COUNT * 3).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)),
+    uvs: new Float32Array(DRIFT_VERTEX_COUNT * 2),
+    indices: buildDriftMoundMesh({ x: 0, z: 0, height: 0, along: 1, across: 1, heading: 0, slope: 0, downhill: 0 }, () => 0).indices,
+  }));
+  const makeDrift = (name: string, x: number, z: number, material: Material = dustMaterial, shadows = false): DriftRecord => {
+    const geometry = emptyDrift(name);
+    const entity = addRenderable(name, new Vec3(x, groundHeight(x, z), z), geometry, material, shadows);
+    const renderable = entity.get(Renderable)!;
+    renderable.visible = false;
+    return { entity, renderable, geometry, mesh: undefined, lastX: NaN, lastZ: NaN, lastH: NaN, lastHeading: NaN };
+  };
 
   interface PropRecord {
     x: number;
     z: number;
     radius: number;
     pile: ReturnType<DustAccumulation["addPile"]>;
-    mound: Entity;
-    moundRenderable: Renderable;
+    drift: DriftRecord;
   }
   const props: PropRecord[] = [];
   {
@@ -301,25 +352,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const y = groundHeight(x, z);
       const boulder = addRenderable(`storm-boulder-${i}`, new Vec3(x, y + radius * 0.35, z), boulderGeometry, rockMaterial);
       boulder.transform.scale = new Vec3(radius, radius, radius);
-      const mound = addRenderable(`storm-pile-${i}`, new Vec3(x, y, z), moundGeometry, dustMaterial, false);
-      const moundRenderable = mound.get(Renderable)!;
-      moundRenderable.visible = false;
-      props.push({ x, z, radius, pile: accumulation.addPile(x, z, radius), mound, moundRenderable });
+      props.push({ x, z, radius, pile: accumulation.addPile(x, z, radius), drift: makeDrift(`storm-pile-${i}`, x, z) });
     }
   }
 
   // The rover's own piles: one on the windward face, one skirt around the wheels.
-  const roverWindMound = addRenderable("storm-rover-pile-windward", new Vec3(SPAWN_X, groundY, SPAWN_Z), moundGeometry, dustMaterial, false);
-  const roverSkirtMound = addRenderable("storm-rover-pile-skirt", new Vec3(SPAWN_X, groundY, SPAWN_Z), moundGeometry, dustMaterial, false);
-  const roverWindRenderable = roverWindMound.get(Renderable)!;
-  const roverSkirtRenderable = roverSkirtMound.get(Renderable)!;
-  roverWindRenderable.visible = false;
-  roverSkirtRenderable.visible = false;
+  const roverWindDrift = makeDrift("storm-rover-pile-windward", SPAWN_X, SPAWN_Z);
+  const roverSkirtDrift = makeDrift("storm-rover-pile-skirt", SPAWN_X, SPAWN_Z);
 
   // ---------------------------------------------------------------- beams
 
   const beamGeometry = track(createCylinder(gpu, { radiusTop: 1.4, radiusBottom: 1.4, height: BEAM_HEIGHT, radialSegments: 24, capped: false }));
-  const ringGeometry = track(createTorus(gpu, { radius: 6, tube: 0.25 }));
   const beamActive = track(new Material({
     label: "storm-beam-active",
     technique: "emissive",
@@ -339,16 +382,21 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     emissive: Color.fromSrgbHex(0x9fe8ff),
     emissiveStrength: 6,
     fogExempt: true,
+    doubleSided: true,
   }));
   interface BeamRecord {
+    beamEntity: Entity;
     beam: Renderable;
     ring: Renderable;
   }
   const beams: BeamRecord[] = course.checkpoints.map((cp, i) => {
     const y = groundHeight(cp.x, cp.z);
     const beamEntity = addRenderable(`storm-beam-${i}`, new Vec3(cp.x, y + BEAM_HEIGHT / 2 - 1, cp.z), beamGeometry, beamNext, false);
-    const ringEntity = addRenderable(`storm-beam-ring-${i}`, new Vec3(cp.x, y + 0.3, cp.z), ringGeometry, ringActive, false);
-    return { beam: beamEntity.get(Renderable)!, ring: ringEntity.get(Renderable)! };
+    // fe-18: the base ring is draped onto the terrain (flush on hills, never half-buried).
+    const ring = buildDrapedRing(cp.x, cp.z, 6, 0.55, groundHeight);
+    const ringGeometry = track(Geometry.create(gpu, { label: `storm-beam-ring-${i}`, positions: ring.positions, normals: ring.normals, uvs: ring.uvs, indices: ring.indices }));
+    const ringEntity = addRenderable(`storm-beam-ring-${i}`, new Vec3(cp.x, ring.baseY, cp.z), ringGeometry, ringActive, false);
+    return { beamEntity, beam: beamEntity.get(Renderable)!, ring: ringEntity.get(Renderable)! };
   });
   const refreshBeams = (): void => {
     for (let i = 0; i < beams.length; i++) {
@@ -362,9 +410,62 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
   refreshBeams();
 
+  // ---------------------------------------------------------------- guidance (fe-18): easy path + off-screen arrow
+
+  const guideMaterial = track(new Material({
+    label: "storm-guide-path",
+    technique: "emissive",
+    color: Color.fromSrgbHex(0x9fe8ff),
+    emissive: Color.fromSrgbHex(0x9fe8ff),
+    emissiveStrength: 1.1,
+    opacity: 0.22,
+    transparent: true,
+    doubleSided: true,
+    fogExempt: true,
+  }));
+  let guideMesh: (StripMesh & { baseY: number }) | undefined = buildGuidePath(SPAWN_X, SPAWN_Z, first.x, first.z, groundHeight);
+  const guideGeometry = track(Geometry.create(gpu, { label: "storm-guide-path", positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices }));
+  const guideEntity = addRenderable("storm-guide-path", new Vec3(SPAWN_X, guideMesh.baseY, SPAWN_Z), guideGeometry, guideMaterial, false);
+  const guideRenderable = guideEntity.get(Renderable)!;
+  let guideTimer = 0;
+  const arrowMesh = buildArrowMesh();
+  const arrowGeometry = track(Geometry.create(gpu, { label: "storm-waypoint-arrow", positions: arrowMesh.positions, normals: arrowMesh.normals, uvs: arrowMesh.uvs, indices: arrowMesh.indices }));
+  const arrowMaterial = track(ringActive.clone({ label: "storm-waypoint-arrow", emissiveStrength: 7, doubleSided: true }));
+  const arrowEntity = addRenderable("storm-waypoint-arrow", new Vec3(SPAWN_X, groundY + 4, SPAWN_Z), arrowGeometry, arrowMaterial, false);
+  const arrowRenderable = arrowEntity.get(Renderable)!;
+  arrowRenderable.visible = false;
+  const arrowState = new WaypointArrowState();
+  // Beam pulse: the active beam throbs (emissive + radius) and a bright band climbs it into the sky.
+  const pulse = beamPulse(0);
+  const pulseBandMaterial = track(beamActive.clone({ label: "storm-beam-pulse", emissiveStrength: 14, opacity: 0 }));
+  const pulseBandGeometry = track(createCylinder(gpu, { radiusTop: 1.9, radiusBottom: 1.9, height: 24, radialSegments: 24, capped: false }));
+  const pulseBand = addRenderable("storm-pulse-band", new Vec3(SPAWN_X, groundY, SPAWN_Z), pulseBandGeometry, pulseBandMaterial, false);
+  const pulseBandRenderable = pulseBand.get(Renderable)!;
+  pulseBandRenderable.visible = false;
+  const beamScale = new Vec3(1, 1, 1);
+  const stepBeamPulse = (): void => {
+    beamPulse(time, pulse);
+    const glow = 9 * pulse.glow;
+    if (Math.abs(beamActive.emissiveStrength - glow) > 0.2) {
+      beamActive.emissiveStrength = glow;
+      beamActive.markChanged(); // uniforms upload only on markChanged()
+    }
+    const cp = course.active;
+    const rec = cp ? beams[course.index] : undefined;
+    for (let i = 0; i < beams.length; i++) beams[i]!.beamEntity.transform.scale = beamScale.set(i === course.index ? pulse.width : 1, 1, i === course.index ? pulse.width : 1);
+    pulseBandRenderable.visible = !!cp && !!rec && pulse.bandOpacity > 0.01;
+    if (!cp || !pulseBandRenderable.visible) return;
+    setOpacity(pulseBandMaterial, pulse.bandOpacity);
+    pulseBand.transform.position = moundPos.set(cp.x, groundHeight(cp.x, cp.z) + 12 + pulse.band * BEAM_HEIGHT, cp.z);
+  };
+  const arrowRot = new Quat();
+  const camForward = new Vec3();
+  const FORWARD = new Vec3(0, 0, -1);
+  const UP_AXIS = new Vec3(0, 1, 0);
+
   // ---------------------------------------------------------------- particles (sheet + one system per devil)
 
-  const dustColor = { r: 0.78, g: 0.48, b: 0.28, a: 0.3 };
+  const dustColor = { r: 0.78, g: 0.48, b: 0.28, a: STORM_SHEET_LOOK.alpha };
   const makeDust = (name: string, capacity: number, seed: number, maxEmits: number): GpuParticleWorld => {
     const world = new GpuParticleWorld({
       name,
@@ -379,7 +480,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         rate: 0,
         lifeMin: 2.2,
         lifeMax: 3.6,
-        size: 0.08,
+        size: STORM_SHEET_LOOK.size,
         position: { x: SPAWN_X, y: groundY + 8, z: SPAWN_Z },
         jitter: { x: 60, y: 9, z: 60 },
         coneDir: { x: 1, y: 0, z: 0 },
@@ -399,9 +500,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         velocityBoost: { x: 0, y: 0, z: 0 },
         colorFrom: { ...dustColor },
         colorTo: { r: 0.62, g: 0.36, b: 0.2, a: 0 },
-        sizeStart: 0.06,
-        sizeEnd: 0.14,
-        sizeVariation: 0.5,
+        sizeStart: STORM_SHEET_LOOK.sizeStart,
+        sizeEnd: STORM_SHEET_LOOK.sizeEnd,
+        sizeVariation: STORM_SHEET_LOOK.sizeVariation,
         rotationSpeed: 0.4,
       },
     });
@@ -414,6 +515,59 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   for (let i = 0; i < quality.devils; i++) {
     devilDust.push(makeDust(`devil dust ${i}`, quality.devilCapacity, 0xd0 + i, 1024));
   }
+
+  // ---------------------------------------------------------------- tornado funnels (fe-18)
+
+  /**
+   * Each devil slot also gets a cheap funnel impostor matching the reference: a dense dark core
+   * shell inside a lighter turbulent outer shell (both lumpy, swaying, spun with the devil), a low
+   * debris skirt at the base and a draped ground shadow. ~4 transparent draws per devil, thin on
+   * screen, no shadows cast; the particle column supplies the fine turbulent detail.
+   */
+  interface FunnelRecord {
+    core: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material; uploaded?: boolean };
+    outer: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material };
+    skirt: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material };
+    shadow: DriftRecord;
+    shadowMaterial: Material;
+  }
+  const funnelShellMaterial = (label: string, hex: number): Material => track(new Material({ label, color: Color.fromSrgbHex(hex), roughness: 1, metallic: 0, opacity: 0, transparent: true, doubleSided: true }));
+  const emptyFunnel = (label: string): Geometry => track(Geometry.create(gpu, {
+    label,
+    positions: new Float32Array(FUNNEL_VERTEX_COUNT * 3),
+    normals: new Float32Array(FUNNEL_VERTEX_COUNT * 3),
+    uvs: new Float32Array(FUNNEL_VERTEX_COUNT * 2),
+    indices: buildFunnelMesh({ id: 0, coreRadius: 1, swirl: 1 }, 1, () => 1, 1, 0).indices,
+  }));
+  const makeShell = (name: string, hex: number): FunnelRecord["core"] => {
+    const geometry = emptyFunnel(name);
+    const material = funnelShellMaterial(name, hex);
+    const entity = addRenderable(name, new Vec3(SPAWN_X, groundY, SPAWN_Z), geometry, material, false);
+    const renderable = entity.get(Renderable)!;
+    renderable.visible = false;
+    return { entity, renderable, geometry, mesh: undefined, material };
+  };
+  /** Material uniforms upload only after markChanged() (which also rebuilds the bind group), so skip
+   * changes too small to see. */
+  const setOpacity = (material: Material, value: number): void => {
+    if (Math.abs(material.opacity - value) < 0.015) return;
+    material.opacity = value;
+    material.markChanged();
+  };
+  const funnels: FunnelRecord[] = [];
+  for (let i = 0; i < quality.devils; i++) {
+    const shadowMaterial = track(new Material({ label: `storm-devil-shadow-${i}`, color: Color.fromSrgbHex(0x1a0c06), roughness: 1, metallic: 0, opacity: 0, transparent: true }));
+    funnels.push({
+      core: makeShell(`storm-devil-core-${i}`, 0x3a2216),
+      outer: makeShell(`storm-devil-shell-${i}`, 0x8a5a3a),
+      skirt: makeShell(`storm-devil-skirt-${i}`, 0x9a6a46),
+      shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
+      shadowMaterial,
+    });
+  }
+  /** Sun direction projected on the ground (the shadow falls away from it). */
+  const sunAway = { x: -200 / Math.hypot(200, 200), z: -200 / Math.hypot(200, 200) };
+  const sunTan = Math.hypot(200, 200) / 300;
 
   // ---------------------------------------------------------------- input
 
@@ -472,8 +626,6 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const force: DevilRoverForce = { ax: 0, az: 0, yawAccel: 0, lift: 0, rollAccel: 0 };
   const windward = { x: 0, z: 0 };
   const moundPos = new Vec3();
-  const moundScale = new Vec3();
-  const moundRot = new Quat();
   const fogColor = new Color(DUST_R, DUST_G, DUST_B);
 
   /** Reposition upright, facing the active beam. `clearDust` also empties the rover's pile. */
@@ -533,6 +685,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     applyAtmosphere();
     stepPiles(0); // re-pose the (now empty) mounds
     refreshBeams();
+    arrowState.reset();
+    guideTimer = 0;
+    stepGuidance(0);
   }
 
   const applyAtmosphere = (): void => {
@@ -582,52 +737,116 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         continue;
       }
       const gy = groundHeight(d.x, d.z);
+      const look = devilParticleLook(d);
       const e = sys.emitter;
       e.rate = quality.devilRate;
       e.position.x = d.x;
-      e.position.y = gy + 1;
+      e.position.y = gy + 0.6;
       e.position.z = d.z;
-      e.jitter.x = d.coreRadius;
-      e.jitter.y = 1;
-      e.jitter.z = d.coreRadius;
+      e.jitter.x = look.jitterXZ;
+      e.jitter.y = look.jitterY;
+      e.jitter.z = look.jitterXZ;
       e.coneDir.x = 0;
       e.coneDir.y = 1;
       e.coneDir.z = 0;
-      e.coneAngle = 0.5;
-      e.speedMin = 5;
-      e.speedMax = 11;
+      e.coneAngle = look.coneAngle;
+      e.speedMin = look.speedMin;
+      e.speedMax = look.speedMax;
       const m = sys.modules;
       m.attractorPos.x = d.x;
-      m.attractorPos.y = gy + 10;
+      m.attractorPos.y = gy + look.attractorHeight;
       m.attractorPos.z = d.z;
-      m.attractorStrength = 6;
-      m.swirlStrength = Math.sign(d.swirl || 1) * 140;
+      m.attractorStrength = look.attractorStrength;
+      m.swirlStrength = look.swirl;
+      m.sizeStart = look.sizeStart;
+      m.sizeEnd = look.sizeEnd;
+    }
+    stepFunnels();
+  };
+
+  let funnelFrame = 0;
+  const stepFunnels = (): void => {
+    funnelFrame++;
+    const rebuildFunnels = qualityTier !== "reduced" || funnelFrame % 2 === 0;
+    for (let i = 0; i < funnels.length; i++) {
+      const f = funnels[i]!;
+      const d: DustDevil | undefined = devils.devils[i];
+      const env = d ? devilEnvelope(d) : 0;
+      const visible = !!d && env > 0.01;
+      f.core.renderable.visible = visible;
+      f.outer.renderable.visible = visible;
+      f.skirt.renderable.visible = visible;
+      if (!visible || !d) {
+        f.shadow.renderable.visible = false;
+        continue;
+      }
+      const gy = groundHeight(d.x, d.z);
+      const height = d.coreRadius * DEVIL_FUNNEL_HEIGHT_PER_CORE;
+      const shells: [FunnelRecord["core"], number, number, number, (u: number) => number, number, number][] = [
+        // record, radius scale, height scale, sway scale, profile, opacity, time offset
+        [f.core, 0.55, 1, 1, devilFunnelProfile, 0.34, 0],
+        [f.outer, 1.25, 1.04, 1, devilFunnelProfile, 0.1, 1.7],
+        [f.skirt, 1, DEVIL_SKIRT_HEIGHT * d.coreRadius / height, 0.15, devilSkirtProfile, 0.16, 0.6],
+      ];
+      for (const [rec, scale, hScale, swayScale, profile, opacity, dt] of shells) {
+        // Reduced (iOS) tier re-shapes the funnels on alternate frames only: half the vertex uploads.
+        if (rebuildFunnels || !rec.mesh) rec.mesh = buildFunnelMesh(d, height * hScale, profile, scale, time + dt, swayScale, rec.mesh);
+        if (rebuildFunnels || !rec.uploaded) {
+          rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
+          rec.uploaded = true;
+        }
+        rec.entity.transform.position = moundPos.set(d.x, gy - 0.2, d.z);
+        setOpacity(rec.material, opacity * env * (0.7 + 0.3 * intensity));
+      }
+      // Ground shadow: a thin draped ellipse stretched away from the sun.
+      const len = Math.min(height * sunTan, 60) * 0.5;
+      setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun));
+      updateDrift(f.shadow, d.x + sunAway.x * len, d.z + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
     }
   };
 
-  const updateMound = (entity: Entity, renderable: Renderable, x: number, z: number, sx: number, sy: number, sz: number, yaw: number): void => {
-    renderable.visible = sy > 0.02;
-    if (!renderable.visible) return;
-    entity.transform.position = moundPos.set(x, groundHeight(x, z), z);
-    entity.transform.scale = moundScale.set(Math.max(0.01, sx), sy, Math.max(0.01, sz));
-    entity.transform.rotation = moundRot.setAxisAngle(UP, yaw);
+  /**
+   * Settle and drape one pile. Rebuilds the mesh only when the pile grew, the wind turned or the
+   * anchor moved enough to matter (rover piles move with the rover), so idle piles cost nothing.
+   */
+  const updateDrift = (rec: DriftRecord, x: number, z: number, height: number, along: number, across: number, heading: number, decal = false): void => {
+    const minHeight = decal ? 0 : 0.02;
+    rec.renderable.visible = height > minHeight;
+    if (!rec.renderable.visible) return;
+    let dh = heading - rec.lastHeading;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    const changed = !(Math.abs(height - rec.lastH) < 0.01 && Math.abs(dh) < 0.035 && Math.hypot(x - rec.lastX, z - rec.lastZ) < 0.05);
+    if (!changed) return;
+    rec.lastX = x;
+    rec.lastZ = z;
+    rec.lastH = height;
+    rec.lastHeading = heading;
+    // Piles grow their footprint with depth; the devil-shadow decal keeps its full ellipse.
+    const grow = decal ? 1 : driftFootprintGrowth(height, along, across);
+    const shape = settleDriftMound({ x, z, height, along: along * grow, across: across * grow, heading }, groundHeight);
+    rec.mesh = buildDriftMoundMesh(shape, groundHeight, rec.mesh, decal ? 0.06 : Math.min(DRIFT_LIFT, 0.5 * height));
+    rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
+    rec.entity.transform.position = moundPos.set(x, rec.mesh.baseY, z);
   };
 
   const stepPiles = (dt: number): void => {
     accumulation.stepPiles(dt, intensity);
-    const yaw = Math.atan2(wind.x, wind.z);
+    // Heading of the wind (0 = +X, toward +Z): the pile's long axis runs along it.
+    const heading = Math.atan2(wind.z, wind.x);
     for (const prop of props) {
       pileWindwardPoint(prop.pile, wind.x, wind.z, windward);
       const d = prop.pile.depth;
-      updateMound(prop.mound, prop.moundRenderable, windward.x, windward.z, prop.radius * 1.3, d, prop.radius * 0.9, yaw);
+      updateDrift(prop.drift, windward.x, windward.z, d, prop.radius * 0.9, prop.radius * 1.3, heading);
     }
-    // Rover mounds: windward bank plus a skirt that climbs the wheels as burial grows.
+    // Rover piles: windward bank plus a skirt that climbs the wheels as burial grows.
     const b = accumulation.burial;
     const len = Math.hypot(wind.x, wind.z) || 1;
     const rx = vehicle.position.x - (wind.x / len) * 1.5;
     const rz = vehicle.position.z - (wind.z / len) * 1.5;
-    updateMound(roverWindMound, roverWindRenderable, rx, rz, 2.4 * Math.sqrt(b), 1.1 * b, 1.4 * Math.sqrt(b), yaw);
-    updateMound(roverSkirtMound, roverSkirtRenderable, vehicle.position.x, vehicle.position.z, 1.9, 0.75 * b, 2.1, vehicle.yaw);
+    updateDrift(roverWindDrift, rx, rz, 1.1 * b, 1.4 * Math.sqrt(b), 2.4 * Math.sqrt(b), heading);
+    // Vehicle yaw 0 faces +Z, so its forward heading is atan2(cos yaw, sin yaw).
+    updateDrift(roverSkirtDrift, vehicle.position.x, vehicle.position.z, 0.75 * b, 2.1, 1.9, Math.atan2(Math.cos(vehicle.yaw), Math.sin(vehicle.yaw)));
   };
 
   const collideProps = (): void => {
@@ -714,7 +933,42 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     }
     stepPiles(dt);
     stepParticles();
+    stepGuidance(dt);
   };
+
+  /** Easy-mode draped path (rebuilt ~5×/s) and the off-screen beam arrow (both difficulties). */
+  function stepGuidance(dt: number): void {
+    const target = course.active;
+    const vx = vehicle.position.x;
+    const vz = vehicle.position.z;
+    guideRenderable.visible = guidePathEnabled(difficulty, !!target);
+    guideTimer -= dt;
+    if (guideRenderable.visible && target && guideTimer <= 0) {
+      guideTimer = 0.2;
+      guideMesh = buildGuidePath(vx, vz, target.x, target.z, groundHeight, guideMesh);
+      guideGeometry.updateFrom({ positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices });
+      guideEntity.transform.position = moundPos.set(vx, guideMesh.baseY, vz);
+    }
+    stepBeamPulse();
+    if (!target || !waypointArrowEnabled(difficulty)) {
+      arrowState.reset();
+      arrowRenderable.visible = false;
+      return;
+    }
+    const eye = cameraEntity.transform.position;
+    cameraEntity.transform.rotation.rotateVector(FORWARD, camForward);
+    // Aim at the beam a few metres up (the ring + lower beam are what the player looks for).
+    const tp = { x: target.x, y: groundHeight(target.x, target.z) + 6, z: target.z };
+    const aspect = camera.aspectOverride > 0 ? camera.aspectOverride : (typeof window !== "undefined" && window.innerHeight > 0 ? window.innerWidth / window.innerHeight : 16 / 9);
+    const inner = waypointInView(eye, camForward, tp, camera.fovY, aspect, ARROW_IN_MARGIN);
+    const outer = waypointInView(eye, camForward, tp, camera.fovY, aspect, ARROW_OUT_MARGIN);
+    arrowRenderable.visible = arrowState.step(dt, inner, outer, waypointArrowEnabled(difficulty));
+    if (!arrowRenderable.visible) return;
+    const heading = Math.atan2(target.z - vz, target.x - vx);
+    arrowEntity.transform.position = moundPos.set(vx, vehicle.position.y + 3.6 + 0.15 * Math.sin(time * 3), vz);
+    // Local +X points along the arrow; a Y rotation by −heading maps +X onto (cos h, 0, sin h).
+    arrowEntity.transform.rotation = arrowRot.setAxisAngle(UP_AXIS, -heading);
+  }
 
   const formatTime = (s: number): string => {
     const m = Math.floor(s / 60);
