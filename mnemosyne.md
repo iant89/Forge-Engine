@@ -2304,3 +2304,16 @@ Read the module constraints below before changing either pure model.
   `npm run test` (76 suites, 0 failed), `npm run check:wgsl`, and the focused real-WebGPU environment
   gate passed. The latter read back the device LUT with a worst table delta of 0.01% and rendered
   multiple scattering, aerial perspective, day/night, Mars, clouds, and water with zero GPU errors.
+
+## 2026-10-13 — fe-17: a device screenshot must name its build
+
+- **Report:** iPhone Safari, Mars Showcase, black sky with a stair-stepped terrain edge, filed 13 min
+  after #87 (the WebKit LUT texture fix) reached Pages. The HUD could not say which bundle produced it:
+  Pages serves `index.html` with a 10-minute cache and iOS Safari keeps a backgrounded tab's page alive,
+  so a screenshot can describe the previous deploy.
+- **Sandbox evidence:** the live post-#87 bundle renders the sky in headless Chromium/SwiftShader at
+  440x796 dpr 2 portrait; naga 25 validates the shipped sky, multiple-scattering, forward and post
+  modules; the stair-step is the known streamed-chunk edge against an unshaded sky (2026-10-12 entry),
+  not a separate culling fault.
+- **Change:** the HUD device line and the `?diag=1` report print `build <sha7>` (Vite `define`, from
+  `GITHUB_SHA` on Pages). Ask for that stamp before debugging any device-only report.

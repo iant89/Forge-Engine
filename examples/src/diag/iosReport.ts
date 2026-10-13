@@ -23,6 +23,8 @@
  * only when diagnostics are asked for.
  */
 
+import { FORGE_BUILD } from "../buildInfo.js";
+import { copyText } from "./copyText.js";
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
 import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
@@ -293,9 +295,10 @@ export function installIosReport(
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.textContent = "diag ▴";
-  toggle.style.cssText =
-    "position:fixed;right:8px;bottom:8px;z-index:61;padding:6px 10px;font:11px ui-monospace,Menlo,monospace;" +
+  const buttonCss =
+    "position:fixed;bottom:8px;z-index:61;padding:6px 10px;font:11px ui-monospace,Menlo,monospace;" +
     "background:rgb(2 4 8 / 0.9);color:#7dd3fc;border:1px solid #38bdf8;border-radius:6px;touch-action:manipulation";
+  toggle.style.cssText = `right:8px;${buttonCss}`;
   let panelVisible = true;
   toggle.addEventListener("click", () => {
     panelVisible = !panelVisible;
@@ -303,6 +306,23 @@ export function installIosReport(
     toggle.textContent = panelVisible ? "diag ▴" : "diag ▾";
   });
   document.body.appendChild(toggle);
+  // Copy the whole report (panel text + the full untruncated JSON, build id included) so a phone
+  // user can paste it instead of screenshotting a scrolled panel.
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.textContent = "copy";
+  copyBtn.style.cssText = `right:84px;${buttonCss}`;
+  let copyReset: ReturnType<typeof setTimeout> | null = null;
+  copyBtn.addEventListener("click", () => {
+    const text = `${panelText}\n\n${describe(prune(lastReport, 0))}`;
+    void copyText(text, { clipboard: navigator.clipboard ?? null, document }).then((ok) => {
+      copyBtn.textContent = ok ? "Copied" : "Copy failed";
+      if (copyReset) clearTimeout(copyReset);
+      copyReset = setTimeout(() => (copyBtn.textContent = "copy"), 1500);
+    });
+  });
+  document.body.appendChild(copyBtn);
+  let panelText = "";
   let captures: Step[] = [];
   let rawSuites: { label: string; results: RawTestResult[] }[] = [];
   let posting = "pending";
@@ -330,6 +350,7 @@ export function installIosReport(
     const live = captures[0] ?? statsBits(forge);
     const pipelineStats = forge.engine?.renderer?.pipelines?.stats?.();
     lines.push(
+      `build ${FORGE_BUILD}`,
       `ua ${navigator.userAgent}`,
       `scene ${forge.sceneName ?? "?"}  gpu ${describe(get(host.gpu, "format"))}/${describe(get(host.gpu, "depthFormat"))}` +
         `  canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight} dpr ${window.devicePixelRatio}`,
@@ -356,6 +377,7 @@ export function installIosReport(
         }
       }
     }
+    panelText = lines.join("\n");
     lines.push("", describe(prune(lastReport, 0)).slice(0, 4000));
     panel.textContent = lines.join("\n");
   }
@@ -403,6 +425,7 @@ export function installIosReport(
     return {
       tag,
       t: Math.round(performance.now()),
+      build: FORGE_BUILD,
       ua: navigator.userAgent,
       secureContext: globalThis.isSecureContext ?? null,
       visibility: document.visibilityState,
@@ -673,6 +696,8 @@ export function installIosReport(
       for (const t of timers) window.clearTimeout(t);
       panel.remove();
       toggle.remove();
+      copyBtn.remove();
+      if (copyReset) clearTimeout(copyReset);
     },
   };
   (globalThis as unknown as { __forgeDiag?: () => unknown }).__forgeDiag = () => lastReport;
