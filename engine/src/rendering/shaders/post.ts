@@ -48,8 +48,14 @@ const FLAG_BLOOM: u32 = 1u;
 const FLAG_KARIS: u32 = 2u;
 const FLAG_NO_TONEMAP: u32 = 4u;
 
+// fe-17: a non-finite texel in the HDR chain would reach every bloom mip and the tonemap and turn
+// the frame black around it, so it reads as zero here. Exponent bits, not x != x (WebKit fast math).
+fn postFinite(x: f32) -> bool {
+  return (bitcast<u32>(x) & 0x7f800000u) != 0x7f800000u;
+}
 fn sampleSrc(uv: vec2<f32>) -> vec3<f32> {
-  return textureSampleLevel(srcTex, linearSampler, uv, 0.0).rgb;
+  let c = textureSampleLevel(srcTex, linearSampler, uv, 0.0).rgb;
+  return select(vec3<f32>(0.0), max(c, vec3<f32>(0.0)), postFinite(c.x) && postFinite(c.y) && postFinite(c.z));
 }
 
 // Weight that pulls fireflies down when averaging a 2x2 quad (Karis 2013).

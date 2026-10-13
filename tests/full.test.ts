@@ -38,6 +38,7 @@ export const linkedSuites = [
   ["tests/rendering/clusters.test.ts", () => import("./rendering/clusters.test.ts")],
   ["tests/rendering/frame.test.ts", () => import("./rendering/frame.test.ts")],
   ["tests/rendering/lightCulling.test.ts", () => import("./rendering/lightCulling.test.ts")],
+  ["tests/rendering/iosSkyGuards.test.ts", () => import("./rendering/iosSkyGuards.test.ts")],
   ["tests/rendering/objectCulling.test.ts", () => import("./rendering/objectCulling.test.ts")],
   ["tests/rendering/pipeline.test.ts", () => import("./rendering/pipeline.test.ts")],
   ["tests/rendering/primitives.test.ts", () => import("./rendering/primitives.test.ts")],
@@ -82,4 +83,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(78);
+report(79);
