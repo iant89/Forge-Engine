@@ -936,7 +936,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stepGuidance(dt);
   };
 
-  /** Easy-mode draped path (rebuilt ~5×/s) and the off-screen beam arrow (both difficulties). */
+  /** Easy-mode draped path (rebuilt ~5×/s) and the easy-mode off-screen beam arrow. */
   function stepGuidance(dt: number): void {
     const target = course.active;
     const vx = vehicle.position.x;
