@@ -82,7 +82,7 @@ import {
   devilCardOpacity,
   devilShellFade,
   CARD_VERTEX_COUNT,
-  DEVIL_CARD_OPACITY,
+  DEVIL_CORE_OPACITY,
   DEVIL_CORE_CARD_WIDTH,
   type FunnelMesh,
   STORM_DUST_PALETTE,
@@ -574,8 +574,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       indices: buildFunnelCard({ id: 0, coreRadius: 1, swirl: 1, x: 0, z: 0 }, 1, 1, 0, 1, 0, 0).indices,
     }));
     // Unlit + fog-exempt like the swirl grains around it: lit and fogged, the cards washed out to
-    // pale flat bands in gusts (fe-22 shots).
-    const material = track(new Material({ label: name, color: Color.fromSrgbHex(hex), roughness: 1, metallic: 0, opacity: 0, transparent: true, doubleSided: true, technique: "unlit", fogExempt: true }));
+    // pale flat bands in gusts (fe-22 shots). No depth write: a transparent card's whole quad wrote
+    // depth and hid every swirl grain behind it (the pale hard-edged band).
+    const material = track(new Material({ label: name, color: Color.fromSrgbHex(hex), roughness: 1, metallic: 0, opacity: 0, transparent: true, doubleSided: true, technique: "unlit", fogExempt: true, depthWrite: false }));
     material.albedoMap = cardTexture;
     material.markChanged();
     const entity = addRenderable(name, new Vec3(SPAWN_X, groundY, SPAWN_Z), geometry, material, false);
@@ -856,8 +857,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const gyCore = groundHeight(d.x, d.z);
       const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
       const cards: [CoreCard, number, number, number][] = [
-        [f.core, DEVIL_CORE_CARD_WIDTH.core, DEVIL_CARD_OPACITY.core, 0.45],
-        [f.outer, DEVIL_CORE_CARD_WIDTH.outer, DEVIL_CARD_OPACITY.outer, 0.3],
+        [f.core, DEVIL_CORE_CARD_WIDTH.core, DEVIL_CORE_OPACITY.core, 0.45],
+        [f.outer, DEVIL_CORE_CARD_WIDTH.outer, DEVIL_CORE_OPACITY.outer, 0.3],
       ];
       for (const [rec, wScale, opacity, scroll] of cards) {
         rec.renderable.visible = fade > 0.01;

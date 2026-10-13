@@ -1773,17 +1773,17 @@ export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array 
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width;
       const across = Math.sin(Math.PI * u); // 0 at edges, 1 at core
-      const edge = Math.pow(across, 1.8);
+      const edge = Math.pow(across, 1.1); // fe-22: fuller core, still soft at the side edges
       // Tileable in v: integer frequencies of 2π v.
       const w = 2 * Math.PI * v;
       const n =
         0.5 +
-        0.22 * Math.sin(w * 3 + u * 9 + ph[0]!) +
-        0.14 * Math.sin(w * 7 - u * 17 + ph[1]!) +
-        0.09 * Math.sin(w * 13 + u * 31 + ph[2]!) +
-        0.05 * Math.sin(w * 23 - u * 47 + ph[3]!);
+        0.28 * Math.sin(w * 2 + u * 7 + ph[0]!) +
+        0.16 * Math.sin(w * 3 - u * 13 + ph[1]!);
+      // fe-22: only low vertical frequencies; the old 7/13/23-per-tile terms stretched over a
+      // 50–80 m column aliased into horizontal "ladder" rungs.
       const wisp = Math.max(0, Math.min(1, n));
-      const a = edge * (0.35 + 0.65 * wisp);
+      const a = edge * (0.65 + 0.35 * wisp);
       const dark = 0.55 + 0.45 * (1 - across);
       const i = (y * width + x) * 4;
       px[i] = Math.round(107 * dark);
@@ -1810,8 +1810,10 @@ export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" 
  * The dense card sits well inside the swirl column; the wispy one stays within the swirl's radius
  * (fe-22 tune: the first 0.8/1.5 cards poked out of the swirl as pale flat bands).
  */
-export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.55, outer: 0.95 });
+export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.8, outer: 1.0 });
 /** Half-width (m) of a core card at height `u`, before its turbulence lumps. */
+/** fe-22: core card opacities (denser than fe-19's 0.85/0.45 cards so the inner funnel reads dark). */
+export const DEVIL_CORE_OPACITY = Object.freeze({ core: 1, outer: 0.7 });
 export function devilCoreCardHalfWidth(coreRadius: number, u: number, widthScale: number): number {
   return devilFunnelProfile(u) * coreRadius * widthScale;
 }

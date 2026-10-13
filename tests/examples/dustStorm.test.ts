@@ -14,7 +14,7 @@ export const suite = {
   desc: "Mars Dust Storm Survival game model: gust cycles, dust devils, dust accumulation, course and difficulty rules",
 };
 import assert from "node:assert/strict";
-import { PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
+import { Material, PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
   DEVIL_SWIRL_RADIUS_SCALE,
@@ -686,6 +686,10 @@ group("fe-22 old-devil core wrapped by a narrower swirl", () => {
     assertCloseTo(m.positions[top + 2]!, sway.z, 4);
     assert.equal(devilShellFade(DEVIL_FADE_NEAR), 0);
     assert.ok(DEVIL_FADE_NEAR <= 5 && devilShellFade(25) === 1, "visible inside the wrap from mid range");
+  });
+  test("transparent depthWrite opt-out (the pale-band fix) defaults to the old behaviour", () => {
+    assert.equal(new Material({ transparent: true }).depthWrite, true);
+    assert.equal(new Material({ transparent: true, depthWrite: false }).clone().depthWrite, false);
   });
 });
 

@@ -1801,7 +1801,10 @@ export class Renderer implements RenderFrameContext {
       // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
       // variant is still compiling, the depth-writing forward variant remains correct at equal depth
       // and avoids a one-frame hole when the prepass finishes first.
-      let pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: !prepassReady });
+      // Transparent materials that opt out of depth writes (soft cards) never fall back to a
+      // depth-writing variant: one frame without the card beats a frame of holes behind it.
+      const noWriteTransparent = b.transparent && !b.material.depthWrite;
+      let pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: !prepassReady && !noWriteTransparent });
       if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
       if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
