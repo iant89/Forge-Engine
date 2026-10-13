@@ -251,15 +251,19 @@ group("Mars Dust Storm Survival — one GPU particle system per dust devil", () 
     assert.ok(devils.length >= 1);
     const sheet = worlds[0]!.system!;
     assert.equal(sheet.modules.swirlStrength, 0, "the storm sheet does not spin");
+    for (const w of worlds) {
+      assert.ok(w.system!.modules.colorVariation > 0, "per-particle palette variation on every dust system");
+      assert.ok(w.system!.modules.colorAlt.r < w.system!.modules.colorFrom.r, "alternate tone is the darker rock colour");
+    }
     assert.ok(sheet.emitter.rate > 0);
     for (let i = 0; i < reduced.devils; i++) {
       const sys = worlds[1 + i]!.system!;
-      const d = devils[i];
+      const d = devils.find((x) => x.slot === i);
       if (!d) {
         assert.equal(sys.emitter.rate, 0, `idle slot ${i}`);
         continue;
       }
-      assert.equal(sys.emitter.rate, reduced.devilRate);
+      assert.ok(sys.emitter.rate > 0 && sys.emitter.rate <= reduced.devilRate, "rate follows the devil's life envelope");
       assert.equal(sys.modules.swirlStrength, devilParticleLook(d).swirl, `devil ${i} swirls`);
       assert.ok(Math.abs(sys.modules.swirlStrength) >= 140);
       assert.equal(Math.sign(sys.modules.swirlStrength), Math.sign(d.swirl || 1));

@@ -248,6 +248,8 @@ struct FullSimParams {
   seed: u32,
   sizeVariation: f32,
   swirlStrength: f32,
+  colorAlt: vec4<f32>,
+  colorVariation: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -289,6 +291,14 @@ struct FullSimParams {
   p.age = p.age + params.dt;
   let t = select(1.0, clamp(p.age / max(p.maxLife, 1e-6), 0.0, 1.0), p.maxLife > 1e-6);
   p.color = mix(params.colorFrom, params.colorTo, t);
+  if (params.colorVariation > 0.0) {
+    // Stable per-particle palette pick (from maxLife, like sizeVariation): blend toward colorAlt
+    // and jitter brightness, so one system shows a spread of grain colours at no extra storage.
+    let pick = fract(p.maxLife * 57.31 + 0.13);
+    let shadeRandom = fract(p.maxLife * 91.7 + 0.71);
+    let shade = 1.0 + params.colorVariation * 0.35 * (shadeRandom * 2.0 - 1.0);
+    p.color = vec4<f32>(mix(p.color.rgb, params.colorAlt.rgb, params.colorVariation * pick) * shade, p.color.a);
+  }
   // maxLife is randomized once at emission, so this size multiplier remains stable throughout a
   // particle's life without needing another particle-buffer field or per-frame random flicker.
   let sizeRandom = fract(p.maxLife * 31.713);

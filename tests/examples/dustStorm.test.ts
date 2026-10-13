@@ -14,6 +14,7 @@ export const suite = {
   desc: "Mars Dust Storm Survival game model: gust cycles, dust devils, dust accumulation, course and difficulty rules",
 };
 import assert from "node:assert/strict";
+import { PARTICLE_FULL_SIM_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
   BURIAL_STUCK,
@@ -68,6 +69,14 @@ import {
   DEVIL_FADE_NEAR,
   DEVIL_FADE_FAR,
   CARD_COLUMNS,
+  DEVIL_RULES,
+  DEVIL_CARD_OPACITY,
+  STORM_DUST_PALETTE,
+  devilCardOpacity,
+  devilLifespan,
+  devilEnvelope,
+  devilSizeFactor,
+  type DevilRules,
 } from "../../examples/src/scenes/dustStorm.js";
 
 const devilAt = (overrides: Partial<DustDevil> = {}): DustDevil => ({
@@ -81,6 +90,13 @@ const devilAt = (overrides: Partial<DustDevil> = {}): DustDevil => ({
   swirl: 24,
   life: 40,
   age: 20,
+  slot: 0,
+  opacity: 1,
+  fadeOut: 4,
+  targetCore: overrides.coreRadius ?? 4,
+  state: "free",
+  orbit: null,
+  endCause: null,
   ...overrides,
 });
 
@@ -441,6 +457,181 @@ group("fe-18 soft devils", () => {
     assert.equal(card.uvs[(CARD_COLUMNS - 1) * 2], 1);
     const scrolled = buildFunnelCard(devil, 44, 1, 0, 10, 50, 0.5);
     assertCloseTo(card.uvs[1]! - scrolled.uvs[1]!, 0.5, 9, "turbulence scrolls upward");
+  });
+});
+
+group("fe-19 devil dynamics", () => {
+  const NONE: DevilRules = { ...DEVIL_RULES, bigConsumes: 0, orbitThenConsumed: 0, smallMerge: 0, combine: 0, separate: 0, oneDies: 0, orbitMin: 2, orbitMax: 2 };
+  /** A field with two staged devils near the rover at the origin, past their fade-in. */
+  const stage = (rules: Partial<DevilRules>, coreA: number, coreB: number, gap = 3) => {
+    const field = new DustDevilField(6, 1234, { ...NONE, ...rules });
+    const a = field.makeDevil(0, 0, coreA);
+    field.devils.push(a);
+    const b = field.makeDevil(gap, 0, coreB);
+    field.devils.push(b);
+    for (const d of field.devils) {
+      d.age = 5;
+      d.life = 80;
+    }
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds; t += 0.05) field.step(0.05, 0, 0, 0, 0, 0);
+    };
+    return { field, a, b, run };
+  };
+
+  test("big meets small: consumed at once, the big one grows wider and stronger, the slot frees", () => {
+    const { field, a, b, run } = stage({ bigConsumes: 1 }, 6, 2.5);
+    const swirl0 = Math.abs(a.swirl);
+    run(0.05);
+    assert.equal(b.state, "dying");
+    assert.equal(b.endCause, "consumed");
+    run(4);
+    assert.equal(field.byId(b.id), undefined, "removed once faded");
+    assert.ok(a.coreRadius > 6.3 && a.coreRadius <= Math.hypot(6, 2.5) + 1e-6, `grew to ${a.coreRadius}`);
+    assert.ok(Math.abs(a.swirl) > swirl0);
+    assert.equal(field.bySlot(b.slot), undefined);
+    assert.equal(field.ended.consumed, 1);
+  });
+
+  test("small orbits the big one, then is consumed — or dies out", () => {
+    const eaten = stage({ orbitThenConsumed: 1 }, 6, 2.5);
+    eaten.run(0.05);
+    assert.equal(eaten.b.state, "orbiting");
+    eaten.run(1);
+    const r = Math.hypot(eaten.b.x - eaten.a.x, eaten.b.z - eaten.a.z);
+    assertCloseTo(r, eaten.b.orbit!.radius, 3, "circles the host");
+    eaten.run(1.2);
+    assert.equal(eaten.b.endCause, "consumed");
+    const died = stage({ orbitThenConsumed: 0 }, 6, 2.5);
+    died.run(2.5);
+    assert.equal(died.b.endCause, "orbit-died");
+    assert.equal(died.a.targetCore, 6, "no growth when the small one just dies");
+  });
+
+  test("two small devils: merge at once, or orbit then combine / separate / one dies / both die", () => {
+    const merge = stage({ smallMerge: 1 }, 2.5, 2.8);
+    merge.run(0.05);
+    assert.equal(merge.a.endCause, "merged", "the smaller is merged into the larger");
+    assert.ok(merge.b.targetCore > 2.8);
+
+    const combine = stage({ combine: 1 }, 2.5, 2.8);
+    combine.run(0.05);
+    assert.equal(combine.a.state, "orbiting");
+    assert.equal(combine.b.state, "orbiting");
+    combine.run(2.5);
+    assert.equal(combine.field.ended.merged, 1);
+    assert.equal(combine.b.state, "free");
+
+    const separate = stage({ separate: 1 }, 2.5, 2.8);
+    separate.run(2.1);
+    assert.equal(separate.a.state, "free");
+    assert.equal(separate.b.state, "free");
+    assert.ok(Math.hypot(separate.a.x - separate.b.x, separate.a.z - separate.b.z) > 5, "flung apart");
+
+    const one = stage({ oneDies: 1 }, 2.5, 2.8);
+    one.run(2.1);
+    assert.equal(one.a.endCause, "orbit-died");
+    assert.equal(one.b.state, "free");
+
+    const both = stage({}, 2.5, 2.8);
+    both.run(2.1);
+    assert.equal(both.a.endCause, "orbit-died");
+    assert.equal(both.b.endCause, "orbit-died");
+  });
+
+  test("dying devils fade (no pop) and never share a slot; wide similar devils pass through", () => {
+    const { a, b, run } = stage({ bigConsumes: 1 }, 6, 2.5);
+    const env0 = devilEnvelope(b);
+    run(0.05);
+    assert.ok(Math.abs(devilEnvelope(b) - env0) < 0.05, "envelope continuous at the moment of consumption");
+    const big = stage({ bigConsumes: 1, smallMerge: 1 }, 6, 5.5);
+    big.run(1);
+    assert.equal(big.a.state, "free");
+    assert.equal(big.b.state, "free");
+    assert.notEqual(a.slot, b.slot);
+  });
+
+  test("size → wind: wider devils swirl, push and lift harder; narrow ones live short", () => {
+    assert.ok(devilSizeFactor(2) < devilSizeFactor(4.5) && devilSizeFactor(4.5) < devilSizeFactor(8));
+    assertCloseTo(devilSizeFactor(4.5), 1, 9);
+    // Same seed, same rolls: only the width differs.
+    const narrow = new DustDevilField(6, 77).makeDevil(0, 0, 2);
+    const wide = new DustDevilField(6, 77).makeDevil(0, 0, 7);
+    assertCloseTo(Math.abs(wide.swirl) / Math.abs(narrow.swirl), devilSizeFactor(7) / devilSizeFactor(2), 9);
+    assert.ok(narrow.life < wide.life, "narrow devil spawned with the shorter life");
+    for (const d of [narrow, wide]) {
+      d.age = 10;
+      d.life = 60;
+    }
+    const fn = devilRoverForce(narrow, narrow.coreRadius * 0.5, 0);
+    const fw = devilRoverForce(wide, wide.coreRadius * 0.5, 0);
+    assert.ok(Math.hypot(fw.ax, fw.az) > Math.hypot(fn.ax, fn.az) * 1.5, "stronger push");
+    assert.ok(fw.lift > fn.lift, "stronger lift");
+    assert.ok(Math.abs(fw.yawAccel) > Math.abs(fn.yawAccel));
+    assert.ok(devilLifespan(2, 1) < 17, "narrow devils die quickly");
+    assert.ok(devilLifespan(7, 0) > 40);
+  });
+
+  test("per-devil variety and deterministic replay (with interactions) under the fixed seed", () => {
+    const simulate = () => {
+      const field = new DustDevilField(6);
+      const storm = new StormField();
+      const w = { x: 0, z: 0 };
+      const slotsOk: boolean[] = [];
+      for (let t = 0; t < 900; t += 0.1) {
+        storm.wind(t, w);
+        field.step(0.1, storm.intensity(t), w.x, w.z, 0, 0);
+        const slots = field.devils.map((d) => d.slot);
+        slotsOk.push(new Set(slots).size === slots.length && slots.every((s) => s >= 0 && s < 6));
+      }
+      return { field, slotsOk };
+    };
+    const a = simulate();
+    const b = simulate();
+    assert.deepEqual(a.field.devils, b.field.devils);
+    assert.deepEqual(a.field.ended, b.field.ended);
+    assert.ok(a.slotsOk.every(Boolean), "slots unique and in range");
+    const e = a.field.ended;
+    assert.ok(e.consumed + e.merged + e["orbit-died"] > 0, `interactions happen in play: ${JSON.stringify(e)}`);
+    // Variety across spawns: widths, densities and lifespans differ.
+    const f = new DustDevilField(6);
+    const ds = Array.from({ length: 12 }, () => f.makeDevil(0, 0, 2));
+    assert.ok(new Set(ds.map((d) => d.opacity.toFixed(3))).size > 6, "opacity varies");
+    // Reset replays the same spawn stream.
+    const r1 = new DustDevilField(6);
+    r1.step(0.1, 1, 10, 0, 0, 0);
+    const first = JSON.stringify(r1.devils);
+    for (let i = 0; i < 300; i++) r1.step(0.1, 1, 10, 0, 0, 0);
+    r1.reset();
+    r1.step(0.1, 1, 10, 0, 0, 0);
+    assert.equal(JSON.stringify(r1.devils), first);
+    const widths = new Set(JSON.parse(first).map((d: DustDevil) => d.coreRadius.toFixed(2)));
+    assert.ok(widths.size >= 4, "spawned widths vary");
+  });
+
+  test("dust colours: palette from the scene, per-particle variation in the sim, darker devil cards", () => {
+    const lum = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    assert.ok(lum(STORM_DUST_PALETTE.rock) < lum(STORM_DUST_PALETTE.dust), "rock tone darker than the dust");
+    assert.ok(STORM_DUST_PALETTE.sheetVariation > 0 && STORM_DUST_PALETTE.devilVariation > 0);
+    assert.ok(PARTICLE_FULL_SIM_SHADER.includes("colorVariation: f32,"));
+    assert.ok(PARTICLE_FULL_SIM_SHADER.includes("params.colorAlt.rgb"));
+    assert.ok(DEVIL_CARD_OPACITY.core >= 0.5 && DEVIL_CARD_OPACITY.outer >= 0.28);
+    const d = { opacity: 1.2, age: 10, life: 60, fadeOut: 4 };
+    assert.ok(devilCardOpacity(DEVIL_CARD_OPACITY.core, d, 1, 1) > devilCardOpacity(DEVIL_CARD_OPACITY.core, { ...d, opacity: 0.8 }, 1, 1));
+    assert.equal(devilCardOpacity(DEVIL_CARD_OPACITY.core, d, 0, 1), 0, "near-camera dissolve still wins");
+  });
+});
+
+group("fe-19 review: ending a devil never raises its envelope", () => {
+  test("a consumed devil already fading out keeps its shorter natural ramp", () => {
+    const f = new DustDevilField(4, 7);
+    const big = f.makeDevil(0, 0, 7, 0);
+    const small = f.makeDevil(0.5, 0, 2, 1);
+    small.age = small.life - 0.5; // already fading out naturally
+    f.devils.push(big, small);
+    const before = devilEnvelope(small);
+    (f as unknown as { absorb(a: unknown, b: unknown, c: string): void }).absorb(big, small, "consumed");
+    assert.ok(devilEnvelope(small) <= before + 1e-9, `envelope rose ${before} -> ${devilEnvelope(small)}`);
   });
 });
 

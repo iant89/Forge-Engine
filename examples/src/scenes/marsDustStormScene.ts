@@ -82,6 +82,9 @@ import {
   CARD_VERTEX_COUNT,
   buildFunnelCard,
   devilCardPixels,
+  devilCardOpacity,
+  DEVIL_CARD_OPACITY,
+  STORM_DUST_PALETTE,
   devilShellFade,
   STORM_SHEET_LOOK,
   buildDriftMoundMesh,
@@ -130,7 +133,7 @@ export interface MarsDustStormState {
   elapsed: number;
   penalty: number;
   resets: number;
-  devils: { x: number; z: number; coreRadius: number; swirl: number }[];
+  devils: { x: number; z: number; coreRadius: number; swirl: number; slot: number; state: string; opacity: number; life: number }[];
   piles: { depth: number; maxDepth: number }[];
   x: number;
   z: number;
@@ -473,7 +476,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   // ---------------------------------------------------------------- particles (sheet + one system per devil)
 
   const dustColor = { r: 0.78, g: 0.48, b: 0.28, a: STORM_SHEET_LOOK.alpha };
-  const makeDust = (name: string, capacity: number, seed: number, maxEmits: number): GpuParticleWorld => {
+  const makeDust = (name: string, capacity: number, seed: number, maxEmits: number, colorVariation: number): GpuParticleWorld => {
     const world = new GpuParticleWorld({
       name,
       capacity,
@@ -507,6 +510,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         velocityBoost: { x: 0, y: 0, z: 0 },
         colorFrom: { ...dustColor },
         colorTo: { r: 0.62, g: 0.36, b: 0.2, a: 0 },
+        colorAlt: { ...STORM_DUST_PALETTE.rock },
+        colorVariation: colorVariation,
         sizeStart: STORM_SHEET_LOOK.sizeStart,
         sizeEnd: STORM_SHEET_LOOK.sizeEnd,
         sizeVariation: STORM_SHEET_LOOK.sizeVariation,
@@ -516,11 +521,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     scene.add(world);
     return world;
   };
-  const dust = makeDust("storm dust", quality.sheetCapacity, 0x5d0, 4096);
+  const dust = makeDust("storm dust", quality.sheetCapacity, 0x5d0, 4096, STORM_DUST_PALETTE.sheetVariation);
   /** One GPU system per devil slot; slot i follows `devils.devils[i]` and idles when that slot is empty. */
   const devilDust: GpuParticleWorld[] = [];
   for (let i = 0; i < quality.devils; i++) {
-    devilDust.push(makeDust(`devil dust ${i}`, quality.devilCapacity, 0xd0 + i, 1024));
+    devilDust.push(makeDust(`devil dust ${i}`, quality.devilCapacity, 0xd0 + i, 1024, STORM_DUST_PALETTE.devilVariation));
   }
 
   // ---------------------------------------------------------------- tornado funnels (fe-18)
@@ -579,8 +584,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   for (let i = 0; i < quality.devils; i++) {
     const shadowMaterial = track(new Material({ label: `storm-devil-shadow-${i}`, color: Color.fromSrgbHex(0x1a0c06), roughness: 1, metallic: 0, opacity: 0, transparent: true }));
     funnels.push({
-      core: makeShell(`storm-devil-core-${i}`, 0x8a6a58, true),
-      outer: makeShell(`storm-devil-shell-${i}`, 0xd8b090, true),
+      core: makeShell(`storm-devil-core-${i}`, 0x5a4436, true),
+      outer: makeShell(`storm-devil-shell-${i}`, 0xa88468, true),
       skirt: makeShell(`storm-devil-skirt-${i}`, 0x9a6a46),
       shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
       shadowMaterial,
@@ -750,7 +755,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     for (let i = 0; i < devilDust.length; i++) {
       const sys = devilDust[i]!.system;
       if (!sys) continue;
-      const d = devils.devils[i];
+      const d = devils.bySlot(i);
       if (!d) {
         sys.emitter.rate = 0;
         sys.modules.attractorStrength = 0;
@@ -760,7 +765,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const gy = groundHeight(d.x, d.z);
       const look = devilParticleLook(d);
       const e = sys.emitter;
-      e.rate = quality.devilRate;
+      // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
+      e.rate = quality.devilRate * devilEnvelope(d);
       e.position.x = d.x;
       e.position.y = gy + 0.6;
       e.position.z = d.z;
@@ -792,7 +798,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const eye = cameraEntity.transform.position;
     for (let i = 0; i < funnels.length; i++) {
       const f = funnels[i]!;
-      const d: DustDevil | undefined = devils.devils[i];
+      const d: DustDevil | undefined = devils.bySlot(i);
       const env = d ? devilEnvelope(d) : 0;
       const visible = !!d && env > 0.01;
       f.core.renderable.visible = visible;
@@ -808,8 +814,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
       const cards: [FunnelRecord["core"], number, number, number, number][] = [
         // record, width scale, height scale, opacity, scroll speed
-        [f.core, 0.9, 1, 0.5, 0.45],
-        [f.outer, 2.1, 1.05, 0.28, 0.3],
+        [f.core, 0.9, 1, DEVIL_CARD_OPACITY.core, 0.45],
+        [f.outer, 2.1, 1.05, DEVIL_CARD_OPACITY.outer, 0.3],
       ];
       for (const [rec, wScale, hScale, opacity, scroll] of cards) {
         rec.renderable.visible = fade > 0.01;
@@ -820,7 +826,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
           rec.uploaded = true;
         }
         rec.entity.transform.position = moundPos.set(d.x, gy - 0.2, d.z);
-        setOpacity(rec.material, opacity * fade * env * (0.7 + 0.3 * intensity));
+        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
       }
       const shells: [FunnelRecord["core"], number, number, number, (u: number) => number, number, number][] = [
         // record, radius scale, height scale, sway scale, profile, opacity, time offset
@@ -835,7 +841,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         }
         rec.entity.transform.position = moundPos.set(d.x, gy - 0.2, d.z);
         rec.renderable.visible = fade > 0.01;
-        setOpacity(rec.material, opacity * fade * env * (0.7 + 0.3 * intensity));
+        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
       }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;
@@ -1042,7 +1048,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     elapsed: course.elapsed,
     penalty: course.penalty,
     resets: course.resets,
-    devils: devils.devils.map((d) => ({ x: d.x, z: d.z, coreRadius: d.coreRadius, swirl: d.swirl })),
+    devils: devils.devils.map((d) => ({ x: d.x, z: d.z, coreRadius: d.coreRadius, swirl: d.swirl, slot: d.slot, state: d.state, opacity: d.opacity, life: d.life })),
     piles: accumulation.piles.map((p) => ({ depth: p.depth, maxDepth: p.maxDepth })),
     x: vehicle.position.x,
     z: vehicle.position.z,
