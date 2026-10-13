@@ -2176,14 +2176,13 @@ async function checkEnvironmentSection() {
         const context = sample.getContext("2d", { willReadFrequently: true });
         context.drawImage(source, 0, 0);
         // Work in CSS pixels (what the HUD rects use), then map to the canvas's backing pixels: the
-        // two differ whenever the backing store is not the CSS size (render scale / dpr). Start at
-        // 20% across, half height; if a floating panel covers that spot, walk down toward the
-        // controls in CSS steps until the canvas itself is the topmost element there.
+        // two differ whenever the backing store is not the CSS size (render scale / dpr). The sample
+        // sits 20% across at half height.
         const rect = source.getBoundingClientRect();
         const hudBottom = (document.getElementById("hud-panel") ?? document.getElementById("hud")).getBoundingClientRect().bottom;
         const controlsTop = document.getElementById("sk-time-back").getBoundingClientRect().top;
         const cssX = rect.left + rect.width * 0.2;
-        let cssY = rect.top + rect.height * 0.5;
+        const cssY = rect.top + rect.height * 0.5;
         // "Covered" = inside the box of any rendered overlay (fixed/absolute element that is not the
         // canvas or one of its ancestors). Boxes, not elementFromPoint: HUD layers use
         // pointer-events: none and would be invisible to a hit test. A box ending exactly on the row
@@ -2202,7 +2201,6 @@ async function checkEnvironmentSection() {
           return paints && r.width > 0 && r.height > 0;
         }).map((el) => Object.assign(el.getBoundingClientRect().toJSON(), { tag: `${el.tagName}#${el.id}.${el.className}` }));
         const covered = (px, py) => overlays.some((r) => px >= r.left && px < r.right && py >= r.top && py < r.bottom);
-        while (cssY < controlsTop && covered(cssX, cssY)) cssY += 4;
         const visible = !covered(cssX, cssY);
         window.__skyOverlays = overlays.filter((r) => cssX >= r.left && cssX < r.right && cssY >= r.top && cssY < r.bottom);
         const x = Math.floor(((cssX - rect.left) / rect.width) * sample.width);
@@ -2241,7 +2239,7 @@ async function checkEnvironmentSection() {
     throw new Error("sky demo opening camera does not look above the horizon");
   }
   // `visible` is the overlay-box test (the HUD rect can end exactly on the sample row without
-  // covering it); the controls bound keeps the walk from settling under the buttons.
+  // covering it); the controls must also stay below the sample.
   if (!skyOpening.visible) console.log("covering overlays:", JSON.stringify(await page.evaluate(() => window.__skyOverlays)));
   if (!(skyOpening.visible && skyOpening.cssY < skyOpening.controlsTop)) {
     throw new Error(`sky sample pixel is obscured by the HUD or buttons: ${JSON.stringify(skyOpening)}`);
