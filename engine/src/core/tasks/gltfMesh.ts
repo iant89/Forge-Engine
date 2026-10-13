@@ -7,9 +7,12 @@
  * on `node:worker_threads`, and in a browser module worker.
  *
  * Scope: triangle primitives, core vertex attributes/accessors (including interleaving, normalization
- * and sparse overlays), node transforms, scene roots and material factors/references. Compressed
- * geometry extensions (Draco/meshopt), morph targets, skins and GPU instancing are rejected
- * explicitly; image decoding/material upload and animation import are outside this mesh-decoder slice.
+ * and sparse overlays), node transforms, scene roots, material factors/references and — since Phase
+ * 16.1a — skins: `skins[]`, `node.skin` and one JOINTS_0/WEIGHTS_0 set per primitive (four
+ * influences, the GPU skinning path's limit). Compressed geometry extensions (Draco/meshopt), morph
+ * targets, extra influence sets with non-zero weights (all-zero JOINTS_n/WEIGHTS_n, n >= 1, are
+ * ignored) and GPU instancing are rejected explicitly; image
+ * decoding/material upload and animation import are outside this mesh-decoder slice.
  */
 
 import { AssetError } from "../errors.js";
@@ -20,7 +23,7 @@ const GLB_MAGIC = 0x46546c67;
 const GLB_JSON_CHUNK = 0x4e4f534a;
 const GLB_BIN_CHUNK = 0x004e4942;
 const COMPONENT_BYTES: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
-const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 
 export interface GltfMeshDecodePayload {
   /** `glb` carries the complete GLB file; `gltf` carries the JSON text and external buffers by index. */
@@ -40,8 +43,33 @@ export interface DecodedGltfPrimitive {
   indices: Uint16Array | Uint32Array | null;
   materialIndex: number | null;
   vertexCount: number;
+  /**
+   * JOINTS_0/WEIGHTS_0 when the primitive is skinned (they are not repeated in `attributes`).
+   * Same shape as the animation module's `SkinningVertexData`, so it feeds the GPU skinning path.
+   * Joint values index the *skin's* `joints` list, not glTF nodes. Weights are passed through as
+   * authored (normalized integers unpacked to [0, 1]); they are not renormalized.
+   */
+  skin: DecodedGltfPrimitiveSkin | null;
   /** [minX, minY, minZ, maxX, maxY, maxZ]. */
   bounds: Float32Array;
+}
+
+export interface DecodedGltfPrimitiveSkin {
+  /** 4 × vertexCount joint ordinals. */
+  joints: Uint16Array;
+  /** 4 × vertexCount weights. */
+  weights: Float32Array;
+  vertexCount: number;
+}
+
+export interface DecodedGltfSkin {
+  name: string;
+  /** Node indices of the joints, in palette order. */
+  joints: number[];
+  /** 16 floats per joint, column-major; identity where the asset omits them. */
+  inverseBindMatrices: Float32Array;
+  /** Optional skeleton root node. */
+  skeleton: number | null;
 }
 
 export interface DecodedGltfMesh {
@@ -52,6 +80,8 @@ export interface DecodedGltfMesh {
 export interface DecodedGltfNode {
   name: string;
   meshIndex: number | null;
+  /** Index into `DecodedGltfAsset.skins` when the node's mesh is skinned. */
+  skinIndex: number | null;
   children: number[];
   translation: Float32Array | null;
   rotation: Float32Array | null;
@@ -86,6 +116,7 @@ export interface DecodedGltfAsset {
   scenes: DecodedGltfScene[];
   sceneIndex: number;
   materials: DecodedGltfMaterial[];
+  skins: DecodedGltfSkin[];
   primitiveCount: number;
   vertexCount: number;
   /** Bytes in all decoded vertex/index arrays. */
@@ -136,6 +167,7 @@ interface GltfDocument {
     scale?: number[];
     matrix?: number[];
   }[];
+  skins?: { name?: string; joints?: number[]; inverseBindMatrices?: number; skeleton?: number }[];
   scenes?: { name?: string; nodes?: number[] }[];
   scene?: number;
   materials?: {
@@ -525,7 +557,10 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
   const raw = doc.nodes ?? [];
   const parentCounts = new Uint8Array(raw.length);
   const nodes = raw.map((node, index) => {
-    if (node.skin !== undefined) fail(source, `node ${index} uses a skin, which is not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
+    if (node.skin !== undefined) {
+      indexAt(node.skin, (doc.skins ?? []).length, `node ${index} skin`, source);
+      if (node.mesh === undefined) fail(source, `node ${index} has a skin but no mesh`);
+    }
     if (node.weights !== undefined) fail(source, `node ${index} uses morph weights, which are not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
     if (node.extensions?.EXT_mesh_gpu_instancing) fail(source, `node ${index} uses unsupported EXT_mesh_gpu_instancing`, "E_ASSET_GLTF_EXTENSION");
     const children = node.children ?? [];
@@ -542,6 +577,7 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
     return {
       name: node.name ?? `node-${index}`,
       meshIndex: node.mesh === undefined ? null : indexAt(node.mesh, (doc.meshes ?? []).length, `node ${index} mesh`, source),
+      skinIndex: node.skin ?? null,
       children: [...children],
       translation,
       rotation,
@@ -561,6 +597,43 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
   return nodes;
 }
 
+function readSkins(doc: GltfDocument, buffers: ArrayBuffer[], nodeCount: number, source: string, ctx?: TaskContext): DecodedGltfSkin[] {
+  return (doc.skins ?? []).map((skin, index): DecodedGltfSkin => {
+    if (!Array.isArray(skin.joints) || skin.joints.length === 0) fail(source, `skin ${index} has no joints`);
+    const seen = new Set<number>();
+    for (const joint of skin.joints) {
+      indexAt(joint, nodeCount, `skin ${index} joint`, source);
+      if (seen.has(joint)) fail(source, `skin ${index} lists node ${joint} twice`);
+      seen.add(joint);
+    }
+    const jointCount = skin.joints.length;
+    const inverseBindMatrices = new Float32Array(jointCount * 16);
+    if (skin.inverseBindMatrices === undefined) {
+      for (let j = 0; j < jointCount; j++) {
+        inverseBindMatrices[j * 16] = 1;
+        inverseBindMatrices[j * 16 + 5] = 1;
+        inverseBindMatrices[j * 16 + 10] = 1;
+        inverseBindMatrices[j * 16 + 15] = 1;
+      }
+    } else {
+      const accessorIndex = indexAt(skin.inverseBindMatrices, (doc.accessors ?? []).length, `skin ${index} inverseBindMatrices`, source);
+      const accessor = doc.accessors![accessorIndex]!;
+      if (accessor.type !== "MAT4" || accessor.componentType !== 5126 || accessor.normalized) {
+        fail(source, `skin ${index} inverseBindMatrices must be a FLOAT MAT4 accessor`);
+      }
+      // MAT4 FLOAT columns are 16-byte aligned, so the generic reader's element layout is exact.
+      const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
+      if (decoded.count < jointCount) {
+        fail(source, `skin ${index} inverseBindMatrices has ${decoded.count} matrices; expected at least ${jointCount}`);
+      }
+      inverseBindMatrices.set(decoded.values.subarray(0, jointCount * 16));
+      if (!inverseBindMatrices.every(Number.isFinite)) fail(source, `skin ${index} inverseBindMatrices contains non-finite values`);
+    }
+    const skeleton = skin.skeleton === undefined ? null : indexAt(skin.skeleton, nodeCount, `skin ${index} skeleton`, source);
+    return { name: skin.name ?? `skin-${index}`, joints: [...skin.joints], inverseBindMatrices, skeleton };
+  });
+}
+
 function resultTransferables(result: DecodedGltfAsset): Transferable[] {
   const buffers = new Set<ArrayBuffer>();
   const add = (view: ArrayBufferView | null): void => {
@@ -571,8 +644,11 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
       for (const attribute of Object.values(primitive.attributes)) add(attribute);
       add(primitive.indices);
       add(primitive.bounds);
+      add(primitive.skin?.joints ?? null);
+      add(primitive.skin?.weights ?? null);
     }
   }
+  for (const skin of result.skins ?? []) add(skin.inverseBindMatrices);
   for (const node of result.nodes) {
     add(node.translation);
     add(node.rotation);
@@ -623,12 +699,36 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       if (!sourceAttributes || typeof sourceAttributes !== "object" || !Number.isInteger(sourceAttributes.POSITION)) {
         fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} is missing POSITION`);
       }
-      if (Object.keys(sourceAttributes).some((semantic) => /^(JOINTS|WEIGHTS)_\d+$/.test(semantic))) {
-        fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} contains skinning attributes, which are not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
+      const label = `mesh ${meshIndex} primitive ${primitiveIndex}`;
+      // Extra influence sets (n >= 1): exporters often emit them padded with zero weights. Those add
+      // nothing to the four-influence skinning path, so they are validated and ignored; a set that
+      // carries any weight would be silently wrong without it, so it is rejected.
+      const extraSets = new Set<string>();
+      for (const semantic of Object.keys(sourceAttributes)) {
+        const match = /^(JOINTS|WEIGHTS)_([1-9]\d*)$/.exec(semantic);
+        if (match) extraSets.add(match[2]!);
+      }
+      for (const n of extraSets) {
+        const jointsAccessor = sourceAttributes[`JOINTS_${n}`];
+        const weightsAccessor = sourceAttributes[`WEIGHTS_${n}`];
+        if (jointsAccessor === undefined || weightsAccessor === undefined) fail(source, `${label}: JOINTS_${n} and WEIGHTS_${n} must appear together`);
+        indexAt(jointsAccessor, accessors.length, `${label} JOINTS_${n} accessor`, source);
+        const weights = readAccessor(doc, buffers, weightsAccessor, source, ctx);
+        if (weights.values.some((value) => value !== 0)) {
+          fail(source, `${label} WEIGHTS_${n} carries non-zero weights: more than four joint influences, which the skinning path does not support. ` +
+            "Strip the extra sets with `node tools/gltf-strip-extra-skin-sets.mjs <in> <out> --force` (accuracy loss) or re-export with four influences", "E_ASSET_GLTF_EXTENSION");
+        }
+      }
+      if ((sourceAttributes.JOINTS_0 === undefined) !== (sourceAttributes.WEIGHTS_0 === undefined)) {
+        fail(source, `${label}: JOINTS_0 and WEIGHTS_0 must appear together`);
       }
       const attributes: Record<string, Float32Array> = {};
+      let skin: DecodedGltfPrimitiveSkin | null = null;
+      let skinJoints: Float32Array | null = null;
+      let skinWeights: Float32Array | null = null;
       let count = -1;
       for (const [semantic, accessorIndex] of Object.entries(sourceAttributes)) {
+        if (/^(JOINTS|WEIGHTS)_([1-9]\d*)$/.test(semantic)) continue; // validated and ignored above
         if (!Number.isInteger(accessorIndex)) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} attribute ${semantic} has an invalid accessor`);
         const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
         if (count < 0) count = decoded.count;
@@ -637,9 +737,28 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
         if (semantic === "NORMAL" && decoded.components !== 3) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} NORMAL must be VEC3`);
         if (semantic === "TANGENT" && decoded.components !== 4) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} TANGENT must be VEC4`);
         if (semantic.startsWith("TEXCOORD_") && decoded.components !== 2) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} ${semantic} must be VEC2`);
+        if (semantic === "JOINTS_0") {
+          const accessor = accessors[accessorIndex]!;
+          if (decoded.components !== 4 || accessor.normalized || (accessor.componentType !== 5121 && accessor.componentType !== 5123)) {
+            fail(source, `${label} JOINTS_0 must be unsigned byte or unsigned short VEC4, not normalized`);
+          }
+          skinJoints = decoded.values;
+          continue;
+        }
+        if (semantic === "WEIGHTS_0") {
+          const accessor = accessors[accessorIndex]!;
+          if (decoded.components !== 4 || !(accessor.componentType === 5126 || (accessor.normalized && (accessor.componentType === 5121 || accessor.componentType === 5123)))) {
+            fail(source, `${label} WEIGHTS_0 must be float or normalized unsigned byte/short VEC4`);
+          }
+          skinWeights = decoded.values;
+          continue;
+        }
         attributes[semantic] = decoded.values;
       }
       const positions = attributes.POSITION!;
+      if (skinJoints && skinWeights) {
+        skin = { joints: Uint16Array.from(skinJoints), weights: skinWeights, vertexCount: count };
+      }
       if (count < 1) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has no vertices`);
       if (accessors[sourceAttributes.POSITION!]!.componentType !== 5126) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} POSITION must use FLOAT components`);
       let indices: Uint16Array | Uint32Array | null = null;
@@ -668,9 +787,10 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       vertexCount += count;
       decodedBytes += positions.byteLength + (indices?.byteLength ?? 0) + Object.entries(attributes)
         .filter(([semantic]) => semantic !== "POSITION")
-        .reduce((sum, [, values]) => sum + values.byteLength, 0) + bounds.byteLength;
+        .reduce((sum, [, values]) => sum + values.byteLength, 0) + bounds.byteLength +
+        (skin ? skin.joints.byteLength + skin.weights.byteLength : 0);
       ctx?.progress(totalPrimitives > 0 ? primitiveCount / totalPrimitives : 1, { mesh: meshIndex, primitive: primitiveIndex });
-      return { mode: 4, attributes, indices, materialIndex: material, vertexCount: count, bounds };
+      return { mode: 4, attributes, indices, materialIndex: material, vertexCount: count, bounds, skin };
     });
     return { name: mesh.name ?? `mesh-${meshIndex}`, primitives };
   });
@@ -683,13 +803,28 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   const sceneIndex = doc.scene ?? (scenes.length > 0 ? 0 : -1);
   if (sceneIndex >= 0) indexAt(sceneIndex, scenes.length, "active scene", source);
   const materials = readMaterials(doc, source);
+  const skins = readSkins(doc, buffers, nodes.length, source, ctx);
+  for (const skin of skins) decodedBytes += skin.inverseBindMatrices.byteLength;
+  nodes.forEach((node, nodeIndex) => {
+    if (node.skinIndex === null || node.meshIndex === null) return;
+    const jointCount = skins[node.skinIndex]!.joints.length;
+    meshes[node.meshIndex]!.primitives.forEach((primitive, primitiveIndex) => {
+      if (!primitive.skin) fail(source, `node ${nodeIndex} is skinned but mesh ${node.meshIndex} primitive ${primitiveIndex} has no JOINTS_0/WEIGHTS_0`);
+      const joints = primitive.skin.joints;
+      for (let i = 0; i < joints.length; i++) {
+        if (joints[i]! >= jointCount) {
+          fail(source, `mesh ${node.meshIndex} primitive ${primitiveIndex} uses joint index ${joints[i]} but node ${nodeIndex}'s skin ${node.skinIndex} has ${jointCount} joints`);
+        }
+      }
+    });
+  });
   for (const mesh of meshes) {
     for (const primitive of mesh.primitives) {
       if (primitive.materialIndex !== null) indexAt(primitive.materialIndex, materials.length, "primitive material", source);
     }
   }
   checkCancelled(ctx, source);
-  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, primitiveCount, vertexCount, decodedBytes };
+  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, skins, primitiveCount, vertexCount, decodedBytes };
 }
 
 /** The result arrays are newly allocated and can be transferred without copying. */

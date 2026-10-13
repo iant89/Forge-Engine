@@ -31,9 +31,12 @@ export type {
   DecodedGltfMesh,
   DecodedGltfNode,
   DecodedGltfPrimitive,
+  DecodedGltfPrimitiveSkin,
   DecodedGltfScene,
+  DecodedGltfSkin,
   GltfMeshDecodePayload,
 } from "../core/tasks/gltfMesh.js";
+export { transferablesForGltfMesh } from "../core/tasks/gltfMesh.js";
 
 export interface GltfMeshDocumentInput {
   /** Serialized glTF 2.0 JSON. External buffer data is supplied in the same order as `buffers[]`. */

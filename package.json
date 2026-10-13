@@ -21,6 +21,7 @@
     "test:all": "selrun run --all",
     "test:check": "selrun check",
     "pr:checks": "node tools/pr-checks.mjs",
+    "gltf:strip-skin-sets": "node tools/gltf-strip-extra-skin-sets.mjs",
     "bench": "node benchmarks/run.mjs",
     "demo": "vite --config examples/vite.config.ts --host 0.0.0.0",
     "demo:mars": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=terrain\"",

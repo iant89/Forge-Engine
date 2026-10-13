@@ -15,6 +15,7 @@ npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase 
 npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
 npm run check:browser:amazon # focused Amazon scene / boat-controls smoke
 npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard
+npm run gltf:strip-skin-sets -- in.glb out.glb [--force] [--dry-run] # drop JOINTS_n/WEIGHTS_n sets (n >= 1) the 4-influence skinning path can't use
 npm run demo           # Vite dev server for examples/ (Mars Showcase default)
 npm run demo:amazon    # open the Amazon river launch scene directly
 ```
