@@ -34,6 +34,7 @@ export const linkedSuites = [
   ["tests/resources/textureMips.test.ts", () => import("./resources/textureMips.test.ts")],
   ["tests/vehicles/electricMotor.test.ts", () => import("./vehicles/electricMotor.test.ts")],
   ["tests/vehicles/vehiclePhysics.test.ts", () => import("./vehicles/vehiclePhysics.test.ts")],
+  ["tests/vehicles/roverWallClip.test.ts", () => import("./vehicles/roverWallClip.test.ts")],
   ["tests/vehicles/vehicles.test.ts", () => import("./vehicles/vehicles.test.ts")],
   ["tests/rendering/clusters.test.ts", () => import("./rendering/clusters.test.ts")],
   ["tests/rendering/frame.test.ts", () => import("./rendering/frame.test.ts")],
@@ -85,4 +86,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(81);
+report(82);
