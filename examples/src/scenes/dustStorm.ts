@@ -1179,8 +1179,10 @@ export function devilVortexLife(devil: Pick<DustDevil, "age" | "life"> & Partial
 }
 
 export interface DevilParticleLook {
-  /** Column (true) or skirt (false) emission frame. */
+  /** Column (true) or ground (skirt / base cloud, false) emission frame. */
   column: boolean;
+  /** fe-21d: this frame feeds the slow, low base dust cloud (wind-stretched via `groundWind`). */
+  base: boolean;
   vortex: { height: number; bias: number; radiusBase: number; radiusTop: number; spin: number; outward: number; leanX: number; leanZ: number };
   speedMin: number;
   speedMax: number;
@@ -1195,9 +1197,46 @@ export interface DevilParticleLook {
   sizeEnd: number;
 }
 
-/** Skirt frames per {@link DEVIL_EMIT_CYCLE} emitter frames (red-frontier: 90 skirt vs 330 column /s). */
-export const DEVIL_EMIT_CYCLE = 4;
+/**
+ * Emitter frame cycle: frame 0 skirt, frame 1 base cloud (fe-21d), the rest column. Per-second
+ * weights below keep the live count inside one devil's capacity (see {@link devilEmitRate}).
+ */
+export const DEVIL_EMIT_CYCLE = 5;
 export const DEVIL_SKIRT_FRAMES = 1;
+export const DEVIL_BASE_FRAMES = 1;
+export const DEVIL_COLUMN_WEIGHT = 300;
+export const DEVIL_SKIRT_WEIGHT = 90;
+export const DEVIL_BASE_WEIGHT = 90;
+/** Base cloud: wide, low, slow-swirling skirt of dust around the devil's foot (fe-21d). */
+export const DEVIL_BASE_CLOUD = Object.freeze({
+  height: 1.1,
+  radiusBase: 0.9,
+  radiusTop: 1.8,
+  spinFactor: 0.22,
+  outward: 1.2,
+  speedMin: 0.25,
+  speedMax: 0.8,
+  lifeMin: 1.4,
+  lifeMax: 2.2,
+  /** Height band (m) where `groundWind` acts and the axis spring relaxes. */
+  windHeight: 2.5,
+});
+/** Ground-wind acceleration per m/s of storm wind: a lull floor plus a gust boost. */
+export const DEVIL_BASE_WIND_LULL = 0.12;
+export const DEVIL_BASE_WIND_GUST = 0.38;
+
+/**
+ * fe-21d: horizontal acceleration (m/s²) pushing a devil's base cloud downwind. Rises with the gust
+ * share of `intensity` (0 at {@link LULL_INTENSITY}, 1 at the peak), so strong gusts smear the cloud
+ * into a downwind tail while lulls barely nudge it.
+ */
+export function devilBaseWind(windX: number, windZ: number, intensity: number, out: { x: number; z: number } = { x: 0, z: 0 }): { x: number; z: number } {
+  const gust = Math.max(0, Math.min(1, (intensity - LULL_INTENSITY) / (1 - LULL_INTENSITY)));
+  const k = DEVIL_BASE_WIND_LULL + DEVIL_BASE_WIND_GUST * gust;
+  out.x = windX * k;
+  out.z = windZ * k;
+  return out;
+}
 /** Devil swarm grain colour, LINEAR (sRGB #6b3d24 dark rust lifted soil; `colorAlt` blends it toward the rock tone per grain). */
 export const DEVIL_SWARM_COLOR = Object.freeze({ r: 0.147, g: 0.047, b: 0.018, a: 0.9 });
 /**
@@ -1232,15 +1271,19 @@ export function devilParticleLook(
   const top = devilFunnelSway(devil, 1, t);
   const dir = Math.sign(devil.swirl || 1);
   const bursting = (devil.age ?? 1e3) < DEVIL_BURST_TIME;
-  const column = !bursting && frame % DEVIL_EMIT_CYCLE >= DEVIL_SKIRT_FRAMES;
+  const slot = frame % DEVIL_EMIT_CYCLE;
+  const column = !bursting && slot >= DEVIL_SKIRT_FRAMES + DEVIL_BASE_FRAMES;
+  const base = !bursting && !column && slot >= DEVIL_SKIRT_FRAMES;
   const spin = 2.6 + devilHash(devil.id, 6) * 1.4;
   const o: DevilParticleLook = out ?? {
     column,
+    base,
     vortex: { height: 0, bias: 1, radiusBase: 0, radiusTop: 0, spin: 0, outward: 0, leanX: 0, leanZ: 0 },
     speedMin: 0, speedMax: 0, lifeMin: 0, lifeMax: 0, axisPull: 0, axisHeight: 1, leanX: 0, leanZ: 0, swirl: 0, sizeStart: 0, sizeEnd: 0,
   };
   const v = o.vortex;
   o.column = column;
+  o.base = base;
   o.axisPull = 5;
   o.axisHeight = Math.max(1, height);
   o.leanX = top.x;
@@ -1253,6 +1296,12 @@ export function devilParticleLook(
     v.height = height; v.bias = 1.35; v.radiusBase = baseR * 0.35; v.radiusTop = baseR * 1.1;
     v.spin = dir * spin * 0.6; v.outward = 0; v.leanX = top.x; v.leanZ = top.z;
     o.speedMin = 5.5; o.speedMax = 11.3; o.lifeMin = 0.95; o.lifeMax = 1.7;
+  } else if (base) {
+    // Base cloud: short, wide, slowly turning dust around the foot; the scene's groundWind drags it.
+    const b = DEVIL_BASE_CLOUD;
+    v.height = b.height; v.bias = 1.6; v.radiusBase = baseR * b.radiusBase; v.radiusTop = baseR * b.radiusTop;
+    v.spin = dir * spin * b.spinFactor; v.outward = b.outward; v.leanX = 0; v.leanZ = 0;
+    o.speedMin = b.speedMin; o.speedMax = b.speedMax; o.lifeMin = b.lifeMin; o.lifeMax = b.lifeMax;
   } else {
     // Skirt: a wide ring hugging the ground, thrown outward.
     v.height = 1.2; v.bias = 1; v.radiusBase = baseR * 1.2; v.radiusTop = baseR * 2.4;
@@ -1269,17 +1318,25 @@ export const DEVIL_GRAIN_END = 0.3;
  * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
  * to fill the voids between fine motes (same particle count, so budgets are unchanged).
  */
-export const DEVIL_COARSE_FRACTION = 0.14;
-export const DEVIL_COARSE_SCALE = 3.2;
+export const DEVIL_COARSE_FRACTION = 0.22;
+/** fe-21d: more coarse grains but a smaller multiplier, so the largest (end-of-life) stays ≈1.1 m, not a blob. */
+export const DEVIL_COARSE_SCALE = 2.8;
 /** Mild per-grain size spread so the fine layer isn't uniform. */
 export const DEVIL_SIZE_VARIATION = 0.35;
 
 /** Emission rate multiplier for a frame of {@link devilParticleLook}: keeps the per-second mix (and the burst) right. */
-export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "column">, envelope: number, bursting: boolean): number {
+export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "column"> & Partial<Pick<DevilParticleLook, "base">>, envelope: number, bursting: boolean): number {
   if (bursting) return baseRate * 0.6;
   const vigour = Math.pow(Math.max(0, envelope), 1.15) * (0.3 + 0.7 * envelope);
-  // red-frontier: 330 column + 90 skirt per second; column frames are 3 of 4, skirt 1 of 4.
-  const share = look.column ? (330 / 420) * (DEVIL_EMIT_CYCLE / (DEVIL_EMIT_CYCLE - DEVIL_SKIRT_FRAMES)) : (90 / 420) * (DEVIL_EMIT_CYCLE / DEVIL_SKIRT_FRAMES);
+  // Per-second weights (red-frontier column/skirt plus the fe-21d base cloud), corrected for how
+  // many frames of the cycle each kind owns.
+  const total = DEVIL_COLUMN_WEIGHT + DEVIL_SKIRT_WEIGHT + DEVIL_BASE_WEIGHT;
+  const columnFrames = DEVIL_EMIT_CYCLE - DEVIL_SKIRT_FRAMES - DEVIL_BASE_FRAMES;
+  const share = look.column
+    ? (DEVIL_COLUMN_WEIGHT / total) * (DEVIL_EMIT_CYCLE / columnFrames)
+    : look.base
+      ? (DEVIL_BASE_WEIGHT / total) * (DEVIL_EMIT_CYCLE / DEVIL_BASE_FRAMES)
+      : (DEVIL_SKIRT_WEIGHT / total) * (DEVIL_EMIT_CYCLE / DEVIL_SKIRT_FRAMES);
   return Math.min(baseRate, baseRate * vigour * share);
 }
 

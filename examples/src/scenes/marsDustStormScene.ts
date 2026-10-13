@@ -82,6 +82,8 @@ import {
   devilEnvelope,
   devilParticleLook,
   devilEmitRate,
+  devilBaseWind,
+  DEVIL_BASE_CLOUD,
   devilVortexLife,
   DEVIL_BURST_TIME,
   DEVIL_SWARM_COLOR,
@@ -735,6 +737,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         // Empty slot: drop the axis spring too, so leftover grains drift free instead of
         // snapping toward a stale axis (fe-21 review).
         sys.modules.axisPull = 0;
+        sys.modules.groundWindHeight = 0;
         continue;
       }
       const gy = groundHeight(d.x, d.z);
@@ -783,6 +786,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       m.sizeVariation = DEVIL_SIZE_VARIATION;
       m.coarseFraction = DEVIL_COARSE_FRACTION;
       m.coarseScale = DEVIL_COARSE_SCALE;
+      // fe-21d: the storm wind drags the base cloud downwind, much harder in gusts.
+      devilBaseWind(wind.x, wind.z, intensity, (m.groundWind ??= { x: 0, z: 0 }));
+      m.groundWindHeight = DEVIL_BASE_CLOUD.windHeight;
     }
     devilEmitFrame++;
     stepFunnels();

@@ -100,6 +100,14 @@ export interface GpuParticleModulesConfig {
    */
   coarseFraction?: number;
   coarseScale?: number;
+  /**
+   * Ground-hugging wind (m/s² horizontal acceleration) acting on particles within
+   * `groundWindHeight` m above `attractorPos.y`, fading out (smoothstep) with height; inside that
+   * band the `axisPull` spring is relaxed to 30% at the ground, so a devil's base cloud can be
+   * pushed and stretched downwind while the column above stays roped. Height 0 = off (default).
+   */
+  groundWind?: { x: number; z: number };
+  groundWindHeight?: number;
 }
 
 export interface GpuParticleSystemOptions {
@@ -138,7 +146,7 @@ export interface GpuParticleFrameInput {
 }
 
 const EMIT_UNIFORM_BYTES = 128;
-const SIM_UNIFORM_BYTES = 176;
+const SIM_UNIFORM_BYTES = 192;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -184,6 +192,8 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     axisLean: partial.axisLean ?? { x: 0, y: 1, z: 0 },
     coarseFraction: partial.coarseFraction ?? 0,
     coarseScale: partial.coarseScale ?? 1,
+    groundWind: partial.groundWind ?? { x: 0, z: 0 },
+    groundWindHeight: partial.groundWindHeight ?? 0,
   };
 }
 
@@ -717,6 +727,9 @@ export class GpuParticleSystem {
     f[40] = m.axisLean?.z ?? 0;
     f[41] = Math.max(0, Math.min(1, m.coarseFraction ?? 0));
     f[42] = Math.max(0, m.coarseScale ?? 1);
+    f[43] = m.groundWind?.x ?? 0;
+    f[44] = m.groundWind?.z ?? 0;
+    f[45] = Math.max(0, m.groundWindHeight ?? 0);
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 

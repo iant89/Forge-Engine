@@ -279,6 +279,9 @@ struct FullSimParams {
   axisLeanZ: f32,
   coarseFraction: f32,
   coarseScale: f32,
+  groundWindX: f32,
+  groundWindZ: f32,
+  groundWindHeight: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -306,13 +309,19 @@ struct FullSimParams {
     let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;
     p.velocity = p.velocity + tangent * (params.swirlStrength * params.dt / r);
   }
+  // Ground-band weight: 1 at the attractor's base, 0 above groundWindHeight (0 = band off).
+  var groundW = 0.0;
+  if (params.groundWindHeight > 0.0) {
+    groundW = 1.0 - smoothstep(0.0, params.groundWindHeight, p.position.y - params.attractorPos.y);
+    p.velocity = p.velocity + vec3<f32>(params.groundWindX, 0.0, params.groundWindZ) * (groundW * params.dt);
+  }
   if (params.axisPull > 0.0) {
     // Horizontal spring toward the (leaning) vortex axis at this particle's height.
     let h01 = clamp((p.position.y - params.attractorPos.y) / params.axisHeight, 0.0, 1.0);
     let lean = pow(max(h01, 1e-4), 1.25);
     let axis = params.attractorPos.xz + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean;
     let d = axis - p.position.xz;
-    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * params.dt);
+    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * (1.0 - 0.7 * groundW) * params.dt);
   }
   if (params.turbulence > 0.0) {
     let np = p.position * params.noiseScale + vec3<f32>(params.time);

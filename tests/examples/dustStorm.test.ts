@@ -18,6 +18,12 @@ import { PARTICLE_FULL_SIM_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
   DEVIL_COARSE_FRACTION,
+  DEVIL_BASE_CLOUD,
+  DEVIL_EMIT_CYCLE,
+  DEVIL_GRAIN_END,
+  DEVIL_SIZE_VARIATION,
+  DEVIL_SWIRL_MAX,
+  devilBaseWind,
   DEVIL_COARSE_SCALE,
   BURIAL_STUCK,
   CHECKPOINT_REACH,
@@ -324,7 +330,7 @@ group("fe-18 dust storm polish", () => {
     }
     // Column vs skirt frames, and the birth burst.
     const adult = { ...devil, age: 10, life: 30, fadeOut: 4 };
-    const col = devilParticleLook(adult, 0, 1), skirt = devilParticleLook(adult, 0, 0);
+    const col = devilParticleLook(adult, 0, 2), skirt = devilParticleLook(adult, 0, 0);
     assert.ok(col.column && !skirt.column);
     assert.ok(col.vortex.radiusTop > col.vortex.radiusBase * 2 && col.vortex.radiusTop <= devil.coreRadius * 1.1, "swarm is tight at the ground and widens a little with height");
     assert.ok(col.vortex.spin < 0 && col.swirl < 0, "spin follows the devil");
@@ -336,7 +342,7 @@ group("fe-18 dust storm polish", () => {
     assert.ok(devilVortexLife({ age: 29.5, life: 30, fadeOut: 4 }).radiusScale < 0.5);
     assert.ok(devilEmitRate(1000, col, 1, false) <= 1000 && devilEmitRate(1000, col, 0, false) === 0);
     // Out-param reuse: no allocation per frame, same objects come back updated.
-    const reuse = devilParticleLook(adult, 0, 1);
+    const reuse = devilParticleLook(adult, 0, 2);
     const vRef = reuse.vortex;
     const again = devilParticleLook(adult, 0, 0, reuse);
     assert.equal(again, reuse);
@@ -598,6 +604,44 @@ group("fe-21c devil coarse grains", () => {
     assert.ok(DEVIL_COARSE_SCALE >= 2);
     assert.match(PARTICLE_FULL_SIM_SHADER, /coarseFraction/);
     assert.match(PARTICLE_FULL_SIM_SHADER, /params\.coarseScale/);
+    // fe-21d: largest grain (end of life, top of the size spread, coarse) stays well under 1.3 m.
+    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 1.2);
+  });
+});
+
+group("fe-21d devil base cloud", () => {
+  const adult = { id: 5, coreRadius: 4, swirl: 18, age: 10, life: 30, fadeOut: 4 };
+  test("one frame per cycle is a short, wide, slow-swirling, long-lived ground cloud", () => {
+    const kinds = Array.from({ length: DEVIL_EMIT_CYCLE }, (_, f) => devilParticleLook(adult, 0, f));
+    assert.equal(kinds.filter((k) => k.base).length, 1);
+    assert.equal(kinds.filter((k) => !k.base && !k.column).length, 1, "skirt still present");
+    const base = kinds.find((k) => k.base)!, col = kinds.find((k) => k.column)!, skirt = kinds.find((k) => !k.base && !k.column)!;
+    assert.ok(base.vortex.height < 2 && base.vortex.height === DEVIL_BASE_CLOUD.height, "short");
+    assert.ok(base.vortex.radiusTop > col.vortex.radiusBase * 3, "wide");
+    assert.ok(Math.abs(base.vortex.spin) < Math.abs(col.vortex.spin) * 0.5 && Math.sign(base.vortex.spin) === 1, "slow, same sense");
+    assert.ok(base.vortex.outward < skirt.vortex.outward, "drifts, not blasted");
+    assert.ok(base.lifeMin > skirt.lifeMax && base.speedMax < 1, "lingers low");
+    assert.ok(DEVIL_BASE_CLOUD.windHeight > base.vortex.height, "wind band covers the cloud");
+    assert.equal(devilParticleLook({ ...adult, age: 0.1 }, 0, 1).base, false, "birth burst is skirt-only");
+  });
+  test("emit weights keep a full-vigour devil's live count inside its capacity", () => {
+    for (const q of Object.values(STORM_QUALITY_TIERS)) {
+      let live = 0;
+      for (let f = 0; f < DEVIL_EMIT_CYCLE; f++) {
+        const look = devilParticleLook(adult, 0, f);
+        live += (devilEmitRate(q.devilRate, look, 1, false) / DEVIL_EMIT_CYCLE) * ((look.lifeMin + look.lifeMax) / 2);
+      }
+      assert.ok(live <= q.devilCapacity, `live ${live.toFixed(0)} > ${q.devilCapacity}`);
+    }
+  });
+  test("ground wind follows the storm wind and grows sharply in gusts", () => {
+    const lull = devilBaseWind(10, 0, LULL_INTENSITY), peak = devilBaseWind(26, 0, 1);
+    assert.ok(lull.x > 0 && lull.z === 0);
+    assert.ok(peak.x > lull.x * 5, `gust ${peak.x} vs lull ${lull.x}`);
+    const dir = devilBaseWind(-3, 4, 0.8);
+    assertCloseTo(Math.atan2(dir.z, dir.x), Math.atan2(4, -3), 9);
+    assert.equal(DEVIL_SWIRL_MAX > 0, true);
+    assert.match(PARTICLE_FULL_SIM_SHADER, /params\.groundWindHeight/);
   });
 });
 
