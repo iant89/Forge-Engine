@@ -622,4 +622,17 @@ group("fe-19 devil dynamics", () => {
   });
 });
 
+group("fe-19 review: ending a devil never raises its envelope", () => {
+  test("a consumed devil already fading out keeps its shorter natural ramp", () => {
+    const f = new DustDevilField(4, 7);
+    const big = f.makeDevil(0, 0, 7, 0);
+    const small = f.makeDevil(0.5, 0, 2, 1);
+    small.age = small.life - 0.5; // already fading out naturally
+    f.devils.push(big, small);
+    const before = devilEnvelope(small);
+    (f as unknown as { absorb(a: unknown, b: unknown, c: string): void }).absorb(big, small, "consumed");
+    assert.ok(devilEnvelope(small) <= before + 1e-9, `envelope rose ${before} -> ${devilEnvelope(small)}`);
+  });
+});
+
 await finish();

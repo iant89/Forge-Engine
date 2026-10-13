@@ -403,9 +403,12 @@ export class DustDevilField {
     d.state = "dying";
     d.orbit = null;
     d.endCause = cause;
-    d.fadeOut = fade;
-    // Continue from the current envelope level: the out-ramp starts at ≥ the current value.
-    d.life = Math.min(d.life, d.age + fade);
+    // Never raise the envelope: a devil already fading out with less than `fade` left keeps its
+    // own ramp (re-scaling fadeOut there would jump the out-ramp up, a visible pop).
+    if (d.life - d.age > fade) {
+      d.fadeOut = fade;
+      d.life = d.age + fade;
+    }
     this.ended[cause]++;
   }
 
