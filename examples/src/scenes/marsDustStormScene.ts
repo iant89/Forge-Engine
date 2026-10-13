@@ -85,6 +85,8 @@ import {
   devilVortexLife,
   DEVIL_BURST_TIME,
   DEVIL_SWARM_COLOR,
+  DEVIL_SWARM_ROCK,
+  type DevilParticleLook,
   DEVIL_DUST_GRAVITY,
   DEVIL_DUST_DRAG,
   settleDriftMound,
@@ -518,7 +520,16 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const dust = makeDust("storm dust", quality.sheetCapacity, 0x5d0, 4096, STORM_DUST_PALETTE.sheetVariation);
   /** One GPU system per devil slot; slot i follows `devils.devils[i]` and idles when that slot is empty. */
   const devilDust: GpuParticleWorld[] = [];
+  /** Per-slot reusable emitter looks (no per-frame allocation, fe-21b). */
+  const devilLooks: DevilParticleLook[] = [];
+  const setRgba = (dst: { r: number; g: number; b: number; a: number }, src: { r: number; g: number; b: number }, a: number): void => {
+    dst.r = src.r;
+    dst.g = src.g;
+    dst.b = src.b;
+    dst.a = a;
+  };
   for (let i = 0; i < quality.devils; i++) {
+    devilLooks.push(devilParticleLook({ id: 0, coreRadius: 1, swirl: 1 }));
     devilDust.push(makeDust(`devil dust ${i}`, quality.devilCapacity, 0xd0 + i, 1024, STORM_DUST_PALETTE.devilVariation));
   }
 
@@ -722,7 +733,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       }
       const gy = groundHeight(d.x, d.z);
       // red-frontier column/skirt alternation (fe-21): the frame counter only picks the emit shape.
-      const look = devilParticleLook(d, time, devilEmitFrame);
+      const look = devilParticleLook(d, time, devilEmitFrame, devilLooks[i]);
       const e = sys.emitter;
       // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
       e.rate = devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME);
@@ -732,6 +743,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       e.jitter.x = 0;
       e.jitter.y = 0;
       e.jitter.z = 0;
+      // Shared by reference with the per-slot look (no per-frame allocation); read at uniform write.
       e.vortex = look.vortex;
       e.speedMin = look.speedMin;
       e.speedMax = look.speedMax;
@@ -744,13 +756,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       m.attractorStrength = 0;
       // fe-21: the swarm is the devil, so its grains carry the darker lifted soil tone (not the pale
       // sunlit sheet colour; colorAlt still blends toward rock) and are not stretched into streaks.
-      Object.assign(e.color, DEVIL_SWARM_COLOR);
-      Object.assign(m.colorFrom, DEVIL_SWARM_COLOR);
-      Object.assign(m.colorTo, DEVIL_SWARM_COLOR);
-      m.colorTo.a = 0;
+      // Per-devil opacity variety (fe-19) now rides on the swarm's own alpha.
+      setRgba(e.color, DEVIL_SWARM_COLOR, DEVIL_SWARM_COLOR.a * d.opacity);
+      setRgba(m.colorFrom, DEVIL_SWARM_COLOR, DEVIL_SWARM_COLOR.a * d.opacity);
+      setRgba(m.colorTo, DEVIL_SWARM_COLOR, 0);
+      setRgba(m.colorAlt, DEVIL_SWARM_ROCK, 1);
       sys.stretch = 0.15;
       m.axisPull = look.axisPull;
-      m.axisLean = { x: look.leanX, y: look.axisHeight, z: look.leanZ };
+      const lean = (m.axisLean ??= { x: 0, y: 1, z: 0 });
+      lean.x = look.leanX;
+      lean.y = look.axisHeight;
+      lean.z = look.leanZ;
       // Modules act on every live particle of the system, so they stay fixed across the column/skirt
       // frame alternation (a blend of red-frontier's column 0/0.4 and skirt 1.2/1.6 gravity/drag).
       m.gravity.y = DEVIL_DUST_GRAVITY;

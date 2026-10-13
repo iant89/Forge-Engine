@@ -43,19 +43,16 @@ import {
   STORM_SHEET_LOOK,
   STORM_SHEET_LOOK_FE16,
   buildDriftMoundMesh,
-  buildFunnelMesh,
-  devilFunnelProfile,
   devilParticleLook,
   devilFunnelSway,
   devilVortexLife,
   devilEmitRate,
   DEVIL_RF_BASE_PER_CORE,
-  devilSkirtProfile,
+  DEVIL_SWARM_COLOR,
+  DEVIL_SWARM_ROCK,
   driftMoundHeightAt,
   driftMoundRadius,
   settleDriftMound,
-  FUNNEL_RINGS,
-  FUNNEL_SEGMENTS,
   BEAM_RING_OFFSET,
   GUIDE_PATH_OFFSET,
   WaypointArrowState,
@@ -67,16 +64,8 @@ import {
   guidePathEnabled,
   waypointArrowEnabled,
   waypointInView,
-  buildFunnelCard,
-  devilCardPixels,
-  devilShellFade,
-  DEVIL_FADE_NEAR,
-  DEVIL_FADE_FAR,
-  CARD_COLUMNS,
   DEVIL_RULES,
-  DEVIL_CARD_OPACITY,
   STORM_DUST_PALETTE,
-  devilCardOpacity,
   devilLifespan,
   devilEnvelope,
   devilSizeFactor,
@@ -239,8 +228,9 @@ group("course and difficulty (D3/D4)", () => {
     assert.equal(stormQualityForPlatform("macos"), "full");
     // iOS budget: sheet + every capped devil system stays at 28k particles, well under full.
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) <= 28_000);
-    // fe-21: budget rebalanced from the sheet toward the swarm devils (16k sheet + 3 × 4k devils).
-    assert.ok(STORM_QUALITY_TIERS.reduced.devilCapacity <= 4_000);
+    // fe-21b: budget rebalanced from the sheet toward the swarm devils (10k sheet + 3 × 6k devils).
+    assert.ok(STORM_QUALITY_TIERS.reduced.devilCapacity <= 6_000);
+    assert.ok(STORM_QUALITY_TIERS.reduced.devils * STORM_QUALITY_TIERS.reduced.devilCapacity > STORM_QUALITY_TIERS.reduced.sheetCapacity, "most of the iOS budget is in the devils");
     assert.ok(STORM_QUALITY_TIERS.reduced.devilRate * 1.7 <= STORM_QUALITY_TIERS.reduced.devilCapacity * 1.3, "column rate fits its capacity");
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) * 4 < stormParticleBudget(STORM_QUALITY_TIERS.full));
     assert.ok(STORM_QUALITY_TIERS.reduced.devils < STORM_QUALITY_TIERS.full.devils);
@@ -322,13 +312,7 @@ group("fe-18 dust storm polish", () => {
     assert.ok(stormParticleBudget(STORM_QUALITY_TIERS.reduced) <= 28_000);
   });
 
-  test("devil funnel profile (red-frontier): thin rope at the ground flaring toward the top", () => {
-    assertCloseTo(devilFunnelProfile(0), DEVIL_RF_BASE_PER_CORE * 0.3 * (1 + 0.18 * Math.sin(0)), 9);
-    assert.ok(devilFunnelProfile(1) > devilFunnelProfile(0) * 4, "flares toward the top");
-    assert.ok(devilSkirtProfile(0) > devilFunnelProfile(0) * 2.5, "skirt is much wider than the funnel base");
-    // Bulge breathes over time but stays within ±18%.
-    const p0 = devilFunnelProfile(0.5, 0, 0), p1 = devilFunnelProfile(0.5, 2, 0);
-    assert.ok(Math.abs(p0 - p1) > 1e-3 && Math.abs(p0 - p1) / p0 < 0.45);
+  test("devil swarm (red-frontier vortex): wobbling axis, column/skirt frames, lifecycle, reusable look", () => {
     const devil = { id: 3, coreRadius: 4, swirl: -20 };
     // Wobble: base planted, top capped at 1.7 footprints.
     for (let t = 0; t < 60; t += 0.7) {
@@ -349,18 +333,14 @@ group("fe-18 dust storm polish", () => {
     assertCloseTo(devilVortexLife({ age: 5, life: 30 }).growth, 1, 9);
     assert.ok(devilVortexLife({ age: 29.5, life: 30, fadeOut: 4 }).radiusScale < 0.5);
     assert.ok(devilEmitRate(1000, col, 1, false) <= 1000 && devilEmitRate(1000, col, 0, false) === 0);
-    // Mesh: rotates with time (lumps advected), sways at the top, anchored at the ground.
-    const h = 44;
-    const a = buildFunnelMesh(devil, h, devilFunnelProfile, 1, 0);
-    const b = buildFunnelMesh(devil, h, devilFunnelProfile, 1, 0.5);
-    assert.equal(a.positions.length, FUNNEL_RINGS * FUNNEL_SEGMENTS * 3);
-    let moved = 0;
-    for (let i = 0; i < a.positions.length; i++) moved = Math.max(moved, Math.abs(a.positions[i]! - b.positions[i]!));
-    assert.ok(moved > 0.05, "funnel surface animates");
-    assertCloseTo(a.positions[1]!, 0, 9);
-    assertCloseTo(a.positions[(FUNNEL_RINGS - 1) * FUNNEL_SEGMENTS * 3 + 1]!, h, 9);
-    const baseR = Math.hypot(a.positions[0]!, a.positions[2]!);
-    assert.ok(baseR < devil.coreRadius, "base is thinner than the vortex core");
+    // Out-param reuse: no allocation per frame, same objects come back updated.
+    const reuse = devilParticleLook(adult, 0, 1);
+    const vRef = reuse.vortex;
+    const again = devilParticleLook(adult, 0, 0, reuse);
+    assert.equal(again, reuse);
+    assert.equal(again.vortex, vRef);
+    assert.equal(again.column, false);
+    assert.ok(col.sizeEnd <= 0.35, "fine grain, not flakes");
   });
 });
 
@@ -433,53 +413,6 @@ group("fe-18 waypoint guidance", () => {
     }
     assert.ok(beamPulse(0.3 * BEAM_PULSE_PERIOD).bandOpacity > beamPulse(0.9 * BEAM_PULSE_PERIOD).bandOpacity, "fades as it climbs");
     assertCloseTo(beamPulse(0.4).glow, beamPulse(0.4 + BEAM_PULSE_PERIOD).glow, 9, "periodic");
-  });
-});
-
-group("fe-18 soft devils", () => {
-  test("near devils dissolve: impostor fade is 0 up close and 1 far away", () => {
-    assert.equal(devilShellFade(0), 0);
-    assert.equal(devilShellFade(DEVIL_FADE_NEAR), 0);
-    assert.equal(devilShellFade(DEVIL_FADE_FAR + 1), 1);
-    let last = -1;
-    for (let d = DEVIL_FADE_NEAR; d <= DEVIL_FADE_FAR; d += 2) {
-      assert.ok(devilShellFade(d) >= last);
-      last = devilShellFade(d);
-    }
-  });
-
-  test("card texture: transparent side edges (view-angle falloff), dense wispy core, tiles vertically", () => {
-    const W = 64, H = 128;
-    const px = devilCardPixels(W, H);
-    const alpha = (x: number, y: number): number => px[(y * W + x) * 4 + 3]!;
-    let edgeMax = 0, coreSum = 0, coreMin = 255, coreMax = 0;
-    for (let y = 0; y < H; y++) {
-      edgeMax = Math.max(edgeMax, alpha(0, y), alpha(W - 1, y));
-      const c = alpha(W / 2, y);
-      coreSum += c;
-      coreMin = Math.min(coreMin, c);
-      coreMax = Math.max(coreMax, c);
-    }
-    assert.ok(edgeMax < 8, `edges fade out (${edgeMax})`);
-    assert.ok(coreSum / H > 120, "core is dense");
-    assert.ok(coreMax - coreMin > 60, "turbulence breaks up the core (not a flat pipe)");
-    for (let x = 0; x < W; x += 8) assert.ok(Math.abs(alpha(x, 0) - alpha(x, H - 1)) < 24, "tiles in v");
-  });
-
-  test("funnel card faces the camera and spans the profile width", () => {
-    const devil = { id: 1, coreRadius: 4, swirl: 20, x: 10, z: 0 };
-    const card = buildFunnelCard(devil, 44, 1, 0, 10, 50, 0);
-    // Camera is along +Z from the devil, so the card spans X (no Z spread beyond the sway).
-    const k = 6;
-    const l = k * CARD_COLUMNS, r = k * CARD_COLUMNS + CARD_COLUMNS - 1;
-    const dx = card.positions[r * 3]! - card.positions[l * 3]!;
-    const dz = card.positions[r * 3 + 2]! - card.positions[l * 3 + 2]!;
-    assert.ok(Math.abs(dx) > 0.5 && Math.abs(dz) < 1e-6);
-    assertCloseTo(card.normals[2]!, 1, 9, "normal points at the camera");
-    assert.equal(card.uvs[0], 0);
-    assert.equal(card.uvs[(CARD_COLUMNS - 1) * 2], 1);
-    const scrolled = buildFunnelCard(devil, 44, 1, 0, 10, 50, 0.5);
-    assertCloseTo(card.uvs[1]! - scrolled.uvs[1]!, 0.5, 9, "turbulence scrolls upward");
   });
 });
 
@@ -632,16 +565,15 @@ group("fe-19 devil dynamics", () => {
     assert.ok(widths.size >= 4, "spawned widths vary");
   });
 
-  test("dust colours: palette from the scene, per-particle variation in the sim, darker devil cards", () => {
+  test("dust colours: palette from the scene, per-particle variation in the sim, dark rust devil swarms", () => {
     const lum = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     assert.ok(lum(STORM_DUST_PALETTE.rock) < lum(STORM_DUST_PALETTE.dust), "rock tone darker than the dust");
     assert.ok(STORM_DUST_PALETTE.sheetVariation > 0 && STORM_DUST_PALETTE.devilVariation > 0);
     assert.ok(PARTICLE_FULL_SIM_SHADER.includes("colorVariation: f32,"));
     assert.ok(PARTICLE_FULL_SIM_SHADER.includes("params.colorAlt.rgb"));
-    assert.ok(DEVIL_CARD_OPACITY.core >= 0.5 && DEVIL_CARD_OPACITY.outer >= 0.28);
-    const d = { opacity: 1.2, age: 10, life: 60, fadeOut: 4 };
-    assert.ok(devilCardOpacity(DEVIL_CARD_OPACITY.core, d, 1, 1) > devilCardOpacity(DEVIL_CARD_OPACITY.core, { ...d, opacity: 0.8 }, 1, 1));
-    assert.equal(devilCardOpacity(DEVIL_CARD_OPACITY.core, d, 0, 1), 0, "near-camera dissolve still wins");
+    // fe-21b: devil swarm colours are linear dark rust (unlit, then exposure/ACES/sRGB lift them).
+    assert.ok(lum(DEVIL_SWARM_COLOR) < 0.08 && lum(DEVIL_SWARM_ROCK) < lum(DEVIL_SWARM_COLOR));
+    assert.ok(DEVIL_SWARM_COLOR.r > DEVIL_SWARM_COLOR.g && DEVIL_SWARM_COLOR.g > DEVIL_SWARM_COLOR.b, "rust hue");
   });
 });
 
