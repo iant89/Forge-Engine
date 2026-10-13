@@ -1804,8 +1804,6 @@ export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array 
   }
   return px;
 }
-/** Devil impostor card opacities (fe-19: darker, closer to the reference's dark column). */
-export const DEVIL_CARD_OPACITY = Object.freeze({ core: 0.85, outer: 0.45 });
 
 /**
  * Card opacity for a devil: base layer opacity × its own density × life envelope × near-camera
