@@ -47,7 +47,7 @@ import {
   findGpuParticleWorlds,
 } from "@forge/engine";
 import { buildMarsDustStormScene } from "../../examples/src/scenes/marsDustStormScene.js";
-import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
+import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, devilParticleLook, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
 
 const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress: GlbLoadProgress) => void): Promise<LoadedGlb> => {
@@ -182,6 +182,31 @@ group("Mars Dust Storm Survival — scene assembly", () => {
     assert.equal(scene.settings.fog.mode, "exp2");
   });
 
+  test("fe-18: easy shows the draped guide path, hard hides path and arrow; beam pulse animates", async () => {
+    const { handle, scene, tick } = await fixture();
+    const path = named(scene, "storm-guide-path")[0]!.get(Renderable)!;
+    const arrow = named(scene, "storm-waypoint-arrow")[0]!.get(Renderable)!;
+    tick();
+    assert.equal(path.visible, true, "easy: path on");
+    const beamMat = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-")).map((e) => e.get(Renderable)!).find((r) => r.visible && r.material!.label === "storm-beam-active")!.material!;
+    const rev0 = beamMat.revision;
+    const glows = new Set<number>();
+    for (let i = 0; i < 8; i++) {
+      tick(0.2);
+      glows.add(Math.round(beamMat.emissiveStrength * 100));
+    }
+    assert.ok(glows.size > 3, "active beam pulses");
+    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-path"), ...named(scene, "storm-beam-")]) {
+      const r = e.get(Renderable)!;
+      assert.equal(r.transparent, r.material!.transparent, `${scene.world.name(e.id)} draws in the matching (blend) bucket`);
+    }
+    assert.ok(beamMat.revision > rev0, "pulse marks the material changed so the GPU uniforms update");
+    handle.setDifficulty("hard");
+    for (let i = 0; i < 20; i++) tick(0.1);
+    assert.equal(path.visible, false, "hard: no path");
+    assert.equal(arrow.visible, false, "hard: no arrow");
+  });
+
   test("storm intensity drives fog, and boulder piles grow on their windward side", async () => {
     const { handle, tick } = await fixture();
     const lullFog = handle.stormState().fogDensity;
@@ -235,7 +260,8 @@ group("Mars Dust Storm Survival — one GPU particle system per dust devil", () 
         continue;
       }
       assert.equal(sys.emitter.rate, reduced.devilRate);
-      assert.equal(Math.abs(sys.modules.swirlStrength), 140, `devil ${i} swirls`);
+      assert.equal(sys.modules.swirlStrength, devilParticleLook(d).swirl, `devil ${i} swirls`);
+      assert.ok(Math.abs(sys.modules.swirlStrength) >= 140);
       assert.equal(Math.sign(sys.modules.swirlStrength), Math.sign(d.swirl || 1));
       assert.equal(sys.modules.attractorPos.x, d.x);
       assert.equal(sys.modules.attractorPos.z, d.z);
