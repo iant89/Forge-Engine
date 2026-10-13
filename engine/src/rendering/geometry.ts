@@ -154,8 +154,11 @@ export class Geometry {
     label = this.source.label,
   ): { buffer: GPUBuffer; count: number; format: GPUIndexFormat } {
     const format: GPUIndexFormat = indices instanceof Uint16Array ? "uint16" : "uint32";
-    const bytes = new Uint8Array(indices.buffer.slice(indices.byteOffset, indices.byteOffset + indices.byteLength));
-    const padded = Math.ceil(bytes.byteLength / 4) * 4;
+    // queue.writeBuffer needs a 4-byte multiple: an odd uint16 index count (glTF meshes have them)
+    // is zero-padded; the draw uses `count`, so the pad index is never read.
+    const padded = Math.ceil(indices.byteLength / 4) * 4;
+    const bytes = new Uint8Array(padded);
+    bytes.set(new Uint8Array(indices.buffer, indices.byteOffset, indices.byteLength));
     const buffer = this.device.createBuffer({
       label: `geometry.index.${label ?? ""}`,
       size: Math.max(4, padded),

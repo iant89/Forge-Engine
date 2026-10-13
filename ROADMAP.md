@@ -1546,7 +1546,39 @@ GOAL:
 
     [ ] 16.1b morph targets (targets, default weights, `weights` animation channel, render path)
 
-    [ ] 16.1c images / samplers / textures and engine material assembly
+    [x] 16.1c images / samplers / textures and engine material assembly: the decoder returns
+        `images` (embedded bufferView / data-URI bytes, or an external `uri`), `samplers`, `textures`
+        and `normalTexture.scale`; `loadGltfTextures` decodes each image once on the main thread
+        (createImageBitmap, no premultiply / colour conversion) into sRGB colour or linear data
+        textures with mips, and `instantiateGltfScene({ textures })` binds baseColor, emissive
+        (factor × map), metallicRoughness, normal and occlusion (strength, ambient only) maps, each
+        with its own glTF sampler (wrapS/wrapT, mag/min filters → `GraphicsDevice.samplerFromDescriptor`,
+        cached by descriptor; material group bindings 11-16). alpha MASK discards below `alphaCutoff`
+        (drawn opaque), doubleSided disables culling. Odd uint16 index counts are now padded for
+        writeBuffer. Not applied: texCoord != 0 (map dropped, warns; see 16.1g), KHR_texture_transform,
+        KTX2. Verified on CesiumMan, Perseverance.glb and the generated MaterialFeatures.gltf (CC0):
+        tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin` (per-feature pixel
+        A/B: albedo, emissive, occlusion, MASK, sampler); capability: assets.gltfMaterials
+
+    [x] 16.1h glTF handedness: glTF is right-handed (front +Z, left +X); the engine is left-handed
+        (+X right), so assets imported as-is were mirrored (verified: Orientation.gltf's letter F read
+        backwards and its left-side marker sat on the viewer's left). `decodeGltfMesh` now mirrors x on
+        import (positions, normals, tangents + sign, winding, bounds, node TRS/matrices, inverse bind
+        matrices, translation/rotation keys) and warns once per file; `handedness: "preserve"` opts out.
+        `npm run gltf:fix-handedness` bakes it into a file and marks `asset.extras.forgeHandedness`, which
+        the importer then uses as-is. The Mars showcase's own Perseverance loader (examples/src/assets/
+        glb.ts) is unchanged. tests/resources/gltfHandedness.test.ts; browser check: Orientation.gltf
+        before/after
+
+    [ ] 16.1i (deferred) Mars showcase on the engine importer: drop examples/src/assets/glb.ts (the
+        showcase's own Perseverance loader) and load the rover through decodeGltfMesh +
+        loadGltfTextures. This also fixes the rover's left/right mirroring (that loader skips the 16.1h
+        handedness conversion); the articulation/arm conventions it relies on must be re-derived and the
+        rover scenes/tests re-checked
+
+    [ ] 16.1g (deferred follow-up to 16.1c) second UV set: carry TEXCOORD_1 in the vertex format and
+        honour `texCoord: 1` on every texture slot (lightmapped/AO-baked assets use it). Until then such
+        maps are dropped with a decode warning.
 
     [ ] 16.1d EXT_mesh_gpu_instancing
 
@@ -1557,9 +1589,9 @@ GOAL:
         the joint entities with the decoded inverse bind matrices, and attaches the asset's clips
         (now decoded with the mesh; TRS channels, STEP/LINEAR/CUBICSPLINE) to an AnimationComponent
         whose new `restPose` keeps channels a clip does not animate at their authored values.
-        Materials are factor-only; skinned primitives cull against per-frame posed bounds (per-joint
+        Materials were factor-only until 16.1c; skinned primitives cull against per-frame posed bounds (per-joint
         bind boxes × live joint matrices). Demo scene `?scene=gltf-skin` plays the Khronos SimpleSkin
-        sample (CC0) and `&model=cesium` Khronos CesiumMan (CC-BY-4.0, texture not drawn yet; examples/assets/);
+        sample (CC0) and `&model=cesium` Khronos CesiumMan (CC-BY-4.0, textured since 16.1c; examples/assets/);
         tests/resources/gltfScene.test.ts (hierarchy, bind pose, sampled pose, mock skinned draw) and
         `npm run check:browser:gltf-skin` (real Chromium + SwiftShader: one skinned batch, 2 joints,
         no fallback, the live clip advancing, three clip times A/B'd per pixel);
@@ -1665,8 +1697,8 @@ GOAL:
 
     The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
     Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
-    material assembly, morph/instancing, Draco/meshopt — 16.1b-16.1e) is still open under 16.1;
-    skin decoding (16.1a) and skinned scene assembly (16.1f) landed.
+    morph/instancing, Draco/meshopt — 16.1b, 16.1d, 16.1e) is still open under 16.1;
+    skin decoding (16.1a), skinned scene assembly (16.1f) and textures/materials (16.1c) landed.
 
 
 EXIT CRITERIA:

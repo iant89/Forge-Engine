@@ -57,7 +57,7 @@ import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScen
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
-import { buildGltfSkinScene, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
+import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
@@ -743,6 +743,9 @@ async function main(): Promise<void> {
     /** glTF skin scene (Phase 16.1f): load/clip/skinned-batch state; null on other scenes. */
     gltfSkinState: () => (currentHandle as GltfSkinSceneHandle | null)?.gltfSkinState?.() ?? null,
     /** glTF skin scene: freeze the imported clip at `t` seconds. */
+    setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => {
+      (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinMaterialFeature?.(feature, on);
+    },
     setGltfSkinTime: (t: number) => {
       (currentHandle as GltfSkinSceneHandle | null)?.setGltfSkinTime?.(t);
     },

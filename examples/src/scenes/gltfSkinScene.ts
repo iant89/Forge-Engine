@@ -8,8 +8,12 @@
  * an `AnimationSystem` on the world plays the clip, and the renderer's skinned path does the bending.
  *
  * `?model=cesium` loads `examples/assets/CesiumMan.glb` instead (Khronos sample, CC-BY-4.0 — see
- * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle. Its base-colour texture is
- * not imported yet (16.1c), so it draws with the file's base-colour factor only.
+ * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle, drawn with its embedded JPEG
+ * base-colour texture (Phase 16.1c, `loadGltfTextures`). `?model=perseverance` loads the repo's static
+ * `Perseverance.glb` (WebP colour and normal maps) the same way. `setGltfSkinMaterialFeature("albedo", false)`
+ * unbinds the albedo maps so the browser gate can prove the texture changes pixels. `?model=features` loads the
+ * generated `MaterialFeatures.gltf` (CC0): emissive, occlusion, alpha MASK and a clamp/nearest sampler,
+ * each toggled by `setGltfSkinMaterialFeature` for the gate's per-feature A/B.
  *
  * The strip is flat (1 × 2 m in the XY plane), so it is drawn double-sided and lit from the front.
  * `window.__forge.setGltfSkinTime(t)` freezes the clip at `t` seconds for the browser gate.
@@ -28,6 +32,9 @@ import {
   createPlane,
   decodeGltfMesh,
   instantiateGltfScene,
+  loadGltfTextures,
+  type GltfTextureSet,
+  type Texture,
   type GltfSceneInstance,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
@@ -35,7 +42,7 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 const CLIP = "animation-0";
 
 interface SkinModel {
-  id: "simple" | "cesium";
+  id: "simple" | "cesium" | "perseverance" | "features" | "orientation";
   label: string;
   file: string;
   url: string;
@@ -56,11 +63,33 @@ const MODELS: Record<SkinModel["id"], SkinModel> = {
     url: new URL("../../assets/CesiumMan.glb", import.meta.url).href,
     cameraPosition: new Vec3(1.6, 1.2, 2.4), target: new Vec3(0, 0.75, 0), distance: 2.9,
   },
+  // Phase 16.1c: static (unskinned) textured check for the repo's rover model.
+  perseverance: {
+    id: "perseverance", label: "Perseverance", file: "Perseverance.glb", binary: true,
+    url: new URL("../../assets/Perseverance.glb", import.meta.url).href,
+    cameraPosition: new Vec3(3.2, 2.2, 4.2), target: new Vec3(0, 1, 0), distance: 5.6,
+  },
+  // Phase 16.1c: generated CC0 quads, one per material feature (emissive, occlusion, MASK, sampler).
+  features: {
+    id: "features", label: "MaterialFeatures, CC0", file: "MaterialFeatures.gltf", binary: false,
+    url: new URL("../../assets/MaterialFeatures.gltf", import.meta.url).href,
+    cameraPosition: new Vec3(0, 0.9, 5.2), target: new Vec3(0, 0.8, 0), distance: 5.2,
+  },
+  // Handedness reference (generated CC0): a letter-F panel and a red square on the asset's left (glTF +X).
+  orientation: {
+    id: "orientation", label: "Orientation, CC0", file: "Orientation.gltf", binary: false,
+    url: new URL("../../assets/Orientation.gltf", import.meta.url).href,
+    cameraPosition: new Vec3(0, 0.9, 4), target: new Vec3(0, 0.8, 0), distance: 4,
+  },
 };
 
-/** `?model=cesium` picks CesiumMan; anything else (or no query) is SimpleSkin. */
+/** Material features the browser gate toggles one at a time (Phase 16.1c). */
+export type GltfMaterialFeature = "albedo" | "emissive" | "occlusion" | "mask" | "sampler";
+
+/** `?model=cesium` picks CesiumMan, `?model=perseverance` the rover; anything else (or no query) is SimpleSkin. */
 export function selectSkinModel(search: string): SkinModel {
-  return new URLSearchParams(search).get("model") === "cesium" ? MODELS.cesium : MODELS.simple;
+  const id = new URLSearchParams(search).get("model");
+  return id === "cesium" || id === "perseverance" || id === "features" || id === "orientation" ? MODELS[id] : MODELS.simple;
 }
 
 export interface GltfSkinState {
@@ -73,12 +102,18 @@ export interface GltfSkinState {
   skinnedBatches: number;
   skinJoints: number;
   skinFallbacks: number;
+  /** Phase 16.1c: GPU textures loaded / materials with a bound albedo map (and whether maps are on). */
+  textures: number;
+  texturedMaterials: number;
+  texturesEnabled: boolean;
 }
 
 export interface GltfSkinSceneHandle extends DemoSceneHandle {
   gltfSkinState: () => GltfSkinState;
   /** Freeze the clip at `t` seconds (deterministic pose for a pixel A/B). */
   setGltfSkinTime: (t: number) => void;
+  /** Turn one imported material feature off (false) or back on, for a per-feature pixel A/B. */
+  setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => void;
 }
 
 export function buildGltfSkinScene(engine: Engine, search = typeof location === "undefined" ? "" : location.search): GltfSkinSceneHandle {
@@ -88,6 +123,8 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   scene.settings.hdr = true;
   scene.settings.exposure = 1.1;
   scene.world.registerSystem(new AnimationSystem());
+  // Occlusion maps only darken the ambient term; lift it so the features quad reads on screen.
+  if (model.id === "features") scene.settings.ambientIntensity = 8;
 
   const groundMesh = createPlane(engine.gpu, { width: 20, depth: 20 });
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
@@ -115,6 +152,11 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   let error: string | null = null;
   let disposed = false;
   let frozenAt: number | null = null;
+  let textures: GltfTextureSet | null = null;
+  let texturesEnabled = true;
+  const albedo = new Map<Material, Texture>();
+  type Snapshot = { emissive: Texture | null; occlusion: Texture | null; alphaTest: number; samplers: Material["samplers"] };
+  const imported = new Map<Material, Snapshot>();
 
   const material = new Material({ label: "simple-skin", color: 0xd8873a, roughness: 0.45, metallic: 0.1, doubleSided: true });
   void (async () => {
@@ -122,12 +164,32 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       const response = await fetch(model.url);
       if (!response.ok) throw new Error(`${model.url}: HTTP ${response.status}`);
       const body = model.binary ? await response.arrayBuffer() : await response.text();
-      const asset = await decodeGltfMesh(body, { source: model.file });
+      // `?handedness=preserve` skips the right→left-handed mirror (before/after screenshots).
+      const handedness = new URLSearchParams(search).get("handedness") === "preserve" ? "preserve" : "convert";
+      const asset = await decodeGltfMesh(body, { source: model.file, handedness });
       if (disposed) return;
-      // SimpleSkin has no material, so it gets a demo one; CesiumMan keeps its own (factor only).
+      // SimpleSkin has no material, so it gets a demo one; the others keep their own, textured (16.1c).
+      if (model.id !== "simple") {
+        const set = await loadGltfTextures(engine.gpu, asset);
+        if (disposed) {
+          set.dispose();
+          return;
+        }
+        textures = set;
+      }
       instance = instantiateGltfScene(engine.gpu, scene, asset, model.id === "simple"
         ? { name: model.file, material: () => material }
-        : { name: model.file });
+        : { name: model.file, textures: textures! });
+      // Every renderable, not just node entities: a node's second+ primitives live on child entities.
+      const renderables = scene.world.query([Renderable]);
+      renderables.refresh();
+      for (const id of renderables.entities) {
+        const m = scene.world.getComponent(id, Renderable)?.material;
+        if (m?.albedoMap) albedo.set(m, m.albedoMap);
+        if (m) imported.set(m, { emissive: m.emissiveMap, occlusion: m.occlusionMap, alphaTest: m.alphaTest, samplers: { ...m.samplers } });
+      }
+      scene.world.releaseQuery(renderables);
+      if (!texturesEnabled) for (const m of albedo.keys()) m.setMaps({ albedo: null });
       const animation = instance.animation;
       if (animation) {
         animation.setLooping(CLIP, true);
@@ -156,6 +218,9 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       skinnedBatches: render.skinnedBatches,
       skinJoints: render.skinJoints,
       skinFallbacks: render.skinFallbacks,
+      textures: textures?.textures.length ?? 0,
+      texturedMaterials: albedo.size,
+      texturesEnabled,
     };
   };
 
@@ -166,10 +231,26 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
     dispose: () => {
       disposed = true;
       instance?.dispose();
+      textures?.dispose();
       groundMesh.dispose();
       scene.dispose();
     },
     gltfSkinState: state,
+    setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => {
+      if (feature === "albedo") {
+        texturesEnabled = on;
+        for (const [m, t] of albedo) m.setMaps({ albedo: on ? t : null });
+        return;
+      }
+      for (const [m, s] of imported) {
+        if (feature === "emissive") m.setMaps({ emissive: on ? s.emissive : null });
+        else if (feature === "occlusion") m.setMaps({ occlusion: on ? s.occlusion : null });
+        else if (feature === "mask") {
+          m.alphaTest = on ? s.alphaTest : 0;
+          m.markChanged();
+        } else m.setSamplers(on ? s.samplers : { albedo: null, normal: null, metallicRoughness: null, emissive: null, occlusion: null });
+      }
+    },
     setGltfSkinTime: (t: number) => {
       frozenAt = t;
       const animation = instance?.animation;
@@ -188,7 +269,8 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
     camera: {
       target: model.target.clone(),
       distance: model.distance,
-      azimuth: 0.1,
+      // The orbit eye sits at -Z at azimuth 0; glTF assets face +Z, so look at them from the front.
+      azimuth: Math.PI + 0.1,
       elevation: 0.1,
       groundHeight: () => 0,
       groundClearance: 0.3,

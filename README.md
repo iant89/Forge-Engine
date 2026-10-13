@@ -17,6 +17,7 @@ npm run check:browser:amazon # focused Amazon scene / boat-controls smoke
 npm run check:browser:gltf-skin # focused imported skinned glTF (Khronos SimpleSkin, CC0) animation gate
 npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard
 npm run gltf:strip-skin-sets -- in.glb out.glb [--force] [--dry-run] # drop JOINTS_n/WEIGHTS_n sets (n >= 1) the 4-influence skinning path can't use
+npm run gltf:fix-handedness -- in.glb out.glb [--force] [--dry-run] # bake the glTF right→left-handed mirror the importer otherwise applies at load; run it on a COPY, never the original (the output is mirrored in other glTF viewers)
 npm run demo           # Vite dev server for examples/ (Mars Showcase default)
 npm run demo:amazon    # open the Amazon river launch scene directly
 ```

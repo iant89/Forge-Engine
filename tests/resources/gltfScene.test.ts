@@ -58,6 +58,9 @@ import {
   type SystemContext,
 } from "@forge/engine";
 
+// These suites check the file's authored numbers, so they decode without the handedness mirror
+// (tests/resources/gltfHandedness.test.ts covers the conversion).
+const PRESERVE = { handedness: "preserve" as const };
 const assetPath = fileURLToPath(new URL("../../examples/assets/SimpleSkin.gltf", import.meta.url));
 const assetJson = readFileSync(assetPath, "utf8");
 
@@ -69,7 +72,7 @@ afterEach(async () => {
 async function setup(): Promise<{ device: GraphicsDevice; scene: Scene; asset: DecodedGltfAsset; instance: ReturnType<typeof instantiateGltfScene> }> {
   const device = await GraphicsDevice.create({ forceMock: true });
   const scene = new Scene({ name: "gltf-skin-test" });
-  const asset = await decodeGltfMesh(assetJson, { source: "SimpleSkin.gltf" });
+  const asset = await decodeGltfMesh(assetJson, { ...PRESERVE, source: "SimpleSkin.gltf" });
   const instance = instantiateGltfScene(device, scene, asset);
   cleanups.push(async () => {
     instance.dispose();
@@ -116,7 +119,7 @@ function skinVertex(asset: DecodedGltfAsset, instance: ReturnType<typeof instant
 
 group("glTF skinned scene import (Phase 16.1f)", () => {
   test("the mesh decode carries the asset's animations", async () => {
-    const asset = await decodeGltfMesh(assetJson);
+    const asset = await decodeGltfMesh(assetJson, PRESERVE);
     assert.equal(asset.animations.length, 1);
     const animation = asset.animations[0]!;
     assert.deepEqual(animation.channels, [{ targetNode: 2, targetPath: "rotation", samplerIndex: 0 }]);
@@ -262,7 +265,7 @@ group("glTF skinned scene import (Phase 16.1f)", () => {
   test("skips nodes outside the active scene", async () => {
     const doc = JSON.parse(assetJson);
     doc.nodes.push({ name: "orphan" });
-    const asset = await decodeGltfMesh(JSON.stringify(doc));
+    const asset = await decodeGltfMesh(JSON.stringify(doc), PRESERVE);
     const device = await GraphicsDevice.create({ forceMock: true });
     const scene = new Scene({ name: "orphan" });
     const instance = instantiateGltfScene(device, scene, asset);

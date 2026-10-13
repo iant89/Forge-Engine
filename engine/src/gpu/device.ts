@@ -676,6 +676,19 @@ export class GraphicsDevice {
     return sampler;
   }
 
+  /**
+   * Phase 16.1c: a sampler for an arbitrary descriptor (glTF per-texture samplers), cached by its
+   * normalised content so identical descriptors share one GPUSampler.
+   */
+  samplerFromDescriptor(desc: GPUSamplerDescriptor): GPUSampler {
+    const key = "desc:" + JSON.stringify(Object.keys(desc).filter((k) => k !== "label").sort().map((k) => [k, (desc as Record<string, unknown>)[k]]));
+    const cached = this.samplerCache.get(key);
+    if (cached) return cached;
+    const sampler = this.device.createSampler(desc);
+    this.samplerCache.set(key, sampler);
+    return sampler;
+  }
+
   /** Layout dedupe: two identical layouts must share a handle or bind groups cannot be reused. */
   bindGroupLayout(key: string, entries: () => GPUBindGroupLayoutEntry[]): GPUBindGroupLayout {
     let l = this.bindGroupLayoutCache.get(key);

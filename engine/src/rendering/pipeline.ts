@@ -265,6 +265,11 @@ export class PipelineFactory {
         { binding: BINDINGS.normalMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: BINDINGS.mrMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: BINDINGS.sampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        { binding: BINDINGS.emissiveMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+        { binding: BINDINGS.occlusionMap.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+        ...[BINDINGS.normalSampler, BINDINGS.mrSampler, BINDINGS.emissiveSampler, BINDINGS.occlusionSampler].map((b) => ({
+          binding: b.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" as const },
+        })),
       ];
     this.materialLayout = d.createBindGroupLayout({ entries: materialEntries });
     this.terrainMaterialLayout = d.createBindGroupLayout({ label: "terrain.material.layout", entries: [

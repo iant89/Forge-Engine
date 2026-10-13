@@ -15,6 +15,7 @@
  * decoding/material upload and animation import are outside this mesh-decoder slice.
  */
 
+import { convertGltfAssetHandedness, GLTF_HANDEDNESS_MARKER } from "./gltfHandedness.js";
 import { AssetError } from "../errors.js";
 import type { TaskContext } from "./registry.js";
 import { decodeGltfAnimations, transferablesForAnimations, type DecodedGltfAnimation } from "./gltfAnimation.js";
@@ -34,6 +35,8 @@ export interface GltfMeshDecodePayload {
   /** Entries correspond to glTF `buffers[]`; data URIs are decoded by the worker and may be null here. */
   buffers?: (ArrayBuffer | null)[];
   source?: string;
+  /** "convert" (default): mirror right-handed glTF into the engine's left-handed frame; "preserve": as authored. */
+  handedness?: "convert" | "preserve";
 }
 
 export interface DecodedGltfPrimitive {
@@ -101,6 +104,39 @@ export interface DecodedGltfMaterial {
   baseColorTexture: number | null;
   metallicRoughnessTexture: number | null;
   normalTexture: number | null;
+  /** `normalTexture.scale` (default 1). */
+  normalScale: number;
+  /** `emissiveFactor` (default 0,0,0) and `emissiveTexture` (sRGB). */
+  emissiveFactor: Float32Array;
+  emissiveTexture: number | null;
+  /** `occlusionTexture` (R channel) and its `strength` (default 1). */
+  occlusionTexture: number | null;
+  occlusionStrength: number;
+}
+
+/** Phase 16.1c: `images[]`. Embedded (bufferView / data URI) images carry their bytes; external ones only `uri`. */
+export interface DecodedGltfImage {
+  name: string;
+  /** Declared or inferred MIME type ("" when unknown, e.g. an external URI with no extension). */
+  mimeType: string;
+  /** A fresh copy (byteOffset 0, transferable) for embedded images; null for external URIs. */
+  bytes: Uint8Array | null;
+  /** The relative/absolute URI of an external image (null when embedded). */
+  uri: string | null;
+}
+
+/** Phase 16.1c: `samplers[]` as raw glTF enums (undefined filters are null; wraps default to REPEAT 10497). */
+export interface DecodedGltfSampler {
+  magFilter: number | null;
+  minFilter: number | null;
+  wrapS: number;
+  wrapT: number;
+}
+
+/** Phase 16.1c: `textures[]`. */
+export interface DecodedGltfTexture {
+  source: number | null;
+  sampler: number | null;
 }
 
 export interface DecodedGltfScene {
@@ -117,6 +153,10 @@ export interface DecodedGltfAsset {
   scenes: DecodedGltfScene[];
   sceneIndex: number;
   materials: DecodedGltfMaterial[];
+  /** Phase 16.1c: images / samplers / textures (decoded pixels are produced on the main thread by `loadGltfTextures`). */
+  images: DecodedGltfImage[];
+  samplers: DecodedGltfSampler[];
+  textures: DecodedGltfTexture[];
   skins: DecodedGltfSkin[];
   /** `animations[]` (Phase 16.1f): TRS channels with STEP/LINEAR/CUBICSPLINE samplers. */
   animations: DecodedGltfAnimation[];
@@ -124,10 +164,15 @@ export interface DecodedGltfAsset {
   vertexCount: number;
   /** Bytes in all decoded vertex/index arrays. */
   decodedBytes: number;
+  /**
+   * "converted": mirrored into engine handedness on this decode; "preconverted": the file carries
+   * the `tools/gltf-fix-handedness.mjs` marker and was used as-is; "preserved": the caller opted out.
+   */
+  handedness: "converted" | "preconverted" | "preserved";
 }
 
 interface GltfDocument {
-  asset?: { version?: string; minVersion?: string };
+  asset?: { version?: string; minVersion?: string; extras?: Record<string, unknown> };
   extensionsRequired?: string[];
   buffers?: { byteLength: number; uri?: string }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number; extensions?: Record<string, unknown> }[];
@@ -182,11 +227,17 @@ interface GltfDocument {
       baseColorFactor?: number[];
       metallicFactor?: number;
       roughnessFactor?: number;
-      baseColorTexture?: { index: number };
-      metallicRoughnessTexture?: { index: number };
+      baseColorTexture?: { index: number; texCoord?: number };
+      metallicRoughnessTexture?: { index: number; texCoord?: number };
     };
-    normalTexture?: { index: number };
+    normalTexture?: { index: number; texCoord?: number; scale?: number };
+    emissiveFactor?: number[];
+    emissiveTexture?: { index: number; texCoord?: number };
+    occlusionTexture?: { index: number; texCoord?: number; strength?: number };
   }[];
+  images?: { name?: string; uri?: string; mimeType?: string; bufferView?: number }[];
+  samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[];
+  textures?: { source?: number; sampler?: number; extensions?: Record<string, unknown> }[];
 }
 
 interface ParsedContainer {
@@ -534,7 +585,21 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
     const metallicFactor = pbr.metallicFactor ?? 1;
     const roughnessFactor = pbr.roughnessFactor ?? 1;
     const alphaCutoff = material.alphaCutoff ?? 0.5;
-    if (![metallicFactor, roughnessFactor, alphaCutoff].every(Number.isFinite)) fail(source, `material ${index} has non-finite PBR factors`);
+    const normalScale = material.normalTexture?.scale ?? 1;
+    const occlusionStrength = material.occlusionTexture?.strength ?? 1;
+    const emissive = material.emissiveFactor ?? [0, 0, 0];
+    if (emissive.length !== 3 || emissive.some((v) => !Number.isFinite(v) || v < 0)) fail(source, `material ${index} has invalid emissiveFactor`);
+    if (![metallicFactor, roughnessFactor, alphaCutoff, normalScale, occlusionStrength].every(Number.isFinite)) fail(source, `material ${index} has non-finite PBR factors`);
+    const ref = (info: { index: number; texCoord?: number } | undefined, slot: string): number | null => {
+      const texture = materialIndex(info?.index, doc, source);
+      const texCoord = info?.texCoord ?? 0;
+      if (texture !== null && texCoord !== 0) {
+        // The engine's vertex format carries one UV set; binding the map to TEXCOORD_0 would be wrong.
+        console.warn(`[gltf] ${source}: material ${index} ${slot} uses texCoord ${texCoord}; only TEXCOORD_0 is supported, map ignored`);
+        return null;
+      }
+      return texture;
+    };
     return {
       name: material.name ?? `material-${index}`,
       alphaMode,
@@ -543,17 +608,72 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
       baseColorFactor: Float32Array.from(factor),
       metallicFactor,
       roughnessFactor,
-      baseColorTexture: materialIndex(material.pbrMetallicRoughness?.baseColorTexture?.index, doc, source),
-      metallicRoughnessTexture: materialIndex(material.pbrMetallicRoughness?.metallicRoughnessTexture?.index, doc, source),
-      normalTexture: materialIndex(material.normalTexture?.index, doc, source),
+      baseColorTexture: ref(pbr.baseColorTexture, "baseColorTexture"),
+      metallicRoughnessTexture: ref(pbr.metallicRoughnessTexture, "metallicRoughnessTexture"),
+      normalTexture: ref(material.normalTexture, "normalTexture"),
+      normalScale,
+      emissiveFactor: Float32Array.from(emissive),
+      emissiveTexture: ref(material.emissiveTexture, "emissiveTexture"),
+      occlusionTexture: ref(material.occlusionTexture, "occlusionTexture"),
+      occlusionStrength,
     };
   });
 }
 
 function materialIndex(index: number | undefined, doc: GltfDocument, source: string): number | null {
   if (index === undefined) return null;
-  const textures = (doc as GltfDocument & { textures?: unknown[] }).textures ?? [];
+  const textures = doc.textures ?? [];
   return indexAt(index, textures.length, "material texture", source);
+}
+
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+
+function readImages(doc: GltfDocument, buffers: ArrayBuffer[], source: string): DecodedGltfImage[] {
+  const views = doc.bufferViews ?? [];
+  return (doc.images ?? []).map((image, index) => {
+    const name = image.name ?? `image-${index}`;
+    if (image.bufferView !== undefined) {
+      if (image.uri !== undefined) fail(source, `image ${index} has both uri and bufferView`);
+      if (typeof image.mimeType !== "string" || image.mimeType === "") fail(source, `image ${index} uses a bufferView but has no mimeType`);
+      const view = views[indexAt(image.bufferView, views.length, `image ${index} bufferView`, source)]!;
+      const buffer = buffers[indexAt(view.buffer, buffers.length, `image ${index} buffer`, source)]!;
+      const offset = view.byteOffset ?? 0;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(view.byteLength) || offset < 0 || view.byteLength < 0 || offset + view.byteLength > buffer.byteLength) {
+        fail(source, `image ${index} bufferView ${image.bufferView} is out of its buffer's range`);
+      }
+      return { name, mimeType: image.mimeType, bytes: new Uint8Array(buffer, offset, view.byteLength).slice(), uri: null };
+    }
+    if (typeof image.uri !== "string") fail(source, `image ${index} has neither uri nor bufferView`);
+    if (image.uri.startsWith("data:")) {
+      const header = image.uri.slice(5, Math.max(5, image.uri.indexOf(",")));
+      const mimeType = image.mimeType ?? header.split(";")[0] ?? "";
+      return { name, mimeType, bytes: new Uint8Array(dataUriBytes(image.uri, source)), uri: null };
+    }
+    const extension = /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(image.uri)?.[1]?.toLowerCase() ?? "";
+    return { name, mimeType: image.mimeType ?? IMAGE_MIME_BY_EXTENSION[extension] ?? "", bytes: null, uri: image.uri };
+  });
+}
+
+function readSamplers(doc: GltfDocument, source: string): DecodedGltfSampler[] {
+  const filters = new Set([9728, 9729, 9984, 9985, 9986, 9987]);
+  const wraps = new Set([33071, 33648, 10497]);
+  return (doc.samplers ?? []).map((sampler, index) => {
+    const check = (value: number | undefined, allowed: Set<number>, label: string): void => {
+      if (value !== undefined && !allowed.has(value)) fail(source, `sampler ${index} has invalid ${label} ${value}`);
+    };
+    check(sampler.magFilter, new Set([9728, 9729]), "magFilter");
+    check(sampler.minFilter, filters, "minFilter");
+    check(sampler.wrapS, wraps, "wrapS");
+    check(sampler.wrapT, wraps, "wrapT");
+    return { magFilter: sampler.magFilter ?? null, minFilter: sampler.minFilter ?? null, wrapS: sampler.wrapS ?? 10497, wrapT: sampler.wrapT ?? 10497 };
+  });
+}
+
+function readTextures(doc: GltfDocument, imageCount: number, samplerCount: number, source: string): DecodedGltfTexture[] {
+  return (doc.textures ?? []).map((texture, index) => ({
+    source: texture.source === undefined ? null : indexAt(texture.source, imageCount, `texture ${index} source`, source),
+    sampler: texture.sampler === undefined ? null : indexAt(texture.sampler, samplerCount, `texture ${index} sampler`, source),
+  }));
 }
 
 function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
@@ -661,7 +781,11 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
     add(node.scale);
     add(node.matrix);
   }
-  for (const material of result.materials) add(material.baseColorFactor);
+  for (const material of result.materials) {
+    add(material.baseColorFactor);
+    add(material.emissiveFactor ?? null);
+  }
+  for (const image of result.images ?? []) add(image.bytes);
   return [...buffers];
 }
 
@@ -809,6 +933,10 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   const sceneIndex = doc.scene ?? (scenes.length > 0 ? 0 : -1);
   if (sceneIndex >= 0) indexAt(sceneIndex, scenes.length, "active scene", source);
   const materials = readMaterials(doc, source);
+  const images = readImages(doc, buffers, source);
+  for (const image of images) decodedBytes += image.bytes?.byteLength ?? 0;
+  const samplers = readSamplers(doc, source);
+  const textures = readTextures(doc, images.length, samplers.length, source);
   const skins = readSkins(doc, buffers, nodes.length, source, ctx);
   for (const skin of skins) decodedBytes += skin.inverseBindMatrices.byteLength;
   nodes.forEach((node, nodeIndex) => {
@@ -837,7 +965,11 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   for (const animation of animations) {
     for (const sampler of animation.samplers) decodedBytes += sampler.input.byteLength + sampler.output.byteLength;
   }
-  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, skins, animations, primitiveCount, vertexCount, decodedBytes };
+  const marked = doc.asset?.extras?.[GLTF_HANDEDNESS_MARKER.key] === GLTF_HANDEDNESS_MARKER.value;
+  const handedness = payload.handedness === "preserve" ? "preserved" : marked ? "preconverted" : "converted";
+  const result: DecodedGltfAsset = { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, images, samplers, textures, skins, animations, primitiveCount, vertexCount, decodedBytes, handedness };
+  if (handedness === "converted") convertGltfAssetHandedness(result);
+  return result;
 }
 
 /** The result arrays are newly allocated and can be transferred without copying. */

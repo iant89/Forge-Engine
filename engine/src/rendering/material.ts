@@ -35,6 +35,13 @@ export interface MaterialOptions {
   albedoMap?: Texture | null;
   normalMap?: Texture | null;
   metallicRoughnessMap?: Texture | null;
+  /** Phase 16.1c: emissive colour map (sRGB), multiplied with `emissive × emissiveStrength`. */
+  emissiveMap?: Texture | null;
+  /** Phase 16.1c: ambient occlusion map (R channel, linear), scaled by `occlusionStrength`. */
+  occlusionMap?: Texture | null;
+  occlusionStrength?: number;
+  /** Phase 16.1c: per-map samplers; a missing entry uses the renderer's default (linear-repeat). */
+  samplers?: MaterialSamplers;
   doubleSided?: boolean;
   transparent?: boolean;
   /** Skip distance fog and aerial perspective (beacons that must read through dense weather). */
@@ -56,6 +63,18 @@ export const FLAG_MR = 4;
 export const FLAG_DOUBLE_SIDED = 8;
 export const FLAG_UNLIT = 16;
 export const FLAG_FOG_EXEMPT = 32;
+export const FLAG_EMISSIVE_MAP = 64;
+export const FLAG_OCCLUSION_MAP = 128;
+export const FLAG_ALPHA_TEST = 256;
+
+/** One sampler per texture slot (null = the shared default sampler). */
+export interface MaterialSamplers {
+  albedo: GPUSampler | null;
+  normal: GPUSampler | null;
+  metallicRoughness: GPUSampler | null;
+  emissive: GPUSampler | null;
+  occlusion: GPUSampler | null;
+}
 
 /** Shared fallback bindings; subclasses may extend group 2 without changing ordinary materials. */
 export interface MaterialDefaults {
@@ -86,6 +105,11 @@ export class Material {
   albedoMap: Texture | null = null;
   normalMap: Texture | null = null;
   metallicRoughnessMap: Texture | null = null;
+  emissiveMap: Texture | null = null;
+  occlusionMap: Texture | null = null;
+  occlusionStrength = 1;
+  /** Change through `setSamplers` (the bind group holds them). */
+  readonly samplers: MaterialSamplers = { albedo: null, normal: null, metallicRoughness: null, emissive: null, occlusion: null };
   readonly tiling = new Vec2(1, 1);
   readonly offset = new Vec2(0, 0);
   dirty = true;
@@ -115,6 +139,10 @@ export class Material {
     this.albedoMap = options.albedoMap ?? null;
     this.normalMap = options.normalMap ?? null;
     this.metallicRoughnessMap = options.metallicRoughnessMap ?? null;
+    this.emissiveMap = options.emissiveMap ?? null;
+    this.occlusionMap = options.occlusionMap ?? null;
+    this.occlusionStrength = options.occlusionStrength ?? 1;
+    if (options.samplers) Object.assign(this.samplers, options.samplers);
     if (options.tiling) this.tiling.set(options.tiling[0], options.tiling[1]);
     if (options.offset) this.offset.set(options.offset[0], options.offset[1]);
   }
@@ -147,12 +175,21 @@ export class Material {
     return this.markChanged();
   }
 
-  setMaps(maps: { albedo?: Texture | null; normal?: Texture | null; metallicRoughness?: Texture | null }): this {
+  setMaps(maps: { albedo?: Texture | null; normal?: Texture | null; metallicRoughness?: Texture | null; emissive?: Texture | null; occlusion?: Texture | null }): this {
     if ("albedo" in maps) this.albedoMap = maps.albedo ?? null;
     if ("normal" in maps) this.normalMap = maps.normal ?? null;
     if ("metallicRoughness" in maps) this.metallicRoughnessMap = maps.metallicRoughness ?? null;
+    if ("emissive" in maps) this.emissiveMap = maps.emissive ?? null;
+    if ("occlusion" in maps) this.occlusionMap = maps.occlusion ?? null;
     // The bind group holds the previous texture views; drop it so `ensureGpu` rebuilds with the
     // new maps (and the new pipeline flags land on the next draw).
+    this.bindGroup = null;
+    return this.markChanged();
+  }
+
+  /** Replace per-map samplers (null = default); rebuilds the bind group on the next draw. */
+  setSamplers(samplers: Partial<MaterialSamplers>): this {
+    Object.assign(this.samplers, samplers);
     this.bindGroup = null;
     return this.markChanged();
   }
@@ -201,7 +238,13 @@ export class Material {
       { binding: 1, resource: (this.albedoMap ?? defaults.white).view },
       { binding: 2, resource: (this.normalMap ?? defaults.normal).view },
       { binding: 3, resource: (this.metallicRoughnessMap ?? defaults.mr).view },
-      { binding: 4, resource: defaults.sampler },
+      { binding: 4, resource: this.samplers.albedo ?? defaults.sampler },
+      { binding: 11, resource: (this.emissiveMap ?? defaults.white).view },
+      { binding: 12, resource: (this.occlusionMap ?? defaults.white).view },
+      { binding: 13, resource: this.samplers.normal ?? defaults.sampler },
+      { binding: 14, resource: this.samplers.metallicRoughness ?? defaults.sampler },
+      { binding: 15, resource: this.samplers.emissive ?? defaults.sampler },
+      { binding: 16, resource: this.samplers.occlusion ?? defaults.sampler },
     ];
   }
 
@@ -216,7 +259,7 @@ export class Material {
   private writeCpu(): void {
     const a = this.accessor;
     if (!a) return;
-    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0) | (this.fogExempt ? FLAG_FOG_EXEMPT : 0);
+    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0) | (this.fogExempt ? FLAG_FOG_EXEMPT : 0) | (this.emissiveMap ? FLAG_EMISSIVE_MAP : 0) | (this.occlusionMap ? FLAG_OCCLUSION_MAP : 0) | (this.alphaTest > 0 ? FLAG_ALPHA_TEST : 0);
     const base = a.struct.field("baseColorFactor", "uniform");
     const f32 = this.cpu!.f32;
     const o = base.offset >> 2;
@@ -242,6 +285,8 @@ export class Material {
     f32[oo] = this.offset.x;
     f32[oo + 1] = this.offset.y;
     a.setF32("normalScale", this.normalScale);
+    a.setF32("occlusionStrength", this.occlusionStrength);
+    a.setF32("alphaCutoff", this.alphaTest);
     a.setU32("flags", flags);
   }
 
@@ -271,7 +316,12 @@ export class Material {
       albedoMap: this.albedoMap,
       normalMap: this.normalMap,
       metallicRoughnessMap: this.metallicRoughnessMap,
+      emissiveMap: this.emissiveMap,
+      occlusionMap: this.occlusionMap,
+      occlusionStrength: this.occlusionStrength,
+      samplers: { ...this.samplers },
     });
+    m.alphaTest = this.alphaTest;
     m.baseColor.copyFrom(this.baseColor);
     Object.assign(m, options);
     return m.markChanged();

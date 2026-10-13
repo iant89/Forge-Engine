@@ -38,6 +38,9 @@ import {
 } from "@forge/engine";
 import { createWorkerThreadPool } from "../support/workerThreads.js";
 
+// These suites check the file's authored numbers, so they decode without the handedness mirror
+// (tests/resources/gltfHandedness.test.ts covers the conversion).
+const PRESERVE = { handedness: "preserve" as const };
 const fixturePath = fileURLToPath(new URL("../fixtures/triangle.glb", import.meta.url));
 const fixture = readFileSync(fixturePath);
 const fixtureBuffer = (): ArrayBuffer => fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength) as ArrayBuffer;
@@ -149,7 +152,7 @@ function makeSkinnedGltf(options: SkinFixtureOptions = {}): string {
 }
 
 async function rejectsWith(json: string, code: string, pattern: RegExp): Promise<void> {
-  await assertRejects(decodeGltfMesh(json), (error) => {
+  await assertRejects(decodeGltfMesh(json, PRESERVE), (error) => {
     assertMatchObject(error, { code });
     assert.match((error as Error).message, pattern);
     return true;
@@ -158,7 +161,7 @@ async function rejectsWith(json: string, code: string, pattern: RegExp): Promise
 
 group("glTF 2.0 skin import (Phase 16.1a)", () => {
   test("decodes skins, node skin bindings and JOINTS_0/WEIGHTS_0 into skinning vertex data", async () => {
-    const asset = await decodeGltfMesh(makeSkinnedGltf());
+    const asset = await decodeGltfMesh(makeSkinnedGltf(), PRESERVE);
     assert.equal(asset.skins.length, 1);
     const skin = asset.skins[0]!;
     assert.equal(skin.name, "arm");
@@ -187,7 +190,7 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
     try {
       const asset = await decodeGltfMesh(makeSkinnedGltf({ extra: (doc) => {
         doc.animations = [{ name: "bezier", channels: [{ sampler: 0, target: { node: 1, path: "rotation" } }], samplers: [{ input: 0, output: 0, interpolation: "BEZIER" }] }];
-      } }));
+      } }), PRESERVE);
       assert.equal(asset.meshes.length, 1);
       assert.equal(asset.skins.length, 1);
       assert.deepEqual(asset.animations, []);
@@ -199,7 +202,7 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
   });
 
   test("accepts unsigned-short joints and normalized unsigned-byte weights", async () => {
-    const asset = await decodeGltfMesh(makeSkinnedGltf({ jointComponentType: 5123, weightsNormalized: true }));
+    const asset = await decodeGltfMesh(makeSkinnedGltf({ jointComponentType: 5123, weightsNormalized: true }), PRESERVE);
     const skin = asset.meshes[0]!.primitives[0]!.skin!;
     assert.deepEqual([...skin.joints.subarray(0, 4)], [0, 1, 0, 0]);
     assert.ok(Math.abs(skin.weights[0]! - 191 / 255) < 1e-6);
@@ -207,18 +210,18 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
   });
 
   test("defaults missing inverse bind matrices to identity", async () => {
-    const asset = await decodeGltfMesh(makeSkinnedGltf({ ibmCount: null }));
+    const asset = await decodeGltfMesh(makeSkinnedGltf({ ibmCount: null }), PRESERVE);
     const ibm = asset.skins[0]!.inverseBindMatrices;
     assert.deepEqual([...ibm], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   });
 
   test("counts and transfers the skin arrays", async () => {
-    const asset = await decodeGltfMesh(makeSkinnedGltf());
+    const asset = await decodeGltfMesh(makeSkinnedGltf(), PRESERVE);
     const unskinned = await decodeGltfMesh(makeSkinnedGltf({ extra: (doc) => {
       doc.meshes[0].primitives[0].attributes = { POSITION: 0 };
       delete doc.nodes[0].skin;
       delete doc.skins;
-    } }));
+    } }), PRESERVE);
     // 12 Uint16 joints + 12 Float32 weights + 32 Float32 IBM floats.
     assert.equal(asset.decodedBytes - unskinned.decodedBytes, 24 + 48 + 128);
     const transferred = new Set(transferablesForGltfMesh(asset));
@@ -229,7 +232,7 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
     const pool = await createWorkerThreadPool();
     const scheduler = new TaskScheduler({ workerCount: 1, createWorker: (index) => pool.createWorker(index) });
     try {
-      const workerResult = await decodeGltfMesh(makeSkinnedGltf(), { scheduler, key: "worker.gltf.skin" });
+      const workerResult = await decodeGltfMesh(makeSkinnedGltf(), { ...PRESERVE, scheduler, key: "worker.gltf.skin" });
       assert.deepEqual(workerResult, asset);
       assert.equal(scheduler.stats.inlineFallbacks, 0);
       assert.equal(scheduler.stats.workerFailures, 0);
@@ -240,13 +243,13 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
   });
 
   test("ignores extra JOINTS_n/WEIGHTS_n sets whose weights are all zero", async () => {
-    const reference = await decodeGltfMesh(makeSkinnedGltf());
-    const reference2 = await decodeGltfMesh(makeSkinnedGltf({ zeroSet: true }));
+    const reference = await decodeGltfMesh(makeSkinnedGltf(), PRESERVE);
+    const reference2 = await decodeGltfMesh(makeSkinnedGltf({ zeroSet: true }), PRESERVE);
     const padded = await decodeGltfMesh(makeSkinnedGltf({ zeroSet: true, extra: (doc) => {
       // Exporters pad to eight influences with sets like these.
       const zeroWeights = doc.accessors.length - 1;
       Object.assign(doc.meshes[0].primitives[0].attributes, { JOINTS_1: 1, WEIGHTS_1: zeroWeights, JOINTS_2: 1, WEIGHTS_2: zeroWeights });
-    } }));
+    } }), PRESERVE);
     const primitive = padded.meshes[0]!.primitives[0]!;
     assert.deepEqual(Object.keys(primitive.attributes), ["POSITION"]);
     assert.deepEqual(primitive.skin, reference.meshes[0]!.primitives[0]!.skin);
@@ -281,7 +284,7 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
 
 group("glTF 2.0 mesh decoder", () => {
   test("decodes GLB triangle geometry, node transforms, scenes and PBR factors", async () => {
-    const result = await decodeGltfMesh(fixtureBuffer(), { source: "triangle.glb" });
+    const result = await decodeGltfMesh(fixtureBuffer(), { ...PRESERVE, source: "triangle.glb" });
     assert.equal(result.version, "2.0");
     assert.equal(result.source, "triangle.glb");
     assert.equal((result.meshes).length, 1);
@@ -305,7 +308,7 @@ group("glTF 2.0 mesh decoder", () => {
 
   test("unpacks interleaved normalized vertex attributes from a JSON glTF document", async () => {
     const buffer = makeInterleavedBuffer();
-    const result = await decodeGltfMesh({ json: makeGltfJson(buffer.byteLength), buffers: [buffer] });
+    const result = await decodeGltfMesh({ json: makeGltfJson(buffer.byteLength), buffers: [buffer] }, PRESERVE);
     const primitive = result.meshes[0]!.primitives[0]!;
     assert.deepEqual(primitive.attributes.POSITION, new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
     assert.deepEqual(primitive.attributes.COLOR_0, new Float32Array([
@@ -321,7 +324,7 @@ group("glTF 2.0 mesh decoder", () => {
     const binary = Buffer.from(makeInterleavedBuffer());
     const document = JSON.parse(makeGltfJson(binary.byteLength)) as { buffers: { uri: string; byteLength: number }[] };
     document.buffers[0]!.uri = `data:application/octet-stream;base64,${binary.toString("base64")}`;
-    const decoded = await decodeGltfMesh(JSON.stringify(document));
+    const decoded = await decodeGltfMesh(JSON.stringify(document), PRESERVE);
     assert.equal(decoded.vertexCount, 3);
     assert.equal(decoded.meshes[0]!.primitives[0]!.attributes.POSITION![3], 1);
   });
@@ -347,7 +350,7 @@ group("glTF 2.0 mesh decoder", () => {
       } }],
       meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
     });
-    const decoded = await decodeGltfMesh({ json, buffers: [buffer] });
+    const decoded = await decodeGltfMesh({ json, buffers: [buffer] }, PRESERVE);
     assert.deepEqual(decoded.meshes[0]!.primitives[0]!.attributes.POSITION, new Float32Array(positions));
   });
 
@@ -363,7 +366,7 @@ group("glTF 2.0 mesh decoder", () => {
       if (href === "https://assets.test/mesh.bin") return new Response(binary, { status: 200 });
       return new Response("not found", { status: 404 });
     };
-    const result = await loadGltfMesh("https://assets.test/model.gltf", { fetcher, source: "model.gltf" });
+    const result = await loadGltfMesh("https://assets.test/model.gltf", { ...PRESERVE, fetcher, source: "model.gltf" });
     assert.deepEqual(calls, ["https://assets.test/model.gltf", "https://assets.test/mesh.bin"]);
     assert.equal(result.meshes[0]!.primitives[0]!.attributes.COLOR_0![3], 1);
   });
@@ -374,19 +377,19 @@ group("glTF 2.0 mesh decoder", () => {
       extensionsRequired: ["KHR_draco_mesh_compression"],
       meshes: [],
     });
-    await assertRejects(decodeGltfMesh(compressed), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
+    await assertRejects(decodeGltfMesh(compressed, PRESERVE), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
     const morphMesh = JSON.stringify({ asset: { version: "2.0" }, meshes: [{ weights: [0], primitives: [{ attributes: { POSITION: 0 } }] }] });
-    await assertRejects(decodeGltfMesh(morphMesh), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
+    await assertRejects(decodeGltfMesh(morphMesh, PRESERVE), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
     const morphNode = JSON.stringify({ asset: { version: "2.0" }, meshes: [], nodes: [{ weights: [0] }] });
-    await assertRejects(decodeGltfMesh(morphNode), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
+    await assertRejects(decodeGltfMesh(morphNode, PRESERVE), (error) => { assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" }); return true; });
     const malformed = new ArrayBuffer(20);
-    await assertRejects(decodeGltfMesh(malformed), (error) => error instanceof AssetError);
+    await assertRejects(decodeGltfMesh(malformed, PRESERVE), (error) => error instanceof AssetError);
   });
 
   test("runs the same decoder through the inline scheduler", async () => {
     const scheduler = new TaskScheduler({ workerCount: 1, inline: true });
     try {
-      const result = await decodeGltfMesh(fixtureBuffer(), { scheduler, key: "inline.gltf" });
+      const result = await decodeGltfMesh(fixtureBuffer(), { ...PRESERVE, scheduler, key: "inline.gltf" });
       assert.equal(result.vertexCount, 3);
       assert.equal(scheduler.stats.completed, 1);
       assert.equal(scheduler.stats.inline, true);
@@ -399,12 +402,11 @@ group("glTF 2.0 mesh decoder", () => {
     const pool = await createWorkerThreadPool();
     const scheduler = new TaskScheduler({ workerCount: 1, createWorker: (index) => pool.createWorker(index) });
     try {
-      const workerResult = await decodeGltfMesh(fixtureBuffer(), {
-        scheduler,
+      const workerResult = await decodeGltfMesh(fixtureBuffer(), { ...PRESERVE, scheduler,
         key: "worker.gltf.triangle",
         transferInput: true,
       });
-      const inlineResult = await decodeGltfMesh(fixtureBuffer());
+      const inlineResult = await decodeGltfMesh(fixtureBuffer(), PRESERVE);
       assert.deepEqual(workerResult, inlineResult);
       assert.equal(scheduler.stats.workers, 1);
       assert.equal(scheduler.stats.inline, false);
@@ -421,7 +423,7 @@ group("glTF 2.0 mesh decoder", () => {
     const scheduler = new TaskScheduler({ inline: true });
     const input = fixtureBuffer();
     try {
-      const result: DecodedGltfAsset = await decodeGltfMesh(input, { scheduler, key: "keep-input" });
+      const result: DecodedGltfAsset = await decodeGltfMesh(input, { ...PRESERVE, scheduler, key: "keep-input" });
       assert.equal(new DataView(input).getUint32(0, true), 0x46546c67);
       assert.ok(result.decodedBytes > 0);
     } finally {

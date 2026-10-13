@@ -591,7 +591,35 @@ async function checkGltfSkin({ model = "simple", file = "SimpleSkin.gltf", joint
   if (!(cover.distinct >= 8) || !(cover.mean >= 6)) throw new Error(`the glTF skin scene is not rendering (mean ${cover.mean.toFixed(1)}, ${cover.distinct} colours)`);
   const after = await page.evaluate(() => window.__forge.stats());
   if (after.gpuErrors !== 0 || after.lastError) throw new Error(`GPU error after the glTF skin A/B: ${after.lastError}`);
-  return { ...first.state, results, screenshots: times.map((t) => `${prefix}-${t.toFixed(1)}s.png`) };
+  const screenshots = times.map((t) => `${prefix}-${t.toFixed(1)}s.png`);
+  if (model !== "simple") screenshots.push(await checkGltfTextured({ model, file, prefix }));
+  return { ...first.state, results, screenshots };
+}
+
+/**
+ * Phase 16.1c: the imported base-colour maps are bound and actually change pixels. With the pose
+ * frozen, the frame with the albedo maps bound must differ from the same frame with them unbound.
+ */
+async function checkGltfTextured({ model, file, prefix, minTextures = 1, minDiffering = 1500 }) {
+  const state = await page.evaluate(() => window.__forge.gltfSkinState());
+  if (!(state.textures >= minTextures) || !(state.texturedMaterials >= 1)) {
+    throw new Error(`${file}: expected textured materials (textures=${state.textures}, texturedMaterials=${state.texturedMaterials})`);
+  }
+  await page.evaluate(() => window.__forge.setGltfSkinMaterialFeature("albedo", false));
+  await waitPresentedFrames(3);
+  await keepLuma(`gltf-tex-${model}-off`);
+  await page.screenshot({ path: `${prefix}-untextured.png`, timeout: 60000 });
+  await page.evaluate(() => window.__forge.setGltfSkinMaterialFeature("albedo", true));
+  await waitPresentedFrames(3);
+  await keepLuma(`gltf-tex-${model}-on`);
+  const shot = `${prefix}-textured.png`;
+  await page.screenshot({ path: shot, timeout: 60000 });
+  const diff = await compareRgb(`gltf-tex-${model}-off`, `gltf-tex-${model}-on`);
+  console.log(`${file} textured vs factor-only: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max}/255); ${state.textures} textures, ${state.texturedMaterials} textured materials`);
+  if (!(diff.differing >= minDiffering) || !(diff.max >= 20)) throw new Error(`${file}: binding the albedo maps did not change the frame (${diff.differing} px, max ${diff.max})`);
+  const stats = await page.evaluate(() => window.__forge.stats());
+  if (stats.gpuErrors !== 0 || stats.lastError) throw new Error(`GPU error on the textured glTF: ${stats.lastError}`);
+  return shot;
 }
 
 /**
@@ -1132,7 +1160,7 @@ async function checkRendererSection(backend) {
       if (!response.ok) throw new Error(`GLB fixture fetch failed (${response.status})`);
       const bytes = await response.arrayBuffer();
       scheduler = new TaskScheduler({ workerCount: 1, maxConcurrent: 1 });
-      const decoded = await decodeGltfMesh(bytes, { scheduler, source: "browser-worker-triangle.glb", transferInput: true });
+      const decoded = await decodeGltfMesh(bytes, { scheduler, source: "browser-worker-triangle.glb", transferInput: true, handedness: "preserve" }); // checks the authored numbers survive the worker round trip
       const primitive = decoded.meshes[0]?.primitives[0];
       return {
         ok: true,
@@ -3091,12 +3119,103 @@ try {
     await page.waitForFunction(() => window.__forge.sceneName === "gltf-skin", null, { timeout: 10000 });
     const gltfSkin = await checkGltfSkin();
     console.log(`imported glTF skin: joints=${gltfSkin.joints} skinnedBatches=${gltfSkin.skinnedBatches} skinJoints=${gltfSkin.skinJoints} fallbacks=${gltfSkin.skinFallbacks}; screenshots ${gltfSkin.screenshots.join(", ")}`);
-    // Second asset: Khronos CesiumMan (CC-BY-4.0; 19 joints, textured but drawn factor-only) through `?model=cesium`.
+    // Second asset: Khronos CesiumMan (CC-BY-4.0; 19 joints, base-colour textured since 16.1c) through `?model=cesium`.
     await page.goto(`${URL}?scene=gltf-skin&model=cesium`, { waitUntil: "load", timeout: 60000 });
     await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
     const basePrefix = process.env.GLTF_SKIN_SHOTS ?? "tools/.browser-check-gltf-skin";
     const cesium = await checkGltfSkin({ model: "cesium", file: "CesiumMan.glb", joints: 19, prefix: `${basePrefix}-cesium` });
     console.log(`imported CesiumMan: joints=${cesium.joints} skinnedBatches=${cesium.skinnedBatches} skinJoints=${cesium.skinJoints} fallbacks=${cesium.skinFallbacks}; screenshots ${cesium.screenshots.join(", ")}`);
+    // Third asset: the repo's static Perseverance.glb (WebP colour + normal maps), textured (16.1c).
+    await page.goto(`${URL}?scene=gltf-skin&model=perseverance`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+    await page.waitForFunction(() => {
+      const state = window.__forge.gltfSkinState?.();
+      return state && (state.error || state.loaded);
+    }, null, { polling: 250, timeout: 90000 });
+    const rover = await page.evaluate(() => window.__forge.gltfSkinState());
+    if (rover.model !== "perseverance") throw new Error(`expected the perseverance model, got ${rover.model}`);
+    if (rover.error) throw new Error(`Perseverance.glb failed to load: ${rover.error}`);
+    await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+    await waitPresentedFrames(3);
+    const roverShot = await checkGltfTextured({ model: "perseverance", file: "Perseverance.glb", prefix: `${basePrefix}-perseverance`, minTextures: 30, minDiffering: 500 });
+    console.log(`imported Perseverance: ${rover.textures} textures, ${rover.texturedMaterials} textured materials; screenshot ${roverShot}`);
+    // Fourth asset: generated MaterialFeatures.gltf — each 16.1c feature must change pixels on its own.
+    await page.goto(`${URL}?scene=gltf-skin&model=features`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+    await page.waitForFunction(() => {
+      const state = window.__forge.gltfSkinState?.();
+      return state && (state.error || state.loaded);
+    }, null, { polling: 250, timeout: 60000 });
+    const feat = await page.evaluate(() => window.__forge.gltfSkinState());
+    if (feat.model !== "features") throw new Error(`expected the features model, got ${feat.model}`);
+    if (feat.error) throw new Error(`MaterialFeatures.gltf failed to load: ${feat.error}`);
+    await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+    await waitPresentedFrames(3);
+    await page.screenshot({ path: `${basePrefix}-features.png`, timeout: 60000 });
+    for (const feature of ["emissive", "occlusion", "mask", "sampler"]) {
+      await page.evaluate((f) => window.__forge.setGltfSkinMaterialFeature(f, false), feature);
+      await waitPresentedFrames(3);
+      await keepLuma(`gltf-feature-${feature}-off`);
+      await page.screenshot({ path: `${basePrefix}-features-no-${feature}.png`, timeout: 60000 });
+      await page.evaluate((f) => window.__forge.setGltfSkinMaterialFeature(f, true), feature);
+      await waitPresentedFrames(3);
+      await keepLuma(`gltf-feature-${feature}-on`);
+      const diff = await compareRgb(`gltf-feature-${feature}-off`, `gltf-feature-${feature}-on`);
+      console.log(`MaterialFeatures.gltf ${feature} on vs off: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max}/255)`);
+      if (!(diff.differing >= 500) || !(diff.max >= 20)) throw new Error(`MaterialFeatures.gltf: toggling ${feature} did not change the frame (${diff.differing} px, max ${diff.max})`);
+    }
+    const featStats = await page.evaluate(() => window.__forge.stats());
+    if (featStats.gpuErrors !== 0 || featStats.lastError) throw new Error(`GPU error on MaterialFeatures.gltf: ${featStats.lastError}`);
+    // Handedness (Orientation.gltf, generated CC0): seen from the front, the letter F must read the right
+    // way round and the red square on the asset's left (glTF +X) must be on the viewer's RIGHT, as in any
+    // glTF viewer. `handedness=preserve` (the pre-fix import) must show both mirrored, proving the probe.
+    const orientationProbe = async (query, shot) => {
+      await page.goto(`${URL}?scene=gltf-skin&model=orientation${query}`, { waitUntil: "load", timeout: 60000 });
+      await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+      await page.waitForFunction(() => { const s = window.__forge.gltfSkinState?.(); return s && (s.error || s.loaded); }, null, { polling: 250, timeout: 60000 });
+      const st = await page.evaluate(() => window.__forge.gltfSkinState());
+      if (st.error) throw new Error(`Orientation.gltf failed to load: ${st.error}`);
+      await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+      await waitPresentedFrames(3);
+      await page.screenshot({ path: shot, timeout: 60000 });
+      await keepLuma("orientation");
+      return page.evaluate(() => {
+        const d = window.__gateRgb.orientation;
+        const w = document.querySelector("canvas").width;
+        const acc = { red: [0, 0], ink: [0, 0], paper: [0, 0] };
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+          const x = p % w;
+          const k = r > 150 && g < 90 && b < 90 ? "red" : r > 190 && g > 185 && b > 160 ? "paper" : null;
+          if (k) { acc[k][0] += x; acc[k][1]++; }
+        }
+        const px = acc.paper[1] ? acc.paper[0] / acc.paper[1] : NaN;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          if (d[i] > 190 && d[i + 1] > 185 && d[i + 2] > 160) {
+            const x = p % w, y = (p / w) | 0;
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          }
+        }
+        // F ink: dark pixels inside the paper's bounding box (shrunk a little to skip its silhouette).
+        const ix = (maxX - minX) * 0.08, iy = (maxY - minY) * 0.08;
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const x = p % w, y = (p / w) | 0;
+          if (x > minX + ix && x < maxX - ix && y > minY + iy && y < maxY - iy && d[i] < 60 && d[i + 1] < 60 && d[i + 2] < 70) { acc.ink[0] += x; acc.ink[1]++; }
+        }
+        const c = (k) => (acc[k][1] ? acc[k][0] / acc[k][1] : NaN);
+        return { red: c("red"), redCount: acc.red[1], ink: c("ink"), inkCount: acc.ink[1], paper: px, paperCount: acc.paper[1] };
+      });
+    };
+    const before = await orientationProbe("&handedness=preserve", `${basePrefix}-orientation-before.png`);
+    const after = await orientationProbe("", `${basePrefix}-orientation-after.png`);
+    console.log(`Orientation.gltf before (preserve): red x=${before.red.toFixed(0)} ink x=${before.ink.toFixed(0)} paper x=${before.paper.toFixed(0)}; after (converted): red x=${after.red.toFixed(0)} ink x=${after.ink.toFixed(0)} paper x=${after.paper.toFixed(0)}`);
+    for (const [label, r, want] of [["converted", after, 1], ["preserve", before, -1]]) {
+      if (!(r.redCount > 50 && r.inkCount > 200 && r.paperCount > 500)) throw new Error(`Orientation.gltf (${label}): marker/letter not found on screen ${JSON.stringify(r)}`);
+      if (Math.sign(r.red - r.paper) !== want || Math.sign(r.paper - r.ink) !== want) {
+        throw new Error(`Orientation.gltf (${label}): expected ${want > 0 ? "the glTF orientation (square right, F stem left)" : "a mirrored picture"}, got ${JSON.stringify(r)}`);
+      }
+    }
     console.log("Focused imported-glTF-skin checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();
