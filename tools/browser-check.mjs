@@ -1160,7 +1160,7 @@ async function checkRendererSection(backend) {
       if (!response.ok) throw new Error(`GLB fixture fetch failed (${response.status})`);
       const bytes = await response.arrayBuffer();
       scheduler = new TaskScheduler({ workerCount: 1, maxConcurrent: 1 });
-      const decoded = await decodeGltfMesh(bytes, { scheduler, source: "browser-worker-triangle.glb", transferInput: true });
+      const decoded = await decodeGltfMesh(bytes, { scheduler, source: "browser-worker-triangle.glb", transferInput: true, handedness: "preserve" }); // checks the authored numbers survive the worker round trip
       const primitive = decoded.meshes[0]?.primitives[0];
       return {
         ok: true,
