@@ -17,6 +17,14 @@ import assert from "node:assert/strict";
 import { PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  DEVIL_SWIRL_RADIUS_SCALE,
+  DEVIL_CORE_CARD_WIDTH,
+  DEVIL_FADE_NEAR,
+  devilCoreCardHalfWidth,
+  devilFunnelProfile,
+  devilShellFade,
+  buildFunnelCard,
+  CARD_VERTEX_COUNT,
   DEVIL_COARSE_FRACTION,
   DEVIL_BASE_CLOUD,
   DEVIL_EMIT_CYCLE,
@@ -644,6 +652,40 @@ group("fe-21d devil base cloud", () => {
     assert.equal(DEVIL_SWIRL_MAX > 0, true);
     assert.match(PARTICLE_FULL_SIM_SHADER, /params\.groundWindHeight/);
     assert.match(PARTICLE_RENDER_SHADER, /params\.flags & 2u/, "opt-in soft sprite bit");
+  });
+});
+
+group("fe-22 old-devil core wrapped by a narrower swirl", () => {
+  const adult = { id: 3, coreRadius: 5, swirl: 18, age: 10, life: 30, fadeOut: 4 };
+  const col = devilParticleLook(adult, 0, 3);
+  test("swirl column radius is 50-60% of fe-21's", () => {
+    assert.ok(DEVIL_SWIRL_RADIUS_SCALE >= 0.5 && DEVIL_SWIRL_RADIUS_SCALE <= 0.6);
+    const fe21Top = adult.coreRadius * DEVIL_RF_BASE_PER_CORE * 1.1, fe21Base = adult.coreRadius * DEVIL_RF_BASE_PER_CORE * 0.35;
+    assertCloseTo(col.vortex.radiusTop, fe21Top * DEVIL_SWIRL_RADIUS_SCALE, 9);
+    assertCloseTo(col.vortex.radiusBase, fe21Base * DEVIL_SWIRL_RADIUS_SCALE, 9);
+    const base = devilParticleLook(adult, 0, 1);
+    assertCloseTo(base.vortex.radiusTop, adult.coreRadius * DEVIL_RF_BASE_PER_CORE * DEVIL_BASE_CLOUD.radiusTop, 9);
+  });
+  test("core cards sit inside the swirl, the wispy layer reaches about its radius", () => {
+    for (const u of [0.2, 0.5, 1]) {
+      const swirlR = col.vortex.radiusBase + (col.vortex.radiusTop - col.vortex.radiusBase) * u;
+      const core = devilCoreCardHalfWidth(adult.coreRadius, u, DEVIL_CORE_CARD_WIDTH.core);
+      const outer = devilCoreCardHalfWidth(adult.coreRadius, u, DEVIL_CORE_CARD_WIDTH.outer);
+      assert.ok(core > 0 && core <= swirlR * 0.9 + 0.2, `dense core within the swirl at u=${u}`);
+      assert.ok(outer > core && outer <= swirlR * 1.3 + 0.3, `wispy layer wraps the core, not much wider than the swirl at u=${u}`);
+    }
+    assertCloseTo(devilCoreCardHalfWidth(4, 0.5, 1), devilFunnelProfile(0.5) * 4, 9);
+  });
+  test("core card follows the swirl axis and stays visible near the camera", () => {
+    const m = buildFunnelCard({ ...adult, x: 0, z: 0 }, 60, DEVIL_CORE_CARD_WIDTH.core, 7, 30, 0, 0);
+    assert.equal(m.positions.length, CARD_VERTEX_COUNT * 3);
+    // Middle column of the top ring is the swayed axis.
+    const top = (CARD_VERTEX_COUNT - 2) * 3;
+    const sway = devilFunnelSway(adult, 1, 7);
+    assertCloseTo(m.positions[top]!, sway.x, 4);
+    assertCloseTo(m.positions[top + 2]!, sway.z, 4);
+    assert.equal(devilShellFade(DEVIL_FADE_NEAR), 0);
+    assert.ok(DEVIL_FADE_NEAR <= 5 && devilShellFade(25) === 1, "visible inside the wrap from mid range");
   });
 });
 

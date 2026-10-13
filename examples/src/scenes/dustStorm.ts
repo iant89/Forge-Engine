@@ -1135,6 +1135,11 @@ export function devilFunnelHeight(coreRadius: number): number {
 export const DEVIL_RF_BASE_PER_CORE = 0.9;
 /** Seconds for a newborn column to climb to full height (red-frontier `growth`, 3.1 s). */
 export const DEVIL_GROW_TIME = 3.1;
+/**
+ * fe-22: the swirl column's radius as a fraction of fe-21's, so the particle
+ * swarm wraps (skirt and base cloud keep their fe-21 width) tightly around the restored old-devil core instead of a wide hollow tube.
+ */
+export const DEVIL_SWIRL_RADIUS_SCALE = 0.55;
 
 function devilHash(id: number, k: number): number {
   const x = Math.sin(id * 12.9898 + k * 78.233) * 43758.5453;
@@ -1273,6 +1278,7 @@ export function devilParticleLook(
   const fullHeight = devilFunnelHeight(devil.coreRadius);
   const height = fullHeight * life.growth;
   const baseR = devil.coreRadius * DEVIL_RF_BASE_PER_CORE * life.radiusScale;
+  const colR = baseR * DEVIL_SWIRL_RADIUS_SCALE;
   const top = devilFunnelSway(devil, 1, t);
   const dir = Math.sign(devil.swirl || 1);
   const bursting = (devil.age ?? 1e3) < DEVIL_BURST_TIME;
@@ -1298,7 +1304,7 @@ export function devilParticleLook(
   o.sizeStart = DEVIL_GRAIN_START;
   o.sizeEnd = DEVIL_GRAIN_END;
   if (column) {
-    v.height = height; v.bias = 1.35; v.radiusBase = baseR * 0.35; v.radiusTop = baseR * 1.1;
+    v.height = height; v.bias = 1.35; v.radiusBase = colR * 0.35; v.radiusTop = colR * 1.1;
     v.spin = dir * spin * 0.6; v.outward = 0; v.leanX = top.x; v.leanZ = top.z;
     o.speedMin = 5.5; o.speedMax = 11.3; o.lifeMin = 0.95; o.lifeMax = 1.7;
   } else if (base) {
@@ -1648,3 +1654,164 @@ export const STORM_DUST_PALETTE: Readonly<{ dust: Rgba; rock: Rgba; sheetVariati
   sheetVariation: 0.6,
   devilVariation: 0.85,
 });
+
+// ---------------------------------------------------------------- old-devil core (fe-22)
+//
+// fe-22: the fe-18/fe-19 funnel cards come back as an inner core, wrapped by the narrower fe-21 swirl.
+
+/** Funnel radius at the ground and the top, as fractions of the core radius. */
+export const DEVIL_FUNNEL_BASE = 0.32;
+export const DEVIL_FUNNEL_WAIST = 0.26;
+export const DEVIL_FUNNEL_TOP = 0.62;
+
+/**
+ * Funnel radius (as a fraction of the core radius) at normalized height `u` 0..1: pinched just above
+ * the skirt, narrow for most of the column, widening slightly toward the top (the reference image).
+ */
+export function devilFunnelProfile(u: number): number {
+  const x = Math.max(0, Math.min(1, u));
+  if (x < 0.12) return DEVIL_FUNNEL_BASE + (DEVIL_FUNNEL_WAIST - DEVIL_FUNNEL_BASE) * smooth(x / 0.12);
+  return DEVIL_FUNNEL_WAIST + (DEVIL_FUNNEL_TOP - DEVIL_FUNNEL_WAIST) * Math.pow((x - 0.12) / 0.88, 1.6);
+}
+
+
+/** Rings up a core card. */
+export const FUNNEL_RINGS = 14;
+export interface FunnelMesh { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint16Array }
+// ---------------------------------------------------------------- soft funnel cards (fe-18 captain: soften)
+
+/**
+ * Near-camera dissolve for the funnel impostors: 0 within `DEVIL_FADE_NEAR` m of the devil's axis
+ * (fe-22: inside the wrapping swirl the core stays visible much closer than the fe-18 10–45 m), 1 beyond `DEVIL_FADE_FAR`.
+ */
+export const DEVIL_FADE_NEAR = 4;
+export const DEVIL_FADE_FAR = 20;
+export function devilShellFade(distance: number): number {
+  return smooth((distance - DEVIL_FADE_NEAR) / (DEVIL_FADE_FAR - DEVIL_FADE_NEAR));
+}
+
+/** Columns across a funnel card: left edge, core, right edge (uv.x 0, 0.5, 1). */
+export const CARD_COLUMNS = 3;
+export const CARD_VERTEX_COUNT = FUNNEL_RINGS * CARD_COLUMNS;
+
+function cardIndices(): Uint16Array {
+  const idx: number[] = [];
+  for (let k = 0; k < FUNNEL_RINGS - 1; k++) {
+    for (let c = 0; c < CARD_COLUMNS - 1; c++) {
+      const a = k * CARD_COLUMNS + c;
+      idx.push(a, a + 1, a + 1 + CARD_COLUMNS, a, a + 1 + CARD_COLUMNS, a + CARD_COLUMNS);
+    }
+  }
+  return new Uint16Array(idx);
+}
+const CARD_INDICES = cardIndices();
+
+/**
+ * A camera-facing funnel card: each ring becomes a horizontal span perpendicular to the view, as wide
+ * as the swaying funnel profile, so the soft-edged texture gives a view-angle falloff (thin wispy
+ * edges, dense core) like a fresnel fade, at one quad strip per layer. `vScroll` scrolls the
+ * turbulence texture upward over time. Positions are relative to the devil's ground point.
+ */
+export function buildFunnelCard(
+  devil: Pick<DustDevil, "id" | "coreRadius" | "swirl" | "x" | "z">,
+  height: number,
+  widthScale: number,
+  t: number,
+  camX: number,
+  camZ: number,
+  vScroll: number,
+  out?: FunnelMesh,
+): FunnelMesh {
+  const mesh: FunnelMesh = out ?? {
+    positions: new Float32Array(CARD_VERTEX_COUNT * 3),
+    normals: new Float32Array(CARD_VERTEX_COUNT * 3),
+    uvs: new Float32Array(CARD_VERTEX_COUNT * 2),
+    indices: CARD_INDICES,
+  };
+  let tx = camX - devil.x;
+  let tz = camZ - devil.z;
+  const tl = Math.hypot(tx, tz) || 1;
+  tx /= tl;
+  tz /= tl;
+  // Right vector across the view (horizontal, perpendicular to the camera direction).
+  const rx = -tz;
+  const rz = tx;
+  const sway = { x: 0, z: 0 };
+  for (let k = 0; k < FUNNEL_RINGS; k++) {
+    const u = k / (FUNNEL_RINGS - 1);
+    devilFunnelSway(devil, u, t, sway);
+    // Breathing lumps advected upward break up the silhouette.
+    const lump = 1 + 0.22 * Math.sin(u * 11 - t * 2.3 + devil.id) + 0.12 * Math.sin(u * 23 + t * 3.1);
+    const half = devilFunnelProfile(u) * devil.coreRadius * widthScale * lump;
+    for (let c = 0; c < CARD_COLUMNS; c++) {
+      const s = (c / (CARD_COLUMNS - 1)) * 2 - 1;
+      const i = k * CARD_COLUMNS + c;
+      mesh.positions[i * 3] = sway.x + rx * half * s;
+      mesh.positions[i * 3 + 1] = u * height;
+      mesh.positions[i * 3 + 2] = sway.z + rz * half * s;
+      mesh.normals[i * 3] = tx;
+      mesh.normals[i * 3 + 1] = 0;
+      mesh.normals[i * 3 + 2] = tz;
+      mesh.uvs[i * 2] = c / (CARD_COLUMNS - 1);
+      mesh.uvs[i * 2 + 1] = u * 2.5 - vScroll;
+    }
+  }
+  return mesh;
+}
+
+/**
+ * RGBA8 pixels for the funnel card texture: alpha falls off smoothly to 0 at both side edges
+ * (the view-angle fade), is densest at the core, and is broken up by streaky turbulence that
+ * tiles vertically (the card scrolls it upward). Colour darkens toward the core.
+ */
+export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array {
+  const px = new Uint8Array(width * height * 4);
+  const rng = new Rng(seed);
+  const ph = Array.from({ length: 6 }, () => rng.nextFloat() * Math.PI * 2);
+  for (let y = 0; y < height; y++) {
+    const v = y / height;
+    for (let x = 0; x < width; x++) {
+      const u = (x + 0.5) / width;
+      const across = Math.sin(Math.PI * u); // 0 at edges, 1 at core
+      const edge = Math.pow(across, 1.8);
+      // Tileable in v: integer frequencies of 2π v.
+      const w = 2 * Math.PI * v;
+      const n =
+        0.5 +
+        0.22 * Math.sin(w * 3 + u * 9 + ph[0]!) +
+        0.14 * Math.sin(w * 7 - u * 17 + ph[1]!) +
+        0.09 * Math.sin(w * 13 + u * 31 + ph[2]!) +
+        0.05 * Math.sin(w * 23 - u * 47 + ph[3]!);
+      const wisp = Math.max(0, Math.min(1, n));
+      const a = edge * (0.35 + 0.65 * wisp);
+      const dark = 0.55 + 0.45 * (1 - across);
+      const i = (y * width + x) * 4;
+      px[i] = Math.round(107 * dark);
+      px[i + 1] = Math.round(61 * dark);
+      px[i + 2] = Math.round(36 * dark);
+      px[i + 3] = Math.round(255 * Math.max(0, Math.min(1, a)));
+    }
+  }
+  return px;
+}
+/** Devil impostor card opacities (fe-19: darker, closer to the reference's dark column). */
+export const DEVIL_CARD_OPACITY = Object.freeze({ core: 0.85, outer: 0.45 });
+
+/**
+ * Card opacity for a devil: base layer opacity × its own density × life envelope × near-camera
+ * dissolve, with only a light storm-intensity dimming.
+ */
+export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" | "age" | "life" | "fadeOut">, fade: number, intensity: number): number {
+  return Math.min(1, base * devil.opacity * devilEnvelope(devil) * fade * (0.85 + 0.15 * intensity));
+}
+
+/**
+ * fe-22: width scales (× {@link devilFunnelProfile} × core radius) of the two old-devil core cards.
+ * The dense card sits well inside the swirl column; the wispy one stays within the swirl's radius
+ * (fe-22 tune: the first 0.8/1.5 cards poked out of the swirl as pale flat bands).
+ */
+export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.55, outer: 0.95 });
+/** Half-width (m) of a core card at height `u`, before its turbulence lumps. */
+export function devilCoreCardHalfWidth(coreRadius: number, u: number, widthScale: number): number {
+  return devilFunnelProfile(u) * coreRadius * widthScale;
+}

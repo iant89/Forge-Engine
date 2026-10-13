@@ -31,6 +31,7 @@ import {
   GpuParticleWorld,
   Light,
   Material,
+  Texture,
   Quat,
   Renderable,
   Rng,
@@ -76,6 +77,14 @@ import {
   DRIFT_VERTEX_COUNT,
   driftFootprintGrowth,
   devilFunnelHeight,
+  buildFunnelCard,
+  devilCardPixels,
+  devilCardOpacity,
+  devilShellFade,
+  CARD_VERTEX_COUNT,
+  DEVIL_CARD_OPACITY,
+  DEVIL_CORE_CARD_WIDTH,
+  type FunnelMesh,
   STORM_DUST_PALETTE,
   STORM_SHEET_LOOK,
   buildDriftMoundMesh,
@@ -545,10 +554,35 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
    * the fe-18 funnel cards and skirt shell are gone. Each slot keeps only a cheap draped ground
    * shadow, which anchors the column to the terrain.
    */
+  interface CoreCard { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material; uploaded?: boolean }
   interface FunnelRecord {
     shadow: DriftRecord;
     shadowMaterial: Material;
+    /** fe-22: the old (fe-18/fe-19) devil, restored as a core inside the swirl: dense + wispy cards. */
+    core: CoreCard;
+    outer: CoreCard;
   }
+  // fe-22: old-devil core cards. No particles (so no particle budget); two thin camera-facing quad
+  // strips per devil, 26 triangles each, transparent and shadowless.
+  const cardTexture = track(Texture.fromRgba8(gpu, 64, 128, devilCardPixels(), { label: "storm-devil-card", srgb: true, mipmaps: true }));
+  const makeCoreCard = (name: string, hex: number): CoreCard => {
+    const geometry = track(Geometry.create(gpu, {
+      label: name,
+      positions: new Float32Array(CARD_VERTEX_COUNT * 3),
+      normals: new Float32Array(CARD_VERTEX_COUNT * 3),
+      uvs: new Float32Array(CARD_VERTEX_COUNT * 2),
+      indices: buildFunnelCard({ id: 0, coreRadius: 1, swirl: 1, x: 0, z: 0 }, 1, 1, 0, 1, 0, 0).indices,
+    }));
+    // Unlit + fog-exempt like the swirl grains around it: lit and fogged, the cards washed out to
+    // pale flat bands in gusts (fe-22 shots).
+    const material = track(new Material({ label: name, color: Color.fromSrgbHex(hex), roughness: 1, metallic: 0, opacity: 0, transparent: true, doubleSided: true, technique: "unlit", fogExempt: true }));
+    material.albedoMap = cardTexture;
+    material.markChanged();
+    const entity = addRenderable(name, new Vec3(SPAWN_X, groundY, SPAWN_Z), geometry, material, false);
+    const renderable = entity.get(Renderable)!;
+    renderable.visible = false;
+    return { entity, renderable, geometry, mesh: undefined, material };
+  };
   /** Material uniforms upload only after markChanged() (which also rebuilds the bind group), so skip
    * changes too small to see. */
   const setOpacity = (material: Material, value: number): void => {
@@ -562,6 +596,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     funnels.push({
       shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
       shadowMaterial,
+      core: makeCoreCard(`storm-devil-core-${i}`, 0x3a2418),
+      outer: makeCoreCard(`storm-devil-shell-${i}`, 0x5a3a28),
     });
   }
   /** Sun direction projected on the ground (the shadow falls away from it). */
@@ -798,16 +834,42 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   let devilEmitFrame = 0;
+  let funnelFrame = 0;
   const stepFunnels = (): void => {
+    funnelFrame++;
+    // Reduced (iOS) tier re-shapes the core cards on alternate frames only: half the vertex uploads.
+    const rebuild = qualityTier !== "reduced" || funnelFrame % 2 === 0;
+    const eye = cameraEntity.transform.position;
     for (let i = 0; i < funnels.length; i++) {
       const f = funnels[i]!;
       const d: DustDevil | undefined = devils.bySlot(i);
       const env = d ? devilEnvelope(d) : 0;
       if (!d || env <= 0.01) {
         f.shadow.renderable.visible = false;
+        f.core.renderable.visible = false;
+        f.outer.renderable.visible = false;
         continue;
       }
-      const height = devilFunnelHeight(d.coreRadius) * devilVortexLife(d).growth;
+      const vl = devilVortexLife(d);
+      const height = devilFunnelHeight(d.coreRadius) * vl.growth;
+      // fe-22: old-devil core, same axis/sway as the swirl, thinning with it as the devil dies.
+      const gyCore = groundHeight(d.x, d.z);
+      const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
+      const cards: [CoreCard, number, number, number][] = [
+        [f.core, DEVIL_CORE_CARD_WIDTH.core, DEVIL_CARD_OPACITY.core, 0.45],
+        [f.outer, DEVIL_CORE_CARD_WIDTH.outer, DEVIL_CARD_OPACITY.outer, 0.3],
+      ];
+      for (const [rec, wScale, opacity, scroll] of cards) {
+        rec.renderable.visible = fade > 0.01;
+        if (!rec.renderable.visible) continue;
+        if (rebuild || !rec.mesh) rec.mesh = buildFunnelCard(d, height, wScale * vl.radiusScale, time, eye.x, eye.z, time * scroll + d.id * 0.37, rec.mesh);
+        if (rebuild || !rec.uploaded) {
+          rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
+          rec.uploaded = true;
+        }
+        rec.entity.transform.position = moundPos.set(d.x, gyCore - 0.2, d.z);
+        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
+      }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;
       setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun));
