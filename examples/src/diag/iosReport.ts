@@ -24,7 +24,7 @@
  */
 
 import { FORGE_BUILD } from "../buildInfo.js";
-import { copyText } from "./copyText.js";
+import { mountDebugPanel } from "./debugPanel.js";
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
 import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
@@ -284,44 +284,25 @@ export function installIosReport(
   const endpoint = (globalThis as unknown as { __forgeDiagEndpoint?: string }).__forgeDiagEndpoint ?? null;
   const panel = document.createElement("div");
   panel.style.cssText =
-    "position:fixed;left:0;right:0;bottom:0;max-height:46vh;overflow:auto;z-index:60;" +
-    "background:rgb(2 4 8 / 0.92);color:#e2e8f0;border-top:2px solid #38bdf8;padding:8px 10px;" +
+    "max-height:46vh;overflow:auto;" +
+    "background:rgb(2 4 8 / 0.92);color:#e2e8f0;padding:8px 10px;" +
     "font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;" +
     "-webkit-user-select:text;user-select:text";
   panel.setAttribute("data-forge-diag", "1");
   document.body.appendChild(panel);
-  // The panel covers the bottom of the canvas, so it has to be hideable: the numbers it prints are
-  // also POSTed, and a user who wants to look at the frame itself needs the space back.
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.textContent = "diag ▴";
-  const buttonCss =
-    "position:fixed;bottom:8px;z-index:61;padding:6px 10px;font:11px ui-monospace,Menlo,monospace;" +
-    "background:rgb(2 4 8 / 0.9);color:#7dd3fc;border:1px solid #38bdf8;border-radius:6px;touch-action:manipulation";
-  toggle.style.cssText = `right:8px;${buttonCss}`;
-  let panelVisible = true;
-  toggle.addEventListener("click", () => {
-    panelVisible = !panelVisible;
-    panel.style.display = panelVisible ? "block" : "none";
-    toggle.textContent = panelVisible ? "diag ▴" : "diag ▾";
+  // The panel covers the bottom of the canvas, so it is collapsible (the numbers are also POSTed).
+  // The shared title bar carries the collapse toggle and the copy-icon button, which copies the
+  // whole report (panel text + the full untruncated JSON, build id included) for phone users.
+  const ui = mountDebugPanel({
+    body: panel,
+    title: `diag ${tag}`,
+    barEdge: "top",
+    getText: () => `${panelText}\n\n${describe(prune(lastReport, 0))}`,
+    storageKey: "forge.panel.diag.collapsed",
   });
-  document.body.appendChild(toggle);
-  // Copy the whole report (panel text + the full untruncated JSON, build id included) so a phone
-  // user can paste it instead of screenshotting a scrolled panel.
-  const copyBtn = document.createElement("button");
-  copyBtn.type = "button";
-  copyBtn.textContent = "copy";
-  copyBtn.style.cssText = `right:84px;${buttonCss}`;
-  let copyReset: ReturnType<typeof setTimeout> | null = null;
-  copyBtn.addEventListener("click", () => {
-    const text = `${panelText}\n\n${describe(prune(lastReport, 0))}`;
-    void copyText(text, { clipboard: navigator.clipboard ?? null, document }).then((ok) => {
-      copyBtn.textContent = ok ? "Copied" : "Copy failed";
-      if (copyReset) clearTimeout(copyReset);
-      copyReset = setTimeout(() => (copyBtn.textContent = "copy"), 1500);
-    });
-  });
-  document.body.appendChild(copyBtn);
+  ui.root.style.cssText =
+    "position:fixed;left:0;right:0;bottom:0;z-index:60;padding-bottom:env(safe-area-inset-bottom);" +
+    "background:rgb(2 4 8 / 0.92);border-top:2px solid #38bdf8";
   let panelText = "";
   let captures: Step[] = [];
   let rawSuites: { label: string; results: RawTestResult[] }[] = [];
@@ -694,10 +675,7 @@ export function installIosReport(
     dispose: () => {
       window.clearTimeout(timer);
       for (const t of timers) window.clearTimeout(t);
-      panel.remove();
-      toggle.remove();
-      copyBtn.remove();
-      if (copyReset) clearTimeout(copyReset);
+      ui.dispose();
     },
   };
   (globalThis as unknown as { __forgeDiag?: () => unknown }).__forgeDiag = () => lastReport;

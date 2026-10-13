@@ -63,10 +63,13 @@ import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
 import { stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
+import { mountDebugPanel } from "./diag/debugPanel.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
+// Title bar along the HUD's bottom edge: copy-icon + collapse toggle (shared with the ?diag=1 panel).
+mountDebugPanel({ body: hud, title: "stats", barEdge: "bottom", getText: () => hud.textContent ?? "", storageKey: "forge.panel.hud.collapsed" }).root.id = "hud-panel";
 const rescueHud = document.getElementById("rescue-hud") as HTMLDivElement | null;
 const errorBox = document.getElementById("error") as HTMLDivElement;
 
