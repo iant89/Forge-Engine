@@ -13,20 +13,14 @@
       html, body { margin: 0; height: 100%; background: #05070a; color: #cbd5e1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       #wrap { position: fixed; inset: 0; }
       canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      #hud-panel { z-index: 10; }
       #hud {
-        position: fixed;
-        left: max(10px, env(safe-area-inset-left));
-        top: max(10px, env(safe-area-inset-top));
         padding: 8px 12px;
         background: rgb(5 7 10 / 0.75);
-        border: 1px solid rgb(148 163 184 / 0.25);
-        border-radius: 6px;
         white-space: pre;
-        pointer-events: none;
         backdrop-filter: blur(4px);
         font-size: 11.5px;
         line-height: 1.5;
-        z-index: 10;
       }
       #profiler-panel {
         display: none;
@@ -157,7 +151,7 @@
         body.scene-vehicle #controls-hint { display: none; }
         #toolbar { max-width: min(220px, 54vw); }
         #toolbar.toolbar-open #toolbar-panels { max-height: min(50vh, 360px); overflow: auto; }
-        #hud { max-width: calc(100vw - 64px); overflow: hidden; font-size: 10px; }
+        #hud { font-size: 10px; }
       }
       /* Sky and weather button panels. These two scenes' actions are buttons on every device —
          the keys still work as shortcuts, but the panel is the interface, so it is shown whenever
@@ -235,7 +229,7 @@
         pointer-events: none;
         backdrop-filter: blur(8px);
       }
-      body.scene-rescue #hud { display: none; }
+      body.scene-rescue #hud-panel, body.scene-rescue #hud-icon { display: none !important; }
       body.scene-rescue #rescue-hud { display: block; }
       .veh-stick {
         pointer-events: auto;

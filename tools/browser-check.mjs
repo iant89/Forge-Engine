@@ -2090,7 +2090,7 @@ async function checkEnvironmentSection() {
         const x = Math.floor(sample.width * 0.2);
         const y = Math.floor(sample.height * 0.5);
         const pixel = context.getImageData(x, y, 1, 1).data;
-        const hudBottom = document.getElementById("hud").getBoundingClientRect().bottom;
+        const hudBottom = (document.getElementById("hud-panel") ?? document.getElementById("hud")).getBoundingClientRect().bottom;
         const controlsTop = document.getElementById("sk-time-back").getBoundingClientRect().top;
         resolve({
           x,
