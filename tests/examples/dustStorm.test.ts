@@ -17,9 +17,21 @@ import assert from "node:assert/strict";
 import { Material, PARTICLE_FULL_SIM_SHADER, PARTICLE_RENDER_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
+  devilGrainSizeMultiplier,
+  DEVIL_SIZE_RANGE,
+  DEVIL_GRAIN_MAX_SIZE,
+  DEVIL_SWIRL_OVER_CORE,
+  devilSwirlRadius,
+  devilCoreHalfWidth,
+  devilTerrainTint,
+  STORM_TERRAIN_TINTS,
+  DevilPebbles,
+  pebbleLiftRadius,
+  devilLiftStrength,
+  PEBBLE_MAX_LIFT_RADIUS,
+  PEBBLE_LIFT_STRENGTH,
+  PEBBLE_POOL,
   devilRoverForceAt,
-  devilRoverForce,
-  DustDevilField,
   devilWander,
   devilAxisCurve,
   devilAxisAt,
@@ -710,7 +722,7 @@ group("fe-22 old-devil core wrapped by a narrower swirl", () => {
       assert.ok(ratio > 0.45 && ratio < 0.62, `core ${core}: p90 ratio ${ratio.toFixed(2)}`);
       assert.ok(nu.p90 < 4, `core ${core}: p90 ${nu.p90.toFixed(2)} m`);
       // Both cards stay inside the grains' 90th-percentile radius all the way up.
-      for (const u of [0.1, 0.5, 1]) assert.ok(devilCoreCardHalfWidth(core, u, DEVIL_CORE_CARD_WIDTH.outer) < nu.p90, `core ${core} u ${u}: card inside`);
+      for (const u of [0.1, 0.5, 1]) assert.ok(devilCoreHalfWidth(core, u) * DEVIL_CORE_CARD_WIDTH.outer < nu.p90 * 1.05, `core ${core} u ${u}: card inside`);
     }
   });
   test("transparent depthWrite opt-out (the pale-band fix) defaults to the old behaviour", () => {
@@ -801,6 +813,71 @@ group("fe-22e rover push follows the wandered base", () => {
       const eye = devilRoverForceAt(d, t, d.x + w.x, d.z + w.z);
       assert.deepEqual(eye, devilRoverForce(d, d.x, d.z));
     }
+  });
+});
+
+group("fe-22f random sizes, full-width core, terrain tint, pebbles", () => {
+  test("grain sizes are a continuous wide distribution with a sane max", () => {
+    const n = 2000, xs: number[] = [];
+    for (let i = 0; i < n; i++) xs.push(devilGrainSizeMultiplier((i + 0.5) / n));
+    for (let i = 1; i < n; i++) assert.ok(xs[i]! >= xs[i - 1]!, "monotone in r");
+    assertCloseTo(xs[0]!, DEVIL_SIZE_RANGE.min, 2);
+    assert.ok(Math.abs(xs[n - 1]! - DEVIL_SIZE_RANGE.max) < 0.05);
+    assert.ok(DEVIL_SIZE_RANGE.max / DEVIL_SIZE_RANGE.min >= 8, "wide");
+    // Continuous: no gaps (largest step tiny) and no two-value split: >= 50 distinct 2-decimal sizes.
+    let maxStep = 0; for (let i = 1; i < n; i++) maxStep = Math.max(maxStep, xs[i]! - xs[i - 1]!);
+    assert.ok(maxStep < 0.02, `no gaps (${maxStep})`);
+    assert.ok(new Set(xs.map((x) => x.toFixed(2))).size > 50);
+    const median = xs[n / 2]!;
+    assert.ok(median < (DEVIL_SIZE_RANGE.min + DEVIL_SIZE_RANGE.max) / 2, "skewed toward fine grains");
+    assert.ok(DEVIL_GRAIN_END * DEVIL_SIZE_RANGE.max <= DEVIL_GRAIN_MAX_SIZE, "max sprite capped");
+  });
+  test("core spans the devil; the swirl is ~1.15x the core", () => {
+    assertCloseTo(DEVIL_SWIRL_OVER_CORE, 1.15, 9);
+    for (const core of [2.5, 5, 8]) {
+      const spread = devilColumnSpread({ id: 3, coreRadius: core, swirl: 18 });
+      assert.ok(Math.abs(devilSwirlRadius(core) - spread.p90) / spread.p90 < 0.1, `swirl fit at core ${core}`);
+      const ratio = spread.p90 / devilCoreHalfWidth(core, 0.5);
+      assert.ok(ratio > 1.0 && ratio < 1.3, `outer/core ${ratio.toFixed(2)} ≈ 1.15`);
+      for (const u of [0, 0.5, 1]) assert.ok(devilCoreHalfWidth(core, u) * DEVIL_CORE_CARD_WIDTH.outer < spread.p90 * 1.05, "core stays under the swirl");
+    }
+  });
+  test("dust colour follows the terrain under the base", () => {
+    const flat = devilTerrainTint(0), mid = devilTerrainTint(0.3), steep = devilTerrainTint(1.2);
+    const ratio = (c: { r: number; g: number; b: number }, t: { r: number; g: number; b: number }) => [c.r / t.r, c.g / t.g, c.b / t.b];
+    for (const v of ratio(flat.color, STORM_TERRAIN_TINTS.sand)) assertCloseTo(v, 0.3, 6);
+    for (const v of ratio(steep.color, STORM_TERRAIN_TINTS.rock)) assertCloseTo(v, 0.3, 6);
+    assert.notDeepEqual(mid.color, flat.color);
+    assert.ok(steep.color.r < flat.color.r && steep.alt.r < steep.color.r + 0.05, "basalt slopes darker; alternate darker still");
+  });
+  test("pebble pickup: strength and size thresholds, never boulders, carried then dropped", () => {
+    assert.equal(pebbleLiftRadius(PEBBLE_LIFT_STRENGTH - 0.01), 0, "weak devils lift nothing");
+    assert.ok(pebbleLiftRadius(PEBBLE_LIFT_STRENGTH) > 0);
+    assert.ok(pebbleLiftRadius(5) <= PEBBLE_MAX_LIFT_RADIUS && PEBBLE_MAX_LIFT_RADIUS < 0.9, "boulders (≥0.9 m) never lifted");
+    assert.ok(PEBBLE_POOL.reduced <= 8);
+    const ground = () => 0;
+    const field = new DustDevilField(1);
+    const d = field.makeDevil(0, 0, 5, 0);
+    d.swirl = 28; d.age = 10; d.life = 40; d.state = "free";
+    const pool = new DevilPebbles(3);
+    const [small, big, far] = pool.pebbles;
+    Object.assign(small!, { x: 1, z: 0, radius: 0.1 });
+    Object.assign(big!, { x: 0, z: 1, radius: 0.38 });
+    Object.assign(far!, { x: 40, z: 0, radius: 0.05 });
+    const at = () => ({ x: 0, z: 0 });
+    assert.ok(devilLiftStrength(d) > PEBBLE_LIFT_STRENGTH);
+    pool.step(1 / 30, [d], at, ground, 0, 0);
+    assert.equal(small!.state, "carried");
+    assert.equal(big!.state, "ground", "too big for any devil");
+    assert.equal(far!.state, "ground", "out of the swirl's reach");
+    let maxH = 0;
+    for (let i = 0; i < 30; i++) { pool.step(1 / 30, [d], at, ground, 0, 0); maxH = Math.max(maxH, small!.y); }
+    assert.ok(maxH > 1, "lifted and carried round");
+    d.age = d.life; // weakens to nothing
+    pool.step(1 / 30, [d], at, ground, 0, 0);
+    assert.equal(small!.state, "falling", "dropped as it weakens");
+    for (let i = 0; i < 600 && small!.state !== "ground"; i++) pool.step(1 / 30, [], at, ground, 0, 0);
+    assert.equal(small!.state, "ground", "lands");
   });
 });
 

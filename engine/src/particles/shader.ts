@@ -304,6 +304,8 @@ struct FullSimParams {
   axisBulge: f32,
   axisKinkX: f32,
   axisKinkZ: f32,
+  sizeRangeMin: f32,
+  sizeRangeMax: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -386,7 +388,12 @@ struct FullSimParams {
   let sizeRandom = fract(p.maxLife * 31.713);
   let coarseRandom = fract(p.maxLife * 73.19 + 0.37);
   let coarse = select(1.0, params.coarseScale, coarseRandom < params.coarseFraction);
-  let sizeMultiplier = (1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0)) * coarse;
+  var sizeMultiplier = (1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0)) * coarse;
+  if (params.sizeRangeMax > 0.0) {
+    // fe-22f: continuous log-scale size spread min..max, skewed toward fine grains (r^1.6).
+    let lo = max(params.sizeRangeMin, 1e-3);
+    sizeMultiplier = lo * pow(max(params.sizeRangeMax, lo) / lo, pow(max(sizeRandom, 1e-4), 1.6));
+  }
   p.size = mix(params.sizeStart, params.sizeEnd, t) * sizeMultiplier;
   p.seed = fract(p.seed + params.rotationSpeed * params.dt * (0.1 + t));
   if (p.life <= 0.0) {

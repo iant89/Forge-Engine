@@ -106,6 +106,11 @@ export interface GpuParticleModulesConfig {
    * fe-22d: bends the spring axis beyond the lean: `+ bend·sin(πh) + snake·sin(2πh)`, and relaxes
    * the spring by `1/(1+bulge·sin²πh)²` so the mid column swells. Default all 0 (unchanged).
    */
+  /**
+   * fe-22f: continuous random size multiplier, log-spread from `min` to `max` (skewed toward the
+   * small end), replacing `sizeVariation`/`coarse*` when set. Stable per particle.
+   */
+  sizeRange?: { min: number; max: number };
   axisCurve?: { bendX: number; bendZ: number; snakeX: number; snakeZ: number; bulge: number; kinkX?: number; kinkZ?: number };
   /**
    * Bimodal size mix: this fraction 0..1 of particles (stable pick from life, independent of
@@ -165,7 +170,7 @@ export interface GpuParticleFrameInput {
 }
 
 const EMIT_UNIFORM_BYTES = 160;
-const SIM_UNIFORM_BYTES = 224;
+const SIM_UNIFORM_BYTES = 224; // 55 words used (fe-22f size range in 53/54)
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -767,6 +772,10 @@ export class GpuParticleSystem {
       f[50] = Math.max(0, c.bulge);
       f[51] = c.kinkX ?? 0;
       f[52] = c.kinkZ ?? 0;
+    }
+    if (m.sizeRange && m.sizeRange.max > 0) {
+      f[53] = Math.max(1e-3, m.sizeRange.min);
+      f[54] = Math.max(m.sizeRange.min, m.sizeRange.max);
     }
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }

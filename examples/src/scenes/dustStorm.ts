@@ -1765,7 +1765,8 @@ export function buildFunnelCard(
     else devilFunnelSway(devil, u, t, sway);
     // Breathing lumps advected upward break up the silhouette.
     const lump = 1 + 0.22 * Math.sin(u * 11 - t * 2.3 + devil.id) + 0.12 * Math.sin(u * 23 + t * 3.1);
-    const half = devilFunnelProfile(u) * devil.coreRadius * widthScale * lump * (curve ? devilBulgeScale(curve, u) : 1);
+    // fe-22f: with a curve (the restored core) the card spans the devil's full width under the swirl.
+    const half = (curve ? devilCoreHalfWidth(devil.coreRadius, u) * devilBulgeScale(curve, u) : devilFunnelProfile(u) * devil.coreRadius) * widthScale * lump;
     for (let c = 0; c < CARD_COLUMNS; c++) {
       const s = (c / (CARD_COLUMNS - 1)) * 2 - 1;
       const i = k * CARD_COLUMNS + c;
@@ -1809,9 +1810,10 @@ export function devilCardPixels(width = 64, height = 128, seed = 7): Uint8Array 
       const a = edge * (0.65 + 0.35 * wisp);
       const dark = 0.55 + 0.45 * (1 - across);
       const i = (y * width + x) * 4;
-      px[i] = Math.round(107 * dark);
-      px[i + 1] = Math.round(61 * dark);
-      px[i + 2] = Math.round(36 * dark);
+      // fe-22f: neutral grey; the material colour carries the terrain tint.
+      px[i] = Math.round(235 * dark);
+      px[i + 1] = Math.round(235 * dark);
+      px[i + 2] = Math.round(235 * dark);
       px[i + 3] = Math.round(255 * Math.max(0, Math.min(1, a)));
     }
   }
@@ -1827,11 +1829,10 @@ export function devilCardOpacity(base: number, devil: Pick<DustDevil, "opacity" 
 }
 
 /**
- * fe-22: width scales (× {@link devilFunnelProfile} × core radius) of the two old-devil core cards.
- * The dense card sits well inside the swirl column; the wispy one stays within the swirl's radius
- * (fe-22 tune: the first 0.8/1.5 cards poked out of the swirl as pale flat bands).
+ * fe-22f: width scales of the two core cards, × {@link devilCoreHalfWidth} (the devil's full width,
+ * swirl radius ÷ 1.15): the dense card fills most of it, the wispy one all of it.
  */
-export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.5, outer: 0.65 });
+export const DEVIL_CORE_CARD_WIDTH = Object.freeze({ core: 0.8, outer: 0.95 });
 /** Half-width (m) of a core card at height `u`, before its turbulence lumps. */
 /** fe-22: core card opacities (denser than fe-19's 0.85/0.45 cards so the inner funnel reads dark). */
 export const DEVIL_CORE_OPACITY = Object.freeze({ core: 1, outer: 0.7 });
@@ -2046,3 +2047,185 @@ export function devilRoverForceAt(devil: DustDevil, t: number, x: number, z: num
   return devilRoverForce(devil, x - w.x, z - w.z, out);
 }
 const _wf = { x: 0, z: 0 };
+
+// ---------------------------------------------------------------- fe-22f: sizes, core width, terrain tint, pebbles
+
+/** Continuous random grain size: multiplier log-spread over [MIN, MAX] (skewed fine), replacing coarse/fine. */
+export const DEVIL_SIZE_RANGE = Object.freeze({ min: 0.35, max: 3.2 });
+/** Sane cap (m) on the largest devil grain sprite (sizeEnd × max multiplier). */
+export const DEVIL_GRAIN_MAX_SIZE = 1.8;
+/** CPU mirror of the GPU size multiplier for a per-particle random r in [0,1). */
+export function devilGrainSizeMultiplier(r: number, range: { min: number; max: number } = DEVIL_SIZE_RANGE): number {
+  const lo = Math.max(range.min, 1e-3);
+  return lo * Math.pow(Math.max(range.max, lo) / lo, Math.pow(Math.max(r, 1e-4), 1.6));
+}
+
+/** Outer swirl radius ÷ core radius (Ian: the swirl is only slightly bigger than the full-width core). */
+export const DEVIL_SWIRL_OVER_CORE = 1.15;
+/**
+ * Steady-state 90th-percentile swirl radius (m) for a devil width — a fit of {@link devilColumnSpread}
+ * (≈2.95 / 3.07 / 3.61 m at core 2.5 / 5 / 8 m).
+ */
+export function devilSwirlRadius(coreRadius: number): number {
+  return 2.65 + 0.115 * coreRadius;
+}
+/**
+ * Core card half-width (m) at height u: the full devil width under the swirl, i.e. the swirl radius
+ * ÷ {@link DEVIL_SWIRL_OVER_CORE}, flaring slightly with height.
+ */
+export function devilCoreHalfWidth(coreRadius: number, u: number): number {
+  const x = Math.max(0, Math.min(1, u));
+  return (devilSwirlRadius(coreRadius) / DEVIL_SWIRL_OVER_CORE) * (0.85 + 0.3 * x);
+}
+
+/** Linear colour from an sRGB hex. */
+function srgbHexToLinear(hex: number): { r: number; g: number; b: number } {
+  const c = (v: number): number => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return { r: c((hex >> 16) & 255), g: c((hex >> 8) & 255), b: c(hex & 255) };
+}
+/** The storm terrain's surface tints (marsShared createMarsTerrain): ferric dust, basalt, pale sand. */
+export const STORM_TERRAIN_TINTS = Object.freeze({ dust: srgbHexToLinear(0xc9784f), rock: srgbHexToLinear(0x5c5046), sand: srgbHexToLinear(0xd1a06b) });
+/** Lifted-dust darkening of the ground tint (the column is in its own shadow; fe-21 rust ≈ 0.25× dust). */
+export const DEVIL_TINT_DARKEN = 0.3;
+/**
+ * fe-22f: devil dust colour (linear) from the terrain at its base, by the same slope bands the Mars
+ * surface layers use: sand on flats (< 0.35), rock on steep ground (0.4+), ferric dust between.
+ * Returns the swarm colour and the darker per-grain alternate.
+ */
+export function devilTerrainTint(slope: number, out: { color: Rgba; alt: Rgba } = { color: { r: 0, g: 0, b: 0, a: 1 }, alt: { r: 0, g: 0, b: 0, a: 1 } }): { color: Rgba; alt: Rgba } {
+  const s = Math.max(0, slope);
+  const rock = smooth(Math.max(0, Math.min(1, (s - 0.4) / 0.4)));
+  const sand = (1 - smooth(Math.max(0, Math.min(1, (s - 0.1) / 0.25)))) * (1 - rock);
+  const dust = Math.max(0, 1 - rock - sand);
+  const T = STORM_TERRAIN_TINTS;
+  const k = DEVIL_TINT_DARKEN;
+  out.color.r = (T.dust.r * dust + T.rock.r * rock + T.sand.r * sand) * k;
+  out.color.g = (T.dust.g * dust + T.rock.g * rock + T.sand.g * sand) * k;
+  out.color.b = (T.dust.b * dust + T.rock.b * rock + T.sand.b * sand) * k;
+  out.color.a = 1;
+  // Alternate: the same ground half-way toward basalt, darker still.
+  out.alt.r = (out.color.r + T.rock.r * k) * 0.4;
+  out.alt.g = (out.color.g + T.rock.g * k) * 0.4;
+  out.alt.b = (out.color.b + T.rock.b * k) * 0.4;
+  out.alt.a = 1;
+  return out;
+}
+
+// Pebbles: small debris a strong devil lifts, spins round its axis and drops.
+
+/** Pebbles (m radius) a devil may ever lift; the 0.9–2.2 m storm boulders are never candidates. */
+export const PEBBLE_MAX_LIFT_RADIUS = 0.3;
+/** Devil strength (0..~1.5, |swirl|/MAX × envelope) needed to lift any pebble at all. */
+export const PEBBLE_LIFT_STRENGTH = 0.55;
+/** Pool sizes: desktop / reduced (iOS). One small draw each. */
+export const PEBBLE_POOL = Object.freeze({ full: 20, reduced: 8 });
+
+export interface Pebble {
+  x: number; y: number; z: number;
+  radius: number;
+  /** "ground" | carried by devil id | "falling". */
+  state: "ground" | "carried" | "falling";
+  devilId: number;
+  angle: number; orbit: number; height: number;
+  vx: number; vy: number; vz: number;
+  spin: number;
+}
+
+/** Devil lifting strength now: swirl share of the max × life envelope. */
+export function devilLiftStrength(devil: Pick<DustDevil, "swirl" | "age" | "life" | "fadeOut">): number {
+  return (Math.abs(devil.swirl) / DEVIL_SWIRL_MAX) * devilEnvelope(devil);
+}
+/** Largest pebble radius (m) a devil of this strength lifts: 0 below the threshold, capped at {@link PEBBLE_MAX_LIFT_RADIUS}. */
+export function pebbleLiftRadius(strength: number): number {
+  if (strength < PEBBLE_LIFT_STRENGTH) return 0;
+  return Math.min(PEBBLE_MAX_LIFT_RADIUS, 0.08 + (strength - PEBBLE_LIFT_STRENGTH) * 0.5);
+}
+
+/**
+ * fe-22f: a small seeded pebble field around the rover. A devil whose wandered base passes over a
+ * pebble picks it up if it is strong enough for that pebble's size, carries it spinning round its
+ * axis while rising, and drops it (ballistic) when it weakens or the pebble is randomly flung out.
+ * Pebbles too far from the rover are recycled ahead of the nearest devil.
+ */
+export class DevilPebbles {
+  readonly pebbles: Pebble[] = [];
+  private readonly rng: Rng;
+  constructor(count: number, seed = STORM_SEED + 303) {
+    this.rng = new Rng(seed);
+    for (let i = 0; i < count; i++) {
+      this.pebbles.push({ x: 0, y: 0, z: 0, radius: 0.05, state: "ground", devilId: -1, angle: 0, orbit: 0, height: 0, vx: 0, vy: 0, vz: 0, spin: 0 });
+    }
+  }
+  /** Scatter every pebble on the ground around (x, z). */
+  scatter(x: number, z: number, ground: GroundHeightFn, spread = 40): void {
+    for (const p of this.pebbles) this.place(p, x + this.rng.nextSignedFloat() * spread, z + this.rng.nextSignedFloat() * spread, ground);
+  }
+  private place(p: Pebble, x: number, z: number, ground: GroundHeightFn): void {
+    p.x = x; p.z = z;
+    // Mostly gravel, some fist-sized; a few deliberately too big for any devil (never lifted).
+    p.radius = 0.04 + Math.pow(this.rng.nextFloat(), 2) * 0.36;
+    p.y = ground(x, z) + p.radius * 0.5;
+    p.state = "ground"; p.devilId = -1; p.vx = p.vy = p.vz = 0;
+  }
+  step(dt: number, devils: readonly DustDevil[], baseAt: (d: DustDevil) => { x: number; z: number }, ground: GroundHeightFn, roverX: number, roverZ: number): void {
+    for (const p of this.pebbles) {
+      if (p.state === "carried") {
+        const d = devils.find((q) => q.id === p.devilId);
+        const strength = d ? devilLiftStrength(d) : 0;
+        if (!d || pebbleLiftRadius(strength) < p.radius || d.state === "dying") {
+          this.release(p, d, 0.5);
+          continue;
+        }
+        const b = baseAt(d);
+        const w = Math.sign(d.swirl || 1) * (2.2 + 1.5 * strength) / Math.max(0.6, p.orbit);
+        p.angle += w * dt;
+        p.height = Math.min(p.height + (3 + 6 * strength) * dt, 4 + d.coreRadius * 2.5);
+        p.orbit += (0.15 + p.radius) * dt; // slowly spirals outward
+        p.spin += 9 * dt;
+        p.x = b.x + Math.cos(p.angle) * p.orbit;
+        p.z = b.z + Math.sin(p.angle) * p.orbit;
+        p.y = ground(b.x, b.z) + p.height;
+        // Flung out once it spirals past the swirl, or at random.
+        if (p.orbit > devilSwirlRadius(d.coreRadius) * 1.3 || this.rng.nextFloat() < 0.08 * dt) this.release(p, d, 1);
+        continue;
+      }
+      if (p.state === "falling") {
+        p.vy -= 3.71 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+        p.spin += 6 * dt;
+        const gy = ground(p.x, p.z) + p.radius * 0.5;
+        if (p.y <= gy) { p.y = gy; p.state = "ground"; p.vx = p.vy = p.vz = 0; }
+        continue;
+      }
+      // Ground: recycle far pebbles ahead of the nearest devil (or around the rover).
+      if (Math.hypot(p.x - roverX, p.z - roverZ) > 110) {
+        const d = devils[Math.floor(this.rng.nextFloat() * Math.max(1, devils.length))];
+        const c = d ? baseAt(d) : { x: roverX, z: roverZ };
+        this.place(p, c.x + this.rng.nextSignedFloat() * 25, c.z + this.rng.nextSignedFloat() * 25, ground);
+        continue;
+      }
+      for (const d of devils) {
+        if (d.state === "dying") continue;
+        if (pebbleLiftRadius(devilLiftStrength(d)) < p.radius) continue;
+        const b = baseAt(d);
+        const dx = p.x - b.x, dz = p.z - b.z;
+        const r = Math.hypot(dx, dz);
+        if (r > devilSwirlRadius(d.coreRadius)) continue;
+        p.state = "carried"; p.devilId = d.id; p.angle = Math.atan2(dz, dx); p.orbit = Math.max(0.5, r); p.height = p.y - ground(b.x, b.z);
+        break;
+      }
+    }
+  }
+  private release(p: Pebble, d: DustDevil | undefined, fling: number): void {
+    const dir = d ? Math.sign(d.swirl || 1) : 1;
+    const tang = 6 * fling;
+    p.vx = -Math.sin(p.angle) * tang * dir + Math.cos(p.angle) * 2 * fling;
+    p.vz = Math.cos(p.angle) * tang * dir + Math.sin(p.angle) * 2 * fling;
+    p.vy = 1.5 * fling;
+    p.state = "falling";
+    p.devilId = -1;
+  }
+}
