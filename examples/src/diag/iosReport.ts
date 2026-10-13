@@ -24,7 +24,7 @@
  */
 
 import { FORGE_BUILD } from "../buildInfo.js";
-import { mountDebugPanel } from "./debugPanel.js";
+import { ICONS, mountDebugPanel } from "./debugPanel.js";
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
 import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
@@ -284,32 +284,31 @@ export function installIosReport(
   const endpoint = (globalThis as unknown as { __forgeDiagEndpoint?: string }).__forgeDiagEndpoint ?? null;
   const panel = document.createElement("div");
   panel.style.cssText =
-    "max-height:46vh;overflow:auto;" +
     "background:rgb(2 4 8 / 0.92);color:#e2e8f0;padding:8px 10px;" +
     "font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;" +
     "-webkit-user-select:text;user-select:text";
   panel.setAttribute("data-forge-diag", "1");
   document.body.appendChild(panel);
-  // The panel covers the bottom of the canvas, so it is collapsible (the numbers are also POSTed).
-  // The shared title bar carries the collapse toggle and the copy-icon button, which copies the
-  // whole report (panel text + the full untruncated JSON, build id included) for phone users.
+  // Floating report panel (the numbers are also POSTed): title bar with reset · copy · collapse, the
+  // bar drags, the corner grip resizes, edges snap. Collapsed it is only a round bug-icon button in
+  // the bottom-right corner, slid up above the drive / arm controls. Copy takes the whole report
+  // (panel text + the full untruncated JSON, build id included) so a phone user can paste it.
   const ui = mountDebugPanel({
     body: panel,
     title: `diag ${tag}`,
     barEdge: "top",
     getText: () => `${panelText}\n\n${describe(prune(lastReport, 0))}`,
-    storageKey: "forge.panel.diag.collapsed",
+    storageKey: "forge.panel.diag",
+    defaultRect: (vp) => {
+      const h = Math.min(vp.h, Math.round(vp.h * 0.46) + 44);
+      return { x: 0, y: vp.h - h, w: vp.w, h };
+    },
+    iconCorner: "bottom-right",
+    iconSvg: ICONS.bug,
+    avoid: [".veh-face", "#veh-gear-switch", ".arm-stick", "#rover-tool-panel", "#controls-hint", "#hud-icon"],
   });
-  ui.root.style.cssText =
-    "position:fixed;left:0;right:0;bottom:0;z-index:60;padding-bottom:env(safe-area-inset-bottom);" +
-    "background:rgb(2 4 8 / 0.92);border-top:2px solid #38bdf8";
-  // Collapsed, shrink to the bar's own width in the bottom-right corner (the footprint of the old
-  // "diag" button) instead of a full-width strip over the rover steering stick on the left.
   ui.root.id = "forge-diag-panel";
-  const collapsedCss = document.createElement("style");
-  collapsedCss.textContent =
-    "#forge-diag-panel.fdp-collapsed{left:auto!important;background:transparent!important;border-top:0!important}";
-  ui.root.appendChild(collapsedCss);
+  ui.icon.id = "forge-diag-icon";
   let panelText = "";
   let captures: Step[] = [];
   let rawSuites: { label: string; results: RawTestResult[] }[] = [];
