@@ -1557,8 +1557,9 @@ GOAL:
         the joint entities with the decoded inverse bind matrices, and attaches the asset's clips
         (now decoded with the mesh; TRS channels, STEP/LINEAR/CUBICSPLINE) to an AnimationComponent
         whose new `restPose` keeps channels a clip does not animate at their authored values.
-        Materials are factor-only; skinned primitives get conservative culling bounds. Demo scene
-        `?scene=gltf-skin` plays the Khronos SimpleSkin sample (CC0, examples/assets/);
+        Materials are factor-only; skinned primitives cull against per-frame posed bounds (per-joint
+        bind boxes × live joint matrices). Demo scene `?scene=gltf-skin` plays the Khronos SimpleSkin
+        sample (CC0) and `&model=cesium` Khronos CesiumMan (CC-BY-4.0, texture not drawn yet; examples/assets/);
         tests/resources/gltfScene.test.ts (hierarchy, bind pose, sampled pose, mock skinned draw) and
         `npm run check:browser:gltf-skin` (real Chromium + SwiftShader: one skinned batch, 2 joints,
         no fallback, the live clip advancing, three clip times A/B'd per pixel);

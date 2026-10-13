@@ -221,7 +221,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "instantiateGltfScene: a decoded glTF becomes node entities (hierarchy + local TRS), skinned renderables bound to joint entities with the inverse bind matrices, and its clips on an AnimationComponent with a rest pose",
     evidence: ["tests/resources/gltfScene.test.ts", "tools/browser-check.mjs", "examples/src/scenes/gltfSkinScene.ts"],
-    notes: "Phase 16.1f. Animations are decoded with the mesh (TRS channels, STEP/LINEAR/CUBICSPLINE; morph-weight channels are skipped, sparse animation accessors rejected). Verified on one asset, the Khronos SimpleSkin sample (CC0): numerically on the mock device and with npm run check:browser:gltf-skin on real Chromium + SwiftShader (no physical GPU). Materials are built from factors only (textures are 16.1c); skinned primitives cull against their bind box inflated to twice its half-diagonal, so a skeleton that translates further can be culled early.",
+    notes: "Phase 16.1f. Animations are decoded with the mesh (TRS channels, STEP/LINEAR/CUBICSPLINE; morph-weight channels are skipped, sparse animation accessors rejected). Verified on two assets, the Khronos SimpleSkin (CC0) and CesiumMan (CC-BY-4.0, 19 joints) samples: numerically on the mock device and with npm run check:browser:gltf-skin on real Chromium + SwiftShader (no physical GPU). Materials are built from factors only (textures are 16.1c, so CesiumMan draws white); skinned primitives cull against per-frame posed bounds, the union of per-joint bind boxes carried by the live joint matrices (conservative, never smaller than the deformed mesh).",
   },
   {
     id: "assets.gltfAdvanced",

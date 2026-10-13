@@ -11,6 +11,7 @@ import { Geometry, type GeometrySource } from "./geometry.js";
 import { AABB } from "../math/geometry.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { EntityId } from "../scene/entityId.js";
+import { computeJointBounds } from "./skinning.js";
 
 export interface Submesh {
   /** First index (or vertex when the geometry is unindexed). */
@@ -35,6 +36,12 @@ export interface SkinBinding {
   root: EntityId | null;
   /** Authoring names, resolved into `joints` against the scene by `bindJoints`. */
   jointNames?: string[];
+  /**
+   * Per-joint bind boxes (`computeJointBounds`, 6 floats per joint). When present the renderer culls
+   * against the *posed* bounds — the union of these boxes carried by the joints' live world
+   * matrices — instead of the geometry's bind-pose box.
+   */
+  jointBounds?: Float32Array | null;
 }
 
 /** A skin as authored: the joint names replace the entities until the scene resolves them. */
@@ -85,6 +92,9 @@ export class Mesh {
         inverseBindMatrices: src.skin.inverseBindMatrices,
         root: null,
         jointNames: src.skin.jointNames,
+        jointBounds: src.skin.joints && src.skin.weights
+          ? computeJointBounds(src.positions, src.skin.joints, src.skin.weights, src.skin.inverseBindMatrices, src.skin.inverseBindMatrices.length / 16)
+          : null,
       };
     }
     return mesh;

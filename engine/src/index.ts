@@ -370,6 +370,8 @@ export {
 export {
   JointPaletteArena,
   fillJointPalette,
+  computeJointBounds,
+  posedSkinBounds,
   JOINT_PALETTE_BYTES,
   PALETTE_SLOT_ALIGN,
   type WorldMatrixLookup,

@@ -67,7 +67,7 @@ import { findGpuParticleWorlds, type GpuParticleWorld } from "../particles/gpuWo
 import { isPopulationSource, type PopulationCollector, type PopulationInstanceBlock, type PopulationSubmission } from "../scene/population.js";
 import { TextureDefaults } from "../resources/texture.js";
 import { Geometry } from "./geometry.js";
-import { JointPaletteArena, fillJointPalette, type WorldMatrixLookup } from "./skinning.js";
+import { JointPaletteArena, fillJointPalette, posedSkinBounds, type WorldMatrixLookup } from "./skinning.js";
 import { Material } from "./material.js";
 import { Camera, Light, Renderable } from "../scene/components/index.js";
 import type { GraphicsDevice } from "../gpu/device.js";
@@ -2558,12 +2558,18 @@ export class Renderer implements RenderFrameContext {
       const transformSlot = scene.world.transformSlot(r.entity, true);
       const matrix = scene.world.transforms.worldView(transformSlot);
       // Frustum cull against the world-space AABB (local bounds transformed once, allocation-free).
-      r.resolveBounds(this.scratchBox);
       this.scratchMat.m.set(matrix);
-      this.scratchBox.transformByMatrix(this.scratchMat, this.scratchWorldBox);
+      // A skin with per-joint bind boxes culls against this frame's posed bounds (already world
+      // space: jointWorld × IBM); its bind-pose triangles say nothing about where the posed mesh is.
+      const posed = r.boundsOverride === null && r.skin !== null && !!r.skin.jointBounds && r.skin.joints.length > 0 &&
+        posedSkinBounds(r.skin.jointBounds, r.skin.joints, this.jointWorldMatrix, this.scratchWorldBox);
+      if (!posed) {
+        r.resolveBounds(this.scratchBox);
+        this.scratchBox.transformByMatrix(this.scratchMat, this.scratchWorldBox);
+      }
       const box = this.scratchWorldBox;
       const coarseInView = this.frustum.intersectsAABB(box);
-      const meshInView = coarseInView && (r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
+      const meshInView = coarseInView && (posed || r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
       const inView = meshInView && (r.layer & camera.cullingMask) !== 0;
       r.isVisible = inView;
       // Debug bounds: record the would-be footprint of everything that *has* a renderable this

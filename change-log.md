@@ -16905,6 +16905,94 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Add --gltf-skin focused gate with three-time A/B and screenshots",
     "why": "Real-device verification"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/skinning.ts",
+    "what": "Add computeJointBounds/posedSkinBounds",
+    "why": "Per-frame posed culling bounds for skinned meshes"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Cull skinned renderables against posed joint bounds",
+    "why": "Replace the inflated bind box (Ian, PR #97 follow-up)"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/mesh.ts",
+    "what": "SkinBinding.jointBounds precomputed in Mesh.from",
+    "why": "Posed bounds input"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/resources/gltfScene.ts",
+    "what": "Drop the inflated boundsOverride heuristic",
+    "why": "Superseded by posed bounds"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/scene/world.ts",
+    "what": "world.query materialises stores for unseen component types",
+    "why": "AnimationSystem threw before an asset with clips loaded"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/assets/CesiumMan.glb",
+    "what": "Add Khronos CesiumMan (CC-BY-4.0, unmodified) with README",
+    "why": "Second skinned test asset"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/gltfSkinScene.ts",
+    "what": "?model=cesium selects CesiumMan",
+    "why": "Second asset in demo"
+  },
+  {
+    "date": "2026-10-13T19:30:00Z",
+    "type": "change",
+    "pr": 97,
+    "branch": "phase-16-1f-skinned-e2e",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "--gltf-skin also checks CesiumMan",
+    "why": "Real-device coverage of a 19-joint rig"
   }
 ]
 ```

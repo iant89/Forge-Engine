@@ -15,7 +15,8 @@
  * `AnimationSystem` on the world and plays a clip; nothing here starts playback.
  *
  * Scope: materials are built from factors only (base colour, metallic, roughness, double-sided,
- * alpha BLEND → transparent); textures, morph targets, cameras and lights are not imported (16.1c and
+ * alpha BLEND → transparent); skinned primitives cull against posed bounds the renderer derives
+ * from the skin's per-joint boxes (`SkinBinding.jointBounds`); textures, morph targets, cameras and lights are not imported (16.1c and
  * later). Missing normals/tangents are generated.
  */
 
@@ -23,7 +24,6 @@ import { UsageError } from "../core/errors.js";
 import { Mat4, Quat } from "../math/mat.js";
 import { Vec3 } from "../math/vec.js";
 import { Color } from "../math/color.js";
-import { AABB } from "../math/geometry.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import { Mesh } from "../rendering/mesh.js";
 import { Material } from "../rendering/material.js";
@@ -119,19 +119,6 @@ function primitiveMesh(device: GraphicsDevice, primitive: DecodedGltfPrimitive, 
   });
 }
 
-/**
- * Culling bounds for a skinned primitive. The renderer culls against the geometry's *bind-pose* box
- * (and its triangles), which a posed skin leaves; the override skips the triangle test and doubles
- * the box's half-diagonal in every axis around its centre, so a limb swung through a full turn about
- * any point inside the bind box stays inside. Joints that translate further than that can still be
- * culled early (docs/KNOWN-ISSUES.md).
- */
-function skinnedBounds(bind: AABB): AABB {
-  const cx = (bind.min.x + bind.max.x) / 2, cy = (bind.min.y + bind.max.y) / 2, cz = (bind.min.z + bind.max.z) / 2;
-  const r = 2 * Math.hypot(bind.max.x - cx, bind.max.y - cy, bind.max.z - cz);
-  return new AABB().setFrom(new Vec3(cx - r, cy - r, cz - r), new Vec3(cx + r, cy + r, cz + r));
-}
-
 /** Instantiate `asset` into `scene`. See the module comment for what is and is not imported. */
 export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset: DecodedGltfAsset, options: InstantiateGltfSceneOptions = {}): GltfSceneInstance {
   const created: Entity[] = [];
@@ -209,7 +196,6 @@ export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset
         renderable.geometry = gpuMesh.geometry;
         renderable.material = material;
         renderable.skin = gpuMesh.skin;
-        if (renderable.skin) renderable.boundsOverride = skinnedBounds(gpuMesh.bounds);
         target.add(renderable);
       });
     });

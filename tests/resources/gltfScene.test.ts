@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { afterEach, assertCloseTo, finish, group, test } from "selrun";
 import {
+  AnimationComponent,
   AnimationSystem,
   Camera,
   Clock,
@@ -49,8 +50,10 @@ import {
   SystemScratch,
   Transform,
   Vec3,
+  computeJointBounds,
   decodeGltfMesh,
   instantiateGltfScene,
+  posedSkinBounds,
   type DecodedGltfAsset,
   type SystemContext,
 } from "@forge/engine";
@@ -193,6 +196,67 @@ group("glTF skinned scene import (Phase 16.1f)", () => {
     assert.equal(renderer.stats.skinJoints, 2);
     assert.equal(renderer.stats.skinFallbacks, 0);
     assert.deepEqual(device.mock.errors, []);
+  });
+
+  test("per-joint bind boxes cover exactly the IBM-space vertices each joint influences", async () => {
+    const { asset, instance } = await setup();
+    const primitive = asset.meshes[0]!.primitives[0]!;
+    const boxes = computeJointBounds(primitive.attributes.POSITION!, primitive.skin!.joints, primitive.skin!.weights, asset.skins[0]!.inverseBindMatrices, 2);
+    // Joint 0 (identity IBM) has weight on rows y = 0 … 1.5; joint 1 (IBM = translate −1 in y) on 0.5 … 2.
+    assert.deepEqual([...boxes.subarray(0, 6)], [-0.5, 0, 0, 0.5, 1.5, 0]);
+    assert.deepEqual([...boxes.subarray(6, 12)], [-0.5, -0.5, 0, 0.5, 1, 0]);
+    assert.deepEqual([...instance.meshes[0]!.skin!.jointBounds!], [...boxes], "Mesh.from precomputes them");
+  });
+
+  test("posed bounds contain every CPU-skinned vertex across the clip", async () => {
+    const { scene, instance, asset } = await setup();
+    scene.world.registerSystem(new AnimationSystem());
+    instance.animation!.play("animation-0");
+    const skin = instance.meshes[0]!.skin!;
+    const lookup = (id: number): Float32Array | null => scene.world.transforms.worldView(scene.world.transformSlot(id as never, false));
+    const box = { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } };
+    for (const t of [0, 0.5, 1.0, 1.7, 2.75, 4.1]) {
+      instance.animation!.setTime("animation-0", t);
+      scene.world.runSystems(ctx(scene, 0));
+      scene.world.updateTransforms([], true);
+      assert.ok(posedSkinBounds(skin.jointBounds!, skin.joints, lookup, box));
+      for (let v = 0; v < 10; v++) {
+        const p = skinVertex(asset, instance, v);
+        const eps = 1e-5;
+        assert.ok(p[0] >= box.min.x - eps && p[0] <= box.max.x + eps && p[1] >= box.min.y - eps && p[1] <= box.max.y + eps,
+          `t=${t} vertex ${v} (${p.join(", ")}) outside ${JSON.stringify(box)}`);
+      }
+    }
+  });
+
+  test("a skeleton translated far outside its rest bounds is culled by where it is, not where it was bound", async () => {
+    const { device, scene, instance } = await setup();
+    const renderer = new Renderer(device);
+    cleanups.push(() => renderer.dispose());
+    // Move the root joint 50 m away; the mesh node stays at the origin (glTF: its transform does not
+    // move skinned vertices), so the geometry's own bind box still sits at the origin.
+    instance.nodes[1]!.require(Transform).setPosition(50, 0, 0);
+    const cameraEntity = scene.createTransformedEntity("camera", new Vec3(50, 1, 5));
+    cameraEntity.add(new Camera());
+    cameraEntity.transform.lookAt(new Vec3(50, 1, 0));
+    renderer.renderScene(scene);
+    assert.equal(renderer.stats.skinnedBatches, 1, "drawn where the joints put it");
+    assert.equal(renderer.stats.culled, 0);
+    // And looking at the bind position instead culls it: the bounds moved, they were not just inflated.
+    cameraEntity.require(Transform).setPosition(0, 1, 5);
+    cameraEntity.transform.lookAt(new Vec3(0, 1, 0));
+    renderer.renderScene(scene);
+    assert.equal(renderer.stats.skinnedBatches, 0);
+    assert.equal(renderer.stats.culled, 1);
+  });
+
+  test("an AnimationSystem can run before any AnimationComponent exists (asset still loading)", async () => {
+    const scene = new Scene({ name: "empty-animation" });
+    cleanups.push(() => scene.dispose());
+    // runSystems logs and swallows a throwing system, so ask for the query it makes directly.
+    const query = scene.world.query([AnimationComponent]);
+    assert.equal(query.count, 0);
+    scene.world.releaseQuery(query);
   });
 
   test("skips nodes outside the active scene", async () => {

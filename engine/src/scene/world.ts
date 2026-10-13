@@ -360,9 +360,16 @@ export class EntityWorld {
     ctors: (new (...args: never[]) => Component)[],
     options: { anyOf?: (new (...args: never[]) => Component)[]; noneOf?: (new (...args: never[]) => Component)[] } = {},
   ): Query {
-    const typeIds = ctors.map((c) => componentInfo(c as unknown as new (...args: never[]) => Component).id);
-    const anyOf = (options.anyOf ?? []).map((c) => componentInfo(c as unknown as new (...args: never[]) => Component).id);
-    const noneOf = (options.noneOf ?? []).map((c) => componentInfo(c as unknown as new (...args: never[]) => Component).id);
+    // Materialise each type's store first: querying a component no entity has carried yet (a system
+    // registered before its asset loads) is an empty query, not an error.
+    const idOf = (c: new (...args: never[]) => Component): number => {
+      const info = componentInfo(c);
+      this.storeFor(info);
+      return info.id;
+    };
+    const typeIds = ctors.map(idOf);
+    const anyOf = (options.anyOf ?? []).map(idOf);
+    const noneOf = (options.noneOf ?? []).map(idOf);
     const q = new Query(this, typeIds, anyOf, noneOf);
     this.queries.add(q);
     return q;

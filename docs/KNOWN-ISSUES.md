@@ -82,9 +82,10 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). It does not decode
   images/textures or build textured materials (`instantiateGltfScene`, Phase 16.1f, uses material
   factors only), import morph targets/instancing, or decode Draco/meshopt compression; those are
-  tracked for the extended glTF importer (16.1b-16.1e). Imported skinned primitives cull against their
-  bind-pose box inflated to twice its half-diagonal, so a skeleton whose joints translate further
-  than that can be culled while still on screen; per-frame posed bounds are not computed.
+  tracked for the extended glTF importer (16.1b-16.1e). Skinned primitives cull against posed bounds
+  (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
+  can be looser than the deformed mesh. CesiumMan's base-colour texture is not drawn (16.1c), so it
+  renders with its white base-colour factor.
   (capability: assets.gltfAdvanced)
 
 * **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads
