@@ -196,6 +196,10 @@ group("Mars Dust Storm Survival — scene assembly", () => {
       glows.add(Math.round(beamMat.emissiveStrength * 100));
     }
     assert.ok(glows.size > 3, "active beam pulses");
+    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-path"), ...named(scene, "storm-beam-")]) {
+      const r = e.get(Renderable)!;
+      assert.equal(r.transparent, r.material!.transparent, `${scene.world.name(e.id)} draws in the matching (blend) bucket`);
+    }
     assert.ok(beamMat.revision > rev0, "pulse marks the material changed so the GPU uniforms update");
     handle.setDifficulty("hard");
     for (let i = 0; i < 20; i++) tick(0.1);

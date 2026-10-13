@@ -34,6 +34,7 @@ import {
   Quat,
   Renderable,
   Rng,
+  Texture,
   Scene,
   Vec3,
   VehicleComponent,
@@ -78,11 +79,14 @@ import {
   DEVIL_FUNNEL_HEIGHT_PER_CORE,
   DEVIL_SKIRT_HEIGHT,
   FUNNEL_VERTEX_COUNT,
+  CARD_VERTEX_COUNT,
+  buildFunnelCard,
+  devilCardPixels,
+  devilShellFade,
   STORM_SHEET_LOOK,
   buildDriftMoundMesh,
   buildFunnelMesh,
   devilEnvelope,
-  devilFunnelProfile,
   devilParticleLook,
   devilSkirtProfile,
   settleDriftMound,
@@ -212,6 +216,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     renderable.material = material;
     renderable.castShadow = shadows;
     renderable.receiveShadow = shadows;
+    // The draw bucket (blend pipeline, back-to-front, no depth write) is chosen per Renderable;
+    // without this a transparent material is drawn opaque (fe-18: the "solid pipe" devils).
+    renderable.transparent = material.transparent;
     scene.world.addComponent(entity.id, renderable);
     return entity;
   };
@@ -519,15 +526,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   // ---------------------------------------------------------------- tornado funnels (fe-18)
 
   /**
-   * Each devil slot also gets a cheap funnel impostor matching the reference: a dense dark core
-   * shell inside a lighter turbulent outer shell (both lumpy, swaying, spun with the devil), a low
-   * debris skirt at the base and a draped ground shadow. ~4 transparent draws per devil, thin on
-   * screen, no shadows cast; the particle column supplies the fine turbulent detail.
+   * Each devil slot also gets a cheap funnel impostor matching the reference: two camera-facing
+   * soft cards (a dense dark core inside a wider wispy layer) whose texture fades to nothing at the
+   * side edges (a view-angle / fresnel-style falloff) and is broken up by upward-scrolling
+   * turbulence, a low debris skirt at the base, and a draped ground shadow. The impostor dissolves
+   * as the camera nears the devil, leaving only the particle column up close. ~4 thin transparent
+   * draws per devil, no shadows cast.
    */
   interface FunnelRecord {
     core: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material; uploaded?: boolean };
-    outer: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material };
-    skirt: { entity: Entity; renderable: Renderable; geometry: Geometry; mesh: FunnelMesh | undefined; material: Material };
+    outer: FunnelRecord["core"];
+    skirt: FunnelRecord["core"];
     shadow: DriftRecord;
     shadowMaterial: Material;
   }
@@ -539,9 +548,21 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     uvs: new Float32Array(FUNNEL_VERTEX_COUNT * 2),
     indices: buildFunnelMesh({ id: 0, coreRadius: 1, swirl: 1 }, 1, () => 1, 1, 0).indices,
   }));
-  const makeShell = (name: string, hex: number): FunnelRecord["core"] => {
-    const geometry = emptyFunnel(name);
+  const cardTexture = track(Texture.fromRgba8(gpu, 64, 128, devilCardPixels(), { label: "storm-devil-card", srgb: true, mipmaps: true }));
+  const emptyCard = (label: string): Geometry => track(Geometry.create(gpu, {
+    label,
+    positions: new Float32Array(CARD_VERTEX_COUNT * 3),
+    normals: new Float32Array(CARD_VERTEX_COUNT * 3),
+    uvs: new Float32Array(CARD_VERTEX_COUNT * 2),
+    indices: buildFunnelCard({ id: 0, coreRadius: 1, swirl: 1, x: 0, z: 0 }, 1, 1, 0, 1, 0, 0).indices,
+  }));
+  const makeShell = (name: string, hex: number, card = false): FunnelRecord["core"] => {
+    const geometry = card ? emptyCard(name) : emptyFunnel(name);
     const material = funnelShellMaterial(name, hex);
+    if (card) {
+      material.albedoMap = cardTexture;
+      material.markChanged();
+    }
     const entity = addRenderable(name, new Vec3(SPAWN_X, groundY, SPAWN_Z), geometry, material, false);
     const renderable = entity.get(Renderable)!;
     renderable.visible = false;
@@ -558,8 +579,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   for (let i = 0; i < quality.devils; i++) {
     const shadowMaterial = track(new Material({ label: `storm-devil-shadow-${i}`, color: Color.fromSrgbHex(0x1a0c06), roughness: 1, metallic: 0, opacity: 0, transparent: true }));
     funnels.push({
-      core: makeShell(`storm-devil-core-${i}`, 0x3a2216),
-      outer: makeShell(`storm-devil-shell-${i}`, 0x8a5a3a),
+      core: makeShell(`storm-devil-core-${i}`, 0x8a6a58, true),
+      outer: makeShell(`storm-devil-shell-${i}`, 0xd8b090, true),
       skirt: makeShell(`storm-devil-skirt-${i}`, 0x9a6a46),
       shadow: makeDrift(`storm-devil-shadow-${i}`, SPAWN_X, SPAWN_Z, shadowMaterial),
       shadowMaterial,
@@ -768,6 +789,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const stepFunnels = (): void => {
     funnelFrame++;
     const rebuildFunnels = qualityTier !== "reduced" || funnelFrame % 2 === 0;
+    const eye = cameraEntity.transform.position;
     for (let i = 0; i < funnels.length; i++) {
       const f = funnels[i]!;
       const d: DustDevil | undefined = devils.devils[i];
@@ -782,11 +804,27 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       }
       const gy = groundHeight(d.x, d.z);
       const height = d.coreRadius * DEVIL_FUNNEL_HEIGHT_PER_CORE;
+      // Dissolve the impostor as the camera nears the devil: up close only the particles remain.
+      const fade = devilShellFade(Math.hypot(eye.x - d.x, eye.z - d.z));
+      const cards: [FunnelRecord["core"], number, number, number, number][] = [
+        // record, width scale, height scale, opacity, scroll speed
+        [f.core, 0.9, 1, 0.5, 0.45],
+        [f.outer, 2.1, 1.05, 0.28, 0.3],
+      ];
+      for (const [rec, wScale, hScale, opacity, scroll] of cards) {
+        rec.renderable.visible = fade > 0.01;
+        if (!rec.renderable.visible) continue;
+        if (rebuildFunnels || !rec.mesh) rec.mesh = buildFunnelCard(d, height * hScale, wScale, time + d.id, eye.x, eye.z, time * scroll + d.id * 0.37, rec.mesh);
+        if (rebuildFunnels || !rec.uploaded) {
+          rec.geometry.updateFrom({ positions: rec.mesh.positions, normals: rec.mesh.normals, uvs: rec.mesh.uvs, indices: rec.mesh.indices });
+          rec.uploaded = true;
+        }
+        rec.entity.transform.position = moundPos.set(d.x, gy - 0.2, d.z);
+        setOpacity(rec.material, opacity * fade * env * (0.7 + 0.3 * intensity));
+      }
       const shells: [FunnelRecord["core"], number, number, number, (u: number) => number, number, number][] = [
         // record, radius scale, height scale, sway scale, profile, opacity, time offset
-        [f.core, 0.55, 1, 1, devilFunnelProfile, 0.34, 0],
-        [f.outer, 1.25, 1.04, 1, devilFunnelProfile, 0.1, 1.7],
-        [f.skirt, 1, DEVIL_SKIRT_HEIGHT * d.coreRadius / height, 0.15, devilSkirtProfile, 0.16, 0.6],
+        [f.skirt, 1, DEVIL_SKIRT_HEIGHT * d.coreRadius / height, 0.15, devilSkirtProfile, 0.1, 0.6],
       ];
       for (const [rec, scale, hScale, swayScale, profile, opacity, dt] of shells) {
         // Reduced (iOS) tier re-shapes the funnels on alternate frames only: half the vertex uploads.
@@ -796,7 +834,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
           rec.uploaded = true;
         }
         rec.entity.transform.position = moundPos.set(d.x, gy - 0.2, d.z);
-        setOpacity(rec.material, opacity * env * (0.7 + 0.3 * intensity));
+        rec.renderable.visible = fade > 0.01;
+        setOpacity(rec.material, opacity * fade * env * (0.7 + 0.3 * intensity));
       }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;

@@ -62,6 +62,12 @@ import {
   guidePathEnabled,
   waypointArrowEnabled,
   waypointInView,
+  buildFunnelCard,
+  devilCardPixels,
+  devilShellFade,
+  DEVIL_FADE_NEAR,
+  DEVIL_FADE_FAR,
+  CARD_COLUMNS,
 } from "../../examples/src/scenes/dustStorm.js";
 
 const devilAt = (overrides: Partial<DustDevil> = {}): DustDevil => ({
@@ -388,6 +394,53 @@ group("fe-18 waypoint guidance", () => {
     }
     assert.ok(beamPulse(0.3 * BEAM_PULSE_PERIOD).bandOpacity > beamPulse(0.9 * BEAM_PULSE_PERIOD).bandOpacity, "fades as it climbs");
     assertCloseTo(beamPulse(0.4).glow, beamPulse(0.4 + BEAM_PULSE_PERIOD).glow, 9, "periodic");
+  });
+});
+
+group("fe-18 soft devils", () => {
+  test("near devils dissolve: impostor fade is 0 up close and 1 far away", () => {
+    assert.equal(devilShellFade(0), 0);
+    assert.equal(devilShellFade(DEVIL_FADE_NEAR), 0);
+    assert.equal(devilShellFade(DEVIL_FADE_FAR + 1), 1);
+    let last = -1;
+    for (let d = DEVIL_FADE_NEAR; d <= DEVIL_FADE_FAR; d += 2) {
+      assert.ok(devilShellFade(d) >= last);
+      last = devilShellFade(d);
+    }
+  });
+
+  test("card texture: transparent side edges (view-angle falloff), dense wispy core, tiles vertically", () => {
+    const W = 64, H = 128;
+    const px = devilCardPixels(W, H);
+    const alpha = (x: number, y: number): number => px[(y * W + x) * 4 + 3]!;
+    let edgeMax = 0, coreSum = 0, coreMin = 255, coreMax = 0;
+    for (let y = 0; y < H; y++) {
+      edgeMax = Math.max(edgeMax, alpha(0, y), alpha(W - 1, y));
+      const c = alpha(W / 2, y);
+      coreSum += c;
+      coreMin = Math.min(coreMin, c);
+      coreMax = Math.max(coreMax, c);
+    }
+    assert.ok(edgeMax < 8, `edges fade out (${edgeMax})`);
+    assert.ok(coreSum / H > 120, "core is dense");
+    assert.ok(coreMax - coreMin > 60, "turbulence breaks up the core (not a flat pipe)");
+    for (let x = 0; x < W; x += 8) assert.ok(Math.abs(alpha(x, 0) - alpha(x, H - 1)) < 24, "tiles in v");
+  });
+
+  test("funnel card faces the camera and spans the profile width", () => {
+    const devil = { id: 1, coreRadius: 4, swirl: 20, x: 10, z: 0 };
+    const card = buildFunnelCard(devil, 44, 1, 0, 10, 50, 0);
+    // Camera is along +Z from the devil, so the card spans X (no Z spread beyond the sway).
+    const k = 6;
+    const l = k * CARD_COLUMNS, r = k * CARD_COLUMNS + CARD_COLUMNS - 1;
+    const dx = card.positions[r * 3]! - card.positions[l * 3]!;
+    const dz = card.positions[r * 3 + 2]! - card.positions[l * 3 + 2]!;
+    assert.ok(Math.abs(dx) > 0.5 && Math.abs(dz) < 1e-6);
+    assertCloseTo(card.normals[2]!, 1, 9, "normal points at the camera");
+    assert.equal(card.uvs[0], 0);
+    assert.equal(card.uvs[(CARD_COLUMNS - 1) * 2], 1);
+    const scrolled = buildFunnelCard(devil, 44, 1, 0, 10, 50, 0.5);
+    assertCloseTo(card.uvs[1]! - scrolled.uvs[1]!, 0.5, 9, "turbulence scrolls upward");
   });
 });
 
