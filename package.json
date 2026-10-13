@@ -45,6 +45,7 @@
     "check:browser:mars-generator": "node tools/browser-check.mjs --mars-generator",
     "check:browser:mars-interactive": "node tools/browser-check.mjs --mars-interactive",
     "check:browser:skinning": "node tools/browser-check.mjs --skinning",
+    "check:browser:gltf-skin": "node tools/browser-check.mjs --gltf-skin",
     "check:browser:mechanical": "node tools/browser-check.mjs --mechanical",
     "check:browser:rescue": "node tools/browser-check.mjs --rescue",
     "check:browser:amazon": "node tools/browser-check.mjs --amazon",

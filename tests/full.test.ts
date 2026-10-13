@@ -29,6 +29,7 @@ export const linkedSuites = [
   ["tests/physics/physics.test.ts", () => import("./physics/physics.test.ts")],
   ["tests/resources/assetPipeline.test.ts", () => import("./resources/assetPipeline.test.ts")],
   ["tests/resources/gltf.test.ts", () => import("./resources/gltf.test.ts")],
+  ["tests/resources/gltfScene.test.ts", () => import("./resources/gltfScene.test.ts")],
   ["tests/resources/phase15.test.ts", () => import("./resources/phase15.test.ts")],
   ["tests/resources/resources.test.ts", () => import("./resources/resources.test.ts")],
   ["tests/resources/streaming.test.ts", () => import("./resources/streaming.test.ts")],
@@ -88,4 +89,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(84);
+report(85);

@@ -61,6 +61,7 @@ npm run check:browser:renderer # full-gate PBR/rendering A/B section only
 npm run check:browser:terrain # full-gate terrain population/camera/compute section only
 npm run check:browser:vehicle-particles # full-gate parking-brake + particle section only
 npm run check:browser:animation # full-gate skinned-arm section only
+npm run check:browser:gltf-skin # scoped imported skinned glTF (SimpleSkin) pose A/B + screenshots, NOT the full gate
 npm run check:browser:environment # full-gate sky + weather section only
 npm run check:browser:mars # full-gate Mars inspector/showcase/drive/HGA/arm section only
 npm run check:browser:mars-workers # scoped native-worker + Mars upload/render check, NOT the full gate

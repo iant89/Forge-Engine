@@ -1552,8 +1552,17 @@ GOAL:
 
     [ ] 16.1e Draco / meshopt geometry decompression
 
-    [ ] 16.1f skinned GLB scene assembly (joint entities, skin binding, clip playback through the
-        16.5 GPU path) with a browser gate
+    [x] 16.1f skinned glTF scene assembly: `instantiateGltfScene` builds one entity per node of the
+        active scene with the glTF parent links and local TRS (matrices decomposed), binds each skin to
+        the joint entities with the decoded inverse bind matrices, and attaches the asset's clips
+        (now decoded with the mesh; TRS channels, STEP/LINEAR/CUBICSPLINE) to an AnimationComponent
+        whose new `restPose` keeps channels a clip does not animate at their authored values.
+        Materials are factor-only; skinned primitives get conservative culling bounds. Demo scene
+        `?scene=gltf-skin` plays the Khronos SimpleSkin sample (CC0, examples/assets/);
+        tests/resources/gltfScene.test.ts (hierarchy, bind pose, sampled pose, mock skinned draw) and
+        `npm run check:browser:gltf-skin` (real Chromium + SwiftShader: one skinned batch, 2 joints,
+        no fallback, the live clip advancing, three clip times A/B'd per pixel);
+        capability: assets.gltfSkinnedScene
 
 
 16.2 Animation State Machines
@@ -1655,8 +1664,8 @@ GOAL:
 
     The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
     Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
-    material assembly, morph/instancing, Draco/meshopt, skinned-GLB assembly — 16.1b-16.1f) is
-    still open under 16.1; skin decoding (16.1a) landed.
+    material assembly, morph/instancing, Draco/meshopt — 16.1b-16.1e) is still open under 16.1;
+    skin decoding (16.1a) and skinned scene assembly (16.1f) landed.
 
 
 EXIT CRITERIA:

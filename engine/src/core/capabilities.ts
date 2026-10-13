@@ -213,7 +213,15 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "glTF skin import: skins[] (joints, inverse bind matrices, skeleton), node.skin and one JOINTS_0/WEIGHTS_0 set per primitive, decoded on the worker into SkinningVertexData-shaped arrays",
     evidence: ["tests/resources/gltf.test.ts", "tests/tools/gltfStripSkinSets.test.ts"],
-    notes: "Phase 16.1a. Validated per the glTF spec (unsigned joint indices in range of every skin using the mesh, float or normalized weights, FLOAT MAT4 inverse bind matrices with at least one per joint, identity when omitted); weights are not renormalized. Extra influence sets (JOINTS_n/WEIGHTS_n, n >= 1) are ignored when every weight is zero and rejected otherwise, because the GPU skinning path takes four; tools/gltf-strip-extra-skin-sets.mjs (npm run gltf:strip-skin-sets) removes them from an asset. This is decode only: building joint entities and a skinned draw from a decoded GLB is 16.1f, and nothing here is browser-verified.",
+    notes: "Phase 16.1a. Validated per the glTF spec (unsigned joint indices in range of every skin using the mesh, float or normalized weights, FLOAT MAT4 inverse bind matrices with at least one per joint, identity when omitted); weights are not renormalized. Extra influence sets (JOINTS_n/WEIGHTS_n, n >= 1) are ignored when every weight is zero and rejected otherwise, because the GPU skinning path takes four; tools/gltf-strip-extra-skin-sets.mjs (npm run gltf:strip-skin-sets) removes them from an asset. Decode only; turning it into a drawn scene is assets.gltfSkinnedScene (16.1f).",
+  },
+  {
+    id: "assets.gltfSkinnedScene",
+    phase: "16.1",
+    status: "verified",
+    summary: "instantiateGltfScene: a decoded glTF becomes node entities (hierarchy + local TRS), skinned renderables bound to joint entities with the inverse bind matrices, and its clips on an AnimationComponent with a rest pose",
+    evidence: ["tests/resources/gltfScene.test.ts", "tools/browser-check.mjs", "examples/src/scenes/gltfSkinScene.ts"],
+    notes: "Phase 16.1f. Animations are decoded with the mesh (TRS channels, STEP/LINEAR/CUBICSPLINE; morph-weight channels are skipped, sparse animation accessors rejected). Verified on one asset, the Khronos SimpleSkin sample (CC0): numerically on the mock device and with npm run check:browser:gltf-skin on real Chromium + SwiftShader (no physical GPU). Materials are built from factors only (textures are 16.1c); skinned primitives cull against their bind box inflated to twice its half-diagonal, so a skeleton that translates further can be culled early.",
   },
   {
     id: "assets.gltfAdvanced",
@@ -221,7 +229,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "planned",
     summary: "Extended glTF import: image/material resource assembly, morph targets, instancing, compressed geometry extensions and skinned-GLB scene assembly",
     closesWith: "16.1",
-    notes: "The Phase 9.1 importer deliberately covers static uncompressed triangle geometry and metadata, plus skin decoding since 16.1a (assets.gltfSkins); the remaining extensions and GPU asset construction are 16.1b-16.1f.",
+    notes: "The Phase 9.1 importer deliberately covers static uncompressed triangle geometry and metadata, plus skin decoding since 16.1a (assets.gltfSkins); skinned scene assembly since 16.1f (assets.gltfSkinnedScene); the remaining extensions and texture/material construction are 16.1b-16.1e.",
   },
   {
     id: "assets.loaderPreemption",

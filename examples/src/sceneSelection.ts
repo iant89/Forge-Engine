@@ -22,6 +22,7 @@ export const DEMO_SCENE_NAMES = [
   "mars-showcase",
   "rover-course",
   "skinning",
+  "gltf-skin",
   "alpine-rescue",
   "mars-dust-storm",
 ] as const;
@@ -51,6 +52,7 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "mars-showcase":
     case "rover-course":
     case "skinning":
+    case "gltf-skin":
     case "alpine-rescue":
     case "mars-dust-storm":
       return requestedScene;

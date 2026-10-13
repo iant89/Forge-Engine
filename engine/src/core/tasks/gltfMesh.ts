@@ -17,6 +17,7 @@
 
 import { AssetError } from "../errors.js";
 import type { TaskContext } from "./registry.js";
+import { decodeGltfAnimations, transferablesForAnimations, type DecodedGltfAnimation } from "./gltfAnimation.js";
 
 export const GLTF_MESH_DECODE_TASK = "asset.gltf.decode" as const;
 const GLB_MAGIC = 0x46546c67;
@@ -117,6 +118,8 @@ export interface DecodedGltfAsset {
   sceneIndex: number;
   materials: DecodedGltfMaterial[];
   skins: DecodedGltfSkin[];
+  /** `animations[]` (Phase 16.1f): TRS channels with STEP/LINEAR/CUBICSPLINE samplers. */
+  animations: DecodedGltfAnimation[];
   primitiveCount: number;
   vertexCount: number;
   /** Bytes in all decoded vertex/index arrays. */
@@ -649,6 +652,9 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
     }
   }
   for (const skin of result.skins ?? []) add(skin.inverseBindMatrices);
+  for (const transferable of transferablesForAnimations(result.animations ?? [])) {
+    if (transferable instanceof ArrayBuffer) buffers.add(transferable);
+  }
   for (const node of result.nodes) {
     add(node.translation);
     add(node.rotation);
@@ -824,7 +830,11 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
     }
   }
   checkCancelled(ctx, source);
-  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, skins, primitiveCount, vertexCount, decodedBytes };
+  const animations = decodeGltfAnimations(doc as Parameters<typeof decodeGltfAnimations>[0], buffers, nodes.length, source);
+  for (const animation of animations) {
+    for (const sampler of animation.samplers) decodedBytes += sampler.input.byteLength + sampler.output.byteLength;
+  }
+  return { version: "2.0", source, meshes, nodes, scenes, sceneIndex, materials, skins, animations, primitiveCount, vertexCount, decodedBytes };
 }
 
 /** The result arrays are newly allocated and can be transferred without copying. */
