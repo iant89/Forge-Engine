@@ -303,6 +303,13 @@ export function installIosReport(
   ui.root.style.cssText =
     "position:fixed;left:0;right:0;bottom:0;z-index:60;padding-bottom:env(safe-area-inset-bottom);" +
     "background:rgb(2 4 8 / 0.92);border-top:2px solid #38bdf8";
+  // Collapsed, shrink to the bar's own width in the bottom-right corner (the footprint of the old
+  // "diag" button) instead of a full-width strip over the rover steering stick on the left.
+  ui.root.id = "forge-diag-panel";
+  const collapsedCss = document.createElement("style");
+  collapsedCss.textContent =
+    "#forge-diag-panel.fdp-collapsed{left:auto!important;background:transparent!important;border-top:0!important}";
+  ui.root.appendChild(collapsedCss);
   let panelText = "";
   let captures: Step[] = [];
   let rawSuites: { label: string; results: RawTestResult[] }[] = [];
