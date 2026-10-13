@@ -36,6 +36,27 @@ export interface GpuParticleEmitterConfig {
   speedMin: number;
   speedMax: number;
   color: { r: number; g: number; b: number; a: number };
+  /**
+   * Optional vortex-column spawn (dust devils, after red-frontier's `DustDevil.emitColumn`). When
+   * `height > 0` the cone/jitter shape is replaced: each particle spawns at a height fraction
+   * `h01 = rand^bias` up a column of `height` m above `position`, on a ring of radius
+   * `mix(radiusBase, radiusTop, h01^0.9) * (0.72..1.27)` around the axis, which leans by
+   * `lean * h01^1.25` toward the top. Velocity: tangential rim speed `spin * r` (signed), an
+   * outward radial `outward` m/s, and an updraft `speed * (1 - 0.42 * h01)` with speed sampled from
+   * `speedMin..speedMax`. Omitted or `height <= 0` = off (default).
+   */
+  vortex?: GpuParticleVortexSpawn;
+}
+
+export interface GpuParticleVortexSpawn {
+  height: number;
+  bias: number;
+  radiusBase: number;
+  radiusTop: number;
+  spin: number;
+  outward: number;
+  leanX: number;
+  leanZ: number;
 }
 
 export interface GpuParticleModulesConfig {
@@ -64,6 +85,29 @@ export interface GpuParticleModulesConfig {
    */
   colorVariation: number;
   colorAlt: { r: number; g: number; b: number; a: number };
+  /**
+   * Horizontal spring (1/s²) pulling each particle toward the vertical axis through `attractorPos`,
+   * leaned by `axisLean.{x,z} * h01^1.25` where `h01 = (y - attractorPos.y) / axisLean.y` (red-frontier's
+   * per-particle `pullK` anchor). Keeps a vortex column rope-like and bending with its wobble.
+   * 0 = off (default).
+   */
+  axisPull?: number;
+  axisLean?: { x: number; y: number; z: number };
+  /**
+   * Bimodal size mix: this fraction 0..1 of particles (stable pick from life, independent of
+   * `sizeVariation`) is drawn `coarseScale`× larger — a few big grains filling gaps between fine
+   * ones at no extra particle cost. 0 = off (default).
+   */
+  coarseFraction?: number;
+  coarseScale?: number;
+  /**
+   * Ground-hugging wind (m/s² horizontal acceleration) acting on particles within
+   * `groundWindHeight` m above `attractorPos.y`, fading out (smoothstep) with height; inside that
+   * band the `axisPull` spring is relaxed to 30% at the ground, so a devil's base cloud can be
+   * pushed and stretched downwind while the column above stays roped. Height 0 = off (default).
+   */
+  groundWind?: { x: number; z: number };
+  groundWindHeight?: number;
 }
 
 export interface GpuParticleSystemOptions {
@@ -74,6 +118,11 @@ export interface GpuParticleSystemOptions {
   softParticles?: boolean;
   /** 0 = camera-facing billboard; >0 stretches along velocity. */
   stretch?: number;
+  /**
+   * Opt-in soft round sprite: alpha falls off smoothly from near the centre (smoothstep over the
+   * whole radius) instead of the default hard disc with a thin rim fade. Same fragment cost. Default off.
+   */
+  softSprite?: boolean;
   /** Distance cull radius (world units). */
   cullDistance?: number;
   softScale?: number;
@@ -101,8 +150,8 @@ export interface GpuParticleFrameInput {
   cameraUp: { x: number; y: number; z: number };
 }
 
-const EMIT_UNIFORM_BYTES = 96;
-const SIM_UNIFORM_BYTES = 160;
+const EMIT_UNIFORM_BYTES = 128;
+const SIM_UNIFORM_BYTES = 192;
 const CULL_UNIFORM_BYTES = 96;
 const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
@@ -122,6 +171,7 @@ function defaultEmitter(partial: Partial<GpuParticleEmitterConfig> = {}): GpuPar
     speedMin: partial.speedMin ?? 5,
     speedMax: partial.speedMax ?? 9,
     color: partial.color ?? { r: 1, g: 0.78, b: 0.28, a: 1 },
+    ...(partial.vortex ? { vortex: { ...partial.vortex } } : {}),
   };
 }
 
@@ -143,6 +193,12 @@ function defaultModules(partial: Partial<GpuParticleModulesConfig> = {}): GpuPar
     swirlStrength: partial.swirlStrength ?? 0,
     colorVariation: partial.colorVariation ?? 0,
     colorAlt: partial.colorAlt ?? { r: 0, g: 0, b: 0, a: 1 },
+    axisPull: partial.axisPull ?? 0,
+    axisLean: partial.axisLean ?? { x: 0, y: 1, z: 0 },
+    coarseFraction: partial.coarseFraction ?? 0,
+    coarseScale: partial.coarseScale ?? 1,
+    groundWind: partial.groundWind ?? { x: 0, z: 0 },
+    groundWindHeight: partial.groundWindHeight ?? 0,
   };
 }
 
@@ -161,6 +217,7 @@ export class GpuParticleSystem {
   readonly maxEmitsPerFrame: number;
   softParticles: boolean;
   stretch: number;
+  softSprite: boolean;
   cullDistance: number;
   softScale: number;
   /** Draw trail-history ribbons in `particle.render` (12.4/12.7). Toggles take effect next frame. */
@@ -252,6 +309,7 @@ export class GpuParticleSystem {
     this.maxEmitsPerFrame = Math.max(1, options.maxEmitsPerFrame ?? 4096);
     this.softParticles = options.softParticles !== false;
     this.stretch = options.stretch ?? 0;
+    this.softSprite = options.softSprite === true;
     this.cullDistance = options.cullDistance ?? 80;
     this.softScale = options.softScale ?? 40;
     this.ribbons = options.ribbons === true;
@@ -615,6 +673,17 @@ export class GpuParticleSystem {
     u[21] = budget >>> 0;
     u[22] = this.capacity >>> 0;
     u[23] = emitBase >>> 0;
+    const v = e.vortex;
+    if (v && v.height > 0) {
+      f[24] = v.height;
+      f[25] = Math.max(0.05, v.bias);
+      f[26] = Math.max(0, v.radiusBase);
+      f[27] = Math.max(0, v.radiusTop);
+      f[28] = v.spin;
+      f[29] = v.outward;
+      f[30] = v.leanX;
+      f[31] = v.leanZ;
+    }
     this.device.queue.writeBuffer(this.emitUniform!, 0, gpuSource(new Uint8Array(buf)));
     this.writeHead = (this.writeHead + budget) % this.capacity;
   }
@@ -659,6 +728,15 @@ export class GpuParticleSystem {
     f[34] = m.colorAlt.b;
     f[35] = m.colorAlt.a;
     f[36] = Math.max(0, Math.min(1, m.colorVariation));
+    f[37] = Math.max(0, m.axisPull ?? 0);
+    f[38] = Math.max(1e-3, m.axisLean?.y ?? 1);
+    f[39] = m.axisLean?.x ?? 0;
+    f[40] = m.axisLean?.z ?? 0;
+    f[41] = Math.max(0, Math.min(1, m.coarseFraction ?? 0));
+    f[42] = Math.max(0, m.coarseScale ?? 1);
+    f[43] = m.groundWind?.x ?? 0;
+    f[44] = m.groundWind?.z ?? 0;
+    f[45] = Math.max(0, m.groundWindHeight ?? 0);
     this.device.queue.writeBuffer(this.simUniform!, 0, gpuSource(new Uint8Array(buf)));
   }
 
@@ -694,7 +772,8 @@ export class GpuParticleSystem {
     f[24] = frame.cameraUp.x;
     f[25] = frame.cameraUp.y;
     f[26] = frame.cameraUp.z;
-    u[27] = this.softParticles ? 1 : 0;
+    // Bit 0: soft depth fade; bit 1: soft round sprite.
+    u[27] = (this.softParticles ? 1 : 0) | (this.softSprite ? 2 : 0);
     f[28] = 1;
     f[29] = 1;
     f[30] = 1;

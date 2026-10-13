@@ -155,6 +155,14 @@ struct EmitParams {
   emitBudget: u32,
   capacity: u32,
   emitBase: u32,
+  vortexHeight: f32,
+  vortexBias: f32,
+  vortexRadiusBase: f32,
+  vortexRadiusTop: f32,
+  vortexSpin: f32,
+  vortexOutward: f32,
+  vortexLeanX: f32,
+  vortexLeanZ: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: EmitParams;
@@ -209,6 +217,21 @@ fn sampleCone(dir: vec3<f32>, angle: f32, h0: u32, h1: u32, h2: u32, speedMin: f
   p.color = params.color;
   p.size = params.size;
   p.seed = hashToFloat(hash2(params.seed, emitIndex));
+  if (params.vortexHeight > 0.0) {
+    // Vortex column (red-frontier DustDevil.emitColumn): height-biased, flaring, leaning ring spawn.
+    // Inputs are clamped away from 0 before pow: WebKit's pow(0, y) has produced NaN before (fe-17).
+    let h01 = pow(max(hashToFloat(hash2(h5, h3)), 1e-4), params.vortexBias);
+    let spread = 0.72 + 0.55 * hashToFloat(hash2(h1, h4));
+    let r = mix(params.vortexRadiusBase, params.vortexRadiusTop, pow(max(h01, 1e-4), 0.9)) * spread;
+    let a = hashToFloat(hash2(h4, h2)) * 6.28318530718;
+    let ca = cos(a);
+    let sa = sin(a);
+    let lean = pow(max(h01, 1e-4), 1.25);
+    p.position = params.position + vec3<f32>(params.vortexLeanX * lean + ca * r, h01 * params.vortexHeight, params.vortexLeanZ * lean + sa * r);
+    let rim = params.vortexSpin * r;
+    let up = mix(params.speedMin, params.speedMax, hashToFloat(h3)) * (1.0 - 0.42 * h01);
+    p.velocity = vec3<f32>(-sa * rim + ca * params.vortexOutward, up, ca * rim + sa * params.vortexOutward);
+  }
   p.age = 0.0;
   p.flags = 1.0;
   particles[slot] = p;
@@ -250,6 +273,15 @@ struct FullSimParams {
   swirlStrength: f32,
   colorAlt: vec4<f32>,
   colorVariation: f32,
+  axisPull: f32,
+  axisHeight: f32,
+  axisLeanX: f32,
+  axisLeanZ: f32,
+  coarseFraction: f32,
+  coarseScale: f32,
+  groundWindX: f32,
+  groundWindZ: f32,
+  groundWindHeight: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: FullSimParams;
@@ -277,6 +309,20 @@ struct FullSimParams {
     let tangent = vec3<f32>(toA.z, 0.0, -toA.x) / r;
     p.velocity = p.velocity + tangent * (params.swirlStrength * params.dt / r);
   }
+  // Ground-band weight: 1 at the attractor's base, 0 above groundWindHeight (0 = band off).
+  var groundW = 0.0;
+  if (params.groundWindHeight > 0.0) {
+    groundW = 1.0 - smoothstep(0.0, params.groundWindHeight, p.position.y - params.attractorPos.y);
+    p.velocity = p.velocity + vec3<f32>(params.groundWindX, 0.0, params.groundWindZ) * (groundW * params.dt);
+  }
+  if (params.axisPull > 0.0) {
+    // Horizontal spring toward the (leaning) vortex axis at this particle's height.
+    let h01 = clamp((p.position.y - params.attractorPos.y) / params.axisHeight, 0.0, 1.0);
+    let lean = pow(max(h01, 1e-4), 1.25);
+    let axis = params.attractorPos.xz + vec2<f32>(params.axisLeanX, params.axisLeanZ) * lean;
+    let d = axis - p.position.xz;
+    p.velocity = p.velocity + vec3<f32>(d.x, 0.0, d.y) * (params.axisPull * (1.0 - 0.7 * groundW) * params.dt);
+  }
   if (params.turbulence > 0.0) {
     let np = p.position * params.noiseScale + vec3<f32>(params.time);
     let nx = valueNoise3(np, params.seed);
@@ -302,7 +348,9 @@ struct FullSimParams {
   // maxLife is randomized once at emission, so this size multiplier remains stable throughout a
   // particle's life without needing another particle-buffer field or per-frame random flicker.
   let sizeRandom = fract(p.maxLife * 31.713);
-  let sizeMultiplier = 1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0);
+  let coarseRandom = fract(p.maxLife * 73.19 + 0.37);
+  let coarse = select(1.0, params.coarseScale, coarseRandom < params.coarseFraction);
+  let sizeMultiplier = (1.0 + params.sizeVariation * (sizeRandom * 2.0 - 1.0)) * coarse;
   p.size = mix(params.sizeStart, params.sizeEnd, t) * sizeMultiplier;
   p.seed = fract(p.seed + params.rotationSpeed * params.dt * (0.1 + t));
   if (p.life <= 0.0) {
@@ -464,7 +512,12 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   // Radial falloff of the billboard: opaque inside r = 0.35, fading to 0 at the 0.5 discard rim.
   // WGSL requires smoothstep's low edge < high edge (strict compilers reject the module
   // otherwise), so the reversed GLSL idiom smoothstep(0.5, 0.35, r) must be written this way.
-  let edge = 1.0 - smoothstep(0.35, 0.5, r);
+  var edge = 1.0 - smoothstep(0.35, 0.5, r);
+  if ((params.flags & 2u) != 0u) {
+    // Opt-in soft round sprite (bit 1): a smooth centre-to-rim falloff, so grains read as dust puffs.
+    // fe-21g: a plain smoothstep (not squared) keeps a fuller core so the swarm reads dense.
+    edge = 1.0 - smoothstep(0.05, 0.5, r);
+  }
   var alpha = in.color.a * edge;
   // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
   // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does

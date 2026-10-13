@@ -47,7 +47,7 @@ import {
   findGpuParticleWorlds,
 } from "@forge/engine";
 import { buildMarsDustStormScene } from "../../examples/src/scenes/marsDustStormScene.js";
-import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, devilParticleLook, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
+import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
 
 const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress: GlbLoadProgress) => void): Promise<LoadedGlb> => {
@@ -264,8 +264,11 @@ group("Mars Dust Storm Survival — one GPU particle system per dust devil", () 
         continue;
       }
       assert.ok(sys.emitter.rate > 0 && sys.emitter.rate <= reduced.devilRate, "rate follows the devil's life envelope");
-      assert.equal(sys.modules.swirlStrength, devilParticleLook(d).swirl, `devil ${i} swirls`);
-      assert.ok(Math.abs(sys.modules.swirlStrength) >= 140);
+      assert.ok(Math.abs(sys.modules.swirlStrength) > 0, `devil ${i} swirls`);
+      // fe-21: red-frontier vortex column spawn + axis spring, not the old box/cone + 3D attractor.
+      assert.ok(sys.emitter.vortex && sys.emitter.vortex.height > 0, `devil ${i} uses the vortex spawn`);
+      assert.ok((sys.modules.axisPull ?? 0) > 0, `devil ${i} is held on its axis`);
+      assert.equal(sys.modules.attractorStrength, 0);
       assert.equal(Math.sign(sys.modules.swirlStrength), Math.sign(d.swirl || 1));
       assert.equal(sys.modules.attractorPos.x, d.x);
       assert.equal(sys.modules.attractorPos.z, d.z);
