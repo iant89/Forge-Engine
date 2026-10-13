@@ -605,7 +605,7 @@ group("fe-21c devil coarse grains", () => {
     assert.match(PARTICLE_FULL_SIM_SHADER, /coarseFraction/);
     assert.match(PARTICLE_FULL_SIM_SHADER, /params\.coarseScale/);
     // fe-21d: largest grain (end of life, top of the size spread, coarse) stays well under 1.3 m.
-    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 1.2);
+    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 0.95);
   });
 });
 
@@ -637,7 +637,7 @@ group("fe-21d devil base cloud", () => {
   test("ground wind follows the storm wind and grows sharply in gusts", () => {
     const lull = devilBaseWind(10, 0, LULL_INTENSITY), peak = devilBaseWind(26, 0, 1);
     assert.ok(lull.x > 0 && lull.z === 0);
-    assert.ok(peak.x > lull.x * 5, `gust ${peak.x} vs lull ${lull.x}`);
+    assert.ok(peak.x > lull.x * 10, `gust ${peak.x} vs lull ${lull.x}`);
     const dir = devilBaseWind(-3, 4, 0.8);
     assertCloseTo(Math.atan2(dir.z, dir.x), Math.atan2(4, -3), 9);
     assert.equal(DEVIL_SWIRL_MAX > 0, true);

@@ -1223,7 +1223,7 @@ export const DEVIL_BASE_CLOUD = Object.freeze({
 });
 /** Ground-wind acceleration per m/s of storm wind: a lull floor plus a gust boost. */
 export const DEVIL_BASE_WIND_LULL = 0.12;
-export const DEVIL_BASE_WIND_GUST = 0.38;
+export const DEVIL_BASE_WIND_GUST = 0.6;
 
 /**
  * fe-21d: horizontal acceleration (m/s²) pushing a devil's base cloud downwind. Rises with the gust
@@ -1318,9 +1318,9 @@ export const DEVIL_GRAIN_END = 0.3;
  * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
  * to fill the voids between fine motes (same particle count, so budgets are unchanged).
  */
-export const DEVIL_COARSE_FRACTION = 0.22;
-/** fe-21d: more coarse grains but a smaller multiplier, so the largest (end-of-life) stays ≈1.1 m, not a blob. */
-export const DEVIL_COARSE_SCALE = 2.8;
+export const DEVIL_COARSE_FRACTION = 0.2;
+/** fe-21d: more coarse grains but a smaller multiplier, so the largest (end-of-life) stays ≈0.9 m, not a blob. */
+export const DEVIL_COARSE_SCALE = 2.2;
 /** Mild per-grain size spread so the fine layer isn't uniform. */
 export const DEVIL_SIZE_VARIATION = 0.35;
 
