@@ -58,6 +58,14 @@ export const BINDINGS = {
   normalMap: { group: 2, binding: 2 },
   mrMap: { group: 2, binding: 3 },
   sampler: { group: 2, binding: 4 },
+  // Phase 16.1c: glTF emissive/occlusion maps and one sampler per map (binding 4 is the albedo
+  // sampler). 5-10 belong to the terrain splat extension.
+  emissiveMap: { group: 2, binding: 11 },
+  occlusionMap: { group: 2, binding: 12 },
+  normalSampler: { group: 2, binding: 13 },
+  mrSampler: { group: 2, binding: 14 },
+  emissiveSampler: { group: 2, binding: 15 },
+  occlusionSampler: { group: 2, binding: 16 },
 } as const;
 
 /**
@@ -386,6 +394,12 @@ fn cullBatch(clip: vec4<f32>) -> vec4<f32> {
 @group(2) @binding(2) var normalMap: texture_2d<f32>;
 @group(2) @binding(3) var mrMap: texture_2d<f32>;
 @group(2) @binding(4) var materialSampler: sampler;
+@group(2) @binding(11) var emissiveMap: texture_2d<f32>;
+@group(2) @binding(12) var occlusionMap: texture_2d<f32>;
+@group(2) @binding(13) var normalSampler: sampler;
+@group(2) @binding(14) var mrSampler: sampler;
+@group(2) @binding(15) var emissiveSampler: sampler;
+@group(2) @binding(16) var occlusionSampler: sampler;
 
 const FLAGS_ALBEDO: u32 = 1u;
 const FLAGS_NORMAL: u32 = 2u;
@@ -393,6 +407,9 @@ const FLAGS_MR: u32 = 4u;
 const FLAGS_DOUBLE_SIDED: u32 = 8u;
 const FLAGS_UNLIT: u32 = 16u;
 const FLAGS_FOG_EXEMPT: u32 = 32u;
+const FLAGS_EMISSIVE_MAP: u32 = 64u;
+const FLAGS_OCCLUSION_MAP: u32 = 128u;
+const FLAGS_ALPHA_TEST: u32 = 256u;
 const FLAGS_INSTANCED: u32 = 1u;
 // perFrame.flags bit 5: local lights come from the cluster grid, not from the uniform light list.
 const FLAGS_CLUSTERED: u32 = 32u;
@@ -599,7 +616,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
   if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
     if ((material.flags & FLAGS_NORMAL) != 0u) {
-      let sampled = textureSample(normalMap, materialSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
+      let sampled = textureSample(normalMap, normalSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
       let T = normalize(in.tangent.xyz);
       let B = cross(N, T) * in.tangent.w;
       let tbn = mat3x3<f32>(T, B, N);
@@ -609,7 +626,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
   var metallic = material.metallic;
   var roughness = material.roughness;
   if ((material.flags & FLAGS_MR) != 0u) {
-    let mr = textureSample(mrMap, materialSampler, in.uv * material.tiling + material.offset);
+    let mr = textureSample(mrMap, mrSampler, in.uv * material.tiling + material.offset);
     metallic = metallic * mr.b;
     roughness = roughness * mr.g;
   }
@@ -736,6 +753,24 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
   return (kD * s.albedo / PI + specular) * L.color * power * nl;
 }
 
+// glTF emissive: emissiveFactor × emissiveTexture (sRGB), times the engine's strength.
+fn materialEmission(uv: vec2<f32>) -> vec3<f32> {
+  var e = material.emissiveFactor * material.emissiveStrength;
+  if ((material.flags & FLAGS_EMISSIVE_MAP) != 0u) {
+    e = e * textureSample(emissiveMap, emissiveSampler, uv * material.tiling + material.offset).rgb;
+  }
+  return e;
+}
+
+// glTF occlusion: 1 + strength × (R − 1), applied to the ambient term only.
+fn materialOcclusion(uv: vec2<f32>) -> f32 {
+  if ((material.flags & FLAGS_OCCLUSION_MAP) == 0u) {
+    return 1.0;
+  }
+  let ao = textureSample(occlusionMap, occlusionSampler, uv * material.tiling + material.offset).r;
+  return 1.0 + material.occlusionStrength * (ao - 1.0);
+}
+
 fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   var base = material.baseColorFactor;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
@@ -751,6 +786,13 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   // below can branch on non-uniform data.
   let cloudFootprint = cloudSurfaceFootprint(in.worldPos);
 ${surfaceSetup}
+  // Sampled here, in uniform control flow, before the unlit/standard split.
+  let emission = materialEmission(in.uv);
+  let occlusion = materialOcclusion(in.uv);
+  // glTF alpha MASK: alpha (texture × factor) below the cutoff is not drawn.
+  if ((material.flags & FLAGS_ALPHA_TEST) != 0u && albedo.a * material.opacity < material.alphaCutoff) {
+    discard;
+  }
 
   var color = vec3<f32>(0.0);
   if ((material.flags & FLAGS_UNLIT) != 0u) {
@@ -784,12 +826,12 @@ ${surfaceSetup}
       }
     }
     let ambient = perFrame.ambientColor * perFrame.ambientIntensity * albedo.rgb;
-    let irradiance = ambient * (1.0 - F0) * ambientOcclusion(in.clipPos.xy, in.viewDepth);
+    let irradiance = ambient * (1.0 - F0) * ambientOcclusion(in.clipPos.xy, in.viewDepth) * occlusion;
     color = color + irradiance;
   }
   // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark
   // base colour with a bright emissive factor is exactly how a glowing core is authored).
-  color = color + material.emissiveFactor * material.emissiveStrength;
+  color = color + emission;
   color = color * in.tint.rgb;
   if ((uniforms_shadow.flags & 1u) != 0u) {
     color = color * cascadeDebugTint(in.viewDepth);

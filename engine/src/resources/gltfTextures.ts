@@ -10,14 +10,30 @@
  * as `rgba8unorm` (normals get the renormalising mip filter). A glTF texture used both ways yields two
  * GPU textures; each image is decoded only once.
  *
- * Scope: every map samples TEXCOORD_0 through the renderer's shared linear-repeat sampler (glTF's
- * default). Non-default sampler wrap/filter modes, KHR_texture_transform, emissive and occlusion maps
- * and compressed (KTX2/Basis) images are not applied; a failing image warns and leaves its map unbound.
+ * Each glTF texture's sampler (wrapS/wrapT, mag/min filters) becomes a cached `GPUSampler`
+ * (`GraphicsDevice.samplerFromDescriptor`); a texture without one uses the renderer's default
+ * (linear-repeat, glTF's default). Every map samples TEXCOORD_0. Not applied: KHR_texture_transform
+ * and compressed (KTX2/Basis) images; a failing image warns and leaves its map unbound.
  */
 
 import type { GraphicsDevice } from "../gpu/device.js";
 import { Texture } from "./texture.js";
-import type { DecodedGltfAsset } from "../core/tasks/gltfMesh.js";
+import type { DecodedGltfAsset, DecodedGltfSampler } from "../core/tasks/gltfMesh.js";
+
+const WRAP: Record<number, GPUAddressMode> = { 10497: "repeat", 33071: "clamp-to-edge", 33648: "mirror-repeat" };
+
+/** glTF sampler enums → WebGPU. A non-mipmapped minFilter (NEAREST/LINEAR) clamps to the base level. */
+export function gltfSamplerDescriptor(s: DecodedGltfSampler): GPUSamplerDescriptor {
+  const desc: GPUSamplerDescriptor = {
+    addressModeU: WRAP[s.wrapS] ?? "repeat",
+    addressModeV: WRAP[s.wrapT] ?? "repeat",
+    magFilter: s.magFilter === 9728 ? "nearest" : "linear",
+    minFilter: s.minFilter === 9728 || s.minFilter === 9984 || s.minFilter === 9986 ? "nearest" : "linear",
+    mipmapFilter: s.minFilter === 9728 || s.minFilter === 9984 || s.minFilter === 9985 ? "nearest" : "linear",
+  };
+  if (s.minFilter === 9728 || s.minFilter === 9729) desc.lodMaxClamp = 0;
+  return desc;
+}
 
 export type GltfTextureColorSpace = "srgb" | "linear";
 
@@ -35,6 +51,8 @@ export interface LoadGltfTexturesOptions {
 export interface GltfTextureSet {
   /** The GPU texture for glTF texture `index` in `colorSpace`, or null when it was not built / failed. */
   get(index: number | null, colorSpace: GltfTextureColorSpace): Texture | null;
+  /** The cached sampler for glTF texture `index`'s sampler; null when it has none (use the default). */
+  sampler(index: number | null): GPUSampler | null;
   /** Every texture this set owns. */
   readonly textures: readonly Texture[];
   /** Release every texture (idempotent). Call after the instances using them are disposed. */
@@ -75,6 +93,8 @@ export async function loadGltfTextures(device: GraphicsDevice, asset: DecodedGlt
     use(m.baseColorTexture, "srgb");
     use(m.metallicRoughnessTexture, "linear");
     use(m.normalTexture, "normal");
+    use(m.emissiveTexture, "srgb");
+    use(m.occlusionTexture, "linear");
   }
 
   const warn = (message: string): void => console.warn(`[gltf] ${asset.source}: ${message}`);
@@ -119,12 +139,6 @@ export async function loadGltfTextures(device: GraphicsDevice, asset: DecodedGlt
       warn(`texture ${index} has no supported image source; map ignored`);
       return;
     }
-    if (texture.sampler !== null) {
-      const s = asset.samplers[texture.sampler]!;
-      if (s.wrapS !== 10497 || s.wrapT !== 10497 || s.magFilter === 9728) {
-        warn(`texture ${index} sampler ${texture.sampler} (wrap ${s.wrapS}/${s.wrapT}, mag ${s.magFilter}) is approximated with linear-repeat`);
-      }
-    }
     const image = await imagePixels(texture.source);
     if (!image) return;
     for (const kind of kinds) {
@@ -145,6 +159,11 @@ export async function loadGltfTextures(device: GraphicsDevice, asset: DecodedGlt
   }));
   return {
     textures: owned,
+    sampler(index) {
+      if (index === null || disposed) return null;
+      const s = asset.textures[index]?.sampler ?? null;
+      return s === null ? null : device.samplerFromDescriptor(gltfSamplerDescriptor(asset.samplers[s]!));
+    },
     get(index, colorSpace) {
       if (index === null || disposed) return null;
       return built.get(`${index}:${colorSpace}`) ?? null;

@@ -80,10 +80,10 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   factors, and (Phase 16.1a) skins with four-influence JOINTS_0/WEIGHTS_0 streams. Extra
   JOINTS_n/WEIGHTS_n sets are ignored when all-zero and rejected when they carry weight; strip them
   with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). Textures
-  (16.1c, `loadGltfTextures`) bind baseColor / metallicRoughness / normal maps only, all through the
-  shared linear-repeat sampler on TEXCOORD_0: per-texture wrap/filter modes, texCoord 1+,
-  KHR_texture_transform, emissive and occlusion maps, alpha MASK cutout and KTX2 images are not
-  applied (sampler modes and texCoord 1+ warn; the others are silently ignored). It does not import morph targets/instancing or decode Draco/meshopt
+  (16.1c, `loadGltfTextures`) bind baseColor / emissive / metallicRoughness / normal / occlusion maps
+  with per-texture samplers, on TEXCOORD_0 only: a map with `texCoord: 1` is dropped with a warning
+  (deferred to ROADMAP 16.1g), and KHR_texture_transform and KTX2 images are ignored. alpha MASK
+  cutouts still cast full-quad shadows (the shadow pass has no material). It does not import morph targets/instancing or decode Draco/meshopt
   compression; those are tracked for the extended glTF importer (16.1b, 16.1d, 16.1e). Skinned primitives cull against posed bounds
   (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
   can be looser than the deformed mesh.

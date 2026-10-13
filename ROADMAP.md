@@ -1550,12 +1550,19 @@ GOAL:
         `images` (embedded bufferView / data-URI bytes, or an external `uri`), `samplers`, `textures`
         and `normalTexture.scale`; `loadGltfTextures` decodes each image once on the main thread
         (createImageBitmap, no premultiply / colour conversion) into sRGB colour or linear data
-        textures with mips, and `instantiateGltfScene({ textures })` binds baseColor,
-        metallicRoughness and normal maps. Not applied: per-texture sampler modes (shared linear-repeat;
-        warns), texCoord != 0 (map dropped, warns), KHR_texture_transform, emissive/occlusion maps, alpha MASK,
-        KTX2. Odd uint16 index counts are now padded for writeBuffer. Verified on CesiumMan and
-        Perseverance.glb: tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin`
-        (bound vs unbound albedo pixel A/B); capability: assets.gltfMaterials
+        textures with mips, and `instantiateGltfScene({ textures })` binds baseColor, emissive
+        (factor × map), metallicRoughness, normal and occlusion (strength, ambient only) maps, each
+        with its own glTF sampler (wrapS/wrapT, mag/min filters → `GraphicsDevice.samplerFromDescriptor`,
+        cached by descriptor; material group bindings 11-16). alpha MASK discards below `alphaCutoff`
+        (drawn opaque), doubleSided disables culling. Odd uint16 index counts are now padded for
+        writeBuffer. Not applied: texCoord != 0 (map dropped, warns; see 16.1g), KHR_texture_transform,
+        KTX2. Verified on CesiumMan, Perseverance.glb and the generated MaterialFeatures.gltf (CC0):
+        tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin` (per-feature pixel
+        A/B: albedo, emissive, occlusion, MASK, sampler); capability: assets.gltfMaterials
+
+    [ ] 16.1g (deferred follow-up to 16.1c) second UV set: carry TEXCOORD_1 in the vertex format and
+        honour `texCoord: 1` on every texture slot (lightmapped/AO-baked assets use it). Until then such
+        maps are dropped with a decode warning.
 
     [ ] 16.1d EXT_mesh_gpu_instancing
 

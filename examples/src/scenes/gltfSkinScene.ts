@@ -11,7 +11,9 @@
  * `examples/assets/CesiumMan.README.md`): 19 joints, a 2 s walk cycle, drawn with its embedded JPEG
  * base-colour texture (Phase 16.1c, `loadGltfTextures`). `?model=perseverance` loads the repo's static
  * `Perseverance.glb` (WebP colour and normal maps) the same way. `setGltfSkinTextured(false)` unbinds the
- * albedo maps so the browser gate can prove the texture changes pixels.
+ * albedo maps so the browser gate can prove the texture changes pixels. `?model=features` loads the
+ * generated `MaterialFeatures.gltf` (CC0): emissive, occlusion, alpha MASK and a clamp/nearest sampler,
+ * each toggled by `setGltfSkinMaterialFeature` for the gate's per-feature A/B.
  *
  * The strip is flat (1 × 2 m in the XY plane), so it is drawn double-sided and lit from the front.
  * `window.__forge.setGltfSkinTime(t)` freezes the clip at `t` seconds for the browser gate.
@@ -40,7 +42,7 @@ import type { DemoSceneHandle } from "./cubesScene.js";
 const CLIP = "animation-0";
 
 interface SkinModel {
-  id: "simple" | "cesium" | "perseverance";
+  id: "simple" | "cesium" | "perseverance" | "features";
   label: string;
   file: string;
   url: string;
@@ -67,12 +69,21 @@ const MODELS: Record<SkinModel["id"], SkinModel> = {
     url: new URL("../../assets/Perseverance.glb", import.meta.url).href,
     cameraPosition: new Vec3(3.2, 2.2, 4.2), target: new Vec3(0, 1, 0), distance: 5.6,
   },
+  // Phase 16.1c: generated CC0 quads, one per material feature (emissive, occlusion, MASK, sampler).
+  features: {
+    id: "features", label: "MaterialFeatures, CC0", file: "MaterialFeatures.gltf", binary: false,
+    url: new URL("../../assets/MaterialFeatures.gltf", import.meta.url).href,
+    cameraPosition: new Vec3(0, 0.9, 5.2), target: new Vec3(0, 0.8, 0), distance: 5.2,
+  },
 };
+
+/** Material features the browser gate toggles one at a time (Phase 16.1c). */
+export type GltfMaterialFeature = "albedo" | "emissive" | "occlusion" | "mask" | "sampler";
 
 /** `?model=cesium` picks CesiumMan, `?model=perseverance` the rover; anything else (or no query) is SimpleSkin. */
 export function selectSkinModel(search: string): SkinModel {
   const id = new URLSearchParams(search).get("model");
-  return id === "cesium" ? MODELS.cesium : id === "perseverance" ? MODELS.perseverance : MODELS.simple;
+  return id === "cesium" || id === "perseverance" || id === "features" ? MODELS[id] : MODELS.simple;
 }
 
 export interface GltfSkinState {
@@ -97,6 +108,8 @@ export interface GltfSkinSceneHandle extends DemoSceneHandle {
   setGltfSkinTime: (t: number) => void;
   /** Bind (true) or unbind (false) the imported albedo maps, for a textured-vs-factor pixel A/B. */
   setGltfSkinTextured: (on: boolean) => void;
+  /** Turn one imported material feature off (false) or back on, for a per-feature pixel A/B. */
+  setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => void;
 }
 
 export function buildGltfSkinScene(engine: Engine, search = typeof location === "undefined" ? "" : location.search): GltfSkinSceneHandle {
@@ -106,6 +119,8 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   scene.settings.hdr = true;
   scene.settings.exposure = 1.1;
   scene.world.registerSystem(new AnimationSystem());
+  // Occlusion maps only darken the ambient term; lift it so the features quad reads on screen.
+  if (model.id === "features") scene.settings.ambientIntensity = 3;
 
   const groundMesh = createPlane(engine.gpu, { width: 20, depth: 20 });
   const ground = scene.createTransformedEntity("ground", new Vec3(0, 0, 0));
@@ -136,6 +151,8 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
   let textures: GltfTextureSet | null = null;
   let texturesEnabled = true;
   const albedo = new Map<Material, Texture>();
+  type Snapshot = { emissive: Texture | null; occlusion: Texture | null; alphaTest: number; samplers: Material["samplers"] };
+  const imported = new Map<Material, Snapshot>();
 
   const material = new Material({ label: "simple-skin", color: 0xd8873a, roughness: 0.45, metallic: 0.1, doubleSided: true });
   void (async () => {
@@ -163,6 +180,7 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       for (const id of renderables.entities) {
         const m = scene.world.getComponent(id, Renderable)?.material;
         if (m?.albedoMap) albedo.set(m, m.albedoMap);
+        if (m) imported.set(m, { emissive: m.emissiveMap, occlusion: m.occlusionMap, alphaTest: m.alphaTest, samplers: { ...m.samplers } });
       }
       scene.world.releaseQuery(renderables);
       if (!texturesEnabled) for (const m of albedo.keys()) m.setMaps({ albedo: null });
@@ -212,6 +230,21 @@ export function buildGltfSkinScene(engine: Engine, search = typeof location === 
       scene.dispose();
     },
     gltfSkinState: state,
+    setGltfSkinMaterialFeature: (feature: GltfMaterialFeature, on: boolean) => {
+      if (feature === "albedo") {
+        texturesEnabled = on;
+        for (const [m, t] of albedo) m.setMaps({ albedo: on ? t : null });
+        return;
+      }
+      for (const [m, s] of imported) {
+        if (feature === "emissive") m.setMaps({ emissive: on ? s.emissive : null });
+        else if (feature === "occlusion") m.setMaps({ occlusion: on ? s.occlusion : null });
+        else if (feature === "mask") {
+          m.alphaTest = on ? s.alphaTest : 0;
+          m.markChanged();
+        } else m.setSamplers(on ? s.samplers : { albedo: null, normal: null, metallicRoughness: null, emissive: null, occlusion: null });
+      }
+    },
     setGltfSkinTextured: (on: boolean) => {
       texturesEnabled = on;
       for (const [m, t] of albedo) m.setMaps({ albedo: on ? t : null });

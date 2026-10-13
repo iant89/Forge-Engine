@@ -3139,6 +3139,33 @@ try {
     await waitPresentedFrames(3);
     const roverShot = await checkGltfTextured({ model: "perseverance", file: "Perseverance.glb", prefix: `${basePrefix}-perseverance`, minTextures: 30, minDiffering: 500 });
     console.log(`imported Perseverance: ${rover.textures} textures, ${rover.texturedMaterials} textured materials; screenshot ${roverShot}`);
+    // Fourth asset: generated MaterialFeatures.gltf — each 16.1c feature must change pixels on its own.
+    await page.goto(`${URL}?scene=gltf-skin&model=features`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => window.__forge?.sceneName === "gltf-skin", null, { timeout: 30000 });
+    await page.waitForFunction(() => {
+      const state = window.__forge.gltfSkinState?.();
+      return state && (state.error || state.loaded);
+    }, null, { polling: 250, timeout: 60000 });
+    const feat = await page.evaluate(() => window.__forge.gltfSkinState());
+    if (feat.model !== "features") throw new Error(`expected the features model, got ${feat.model}`);
+    if (feat.error) throw new Error(`MaterialFeatures.gltf failed to load: ${feat.error}`);
+    await page.waitForFunction(() => window.__forge.engine.renderer.pipelines.stats().pipelinesPending === 0, null, { polling: 250, timeout: 60000 });
+    await waitPresentedFrames(3);
+    await page.screenshot({ path: `${basePrefix}-features.png`, timeout: 60000 });
+    for (const feature of ["emissive", "occlusion", "mask", "sampler"]) {
+      await page.evaluate((f) => window.__forge.setGltfSkinMaterialFeature(f, false), feature);
+      await waitPresentedFrames(3);
+      await keepLuma(`gltf-feature-${feature}-off`);
+      await page.screenshot({ path: `${basePrefix}-features-no-${feature}.png`, timeout: 60000 });
+      await page.evaluate((f) => window.__forge.setGltfSkinMaterialFeature(f, true), feature);
+      await waitPresentedFrames(3);
+      await keepLuma(`gltf-feature-${feature}-on`);
+      const diff = await compareRgb(`gltf-feature-${feature}-off`, `gltf-feature-${feature}-on`);
+      console.log(`MaterialFeatures.gltf ${feature} on vs off: ${diff.differing}/${diff.pixels} pixels differ (max ${diff.max}/255)`);
+      if (!(diff.differing >= 500) || !(diff.max >= 20)) throw new Error(`MaterialFeatures.gltf: toggling ${feature} did not change the frame (${diff.differing} px, max ${diff.max})`);
+    }
+    const featStats = await page.evaluate(() => window.__forge.stats());
+    if (featStats.gpuErrors !== 0 || featStats.lastError) throw new Error(`GPU error on MaterialFeatures.gltf: ${featStats.lastError}`);
     console.log("Focused imported-glTF-skin checks only; the all-scene renderer, drive and articulation suite was not run.");
   } else if (RESCUE_ONLY) {
     await checkAlpineRescue();

@@ -7,6 +7,9 @@
  * @covers engine/src/rendering/geometry.ts
  * @covers examples/assets/CesiumMan.glb
  * @covers examples/assets/Perseverance.glb
+ * @covers examples/assets/MaterialFeatures.gltf
+ * @covers engine/src/rendering/material.ts
+ * @covers engine/src/gpu/device.ts
  * @desc Phase 16.1c: glTF images/samplers/textures decode and assemble into engine materials
  */
 
@@ -20,6 +23,9 @@ export const suite = {
     "engine/src/rendering/geometry.ts",
     "examples/assets/CesiumMan.glb",
     "examples/assets/Perseverance.glb",
+    "examples/assets/MaterialFeatures.gltf",
+    "engine/src/rendering/material.ts",
+    "engine/src/gpu/device.ts",
   ],
   desc: "Phase 16.1c: glTF images/samplers/textures decode and assemble into engine materials",
 };
@@ -31,6 +37,11 @@ import { afterEach, finish, group, test } from "selrun";
 import {
   Geometry,
   GraphicsDevice,
+  Material,
+  MaterialUniforms,
+  StructAccessor,
+  WriteBuffer,
+  gltfSamplerDescriptor,
   Renderable,
   Scene,
   decodeGltfMesh,
@@ -43,6 +54,7 @@ import {
 const asset = (name: string) => readFileSync(fileURLToPath(new URL(`../../examples/assets/${name}`, import.meta.url)));
 const cesium = asset("CesiumMan.glb");
 const perseverance = asset("Perseverance.glb");
+const features = asset("MaterialFeatures.gltf").toString("utf8");
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -267,6 +279,124 @@ group("geometry", () => {
       assert.ok(sizes.length > 0 && sizes.every((n) => n % 4 === 0), `write sizes ${sizes.join(",")}`);
     } finally {
       (queue as { writeBuffer: unknown }).writeBuffer = original;
+    }
+  });
+});
+
+group("material features", () => {
+  test("decoder: emissive factor/texture, occlusion texture/strength, MASK cutoff, doubleSided", async () => {
+    const a = await decodeGltfMesh(features, { source: "MaterialFeatures.gltf" });
+    const [emissive, occlusion, mask, sampler] = a.materials;
+    assert.deepEqual([...emissive!.emissiveFactor], [1, 1, 1]);
+    assert.equal(emissive!.emissiveTexture, 0);
+    assert.equal(occlusion!.occlusionTexture, 1);
+    assert.equal(occlusion!.occlusionStrength, 1);
+    assert.equal(mask!.alphaMode, "MASK");
+    assert.equal(mask!.alphaCutoff, 0.5);
+    assert.equal(mask!.doubleSided, true);
+    assert.equal(sampler!.emissiveTexture, null);
+    assert.deepEqual([...sampler!.emissiveFactor], [0, 0, 0]);
+    assert.equal(sampler!.occlusionStrength, 1);
+  });
+
+  test("glTF sampler enums map to WebGPU sampler descriptors", () => {
+    assert.deepEqual(gltfSamplerDescriptor({ magFilter: 9728, minFilter: 9728, wrapS: 33071, wrapT: 33648 }), {
+      addressModeU: "clamp-to-edge", addressModeV: "mirror-repeat", magFilter: "nearest", minFilter: "nearest", mipmapFilter: "nearest", lodMaxClamp: 0,
+    });
+    assert.deepEqual(gltfSamplerDescriptor({ magFilter: null, minFilter: null, wrapS: 10497, wrapT: 10497 }), {
+      addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear",
+    });
+    assert.deepEqual(gltfSamplerDescriptor({ magFilter: 9729, minFilter: 9986, wrapS: 10497, wrapT: 10497 }), {
+      addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "nearest", mipmapFilter: "linear",
+    });
+    assert.equal(gltfSamplerDescriptor({ magFilter: 9729, minFilter: 9984, wrapS: 10497, wrapT: 10497 }).mipmapFilter, "nearest");
+  });
+
+  test("device caches samplers by descriptor", async () => {
+    const d = await device();
+    const a = d.samplerFromDescriptor({ addressModeU: "clamp-to-edge", magFilter: "nearest" });
+    assert.equal(a, d.samplerFromDescriptor({ magFilter: "nearest", addressModeU: "clamp-to-edge" }));
+    assert.notEqual(a, d.samplerFromDescriptor({ addressModeU: "repeat", magFilter: "nearest" }));
+  });
+
+  test("instantiate: per-texture samplers, emissive/occlusion maps (sRGB/linear), MASK alphaTest", async () => {
+    const d = await device();
+    const a = await decodeGltfMesh(features, { source: "MaterialFeatures.gltf" });
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (m: string) => warnings.push(m);
+    let textures;
+    try {
+      textures = await loadGltfTextures(d, a, { decodeImage: fakeDecoder() });
+    } finally {
+      console.warn = warn;
+    }
+    cleanups.push(() => textures!.dispose());
+    assert.deepEqual(warnings, [], "no sampler-mismatch warning any more");
+    const scene = new Scene({ name: "t" });
+    const instance = instantiateGltfScene(d, scene, a, { textures });
+    cleanups.push(() => { instance.dispose(); scene.dispose(); });
+    const byName = new Map(instance.nodes.map((n) => [n!.get(Renderable)!.material!.label, n!.get(Renderable)!.material!] as const));
+    const emissive = byName.get("emissive")!;
+    assert.equal(emissive.emissiveMap!.desc.format, "rgba8unorm-srgb");
+    assert.equal(emissive.emissiveStrength, 1);
+    assert.deepEqual([emissive.emissive.r, emissive.emissive.g, emissive.emissive.b], [1, 1, 1]);
+    const occlusion = byName.get("occlusion")!;
+    assert.equal(occlusion.occlusionMap!.desc.format, "rgba8unorm");
+    assert.equal(occlusion.occlusionStrength, 1);
+    const mask = byName.get("mask")!;
+    assert.equal(mask.alphaTest, 0.5);
+    assert.equal(mask.transparent, false);
+    assert.equal(mask.doubleSided, true);
+    const sampled = byName.get("sampler")!;
+    assert.equal(sampled.samplers.albedo, textures.sampler(3));
+    assert.ok(sampled.samplers.albedo);
+    assert.equal(textures.sampler(0), null, "a texture without a sampler uses the renderer default");
+    assert.equal(emissive.samplers.emissive, null);
+  });
+
+  test("material: new maps/samplers reach the bind group and the uniform block", async () => {
+    const d = await device();
+    const tex = (await loadGltfTextures(d, await decodeGltfMesh(features), { decodeImage: fakeDecoder() }));
+    cleanups.push(() => tex.dispose());
+    const s = d.samplerFromDescriptor({ magFilter: "nearest" });
+    const m = new Material({ emissiveMap: tex.get(0, "srgb"), occlusionMap: tex.get(1, "linear"), occlusionStrength: 0.25 });
+    m.alphaTest = 0.4;
+    m.setSamplers({ emissive: s });
+    const entries = (m as unknown as { gpuBindings(x: unknown): GPUBindGroupEntry[] }).gpuBindings({ white: tex.get(0, "srgb"), normal: tex.get(0, "srgb"), mr: tex.get(0, "srgb"), sampler: "DEFAULT" });
+    const at = (b: number) => entries.find((e) => e.binding === b)?.resource;
+    assert.equal(at(11), tex.get(0, "srgb")!.view);
+    assert.equal(at(12), tex.get(1, "linear")!.view);
+    assert.equal(at(15), s);
+    assert.equal(at(4), "DEFAULT");
+    assert.equal(at(13), "DEFAULT");
+    const priv = m as unknown as { cpu: WriteBuffer; accessor: StructAccessor; writeCpu(): void };
+    priv.cpu = new WriteBuffer(MaterialUniforms.byteSize("uniform"));
+    priv.accessor = new StructAccessor(MaterialUniforms, priv.cpu, 0, "uniform");
+    priv.writeCpu();
+    const f32 = (name: string) => priv.cpu.f32[MaterialUniforms.field(name, "uniform").offset >> 2]!;
+    const flags = new Uint32Array(priv.cpu.f32.buffer)[MaterialUniforms.field("flags", "uniform").offset >> 2]!;
+    assert.equal(f32("occlusionStrength"), 0.25);
+    assert.ok(Math.abs(f32("alphaCutoff") - 0.4) < 1e-6);
+    assert.equal(flags & (64 | 128 | 256), 64 | 128 | 256);
+    const c = m.clone();
+    assert.equal(c.emissiveMap, m.emissiveMap);
+    assert.equal(c.occlusionStrength, 0.25);
+    assert.equal(c.alphaTest, 0.4);
+    assert.equal(c.samplers.emissive, s);
+  });
+
+  test("TEXCOORD_1 emissive/occlusion maps are still dropped with a warning", async () => {
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (m: string) => warnings.push(m);
+    try {
+      const a = await decodeGltfMesh(textureDoc({ materials: [{ emissiveTexture: { index: 0, texCoord: 1 }, occlusionTexture: { index: 0, texCoord: 1 } }] }));
+      assert.equal(a.materials[0]!.emissiveTexture, null);
+      assert.equal(a.materials[0]!.occlusionTexture, null);
+      assert.equal(warnings.filter((w) => /texCoord 1/.test(w)).length, 2);
+    } finally {
+      console.warn = warn;
     }
   });
 });

@@ -16,8 +16,8 @@
  *
  * Scope: materials are built from factors (base colour, metallic, roughness, double-sided,
  * alpha BLEND → transparent) plus, when `options.textures` (from `loadGltfTextures`, Phase 16.1c) is
- * given, the baseColor (sRGB), metallicRoughness and normal maps (with `normalTexture.scale`); skinned primitives cull against posed bounds the renderer derives
- * from the skin's per-joint boxes (`SkinBinding.jointBounds`); emissive/occlusion maps, alpha MASK cutout, morph targets, cameras and lights are not imported. Missing normals/tangents are generated.
+ * given, the baseColor / emissive (sRGB), metallicRoughness / normal / occlusion maps with their per-texture samplers, emissive factors and alpha MASK cutoff; skinned primitives cull against posed bounds the renderer derives
+ * from the skin's per-joint boxes (`SkinBinding.jointBounds`); morph targets, cameras and lights are not imported. Missing normals/tangents are generated.
  */
 
 import { UsageError } from "../core/errors.js";
@@ -85,7 +85,8 @@ function localTrs(node: DecodedGltfNode, position: Vec3, rotation: Quat, scale: 
 function defaultMaterial(material: DecodedGltfMaterial | null, index: number | null, textures?: GltfTextureSet): Material {
   if (!material) return new Material({ label: "gltf.default", color: new Color(0.8, 0.8, 0.8, 1), roughness: 0.6, doubleSided: true });
   const f = material.baseColorFactor;
-  return new Material({
+  const e = material.emissiveFactor;
+  const m = new Material({
     label: material.name || `gltf.material-${index}`,
     color: new Color(f[0]!, f[1]!, f[2]!, 1),
     opacity: f[3]!,
@@ -97,7 +98,23 @@ function defaultMaterial(material: DecodedGltfMaterial | null, index: number | n
     metallicRoughnessMap: textures?.get(material.metallicRoughnessTexture, "linear") ?? null,
     normalMap: textures?.get(material.normalTexture, "linear") ?? null,
     normalScale: material.normalScale ?? 1,
+    // Phase 16.1c: emissive (factor × map), occlusion (ambient only), per-map samplers.
+    emissive: new Color(e[0]!, e[1]!, e[2]!, 1),
+    emissiveStrength: e[0]! > 0 || e[1]! > 0 || e[2]! > 0 ? 1 : 0,
+    emissiveMap: textures?.get(material.emissiveTexture, "srgb") ?? null,
+    occlusionMap: textures?.get(material.occlusionTexture, "linear") ?? null,
+    occlusionStrength: material.occlusionStrength,
+    samplers: textures ? {
+      albedo: textures.sampler(material.baseColorTexture),
+      normal: textures.sampler(material.normalTexture),
+      metallicRoughness: textures.sampler(material.metallicRoughnessTexture),
+      emissive: textures.sampler(material.emissiveTexture),
+      occlusion: textures.sampler(material.occlusionTexture),
+    } : undefined,
   });
+  // alpha MASK: discard below the cutoff, drawn opaque (glTF ignores alpha otherwise).
+  if (material.alphaMode === "MASK") m.alphaTest = material.alphaCutoff;
+  return m;
 }
 
 function primitiveMesh(device: GraphicsDevice, primitive: DecodedGltfPrimitive, label: string, skinned: boolean, inverseBindMatrices: Float32Array | null): Mesh {

@@ -227,9 +227,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "assets.gltfMaterials",
     phase: "16.1",
     status: "verified",
-    summary: "glTF images/samplers/textures: embedded (bufferView, data URI) and external images decode on the main thread (loadGltfTextures) into sRGB colour / linear data textures that instantiateGltfScene binds as baseColor, metallicRoughness and normal maps",
+    summary: "glTF images/samplers/textures: embedded (bufferView, data URI) and external images decode on the main thread (loadGltfTextures) into sRGB colour / linear data textures that instantiateGltfScene binds as baseColor, emissive, metallicRoughness, normal and occlusion maps with per-texture samplers, plus alpha MASK cutoff",
     evidence: ["tests/resources/gltfTextures.test.ts", "tools/browser-check.mjs", "examples/src/scenes/gltfSkinScene.ts"],
-    notes: "Phase 16.1c. Verified on CesiumMan (JPEG base colour, skinned) and Perseverance (38 WebP colour/normal/MR textures) numerically on the mock device and with npm run check:browser:gltf-skin on Chromium + SwiftShader (bound-vs-unbound pixel A/B). Not applied: per-texture sampler wrap/filter (the shared linear-repeat sampler is used, with a warning), texCoord != 0 (map dropped with a warning), KHR_texture_transform, emissive and occlusion maps, alpha MASK cutout, KTX2/Basis images. A failing image warns and leaves its map unbound.",
+    notes: "Phase 16.1c. Verified on CesiumMan (JPEG base colour, skinned), Perseverance (38 WebP colour/normal/MR textures) and the generated MaterialFeatures.gltf (emissive, occlusion, MASK, clamp/nearest sampler) numerically on the mock device and with npm run check:browser:gltf-skin on Chromium + SwiftShader (per-feature on/off pixel A/B). Not applied: texCoord != 0 (map dropped with a warning; ROADMAP 16.1g), KHR_texture_transform, KTX2/Basis images; MASK cutouts cast full shadows. A failing image warns and leaves its map unbound.",
   },
   {
     id: "assets.gltfAdvanced",

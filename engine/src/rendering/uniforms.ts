@@ -164,9 +164,9 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "tiling", type: vec2 },
   { name: "offset", type: vec2 },
   { name: "normalScale", type: f32 },
-  { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit" },
-  { name: "_pad0", type: u32 },
-  { name: "_pad1", type: u32 },
+  { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit, bit5 fogExempt, bit6 emissiveMap, bit7 occlusionMap, bit8 alphaTest" },
+  { name: "occlusionStrength", type: f32 },
+  { name: "alphaCutoff", type: f32 },
 ]);
 
 /** Four-surface splat material, opt-in group 2 extension. Every array element is vec4-aligned. */
