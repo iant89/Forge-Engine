@@ -746,7 +746,7 @@ export class GpuParticleSystem {
       // No depth attachment (fe-17): the pass samples the scene depth and depth-tests in the
       // fragment shader. A `depthReadOnly` attachment — the only way to attach a texture that is
       // also sampled — is not loaded by WebKit on iOS (the ?diag=1 depth-readonly probe fails on
-      // device), which drew particles through terrain.
+      // device), so the hardware depth test there compared against stale depth.
       execute: (ctx) => this.encodeRender(ctx, opts.colorFormat, opts.depthFormat, opts.depth),
     });
     graph.addPass({

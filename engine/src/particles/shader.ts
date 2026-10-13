@@ -450,7 +450,7 @@ fn cornerOffset(vert: u32) -> vec2<f32> {
   var alpha = in.color.a * edge;
   // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w).
   // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does
-  // not load a depthReadOnly attachment (device probe), which drew particles through terrain.
+  // not load a depthReadOnly attachment (device probe), so the hardware test saw stale depth.
   // less-equal, as the attachment's compare was.
   let dims = vec2<i32>(textureDimensions(depthTex));
   let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
@@ -632,7 +632,7 @@ fn degenerateRibbon() -> RibbonVSOut {
   // @builtin(position) in the fragment stage is framebuffer pixel coords (z = depth, w = 1/clip_w),
   // the same reading the billboard pass uses for its soft fade.
   // fe-17: the depth test is done here, not by a read-only depth attachment: WebKit on iOS does
-  // not load a depthReadOnly attachment (device probe), which drew particles through terrain.
+  // not load a depthReadOnly attachment (device probe), so the hardware test saw stale depth.
   // less-equal, as the attachment's compare was.
   let dims = vec2<i32>(textureDimensions(depthTex));
   let px = clamp(vec2<i32>(in.clip.xy), vec2<i32>(0), dims - vec2<i32>(1));
