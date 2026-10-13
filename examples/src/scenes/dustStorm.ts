@@ -1243,7 +1243,7 @@ export function devilBaseWind(windX: number, windZ: number, intensity: number, o
   return out;
 }
 /** Devil swarm grain colour, LINEAR (sRGB #6b3d24 dark rust lifted soil; `colorAlt` blends it toward the rock tone per grain). */
-export const DEVIL_SWARM_COLOR = Object.freeze({ r: 0.147, g: 0.047, b: 0.018, a: 0.9 });
+export const DEVIL_SWARM_COLOR = Object.freeze({ r: 0.147, g: 0.047, b: 0.018, a: 1 });
 /**
  * Darker rock tone the per-grain colour variation blends toward (linear of sRGB #4a3226). Particle
  * colours are LINEAR HDR values drawn unlit, then lifted by exposure 1.25, ACES and sRGB encoding —
@@ -1316,9 +1316,9 @@ export function devilParticleLook(
   return o;
 }
 
-/** Devil grain size over life (m). */
-export const DEVIL_GRAIN_START = 0.12;
-export const DEVIL_GRAIN_END = 0.3;
+/** Devil grain size over life (m). fe-21g: ~1.7× larger to offset the soft sprite falloff. */
+export const DEVIL_GRAIN_START = 0.2;
+export const DEVIL_GRAIN_END = 0.5;
 /**
  * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
  * to fill the voids between fine motes (same particle count, so budgets are unchanged).

@@ -348,7 +348,7 @@ group("fe-18 dust storm polish", () => {
     assert.equal(again, reuse);
     assert.equal(again.vortex, vRef);
     assert.equal(again.column, false);
-    assert.ok(col.sizeEnd <= 0.35, "fine grain, not flakes");
+    assert.ok(col.sizeEnd <= 0.55, "fine grain, not flakes");
   });
 });
 
@@ -605,7 +605,7 @@ group("fe-21c devil coarse grains", () => {
     assert.match(PARTICLE_FULL_SIM_SHADER, /coarseFraction/);
     assert.match(PARTICLE_FULL_SIM_SHADER, /params\.coarseScale/);
     // fe-21d: largest grain (end of life, top of the size spread, coarse) stays well under 1.3 m.
-    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 0.95);
+    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 1.6, "fe-21g: soft sprite shows ~half its quad, so ≤1.6 m quads read as ≤0.8 m puffs");
   });
 });
 
