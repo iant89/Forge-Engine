@@ -109,6 +109,23 @@ group("fe-20 — steep wall impact", () => {
     for (let i = 0; i < 240; i++) v.step(1 / 60, g);
     assert.ok(Math.abs(v.yaw - yaw0) > 0.2, `turned out (Δyaw ${(v.yaw - yaw0).toFixed(3)})`);
   });
+  test("turning along the wall cannot swing a corner into it", () => {
+    const g = heightFunctionGround(rampWall(0.5));
+    const v = createMarsRoverVehicle(g, 0, 8.2); // side-on, ~0.6 m from the face
+    v.yaw = Math.PI / 2;
+    v.setVelocity(3, 0, 0);
+    v.input.throttle = 1;
+    v.input.steer = -1; // left, toward +Z / the wall
+    let maxZ = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < 360; i++) {
+      v.step(1 / 60, g);
+      for (const w of v.wheels) maxZ = Math.max(maxZ, v.wheelCenterPosition(w, hub).z);
+      maxY = Math.max(maxY, v.position.y);
+    }
+    assert.ok(maxZ < WALL_Z + 0.25, `hardpoint z ${maxZ.toFixed(2)}`);
+    assert.ok(maxY < startY + EPS, `maxY ${maxY.toFixed(3)}`);
+  });
   test("glancing hit slides along the wall instead of sticking", () => {
     const g = heightFunctionGround(rampWall(1));
     const v = createMarsRoverVehicle(g, 0, 0);
