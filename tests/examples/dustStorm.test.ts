@@ -14,7 +14,7 @@ export const suite = {
   desc: "Mars Dust Storm Survival game model: gust cycles, dust devils, dust accumulation, course and difficulty rules",
 };
 import assert from "node:assert/strict";
-import { PARTICLE_FULL_SIM_SHADER } from "../../engine/src/particles/shader.js";
+import { PARTICLE_FULL_SIM_SHADER } from "@forge/engine";
 import { assertCloseTo, finish, group, test } from "selrun";
 import {
   BURIAL_STUCK,
