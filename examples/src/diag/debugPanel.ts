@@ -24,6 +24,10 @@ import {
   resolveRect,
   saveLayout,
   snapRect,
+  cornerIcon,
+  readInsets,
+  withMargin,
+  type Insets,
   type Layout,
   type MinSize,
   type Rect,
@@ -60,6 +64,10 @@ const CSS = `
   background:rgb(2 4 8 / 0.9);border:1px solid rgb(56 189 248 / 0.55);border-radius:8px;overflow:hidden;
   box-shadow:0 6px 24px rgb(0 0 0 / 0.45)}
 .fdp.fdp-collapsed{display:none!important}
+.fdp.fdp-pass{pointer-events:none}
+.fdp.fdp-pass>.fdp-bar,.fdp.fdp-pass>.fdp-grip{pointer-events:auto}
+.fdp-safe-probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .fdp>.fdp-body{flex:1 1 auto;min-height:0;overflow:auto;margin:0;max-width:none!important;max-height:none!important}
 .fdp-bar{flex:0 0 auto;display:flex;align-items:center;gap:2px;min-height:44px;padding:0 0 0 10px;
   font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:#7dd3fc;background:rgb(8 14 22 / 0.96);
@@ -107,10 +115,16 @@ export interface DebugPanelOptions {
   defaultCollapsed?: boolean;
   snapThreshold?: number;
   snapDwellMs?: number;
+  /** Gap kept from the safe-area edges (px). Default 10. */
+  margin?: number;
+  /** Test hook: returns the probe's computed padding. Default getComputedStyle(probe). */
+  readSafeArea?: () => { paddingLeft: string; paddingTop: string; paddingRight: string; paddingBottom: string } | null;
+  /** Body ignores touches (they reach the canvas); only the bar, its buttons and the grip take input. */
+  passThroughBody?: boolean;
   storage?: StorageLike | null;
   clipboard?: CopyEnv["clipboard"];
   doc?: Document;
-  win?: Pick<Window, "innerWidth" | "innerHeight" | "addEventListener" | "removeEventListener" | "setInterval" | "clearInterval" | "setTimeout" | "clearTimeout">;
+  win?: Pick<Window, "innerWidth" | "innerHeight" | "getComputedStyle" | "addEventListener" | "removeEventListener" | "setInterval" | "clearInterval" | "setTimeout" | "clearTimeout">;
   now?: () => number;
 }
 
@@ -163,7 +177,25 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
     style.textContent = CSS;
     doc.head.appendChild(style);
   }
-  const vp = (): Viewport => ({ w: win.innerWidth, h: win.innerHeight });
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
+    const e = doc.createElement(tag);
+    e.className = cls;
+    return e;
+  };
+  // Safe-area probe: a hidden fixed element whose padding is env(safe-area-inset-*), read back via
+  // getComputedStyle and refreshed on resize/orientationchange (rotation moves the notch side).
+  const margin = opts.margin ?? 10;
+  const probe = el("div", "fdp-safe-probe");
+  doc.body.appendChild(probe);
+  let safe: Insets = { l: 0, t: 0, r: 0, b: 0 };
+  const measureSafe = (): void => {
+    try {
+      safe = readInsets(opts.readSafeArea ? opts.readSafeArea() : (win.getComputedStyle?.(probe as unknown as Element) ?? null));
+    } catch {
+      safe = { l: 0, t: 0, r: 0, b: 0 };
+    }
+  };
+  const vp = (): Viewport => ({ w: win.innerWidth, h: win.innerHeight, inset: withMargin(safe, margin) });
 
   const stored = loadLayout(storage, opts.storageKey, opts.defaultCollapsed ?? false);
   let collapsed = stored.collapsed;
@@ -171,11 +203,6 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
   let custom: Rect | null = stored.rect;
   let rect: Rect = custom ?? opts.defaultRect(vp());
 
-  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
-    const e = doc.createElement(tag);
-    e.className = cls;
-    return e;
-  };
   const button = (cls: string, html: string, label: string): HTMLButtonElement => {
     const b = el("button", `fdp-btn ${cls}`);
     b.type = "button";
@@ -187,7 +214,8 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
     return b;
   };
 
-  const root = el("div", "fdp");
+  const root = el("div", opts.passThroughBody ? "fdp fdp-pass" : "fdp");
+  if (opts.passThroughBody) opts.body.style.pointerEvents = "none";
   opts.body.parentNode?.insertBefore(root, opts.body);
   opts.body.classList.add("fdp-body");
   const bar = el("div", `fdp-bar fdp-bar-${opts.barEdge}`);
@@ -229,8 +257,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
 
   const placeIconNow = (): void => {
     const v = vp();
-    const m = 10;
-    const base: Rect = { x: v.w - m - 44, y: opts.iconCorner === "top-right" ? m : v.h - m - 44, w: 44, h: 44 };
+    const base = cornerIcon(opts.iconCorner, v);
     const obstacles: Rect[] = [];
     for (const sel of opts.avoid ?? []) {
       let list: ArrayLike<Element> = [];
@@ -246,7 +273,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
         if (r.width > 0 && r.height > 0) obstacles.push({ x: r.left, y: r.top, w: r.width, h: r.height });
       }
     }
-    const p = placeIcon(base, obstacles, opts.iconCorner === "top-right" ? "left" : "up");
+    const p = placeIcon(base, obstacles, opts.iconCorner === "top-right" ? "left" : "up", 8, v);
     icon.style.left = `${p.x}px`;
     icon.style.top = `${p.y}px`;
   };
@@ -257,6 +284,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
    * rotation only clamps, so a panel the user just placed is never thrown back to the default.
    */
   const fit = (restoring: boolean): void => {
+    measureSafe();
     const v = vp();
     if (custom && snap) rect = snapRect(custom, snap, v, min);
     else if (!restoring) rect = custom ? clampRect(custom, v, min) : clampRect(opts.defaultRect(v), v, min);
@@ -438,6 +466,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
       win.removeEventListener("resize", relayout);
       win.removeEventListener("orientationchange", relayout);
       root.remove();
+      probe.remove();
       ghost.remove();
       icon.remove();
     },

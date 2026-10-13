@@ -25,6 +25,7 @@
 
 import { FORGE_BUILD } from "../buildInfo.js";
 import { ICONS, mountDebugPanel } from "./debugPanel.js";
+import { bounds } from "./panelLayout.js";
 import { runRawGpuTests, type RawTestResult } from "./rawGpuTests.js";
 import { SKY_BISECT_VARIANTS, SKY_SHADER_LABEL, SKY_BISECT_BASE_SOURCE } from "./skyBisect.js";
 
@@ -299,9 +300,11 @@ export function installIosReport(
     barEdge: "top",
     getText: () => `${panelText}\n\n${describe(prune(lastReport, 0))}`,
     storageKey: "forge.panel.diag",
+    // Full width of the safe area, along its bottom.
     defaultRect: (vp) => {
-      const h = Math.min(vp.h, Math.round(vp.h * 0.46) + 44);
-      return { x: 0, y: vp.h - h, w: vp.w, h };
+      const b = bounds(vp);
+      const h = Math.min(b.h, Math.round(vp.h * 0.46) + 44);
+      return { x: b.l, y: b.b - h, w: b.w, h };
     },
     iconCorner: "bottom-right",
     iconSvg: ICONS.bug,

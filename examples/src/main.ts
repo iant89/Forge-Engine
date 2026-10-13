@@ -64,6 +64,7 @@ import { stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
+import { bounds } from "./diag/panelLayout.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -77,10 +78,13 @@ const hud = document.getElementById("hud") as HTMLDivElement;
     barEdge: "bottom",
     getText: () => hud.textContent ?? "",
     storageKey: "forge.panel.hud",
+    // Top-left of the safe area; leaves room on the right for the stats icon / toolbar button.
     defaultRect: (vp) => {
+      const b = bounds(vp);
       const narrow = vp.w <= 820;
-      return { x: 10, y: 10, w: narrow ? vp.w - 74 : Math.min(660, vp.w - 80), h: Math.min(narrow ? 262 : 270, Math.round(vp.h * 0.5)) };
+      return { x: b.l, y: b.t, w: narrow ? b.w - 54 : Math.min(660, b.w - 60), h: Math.min(narrow ? 262 : 270, Math.round(b.h * 0.5)) };
     },
+    passThroughBody: true,
     iconCorner: "top-right",
     iconSvg: ICONS.stats,
     avoid: ["#toolbar", "#forge-diag-icon"],

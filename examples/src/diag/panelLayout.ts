@@ -9,9 +9,33 @@ export interface Rect {
   w: number;
   h: number;
 }
+/** Per-side keep-out, in px (safe-area inset + margin). */
+export interface Insets {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+}
 export interface Viewport {
   w: number;
   h: number;
+  /** Usable-area keep-out per side (iPhone safe areas + the 10px margin). Absent = none. */
+  inset?: Insets;
+}
+
+/** The usable box of a viewport: [l, r) × [t, b), never inverted. */
+export function bounds(vp: Viewport): { l: number; t: number; r: number; b: number; w: number; h: number } {
+  const i = vp.inset ?? { l: 0, t: 0, r: 0, b: 0 };
+  const l = Math.max(0, i.l);
+  const t = Math.max(0, i.t);
+  const r = Math.max(l, vp.w - Math.max(0, i.r));
+  const b = Math.max(t, vp.h - Math.max(0, i.b));
+  return { l, t, r, b, w: r - l, h: b - t };
+}
+
+/** Safe-area insets plus a uniform margin. */
+export function withMargin(safe: Insets, margin: number): Insets {
+  return { l: safe.l + margin, t: safe.t + margin, r: safe.r + margin, b: safe.b + margin };
 }
 export interface MinSize {
   w: number;
@@ -38,10 +62,11 @@ const finite = (n: unknown): n is number => typeof n === "number" && Number.isFi
 
 /** Fit size into the viewport (never below min unless the viewport itself is smaller), then keep it fully on-screen. */
 export function clampRect(r: Rect, vp: Viewport, min: MinSize): Rect {
-  const w = Math.min(Math.max(r.w, min.w), vp.w);
-  const h = Math.min(Math.max(r.h, min.h), vp.h);
-  const x = Math.min(Math.max(r.x, 0), Math.max(0, vp.w - w));
-  const y = Math.min(Math.max(r.y, 0), Math.max(0, vp.h - h));
+  const B = bounds(vp);
+  const w = Math.min(Math.max(r.w, min.w), B.w);
+  const h = Math.min(Math.max(r.h, min.h), B.h);
+  const x = Math.min(Math.max(r.x, B.l), Math.max(B.l, B.r - w));
+  const y = Math.min(Math.max(r.y, B.t), Math.max(B.t, B.b - h));
   return { x, y, w, h };
 }
 
@@ -51,15 +76,16 @@ export function dragRect(start: Rect, dx: number, dy: number, vp: Viewport, min:
 
 /** Resize from `corner`; the opposite edge stays put and the result never leaves the viewport. */
 export function resizeRect(start: Rect, dx: number, dy: number, corner: ResizeCorner, vp: Viewport, min: MinSize): Rect {
-  const maxW = vp.w - start.x;
+  const B = bounds(vp);
+  const maxW = B.r - start.x;
   const w = Math.min(Math.max(start.w + dx, min.w), Math.max(min.w, maxW));
   if (corner === "br") {
-    const h = Math.min(Math.max(start.h + dy, min.h), Math.max(min.h, vp.h - start.y));
+    const h = Math.min(Math.max(start.h + dy, min.h), Math.max(min.h, B.b - start.y));
     return clampRect({ x: start.x, y: start.y, w, h }, vp, min);
   }
   // "tr": bottom edge is fixed, the top edge follows the pointer.
   const bottom = start.y + start.h;
-  const h = Math.min(Math.max(start.h - dy, min.h), Math.max(min.h, bottom));
+  const h = Math.min(Math.max(start.h - dy, min.h), Math.max(min.h, bottom - B.t));
   return clampRect({ x: start.x, y: bottom - h, w, h }, vp, min);
 }
 
@@ -119,16 +145,17 @@ const overlaps = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a
  * Slide a corner icon away from on-screen controls: `up` (bottom corners) or `left` (top corners),
  * past every obstacle it touches, with `gap` px clearance. Stops at the viewport edge.
  */
-export function placeIcon(icon: Rect, obstacles: Rect[], dir: "up" | "left", gap = 8): Rect {
+export function placeIcon(icon: Rect, obstacles: Rect[], dir: "up" | "left", gap = 8, vp?: Viewport): Rect {
+  const B = vp ? bounds(vp) : { l: 0, t: 0 };
   const r = { ...icon };
   for (let guard = 0; guard < 32; guard++) {
     const hit = obstacles.find((o) => o.w > 0 && o.h > 0 && overlaps(r, o));
     if (!hit) break;
     if (dir === "up") r.y = hit.y - gap - r.h;
     else r.x = hit.x - gap - r.w;
-    if (r.x < 0 || r.y < 0) {
-      r.x = Math.max(0, r.x);
-      r.y = Math.max(0, r.y);
+    if (r.x < B.l || r.y < B.t) {
+      r.x = Math.max(B.l, r.x);
+      r.y = Math.max(B.t, r.y);
       break;
     }
   }
@@ -145,11 +172,12 @@ export interface SnapEdges {
 }
 
 export function nearEdges(r: Rect, vp: Viewport, threshold: number): SnapEdges | null {
+  const B = bounds(vp);
   const e: SnapEdges = {};
-  if (r.x <= threshold) e.x = "left";
-  else if (vp.w - (r.x + r.w) <= threshold) e.x = "right";
-  if (r.y <= threshold) e.y = "top";
-  else if (vp.h - (r.y + r.h) <= threshold) e.y = "bottom";
+  if (r.x - B.l <= threshold) e.x = "left";
+  else if (B.r - (r.x + r.w) <= threshold) e.x = "right";
+  if (r.y - B.t <= threshold) e.y = "top";
+  else if (B.b - (r.y + r.h) <= threshold) e.y = "bottom";
   return e.x || e.y ? e : null;
 }
 
@@ -159,10 +187,11 @@ export const sameEdges = (a: SnapEdges | null, b: SnapEdges | null): boolean =>
 /** Put `r` flush against `edges` (the other axis keeps its position), then clamp. */
 export function snapRect(r: Rect, edges: SnapEdges, vp: Viewport, min: MinSize): Rect {
   const c = clampRect(r, vp, min);
-  if (edges.x === "left") c.x = 0;
-  if (edges.x === "right") c.x = Math.max(0, vp.w - c.w);
-  if (edges.y === "top") c.y = 0;
-  if (edges.y === "bottom") c.y = Math.max(0, vp.h - c.h);
+  const B = bounds(vp);
+  if (edges.x === "left") c.x = B.l;
+  if (edges.x === "right") c.x = Math.max(B.l, B.r - c.w);
+  if (edges.y === "top") c.y = B.t;
+  if (edges.y === "bottom") c.y = Math.max(B.t, B.b - c.h);
   return c;
 }
 
@@ -214,4 +243,19 @@ export class SnapTracker {
     this.ghostEdges = null;
     return out;
   }
+}
+
+/** Icon home position in a corner of the usable area. */
+export function cornerIcon(corner: "top-right" | "bottom-right", vp: Viewport, size = 44): Rect {
+  const B = bounds(vp);
+  return { x: B.r - size, y: corner === "top-right" ? B.t : B.b - size, w: size, h: size };
+}
+
+/** Read `env(safe-area-inset-*)` from a probe whose padding is set to those env() values. */
+export function readInsets(cs: { paddingLeft: string; paddingTop: string; paddingRight: string; paddingBottom: string } | null): Insets {
+  const n = (v: string | undefined): number => {
+    const x = parseFloat(v ?? "");
+    return Number.isFinite(x) && x > 0 ? x : 0;
+  };
+  return cs ? { l: n(cs.paddingLeft), t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom) } : { l: 0, t: 0, r: 0, b: 0 };
 }

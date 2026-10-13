@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
 import { ICONS, copyResultLabel, mountDebugPanel, type DebugPanelOptions } from "../../examples/src/diag/debugPanel.js";
 import {
-  SnapTracker, clampRect, dragRect, isOffscreen, loadLayout, nearEdges, placeIcon, resizeRect, resolveRect, saveLayout, snapRect,
+  SnapTracker, bounds, clampRect, cornerIcon, readInsets, withMargin, dragRect, isOffscreen, loadLayout, nearEdges, placeIcon, resizeRect, resolveRect, saveLayout, snapRect,
   type StorageLike,
 } from "../../examples/src/diag/panelLayout.js";
 
@@ -69,6 +69,78 @@ group("panelLayout geometry", () => {
     assert.deepEqual(placeIcon({ x: 346, y: 10, w: 44, h: 44 }, [{ x: 340, y: 10, w: 50, h: 44 }], "left"), { x: 288, y: 10, w: 44, h: 44 });
     assert.deepEqual(placeIcon(icon, [{ x: 300, y: 700, w: 100, h: 100 }, { x: 300, y: 600, w: 100, h: 92 }], "up").y, 548, "chains");
     assert.equal(placeIcon(icon, [{ x: 0, y: 0, w: 400, h: 800 }], "up").y, 0, "clamped at the top");
+  });
+});
+
+group("safe-area insets", () => {
+  // iPhone portrait: notch 47 top, home indicator 34 bottom; + 10px margin.
+  const SAFE = { w: 390, h: 844, inset: withMargin({ l: 0, t: 47, r: 0, b: 34 }, 10) };
+  test("readInsets parses probe padding (px, junk → 0)", () => {
+    assert.deepEqual(readInsets({ paddingLeft: "0px", paddingTop: "47px", paddingRight: "", paddingBottom: "34.5px" }), { l: 0, t: 47, r: 0, b: 34.5 });
+    assert.deepEqual(readInsets(null), { l: 0, t: 0, r: 0, b: 0 });
+    assert.deepEqual(bounds(SAFE), { l: 10, t: 57, r: 380, b: 800, w: 370, h: 743 });
+  });
+  test("clamp, drag and resize stay inside the safe area + margin", () => {
+    assert.deepEqual(clampRect({ x: -50, y: -50, w: 200, h: 100 }, SAFE, MIN), { x: 10, y: 57, w: 200, h: 100 });
+    assert.deepEqual(clampRect({ x: 999, y: 999, w: 999, h: 100 }, SAFE, MIN), { x: 10, y: 700, w: 370, h: 100 });
+    assert.deepEqual(dragRect({ x: 10, y: 100, w: 200, h: 100 }, 0, 9999, SAFE, MIN).y, 700);
+    assert.deepEqual(resizeRect({ x: 10, y: 100, w: 200, h: 100 }, 9999, 9999, "br", SAFE, MIN), { x: 10, y: 100, w: 370, h: 700 });
+    assert.deepEqual(resizeRect({ x: 10, y: 300, w: 200, h: 100 }, 0, -9999, "tr", SAFE, MIN), { x: 10, y: 57, w: 200, h: 343 });
+  });
+  test("snap targets and edge detection are relative to the safe area", () => {
+    assert.deepEqual(nearEdges({ x: 20, y: 60, w: 100, h: 100 }, SAFE, 24), { x: "left", y: "top" });
+    assert.deepEqual(snapRect({ x: 20, y: 60, w: 100, h: 100 }, { x: "left", y: "top" }, SAFE, MIN), { x: 10, y: 57, w: 100, h: 100 });
+    assert.deepEqual(snapRect({ x: 20, y: 60, w: 100, h: 100 }, { x: "right", y: "bottom" }, SAFE, MIN), { x: 280, y: 700, w: 100, h: 100 });
+    // landscape: notch on the left
+    const LAND = { w: 844, h: 390, inset: withMargin({ l: 47, t: 0, r: 47, b: 21 }, 10) };
+    assert.deepEqual(snapRect({ x: 0, y: 0, w: 200, h: 100 }, { x: "left", y: "bottom" }, LAND, MIN), { x: 57, y: 259, w: 200, h: 100 });
+  });
+  test("corner icons and placeIcon respect the safe area", () => {
+    assert.deepEqual(cornerIcon("bottom-right", SAFE), { x: 336, y: 756, w: 44, h: 44 });
+    assert.deepEqual(cornerIcon("top-right", SAFE), { x: 336, y: 57, w: 44, h: 44 });
+    assert.equal(placeIcon(cornerIcon("bottom-right", SAFE), [{ x: 0, y: 0, w: 390, h: 844 }], "up", 8, SAFE).y, 57);
+  });
+  test("mounted panel: defaults, snap and rotation use measured insets, refreshed on resize", () => {
+    const e = env({ vp: { w: 390, h: 844 } });
+    let pad = { paddingLeft: "0px", paddingTop: "47px", paddingRight: "0px", paddingBottom: "34px" };
+    const m = mount(e, {
+      margin: 10,
+      readSafeArea: () => pad,
+      defaultRect: (vp) => { const b = bounds(vp); return { x: b.l, y: b.t, w: 200, h: 150 }; },
+    });
+    assert.deepEqual(m.p.rect, { x: 10, y: 57, w: 200, h: 150 }, "default below the notch");
+    m.bar.fire("pointerdown", { clientX: 100, clientY: 100 });
+    m.bar.fire("pointermove", { clientX: 9999, clientY: 9999 });
+    e.advance(2100);
+    m.bar.fire("pointerup", { clientX: 9999, clientY: 9999 });
+    assert.deepEqual(m.p.rect, { x: 180, y: 650, w: 200, h: 150 }, "snapped above the home indicator");
+    pad = { paddingLeft: "47px", paddingTop: "0px", paddingRight: "47px", paddingBottom: "21px" };
+    e.rotate(844, 390);
+    assert.deepEqual(m.p.rect, { x: 587, y: 209, w: 200, h: 150 }, "re-measured insets after rotation");
+    m.p.setCollapsed(true);
+    assert.equal(m.icon.style.left, `${844 - 57 - 44}px`);
+    assert.equal(m.icon.style.top, `${390 - 31 - 44}px`);
+  });
+});
+
+group("touch pass-through", () => {
+  test("passThroughBody: body ignores pointers; bar and grip still take them", () => {
+    const e = env();
+    const m = mount(e, { passThroughBody: true });
+    assert.ok(m.root.classes.has("fdp-pass"));
+    assert.equal(m.panelBody.style.pointerEvents, "none");
+    const css = e.head.children.find((c) => c.tag === "style")!.textContent;
+    assert.match(css, /\.fdp\.fdp-pass\{pointer-events:none\}/);
+    assert.match(css, /\.fdp\.fdp-pass>\.fdp-bar,\.fdp\.fdp-pass>\.fdp-grip\{pointer-events:auto\}/);
+    m.bar.fire("pointerdown", { clientX: 100, clientY: 310 });
+    m.bar.fire("pointermove", { clientX: 120, clientY: 330 });
+    m.bar.fire("pointerup", { clientX: 120, clientY: 330 });
+    assert.deepEqual(m.p.rect, { x: 70, y: 320, w: 200, h: 150 }, "bar still drags");
+  });
+  test("default (diag): body keeps pointer events for scrolling/selection", () => {
+    const m = mount(env());
+    assert.ok(!m.root.classes.has("fdp-pass"));
+    assert.equal(m.panelBody.style.pointerEvents, undefined);
   });
 });
 
@@ -237,6 +309,8 @@ function mount(e: ReturnType<typeof env>, extra: Partial<DebugPanelOptions> = {}
     doc: e.doc,
     win: e.win,
     now: e.now,
+    margin: 0,
+    readSafeArea: () => null,
     ...extra,
   });
   return { p, panelBody, root: p.root as unknown as FakeEl, bar: p.bar as unknown as FakeEl, grip: p.grip as unknown as FakeEl, ghost: p.ghost as unknown as FakeEl, icon: p.icon as unknown as FakeEl };
@@ -363,7 +437,7 @@ group("mountDebugPanel", () => {
     const pad = new FakeEl("div");
     pad.box = { left: 250, top: 600, width: 150, height: 200 };
     e.obstacles.push(pad);
-    const m = mount(e);
+    const m = mount(e, { margin: 10 });
     m.p.setCollapsed(true);
     assert.equal(m.icon.style.left, "346px");
     assert.equal(m.icon.style.top, `${600 - 8 - 44}px`);
