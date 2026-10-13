@@ -788,6 +788,7 @@ export class Vehicle {
 
     // Keep basis in sync with integrated yaw/pitch/roll before penetration lift and body-frame ax/ay.
     this.rebuildBasis();
+    if (!parked) this.resolveWallContact(ground, prevX, prevZ);
     this.correctPenetration(ground);
     if (parked) {
       // A park latches the whole velocity vector, not just the horizontal plane. Gravity already
@@ -1040,14 +1041,110 @@ export class Vehicle {
       const suspLen = t - c.wheelRadius;
       const raw = c.suspensionRest - suspLen;
       const prev = w.compression;
-      if (raw <= 0) {
+      if (raw <= 0 || this.groundSample.ny < WALL_NORMAL_Y) {
+        // A face steeper than WALL_NORMAL_Y is a wall, not a road: `resolveWallContact` keeps the
+        // chassis out of it. Treating it as support let the spring/penetration lift walk the
+        // rover straight up a canyon face (fe-20).
         w.inContact = false;
         w.compression = 0;
       } else {
         w.inContact = true;
         w.compression = Math.min(raw, c.suspensionTravel);
       }
-      w.compressionRate = (w.compression - prev) / dt;
+      // Clamp the damper input: a step in the sampled ground (a rock lip, a heightfield cell edge)
+      // reads as a near-infinite compression rate and a one-substep damper spike.
+      w.compressionRate = clamp((w.compression - prev) / dt, -MAX_COMPRESSION_RATE, MAX_COMPRESSION_RATE);
+    }
+  }
+
+  /**
+   * Chassis-vs-terrain wall contact (fe-20). Wheel contact samples straight down under each
+   * hardpoint, so a near-vertical face used to read as "the ground is 6 m higher here" and
+   * `correctPenetration` lifted the chassis up the wall ~0.3 m per frame — the rover sank into a
+   * canyon wall, rose to the rim, then balanced on the one or two wheels that reached the top.
+   *
+   * A hardpoint that this substep moved over a face steeper than {@link WALL_NORMAL_Y}, or over a
+   * rise taller than {@link MAX_STEP_HEIGHT} that the suspension could not absorb, is a wall
+   * contact: the horizontal motion into the wall is undone, the velocity into it is reflected
+   * with a little restitution, tangential speed loses some to friction, pitch/roll are damped
+   * (the one-wheel spin), and yaw is damped on a real strike.
+   */
+  private resolveWallContact(ground: GroundQuery, prevX: number, prevZ: number): void {
+    const c = this.config;
+    const uy = this.up.y > 0.2 ? this.up.y : 0.2;
+    const minT = c.wheelRadius + (c.suspensionRest - c.suspensionTravel);
+    const dx = this.position.x - prevX;
+    const dz = this.position.z - prevZ;
+    for (let pass = 0; pass < 2; pass++) {
+      let hit = false;
+      let nhx = 0;
+      let nhz = 0;
+      for (const w of this.wheels) {
+        if (w.disabled) continue;
+        const hx = this.position.x + this.right.x * w.x + this.forward.x * w.z;
+        const hy = this.position.y + this.right.y * w.x + this.forward.y * w.z;
+        const hz = this.position.z + this.right.z * w.x + this.forward.z * w.z;
+        ground.sample(hx, hz, this.groundSample);
+        const need = minT - (hy - this.groundSample.height) / uy;
+        if (need <= 0) continue;
+        const steep = this.groundSample.ny < WALL_NORMAL_Y;
+        let ox = this.groundSample.nx;
+        let oz = this.groundSample.nz;
+        if (!steep) {
+          // A drivable-looking normal is still a wall when the ground under this hardpoint jumped
+          // up by more than a lip this substep (a cliff crossed between two samples). Depth alone
+          // is not the signal: a hard landing or spawn is deep too, and that one should lift.
+          const h = this.groundSample.height;
+          ground.sample(hx - dx, hz - dz, this.groundSample);
+          if (h - this.groundSample.height <= MAX_STEP_HEIGHT) continue;
+        }
+        let ol = Math.hypot(ox, oz);
+        // Only a face the chassis is moving *into* is a wall. Rolling off a drop-off samples the
+        // same steep normal at the lip, but it faces the way we are going — that is a jump.
+        if (steep && ol >= 1e-4 && dx * ox + dz * oz >= 0) continue;
+        if (!steep || ol < 1e-4) {
+          // A step with a flat-looking normal (a cell edge jumped in one substep): push back
+          // against the motion that crossed it.
+          ox = -dx;
+          oz = -dz;
+          ol = Math.hypot(ox, oz);
+          if (ol < 1e-6) continue;
+        }
+        nhx += ox / ol;
+        nhz += oz / ol;
+        hit = true;
+      }
+      if (!hit) break;
+      const nl = Math.hypot(nhx, nhz);
+      if (nl < 1e-6) {
+        this.position.x = prevX;
+        this.position.z = prevZ;
+      } else {
+        nhx /= nl;
+        nhz /= nl;
+        const moved = (this.position.x - prevX) * nhx + (this.position.z - prevZ) * nhz;
+        if (moved < 0 && pass === 0) {
+          this.position.x -= nhx * moved;
+          this.position.z -= nhz * moved;
+        } else {
+          this.position.x = prevX;
+          this.position.z = prevZ;
+        }
+        const vn = this.velocity.x * nhx + this.velocity.z * nhz;
+        // Damp yaw only on a real strike: halving it every substep of a steady push would pin a
+        // nose-in rover and stop it steering away from the wall.
+        if (vn < -WALL_IMPACT_SPEED) this.yawRate *= 0.5;
+        if (vn < 0) {
+          const tx = this.velocity.x - nhx * vn;
+          const tz = this.velocity.z - nhz * vn;
+          const keepT = Math.max(0, 1 - (WALL_FRICTION * -vn) / Math.max(1e-6, Math.hypot(tx, tz)));
+          this.velocity.x = f32(tx * keepT - nhx * vn * WALL_RESTITUTION);
+          this.velocity.z = f32(tz * keepT - nhz * vn * WALL_RESTITUTION);
+        }
+      }
+      if (this.velocity.y > 0) this.velocity.y = 0;
+      this.pitchRate *= 0.5;
+      this.rollRate *= 0.5;
     }
   }
 
@@ -1211,9 +1308,12 @@ export class Vehicle {
       const hy = this.position.y + this.right.y * w.x + this.forward.y * w.z;
       const hz = this.position.z + this.right.z * w.x + this.forward.z * w.z;
       ground.sample(hx, hz, this.groundSample);
+      if (this.groundSample.ny < WALL_NORMAL_Y) continue; // walls are resolveWallContact's job
       const t = (hy - this.groundSample.height) / uy;
       if (t < minT) lift = Math.max(lift, minT - t);
     }
+    // Never teleport: a legitimate landing penetrates by |v|·dt per substep (≈ 0.1 m at 12 m/s).
+    lift = Math.min(lift, MAX_PENETRATION_LIFT);
     if (lift > 0) {
       this.position.x += this.up.x * lift;
       this.position.y += this.up.y * lift;
@@ -1265,6 +1365,17 @@ const AXIS_Z = { x: 0, y: 0, z: 1 };
  * and the chassis latch holds the pose. 1.26 km/h — slow enough that no driving state notices.
  */
 const STATIC_HOLD_SPEED = 0.35;
+/** Ground with a normal Y below this (≈ 55° from level) is a wall, never wheel support (fe-20). */
+export const WALL_NORMAL_Y = Math.cos((55 * Math.PI) / 180);
+/** Largest rise in the ground under one hardpoint, in one substep, that still counts as a lip (fe-20). */
+const MAX_STEP_HEIGHT = 0.25;
+/** Per-substep cap on the penetration lift — covers a 14 m/s landing at 1/120 s, never a cliff. */
+const MAX_PENETRATION_LIFT = 0.12;
+/** Damper input clamp (m/s), so a sampled ground step is not a one-substep force spike. */
+const MAX_COMPRESSION_RATE = 6;
+const WALL_RESTITUTION = 0.15;
+const WALL_FRICTION = 0.4;
+const WALL_IMPACT_SPEED = 1;
 
 /**
  * Chassis speed (m/s) at which regenerative braking reaches full authority. Below it the regen

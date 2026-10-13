@@ -45,6 +45,7 @@ export {
 export {
   Vehicle,
   createVehicleConfig,
+  WALL_NORMAL_Y,
   type VehicleConfig,
   type VehicleOptions,
   type VehicleInput,
