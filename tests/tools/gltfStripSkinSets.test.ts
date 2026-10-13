@@ -211,6 +211,26 @@ group("tools/gltf-strip-extra-skin-sets.mjs", () => {
     assert.equal(result.status, 2);
     assertContains(result.stderr, "output must use the input's format (.glb)");
   });
+
+  test("never overwrites the input or its external buffer", () => {
+    const dir = tempDir();
+    const { doc, bin } = makeAsset(0);
+    const input = path.join(dir, "in.glb");
+    const original = glb(doc, bin);
+    fs.writeFileSync(input, original);
+    const same = run(input, input);
+    assert.equal(same.status, 2);
+    assertContains(same.stderr, "refusing to overwrite input file");
+    assert.deepEqual(new Uint8Array(fs.readFileSync(input)), new Uint8Array(original));
+
+    fs.writeFileSync(path.join(dir, "out.bin"), bin);
+    fs.writeFileSync(path.join(dir, "src.gltf"), JSON.stringify({ ...doc, buffers: [{ byteLength: bin.byteLength, uri: "out.bin" }] }));
+    const clash = run(path.join(dir, "src.gltf"), path.join(dir, "out.gltf"));
+    assert.equal(clash.status, 2);
+    assertContains(clash.stderr, "refusing to overwrite input file");
+    assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(dir, "out.bin"))), new Uint8Array(bin));
+    assert.equal(fs.existsSync(path.join(dir, "out.gltf")), false);
+  });
 });
 
 await finish();

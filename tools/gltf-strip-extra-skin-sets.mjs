@@ -332,6 +332,12 @@ export function run(argv, log = console.log, warn = console.error) {
     if (dryRun) log("dry run: nothing written");
     else {
       const { bin: outBin, files } = finishBuffers(doc, buffers, output);
+      // Never overwrite the input asset or any external buffer it reads from.
+      const protectedPaths = new Set([path.resolve(input), ...buffers.filter((b) => b.kind === "file")
+        .map((b) => path.resolve(path.dirname(input), decodeURIComponent(b.uri)))]);
+      for (const target of [output, ...files.map((f) => f.file)]) {
+        if (protectedPaths.has(path.resolve(target))) throw new StripError(`refusing to overwrite input file ${target}; choose another output name`);
+      }
       for (const { file, bytes } of files) fs.writeFileSync(file, bytes);
       fs.writeFileSync(output, format === "glb" ? encodeGlb(doc, outBin) : JSON.stringify(doc, null, 2));
       log(`wrote ${output}`);
