@@ -51,14 +51,11 @@ import {
   devilShellFade,
   buildFunnelCard,
   CARD_VERTEX_COUNT,
-  DEVIL_COARSE_FRACTION,
   DEVIL_BASE_CLOUD,
   DEVIL_EMIT_CYCLE,
   DEVIL_GRAIN_END,
-  DEVIL_SIZE_VARIATION,
   DEVIL_SWIRL_MAX,
   devilBaseWind,
-  DEVIL_COARSE_SCALE,
   BURIAL_STUCK,
   CHECKPOINT_REACH,
   DustAccumulation,
@@ -90,8 +87,6 @@ import {
   devilVortexLife,
   devilEmitRate,
   DEVIL_RF_BASE_PER_CORE,
-  DEVIL_SWARM_COLOR,
-  DEVIL_SWARM_ROCK,
   driftMoundHeightAt,
   driftMoundRadius,
   settleDriftMound,
@@ -607,15 +602,12 @@ group("fe-19 devil dynamics", () => {
     assert.ok(widths.size >= 4, "spawned widths vary");
   });
 
-  test("dust colours: palette from the scene, per-particle variation in the sim, dark rust devil swarms", () => {
+  test("dust colours: palette from the scene, per-particle variation in the sim", () => {
     const lum = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     assert.ok(lum(STORM_DUST_PALETTE.rock) < lum(STORM_DUST_PALETTE.dust), "rock tone darker than the dust");
     assert.ok(STORM_DUST_PALETTE.sheetVariation > 0 && STORM_DUST_PALETTE.devilVariation > 0);
     assert.ok(PARTICLE_FULL_SIM_SHADER.includes("colorVariation: f32,"));
     assert.ok(PARTICLE_FULL_SIM_SHADER.includes("params.colorAlt.rgb"));
-    // fe-21b: devil swarm colours are linear dark rust (unlit, then exposure/ACES/sRGB lift them).
-    assert.ok(lum(DEVIL_SWARM_COLOR) < 0.08 && lum(DEVIL_SWARM_ROCK) < lum(DEVIL_SWARM_COLOR));
-    assert.ok(DEVIL_SWARM_COLOR.r > DEVIL_SWARM_COLOR.g && DEVIL_SWARM_COLOR.g > DEVIL_SWARM_COLOR.b, "rust hue");
   });
 });
 
@@ -629,17 +621,6 @@ group("fe-19 review: ending a devil never raises its envelope", () => {
     const before = devilEnvelope(small);
     (f as unknown as { absorb(a: unknown, b: unknown, c: string): void }).absorb(big, small, "consumed");
     assert.ok(devilEnvelope(small) <= before + 1e-9, `envelope rose ${before} -> ${devilEnvelope(small)}`);
-  });
-});
-
-group("fe-21c devil coarse grains", () => {
-  test("a minority of grains are notably larger, and the sim shader applies it", () => {
-    assert.ok(DEVIL_COARSE_FRACTION > 0.05 && DEVIL_COARSE_FRACTION < 0.3);
-    assert.ok(DEVIL_COARSE_SCALE >= 2);
-    assert.match(PARTICLE_FULL_SIM_SHADER, /coarseFraction/);
-    assert.match(PARTICLE_FULL_SIM_SHADER, /params\.coarseScale/);
-    // fe-21d: largest grain (end of life, top of the size spread, coarse) stays well under 1.3 m.
-    assert.ok(DEVIL_GRAIN_END * (1 + DEVIL_SIZE_VARIATION) * DEVIL_COARSE_SCALE <= 1.6, "fe-21g: soft sprite shows ~half its quad, so ≤1.6 m quads read as ≤0.8 m puffs");
   });
 });
 

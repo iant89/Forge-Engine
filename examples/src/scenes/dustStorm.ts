@@ -1261,14 +1261,6 @@ export function devilBaseWind(windX: number, windZ: number, intensity: number, o
   out.z = windZ * k;
   return out;
 }
-/** Devil swarm grain colour, LINEAR (sRGB #6b3d24 dark rust lifted soil; `colorAlt` blends it toward the rock tone per grain). */
-export const DEVIL_SWARM_COLOR = Object.freeze({ r: 0.147, g: 0.047, b: 0.018, a: 1 });
-/**
- * Darker rock tone the per-grain colour variation blends toward (linear of sRGB #4a3226). Particle
- * colours are LINEAR HDR values drawn unlit, then lifted by exposure 1.25, ACES and sRGB encoding —
- * so the old sRGB-looking 0.5/0.31/0.2 came out pale beige (fe-21b).
- */
-export const DEVIL_SWARM_ROCK = Object.freeze({ r: 0.069, g: 0.032, b: 0.019, a: 1 });
 /** Fixed sim modules for devil dust (shared by column and skirt particles of one system). */
 export const DEVIL_DUST_GRAVITY = -0.3;
 export const DEVIL_DUST_DRAG = 0.6;
@@ -1345,15 +1337,6 @@ export function devilParticleLook(
 /** Devil grain size over life (m). fe-21g: ~1.7× larger to offset the soft sprite falloff. */
 export const DEVIL_GRAIN_START = 0.2;
 export const DEVIL_GRAIN_END = 0.5;
-/**
- * fe-21c: bimodal grain mix — this share of devil grains is drawn {@link DEVIL_COARSE_SCALE}× larger
- * to fill the voids between fine motes (same particle count, so budgets are unchanged).
- */
-export const DEVIL_COARSE_FRACTION = 0.2;
-/** fe-21d: more coarse grains but a smaller multiplier, so the largest (end-of-life) stays ≈0.9 m, not a blob. */
-export const DEVIL_COARSE_SCALE = 2.2;
-/** Mild per-grain size spread so the fine layer isn't uniform. */
-export const DEVIL_SIZE_VARIATION = 0.35;
 
 /** Emission rate multiplier for a frame of {@link devilParticleLook}: keeps the per-second mix (and the burst) right. */
 export function devilEmitRate(baseRate: number, look: Pick<DevilParticleLook, "column"> & Partial<Pick<DevilParticleLook, "base">>, envelope: number, bursting: boolean): number {
