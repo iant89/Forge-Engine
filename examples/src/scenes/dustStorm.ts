@@ -1570,7 +1570,7 @@ export interface StripMesh {
   indices: Uint16Array;
 }
 
-/** Height above the sampled terrain for the draped beam ring (the easy path: GUIDE_FLOAT_OFFSET). */
+/** Height above the sampled terrain for the draped beam ring . */
 export const BEAM_RING_OFFSET = 0.12;
 export const BEAM_RING_SEGMENTS = 48;
 

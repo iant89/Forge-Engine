@@ -219,7 +219,6 @@ export interface MarsDustStormState {
   gear: 1 | -1;
   /** fe-28: corner points of the current guide route (rover → beam). */
   guideRoute: { x: number; z: number }[];
-  /** fe-28: travelling pulse stretch (metres along the drawn ribbon) and its opacity. */
   /** fe-29: guide dots shown and the index of the brightest (wave crest; −1 = none). */
   guideDots: { dots: number; crest: number };
   elapsed: number;
@@ -1503,8 +1502,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   /**
-   * Easy-mode guidance: a faint floating ribbon along an obstacle-aware route (re-routed ~2×/s,
-   * re-draped ~5×/s) with a blue pulse running to the beam, and the off-screen beam arrow.
+   * Easy/Advanced guidance: glowing dots along a smoothed obstacle-aware route (re-routed ~2×/s,
+   * re-sampled ~5×/s) with a wave running to the beam, and the off-screen beam arrow.
    */
   function stepGuidance(dt: number): void {
     const target = course.active;
