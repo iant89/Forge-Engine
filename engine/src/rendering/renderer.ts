@@ -237,7 +237,10 @@ export interface RenderStats {
   shadowsDrawn: number;
   /** Batch × shadow-map pairs with no assigned caster instances. */
   shadowsCulled: number;
-  /** Caster instances submitted across shadow maps (one instance may contribute to multiple maps). */
+  /**
+   * Caster instances submitted across shadow maps (one instance may contribute to multiple maps).
+   * CPU-assigned casters only; device-culled population casters are `populationShadowInstancesDrawn`.
+   */
   shadowInstancesDrawn: number;
   /** Caster-instance/map pairs omitted by per-object shadow-frustum assignment. */
   shadowInstancesCulled: number;
@@ -1882,9 +1885,10 @@ export class Renderer implements RenderFrameContext {
     const offset = culler!.shadowRecordOffset(b.popCullSlot, local);
     if (b.geometry.indexBuffer) pass.drawIndexedIndirect(culler!.argsBuffer!, offset);
     else pass.drawIndirect(culler!.argsBuffer!, offset);
+    // Counted in `shadowsDrawn`, not `indirectDraws` (that one is forge.main's) nor
+    // `shadowInstancesDrawn` (the count lives on the device: `populationShadowInstancesDrawn`).
     this.stats.shadowsDrawn++;
     this.stats.populationShadowDraws++;
-    this.stats.indirectDraws++;
   }
 
   /** One shadow draw for a contiguous run whose every instance is assigned to this map. */
