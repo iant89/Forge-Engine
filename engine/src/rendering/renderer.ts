@@ -2519,6 +2519,9 @@ export class Renderer implements RenderFrameContext {
     const sdz = shore.directionZ / sl;
     a.setVec4("shoreA", sdx, sdz, sdx * shore.originX + sdz * shore.originZ, shore.slope);
     a.setVec4("shoreB", shore.foamDepth, shore.breakDepth, shore.bedLevel, shore.enabled ? 1 : 0);
+    const TAU = Math.PI * 2;
+    a.setVec4("shoreD", TAU / Math.max(1, shore.curveLength1), shore.curvePhase1, shore.curveAmp1, -sdz * shore.originX + sdx * shore.originZ);
+    a.setVec4("shoreE", TAU / Math.max(1, shore.curveLength2), shore.curvePhase2, shore.curveAmp2, 0);
     let totalAmp = 0;
     for (let i = 0; i < waveCount; i++) {
       const w = water.waves[i]!;

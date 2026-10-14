@@ -85,7 +85,11 @@ fn shoreDepth(xz: vec2<f32>) -> f32 {
   if (water.shoreB.w < 0.5) {
     return 1.0e6;
   }
-  let along = dot(xz, water.shoreA.xy) - water.shoreA.z;
+  // fe-34 curvy coast (shoreCurveOffset): shoreD = (k1, phase1, amp1, dot(origin, perp)),
+  // shoreE = (k2, phase2, amp2, 0); perp = (−dirZ, dirX).
+  let across = dot(xz, vec2<f32>(-water.shoreA.y, water.shoreA.x)) - water.shoreD.w;
+  let curve = water.shoreD.z * sin(water.shoreD.x * across + water.shoreD.y) + water.shoreE.z * sin(water.shoreE.x * across + water.shoreE.y);
+  let along = dot(xz, water.shoreA.xy) - water.shoreA.z - curve;
   return water.shoreC.x - (water.shoreB.z + water.shoreA.w * along);
 }
 

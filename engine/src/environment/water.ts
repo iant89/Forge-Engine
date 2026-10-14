@@ -142,8 +142,28 @@ export function sampleGerstner(
 export function shoreDepthAt(shore: WaterShoreSettings, level: number, x: number, z: number): number {
   if (!shore.enabled) return Number.POSITIVE_INFINITY;
   const len = Math.hypot(shore.directionX, shore.directionZ) || 1;
-  const along = ((x - shore.originX) * shore.directionX + (z - shore.originZ) * shore.directionZ) / len;
+  const dx = shore.directionX / len;
+  const dz = shore.directionZ / len;
+  const px = x - shore.originX;
+  const pz = z - shore.originZ;
+  const along = px * dx + pz * dz - shoreCurveOffset(shore, -px * dz + pz * dx);
   return level - (shore.bedLevel + shore.slope * along);
+}
+
+type ShoreCurve = Pick<WaterShoreSettings, "curveAmp1" | "curveLength1" | "curvePhase1" | "curveAmp2" | "curveLength2" | "curvePhase2">;
+
+/**
+ * fe-34: how far inland (m) the waterline sits at `across` metres along the coast — the curvy-coast
+ * displacement shared by the water (CPU + shader) and `coastalHeightAt`. 0 when both amplitudes are 0.
+ */
+export function shoreCurveOffset(curve: Partial<ShoreCurve>, across: number): number {
+  const TAU = Math.PI * 2;
+  const a1 = curve.curveAmp1 ?? 0;
+  const a2 = curve.curveAmp2 ?? 0;
+  let c = 0;
+  if (a1 !== 0) c += a1 * Math.sin((TAU * across) / Math.max(1, curve.curveLength1 ?? 400) + (curve.curvePhase1 ?? 0));
+  if (a2 !== 0) c += a2 * Math.sin((TAU * across) / Math.max(1, curve.curveLength2 ?? 150) + (curve.curvePhase2 ?? 0));
+  return c;
 }
 
 /** Peak shoaling gain just before the break line (Green's-law-like steepening, capped). */
