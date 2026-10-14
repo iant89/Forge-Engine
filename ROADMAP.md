@@ -1183,6 +1183,12 @@ GOAL:
         draw (atomic append, the particle pattern). Placement unchanged. Device-tier aware (low tier:
         no per-instance HiZ); per-batch fallback when the device culler or indirect draws are off.
         docs/RENDERING.md §4g; tests/population/populationCull.test.ts; check:browser terrain A/B.
+    [x] Per-instance culling for shadow casters and the depth prepass (fe-31): `forge.populationCull.views`
+        (before the depth passes) tests every instance against the camera and each sun cascade, spot
+        map and point face its chunk touches; casters append 4-byte indices to per-map ranges of one
+        shared buffer per chunk, drawn indirectly by `DEPTH_CULLED_VERTEX`; the prepass draws the
+        main-view list `forge.main` draws (or its HiZ subset). Low tier: cascades only. CPU twins,
+        HUD `pop shadow … in → … drawn`, check:browser terrain shadow A/B. docs/RENDERING.md §4g.
 
 
 14.6 Population Streaming

@@ -3,6 +3,7 @@
  * @group unit
  * @covers engine/src/population/cull.ts
  * @covers engine/src/rendering/objectCulling.ts
+ * @covers engine/src/rendering/pipeline.ts
  * @covers engine/src/rendering/populationCuller.ts
  * @covers engine/src/rendering/renderer.ts
  * @covers engine/src/rendering/shaders/populationCull.ts
@@ -18,6 +19,7 @@ export const suite = {
   covers: [
     "engine/src/population/cull.ts",
     "engine/src/rendering/objectCulling.ts",
+    "engine/src/rendering/pipeline.ts",
     "engine/src/rendering/populationCuller.ts",
     "engine/src/rendering/renderer.ts",
     "engine/src/rendering/shaders/populationCull.ts",
