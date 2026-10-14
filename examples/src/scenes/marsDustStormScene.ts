@@ -116,6 +116,10 @@ import {
   StormCourse,
   StormField,
   devilRoverForceAt,
+  stormWindAccel,
+  BlownAwayTracker,
+  DEVIL_LIFT_DAMPING,
+  RESPAWN_INVULNERABLE,
   devilTerrainTint,
   DEVIL_SIZE_RANGE,
   DevilPebbles,
@@ -170,6 +174,15 @@ export interface MarsDustStormState {
   stuck: boolean;
   flipped: boolean;
   won: boolean;
+  /** fe-29: run lost on hard (reason, e.g. "BLOWN AWAY"). */
+  lost: boolean;
+  lostReason: string | null;
+  /** fe-29: last safe grounded spot, blown-away respawns, invulnerability left (s), clearance (m). */
+  safe: { x: number; y: number; z: number; yaw: number };
+  blownAway: number;
+  invulnerable: number;
+  clearance: number;
+  windLift: number;
   /** fe-28: seed of this load's random course (`?seed=` pins it). */
   courseSeed: number;
   /** fe-28 finale: phase (null before the win), stage-light envelope/sweep, jingle status. */
@@ -882,12 +895,40 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   let dancing = false;
   let danceLetter: YmcaLetter | null = null;
   const force: DevilRoverForce = { ax: 0, az: 0, yawAccel: 0, lift: 0, rollAccel: 0 };
+  // fe-29: the wind pushes by force / mass, so read the rover's mass from its config.
+  const roverMass = vehicle.config.mass;
+  const gustAccel = { x: 0, z: 0 };
+  const blown = new BlownAwayTracker();
+  let blownAwayCount = 0;
+  let invulnerable = 0;
+  let windLift = 0;
+  let lastClearance = 0;
+  // Brief black fade over the canvas on a blown-away respawn (no-op without a DOM).
+  let fadeEl: HTMLDivElement | null = null;
+  try {
+    if (typeof document !== "undefined" && typeof document.createElement === "function" && document.body) {
+      fadeEl = document.createElement("div");
+      fadeEl.style.cssText = "position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.35s;z-index:50";
+      document.body.appendChild(fadeEl);
+    }
+  } catch {
+    fadeEl = null;
+  }
+  let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  const flashFade = (): void => {
+    if (!fadeEl) return;
+    fadeEl.style.opacity = "1";
+    if (fadeTimer) clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => {
+      if (fadeEl) fadeEl.style.opacity = "0";
+    }, 380);
+  };
   const windward = { x: 0, z: 0 };
   const moundPos = new Vec3();
   const fogColor = new Color(DUST_R, DUST_G, DUST_B);
 
   /** Reposition upright, facing the active beam. `clearDust` also empties the rover's pile. */
-  const placeRover = (x: number, z: number, clearDust = true): void => {
+  const placeRover = (x: number, z: number, clearDust = true, yaw?: number): void => {
     vehicle.position.x = x;
     vehicle.position.z = z;
     vehicle.velocity.set(0, 0, 0);
@@ -899,8 +940,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     for (const wheel of vehicle.wheels) wheel.omega = 0;
     vehicle.selectGear(1, Infinity);
     const target = course.active;
-    if (target) vehicle.yaw = Math.atan2(target.x - x, target.z - z);
+    if (yaw !== undefined) vehicle.yaw = yaw;
+    else if (target) vehicle.yaw = Math.atan2(target.x - x, target.z - z);
     vehicle.placeOnGround(ground);
+    // Any reposition is a fresh safe spot for the blown-away rule.
+    blown.reset(vehicle.position.x, vehicle.position.y, vehicle.position.z, vehicle.yaw);
     if (clearDust) {
       accumulation.resetRover();
       stuck = false;
@@ -914,6 +958,21 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     course.resets++;
     placeRover(p.x, p.z);
     lastEvent = `${reason} · BACK TO ${course.lastReached < 0 ? "START" : `BEACON ${course.lastReached + 1}`}`;
+  };
+
+  /** fe-29: thrown too far by the wind — respawn at the last safe spot (easy) or lose (hard). */
+  const onBlownAway = (): void => {
+    blownAwayCount++;
+    if (rules.onBlownAway === "lose") {
+      course.lose("BLOWN AWAY");
+      lastEvent = "BLOWN AWAY · RUN LOST · R TO RETRY";
+      return;
+    }
+    const s = { ...blown.safe };
+    placeRover(s.x, s.z, false, s.yaw);
+    invulnerable = RESPAWN_INVULNERABLE;
+    flashFade();
+    lastEvent = "BLOWN AWAY · BACK TO LAST SAFE SPOT";
   };
 
   function setDifficulty(next: StormDifficulty): void {
@@ -945,6 +1004,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     accumulation.reset();
     course.reset();
     stuck = false;
+    invulnerable = 0;
+    windLift = 0;
+    blownAwayCount = 0;
+    if (fadeEl) fadeEl.style.opacity = "0";
     placeRover(SPAWN_X, SPAWN_Z);
     startupBrake = true;
     lastEvent = "";
@@ -1233,18 +1296,51 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     // Devils: step, then push / yaw / lift / roll the rover.
     devils.step(dt, intensity, wind.x, wind.z, vehicle.position.x, vehicle.position.z);
     stepPebbles(dt);
-    const clearance = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z);
+    // fe-29: clearance of the chassis above its equilibrium ride height (≈ 0 when parked).
+    const clearance = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z) + bodyOffsetY;
+    lastClearance = clearance;
+    invulnerable = Math.max(0, invulnerable - dt);
+    windLift = 0;
+    let windPush = 0;
+    const windOn = invulnerable <= 0 && course.state === "driving";
     for (const devil of devils.devils) {
-      // fe-22e: push from the visible, wandered base.
-      devilRoverForceAt(devil, time, vehicle.position.x, vehicle.position.z, force);
+      if (!windOn) break;
+      // fe-22e: push from the visible, wandered base. fe-29: force / mass, lift fades aloft.
+      devilRoverForceAt(devil, time, vehicle.position.x, vehicle.position.z, force, roverMass, clearance);
       if (force.ax === 0 && force.az === 0 && force.yawAccel === 0) continue;
       vehicle.velocity.x += force.ax * dt;
       vehicle.velocity.z += force.az * dt;
       vehicle.yawRate += force.yawAccel * dt;
-      if (force.lift > 0 && clearance < 4) {
+      windPush = Math.max(windPush, Math.hypot(force.ax, force.az));
+      if (force.lift > 0) {
+        windLift += force.lift;
         vehicle.velocity.y += force.lift * dt;
         vehicle.rollRate += force.rollAccel * dt;
       }
+    }
+    // Air drag on a climbing rover: caps the climb so it hovers where lift meets gravity.
+    if (windLift > 0 && vehicle.velocity.y > 0) vehicle.velocity.y -= DEVIL_LIFT_DAMPING * vehicle.velocity.y * dt;
+    // Storm gust push, by force / mass from the wind relative to the rover.
+    if (windOn && !startupBrake) {
+      stormWindAccel(wind.x, wind.z, vehicle.velocity.x, vehicle.velocity.z, roverMass, gustAccel);
+      vehicle.velocity.x += gustAccel.x * dt;
+      vehicle.velocity.z += gustAccel.z * dt;
+    }
+    if (course.state === "driving" && !startupBrake) {
+      let grounded = 0;
+      for (const w of vehicle.wheels) if (w.inContact) grounded++;
+      const thrown = blown.step(dt, {
+        x: vehicle.position.x,
+        y: vehicle.position.y,
+        z: vehicle.position.z,
+        yaw: vehicle.yaw,
+        grounded,
+        wheels: vehicle.wheels.length,
+        flipped: isRoverFlipped(vehicle.roll, vehicle.pitch),
+        windLift,
+        windPush,
+      });
+      if (thrown) onBlownAway();
     }
 
     // Input → vehicle, under the stuck / won rules.
@@ -1258,10 +1354,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     if (drive.throttle > 0.01) startupBrake = false;
     const speed = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
     // The run (clock and burial) starts with the first throttle, not while the model loads.
-    const running = !startupBrake && course.state !== "won";
+    const running = !startupBrake && course.state === "driving";
     if (running) accumulation.stepRover(dt, intensity, speed, drive.throttle, stuck);
     const flipped = isRoverFlipped(vehicle.roll, vehicle.pitch);
-    if (!stuck && accumulation.burial >= BURIAL_STUCK && course.state !== "won") {
+    if (!stuck && accumulation.burial >= BURIAL_STUCK && course.state === "driving") {
       if (rules.onStuck === "reset") {
         sendBack("BURIED");
       } else {
@@ -1274,7 +1370,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       lastEvent = "ROCKED FREE";
     }
     flippedFor = flipped ? flippedFor + dt : 0;
-    if (flippedFor >= FLIP_GRACE && course.state !== "won") {
+    if (flippedFor >= FLIP_GRACE && course.state === "driving") {
       if (rules.onFlip === "reset") {
         sendBack("FLIPPED");
       } else {
@@ -1283,10 +1379,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
         lastEvent = `FLIPPED · RIGHTED · +${rules.timePenalty}s`;
       }
     }
-    vehicle.input.throttle = stuck ? 0 : drive.throttle;
-    vehicle.input.brake = Math.max(drive.brake, startupBrake || stuck ? 1 : 0);
-    vehicle.input.steer = drive.steer;
-    vehicle.input.handbrake = drive.handbrake || startupBrake || stuck ? 1 : 0;
+    const lost = course.state === "lost";
+    vehicle.input.throttle = stuck || lost ? 0 : drive.throttle;
+    vehicle.input.brake = Math.max(drive.brake, startupBrake || stuck || lost ? 1 : 0);
+    vehicle.input.steer = lost ? 0 : drive.steer;
+    vehicle.input.handbrake = drive.handbrake || startupBrake || stuck || lost ? 1 : 0;
 
     collideProps();
     if (running && course.step(dt, vehicle.position.x, vehicle.position.z)) {
@@ -1595,6 +1692,13 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stuck,
     flipped: isRoverFlipped(vehicle.roll, vehicle.pitch),
     won: course.state === "won",
+    lost: course.state === "lost",
+    lostReason: course.lostReason,
+    safe: { ...blown.safe },
+    blownAway: blownAwayCount,
+    invulnerable,
+    clearance: lastClearance,
+    windLift,
     courseSeed,
     dancePhase,
     stageLights: danceLights,
@@ -1642,7 +1746,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const penalty = course.penalty > 0 ? ` (+${course.penalty}s)` : "";
       const lines = [
         `storm ${storm.phase(time).toUpperCase()} ${Math.round(intensity * 100)}% · wind ${Math.hypot(wind.x, wind.z).toFixed(0)} m/s · devils ${devils.devils.length} · ${difficulty} · ${qualityTier}`,
-        course.state === "won"
+        course.state === "lost"
+          ? `RUN LOST · ${course.lostReason ?? ""} · press R to retry`
+          : course.state === "won"
           ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}${danceLetter ? ` · ${danceLetter}!` : ""}${dancing && jingleStarted ? " · M mutes" : ""}`
           : `beacon ${course.index + 1}/${course.checkpoints.length} ${bearingArrow(course.bearing(x, z, vehicle.yaw))} ${course.distance(x, z).toFixed(0)} m · time ${formatTime(course.total)}${penalty}`,
         `burial ${Math.round(burial * 100)}%${stuck ? " · STUCK — pump throttle" : burial > 0.3 ? " · keep moving!" : ""}${course.resets > 0 ? ` · resets ${course.resets}` : ""}`,
@@ -1671,6 +1777,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       window.removeEventListener("pointerdown", unlockAudio);
       window.removeEventListener("pointerup", unlockAudio);
       jingle.dispose();
+      if (fadeTimer) clearTimeout(fadeTimer);
+      fadeEl?.remove();
+      fadeEl = null;
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
       btnEasy?.removeEventListener("click", onEasy);
