@@ -20,8 +20,8 @@ import { MAX_CLOUD_LAYERS } from "../environment/clouds.js";
 /** Max lights the per-frame block can carry (kept in sync with the WGSL array length). */
 export const MAX_LIGHTS_PER_FRAME = 16;
 export const MAX_CASCADES = 4;
-import { MAX_SPOT_SHADOWS } from "./shadowLimits.js";
-export { MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS } from "./shadowLimits.js";
+import { MAX_SPOT_SHADOWS } from "../scene/shadowLimits.js";
+export { MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS } from "../scene/shadowLimits.js";
 /** Maximum simultaneously shadowed point lights; each occupies {@link POINT_SHADOW_FACES} atlas layers. */
 export const MAX_POINT_SHADOWS = 2;
 /** Cube faces one point shadow is rendered into (±X, ±Y, ±Z). */

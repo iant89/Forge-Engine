@@ -117,14 +117,14 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles"), 48);
     assert.equal(RENDERING_STRUCTS.LightBlock.byteSize("uniform"), 1296);
     assert.equal(RENDERING_STRUCTS.LightBlock.offsetOf("lights"), 16);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform"), 1456);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform"), 1776);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("cascadeTexelWorld"), 272);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotViewProj"), 288);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotParams"), 544);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointViewProj"), 608);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointParams"), 1376);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointCount"), 1408);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount"), 1412);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotParams"), 800);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointViewProj"), 928);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointParams"), 1696);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointCount"), 1728);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount"), 1732);
     // fe-31: the main camera for the population distance fade follows the layer word.
     assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform"), 96);
     assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.offsetOf("fadeCamera"), 80);

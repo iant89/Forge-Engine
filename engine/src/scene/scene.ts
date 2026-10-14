@@ -25,7 +25,7 @@ import type { SystemContext } from "./systems.js";
 import type { Query } from "./stores.js";
 import type { Component } from "./components.js";
 import type { AtmosphereParams } from "../environment/atmosphere.js";
-import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "../rendering/shadowLimits.js";
+import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "./shadowLimits.js";
 
 export type FogMode = "none" | "linear" | "exp2" | "height";
 export type ToneMapping = "none" | "reinhard" | "aces" | "filmic";
