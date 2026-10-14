@@ -20,7 +20,7 @@ export const HURRICANE_COAST: CoastalTerrainParams = {
   directionX: 0,
   directionZ: -1,
   bedLevel: 0,
-  slope: 0.035,
+  slope: 0.06,
   minDepth: 30,
   bermHeight: 1.6,
   beachWidth: 70,
@@ -31,7 +31,7 @@ export const HURRICANE_COAST: CoastalTerrainParams = {
 };
 
 /** Where the storm's effects are evaluated: the viewer on the beach. */
-export const HURRICANE_OBSERVER = { x: 0, z: -20 } as const;
+export const HURRICANE_OBSERVER = { x: 0, z: -50 } as const;
 
 /** Real seconds per track second (forward speed in the wind field ≈ 6 m/s). */
 export const HURRICANE_TIME_COMPRESSION = 600;
@@ -41,12 +41,12 @@ export const HURRICANE_KEYFRAMES: readonly CycloneKeyframe[] = [
   { time: 20, x: -45 * KM, z: 330 * KM, maxWind: 29, radiusMaxWind: 50 * KM, eyeRadius: 6 * KM, rain: 0.5 },
   { time: 40, x: -30 * KM, z: 240 * KM, maxWind: 40, radiusMaxWind: 40 * KM, eyeRadius: 10 * KM, rain: 0.65 },
   { time: 60, x: -18 * KM, z: 160 * KM, maxWind: 52, radiusMaxWind: 32 * KM, eyeRadius: 13 * KM, rain: 0.8, surge: 0.4 },
-  { time: 78, x: -8 * KM, z: 80 * KM, maxWind: 63, radiusMaxWind: 28 * KM, eyeRadius: 14 * KM, rain: 0.92, surge: 1 },
-  { time: 90, x: -2 * KM, z: 32 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.6 },
-  { time: 96, x: -1 * KM, z: 12 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.8 },
-  { time: 108, x: 1 * KM, z: -12 * KM, maxWind: 70, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.8 },
-  { time: 116, x: 3 * KM, z: -36 * KM, maxWind: 64, radiusMaxWind: 27 * KM, eyeRadius: 15 * KM, rain: 0.95, surge: 1.2 },
-  { time: 125, x: 6 * KM, z: -75 * KM, maxWind: 52, radiusMaxWind: 30 * KM, eyeRadius: 14 * KM, rain: 0.8, surge: 0.6 },
+  { time: 78, x: -8 * KM, z: 80 * KM, maxWind: 63, radiusMaxWind: 28 * KM, eyeRadius: 14 * KM, rain: 0.92, surge: 0.6 },
+  { time: 90, x: -2 * KM, z: 32 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 0.9 },
+  { time: 96, x: -1 * KM, z: 12 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.1 },
+  { time: 108, x: 1 * KM, z: -12 * KM, maxWind: 70, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.1 },
+  { time: 116, x: 3 * KM, z: -36 * KM, maxWind: 64, radiusMaxWind: 27 * KM, eyeRadius: 15 * KM, rain: 0.95, surge: 0.8 },
+  { time: 125, x: 6 * KM, z: -75 * KM, maxWind: 52, radiusMaxWind: 30 * KM, eyeRadius: 14 * KM, rain: 0.8, surge: 0.4 },
 ];
 
 export function createHurricaneTrack(): CycloneTrack {

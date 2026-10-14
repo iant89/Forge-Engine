@@ -25,6 +25,7 @@
  */
 
 import { SceneObject, type Scene } from "../scene/scene.js";
+import { Color } from "../math/color.js";
 import type { SystemContext } from "../scene/systems.js";
 import { clamp } from "../math/scalar.js";
 import { approachExponential, stormLightFactors } from "./weather.js";
@@ -259,7 +260,13 @@ export interface CycloneObserverSample {
   ambientFactor: number;
   surge: number;
   category: number;
+  /** 0..1 how dark the sky overhead is (drives cloud albedo + fog colour; hosts can dim lights). */
+  darkness: number;
 }
+
+const CLOUD_ALBEDO = new Color(1, 1, 1);
+const FOG_CLEAR = new Color(0.62, 0.7, 0.8);
+const FOG_STORM = new Color(0.07, 0.08, 0.09);
 
 export interface CycloneSystemOptions extends CycloneFieldOptions {
   name?: string;
@@ -274,6 +281,11 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   driveFog?: boolean;
   fogClear?: number;
   fogStorm?: number;
+  /** Fog colour (linear RGB) in clear air and under the eyewall. */
+  fogColorClear?: Color;
+  fogColorStorm?: Color;
+  /** Cloud albedo under the darkest part of the storm (1 = white deck). Default 0.28. */
+  stormCloudAlbedo?: number;
   /** Drive the ocean waves + surge. Default true (no-op while water is disabled). */
   driveOcean?: boolean;
   /** Cap on the significant wave height the ocean is allowed. Default 5. */
@@ -282,8 +294,10 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   waveCount?: number;
   /** Mean sea level the surge is added to. Default the water level at attach. */
   seaLevel?: number;
-  /** Seconds the sea takes to respond to the wind. Default 6. */
+  /** Seconds the sea takes to build with the wind. Default 6. */
   seaTau?: number;
+  /** Seconds the sea takes to lie down when the wind drops (seas outlast the wind, e.g. in the eye). Default 25. */
+  seaDecayTau?: number;
   /** Cover in the eye. Default 0.12. */
   eyeCover?: number;
   /** Minimum light factors under the eyewall. Default 0.12 sun / 0.35 ambient. */
@@ -315,6 +329,7 @@ export class CycloneSystem extends SceneObject {
     ambientFactor: 1,
     surge: 0,
     category: -1,
+    darkness: 0,
   };
   ocean: OceanState | null = null;
   private seaWind = 0;
@@ -335,11 +350,23 @@ export class CycloneSystem extends SceneObject {
     this.evaluate(0);
   }
 
-  /** Jump the storm clock (replay / scrub). The sea snaps to the new wind. */
-  seek(time: number): void {
-    this.time = clamp(time, 0, this.track.duration);
+  /**
+   * Jump the storm clock (replay / scrub). The sea is re-run over the preceding `warmup` seconds
+   * so it carries the same lag it would have had playing through (the eye keeps its big swell).
+   */
+  seek(time: number, warmup = 40): void {
+    const target = clamp(time, 0, this.track.duration);
     this.primed = false;
-    this.evaluate(0);
+    const start = Math.max(0, target - warmup);
+    const step = 0.5;
+    this.time = start;
+    this.evaluate(0, false);
+    for (let t = start + step; t < target; t += step) {
+      this.time = t;
+      this.evaluate(step, false);
+    }
+    this.time = target;
+    this.evaluate(target > start ? Math.min(step, target - start) : 0);
   }
 
   get finished(): boolean {
@@ -353,7 +380,7 @@ export class CycloneSystem extends SceneObject {
   }
 
   /** Recompute the observer sample and push it into the scene (`dt` drives the sea lag). */
-  evaluate(dt: number): void {
+  evaluate(dt: number, applyToScene = true): void {
     const s = this.track.sample(this.time, this.state);
     const o = this.options;
     const p = o.observer();
@@ -379,19 +406,29 @@ export class CycloneSystem extends SceneObject {
       this.seaDir = swellDir;
       this.primed = true;
     } else if (dt > 0) {
-      this.seaWind = approachExponential(this.seaWind, obs.wind.speed, dt, tau);
+      const rising = obs.wind.speed > this.seaWind;
+      this.seaWind = approachExponential(this.seaWind, obs.wind.speed, dt, rising ? tau : (o.seaDecayTau ?? 25));
       const delta = Math.atan2(Math.sin(swellDir - this.seaDir), Math.cos(swellDir - this.seaDir));
       this.seaDir += delta * (1 - Math.exp(-dt / tau));
     }
     obs.seaWind = this.seaWind;
     const scene = this.scene;
-    if (!scene) return;
+    if (!scene || !applyToScene) return;
+    // How dark the storm is overhead: thick deck + heavy rain + wind, nothing in the clear eye.
+    obs.darkness = clamp(Math.max(obs.rain, obs.storm * 0.9) * clamp((obs.cover - 0.3) / 0.6, 0, 1), 0, 1);
     if (o.driveClouds ?? true) {
-      scene.setClouds({ coverage: obs.cover, density: 0.6 + 0.4 * obs.cover, windX: obs.wind.x * 0.6, windZ: obs.wind.z * 0.6 });
+      const albedo = 1 - (1 - (o.stormCloudAlbedo ?? 0.28)) * obs.darkness;
+      CLOUD_ALBEDO.set(albedo, albedo, albedo * 1.03);
+      scene.setClouds({ coverage: obs.cover, density: 0.6 + 0.4 * obs.cover, windX: obs.wind.x * 0.6, windZ: obs.wind.z * 0.6, albedo: CLOUD_ALBEDO });
     }
     if (o.driveFog ?? true) {
       const clear = o.fogClear ?? 0.0006;
       const storm = o.fogStorm ?? 0.012;
+      const a = o.fogColorClear ?? FOG_CLEAR;
+      const b = o.fogColorStorm ?? FOG_STORM;
+      const k = obs.darkness;
+      // Mutate the scene's own colour (setFog would adopt a shared object).
+      scene.settings.fog.color.set(a.r + (b.r - a.r) * k, a.g + (b.g - a.g) * k, a.b + (b.b - a.b) * k);
       scene.setFog("exp2", { density: clear + (storm - clear) * clamp(obs.rain * 0.8 + obs.storm * 0.4, 0, 1) });
     }
     if ((o.driveOcean ?? true) && scene.settings.water.enabled) {

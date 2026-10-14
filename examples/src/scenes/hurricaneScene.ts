@@ -151,7 +151,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
 
   // Camera: standing on the berm, looking out to sea.
   const groundHeight = (x: number, z: number): number => coastalHeightAt(HURRICANE_COAST, x, z);
-  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 4, -20));
+  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 4, HURRICANE_OBSERVER.z));
   const camera = new Camera();
   camera.fovY = Math.PI / 3;
   camera.near = 0.1;
@@ -200,7 +200,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
 
   // Palms on the back beach, swaying in the storm's own wind field.
   const windScratch = { x: 0, z: 0, speed: 0 };
-  const sites = coastalPalmSites(HURRICANE_COAST, tierValue(tier, { low: 10, medium: 16, high: 22 }), 260, 22, 62, 9).map((s) => ({ ...s, height: 7.5 + s.random * 4 }));
+  const sites = coastalPalmSites(HURRICANE_COAST, tierValue(tier, { low: 10, medium: 16, high: 22 }), 220, 14, 46, 9).map((s) => ({ ...s, height: 7.5 + s.random * 4 }));
   const palms = new PalmGrove({
     name: "palms",
     gpu: engine.gpu,
@@ -279,8 +279,8 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     cameraEntity,
     controlsHint: "Drag to look around · Scroll to zoom · Replay in the storm panel",
     camera: {
-      target: new Vec3(0, 2.2, 22),
-      distance: 42,
+      target: new Vec3(0, 2.6, 25),
+      distance: 75,
       minDistance: 8,
       maxDistance: 160,
       azimuth: 0,
@@ -292,10 +292,10 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     },
     update(): void {
       const o = cyclone.observed;
-      cycle.sunIntensity = SUN_INTENSITY * o.sunFactor;
-      cycle.ambientScale = AMBIENT * o.ambientFactor;
+      cycle.sunIntensity = SUN_INTENSITY * o.sunFactor * (1 - 0.7 * o.darkness);
+      cycle.ambientScale = AMBIENT * o.ambientFactor * (1 - 0.55 * o.darkness);
       cycle.apply();
-      scene.setSky({ exposure: 0.35 + 0.65 * o.ambientFactor });
+      scene.setSky({ exposure: 1 - 0.8 * o.darkness });
       const s = state();
       const u = windUnits(s.maxWind);
       const l = windUnits(s.localWind);
