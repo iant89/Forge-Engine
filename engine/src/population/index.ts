@@ -52,4 +52,4 @@ export {
   type PopulationSource,
   type PopulationSubmission,
 } from "../scene/population.js";
-export { PalmGrove, palmBendAngle, palmSegmentWeights, palmFrondSource, type PalmGroveOptions, type PalmSite, type PalmWind } from "./palms.js";
+export { windSway, windBendAngle, windBendWeights, createWindSwayPose, type WindSwayParams, type WindSwayPose } from "./windSway.js";

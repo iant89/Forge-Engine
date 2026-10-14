@@ -1,29 +1,30 @@
 /**
- * Palm trees with wind sway (fe-33): procedural trunk + arching fronds built from a short entity
- * chain, bent every frame by a wind callback.
- *
- * Each palm is a root entity at its base and `trunkSegments` child-chained trunk segments; the
- * crown (fronds + coconuts) is parented to the top segment, so bending the chain carries the crown
- * with it. Bending is the reusable part: {@link palmBendAngle} maps a wind speed to the total
- * downwind lean (stiff at a breeze, ~60° at Cat 5), distributed toward the top of the trunk
- * ({@link palmSegmentWeights}), plus a gust oscillation at each tree's own frequency and a frond
- * flutter that grows with the wind. The wind comes from any `(x, z) → vector` callback, so a
- * `CycloneSystem`, a `WeatherSystem` or a constant can drive the grove.
- *
- * Meshes and materials are owned by the grove and released in `onDetach`.
+ * Hurricane demo palms (fe-33): the palm model (segmented trunk + arching fronds + coconuts), its
+ * placement on the back beach, and its posing. Demo code by design — the engine only supplies the
+ * generic wind-response hook (`windSway`, `windBendWeights`) that this grove calls every frame
+ * with the cyclone's own wind at each tree.
  */
 
-import { SceneObject, type Scene } from "../scene/scene.js";
-import type { SystemContext } from "../scene/systems.js";
-import { Renderable } from "../scene/components/index.js";
-import type { Entity } from "../scene/world.js";
-import type { GraphicsDevice } from "../gpu/device.js";
-import { Geometry, type GeometrySource } from "../rendering/geometry.js";
-import { Material } from "../rendering/material.js";
-import { cylinderGeometrySource, sphereGeometrySource } from "../rendering/primitives.js";
-import { Quat } from "../math/mat.js";
-import { Vec3 } from "../math/vec.js";
-import { clamp } from "../math/scalar.js";
+import {
+  Geometry,
+  Material,
+  Quat,
+  Renderable,
+  SceneObject,
+  Vec3,
+  coastalHeightAt,
+  createWindSwayPose,
+  cylinderGeometrySource,
+  sphereGeometrySource,
+  windBendWeights,
+  windSway,
+  type CoastalTerrainParams,
+  type Entity,
+  type GeometrySource,
+  type GraphicsDevice,
+  type Scene,
+  type SystemContext,
+} from "@forge/engine";
 
 export interface PalmSite {
   x: number;
@@ -54,26 +55,6 @@ export interface PalmGroveOptions {
   maxBend?: number;
   trunkColor?: number;
   frondColor?: number;
-}
-
-/** Total downwind lean (radians) for a wind speed: quadratic drag, saturating at `maxBend`. */
-export function palmBendAngle(windSpeed: number, maxBend = 1.05): number {
-  const v = Math.max(0, windSpeed);
-  const drag = (v * v) / (v * v + 45 * 45);
-  return maxBend * drag;
-}
-
-/** Fraction of the bend each segment takes (bottom → top), summing to 1, weighted to the top. */
-export function palmSegmentWeights(segments: number): number[] {
-  const n = Math.max(1, Math.floor(segments));
-  const raw: number[] = [];
-  let sum = 0;
-  for (let i = 0; i < n; i++) {
-    const w = (i + 1) * (i + 1);
-    raw.push(w);
-    sum += w;
-  }
-  return raw.map((w) => w / sum);
 }
 
 /** An arching, tapered, two-sided frond strip along +Z from the origin. */
@@ -135,6 +116,7 @@ const Q = new Quat();
 const Q2 = new Quat();
 const Y_AXIS = new Vec3(0, 1, 0);
 const X_AXIS = new Vec3(1, 0, 0);
+const SWAY = createWindSwayPose();
 
 export class PalmGrove extends SceneObject {
   readonly name: string;
@@ -258,47 +240,34 @@ export class PalmGrove extends SceneObject {
     this.pose(this.time);
   }
 
-  /** Pose every palm for the current wind at simulated time `t`. */
+  /** Pose every palm for the current wind at simulated time `t` (engine `windSway` hook). */
   pose(t: number): void {
     const o = this.options;
-    const maxBend = o.maxBend ?? 1.05;
     let windSum = 0;
     let bendSum = 0;
     for (const p of this.palms) {
       o.wind(p.site.x, p.site.z, this.windScratch);
-      const wx = this.windScratch.x;
-      const wz = this.windScratch.z;
-      const speed = Math.hypot(wx, wz);
-      windSum += speed;
-      const strength = clamp(speed / 60, 0, 1);
-      // Gusting: the tree rocks around its mean lean; more amplitude (and faster) in strong wind.
-      const gust = Math.sin(t * (p.freq * (1 + strength)) * Math.PI * 2 + p.phase) * (0.04 + 0.12 * strength) + Math.sin(t * 2.7 + p.phase * 1.7) * 0.03 * strength;
-      const bend = palmBendAngle(speed, maxBend) * (1 + gust);
-      bendSum += bend;
-      // Axis ⟂ to the wind so +Y tips downwind; the tree's own natural lean is added on top.
-      const len = speed > 1e-3 ? speed : 1;
-      const dirX = speed > 1e-3 ? wx / len : Math.cos(p.leanYaw);
-      const dirZ = speed > 1e-3 ? wz / len : Math.sin(p.leanYaw);
-      const weights = palmSegmentWeights(p.segments.length);
+      const sway = windSway(this.windScratch.x, this.windScratch.z, t, { maxBend: o.maxBend ?? 1.05, frequency: p.freq, phase: p.phase }, SWAY);
+      windSum += Math.hypot(this.windScratch.x, this.windScratch.z);
+      bendSum += sway.bend;
+      const weights = windBendWeights(p.segments.length);
       for (let s = 0; s < p.segments.length; s++) {
-        const w = weights[s]!;
-        AXIS.set(dirZ, 0, -dirX);
-        Q.setAxisAngle(AXIS, bend * w);
+        AXIS.set(sway.axisX, 0, sway.axisZ);
+        Q.setAxisAngle(AXIS, sway.bend * weights[s]!);
         if (s === 0) {
+          // The tree's own natural lean, under the wind's.
           AXIS.set(Math.sin(p.leanYaw), 0, -Math.cos(p.leanYaw));
           Q2.setAxisAngle(AXIS, p.lean);
           Quat.multiplyInto(Q, Q2, Q);
         }
         p.segments[s]!.transform.rotation = Q;
       }
-      // Fronds: each points along its yaw, droops more and flutters harder as the wind builds;
-      // fronds facing upwind get folded over by the wind.
+      // Fronds point along their yaw, droop and flutter harder as the wind builds; upwind fronds fold over.
       for (let f = 0; f < p.fronds.length; f++) {
         const yaw = p.frondYaw[f]!;
-        const facing = Math.cos(yaw) * dirX + Math.sin(yaw) * dirZ; // +1 downwind
-        const flutter = Math.sin(t * (3 + strength * 9) + p.phase + f * 1.3) * (0.05 + 0.3 * strength);
-        const pitch = p.frondPitch[f]! + strength * (0.6 - 0.5 * facing) + flutter;
-        // Local +Z → yaw direction: rotation about Y by (π/2 − yaw) maps +Z onto (cos yaw, sin yaw).
+        const facing = Math.cos(yaw) * sway.downwindX + Math.sin(yaw) * sway.downwindZ;
+        const flutter = sway.flutter * Math.cos(f * 1.3 + p.phase);
+        const pitch = p.frondPitch[f]! + sway.strength * (0.6 - 0.5 * facing) + flutter;
         Q.setAxisAngle(Y_AXIS, Math.PI / 2 - yaw);
         Q2.setAxisAngle(X_AXIS, pitch);
         Quat.multiplyInto(Q, Q2, Q);
@@ -312,4 +281,29 @@ export class PalmGrove extends SceneObject {
   override stats(): Record<string, number | string | boolean> {
     return { palms: this.palms.length, wind: Math.round(this.meanWind * 10) / 10, bend: Math.round(this.meanBend * 100) / 100 };
   }
+}
+
+function hash1(n: number, seed: number): number {
+  const v = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453123;
+  return v - Math.floor(v);
+}
+
+/**
+ * Deterministic palm sites on the back beach: `count` trees between `minAlong` and `maxAlong`
+ * metres inland, spread over `width` metres of coast (uses the engine's coastal coordinates).
+ */
+export function palmSites(coast: CoastalTerrainParams, count: number, width: number, minAlong: number, maxAlong: number, seed = 5): PalmSite[] {
+  const len = Math.hypot(coast.directionX, coast.directionZ) || 1;
+  const dx = coast.directionX / len;
+  const dz = coast.directionZ / len;
+  const out: PalmSite[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = minAlong + (maxAlong - minAlong) * hash1(i * 3 + 1, seed);
+    const c = ((i + hash1(i * 3 + 2, seed) * 0.8) / Math.max(1, count) - 0.5) * width;
+    const x = coast.originX + dx * a - dz * c;
+    const z = coast.originZ + dz * a + dx * c;
+    const random = hash1(i * 3 + 3, seed);
+    out.push({ x, y: coastalHeightAt(coast, x, z), z, random, height: 7.5 + random * 4 });
+  }
+  return out;
 }

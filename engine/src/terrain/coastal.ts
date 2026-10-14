@@ -209,28 +209,3 @@ export function coastalTerrainSource(params: CoastalTerrainParams, centerX: numb
     boundsMax: [centerX + sizeX / 2, maxY, centerZ + sizeZ / 2],
   };
 }
-
-export interface CoastalSite {
-  x: number;
-  y: number;
-  z: number;
-  /** Deterministic 0..1 for per-site variation (height, lean, phase). */
-  random: number;
-}
-
-/**
- * Deterministic vegetation sites (palms) on the back beach / dune foot: between `minAlong` and
- * `maxAlong` metres inland, spread over `width` metres of coast centred on the origin.
- */
-export function coastalPalmSites(params: CoastalTerrainParams, count: number, width: number, minAlong = 25, maxAlong = 80, seed = 5): CoastalSite[] {
-  const r = resolve(params);
-  const out: CoastalSite[] = [];
-  for (let i = 0; i < count; i++) {
-    const a = minAlong + (maxAlong - minAlong) * hash1(i * 3 + 1, seed);
-    const c = (((i + hash1(i * 3 + 2, seed) * 0.8) / Math.max(1, count)) - 0.5) * width;
-    const x = r.ox + r.dx * a - r.dz * c;
-    const z = r.oz + r.dz * a + r.dx * c;
-    out.push({ x, y: coastalHeightAt(params, x, z), z, random: hash1(i * 3 + 3, seed) });
-  }
-  return out;
-}

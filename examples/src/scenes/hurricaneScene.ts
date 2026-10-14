@@ -6,7 +6,7 @@
  * This file is scripting only: the storm track lives in `hurricane.ts`, and every simulated or
  * generated system is the engine's — `CycloneSystem` (wind/rain/cloud field, sea state, surge,
  * light), the ocean (`WaterSurface` + `oceanGridSource` + the shore settings), `coastalHeightAt` /
- * `coastalTerrainSource` (beach + dunes), `PalmGrove` (sway) and `PrecipitationField` (rain).
+ * `coastalTerrainSource` (beach + dunes), the demo's own palms (`hurricanePalms.ts`, posed by the engine's `windSway` hook) and `PrecipitationField` (rain).
  * The scene wires them together, owns the camera and draws the HUD (category, wind, phase and a
  * replay button). `?tier=low|medium|high` forces the device tier.
  */
@@ -21,14 +21,12 @@ import {
   Geometry,
   Light,
   Material,
-  PalmGrove,
   PrecipitationField,
   Renderable,
   Scene,
   Vec3,
   WaterSurface,
   coastalHeightAt,
-  coastalPalmSites,
   coastalShoreSettings,
   coastalTerrainSource,
   cycloneWindAt,
@@ -38,6 +36,7 @@ import {
   tierValue,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
+import { PalmGrove, palmSites } from "./hurricanePalms.js";
 import {
   HURRICANE_BEATS,
   HURRICANE_COAST,
@@ -200,7 +199,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
 
   // Palms on the back beach, swaying in the storm's own wind field.
   const windScratch = { x: 0, z: 0, speed: 0 };
-  const sites = coastalPalmSites(HURRICANE_COAST, tierValue(tier, { low: 10, medium: 16, high: 22 }), 220, 14, 46, 9).map((s) => ({ ...s, height: 7.5 + s.random * 4 }));
+  const sites = palmSites(HURRICANE_COAST, tierValue(tier, { low: 10, medium: 16, high: 22 }), 220, 14, 46, 9);
   const palms = new PalmGrove({
     name: "palms",
     gpu: engine.gpu,
