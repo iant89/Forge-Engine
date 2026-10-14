@@ -23,10 +23,10 @@ export const suite = {
     "engine/src/rendering/shaders/populationCull.ts",
     "engine/src/rendering/shaders/populationLod.ts",
     "engine/src/rendering/shaders/standard.ts",
-    "engine/src/testing/mockGpu.ts",
+    "engine/src/testing/mockGpu.ts"
   ],
   desc: "Per-instance population culling (Phase A): the CPU twin against brute force, the one-frame bit lag, the mock renderer path and its fallback",
-} as const;
+};
 
 import assert from "node:assert/strict";
 import { assertContains, assertNotContains, finish, group, test } from "selrun";
