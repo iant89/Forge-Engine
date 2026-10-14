@@ -398,7 +398,8 @@ group("Population distance fade (fe-31)", () => {
     const { f, u } = records(pts);
     for (const k of [1, 4, 6]) u[k * INSTANCE_RECORD_WORDS + 18] = INSTANCE_FLAG_FAR;
     const batch = batchOf(8, { flags: POP_CULL_DISTANCE, maxDistance: 5 });
-    const everything = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1].map((v, i) => (i % 4 === 3 ? 1e6 : 0)));
+    // Six planes that accept everything (0·p + 1e6 ≥ 0): only the far bit can drop a caster.
+    const everything = new Float32Array(24).map((_, i) => (i % 4 === 3 ? 1e6 : 0));
     const indices = new Uint32Array(64 * 2);
     const counts = new Uint32Array(2);
     const stats = emptyPopulationCullStats();
