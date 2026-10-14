@@ -17,6 +17,7 @@ import {
   Geometry,
   type GeometrySource,
   Light,
+  MAX_SPOT_SHADOWS,
   Material,
   Quat,
   ReductionDrive,
@@ -56,6 +57,10 @@ export interface RoverCourseHandle extends DemoSceneHandle {
   resetCones(): void;
   /** Re-run the GLB fetch after a failure. */
   retryModelLoad(): void;
+  /** Lamp head positions and whether each holds a spot-shadow slot this frame (gates / screenshots). */
+  lampState(): { x: number; z: number; castShadow: boolean }[];
+  /** Park the rover at rest at (x, z) facing `yaw` (gates / screenshots). */
+  teleport(x: number, z: number, yaw?: number): boolean;
 }
 
 // ---------------------------------------------------------------- track layout
@@ -189,6 +194,12 @@ export const COURSE_BARRIERS: [number, number][] = [[-7, -8.2], [1, -11.8], [8, 
 /** Tire-stack centres [x, z] outside the corners. */
 export const COURSE_TIRE_STACKS: [number, number][] = [[33, 13], [33, -13], [-33, 13], [-33, -13]];
 
+/** Indices of the `count` lamps closest to (x, z) on the ground plane; ties keep list order. */
+export function nearestLampIndices(lamps: readonly { x: number; z: number }[], x: number, z: number, count: number): Set<number> {
+  const order = lamps.map((l, i) => ({ i, d: (l.x - x) ** 2 + (l.z - z) ** 2 })).sort((a, b) => a.d - b.d || a.i - b.i);
+  return new Set(order.slice(0, Math.max(0, count)).map((o) => o.i));
+}
+
 export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): RoverCourseHandle {
   const loadModel = dependencies.loadGlb ?? loadGlb;
   const gpu = engine.gpu;
@@ -265,6 +276,7 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
   const headGeo = track(createBox(gpu, { width: 0.34, height: 0.14, depth: 0.8 }));
   const lensGeo = track(createBox(gpu, { width: 0.26, height: 0.05, depth: 0.6 }));
   const LAMP_COUNT = 8;
+  const lampSpots: { light: Light; x: number; z: number }[] = [];
   for (let k = 0; k < LAMP_COUNT; k++) {
     const s = samples[Math.floor((k * samples.length) / LAMP_COUNT)]!;
     // (tz, -tx) is the inward normal on this clockwise loop, so the pole stands at
@@ -304,9 +316,12 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     spot.intensity = 60;
     spot.innerCone = 0.93;
     spot.outerCone = 0.78;
-    spot.castShadow = false;
+    // Shadowed, but only the lamps nearest the rover keep the flag (see updateLampShadows):
+    // the renderer has MAX_SPOT_SHADOWS slots and ranks equal lamps by list order, not distance.
+    spot.castShadow = true;
     spot.setColor(1.0, 0.8, 0.58);
     scene.world.addComponent(spotEntity.id, spot);
+    lampSpots.push({ light: spot, x: hx, z: hz });
     spotEntity.transform.lookAt(new Vec3(s.x + s.tx * 0.4, 0, s.z + s.tz * 0.4));
   }
 
@@ -585,6 +600,14 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
   window.addEventListener("keyup", onKeyUp);
   const touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {});
 
+  // ---------------------------------------------------------------- lamp shadows
+
+  /** Give the MAX_SPOT_SHADOWS shadow slots to the lamps nearest the rover (they light it). */
+  function updateLampShadows(): void {
+    const near = nearestLampIndices(lampSpots, vehicle.position.x, vehicle.position.z, MAX_SPOT_SHADOWS);
+    for (let i = 0; i < lampSpots.length; i++) lampSpots[i]!.light.castShadow = near.has(i);
+  }
+
   // ---------------------------------------------------------------- cones + collisions
 
   let conesHit = 0;
@@ -700,6 +723,7 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
       vehicle.input.handbrake = keys.has("Space") || startupBrake ? 1 : 0;
       collideCourse();
       stepCones(dt);
+      updateLampShadows();
     },
     overlay(): string {
       const mb = (bytes: number): string => (bytes / 1048576).toFixed(1);
@@ -737,6 +761,23 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     }),
     resetCones,
     retryModelLoad,
+    lampState: () => lampSpots.map((l) => ({ x: l.x, z: l.z, castShadow: l.light.castShadow })),
+    teleport(x: number, z: number, yaw?: number): boolean {
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+      vehicle.position.x = x;
+      vehicle.position.z = z;
+      vehicle.velocity.set(0, 0, 0);
+      vehicle.yawRate = 0;
+      vehicle.pitch = 0;
+      vehicle.roll = 0;
+      vehicle.pitchRate = 0;
+      vehicle.rollRate = 0;
+      for (const wheel of vehicle.wheels) wheel.omega = 0;
+      if (yaw !== undefined && Number.isFinite(yaw)) vehicle.yaw = yaw;
+      vehicle.placeOnGround(ground);
+      updateLampShadows();
+      return true;
+    },
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
