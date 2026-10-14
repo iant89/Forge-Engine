@@ -61,7 +61,7 @@ import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle 
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
-import { stormQualityForPlatform } from "./scenes/dustStorm.js";
+import { parseStormDifficulty, stormQualityForPlatform } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
@@ -233,11 +233,12 @@ async function main(): Promise<void> {
     } else if (name === "amazon-river") {
       currentHandle = buildAmazonRiverScene(engine);
     } else if (name === "mars-dust-storm") {
-      // `?difficulty=hard` is only the starting value: the EASY/HARD toolbar and touch toggles switch
-      // it live and restart the run. Hard sends a buried or flipped rover back to the last beam.
+      // `?difficulty=` is only the starting value: the four difficulty buttons and the touch pad switch
+      // it live and restart the run. Expert/Unreal send a buried or flipped rover back to the last beam.
       const query = new URLSearchParams(window.location.search);
       currentHandle = buildMarsDustStormScene(engine, {
-        difficulty: query.get("difficulty") === "hard" ? "hard" : "easy",
+        // fe-29: easy | advanced | expert | unreal (`hard` = expert).
+        difficulty: parseStormDifficulty(query.get("difficulty")),
         quality: stormQualityForPlatform(platform.os),
         // fe-28: a fresh random course every load; `?seed=<uint32>` replays one (tests, sharing).
         courseSeed: randomCourseSeed(query.get("seed")),
@@ -719,6 +720,10 @@ async function main(): Promise<void> {
     /** Mars Dust Storm: move the rover to (x, z) on the ground (browser checks / screenshots). */
     marsDustStormTeleport: (x: number, z: number) =>
       activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.teleport?.(x, z) ?? false : false,
+    /** Mars Dust Storm (fe-29): simulate a wind throw of (dx, dz) m, lifted `up` m (screenshots / checks). */
+    marsDustStormBlow: (dx: number, dz: number, up?: number) => {
+      if (activeSceneName === "mars-dust-storm") (currentHandle as MarsDustStormHandle | null)?.debugBlow?.(dx, dz, up);
+    },
     /** Mars Dust Storm: skip the finale clock ahead (slow software-GPU screenshot runs). */
     marsDustStormAdvanceFinale: (seconds: number) => {
       if (activeSceneName === "mars-dust-storm") (currentHandle as MarsDustStormHandle | null)?.advanceFinale?.(seconds);

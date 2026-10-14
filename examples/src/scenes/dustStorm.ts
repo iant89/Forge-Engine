@@ -77,7 +77,17 @@ export function stormQualityForPlatform(os: string): StormQualityTier {
 
 // ---------------------------------------------------------------- difficulty (D3)
 
-export type StormDifficulty = "easy" | "hard";
+export type StormDifficulty = "easy" | "advanced" | "expert" | "unreal";
+
+/** fe-29: the four storm difficulties, mildest first (the touch pad cycles in this order). */
+export const STORM_DIFFICULTIES: readonly StormDifficulty[] = Object.freeze(["easy", "advanced", "expert", "unreal"]);
+
+/** `?difficulty=` value → difficulty; `hard` (the pre-fe-29 name) is an alias for expert. */
+export function parseStormDifficulty(value: string | null | undefined): StormDifficulty {
+  const v = (value ?? "").toLowerCase();
+  if (v === "hard") return "expert";
+  return (STORM_DIFFICULTIES as readonly string[]).includes(v) ? (v as StormDifficulty) : "easy";
+}
 
 export interface StormDifficultyRules {
   /** What happens when the rover's pile reaches {@link BURIAL_STUCK}. */
@@ -86,13 +96,22 @@ export interface StormDifficultyRules {
   onFlip: "right" | "reset";
   /** fe-29: blown too far from the last safe spot — respawn there (easy) or lose the run (hard). */
   onBlownAway: "respawn" | "lose";
+  /** fe-29: wind force multiplier ({@link STORM_STRENGTH}); hard is stormier. */
+  stormStrength: number;
   /** Seconds added once per soft-stuck episode or auto-righting. */
   timePenalty: number;
 }
 
+/**
+ * Easy/Advanced forgive (rock free, auto-right, respawn after a wind throw); Expert/Unreal send a
+ * buried or flipped rover back to the last beam and lose the run when it is blown away. The wind
+ * force multiplier rises with each step ({@link STORM_STRENGTH}) and is never shown in the UI.
+ */
 export const STORM_DIFFICULTY: Readonly<Record<StormDifficulty, Readonly<StormDifficultyRules>>> = Object.freeze({
-  easy: Object.freeze({ onStuck: "soft", onFlip: "right", onBlownAway: "respawn", timePenalty: 15 }),
-  hard: Object.freeze({ onStuck: "reset", onFlip: "reset", onBlownAway: "lose", timePenalty: 0 }),
+  easy: Object.freeze({ onStuck: "soft", onFlip: "right", onBlownAway: "respawn", stormStrength: 30, timePenalty: 15 }),
+  advanced: Object.freeze({ onStuck: "soft", onFlip: "right", onBlownAway: "respawn", stormStrength: 50, timePenalty: 15 }),
+  expert: Object.freeze({ onStuck: "reset", onFlip: "reset", onBlownAway: "lose", stormStrength: 65, timePenalty: 0 }),
+  unreal: Object.freeze({ onStuck: "reset", onFlip: "reset", onBlownAway: "lose", stormStrength: 120, timePenalty: 0 }),
 });
 
 // ---------------------------------------------------------------- storm field (D8)
@@ -103,8 +122,10 @@ export const GUST_PERIOD = 48;
 export const GUST_LULL_FRACTION = 0.3;
 export const LULL_INTENSITY = 0.35;
 export const GUST_INTENSITY = 1;
-/** Mean wind speed (m/s) at full intensity; the field scales it by intensity. */
-export const STORM_WIND_SPEED = 26;
+/** Mean wind speed (m/s) at full intensity (measured Mars storms: ~17–30 m/s); scaled by intensity. */
+export const STORM_WIND_SPEED = 20;
+/** Peak gust speed (m/s) at full intensity: short pulses ride on the mean. */
+export const STORM_GUST_PEAK = 30;
 
 export type StormPhase = "lull" | "building" | "gust" | "easing";
 
@@ -168,7 +189,10 @@ export class StormField {
 
   /** Mean horizontal wind (m/s) at time `t`. */
   wind(t: number, out: { x: number; z: number } = { x: 0, z: 0 }): { x: number; z: number } {
-    const speed = STORM_WIND_SPEED * this.intensity(t);
+    // fe-29: short gust pulses (0..1) lift the mean toward STORM_GUST_PEAK.
+    const tt = t + this.phase0;
+    const pulse = Math.max(0, Math.sin(tt * 0.9) * Math.sin(tt * 0.37 + 1.1));
+    const speed = this.intensity(t) * (STORM_WIND_SPEED + (STORM_GUST_PEAK - STORM_WIND_SPEED) * pulse);
     const h = this.heading(t);
     out.x = Math.cos(h) * speed;
     out.z = Math.sin(h) * speed;
@@ -224,8 +248,10 @@ export interface DustDevil {
 }
 
 /** Peak tangential wind of a medium devil at the core edge, before size scaling and envelope. */
-export const DEVIL_SWIRL_MIN = 16;
-export const DEVIL_SWIRL_MAX = 28;
+export const DEVIL_SWIRL_MIN = 10;
+export const DEVIL_SWIRL_MAX = 26;
+/** fe-29: hard cap on |swirl| (m/s) for wide or merged devils — the top of measured Mars devils. */
+export const DEVIL_SWIRL_CAP = 31;
 /** Ramp in/out time (s) so devils never pop. */
 export const DEVIL_FADE = 4;
 /** Fade (s) of a devil swallowed by another (it is dragged into the absorber while it fades). */
@@ -375,7 +401,7 @@ export class DustDevilField {
       vz: 0,
       coreRadius: core,
       outerRadius: core * rng.nextRange(3.5, 4.5),
-      swirl: rng.nextRange(DEVIL_SWIRL_MIN, DEVIL_SWIRL_MAX) * devilSizeFactor(core) * (rng.nextFloat() < 0.5 ? -1 : 1),
+      swirl: Math.min(DEVIL_SWIRL_CAP, Math.max(DEVIL_SWIRL_MIN, rng.nextRange(DEVIL_SWIRL_MIN, DEVIL_SWIRL_MAX) * devilSizeFactor(core))) * (rng.nextFloat() < 0.5 ? -1 : 1),
       life: devilLifespan(core, rng.nextFloat()),
       age: 0,
       opacity: rng.nextRange(0.75, 1.2),
@@ -419,7 +445,7 @@ export class DustDevilField {
     const grown = Math.min(DEVIL_CORE_CAP, Math.hypot(big.targetCore, small.targetCore));
     const ratio = grown / Math.max(1e-6, big.targetCore);
     big.targetCore = grown;
-    big.swirl = Math.sign(big.swirl || 1) * Math.min(DEVIL_SWIRL_MAX * 1.5, Math.abs(big.swirl) * Math.sqrt(ratio));
+    big.swirl = Math.sign(big.swirl || 1) * Math.min(DEVIL_SWIRL_CAP, Math.abs(big.swirl) * Math.sqrt(ratio));
     big.life = Math.max(big.life, big.age + 12);
     big.opacity = Math.min(1.3, big.opacity + 0.05);
     this.end(small, cause, DEVIL_CONSUME_FADE);
@@ -608,18 +634,18 @@ export interface DevilRoverForce {
 }
 
 /**
- * fe-29: the wind is force based. Aerodynamic force is dynamic pressure × drag area,
- * F = ½·ρ·v²·Cd·A, and the rover feels F / mass — a heavier rover is pushed and lifted less.
+ * fe-29: every wind effect on the rover is real aerodynamic drag, F = ½·ρ·v²·Cd·A with Mars air
+ * (ρ ≈ 0.020 kg/m³), divided by the rover's mass — a heavier rover is pushed, spun and lifted less.
  *
- * Honesty note: real Mars air (ρ ≈ 0.020 kg/m³, ~1/60 of Earth's) could never move a 1025 kg
- * rover — a 28 m/s devil gives ~70 N on its side, ~0.07 m/s². The game multiplies the physical
- * force by {@link DEVIL_GAMEPLAY_MULTIPLIER} (≈ 230×) for devils and {@link STORM_GAMEPLAY_MULTIPLIER}
- * for the storm's straight-line wind, chosen so the reference rover behaves as it did before fe-29.
+ * {@link STORM_STRENGTH} is the ONE gameplay exaggeration, a plain multiplier on that force.
+ * At 1 (real Mars) a 30 m/s gust gives ~65 N on Perseverance's side, ~0.06 m/s² — nothing you
+ * would feel, and no devil could ever lift it. The difficulties use 30× (Easy, closest to real:
+ * gusts shove, devils cannot lift), 50× (Advanced), 65× (Expert) and 120× (Unreal). Hidden from the UI.
  */
 export const MARS_AIR_DENSITY = 0.02;
-/** Perseverance's mass (kg); the reference the gameplay multipliers were tuned for. */
+/** Perseverance's mass (kg), the default when a caller does not pass the vehicle's own. */
 export const ROVER_REFERENCE_MASS = 1025;
-/** Side-on drag coefficient and frontal area (m²) of the rover body + mast. */
+/** Side-on drag coefficient and side area (m²) of the rover body + mast. */
 export const ROVER_DRAG_CD = 1.2;
 export const ROVER_SIDE_AREA = 6;
 /** Updraft drag coefficient and plan-view area (m²) the core's updraft pushes on from below. */
@@ -628,24 +654,25 @@ export const ROVER_PLAN_AREA = 8.5;
 /** Mars gravity (m/s²). */
 export const MARS_G = 3.72;
 
-/** Legacy shape gains (now expressed per reference rover; see {@link devilRoverForce}). */
-export const DEVIL_PUSH_GAIN = 0.16;
-export const DEVIL_INFLOW_FRACTION = 0.35;
-export const DEVIL_YAW_GAIN = 0.11;
-/** Peak updraft acceleration on the reference rover at the eye; {@link MARS_G} cancels gravity. */
-export const DEVIL_LIFT_MAX = 6.5;
-export const DEVIL_ROLL_GAIN = 0.32;
-
-/** ½·ρ·Cd·A for the side push (N per (m/s)²) before the gameplay multiplier. */
-const SIDE_Q = 0.5 * MARS_AIR_DENSITY * ROVER_DRAG_CD * ROVER_SIDE_AREA;
-const PLAN_Q = 0.5 * MARS_AIR_DENSITY * ROVER_LIFT_CD * ROVER_PLAN_AREA;
 /**
- * Gameplay multiplier on the physical devil force. Derived (not hand-typed) so the reference
- * rover gets exactly the pre-fe-29 push of DEVIL_PUSH_GAIN·0.1·v² m/s².
+ * Gameplay multiplier on the real drag force per difficulty. `real: 1` = physically real Mars air
+ * (the rover would not notice the storm); every difficulty exaggerates it, Easy least.
  */
-export const DEVIL_GAMEPLAY_MULTIPLIER = (DEVIL_PUSH_GAIN * 0.1 * ROVER_REFERENCE_MASS) / SIDE_Q;
-/** Updraft speed (m/s) at the eye of a full-strength devil. */
-export const DEVIL_UPDRAFT_MAX = Math.sqrt((DEVIL_LIFT_MAX * ROVER_REFERENCE_MASS) / (PLAN_Q * DEVIL_GAMEPLAY_MULTIPLIER));
+export const STORM_STRENGTH = Object.freeze({ real: 1, easy: 30, advanced: 50, expert: 65, unreal: 120 });
+
+export const DEVIL_INFLOW_FRACTION = 0.35;
+/** Updraft speed at the eye as a fraction of the core-edge swirl speed (measured devils: ~0.3–1). */
+export const DEVIL_UPDRAFT_RATIO = 1;
+/**
+ * Torque arms: yaw / roll angular acceleration (rad/s²) per m/s² of side push / lift — the drag
+ * acts off the centre of mass (r × F / I collapsed to one constant for the rover's inertia).
+ */
+export const DEVIL_YAW_ARM = 0.3;
+export const DEVIL_ROLL_ARM = 1.4;
+
+/** ½·ρ·Cd·A for the side push and the updraft (N per (m/s)²), real Mars air. */
+export const ROVER_SIDE_Q = 0.5 * MARS_AIR_DENSITY * ROVER_DRAG_CD * ROVER_SIDE_AREA;
+export const ROVER_PLAN_Q = 0.5 * MARS_AIR_DENSITY * ROVER_LIFT_CD * ROVER_PLAN_AREA;
 /**
  * The updraft holds full strength up to this clearance (m) above the ground and fades to nothing
  * at {@link DEVIL_LIFT_CEILING}: a strong devil can hold the rover aloft while it stays in the eye,
@@ -657,11 +684,6 @@ export const DEVIL_LIFT_CEILING = 16;
 export const DEVIL_ROLL_MAX_CLEARANCE = 4;
 /** Vertical air drag (1/s) on a rising rover: caps the climb rate inside the column. */
 export const DEVIL_LIFT_DAMPING = 0.6;
-/**
- * Storm wind gameplay multiplier: a full 26 m/s gust pushes the reference rover ≈ 0.25 m/s² —
- * felt in the steering, never enough to roll it on its own.
- */
-export const STORM_GAMEPLAY_MULTIPLIER = 5.3;
 
 /** Updraft fade with clearance (1 near the ground, 0 at {@link DEVIL_LIFT_CEILING}). */
 export function devilLiftHeightFactor(clearance: number): number {
@@ -671,10 +693,10 @@ export function devilLiftHeightFactor(clearance: number): number {
 }
 
 /**
- * Force a devil applies to a rover at (x, z), as acceleration on a rover of `mass` kg: drag toward
- * the swirl (tangential) and the inflow (radial), a yaw torque in the spin direction, and — inside
- * the core only — an updraft and a roll torque. `clearance` (m above ground) fades the updraft
- * aloft ({@link devilLiftHeightFactor}). All terms scale with 1/mass (yaw/roll by the same ratio).
+ * Force a devil applies to a rover at (x, z), as acceleration on a rover of `mass` kg: drag along
+ * the swirl (tangential) and the inflow (radial), a yaw torque from that push, and — inside the
+ * core only — the updraft's drag on the rover's belly plus a roll torque. All of it is
+ * ½ρv²CdA × `strength` / mass; `clearance` (m above ride height) fades the updraft aloft.
  */
 export function devilRoverForce(
   devil: DustDevil,
@@ -683,6 +705,7 @@ export function devilRoverForce(
   out: DevilRoverForce = { ax: 0, az: 0, yawAccel: 0, lift: 0, rollAccel: 0 },
   mass: number = ROVER_REFERENCE_MASS,
   clearance = 0,
+  strength: number = STORM_STRENGTH.advanced,
 ): DevilRoverForce {
   out.ax = 0;
   out.az = 0;
@@ -695,35 +718,31 @@ export function devilRoverForce(
   const v = devilTangentialSpeed(devil, r);
   if (v === 0) return out;
   const m = mass > 1 ? mass : ROVER_REFERENCE_MASS;
-  const ratio = ROVER_REFERENCE_MASS / m;
   const rx = r > 1e-6 ? dx / r : 1;
   const rz = r > 1e-6 ? dz / r : 0;
   // Counter-clockwise tangent seen from above (+Y up): (-rz, rx). Positive swirl spins that way.
   const tx = -rz;
   const tz = rx;
-  const q = SIDE_Q * DEVIL_GAMEPLAY_MULTIPLIER; // N per (m/s)²
+  const q = ROVER_SIDE_Q * strength; // N per (m/s)²
   const push = (q * v * Math.abs(v)) / m;
   const inflow = (q * DEVIL_INFLOW_FRACTION * v * v) / m;
   out.ax = tx * push - rx * inflow;
   out.az = tz * push - rz * inflow;
-  out.yawAccel = DEVIL_YAW_GAIN * v * ratio;
+  out.yawAccel = DEVIL_YAW_ARM * push;
   if (r < devil.coreRadius) {
     const eye = 1 - r / devil.coreRadius;
-    // Wide devils carry a stronger swirl (devilSizeFactor), so they lift harder too.
-    const strength = Math.min(1.5, Math.abs(devil.swirl) / DEVIL_SWIRL_MAX);
-    const env = devilEnvelope(devil);
-    // Updraft speed² ∝ the old lift shape, so the reference rover lifts exactly as before.
-    const w2 = DEVIL_UPDRAFT_MAX * DEVIL_UPDRAFT_MAX * (0.4 + 0.6 * eye) * strength * env;
-    const liftForce = PLAN_Q * DEVIL_GAMEPLAY_MULTIPLIER * w2 * devilLiftHeightFactor(clearance);
-    out.lift = liftForce / m;
-    out.rollAccel = clearance < DEVIL_ROLL_MAX_CLEARANCE ? DEVIL_ROLL_GAIN * v * (0.5 + eye) * ratio : 0;
+    // Updraft: strongest at the eye, scaled from the devil's core-edge swirl speed.
+    const w = DEVIL_UPDRAFT_RATIO * Math.abs(devil.swirl) * devilEnvelope(devil);
+    const w2 = w * w * (0.4 + 0.6 * eye);
+    out.lift = (ROVER_PLAN_Q * strength * w2 * devilLiftHeightFactor(clearance)) / m;
+    out.rollAccel = clearance < DEVIL_ROLL_MAX_CLEARANCE ? Math.sign(v) * DEVIL_ROLL_ARM * out.lift * (0.5 + eye) : 0;
   }
   return out;
 }
 
 /**
  * Storm straight-line wind push on the rover (m/s², written to `out`): drag from the wind relative
- * to the rover's own horizontal velocity, F = ½ρ|u|u·Cd·A × {@link STORM_GAMEPLAY_MULTIPLIER}, / mass.
+ * to the rover's own horizontal velocity, ½ρ|u|u·Cd·A × `strength` / mass.
  */
 export function stormWindAccel(
   windX: number,
@@ -732,11 +751,12 @@ export function stormWindAccel(
   roverVz: number,
   mass: number = ROVER_REFERENCE_MASS,
   out: { x: number; z: number } = { x: 0, z: 0 },
+  strength: number = STORM_STRENGTH.advanced,
 ): { x: number; z: number } {
   const ux = windX - roverVx;
   const uz = windZ - roverVz;
   const u = Math.hypot(ux, uz);
-  const k = (SIDE_Q * STORM_GAMEPLAY_MULTIPLIER * u) / (mass > 1 ? mass : ROVER_REFERENCE_MASS);
+  const k = (ROVER_SIDE_Q * strength * u) / (mass > 1 ? mass : ROVER_REFERENCE_MASS);
   out.x = k * ux;
   out.z = k * uz;
   return out;
@@ -1590,7 +1610,7 @@ export function buildDrapedRing(cx: number, cz: number, radius: number, width: n
 
 /** The easy-mode glowing path is drawn only in easy, and only while there is a beam to reach. */
 export function guidePathEnabled(difficulty: StormDifficulty, hasTarget: boolean): boolean {
-  return difficulty === "easy" && hasTarget;
+  return (difficulty === "easy" || difficulty === "advanced") && hasTarget;
 }
 
 // fe-28: the straight-line `buildGuidePath` and the camera-basis `waypointInView` were replaced by
@@ -1701,7 +1721,7 @@ export function buildArrowMesh(length = 2.4, width = 1.3, thickness = 0.3): Stri
 
 /** The off-screen waypoint arrow is an EASY-mode aid only, like the path (captain fe-18). */
 export function waypointArrowEnabled(difficulty: StormDifficulty): boolean {
-  return difficulty === "easy";
+  return difficulty === "easy" || difficulty === "advanced";
 }
 
 // ---------------------------------------------------------------- beam pulse (fe-18)
@@ -2115,9 +2135,9 @@ export function devilBulgeScale(c: Pick<DevilAxisCurve, "bulge">, h: number): nu
  * fe-22e: the rover push from a devil whose base has wandered: {@link devilRoverForce} evaluated
  * around the visible (wandered) base at time t, so the physics matches what is drawn.
  */
-export function devilRoverForceAt(devil: DustDevil, t: number, x: number, z: number, out?: DevilRoverForce, mass?: number, clearance?: number): DevilRoverForce {
+export function devilRoverForceAt(devil: DustDevil, t: number, x: number, z: number, out?: DevilRoverForce, mass?: number, clearance?: number, strength?: number): DevilRoverForce {
   const w = devilWander(devil, t, _wf);
-  return devilRoverForce(devil, x - w.x, z - w.z, out, mass, clearance);
+  return devilRoverForce(devil, x - w.x, z - w.z, out, mass, clearance, strength);
 }
 const _wf = { x: 0, z: 0 };
 
@@ -2301,4 +2321,113 @@ export class DevilPebbles {
     p.state = "falling";
     p.devilId = -1;
   }
+}
+
+// ---------------------------------------------------------------- run summary (fe-29)
+
+/** A single frame jump longer than this (m) is a reposition (respawn / teleport), not driving. */
+export const STATS_TELEPORT_JUMP = 5;
+
+export interface StormRunStatsSample {
+  x: number;
+  z: number;
+  /** Chassis height above its ride height (m). */
+  clearance: number;
+  /** Horizontal ground speed (m/s). */
+  speed: number;
+  /** Strongest wind at the rover this frame (storm wind or devil swirl, m/s). */
+  wind: number;
+  /** A devil is lifting the rover this frame. */
+  lifted: boolean;
+}
+
+/** Per-run statistics for the end-of-run summary. Reset with the run. */
+export class StormRunStats {
+  distance = 0;
+  maxHeight = 0;
+  topSpeed = 0;
+  maxWind = 0;
+  /** Separate lift episodes (rising edges of devil lift while off the ground). */
+  timesLifted = 0;
+  /** Respawns of any kind: blown-away respawns, burial / flip send-backs. */
+  respawns = 0;
+  private lastX = NaN;
+  private lastZ = NaN;
+  private wasLifted = false;
+
+  reset(): void {
+    this.distance = 0;
+    this.maxHeight = 0;
+    this.topSpeed = 0;
+    this.maxWind = 0;
+    this.timesLifted = 0;
+    this.respawns = 0;
+    this.lastX = NaN;
+    this.lastZ = NaN;
+    this.wasLifted = false;
+  }
+
+  /** Forget the last position (call after a respawn / teleport so the jump is not counted). */
+  reposition(): void {
+    this.lastX = NaN;
+    this.lastZ = NaN;
+  }
+
+  step(s: StormRunStatsSample): void {
+    if (Number.isFinite(this.lastX)) {
+      const d = Math.hypot(s.x - this.lastX, s.z - this.lastZ);
+      if (d < STATS_TELEPORT_JUMP) this.distance += d;
+    }
+    this.lastX = s.x;
+    this.lastZ = s.z;
+    this.maxHeight = Math.max(this.maxHeight, s.clearance);
+    this.topSpeed = Math.max(this.topSpeed, s.speed);
+    this.maxWind = Math.max(this.maxWind, s.wind);
+    const lifted = s.lifted && s.clearance > 0.3;
+    if (lifted && !this.wasLifted) this.timesLifted++;
+    this.wasLifted = lifted;
+  }
+}
+
+export interface StormRunSummaryInput {
+  result: "completed" | "lost";
+  reason: string | null;
+  difficulty: StormDifficulty;
+  time: number;
+  reached: number;
+  total: number;
+  seed: number;
+  stats: Pick<StormRunStats, "distance" | "maxHeight" | "topSpeed" | "maxWind" | "timesLifted" | "respawns">;
+}
+
+/** Metres under 1 km, else km with 2 decimals. */
+export function formatDistance(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
+}
+
+const formatClock = (s: number): string => {
+  const t = Math.max(0, Math.floor(s));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
+
+/** Title + label/value rows for the end-of-run dialog (pure: tested without a DOM). */
+export function stormRunSummary(i: StormRunSummaryInput): { title: string; rows: [string, string][] } {
+  const reason = i.reason ? i.reason.charAt(0) + i.reason.slice(1).toLowerCase() : "";
+  const title = i.result === "completed" ? "Completed" : `Lost${reason ? ` — ${reason}` : ""}`;
+  return {
+    title,
+    rows: [
+      ["Result", title],
+      ["Difficulty", i.difficulty.charAt(0).toUpperCase() + i.difficulty.slice(1)],
+      ["Distance traveled", formatDistance(i.stats.distance)],
+      ["Time taken", formatClock(i.time)],
+      ["Waypoints reached", `${i.reached} / ${i.total}`],
+      ["Respawns used", String(i.stats.respawns)],
+      ["Times lifted / thrown", String(i.stats.timesLifted)],
+      ["Max height reached", `${i.stats.maxHeight.toFixed(1)} m`],
+      ["Top speed", `${i.stats.topSpeed.toFixed(1)} m/s`],
+      ["Max wind experienced", `${Math.round(i.stats.maxWind)} m/s`],
+      ["Seed", String(i.seed >>> 0)],
+    ],
+  };
 }
