@@ -187,8 +187,13 @@ What remains:
 ## Environment (Phase 8b)
 
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
-  the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
+  the horizon→zenith sky gradient: no planar reflection pass, no depth sampling, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
+  Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
+  (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the
+  same parameters (`coastalTerrainSource`); shoaling ignores its own gradient in the normals.
+  The cyclone's eye clears the *global* cloud deck (cover is evaluated at one observer point), so
+  the eyewall is not visible as a wall of cloud around an open hole.
   CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
   (capability: environment.water)
 

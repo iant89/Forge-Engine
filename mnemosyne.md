@@ -2317,3 +2317,8 @@ Read the module constraints below before changing either pure model.
   not a separate culling fault.
 - **Change:** the HUD device line and the `?diag=1` report print `build <sha7>` (Vite `define`, from
   `GITHUB_SHA` on Pages). Ask for that stamp before debugging any device-only report.
+
+- 2026-10-14 (fe-33): Shoaled Gerstner amplitude must be capped by depth (H ≤ 0.78·d) or troughs dig below the analytic
+  bed and the sand shows through as dark ellipses in the sea. Cyclone tracks on a compressed clock need
+  `timeCompression` or the forward-motion term adds km/s winds. Palms/plant models belong in examples/; the engine
+  only has `windSway`. See engine/src/environment/cyclone.ts, ocean.ts.
