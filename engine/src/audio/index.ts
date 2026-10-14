@@ -3,3 +3,4 @@ export { AudioVoice } from "./source.js";
 export { EffectRack, FilterEffect, DelayEffect, ConvolutionReverb, CompressorEffect, type AudioEffect } from "./effects.js";
 export { createThunderBuffer, type ThunderOptions } from "./procedural.js";
 export type { AudioBusName, AudioClip, AudioStats, ListenerTransform, PlayOptions, SpatialOptions } from "./types.js";
+export { StormSoundscape, stormSoundLevels, type StormSoundInput, type StormSoundLevels } from "./storm.js";

@@ -428,4 +428,4 @@ export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } fro
 export const VERSION = "0.1.0";
 
 // Audio
-export { AudioSystem, SpatialAudioEmitter, AudioVoice, EffectRack, FilterEffect, DelayEffect, ConvolutionReverb, CompressorEffect, createThunderBuffer, type ThunderOptions, type AudioSystemOptions, type AudioEffect, type AudioBusName, type AudioClip, type AudioStats, type ListenerTransform, type PlayOptions, type SpatialOptions } from "./audio/index.js";
+export { AudioSystem, SpatialAudioEmitter, AudioVoice, EffectRack, FilterEffect, DelayEffect, ConvolutionReverb, CompressorEffect, createThunderBuffer, StormSoundscape, stormSoundLevels, type StormSoundInput, type StormSoundLevels, type ThunderOptions, type AudioSystemOptions, type AudioEffect, type AudioBusName, type AudioClip, type AudioStats, type ListenerTransform, type PlayOptions, type SpatialOptions } from "./audio/index.js";
