@@ -187,7 +187,7 @@ What remains:
 ## Environment (Phase 8b)
 
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
-  the horizon→zenith sky gradient: no planar reflection pass, no depth sampling, no caustics, and
+  the horizon tint: no planar reflection pass, no depth sampling, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
   Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
   (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the

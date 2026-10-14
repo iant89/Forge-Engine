@@ -473,7 +473,7 @@ depth colour (`shallowColor` → `deepColor` over `colorDepth`), shoaling to `SH
 then dying in the surf, a depth-limited cap (H ≤ 0.78·d, `BREAKER_INDEX`), white water on crests across
 the surf zone (scaled by the sea's amplitude), and an animated swash band under `foamDepth`. Raising
 `water.level` (a surge) floods inland consistently. `water.choppiness` scales every wave's steepness
-(Q clamped to 1). The reflection is the fresnel-weighted horizon→zenith sky gradient.
+(Q clamped to 1).
 
 **Coast** (`terrain/coastal.ts`): `coastalHeightAt(params, x, z)` — seabed (exactly the water's shore
 bed offshore), beach face, berm, a wandering dune ridge, hinterland; `coastalTerrainSource(...)` meshes

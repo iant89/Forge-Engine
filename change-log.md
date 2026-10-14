@@ -17459,7 +17459,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Grok Bot",
     "modelVersion": null,
     "file": "engine/src/rendering/shaders/water.ts",
-    "what": "Shore depth colour, shoaling with breaker cap, surf + swash foam, alpha feather, zenith sky reflection",
+    "what": "Shore depth colour, shoaling with breaker cap, surf + swash foam, alpha feather (unchanged look with the shore off)",
     "why": "Ocean shoreline rendering"
   },
   {
@@ -17471,7 +17471,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Grok Bot",
     "modelVersion": null,
     "file": "engine/src/rendering/uniforms.ts",
-    "what": "WaterUniforms shoreA/B/C + skyZenith",
+    "what": "WaterUniforms shoreA/B/C",
     "why": "Shore parameters for the water shader"
   },
   {

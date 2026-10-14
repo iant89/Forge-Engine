@@ -18,7 +18,7 @@
  *
  * What this is not: there is no screen-space reflection or refraction of the scene (no planar
  * pass, no depth sampling — the "refraction" is the fresnel-mixed body colour plus the reflected
- * sky gradient). The shore is analytic, not read from the terrain's depth. Both are documented in
+ * sky tint). The shore is analytic, not read from the terrain's depth. Both are documented in
  * `docs/KNOWN-ISSUES.md`.
  *
  * Bind groups reuse the standard program's frame (group 0) and draw (group 1) layouts and add
@@ -201,7 +201,7 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let depth = shoreDepth(in.baseXZ);
   let deepness = 1.0 - exp(-max(depth, 0.0) / water.shoreC.y);
   let depthBody = mix(water.shallowColor, water.deepColor, select(1.0, deepness, water.shoreB.w > 0.5));
-  let body = mix(depthBody, water.shallowColor, clamp(in.crest * 0.5, 0.0, 1.0) * 0.6);
+  let body = mix(depthBody, water.shallowColor, clamp(in.crest * 0.5, 0.0, 1.0) * select(1.0, 0.6, water.shoreB.w > 0.5));
   let diffuse = body * (perFrame.ambientColor * perFrame.ambientIntensity + vec3<f32>(0.15));
   let R = reflect(-V, N);
   let sunDir = normalize(water.sunDirection);
@@ -211,7 +211,7 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let sunVisibility = cloudSunVisibility(in.worldPos, cloudFootprint);
   let glint = water.sunTint * water.sunGlint * sunVisibility * (pow(rdotl, 600.0) * 3.0 + pow(rdotl, 60.0) * 0.25);
   // The reflected sky: the horizon tint, lifted toward the zenith with the reflected elevation.
-  let skyRef = mix(water.skyTint, max(water.skyZenith, water.skyTint * 0.55), clamp(R.y, 0.0, 1.0));
+  let skyRef = water.skyTint * (0.55 + 0.45 * clamp(R.y, 0.0, 1.0));
   var color = mix(diffuse, skyRef, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;
   let breakup = waterNoise(in.worldPos.xz * 1.5 + water.time * 0.35) - 0.5;
   let foamMask = smoothstep(water.foamThreshold, 1.0, clamp(in.crest + breakup * 0.25, 0.0, 1.0));
@@ -229,7 +229,7 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
     // Feather into the sand instead of a hard intersection line.
     alpha = alpha * smoothstep(0.0, 0.12, depth + 0.02);
   }
-  color += water.foamColor * clamp(foam, 0.0, 1.0) * (perFrame.ambientIntensity * 0.5 + 0.5);
+  color += water.foamColor * clamp(foam, 0.0, 1.0);
   let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
   color = mix(perFrame.fogColor, color, fogT);
   color = applyAerialPerspective(color, in.worldPos);

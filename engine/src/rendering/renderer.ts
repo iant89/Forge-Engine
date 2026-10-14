@@ -2516,8 +2516,6 @@ export class Renderer implements RenderFrameContext {
       if (w.amplitude > 0 && w.wavelength > 0) totalAmp += w.amplitude;
     }
     a.setVec4("shoreC", water.level, Math.max(0.01, shore.colorDepth), totalAmp, Math.min(1, totalAmp / 0.8));
-    const amb = this.skyLight.ambientTint;
-    a.setVec3("skyZenith", amb[0]!, amb[1]!, amb[2]!);
     this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 

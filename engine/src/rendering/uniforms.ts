@@ -386,8 +386,6 @@ export const WaterUniforms = new StructDef("WaterUniforms", [
   { name: "shoreA", type: vec4, comment: "fe-33 shore: (dirX, dirZ toward land, dot(origin, dir), slope)" },
   { name: "shoreB", type: vec4, comment: "(foamDepth, breakDepth, bedLevel, enabled 0/1)" },
   { name: "shoreC", type: vec4, comment: "(level, colorDepth, total wave amplitude, surf strength 0..1)" },
-  { name: "skyZenith", type: vec3, comment: "zenith-ish tint the steep reflections lift toward (linear RGB)" },
-  { name: "_pad2", type: f32 },
 ]);
 
 /**
