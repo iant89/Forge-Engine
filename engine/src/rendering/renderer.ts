@@ -39,8 +39,9 @@ import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, Objec
 import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { MS_LUT_TEXTURE_FORMAT } from "./shaders/multiScattering.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
-import { POP_CULL_DISTANCE, POP_CULL_LOD } from "./shaders/populationCull.js";
-import { GpuPopulationCuller } from "./populationCuller.js";
+import { POP_CULL_DISTANCE, POP_CULL_LOD, POPULATION_SHADOW_INDEX_ALIGN } from "./shaders/populationCull.js";
+import type { PopulationShadowCulling } from "../population/cull.js";
+import { GpuPopulationCuller, popcount32 } from "./populationCuller.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import { GpuMultiScattering, MS_SUN_EPSILON, skyMultiScatteringSignatureChanged, writeSkyMultiScatteringSignature } from "./skyMultiScattering.js";
@@ -165,6 +166,14 @@ export interface RendererOptions {
    * device tier (`populationCullingForTier`). Only runs on frames where the object culler occludes.
    */
   populationOcclusion?: boolean;
+  /**
+   * Per-instance culling of population shadow casters (docs/RENDERING.md §4g): which shadow maps
+   * test each caster against their light frustum on the device (`forge.populationCull.views`) and
+   * draw the survivors indirectly, instead of the CPU per-instance assignment. `"all"` (default),
+   * `"cascades"` (sun cascades only — the low device tier, `populationCullingForTier`) or `"off"`.
+   * Only batches on the per-instance path take it; the rest keep the CPU assignment.
+   */
+  populationShadowCulling?: PopulationShadowCulling;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -202,6 +211,14 @@ export interface RenderStats {
   populationCulledOccluded: number;
   /** Instances skipped because the object culler had culled their whole batch. */
   populationCulledBatch: number;
+  /**
+   * Population caster × shadow-map pairs `forge.populationCull.views` tested ("in") and kept
+   * ("drawn" by the shadow passes). Device counters, a frame or two late, like the ones above.
+   */
+  populationShadowInstancesTested: number;
+  populationShadowInstancesDrawn: number;
+  /** Shadow-pass draws issued from the device caster lists this frame (exact; part of `shadowsDrawn`). */
+  populationShadowDraws: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -390,8 +407,10 @@ interface Batch {
   lodUniformOffset: number;
   /** Takes the per-instance path this frame (decided at collection; see `RendererOptions.populationCulling`). */
   popCull: boolean;
-  /** Its slot in the population culler's draw records this frame (-1 = per-batch path). */
+  /** Its base record in the population culler's draw records this frame (-1 = per-batch path). */
   popCullSlot: number;
+  /** Shadow-map bits whose casters `forge.populationCull.views` culls for this batch (0 = CPU ranges only). */
+  popShadowMask: number;
   /**
    * Phase 16.5: the skin this batch's vertices are deformed by (null = an ordinary batch). Batches
    * share a skin only when they share the skin *object*, because one palette slot drives the whole
@@ -450,7 +469,19 @@ interface PopulationDeviceRecord {
   compacted: GPUBuffer | null;
   /** Draw group over `compacted` (what `forge.main` binds for a per-instance batch). */
   compactedGroup: GPUBindGroup | null;
-  /** `forge.populationCull` group 1: `buffer` + `compacted`. */
+  /** HiZ survivors (same size as `buffer`), allocated once population occlusion is on. */
+  occluded: GPUBuffer | null;
+  /** Draw group over `occluded` (what `forge.main` binds on a frame that occludes). */
+  occludedGroup: GPUBindGroup | null;
+  /** Shared shadow caster index buffer: one `indexStride`-slot u32 range per culled shadow map. */
+  casterIndices: GPUBuffer | null;
+  /** Ranges `casterIndices` holds. */
+  casterIndexRanges: number;
+  /** `count` rounded up to `POPULATION_SHADOW_INDEX_ALIGN` (each range starts on a 256-byte offset). */
+  indexStride: number;
+  /** Group 1 of the device-culled shadow draws (`populationShadow` layout). */
+  shadowGroup: GPUBindGroup | null;
+  /** Both cull kernels' group 1: `buffer`, `compacted`, `occluded`, `casterIndices`. */
   cullGroup: GPUBindGroup | null;
   /** The cull pass has written bits into `buffer` since its last upload (bit 1 may be stale). */
   instanceCulled: boolean;
@@ -548,6 +579,9 @@ export class Renderer implements RenderFrameContext {
     populationCulledDistance: 0,
     populationCulledOccluded: 0,
     populationCulledBatch: 0,
+    populationShadowInstancesTested: 0,
+    populationShadowInstancesDrawn: 0,
+    populationShadowDraws: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
@@ -683,6 +717,9 @@ export class Renderer implements RenderFrameContext {
   private populationCuller: GpuPopulationCuller | null = null;
   /** The pass was added to this frame's graph (else per-instance batches draw from their source). */
   private populationCullRecorded = false;
+  /** `forge.populationCull.views` is in this frame (the prepass and shadow passes draw its lists). */
+  private populationViewsRecorded = false;
+  private populationShadowCullingMode: PopulationShadowCulling;
   private drawRecords: GPUBuffer | null = null;
   private drawRecordBytes = 0;
   private drawRecordWords = new Uint32Array(0);
@@ -914,6 +951,7 @@ export class Renderer implements RenderFrameContext {
     this.indirectDrawsEnabled = options.indirectDraws !== false;
     this.populationCullingEnabled = options.populationCulling !== false;
     this.populationOcclusionEnabled = options.populationOcclusion !== false;
+    this.populationShadowCullingMode = options.populationShadowCulling ?? "all";
     this.deviceLostUnsub = device.onLost(() => {
       this.lost = true;
     });
@@ -1044,6 +1082,29 @@ export class Renderer implements RenderFrameContext {
     if (on === this.populationOcclusionEnabled) return;
     this.populationOcclusionEnabled = on;
     this.invalidate();
+  }
+
+  /** Device culling of population shadow casters (see `RendererOptions.populationShadowCulling`). */
+  get populationShadowCulling(): PopulationShadowCulling {
+    return this.populationShadowCullingMode;
+  }
+
+  set populationShadowCulling(mode: PopulationShadowCulling) {
+    if (mode === this.populationShadowCullingMode) return;
+    this.populationShadowCullingMode = mode;
+    this.invalidate();
+  }
+
+  /** Shadow-map bits the device culls population casters for, under the current mode. */
+  private populationShadowCoverMask(): number {
+    switch (this.populationShadowCullingMode) {
+      case "all":
+        return ((1 << MAX_SHADOW_LAYERS) - 1) >>> 0;
+      case "cascades":
+        return (1 << MAX_CASCADES) - 1;
+      default:
+        return 0;
+    }
   }
 
   /** Call after a canvas resize; frame-sized transients are re-planned by the graph next frame. */
@@ -1213,6 +1274,7 @@ export class Renderer implements RenderFrameContext {
     this.uploadArenas();
     this.prepareObjectCulling(camera, renderWidth, renderHeight, prepass);
     // After prepareObjectCulling: whether this frame occludes is decided there.
+    if (this.populationCuller && this.populationCuller.batchCount > 0) this.populationCuller.setViews(this.viewProj.m, this.populationShadowView);
     this.populationCuller?.upload(this.populationOcclusionEnabled && this.cullOcclusion);
 
     // 5. Frame description + execution.
@@ -1278,6 +1340,9 @@ export class Renderer implements RenderFrameContext {
     this.recordLightFill(g);
     // Population LOD selection, before the shadow passes — the first readers of the flags bit.
     this.recordPopulationLod(g);
+    // Per-instance population lists for the camera and every device-culled shadow map: before the
+    // shadow passes and the prepass, which draw them (§4g).
+    this.populationViewsRecorded = this.populationCuller !== null && this.populationCuller.batchCount > 0 && this.populationCuller.recordViews(g);
     const swapchain = g.importTexture("swapchain", swapTexture);
     const clear = this.clearColorFor(scene, frame.hdr);
 
@@ -1736,6 +1801,13 @@ export class Renderer implements RenderFrameContext {
       const b = this.batchPool[i]!;
       if (!b.castShadow || b.overlay || b.transparent) continue;
       if (!b.geometry.vertexBuffer) continue;
+      if ((b.popShadowMask & shadowBit) !== 0) {
+        // Device-culled casters (§4g): this map's range of the batch's caster-index list.
+        lastState = -1;
+        currentPipeline = null;
+        this.drawPopulationShadow(pass, b, shadowBit);
+        continue;
+      }
       let assignedInstances = 0;
       for (let rangeIndex = 0; rangeIndex < b.shadowRangeCount; rangeIndex++) {
         const range = b.shadowRanges[rangeIndex]!;
@@ -1784,6 +1856,37 @@ export class Renderer implements RenderFrameContext {
     pass.end();
   }
 
+  /**
+   * One device-culled population shadow draw: the batch's caster-index range for `shadowBit`, drawn
+   * indirectly from the record `forge.populationCull.views` appended to. Leaves the pass pipeline
+   * changed (the caller resets its state cache). A frame whose views pass was not recorded draws the
+   * whole batch instead — every caster, never a hole.
+   */
+  private drawPopulationShadow(pass: GPURenderPassEncoder, b: Batch, shadowBit: number): void {
+    const lod = b.lodHiTriangles > 0;
+    const rec = b.population!;
+    const culler = this.populationCuller;
+    const listed = this.populationViewsRecorded && b.popCullSlot >= 0 && culler?.argsBuffer && rec.shadowGroup;
+    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod, casterIndices: !!listed })?.pipeline;
+    if (!pipeline) return;
+    pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+    if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+    if (!listed) {
+      pass.setBindGroup(1, rec.group, [b.objectOffset, b.instanceOffset]);
+      this.submitShadowRange(pass, b, 0, b.count);
+      return;
+    }
+    const local = popcount32(b.popShadowMask & (shadowBit - 1));
+    pass.setBindGroup(1, rec.shadowGroup!, [b.objectOffset, local * rec.indexStride * 4]);
+    const offset = culler!.shadowRecordOffset(b.popCullSlot, local);
+    if (b.geometry.indexBuffer) pass.drawIndexedIndirect(culler!.argsBuffer!, offset);
+    else pass.drawIndirect(culler!.argsBuffer!, offset);
+    this.stats.shadowsDrawn++;
+    this.stats.populationShadowDraws++;
+    this.stats.indirectDraws++;
+  }
+
   /** One shadow draw for a contiguous run whose every instance is assigned to this map. */
   private submitShadowRange(pass: GPURenderPassEncoder, batch: Batch, firstInstance: number, instanceCount: number): void {
     if (batch.geometry.indexBuffer) {
@@ -1819,6 +1922,22 @@ export class Renderer implements RenderFrameContext {
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
+      // A per-instance batch draws the views pass's main-view list — the very list forge.main draws
+      // (or a superset of it, on a frame that occludes) with the same bits (§4g).
+      const listArgs = b.popCullSlot >= 0 && this.populationViewsRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
+      if (listArgs) {
+        pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
+        pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+        const offset = this.populationCuller!.listRecordOffset(b.popCullSlot);
+        if (b.geometry.indexBuffer) {
+          pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+          pass.drawIndexedIndirect(listArgs, offset);
+        } else {
+          pass.drawIndirect(listArgs, offset);
+        }
+        this.stats.prepassDraws++;
+        continue;
+      }
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
@@ -1909,17 +2028,20 @@ export class Renderer implements RenderFrameContext {
       pass.setPipeline(pipeline.pipeline);
       // Population batches bind their own chunk buffer through their own group (Phase 14.3); a
       // per-instance batch binds its compacted survivors and draws the count the cull pass appended.
-      const popArgs = b.popCullSlot >= 0 && this.populationCullRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
-      pass.setBindGroup(1, popArgs ? b.population!.compactedGroup! : b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      // The HiZ survivors on a frame whose cull pass ran and occludes; otherwise the views pass's list.
+      const popArgs = b.popCullSlot >= 0 && this.populationViewsRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
+      const popOccluded = popArgs !== null && this.populationCullRecorded && this.populationCuller!.occludesThisFrame && b.population!.occludedGroup !== null;
+      const popOffset = popArgs ? (popOccluded ? this.populationCuller!.mainRecordOffset(b.popCullSlot) : this.populationCuller!.listRecordOffset(b.popCullSlot)) : 0;
+      pass.setBindGroup(1, popArgs ? (popOccluded ? b.population!.occludedGroup! : b.population!.compactedGroup!) : b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (batchSkinned) this.bindSkinning(pass, b, false);
       if (popArgs) {
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
-          pass.drawIndexedIndirect(popArgs, b.popCullSlot * DRAW_RECORD_BYTES);
+          pass.drawIndexedIndirect(popArgs, popOffset);
         } else {
-          pass.drawIndirect(popArgs, b.popCullSlot * DRAW_RECORD_BYTES);
+          pass.drawIndirect(popArgs, popOffset);
         }
         this.stats.indirectDraws++;
       } else if (b.geometry.indexBuffer) {
@@ -1989,6 +2111,7 @@ export class Renderer implements RenderFrameContext {
     s.populationCullBatches = 0;
     this.populationUploads = 0;
     s.shadowsDrawn = 0;
+    s.populationShadowDraws = 0;
     s.shadowsCulled = 0;
     s.shadowInstancesDrawn = 0;
     s.shadowInstancesCulled = 0;
@@ -2849,6 +2972,14 @@ export class Renderer implements RenderFrameContext {
   /** Camera position (render space) and the frame's shadow-map counts, captured for the population path. */
   private readonly populationCamPos = new Vec3();
   private readonly populationShadowCounts = new Int32Array(3);
+  /** The view-projection of shadow-map bit `bit` this frame (renderer mask layout), or null when inactive. */
+  private readonly populationShadowView = (bit: number): Float32Array | null => {
+    const [cascades, spots, points] = this.populationShadowCounts;
+    if (bit < MAX_CASCADES) return bit < cascades! ? this.cascades[bit]!.viewProj.m : null;
+    if (bit < POINT_MASK_BASE) return bit - MAX_CASCADES < spots! ? this.spotShadows[bit - MAX_CASCADES]!.viewProj.m : null;
+    const p = Math.floor((bit - POINT_MASK_BASE) / POINT_SHADOW_FACES);
+    return p < points! ? this.pointShadows[p]!.faces[(bit - POINT_MASK_BASE) % POINT_SHADOW_FACES]!.viewProj.m : null;
+  };
 
   /**
    * Receive one population submission: keep its device-resident instance record in sync
@@ -2979,6 +3110,12 @@ export class Renderer implements RenderFrameContext {
         firstMatrix,
         compacted: null,
         compactedGroup: null,
+        occluded: null,
+        occludedGroup: null,
+        casterIndices: null,
+        casterIndexRanges: 0,
+        indexStride: alignUp(count, POPULATION_SHADOW_INDEX_ALIGN),
+        shadowGroup: null,
         cullGroup: null,
         instanceCulled: false,
       };
@@ -3026,12 +3163,27 @@ export class Renderer implements RenderFrameContext {
     });
   }
 
+  /** Group 1 of the device-culled shadow draws: object block, the chunk's source records, one caster-index range. */
+  private createPopulationShadowGroup(rec: PopulationDeviceRecord): GPUBindGroup {
+    return this.device.device.createBindGroup({
+      label: "population.shadow.group",
+      layout: this.pipelines.bindGroupLayouts.populationShadow,
+      entries: [
+        { binding: 0, resource: { buffer: this.objectBuffer!, size: ObjectUniforms.byteSize("uniform") } },
+        { binding: 1, resource: { buffer: rec.buffer, size: rec.count * INSTANCE_STRIDE } },
+        { binding: 2, resource: { buffer: rec.casterIndices!, size: rec.indexStride * 4 } },
+      ],
+    });
+  }
+
   /** Free one record's GPU resources (chunk evicted, renderer torn down). */
   private destroyPopulationRecord(rec: PopulationDeviceRecord): void {
     // Bind groups have no destroy in the WebGPU API (the mock tracks them without one, as with the
     // other draw groups the renderer drops by reference).
     rec.buffer.destroy();
     rec.compacted?.destroy();
+    rec.occluded?.destroy();
+    rec.casterIndices?.destroy();
   }
 
   /**
@@ -3043,6 +3195,8 @@ export class Renderer implements RenderFrameContext {
     for (const rec of this.populationDevice.values()) {
       rec.group = this.createPopulationGroup(rec.buffer, rec.count * INSTANCE_STRIDE);
       if (rec.compacted) rec.compactedGroup = this.createPopulationGroup(rec.compacted, rec.count * INSTANCE_STRIDE);
+      if (rec.occluded) rec.occludedGroup = this.createPopulationGroup(rec.occluded, rec.count * INSTANCE_STRIDE);
+      if (rec.casterIndices) rec.shadowGroup = this.createPopulationShadowGroup(rec);
       rec.lodGroup = rec.lodHiTriangles !== null ? this.createPopulationLodGroup(rec.buffer) : null;
     }
   }
@@ -3163,12 +3317,18 @@ export class Renderer implements RenderFrameContext {
     // Phase 14.4: the merged-buffer window boundary and selection distance (0 = single detail).
     batch.lodHiTriangles = submission.lod?.hiTriangles ?? 0;
     batch.lodDistance = submission.lod?.lodDistance ?? 0;
-    batch.popCull = this.preparePopulationPath(rec, block, count, batch.lodHiTriangles > 0, inView);
+    // Shadow maps whose casters the device culls for this batch (§4g); the CPU assigns the rest.
+    const deviceShadows = castShadow && !material.transparent ? chunkMask & this.populationShadowCoverMask() : 0;
+    batch.popCull = this.preparePopulationPath(rec, block, count, batch.lodHiTriangles > 0, inView, popcount32(deviceShadows));
+    batch.popShadowMask = batch.popCull ? deviceShadows : 0;
     batch.bounds.setFrom(submission.bounds.min, submission.bounds.max);
     batch.shadowRangeCount = 0;
+    // The device lists are built per map, so the map is active as soon as the chunk touches it.
+    this.shadowCasterMask |= batch.popShadowMask;
+    const cpuMask = chunkMask & ~batch.popShadowMask;
 
     for (let k = 0; k < count; k++) {
-      if (castShadow && chunkMask !== 0) {
+      if (castShadow && cpuMask !== 0) {
         // Per-instance map assignment, the same conservative test a renderable gets. Only chunks
         // the pre-test placed near an active map pay this; the rest skip straight past. The
         // record already lives on the device, so the matrix is composed into scratch, not arena.
@@ -3184,7 +3344,7 @@ export class Renderer implements RenderFrameContext {
           0,
         );
         geometry.bounds.transformByMatrix(this.scratchMat, this.scratchBox);
-        this.addShadowRange(batch, k, this.shadowMaskFor(this.scratchBox, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!));
+        this.addShadowRange(batch, k, this.shadowMaskFor(this.scratchBox, this.populationShadowCounts[0]!, this.populationShadowCounts[1]!, this.populationShadowCounts[2]!) & cpuMask);
       }
     }
 
@@ -3271,6 +3431,7 @@ export class Renderer implements RenderFrameContext {
         maxDistance: 0,
         popCull: false,
         popCullSlot: -1,
+        popShadowMask: 0,
         bounds: new AABB(),
         shadowRanges: [],
         shadowRangeCount: 0,
@@ -3292,6 +3453,7 @@ export class Renderer implements RenderFrameContext {
     b.lodUniformOffset = -1;
     b.popCull = false;
     b.popCullSlot = -1;
+    b.popShadowMask = 0;
     // A recycled slot must not keep the previous frame's skin either: a batch drawn through the
     // skinned entry point without a palette would read another frame's joints.
     b.skin = null;
@@ -3613,6 +3775,8 @@ export class Renderer implements RenderFrameContext {
     this.stats.populationCulledDistance = p.culledDistance;
     this.stats.populationCulledOccluded = p.culledOccluded;
     this.stats.populationCulledBatch = p.culledBatch;
+    this.stats.populationShadowInstancesTested = p.shadowTested;
+    this.stats.populationShadowInstancesDrawn = p.shadowDrawn;
   }
 
   /** Whether this frame can take the per-instance population path at all. */
@@ -3627,15 +3791,33 @@ export class Renderer implements RenderFrameContext {
    * (which the prepass and forge.main entries clip) survives. LOD buffers need nothing: the
    * per-batch `forge.populationLod` pass rewrites both bits every frame.
    */
-  private preparePopulationPath(rec: PopulationDeviceRecord, block: PopulationInstanceBlock, count: number, lod: boolean, inView: boolean): boolean {
+  private preparePopulationPath(rec: PopulationDeviceRecord, block: PopulationInstanceBlock, count: number, lod: boolean, inView: boolean, shadowRanges: number): boolean {
     const eligible = inView && (count > 1 || lod) && this.populationCullingActive() && (this.populationCuller ??= new GpuPopulationCuller(this.device, this.pipelines.shaders)).ensurePipeline() !== null;
     if (eligible) {
+      const d = this.device.device;
+      const size = rec.count * INSTANCE_STRIDE;
+      let groupsStale = false;
       if (!rec.compacted) {
-        const size = rec.count * INSTANCE_STRIDE;
-        rec.compacted = this.device.device.createBuffer({ label: "population.instances.visible", size, usage: BufferUsage.STORAGE });
+        rec.compacted = d.createBuffer({ label: "population.instances.visible", size, usage: BufferUsage.STORAGE });
         rec.compactedGroup = this.createPopulationGroup(rec.compacted, size);
-        rec.cullGroup = this.populationCuller!.createInstanceGroup(rec.buffer, rec.compacted);
+        groupsStale = true;
       }
+      // The HiZ survivors' copy exists only once occlusion is wanted (not on the low tier).
+      if (this.populationOcclusionEnabled && !rec.occluded) {
+        rec.occluded = d.createBuffer({ label: "population.instances.unoccluded", size, usage: BufferUsage.STORAGE });
+        rec.occludedGroup = this.createPopulationGroup(rec.occluded, size);
+        groupsStale = true;
+      }
+      // One u32 range per device-culled shadow map, grown (never shrunk) to the most the chunk touched.
+      const ranges = Math.max(1, shadowRanges);
+      if (!rec.casterIndices || rec.casterIndexRanges < ranges) {
+        rec.casterIndices?.destroy();
+        rec.casterIndices = d.createBuffer({ label: "population.shadow.casters", size: rec.indexStride * 4 * ranges, usage: BufferUsage.STORAGE });
+        rec.casterIndexRanges = ranges;
+        rec.shadowGroup = this.createPopulationShadowGroup(rec);
+        groupsStale = true;
+      }
+      if (groupsStale || !rec.cullGroup) rec.cullGroup = this.populationCuller!.createInstanceGroup(rec.buffer, rec.compacted, rec.occluded, rec.casterIndices);
       rec.instanceCulled = true;
       return true;
     }
@@ -3668,6 +3850,8 @@ export class Renderer implements RenderFrameContext {
       visibilityIndex: index,
       flags,
       maxDistance: b.maxDistance,
+      shadowMask: b.popShadowMask,
+      indexStride: b.population!.indexStride,
       indexCount: b.indexCount,
       first: b.geometry.indexBuffer ? b.indexStart : 0,
     });

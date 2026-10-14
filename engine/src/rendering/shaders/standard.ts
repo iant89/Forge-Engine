@@ -934,6 +934,59 @@ fn fragmentMain() {}
 `;
 
 /**
+ * Shadow-pass program for population batches culled per instance on the device (docs/RENDERING.md
+ * §4g): `forge.populationCull.views` appended the indices of the casters inside this map's light
+ * frustum to one range of the batch's shared index buffer (bound at a 256-byte dynamic offset), and
+ * the pass draws that range indirectly. Same maths as `DEPTH_VERTEX`'s instanced entries, one
+ * indirection deeper, so a caster's depth is bit-identical on both paths.
+ */
+export const DEPTH_CULLED_VERTEX = /* wgsl */ `
+${ShadowPassUniforms.toWgsl("uniform")}
+${ObjectUniforms.toWgsl("uniform")}
+${InstanceStruct.toWgsl("storage")}
+
+@group(0) @binding(0) var<uniform> shadowPass: ShadowPassUniforms;
+@group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
+@group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
+@group(1) @binding(2) var<storage, read> casterIndices: array<u32>;
+
+struct In {
+  @location(0) position: vec3<f32>,
+}
+
+struct Out {
+  @builtin(position) clip: vec4<f32>,
+}
+
+@vertex
+fn vertexMainCulled(input: In, @builtin(instance_index) instanceIndex: u32) -> Out {
+  var out: Out;
+  let i = instances[casterIndices[instanceIndex]];
+  let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
+  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  return out;
+}
+
+@vertex
+fn vertexMainCulledLod(input: In, @builtin(instance_index) instanceIndex: u32, @builtin(vertex_index) vertexIndex: u32) -> Out {
+  var out: Out;
+  let i = instances[casterIndices[instanceIndex]];
+  let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
+  var clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let inHi = vertexIndex / 3u < objectData.hiTriangles;
+  let wantHi = (i.flags & 1u) == 0u;
+  if (inHi != wantHi) {
+    clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  }
+  out.clip = clip;
+  return out;
+}
+
+@fragment
+fn fragmentMain() {}
+`;
+
+/**
  * Skinned depth-only program for the shadow pass (`forge.shadow.*`). Separate from `DEPTH_VERTEX`
  * rather than a permutation of it because the vertex inputs differ (locations 4/5 and the palette
  * binding), and mirroring the unskinned program's structure keeps the two readable side by side:

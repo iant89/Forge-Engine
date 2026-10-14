@@ -237,9 +237,23 @@ export const PopulationCullUniforms = new StructDef("PopulationCullUniforms", [
   { name: "visibilityIndex", type: u32, comment: "the batch's word in the object culler's visibility buffer" },
   { name: "flags", type: u32, comment: "bit0 LOD batch, bit1 distance limit, bit2 HiZ allowed (POP_CULL_*)" },
   { name: "maxDistance", type: f32, comment: "the batch's distance limit in metres (0 = none)" },
+  { name: "argsWordOccluded", type: u32, comment: "word of the HiZ-survivor record's instanceCount (forge.main when the frame occludes)" },
+  { name: "shadowMask", type: u32, comment: "shadow-map bits (renderer mask layout) whose casters this batch culls on the device" },
+  { name: "shadowArgsWord", type: u32, comment: "word of the first shadow record's instanceCount; record k is 8 words further" },
+  { name: "indexStride", type: u32, comment: "u32 slots per shadow index range (count rounded up to 64)" },
   { name: "_pad0", type: u32 },
   { name: "_pad1", type: u32 },
   { name: "_pad2", type: u32 },
+]);
+
+/**
+ * The views `forge.populationCull.views` tests against (docs/RENDERING.md §4g): the camera's
+ * view-projection and one matrix per shadow-map bit (cascades, spots, point faces; the renderer's
+ * mask layout), so a batch's `shadowMask` indexes `shadow` directly.
+ */
+export const PopulationViewUniforms = new StructDef("PopulationViewUniforms", [
+  { name: "main", type: mat4x4, comment: "camera view-projection (render-local)" },
+  { name: "shadow", type: arrayOf(mat4x4, MAX_SHADOW_LAYERS), comment: "shadow-map view-projections, indexed by mask bit" },
 ]);
 
 /** What `forge.populationCull` did this frame (atomics, read back a frame or two late). */
@@ -250,6 +264,8 @@ export const PopulationCullStatsBlock = new StructDef("PopulationCullStatsBlock"
   { name: "culledDistance", type: atomicU32 },
   { name: "culledOccluded", type: atomicU32 },
   { name: "culledBatch", type: atomicU32, comment: "instances whose whole batch the object culler had already culled" },
+  { name: "shadowTested", type: atomicU32, comment: "instance × shadow-map pairs tested by forge.populationCull.views" },
+  { name: "shadowDrawn", type: atomicU32, comment: "instance × shadow-map pairs kept (drawn by the shadow passes)" },
 ]);
 
 /**
@@ -527,6 +543,7 @@ export const RENDERING_STRUCTS = {
   ObjectCullUniforms,
   PopulationLodUniforms,
   PopulationCullUniforms,
+  PopulationViewUniforms,
 } as const;
 
 /**

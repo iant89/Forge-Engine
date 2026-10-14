@@ -1,6 +1,9 @@
 /**
- * Phase A (GPU-placement plan) — the CPU twin of `forge.populationCull`
- * (`rendering/shaders/populationCull.ts`, docs/RENDERING.md §4g).
+ * Phase A (GPU-placement plan) — the CPU twins of `forge.populationCull.views` and
+ * `forge.populationCull` (`rendering/shaders/populationCull.ts`, docs/RENDERING.md §4g):
+ * `cullPopulationViewsOnCpu` and `cullPopulationOcclusionOnCpu` mirror the two kernels and are what
+ * the mock device runs; `cullPopulationInstancesOnCpu` below is the composed single-pass reference
+ * (main view only) the tests compare the two-stage result against.
  *
  * Same steps, same order, same margins as the kernel, on the 80-byte `InstanceData` records the
  * renderer uploads (20 words: 4×vec4 model columns, tint, emissive, flags, materialIndex):
@@ -55,10 +58,152 @@ export interface PopulationCullStats {
   culledDistance: number;
   culledOccluded: number;
   culledBatch: number;
+  /** Instance × shadow-map pairs `forge.populationCull.views` tested ("in"). */
+  shadowTested: number;
+  /** Of those, the pairs kept: casters the shadow passes draw. */
+  shadowDrawn: number;
 }
 
 export function emptyPopulationCullStats(): PopulationCullStats {
-  return { tested: 0, drawn: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, culledBatch: 0 };
+  return { tested: 0, drawn: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, culledBatch: 0, shadowTested: 0, shadowDrawn: 0 };
+}
+
+/** Instance sphere (world centre + radius) the kernels test: prototype bounds through the matrix, max axis scale, plus slop. */
+function instanceSphere(source: Float32Array, b: number, batch: PopulationCullBatch, out: Float64Array): void {
+  const lc = batch.localCenter;
+  out[0] = source[b]! * lc.x + source[b + 4]! * lc.y + source[b + 8]! * lc.z + source[b + 12]!;
+  out[1] = source[b + 1]! * lc.x + source[b + 5]! * lc.y + source[b + 9]! * lc.z + source[b + 13]!;
+  out[2] = source[b + 2]! * lc.x + source[b + 6]! * lc.y + source[b + 10]! * lc.z + source[b + 14]!;
+  const scale = Math.max(
+    Math.hypot(source[b]!, source[b + 1]!, source[b + 2]!),
+    Math.hypot(source[b + 4]!, source[b + 5]!, source[b + 6]!),
+    Math.hypot(source[b + 8]!, source[b + 9]!, source[b + 10]!),
+  );
+  out[3] = batch.localRadius * scale + CULL_SLOP;
+}
+
+/** Sphere fully outside one of the six planes of `cullPlanesFrom` (the kernels' `outsideFrustum`). */
+export function sphereOutsidePlanes(planes: Float32Array, cx: number, cy: number, cz: number, radius: number): boolean {
+  for (let row = 0; row < 6; row++) {
+    const nx = planes[row * 4]!;
+    const ny = planes[row * 4 + 1]!;
+    const nz = planes[row * 4 + 2]!;
+    if (nx * cx + ny * cy + nz * cz + planes[row * 4 + 3]! < -Math.hypot(nx, ny, nz) * radius) return true;
+  }
+  return false;
+}
+
+/** Write next frame's LOD (bit 0) and distance (bit 1) bits into record `i`; returns the previous flags. */
+function writeNextBits(source: Float32Array, sourceU32: Uint32Array, i: number, batch: PopulationCullBatch, sphere: Float64Array): number {
+  const b = i * INSTANCE_RECORD_WORDS;
+  const previous = sourceU32[b + FLAGS_WORD]!;
+  const { camera } = batch;
+  let next = (previous & ~3) >>> 0;
+  if ((batch.flags & POP_CULL_LOD) !== 0) {
+    const d = Math.hypot(source[b + 12]! - camera.x, source[b + 13]! - camera.y, source[b + 14]! - camera.z);
+    if (d > batch.lodDistance) next |= 1;
+  }
+  if ((batch.flags & POP_CULL_DISTANCE) !== 0) {
+    instanceSphere(source, b, batch, sphere);
+    if (Math.hypot(sphere[0]! - camera.x, sphere[1]! - camera.y, sphere[2]! - camera.z) - sphere[3]! > batch.maxDistance) next |= INSTANCE_FLAG_FAR;
+  }
+  sourceU32[b + FLAGS_WORD] = next >>> 0;
+  return previous;
+}
+
+const SPHERE = new Float64Array(4);
+
+/**
+ * Twin of `forge.populationCull.views` (before the depth passes). Main view: previous distance bit,
+ * then the camera frustum; survivors are copied (previous bits intact — this pass writes no bits)
+ * to `compacted` from slot 0. Shadows: for each entry of `shadowPlanes` (the batch's mask bits in
+ * bit order) the sphere is tested against that light frustum and the instance *index* appended to
+ * range k of `indices` (`k * indexStride`); `shadowCounts[k]` receives the range's length. Returns
+ * the main-view list length. Counts `drawn` here only when the batch does not occlude this frame.
+ */
+export function cullPopulationViewsOnCpu(
+  source: Float32Array,
+  sourceU32: Uint32Array,
+  batch: PopulationCullBatch,
+  mainPlanes: Float32Array,
+  shadowPlanes: readonly Float32Array[],
+  compacted: Uint32Array | null,
+  indices: Uint32Array | null,
+  indexStride: number,
+  shadowCounts: Uint32Array,
+  stats: PopulationCullStats = emptyPopulationCullStats(),
+): number {
+  let listed = 0;
+  shadowCounts.fill(0);
+  const occludes = (batch.flags & POP_CULL_OCCLUSION) !== 0;
+  for (let i = 0; i < batch.count; i++) {
+    const b = i * INSTANCE_RECORD_WORDS;
+    instanceSphere(source, b, batch, SPHERE);
+    const cx = SPHERE[0]!, cy = SPHERE[1]!, cz = SPHERE[2]!, r = SPHERE[3]!;
+    stats.tested++;
+    if ((sourceU32[b + FLAGS_WORD]! & INSTANCE_FLAG_FAR) !== 0) {
+      stats.culledDistance++;
+    } else if (sphereOutsidePlanes(mainPlanes, cx, cy, cz, r)) {
+      stats.culledFrustum++;
+    } else {
+      if (compacted) compacted.set(sourceU32.subarray(b, b + INSTANCE_RECORD_WORDS), listed * INSTANCE_RECORD_WORDS);
+      listed++;
+      if (!occludes) stats.drawn++;
+    }
+    for (let k = 0; k < shadowPlanes.length; k++) {
+      stats.shadowTested++;
+      if (sphereOutsidePlanes(shadowPlanes[k]!, cx, cy, cz, r)) continue;
+      if (indices) indices[k * indexStride + shadowCounts[k]!] = i;
+      shadowCounts[k]!++;
+      stats.shadowDrawn++;
+    }
+  }
+  // `tested` is accounted for by the stage that buckets the instance last; undo the double count the
+  // occlusion twin will add for listed entries.
+  if (occludes) stats.tested -= listed;
+  return listed;
+}
+
+/**
+ * Twin of `forge.populationCull` (after the object culler): writes next frame's bits into every
+ * source record, then — only when the batch occludes this frame — filters the first `listed`
+ * entries of `compacted` (the views pass's main-view list): batch-culled, then HiZ, survivors
+ * copied to `occluded`. Returns the survivor count (0 when the batch does not occlude).
+ */
+export function cullPopulationOcclusionOnCpu(
+  source: Float32Array,
+  sourceU32: Uint32Array,
+  batch: PopulationCullBatch,
+  compacted: Uint32Array,
+  listed: number,
+  batchVisible: boolean,
+  params: ObjectCullParams,
+  hiz: readonly HizLevel[],
+  occluded: Uint32Array | null,
+  stats: PopulationCullStats = emptyPopulationCullStats(),
+): number {
+  for (let i = 0; i < batch.count; i++) writeNextBits(source, sourceU32, i, batch, SPHERE);
+  if ((batch.flags & POP_CULL_OCCLUSION) === 0) return 0;
+  const listF32 = new Float32Array(compacted.buffer, compacted.byteOffset, compacted.length);
+  const planes = cullPlanesFrom(params.viewProj);
+  let kept = 0;
+  for (let s = 0; s < listed; s++) {
+    const b = s * INSTANCE_RECORD_WORDS;
+    stats.tested++;
+    if (!batchVisible) {
+      stats.culledBatch++;
+      continue;
+    }
+    instanceSphere(listF32, b, batch, SPHERE);
+    if (cullSphereOnCpu(SPHERE[0]!, SPHERE[1]!, SPHERE[2]!, SPHERE[3]!, 0, CULL_FLAG_OCCLUSION, params, planes, hiz) === CullReason.Occluded) {
+      stats.culledOccluded++;
+      continue;
+    }
+    if (occluded) occluded.set(compacted.subarray(b, b + INSTANCE_RECORD_WORDS), kept * INSTANCE_RECORD_WORDS);
+    kept++;
+    stats.drawn++;
+  }
+  return kept;
 }
 
 /**
@@ -137,9 +282,18 @@ export function cullPopulationInstancesOnCpu(
  * The per-instance culling knobs for a device tier (`core/deviceTier.ts`, PR #100): the frustum,
  * distance and LOD work is cheap and always pays (it removes vertex work), so every tier keeps it;
  * the HiZ test's texel loop per instance is the part a low-tier GPU (older iPhones, software
- * adapters) can spend more on than it saves, so `low` turns it off. Pass the result to
+ * adapters) can spend more on than it saves, so `low` turns it off; `low` also limits the device
+ * shadow-caster cull to the sun's cascades (one index range per cascade, not per spot/point face). Pass the result to
  * `RendererOptions` or the renderer's `populationCulling` / `populationOcclusion` setters.
  */
-export function populationCullingForTier(tier: "low" | "medium" | "high"): { populationCulling: boolean; populationOcclusion: boolean } {
-  return { populationCulling: true, populationOcclusion: tier !== "low" };
+export function populationCullingForTier(tier: "low" | "medium" | "high"): { populationCulling: boolean; populationOcclusion: boolean; populationShadowCulling: PopulationShadowCulling } {
+  return { populationCulling: true, populationOcclusion: tier !== "low", populationShadowCulling: tier === "low" ? "cascades" : "all" };
 }
+
+/**
+ * Which shadow maps cull population casters per instance on the device (`RendererOptions.
+ * populationShadowCulling`): `"all"` (cascades, spot maps, point faces), `"cascades"` (the sun's
+ * cascades only; spot/point maps keep the CPU per-instance assignment — fewer device passes and a
+ * smaller index buffer, the low-tier setting) or `"off"`.
+ */
+export type PopulationShadowCulling = "all" | "cascades" | "off";

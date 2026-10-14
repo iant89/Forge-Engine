@@ -33,8 +33,12 @@ export {
 export {
   INSTANCE_RECORD_WORDS,
   cullPopulationInstancesOnCpu,
+  cullPopulationViewsOnCpu,
+  cullPopulationOcclusionOnCpu,
+  sphereOutsidePlanes,
   emptyPopulationCullStats,
   populationCullingForTier,
+  type PopulationShadowCulling,
   type PopulationCullBatch,
   type PopulationCullStats,
 } from "./cull.js";
