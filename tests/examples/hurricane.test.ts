@@ -10,8 +10,8 @@ export const suite = {
   name: "examples:hurricane",
   group: "unit",
   covers:   [
-    "examples/src/scenes/hurricane.js",
-    "examples/src/sceneSelection.js"
+    "examples/src/scenes/hurricane.ts",
+    "examples/src/sceneSelection.ts"
   ],
   desc: "fe-33 hurricane demo script: track, intensification, landfall, eyewall → eye → back eyewall over the beach",
 };
