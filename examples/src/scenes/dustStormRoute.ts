@@ -354,6 +354,87 @@ export function randomStormCourse(seed: number, spawnX: number, spawnZ: number, 
   return { seed, checkpoints: (options.fallback ?? []).map((c) => ({ x: c.x, z: c.z })), attempts: maxAttempts, fallback: true };
 }
 
+export interface RandomStart {
+  x: number;
+  z: number;
+  /** Start → first beam distance over the base spawn → first beam distance (1.1–1.2 normally). */
+  stretch: number;
+  /** True when no random site validated and the start fell back to the base spawn. */
+  fallback: boolean;
+}
+
+/** Stretch range for the random start: 10–20 % farther from the first beam than the base spawn. */
+export const START_STRETCH_MIN = 1.1;
+export const START_STRETCH_MAX = 1.2;
+
+/** Start sites: mean footprint slope ≤ ~3.4° so the parked rover does not creep downhill. */
+export const START_MAX_GRADE = 0.06;
+/** …and no local bump steeper than ~11° under any wheel. */
+export const START_MAX_BUMP = 0.2;
+
+/**
+ * All six wheels planted and no creep: the mean slope across a 7 m footprint (opposite-point
+ * differences in six directions) stays under `maxGrade`, and no point within 3.5 m of the centre
+ * is steeper than {@link START_MAX_BUMP} from it.
+ */
+export function startSiteOk(x: number, z: number, ground: GroundHeightFn, maxGrade = START_MAX_GRADE): boolean {
+  const h = ground(x, z);
+  for (let a = 0; a < 6; a++) {
+    const ang = (a / 12) * Math.PI * 2;
+    const c = Math.cos(ang) * 3.5;
+    const s = Math.sin(ang) * 3.5;
+    const ha = ground(x + c, z + s);
+    const hb = ground(x - c, z - s);
+    if (Math.abs(ha - hb) / 7 > maxGrade) return false;
+    if (Math.abs(ha - h) / 3.5 > START_MAX_BUMP || Math.abs(hb - h) / 3.5 > START_MAX_BUMP) return false;
+  }
+  return true;
+}
+
+/**
+ * fe-28: random start for a course. The rover begins 10–20 % farther from the first beam than
+ * the base spawn is, in a seeded random direction, on a flat site with a drivable route to the
+ * beam and clear of the later beams. Falls back to the base spawn when nothing validates.
+ */
+export function randomStormStart(
+  seed: number,
+  baseX: number,
+  baseZ: number,
+  checkpoints: readonly StormCheckpoint[],
+  ground: GroundHeightFn,
+  options: { tries?: number; worldRadius?: number; minGap?: number; route?: RouteOptions } = {},
+): RandomStart {
+  const first = checkpoints[0];
+  if (!first) return { x: baseX, z: baseZ, stretch: 1, fallback: true };
+  const base = Math.hypot(first.x - baseX, first.z - baseZ);
+  const tries = options.tries ?? 360;
+  const worldRadius = options.worldRadius ?? 420;
+  const minGap = options.minGap ?? 36;
+  const rng = new Rng(((seed ^ 0x5f3759df) >>> 0) || 1);
+  // Scan the whole ring around the first beam (seeded rotation + stretch per candidate), check
+  // the cheap site tests first, then route-check the candidates in seeded random order.
+  const offset = rng.nextFloat() * Math.PI * 2;
+  const sites: { x: number; z: number; stretch: number }[] = [];
+  for (let t = 0; t < tries; t++) {
+    const stretch = rng.nextRange(START_STRETCH_MIN, START_STRETCH_MAX);
+    const ang = offset + (t / tries) * Math.PI * 2;
+    const x = first.x + Math.cos(ang) * base * stretch;
+    const z = first.z + Math.sin(ang) * base * stretch;
+    if (Math.hypot(x - baseX, z - baseZ) > worldRadius) continue;
+    if (checkpoints.some((c, i) => i > 0 && Math.hypot(c.x - x, c.z - z) < minGap)) continue;
+    if (!startSiteOk(x, z, ground)) continue;
+    sites.push({ x, z, stretch });
+  }
+  for (let i = sites.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.nextFloat() * (i + 1));
+    [sites[i], sites[j]] = [sites[j]!, sites[i]!];
+  }
+  for (const site of sites.slice(0, 12)) {
+    if (findRoute(site.x, site.z, first.x, first.z, ground, [], options.route ?? {})) return { ...site, fallback: false };
+  }
+  return { x: baseX, z: baseZ, stretch: 1, fallback: true };
+}
+
 /** `?seed=` (uint32) when it parses, otherwise a fresh random seed every load. */
 export function randomCourseSeed(param: string | null, random: () => number = Math.random): number {
   if (param !== null && /^\d+$/.test(param.trim())) return Number(param.trim()) >>> 0;

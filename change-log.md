@@ -17113,6 +17113,138 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/tools/selrun.test.ts",
     "what": "Catalog counts 87 -> 88 suites, 729 -> 730 coverage claims",
     "why": "New dustStormRoute suite"
+  },
+  {
+    "id": "1363",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/core/deviceTier.ts",
+    "what": "New device capability tier helper (cores, deviceMemory, mobile UA, WebGPU adapter limits/info) plus FrameTimeMonitor and AdaptiveDeviceQuality",
+    "why": "Ian: re-route less often on mobile via a generic engine-level tier + runtime frame-time adaptation"
+  },
+  {
+    "id": "1364",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Export the deviceTier API",
+    "why": "Make the helper usable by any scene"
+  },
+  {
+    "id": "1365",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/RENDERING.md",
+    "what": "Document device tiers and adaptive quality",
+    "why": "Keep the helper documented"
+  },
+  {
+    "id": "1366",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/core/deviceTier.test.ts",
+    "what": "New suite for hints, classification, monitor and adaptive tier",
+    "why": "TDD for the new helper"
+  },
+  {
+    "id": "1367",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsDustStormScene.ts",
+    "what": "Device tier drives the re-route interval, dust emission scale and startup shadow map; random start 10-20% farther from beam 1",
+    "why": "Ian answers 2 and 4 on PR #100"
+  },
+  {
+    "id": "1368",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/dustStormRoute.ts",
+    "what": "randomStormStart + startSiteOk (near-level footprint, reachable, clear of later beams)",
+    "why": "Random but fair start position"
+  },
+  {
+    "id": "1369",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "?tier= forces the device tier, ?mute=1 mutes the finale jingle",
+    "why": "Testing and user control"
+  },
+  {
+    "id": "1370",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/dustStormRoute.test.ts",
+    "what": "Random start tests",
+    "why": "Cover distance band, flatness, reachability, determinism, fallback"
+  },
+  {
+    "id": "1371",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/marsDustStorm.test.ts",
+    "what": "Scene tests for random start and device tier; fixture pins the tier",
+    "why": "Cover scene wiring deterministically"
+  },
+  {
+    "id": "1372",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link core:deviceTier, report 89",
+    "why": "selrun manifest"
+  },
+  {
+    "id": "1373",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 88 -> 89 suites, 730 -> 731 claims",
+    "why": "New suite"
   }
 ]
 ```

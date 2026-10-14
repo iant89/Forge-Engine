@@ -29,6 +29,10 @@ import {
   polylineLength,
   randomCourseSeed,
   randomStormCourse,
+  randomStormStart,
+  startSiteOk,
+  START_STRETCH_MAX,
+  START_STRETCH_MIN,
   routeClear,
   targetOnScreen,
   ymcaDance,
@@ -257,6 +261,38 @@ group("finale: clear sky + YMCA (fe-28)", () => {
       assert.ok(Math.abs(d.pitch - prev.pitch) < 0.05);
       prev = d;
     }
+  });
+});
+
+
+group("random start (fe-28)", () => {
+  test("start is 10–20 % farther from the first beam than the base spawn, flat and reachable", () => {
+    for (const seed of [1, 7, 99, 1234, 4242]) {
+      const course = randomStormCourse(seed, 0, 0, rolling);
+      const first = course.checkpoints[0]!;
+      const base = Math.hypot(first.x, first.z);
+      const s = randomStormStart(seed, 0, 0, course.checkpoints, rolling);
+      assert.equal(s.fallback, false, `seed ${seed}`);
+      const d = Math.hypot(first.x - s.x, first.z - s.z);
+      assert.ok(d >= base * START_STRETCH_MIN - 1e-6 && d <= base * START_STRETCH_MAX + 1e-6, `seed ${seed}: ${d} vs ${base}`);
+      assert.ok(Math.abs(s.stretch - d / base) < 1e-6);
+      assert.ok(startSiteOk(s.x, s.z, rolling));
+      assert.ok(findRoute(s.x, s.z, first.x, first.z, rolling, []));
+    }
+  });
+  test("deterministic per seed, different across seeds", () => {
+    const course = randomStormCourse(5, 0, 0, flat);
+    const a = randomStormStart(5, 0, 0, course.checkpoints, flat);
+    const b = randomStormStart(5, 0, 0, course.checkpoints, flat);
+    const c = randomStormStart(6, 0, 0, course.checkpoints, flat);
+    assert.deepEqual(a, b);
+    assert.notDeepEqual(a, c);
+  });
+  test("falls back to the base spawn when nothing validates", () => {
+    const cliff = (x: number, z: number): number => (x * x + z * z) * 0.5;
+    const s = randomStormStart(3, 0, 0, [{ x: 80, z: 0 }], cliff);
+    assert.deepEqual(s, { x: 0, z: 0, stretch: 1, fallback: true });
+    assert.equal(randomStormStart(3, 1, 2, [], flat).fallback, true);
   });
 });
 

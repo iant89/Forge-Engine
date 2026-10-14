@@ -241,6 +241,9 @@ async function main(): Promise<void> {
         quality: stormQualityForPlatform(platform.os),
         // fe-28: a fresh random course every load; `?seed=<uint32>` replays one (tests, sharing).
         courseSeed: randomCourseSeed(query.get("seed")),
+        // fe-28: `?tier=low|medium|high` forces the device tier; `?mute=1` mutes the finale jingle.
+        deviceTier: ((t) => (t === "low" || t === "medium" || t === "high" ? t : undefined))(query.get("tier")),
+        muted: query.get("mute") === "1",
       });
     } else {
       currentHandle = buildCubesScene(engine);

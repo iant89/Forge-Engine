@@ -47,6 +47,10 @@ import {
   createRock,
   heightFunctionGround,
   stormLightFactors,
+  AdaptiveDeviceQuality,
+  readDeviceCapabilityHints,
+  type DeviceCapabilityHints,
+  type DeviceTier,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
@@ -136,6 +140,7 @@ import {
   guidePulse,
   polylineLength,
   randomStormCourse,
+  randomStormStart,
   targetOnScreen,
   ymcaDance,
   type RouteObstacle,
@@ -163,6 +168,8 @@ export interface MarsDustStormState {
   won: boolean;
   /** fe-28: seed of this load's random course (`?seed=` pins it). */
   courseSeed: number;
+  /** fe-28: randomized start (10–20 % farther from beam 1 than the surveyed spawn). */
+  start: { x: number; z: number; stretch: number; fallback: boolean };
   /** fe-28: beam positions of this load's course. */
   checkpoints: { x: number; z: number }[];
   /** fe-28: 0 = storm, 1 = clear Mars day (ramps after the last beam). */
@@ -198,6 +205,8 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   setDifficulty(difficulty: StormDifficulty): void;
   /** Place the rover upright at (x, z) facing the active beam (browser checks). */
   teleport(x: number, z: number): boolean;
+  /** fe-28: the adaptive device-quality tracker (tier, reasons, frame-time monitor). */
+  readonly deviceQuality: AdaptiveDeviceQuality;
 }
 
 export interface MarsDustStormOptions {
@@ -206,11 +215,23 @@ export interface MarsDustStormOptions {
   quality?: StormQualityTier;
   /** fe-28: random course seed; omit for a fresh random course every load (`?seed=` in main.ts). */
   courseSeed?: number;
+  /** fe-28: force the starting device tier (`?tier=`); omit to classify the device. */
+  deviceTier?: DeviceTier;
+  /** fe-28: capability hints (tests); omit to read navigator + the WebGPU adapter. */
+  deviceHints?: DeviceCapabilityHints;
+  /** fe-28: let the frame-time monitor adapt the tier at runtime (default true; tests pin it). */
+  adaptiveQuality?: boolean;
+  /** fe-28: start with the finale jingle muted (`?mute=1`). */
+  muted?: boolean;
 }
 
 /** Same surveyed spawn as the Mars Showcase (all six wheels planted on the seed-1337 surface). */
-const SPAWN_X = -164;
-const SPAWN_Z = 4;
+const BASE_SPAWN_X = -164;
+const BASE_SPAWN_Z = 4;
+/** fe-28 device tier knobs: guide re-route interval (s), dust emission scale, startup shadow map. */
+export const STORM_TIER_ROUTE_INTERVAL: Readonly<Record<DeviceTier, number>> = { high: 0.5, medium: 1, low: 1.5 };
+export const STORM_TIER_PARTICLES: Readonly<Record<DeviceTier, number>> = { high: 1, medium: 0.7, low: 0.45 };
+export const STORM_TIER_SHADOW_MAP: Readonly<Record<DeviceTier, number>> = { high: 4096, medium: 2048, low: 1024 };
 const STORM_SITE = { name: "Equatorial plain", latDeg: 0, lonDeg: 0, headingDeg: 0 } as const;
 const ROVER_RADIUS = 1.6;
 const BOULDER_COUNT = 36;
@@ -238,6 +259,13 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   let rules = STORM_DIFFICULTY[difficulty];
   const qualityTier: StormQualityTier = options.quality ?? "full";
   const quality = STORM_QUALITY_TIERS[qualityTier];
+  // fe-28: device tier (cores / memory / adapter limits / mobile UA) + a frame-time monitor.
+  const deviceHints = options.deviceHints ?? readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1]);
+  const device = new AdaptiveDeviceQuality(deviceHints, options.deviceTier ? { initialTier: options.deviceTier } : {});
+  if (device.initial.reasons.length > 0) console.info(`mars dust storm: device tier ${device.tier} (${device.initial.reasons.join(", ")})`);
+  const adaptive = options.adaptiveQuality ?? true;
+  let lastFrameAt = 0;
+  const particleScale = (): number => device.value(STORM_TIER_PARTICLES);
   const gpu = engine.gpu;
   const scene = new Scene({ name: "mars-dust-storm" });
 
@@ -249,7 +277,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   scene.settings.bloom.intensity = 0.12;
   scene.settings.shadow.enabled = true;
   scene.settings.shadow.cascades = quality.shadowCascades;
-  scene.settings.shadow.mapSize = quality.shadowMapSize;
+  scene.settings.shadow.mapSize = Math.min(quality.shadowMapSize, device.value(STORM_TIER_SHADOW_MAP));
   scene.settings.shadow.distance = 120;
   // The storm hides the sky: the background is the dust itself, re-tinted every frame.
   scene.setBackgroundColor(new Color(DUST_R, DUST_G, DUST_B));
@@ -265,6 +293,15 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   scene.add(terrain);
   const groundHeight = (x: number, z: number): number => terrain.getHeightAt(x, z);
   const ground = heightFunctionGround(groundHeight);
+  // fe-28: a random course every load, each beam reachable from the previous (route-checked),
+  // and a random start 10–20 % farther from the first beam than the surveyed spawn.
+  const courseSeed = (options.courseSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  const generated = randomStormCourse(courseSeed, BASE_SPAWN_X, BASE_SPAWN_Z, groundHeight, { fallback: stormCheckpointLayout(BASE_SPAWN_X, BASE_SPAWN_Z) });
+  if (generated.fallback) console.warn(`mars dust storm: no reachable random course for seed ${courseSeed}; using the surveyed layout`);
+  const start = randomStormStart(courseSeed, BASE_SPAWN_X, BASE_SPAWN_Z, generated.checkpoints, groundHeight);
+  if (start.fallback) console.warn(`mars dust storm: no random start validated for seed ${courseSeed}; using the surveyed spawn`);
+  const SPAWN_X = start.x;
+  const SPAWN_Z = start.z;
   const groundY = groundHeight(SPAWN_X, SPAWN_Z);
   terrain.focusPosition.set(SPAWN_X, groundY, SPAWN_Z);
 
@@ -355,10 +392,6 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const storm = new StormField(STORM_SEED);
   const devils = new DustDevilField(quality.devils);
   const accumulation = new DustAccumulation();
-  // fe-28: a random course every load, each beam reachable from the previous (route-checked).
-  const courseSeed = (options.courseSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
-  const generated = randomStormCourse(courseSeed, SPAWN_X, SPAWN_Z, groundHeight, { fallback: stormCheckpointLayout(SPAWN_X, SPAWN_Z) });
-  if (generated.fallback) console.warn(`mars dust storm: no reachable random course for seed ${courseSeed}; using the surveyed layout`);
   const course = new StormCourse(generated.checkpoints, SPAWN_X, SPAWN_Z);
   // Face the first beam at the start.
   const first = course.checkpoints[0]!;
@@ -857,7 +890,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     guideTimer = 0;
     // Fresh route from the spawn even when hard mode hides it, so a restart is the fresh state.
     guideRoute = routeTo(SPAWN_X, SPAWN_Z, first);
-    routeTimer = 0.5;
+    routeTimer = device.value(STORM_TIER_ROUTE_INTERVAL);
     routeTarget = course.index;
     stepGuidance(0);
   }
@@ -902,7 +935,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const modules = system.modules;
     const windLen = Math.hypot(wind.x, wind.z) || 1;
     // Storm sheet: a wind-driven slab upwind of the camera.
-    emitter.rate = quality.sheetRate * (0.25 + 0.75 * intensity) * (1 - clearSky);
+    emitter.rate = quality.sheetRate * particleScale() * (0.25 + 0.75 * intensity) * (1 - clearSky);
     emitter.position.x = eye.x - (wind.x / windLen) * 25;
     emitter.position.y = groundHeight(eye.x, eye.z) + 7;
     emitter.position.z = eye.z - (wind.z / windLen) * 25;
@@ -932,7 +965,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const look = devilParticleLook(d, time, devilEmitFrame, devilLooks[i]);
       const e = sys.emitter;
       // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
-      e.rate = devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME) * (1 - clearSky);
+      e.rate = particleScale() * devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME) * (1 - clearSky);
       // fe-22d: the whole devil (grains, base cloud, cards, shadow) dances on the wandering base.
       const bx = d.x + look.curve.baseX;
       const bz = d.z + look.curve.baseZ;
@@ -1120,6 +1153,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   const update = (dt: number): void => {
+    // Wall-clock frame time (not the clamped sim dt) drives the adaptive tier.
+    const now = performance.now();
+    if (adaptive && lastFrameAt > 0) device.sample(now - lastFrameAt);
+    lastFrameAt = now;
     if (dt <= 0) return;
     time += dt;
     if (wonAt >= 0) clearSky = clearSkyProgress(time - wonAt);
@@ -1213,7 +1250,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     guideTimer -= dt;
     routeTimer -= dt;
     if (guideRenderable.visible && target && (routeTimer <= 0 || routeTarget !== course.index)) {
-      routeTimer = 0.5;
+      routeTimer = device.value(STORM_TIER_ROUTE_INTERVAL);
       routeTarget = course.index;
       guideRoute = routeTo(vx, vz, target);
       guideTimer = 0;
@@ -1381,6 +1418,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     flipped: isRoverFlipped(vehicle.roll, vehicle.pitch),
     won: course.state === "won",
     courseSeed,
+    start: { x: start.x, z: start.z, stretch: start.stretch, fallback: start.fallback },
     checkpoints: course.checkpoints.map((c) => ({ x: c.x, z: c.z })),
     clearSky,
     dance: danceLetter,
@@ -1434,6 +1472,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stormState,
     restart,
     setDifficulty,
+    deviceQuality: device,
     teleport: (x: number, z: number): boolean => {
       if (dancing || !Number.isFinite(x) || !Number.isFinite(z)) return false;
       startupBrake = false;

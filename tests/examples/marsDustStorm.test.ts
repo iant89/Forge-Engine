@@ -47,7 +47,7 @@ import {
   VehicleComponent,
   findGpuParticleWorlds,
 } from "@forge/engine";
-import { buildMarsDustStormScene } from "../../examples/src/scenes/marsDustStormScene.js";
+import { buildMarsDustStormScene, STORM_TIER_PARTICLES, STORM_TIER_ROUTE_INTERVAL } from "../../examples/src/scenes/marsDustStormScene.js";
 import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
 
@@ -107,7 +107,7 @@ async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = 
   stubGlobal("fetch", spyFunction(() => new Promise<Response>(() => {})));
   const gpu = await GraphicsDevice.create({ forceMock: true });
   const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
-  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed });
+  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed, deviceHints: {}, adaptiveQuality: false });
   const scene = handle.scene;
   scene.attachToEngine(engine);
   const component = scene.world.getComponent(scene.world.findByName("rover-chassis")[0]!, VehicleComponent)!;
@@ -537,5 +537,36 @@ group("Mars Dust Storm Survival — fe-28 polish", () => {
 });
 
 const MARS_WHEELS = ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"];
+
+
+group("Mars Dust Storm Survival — device tier + random start (fe-28)", () => {
+  test("random start is 10–20 % farther from beam 1 than the surveyed spawn; the rover spawns there", async () => {
+    const { handle, vehicle } = await fixture();
+    const s = handle.stormState();
+    assert.equal(s.start.fallback, false);
+    const first = s.checkpoints[0]!;
+    const base = Math.hypot(first.x + 164, first.z - 4);
+    const d = Math.hypot(first.x - s.start.x, first.z - s.start.z);
+    assert.ok(d >= base * 1.1 - 1e-6 && d <= base * 1.2 + 1e-6, `${d} vs ${base}`);
+    assert.ok(Math.hypot(vehicle.position.x - s.start.x, vehicle.position.z - s.start.z) < 0.01);
+  });
+  test("device tier picks the route interval / particle scale; hints classify, ?tier forces", async () => {
+    const { handle } = await fixture();
+    assert.equal(handle.deviceQuality.tier, "high");
+    const gpu = await GraphicsDevice.create({ forceMock: true });
+    const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
+    const phone = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, quality: "reduced", courseSeed: 1234, deviceHints: { mobile: true, hardwareConcurrency: 8 }, adaptiveQuality: false });
+    assert.equal(phone.deviceQuality.tier, "medium");
+    const forced = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, quality: "reduced", courseSeed: 1234, deviceHints: {}, deviceTier: "low", adaptiveQuality: false });
+    assert.equal(forced.deviceQuality.tier, "low");
+    // Let both mock model loads settle before tearing the device down.
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    phone.dispose?.();
+    forced.dispose?.();
+    await gpu.dispose();
+    assert.ok(STORM_TIER_ROUTE_INTERVAL.medium > STORM_TIER_ROUTE_INTERVAL.high && STORM_TIER_ROUTE_INTERVAL.low > STORM_TIER_ROUTE_INTERVAL.medium);
+    assert.ok(STORM_TIER_PARTICLES.low < STORM_TIER_PARTICLES.high);
+  });
+});
 
 await finish();
