@@ -315,8 +315,8 @@ async function main(): Promise<void> {
   const indirectParam = new URLSearchParams(window.location.search).get("indirectdraws");
   if (indirectParam === "0" || indirectParam === "1") engine.renderer.indirectDraws = indirectParam === "1";
   // Per-instance population culling (Phase A): sized from the device tier (PR #100) — every tier
-  // culls per instance, the low tier skips the per-instance HiZ test. `?tier=low|medium|high` forces
-  // the tier; `?popcull=0|1` and `?pophiz=0|1` pin the two switches for A/B links.
+  // culls per instance, the low tier skips the per-instance HiZ test. `?tier=` (fe-28) forces the
+  // tier; `?popcull=0|1` pins the switch for A/B links.
   {
     const query = new URLSearchParams(window.location.search);
     const forced = query.get("tier");
@@ -329,8 +329,6 @@ async function main(): Promise<void> {
     engine.renderer.populationOcclusion = knobs.populationOcclusion;
     const popCull = query.get("popcull");
     if (popCull === "0" || popCull === "1") engine.renderer.populationCulling = popCull === "1";
-    const popHiz = query.get("pophiz");
-    if (popHiz === "0" || popHiz === "1") engine.renderer.populationOcclusion = popHiz === "1";
   }
 
   // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,

@@ -89,7 +89,6 @@ fn populationCullMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // (2) This frame's verdict, with the bits the prepass drew with.
-  atomicAdd(&popCounts.tested, 1u);
   if (visibility[pop.visibilityIndex] != 0u) {
     atomicAdd(&popCounts.culledBatch, 1u);
     return;

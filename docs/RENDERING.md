@@ -688,11 +688,13 @@ size of the chunk's record buffer (80 B per instance), allocated on first use.
 **Device tiers.** `populationCullingForTier(tier)` (PR #100 tiers): every tier culls per instance;
 `low` turns off the per-instance HiZ test (`RendererOptions.populationOcclusion` /
 `renderer.populationOcclusion`), whose texel loop costs most on low-end and iPhone GPUs. The demo
-applies it at start-up (`?tier=` forces a tier; `?popcull=0|1`, `?pophiz=0|1` pin the switches).
+applies it at start-up (`?tier=` forces a tier; `?popcull=0|1` pins the switch).
 
 **Readout.** `stats.populationCullBatches` (exact) and the lagged device counters
 `populationInstancesTested` ("in"), `populationInstancesDrawn`, `populationCulledFrustum`,
-`populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch`; the demo HUD prints
+`populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch` ("in" is the sum of
+the other five, since each instance lands in exactly one bucket — one global atomic per instance, not
+two); the demo HUD prints
 `pop cull … in → … drawn`.
 
 **Tests.** `tests/population/populationCull.test.ts`: the twin's frustum verdict against brute force

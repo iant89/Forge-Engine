@@ -243,8 +243,8 @@ export const PopulationCullUniforms = new StructDef("PopulationCullUniforms", [
 ]);
 
 /** What `forge.populationCull` did this frame (atomics, read back a frame or two late). */
+/** Per-reason counters; "instances in" is their sum (one global atomic per instance, not two). */
 export const PopulationCullStatsBlock = new StructDef("PopulationCullStatsBlock", [
-  { name: "tested", type: atomicU32, comment: "instances in (every instance of every eligible batch)" },
   { name: "drawn", type: atomicU32, comment: "instances compacted into the draw buffers" },
   { name: "culledFrustum", type: atomicU32 },
   { name: "culledDistance", type: atomicU32 },

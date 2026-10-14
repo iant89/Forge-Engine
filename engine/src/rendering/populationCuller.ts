@@ -23,7 +23,6 @@ export const POPULATION_CULL_PIPELINE_LABEL = "population.cull.pipeline";
 const UNIFORM_SLOT = 256;
 const STATS_BYTES = PopulationCullStatsBlock.byteSize("storage");
 const STATS_WORD = {
-  tested: PopulationCullStatsBlock.offsetOf("tested", "storage") >> 2,
   drawn: PopulationCullStatsBlock.offsetOf("drawn", "storage") >> 2,
   culledFrustum: PopulationCullStatsBlock.offsetOf("culledFrustum", "storage") >> 2,
   culledDistance: PopulationCullStatsBlock.offsetOf("culledDistance", "storage") >> 2,
@@ -205,13 +204,16 @@ export class GpuPopulationCuller {
         // Disposed while the map was in flight: the buffer is gone, and so is anyone reading stats.
         if (this.disposed) return;
         const w = new Uint32Array(buffer.getMappedRange(0, STATS_BYTES), 0, STATS_BYTES >> 2);
+        // Every tested instance lands in exactly one bucket, so "in" is the sum (no extra atomic).
+        const drawn = w[STATS_WORD.drawn]!;
+        const f = w[STATS_WORD.culledFrustum]!, dd = w[STATS_WORD.culledDistance]!, o = w[STATS_WORD.culledOccluded]!, cb = w[STATS_WORD.culledBatch]!;
         this.lastStats = {
-          tested: w[STATS_WORD.tested]!,
-          drawn: w[STATS_WORD.drawn]!,
-          culledFrustum: w[STATS_WORD.culledFrustum]!,
-          culledDistance: w[STATS_WORD.culledDistance]!,
-          culledOccluded: w[STATS_WORD.culledOccluded]!,
-          culledBatch: w[STATS_WORD.culledBatch]!,
+          tested: drawn + f + dd + o + cb,
+          drawn,
+          culledFrustum: f,
+          culledDistance: dd,
+          culledOccluded: o,
+          culledBatch: cb,
         };
         buffer.unmap();
         this.readbackBusy[index] = false;
@@ -219,11 +221,6 @@ export class GpuPopulationCuller {
       .catch(() => {
         this.readbackBusy[index] = false;
       });
-  }
-
-  /** Publish counters computed elsewhere (the mock's twin), so the stats path reads one place. */
-  setStats(stats: PopulationCullStats): void {
-    this.lastStats = stats;
   }
 
   dispose(): void {
@@ -356,7 +353,6 @@ registerMockComputeKernel(POPULATION_CULL_PIPELINE_LABEL, (dispatch) => {
   const drawn = cullPopulationInstancesOnCpu(new Float32Array(source), new Uint32Array(source), batch, visible, params, [], new Uint32Array(compacted), stats);
   new Uint32Array(args)[pu[base + PCU("argsWord")]!] += drawn;
   const sw = new Uint32Array(statsBytes);
-  sw[STATS_WORD.tested] += stats.tested;
   sw[STATS_WORD.drawn] += stats.drawn;
   sw[STATS_WORD.culledFrustum] += stats.culledFrustum;
   sw[STATS_WORD.culledDistance] += stats.culledDistance;
