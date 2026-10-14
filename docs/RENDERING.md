@@ -41,7 +41,7 @@ options:
 | `settings.hdr` (default `true`) | on: `forge.main` renders into an `rgba16float` target and `forge.tonemap` resolves to the swapchain. off: `forge.main` writes the swapchain directly and applies exposure + tone curve + sRGB encode in the standard shader; no post passes exist. |
 | `settings.postProcessing && settings.bloom.enabled` and `RendererOptions.bloom !== false` | adds the bloom chain between `forge.main` and `forge.tonemap`. Requires `hdr`. Skipped silently when the half-resolution mip would be under 16 px. |
 | `settings.shadow.enabled`, the highest-priority shadow-casting directional light, an intersecting `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per active cascade, up to `min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
-| `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to four. The four valid shadow-casting spot lights with the highest brightness × influence-area priority are supported. |
+| `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to `settings.shadow.maxSpotShadows` (default 4, ceiling `MAX_SPOT_SHADOWS` = 8, capped by `RendererOptions.maxSpotShadows`). Only spots whose cone touches the camera frustum within `shadow.distance` compete; they rank by brightness × influence area ÷ squared camera distance. |
 | `settings.shadow.enabled`, a valid `Light.kind = "point"` with `castShadow`, and an intersecting caster | six `forge.shadow.point.<p>.<face>` passes per selected point light (face order +x −x +y −y +z −z), up to two lights. Each light occupies six consecutive atlas layers after the spot maps. |
 | `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | common edge size of every cascade, spot and point-face layer in the shared depth array. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options; all maps use the same per-frame resolution. |
 | `settings.renderScale` | the HDR or LDR scene target and depth buffer are allocated at `round(size × scale)`; tonemap or the LDR passthrough resolve upsamples to the swapchain. |
@@ -233,17 +233,30 @@ splits and texel sizes, spot and point matrices/parameters, counts and biases).
 
 ### Spotlight shadows (Phase 13.9)
 
-Up to four valid shadow-casting spot lights are fitted per frame by `computeSpotShadow()`: the light's
+Up to `settings.shadow.maxSpotShadows` valid shadow-casting spot lights are fitted per frame by `computeSpotShadow()`: the light's
 travel direction and outer-cone cosine define a square perspective projection, with the near plane
 kept close to the light and the far plane at `Light.range`. Cone cosines are clamped and ordered at
-light upload, so even reversed user values yield a valid soft-edge interval. The renderer takes the
-four valid spots with the highest brightness × influence-area priority; `Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
+light upload, so even reversed user values yield a valid soft-edge interval. Slot selection (fe-32):
+
+* **Budget.** `settings.shadow.maxSpotShadows` (default `DEFAULT_SPOT_SHADOWS` = 4) asks for up to
+  `MAX_SPOT_SHADOWS` = 8 slots (the shader's array length); `RendererOptions.maxSpotShadows` lets a
+  quality profile cap it lower; 0 turns spot shadows off. Every slot is one more depth pass and one
+  more atlas layer, so tie the setting to the device tier (the rover course uses low 1 / medium 2 /
+  high 4).
+* **Relevance.** A spot competes only when the bounding sphere of its cone (`spotBoundingSphere`)
+  intersects the camera frustum and its nearest point lies within `shadow.distance` of the camera.
+  Lamps behind the camera or past the shadow distance get no map that frame.
+* **Ranking.** Survivors are ordered by brightness × influence area (`shadowLightPriority`) ÷ the
+  squared camera distance to the light (floored at 1 m), so equal lamps go nearest-first and list
+  order no longer decides. `Renderer.spotShadowLights()` returns the lights holding slots.
+
+`Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
 `depth24plus` 2d-array and the same frame resolution (`settings.shadow.mapSize` capped by
 `RendererOptions.shadowMapSize`); per-light/adaptive resolution is not part of this step.
 
 Directional cascades occupy array layers `[0, count)`, then spot slot `i` occupies `count + i` and
 uses `LightUniforms.shadowIndex = i`. The same index survives both the fixed uniform light list and
-the clustered-light storage block. Per-object AABB masks reserve bits 0–3 for cascades and bits 4–7
+the clustered-light storage block. Per-object AABB masks reserve bits 0–3 for cascades and bits 4–11
 for spot slots, so a spot-only frame works without inventing a directional cascade. The renderer adds
 `forge.shadow.spot.<i>` after any active cascade passes, fits each spot frustum independently, and
 uses those masks to retain off-screen casters while avoiding draws into unrelated maps. Spot sampling
@@ -868,15 +881,15 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   corresponding map. Adjacent ranges assigned to the same map coalesce into one draw, but separated
   runs may still require multiple submissions; overlapping maps repeat vertex work, and there is no
   per-map GPU compaction. Off-screen caster coverage is preserved.
-* Only the highest-priority shadow-casting directional light, up to four spot lights and up to two point lights
+* Only the highest-priority shadow-casting directional light, up to `shadow.maxSpotShadows` (default four, at most eight) in-view spot lights and up to two point lights
   cast. Contact shadows and per-light resolution are not implemented yet. Point cube faces are
   sampled by dominant axis because WebGPU has no depth-cube comparison sampling. Each 90° face uses
   a two-texel projection guard band, so the 3×3 PCF footprint stays inside overlapping face data at
   cube boundaries instead of producing a bright seam.
 * At 2048², one `depth24plus` layer costs about 16 MiB: three cascades alone are ≈48 MiB, three
   cascades plus four spots ≈112 MiB, and one point cube adds six more layers (≈96 MiB). The hard
-  four-cascade/four-spot/two-point-cube maximum is twenty layers ≈320 MiB; the 4096² ultra profile
-  scales that worst case to ≈1.25 GiB. All maps use the shared `settings.shadow.mapSize` resolution;
+  four-cascade/eight-spot/two-point-cube maximum is twenty-four layers ≈384 MiB (before the memory
+  budget halves the resolution); the 4096² ultra profile scales that worst case to ≈1.5 GiB. All maps use the shared `settings.shadow.mapSize` resolution;
   tests use `shadowMapSize: 256` because the mock device allocates texture storage eagerly.
 * Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles, orthographic
   cameras, scenes that turn it off — still alias nothing.
@@ -901,7 +914,7 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   projection does not put in `clip.w`, the same reason SSAO is perspective-only — so their local lights
   still go through the fixed 16-entry uniform list.
 * The cluster block preserves assigned spot and point `shadowIndex` values, but unselected spots and
-  point lights still use −1. Only the four highest-priority valid shadow-casting spot lights and two
+  point lights still use −1. Only the `shadow.maxSpotShadows` most important in-view spot lights and two
   highest-priority point lights receive maps; contact shadows remain roadmap 13.9 work, while shared
   map resolution adapts to the configured memory budget.
 * `renderScale` scales both HDR and LDR scene/depth targets; HDR tonemaps to the swapchain while LDR uses a color-preserving bilinear resolve.
