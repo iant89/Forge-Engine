@@ -17845,6 +17845,94 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "Eye limitation updated for eyeHole",
     "why": "Honest limits"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment",
+    "what": "Curvy shore, wind set-up/tide, gusts, ceiling/scud/billow, runup, lightning options, waterspouts, windBuffet",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles",
+    "what": "WindBlownField presets and WaterspoutVisual",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/audio/storm.ts",
+    "what": "StormSoundscape",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering",
+    "what": "Billowed clouds, 8 water waves, curvy shoreDepth",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes",
+    "what": "Hurricane polish: low tide, surge flood, houses, palms, lightning, waterspouts, wind fields, sound, buffet",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/environment/stormRealism.test.ts",
+    "what": "New storm realism suite",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/ENVIRONMENT.md",
+    "what": "Storm realism section",
+    "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-14T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Analytic shore limit partly lifted by the curve",
+    "why": "fe-34 hurricane realism"
   }
 ]
 ```

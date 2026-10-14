@@ -193,10 +193,10 @@ group("selrun catalog and many-to-many repository coverage", () => {
     const catalog = validateCatalog(repoRoot);
     assert.deepEqual(catalog.errors, []);
     assert.equal(catalog.stats.suitesOnDisk, 96);
-    assert.equal(catalog.stats.suitesLinked, 95);
-    assert.equal(catalog.stats.suitesNamed, 95);
-    assert.equal(catalog.stats.suitesWithCoverage, 95);
-    assert.equal(catalog.stats.coverageClaims, 768);
+    assert.equal(catalog.stats.suitesLinked, 96);
+    assert.equal(catalog.stats.suitesNamed, 96);
+    assert.equal(catalog.stats.suitesWithCoverage, 96);
+    assert.equal(catalog.stats.coverageClaims, 769);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
@@ -254,7 +254,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("checks the package CLI and keeps selrun installed as the local npm workspace", () => {
     const cli = path.join(repoRoot, "packages/selrun/src/cli.mjs");
     const output = execFileSync(process.execPath, [cli, "check"], { cwd: repoRoot, encoding: "utf8" });
-    assert.match(output, /check OK — 95 linked suites, 757 explicit coverage claims/);
+    assert.match(output, /check OK — 96 linked suites, 769 explicit coverage claims/);
 
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));

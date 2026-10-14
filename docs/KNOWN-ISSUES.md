@@ -192,6 +192,8 @@ What remains:
   Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
   (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the
   same parameters (`coastalTerrainSource`); shoaling ignores its own gradient in the normals.
+  Since fe-34 the analytic bed can wind (`curveAmp*`/`curveLength*`), so a curvy coast lines up too,
+  but it is still two sinusoids, not the terrain's real depth: bays, spits or eroded coasts will not match.
   The cyclone's eye can be carved into the deck as a local hole + eyewall ring (`eyeHole`), but
   the deck is a flat slab: the wall is a dense ring at deck height, not a towering 3-D wall, and
   the hole is scaled toward the observer (`eyeHole.scale`) to sit at a readable elevation. Without

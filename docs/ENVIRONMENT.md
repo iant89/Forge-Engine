@@ -521,3 +521,39 @@ its cached sun, ambient and horizon tints when the intensity or `ambientScale` c
 the change was ignored until the sun moved, and ambient never scaled). The renderer passes the
 sky `exposure` as `ambientScale`, so `setSky({ exposure })` darkens the cloud deck and the water's
 sky tint with the atmosphere — how a storm reaches near-black grey. Exposure 1 is unchanged.
+
+### 10.x Storm realism (fe-34)
+
+All of this is engine-side and reusable; the hurricane demo only scripts it.
+
+* **Curvy coast.** `WaterShoreSettings.curveAmp1/curveLength1/curvePhase1` and `curveAmp2/…2`
+  (default 0 = straight) wind the waterline: `shoreCurveOffset(curve, across)` is the sum of two
+  sinusoids that `shoreDepthAt`, the WGSL `shoreDepth` (`shoreD`/`shoreE`) and
+  `coastalHeightAt` all subtract from the along-shore distance, so foam, depth colour and the
+  terrain agree. `coastalShoreSettings` copies the curve; `duneRows` (0–2) adds hummock rows
+  behind the fore-dune.
+* **Sea level.** `water.level = seaLevel + surge + setup + tideOffset`. `cycloneWindSetup(windX, windZ,
+  onshoreX, onshoreZ, coef, limit)` is wind set-down (offshore wind pulls the sea back — the
+  pre-storm "low tide") and set-up (onshore wind). `CycloneSystem.tideOffset` is a scripted tide.
+  `runup: { base, perMetre }` widens `shore.foamDepth` with significant wave height (swash).
+  `WaterSurface` now moves its mesh to the live level.
+* **Gusts.** `gustiness` (0..1) multiplies the wind by the deterministic `cycloneGustSignal(t, seed)`;
+  `observed.gust` / `observed.gustSpeed` expose it. `ceiling {clear, storm}` lowers the deck,
+  `scud` speeds the lowest layer, `billow {clear, storm}` drives the deck's billows.
+* **Billows.** `clouds.billow` (0..1): `cloudBillow` keeps lumpy structure at full coverage and shades
+  dense cores darker, thin edges brighter. `cloudBillowApply` / `cloudDensityAt(..., billow)` mirror it on CPU.
+* **Ocean.** Up to 8 components (`MAX_WATER_WAVES`); 5–8 add a near-twin of the peak (wave groups /
+  sets), cross-sea and chop. Quality tiers: low 4, medium 6, high 8.
+* **Lightning.** `LightningSystem` options `storm()` (rate scale), `center()`, `surfaceAt(x,z)` (ground or
+  sea strike height), `branches`, `cloudFlashFraction` (intra-cloud flashes, `bolt.cloudOnly`),
+  `boltColor`, `boltWidth`; `paused`; `trigger(position?, energy?, cloudOnly?)`; `lightningBranches()`.
+* **Waterspouts.** `WaterspoutSystem` (environment/) spawns seeded Poisson funnels in an area at a
+  host-scripted `spawnRate()` (`waterspoutSpawnRate(wind, {threshold, full, perSecond})`), drifts them
+  with the steering wind plus wander, and dissipates them (`waterspoutStrength`, rope-out from the
+  bottom in `waterspoutFunnelAt`). `WaterspoutVisual` (particles/) renders funnel segments and a spray ring.
+  `spawn(at?, life?)` forces one (debug hooks).
+* **Wind made visible.** `WindBlownField` with `windBlownPreset("spray"|"spindrift"|"sand"|"mist"|"debris")`;
+  `windBlownVelocity` couples particles to the wind.
+* **Soundscape.** `StormSoundscape` (audio/) synthesises wind, howl, rain, surf and thunder with WebAudio;
+  `stormSoundLevels` is the pure mapping. Browsers need a user gesture, so it is opt-in.
+* **Camera buffet.** `windBuffet(t, windSpeed, gust, strength, out)` gives a small offset + roll for a follow camera.
