@@ -192,18 +192,18 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("links each discovered suite exactly once, reports the exact count, and leaves DOM suites last", () => {
     const catalog = validateCatalog(repoRoot);
     assert.deepEqual(catalog.errors, []);
-    assert.equal(catalog.stats.suitesOnDisk, 95);
+    assert.equal(catalog.stats.suitesOnDisk, 96);
     assert.equal(catalog.stats.suitesLinked, 95);
     assert.equal(catalog.stats.suitesNamed, 95);
     assert.equal(catalog.stats.suitesWithCoverage, 95);
-    assert.equal(catalog.stats.coverageClaims, 757);
+    assert.equal(catalog.stats.coverageClaims, 768);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
     const linkPaths = linked.links.map((link) => link.file);
     assert.equal(linked.reportCounts.length, 1);
-    assert.equal(linked.reportCounts[0], 95);
-    assert.equal(new Set(linkPaths).size, 95);
+    assert.equal(linked.reportCounts[0], 96);
+    assert.equal(new Set(linkPaths).size, 96);
     assert.deepEqual([...linkPaths].sort(), discovered);
 
     const firstDomSuite = linkPaths.findIndex((file) => file?.startsWith("tests/controls/"));
