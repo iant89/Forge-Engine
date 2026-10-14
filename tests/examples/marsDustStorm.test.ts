@@ -520,8 +520,8 @@ group("Mars Dust Storm Survival — fe-29 blown away", () => {
     assert.equal(handle.stormState().stats.distance, 0);
   });
 
-  test("guide dots: evenly spaced glowing spheres with a travelling crest; only the current beacon off Easy", async () => {
-    const { handle, scene, tick } = await fixture("advanced");
+  test("guide dots (Easy only): evenly spaced glowing spheres with a travelling crest", async () => {
+    const { handle, scene, tick } = await fixture("easy");
     tick();
     tick(0.3);
     const dots = named(scene, "storm-guide-dot-").map((e) => e);
@@ -537,6 +537,10 @@ group("Mars Dust Storm Survival — fe-29 blown away", () => {
       crests.push(handle.stormState().guideDots.crest);
     }
     assert.ok(crests.some((c, i) => i > 0 && c > crests[i - 1]! && crests[i - 1]! >= 0), `crest travels toward the beam ${crests}`);
+    handle.setDifficulty("advanced");
+    tick(0.2);
+    assert.equal(dots.filter((e) => e.get(Renderable)!.visible).length, 0, "advanced: no guide dots");
+    assert.equal(named(scene, "storm-waypoint-arrow")[0]!.get(Renderable)!.visible, false, "advanced: no arrow");
     const beams = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-"));
     assert.equal(beams.filter((e) => e.get(Renderable)!.visible).length, 1, "advanced: current beacon only");
   });

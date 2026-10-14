@@ -1502,7 +1502,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   /**
-   * Easy/Advanced guidance: glowing dots along a smoothed obstacle-aware route (re-routed ~2×/s,
+   * Easy-only guidance: glowing dots along a smoothed obstacle-aware route (re-routed ~2×/s,
    * re-sampled ~5×/s) with a wave running to the beam, and the off-screen beam arrow.
    */
   function stepGuidance(dt: number): void {

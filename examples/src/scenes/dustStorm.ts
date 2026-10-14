@@ -1610,7 +1610,7 @@ export function buildDrapedRing(cx: number, cz: number, radius: number, width: n
 
 /** The easy-mode glowing path is drawn only in easy, and only while there is a beam to reach. */
 export function guidePathEnabled(difficulty: StormDifficulty, hasTarget: boolean): boolean {
-  return (difficulty === "easy" || difficulty === "advanced") && hasTarget;
+  return difficulty === "easy" && hasTarget;
 }
 
 // fe-28: the straight-line `buildGuidePath` and the camera-basis `waypointInView` were replaced by
@@ -1726,7 +1726,7 @@ export function waypointsAllVisible(difficulty: StormDifficulty): boolean {
 }
 
 export function waypointArrowEnabled(difficulty: StormDifficulty): boolean {
-  return difficulty === "easy" || difficulty === "advanced";
+  return difficulty === "easy";
 }
 
 // ---------------------------------------------------------------- beam pulse (fe-18)

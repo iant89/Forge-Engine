@@ -35,12 +35,12 @@ restart the run.
 
 ## Guidance and beacons
 
-On Easy and Advanced the route to the current beacon is drawn as small glowing white spheres,
+On Easy only, the route to the current beacon is drawn as small glowing white spheres,
 spaced 2.2 m apart and floating just above the ground. They share one sphere geometry and two
 materials, so the renderer draws them as instanced batches. A brightness and size wave travels
 along them from the rover to the beacon. The route is the pathfinder's obstacle-aware path,
 rounded by three Chaikin passes. A corner is only cut where the new chord stays clear of every
-boulder. The off-screen arrow also shows on Easy and Advanced. Easy shows every beacon still ahead.
+boulder. The off-screen arrow also shows only on Easy; Advanced, Expert and Unreal have neither. Easy shows every beacon still ahead.
 The other difficulties show only the current beacon.
 
 A rover standing still on all six wheels is held by static friction against storm gusts. Updraft

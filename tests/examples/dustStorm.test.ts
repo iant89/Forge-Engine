@@ -947,6 +947,15 @@ group("fe-29 force-based wind and blown-away rule", () => {
     assert.equal(parseStormDifficulty("nope"), "easy");
     // Easy is closest to real: even the strongest capped devil cannot lift the rover at the eye.
     assert.ok(devilRoverForce(devilAt({ swirl: DEVIL_SWIRL_CAP }), 0, 0, undefined, 1025, 0, STORM_STRENGTH.easy).lift < MARS_G);
+    // Easy still swirls, pulls and yaws the rover — it only never lifts it.
+    const easyEdge = devilRoverForce(devilAt({ swirl: DEVIL_SWIRL_CAP }), 4.5, 0, undefined, 1025, 0, STORM_STRENGTH.easy);
+    assert.ok(easyEdge.az > 0.5, `swirl push on easy (${easyEdge.az})`);
+    assert.ok(easyEdge.ax < -0.1, `inward pull on easy (${easyEdge.ax})`);
+    assert.ok(easyEdge.yawAccel > 0.1, `yaw on easy (${easyEdge.yawAccel})`);
+    assert.ok(stormWindAccel(STORM_WIND_SPEED, 0, 0, 0, 1025, undefined, STORM_STRENGTH.easy).x > 0.5, "gust push on easy");
+    assert.equal(guidePathEnabled("advanced", true), false);
+    assert.equal(waypointArrowEnabled("advanced"), false);
+    assert.equal(guidePathEnabled("easy", true), true);
     // Unreal is wild: an ordinary devil throws it.
     assert.ok(devilRoverForce(devilAt({ swirl: 22 }), 0.5, 0, undefined, 1025, 0, STORM_STRENGTH.unreal).lift > MARS_G);
   });
