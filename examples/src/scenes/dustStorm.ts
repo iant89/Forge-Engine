@@ -1720,6 +1720,11 @@ export function buildArrowMesh(length = 2.4, width = 1.3, thickness = 0.3): Stri
 }
 
 /** The off-screen waypoint arrow is an EASY-mode aid only, like the path (captain fe-18). */
+/** fe-29: Easy shows every beacon still ahead; other difficulties show only the current one. */
+export function waypointsAllVisible(difficulty: StormDifficulty): boolean {
+  return difficulty === "easy";
+}
+
 export function waypointArrowEnabled(difficulty: StormDifficulty): boolean {
   return difficulty === "easy" || difficulty === "advanced";
 }

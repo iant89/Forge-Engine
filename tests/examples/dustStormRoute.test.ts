@@ -22,6 +22,10 @@ import {
   YMCA_LETTERS,
   autoDriveDirection,
   buildGuideRibbon,
+  smoothRoute,
+  sampleRouteEvenly,
+  guideDotWave,
+  GUIDE_WAVE_SPEED,
   clearSkyProgress,
   courseReachable,
   findRoute,
@@ -327,6 +331,45 @@ group("finale clip timeline (fe-28)", () => {
       assert.ok(Math.abs(d.arm.shoulder - prev.arm.shoulder) < 0.08, `arm @${t}`);
       prev = d;
     }
+  });
+});
+
+group("fe-29 guide dots", () => {
+  test("Chaikin smoothing rounds corners, keeps endpoints, and never clips a boulder", () => {
+    const flat = () => 0;
+    const rock = { x: 10, z: 0, radius: 3 };
+    const route = [{ x: 0, z: 0 }, { x: 10, z: 6 }, { x: 20, z: 0 }];
+    const sm = smoothRoute(route, flat, [rock]);
+    assert.ok(sm.length > route.length, "corners cut into curves");
+    assert.deepEqual(sm[0], route[0]);
+    assert.deepEqual(sm[sm.length - 1], route[2]);
+    for (let i = 1; i < sm.length; i++) {
+      for (let t = 0; t <= 1; t += 0.05) {
+        const x = sm[i - 1]!.x + (sm[i]!.x - sm[i - 1]!.x) * t;
+        const z = sm[i - 1]!.z + (sm[i]!.z - sm[i - 1]!.z) * t;
+        assert.ok(Math.hypot(x - rock.x, z - rock.z) > rock.radius * 0.85, "clear of the rock");
+      }
+    }
+    // A corner hugging a rock is kept where cutting it would clip.
+    const tight = smoothRoute([{ x: 0, z: 0 }, { x: 10, z: 3.2 }, { x: 20, z: 0 }], flat, [rock]);
+    assert.ok(tight.some((p) => p.x === 10 && p.z === 3.2), "unsafe corner kept");
+  });
+
+  test("dots are evenly spaced and the wave crest travels rover → beam", () => {
+    const pts = sampleRouteEvenly([{ x: 0, z: 0 }, { x: 30, z: 0 }], 2, 100, 1);
+    assert.equal(pts.length, 15);
+    for (let i = 1; i < pts.length; i++) assert.ok(Math.abs(pts[i]!.x - pts[i - 1]!.x - 2) < 1e-9);
+    const crestAt = (t: number) => {
+      let best = -1;
+      let bestG = 0;
+      for (let s = 0; s <= 60; s += 0.5) if (guideDotWave(t, s, 60) > bestG) (bestG = guideDotWave(t, s, 60)), (best = s);
+      return best;
+    };
+    const a = crestAt(0.8);
+    const b = crestAt(1.3);
+    assert.ok(b > a, `${a} → ${b}`);
+    assert.ok(Math.abs(b - a - 0.5 * GUIDE_WAVE_SPEED) < 1);
+    assert.ok(guideDotWave(0.8, a, 60) > 0.99 && guideDotWave(0.8, a + 20, 60) === 0);
   });
 });
 

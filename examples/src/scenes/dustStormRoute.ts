@@ -747,3 +747,67 @@ export function ymcaDance(t: number): YmcaFrame {
   }
   return frame;
 }
+
+// ---------------------------------------------------------------- guide dots (fe-29)
+
+/** Chaikin passes that round the pathfinder's corners into gentle curves. */
+export const GUIDE_SMOOTH_PASSES = 3;
+/** Spacing (m) between guide dots along the route, their radius and float height above ground. */
+export const GUIDE_DOT_SPACING = 2.2;
+export const GUIDE_DOT_RADIUS = 0.14;
+export const GUIDE_DOT_FLOAT = 0.35;
+/** Dot pool size (≈ GUIDE_RIBBON_MAX / spacing). */
+export const GUIDE_DOT_COUNT = 72;
+/** Travelling wave: speed (m/s), crest width (m), pause between crests (s). */
+export const GUIDE_WAVE_SPEED = 18;
+export const GUIDE_WAVE_WIDTH = 5;
+export const GUIDE_WAVE_GAP = 0.5;
+
+/**
+ * Chaikin corner cutting on a route polyline (endpoints kept). A corner is only cut when the new
+ * chord is still clear of every boulder (and passable, {@link routeClear}); otherwise the original
+ * corner stays, so the smoothed path never clips a rock the pathfinder went around.
+ */
+export function smoothRoute(route: readonly RoutePoint[], ground: GroundHeightFn, obstacles: readonly RouteObstacle[], passes = GUIDE_SMOOTH_PASSES): RoutePoint[] {
+  let pts: RoutePoint[] = route.map((p) => ({ x: p.x, z: p.z }));
+  for (let pass = 0; pass < passes && pts.length > 2; pass++) {
+    const out: RoutePoint[] = [pts[0]!];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i - 1]!;
+      const b = pts[i]!;
+      const c = pts[i + 1]!;
+      const q = { x: 0.75 * b.x + 0.25 * a.x, z: 0.75 * b.z + 0.25 * a.z };
+      const r = { x: 0.75 * b.x + 0.25 * c.x, z: 0.75 * b.z + 0.25 * c.z };
+      if (routeClear(q.x, q.z, r.x, r.z, ground, obstacles)) out.push(q, r);
+      else out.push(b);
+    }
+    out.push(pts[pts.length - 1]!);
+    pts = out;
+  }
+  return pts;
+}
+
+/** Evenly spaced points along a route from arc length `start`, at most `max` of them. */
+export function sampleRouteEvenly(route: readonly RoutePoint[], spacing: number, max: number, start = 0): RoutePoint[] {
+  const total = polylineLength(route);
+  const out: RoutePoint[] = [];
+  const p = { x: 0, z: 0, dx: 1, dz: 0 };
+  for (let s = start; s <= total + 1e-6 && out.length < max; s += spacing) {
+    samplePolyline(route, s, p);
+    out.push({ x: p.x, z: p.z });
+  }
+  return out;
+}
+
+/**
+ * Pulse wave along the dots, travelling rover → waypoint and looping: for a dot at arc length `s`
+ * on a route of `length` m, returns glow 0..1 (crest = 1) used for brightness and scale.
+ */
+export function guideDotWave(t: number, s: number, length: number): number {
+  const span = Math.max(1, length);
+  const period = (span + GUIDE_WAVE_WIDTH * 2) / GUIDE_WAVE_SPEED + GUIDE_WAVE_GAP;
+  const phase = ((t % period) + period) % period;
+  const crest = phase * GUIDE_WAVE_SPEED - GUIDE_WAVE_WIDTH;
+  const d = Math.abs(s - crest) / GUIDE_WAVE_WIDTH;
+  return d >= 1 ? 0 : 0.5 + 0.5 * Math.cos(d * Math.PI);
+}

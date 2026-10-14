@@ -31,7 +31,17 @@ in the UI.
 
 `?difficulty=easy|advanced|expert|unreal` sets the starting level (`hard` still works and means
 Expert). The toolbar buttons and the touch pad (which cycles through the levels) switch it live and
-restart the run. The guide ribbon and the off-screen arrow show on Easy and Advanced.
+restart the run.
+
+## Guidance and beacons
+
+On Easy and Advanced the route to the current beacon is drawn as small glowing white spheres,
+spaced 2.2 m apart and floating just above the ground. They share one sphere geometry and two
+materials, so the renderer draws them as instanced batches. A brightness and size wave travels
+along them from the rover to the beacon. The route is the pathfinder's obstacle-aware path,
+rounded by three Chaikin passes. A corner is only cut where the new chord stays clear of every
+boulder. The off-screen arrow also shows on Easy and Advanced. Easy shows every beacon still ahead.
+The other difficulties show only the current beacon.
 
 A rover standing still on all six wheels is held by static friction against storm gusts. Updraft
 lift is full strength up to 5 m above ride height and fades to zero at 16 m, with vertical air

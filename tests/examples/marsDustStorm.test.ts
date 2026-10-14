@@ -194,7 +194,7 @@ group("Mars Dust Storm Survival — scene assembly", () => {
     const beams = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-"));
     assert.equal(beams.length, state.checkpointCount);
     const visible = beams.filter((e) => e.get(Renderable)!.visible);
-    assert.equal(visible.length, 2, "active + next beam only");
+    assert.equal(visible.length, state.checkpointCount, "easy: every beacon ahead is shown");
     for (const beam of beams) assert.equal(beam.get(Renderable)!.material!.fogExempt, true);
     assert.ok(named(scene, "storm-boulder-").length > 20);
     assert.equal(named(scene, "storm-pile-").length, named(scene, "storm-boulder-").length);
@@ -204,7 +204,7 @@ group("Mars Dust Storm Survival — scene assembly", () => {
 
   test("fe-18: easy shows the draped guide path, hard hides path and arrow; beam pulse animates", async () => {
     const { handle, scene, tick } = await fixture();
-    const path = named(scene, "storm-guide-path")[0]!.get(Renderable)!;
+    const path = named(scene, "storm-guide-dot-0")[0]!.get(Renderable)!;
     const arrow = named(scene, "storm-waypoint-arrow")[0]!.get(Renderable)!;
     tick();
     assert.equal(path.visible, true, "easy: path on");
@@ -216,7 +216,7 @@ group("Mars Dust Storm Survival — scene assembly", () => {
       glows.add(Math.round(beamMat.emissiveStrength * 100));
     }
     assert.ok(glows.size > 3, "active beam pulses");
-    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-path"), ...named(scene, "storm-beam-")]) {
+    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-dot-"), ...named(scene, "storm-beam-")]) {
       const r = e.get(Renderable)!;
       assert.equal(r.transparent, r.material!.transparent, `${scene.world.name(e.id)} draws in the matching (blend) bucket`);
     }
@@ -374,7 +374,7 @@ group("Mars Dust Storm Survival — restart resets everything (fixed seed)", () 
     assert.deepEqual(second.map(stormOnly), first.map(stormOnly), "same storm, devils and piles after a restart");
 
     handle.setDifficulty("expert");
-    assert.deepEqual({ ...handle.stormState(), difficulty: "easy", stormStrength: fresh.stormStrength }, fresh, "the toggle restarts everything too");
+    assert.deepEqual({ ...handle.stormState(), difficulty: "easy", stormStrength: fresh.stormStrength, guideDots: fresh.guideDots }, fresh, "the toggle restarts everything too");
   });
 });
 
@@ -518,6 +518,27 @@ group("Mars Dust Storm Survival — fe-29 blown away", () => {
     handle.restart();
     assert.equal(handle.stormState().summaryVisible, false);
     assert.equal(handle.stormState().stats.distance, 0);
+  });
+
+  test("guide dots: evenly spaced glowing spheres with a travelling crest; only the current beacon off Easy", async () => {
+    const { handle, scene, tick } = await fixture("advanced");
+    tick();
+    tick(0.3);
+    const dots = named(scene, "storm-guide-dot-").map((e) => e);
+    const shown = dots.filter((e) => e.get(Renderable)!.visible);
+    assert.ok(shown.length > 10, `${shown.length} dots`);
+    assert.equal(handle.stormState().guideDots.dots, shown.length);
+    const mats = new Set(dots.map((e) => e.get(Renderable)!.material!.label));
+    assert.ok([...mats].every((m) => m!.startsWith("storm-guide-dot")), "two shared materials (instanced batches)");
+    assert.equal(new Set(dots.map((e) => e.get(Renderable)!.geometry)).size, 1, "one shared sphere geometry");
+    const crests: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      tick(0.15);
+      crests.push(handle.stormState().guideDots.crest);
+    }
+    assert.ok(crests.some((c, i) => i > 0 && c > crests[i - 1]! && crests[i - 1]! >= 0), `crest travels toward the beam ${crests}`);
+    const beams = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-"));
+    assert.equal(beams.filter((e) => e.get(Renderable)!.visible).length, 1, "advanced: current beacon only");
   });
 
   test("driving far in still air never counts as blown away", async () => {

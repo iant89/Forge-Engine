@@ -44,6 +44,7 @@ import {
   VehicleSystem,
   createAtmosphere,
   createCylinder,
+  createSphere,
   createRock,
   heightFunctionGround,
   stormLightFactors,
@@ -81,7 +82,6 @@ import {
   buildArrowMesh,
   buildDrapedRing,
   guidePathEnabled,
-  type StripMesh,
   DRIFT_VERTEX_COUNT,
   driftFootprintGrowth,
   devilFunnelHeight,
@@ -133,22 +133,26 @@ import {
   isRoverFlipped,
   pileWindwardPoint,
   stormCheckpointLayout,
+  waypointsAllVisible,
   type DevilRoverForce,
   type StormDifficulty,
   type StormPhase,
   type StormQualityTier,
 } from "./dustStorm.js";
 import {
-  GUIDE_PULSE_POINTS,
   GUIDE_RIBBON_MAX,
+  GUIDE_DOT_COUNT,
+  GUIDE_DOT_FLOAT,
+  GUIDE_DOT_RADIUS,
+  GUIDE_DOT_SPACING,
+  guideDotWave,
+  sampleRouteEvenly,
+  smoothRoute,
   GUIDE_RIBBON_START,
-  GUIDE_FLOAT_OFFSET,
   autoDriveDirection,
-  buildGuideRibbon,
   clearSkyProgress,
   courseReachable,
   findRoute,
-  guidePulse,
   polylineLength,
   randomStormCourse,
   randomStormStart,
@@ -216,7 +220,8 @@ export interface MarsDustStormState {
   /** fe-28: corner points of the current guide route (rover → beam). */
   guideRoute: { x: number; z: number }[];
   /** fe-28: travelling pulse stretch (metres along the drawn ribbon) and its opacity. */
-  guidePulse: { head: number; tail: number; opacity: number };
+  /** fe-29: guide dots shown and the index of the brightest (wave crest; −1 = none). */
+  guideDots: { dots: number; crest: number };
   elapsed: number;
   penalty: number;
   resets: number;
@@ -631,9 +636,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const refreshBeams = (): void => {
     for (let i = 0; i < beams.length; i++) {
       const record = beams[i]!;
-      const active = i === course.index && course.state !== "won";
-      const next = i === course.index + 1;
-      record.beam.visible = active || next;
+      const active = i === course.index && course.state === "driving";
+      // fe-29: only the current beacon shows, except on Easy where every beacon still ahead does.
+      const ahead = i > course.index && course.state === "driving" && waypointsAllVisible(difficulty);
+      record.beam.visible = active || ahead;
       record.beam.material = active ? beamActive : beamNext;
       record.ring.visible = active;
     }
@@ -642,43 +648,41 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
 
   // ---------------------------------------------------------------- guidance (fe-18): easy path + off-screen arrow
 
-  // fe-28: the path is a faint, barely-floating ribbon along an obstacle-aware route, with a blue
-  // pulse running along it toward the beam.
-  const guideMaterial = track(new Material({
-    label: "storm-guide-path",
-    technique: "unlit",
-    color: Color.fromSrgbHex(0x7cc0ff),
-    opacity: 0.08,
-    transparent: true,
-    doubleSided: true,
-    fogExempt: true,
-    depthWrite: false,
-  }));
-  const guidePulseMaterial = track(new Material({
-    label: "storm-guide-pulse",
+  // fe-29: the path is a string of small glowing white spheres, evenly spaced along a smoothed,
+  // obstacle-aware route and floating just above the ground. One shared sphere geometry with two
+  // materials (dim / crest), so the renderer draws them as two instanced batches. A brightness and
+  // scale wave runs from the rover to the beam.
+  const dotGeometry = track(createSphere(gpu, { radius: 1, widthSegments: 10, heightSegments: 6 }));
+  const dotDim = track(new Material({
+    label: "storm-guide-dot",
     technique: "emissive",
-    color: Color.fromSrgbHex(0x2f7dff),
-    emissive: Color.fromSrgbHex(0x2f7dff),
-    emissiveStrength: 2.4,
-    opacity: 0,
+    color: new Color(1, 1, 1),
+    emissive: new Color(1, 1, 1),
+    emissiveStrength: 1.6,
+    opacity: 0.55,
     transparent: true,
-    doubleSided: true,
     fogExempt: true,
     depthWrite: false,
   }));
-  const routeTo = (x: number, z: number, target: { x: number; z: number }): RoutePoint[] =>
-    findRoute(x, z, target.x, target.z, groundHeight, obstacles) ?? [{ x, z }, { x: target.x, z: target.z }];
+  const dotBright = track(dotDim.clone({ label: "storm-guide-dot-crest", emissiveStrength: 7, opacity: 1 }));
+  const routeTo = (x: number, z: number, target: { x: number; z: number }): RoutePoint[] => {
+    const raw = findRoute(x, z, target.x, target.z, groundHeight, obstacles) ?? [{ x, z }, { x: target.x, z: target.z }];
+    return smoothRoute(raw, groundHeight, obstacles);
+  };
   let guideRoute: RoutePoint[] = routeTo(SPAWN_X, SPAWN_Z, first);
-  let guideMesh: (StripMesh & { baseY: number }) | undefined = buildGuideRibbon(guideRoute, groundHeight);
-  const guideGeometry = track(Geometry.create(gpu, { label: "storm-guide-path", positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices }));
-  const guideEntity = addRenderable("storm-guide-path", new Vec3(SPAWN_X, guideMesh.baseY, SPAWN_Z), guideGeometry, guideMaterial, false);
-  const guideRenderable = guideEntity.get(Renderable)!;
-  const pulseRibbonOptions = { from: 0, to: 0, points: GUIDE_PULSE_POINTS, offset: GUIDE_FLOAT_OFFSET + 0.03, halfWidth: 0.5 };
-  let pulseMesh: (StripMesh & { baseY: number }) | undefined = buildGuideRibbon(guideRoute, groundHeight, undefined, pulseRibbonOptions);
-  const pulseGeometry = track(Geometry.create(gpu, { label: "storm-guide-pulse", positions: pulseMesh.positions, normals: pulseMesh.normals, uvs: pulseMesh.uvs, indices: pulseMesh.indices }));
-  const pulseEntity = addRenderable("storm-guide-pulse", new Vec3(SPAWN_X, pulseMesh.baseY, SPAWN_Z), pulseGeometry, guidePulseMaterial, false);
-  const pulseRenderable = pulseEntity.get(Renderable)!;
-  const pulseState = { head: 0, tail: 0, opacity: 0 };
+  const dots: { entity: Entity; renderable: Renderable }[] = [];
+  for (let i = 0; i < GUIDE_DOT_COUNT; i++) {
+    const entity = addRenderable(`storm-guide-dot-${i}`, new Vec3(SPAWN_X, groundY, SPAWN_Z), dotGeometry, dotDim, false);
+    entity.transform.scale = new Vec3(GUIDE_DOT_RADIUS, GUIDE_DOT_RADIUS, GUIDE_DOT_RADIUS);
+    const renderable = entity.get(Renderable)!;
+    renderable.visible = false;
+    dots.push({ entity, renderable });
+  }
+  // Same as a restart's first stepGuidance(0), so the fresh state matches a restarted one.
+  let dotPoints: RoutePoint[] = sampleRouteEvenly(guideRoute, GUIDE_DOT_SPACING, GUIDE_DOT_COUNT, GUIDE_RIBBON_START);
+  const dotScale = new Vec3();
+  const pulseState = { dots: guidePathEnabled(difficulty, true) ? dotPoints.length : 0, crest: -1 };
+  let guideVisible = false;
   let guideTimer = 0;
   let routeTimer = 0;
   let routeTarget = -1;
@@ -1043,6 +1047,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     blownAwayCount++;
     if (rules.onBlownAway === "lose") {
       course.lose("BLOWN AWAY");
+      refreshBeams();
       lastEvent = "BLOWN AWAY · RUN LOST · R TO RETRY";
       showSummary();
       return;
@@ -1505,40 +1510,41 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const target = course.active;
     const vx = vehicle.position.x;
     const vz = vehicle.position.z;
-    guideRenderable.visible = guidePathEnabled(difficulty, !!target);
+    guideVisible = guidePathEnabled(difficulty, !!target);
     guideTimer -= dt;
     routeTimer -= dt;
-    if (guideRenderable.visible && target && (routeTimer <= 0 || routeTarget !== course.index)) {
+    if (guideVisible && target && (routeTimer <= 0 || routeTarget !== course.index)) {
       routeTimer = device.value(STORM_TIER_ROUTE_INTERVAL);
       routeTarget = course.index;
       guideRoute = routeTo(vx, vz, target);
       guideTimer = 0;
     }
-    if (guideRenderable.visible && target && guideTimer <= 0) {
+    if (guideVisible && target && guideTimer <= 0) {
       guideTimer = 0.2;
-      // Between re-routes the first corner follows the rover so the ribbon never trails behind it.
+      // Between re-routes the first corner follows the rover so the dots never trail behind it.
       guideRoute[0] = { x: vx, z: vz };
-      guideMesh = buildGuideRibbon(guideRoute, groundHeight, guideMesh);
-      guideGeometry.updateFrom({ positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices });
-      guideEntity.transform.position = moundPos.set(vx, guideMesh.baseY, vz);
+      dotPoints = sampleRouteEvenly(guideRoute, GUIDE_DOT_SPACING, GUIDE_DOT_COUNT, GUIDE_RIBBON_START);
     }
-    pulseRenderable.visible = guideRenderable.visible;
-    if (pulseRenderable.visible) {
-      const len = Math.min(polylineLength(guideRoute), GUIDE_RIBBON_MAX);
-      const start = Math.min(GUIDE_RIBBON_START, len);
-      guidePulse(time, len - start, pulseState);
-      pulseRibbonOptions.from = start + pulseState.tail;
-      pulseRibbonOptions.to = start + pulseState.head;
-      pulseMesh = buildGuideRibbon(guideRoute, groundHeight, pulseMesh, pulseRibbonOptions);
-      // Index buffer never changes: upload positions only (normals/uvs/indices kept).
-      pulseGeometry.updateFrom({ positions: pulseMesh.positions });
-      const origin = guideRoute[0]!;
-      pulseEntity.transform.position = moundPos.set(origin.x, pulseMesh.baseY, origin.z);
-      setOpacity(guidePulseMaterial, pulseState.opacity);
-    } else {
-      pulseState.head = 0;
-      pulseState.tail = 0;
-      pulseState.opacity = 0;
+    const len = Math.min(polylineLength(guideRoute), GUIDE_RIBBON_MAX);
+    pulseState.dots = 0;
+    pulseState.crest = -1;
+    let best = 0;
+    for (let i = 0; i < dots.length; i++) {
+      const dot = dots[i]!;
+      const pt = guideVisible ? dotPoints[i] : undefined;
+      dot.renderable.visible = !!pt;
+      if (!pt) continue;
+      pulseState.dots++;
+      const sArc = GUIDE_RIBBON_START + i * GUIDE_DOT_SPACING;
+      const glow = guideDotWave(time, sArc, len);
+      if (glow > best) {
+        best = glow;
+        pulseState.crest = i;
+      }
+      dot.renderable.material = glow > 0.35 ? dotBright : dotDim;
+      const r = GUIDE_DOT_RADIUS * (1 + 0.8 * glow);
+      dot.entity.transform.scale = dotScale.set(r, r, r);
+      dot.entity.transform.position = moundPos.set(pt.x, groundHeight(pt.x, pt.z) + GUIDE_DOT_FLOAT + r, pt.z);
     }
     stepBeamPulse();
     if (!target || !waypointArrowEnabled(difficulty)) {
@@ -1812,7 +1818,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     arrowVisible: arrowRenderable.visible,
     gear: vehicle.gear < 0 ? -1 : 1,
     guideRoute: guideRoute.map((p) => ({ x: p.x, z: p.z })),
-    guidePulse: { ...pulseState },
+    guideDots: { ...pulseState },
     elapsed: course.elapsed,
     penalty: course.penalty,
     resets: course.resets,
