@@ -62,8 +62,6 @@ export interface RoverCourseHandle extends DemoSceneHandle {
   retryModelLoad(): void;
   /** Lamp head positions and whether each holds a spot-shadow slot this frame (gates / screenshots). */
   lampState(): { x: number; z: number; castShadow: boolean }[];
-  /** Device tier the scene sized itself for, and how many lamp shadows that tier gets (fe-32). */
-  lampShadowBudget(): { tier: DeviceTier; slots: number };
   /** Park the rover at rest at (x, z) facing `yaw` (gates / screenshots). */
   teleport(x: number, z: number, yaw?: number): boolean;
 }
@@ -339,7 +337,8 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     spot.innerCone = 0.93;
     spot.outerCone = 0.78;
     // Shadowed, but only the lamps nearest the rover keep the flag (see updateLampShadows):
-    // the renderer has MAX_SPOT_SHADOWS slots and ranks equal lamps by list order, not distance.
+    // the renderer ranks equal lamps by list order, not distance, and the device tier caps how
+    // many get a slot (LAMP_SHADOWS_FOR_TIER).
     spot.castShadow = true;
     spot.setColor(1.0, 0.8, 0.58);
     scene.world.addComponent(spotEntity.id, spot);
@@ -784,7 +783,6 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     resetCones,
     retryModelLoad,
     lampState: () => lampSpots.map((l) => ({ x: l.x, z: l.z, castShadow: l.light.castShadow })),
-    lampShadowBudget: () => ({ tier: deviceTier, slots: lampShadowSlots }),
     teleport(x: number, z: number, yaw?: number): boolean {
       if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
       vehicle.position.x = x;
