@@ -593,6 +593,17 @@ export const YMCA_RISE = 1.8;
 export const YMCA_BEAT = 0.8;
 export const YMCA_BREAK = 1.2;
 export const YMCA_STAND_PITCH = (72 * Math.PI) / 180;
+/** Choruses in the finale clip (rise + 3 × (Y-M-C-A + break) = 15 s, the jingle's length). */
+export const YMCA_CHORUSES = 3;
+export const YMCA_CHORUS = 4 * YMCA_BEAT + YMCA_BREAK;
+/** End of the dancing: the clip (and the jingle) last this long from the win. */
+export const YMCA_CLIP = YMCA_RISE + YMCA_CHORUSES * YMCA_CHORUS;
+/** Seconds to lower back onto all six wheels once the clip ends. */
+export const YMCA_LOWER = 1.8;
+/** The whole finale, after which physics takes the rover back. */
+export const YMCA_TOTAL = YMCA_CLIP + YMCA_LOWER;
+/** Stage lights fade in over the rise and out over this long once the clip ends. */
+export const YMCA_LIGHTS_FADE = 0.6;
 
 /**
  * Wheel offsets per letter, chassis-local (x right, y deck-up, z nose), as deltas from each
@@ -612,7 +623,25 @@ const POSES: Record<YmcaLetter, Pose> = {
   A: [[0.95, 0.5, 2.4], [-0.95, 0.5, 2.4], [-0.3, 0.3, 1.0], [0.3, 0.3, 1.0], [0, 0, 0], [0, 0, 0]],
 };
 
+export type YmcaPhase = "rise" | "dance" | "lower" | "done";
+
+/** Robotic-arm joint angles (radians about each joint's own axis), 0 = stowed. */
+export interface YmcaArm {
+  azimuth: number;
+  shoulder: number;
+  elbow: number;
+  wrist: number;
+  turret: number;
+}
+
 export interface YmcaFrame {
+  phase: YmcaPhase;
+  /** Stage-light / effects envelope 0..1 (0 once the clip has ended). */
+  lights: number;
+  /** Stage-light sweep −1..1 (left ↔ right), on the beat. */
+  sweep: number;
+  /** Robotic arm pose. */
+  arm: YmcaArm;
   /** 0 → 1 while rising onto the rear wheels. */
   stand: number;
   /** Nose-up chassis pitch (radians). */
@@ -645,21 +674,61 @@ function blendPose(a: Pose, b: Pose, t: number, out: YmcaFrame["wheels"]): void 
   }
 }
 
-/** YMCA finale at `t` seconds after it began: rise, then Y-M-C-A + break, looping. */
+/**
+ * The robotic arm unfolds as the rover stands, waves on the beat through the clip and folds back
+ * while it lowers. `amount` 0 = stowed, 1 = fully out.
+ */
+export function ymcaArm(t: number, amount: number, out: YmcaArm = { azimuth: 0, shoulder: 0, elbow: 0, wrist: 0, turret: 0 }): YmcaArm {
+  const w = (t * Math.PI) / YMCA_BEAT;
+  out.azimuth = amount * 0.55 * Math.sin(w * 0.5);
+  out.shoulder = amount * (0.9 + 0.25 * Math.sin(w));
+  out.elbow = amount * (-1.1 + 0.45 * Math.sin(w + 1.2));
+  out.wrist = amount * 0.6 * Math.sin(w * 2);
+  out.turret = amount * 1.2 * Math.sin(w * 0.5 + 0.6);
+  return out;
+}
+
+/**
+ * YMCA finale at `t` seconds after it began: rise, then {@link YMCA_CHORUSES} × (Y-M-C-A + break)
+ * — the clip — then the stage lights go out and the rover lowers back onto its wheels ("done").
+ */
 export function ymcaDance(t: number): YmcaFrame {
   const wheels = Array.from({ length: 6 }, () => ({ x: 0, y: 0, z: 0 }));
-  const frame: YmcaFrame = { stand: 0, pitch: 0, bounce: 0, letter: null, hold: 0, wheels, hands: [wheels[0]!, wheels[1]!], spin: 0 };
+  const frame: YmcaFrame = {
+    phase: "rise", lights: 0, sweep: 0, arm: ymcaArm(t, 0),
+    stand: 0, pitch: 0, bounce: 0, letter: null, hold: 0, wheels, hands: [wheels[0]!, wheels[1]!], spin: 0,
+  };
+  frame.sweep = Math.sin((t * Math.PI) / (2 * YMCA_BEAT));
+  if (t >= YMCA_TOTAL) {
+    frame.phase = "done";
+    return frame;
+  }
+  if (t >= YMCA_CLIP) {
+    const k = smooth((t - YMCA_CLIP) / YMCA_LOWER);
+    frame.phase = "lower";
+    frame.stand = 1 - k;
+    frame.pitch = YMCA_STAND_PITCH * frame.stand;
+    frame.lights = 1 - smooth((t - YMCA_CLIP) / YMCA_LIGHTS_FADE);
+    ymcaArm(t, 1 - smooth((t - YMCA_CLIP) / (YMCA_LOWER * 0.8)), frame.arm);
+    return frame;
+  }
   if (t < YMCA_RISE) {
     frame.stand = smooth(t / YMCA_RISE);
     frame.pitch = YMCA_STAND_PITCH * frame.stand;
+    frame.lights = smooth(t / 1.0);
+    ymcaArm(t, frame.stand, frame.arm);
     return frame;
   }
+  frame.phase = "dance";
   frame.stand = 1;
-  const chorus = YMCA_LETTERS.length * YMCA_BEAT + YMCA_BREAK;
+  frame.lights = 1;
+  ymcaArm(t, 1, frame.arm);
+  const chorus = YMCA_CHORUS;
   const c = (t - YMCA_RISE) % chorus;
   const slot = Math.floor(c / YMCA_BEAT);
   const beatPhase = (c % YMCA_BEAT) / YMCA_BEAT;
-  frame.bounce = 0.08 * Math.abs(Math.sin(((t - YMCA_RISE) * Math.PI) / YMCA_BEAT));
+  // Bounce fades over the last beat so the lowering starts from rest.
+  frame.bounce = 0.08 * Math.abs(Math.sin(((t - YMCA_RISE) * Math.PI) / YMCA_BEAT)) * Math.min(1, (YMCA_CLIP - t) / YMCA_BEAT);
   frame.pitch = YMCA_STAND_PITCH + 0.04 * Math.sin(((t - YMCA_RISE) * Math.PI * 2) / YMCA_BEAT);
   if (slot < YMCA_LETTERS.length) {
     const letter = YMCA_LETTERS[slot]!;

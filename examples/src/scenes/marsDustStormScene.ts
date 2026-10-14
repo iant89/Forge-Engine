@@ -54,7 +54,9 @@ import {
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
-import { loadGlb, type LoadedGlb } from "../assets/glb.js";
+import { DiscoJingle } from "../audio/discoJingle.js";
+import { loadGlb, type GlbPart, type LoadedGlb } from "../assets/glb.js";
+import { STAGE_LIGHT_COUNT, STAGE_TRUSS_HEIGHT, SUSPENSION_PIVOTS, armPieceForWheel, stageLightAim, stageLightColor, splitSuspension, suspensionArmPose, type SuspensionArmPiece } from "./roverDance.js";
 import {
   MARS_CHASE_LOOK_OFFSET_Y,
   MARS_ROVER_WHEELS,
@@ -143,6 +145,8 @@ import {
   randomStormStart,
   targetOnScreen,
   ymcaDance,
+  type YmcaArm,
+  type YmcaPhase,
   type RouteObstacle,
   type RoutePoint,
   type YmcaLetter,
@@ -168,6 +172,11 @@ export interface MarsDustStormState {
   won: boolean;
   /** fe-28: seed of this load's random course (`?seed=` pins it). */
   courseSeed: number;
+  /** fe-28 finale: phase (null before the win), stage-light envelope/sweep, jingle status. */
+  dancePhase: YmcaPhase | null;
+  stageLights: number;
+  stageSweep: number;
+  jingle: { unlocked: boolean; muted: boolean; started: boolean };
   /** fe-28: randomized start (10–20 % farther from beam 1 than the surveyed spawn). */
   start: { x: number; z: number; stretch: number; fallback: boolean };
   /** fe-28: beam positions of this load's course. */
@@ -359,6 +368,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   chassis.add(component);
 
   let modelLoaded = false;
+  /** fe-28 dance rig: split suspension arms (chassis children) and robotic-arm joints. */
+  const suspensionEntities = new Map<SuspensionArmPiece, Entity>();
+  const armJoints: { entity: Entity; role: string; axis: Vec3; rot: Quat }[] = [];
   let modelError: string | null = null;
   let loaded: LoadedGlb | null = null;
   let disposed = false;
@@ -370,7 +382,49 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       }
       loaded = glb;
       modelLoaded = true;
-      attachStaticRoverModel(scene, chassis, wheelRoots, MARS_ROVER_WHEELS.map((w) => w.name), glb, bodyOffsetY);
+      // fe-28: split the rocker/bogie arms out of the merged body so they dance with the wheels.
+      const body: GlbPart[] = [];
+      const armParts = new Map<SuspensionArmPiece, GlbPart[]>();
+      for (const part of glb.body) {
+        const pieces = splitSuspension(part.geometry.source);
+        if (pieces.size === 1 && pieces.has("body")) {
+          body.push(part);
+          continue;
+        }
+        for (const [piece, src] of pieces) {
+          const split = { name: `${part.name}-${piece}`, geometry: track(Geometry.create(gpu, src)), material: part.material };
+          if (piece === "body") body.push(split);
+          else {
+            const list = armParts.get(piece) ?? [];
+            list.push(split);
+            armParts.set(piece, list);
+          }
+        }
+      }
+      attachStaticRoverModel(scene, chassis, wheelRoots, MARS_ROVER_WHEELS.map((w) => w.name), { ...glb, body }, bodyOffsetY);
+      for (const [piece, parts] of armParts) {
+        const rest = new Vec3(0, bodyOffsetY, 0);
+        const pivot = scene.createTransformedEntity(`rover-susp-${piece}`, rest);
+        chassis.addChild(pivot);
+        pivot.transform.position = rest;
+        for (const part of parts) {
+          const child = scene.createTransformedEntity(`rover-body-${part.name}`, new Vec3());
+          pivot.addChild(child);
+          const renderable = new Renderable();
+          renderable.geometry = part.geometry;
+          renderable.material = part.material;
+          renderable.castShadow = true;
+          renderable.receiveShadow = true;
+          scene.world.addComponent(child.id, renderable);
+        }
+        suspensionEntities.set(piece, pivot);
+      }
+      // fe-28: the robotic arm joins the dance (rotate each joint about its own axis).
+      for (const joint of glb.arm?.joints ?? []) {
+        const id = scene.world.findByName(`rover-${joint.name}`)[0];
+        const entity = id === undefined ? null : scene.world.facade(id);
+        if (entity) armJoints.push({ entity, role: joint.joint, axis: new Vec3(joint.axis[0], joint.axis[1], joint.axis[2]), rot: new Quat() });
+      }
     })
     .catch((error: unknown) => {
       modelError = error instanceof Error ? error.message : String(error);
@@ -762,7 +816,13 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   // ---------------------------------------------------------------- input
 
   const keys = new Set<string>();
+  // fe-28 finale jingle: unlocked by the first key/pointer gesture (autoplay rules), M mutes.
+  const jingle = new DiscoJingle({ muted: options.muted ?? false });
+  const unlockAudio = (): void => jingle.unlock();
+  window.addEventListener("pointerdown", unlockAudio);
   const onKeyDown = (event: KeyboardEvent): void => {
+    jingle.unlock();
+    if (event.code === "KeyM" && !event.repeat) jingle.muted = !jingle.muted;
     keys.add(event.code);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
     if (event.code === "KeyR" && !event.repeat) restart();
@@ -868,6 +928,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
    */
   function restart(): void {
     stopDance();
+    jingle.stop();
+    jingleStarted = false;
     clearSky = 0;
     wonAt = -1;
     skyOn = false;
@@ -1230,6 +1292,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       if (course.state === "won") {
         wonAt = time;
         startDance();
+        jingleStarted = jingle.play();
       }
     }
     if (dancing) stepDance(dt);
@@ -1329,6 +1392,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const danceWheelPos = new Vec3();
   const RIGHT_AXIS = new Vec3(1, 0, 0);
   let danceSpinAngle = 0;
+  let dancePhase: YmcaPhase | null = null;
+  /** Stage-light envelope 0..1 and sweep −1..1 (fe-28). */
+  let danceLights = 0;
+  let danceSweep = 0;
+  const armRestPos = new Vec3();
+  const armPivot = new Vec3();
+  const armTarget = new Vec3();
+  const armOffset = new Vec3();
+  const armPos = new Vec3();
+  const armRot = new Quat();
+  let jingleStarted = false;
   function startDance(): void {
     if (dancing) return;
     vehicle.writeRotation(danceRot);
@@ -1351,15 +1425,37 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     dancing = true;
     danceSpinAngle = 0;
   }
+  function resetDanceRig(): void {
+    for (const e of suspensionEntities.values()) {
+      e.transform.position = armRestPos.set(0, bodyOffsetY, 0);
+      e.transform.rotation = Quat.identity;
+    }
+    for (const j of armJoints) j.entity.transform.rotation = Quat.identity;
+  }
+  /** End the finale (clip over, or a restart): stow the rig and hand the rover back to physics. */
   function stopDance(): void {
     danceLetter = null;
+    dancePhase = null;
+    danceLights = 0;
     if (!dancing) return;
     dancing = false;
+    resetDanceRig();
+    stepStageLights(0, 0);
     chassis.add(component);
   }
   function stepDance(dt: number): void {
     const t = time - wonAt;
     const f = ymcaDance(t);
+    if (f.phase === "done") {
+      // The clip is over and the rover is back on its wheels: physics takes over again.
+      stopDance();
+      dancePhase = "done";
+      return;
+    }
+    dancePhase = f.phase;
+    danceLights = f.lights;
+    danceSweep = f.sweep;
+    stepStageLights(f.lights, f.sweep);
     danceLetter = f.letter;
     danceSpinAngle += f.spin * dt;
     danceYaw.setAxisAngle(UP_AXIS, vehicle.yaw);
@@ -1378,12 +1474,91 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const hub = restHubs[i]!;
       const d = f.wheels[i]!;
       danceTmp.set(hub.x + d.x, hub.y + d.y, hub.z + d.z);
+      // The wheel's suspension arm swings (and reaches) with it.
+      const piece = armPieceForWheel(i, hub.x);
+      const armEntity = piece ? suspensionEntities.get(piece) : undefined;
+      if (piece && armEntity) {
+        const [px, py, pz] = SUSPENSION_PIVOTS[piece];
+        armPivot.set(px, py + bodyOffsetY, pz);
+        armOffset.set(0, bodyOffsetY, 0);
+        suspensionArmPose(armPivot, hub, armTarget.copyFrom(danceTmp), armOffset, armPos, armRot);
+        armEntity.transform.position = armPos;
+        armEntity.transform.rotation = armRot;
+      }
       danceRot.rotateVector(danceTmp, danceOut);
       wheelRoots[i]!.transform.position = danceWheelPos.set(cp.x + danceOut.x, cp.y + danceOut.y, cp.z + danceOut.z);
       // Upper wheels wave (spin) on the break; the feet stay still.
       danceSpin.setAxisAngle(RIGHT_AXIS, i < 4 ? danceSpinAngle * (i % 2 === 0 ? 1 : -1) : 0);
       danceWheelRot.copyFrom(danceRot).multiply(danceSpin);
       wheelRoots[i]!.transform.rotation = danceWheelRot;
+    }
+    for (const j of armJoints) {
+      const angle = j.role in f.arm ? f.arm[j.role as keyof YmcaArm] : 0;
+      j.entity.transform.rotation = j.rot.setAxisAngle(j.axis, angle);
+    }
+  }
+
+  // ---------------------------------------------------------------- stage lights (fe-28 finale)
+
+  /** Rainbow spot lights on a truss over the dance: an unlit beam cone + a real spot light each. */
+  const stageConeGeometry = track(createCylinder(gpu, { radiusTop: 0.18, radiusBottom: 2.4, height: STAGE_TRUSS_HEIGHT + 2, radialSegments: 20, capped: false }));
+  const stageLights = Array.from({ length: STAGE_LIGHT_COUNT }, (_, i) => {
+    const material = track(new Material({
+      label: `storm-stage-beam-${i}`,
+      technique: "unlit",
+      color: new Color(1, 1, 1),
+      opacity: 0,
+      transparent: true,
+      doubleSided: true,
+      fogExempt: true,
+      depthWrite: false,
+    }));
+    const head = scene.createTransformedEntity(`storm-stage-light-${i}`, new Vec3(SPAWN_X, groundY, SPAWN_Z));
+    const cone = addRenderable(`storm-stage-beam-${i}`, new Vec3(0, -(STAGE_TRUSS_HEIGHT + 2) / 2, 0), stageConeGeometry, material, false);
+    head.addChild(cone);
+    cone.transform.position = new Vec3(0, -(STAGE_TRUSS_HEIGHT + 2) / 2, 0);
+    const renderable = scene.world.getComponent(cone.id, Renderable)!;
+    renderable.visible = false;
+    const light = new Light();
+    light.kind = "spot";
+    light.castShadow = false;
+    light.range = 40;
+    light.intensity = 0;
+    light.innerCone = Math.cos((10 * Math.PI) / 180);
+    light.outerCone = Math.cos((16 * Math.PI) / 180);
+    light.affectScene = false;
+    scene.world.addComponent(head.id, light);
+    return { head, material, renderable, light, rot: new Quat(), colour: { r: 1, g: 1, b: 1 } };
+  });
+  const stageAim = new Vec3();
+  const stageHead = new Vec3();
+  /** Place, colour and fade the rig around the dancer (envelope 0 hides it entirely). */
+  function stepStageLights(envelope: number, sweep: number): void {
+    const on = envelope > 0.001;
+    const fx = Math.sin(vehicle.yaw);
+    const fz = Math.cos(vehicle.yaw);
+    const rx = fz;
+    const rz = -fx;
+    const gy = groundHeight(dancePivot.x, dancePivot.z);
+    for (let i = 0; i < stageLights.length; i++) {
+      const rec = stageLights[i]!;
+      rec.renderable.visible = on;
+      rec.light.affectScene = on;
+      rec.light.intensity = on ? 40 * envelope : 0;
+      setOpacity(rec.material, on ? 0.22 * envelope : 0);
+      if (!on) continue;
+      const { head, spot } = stageLightAim(i, sweep);
+      stageHead.set(dancePivot.x + rx * head.x + fx * head.z, gy + head.y, dancePivot.z + rz * head.x + fz * head.z);
+      stageAim.set(dancePivot.x + rx * spot.x + fx * spot.z - stageHead.x, gy + spot.y - stageHead.y, dancePivot.z + rz * spot.x + fz * spot.z - stageHead.z);
+      const len = Math.hypot(stageAim.x, stageAim.y, stageAim.z) || 1;
+      // Spot lights shine along −Y: turn +Y onto the reverse of the aim.
+      stageAim.set(-stageAim.x / len, -stageAim.y / len, -stageAim.z / len);
+      rec.head.transform.position = stageHead;
+      rec.head.transform.rotation = rec.rot.fromUnitVectorY(stageAim);
+      const c = stageLightColor(i, time, rec.colour);
+      rec.light.setColor(c.r, c.g, c.b);
+      rec.material.baseColor.set(c.r, c.g, c.b);
+      rec.material.markChanged();
     }
   }
 
@@ -1418,6 +1593,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     flipped: isRoverFlipped(vehicle.roll, vehicle.pitch),
     won: course.state === "won",
     courseSeed,
+    dancePhase,
+    stageLights: danceLights,
+    stageSweep: danceLights > 0 ? danceSweep : 0,
+    jingle: { unlocked: jingle.unlocked, muted: jingle.muted, started: jingleStarted },
     start: { x: start.x, z: start.z, stretch: start.stretch, fallback: start.fallback },
     checkpoints: course.checkpoints.map((c) => ({ x: c.x, z: c.z })),
     clearSky,
@@ -1461,7 +1640,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const lines = [
         `storm ${storm.phase(time).toUpperCase()} ${Math.round(intensity * 100)}% · wind ${Math.hypot(wind.x, wind.z).toFixed(0)} m/s · devils ${devils.devils.length} · ${difficulty} · ${qualityTier}`,
         course.state === "won"
-          ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}${danceLetter ? ` · ${danceLetter}!` : ""}`
+          ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}${danceLetter ? ` · ${danceLetter}!` : ""}${dancing && jingleStarted ? " · M mutes" : ""}`
           : `beacon ${course.index + 1}/${course.checkpoints.length} ${bearingArrow(course.bearing(x, z, vehicle.yaw))} ${course.distance(x, z).toFixed(0)} m · time ${formatTime(course.total)}${penalty}`,
         `burial ${Math.round(burial * 100)}%${stuck ? " · STUCK — pump throttle" : burial > 0.3 ? " · keep moving!" : ""}${course.resets > 0 ? ` · resets ${course.resets}` : ""}`,
       ];
@@ -1483,6 +1662,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", unlockAudio);
+      jingle.dispose();
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
       btnEasy?.removeEventListener("click", onEasy);

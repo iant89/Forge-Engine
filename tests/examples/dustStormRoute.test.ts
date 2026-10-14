@@ -36,6 +36,8 @@ import {
   routeClear,
   targetOnScreen,
   ymcaDance,
+  YMCA_CLIP,
+  YMCA_TOTAL,
   type RouteObstacle,
 } from "../../examples/src/scenes/dustStormRoute.js";
 
@@ -293,6 +295,38 @@ group("random start (fe-28)", () => {
     const s = randomStormStart(3, 0, 0, [{ x: 80, z: 0 }], cliff);
     assert.deepEqual(s, { x: 0, z: 0, stretch: 1, fallback: true });
     assert.equal(randomStormStart(3, 1, 2, [], flat).fallback, true);
+  });
+});
+
+
+group("finale clip timeline (fe-28)", () => {
+  test("rise → dance → lower → done; lights on for the clip only; arm out during the dance and stowed at both ends", () => {
+    assert.equal(ymcaDance(0.5).phase, "rise");
+    assert.equal(ymcaDance(5).phase, "dance");
+    assert.equal(ymcaDance(YMCA_CLIP + 0.1).phase, "lower");
+    assert.equal(ymcaDance(YMCA_TOTAL + 0.01).phase, "done");
+    assert.ok(Math.abs(YMCA_CLIP - 15) < 1e-9);
+    assert.equal(ymcaDance(5).lights, 1);
+    assert.ok(ymcaDance(YMCA_CLIP + 0.1).lights < 1);
+    assert.equal(ymcaDance(YMCA_CLIP + 1).lights, 0, "lights out once the clip ends");
+    const end = ymcaDance(YMCA_TOTAL + 0.01);
+    assert.equal(end.stand, 0);
+    assert.equal(end.pitch, 0);
+    assert.ok(end.wheels.every((w) => w.x === 0 && w.y === 0 && w.z === 0), "back on all six wheels");
+    for (const f of [ymcaDance(0), end]) assert.ok(Object.values(f.arm).every((v) => Math.abs(v) < 1e-9));
+    let armMax = 0;
+    for (let t = 2; t < YMCA_CLIP; t += 0.05) armMax = Math.max(armMax, Math.abs(ymcaDance(t).arm.shoulder), Math.abs(ymcaDance(t).arm.azimuth));
+    assert.ok(armMax > 0.5);
+  });
+  test("lowering is continuous (pitch, bounce, arm)", () => {
+    let prev = ymcaDance(YMCA_CLIP - 1);
+    for (let t = YMCA_CLIP - 1; t < YMCA_TOTAL + 0.5; t += 1 / 60) {
+      const d = ymcaDance(t);
+      assert.ok(Math.abs(d.pitch - prev.pitch) < 0.05, `pitch @${t}`);
+      assert.ok(Math.abs(d.bounce - prev.bounce) < 0.02, `bounce @${t}`);
+      assert.ok(Math.abs(d.arm.shoulder - prev.arm.shoulder) < 0.08, `arm @${t}`);
+      prev = d;
+    }
   });
 });
 

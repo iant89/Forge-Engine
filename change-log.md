@@ -17245,6 +17245,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/tools/selrun.test.ts",
     "what": "Catalog counts 88 -> 89 suites, 730 -> 731 claims",
     "why": "New suite"
+  },
+  {
+    "id": "1374",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/roverDance.ts",
+    "what": "New finale rig: split rocker/bogie arms out of the merged body (CPU triangle split), arm swing+carry pose, rainbow stage-light helpers",
+    "why": "Ian answers 1 and 5 on PR #100"
+  },
+  {
+    "id": "1375",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/dustStormRoute.ts",
+    "what": "ymcaDance now a 15 s clip (3 choruses) with phases rise/dance/lower/done, light envelope + sweep and robotic-arm angles",
+    "why": "Dance ends, lights go out and the rover lowers back onto its wheels"
+  },
+  {
+    "id": "1376",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/audio/discoJingle.ts",
+    "what": "Original WebAudio disco jingle (I-vi-IV-V in C, 128 bpm, 15 s) with gesture unlock and mute",
+    "why": "Ian answer 6: original music, not YMCA; respect autoplay + mute"
+  },
+  {
+    "id": "1377",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsDustStormScene.ts",
+    "what": "Suspension arms + robotic arm animate in the dance; 6 rainbow spot lights sweep; jingle plays on the win (M mutes); physics re-attached when the clip ends",
+    "why": "Ian answers 1, 5, 6, 7"
+  },
+  {
+    "id": "1378",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/roverDance.test.ts",
+    "what": "New suite for the split, arm pose and stage-light helpers",
+    "why": "TDD"
+  },
+  {
+    "id": "1379",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/discoJingle.test.ts",
+    "what": "New suite for the jingle score, autoplay gate and mute",
+    "why": "TDD"
+  },
+  {
+    "id": "1380",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/dustStormRoute.test.ts",
+    "what": "Finale clip timeline tests",
+    "why": "Cover phases, lights and continuity"
+  },
+  {
+    "id": "1381",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/marsDustStorm.test.ts",
+    "what": "Mock GLB carries a baked arm + arm joints; finale clip scene test",
+    "why": "Cover scene wiring"
+  },
+  {
+    "id": "1382",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link roverDance and discoJingle suites, report 91",
+    "why": "selrun manifest"
+  },
+  {
+    "id": "1383",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 89 -> 91 suites, 731 -> 733 claims",
+    "why": "New suites"
   }
 ]
 ```

@@ -50,6 +50,7 @@ import {
 import { buildMarsDustStormScene, STORM_TIER_PARTICLES, STORM_TIER_ROUTE_INTERVAL } from "../../examples/src/scenes/marsDustStormScene.js";
 import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
+import { YMCA_TOTAL } from "../../examples/src/scenes/dustStormRoute.js";
 
 const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress: GlbLoadProgress) => void): Promise<LoadedGlb> => {
   const engine = await import("@forge/engine");
@@ -60,16 +61,33 @@ const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress
     geometries.push(geometry);
     return { name, geometry, material };
   };
+  // A body mesh with a front-right rocker arm baked in (fe-28 splits it back out).
+  const merged = (() => {
+    const deck = engine.boxGeometrySource({ width: 0.4, height: 0.4, depth: 0.4 });
+    const arm = engine.boxGeometrySource({ width: 0.1, height: 0.1, depth: 0.4 });
+    const armPos = arm.positions.map((v, i) => v + [1.0, 0.6, 0.6][i % 3]!);
+    const n = deck.positions.length / 3;
+    const indices = new Uint32Array([...deck.indices!, ...[...arm.indices!].map((i) => i + n)]);
+    const join = (a?: Float32Array | null, b?: Float32Array | null) => (a && b ? Float32Array.from([...a, ...b]) : null);
+    const geometry = engine.Geometry.create(device as GraphicsDevice, { positions: Float32Array.from([...deck.positions, ...armPos]), normals: join(deck.normals, arm.normals), uvs: join(deck.uvs, arm.uvs), indices });
+    geometries.push(geometry);
+    return { name: "deck", geometry, material };
+  })();
   onProgress?.({ phase: "done", receivedBytes: 1, totalBytes: 1 });
   return {
-    body: [box("deck")],
+    body: [merged],
     wheels: ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"].map((name) => ({
       name,
       hub: [0, 0, 0] as [number, number, number],
       parts: [box(`${name}-tire`)],
     })),
     mast: null,
-    arm: null,
+    arm: {
+      joints: [
+        { name: "arm", joint: "azimuth", offset: [0.5, 0.8, 1.0], axis: [0, 1, 0], parts: [box("arm-base")] },
+        { name: "arm_shoulder", joint: "shoulder", offset: [0, 0, 0.2], axis: [1, 0, 0], parts: [box("arm-upper")] },
+      ],
+    },
     dispose(): void {
       for (const g of geometries) g.dispose();
       material.dispose();
@@ -527,6 +545,66 @@ group("Mars Dust Storm Survival — fe-28 polish", () => {
     assert.equal(r.clearSky, 0);
     assert.equal(scene.settings.skyEnabled, false);
     assert.ok(scene.world.getComponent(chassis.id, VehicleComponent), "physics re-attached");
+  });
+
+  test("finale clip: arms + robotic arm dance, rainbow stage lights sweep, then lights out and the rover lowers back onto its wheels", async () => {
+    const { handle, scene, vehicle, tick, key } = await fixture();
+    start(key, tick);
+    const chassis = named(scene, "rover-chassis")[0]!;
+    const arm = named(scene, "rover-susp-front+")[0]!;
+    assert.ok(arm, "front-right suspension arm split out of the body");
+    assert.equal(named(scene, "rover-susp-middle-").length, 0, "only pieces with triangles are created");
+    const joint = named(scene, "rover-arm_shoulder")[0]!;
+    const restWheel = named(scene, "rover-wheel_FL")[0]!.transform.position.clone();
+    const restY = vehicle.position.y;
+    const count = handle.stormState().checkpointCount;
+    for (let i = 0; i < count; i++) {
+      const beam = named(scene, `storm-beam-ring-${i}`)[0]!;
+      vehicle.position.x = beam.transform.position.x;
+      vehicle.position.z = beam.transform.position.z;
+      tick();
+    }
+    assert.equal(handle.stormState().won, true);
+    const phases: string[] = [];
+    let armMoved = 0;
+    let jointMoved = 0;
+    let lightsMax = 0;
+    let sweepMin = 0;
+    let sweepMax = 0;
+    let beamsSeen = false;
+    for (let i = 0; i < Math.ceil((YMCA_TOTAL + 1) * 30); i++) {
+      tick(1 / 30);
+      const s = handle.stormState();
+      if (s.dancePhase && phases[phases.length - 1] !== s.dancePhase) phases.push(s.dancePhase);
+      if (s.dancePhase === "dance") {
+        armMoved = Math.max(armMoved, Math.hypot(arm.transform.position.x, arm.transform.position.z), 1 - Math.abs(arm.transform.rotation.w));
+        jointMoved = Math.max(jointMoved, 1 - Math.abs(joint.transform.rotation.w));
+        lightsMax = Math.max(lightsMax, s.stageLights);
+        sweepMin = Math.min(sweepMin, s.stageSweep);
+        sweepMax = Math.max(sweepMax, s.stageSweep);
+        beamsSeen ||= named(scene, "storm-stage-beam-").some((e) => scene.world.getComponent(e.id, Renderable)?.visible === true);
+      }
+    }
+    assert.deepEqual(phases, ["rise", "dance", "lower", "done"]);
+    assert.ok(armMoved > 0.05, `suspension arm moves with its wheel (${armMoved})`);
+    assert.ok(jointMoved > 0.01, `robotic arm joint animates (${jointMoved})`);
+    assert.equal(lightsMax, 1);
+    assert.ok(sweepMin < -0.9 && sweepMax > 0.9, "lights sweep left and right");
+    assert.ok(beamsSeen, "stage beams visible during the dance");
+    const s = handle.stormState();
+    assert.equal(s.dancing, false);
+    assert.equal(s.stageLights, 0);
+    assert.ok(named(scene, "storm-stage-beam-").every((e) => scene.world.getComponent(e.id, Renderable)?.visible === false), "lights gone after the clip");
+    assert.ok(scene.world.getComponent(chassis.id, VehicleComponent), "physics re-attached after lowering");
+    assert.deepEqual([arm.transform.rotation.x, arm.transform.rotation.y, arm.transform.rotation.z, arm.transform.rotation.w], [0, 0, 0, 1]);
+    assert.equal(joint.transform.rotation.w, 1);
+    // Back on all six wheels: level chassis at ride height.
+    const f = new Vec3();
+    chassis.transform.rotation.rotateVector(Vec3.unitZ, f);
+    assert.ok(Math.abs(f.y) < 0.2, `nose level again (${f.y})`);
+    assert.ok(Math.abs(vehicle.position.y - restY) < 3, "rover on the ground");
+    void restWheel;
+    assert.equal(s.won, true, "still a win; no restart");
   });
 
   test("the F/N/R gear selector is hidden in the dust storm", async () => {
