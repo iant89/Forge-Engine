@@ -28,6 +28,14 @@ export const HURRICANE_COAST: CoastalTerrainParams = {
   duneWidth: 36,
   inlandHeight: 1.5,
   seed: 7,
+  // fe-34: a winding coast — a broad bay/point pair and smaller scallops.
+  curveAmp1: 24,
+  curveLength1: 560,
+  curvePhase1: 0.5,
+  curveAmp2: 7,
+  curveLength2: 170,
+  curvePhase2: 2.2,
+  duneRows: 2,
 };
 
 /** Where the storm's effects are evaluated: the viewer on the beach. */
@@ -40,13 +48,13 @@ export const HURRICANE_KEYFRAMES: readonly CycloneKeyframe[] = [
   { time: 0, x: -60 * KM, z: 420 * KM, maxWind: 20, radiusMaxWind: 60 * KM, eyeRadius: 0, rain: 0.35 },
   { time: 20, x: -45 * KM, z: 330 * KM, maxWind: 29, radiusMaxWind: 50 * KM, eyeRadius: 6 * KM, rain: 0.5 },
   { time: 40, x: -30 * KM, z: 240 * KM, maxWind: 40, radiusMaxWind: 40 * KM, eyeRadius: 10 * KM, rain: 0.65 },
-  { time: 60, x: -18 * KM, z: 160 * KM, maxWind: 52, radiusMaxWind: 32 * KM, eyeRadius: 13 * KM, rain: 0.8, surge: 0.4 },
-  { time: 78, x: -8 * KM, z: 80 * KM, maxWind: 63, radiusMaxWind: 28 * KM, eyeRadius: 14 * KM, rain: 0.92, surge: 0.6 },
-  { time: 90, x: -2 * KM, z: 32 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 0.9 },
-  { time: 96, x: -1 * KM, z: 12 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.1 },
-  { time: 108, x: 1 * KM, z: -12 * KM, maxWind: 70, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 1.1 },
-  { time: 116, x: 3 * KM, z: -36 * KM, maxWind: 64, radiusMaxWind: 27 * KM, eyeRadius: 15 * KM, rain: 0.95, surge: 0.8 },
-  { time: 125, x: 6 * KM, z: -75 * KM, maxWind: 52, radiusMaxWind: 30 * KM, eyeRadius: 14 * KM, rain: 0.8, surge: 0.4 },
+  { time: 60, x: -18 * KM, z: 160 * KM, maxWind: 52, radiusMaxWind: 32 * KM, eyeRadius: 13 * KM, rain: 0.8, surge: 0.3 },
+  { time: 78, x: -8 * KM, z: 80 * KM, maxWind: 63, radiusMaxWind: 28 * KM, eyeRadius: 14 * KM, rain: 0.92, surge: 1.0 },
+  { time: 90, x: -2 * KM, z: 32 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 2.0 },
+  { time: 96, x: -1 * KM, z: 12 * KM, maxWind: 72, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 2.8 },
+  { time: 108, x: 1 * KM, z: -12 * KM, maxWind: 70, radiusMaxWind: 26 * KM, eyeRadius: 15 * KM, rain: 1, surge: 2.8 },
+  { time: 116, x: 3 * KM, z: -36 * KM, maxWind: 64, radiusMaxWind: 27 * KM, eyeRadius: 15 * KM, rain: 0.95, surge: 1.8 },
+  { time: 125, x: 6 * KM, z: -75 * KM, maxWind: 52, radiusMaxWind: 30 * KM, eyeRadius: 14 * KM, rain: 0.8, surge: 0.8 },
 ];
 
 export function createHurricaneTrack(): CycloneTrack {
@@ -64,13 +72,28 @@ export function hurricaneLandfallTime(track: CycloneTrack = createHurricaneTrack
   return track.duration;
 }
 
+/**
+ * fe-34 scripted tide (m): the sea draws back like a low tide as the storm approaches (on top of
+ * the engine's wind set-down), bottoming out around the outer bands, then recovers as the surge
+ * dome (the keyframes' `surge`) arrives with the eyewall.
+ */
+export function hurricaneTide(time: number): number {
+  const ease = (a: number, b: number, t: number): number => {
+    const u = Math.max(0, Math.min(1, (t - a) / (b - a)));
+    return u * u * (3 - 2 * u);
+  };
+  return -0.9 * ease(2, 30, time) * (1 - ease(58, 84, time));
+}
+
 /** Story beats used for the HUD caption and the screenshot/gate seek points. */
 export const HURRICANE_BEATS = {
   offshore: 8,
+  lowTide: 30,
   midStorm: 62,
   eyewall: 90,
   eye: 102,
   backEyewall: 112,
+  surge: 104,
 } as const;
 
 /** Wind in mph / km/h for the HUD. */

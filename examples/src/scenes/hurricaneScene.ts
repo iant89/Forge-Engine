@@ -9,6 +9,14 @@
  * `coastalTerrainSource` (beach + dunes), the demo's own palms (`hurricanePalms.ts`, posed by the engine's `windSway` hook) and `PrecipitationField` (rain).
  * The scene wires them together, owns the camera and draws the HUD (category, wind, phase and a
  * replay button). `?tier=low|medium|high` forces the device tier.
+ *
+ * fe-34 (realism pass): a winding coast with dune rows, beach houses and palms behind the dunes;
+ * the sea draws back (wind set-down + a scripted low tide) then the surge floods the beach; billowy
+ * low storm clouds with fast scud; lightning (engine `LightningSystem`) whose rate follows the
+ * storm, with bolts to sea and land and flashes lighting the deck; waterspouts offshore while the
+ * storm is still at sea (engine `WaterspoutSystem` + `WaterspoutVisual`, seeded); wind-blown spray,
+ * spindrift, sand, debris and mist (engine `WindBlownField`); gusts that whip the palms and buffet
+ * the camera (`windBuffet`); and an original WebAudio soundscape (`StormSoundscape`, opt-in button).
  */
 
 import {
@@ -20,8 +28,14 @@ import {
   type Engine,
   Geometry,
   Light,
+  LightningSystem,
   Material,
   PrecipitationField,
+  StormSoundscape,
+  WaterspoutSystem,
+  WaterspoutVisual,
+  WindBlownField,
+  type WindBlownMaterial,
   Renderable,
   Scene,
   Vec3,
@@ -34,7 +48,10 @@ import {
   oceanQualityForTier,
   saffirSimpsonLabel,
   tierValue,
+  waterspoutSpawnRate,
+  windBuffet,
 } from "@forge/engine";
+import { BeachHouses, houseSites } from "./hurricaneHouses.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { PalmGrove, palmSites } from "./hurricanePalms.js";
 import {
@@ -44,6 +61,7 @@ import {
   HURRICANE_TIME_COMPRESSION,
   createHurricaneTrack,
   hurricaneLandfallTime,
+  hurricaneTide,
   windUnits,
 } from "./hurricane.js";
 
@@ -65,6 +83,19 @@ export interface HurricaneState {
   waveHeight: number;
   surge: number;
   palmBend: number;
+  /** fe-34 */
+  seaLevel: number;
+  setup: number;
+  tide: number;
+  gust: number;
+  gustSpeed: number;
+  windFrom: string;
+  strikes: number;
+  flash: number;
+  waterspouts: number;
+  waterspoutsSpawned: number;
+  houses: number;
+  palms: number;
   landfall: boolean;
   finished: boolean;
   tier: DeviceTier;
@@ -76,6 +107,11 @@ export interface HurricaneSceneHandle extends DemoSceneHandle {
   seek(time: number): void;
   replay(): void;
   setPaused(paused: boolean): void;
+  /** fe-34 debug hooks (screenshots / checks). */
+  forceWaterspout(): boolean;
+  forceStrike(hold?: boolean): boolean;
+  /** Freeze lightning + waterspouts (the frozen flash/bolt stays on screen). */
+  holdEffects(hold: boolean): void;
 }
 
 const PHASE_TEXT: Record<string, string> = {
@@ -102,7 +138,16 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   scene.settings.shadow.mapSize = tierValue(tier, { low: 1024, medium: 2048, high: 2048 });
   scene.setFog("exp2", { density: 0.0006 });
   scene.setSky({ quality: tier === "low" ? "low" : "medium", sunDiscIntensity: 120 });
-  scene.setClouds({ coverage: 0.3, density: 0.7, height: 1400, scale: 0.0007, silverLining: 0.8, layers: tierValue(tier, { low: 1, medium: 2, high: 3 }) });
+  scene.setClouds({
+    coverage: 0.3,
+    density: 0.7,
+    height: 1400,
+    thickness: 700,
+    scale: 0.0011,
+    silverLining: 0.8,
+    billow: 0.5,
+    layers: tierValue(tier, { low: 2, medium: 3, high: 4 }),
+  });
 
   const owned: { dispose(): void }[] = [];
   const sand = new Material({ label: "hurricane.sand", color: 0xd9c49b, roughness: 0.95, metallic: 0 });
@@ -127,8 +172,8 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   };
   // Dense near patch around the viewer, coarse far patch tucked 0.3 m under it.
   const near = tierValue(tier, { low: 2.5, medium: 2, high: 1.5 });
-  addMesh("beach-near", coastalTerrainSource(HURRICANE_COAST, 0, -40, 360, 240, Math.round(360 / near), Math.round(240 / near)));
-  addMesh("beach-far", coastalTerrainSource(HURRICANE_COAST, 0, -300, 2400, 1400, tierValue(tier, { low: 120, medium: 160, high: 220 }), tierValue(tier, { low: 70, medium: 90, high: 120 })), -0.3);
+  addMesh("beach-near", coastalTerrainSource(HURRICANE_COAST, 0, -70, 420, 300, Math.round(420 / near), Math.round(300 / near)));
+  addMesh("beach-far", coastalTerrainSource(HURRICANE_COAST, 0, -300, 2400, 1400, tierValue(tier, { low: 160, medium: 220, high: 300 }), tierValue(tier, { low: 90, medium: 120, high: 160 })), -0.3);
 
   // The ocean: shore settings come from the same coast parameters as the sand.
   const water = new WaterSurface({ name: "ocean", level: 0, size: 3000 });
@@ -197,12 +242,32 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     eyeHole: { scale: 0.5 },
     stormCloudAlbedo: 0.05,
     seaLevel: 0,
+    // fe-34 realism: offshore winds draw the sea back (set-down), onshore winds pile it up.
+    coast: { onshoreX: 0, onshoreZ: -1, coefficient: 4e-4, limit: 1.2 },
+    gustiness: 0.85,
+    ceiling: { clear: 1400, storm: 520 },
+    scud: 3,
+    billow: { clear: 0.5, storm: 0.95 },
+    runup: { base: 0.7, perMetre: 0.45 },
   });
   scene.add(cyclone);
+  const setTide = (): void => {
+    cyclone.tideOffset = hurricaneTide(cyclone.time);
+  };
+  setTide();
+  // Gust factor on the storm's wind field (palms, spray and rain all feel the same squalls).
+  const gustFactor = (): number => (cyclone.observed.wind.speed > 0.01 ? cyclone.observed.gustSpeed / cyclone.observed.wind.speed : 1);
 
   // Palms on the back beach, swaying in the storm's own wind field.
   const windScratch = { x: 0, z: 0, speed: 0 };
-  const sites = palmSites(HURRICANE_COAST, tierValue(tier, { low: 10, medium: 16, high: 22 }), 220, 14, 46, 9);
+  // fe-34: houses behind the dunes; palms behind the dunes, around the houses and a few on the
+  // back beach.
+  const houses = new BeachHouses({ name: "houses", gpu: engine.gpu, sites: houseSites(HURRICANE_COAST, tierValue(tier, { low: 4, medium: 6, high: 7 }), 260, 122) });
+  scene.add(houses);
+  const sites = [
+    ...palmSites(HURRICANE_COAST, tierValue(tier, { low: 6, medium: 9, high: 12 }), 300, 118, 170, 9),
+    ...palmSites(HURRICANE_COAST, tierValue(tier, { low: 4, medium: 6, high: 8 }), 260, 40, 62, 21),
+  ];
   const palms = new PalmGrove({
     name: "palms",
     gpu: engine.gpu,
@@ -211,8 +276,9 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     fronds: tierValue(tier, { low: 7, medium: 8, high: 10 }),
     wind: (x, z, out) => {
       cycloneWindAt(cyclone.state, x, z, fieldOptions, windScratch);
-      out.x = windScratch.x;
-      out.z = windScratch.z;
+      const g = gustFactor();
+      out.x = windScratch.x * g;
+      out.z = windScratch.z * g;
     },
   });
   scene.add(palms);
@@ -220,13 +286,151 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   // Rain (engine): intensity and slant from the storm at the viewer.
   const rain = new PrecipitationField({
     name: "rain",
-    capacity: tierValue(tier, { low: 4096, medium: 8192, high: 12288 }),
-    maxRate: tierValue(tier, { low: 2500, medium: 4200, high: 6300 }),
+    capacity: tierValue(tier, { low: 6144, medium: 12288, high: 20480 }),
+    maxRate: tierValue(tier, { low: 4200, medium: 7500, high: 12000 }),
     follow: () => cameraEntity.transform.position,
-    drive: () => ({ intensity: cyclone.observed.rain, windX: cyclone.observed.wind.x, windZ: cyclone.observed.wind.z }),
+    // Driven rain: squalls (gusts) dump harder and slant it further.
+    drive: () => {
+      const o = cyclone.observed;
+      const g = gustFactor();
+      return { intensity: Math.min(1, o.rain * (0.8 + 0.5 * o.gust)), windX: o.wind.x * g, windZ: o.wind.z * g };
+    },
     seed: 33,
   });
   scene.add(rain);
+
+  // fe-34: wind made visible — spray off the surf, spindrift streaming off crests, blowing sand,
+  // shredded leaves and mist streaks (engine WindBlownField presets; the demo picks where/when).
+  const seaLevel = (): number => scene.settings.water.level;
+  const camPos = (): { x: number; y: number; z: number } => cameraEntity.transform.position;
+  const windDrive = (from: number, span: number, scale = 1) => (): { intensity: number; windX: number; windZ: number } => {
+    const o = cyclone.observed;
+    const g = gustFactor();
+    return { intensity: Math.max(0, Math.min(1, ((o.gustSpeed - from) / span) * scale)), windX: o.wind.x * g, windZ: o.wind.z * g };
+  };
+  const blown = (material: WindBlownMaterial, opts: { follow: () => { x: number; y: number; z: number }; baseY: () => number; from: number; span: number; capacity: number; rate: number; radius: number; seed: number; scale?: () => number }): WindBlownField => {
+    const drive = windDrive(opts.from, opts.span);
+    const field = new WindBlownField({
+      name: `wind-${material}`,
+      material,
+      capacity: opts.capacity,
+      maxRate: opts.rate,
+      follow: opts.follow,
+      baseY: opts.baseY,
+      radius: opts.radius,
+      seed: opts.seed,
+      drive: () => {
+        const d = drive();
+        d.intensity *= opts.scale?.() ?? 1;
+        return d;
+      },
+    });
+    scene.add(field);
+    return field;
+  };
+  const fx = tierValue(tier, { low: 0.4, medium: 0.7, high: 1 });
+  // The surf zone in front of the viewer (follows the moving waterline).
+  const surfPoint = (): { x: number; y: number; z: number } => ({ x: camPos().x, y: seaLevel(), z: 7 - seaLevel() / 0.06 });
+  const windFields = [
+    blown("spray", { follow: surfPoint, baseY: seaLevel, from: 14, span: 35, capacity: Math.round(4096 * fx), rate: 1600 * fx, radius: 70, seed: 81 }),
+    blown("spindrift", { follow: () => ({ x: camPos().x, y: 0, z: 260 }), baseY: seaLevel, from: 22, span: 35, capacity: Math.round(4096 * fx), rate: 1400 * fx, radius: 220, seed: 82 }),
+    blown("sand", {
+      follow: camPos,
+      baseY: () => groundHeight(camPos().x, camPos().z),
+      from: 10,
+      span: 30,
+      capacity: Math.round(4096 * fx),
+      rate: 2400 * fx,
+      radius: 35,
+      seed: 83,
+      // Wet sand does not blow: off once the surge covers the beach under the viewer.
+      scale: () => (seaLevel() > groundHeight(camPos().x, camPos().z) - 0.2 ? 0 : 1 - 0.7 * cyclone.observed.rain),
+    }),
+    blown("debris", { follow: () => ({ x: camPos().x, y: 0, z: camPos().z - 60 }), baseY: () => groundHeight(camPos().x, camPos().z - 60) + 3, from: 28, span: 30, capacity: Math.round(1024 * fx), rate: 240 * fx, radius: 90, seed: 84 }),
+    blown("mist", { follow: camPos, baseY: seaLevel, from: 24, span: 40, capacity: Math.round(2048 * fx), rate: 500 * fx, radius: 90, seed: 85, scale: () => 0.4 + 0.6 * cyclone.observed.rain }),
+  ];
+
+  // fe-34: lightning (engine) — strike rate follows the storm's convection at the viewer; bolts
+  // land on the sea or the beach under them, intra-cloud flashes light the deck.
+  const surfaceAt = (x: number, z: number): number => Math.max(seaLevel(), groundHeight(x, z));
+  const convection = (): number => {
+    const o = cyclone.observed;
+    if (o.phase === "eye" || o.phase === "clear") return 0;
+    return Math.min(1, Math.pow(Math.max(o.rain, 0.6 * o.storm), 1.4));
+  };
+  let sound: StormSoundscape | null = null;
+  const lightning = new LightningSystem({
+    name: "lightning",
+    seed: 3401,
+    rate: 0.55,
+    storm: convection,
+    // Strikes cluster in the convection toward the storm (1–4 km out), some close in.
+    center: () => {
+      const s = cyclone.state;
+      const dx = s.x - HURRICANE_OBSERVER.x;
+      const dz = s.z - HURRICANE_OBSERVER.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const k = Math.min(1800, d * 0.5);
+      return { x: HURRICANE_OBSERVER.x + (dx / d) * k, z: HURRICANE_OBSERVER.z + (dz / d) * k };
+    },
+    areaRadius: 1600,
+    cloudHeight: 900,
+    surfaceAt,
+    branches: tierValue(tier, { low: 2, medium: 3, high: 4 }),
+    cloudFlashFraction: 0.45,
+    subdivisions: tierValue(tier, { low: 5, medium: 6, high: 6 }),
+    roughness: 0.42,
+    flashLightIntensity: 220,
+    skyFlashExposure: 2.2,
+    boltColor: 0xe8f0ffff,
+    boltWidth: 4,
+    onStrike: (strike) => {
+      const c = camPos();
+      sound?.thunder(Math.hypot(strike.position.x - c.x, strike.position.z - c.z), strike.energy);
+    },
+  });
+  scene.add(lightning);
+
+  // fe-34: waterspouts (engine) — only while the storm is still well offshore and the wind is up;
+  // the chance scales with the wind. Seeded, so a seeded run spawns the same spouts.
+  const SPOUT_WINDOW = { start: 18, end: 72 } as const;
+  const spouts = new WaterspoutSystem({
+    name: "waterspouts",
+    seed: 7341,
+    spawnRate: () => {
+      const t = cyclone.time;
+      if (t < SPOUT_WINDOW.start || t > SPOUT_WINDOW.end || cyclone.paused) return 0;
+      return waterspoutSpawnRate(cyclone.observed.wind.speed, { threshold: 10, full: 30, perSecond: 0.06 });
+    },
+    area: () => ({ x: 0, z: 1100, radius: 700 }),
+    wind: () => cyclone.observed.wind,
+    drift: 0.25,
+    maxActive: tierValue(tier, { low: 1, medium: 2, high: 2 }),
+  });
+  scene.add(spouts);
+  const spoutVisual = new WaterspoutVisual({
+    name: "waterspout-visual",
+    gpu: engine.gpu,
+    spouts,
+    seaLevel,
+    cloudBase: () => scene.settings.clouds.height - scene.settings.clouds.thickness * 0.5,
+    segments: tierValue(tier, { low: 10, medium: 14, high: 18 }),
+    sprayCapacity: tierValue(tier, { low: 1024, medium: 2048, high: 3072 }),
+  });
+  scene.add(spoutVisual);
+
+  // Camera buffeting: the controller orbits a target that the gusts shove about.
+  // The viewer stands on a deck behind the houses, looking over the dunes and the beach to sea.
+  const BASE_TARGET = new Vec3(0, 2, 20);
+  const buffet = { x: 0, y: 0, z: 0, roll: 0, pitch: 0 };
+  let realTime = 0;
+  const compass = (x: number, z: number): string => {
+    // Direction the wind blows FROM (+x east, −z north here: land is −Z/north of the beach).
+    const from = Math.atan2(-x, z);
+    const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    const i = Math.round(((from + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
+    return names[i]!;
+  };
 
   // ---------------------------------------------------------------- HUD
   const hud = document.createElement("div");
@@ -250,7 +454,28 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   const replay = (): void => {
     cyclone.seek(0);
     cyclone.paused = false;
+    setTide();
   };
+  // Sound is opt-in (browsers start audio only from a gesture).
+  const soundButton = document.createElement("button");
+  soundButton.type = "button";
+  soundButton.textContent = "🔊 Sound";
+  soundButton.style.cssText = "margin:8px 0 0 8px;padding:6px 12px;border:0;border-radius:6px;background:#31475c;color:#eef4f8;font-weight:700;cursor:pointer";
+  replayButton.after(soundButton);
+  const toggleSound = (): void => {
+    if (sound) {
+      void sound.context.close();
+      sound.dispose();
+      sound = null;
+      soundButton.textContent = "🔊 Sound";
+      return;
+    }
+    const Ctx = (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (!Ctx) return;
+    sound = new StormSoundscape(new Ctx());
+    soundButton.textContent = "🔇 Mute";
+  };
+  soundButton.addEventListener("click", toggleSound);
   replayButton.addEventListener("click", replay);
   let lastHud = "";
 
@@ -270,6 +495,18 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       waveHeight: cyclone.ocean?.significantHeight ?? 0,
       surge: o.surge,
       palmBend: palms.meanBend,
+      seaLevel: scene.settings.water.level,
+      setup: o.setup,
+      tide: cyclone.tideOffset,
+      gust: o.gust,
+      gustSpeed: o.gustSpeed,
+      windFrom: compass(o.wind.x, o.wind.z),
+      strikes: lightning.strikeCount,
+      flash: lightning.flashTotal,
+      waterspouts: spouts.spouts.length,
+      waterspoutsSpawned: spouts.spawned,
+      houses: houses.count,
+      palms: palms.count,
       landfall: cyclone.time >= landfallTime,
       finished: cyclone.finished,
       tier,
@@ -280,20 +517,25 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     scene,
     cameraEntity,
     controlsHint: "Drag to look around · Scroll to zoom · Replay in the storm panel",
+    followTarget: () => ({ x: BASE_TARGET.x + buffet.x * 6, y: BASE_TARGET.y + buffet.y * 6, z: BASE_TARGET.z + buffet.z * 3 }),
     camera: {
-      target: new Vec3(0, 3.4, 25),
-      distance: 75,
+      target: BASE_TARGET.clone(),
+      distance: 185,
       minDistance: 8,
-      maxDistance: 160,
+      maxDistance: 320,
       azimuth: 0,
-      elevation: 0.1,
+      elevation: 0.06,
       minElevation: -0.08,
       maxElevation: 1.2,
       groundClearance: 1.7,
       groundHeight,
     },
-    update(): void {
+    update(dt: number): void {
       const o = cyclone.observed;
+      setTide();
+      realTime += dt;
+      windBuffet(realTime, o.gustSpeed, o.gust, 1, buffet);
+      sound?.set({ windSpeed: o.gustSpeed, gust: o.gust, rain: o.rain, surf: Math.min(1, (cyclone.ocean?.significantHeight ?? 0) / 5) });
       cycle.sunIntensity = SUN_INTENSITY * o.sunFactor * (1 - 0.7 * o.darkness);
       cycle.ambientScale = AMBIENT * o.ambientFactor * (1 - 0.55 * o.darkness);
       cycle.apply();
@@ -305,12 +547,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       const l = windUnits(s.localWind);
       const phase = s.time < 3 ? "Storm forming far offshore" : s.finished ? "Storm moving inland" : PHASE_TEXT[s.phase] ?? s.phase;
       const landfall = s.landfall && !s.finished && s.phase !== "eye" ? " · LANDFALL" : "";
-      const text = `${s.label}|${Math.round(u.mph)}|${Math.round(l.mph)}|${phase}${landfall}|${Math.round(s.distanceKm)}`;
+      const text = `${s.label}|${Math.round(u.mph)}|${Math.round(l.mph)}|${phase}${landfall}|${Math.round(s.distanceKm)}|${s.windFrom}|${Math.round(s.gustSpeed)}|${s.seaLevel.toFixed(1)}`;
       if (text !== lastHud) {
         lastHud = text;
         hudLabel.textContent = s.label;
         hudWind.textContent = `Max sustained ${Math.round(u.mph)} mph (${Math.round(u.kmh)} km/h)`;
-        hudLocal.textContent = `Wind on the beach ${Math.round(l.mph)} mph · eye ${Math.round(s.distanceKm)} km`;
+        hudLocal.textContent = `Beach wind ${Math.round(l.mph)} mph from ${s.windFrom}, gusts ${Math.round(windUnits(s.gustSpeed).mph)} · eye ${Math.round(s.distanceKm)} km · sea ${s.seaLevel >= 0 ? "+" : ""}${s.seaLevel.toFixed(1)} m`;
         hudPhase.textContent = phase + landfall;
       }
       hudBar.style.width = `${Math.round((s.time / s.duration) * 100)}%`;
@@ -318,11 +560,30 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     },
     overlay(): string {
       const s = state();
-      return `hurricane t ${s.time.toFixed(1)}/${s.duration}s  ${s.phase}  cat ${s.category}  local ${s.localWind.toFixed(1)} m/s  rain ${s.rain.toFixed(2)}  Hs ${s.waveHeight.toFixed(2)} m  surge ${s.surge.toFixed(2)} m  drops ≈${rain.aliveEstimate}  tier ${tier}`;
+      return `hurricane t ${s.time.toFixed(1)}/${s.duration}s  ${s.phase}  cat ${s.category}  local ${s.localWind.toFixed(1)} m/s (gust ${s.gustSpeed.toFixed(0)}) from ${s.windFrom}  rain ${s.rain.toFixed(2)}  Hs ${s.waveHeight.toFixed(2)} m  sea ${s.seaLevel.toFixed(2)} m  strikes ${s.strikes}  spouts ${s.waterspouts}  drops ≈${rain.aliveEstimate}  wind fx ${windFields.map((f) => Math.round(f.rate)).join("/")}  tier ${tier}`;
     },
     hurricaneState: state,
     seek(time: number): void {
       cyclone.seek(time);
+      setTide();
+    },
+    forceWaterspout(): boolean {
+      // Close enough to frame from the beach: ~600 m out, a little up the coast.
+      const sp = spouts.spawn({ x: -180, z: 620 }, 40);
+      sp.age = sp.life * 0.4;
+      return true;
+    },
+    forceStrike(hold = false): boolean {
+      const c = lightning.trigger(new Vec3(260, 0, 700), 1.4);
+      if (hold) {
+        c.age = 0.02;
+        lightning.paused = true;
+      }
+      return true;
+    },
+    holdEffects(hold: boolean): void {
+      lightning.paused = hold;
+      spouts.paused = hold;
     },
     replay,
     setPaused(paused: boolean): void {
@@ -330,6 +591,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     },
     dispose(): void {
       replayButton.removeEventListener("click", replay);
+      soundButton.removeEventListener("click", toggleSound);
+      if (sound) {
+        void sound.context.close();
+        sound.dispose();
+        sound = null;
+      }
       hud.remove();
       scene.dispose();
       for (const o of owned) o.dispose();
