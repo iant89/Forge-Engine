@@ -1869,8 +1869,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     advanceFinale: (seconds: number): void => {
       if (dancing && seconds > 0) wonAt -= seconds;
     },
-    /** Test / screenshot hook: a wind throw — lift the rover `up` m and carry it (dx, dz) mid-episode. */
     summary: () => stormRunSummary(summaryInput()),
+    /** Test / screenshot hook: a wind throw — lift the rover `up` m and carry it (dx, dz) mid-episode. */
     debugBlow: (dx: number, dz: number, up = 6): void => {
       startupBrake = false;
       blown.episode = true;

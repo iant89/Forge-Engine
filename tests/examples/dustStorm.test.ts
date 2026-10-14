@@ -969,6 +969,8 @@ group("fe-29 force-based wind and blown-away rule", () => {
     st.step({ ...base, x: 202, z: 0, clearance: 6.4, lifted: true });
     st.step({ ...base, x: 203, z: 0, clearance: 7, lifted: true });
     st.step({ ...base, x: 204, z: 0 });
+    st.step({ ...base, x: 204.5, z: 0, clearance: 0.6, lifted: true }); // suspension bounce in a devil: not a lift
+    st.step({ ...base, x: 205, z: 0 });
     st.step({ ...base, x: 205, z: 0, clearance: 2, lifted: true });
     assertCloseTo(st.distance, 15, 9);
     assert.equal(st.timesLifted, 2);

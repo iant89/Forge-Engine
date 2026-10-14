@@ -2332,6 +2332,8 @@ export class DevilPebbles {
 
 /** A single frame jump longer than this (m) is a reposition (respawn / teleport), not driving. */
 export const STATS_TELEPORT_JUMP = 5;
+/** Clearance (m) above ride height at which a devil's updraft counts as lifting the rover. */
+export const STATS_LIFT_CLEARANCE = 1;
 
 export interface StormRunStatsSample {
   x: number;
@@ -2388,7 +2390,8 @@ export class StormRunStats {
     this.maxHeight = Math.max(this.maxHeight, s.clearance);
     this.topSpeed = Math.max(this.topSpeed, s.speed);
     this.maxWind = Math.max(this.maxWind, s.wind);
-    const lifted = s.lifted && s.clearance > 0.3;
+    // Count a lift only once the updraft has the chassis clearly off its wheels (not suspension bounce).
+    const lifted = s.lifted && s.clearance > STATS_LIFT_CLEARANCE;
     if (lifted && !this.wasLifted) this.timesLifted++;
     this.wasLifted = lifted;
   }
