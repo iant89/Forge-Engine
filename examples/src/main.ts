@@ -228,7 +228,7 @@ async function main(): Promise<void> {
       currentHandle = buildMarsShowcaseScene(engine);
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else if (name === "rover-course") {
-      // fe-32: `?tier=` caps the lamp spot shadows (low 1, medium 2, high 4) like the other tier knobs.
+      // fe-32: `?tier=` caps the lamp spot shadows (low 1, medium 2, high 6) like the other tier knobs.
       const forcedTier = new URLSearchParams(window.location.search).get("tier");
       currentHandle = buildRoverCourseScene(engine, {
         deviceTier: forcedTier === "low" || forcedTier === "medium" || forcedTier === "high" ? forcedTier : undefined,

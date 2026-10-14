@@ -242,7 +242,7 @@ light upload, so even reversed user values yield a valid soft-edge interval. Slo
   `MAX_SPOT_SHADOWS` = 8 slots (the shader's array length); `RendererOptions.maxSpotShadows` lets a
   quality profile cap it lower; 0 turns spot shadows off. Every slot is one more depth pass and one
   more atlas layer, so tie the setting to the device tier (the rover course uses low 1 / medium 2 /
-  high 4).
+  high 6).
 * **Relevance.** A spot competes only when the bounding sphere of its cone (`spotBoundingSphere`)
   intersects the camera frustum and its nearest point lies within `shadow.distance` of the camera.
   Lamps behind the camera or past the shadow distance get no map that frame.

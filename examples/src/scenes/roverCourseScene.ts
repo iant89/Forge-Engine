@@ -199,13 +199,13 @@ export const COURSE_TIRE_STACKS: [number, number][] = [[33, 13], [33, -13], [-33
 
 /**
  * Lamp spot-shadow slots per device tier (fe-32), written to `settings.shadow.maxSpotShadows`: each
- * shadowed spot is an extra depth pass, so phones (low) get one, medium two, high four. The renderer
+ * shadowed spot is an extra depth pass, so phones (low) get one, medium two, high six. The renderer
  * hands them to the in-view lamps nearest the chase camera (which rides with the rover).
  */
 export const LAMP_SHADOWS_FOR_TIER: Readonly<Record<DeviceTier, number>> = {
   low: 1,
   medium: 2,
-  high: Math.min(4, MAX_SPOT_SHADOWS),
+  high: Math.min(6, MAX_SPOT_SHADOWS),
 };
 /** Street-lamp spot tuning (fe-32): bright enough that the rover's shadow reads at golden hour. */
 export const LAMP_SPOT = { intensity: 240, range: 24 } as const;
