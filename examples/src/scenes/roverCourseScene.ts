@@ -210,7 +210,7 @@ export const LAMP_SHADOWS_FOR_TIER: Readonly<Record<DeviceTier, number>> = {
   high: Math.min(4, MAX_SPOT_SHADOWS),
 };
 /** Street-lamp spot tuning (fe-32): bright enough that the rover's shadow reads at golden hour. */
-export const LAMP_SPOT = { intensity: 110, range: 22 } as const;
+export const LAMP_SPOT = { intensity: 240, range: 24 } as const;
 
 /** Indices of the `count` lamps closest to (x, z) on the ground plane; ties keep list order. */
 export function nearestLampIndices(lamps: readonly { x: number; z: number }[], x: number, z: number, count: number): Set<number> {

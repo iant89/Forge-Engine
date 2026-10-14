@@ -48,7 +48,7 @@ group("tier budget", () => {
   test("low tier still shadows the lamp the rover is under", () => {
     for (let k = 0; k < ring.length; k++) assert.deepEqual([...nearestLampIndices(ring, ring[k]!.x, ring[k]!.z, LAMP_SHADOWS_FOR_TIER.low)], [k]);
   });
-  test("lamps are brighter than the pre-fe-32 60 cd / 18 m", () => {
+  test("lamps are brighter than the pre-fe-32 60 / 18 m", () => {
     assert.ok(LAMP_SPOT.intensity > 60 && LAMP_SPOT.range > 18);
   });
 });
