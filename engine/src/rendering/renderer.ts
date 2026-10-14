@@ -2489,7 +2489,7 @@ export class Renderer implements RenderFrameContext {
       f32[oA + 2] = k;
       f32[oA + 3] = w.speed;
       f32[oB] = w.amplitude;
-      f32[oB + 1] = w.steepness / (k * w.amplitude * Math.max(1, waveCount));
+      f32[oB + 1] = Math.min(1, w.steepness * Math.max(0, water.choppiness)) / (k * w.amplitude * Math.max(1, waveCount));
       f32[oB + 2] = w.phase;
       f32[oB + 3] = 0;
     }
@@ -2503,6 +2503,16 @@ export class Renderer implements RenderFrameContext {
     a.setF32("sunGlint", water.sunGlint);
     a.setVec3("skyTint", this.skyLight.horizonTint[0]!, this.skyLight.horizonTint[1]!, this.skyLight.horizonTint[2]!);
     a.setVec3("sunDirection", this.scratchVec.x, this.scratchVec.y, this.scratchVec.z);
+    // fe-33 shoreline: the analytic seabed the shader shoals, breaks and colours by depth.
+    const shore = water.shore;
+    const sl = Math.hypot(shore.directionX, shore.directionZ) || 1;
+    const sdx = shore.directionX / sl;
+    const sdz = shore.directionZ / sl;
+    a.setVec4("shoreA", sdx, sdz, sdx * shore.originX + sdz * shore.originZ, shore.slope);
+    a.setVec4("shoreB", shore.foamDepth, shore.breakDepth, shore.bedLevel, shore.enabled ? 1 : 0);
+    a.setVec4("shoreC", water.level, Math.max(0.01, shore.colorDepth), 0, 0);
+    const amb = this.skyLight.ambientTint;
+    a.setVec3("skyZenith", amb[0]!, amb[1]!, amb[2]!);
     this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 

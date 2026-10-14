@@ -221,6 +221,43 @@ export interface SceneWaterSettings {
   foamThreshold: number;
   /** Gerstner components (up to 4 reach the shader; amplitude 0 disables). */
   waves: WaterWaveParams[];
+  /**
+   * Global crest sharpness multiplier applied to every wave's `steepness` (fe-33). 1 keeps the
+   * authored waves; storms push it up. The product is clamped to 1 (no Gerstner loops).
+   */
+  choppiness: number;
+  /** Optional analytic shoreline: depth colour, shoaling, breaking and shore foam (fe-33). */
+  shore: WaterShoreSettings;
+}
+
+/**
+ * An analytic sloped seabed (fe-33). The bed rises along `direction` (toward land) through the
+ * shoreline point `origin` at `bedLevel`, with `slope` metres of rise per metre: depth at a point is
+ * `level − (bedLevel + slope·(dot(p − origin, direction)))`. The water shader and the CPU sampler
+ * (`shoreDepthAt`, `shoalFactor`) use the same formula, so raising `level` (a storm surge) floods
+ * inland exactly as far as the rendered surge reaches.
+ */
+export interface WaterShoreSettings {
+  enabled: boolean;
+  originX: number;
+  originZ: number;
+  /** Horizontal direction pointing from sea toward land (normalised by consumers). */
+  directionX: number;
+  directionZ: number;
+  /** Bed height at `origin` (render-local Y). */
+  bedLevel: number;
+  /** Bed rise per horizontal metre toward land (> 0). */
+  slope: number;
+  /** Water depth (m) under which the swash/shore foam band appears. */
+  foamDepth: number;
+  /** Water depth (m) where waves peak and break (shoaling maximum). */
+  breakDepth: number;
+  /** Depth (m) over which the body colour goes from `shallowColor` to `deepColor`. */
+  colorDepth: number;
+}
+
+export function defaultWaterShore(): WaterShoreSettings {
+  return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8 };
 }
 
 export interface SceneSettings {
@@ -386,6 +423,8 @@ export function defaultWaterSettings(): SceneWaterSettings {
       { directionX: 0.2, directionZ: 1, wavelength: 6, amplitude: 0.045, speed: 1.8, steepness: 0.25, phase: 4.1 },
       { directionX: -0.5, directionZ: 0.8, wavelength: 2.8, amplitude: 0.02, speed: 1.3, steepness: 0.2, phase: 2.3 },
     ],
+    choppiness: 1,
+    shore: defaultWaterShore(),
   };
 }
 
@@ -620,10 +659,11 @@ export class Scene {
   }
 
   /** Adjust the water surface (colours are copied; `waves` is replaced as a whole). */
-  setWater(options: Partial<SceneWaterSettings> = {}): this {
+  setWater(options: Partial<Omit<SceneWaterSettings, "shore">> & { shore?: Partial<WaterShoreSettings> } = {}): this {
     const water = this.settings.water;
-    const { deepColor, shallowColor, foamColor, murkColor, waves, ...rest } = options;
+    const { deepColor, shallowColor, foamColor, murkColor, waves, shore, ...rest } = options;
     Object.assign(water, rest);
+    if (shore !== undefined) Object.assign(water.shore, shore);
     if (deepColor !== undefined) water.deepColor.copyFrom(deepColor);
     if (shallowColor !== undefined) water.shallowColor.copyFrom(shallowColor);
     if (foamColor !== undefined) water.foamColor.copyFrom(foamColor);
@@ -946,6 +986,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
       foamColor: [s.water.foamColor.r, s.water.foamColor.g, s.water.foamColor.b],
       murkColor: [s.water.murkColor.r, s.water.murkColor.g, s.water.murkColor.b],
       waves: s.water.waves.map((w) => ({ ...w })),
+      shore: { ...s.water.shore },
     },
   };
 }
@@ -1067,6 +1108,21 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.opacity = num(water["opacity"], t.opacity);
     t.sunGlint = num(water["sunGlint"], t.sunGlint);
     t.foamThreshold = num(water["foamThreshold"], t.foamThreshold);
+    t.choppiness = num(water["choppiness"], t.choppiness);
+    const shore = water["shore"] as Record<string, unknown> | undefined;
+    if (shore) {
+      const d = t.shore;
+      if (typeof shore["enabled"] === "boolean") d.enabled = shore["enabled"];
+      d.originX = num(shore["originX"], d.originX);
+      d.originZ = num(shore["originZ"], d.originZ);
+      d.directionX = num(shore["directionX"], d.directionX);
+      d.directionZ = num(shore["directionZ"], d.directionZ);
+      d.bedLevel = num(shore["bedLevel"], d.bedLevel);
+      d.slope = num(shore["slope"], d.slope);
+      d.foamDepth = num(shore["foamDepth"], d.foamDepth);
+      d.breakDepth = num(shore["breakDepth"], d.breakDepth);
+      d.colorDepth = num(shore["colorDepth"], d.colorDepth);
+    }
     if (Array.isArray(water["waves"])) {
       t.waves = (water["waves"] as Record<string, unknown>[]).map((w) => ({
         directionX: num(w["directionX"], 1),

@@ -21,7 +21,7 @@ import type { SystemContext } from "../scene/systems.js";
 import { Renderable } from "../scene/components/index.js";
 import { Vec3 } from "../math/vec.js";
 import { clamp } from "../math/scalar.js";
-import type { SceneWaterSettings } from "../scene/scene.js";
+import type { SceneWaterSettings, WaterShoreSettings } from "../scene/scene.js";
 
 /** One Gerstner component (mirrors `WaterWaveParams` in the scene settings). */
 export interface GerstnerWave {
@@ -65,7 +65,17 @@ export function createWaterSample(): WaterSample {
  * Evaluate the same bounded Gerstner sum as the shader at a world XZ and time. Normals are the
  * exact analytic derivatives of the complete horizontally displaced parametric surface.
  */
-export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: number, t: number, out: WaterSample = createWaterSample()): WaterSample {
+export function sampleGerstner(
+  waves: readonly GerstnerWave[],
+  x: number,
+  z: number,
+  t: number,
+  out: WaterSample = createWaterSample(),
+  choppiness = 1,
+  amplitudeScale = 1,
+): WaterSample {
+  const ampScale = Math.max(0, amplitudeScale);
+  const chop = Math.max(0, choppiness);
   let y = 0;
   let dx = 0;
   let dz = 0;
@@ -89,18 +99,22 @@ export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: num
     const f = k * (dirX * x + dirZ * z - w.speed * t) + w.phase;
     const sinF = Math.sin(f);
     const cosF = Math.cos(f);
-    y += w.amplitude * sinF;
+    // fe-33: `amplitudeScale` is the shore's shoaling factor (constant per sample point — its own
+    // gradient is deliberately ignored, exactly like the shader), `choppiness` scales steepness.
+    const amp = w.amplitude * ampScale;
+    y += amp * sinF;
     // Q = steepness / (k·A·N): the classic normalisation keeps the sum of horizontal
-    // displacements bounded by the steepness instead of growing with the wave count.
-    const q = w.steepness / (k * w.amplitude * n);
-    dx += q * w.amplitude * dirX * cosF;
-    dz += q * w.amplitude * dirZ * cosF;
-    const horizontalDerivative = q * w.amplitude * k * sinF;
+    // displacements bounded by the steepness instead of growing with the wave count. Q is formed
+    // from the *authored* amplitude, so shoaling scales the horizontal and vertical motion alike.
+    const q = Math.min(1, w.steepness * chop) / (k * w.amplitude * n);
+    dx += q * amp * dirX * cosF;
+    dz += q * amp * dirZ * cosF;
+    const horizontalDerivative = q * amp * k * sinF;
     dxdx -= horizontalDerivative * dirX * dirX;
     dxdz -= horizontalDerivative * dirX * dirZ;
     dzdx -= horizontalDerivative * dirX * dirZ;
     dzdz -= horizontalDerivative * dirZ * dirZ;
-    const slope = k * w.amplitude * cosF;
+    const slope = k * amp * cosF;
     dydx += dirX * slope;
     dydz += dirZ * slope;
     crestNum += (0.5 + 0.5 * cosF) * w.amplitude;
@@ -119,6 +133,69 @@ export function sampleGerstner(waves: readonly GerstnerWave[], x: number, z: num
   out.nz = nz * inv;
   out.crest = crestDen > 0 ? crestNum / crestDen : 0;
   return out;
+}
+
+/**
+ * Still-water depth over the analytic shore bed (fe-33): `level − bed(x, z)`; negative on dry land.
+ * Returns +Infinity when the shore is disabled (open ocean everywhere).
+ */
+export function shoreDepthAt(shore: WaterShoreSettings, level: number, x: number, z: number): number {
+  if (!shore.enabled) return Number.POSITIVE_INFINITY;
+  const len = Math.hypot(shore.directionX, shore.directionZ) || 1;
+  const along = ((x - shore.originX) * shore.directionX + (z - shore.originZ) * shore.directionZ) / len;
+  return level - (shore.bedLevel + shore.slope * along);
+}
+
+/** Peak shoaling gain just before the break line (Green's-law-like steepening, capped). */
+export const SHOAL_PEAK = 1.3;
+
+/**
+ * Wave amplitude multiplier for a still-water depth (the shader's twin): 1 in deep water (≥ 3 ×
+ * `breakDepth`), rising linearly to {@link SHOAL_PEAK} at the break line as the wave shoals, then
+ * collapsing smoothly to 0 at the waterline as the broken wave spends itself in the surf zone.
+ */
+export function shoalFactor(depth: number, breakDepth: number): number {
+  if (!(depth > 0)) return 0;
+  const b = Math.max(1e-3, breakDepth);
+  if (depth >= 3 * b) return 1;
+  if (depth >= b) return 1 + (SHOAL_PEAK - 1) * (1 - (depth - b) / (2 * b));
+  const u = depth / b;
+  return SHOAL_PEAK * u * u * (3 - 2 * u);
+}
+
+/**
+ * Breaking intensity 0..1 for a still-water depth: peaks across the surf zone (depth between the
+ * shore-foam band and ~1.5 × `breakDepth`); the shader multiplies it by the crest factor so only
+ * crests break into white water.
+ */
+export function breakingFactor(depth: number, shore: Pick<WaterShoreSettings, "breakDepth" | "foamDepth">): number {
+  if (!(depth > 0)) return 0;
+  const b = Math.max(1e-3, shore.breakDepth);
+  const outer = 1 - smooth01((depth - b) / (0.5 * b));
+  const inner = smooth01(depth / Math.max(1e-3, shore.foamDepth));
+  return clamp(outer * inner, 0, 1);
+}
+
+/** Shore (swash) foam 0..1 before noise breakup: full at the waterline, gone at `foamDepth`. */
+export function shoreFoamFactor(depth: number, foamDepth: number): number {
+  if (!Number.isFinite(depth)) return 0;
+  if (depth <= 0) return 0;
+  return 1 - smooth01(depth / Math.max(1e-3, foamDepth));
+}
+
+function smooth01(x: number): number {
+  const t = clamp(x, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Full water sample honouring the scene's choppiness and shoreline (fe-33): the same surface the
+ * water shader draws, for buoyancy/foam/gameplay queries.
+ */
+export function sampleWater(water: SceneWaterSettings, x: number, z: number, t: number = water.time, out: WaterSample = createWaterSample()): WaterSample {
+  const depth = shoreDepthAt(water.shore, water.level, x, z);
+  const scale = water.shore.enabled ? shoalFactor(depth, water.shore.breakDepth) : 1;
+  return sampleGerstner(water.waves, x, z, t, out, water.choppiness, scale);
 }
 
 /** Vertical surface height (mean level + displacement) at a world XZ and time. */
@@ -226,22 +303,26 @@ export class WaterSurface extends SceneObject {
   sampleHeight(x: number, z: number, t?: number): number {
     const w = this.water;
     if (!w) return this.level;
-    return waterHeightAt(w.waves, w.level, x, z, t ?? w.time);
+    return w.level + sampleWater(w, x, z, t ?? w.time, SCRATCH).y;
   }
 
   /** Full Gerstner sample at a world XZ. */
   sample(x: number, z: number, out = createWaterSample(), t?: number): WaterSample {
     const w = this.water;
     if (!w) return out;
-    return sampleGerstner(w.waves, x, z, t ?? w.time, out);
+    return sampleWater(w, x, z, t ?? w.time, out);
   }
 
   /** Foam 0..1 at a world XZ (crest whitecaps; the shader adds noise breakup). */
   sampleFoam(x: number, z: number, t?: number): number {
     const w = this.water;
     if (!w) return 0;
-    const crest = sampleGerstner(w.waves, x, z, t ?? w.time, SCRATCH).crest;
-    return foamFromCrest(crest, w.foamThreshold);
+    const crest = sampleWater(w, x, z, t ?? w.time, SCRATCH).crest;
+    const whitecap = foamFromCrest(crest, w.foamThreshold);
+    if (!w.shore.enabled) return whitecap;
+    const depth = shoreDepthAt(w.shore, w.level, x, z);
+    const breaking = breakingFactor(depth, w.shore) * clamp((crest - 0.45) * 2.5, 0, 1);
+    return Math.max(whitecap, breaking, shoreFoamFactor(depth, w.shore.foamDepth));
   }
 
   override stats(): Record<string, number | string | boolean> {

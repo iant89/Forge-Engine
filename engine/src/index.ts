@@ -218,7 +218,7 @@ export {
 } from "./resources/ktx2.js";
 
 // Scene / ECS
-export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type SceneSsaoSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";
+export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, defaultWaterShore, type WaterShoreSettings, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type SceneSsaoSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";
 export { EntityWorld, Entity, TransformHandle, setComponentErrorHandler } from "./scene/world.js";
 export { Component, registerComponent, componentInfo, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
