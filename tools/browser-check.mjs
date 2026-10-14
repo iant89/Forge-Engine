@@ -1903,7 +1903,25 @@ async function checkTerrainSection() {
   //  2. its HiZ stage is conservative — on vs off draws the same picture;
   //  3. against the per-batch path the only pixels that may change are instances past their type's
   //     draw distance (which the per-batch path drew whenever their chunk straddled the limit).
+  // The stream is still filling chunks at this point; wait for the population to stop changing so
+  // the A/B frames differ only by the switch under test.
+  {
+    let last = "";
+    let stable = 0;
+    for (let i = 0; i < 60 && stable < 3; i++) {
+      await settle(2);
+      const now = await page.evaluate(() => {
+        const r = window.__forge.stats().render;
+        return `${r.populationBatches}/${r.populationInstances}/${r.populationBuffers}/${r.populationUploads}`;
+      });
+      stable = now === last ? stable + 1 : 0;
+      last = now;
+    }
+    console.log(`  population stream settled: batches/instances/buffers/uploads ${last} (stable ${stable})`);
+  }
   await settle(4);
+  await keepLuma("pop-cull-base");
+  await settle(2);
   const popOn = await page.evaluate(() => {
     const s = window.__forge.stats();
     return { ...s.render, passes: s.renderPasses, gpuErrors: s.gpuErrors };
@@ -1925,6 +1943,9 @@ async function checkTerrainSection() {
   await settle(3);
   await keepLuma("pop-cull-nohiz");
   const popHizDiff = await compareLuma("pop-cull-on", "pop-cull-nohiz");
+  // Noise floor: two frames with identical settings. A non-zero floor means the frame is not static
+  // (streaming, sky time); the A/B thresholds below are then measured against it.
+  const popNoise = await compareLuma("pop-cull-base", "pop-cull-on");
   await page.evaluate(() => window.__forge.setPopulationOcclusion(true));
   await page.evaluate(() => window.__forge.setPopulationCulling(false));
   await settle(3);
@@ -1938,17 +1959,17 @@ async function checkTerrainSection() {
   await page.evaluate(() => window.__forge.setPopulationCulling(true));
   await settle(3);
   console.log(
-    `  population cull A/B: hiz on vs off ${popHizDiff.darker + popHizDiff.brighter} px (max ${popHizDiff.max.toFixed(1)}); ` +
+    `  population cull A/B: noise floor ${popNoise.darker + popNoise.brighter} px; hiz on vs off ${popHizDiff.darker + popHizDiff.brighter} px (max ${popHizDiff.max.toFixed(1)}); ` +
       `per-instance vs per-batch ${popOffDiff.darker + popOffDiff.brighter} of ${popOffDiff.pixels} px (max ${popOffDiff.max.toFixed(1)}); ` +
       `per-batch path: ${popOff.populationLodBatches} LOD batches, cull pass ${popOff.passes.includes("forge.populationCull")}`,
   );
-  if (popHizDiff.darker + popHizDiff.brighter > 0) {
+  if (popHizDiff.darker + popHizDiff.brighter > popNoise.darker + popNoise.brighter) {
     throw new Error(`the per-instance HiZ stage changed the picture: ${popHizDiff.darker + popHizDiff.brighter} px — an instance it dropped as hidden was not`);
   }
   if (popOff.passes.includes("forge.populationCull") || popOff.populationCullBatches !== 0) {
     throw new Error("populationCulling off still ran forge.populationCull");
   }
-  if (popOffDiff.darker + popOffDiff.brighter > popOffDiff.pixels * 0.01) {
+  if (popOffDiff.darker + popOffDiff.brighter > popNoise.darker + popNoise.brighter + popOffDiff.pixels * 0.01) {
     throw new Error(
       `per-instance vs per-batch differ in ${popOffDiff.darker + popOffDiff.brighter} px (> 1%) — more than the far-instance draw-distance change can explain`,
     );
