@@ -295,6 +295,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       cycle.ambientScale = AMBIENT * o.ambientFactor * (1 - 0.55 * o.darkness);
       cycle.apply();
       scene.setSky({ exposure: 1 - 0.8 * o.darkness });
+      scene.setExposure(1 - 0.55 * o.darkness);
       const s = state();
       const u = windUnits(s.maxWind);
       const l = windUnits(s.localWind);
