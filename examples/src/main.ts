@@ -719,6 +719,10 @@ async function main(): Promise<void> {
     /** Mars Dust Storm: move the rover to (x, z) on the ground (browser checks / screenshots). */
     marsDustStormTeleport: (x: number, z: number) =>
       activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.teleport?.(x, z) ?? false : false,
+    /** Mars Dust Storm: skip the finale clock ahead (slow software-GPU screenshot runs). */
+    marsDustStormAdvanceFinale: (seconds: number) => {
+      if (activeSceneName === "mars-dust-storm") (currentHandle as MarsDustStormHandle | null)?.advanceFinale?.(seconds);
+    },
     /** Mission, cargo, relay, weather and vehicle snapshot while Alpine Rescue is loaded. */
     alpineRescueState: () => (currentHandle as AlpineRescueSceneHandle | null)?.snapshot?.() ?? null,
     /** Amazon launch, river-course, current, depth and landmark telemetry; null on other scenes. */

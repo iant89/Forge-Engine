@@ -214,6 +214,8 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   setDifficulty(difficulty: StormDifficulty): void;
   /** Place the rover upright at (x, z) facing the active beam (browser checks). */
   teleport(x: number, z: number): boolean;
+  /** Skip the finale clock ahead (browser screenshot checks on slow software GPUs); no-op unless dancing. */
+  advanceFinale(seconds: number): void;
   /** fe-28: the adaptive device-quality tracker (tier, reasons, frame-time monitor). */
   readonly deviceQuality: AdaptiveDeviceQuality;
 }
@@ -1501,7 +1503,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   // ---------------------------------------------------------------- stage lights (fe-28 finale)
 
   /** Rainbow spot lights on a truss over the dance: an unlit beam cone + a real spot light each. */
-  const stageConeGeometry = track(createCylinder(gpu, { radiusTop: 0.18, radiusBottom: 2.4, height: STAGE_TRUSS_HEIGHT + 2, radialSegments: 20, capped: false }));
+  const stageConeGeometry = track(createCylinder(gpu, { radiusTop: 0.12, radiusBottom: 1.5, height: STAGE_TRUSS_HEIGHT + 2, radialSegments: 20, capped: false }));
   const stageLights = Array.from({ length: STAGE_LIGHT_COUNT }, (_, i) => {
     const material = track(new Material({
       label: `storm-stage-beam-${i}`,
@@ -1545,7 +1547,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       rec.renderable.visible = on;
       rec.light.affectScene = on;
       rec.light.intensity = on ? 40 * envelope : 0;
-      setOpacity(rec.material, on ? 0.22 * envelope : 0);
+      setOpacity(rec.material, on ? 0.1 * envelope : 0);
       if (!on) continue;
       const { head, spot } = stageLightAim(i, sweep);
       stageHead.set(dancePivot.x + rx * head.x + fx * head.z, gy + head.y, dancePivot.z + rz * head.x + fz * head.z);
@@ -1652,6 +1654,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     restart,
     setDifficulty,
     deviceQuality: device,
+    advanceFinale: (seconds: number): void => {
+      if (dancing && seconds > 0) wonAt -= seconds;
+    },
     teleport: (x: number, z: number): boolean => {
       if (dancing || !Number.isFinite(x) || !Number.isFinite(z)) return false;
       startupBrake = false;

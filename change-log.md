@@ -17365,6 +17365,30 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/tools/selrun.test.ts",
     "what": "Catalog counts 89 -> 91 suites, 731 -> 733 claims",
     "why": "New suites"
+  },
+  {
+    "id": "1384",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsDustStormScene.ts",
+    "what": "Slimmer, fainter stage-light cones; advanceFinale() handle hook",
+    "why": "Cones hid the dancer in screenshots; slow software-GPU screenshot runs need to skip the clip"
+  },
+  {
+    "id": "1385",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "__forge.marsDustStormAdvanceFinale hook",
+    "why": "Browser screenshot checks"
   }
 ]
 ```
