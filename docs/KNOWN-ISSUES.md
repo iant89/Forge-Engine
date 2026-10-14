@@ -195,7 +195,9 @@ What remains:
   The cyclone's eye can be carved into the deck as a local hole + eyewall ring (`eyeHole`), but
   the deck is a flat slab: the wall is a dense ring at deck height, not a towering 3-D wall, and
   the hole is scaled toward the observer (`eyeHole.scale`) to sit at a readable elevation. Without
-  `eyeHole` the eye still clears the *global* deck.
+  `eyeHole` the eye still clears the *global* deck. The hole centre is render-local and
+  `CycloneSystem` writes it from world track coordinates, so it assumes the render origin is the
+  world origin (true for the hurricane demo); a floating-origin scene must offset it.
   CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
   (capability: environment.water)
 
