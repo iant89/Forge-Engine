@@ -27,4 +27,6 @@ export * from "./dayNight.js";
 export * from "./weather.js";
 export * from "./clouds.js";
 export * from "./water.js";
+export * from "./ocean.js";
+export * from "./cyclone.js";
 export * from "./lightning.js";
