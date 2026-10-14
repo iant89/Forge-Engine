@@ -555,7 +555,7 @@ group("Mars Dust Storm Survival — fe-28 polish", () => {
     assert.ok(arm, "front-right suspension arm split out of the body");
     assert.equal(named(scene, "rover-susp-middle-").length, 0, "only pieces with triangles are created");
     const joint = named(scene, "rover-arm_shoulder")[0]!;
-    const restWheel = named(scene, "rover-wheel_FL")[0]!.transform.position.clone();
+
     const restY = vehicle.position.y;
     const count = handle.stormState().checkpointCount;
     for (let i = 0; i < count; i++) {
@@ -603,7 +603,6 @@ group("Mars Dust Storm Survival — fe-28 polish", () => {
     chassis.transform.rotation.rotateVector(Vec3.unitZ, f);
     assert.ok(Math.abs(f.y) < 0.2, `nose level again (${f.y})`);
     assert.ok(Math.abs(vehicle.position.y - restY) < 3, "rover on the ground");
-    void restWheel;
     assert.equal(s.won, true, "still a win; no restart");
   });
 

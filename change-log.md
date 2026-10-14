@@ -17389,6 +17389,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/main.ts",
     "what": "__forge.marsDustStormAdvanceFinale hook",
     "why": "Browser screenshot checks"
+  },
+  {
+    "id": "1386",
+    "date": "2026-10-14T01:00:00Z",
+    "type": "change",
+    "pr": 100,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsDustStormScene.ts",
+    "what": "Frame-time monitor ignores frames until the rover model has loaded; pointerup also unlocks audio",
+    "why": "Review: load hitches could drop the tier at startup; some mobile browsers only unlock audio on release"
   }
 ]
 ```

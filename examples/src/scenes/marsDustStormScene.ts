@@ -822,6 +822,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const jingle = new DiscoJingle({ muted: options.muted ?? false });
   const unlockAudio = (): void => jingle.unlock();
   window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("pointerup", unlockAudio);
   const onKeyDown = (event: KeyboardEvent): void => {
     jingle.unlock();
     if (event.code === "KeyM" && !event.repeat) jingle.muted = !jingle.muted;
@@ -1219,7 +1220,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const update = (dt: number): void => {
     // Wall-clock frame time (not the clamped sim dt) drives the adaptive tier.
     const now = performance.now();
-    if (adaptive && lastFrameAt > 0) device.sample(now - lastFrameAt);
+    if (adaptive && modelLoaded && lastFrameAt > 0) device.sample(now - lastFrameAt);
     lastFrameAt = now;
     if (dt <= 0) return;
     time += dt;
@@ -1668,6 +1669,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("pointerup", unlockAudio);
       jingle.dispose();
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
