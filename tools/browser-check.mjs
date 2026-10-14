@@ -1947,6 +1947,50 @@ async function checkTerrainSection() {
   // (streaming, sky time); the A/B thresholds below are then measured against it.
   const popNoise = await compareLuma("pop-cull-base", "pop-cull-on");
   await page.evaluate(() => window.__forge.setPopulationOcclusion(true));
+  // Shadow casters and the prepass (fe-31): forge.populationCull.views builds a caster list per shadow
+  // map and the main-view list the prepass draws. The device lists must cast exactly the shadows the
+  // CPU per-instance assignment casts (no hole, no pop: every caster dropped is outside its light
+  // frustum), in both the full and the low-tier cascades-only mode.
+  await settle(3);
+  await keepLuma("pop-shadow-all");
+  const popShadowOn = await page.evaluate(() => {
+    const s = window.__forge.stats();
+    return { ...s.render, passes: s.renderPasses, gpuErrors: s.gpuErrors, mode: window.__forge.populationShadowCulling() };
+  });
+  await page.screenshot({ path: "tools/.browser-check-population-shadow-gpu.png" });
+  await page.evaluate(() => window.__forge.setPopulationShadowCulling("off"));
+  await settle(3);
+  await keepLuma("pop-shadow-off");
+  const popShadowOff = await page.evaluate(() => window.__forge.stats().render);
+  await page.screenshot({ path: "tools/.browser-check-population-shadow-cpu.png" });
+  await page.evaluate(() => window.__forge.setPopulationShadowCulling("cascades"));
+  await settle(3);
+  await keepLuma("pop-shadow-cascades");
+  await page.evaluate((mode) => window.__forge.setPopulationShadowCulling(mode), popShadowOn.mode);
+  await settle(3);
+  const popShadowDiff = await compareLuma("pop-shadow-all", "pop-shadow-off");
+  const popShadowCascadesDiff = await compareLuma("pop-shadow-cascades", "pop-shadow-off");
+  console.log(
+    `  population shadow cull (${popShadowOn.mode}): ${popShadowOn.populationShadowDraws} device shadow draws, ` +
+      `${popShadowOn.populationShadowInstancesTested} caster×map in → ${popShadowOn.populationShadowInstancesDrawn} drawn; ` +
+      `CPU path ${popShadowOff.shadowInstancesDrawn} caster×map drawn; ` +
+      `device vs CPU ${popShadowDiff.darker + popShadowDiff.brighter} px (max ${popShadowDiff.max.toFixed(1)}), cascades-only vs CPU ${popShadowCascadesDiff.darker + popShadowCascadesDiff.brighter} px`,
+  );
+  if (popShadowOn.gpuErrors > 0) throw new Error(`gpu errors with device shadow-caster culling: ${popShadowOn.gpuErrors}`);
+  if (popShadowOn.mode !== "off") {
+    if (!(popShadowOn.populationShadowDraws > 0) || !popShadowOn.passes.includes("forge.populationCull.views")) {
+      throw new Error(`device shadow-caster culling did not run (${popShadowOn.populationShadowDraws} draws)`);
+    }
+    if (!(popShadowOn.populationShadowInstancesTested > 0) || !(popShadowOn.populationShadowInstancesDrawn < popShadowOn.populationShadowInstancesTested)) {
+      throw new Error(`device shadow-caster culling drew ${popShadowOn.populationShadowInstancesDrawn} of ${popShadowOn.populationShadowInstancesTested}`);
+    }
+  }
+  if (popShadowOff.populationShadowDraws !== 0) throw new Error("populationShadowCulling off still drew device caster lists");
+  for (const [label, diff] of [["device", popShadowDiff], ["cascades-only", popShadowCascadesDiff]]) {
+    if (diff.darker + diff.brighter > popNoise.darker + popNoise.brighter) {
+      throw new Error(`${label} shadow-caster lists changed the picture vs the CPU assignment: ${diff.darker + diff.brighter} px (${diff.brighter} brighter = lost shadow)`);
+    }
+  }
   await page.evaluate(() => window.__forge.setPopulationCulling(false));
   await settle(3);
   const popOff = await page.evaluate(() => {

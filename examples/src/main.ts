@@ -327,6 +327,10 @@ async function main(): Promise<void> {
     const knobs = populationCullingForTier(tier);
     engine.renderer.populationCulling = knobs.populationCulling;
     engine.renderer.populationOcclusion = knobs.populationOcclusion;
+    engine.renderer.populationShadowCulling = knobs.populationShadowCulling;
+    // `?popshadow=all|cascades|off` pins the device shadow-caster cull (fe-31) for A/B links.
+    const popShadow = query.get("popshadow");
+    if (popShadow === "all" || popShadow === "cascades" || popShadow === "off") engine.renderer.populationShadowCulling = popShadow;
     const popCull = query.get("popcull");
     if (popCull === "0" || popCull === "1") engine.renderer.populationCulling = popCull === "1";
   }
@@ -629,6 +633,9 @@ async function main(): Promise<void> {
       r.populationCullBatches > 0
         ? `pop cull${engine.renderer.populationOcclusion ? "+hiz" : ""} ${r.populationCullBatches} batches: ${r.populationInstancesTested} in → ${r.populationInstancesDrawn} drawn` +
           ` (${r.populationCulledFrustum} off-screen, ${r.populationCulledDistance} distant, ${r.populationCulledOccluded} occluded, ${r.populationCulledBatch} batch-culled)`
+        + (r.populationShadowDraws > 0
+          ? `  ·  pop shadow ${engine.renderer.populationShadowCulling} ${r.populationShadowDraws} draws: ${r.populationShadowInstancesTested} in → ${r.populationShadowInstancesDrawn} drawn`
+          : "")
         : r.populationBatches > 0
           ? `pop cull per-batch (${r.populationInstances} instances in ${r.populationBatches} batches)`
           : "";
@@ -714,6 +721,11 @@ async function main(): Promise<void> {
       engine.renderer.populationOcclusion = !!on;
     },
     populationOcclusion: () => engine.renderer.populationOcclusion,
+    /** Device culling of population shadow casters (fe-31): "all", "cascades" (low tier) or "off". */
+    setPopulationShadowCulling: (mode: "all" | "cascades" | "off") => {
+      engine.renderer.populationShadowCulling = mode;
+    },
+    populationShadowCulling: () => engine.renderer.populationShadowCulling,
     setIndirectDraws,
     /** Whether forge.main submits through the culler's indirect records (Phase 13.6). */
     indirectDraws: () => engine.renderer.indirectDraws,
