@@ -2782,6 +2782,7 @@ export class Renderer implements RenderFrameContext {
 
   private prepareSpotShadows(scene: Scene, lights: readonly Light[], mapSize: number, shadowDistance: number): number {
     this.spotShadowIndices.clear();
+    for (const state of this.spotShadows) state.light = null;
     const budget = this.spotShadowBudget(scene);
     if (budget === 0) return 0;
     // Only spots that can matter this frame compete: the cone's bounding sphere must touch the camera

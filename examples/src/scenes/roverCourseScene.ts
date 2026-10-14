@@ -210,7 +210,7 @@ export const LAMP_SHADOWS_FOR_TIER: Readonly<Record<DeviceTier, number>> = {
 /** Street-lamp spot tuning (fe-32): bright enough that the rover's shadow reads at golden hour. */
 export const LAMP_SPOT = { intensity: 240, range: 24 } as const;
 
-export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb; deviceTier?: DeviceTier | undefined } = {}): RoverCourseHandle {
+export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb; deviceTier?: DeviceTier } = {}): RoverCourseHandle {
   const loadModel = dependencies.loadGlb ?? loadGlb;
   const deviceTier: DeviceTier =
     dependencies.deviceTier ??
