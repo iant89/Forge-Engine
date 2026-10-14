@@ -2409,7 +2409,7 @@ export class Renderer implements RenderFrameContext {
     if (sky && clouds.enabled && clouds.coverage > 0.001) {
       const atmo = sky.atmosphere ?? EARTH_ATMOSPHERE;
       this.frameSunDirection(sky, lights, this.scratchDir);
-      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - sky.seaLevel), sky.sunIntensity * sky.exposure);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - sky.seaLevel), sky.sunIntensity * sky.exposure, sky.exposure);
     }
     a.setF32("coverage", clouds.coverage);
     a.setF32("density", clouds.density);
@@ -2428,6 +2428,10 @@ export class Renderer implements RenderFrameContext {
     a.setVec3("ambientTint", this.skyLight.ambientTint[0]!, this.skyLight.ambientTint[1]!, this.skyLight.ambientTint[2]!);
     a.setVec3("cloudAlbedo", clouds.albedo.r, clouds.albedo.g, clouds.albedo.b);
     a.setVec2("wind", clouds.windX, clouds.windZ);
+    a.setF32("holeRadius", clouds.holeRadius);
+    a.setF32("holeWall", clouds.holeWall);
+    a.setF32("holeStrength", clouds.holeStrength);
+    a.setVec2("holeCenter", clouds.holeX, clouds.holeZ);
     // Phase 17.3: the sub-layer stack. The CPU owns the geometry (heights, column weights, drift),
     // so the shader — and the CPU field the tests and tools evaluate — cannot disagree about it.
     // `perFrame.time.x` is the frame clock the deck is drawn at; the shader's own ageing comes from
@@ -2454,7 +2458,7 @@ export class Renderer implements RenderFrameContext {
       const atmo = sky?.atmosphere ?? skySettings.atmosphere ?? EARTH_ATMOSPHERE;
       this.frameSunDirection(sky, lights, this.scratchDir);
       const sunIntensity = (sky?.sunIntensity ?? skySettings.sunIntensity) * (sky?.exposure ?? skySettings.exposure);
-      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - skySettings.seaLevel), sunIntensity);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - skySettings.seaLevel), sunIntensity, sky?.exposure ?? skySettings.exposure);
       this.frameSunDirection(sky, lights, this.scratchVec);
     } else {
       this.scratchVec.copyFrom(DEFAULT_SUN);
@@ -2489,7 +2493,7 @@ export class Renderer implements RenderFrameContext {
       f32[oA + 2] = k;
       f32[oA + 3] = w.speed;
       f32[oB] = w.amplitude;
-      f32[oB + 1] = w.steepness / (k * w.amplitude * Math.max(1, waveCount));
+      f32[oB + 1] = Math.min(1, w.steepness * Math.max(0, water.choppiness)) / (k * w.amplitude * Math.max(1, waveCount));
       f32[oB + 2] = w.phase;
       f32[oB + 3] = 0;
     }
@@ -2503,6 +2507,19 @@ export class Renderer implements RenderFrameContext {
     a.setF32("sunGlint", water.sunGlint);
     a.setVec3("skyTint", this.skyLight.horizonTint[0]!, this.skyLight.horizonTint[1]!, this.skyLight.horizonTint[2]!);
     a.setVec3("sunDirection", this.scratchVec.x, this.scratchVec.y, this.scratchVec.z);
+    // fe-33 shoreline: the analytic seabed the shader shoals, breaks and colours by depth.
+    const shore = water.shore;
+    const sl = Math.hypot(shore.directionX, shore.directionZ) || 1;
+    const sdx = shore.directionX / sl;
+    const sdz = shore.directionZ / sl;
+    a.setVec4("shoreA", sdx, sdz, sdx * shore.originX + sdz * shore.originZ, shore.slope);
+    a.setVec4("shoreB", shore.foamDepth, shore.breakDepth, shore.bedLevel, shore.enabled ? 1 : 0);
+    let totalAmp = 0;
+    for (let i = 0; i < waveCount; i++) {
+      const w = water.waves[i]!;
+      if (w.amplitude > 0 && w.wavelength > 0) totalAmp += w.amplitude;
+    }
+    a.setVec4("shoreC", water.level, Math.max(0.01, shore.colorDepth), totalAmp, Math.min(1, totalAmp / 0.8));
     this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 

@@ -52,3 +52,4 @@ export {
   type PopulationSource,
   type PopulationSubmission,
 } from "../scene/population.js";
+export { windSway, windBendAngle, windBendWeights, createWindSwayPose, type WindSwayParams, type WindSwayPose } from "./windSway.js";
