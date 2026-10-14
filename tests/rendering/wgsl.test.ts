@@ -339,6 +339,7 @@ group("clustered lighting structs (Phase 13.3)", () => {
       "ObjectBatchBlock",
       "ObjectBatchEntry",
       "ObjectCullStatsBlock",
+      "PopulationCullStatsBlock",
     ]);
     // The per-cluster quantisation is small and read every fragment: that one is a uniform.
     assert.equal(ClusterUniforms.byteSize("uniform"), 48);

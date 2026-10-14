@@ -639,8 +639,73 @@ own instanced batch:
   entity path, so "how much of the frame is population" is answerable without guessing from
   `instances`.
 
-What this path does *not* do yet — per-instance device culling, device-resident instance buffers
-uploaded once per chunk, GPU-selected LOD — is in `docs/KNOWN-ISSUES.md` § World population.
+Device-resident buffers (14.3), GPU-selected LOD (14.4) and per-instance device culling (§4g) are
+built; what remains is in `docs/KNOWN-ISSUES.md` § World population.
+
+## 4g. Per-instance population culling (GPU-placement Phase A)
+
+`forge.populationCull` (`rendering/shaders/populationCull.ts`, device half
+`rendering/populationCuller.ts`, CPU twin `population/cull.ts`) culls *inside* a population batch.
+Placement is unchanged — instances still come from the deterministic CPU scatter (§4f) — only which
+of a chunk's instances `forge.main` draws is decided on the device.
+
+**One merged pass.** The pass runs once per frame after `forge.objects.cull` (so after the prepass
+and the HiZ pyramid) and before `forge.main`, one dispatch per eligible batch, one invocation per
+instance (workgroup 64). It replaces `forge.populationLod` for those batches. Each invocation:
+
+1. computes this frame's LOD bit (bit 0 of the record's `flags`, as 14.4) and a "past the type's
+   `maxDistance`" bit (bit 1) and writes them into the *source* record for the next frame's depth
+   readers (shadows, prepass), which have already run this frame;
+2. decides this frame's verdict from the record's *previous* bits plus the shared sphere tests
+   (`CULL_SPHERE_WGSL` in `objectCulling.ts`: frustum, then HiZ against this frame's pyramid) — the
+   instance sphere is the prototype's bounds sphere through the instance matrix (max axis scale), plus
+   the culler's 1 cm slop. An instance whose whole batch the object culler culled is skipped;
+3. appends survivors with `atomicAdd` on the batch's indirect record instance count (the particle
+   system's append-to-indirect pattern) and copies them, with the previous bits, into the batch's
+   compacted buffer. `forge.main` binds that buffer and issues `drawIndirect` /
+   `drawIndexedIndirect` from `population.cull.drawArgs`. `firstInstance` stays 0 (one compacted
+   buffer per batch), so the optional `indirect-first-instance` feature is not needed.
+
+**Why the bits lag a frame.** The colour pass draws `less-equal` against the prepass depth, so the
+prepass and `forge.main` must draw the same LOD window and the same near/far set or a pixel is
+shaded by nothing (a hole). Both read the bits the cull pass wrote *last* frame — the prepass from
+the source buffer (the standard instanced and LOD vertex entries clip a bit-1 instance), the main
+pass from the compacted copy — so they always agree; the cost is that an LOD switch or a draw-
+distance pop-out lands one frame late. Shadow entries ignore bit 1 (a far instance still casts, as
+before). A fresh or re-uploaded record has flags 0: drawn, high window, for its first frame.
+
+**Eligibility and fallback.** A batch takes the path when it is in view, instanced (count > 1 or
+LOD), `RendererOptions.populationCulling` is on (default), the object culler runs on the device
+(`objectCulling` resolves to `"gpu"`), `indirectDraws` is on and the pipeline built. Anything else
+keeps the per-batch path exactly as before (§4d/§4e + `forge.populationLod`). A non-LOD buffer that
+leaves the path is re-uploaded once so no stale bit 1 survives; `forge.populationLod` clears bit 1
+itself for LOD buffers.
+
+**Budgets.** Compute-stage storage buffers: source, compacted, draw args, stats, visibility = 5 (the
+WebGPU minimum is 8; iOS Safari reports ≥ 8). Core WebGPU only. Memory: one compacted buffer the
+size of the chunk's record buffer (80 B per instance), allocated on first use.
+
+**Device tiers.** `populationCullingForTier(tier)` (PR #100 tiers): every tier culls per instance;
+`low` turns off the per-instance HiZ test (`RendererOptions.populationOcclusion` /
+`renderer.populationOcclusion`), whose texel loop costs most on low-end and iPhone GPUs. The demo
+applies it at start-up (`?tier=` forces a tier; `?popcull=0|1` pins the switch).
+
+**Readout.** `stats.populationCullBatches` (exact) and the lagged device counters
+`populationInstancesTested` ("in"), `populationInstancesDrawn`, `populationCulledFrustum`,
+`populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch` ("in" is the sum of
+the other five, since each instance lands in exactly one bucket — one global atomic per instance, not
+two); the demo HUD prints
+`pop cull … in → … drawn`.
+
+**Tests.** `tests/population/populationCull.test.ts`: the twin's frustum verdict against brute force
+(exact set), the one-frame bit lag, batch-culled skipping, HiZ against a per-pixel reference
+(statistical: zero false culls, ≥ 50 % of truly hidden instances culled — the margins keep the
+rest), the renderer path on the mock (which runs the twin through `registerMockComputeKernel`; it
+has no depth pyramid, so no HiZ there) and the fallback/stale-bit handling. `check:browser`'s terrain
+section asserts the pass runs and reduces the drawn count, that its HiZ stage changes no pixel, and
+that per-instance vs per-batch differ in at most 1 % of pixels (the far instances the per-batch path
+drew past their draw distance). Twin parity: the drawn *set* and counters are exact for frustum,
+distance and LOD; record *order* is not (GPU completion order), so comparisons are by set.
 
 ## 5. Conventions
 

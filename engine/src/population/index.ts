@@ -31,6 +31,14 @@ export {
   type PopulationLodGeometry,
 } from "./lod.js";
 export {
+  INSTANCE_RECORD_WORDS,
+  cullPopulationInstancesOnCpu,
+  emptyPopulationCullStats,
+  populationCullingForTier,
+  type PopulationCullBatch,
+  type PopulationCullStats,
+} from "./cull.js";
+export {
   POPULATION_INSTANCE_FLOATS,
   PopulationInstanceBlock,
   isPopulationSource,

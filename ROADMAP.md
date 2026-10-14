@@ -958,7 +958,7 @@ CURRENT STATE:
         The visible-object compaction and indirect draws that consume this buffer
         landed in 13.6.)
 
-    [ ] Per-instance culling inside a batch: one visible instance keeps its batch.
+    [ ] Per-instance culling inside a batch: one visible instance keeps its batch. (Population batches: done — 14.5 / fe-30, docs/RENDERING.md §4g; renderable batches still per batch.)
 
     [ ] Culling the shadow cascades with the same pass (the cascades still use the
         CPU's per-cascade AABB test).
@@ -1177,10 +1177,12 @@ GOAL:
         limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
         of its instances (per-instance device culling is not built).
 
-    [ ] Per-instance culling inside a batch (follow-up, added 2026-10-06): the same work as the
-        13.5 leftover "Per-instance culling inside a batch" — one visible instance keeps its batch
-        today; closing either line closes both limitations (docs/KNOWN-ISSUES.md § World population
-        "Device culling is per chunk, not per instance").
+    [x] Per-instance culling inside a batch (fe-30, GPU-placement Phase A): `forge.populationCull`
+        tests every instance of an instanced population batch (frustum, distance, HiZ), merged with
+        the 14.4 LOD selection in one dispatch, and compacts survivors into the batch's indirect
+        draw (atomic append, the particle pattern). Placement unchanged. Device-tier aware (low tier:
+        no per-instance HiZ); per-batch fallback when the device culler or indirect draws are off.
+        docs/RENDERING.md §4g; tests/population/populationCull.test.ts; check:browser terrain A/B.
 
 
 14.6 Population Streaming

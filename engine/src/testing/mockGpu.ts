@@ -289,6 +289,26 @@ function maxMips(width: number, height: number): number {
   return Math.floor(Math.log2(Math.max(1, width, height))) + 1;
 }
 
+/** What a registered mock compute kernel sees of one dispatch: bound buffers' bytes and offsets. */
+export interface MockComputeDispatch {
+  workgroups: number;
+  /** The `ArrayBuffer` behind a bound buffer (whole buffer), or null. */
+  buffer(group: number, binding: number): ArrayBuffer | null;
+  /** First dynamic offset of a group (0 when none). */
+  dynamicOffset(group: number): number;
+}
+
+const MOCK_COMPUTE_KERNELS = new Map<string, (dispatch: MockComputeDispatch) => void>();
+
+/**
+ * Let the mock *execute* one compute pipeline (keyed by its label) through a CPU twin. The mock runs
+ * no WGSL; a module whose kernel the renderer's mock-based tests depend on registers its twin here
+ * (the per-instance population cull does), the way the population LOD kernel is emulated inline.
+ */
+export function registerMockComputeKernel(label: string, kernel: (dispatch: MockComputeDispatch) => void): void {
+  MOCK_COMPUTE_KERNELS.set(label, kernel);
+}
+
 export class MockGPUBuffer {
   destroyed = false;
   mapState: "unmapped" | "pending" | "mapped" = "unmapped";
@@ -1901,6 +1921,16 @@ export class MockGPUComputePassEncoder {
     // instance — which is what lets mock-based tests compare the "GPU" verdict against the CPU
     // twin (population/lod.ts `populationLodIndex`). No other compute kernel is emulated.
     if (this.pipeline.label === "population.lod.pipeline") this.emulatePopulationLod(x);
+    // Kernels registered by their owning module (see `registerMockComputeKernel`), e.g. the
+    // per-instance population cull, which runs its CPU twin here.
+    const kernel = MOCK_COMPUTE_KERNELS.get(this.pipeline.label);
+    if (kernel) {
+      kernel({
+        workgroups: x,
+        buffer: (group, binding) => (this.bindGroups.get(group)?.bindings.get(binding)?.resource as { buffer?: MockGPUBuffer } | undefined)?.buffer?.data ?? null,
+        dynamicOffset: (group) => this.dynamicOffsetsByGroup.get(group)?.[0] ?? 0,
+      });
+    }
     for (const g of this.bindGroups.values()) {
       for (const { resource } of g.bindings.values()) {
         const r = resource as { buffer?: MockGPUBuffer; texture?: MockGPUTextureView };
@@ -1947,7 +1977,8 @@ export class MockGPUComputePassEncoder {
       const dy = f[b + 13]! - camY;
       const dz = f[b + 14]! - camZ;
       const bit = Math.sqrt(dx * dx + dy * dy + dz * dz) > lodDistance ? 1 : 0;
-      iu[b + 18] = (iu[b + 18]! & ~1) | bit;
+      // Bit 1 (forge.populationCull's distance verdict) is cleared, as the shader does.
+      iu[b + 18] = (iu[b + 18]! & ~3) | bit;
     }
   }
 

@@ -90,7 +90,7 @@ export const HIZ_WORKGROUP = 8;
  */
 export const HIZ_LEVELS = 4;
 /** Metres added to a box's circumsphere, so a plane or depth comparison on the boundary keeps it. */
-const CULL_SLOP = 0.01;
+export const CULL_SLOP = 0.01;
 /** Pixels added to a projected rectangle before it is rounded out to whole pyramid texels. */
 const CULL_PAD_PIXELS = 1;
 /** Metres by which a pyramid texel must beat a batch's nearest point for the texel to count. */
@@ -217,30 +217,17 @@ const HIZ_WORKGROUP: u32 = ${HIZ_WORKGROUP}u;
  * agreement on the decisions the margins make unambiguous, and pins the conservatism of both against
  * a per-pixel scan of the depth image they were given.
  */
-export const OBJECT_CULL_SHADER = /* wgsl */ `
-${ObjectCullUniforms.toWgsl("uniform")}
-${ObjectBatchEntry.toWgsl("storage")}
-${ObjectBatchBlock.toWgsl("storage")}
-${ObjectCullStatsBlock.toWgsl("storage")}
-
-@group(0) @binding(0) var<uniform> cull: ObjectCullUniforms;
-@group(0) @binding(1) var<storage, read> batchBounds: ObjectBatchBlock;
-@group(0) @binding(2) var<storage, read_write> visibility: array<u32>;
-@group(0) @binding(3) var<storage, read_write> counts: ObjectCullStatsBlock;
-@group(0) @binding(4) var hiz: texture_2d<f32>;
-// The frame's indirect draw records (Phase 13.6), bound whether or not this frame writes them.
-@group(0) @binding(5) var<storage, read_write> drawRecords: array<u32>;
-// The compaction list: one slot per visible batch, filled at counts.visible's cursor.
-@group(0) @binding(6) var<storage, read_write> visibleBatches: array<u32>;
-
-const CULL_WORKGROUP: u32 = ${CULL_WORKGROUP}u;
-const MAX_CULLED_BATCHES: u32 = ${MAX_CULLED_BATCHES}u;
+/**
+ * The three sphere tests (frustum, distance, HiZ) as one WGSL function, shared by
+ * `forge.objects.cull` (one sphere per batch) and `forge.populationCull` (one sphere per population
+ * instance). The including module declares `cull: ObjectCullUniforms` and `hiz: texture_2d<f32>`;
+ * `flags` is the caller's `CULL_FLAG_*` mask and `limit` its distance limit (0 = none). The CPU
+ * twin is {@link cullSphereOnCpu}.
+ */
+export const CULL_SPHERE_WGSL = /* wgsl */ `
 const CULL_FLAG_FRUSTUM: u32 = ${CULL_FLAG_FRUSTUM}u;
 const CULL_FLAG_DISTANCE: u32 = ${CULL_FLAG_DISTANCE}u;
 const CULL_FLAG_OCCLUSION: u32 = ${CULL_FLAG_OCCLUSION}u;
-const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;
-const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;
-const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;
 const CULL_SLOP: f32 = ${CULL_SLOP};
 const CULL_PAD_PIXELS: f32 = ${CULL_PAD_PIXELS}.0;
 const CULL_EPSILON: f32 = ${CULL_EPSILON};
@@ -280,11 +267,8 @@ fn outsidePlane(p: vec4<f32>, center: vec3<f32>, radius: f32) -> bool {
 
 // The three tests, as one verdict. Every branch that returns REASON_VISIBLE is a case the tests
 // could not *prove* invisible — a conservative answer, never a wrong one.
-fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
-  let center = (box.min.xyz + box.max.xyz) * 0.5;
-  let radius = length(box.max.xyz - center) + CULL_SLOP;
-
-  if ((cull.flags & CULL_FLAG_FRUSTUM) != 0u) {
+fn cullSphere(center: vec3<f32>, radius: f32, limit: f32, flags: u32) -> u32 {
+  if ((flags & CULL_FLAG_FRUSTUM) != 0u) {
     var outside = false;
     for (var row = 0u; row < 6u; row = row + 1u) {
       if (outsidePlane(planeAt(row), center, radius)) {
@@ -296,15 +280,15 @@ fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
     }
   }
 
-  if ((cull.flags & CULL_FLAG_DISTANCE) != 0u) {
-    if (box.min.w > 0.0) {
-      if (distance(center, cull.cameraPos) - radius > box.min.w) {
+  if ((flags & CULL_FLAG_DISTANCE) != 0u) {
+    if (limit > 0.0) {
+      if (distance(center, cull.cameraPos) - radius > limit) {
         return REASON_DISTANCE;
       }
     }
   }
 
-  if ((cull.flags & CULL_FLAG_OCCLUSION) == 0u || cull.hizLevels == 0u) {
+  if ((flags & CULL_FLAG_OCCLUSION) == 0u || cull.hizLevels == 0u) {
     return REASON_VISIBLE;
   }
   let viewCenter = (cull.view * vec4<f32>(center, 1.0)).xyz;
@@ -366,6 +350,36 @@ fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
     }
   }
   return REASON_OCCLUDED;
+}
+`;
+
+export const OBJECT_CULL_SHADER = /* wgsl */ `
+${ObjectCullUniforms.toWgsl("uniform")}
+${ObjectBatchEntry.toWgsl("storage")}
+${ObjectBatchBlock.toWgsl("storage")}
+${ObjectCullStatsBlock.toWgsl("storage")}
+
+@group(0) @binding(0) var<uniform> cull: ObjectCullUniforms;
+@group(0) @binding(1) var<storage, read> batchBounds: ObjectBatchBlock;
+@group(0) @binding(2) var<storage, read_write> visibility: array<u32>;
+@group(0) @binding(3) var<storage, read_write> counts: ObjectCullStatsBlock;
+@group(0) @binding(4) var hiz: texture_2d<f32>;
+// The frame's indirect draw records (Phase 13.6), bound whether or not this frame writes them.
+@group(0) @binding(5) var<storage, read_write> drawRecords: array<u32>;
+// The compaction list: one slot per visible batch, filled at counts.visible's cursor.
+@group(0) @binding(6) var<storage, read_write> visibleBatches: array<u32>;
+
+const CULL_WORKGROUP: u32 = ${CULL_WORKGROUP}u;
+const MAX_CULLED_BATCHES: u32 = ${MAX_CULLED_BATCHES}u;
+const CULL_FLAG_RECORDS: u32 = ${CULL_FLAG_RECORDS}u;
+const RECORD_WORDS: u32 = ${DRAW_RECORD_WORDS}u;
+const RECORD_INSTANCES: u32 = ${DRAW_RECORD_INSTANCES}u;
+${CULL_SPHERE_WGSL}
+// The batch's verdict: its AABB's circumsphere through the shared sphere tests.
+fn cullReasonOf(box: ObjectBatchEntry) -> u32 {
+  let center = (box.min.xyz + box.max.xyz) * 0.5;
+  let radius = length(box.max.xyz - center) + CULL_SLOP;
+  return cullSphere(center, radius, box.min.w, cull.flags);
 }
 
 // One invocation per batch decides everything the frame needs to know about it, and this is the only
@@ -587,116 +601,108 @@ export function cullBatchesOnCpu(
   const stats: ObjectCullStats = { tested: 0, culledFrustum: 0, culledDistance: 0, culledOccluded: 0, visible: 0, recordZeroed: 0 };
   const planes = cullPlanesFrom(params.viewProj);
   const total = Math.min(batchCount, MAX_CULLED_BATCHES);
-  const view = params.view;
-  const proj = params.proj;
   const occlusion = (params.flags & CULL_FLAG_OCCLUSION) !== 0 && params.hizLevels > 0 && hiz.length > 0;
   const records = (params.flags & CULL_FLAG_RECORDS) !== 0 ? out.records : undefined;
   const visibleList = out.visible;
   for (let index = 0; index < total; index++) {
     stats.tested++;
-    visibility[index] = CullReason.Visible;
     const base = index * 8;
     const cx = (bounds[base]! + bounds[base + 4]!) * 0.5;
     const cy = (bounds[base + 1]! + bounds[base + 5]!) * 0.5;
     const cz = (bounds[base + 2]! + bounds[base + 6]!) * 0.5;
     const radius = Math.hypot(bounds[base + 4]! - cx, bounds[base + 5]! - cy, bounds[base + 6]! - cz) + CULL_SLOP;
-
-    if ((params.flags & CULL_FLAG_FRUSTUM) !== 0) {
-      let outside = false;
-      for (let row = 0; row < 6; row++) {
-        const nx = planes[row * 4]!;
-        const ny = planes[row * 4 + 1]!;
-        const nz = planes[row * 4 + 2]!;
-        const d = planes[row * 4 + 3]!;
-        if (nx * cx + ny * cy + nz * cz + d < -Math.hypot(nx, ny, nz) * radius) outside = true;
-      }
-      if (outside) {
-        visibility[index] = CullReason.Frustum;
-        stats.culledFrustum++;
-        skipRecord(records, index, stats);
-        continue;
-      }
-    }
-
-    const limit = bounds[base + 3] ?? 0;
-    if ((params.flags & CULL_FLAG_DISTANCE) !== 0 && limit > 0) {
-      const away = Math.hypot(cx - params.cameraPos.x, cy - params.cameraPos.y, cz - params.cameraPos.z);
-      if (away - radius > limit) {
-        visibility[index] = CullReason.Distance;
-        stats.culledDistance++;
-        skipRecord(records, index, stats);
-        continue;
-      }
-    }
-
-    if (!occlusion) {
+    const reason = cullSphereOnCpu(cx, cy, cz, radius, bounds[base + 3] ?? 0, params.flags, params, planes, occlusion ? hiz : []);
+    visibility[index] = reason;
+    if (reason === CullReason.Visible) {
       keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
       continue;
     }
-    const vx = view[0]! * cx + view[4]! * cy + view[8]! * cz + view[12]!;
-    const vy = view[1]! * cx + view[5]! * cy + view[9]! * cz + view[13]!;
-    const vz = view[2]! * cx + view[6]! * cy + view[10]! * cz + view[14]!;
-    const nearest = vz - radius;
-    if (nearest <= params.near) {
-      keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
-      continue;
-    }
-
-    let loX = Infinity;
-    let loY = Infinity;
-    let hiX = -Infinity;
-    let hiY = -Infinity;
-    for (let corner = 0; corner < 8; corner++) {
-      const px = vx + ((corner & 1) !== 0 ? radius : -radius);
-      const py = vy + ((corner & 2) !== 0 ? radius : -radius);
-      const pz = vz + ((corner & 4) !== 0 ? radius : -radius);
-      const sx = (0.5 + (0.5 * proj[0]! * px) / pz) * params.width;
-      // Texel row 0 is the top of the image: NDC +y points up, the row index does not.
-      const sy = (0.5 - (0.5 * proj[5]! * py) / pz) * params.height;
-      loX = Math.min(loX, sx);
-      loY = Math.min(loY, sy);
-      hiX = Math.max(hiX, sx);
-      hiY = Math.max(hiY, sy);
-    }
-    const rectMinX = loX - CULL_PAD_PIXELS;
-    const rectMinY = loY - CULL_PAD_PIXELS;
-    const rectMaxX = hiX + CULL_PAD_PIXELS;
-    const rectMaxY = hiY + CULL_PAD_PIXELS;
-    if (rectMaxX < 0 || rectMaxY < 0 || rectMinX > params.width || rectMinY > params.height) {
-      visibility[index] = CullReason.Frustum;
-      stats.culledFrustum++;
-      skipRecord(records, index, stats);
-      continue;
-    }
-
-    const span = Math.max(rectMaxX - rectMinX, rectMaxY - rectMinY);
-    let level = 0;
-    if (span > 4) level = Math.ceil(Math.log2(span)) - 2;
-    level = Math.max(0, Math.min(level, params.hizLevels - 1, hiz.length - 1));
-    const texels = 1 << (level + 1);
-    const levelHiz = hiz[level]!;
-    const lastX = Math.max(levelHiz.width - 1, 0);
-    const lastY = Math.max(levelHiz.height - 1, 0);
-    const firstX = Math.min(Math.floor(Math.max(rectMinX, 0) / texels), lastX);
-    const firstY = Math.min(Math.floor(Math.max(rectMinY, 0) / texels), lastY);
-    const endX = Math.min(Math.floor(Math.max(rectMaxX, 0) / texels), lastX);
-    const endY = Math.min(Math.floor(Math.max(rectMaxY, 0) / texels), lastY);
-    const bound = nearest - CULL_EPSILON;
-    let occluded = true;
-    for (let ty = firstY; ty <= endY; ty++) {
-      for (let tx = firstX; tx <= endX; tx++) {
-        if ((levelHiz.data[ty * levelHiz.width + tx] ?? 0) >= bound) occluded = false;
-      }
-    }
-    if (occluded) {
-      visibility[index] = CullReason.Occluded;
-      stats.culledOccluded++;
-      skipRecord(records, index, stats);
-      continue;
-    }
-    keepRecord(records, visibleList, index, bounds[base + 7] ?? 0, stats);
+    if (reason === CullReason.Frustum) stats.culledFrustum++;
+    else if (reason === CullReason.Distance) stats.culledDistance++;
+    else stats.culledOccluded++;
+    skipRecord(records, index, stats);
   }
   return stats;
+}
+
+/**
+ * {@link CULL_SPHERE_WGSL}'s `cullSphere`, in TypeScript: the frustum, distance and HiZ tests for
+ * one render-local sphere, in the shader's order and with its margins. `planes` is
+ * {@link cullPlanesFrom}(params.viewProj); an empty `hiz` (or `params.hizLevels` 0) skips occlusion.
+ * Shared by {@link cullBatchesOnCpu} and the population per-instance twin.
+ */
+export function cullSphereOnCpu(
+  cx: number,
+  cy: number,
+  cz: number,
+  radius: number,
+  limit: number,
+  flags: number,
+  params: ObjectCullParams,
+  planes: Float32Array,
+  hiz: readonly HizLevel[],
+): CullReason {
+  if ((flags & CULL_FLAG_FRUSTUM) !== 0) {
+    for (let row = 0; row < 6; row++) {
+      const nx = planes[row * 4]!;
+      const ny = planes[row * 4 + 1]!;
+      const nz = planes[row * 4 + 2]!;
+      const d = planes[row * 4 + 3]!;
+      if (nx * cx + ny * cy + nz * cz + d < -Math.hypot(nx, ny, nz) * radius) return CullReason.Frustum;
+    }
+  }
+  if ((flags & CULL_FLAG_DISTANCE) !== 0 && limit > 0) {
+    const away = Math.hypot(cx - params.cameraPos.x, cy - params.cameraPos.y, cz - params.cameraPos.z);
+    if (away - radius > limit) return CullReason.Distance;
+  }
+  if ((flags & CULL_FLAG_OCCLUSION) === 0 || params.hizLevels <= 0 || hiz.length === 0) return CullReason.Visible;
+  const view = params.view;
+  const proj = params.proj;
+  const vx = view[0]! * cx + view[4]! * cy + view[8]! * cz + view[12]!;
+  const vy = view[1]! * cx + view[5]! * cy + view[9]! * cz + view[13]!;
+  const vz = view[2]! * cx + view[6]! * cy + view[10]! * cz + view[14]!;
+  const nearest = vz - radius;
+  if (nearest <= params.near) return CullReason.Visible;
+  let loX = Infinity;
+  let loY = Infinity;
+  let hiX = -Infinity;
+  let hiY = -Infinity;
+  for (let corner = 0; corner < 8; corner++) {
+    const px = vx + ((corner & 1) !== 0 ? radius : -radius);
+    const py = vy + ((corner & 2) !== 0 ? radius : -radius);
+    const pz = vz + ((corner & 4) !== 0 ? radius : -radius);
+    const sx = (0.5 + (0.5 * proj[0]! * px) / pz) * params.width;
+    // Texel row 0 is the top of the image: NDC +y points up, the row index does not.
+    const sy = (0.5 - (0.5 * proj[5]! * py) / pz) * params.height;
+    loX = Math.min(loX, sx);
+    loY = Math.min(loY, sy);
+    hiX = Math.max(hiX, sx);
+    hiY = Math.max(hiY, sy);
+  }
+  const rectMinX = loX - CULL_PAD_PIXELS;
+  const rectMinY = loY - CULL_PAD_PIXELS;
+  const rectMaxX = hiX + CULL_PAD_PIXELS;
+  const rectMaxY = hiY + CULL_PAD_PIXELS;
+  if (rectMaxX < 0 || rectMaxY < 0 || rectMinX > params.width || rectMinY > params.height) return CullReason.Frustum;
+  const span = Math.max(rectMaxX - rectMinX, rectMaxY - rectMinY);
+  let level = 0;
+  if (span > 4) level = Math.ceil(Math.log2(span)) - 2;
+  level = Math.max(0, Math.min(level, params.hizLevels - 1, hiz.length - 1));
+  const texels = 1 << (level + 1);
+  const levelHiz = hiz[level]!;
+  const lastX = Math.max(levelHiz.width - 1, 0);
+  const lastY = Math.max(levelHiz.height - 1, 0);
+  const firstX = Math.min(Math.floor(Math.max(rectMinX, 0) / texels), lastX);
+  const firstY = Math.min(Math.floor(Math.max(rectMinY, 0) / texels), lastY);
+  const endX = Math.min(Math.floor(Math.max(rectMaxX, 0) / texels), lastX);
+  const endY = Math.min(Math.floor(Math.max(rectMaxY, 0) / texels), lastY);
+  const bound = nearest - CULL_EPSILON;
+  for (let ty = firstY; ty <= endY; ty++) {
+    for (let tx = firstX; tx <= endX; tx++) {
+      if ((levelHiz.data[ty * levelHiz.width + tx] ?? 0) >= bound) return CullReason.Visible;
+    }
+  }
+  return CullReason.Occluded;
 }
 
 /** A batch that stays visible: its compaction slot, and its record's instance count. */
@@ -770,6 +776,7 @@ export class GpuObjectCuller {
   private hizLevels = 0;
   private readonly hizViews: (GPUTextureView | undefined)[] = [];
   private fallback: GPUTexture | null = null;
+  private fallbackViewRef: GPUTextureView | null = null;
   private depthGroups = new Map<GPUTextureView, GPUBindGroup>();
   private groupVisibility: GPUBuffer | null = null;
   private groupRecords: GPUBuffer | null = null;
@@ -919,6 +926,7 @@ export class GpuObjectCuller {
     this.hiz = null;
     this.fallback?.destroy();
     this.fallback = null;
+    this.fallbackViewRef = null;
     this.hizLevels = 0;
     this.hizLevelsFrame = 0;
     this.hizViews.length = 0;
@@ -931,6 +939,8 @@ export class GpuObjectCuller {
   }
 
   private consume(index: number, buffer: GPUBuffer): void {
+    // Disposed while the map was in flight: the buffer is already destroyed.
+    if (this.disposed) return;
     const words = new Uint32Array(buffer.getMappedRange(0, CULL_STATS_BYTES), 0, CULL_STATS_BYTES >> 2);
     this.lastStats = {
       tested: words[STATS_WORD.tested]!,
@@ -1021,7 +1031,20 @@ export class GpuObjectCuller {
       format: "r32float",
       usage: TextureUsage.TEXTURE_BINDING,
     });
-    return this.fallback.createView();
+    this.fallbackViewRef ??= this.fallback.createView();
+    return this.fallbackViewRef;
+  }
+
+  /**
+   * What `forge.populationCull` shares with this pass: the frame's cull block (view, projection,
+   * planes, extent, `hizLevels`) and the pyramid it may test against. Valid after `prepare`; the
+   * pyramid is a real view only when this frame occludes (`hizLevels` > 0 in the block), otherwise
+   * the 1×1 fallback the block says not to read. `null` before the first `prepare` or once disposed.
+   */
+  populationBindings(): { uniforms: GPUBuffer; hiz: GPUTextureView; occludes: boolean } | null {
+    if (this.disposed || !this.cullBufferRef) return null;
+    const occludes = this.hizLevelsFrame > 0 && this.hiz !== null;
+    return { uniforms: this.cullBufferRef, hiz: occludes ? this.hizView(0, this.hizLevels) : this.fallbackView(), occludes };
   }
 
   private computePipeline(name: string, source: string, entryPoint: string, entries: GPUBindGroupLayoutEntry[]): GPUComputePipeline {

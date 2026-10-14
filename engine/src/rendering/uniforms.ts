@@ -222,6 +222,37 @@ export const PopulationLodUniforms = new StructDef("PopulationLodUniforms", [
 ]);
 
 /**
+ * One `forge.populationCull` dispatch: one eligible population batch (Phase A of the GPU-placement
+ * plan, docs/RENDERING.md §4g). Frame-wide state (view, projection, planes, HiZ
+ * extent) comes from the object culler's `ObjectCullUniforms`; this is what differs per batch. One
+ * 256-byte slot per dispatch in a dynamic-offset arena, like `PopulationLodUniforms`.
+ */
+export const PopulationCullUniforms = new StructDef("PopulationCullUniforms", [
+  { name: "camera", type: vec3, comment: "render-local camera position (LOD + distance verdicts)" },
+  { name: "lodDistance", type: f32, comment: "LOD switch distance; ignored unless flags bit 0" },
+  { name: "localCenter", type: vec3, comment: "prototype bounds centre, mesh-local" },
+  { name: "localRadius", type: f32, comment: "prototype bounds circumradius, mesh-local" },
+  { name: "count", type: u32, comment: "instances in the batch's buffer" },
+  { name: "argsWord", type: u32, comment: "word of this batch's instanceCount in the population draw-args buffer" },
+  { name: "visibilityIndex", type: u32, comment: "the batch's word in the object culler's visibility buffer" },
+  { name: "flags", type: u32, comment: "bit0 LOD batch, bit1 distance limit, bit2 HiZ allowed (POP_CULL_*)" },
+  { name: "maxDistance", type: f32, comment: "the batch's distance limit in metres (0 = none)" },
+  { name: "_pad0", type: u32 },
+  { name: "_pad1", type: u32 },
+  { name: "_pad2", type: u32 },
+]);
+
+/** What `forge.populationCull` did this frame (atomics, read back a frame or two late). */
+/** Per-reason counters; "instances in" is their sum (one global atomic per instance, not two). */
+export const PopulationCullStatsBlock = new StructDef("PopulationCullStatsBlock", [
+  { name: "drawn", type: atomicU32, comment: "instances compacted into the draw buffers" },
+  { name: "culledFrustum", type: atomicU32 },
+  { name: "culledDistance", type: atomicU32 },
+  { name: "culledOccluded", type: atomicU32 },
+  { name: "culledBatch", type: atomicU32, comment: "instances whose whole batch the object culler had already culled" },
+]);
+
+/**
  * Post-process pass parameters (bloom prefilter/downsample/upsample and the tonemap resolve). One
  * record per pass invocation lives in a dynamic-offset arena, so the whole HDR chain shares one
  * buffer and one bind group layout.
@@ -495,6 +526,7 @@ export const RENDERING_STRUCTS = {
   ClusterUniforms,
   ObjectCullUniforms,
   PopulationLodUniforms,
+  PopulationCullUniforms,
 } as const;
 
 /**
@@ -511,6 +543,7 @@ export const RENDERING_STORAGE_STRUCTS = {
   ObjectBatchEntry,
   ObjectBatchBlock,
   ObjectCullStatsBlock,
+  PopulationCullStatsBlock,
 } as const;
 
 export type RenderingStructName = keyof typeof RENDERING_STRUCTS;
