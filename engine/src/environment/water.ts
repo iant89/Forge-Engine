@@ -154,13 +154,28 @@ export const SHOAL_PEAK = 1.3;
  * `breakDepth`), rising linearly to {@link SHOAL_PEAK} at the break line as the wave shoals, then
  * collapsing smoothly to 0 at the waterline as the broken wave spends itself in the surf zone.
  */
-export function shoalFactor(depth: number, breakDepth: number): number {
+export function shoalFactor(depth: number, breakDepth: number, totalAmplitude = 0): number {
   if (!(depth > 0)) return 0;
   const b = Math.max(1e-3, breakDepth);
-  if (depth >= 3 * b) return 1;
-  if (depth >= b) return 1 + (SHOAL_PEAK - 1) * (1 - (depth - b) / (2 * b));
-  const u = depth / b;
-  return SHOAL_PEAK * u * u * (3 - 2 * u);
+  let s: number;
+  if (depth >= 3 * b) s = 1;
+  else if (depth >= b) s = 1 + (SHOAL_PEAK - 1) * (1 - (depth - b) / (2 * b));
+  else {
+    const u = depth / b;
+    s = SHOAL_PEAK * u * u * (3 - 2 * u);
+  }
+  // Depth-limited breaking (H ≤ 0.78·d ⇒ crest amplitude ≤ ~0.39·d): a wave cannot be taller than
+  // the water under it, so troughs never dig below the seabed.
+  if (totalAmplitude > 0) s = Math.min(s, (BREAKER_INDEX * 0.5 * depth) / totalAmplitude);
+  return s;
+}
+
+/** McCowan breaker index: wave height / depth at breaking. */
+export const BREAKER_INDEX = 0.78;
+
+/** Surf strength 0..1 from the sea's total amplitude (flat seas do not break into white water). */
+export function surfStrength(totalAmplitude: number): number {
+  return clamp(totalAmplitude / 0.8, 0, 1);
 }
 
 /**
@@ -194,7 +209,7 @@ function smooth01(x: number): number {
  */
 export function sampleWater(water: SceneWaterSettings, x: number, z: number, t: number = water.time, out: WaterSample = createWaterSample()): WaterSample {
   const depth = shoreDepthAt(water.shore, water.level, x, z);
-  const scale = water.shore.enabled ? shoalFactor(depth, water.shore.breakDepth) : 1;
+  const scale = water.shore.enabled ? shoalFactor(depth, water.shore.breakDepth, totalWaveAmplitude(water.waves)) : 1;
   return sampleGerstner(water.waves, x, z, t, out, water.choppiness, scale);
 }
 
@@ -321,8 +336,8 @@ export class WaterSurface extends SceneObject {
     const whitecap = foamFromCrest(crest, w.foamThreshold);
     if (!w.shore.enabled) return whitecap;
     const depth = shoreDepthAt(w.shore, w.level, x, z);
-    const breaking = breakingFactor(depth, w.shore) * clamp((crest - 0.45) * 2.5, 0, 1);
-    return Math.max(whitecap, breaking, shoreFoamFactor(depth, w.shore.foamDepth));
+    const breaking = breakingFactor(depth, w.shore) * clamp((crest - 0.6) * 2.5, 0, 1) * surfStrength(totalWaveAmplitude(w.waves));
+    return Math.max(whitecap, breaking, shoreFoamFactor(depth, w.shore.foamDepth) * (0.35 + 0.65 * surfStrength(totalWaveAmplitude(w.waves))));
   }
 
   override stats(): Record<string, number | string | boolean> {

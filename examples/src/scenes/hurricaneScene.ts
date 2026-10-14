@@ -151,7 +151,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
 
   // Camera: standing on the berm, looking out to sea.
   const groundHeight = (x: number, z: number): number => coastalHeightAt(HURRICANE_COAST, x, z);
-  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 4, HURRICANE_OBSERVER.z));
+  const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 4, -20));
   const camera = new Camera();
   camera.fovY = Math.PI / 3;
   camera.near = 0.1;
@@ -230,7 +230,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   const hud = document.createElement("div");
   hud.id = "hurricane-hud";
   hud.style.cssText =
-    "position:fixed;top:12px;right:12px;z-index:20;min-width:230px;padding:10px 14px;border-radius:10px;" +
+    "position:fixed;top:64px;right:12px;z-index:20;min-width:230px;padding:10px 14px;border-radius:10px;" +
     "background:rgba(10,16,24,0.72);color:#eef4f8;font:13px/1.35 system-ui,sans-serif;pointer-events:auto;";
   hud.innerHTML =
     '<div data-k="label" style="font-weight:700;font-size:17px"></div>' +
@@ -279,12 +279,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     cameraEntity,
     controlsHint: "Drag to look around · Scroll to zoom · Replay in the storm panel",
     camera: {
-      target: new Vec3(0, 6, 15),
-      distance: 60,
+      target: new Vec3(0, 2.2, 22),
+      distance: 42,
       minDistance: 8,
       maxDistance: 160,
       azimuth: 0,
-      elevation: 0.0,
+      elevation: 0.035,
       minElevation: -0.08,
       maxElevation: 1.2,
       groundClearance: 1.7,

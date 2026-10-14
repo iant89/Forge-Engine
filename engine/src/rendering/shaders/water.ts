@@ -105,6 +105,15 @@ fn shoalFactor(depth: f32) -> f32 {
   return 1.3 * u * u * (3.0 - 2.0 * u);
 }
 
+// shoalFactor() with the depth-limited breaking cap (H ≤ 0.78·d), as on the CPU.
+fn shoalLimited(depth: f32) -> f32 {
+  var s = shoalFactor(depth);
+  if (water.shoreC.z > 0.0) {
+    s = min(s, 0.39 * max(depth, 0.0) / water.shoreC.z);
+  }
+  return s;
+}
+
 @vertex
 fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u32) -> WaterVertexOutput {
   let inst = instances[instanceIndex];
@@ -122,7 +131,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   var dydz = 0.0;
   var crestNum = 0.0;
   var crestDen = 0.0;
-  let shoal = shoalFactor(shoreDepth(base.xz));
+  let shoal = shoalLimited(shoreDepth(base.xz));
   for (var i = 0; i < 4; i++) {
     let a = water.wavesA[i];
     let b = water.wavesB[i];
@@ -213,9 +222,9 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
     let b = max(1.0e-3, water.shoreB.y);
     let fd = max(1.0e-3, water.shoreB.x);
     let surf = (1.0 - smoothstep(0.0, 1.0, (depth - b) / (0.5 * b))) * smoothstep(0.0, 1.0, depth / fd);
-    let breaking = surf * clamp((in.crest - 0.45) * 2.5, 0.0, 1.0);
+    let breaking = surf * clamp((in.crest - 0.6) * 2.5, 0.0, 1.0) * water.shoreC.w;
     let streak = waterNoise(in.worldPos.xz * vec2<f32>(0.6, 2.2) + vec2<f32>(water.time * 0.2, water.time * 0.9));
-    let swash = (1.0 - smoothstep(0.0, 1.0, depth / fd)) * (0.55 + 0.45 * streak);
+    let swash = (1.0 - smoothstep(0.0, 1.0, depth / fd)) * (0.55 + 0.45 * streak) * (0.35 + 0.65 * water.shoreC.w);
     foam = max(foam, max(breaking * (0.7 + 0.3 * streak), swash));
     // Feather into the sand instead of a hard intersection line.
     alpha = alpha * smoothstep(0.0, 0.12, depth + 0.02);
