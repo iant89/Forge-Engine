@@ -13,7 +13,7 @@
  * - {@link clearSkyProgress} / {@link ymcaDance}: the victory finale.
  */
 import { Rng } from "@forge/engine";
-import type { GroundHeightFn, StormCheckpoint, StripMesh } from "./dustStorm.js";
+import type { GroundHeightFn, StormCheckpoint } from "./dustStorm.js";
 
 // ---------------------------------------------------------------- route finder
 
@@ -441,97 +441,12 @@ export function randomCourseSeed(param: string | null, random: () => number = Ma
   return Math.floor(random() * 0xffffffff) >>> 0;
 }
 
-// ---------------------------------------------------------------- guide ribbon + pulse
+// ---------------------------------------------------------------- guide reach
 
-/** The path barely floats: high enough to read as hovering, low enough to hug the ground. */
-export const GUIDE_FLOAT_OFFSET = 0.3;
-export const GUIDE_RIBBON_POINTS = 96;
-export const GUIDE_RIBBON_HALF_WIDTH = 0.45;
 /** Drawn reach (m) along the route; legs are ≤ ~130 m so this normally covers the whole leg. */
 export const GUIDE_RIBBON_MAX = 160;
-/** Ribbon starts this far ahead of the rover so it does not sit under the chassis. */
+/** Guide dots start this far ahead of the rover so they do not sit under the chassis. */
 export const GUIDE_RIBBON_START = 2.5;
-
-export interface RibbonOptions {
-  from?: number;
-  to?: number;
-  points?: number;
-  offset?: number;
-  halfWidth?: number;
-}
-
-/**
- * Ribbon draped along a route polyline between arc lengths `from`..`to`, `offset` above the ground.
- * Positions are relative to (start.x, ground(start), start.z) where start is the polyline's first
- * point; uv.y runs 0 → 1 along the ribbon.
- */
-export function buildGuideRibbon(route: readonly RoutePoint[], ground: GroundHeightFn, out?: StripMesh & { baseY: number }, options: RibbonOptions = {}): StripMesh & { baseY: number } {
-  const N = options.points ?? GUIDE_RIBBON_POINTS;
-  const offset = options.offset ?? GUIDE_FLOAT_OFFSET;
-  const hw = options.halfWidth ?? GUIDE_RIBBON_HALF_WIDTH;
-  const mesh = out ?? {
-    positions: new Float32Array(N * 2 * 3),
-    normals: new Float32Array(N * 2 * 3),
-    uvs: new Float32Array(N * 2 * 2),
-    indices: (() => {
-      const idx: number[] = [];
-      for (let i = 0; i < N - 1; i++) {
-        const a = i * 2;
-        idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
-      }
-      return new Uint16Array(idx);
-    })(),
-    baseY: 0,
-  };
-  const origin = route[0] ?? { x: 0, z: 0 };
-  const baseY = ground(origin.x, origin.z);
-  mesh.baseY = baseY;
-  const total = polylineLength(route);
-  const s0 = Math.max(0, Math.min(total, options.from ?? Math.min(GUIDE_RIBBON_START, total)));
-  const s1 = Math.max(s0, Math.min(total, options.to ?? Math.min(total, GUIDE_RIBBON_MAX)));
-  const p = { x: 0, z: 0, dx: 1, dz: 0 };
-  for (let i = 0; i < N; i++) {
-    const s = s0 + ((s1 - s0) * i) / (N - 1);
-    samplePolyline(route, s, p);
-    for (let j = 0; j < 2; j++) {
-      const side = j === 0 ? -hw : hw;
-      const wx = p.x - p.dz * side;
-      const wz = p.z + p.dx * side;
-      const v = i * 2 + j;
-      mesh.positions[v * 3] = wx - origin.x;
-      mesh.positions[v * 3 + 1] = ground(wx, wz) + offset - baseY;
-      mesh.positions[v * 3 + 2] = wz - origin.z;
-      mesh.normals[v * 3] = 0;
-      mesh.normals[v * 3 + 1] = 1;
-      mesh.normals[v * 3 + 2] = 0;
-      mesh.uvs[v * 2] = j;
-      mesh.uvs[v * 2 + 1] = i / (N - 1);
-    }
-  }
-  return mesh;
-}
-
-export const GUIDE_PULSE_SPEED = 24;
-export const GUIDE_PULSE_LENGTH = 6;
-/** Pause (s) with no pulse before the next one leaves the rover. */
-export const GUIDE_PULSE_GAP = 0.4;
-export const GUIDE_PULSE_POINTS = 8;
-
-/** The travelling blue pulse: a short bright stretch [tail, head] running rover → beam, looping. */
-export function guidePulse(t: number, length: number, out = { head: 0, tail: 0, opacity: 0 }): { head: number; tail: number; opacity: number } {
-  const span = Math.max(1, length);
-  const period = (span + GUIDE_PULSE_LENGTH) / GUIDE_PULSE_SPEED + GUIDE_PULSE_GAP;
-  const phase = ((t % period) + period) % period;
-  const head = Math.min(span, phase * GUIDE_PULSE_SPEED);
-  const tail = Math.max(0, Math.min(span, phase * GUIDE_PULSE_SPEED - GUIDE_PULSE_LENGTH));
-  out.head = head;
-  out.tail = Math.min(tail, Math.max(0, head - 0.2));
-  // Fade in leaving the rover and out arriving at the beam.
-  const fadeIn = Math.min(1, head / 4);
-  const fadeOut = Math.min(1, (span - out.tail) / 4);
-  out.opacity = head - out.tail > 0.05 ? 0.85 * Math.max(0, Math.min(fadeIn, fadeOut)) : 0;
-  return out;
-}
 
 // ---------------------------------------------------------------- off-screen arrow
 
@@ -746,4 +661,68 @@ export function ymcaDance(t: number): YmcaFrame {
     frame.spin = 10 * Math.sin(Math.PI * Math.min(1, k));
   }
   return frame;
+}
+
+// ---------------------------------------------------------------- guide dots (fe-29)
+
+/** Chaikin passes that round the pathfinder's corners into gentle curves. */
+export const GUIDE_SMOOTH_PASSES = 3;
+/** Spacing (m) between guide dots along the route, their radius and float height above ground. */
+export const GUIDE_DOT_SPACING = 2.2;
+export const GUIDE_DOT_RADIUS = 0.14;
+export const GUIDE_DOT_FLOAT = 0.35;
+/** Dot pool size (≈ GUIDE_RIBBON_MAX / spacing). */
+export const GUIDE_DOT_COUNT = 72;
+/** Travelling wave: speed (m/s), crest width (m), pause between crests (s). */
+export const GUIDE_WAVE_SPEED = 18;
+export const GUIDE_WAVE_WIDTH = 5;
+export const GUIDE_WAVE_GAP = 0.5;
+
+/**
+ * Chaikin corner cutting on a route polyline (endpoints kept). A corner is only cut when the new
+ * chord is still clear of every boulder (and passable, {@link routeClear}); otherwise the original
+ * corner stays, so the smoothed path never clips a rock the pathfinder went around.
+ */
+export function smoothRoute(route: readonly RoutePoint[], ground: GroundHeightFn, obstacles: readonly RouteObstacle[], passes = GUIDE_SMOOTH_PASSES): RoutePoint[] {
+  let pts: RoutePoint[] = route.map((p) => ({ x: p.x, z: p.z }));
+  for (let pass = 0; pass < passes && pts.length > 2; pass++) {
+    const out: RoutePoint[] = [pts[0]!];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i - 1]!;
+      const b = pts[i]!;
+      const c = pts[i + 1]!;
+      const q = { x: 0.75 * b.x + 0.25 * a.x, z: 0.75 * b.z + 0.25 * a.z };
+      const r = { x: 0.75 * b.x + 0.25 * c.x, z: 0.75 * b.z + 0.25 * c.z };
+      if (routeClear(q.x, q.z, r.x, r.z, ground, obstacles)) out.push(q, r);
+      else out.push(b);
+    }
+    out.push(pts[pts.length - 1]!);
+    pts = out;
+  }
+  return pts;
+}
+
+/** Evenly spaced points along a route from arc length `start`, at most `max` of them. */
+export function sampleRouteEvenly(route: readonly RoutePoint[], spacing: number, max: number, start = 0): RoutePoint[] {
+  const total = polylineLength(route);
+  const out: RoutePoint[] = [];
+  const p = { x: 0, z: 0, dx: 1, dz: 0 };
+  for (let s = start; s <= total + 1e-6 && out.length < max; s += spacing) {
+    samplePolyline(route, s, p);
+    out.push({ x: p.x, z: p.z });
+  }
+  return out;
+}
+
+/**
+ * Pulse wave along the dots, travelling rover → waypoint and looping: for a dot at arc length `s`
+ * on a route of `length` m, returns glow 0..1 (crest = 1) used for brightness and scale.
+ */
+export function guideDotWave(t: number, s: number, length: number): number {
+  const span = Math.max(1, length);
+  const period = (span + GUIDE_WAVE_WIDTH * 2) / GUIDE_WAVE_SPEED + GUIDE_WAVE_GAP;
+  const phase = ((t % period) + period) % period;
+  const crest = phase * GUIDE_WAVE_SPEED - GUIDE_WAVE_WIDTH;
+  const d = Math.abs(s - crest) / GUIDE_WAVE_WIDTH;
+  return d >= 1 ? 0 : 0.5 + 0.5 * Math.cos(d * Math.PI);
 }

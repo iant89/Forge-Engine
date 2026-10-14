@@ -31,7 +31,8 @@ export const suite = {
  * way the engine does, so the vehicle, storm, piles and course all advance together.
  */
 import assert from "node:assert/strict";
-import { afterEach, assertMatchObject, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
+import { afterEach, assertCloseTo, assertMatchObject, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
+
 import {
   Clock,
   GraphicsDevice,
@@ -117,15 +118,15 @@ function fakeButton() {
   });
 }
 
-async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true, courseSeed = 1234) {
+async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true, courseSeed = 1234, extra: Partial<NonNullable<Parameters<typeof buildMarsDustStormScene>[1]>> = {}) {
   const windowStub = new EventTarget();
   stubGlobal("window", windowStub);
-  const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-hard": fakeButton(), "storm-difficulty": fakeButton() };
+  const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-advanced": fakeButton(), "btn-storm-expert": fakeButton(), "btn-storm-unreal": fakeButton(), "storm-difficulty": fakeButton() };
   stubGlobal("document", { getElementById: (id: string) => (buttons as Record<string, unknown>)[id] ?? null });
   stubGlobal("fetch", spyFunction(() => new Promise<Response>(() => {})));
   const gpu = await GraphicsDevice.create({ forceMock: true });
   const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
-  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed, deviceHints: {}, adaptiveQuality: false });
+  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed, deviceHints: {}, adaptiveQuality: false, ...extra });
   const scene = handle.scene;
   scene.attachToEngine(engine);
   const component = scene.world.getComponent(scene.world.findByName("rover-chassis")[0]!, VehicleComponent)!;
@@ -193,7 +194,7 @@ group("Mars Dust Storm Survival — scene assembly", () => {
     const beams = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-"));
     assert.equal(beams.length, state.checkpointCount);
     const visible = beams.filter((e) => e.get(Renderable)!.visible);
-    assert.equal(visible.length, 2, "active + next beam only");
+    assert.equal(visible.length, state.checkpointCount, "easy: every beacon ahead is shown");
     for (const beam of beams) assert.equal(beam.get(Renderable)!.material!.fogExempt, true);
     assert.ok(named(scene, "storm-boulder-").length > 20);
     assert.equal(named(scene, "storm-pile-").length, named(scene, "storm-boulder-").length);
@@ -203,7 +204,7 @@ group("Mars Dust Storm Survival — scene assembly", () => {
 
   test("fe-18: easy shows the draped guide path, hard hides path and arrow; beam pulse animates", async () => {
     const { handle, scene, tick } = await fixture();
-    const path = named(scene, "storm-guide-path")[0]!.get(Renderable)!;
+    const path = named(scene, "storm-guide-dot-0")[0]!.get(Renderable)!;
     const arrow = named(scene, "storm-waypoint-arrow")[0]!.get(Renderable)!;
     tick();
     assert.equal(path.visible, true, "easy: path on");
@@ -215,12 +216,12 @@ group("Mars Dust Storm Survival — scene assembly", () => {
       glows.add(Math.round(beamMat.emissiveStrength * 100));
     }
     assert.ok(glows.size > 3, "active beam pulses");
-    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-path"), ...named(scene, "storm-beam-")]) {
+    for (const e of [...named(scene, "storm-devil-"), ...named(scene, "storm-guide-dot-"), ...named(scene, "storm-beam-")]) {
       const r = e.get(Renderable)!;
       assert.equal(r.transparent, r.material!.transparent, `${scene.world.name(e.id)} draws in the matching (blend) bucket`);
     }
     assert.ok(beamMat.revision > rev0, "pulse marks the material changed so the GPU uniforms update");
-    handle.setDifficulty("hard");
+    handle.setDifficulty("expert");
     for (let i = 0; i < 20; i++) tick(0.1);
     assert.equal(path.visible, false, "hard: no path");
     assert.equal(arrow.visible, false, "hard: no arrow");
@@ -297,11 +298,11 @@ group("Mars Dust Storm Survival — one GPU particle system per dust devil", () 
   });
 });
 
-group("Mars Dust Storm Survival — EASY/HARD toggle", () => {
+group("Mars Dust Storm Survival — difficulty buttons (fe-29: four levels)", () => {
   test("the toolbar and touch toggles switch the rules and restart the run; the URL value seeds them", async () => {
-    const { handle, scene, buttons, vehicle, tick, key } = await fixture("hard");
-    assert.equal(buttons["btn-storm-hard"].classList.contains("active"), true, "seeded from ?difficulty");
-    assert.equal(buttons["storm-difficulty"].caption.textContent, "HARD");
+    const { handle, scene, buttons, vehicle, tick, key } = await fixture("expert");
+    assert.equal(buttons["btn-storm-expert"].classList.contains("active"), true, "seeded from ?difficulty");
+    assert.equal(buttons["storm-difficulty"].caption.textContent, "EXPERT");
     start(key, tick);
     const beam = named(scene, "storm-beam-ring-0")[0]!;
     vehicle.position.x = beam.transform.position.x;
@@ -314,15 +315,20 @@ group("Mars Dust Storm Survival — EASY/HARD toggle", () => {
     assert.equal(s.checkpoint, 0, "run restarted");
     assert.equal(s.elapsed, 0);
     assert.equal(buttons["btn-storm-easy"].classList.contains("active"), true);
-    assert.equal(buttons["btn-storm-hard"].getAttribute("aria-pressed"), "false");
+    assert.equal(buttons["btn-storm-expert"].getAttribute("aria-pressed"), "false");
     assert.equal(buttons["storm-difficulty"].letter.textContent, "E");
-    // The touch pad flips between the two.
+    // The touch pad cycles Easy → Advanced → Expert → Unreal.
     buttons["storm-difficulty"].dispatchEvent(new Event("click"));
     s = handle.stormState();
-    assert.equal(s.difficulty, "hard");
+    assert.equal(s.difficulty, "advanced");
+    assert.equal(buttons["storm-difficulty"].caption.textContent, "ADVANCED");
+    buttons["btn-storm-unreal"].dispatchEvent(new Event("click"));
+    assert.equal(handle.stormState().difficulty, "unreal");
     assert.equal(buttons["storm-difficulty"].classList.contains("active"), true);
+    buttons["storm-difficulty"].dispatchEvent(new Event("click"));
+    assert.equal(handle.stormState().difficulty, "easy", "wraps around");
     // Hard rules are live after the switch: burial sends the rover back.
-    handle.setDifficulty("hard");
+    handle.setDifficulty("expert");
     start(key, tick);
     vehicle.position.x += 6;
     let guard = 0;
@@ -367,8 +373,8 @@ group("Mars Dust Storm Survival — restart resets everything (fixed seed)", () 
     const second = replay();
     assert.deepEqual(second.map(stormOnly), first.map(stormOnly), "same storm, devils and piles after a restart");
 
-    handle.setDifficulty("hard");
-    assert.deepEqual({ ...handle.stormState(), difficulty: "easy" }, fresh, "the toggle restarts everything too");
+    handle.setDifficulty("expert");
+    assert.deepEqual({ ...handle.stormState(), difficulty: "easy", stormStrength: fresh.stormStrength, guideDots: fresh.guideDots }, fresh, "the toggle restarts everything too");
   });
 });
 
@@ -401,7 +407,7 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
   });
 
   test("hard: burial sends the rover back to the last checkpoint (the start before any beam)", async () => {
-    const { handle, vehicle, tick, key } = await fixture("hard");
+    const { handle, vehicle, tick, key } = await fixture("expert");
     start(key, tick);
     const spawnX = vehicle.position.x;
     const spawnZ = vehicle.position.z;
@@ -426,7 +432,7 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
     assert.equal(easy.handle.stormState().penalty, STORM_DIFFICULTY.easy.timePenalty);
     assert.equal(easy.handle.stormState().resets, 0);
     await cleanups.pop()!();
-    const hard = await fixture("hard");
+    const hard = await fixture("expert");
     start(hard.key, hard.tick);
     for (let i = 0; i < 40 && hard.handle.stormState().resets === 0; i++) {
       hard.vehicle.roll = 1.9;
@@ -437,6 +443,159 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
   });
 });
 
+
+group("Mars Dust Storm Survival — fe-29 blown away", () => {
+  test("easy: thrown far by the wind respawns at the last safe spot with invulnerability", async () => {
+    const { handle, vehicle, tick, key } = await fixture("easy");
+    start(key, tick);
+    for (let i = 0; i < 20; i++) tick(0.1); // settle: the start becomes the safe spot
+    const safe = handle.stormState().safe;
+    handle.debugBlow(45, 0);
+    tick(0.05);
+    const s = handle.stormState();
+    assert.equal(s.blownAway, 1);
+    assert.equal(s.lost, false);
+    assert.ok(Math.hypot(s.x - safe.x, s.z - safe.z) < 0.5, "back at the safe spot");
+    assertCloseTo(vehicle.yaw, safe.yaw, 4);
+    assert.ok(s.invulnerable > 2.5);
+    assert.match(handle.overlay!(), /BLOWN AWAY/);
+  });
+
+  test("advanced respawns like easy; unreal loses like expert", async () => {
+    for (const [d, lost] of [["advanced", false], ["unreal", true]] as const) {
+      const { handle, tick, key } = await fixture(d);
+      start(key, tick);
+      for (let i = 0; i < 20; i++) tick(0.1);
+      handle.debugBlow(45, 0);
+      tick(0.05);
+      assert.equal(handle.stormState().lost, lost, d);
+      assert.equal(handle.stormState().blownAway, 1);
+      await cleanups.pop()!();
+    }
+  });
+
+  test("expert: thrown far loses the run ('Blown away'); R restarts", async () => {
+    const { handle, tick, key } = await fixture("expert");
+    start(key, tick);
+    for (let i = 0; i < 20; i++) tick(0.1);
+    handle.debugBlow(0, 45);
+    tick(0.05);
+    const s = handle.stormState();
+    assert.equal(s.lost, true);
+    assert.equal(s.lostReason, "BLOWN AWAY");
+    const t = s.elapsed;
+    tick(0.5);
+    assert.equal(handle.stormState().elapsed, t, "clock stops");
+    assert.match(handle.overlay!(), /RUN LOST/);
+    assert.equal(handle.stormState().summaryVisible, true, "summary on loss");
+    assert.equal(handle.summary().title, "Lost — Blown away");
+    handle.restart();
+    assert.equal(handle.stormState().lost, false);
+  });
+
+  test("completion: the summary waits for the finale to end; stats track the run; retry resets them", async () => {
+    const { handle, tick, key } = await fixture("easy");
+    start(key, tick);
+    key("keydown", "KeyW");
+    for (let i = 0; i < 60; i++) tick(0.1);
+    key("keyup", "KeyW");
+    assert.ok(handle.stormState().stats.distance > 0.3, `distance ${handle.stormState().stats.distance}`);
+    assert.ok(handle.stormState().stats.topSpeed > 0.5);
+    assert.ok(handle.stormState().stats.maxWind > 0);
+    for (const cp of handle.stormState().checkpoints) {
+      handle.teleport(cp.x, cp.z);
+      tick(0.05);
+    }
+    assert.equal(handle.stormState().won, true);
+    assert.equal(handle.stormState().summaryVisible, false, "not during the finale");
+    handle.advanceFinale(1000);
+    tick(0.05);
+    tick(0.05);
+    assert.equal(handle.stormState().summaryVisible, true);
+    const rows = Object.fromEntries(handle.summary().rows);
+    assert.equal(rows["Result"], "Completed");
+    assert.equal(rows["Waypoints reached"], `${handle.stormState().checkpointCount} / ${handle.stormState().checkpointCount}`);
+    handle.restart();
+    assert.equal(handle.stormState().summaryVisible, false);
+    assert.equal(handle.stormState().stats.distance, 0);
+  });
+
+  test("guide dots (Easy only): evenly spaced glowing spheres with a travelling crest", async () => {
+    const { handle, scene, tick } = await fixture("easy");
+    tick();
+    tick(0.3);
+    const dots = named(scene, "storm-guide-dot-").map((e) => e);
+    const shown = dots.filter((e) => e.get(Renderable)!.visible);
+    assert.ok(shown.length > 10, `${shown.length} dots`);
+    assert.equal(handle.stormState().guideDots.dots, shown.length);
+    const mats = new Set(dots.map((e) => e.get(Renderable)!.material!.label));
+    assert.ok([...mats].every((m) => m!.startsWith("storm-guide-dot")), "two shared materials (instanced batches)");
+    assert.equal(new Set(dots.map((e) => e.get(Renderable)!.geometry)).size, 1, "one shared sphere geometry");
+    const crests: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      tick(0.15);
+      crests.push(handle.stormState().guideDots.crest);
+    }
+    assert.ok(crests.some((c, i) => i > 0 && c > crests[i - 1]! && crests[i - 1]! >= 0), `crest travels toward the beam ${crests}`);
+    handle.setDifficulty("advanced");
+    tick(0.2);
+    assert.equal(dots.filter((e) => e.get(Renderable)!.visible).length, 0, "advanced: no guide dots");
+    assert.equal(named(scene, "storm-waypoint-arrow")[0]!.get(Renderable)!.visible, false, "advanced: no arrow");
+    const beams = named(scene, "storm-beam-").filter((e) => !scene.world.name(e.id).startsWith("storm-beam-ring-"));
+    assert.equal(beams.filter((e) => e.get(Renderable)!.visible).length, 1, "advanced: current beacon only");
+  });
+
+  test("summary buttons: Escape closes; Retry restarts in place (same seed); Play again asks the host for a new course at this difficulty", async () => {
+    const asked: string[] = [];
+    const { handle, tick, key } = await fixture("expert", true, 1234, { onNewCourse: (d) => asked.push(d) });
+    const fresh = handle.stormState();
+    const lose = () => {
+      start(key, tick);
+      for (let i = 0; i < 20; i++) tick(0.1);
+      handle.debugBlow(0, 45);
+      tick(0.05);
+      assert.equal(handle.stormState().summaryVisible, true);
+    };
+    lose();
+    key("keydown", "Escape");
+    key("keyup", "Escape");
+    assert.equal(handle.stormState().summaryVisible, false, "Escape closes");
+    assert.equal(handle.stormState().lost, true, "closing does not restart");
+    handle.retrySameCourse();
+    const r = handle.stormState();
+    assert.equal(r.summaryVisible, false);
+    assert.equal(r.lost, false);
+    assert.equal(r.courseSeed, fresh.courseSeed, "same seed");
+    assert.deepEqual(r.checkpoints, fresh.checkpoints, "same course");
+    assert.equal(r.stats.distance + r.stats.respawns + r.blownAway + r.elapsed, 0, "stats reset");
+    assert.equal(r.dancing, false);
+    assert.equal(r.stageLights, 0);
+    lose();
+    handle.playAgain();
+    assert.deepEqual(asked, ["expert"], "host rebuilds with a new seed at the same difficulty");
+    assert.equal(handle.stormState().summaryVisible, false);
+  });
+
+  test("Play again without a host rebuild falls back to an in-place restart", async () => {
+    const { handle, tick, key } = await fixture("expert");
+    start(key, tick);
+    for (let i = 0; i < 20; i++) tick(0.1);
+    handle.debugBlow(0, 45);
+    tick(0.05);
+    handle.playAgain();
+    assert.equal(handle.stormState().lost, false);
+    assert.equal(handle.stormState().difficulty, "expert");
+  });
+
+  test("driving far in still air never counts as blown away", async () => {
+    const { handle, tick, key } = await fixture("easy");
+    start(key, tick);
+    key("keydown", "KeyW");
+    for (let i = 0; i < 300; i++) tick(0.1);
+    key("keyup", "KeyW");
+    assert.equal(handle.stormState().blownAway, 0);
+  });
+});
 
 group("Mars Dust Storm Survival — fe-28 polish", () => {
   test("random course per seed: same seed replays, another seed moves the beams; the route dodges every boulder", async () => {

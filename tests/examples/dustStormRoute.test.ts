@@ -2,7 +2,7 @@
  * @suite examples:dustStormRoute
  * @group unit
  * @covers examples/src/scenes/dustStormRoute.ts
- * @desc Mars Dust Storm fe-28: obstacle/slope-aware route finder, random reachable courses, guide ribbon + pulse, off-screen arrow test, auto reverse, YMCA finale poses
+ * @desc Mars Dust Storm fe-28: obstacle/slope-aware route finder, random reachable courses, fe-29 smoothed route + guide dots wave, off-screen arrow test, auto reverse, YMCA finale poses
  */
 
 export const suite = {
@@ -11,21 +11,21 @@ export const suite = {
   covers:   [
     "examples/src/scenes/dustStormRoute.ts"
   ],
-  desc: "Mars Dust Storm fe-28: obstacle/slope-aware route finder, random reachable courses, guide ribbon + pulse, off-screen arrow test, auto reverse, YMCA finale poses",
+  desc: "Mars Dust Storm fe-28: obstacle/slope-aware route finder, random reachable courses, fe-29 smoothed route + guide dots wave, off-screen arrow test, auto reverse, YMCA finale poses",
 };
 import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
 import {
   CLEAR_SKY_DURATION,
-  GUIDE_FLOAT_OFFSET,
-  GUIDE_RIBBON_POINTS,
   YMCA_LETTERS,
   autoDriveDirection,
-  buildGuideRibbon,
+  smoothRoute,
+  sampleRouteEvenly,
+  guideDotWave,
+  GUIDE_WAVE_SPEED,
   clearSkyProgress,
   courseReachable,
   findRoute,
-  guidePulse,
   polylineLength,
   randomCourseSeed,
   randomStormCourse,
@@ -136,43 +136,6 @@ group("random reachable course (fe-28)", () => {
     assert.equal(randomCourseSeed("42", () => 0.5), 42);
     assert.equal(randomCourseSeed(null, () => 0.25), Math.floor(0.25 * 0xffffffff));
     assert.equal(randomCourseSeed("nope", () => 0.5), Math.floor(0.5 * 0xffffffff));
-  });
-});
-
-group("guide ribbon + pulse (fe-28)", () => {
-  test("ribbon follows the routed polyline and floats GUIDE_FLOAT_OFFSET above the ground", () => {
-    const route = [{ x: 0, z: 0 }, { x: 20, z: 10 }, { x: 40, z: 0 }];
-    const m = buildGuideRibbon(route, rolling);
-    assert.equal(m.positions.length, GUIDE_RIBBON_POINTS * 2 * 3);
-    for (let v = 0; v < GUIDE_RIBBON_POINTS * 2; v++) {
-      const wx = m.positions[v * 3]! + 0;
-      const wz = m.positions[v * 3 + 2]! + 0;
-      const wy = m.positions[v * 3 + 1]! + m.baseY;
-      assert.ok(Math.abs(wy - (rolling(wx, wz) + GUIDE_FLOAT_OFFSET)) < 1e-3);
-    }
-    assert.ok(GUIDE_FLOAT_OFFSET > 0.1 && GUIDE_FLOAT_OFFSET <= 0.5, "barely floats");
-    // The middle of the ribbon passes near the corner (20, 10).
-    const mid = Math.floor(GUIDE_RIBBON_POINTS / 2);
-    const cx = (m.positions[mid * 6]! + m.positions[mid * 6 + 3]!) / 2;
-    const cz = (m.positions[mid * 6 + 2]! + m.positions[mid * 6 + 5]!) / 2;
-    assert.ok(Math.hypot(cx - 20, cz - 10) < 3, `${cx},${cz}`);
-  });
-
-  test("a sub-range ribbon covers only that stretch (the travelling pulse)", () => {
-    const route = [{ x: 0, z: 0 }, { x: 100, z: 0 }];
-    const m = buildGuideRibbon(route, flat, undefined, { from: 40, to: 46, points: 6 });
-    for (let v = 0; v < 12; v++) assert.ok(m.positions[v * 3]! >= 40 - 1e-4 && m.positions[v * 3]! <= 46 + 1e-4);
-  });
-
-  test("the pulse travels from the rover toward the waypoint, then loops", () => {
-    const len = 80;
-    const a = guidePulse(0.1, len);
-    const b = guidePulse(0.6, len);
-    assert.ok(b.head > a.head, "moves toward the waypoint");
-    assert.ok(a.tail < a.head && a.tail >= 0 && b.head <= len);
-    const samples = Array.from({ length: 200 }, (_, i) => guidePulse(i * 0.05, len).head);
-    assert.ok(samples.some((h, i) => i > 0 && h < samples[i - 1]!), "wraps back to the rover");
-    assert.ok(guidePulse(0.3, len).opacity > 0);
   });
 });
 
@@ -327,6 +290,45 @@ group("finale clip timeline (fe-28)", () => {
       assert.ok(Math.abs(d.arm.shoulder - prev.arm.shoulder) < 0.08, `arm @${t}`);
       prev = d;
     }
+  });
+});
+
+group("fe-29 guide dots", () => {
+  test("Chaikin smoothing rounds corners, keeps endpoints, and never clips a boulder", () => {
+    const flat = () => 0;
+    const rock = { x: 10, z: 0, radius: 3 };
+    const route = [{ x: 0, z: 0 }, { x: 10, z: 6 }, { x: 20, z: 0 }];
+    const sm = smoothRoute(route, flat, [rock]);
+    assert.ok(sm.length > route.length, "corners cut into curves");
+    assert.deepEqual(sm[0], route[0]);
+    assert.deepEqual(sm[sm.length - 1], route[2]);
+    for (let i = 1; i < sm.length; i++) {
+      for (let t = 0; t <= 1; t += 0.05) {
+        const x = sm[i - 1]!.x + (sm[i]!.x - sm[i - 1]!.x) * t;
+        const z = sm[i - 1]!.z + (sm[i]!.z - sm[i - 1]!.z) * t;
+        assert.ok(Math.hypot(x - rock.x, z - rock.z) > rock.radius * 0.85, "clear of the rock");
+      }
+    }
+    // A corner hugging a rock is kept where cutting it would clip.
+    const tight = smoothRoute([{ x: 0, z: 0 }, { x: 10, z: 3.2 }, { x: 20, z: 0 }], flat, [rock]);
+    assert.ok(tight.some((p) => p.x === 10 && p.z === 3.2), "unsafe corner kept");
+  });
+
+  test("dots are evenly spaced and the wave crest travels rover → beam", () => {
+    const pts = sampleRouteEvenly([{ x: 0, z: 0 }, { x: 30, z: 0 }], 2, 100, 1);
+    assert.equal(pts.length, 15);
+    for (let i = 1; i < pts.length; i++) assert.ok(Math.abs(pts[i]!.x - pts[i - 1]!.x - 2) < 1e-9);
+    const crestAt = (t: number) => {
+      let best = -1;
+      let bestG = 0;
+      for (let s = 0; s <= 60; s += 0.5) if (guideDotWave(t, s, 60) > bestG) (bestG = guideDotWave(t, s, 60)), (best = s);
+      return best;
+    };
+    const a = crestAt(0.8);
+    const b = crestAt(1.3);
+    assert.ok(b > a, `${a} → ${b}`);
+    assert.ok(Math.abs(b - a - 0.5 * GUIDE_WAVE_SPEED) < 1);
+    assert.ok(guideDotWave(0.8, a, 60) > 0.99 && guideDotWave(0.8, a + 20, 60) === 0);
   });
 });
 

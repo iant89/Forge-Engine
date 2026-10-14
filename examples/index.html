@@ -362,7 +362,7 @@
       body.scene-vehicle:not(.scene-mars):not(.scene-amazon) #veh-park { display: flex; }
       /* Latched, not held: lit for as long as the brake is engaged. */
       #veh-park.active { background: rgb(153 27 27 / 0.92); border-color: #fca5a5; transform: scale(0.94); }
-      /* EASY/HARD: the dust storm's difficulty toggle (restarts the run), in the free top-right slot. */
+      /* Storm difficulty (cycles EASY/ADVANCED/EXPERT/UNREAL): the dust storm's difficulty toggle (restarts the run), in the free top-right slot. */
       #storm-difficulty {
         right: 0;
         top: 0;
@@ -691,8 +691,10 @@
         <div class="panel" id="storm-panel">
           <div class="panel-title">Storm Difficulty</div>
           <div class="btn-group">
-            <button id="btn-storm-easy" class="active" aria-pressed="true" title="Easy: a buried rover rocks free with a time penalty, a flipped one is righted (restarts the run)">Easy</button>
-            <button id="btn-storm-hard" aria-pressed="false" title="Hard: buried or flipped sends the rover back to the last beam (restarts the run)">Hard</button>
+            <button id="btn-storm-easy" class="active" aria-pressed="true" title="Easy: closest to real Mars wind; buried rocks free, flipped is righted, blown away respawns (restarts the run)">Easy</button>
+            <button id="btn-storm-advanced" aria-pressed="false" title="Advanced: stronger wind; same forgiving rules as Easy (restarts the run)">Advanced</button>
+            <button id="btn-storm-expert" aria-pressed="false" title="Expert: strong wind; buried or flipped goes back to the last beam, blown away loses the run (restarts the run)">Expert</button>
+            <button id="btn-storm-unreal" aria-pressed="false" title="Unreal: wild wind; Expert rules (restarts the run)">Unreal</button>
           </div>
         </div>
         <div class="panel">
@@ -735,7 +737,7 @@
         <button type="button" id="veh-brake" class="veh-pad veh-brake" aria-label="Brake"><span class="veh-letter">B</span><span class="veh-caption">BRAKE</span></button>
         <button type="button" id="amazon-trim-up" class="veh-pad" aria-label="Trim the outboard leg up"><span class="veh-letter">▲</span><span class="veh-caption">LEG UP</span></button>
         <button type="button" id="amazon-trim-down" class="veh-pad" aria-label="Trim the outboard leg down"><span class="veh-letter">▼</span><span class="veh-caption">LEG DOWN</span></button>
-        <button type="button" id="storm-difficulty" class="veh-pad" aria-label="Toggle storm difficulty (restarts the run)" aria-pressed="false"><span class="veh-letter">E</span><span class="veh-caption">EASY</span></button>
+        <button type="button" id="storm-difficulty" class="veh-pad" aria-label="Cycle storm difficulty: Easy, Advanced, Expert, Unreal (restarts the run)" aria-pressed="false"><span class="veh-letter">E</span><span class="veh-caption">EASY</span></button>
         <button type="button" id="veh-park" class="veh-pad veh-park" aria-label="Toggle parking brake" aria-pressed="false"><span class="veh-letter">P</span><span class="veh-caption">PARK</span></button>
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>
