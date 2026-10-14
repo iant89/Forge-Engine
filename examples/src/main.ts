@@ -228,7 +228,11 @@ async function main(): Promise<void> {
       currentHandle = buildMarsShowcaseScene(engine);
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else if (name === "rover-course") {
-      currentHandle = buildRoverCourseScene(engine);
+      // fe-32: `?tier=` caps the lamp spot shadows (low 1, medium 2, high 4) like the other tier knobs.
+      const forcedTier = new URLSearchParams(window.location.search).get("tier");
+      currentHandle = buildRoverCourseScene(engine, {
+        deviceTier: forcedTier === "low" || forcedTier === "medium" || forcedTier === "high" ? forcedTier : undefined,
+      });
     } else if (name === "skinning") {
       currentHandle = buildSkinningScene(engine);
     } else if (name === "gltf-skin") {

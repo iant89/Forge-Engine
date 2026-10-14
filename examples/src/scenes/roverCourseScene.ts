@@ -13,6 +13,7 @@ import {
   DayNightCycle,
   ElectricMotor,
   type Engine,
+  type DeviceTier,
   type Entity,
   Geometry,
   type GeometrySource,
@@ -27,6 +28,7 @@ import {
   Vehicle,
   VehicleComponent,
   VehicleSystem,
+  classifyDeviceTier,
   createBox,
   createCylinder,
   createPlane,
@@ -34,6 +36,7 @@ import {
   createTorus,
   createVehicleConfig,
   flatGround,
+  readDeviceCapabilityHints,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
@@ -59,6 +62,8 @@ export interface RoverCourseHandle extends DemoSceneHandle {
   retryModelLoad(): void;
   /** Lamp head positions and whether each holds a spot-shadow slot this frame (gates / screenshots). */
   lampState(): { x: number; z: number; castShadow: boolean }[];
+  /** Device tier the scene sized itself for, and how many lamp shadows that tier gets (fe-32). */
+  lampShadowBudget(): { tier: DeviceTier; slots: number };
   /** Park the rover at rest at (x, z) facing `yaw` (gates / screenshots). */
   teleport(x: number, z: number, yaw?: number): boolean;
 }
@@ -194,14 +199,31 @@ export const COURSE_BARRIERS: [number, number][] = [[-7, -8.2], [1, -11.8], [8, 
 /** Tire-stack centres [x, z] outside the corners. */
 export const COURSE_TIRE_STACKS: [number, number][] = [[33, 13], [33, -13], [-33, 13], [-33, -13]];
 
+/**
+ * Lamp spot shadows per device tier (fe-32): each shadowed spot is an extra depth pass over the
+ * course, so phones (low) shadow only the lamp the rover is under, medium the two nearest, and
+ * high every renderer slot. Clamped to MAX_SPOT_SHADOWS.
+ */
+export const LAMP_SHADOWS_FOR_TIER: Readonly<Record<DeviceTier, number>> = {
+  low: 1,
+  medium: 2,
+  high: Math.min(4, MAX_SPOT_SHADOWS),
+};
+/** Street-lamp spot tuning (fe-32): bright enough that the rover's shadow reads at golden hour. */
+export const LAMP_SPOT = { intensity: 110, range: 22 } as const;
+
 /** Indices of the `count` lamps closest to (x, z) on the ground plane; ties keep list order. */
 export function nearestLampIndices(lamps: readonly { x: number; z: number }[], x: number, z: number, count: number): Set<number> {
   const order = lamps.map((l, i) => ({ i, d: (l.x - x) ** 2 + (l.z - z) ** 2 })).sort((a, b) => a.d - b.d || a.i - b.i);
   return new Set(order.slice(0, Math.max(0, count)).map((o) => o.i));
 }
 
-export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): RoverCourseHandle {
+export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb; deviceTier?: DeviceTier | undefined } = {}): RoverCourseHandle {
   const loadModel = dependencies.loadGlb ?? loadGlb;
+  const deviceTier: DeviceTier =
+    dependencies.deviceTier ??
+    classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+  const lampShadowSlots = Math.max(0, Math.min(MAX_SPOT_SHADOWS, LAMP_SHADOWS_FOR_TIER[deviceTier]));
   const gpu = engine.gpu;
   const scene = new Scene({ name: "rover-course" });
   scene.settings.hdr = true;
@@ -312,8 +334,8 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     const spotEntity = scene.createTransformedEntity(`lamp-spot-${k}`, new Vec3(hx, 5.85, hz));
     const spot = new Light();
     spot.kind = "spot";
-    spot.range = 18;
-    spot.intensity = 60;
+    spot.range = LAMP_SPOT.range;
+    spot.intensity = LAMP_SPOT.intensity;
     spot.innerCone = 0.93;
     spot.outerCone = 0.78;
     // Shadowed, but only the lamps nearest the rover keep the flag (see updateLampShadows):
@@ -602,9 +624,9 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
 
   // ---------------------------------------------------------------- lamp shadows
 
-  /** Give the MAX_SPOT_SHADOWS shadow slots to the lamps nearest the rover (they light it). */
+  /** Give the tier's lamp-shadow slots to the lamps nearest the rover (they light it). */
   function updateLampShadows(): void {
-    const near = nearestLampIndices(lampSpots, vehicle.position.x, vehicle.position.z, MAX_SPOT_SHADOWS);
+    const near = nearestLampIndices(lampSpots, vehicle.position.x, vehicle.position.z, lampShadowSlots);
     for (let i = 0; i < lampSpots.length; i++) lampSpots[i]!.light.castShadow = near.has(i);
   }
 
@@ -762,6 +784,7 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     resetCones,
     retryModelLoad,
     lampState: () => lampSpots.map((l) => ({ x: l.x, z: l.z, castShadow: l.light.castShadow })),
+    lampShadowBudget: () => ({ tier: deviceTier, slots: lampShadowSlots }),
     teleport(x: number, z: number, yaw?: number): boolean {
       if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
       vehicle.position.x = x;

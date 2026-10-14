@@ -16,7 +16,7 @@ export const suite = {
 import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
 import { MAX_SPOT_SHADOWS } from "@forge/engine";
-import { nearestLampIndices } from "../../examples/src/scenes/roverCourseScene.js";
+import { LAMP_SHADOWS_FOR_TIER, LAMP_SPOT, nearestLampIndices } from "../../examples/src/scenes/roverCourseScene.js";
 
 const ring = Array.from({ length: 8 }, (_, k) => ({ x: Math.cos((k * Math.PI) / 4) * 40, z: Math.sin((k * Math.PI) / 4) * 40 }));
 
@@ -35,6 +35,21 @@ group("nearestLampIndices", () => {
     assert.equal(nearestLampIndices(ring, 0, 0, 99).size, 8);
     assert.equal(nearestLampIndices(ring, 0, 0, 0).size, 0);
     assert.equal(nearestLampIndices(ring, 0, 0, -1).size, 0);
+  });
+});
+
+group("tier budget", () => {
+  test("low 1, medium 2, high 4 (never past the renderer's slots)", () => {
+    assert.equal(LAMP_SHADOWS_FOR_TIER.low, 1);
+    assert.equal(LAMP_SHADOWS_FOR_TIER.medium, 2);
+    assert.equal(LAMP_SHADOWS_FOR_TIER.high, Math.min(4, MAX_SPOT_SHADOWS));
+    for (const n of Object.values(LAMP_SHADOWS_FOR_TIER)) assert.ok(n >= 1 && n <= MAX_SPOT_SHADOWS);
+  });
+  test("low tier still shadows the lamp the rover is under", () => {
+    for (let k = 0; k < ring.length; k++) assert.deepEqual([...nearestLampIndices(ring, ring[k]!.x, ring[k]!.z, LAMP_SHADOWS_FOR_TIER.low)], [k]);
+  });
+  test("lamps are brighter than the pre-fe-32 60 cd / 18 m", () => {
+    assert.ok(LAMP_SPOT.intensity > 60 && LAMP_SPOT.range > 18);
   });
 });
 
