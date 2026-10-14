@@ -300,6 +300,14 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   seaDecayTau?: number;
   /** Cover in the eye. Default 0.12. */
   eyeCover?: number;
+  /**
+   * Carve the eye into the cloud deck as a local hole with an eyewall ring (the deck's
+   * `hole*` settings) instead of clearing the whole sky while the observer is in the eye.
+   * `scale` shrinks the eye toward the observer for the visual (a real 15–30 km eye under a 1–2 km
+   * deck would sit on the horizon; 0.1–0.2 puts the wall at a readable elevation). Omit to keep
+   * the global-cover behaviour.
+   */
+  eyeHole?: { scale: number; wallScale?: number };
   /** Minimum light factors under the eyewall. Default 0.12 sun / 0.35 ambient. */
   minimumSun?: number;
   minimumAmbient?: number;
@@ -419,7 +427,27 @@ export class CycloneSystem extends SceneObject {
     if (o.driveClouds ?? true) {
       const albedo = 1 - (1 - (o.stormCloudAlbedo ?? 0.28)) * obs.darkness;
       CLOUD_ALBEDO.set(albedo, albedo, albedo * 1.03);
-      scene.setClouds({ coverage: obs.cover, density: 0.6 + 0.4 * obs.cover, windX: obs.wind.x * 0.6, windZ: obs.wind.z * 0.6, albedo: CLOUD_ALBEDO });
+      const hole = o.eyeHole;
+      if (hole && s.eyeRadius > 0) {
+        // The deck stays overcast through the eye; the hole (fixed in the world, following the
+        // storm centre scaled toward the observer) opens the sky overhead and rings it with wall.
+        const k = Math.max(1e-4, hole.scale);
+        const deckCover = cycloneCoverAt(s, p.x, p.z, 1, o);
+        scene.setClouds({
+          coverage: deckCover,
+          density: 0.6 + 0.4 * deckCover,
+          windX: obs.wind.x * 0.6,
+          windZ: obs.wind.z * 0.6,
+          albedo: CLOUD_ALBEDO,
+          holeX: p.x + (s.x - p.x) * k,
+          holeZ: p.z + (s.z - p.z) * k,
+          holeRadius: s.eyeRadius * k,
+          holeWall: Math.max(s.radiusMaxWind - s.eyeRadius, s.eyeRadius * 0.5) * k * (hole.wallScale ?? 1.5),
+          holeStrength: 1,
+        });
+      } else {
+        scene.setClouds({ coverage: obs.cover, density: 0.6 + 0.4 * obs.cover, windX: obs.wind.x * 0.6, windZ: obs.wind.z * 0.6, albedo: CLOUD_ALBEDO, holeStrength: 0 });
+      }
     }
     if (o.driveFog ?? true) {
       const clear = o.fogClear ?? 0.0006;

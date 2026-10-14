@@ -2409,7 +2409,7 @@ export class Renderer implements RenderFrameContext {
     if (sky && clouds.enabled && clouds.coverage > 0.001) {
       const atmo = sky.atmosphere ?? EARTH_ATMOSPHERE;
       this.frameSunDirection(sky, lights, this.scratchDir);
-      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - sky.seaLevel), sky.sunIntensity * sky.exposure);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - sky.seaLevel), sky.sunIntensity * sky.exposure, sky.exposure);
     }
     a.setF32("coverage", clouds.coverage);
     a.setF32("density", clouds.density);
@@ -2428,6 +2428,10 @@ export class Renderer implements RenderFrameContext {
     a.setVec3("ambientTint", this.skyLight.ambientTint[0]!, this.skyLight.ambientTint[1]!, this.skyLight.ambientTint[2]!);
     a.setVec3("cloudAlbedo", clouds.albedo.r, clouds.albedo.g, clouds.albedo.b);
     a.setVec2("wind", clouds.windX, clouds.windZ);
+    a.setF32("holeRadius", clouds.holeRadius);
+    a.setF32("holeWall", clouds.holeWall);
+    a.setF32("holeStrength", clouds.holeStrength);
+    a.setVec2("holeCenter", clouds.holeX, clouds.holeZ);
     // Phase 17.3: the sub-layer stack. The CPU owns the geometry (heights, column weights, drift),
     // so the shader — and the CPU field the tests and tools evaluate — cannot disagree about it.
     // `perFrame.time.x` is the frame clock the deck is drawn at; the shader's own ageing comes from
@@ -2454,7 +2458,7 @@ export class Renderer implements RenderFrameContext {
       const atmo = sky?.atmosphere ?? skySettings.atmosphere ?? EARTH_ATMOSPHERE;
       this.frameSunDirection(sky, lights, this.scratchDir);
       const sunIntensity = (sky?.sunIntensity ?? skySettings.sunIntensity) * (sky?.exposure ?? skySettings.exposure);
-      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - skySettings.seaLevel), sunIntensity);
+      this.skyLight.update(this.scratchDir, atmo, Math.max(0, this.lastCameraPos.y - skySettings.seaLevel), sunIntensity, sky?.exposure ?? skySettings.exposure);
       this.frameSunDirection(sky, lights, this.scratchVec);
     } else {
       this.scratchVec.copyFrom(DEFAULT_SUN);

@@ -11,6 +11,8 @@
  * @covers engine/src/rendering/renderer.ts
  * @covers engine/src/rendering/shaders/water.ts
  * @covers engine/src/rendering/uniforms.ts
+ * @covers engine/src/environment/clouds.ts
+ * @covers engine/src/rendering/shaders/cloudLayer.ts
  * @desc fe-33 ocean, shoreline, cyclone field/system, coastal terrain, wind sway and precipitation direction
  */
 
@@ -27,7 +29,9 @@ export const suite = {
     "engine/src/scene/scene.ts",
     "engine/src/rendering/renderer.ts",
     "engine/src/rendering/shaders/water.ts",
-    "engine/src/rendering/uniforms.ts"
+    "engine/src/rendering/uniforms.ts",
+    "engine/src/environment/clouds.ts",
+    "engine/src/rendering/shaders/cloudLayer.ts"
   ],
   desc: "fe-33 ocean, shoreline, cyclone field/system, coastal terrain, wind sway and precipitation direction",
 };
@@ -78,6 +82,12 @@ import {
   windSway,
   BREAKER_INDEX,
   SHOAL_PEAK,
+  cloudHoleApply,
+  cloudLayerDensityAt,
+  defaultCloudSettings,
+  SkyLightingCache,
+  EARTH_ATMOSPHERE,
+  Vec3,
 } from "@forge/engine";
 
 const ctx = (fixedSteps: number, fixedDt: number) => ({ fixedSteps, fixedDt }) as never;
@@ -264,6 +274,56 @@ group("cyclone system", () => {
     assert.equal(cyclone.observed.phase, "eye");
     assert.ok(cyclone.observed.seaWind > 30, "seek keeps the swell in the eye");
     assert.ok(scene.settings.clouds.coverage < 0.2);
+    assert.equal(scene.settings.clouds.holeStrength, 0, "no eyeHole option: the global clear eye");
+  });
+
+  test("eyeHole keeps the deck overcast and carves a local hole around the scaled eye", () => {
+    const scene = new Scene();
+    const track = new CycloneTrack([
+      { time: 0, x: 0, z: 30000, maxWind: 70, radiusMaxWind: 30000, eyeRadius: 12000, rain: 1 },
+      { time: 20, x: 0, z: 0, maxWind: 70, radiusMaxWind: 30000, eyeRadius: 12000, rain: 1 },
+    ]);
+    const cyclone = new CycloneSystem({ track, observer: () => ({ x: 0, z: 0 }), timeCompression: 600, eyeHole: { scale: 0.5 } });
+    scene.add(cyclone);
+    cyclone.seek(20);
+    const c = scene.settings.clouds;
+    assert.equal(cyclone.observed.phase, "eye");
+    assert.ok(cyclone.observed.cover < 0.2, "the observer still sees a clear eye (lighting)");
+    assert.ok(c.coverage > 0.9, "the deck stays overcast");
+    assert.equal(c.holeStrength, 1);
+    assertCloseTo(c.holeRadius, 6000, 6);
+    assert.ok(c.holeWall > 0);
+    cyclone.seek(0);
+    assertCloseTo(c.holeZ, 15000, 6);
+  });
+});
+
+group("cloud hole", () => {
+  const deck = { ...defaultCloudSettings(), coverage: 0.9, density: 1, holeX: 100, holeZ: -50, holeRadius: 1000, holeWall: 800, holeStrength: 1 };
+  test("strength 0 (the default) leaves every density untouched", () => {
+    const off = { ...deck, holeStrength: 0 };
+    for (const d of [0, 0.3, 0.8]) assert.equal(cloudHoleApply(d, 100, -50, off), d);
+    assert.equal(defaultCloudSettings().holeStrength, 0);
+  });
+  test("clear inside, overcast wall ring, unchanged far away", () => {
+    assert.equal(cloudHoleApply(0.7, 100, -50, deck), 0);
+    assert.equal(cloudHoleApply(0.7, 100 + 600, -50, deck), 0);
+    assertCloseTo(cloudHoleApply(0.1, 100 + 1000 + 400, -50, deck), 1, 9);
+    assert.equal(cloudHoleApply(0.4, 100 + 5000, -50, deck), 0.4);
+    // The layer sampler applies it (the CPU twin of the shader's cloudLayerDensityAt).
+    assert.equal(cloudLayerDensityAt(100, -50, deck, 0, 0), 0);
+  });
+  test("the sky lighting tints follow a changed intensity and exposure without the sun moving", () => {
+    const cache = new SkyLightingCache();
+    const sun = new Vec3(0.3, 0.8, 0.2).normalize();
+    cache.update(sun, EARTH_ATMOSPHERE, 0, 10, 1);
+    const sun0 = cache.sunTint[0]!;
+    const amb0 = cache.ambientTint[0]!;
+    assert.equal(cache.update(sun, EARTH_ATMOSPHERE, 0, 10, 1), false);
+    assert.equal(cache.update(sun, EARTH_ATMOSPHERE, 0, 2, 0.2), true);
+    assertCloseTo(cache.sunTint[0]!, sun0 * 0.2, 9);
+    assertCloseTo(cache.ambientTint[0]!, amb0 * 0.2, 9);
+    assert.equal(cache.evaluations, 1, "rescaling reuses the integrals");
   });
 });
 

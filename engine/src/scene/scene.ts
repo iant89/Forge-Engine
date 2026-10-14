@@ -177,6 +177,17 @@ export interface SceneCloudSettings {
   /** Mean wind advecting the deck, m/s (+x east, +z north); written by `WeatherSystem`. */
   windX: number;
   windZ: number;
+  /**
+   * Local clearing in the deck (fe-33; e.g. a cyclone's eye): inside `holeRadius` of
+   * (`holeX`, `holeZ`) (render-local metres, fixed in the world — it does not drift with the wind)
+   * the deck is cleared, and a `holeWall`-wide ring outside it is forced overcast (the eyewall).
+   * `holeStrength` 0 (default) disables it, so scenes that never set it are unchanged.
+   */
+  holeX: number;
+  holeZ: number;
+  holeRadius: number;
+  holeWall: number;
+  holeStrength: number;
   /** Cloud albedo (linear RGB). */
   albedo: Color;
 }
@@ -394,6 +405,11 @@ export function defaultCloudSettings(): SceneCloudSettings {
     shadowStrength: 1,
     windX: 2,
     windZ: 1,
+    holeX: 0,
+    holeZ: 0,
+    holeRadius: 0,
+    holeWall: 0,
+    holeStrength: 0,
     albedo: new Color(1, 1, 1),
   };
 }
@@ -1086,6 +1102,11 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     if (typeof clouds["surfaceShadows"] === "boolean") t.surfaceShadows = clouds["surfaceShadows"];
     t.windX = num(clouds["windX"], t.windX);
     t.windZ = num(clouds["windZ"], t.windZ);
+    t.holeX = num(clouds["holeX"], t.holeX);
+    t.holeZ = num(clouds["holeZ"], t.holeZ);
+    t.holeRadius = num(clouds["holeRadius"], t.holeRadius);
+    t.holeWall = num(clouds["holeWall"], t.holeWall);
+    t.holeStrength = num(clouds["holeStrength"], t.holeStrength);
     const albedo = vec(clouds["albedo"]);
     if (albedo) t.albedo.set(albedo[0]!, albedo[1]!, albedo[2]!);
   }

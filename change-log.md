@@ -17725,6 +17725,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "fe-33 notes",
     "why": "Session memory"
+  },
+  {
+    "id": "1414",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/clouds.ts",
+    "what": "cloudHoleApply local hole + wall ring; SkyLightingCache rescales tints on intensity/exposure change",
+    "why": "Storm eye as a local hole; sky exposure must dim the deck"
+  },
+  {
+    "id": "1415",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/cloudLayer.ts",
+    "what": "cloudHoleApply in cloudLayerDensityAt",
+    "why": "GPU twin of the CPU hole"
+  },
+  {
+    "id": "1416",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/uniforms.ts",
+    "what": "CloudUniforms pads reused for hole fields (size unchanged)",
+    "why": "Cloud hole uniforms"
+  },
+  {
+    "id": "1417",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Write hole uniforms; pass sky exposure as ambient scale",
+    "why": "Cloud hole + storm darkening"
+  },
+  {
+    "id": "1418",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/scene/scene.ts",
+    "what": "SceneCloudSettings hole fields (default off) + serialize",
+    "why": "Cloud hole settings"
+  },
+  {
+    "id": "1419",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/cyclone.ts",
+    "what": "eyeHole option: overcast deck with a carved eye",
+    "why": "Visible eyewall around a clear eye"
+  },
+  {
+    "id": "1420",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/hurricaneScene.ts",
+    "what": "eyeHole, thinner fog/rain, higher camera, darker storm sky",
+    "why": "PR #105 visual fixes"
+  },
+  {
+    "id": "1421",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/environment/ocean.test.ts",
+    "what": "Cloud hole, eyeHole and sky-lighting rescale tests",
+    "why": "Coverage"
+  },
+  {
+    "id": "1422",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/ENVIRONMENT.md",
+    "what": "Cloud holes and exposure-dimmed deck",
+    "why": "Documentation"
+  },
+  {
+    "id": "1423",
+    "date": "2026-10-14T23:30:00Z",
+    "type": "change",
+    "pr": 105,
+    "branch": "fe-33-hurricane-ocean",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Eye limitation updated for eyeHole",
+    "why": "Honest limits"
   }
 ]
 ```

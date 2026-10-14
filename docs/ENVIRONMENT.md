@@ -498,3 +498,26 @@ chain. The engine ships no plant models — the hurricane demo's palms live in `
 
 Demo: `?scene=hurricane` (`examples/src/scenes/hurricane.ts` is the storm script; `hurricaneScene.ts`
 wires the systems, camera and HUD; `hurricanePalms.ts` is the demo's palm model). `?tier=` forces a tier.
+
+### Local cloud holes (eye of a storm)
+
+`SceneCloudSettings` has a generic local clearing: `holeX`/`holeZ` (render-local metres, fixed in the
+world, not advected by the wind), `holeRadius`, `holeWall` and `holeStrength` (0..1, default 0 =
+off, so every existing scene is unchanged). Inside the radius the deck fades to clear (soft inner
+25 %); across `holeWall` metres outside it the density is raised to the full `density` (a wall
+ring). The shader (`cloudHoleApply` in `cloudLayer.ts`) and the CPU twin (`cloudHoleApply` in
+`clouds.ts`, applied by `cloudLayerDensityAt`) share the formula, so cloud shadows and tools agree.
+The hole needs `coverage > 0` (the deck early-outs when empty).
+
+`CycloneSystem({ eyeHole: { scale, wallScale? } })` drives it: the deck stays overcast through the
+eye and the hole follows the storm centre, scaled toward the observer by `scale` (eye radius ×
+scale; wall = (Rm − eye) × scale × wallScale, default 1.5). The observer's own `cover` (lighting,
+darkness) still opens in the eye.
+
+### Sky exposure dims the deck
+
+`SkyLightingCache.update(sunDir, atmosphere, height, sunIntensity, ambientScale = 1)` now rescales
+its cached sun, ambient and horizon tints when the intensity or `ambientScale` changes (before,
+the change was ignored until the sun moved, and ambient never scaled). The renderer passes the
+sky `exposure` as `ambientScale`, so `setSky({ exposure })` darkens the cloud deck and the water's
+sky tint with the atmosphere — how a storm reaches near-black grey. Exposure 1 is unchanged.

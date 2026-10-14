@@ -237,6 +237,11 @@ export class SkyLightingCache {
   private lastAtmosphere: Readonly<AtmosphereParams> | null = null;
   private lastHeight = NaN;
   private dirty = true;
+  private readonly rawSun = new Float64Array(3);
+  private readonly rawAmbient = new Float64Array(3);
+  private readonly rawHorizon = new Float64Array(3);
+  private lastSunIntensity = NaN;
+  private lastAmbientScale = NaN;
 
   /** Force re-evaluation on the next `update` (atmosphere contents mutated in place). */
   invalidate(): void {
@@ -245,11 +250,19 @@ export class SkyLightingCache {
 
   /**
    * Refresh the tints for a sun direction / atmosphere / observer height. Returns true when the
-   * values were recomputed. `sunIntensity` scales the direct term (the scene's sky exposure).
+   * values changed. `sunIntensity` scales the direct term (the scene's sky exposure);
+   * `ambientScale` (default 1) scales the ambient and horizon terms — the renderer passes the sky exposure, so
+   * dimming the sky (a storm) dims the deck too.
    */
-  update(sunDir: Vec3, atmosphere: Readonly<AtmosphereParams>, observerHeight: number, sunIntensity: number): boolean {
+  update(sunDir: Vec3, atmosphere: Readonly<AtmosphereParams>, observerHeight: number, sunIntensity: number, ambientScale = 1): boolean {
     const moved = this.lastSun.dot(sunDir) < COS_REEVALUATE;
-    if (!this.dirty && !moved && this.lastAtmosphere === atmosphere && this.lastHeight === observerHeight) return false;
+    const rescaled = this.lastSunIntensity !== sunIntensity || this.lastAmbientScale !== ambientScale;
+    if (!this.dirty && !moved && this.lastAtmosphere === atmosphere && this.lastHeight === observerHeight) {
+      // fe-33: a changed intensity/exposure (a storm dimming the sky) rescales the cached tints
+      // without re-running the atmosphere integrals; before, it was ignored until the sun moved.
+      if (rescaled) this.applyScale(sunIntensity, ambientScale);
+      return rescaled;
+    }
     this.dirty = false;
     this.evaluations++;
     this.lastSun.copyFrom(sunDir);
@@ -257,13 +270,21 @@ export class SkyLightingCache {
     this.lastHeight = observerHeight;
     // A scratch model over the *live* params object (never copied): the tints track the scene.
     const model = new AtmosphereModel(atmosphere as AtmosphereParams);
-    model.sunTransmittance(sunDir, observerHeight, this.sunTint, SUN_TINT_SAMPLES);
-    this.sunTint[0]! *= sunIntensity;
-    this.sunTint[1]! *= sunIntensity;
-    this.sunTint[2]! *= sunIntensity;
-    model.skyAmbient(sunDir, observerHeight, this.ambientTint, 12, 8, 4);
-    model.horizonColor(sunDir, observerHeight, this.horizonTint, 8, 0.026, 8, 4);
+    model.sunTransmittance(sunDir, observerHeight, this.rawSun, SUN_TINT_SAMPLES);
+    model.skyAmbient(sunDir, observerHeight, this.rawAmbient, 12, 8, 4);
+    model.horizonColor(sunDir, observerHeight, this.rawHorizon, 8, 0.026, 8, 4);
+    this.applyScale(sunIntensity, ambientScale);
     return true;
+  }
+
+  private applyScale(sunIntensity: number, ambientScale: number): void {
+    this.lastSunIntensity = sunIntensity;
+    this.lastAmbientScale = ambientScale;
+    for (let i = 0; i < 3; i++) {
+      this.sunTint[i] = this.rawSun[i]! * sunIntensity;
+      this.ambientTint[i] = this.rawAmbient[i]! * ambientScale;
+      this.horizonTint[i] = this.rawHorizon[i]! * ambientScale;
+    }
   }
 }
 
@@ -315,6 +336,35 @@ export interface CloudDeckParams {
   surfaceShadows: boolean;
   /** 0..1 multiplier on the shadow's optical depth (0 = shadows off, 1 = physical). */
   shadowStrength: number;
+  /** Optional local clearing + wall ring (fe-33, see `SceneCloudSettings.holeX`). */
+  holeX?: number;
+  holeZ?: number;
+  holeRadius?: number;
+  holeWall?: number;
+  holeStrength?: number;
+}
+
+/**
+ * Apply the deck's local hole (fe-33) to a layer density at world XZ — the twin of the shader's
+ * `cloudHoleApply`. Inside `holeRadius` the density fades to 0 (soft inner 25 %); across a
+ * `holeWall`-wide ring outside it the density is raised toward the full `density` (an eyewall).
+ * Blended by `holeStrength`; strength 0 returns `layerDensity` unchanged.
+ */
+export function cloudHoleApply(layerDensity: number, x: number, z: number, deck: Pick<CloudDeckParams, "density" | "holeX" | "holeZ" | "holeRadius" | "holeWall" | "holeStrength">): number {
+  const strength = clamp(deck.holeStrength ?? 0, 0, 1);
+  const r = Math.max(0, deck.holeRadius ?? 0);
+  if (strength <= 0 || r <= 0) return layerDensity;
+  const w = Math.max(1e-3, deck.holeWall ?? 0);
+  const d = Math.hypot(x - (deck.holeX ?? 0), z - (deck.holeZ ?? 0));
+  const ss = (a: number, b: number, v: number): number => {
+    const t = clamp((v - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
+  const open = ss(r * 0.75, r, d);
+  const ring = ss(r, r + 0.25 * w, d) * (1 - ss(r + 0.6 * w, r + w, d));
+  const full = clamp(deck.density, 0, 1);
+  const carved = Math.max(layerDensity, full * ring) * open;
+  return layerDensity + (carved - layerDensity) * strength;
 }
 
 export function defaultCloudDeckParams(): CloudDeckParams {
@@ -385,7 +435,7 @@ export function cloudLayerDensityAt(x: number, z: number, deck: CloudDeckParams,
   const drift = cloudLayerDrift(deck, i, seconds);
   const n = cloudLayerCount(deck);
   const seed = (deck.seed + clamp(i, 0, n - 1)) | 0;
-  return cloudDensityAt(x + drift.x, z + drift.z, deck.coverage, deck.density, cloudLayerScale(deck, i), seed, footprint);
+  return cloudHoleApply(cloudDensityAt(x + drift.x, z + drift.z, deck.coverage, deck.density, cloudLayerScale(deck, i), seed, footprint), x, z, deck);
 }
 
 /** The deck's column density 0..1: the weighted mean over the sub-layers. */

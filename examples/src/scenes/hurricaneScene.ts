@@ -192,7 +192,10 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     maxWaveHeight: tierValue(tier, { low: 4, medium: 4.5, high: 5 }),
     waveCount: quality.waveCount,
     fogClear: 0.0005,
-    fogStorm: 0.009,
+    // v2: thinner storm fog so the swell field reads out to ~0.5 km from the beach.
+    fogStorm: 0.0045,
+    eyeHole: { scale: 0.5 },
+    stormCloudAlbedo: 0.05,
     seaLevel: 0,
   });
   scene.add(cyclone);
@@ -218,7 +221,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   const rain = new PrecipitationField({
     name: "rain",
     capacity: tierValue(tier, { low: 4096, medium: 8192, high: 12288 }),
-    maxRate: tierValue(tier, { low: 3500, medium: 6000, high: 9000 }),
+    maxRate: tierValue(tier, { low: 2500, medium: 4200, high: 6300 }),
     follow: () => cameraEntity.transform.position,
     drive: () => ({ intensity: cyclone.observed.rain, windX: cyclone.observed.wind.x, windZ: cyclone.observed.wind.z }),
     seed: 33,
@@ -278,12 +281,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     cameraEntity,
     controlsHint: "Drag to look around · Scroll to zoom · Replay in the storm panel",
     camera: {
-      target: new Vec3(0, 2.6, 25),
+      target: new Vec3(0, 3.4, 25),
       distance: 75,
       minDistance: 8,
       maxDistance: 160,
       azimuth: 0,
-      elevation: 0.035,
+      elevation: 0.1,
       minElevation: -0.08,
       maxElevation: 1.2,
       groundClearance: 1.7,
@@ -294,8 +297,9 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       cycle.sunIntensity = SUN_INTENSITY * o.sunFactor * (1 - 0.7 * o.darkness);
       cycle.ambientScale = AMBIENT * o.ambientFactor * (1 - 0.55 * o.darkness);
       cycle.apply();
-      scene.setSky({ exposure: 1 - 0.8 * o.darkness });
-      scene.setExposure(1 - 0.55 * o.darkness);
+      // Near-black storm grey under the eyewall.
+      scene.setSky({ exposure: 1 - 0.97 * o.darkness });
+      scene.setExposure(1 - 0.6 * o.darkness);
       const s = state();
       const u = windUnits(s.maxWind);
       const l = windUnits(s.localWind);

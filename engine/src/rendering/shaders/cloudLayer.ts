@@ -107,8 +107,28 @@ fn cloudLayerIndexAt(height: f32) -> i32 {
   return clamp(index, 0i, i32(cloud.layerCount) - 1);
 }
 
+// fe-33 local clearing (cloudHoleApply): clear inside holeRadius, an overcast ring of holeWall
+// outside it, blended by holeStrength (0 = the deck exactly as before).
+fn cloudHoleApply(d: f32, xz: vec2<f32>) -> f32 {
+  let strength = clamp(cloud.holeStrength, 0.0, 1.0);
+  let r = max(cloud.holeRadius, 0.0);
+  if (strength <= 0.0 || r <= 0.0) {
+    return d;
+  }
+  let w = max(cloud.holeWall, 1e-3);
+  let dist = length(xz - cloud.holeCenter);
+  let open = smoothstep(r * 0.75, r, dist);
+  let ring = smoothstep(r, r + 0.25 * w, dist) * (1.0 - smoothstep(r + 0.6 * w, r + w, dist));
+  let carved = max(d, clamp(cloud.density, 0.0, 1.0) * ring) * open;
+  return mix(d, carved, strength);
+}
+
 // Sub-layer index: the coverage remap on the shader's own value-noise fbm (cloudLayerDensityAt).
 fn cloudLayerDensityAt(xz: vec2<f32>, index: i32, footprint: f32) -> f32 {
+  return cloudHoleApply(cloudLayerDensityRaw(xz, index, footprint), xz);
+}
+
+fn cloudLayerDensityRaw(xz: vec2<f32>, index: i32, footprint: f32) -> f32 {
   let coverage = cloud.coverage;
   if (coverage <= 0.001) {
     return 0.0;

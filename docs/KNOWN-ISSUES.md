@@ -192,8 +192,10 @@ What remains:
   Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
   (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the
   same parameters (`coastalTerrainSource`); shoaling ignores its own gradient in the normals.
-  The cyclone's eye clears the *global* cloud deck (cover is evaluated at one observer point), so
-  the eyewall is not visible as a wall of cloud around an open hole.
+  The cyclone's eye can be carved into the deck as a local hole + eyewall ring (`eyeHole`), but
+  the deck is a flat slab: the wall is a dense ring at deck height, not a towering 3-D wall, and
+  the hole is scaled toward the observer (`eyeHole.scale`) to sit at a readable elevation. Without
+  `eyeHole` the eye still clears the *global* deck.
   CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
   (capability: environment.water)
 
