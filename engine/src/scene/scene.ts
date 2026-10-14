@@ -25,6 +25,7 @@ import type { SystemContext } from "./systems.js";
 import type { Query } from "./stores.js";
 import type { Component } from "./components.js";
 import type { AtmosphereParams } from "../environment/atmosphere.js";
+import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "./shadowLimits.js";
 
 export type FogMode = "none" | "linear" | "exp2" | "height";
 export type ToneMapping = "none" | "reinhard" | "aces" | "filmic";
@@ -49,6 +50,13 @@ export interface SceneShadowSettings {
   mapSize: number;
   /** Maximum distance from the camera that receives directional cascade shadows. */
   distance: number;
+  /**
+   * Spot-light shadow slots per frame (0..MAX_SPOT_SHADOWS, default 4). Each frame the renderer gives
+   * them to the shadow-casting spots whose cone is in the camera frustum and within `distance`,
+   * ranked by brightness × influence area ÷ squared camera distance; the rest get no map that frame.
+   * `RendererOptions.maxSpotShadows` caps it further. Each slot is one extra depth pass.
+   */
+  maxSpotShadows: number;
   /** Reserved for later adaptive shadow work; currently has no effect on map allocation or updates. */
   adaptive: boolean;
   /** Cascade split scheme: 0 = uniform, 1 = logarithmic (practical split blend). */
@@ -342,7 +350,7 @@ export function defaultSceneSettings(): SceneSettings {
       heightFalloff: 0.28,
       heightBase: 0,
     },
-    shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, adaptive: true, splitLambda: 0.6, debugCascades: false },
+    shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, maxSpotShadows: DEFAULT_SPOT_SHADOWS, adaptive: true, splitLambda: 0.6, debugCascades: false },
     sky: defaultSkySettings(),
     clouds: defaultCloudSettings(),
     water: defaultWaterSettings(),
@@ -1064,6 +1072,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.shadow.cascades = Math.min(4, Math.max(1, num(shadow["cascades"], target.shadow.cascades)));
     target.shadow.mapSize = num(shadow["mapSize"], target.shadow.mapSize);
     target.shadow.distance = num(shadow["distance"], target.shadow.distance);
+    target.shadow.maxSpotShadows = Math.min(MAX_SPOT_SHADOWS, Math.max(0, Math.floor(num(shadow["maxSpotShadows"], target.shadow.maxSpotShadows))));
     target.shadow.splitLambda = num(shadow["splitLambda"], target.shadow.splitLambda);
     if (typeof shadow["debugCascades"] === "boolean") target.shadow.debugCascades = shadow["debugCascades"];
   }

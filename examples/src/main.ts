@@ -58,7 +58,7 @@ import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
-import { buildRoverCourseScene } from "./scenes/roverCourseScene.js";
+import { buildRoverCourseScene, type RoverCourseHandle } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
@@ -229,7 +229,11 @@ async function main(): Promise<void> {
       currentHandle = buildMarsShowcaseScene(engine);
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else if (name === "rover-course") {
-      currentHandle = buildRoverCourseScene(engine);
+      // fe-32: `?tier=` caps the lamp spot shadows (low 1, medium 2, high 6) like the other tier knobs.
+      const forcedTier = new URLSearchParams(window.location.search).get("tier");
+      currentHandle = buildRoverCourseScene(engine, {
+        deviceTier: forcedTier === "low" || forcedTier === "medium" || forcedTier === "high" ? forcedTier : undefined,
+      });
     } else if (name === "skinning") {
       currentHandle = buildSkinningScene(engine);
     } else if (name === "gltf-skin") {
@@ -799,6 +803,11 @@ async function main(): Promise<void> {
       currentHandle?.setWheelOverride?.(override),
     /** Mars Dust Storm Survival run snapshot (course, guidance, finale); null on other scenes. */
     marsDustStormState: () => (activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.stormState?.() ?? null : null),
+    /** Rover Course (fe-32): lamp positions + which hold spot-shadow slots; null on other scenes. */
+    roverCourseLamps: () => (activeSceneName === "rover-course" ? (currentHandle as RoverCourseHandle | null)?.lampState?.() ?? null : null),
+    /** Rover Course (fe-32): park the rover at (x, z) facing yaw (screenshots / checks). */
+    roverCourseTeleport: (x: number, z: number, yaw?: number) =>
+      activeSceneName === "rover-course" ? (currentHandle as RoverCourseHandle | null)?.teleport?.(x, z, yaw) ?? false : false,
     /** Hurricane (fe-33): storm clock/phase/category/wind snapshot; null on other scenes. */
     hurricaneState: () => (activeSceneName === "hurricane" ? (currentHandle as HurricaneSceneHandle | null)?.hurricaneState?.() ?? null : null),
     /** Hurricane: jump the storm clock to `seconds` (screenshots / checks); `paused` holds it there. */

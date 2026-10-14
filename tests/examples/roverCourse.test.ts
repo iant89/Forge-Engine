@@ -52,6 +52,9 @@ import {
   type Entity,
   type SystemContext,
   type TaskScheduler,
+  Light,
+  Renderable,
+  MAX_SPOT_SHADOWS,
   VehicleComponent,
 } from "@forge/engine";
 import {
@@ -183,6 +186,17 @@ function withPrefix(scene: { world: { liveEntityIds(): Iterable<number>; name(id
 }
 
 group("Rover Course — proving ground assembly", () => {
+  test("fe-32: every street lamp may cast; the scene's tier budget caps the spot-shadow slots", async () => {
+    const { scene, tick } = await fixture();
+    tick();
+    const spots = withPrefix(scene, "lamp-spot-").map((e) => scene.world.getComponent(e.id, Light)!);
+    assert.equal(spots.length, 8);
+    for (const s of spots) assert.equal(s.kind, "spot");
+    assert.ok(spots.every((s) => s.castShadow), "the renderer, not the scene, picks which lamps get a map");
+    assert.ok(scene.settings.shadow.maxSpotShadows >= 1 && scene.settings.shadow.maxSpotShadows <= MAX_SPOT_SHADOWS);
+    // The rover's own parts are shadow casters, so a lit lamp throws its silhouette.
+    assert.ok(withPrefix(scene, "rover-body-").every((e) => scene.world.getComponent(e.id, Renderable)?.castShadow === true));
+  });
   test("attaches the rover model and builds the track, lamps, cones and obstacles", async () => {
     const { handle, scene } = await fixture();
     assert.equal(handle.courseState().modelLoaded, true, "mocked rover model attaches");

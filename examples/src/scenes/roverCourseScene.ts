@@ -13,10 +13,12 @@ import {
   DayNightCycle,
   ElectricMotor,
   type Engine,
+  type DeviceTier,
   type Entity,
   Geometry,
   type GeometrySource,
   Light,
+  MAX_SPOT_SHADOWS,
   Material,
   Quat,
   ReductionDrive,
@@ -26,6 +28,7 @@ import {
   Vehicle,
   VehicleComponent,
   VehicleSystem,
+  classifyDeviceTier,
   createBox,
   createCylinder,
   createPlane,
@@ -33,6 +36,7 @@ import {
   createTorus,
   createVehicleConfig,
   flatGround,
+  readDeviceCapabilityHints,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
@@ -56,6 +60,10 @@ export interface RoverCourseHandle extends DemoSceneHandle {
   resetCones(): void;
   /** Re-run the GLB fetch after a failure. */
   retryModelLoad(): void;
+  /** Lamp head positions and whether each held a spot-shadow slot in the last frame (gates / screenshots). */
+  lampState(): { x: number; z: number; castShadow: boolean }[];
+  /** Park the rover at rest at (x, z) facing `yaw` (gates / screenshots). */
+  teleport(x: number, z: number, yaw?: number): boolean;
 }
 
 // ---------------------------------------------------------------- track layout
@@ -189,8 +197,25 @@ export const COURSE_BARRIERS: [number, number][] = [[-7, -8.2], [1, -11.8], [8, 
 /** Tire-stack centres [x, z] outside the corners. */
 export const COURSE_TIRE_STACKS: [number, number][] = [[33, 13], [33, -13], [-33, 13], [-33, -13]];
 
-export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): RoverCourseHandle {
+/**
+ * Lamp spot-shadow slots per device tier (fe-32), written to `settings.shadow.maxSpotShadows`: each
+ * shadowed spot is an extra depth pass, so phones (low) get one, medium two, high six. The renderer
+ * hands them to the in-view lamps nearest the chase camera (which rides with the rover).
+ */
+export const LAMP_SHADOWS_FOR_TIER: Readonly<Record<DeviceTier, number>> = {
+  low: 1,
+  medium: 2,
+  high: Math.min(6, MAX_SPOT_SHADOWS),
+};
+/** Street-lamp spot tuning (fe-32): bright enough that the rover's shadow reads at golden hour. */
+export const LAMP_SPOT = { intensity: 240, range: 24 } as const;
+
+export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb; deviceTier?: DeviceTier } = {}): RoverCourseHandle {
   const loadModel = dependencies.loadGlb ?? loadGlb;
+  const deviceTier: DeviceTier =
+    dependencies.deviceTier ??
+    classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+
   const gpu = engine.gpu;
   const scene = new Scene({ name: "rover-course" });
   scene.settings.hdr = true;
@@ -202,6 +227,7 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
   scene.settings.shadow.enabled = true;
   scene.settings.shadow.cascades = 3;
   scene.settings.shadow.distance = 120;
+  scene.settings.shadow.maxSpotShadows = Math.min(MAX_SPOT_SHADOWS, LAMP_SHADOWS_FOR_TIER[deviceTier]);
   scene.settings.shadow.mapSize = 2048;
   scene.setFog("height", { density: 0.003, heightFalloff: 0.08, heightBase: 0 });
   scene.setSky({ quality: "medium", sunDiscIntensity: 120 });
@@ -265,6 +291,7 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
   const headGeo = track(createBox(gpu, { width: 0.34, height: 0.14, depth: 0.8 }));
   const lensGeo = track(createBox(gpu, { width: 0.26, height: 0.05, depth: 0.6 }));
   const LAMP_COUNT = 8;
+  const lampSpots: { light: Light; x: number; z: number }[] = [];
   for (let k = 0; k < LAMP_COUNT; k++) {
     const s = samples[Math.floor((k * samples.length) / LAMP_COUNT)]!;
     // (tz, -tx) is the inward normal on this clockwise loop, so the pole stands at
@@ -300,13 +327,16 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     const spotEntity = scene.createTransformedEntity(`lamp-spot-${k}`, new Vec3(hx, 5.85, hz));
     const spot = new Light();
     spot.kind = "spot";
-    spot.range = 18;
-    spot.intensity = 60;
+    spot.range = LAMP_SPOT.range;
+    spot.intensity = LAMP_SPOT.intensity;
     spot.innerCone = 0.93;
     spot.outerCone = 0.78;
-    spot.castShadow = false;
+    // Every lamp may cast; the renderer gives the tier's slots (shadow.maxSpotShadows) to the
+    // in-view lamps nearest the camera each frame.
+    spot.castShadow = true;
     spot.setColor(1.0, 0.8, 0.58);
     scene.world.addComponent(spotEntity.id, spot);
+    lampSpots.push({ light: spot, x: hx, z: hz });
     spotEntity.transform.lookAt(new Vec3(s.x + s.tx * 0.4, 0, s.z + s.tz * 0.4));
   }
 
@@ -737,6 +767,25 @@ export function buildRoverCourseScene(engine: Engine, dependencies: { loadGlb?: 
     }),
     resetCones,
     retryModelLoad,
+    lampState: () => {
+      const slotted = new Set(engine.renderer?.spotShadowLights() ?? []);
+      return lampSpots.map((l) => ({ x: l.x, z: l.z, castShadow: slotted.has(l.light) }));
+    },
+    teleport(x: number, z: number, yaw?: number): boolean {
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+      vehicle.position.x = x;
+      vehicle.position.z = z;
+      vehicle.velocity.set(0, 0, 0);
+      vehicle.yawRate = 0;
+      vehicle.pitch = 0;
+      vehicle.roll = 0;
+      vehicle.pitchRate = 0;
+      vehicle.rollRate = 0;
+      for (const wheel of vehicle.wheels) wheel.omega = 0;
+      if (yaw !== undefined && Number.isFinite(yaw)) vehicle.yaw = yaw;
+      vehicle.placeOnGround(ground);
+      return true;
+    },
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);

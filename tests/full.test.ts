@@ -80,6 +80,7 @@ export const linkedSuites = [
   ["tests/examples/orbitControls.test.ts", () => import("./examples/orbitControls.test.ts")],
   ["tests/examples/roverArm.test.ts", () => import("./examples/roverArm.test.ts")],
   ["tests/examples/roverCourse.test.ts", () => import("./examples/roverCourse.test.ts")],
+  ["tests/examples/roverCourseLampShadows.test.ts", () => import("./examples/roverCourseLampShadows.test.ts")],
   ["tests/examples/roverGlb.test.ts", () => import("./examples/roverGlb.test.ts")],
   ["tests/examples/roverTools.test.ts", () => import("./examples/roverTools.test.ts")],
   ["tests/examples/skinningScene.test.ts", () => import("./examples/skinningScene.test.ts")],
@@ -98,4 +99,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(94);
+report(95);

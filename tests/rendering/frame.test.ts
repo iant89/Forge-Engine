@@ -94,6 +94,7 @@ import {
   MAX_LIGHTS_PER_FRAME,
   MAX_POINT_SHADOWS,
   MAX_SPOT_SHADOWS,
+  DEFAULT_SPOT_SHADOWS,
   POINT_SHADOW_FACES,
   PerFrameUniforms,
   Profiler,
@@ -400,17 +401,17 @@ group("frame structure", () => {
     await f.dispose();
   });
 
-  test("caps spot maps at four and supports spotlight-only shadow frames", async () => {
+  test("caps spot maps at the default budget (four) and supports spotlight-only shadow frames", async () => {
     const f = await fixture();
     f.scene.settings.hdr = false;
     f.scene.settings.depthPrepass = false;
     f.scene.settings.clusteredLighting = false;
-    for (let i = 0; i < MAX_SPOT_SHADOWS + 1; i++) {
+    for (let i = 0; i < DEFAULT_SPOT_SHADOWS + 1; i++) {
       addSpotLight(f, `capacity-spot-${i}`, new Vec3(0, 4, 2));
     }
     f.renderer.renderScene(f.scene);
     assert.ok(f.renderer.stats.shadowCascades > 0);
-    assert.equal(f.renderer.stats.spotShadowMaps, MAX_SPOT_SHADOWS);
+    assert.equal(f.renderer.stats.spotShadowMaps, DEFAULT_SPOT_SHADOWS);
 
     // Drop the sun after the first frame: the reused cascade array must not leak its old count into a spot-only frame.
     f.mock.passes.length = 0;
@@ -424,22 +425,66 @@ group("frame structure", () => {
       "forge.shadow.spot.3",
       "forge.main",
     ]);
-    assertContains(f.mock.passes[0]!.depthTarget, `256x256x${MAX_SPOT_SHADOWS}`);
+    assertContains(f.mock.passes[0]!.depthTarget, `256x256x${DEFAULT_SPOT_SHADOWS}`);
     assert.equal(f.renderer.stats.shadowCascades, 0);
-    assert.equal(f.renderer.stats.spotShadowMaps, MAX_SPOT_SHADOWS);
+    assert.equal(f.renderer.stats.spotShadowMaps, DEFAULT_SPOT_SHADOWS);
     const shadow = bufferOf(f, "shadow.uniforms");
     assert.equal(shadow.i32[ShadowUniforms.offsetOf("count") >> 2], 0);
-    assert.equal(shadow.i32[ShadowUniforms.offsetOf("spotCount") >> 2], MAX_SPOT_SHADOWS);
+    assert.equal(shadow.i32[ShadowUniforms.offsetOf("spotCount") >> 2], DEFAULT_SPOT_SHADOWS);
     const frame = bufferOf(f, "perframe.uniforms");
     assert.equal(frame.i32[PerFrameUniforms.offsetOf("cascadeCount") >> 2], 0);
     const records = LightBlock.field("lights", "uniform");
     const lights = bufferOf(f, "lights.uniforms");
     const shadowIndexWord = LightUniforms.offsetOf("shadowIndex") >> 2;
     const strideWords = records.stride! / 4;
-    for (let i = 0; i < MAX_SPOT_SHADOWS; i++) {
+    for (let i = 0; i < DEFAULT_SPOT_SHADOWS; i++) {
       assert.equal(lights.i32[records.offset / 4 + (i + 1) * strideWords + shadowIndexWord], i);
     }
-    assert.equal(lights.i32[records.offset / 4 + (MAX_SPOT_SHADOWS + 1) * strideWords + shadowIndexWord], -1);
+    assert.equal(lights.i32[records.offset / 4 + (DEFAULT_SPOT_SHADOWS + 1) * strideWords + shadowIndexWord], -1);
+    await f.dispose();
+  });
+
+  test("shadow.maxSpotShadows raises the spot budget past four; RendererOptions.maxSpotShadows caps it", async () => {
+    const f = await fixture();
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.clusteredLighting = false;
+    f.scene.settings.shadow.maxSpotShadows = 6;
+    for (let i = 0; i < MAX_SPOT_SHADOWS + 1; i++) addSpotLight(f, `budget-spot-${i}`, new Vec3(-2 + i * 0.5, 4, 2));
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.equal(f.renderer.stats.spotShadowMaps, 6);
+    assert.equal(f.renderer.spotShadowLights().length, 6);
+    f.scene.settings.shadow.maxSpotShadows = 99;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.spotShadowMaps, MAX_SPOT_SHADOWS, "clamped to the shader ceiling");
+    f.scene.settings.shadow.maxSpotShadows = 0;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.spotShadowMaps, 0);
+    await f.dispose();
+    const capped = await fixture({ renderer: { maxSpotShadows: 2 } });
+    capped.scene.settings.shadow.maxSpotShadows = 6;
+    for (let i = 0; i < 4; i++) addSpotLight(capped, `capped-spot-${i}`, new Vec3(-1 + i * 0.5, 4, 2));
+    capped.renderer.renderScene(capped.scene);
+    assert.equal(capped.renderer.stats.spotShadowMaps, 2);
+    await capped.dispose();
+  });
+
+  test("spot slots go to in-view spots nearest the camera; off-screen spots get none", async () => {
+    const f = await fixture();
+    f.scene.settings.depthPrepass = false;
+    f.scene.settings.clusteredLighting = false;
+    f.scene.settings.shadow.maxSpotShadows = 1;
+    // Camera at (0,3,-8) looking at the origin. List order puts the far and the hidden spot first.
+    const behind = addSpotLight(f, "behind-spot", new Vec3(0, 4, -40), new Vec3(0, 0, -45));
+    const far = addSpotLight(f, "far-spot", new Vec3(0, 4, 30), new Vec3(0, 0, 30.5));
+    const near = addSpotLight(f, "near-spot", new Vec3(0, 4, 2));
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.deepEqual(f.renderer.spotShadowLights(), [near], "the nearest in-view spot wins the only slot");
+    f.scene.settings.shadow.maxSpotShadows = 3;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.renderer.spotShadowLights(), [near, far], "the spot behind the camera never gets a map");
+    assert.ok(!f.renderer.spotShadowLights().includes(behind));
     await f.dispose();
   });
 

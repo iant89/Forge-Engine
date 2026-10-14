@@ -35,14 +35,14 @@ import { AABB, Frustum } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
-import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
+import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { MS_LUT_TEXTURE_FORMAT } from "./shaders/multiScattering.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
 import { POP_CULL_DISTANCE, POP_CULL_LOD, POPULATION_SHADOW_INDEX_ALIGN } from "./shaders/populationCull.js";
 import type { PopulationShadowCulling } from "../population/cull.js";
 import { GpuPopulationCuller, popcount32 } from "./populationCuller.js";
-import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
+import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, spotBoundingSphere, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import { GpuMultiScattering, MS_SUN_EPSILON, skyMultiScatteringSignatureChanged, writeSkyMultiScatteringSignature } from "./skyMultiScattering.js";
 import {
@@ -87,6 +87,8 @@ export interface RendererOptions {
   shadowMapSize?: number;
   /** Maximum bytes for the complete depth atlas; resolution halves until all active layers fit. */
   shadowMemoryBudget?: number;
+  /** Spot-shadow slot cap (0..MAX_SPOT_SHADOWS); the scene's `shadow.maxSpotShadows` asks, this caps. */
+  maxSpotShadows?: number;
   /** Cascade count cap (1..4); the scene's `shadow.cascades` asks, this caps. */
   shadowCascades?: number;
   /** Master switches from the quality profile. `false` disables regardless of scene settings. */
@@ -259,7 +261,7 @@ export interface RenderStats {
   shadowInstancesCulled: number;
   /** Directional cascade maps active this frame. */
   shadowCascades: number;
-  /** Spot-light shadow maps active this frame (maximum {@link MAX_SPOT_SHADOWS}). */
+  /** Spot-light shadow maps active this frame (at most `settings.shadow.maxSpotShadows`, ceiling {@link MAX_SPOT_SHADOWS}). */
   spotShadowMaps: number;
   /** Point-light shadow cubes active this frame (maximum {@link MAX_POINT_SHADOWS}); each is six atlas layers. */
   pointShadowMaps: number;
@@ -345,7 +347,7 @@ export interface RenderStats {
   pipelineFailures: number;
 }
 
-/** Mask-bit base of the point lights' cube faces (cascades 0..3, spots 4..7, then six bits per point light). */
+/** Mask-bit base of the point lights' cube faces (cascades 0..3, then MAX_SPOT_SHADOWS spot bits, then six bits per point light). */
 const POINT_MASK_BASE = MAX_CASCADES + MAX_SPOT_SHADOWS;
 
 /** Bind group the skinned pipeline layouts carry the joint palette in (see `shaders/standard.ts`). */
@@ -898,6 +900,9 @@ export class Renderer implements RenderFrameContext {
     light: null,
   }));
   private readonly spotShadowIndices = new Map<Light, number>();
+  private readonly spotCandidates: { light: Light; score: number }[] = [];
+  private readonly scratchSpotPos = new Vec3();
+  private readonly scratchSpotCentre = new Vec3();
   private readonly pointShadows: PointShadowState[] = Array.from({ length: MAX_POINT_SHADOWS }, () => ({
     faces: createPointShadowFaces(),
     frustums: Array.from({ length: POINT_SHADOW_FACES }, () => new Frustum()),
@@ -1234,12 +1239,12 @@ export class Renderer implements RenderFrameContext {
     const requestedShadowSize = clampShadowSize(Math.min(settings.shadow.mapSize, this.options.shadowMapSize ?? settings.shadow.mapSize));
     const shadowDistance = Math.max(camera.near + 1e-3, Math.min(settings.shadow.distance, camera.far));
     let shadowSize = requestedShadowSize;
-    let spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize) : 0;
+    let spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize, shadowDistance) : 0;
     let pointShadowCount = shadowsWanted ? this.preparePointShadows(scene, lights, shadowSize) : 0;
     const shadowLayers = cascadeCount + spotShadowCount + pointShadowCount * POINT_SHADOW_FACES;
     shadowSize = fitShadowMapSize(requestedShadowSize, shadowLayers, this.options.shadowMemoryBudget);
     if (shadowsWanted && shadowSize !== requestedShadowSize) {
-      spotShadowCount = this.prepareSpotShadows(scene, lights, shadowSize);
+      spotShadowCount = this.prepareSpotShadows(scene, lights, shadowSize, shadowDistance);
       pointShadowCount = this.preparePointShadows(scene, lights, shadowSize);
     }
     if (!shadowsWanted) {
@@ -2792,14 +2797,34 @@ export class Renderer implements RenderFrameContext {
     return slot;
   }
 
-  private prepareSpotShadows(scene: Scene, lights: readonly Light[], mapSize: number): number {
+  private prepareSpotShadows(scene: Scene, lights: readonly Light[], mapSize: number, shadowDistance: number): number {
     this.spotShadowIndices.clear();
+    for (const state of this.spotShadows) state.light = null;
+    const budget = this.spotShadowBudget(scene);
+    if (budget === 0) return 0;
+    // Only spots that can matter this frame compete: the cone's bounding sphere must touch the camera
+    // frustum and come within the shadow distance. Survivors rank by brightness × influence area
+    // divided by squared camera distance, so the near, in-view lamps win the slots.
+    const camPos = this.lastCameraPos;
+    const ranked = this.spotCandidates;
+    ranked.length = 0;
+    for (const light of lights) {
+      if (light.kind !== "spot" || !light.castShadow || !light.affectScene) continue;
+      const pos = scene.world.worldPosition(light.entity, this.scratchSpotPos);
+      const radius = spotBoundingSphere(light.range, spotOuterConeCos(light));
+      const d = light.direction;
+      this.scratchSpotCentre.set(pos.x + d.x * radius, pos.y + d.y * radius, pos.z + d.z * radius);
+      if (!this.frustum.intersectsSphere(this.scratchSpotCentre, radius)) continue;
+      const dx = this.scratchSpotCentre.x - camPos.x, dy = this.scratchSpotCentre.y - camPos.y, dz = this.scratchSpotCentre.z - camPos.z;
+      const gap = Math.max(0, Math.hypot(dx, dy, dz) - radius);
+      if (!(gap <= shadowDistance)) continue;
+      const toCamera = Math.max(1, Math.hypot(pos.x - camPos.x, pos.y - camPos.y, pos.z - camPos.z));
+      ranked.push({ light, score: shadowLightPriority(light) / (toCamera * toCamera) });
+    }
+    ranked.sort((a, b) => b.score - a.score);
     let count = 0;
-    const candidates = lights
-      .filter((light) => light.kind === "spot" && light.castShadow && light.affectScene)
-      .sort((a, b) => shadowLightPriority(b) - shadowLightPriority(a));
-    for (const light of candidates) {
-      if (count >= MAX_SPOT_SHADOWS) break;
+    for (const { light } of ranked) {
+      if (count >= budget) break;
       const state = this.spotShadows[count]!;
       state.light = null;
       scene.world.worldPosition(light.entity, state.position);
@@ -2810,6 +2835,22 @@ export class Renderer implements RenderFrameContext {
       count++;
     }
     return count;
+  }
+
+  /** This frame's spot-shadow slot budget: the scene's `shadow.maxSpotShadows`, capped by the profile. */
+  private spotShadowBudget(scene: Scene): number {
+    const asked = Number.isFinite(scene.settings.shadow.maxSpotShadows) ? Math.floor(scene.settings.shadow.maxSpotShadows) : DEFAULT_SPOT_SHADOWS;
+    const cap = this.options.maxSpotShadows ?? MAX_SPOT_SHADOWS;
+    return Math.max(0, Math.min(MAX_SPOT_SHADOWS, asked, Number.isFinite(cap) ? Math.floor(cap) : MAX_SPOT_SHADOWS));
+  }
+
+  /**
+   * The spot lights holding a shadow slot in the last rendered frame, in slot order (gates, demos).
+   */
+  spotShadowLights(): Light[] {
+    const out: Light[] = [];
+    for (const [light, index] of this.spotShadowIndices) out[index] = light;
+    return out;
   }
 
   /**
