@@ -328,6 +328,16 @@ export class WaterSurface extends SceneObject {
     if (!scene) return;
     const seconds = context.fixedSteps * context.fixedDt;
     if (seconds !== 0) scene.settings.water.time += seconds;
+    // fe-34: the surface follows the live mean level (surge, tide) — before, the mesh stayed at
+    // the attach level and only the shading saw `water.level` move.
+    if (this.entityId !== 0) {
+      const facade = scene.world.facade(this.entityId as never);
+      const level = scene.settings.water.level;
+      if (facade && facade.transform.position.y !== level) {
+        const p = facade.transform.position;
+        facade.transform.position = new Vec3(p.x, level, p.z);
+      }
+    }
   }
 
   private get water(): SceneWaterSettings | null {

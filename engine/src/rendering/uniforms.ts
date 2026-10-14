@@ -141,7 +141,7 @@ export const ShadowPassUniforms = new StructDef("ShadowPassUniforms", [
   { name: "_pad1", type: i32 },
   { name: "_pad2", type: i32 },
   { name: "fadeCamera", type: vec3, comment: "the main camera, render-local: population distance fade (fe-31) shrinks casters exactly as forge.main shrinks them" },
-  { name: "billow", type: f32, comment: "fe-34 0..1 cumuliform structure kept even when overcast (0 = flat 8b deck)" },
+  { name: "_pad3", type: f32 },
 ]);
 
 /**
@@ -345,7 +345,7 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "holeWall", type: f32, comment: "width of the forced-overcast ring outside the clearing" },
   { name: "holeStrength", type: f32, comment: "0..1 blend of the clearing (0 = deck unchanged)" },
   { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
-  { name: "_pad3", type: f32 },
+  { name: "billow", type: f32, comment: "fe-34 0..1 cumuliform structure kept even when overcast (0 = flat 8b deck)" },
   { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
   { name: "_pad4", type: f32 },
   { name: "cloudAlbedo", type: vec3 },

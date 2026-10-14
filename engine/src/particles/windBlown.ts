@@ -52,7 +52,7 @@ export function windBlownPreset(material: WindBlownMaterial): WindBlownLook {
     case "sand":
       return { color: { r: 0.72, g: 0.62, b: 0.45, a: 0.6 }, size: 0.025, sizeEnd: 0.02, lifeMin: 0.6, lifeMax: 1.3, heightMin: 0, heightMax: 0.8, windCoupling: 0.55, lift: 0.8, gravity: -6, stretch: 3, turbulence: 0.3 };
     case "mist":
-      return { color: { r: 0.7, g: 0.74, b: 0.78, a: 0.18 }, size: 1.4, sizeEnd: 4, lifeMin: 1.5, lifeMax: 3, heightMin: 0, heightMax: 14, windCoupling: 0.95, lift: 0, gravity: 0, stretch: 6, turbulence: 0.25 };
+      return { color: { r: 0.7, g: 0.74, b: 0.78, a: 0.07 }, size: 2.5, sizeEnd: 6, lifeMin: 1.5, lifeMax: 3, heightMin: 0, heightMax: 12, windCoupling: 0.95, lift: 0, gravity: 0, stretch: 2.5, turbulence: 0.25 };
     case "debris":
       return { color: { r: 0.32, g: 0.36, b: 0.22, a: 0.95 }, size: 0.08, sizeEnd: 0.07, lifeMin: 1, lifeMax: 2, heightMin: 0.3, heightMax: 6, windCoupling: 0.6, lift: 3, gravity: -3, stretch: 1, turbulence: 1.2 };
   }

@@ -262,7 +262,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   const windScratch = { x: 0, z: 0, speed: 0 };
   // fe-34: houses behind the dunes; palms behind the dunes, around the houses and a few on the
   // back beach.
-  const houses = new BeachHouses({ name: "houses", gpu: engine.gpu, sites: houseSites(HURRICANE_COAST, tierValue(tier, { low: 4, medium: 6, high: 7 }), 260, 122) });
+  const houses = new BeachHouses({ name: "houses", gpu: engine.gpu, sites: houseSites(HURRICANE_COAST, tierValue(tier, { low: 5, medium: 7, high: 9 }), 520, 122) });
   scene.add(houses);
   const sites = [
     ...palmSites(HURRICANE_COAST, tierValue(tier, { low: 6, medium: 9, high: 12 }), 300, 118, 170, 9),
@@ -347,7 +347,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       scale: () => (seaLevel() > groundHeight(camPos().x, camPos().z) - 0.2 ? 0 : 1 - 0.7 * cyclone.observed.rain),
     }),
     blown("debris", { follow: () => ({ x: camPos().x, y: 0, z: camPos().z - 60 }), baseY: () => groundHeight(camPos().x, camPos().z - 60) + 3, from: 28, span: 30, capacity: Math.round(1024 * fx), rate: 240 * fx, radius: 90, seed: 84 }),
-    blown("mist", { follow: camPos, baseY: seaLevel, from: 24, span: 40, capacity: Math.round(2048 * fx), rate: 500 * fx, radius: 90, seed: 85, scale: () => 0.4 + 0.6 * cyclone.observed.rain }),
+    blown("mist", { follow: () => ({ x: camPos().x, y: 0, z: camPos().z + 120 }), baseY: seaLevel, from: 24, span: 40, capacity: Math.round(1024 * fx), rate: 220 * fx, radius: 120, seed: 85, scale: () => 0.4 + 0.6 * cyclone.observed.rain }),
   ];
 
   // fe-34: lightning (engine) — strike rate follows the storm's convection at the viewer; bolts
@@ -420,8 +420,9 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   scene.add(spoutVisual);
 
   // Camera buffeting: the controller orbits a target that the gusts shove about.
-  // The viewer stands on a deck behind the houses, looking over the dunes and the beach to sea.
-  const BASE_TARGET = new Vec3(0, 2, 20);
+  // The viewer stands high on the back beach looking up the coast: sea and surf on the right,
+  // the curving beach, dunes, houses and palms on the left — the surge visibly floods toward them.
+  const BASE_TARGET = new Vec3(80, 3, -10);
   const buffet = { x: 0, y: 0, z: 0, roll: 0, pitch: 0 };
   let realTime = 0;
   const compass = (x: number, z: number): string => {
@@ -520,11 +521,11 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     followTarget: () => ({ x: BASE_TARGET.x + buffet.x * 6, y: BASE_TARGET.y + buffet.y * 6, z: BASE_TARGET.z + buffet.z * 3 }),
     camera: {
       target: BASE_TARGET.clone(),
-      distance: 185,
+      distance: 120,
       minDistance: 8,
       maxDistance: 320,
-      azimuth: 0,
-      elevation: 0.06,
+      azimuth: 1.05,
+      elevation: 0.09,
       minElevation: -0.08,
       maxElevation: 1.2,
       groundClearance: 1.7,
@@ -569,12 +570,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     },
     forceWaterspout(): boolean {
       // Close enough to frame from the beach: ~600 m out, a little up the coast.
-      const sp = spouts.spawn({ x: -180, z: 620 }, 40);
+      const sp = spouts.spawn({ x: 260, z: 1700 }, 40);
       sp.age = sp.life * 0.4;
       return true;
     },
     forceStrike(hold = false): boolean {
-      const c = lightning.trigger(new Vec3(260, 0, 700), 1.4);
+      const c = lightning.trigger(new Vec3(-220, 0, 900), 1.5);
       if (hold) {
         c.age = 0.02;
         lightning.paused = true;

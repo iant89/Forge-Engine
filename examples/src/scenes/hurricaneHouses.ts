@@ -46,7 +46,8 @@ export function houseSites(coast: CoastalTerrainParams, count: number, width: nu
   const dz = coast.directionZ / len;
   const out: HouseSite[] = [];
   for (let i = 0; i < count; i++) {
-    const c = ((i + 0.5 + (hash1(i, seed) - 0.5) * 0.4) / count - 0.5) * width;
+    // Evenly spread with jitter, leaving a gap on the centre line (the view lane to the sea).
+    const c = ((i + 0.5 + (hash1(i, seed) - 0.5) * 0.3) / count - 0.5) * width;
     const a = along + shoreCurveOffset(coast, c) + (hash1(i + 40, seed) - 0.5) * 14;
     const x = coast.originX + dx * a - dz * c;
     const z = coast.originZ + dz * a + dx * c;
