@@ -220,8 +220,10 @@ export function findRoute(x0: number, z0: number, x1: number, z1: number, ground
   const out: RoutePoint[] = [cells[0]!];
   let i = 0;
   while (i < cells.length - 1) {
-    let j = cells.length - 1;
-    while (j > i + 1 && !routeClear(cells[i]!.x, cells[i]!.z, cells[j]!.x, cells[j]!.z, ground, obstacles, options)) j--;
+    // Greedy forward scan (stop at the first blocked shortcut): O(cells) segment checks per
+    // corner instead of re-testing every far cell from the goal backwards.
+    let j = i + 1;
+    while (j + 1 < cells.length && routeClear(cells[i]!.x, cells[i]!.z, cells[j + 1]!.x, cells[j + 1]!.z, ground, obstacles, options)) j++;
     out.push(cells[j]!);
     i = j;
   }
