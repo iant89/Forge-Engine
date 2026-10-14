@@ -137,12 +137,24 @@ fn cloudLayerDensityRaw(xz: vec2<f32>, index: i32, footprint: f32) -> f32 {
   let scale = cloudLayerScaleOf(index);
   let f = cloudFbm((xz + layer.xy) * scale, cloud.seed + f32(index), footprint * scale);
   let density = clamp(cloud.density, 0.0, 1.0);
-  if (coverage >= 1.0) {
-    return density;
+  var base = density;
+  if (coverage < 1.0) {
+    let edge0 = 1.0 - coverage - 0.15;
+    let edge1 = 1.0 - coverage + 0.25;
+    base = smoothstep(edge0, edge1, f) * density;
   }
-  let edge0 = 1.0 - coverage - 0.15;
-  let edge1 = 1.0 - coverage + 0.25;
-  return smoothstep(edge0, edge1, f) * density;
+  return cloudBillow(base, f);
+}
+
+// fe-34 billows (cloudBillowApply): keep puffy structure in the noise even when the deck is
+// overcast, so a storm deck reads as lumpy cumuliform masses instead of a flat sheet.
+fn cloudBillow(base: f32, f: f32) -> f32 {
+  let b = clamp(cloud.billow, 0.0, 1.0);
+  if (b <= 0.0) {
+    return base;
+  }
+  let puffs = smoothstep(0.22, 0.78, f);
+  return base * (1.0 - b * 0.75 * (1.0 - puffs * puffs));
 }
 
 // The deck's column density: the weighted mean over the stack (cloudDeckColumnAt).
@@ -256,7 +268,10 @@ fn cloudDeck(dir: vec3<f32>, sunDir: vec3<f32>, footprint: f32) -> vec4<f32> {
     let sunPath = cloudDeckShadowTau(xz, layer.z, sunDir, layerFootprint);
     let transmitted = 0.25 + 0.75 * exp(-2.5 * (column + sunPath));
     let alpha = (1.0 - exp(-3.0 * column)) * smoothstep(0.005, 0.08, dir.y);
-    radiance += transmittance * alpha * cloud.cloudAlbedo * (cloud.sunTint * transmitted + cloud.ambientTint) * silver;
+    // fe-34 billow shading: dense cores darker (storm bases), thin puff edges brighter.
+    let fullness = clamp(column / max(layer.w * clamp(cloud.density, 0.0, 1.0), 1e-3), 0.0, 1.0);
+    let billowShade = mix(1.0, 1.45 - 0.95 * fullness * fullness, clamp(cloud.billow, 0.0, 1.0));
+    radiance += transmittance * alpha * cloud.cloudAlbedo * (cloud.sunTint * transmitted + cloud.ambientTint) * silver * billowShade;
     transmittance *= 1.0 - alpha;
     if (transmittance <= 0.002) {
       break;

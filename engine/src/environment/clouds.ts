@@ -148,16 +148,31 @@ export function cloudFieldAt(x: number, z: number, scale: number, seed: number, 
  * tracks `coverage`. The remap window slides with the coverage — for a fixed noise value the
  * density is non-decreasing in coverage, which is what makes the slider honest.
  */
-export function cloudDensityAt(x: number, z: number, coverage: number, density: number, scale: number, seed: number, footprint = 0): number {
+export function cloudDensityAt(x: number, z: number, coverage: number, density: number, scale: number, seed: number, footprint = 0, billow = 0): number {
   const c = clamp(coverage, 0, 1);
   if (c <= 0) return 0;
-  if (c >= 1) return clamp(density, 0, 1);
+  if (c >= 1 && !(billow > 0)) return clamp(density, 0, 1);
   const f = cloudFieldAt(x, z, scale, seed, footprint);
-  const edge0 = 1 - c - 0.15;
-  const edge1 = 1 - c + 0.25;
-  const t = clamp((f - edge0) / (edge1 - edge0), 0, 1);
-  const smooth = t * t * (3 - 2 * t);
-  return smooth * clamp(density, 0, 1);
+  let base = clamp(density, 0, 1);
+  if (c < 1) {
+    const edge0 = 1 - c - 0.15;
+    const edge1 = 1 - c + 0.25;
+    const t = clamp((f - edge0) / (edge1 - edge0), 0, 1);
+    base *= t * t * (3 - 2 * t);
+  }
+  return cloudBillowApply(base, f, billow);
+}
+
+/**
+ * fe-34: the shader's `cloudBillow` — keeps puffy structure (noise value `f`) in a density even
+ * when the deck is overcast. `billow` 0 returns `base` unchanged.
+ */
+export function cloudBillowApply(base: number, f: number, billow: number): number {
+  const b = clamp(billow, 0, 1);
+  if (b <= 0) return base;
+  const t = clamp((f - 0.22) / 0.56, 0, 1);
+  const puffs = t * t * (3 - 2 * t);
+  return base * (1 - b * 0.75 * (1 - puffs * puffs));
 }
 
 /**
@@ -336,6 +351,8 @@ export interface CloudDeckParams {
   surfaceShadows: boolean;
   /** 0..1 multiplier on the shadow's optical depth (0 = shadows off, 1 = physical). */
   shadowStrength: number;
+  /** fe-34 cumuliform structure 0..1 (see `SceneCloudSettings.billow`). */
+  billow?: number;
   /** Optional local clearing + wall ring (fe-33, see `SceneCloudSettings.holeX`). */
   holeX?: number;
   holeZ?: number;
@@ -435,7 +452,7 @@ export function cloudLayerDensityAt(x: number, z: number, deck: CloudDeckParams,
   const drift = cloudLayerDrift(deck, i, seconds);
   const n = cloudLayerCount(deck);
   const seed = (deck.seed + clamp(i, 0, n - 1)) | 0;
-  return cloudHoleApply(cloudDensityAt(x + drift.x, z + drift.z, deck.coverage, deck.density, cloudLayerScale(deck, i), seed, footprint), x, z, deck);
+  return cloudHoleApply(cloudDensityAt(x + drift.x, z + drift.z, deck.coverage, deck.density, cloudLayerScale(deck, i), seed, footprint, deck.billow ?? 0), x, z, deck);
 }
 
 /** The deck's column density 0..1: the weighted mean over the sub-layers. */

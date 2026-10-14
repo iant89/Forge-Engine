@@ -141,7 +141,7 @@ export const ShadowPassUniforms = new StructDef("ShadowPassUniforms", [
   { name: "_pad1", type: i32 },
   { name: "_pad2", type: i32 },
   { name: "fadeCamera", type: vec3, comment: "the main camera, render-local: population distance fade (fe-31) shrinks casters exactly as forge.main shrinks them" },
-  { name: "_pad3", type: f32 },
+  { name: "billow", type: f32, comment: "fe-34 0..1 cumuliform structure kept even when overcast (0 = flat 8b deck)" },
 ]);
 
 /**

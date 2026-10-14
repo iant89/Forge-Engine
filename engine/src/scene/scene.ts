@@ -196,6 +196,12 @@ export interface SceneCloudSettings {
   holeRadius: number;
   holeWall: number;
   holeStrength: number;
+  /**
+   * fe-34: 0..1 cumuliform "billow" — keeps puffy noise structure (and shades dense cores darker,
+   * thin edges brighter) even at full coverage, so a storm deck reads as lumpy masses. 0 (default)
+   * is the flat Phase 8b/17.3 deck.
+   */
+  billow: number;
   /** Cloud albedo (linear RGB). */
   albedo: Color;
 }
@@ -430,6 +436,7 @@ export function defaultCloudSettings(): SceneCloudSettings {
     holeRadius: 0,
     holeWall: 0,
     holeStrength: 0,
+    billow: 0,
     albedo: new Color(1, 1, 1),
   };
 }
@@ -1128,6 +1135,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.holeRadius = num(clouds["holeRadius"], t.holeRadius);
     t.holeWall = num(clouds["holeWall"], t.holeWall);
     t.holeStrength = num(clouds["holeStrength"], t.holeStrength);
+    t.billow = num(clouds["billow"], t.billow);
     const albedo = vec(clouds["albedo"]);
     if (albedo) t.albedo.set(albedo[0]!, albedo[1]!, albedo[2]!);
   }

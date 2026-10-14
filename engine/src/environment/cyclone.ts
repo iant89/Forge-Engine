@@ -262,6 +262,44 @@ export interface CycloneObserverSample {
   category: number;
   /** 0..1 how dark the sky overhead is (drives cloud albedo + fog colour; hosts can dim lights). */
   darkness: number;
+  /** fe-34: wind set-up (+) / set-down (−) of the sea at the coast, metres (see `coast`). */
+  setup: number;
+  /** fe-34: 0..1 gust strength right now (smooth noise × `gustiness`); 0 without gustiness. */
+  gust: number;
+  /** fe-34: instantaneous wind speed including the gust (m/s) — what palms, spray and the camera feel. */
+  gustSpeed: number;
+}
+
+/**
+ * fe-34: smooth deterministic gust signal 0..1 for a clock in seconds — two incommensurate value
+ * noises (lulls and bursts every few seconds), sharpened so gusts arrive as squalls.
+ */
+export function cycloneGustSignal(seconds: number, seed = 1): number {
+  const n = (t: number, s: number): number => {
+    const i = Math.floor(t);
+    const f = t - i;
+    const h = (k: number): number => {
+      const v = Math.sin(k * 127.1 + s * 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const u = f * f * (3 - 2 * f);
+    return h(i) * (1 - u) + h(i + 1) * u;
+  };
+  const g = 0.6 * n(seconds * 0.45, seed) + 0.4 * n(seconds * 1.3, seed + 9);
+  return clamp((g - 0.35) / 0.55, 0, 1) ** 1.5;
+}
+
+/**
+ * fe-34: wind set-up/set-down at a coast (m). `onshoreX/Z` is the unit direction toward land; the
+ * onshore wind component piles water up against the coast (+), an offshore wind drives it away
+ * (−, the "water pulls back" before a landfall on the offshore-wind side). Quadratic in wind
+ * (stress ∝ U·|U|) with `coefficient` metres per (m/s)², clamped to ±`limit`.
+ */
+export function cycloneWindSetup(windX: number, windZ: number, onshoreX: number, onshoreZ: number, coefficient: number, limit = 3): number {
+  const len = Math.hypot(onshoreX, onshoreZ) || 1;
+  const along = (windX * onshoreX + windZ * onshoreZ) / len;
+  const speed = Math.hypot(windX, windZ);
+  return clamp(coefficient * along * speed, -limit, limit);
 }
 
 const CLOUD_ALBEDO = new Color(1, 1, 1);
@@ -308,6 +346,22 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
    * the global-cover behaviour.
    */
   eyeHole?: { scale: number; wallScale?: number };
+  /**
+   * fe-34 coast for wind set-up/set-down: `onshoreX/Z` points toward land, `coefficient` in m per
+   * (m/s)² (≈ 4e-4 gives ~−1 m in a 50 m/s offshore wind), `limit` caps it. Omit for none.
+   */
+  coast?: { onshoreX: number; onshoreZ: number; coefficient: number; limit?: number };
+  /** fe-34: 0..1 gust amplitude (gust speed = wind × (1 + 0.45·gustiness·gust)). Default 0 (steady). */
+  gustiness?: number;
+  /**
+   * fe-34 cloud ceiling: deck height (m) in clear air and under the worst of the storm (the ceiling
+   * lowers as it darkens). Omit to leave `clouds.height` alone.
+   */
+  ceiling?: { clear: number; storm: number };
+  /** fe-34: extra sub-layer drift spread in the storm (fast low scud). Default 0. */
+  scud?: number;
+  /** fe-34: cloud `billow` in clear air → storm (cumuliform → towering, see SceneCloudSettings). */
+  billow?: { clear: number; storm: number };
   /** Minimum light factors under the eyewall. Default 0.12 sun / 0.35 ambient. */
   minimumSun?: number;
   minimumAmbient?: number;
@@ -338,7 +392,17 @@ export class CycloneSystem extends SceneObject {
     surge: 0,
     category: -1,
     darkness: 0,
+    setup: 0,
+    gust: 0,
+    gustSpeed: 0,
   };
+  /**
+   * fe-34: a scripted sea-level offset (m) added to the surge and set-up — the host's tide control
+   * (e.g. an astronomical tide or a drawdown beat). Default 0.
+   */
+  tideOffset = 0;
+  /** Real (unscaled) seconds the system has run — the gust clock. */
+  clock = 0;
   ocean: OceanState | null = null;
   private seaWind = 0;
   private seaDir = 0;
@@ -384,6 +448,7 @@ export class CycloneSystem extends SceneObject {
   override update(context: SystemContext): void {
     const dt = context.fixedSteps * context.fixedDt;
     if (!this.paused && dt > 0) this.time = Math.min(this.track.duration, this.time + dt * this.timeScale);
+    if (dt > 0) this.clock += dt;
     this.evaluate(this.paused ? 0 : dt * this.timeScale);
   }
 
@@ -404,6 +469,9 @@ export class CycloneSystem extends SceneObject {
     obs.sunFactor = light.sun * (1 - 0.5 * obs.rain);
     obs.ambientFactor = light.ambient;
     obs.surge = s.surge * Math.exp(-Math.pow(obs.distance / (2.5 * s.radiusMaxWind), 2));
+    obs.setup = o.coast ? cycloneWindSetup(obs.wind.x, obs.wind.z, o.coast.onshoreX, o.coast.onshoreZ, o.coast.coefficient, o.coast.limit ?? 3) : 0;
+    obs.gust = (o.gustiness ?? 0) > 0 ? cycloneGustSignal(this.clock, 5) * clamp(o.gustiness ?? 0, 0, 1) : 0;
+    obs.gustSpeed = obs.wind.speed * (1 + 0.45 * obs.gust);
     // The sea follows the wind with a lag; swell radiates away from the centre.
     const tau = o.seaTau ?? 6;
     const awayX = p.x - s.x;
@@ -448,6 +516,10 @@ export class CycloneSystem extends SceneObject {
       } else {
         scene.setClouds({ coverage: obs.cover, density: 0.6 + 0.4 * obs.cover, windX: obs.wind.x * 0.6, windZ: obs.wind.z * 0.6, albedo: CLOUD_ALBEDO, holeStrength: 0 });
       }
+      const k = obs.darkness;
+      if (o.ceiling) scene.setClouds({ height: o.ceiling.clear + (o.ceiling.storm - o.ceiling.clear) * k });
+      if (o.scud) scene.setClouds({ layerDrift: 0.35 + o.scud * Math.max(k, obs.storm) });
+      if (o.billow) scene.setClouds({ billow: o.billow.clear + (o.billow.storm - o.billow.clear) * Math.max(k, obs.storm) });
     }
     if (o.driveFog ?? true) {
       const clear = o.fogClear ?? 0.0006;
@@ -466,7 +538,7 @@ export class CycloneSystem extends SceneObject {
       const dir = Math.atan2(Math.sin(this.seaDir) * (1 - w) + Math.sin(windDir) * w, Math.cos(this.seaDir) * (1 - w) + Math.cos(windDir) * w);
       this.ocean = oceanWavesFromWind({ windSpeed: this.seaWind, direction: dir, maxHeight: o.maxWaveHeight ?? 5, waveCount: o.waveCount ?? 4, seed: 3 });
       applyOceanState(scene, this.ocean);
-      scene.setWater({ level: this.seaLevel + obs.surge });
+      scene.setWater({ level: this.seaLevel + obs.surge + obs.setup + this.tideOffset });
     }
   }
 

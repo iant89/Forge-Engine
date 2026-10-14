@@ -2436,6 +2436,7 @@ export class Renderer implements RenderFrameContext {
     a.setF32("holeRadius", clouds.holeRadius);
     a.setF32("holeWall", clouds.holeWall);
     a.setF32("holeStrength", clouds.holeStrength);
+    a.setF32("billow", clouds.billow);
     a.setVec2("holeCenter", clouds.holeX, clouds.holeZ);
     // Phase 17.3: the sub-layer stack. The CPU owns the geometry (heights, column weights, drift),
     // so the shader — and the CPU field the tests and tools evaluate — cannot disagree about it.

@@ -26,6 +26,10 @@ import { WeatherSystem } from "./weather.js";
 export interface LightningBolt {
   /** Polyline from the cloud (`points[0]`) to the ground (last point). */
   points: Vec3[];
+  /** fe-34: side branches (each a polyline starting on the main channel); empty by default. */
+  branches: Vec3[][];
+  /** fe-34: true for an intra-cloud flash (lights the deck, no visible channel to the surface). */
+  cloudOnly: boolean;
   /** RNG seed this bolt was grown from (re-grows identically). */
   seed: number;
 }
@@ -125,6 +129,27 @@ export function generateBoltPoints(start: Vec3, end: Vec3, seed: number, subdivi
   return out;
 }
 
+/**
+ * fe-34: side branches for a bolt — `count` shorter channels forking off the main polyline at
+ * seeded points, angled down and away (deterministic in `seed`).
+ */
+export function lightningBranches(main: readonly Vec3[], seed: number, count: number, subdivisions: number, roughness: number): Vec3[][] {
+  const out: Vec3[][] = [];
+  if (count <= 0 || main.length < 4) return out;
+  const rng = new Rng((seed ^ 0x5bd1e995) >>> 0 || 1);
+  const top = main[0]!;
+  const bottom = main[main.length - 1]!;
+  const height = Math.max(1, top.y - bottom.y);
+  for (let k = 0; k < count; k++) {
+    const at = main[1 + Math.floor(rng.nextFloat() * (main.length * 0.6))]!;
+    const angle = rng.nextFloat() * Math.PI * 2;
+    const len = height * (0.12 + 0.22 * rng.nextFloat());
+    const end = new Vec3(at.x + Math.cos(angle) * len * 0.7, Math.max(bottom.y, at.y - len), at.z + Math.sin(angle) * len * 0.7);
+    out.push(generateBoltPoints(at.clone(), end, rng.nextU32(), Math.max(2, subdivisions - 2), roughness));
+  }
+  return out;
+}
+
 export interface LightningOptions {
   name?: string;
   /** Deterministic seed for strike scheduling and bolt shapes. Default 9001. */
@@ -152,6 +177,19 @@ export interface LightningOptions {
   envelope?: Partial<FlashEnvelope>;
   /** Called synchronously after a strike is created; audio/gameplay can react without polling. */
   onStrike?: (strike: LightningStrike) => void;
+  /** fe-34: storm intensity 0..1 from any source (e.g. a `CycloneSystem`); overrides the weather lookup. */
+  storm?: () => number;
+  /** fe-34: centre of the strike disc (render-local XZ); default the origin. */
+  center?: () => { x: number; z: number };
+  /** fe-34: surface height under a strike (terrain or sea level), so bolts end on the ground or the water. */
+  surfaceAt?: (x: number, z: number) => number;
+  /** fe-34: side branches per bolt. Default 0. */
+  branches?: number;
+  /** fe-34: fraction 0..1 of strikes that are intra-cloud flashes (no channel). Default 0. */
+  cloudFlashFraction?: number;
+  /** fe-34: bolt line colour (0xRRGGBBAA) and core width in px. Defaults 0x00e8ffff / 5. */
+  boltColor?: number;
+  boltWidth?: number;
 }
 
 export class LightningSystem extends SceneObject {
@@ -168,6 +206,7 @@ export class LightningSystem extends SceneObject {
   flashLightIntensity: number;
   skyFlashExposure: number;
   readonly envelope: FlashEnvelope;
+  private readonly options: LightningOptions;
   onStrike?: (strike: LightningStrike) => void;
 
   /** Live strikes (oldest first). */
@@ -200,32 +239,41 @@ export class LightningSystem extends SceneObject {
     this.skyFlashExposure = options.skyFlashExposure ?? 0.8;
     this.envelope = { ...DEFAULT_FLASH_ENVELOPE, ...options.envelope };
     this.onStrike = options.onStrike;
+    this.options = options;
     this.rng = new Rng(this.seed === 0 ? 0x9e3779b9 : this.seed);
     this.nextStrikeIn = this.drawInterarrival(1);
   }
 
-  /** Current storm intensity: the weather system's, or the override when absent. */
+  /** fe-34: freeze strike ages and scheduling (screenshots / debugging); the flash holds. */
+  paused = false;
+
+  /** Current storm intensity: the `storm` callback, the weather system's, or the override. */
   stormIntensity(): number {
+    if (this.options.storm) return clamp(this.options.storm(), 0, 1);
     const weather = this.scene?.object<WeatherSystem>(this.weatherName);
     if (weather) return clamp(weather.state.storm01, 0, 1);
     return clamp(this.stormOverride, 0, 1);
   }
 
   /** Schedule a strike now (the demo's thunder key and the browser gate use this). */
-  trigger(position?: Vec3, energy = 1): LightningStrike {
-    const px = position?.x ?? (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
-    const pz = position?.z ?? (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
+  trigger(position?: Vec3, energy = 1, cloudOnly = false): LightningStrike {
+    const c = this.options.center?.() ?? { x: 0, z: 0 };
+    const px = position?.x ?? c.x + (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
+    const pz = position?.z ?? c.z + (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
     const boltSeed = this.rng.nextU32();
+    const ground = this.options.surfaceAt ? this.options.surfaceAt(px, pz) : this.groundY;
+    // An intra-cloud flash runs sideways inside the deck instead of down to the surface.
     const start = new Vec3(px, this.cloudHeight, pz);
-    const end = new Vec3(px, this.groundY, pz);
+    const end = cloudOnly ? new Vec3(px + this.cloudHeight * 0.6, this.cloudHeight * 0.95, pz) : new Vec3(px, ground, pz);
     const strike: LightningStrike = {
       id: this.nextId++,
       position: end.clone(),
       energy: clamp(energy, 0.1, 3),
       age: 0,
       duration: flashDuration(this.envelope),
-      bolt: { points: generateBoltPoints(start, end, boltSeed, this.subdivisions, this.roughness), seed: boltSeed },
+      bolt: { points: generateBoltPoints(start, end, boltSeed, this.subdivisions, this.roughness), seed: boltSeed, branches: [], cloudOnly },
     };
+    strike.bolt.branches = lightningBranches(strike.bolt.points, boltSeed, this.options.branches ?? 0, this.subdivisions, this.roughness);
     this.strikes.push(strike);
     if (this.scene) this.createStrikeLight(this.scene, strike);
     this.strikeCount++;
@@ -277,7 +325,7 @@ export class LightningSystem extends SceneObject {
 
   /** Advance scheduling and strike ages (seconds of simulated time). */
   advance(seconds: number): void {
-    if (!(seconds > 0) || !Number.isFinite(seconds)) return;
+    if (!(seconds > 0) || !Number.isFinite(seconds) || this.paused) return;
     const storm = this.stormIntensity();
     if (storm > 0 && this.rate > 0) {
       this.nextStrikeIn -= seconds;
@@ -287,7 +335,9 @@ export class LightningSystem extends SceneObject {
         const angle = this.rng.nextFloat() * Math.PI * 2;
         const radius = Math.sqrt(this.rng.nextFloat()) * this.areaRadius;
         const energy = 0.5 + this.rng.nextFloat();
-        this.trigger(new Vec3(Math.cos(angle) * radius, this.groundY, Math.sin(angle) * radius), energy);
+        const cloudOnly = (this.options.cloudFlashFraction ?? 0) > 0 ? this.rng.nextFloat() < (this.options.cloudFlashFraction ?? 0) : false;
+        const c = this.options.center?.() ?? { x: 0, z: 0 };
+        this.trigger(new Vec3(c.x + Math.cos(angle) * radius, this.groundY, c.z + Math.sin(angle) * radius), energy, cloudOnly);
         this.nextStrikeIn += this.drawInterarrival(storm);
       }
     }
@@ -317,9 +367,15 @@ export class LightningSystem extends SceneObject {
         for (const s of this.strikes) {
           const f = s.energy * flashEnvelope(s.age, this.envelope);
           if (f <= 0.01) continue;
-          this.lastBolts.push(s.bolt.points);
-          const pts = s.bolt.points;
-          for (let i = 1; i < pts.length; i++) render.drawEmissiveLine(pts[i - 1]!, pts[i]!, 0x00e8ffff, 5 + f * 7);
+          const color = this.options.boltColor ?? 0x00e8ffff;
+          const width = this.options.boltWidth ?? 5;
+          const lines = [s.bolt.points, ...s.bolt.branches];
+          for (let b = 0; b < lines.length; b++) {
+            const pts = lines[b]!;
+            this.lastBolts.push(pts);
+            const w = b === 0 ? width + f * 7 : (width + f * 7) * 0.45;
+            for (let i = 1; i < pts.length; i++) render.drawEmissiveLine(pts[i - 1]!, pts[i]!, color, w);
+          }
         }
       }
     } else {
