@@ -153,8 +153,7 @@ export interface RendererOptions {
    */
   indirectDraws?: boolean;
   /**
-   * Per-instance population culling (`forge.populationCull`, docs/POPULATION.md "Per-instance
-   * culling"): every instance of an instanced population batch is frustum-, distance- and (see
+   * Per-instance population culling (`forge.populationCull`, docs/RENDERING.md §4g): every instance of an instanced population batch is frustum-, distance- and (see
    * `populationOcclusion`) HiZ-tested on the device, merged with the 14.4 LOD selection, and the
    * survivors are compacted into the batch's indirect draw. Default `true`. Needs the device object
    * culler (`objectCulling` resolving to `"gpu"`) and `indirectDraws`; otherwise, or if the pipeline

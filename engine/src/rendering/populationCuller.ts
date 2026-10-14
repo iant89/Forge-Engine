@@ -1,6 +1,6 @@
 /**
- * The device half of `forge.populationCull` (Phase A of the GPU-placement plan, docs/POPULATION.md
- * "Per-instance culling"): the pipeline, the per-batch uniform arena, the population indirect draw
+ * The device half of `forge.populationCull` (Phase A of the GPU-placement plan, docs/RENDERING.md
+ * §4g): the pipeline, the per-batch uniform arena, the population indirect draw
  * records, the counters and their lagged read-back. Owned by `Renderer`, created on first use.
  *
  * The renderer decides *which* batches take the path (population, instanced, in view, device culling

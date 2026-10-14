@@ -1,6 +1,6 @@
 /**
  * Phase A (GPU-placement plan) — the CPU twin of `forge.populationCull`
- * (`rendering/shaders/populationCull.ts`, docs/POPULATION.md "Per-instance culling").
+ * (`rendering/shaders/populationCull.ts`, docs/RENDERING.md §4g).
  *
  * Same steps, same order, same margins as the kernel, on the 80-byte `InstanceData` records the
  * renderer uploads (20 words: 4×vec4 model columns, tint, emissive, flags, materialIndex):

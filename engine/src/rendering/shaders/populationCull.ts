@@ -1,6 +1,6 @@
 /**
  * Phase A of the GPU-placement plan — per-INSTANCE population culling, merged with the 14.4 LOD
- * selection (docs/POPULATION.md "Per-instance culling"). Placement is unchanged (CPU deterministic
+ * selection (docs/RENDERING.md §4g). Placement is unchanged (CPU deterministic
  * scatter); only *which* of a chunk's instances `forge.main` draws is decided here.
  *
  * `forge.populationCull` runs once per frame after `forge.objects.cull` (so after the prepass and the

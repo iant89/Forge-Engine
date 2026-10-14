@@ -223,7 +223,7 @@ export const PopulationLodUniforms = new StructDef("PopulationLodUniforms", [
 
 /**
  * One `forge.populationCull` dispatch: one eligible population batch (Phase A of the GPU-placement
- * plan, docs/POPULATION.md "Per-instance culling"). Frame-wide state (view, projection, planes, HiZ
+ * plan, docs/RENDERING.md §4g). Frame-wide state (view, projection, planes, HiZ
  * extent) comes from the object culler's `ObjectCullUniforms`; this is what differs per batch. One
  * 256-byte slot per dispatch in a dynamic-offset arena, like `PopulationLodUniforms`.
  */
