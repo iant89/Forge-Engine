@@ -2175,14 +2175,42 @@ async function checkEnvironmentSection() {
         sample.height = source.height;
         const context = sample.getContext("2d", { willReadFrequently: true });
         context.drawImage(source, 0, 0);
-        const x = Math.floor(sample.width * 0.2);
-        const y = Math.floor(sample.height * 0.5);
-        const pixel = context.getImageData(x, y, 1, 1).data;
+        // Work in CSS pixels (what the HUD rects use), then map to the canvas's backing pixels: the
+        // two differ whenever the backing store is not the CSS size (render scale / dpr). The sample
+        // sits 20% across at half height.
+        const rect = source.getBoundingClientRect();
         const hudBottom = (document.getElementById("hud-panel") ?? document.getElementById("hud")).getBoundingClientRect().bottom;
         const controlsTop = document.getElementById("sk-time-back").getBoundingClientRect().top;
+        const cssX = rect.left + rect.width * 0.2;
+        const cssY = rect.top + rect.height * 0.5;
+        // "Covered" = inside the box of any rendered overlay (fixed/absolute element that is not the
+        // canvas or one of its ancestors). Boxes, not elementFromPoint: HUD layers use
+        // pointer-events: none and would be invisible to a hit test. A box ending exactly on the row
+        // does not cover it.
+        const overlays = [...document.body.querySelectorAll("*")].filter((el) => {
+          if (el === source || el.contains(source)) return false;
+          const cs = getComputedStyle(el);
+          if (cs.position !== "fixed" && cs.position !== "absolute") return false;
+          if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
+          // A layer that paints nothing itself (e.g. a transparent full-screen touch surface) covers
+          // nothing; its painted children are tested on their own.
+          const paints = !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor) || cs.backgroundImage !== "none" ||
+            parseFloat(cs.borderTopWidth) > 0 || [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim() !== "") ||
+            /^(IMG|SVG|CANVAS|VIDEO|INPUT|BUTTON|SELECT)$/i.test(el.tagName);
+          const r = el.getBoundingClientRect();
+          return paints && r.width > 0 && r.height > 0;
+        }).map((el) => Object.assign(el.getBoundingClientRect().toJSON(), { tag: `${el.tagName}#${el.id}.${el.className}` }));
+        const covered = (px, py) => overlays.some((r) => px >= r.left && px < r.right && py >= r.top && py < r.bottom);
+        const visible = !covered(cssX, cssY);
+        window.__skyOverlays = overlays.filter((r) => cssX >= r.left && cssX < r.right && cssY >= r.top && cssY < r.bottom);
+        const x = Math.floor(((cssX - rect.left) / rect.width) * sample.width);
+        const y = Math.floor(((cssY - rect.top) / rect.height) * sample.height);
+        const pixel = context.getImageData(x, y, 1, 1).data;
         resolve({
           x,
           y,
+          cssY,
+          visible,
           rgb: [pixel[0], pixel[1], pixel[2]],
           hudBottom,
           controlsTop,
@@ -2204,13 +2232,16 @@ async function checkEnvironmentSection() {
   if (noonStats.renderPasses.indexOf("forge.sky") !== mainIndex + 1) throw new Error("forge.sky must directly follow forge.main");
   console.log(
     `sky opening: camera elevation ${skyOpening.camera?.elevation?.toFixed(2)} rad, ` +
-      `pixel (${skyOpening.x},${skyOpening.y}) rgb=${skyOpening.rgb.join(",")} ` +
+      `pixel (${skyOpening.x},${skyOpening.y}) css y=${skyOpening.cssY.toFixed(1)} rgb=${skyOpening.rgb.join(",")} ` +
       `below HUD=${skyOpening.hudBottom.toFixed(1)} and above controls=${skyOpening.controlsTop.toFixed(1)}`,
   );
   if (!skyOpening.camera || skyOpening.camera.elevation >= 0) {
     throw new Error("sky demo opening camera does not look above the horizon");
   }
-  if (!(skyOpening.y > skyOpening.hudBottom && skyOpening.y < skyOpening.controlsTop)) {
+  // `visible` is the overlay-box test (the HUD rect can end exactly on the sample row without
+  // covering it); the controls must also stay below the sample.
+  if (!skyOpening.visible) console.log("covering overlays:", JSON.stringify(await page.evaluate(() => window.__skyOverlays)));
+  if (!(skyOpening.visible && skyOpening.cssY < skyOpening.controlsTop)) {
     throw new Error(`sky sample pixel is obscured by the HUD or buttons: ${JSON.stringify(skyOpening)}`);
   }
   if (!(skyOpening.rgb[2] > skyOpening.rgb[1] + 4)) {
