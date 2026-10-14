@@ -271,7 +271,7 @@ export * from "./environment/index.js";
 export * from "./animation/index.js";
 
 // Rendering
-export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
+export { Renderer, DEFAULT_POPULATION_FADE_FRACTION, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
 export {
   RenderGraph,
   type RenderGraphHandle,
@@ -383,6 +383,8 @@ export {
   STANDARD_FRAGMENT_BODY,
   DEPTH_VERTEX,
   DEPTH_SKINNED_VERTEX,
+  DEPTH_CULLED_VERTEX,
+  POPULATION_FADE_WGSL,
   DEBUG_SHADER,
   BLIT_SHADER,
   BINDINGS,
@@ -400,13 +402,15 @@ export {
 export { POPULATION_LOD_SHADER } from "./rendering/shaders/populationLod.js";
 export {
   POPULATION_CULL_SHADER,
+  POPULATION_VIEW_CULL_SHADER,
+  POPULATION_SHADOW_INDEX_ALIGN,
   POPULATION_CULL_WORKGROUP,
   POP_CULL_LOD,
   POP_CULL_DISTANCE,
   POP_CULL_OCCLUSION,
   INSTANCE_FLAG_FAR,
 } from "./rendering/shaders/populationCull.js";
-export { GpuPopulationCuller, POPULATION_CULL_PIPELINE_LABEL } from "./rendering/populationCuller.js";
+export { GpuPopulationCuller, POPULATION_CULL_PIPELINE_LABEL, POPULATION_VIEW_CULL_PIPELINE_LABEL } from "./rendering/populationCuller.js";
 export { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_WORKGROUP, MS_LUT_TEXELS, MS_TABLE_TEXELS, MS_LUT_TEXEL_BYTES, MS_LUT_TEXTURE_FORMAT, WGSL_ATMOSPHERE_COMMON, wgslMultiScatteringSampler } from "./rendering/shaders/multiScattering.js";
 export { GpuMultiScattering, MS_SUN_EPSILON, writeSkyMultiScatteringSignature, skyMultiScatteringSignatureChanged } from "./rendering/skyMultiScattering.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP, POST_FLAG_PASSTHROUGH } from "./rendering/shaders/post.js";

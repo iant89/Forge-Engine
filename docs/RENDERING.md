@@ -644,68 +644,117 @@ built; what remains is in `docs/KNOWN-ISSUES.md` § World population.
 
 ## 4g. Per-instance population culling (GPU-placement Phase A)
 
-`forge.populationCull` (`rendering/shaders/populationCull.ts`, device half
-`rendering/populationCuller.ts`, CPU twin `population/cull.ts`) culls *inside* a population batch.
-Placement is unchanged — instances still come from the deterministic CPU scatter (§4f) — only which
-of a chunk's instances `forge.main` draws is decided on the device.
+Two kernels (`rendering/shaders/populationCull.ts`, device half `rendering/populationCuller.ts`, CPU
+twins `population/cull.ts`) cull *inside* a population batch, for every pass that draws it. Placement
+is unchanged — instances still come from the deterministic CPU scatter (§4f) — only which of a chunk's
+instances each pass draws is decided on the device. One dispatch per eligible batch per kernel, one
+invocation per instance (workgroup 64).
 
-**One merged pass.** The pass runs once per frame after `forge.objects.cull` (so after the prepass
-and the HiZ pyramid) and before `forge.main`, one dispatch per eligible batch, one invocation per
-instance (workgroup 64). It replaces `forge.populationLod` for those batches. Each invocation:
+**`forge.populationCull.views`** runs after the uploads and before the first shadow pass and the
+prepass. It reads only matrices (`PopulationViewUniforms`: the camera's view-projection and one per
+shadow-map bit), never depth:
 
-1. computes this frame's LOD bit (bit 0 of the record's `flags`, as 14.4) and a "past the type's
-   `maxDistance`" bit (bit 1) and writes them into the *source* record for the next frame's depth
-   readers (shadows, prepass), which have already run this frame;
-2. decides this frame's verdict from the record's *previous* bits plus the shared sphere tests
-   (`CULL_SPHERE_WGSL` in `objectCulling.ts`: frustum, then HiZ against this frame's pyramid) — the
-   instance sphere is the prototype's bounds sphere through the instance matrix (max axis scale), plus
-   the culler's 1 cm slop. An instance whose whole batch the object culler culled is skipped;
-3. appends survivors with `atomicAdd` on the batch's indirect record instance count (the particle
-   system's append-to-indirect pattern) and copies them, with the previous bits, into the batch's
-   compacted buffer. `forge.main` binds that buffer and issues `drawIndirect` /
-   `drawIndexedIndirect` from `population.cull.drawArgs`. `firstInstance` stays 0 (one compacted
-   buffer per batch), so the optional `indirect-first-instance` feature is not needed.
+1. *Main view.* The record's previous distance bit (bit 1), then the camera frustum (sphere = the
+   prototype's bounds sphere through the instance matrix, max axis scale, plus 1 cm slop). Survivors
+   are appended (`atomicAdd` on the batch's record A) and copied, previous bits intact, into the
+   batch's compacted buffer — **the main-view list**.
+2. *Shadow maps.* For every bit of the batch's `shadowMask` — the cascades, spot maps and point faces
+   its chunk's bounds touch, limited by `RendererOptions.populationShadowCulling` — the sphere is
+   tested against that map's light frustum: the view-projection the shadow pass renders with. The
+   cascade fit already backs the light eye off toward the sun (`casterBackoff`), so an off-screen
+   caster whose shadow lands in view is inside the frustum and kept; nothing pops. Survivors append
+   their **index** (4 B) to that map's range of the chunk's shared caster-index buffer, one
+   `indexStride`-slot range per map in bit order, padded to 64 slots so each range starts at a 256-byte
+   dynamic offset. The shadow pass binds the range and draws record "shadow k" indirectly through
+   `DEPTH_CULLED_VERTEX` (`instances[casterIndices[instance_index]]`, the same maths as the instanced
+   depth entries, LOD window included). An instance past its distance limit (bit 1) is not listed:
+   the distance fade has already shrunk it to nothing, so it casts nothing.
 
-**Why the bits lag a frame.** The colour pass draws `less-equal` against the prepass depth, so the
-prepass and `forge.main` must draw the same LOD window and the same near/far set or a pixel is
-shaded by nothing (a hole). Both read the bits the cull pass wrote *last* frame — the prepass from
-the source buffer (the standard instanced and LOD vertex entries clip a bit-1 instance), the main
-pass from the compacted copy — so they always agree; the cost is that an LOD switch or a draw-
-distance pop-out lands one frame late. Shadow entries ignore bit 1 (a far instance still casts, as
-before). A fresh or re-uploaded record has flags 0: drawn, high window, for its first frame.
+**`forge.populationCull`** runs after `forge.objects.cull` (so after the prepass and the HiZ pyramid)
+and before `forge.main`:
 
-**Eligibility and fallback.** A batch takes the path when it is in view, instanced (count > 1 or
-LOD), `RendererOptions.populationCulling` is on (default), the object culler runs on the device
-(`objectCulling` resolves to `"gpu"`), `indirectDraws` is on and the pipeline built. Anything else
-keeps the per-batch path exactly as before (§4d/§4e + `forge.populationLod`). A non-LOD buffer that
-leaves the path is re-uploaded once so no stale bit 1 survives; `forge.populationLod` clears bit 1
-itself for LOD buffers.
+1. computes this frame's LOD bit (bit 0) and "pivot past the type's (scaled) `maxDistance`" bit (bit 1) and writes
+   them into the *source* record for the next frame — every depth reader has already run this frame;
+2. on a frame that occludes, filters the main-view list (skipping it if the object culler culled the
+   whole batch, then the shared HiZ test) into a second buffer and record B, which `forge.main` draws.
+   On a frame that does not occlude, `forge.main` draws the main-view list itself.
 
-**Budgets.** Compute-stage storage buffers: source, compacted, draw args, stats, visibility = 5 (the
-WebGPU minimum is 8; iOS Safari reports ≥ 8). Core WebGPU only. Memory: one compacted buffer the
-size of the chunk's record buffer (80 B per instance), allocated on first use.
+**Prepass ↔ colour consistency.** The colour pass draws `less-equal` against prepass depth, so a pixel
+whose front surface the prepass drew but `forge.main` did not would be shaded by nothing (a hole). The
+prepass draws the main-view list; `forge.main` draws that same list or its HiZ subset, every record with
+the same previous bits (same LOD window, same near set). An instance in the subset's complement is one
+HiZ proved hidden behind depth that *is* shaded. The cost of the shared bits is the one-frame lag on LOD
+switches and draw-distance pop-out. A fresh or re-uploaded record has flags 0: drawn, high window.
+
+**Distance fade and draw distance (fe-31).** Population no longer cuts off at its draw distance. Every
+vertex entry that can draw a population instance — `forge.main` and the prepass (the standard module's
+plain, instanced and LOD entries), the shadow passes (`DEPTH_VERTEX`, `DEPTH_CULLED_VERTEX`) — scales
+the instance about its pivot by `populationFadeScale`: 1 up to `maxDistance·(1 − populationFadeFraction)`,
+smoothstep to 0 at `maxDistance` (camera to pivot; default fraction 0.25, per batch in
+`ObjectUniforms.distanceFade`). Colour and prepass read the camera from the per-frame block, the shadow
+passes from `ShadowPassUniforms.fadeCamera` (the same main camera), so the prepass writes the depth
+`forge.main` shades (same module, same expression) and shadows shrink with their casters. The distance
+bit is set exactly when the pivot passes `maxDistance` — where the scale has reached 0 — so the cull is
+invisible; on the per-batch path the object culler drops a chunk only once its whole sphere is past
+the limit, by which point every instance in it has shrunk to nothing. Scale-down rather than dithered
+alpha: it needs no MSAA (alpha-to-coverage) and no discard in the depth passes (which would cost early-Z
+on every rock), and it is exactly reproducible in the shadow maps. `populationFadeFraction: 0` restores
+the hard cut-off. `RendererOptions.populationDistanceScale` multiplies every type's `maxDistance` (fade
+end, cull distance and the object culler's batch limit together); the device tiers use 0.75 / 1 / 1.5
+for low / medium / high (`populationCullingForTier`, `POPULATION_DISTANCE_SCALE_BY_TIER`). Population
+still only exists on resident terrain chunks, so the effective distance is capped by the terrain's
+streaming radius.
+
+**Eligibility and fallback.** A batch takes the path when it is in view, instanced (count > 1 or LOD),
+`RendererOptions.populationCulling` is on (default), the object culler runs on the device (`objectCulling`
+resolves to `"gpu"`), `indirectDraws` is on and both pipelines built. Anything else keeps the per-batch
+path exactly as before (§4d/§4e + `forge.populationLod` + CPU per-instance shadow ranges). Shadow-only
+chunks (in a shadow map, not in view) keep the CPU caster assignment; so do maps outside
+`populationShadowCulling`. A frame whose views pass could not be recorded draws a device-culled batch's
+whole instance range into its shadow maps (never a missing caster). A non-LOD buffer that leaves the
+path is re-uploaded once so no stale bit 1 survives.
+
+**Budgets.** Storage buffers per compute stage (layout entries): views 6 (args, stats, source, list,
+HiZ list, caster indices), cull 7 (+ visibility); the shadow vertex stage reads 2. WebGPU's minimum is
+8; iOS Safari reports ≥ 8. Core WebGPU only (`firstInstance` stays 0, no `indirect-first-instance`).
+
+**Memory**, per eligible chunk of `n` instances: the main-view list 80·n B (as before); the HiZ list
+80·n B, allocated only once population occlusion is on (never on the low tier); the caster indices
+4·⌈n/64⌉·64·max(1, k) B for the k device-culled maps the chunk touches (grown, never shrunk); the
+per-batch draw records 32·(2 + k) B. Against one 80 B copy per map, a chunk touching four cascades costs
+16 B/instance instead of 320 B. The view block is 1,344 B per renderer.
 
 **Device tiers.** `populationCullingForTier(tier)` (PR #100 tiers): every tier culls per instance;
-`low` turns off the per-instance HiZ test (`RendererOptions.populationOcclusion` /
-`renderer.populationOcclusion`), whose texel loop costs most on low-end and iPhone GPUs. The demo
-applies it at start-up (`?tier=` forces a tier; `?popcull=0|1` pins the switch).
+`low` turns off the per-instance HiZ test (`populationOcclusion`) and limits the device shadow-caster
+cull to the sun's cascades (`populationShadowCulling: "cascades"`: fewer index ranges and tests per
+instance; spot/point maps keep the CPU assignment). `populationDistanceScale` is 0.75 / 1 / 1.5 for
+low / medium / high. The demo applies it at start-up (`?tier=` forces a tier; `?popcull=0|1`,
+`?popshadow=all|cascades|off`, `?popdist=<scale>` and `?popfade=<fraction>` pin the switches).
 
 **Readout.** `stats.populationCullBatches` (exact) and the lagged device counters
 `populationInstancesTested` ("in"), `populationInstancesDrawn`, `populationCulledFrustum`,
-`populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch` ("in" is the sum of
-the other five, since each instance lands in exactly one bucket — one global atomic per instance, not
-two); the demo HUD prints
-`pop cull … in → … drawn`.
+`populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch` ("in" is the sum of the
+other five; each instance lands in exactly one bucket), plus `populationShadowInstancesTested` /
+`populationShadowInstancesDrawn` (caster × map pairs) and the exact `populationShadowDraws`. The demo
+HUD prints `pop cull … in → … drawn` and, on the next line, `pop dist ×<scale> fade <n>%  ·  pop shadow
+<mode> … draws: … in → … drawn`.
 
-**Tests.** `tests/population/populationCull.test.ts`: the twin's frustum verdict against brute force
-(exact set), the one-frame bit lag, batch-culled skipping, HiZ against a per-pixel reference
-(statistical: zero false culls, ≥ 50 % of truly hidden instances culled — the margins keep the
-rest), the renderer path on the mock (which runs the twin through `registerMockComputeKernel`; it
-has no depth pyramid, so no HiZ there) and the fallback/stale-bit handling. `check:browser`'s terrain
-section asserts the pass runs and reduces the drawn count, that its HiZ stage changes no pixel, and
-that per-instance vs per-batch differ in at most 1 % of pixels (the far instances the per-batch path
-drew past their draw distance). Twin parity: the drawn *set* and counters are exact for frustum,
-distance and LOD; record *order* is not (GPU completion order), so comparisons are by set.
+**Tests.** `tests/population/populationCull.test.ts`: the reference twin's frustum verdict against brute
+force, the one-frame bit lag, batch-culled skipping, HiZ against a per-pixel reference (zero false culls,
+≥ 50 % of hidden culled), the two stage twins composing to the single-pass reference (same set, same
+counters, same next-frame bits; `forge.main` ⊆ the prepass list), shadow caster ranges against brute
+force for an orthographic and a perspective light (exact sets, no range overrun, off-screen casters
+kept), and the renderer on the mock (views pass before the shadow passes and the prepass, one indirect
+shadow draw per cascade, every dropped caster vertex-exactly outside its light frustum, prepass and
+`forge.main` drawing the same list, the low tier's cascade-only index buffer). `check:browser`'s terrain
+section asserts the passes run and reduce the drawn counts, that the HiZ stage changes no pixel, that
+per-instance vs per-batch differ in at most 1 % of pixels, and that the device caster lists (full and
+cascades-only) present the same frame as the CPU caster assignment. fe-31 adds the fade's CPU twin
+against its WGSL text, the distance bit set exactly where the fade reaches 0, far instances left out
+of every caster list, every population vertex entry calling the fade with the right camera, the
+tier scale moving the cull distance and the fade end together on both paths (mock), and in
+`check:browser` the high tier's ×1.5 distance drawing more (pixels filled in), the fade band changing
+pixels, and faded casters casting the same shadows on the device lists as on the CPU assignment.
 
 ## 5. Conventions
 

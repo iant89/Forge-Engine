@@ -125,12 +125,16 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointParams"), 1376);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("pointCount"), 1408);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotCount"), 1412);
-    assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform"), 80);
+    // fe-31: the main camera for the population distance fade follows the layer word.
+    assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform"), 96);
+    assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.offsetOf("fadeCamera"), 80);
     assert.equal(RENDERING_STRUCTS.PostUniforms.byteSize("uniform"), 48);
     assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("flags"), 40);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 80);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("tiling"), 48);
-    assert.equal(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform"), 176);
+    // fe-31: the population distance fade (start, end) closes the per-draw block.
+    assert.equal(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform"), 192);
+    assert.equal(RENDERING_STRUCTS.ObjectUniforms.offsetOf("distanceFade"), 176);
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.offsetOf("instanceOffset"), 160);
     assert.equal(RENDERING_STRUCTS.InstanceStruct.byteSize("storage"), 80);
     assert.equal(RENDERING_STRUCTS.SkyUniforms.byteSize("uniform"), 144);

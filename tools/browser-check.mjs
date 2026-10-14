@@ -1947,6 +1947,99 @@ async function checkTerrainSection() {
   // (streaming, sky time); the A/B thresholds below are then measured against it.
   const popNoise = await compareLuma("pop-cull-base", "pop-cull-on");
   await page.evaluate(() => window.__forge.setPopulationOcclusion(true));
+  // Shadow casters and the prepass (fe-31): forge.populationCull.views builds a caster list per shadow
+  // map and the main-view list the prepass draws. The device lists must cast exactly the shadows the
+  // CPU per-instance assignment casts (no hole, no pop: every caster dropped is outside its light
+  // frustum), in both the full and the low-tier cascades-only mode.
+  await settle(3);
+  await keepLuma("pop-shadow-all");
+  const popShadowOn = await page.evaluate(() => {
+    const s = window.__forge.stats();
+    return { ...s.render, passes: s.renderPasses, gpuErrors: s.gpuErrors, mode: window.__forge.populationShadowCulling() };
+  });
+  await page.screenshot({ path: "tools/.browser-check-population-shadow-gpu.png" });
+  await page.evaluate(() => window.__forge.setPopulationShadowCulling("off"));
+  await settle(3);
+  await keepLuma("pop-shadow-off");
+  const popShadowOff = await page.evaluate(() => window.__forge.stats().render);
+  await page.screenshot({ path: "tools/.browser-check-population-shadow-cpu.png" });
+  await page.evaluate(() => window.__forge.setPopulationShadowCulling("cascades"));
+  await settle(3);
+  await keepLuma("pop-shadow-cascades");
+  await page.evaluate((mode) => window.__forge.setPopulationShadowCulling(mode), popShadowOn.mode);
+  await settle(3);
+  const popShadowDiff = await compareLuma("pop-shadow-all", "pop-shadow-off");
+  const popShadowCascadesDiff = await compareLuma("pop-shadow-cascades", "pop-shadow-off");
+  console.log(
+    `  population shadow cull (${popShadowOn.mode}): ${popShadowOn.populationShadowDraws} device shadow draws, ` +
+      `${popShadowOn.populationShadowInstancesTested} caster×map in → ${popShadowOn.populationShadowInstancesDrawn} drawn; ` +
+      `CPU path ${popShadowOff.shadowInstancesDrawn} caster×map drawn; ` +
+      `device vs CPU ${popShadowDiff.darker + popShadowDiff.brighter} px (max ${popShadowDiff.max.toFixed(1)}), cascades-only vs CPU ${popShadowCascadesDiff.darker + popShadowCascadesDiff.brighter} px`,
+  );
+  if (popShadowOn.gpuErrors > 0) throw new Error(`gpu errors with device shadow-caster culling: ${popShadowOn.gpuErrors}`);
+  if (popShadowOn.mode !== "off") {
+    if (!(popShadowOn.populationShadowDraws > 0) || !popShadowOn.passes.includes("forge.populationCull.views")) {
+      throw new Error(`device shadow-caster culling did not run (${popShadowOn.populationShadowDraws} draws)`);
+    }
+    if (!(popShadowOn.populationShadowInstancesTested > 0) || !(popShadowOn.populationShadowInstancesDrawn < popShadowOn.populationShadowInstancesTested)) {
+      throw new Error(`device shadow-caster culling drew ${popShadowOn.populationShadowInstancesDrawn} of ${popShadowOn.populationShadowInstancesTested}`);
+    }
+  }
+  if (popShadowOff.populationShadowDraws !== 0) throw new Error("populationShadowCulling off still drew device caster lists");
+  for (const [label, diff] of [["device", popShadowDiff], ["cascades-only", popShadowCascadesDiff]]) {
+    if (diff.darker + diff.brighter > popNoise.darker + popNoise.brighter) {
+      throw new Error(`${label} shadow-caster lists changed the picture vs the CPU assignment: ${diff.darker + diff.brighter} px (${diff.brighter} brighter = lost shadow)`);
+    }
+  }
+  // Draw distance and distance fade (fe-31): the high tier draws population half again as far, and
+  // every tier shrinks instances to nothing over the last quarter of their distance instead of cutting
+  // them off. Same view, three captures: the authored distance without a fade (the old cut-off), the
+  // high tier's distance with the fade, and the same distance without the fade (the difference is the
+  // fade band). Then the device caster lists are A/B'd against the CPU assignment again with the fade
+  // active, so shadows shrink exactly with their casters on both paths.
+  {
+    const tierDistance = await page.evaluate(() => window.__forge.populationDistance());
+    const capture = async (key, scale, fade) => {
+      await page.evaluate(([scale, fade]) => window.__forge.setPopulationDistance(scale, fade), [scale, fade]);
+      await settle(4);
+      await keepLuma(key);
+      await page.screenshot({ path: `tools/.browser-check-${key}.png` });
+      return await page.evaluate(() => {
+        const s = window.__forge.stats();
+        return { ...s.render, gpuErrors: s.gpuErrors };
+      });
+    };
+    const before = await capture("population-distance-before", 1, 0);
+    const after = await capture("population-distance-high", 1.5, 0.25);
+    await capture("population-distance-high-nofade", 1.5, 0);
+    await page.evaluate(() => window.__forge.setPopulationDistance(1.5, 0.25));
+    await page.evaluate(() => window.__forge.setPopulationShadowCulling("off"));
+    await settle(3);
+    await keepLuma("population-distance-high-cpu-shadows");
+    await page.evaluate((mode) => window.__forge.setPopulationShadowCulling(mode), popShadowOn.mode);
+    await settle(3);
+    await keepLuma("population-distance-high-again");
+    const filled = await compareLuma("population-distance-before", "population-distance-high");
+    const fadeBand = await compareLuma("population-distance-high-nofade", "population-distance-high");
+    const fadeShadows = await compareLuma("population-distance-high-again", "population-distance-high-cpu-shadows");
+    console.log(
+      `  population distance: authored ${before.populationInstancesDrawn} drawn (${before.populationCulledDistance} distant) → ` +
+        `high tier ×1.5 ${after.populationInstancesDrawn} drawn (${after.populationCulledDistance} distant); ` +
+        `${filled.darker + filled.brighter} px filled in, fade band ${fadeBand.darker + fadeBand.brighter} px; ` +
+        `faded device vs CPU shadows ${fadeShadows.darker + fadeShadows.brighter} px`,
+    );
+    if (before.gpuErrors > 0 || after.gpuErrors > 0) throw new Error("gpu errors with the population distance fade");
+    if (!(after.populationCulledDistance < before.populationCulledDistance) || !(after.populationInstancesDrawn > before.populationInstancesDrawn)) {
+      throw new Error(`the high-tier distance did not draw further (${before.populationInstancesDrawn} → ${after.populationInstancesDrawn} drawn)`);
+    }
+    if (!(filled.darker + filled.brighter > popNoise.darker + popNoise.brighter)) throw new Error("the longer draw distance changed no pixel");
+    if (!(fadeBand.darker + fadeBand.brighter > popNoise.darker + popNoise.brighter)) throw new Error("the distance fade changed no pixel");
+    if (fadeShadows.darker + fadeShadows.brighter > popNoise.darker + popNoise.brighter) {
+      throw new Error(`faded casters cast different shadows on the device lists vs the CPU assignment: ${fadeShadows.darker + fadeShadows.brighter} px`);
+    }
+    await page.evaluate(([scale, fade]) => window.__forge.setPopulationDistance(scale, fade), [tierDistance.scale, tierDistance.fade]);
+    await settle(3);
+  }
   await page.evaluate(() => window.__forge.setPopulationCulling(false));
   await settle(3);
   const popOff = await page.evaluate(() => {

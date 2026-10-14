@@ -194,12 +194,19 @@ What remains:
 
 ## World population (Phase 14)
 
-* **Per-instance culling covers `forge.main` only.** `forge.populationCull` (docs/RENDERING.md §4g)
-  drops off-screen, distant and HiZ-occluded instances from the colour pass of instanced population
-  batches, but the prepass and shadow passes still run every instance's vertex shader (the prepass
-  clips the distant ones), LOD switches and draw-distance pop-out land one frame late, and on the
-  per-batch fallback (CPU object culling, `indirectDraws` off, `populationCulling` off) culling stays
-  per chunk as before. The mock device runs the CPU twin without HiZ. (capability: world.population)
+* **Per-instance population culling has a one-frame lag and per-path limits.** `forge.populationCull.views`
+  and `forge.populationCull` (docs/RENDERING.md §4g) cull instanced population batches per instance for
+  the prepass, `forge.main` and every device-culled shadow map, but LOD switches and the distance
+  cut land one frame late (the cut is invisible: the distance fade has shrunk an instance to nothing
+  by then); shadow-only chunks (no part in view) keep the CPU per-instance caster
+  assignment; on the low tier spot and point maps keep it too (`populationShadowCulling: "cascades"`);
+  the shadow caster LOD bit is the camera-distance one, as before; and on the per-batch fallback (CPU
+  object culling, `indirectDraws` off, `populationCulling` off) culling stays per chunk. On frames
+  without occlusion `forge.main` draws the prepass list even when the object culler culled the whole
+  batch (no visible difference: that list is already frustum-tested per instance). The mock device runs
+  the CPU twins without HiZ. The distance fade is a scale-down about the instance pivot, not a dither:
+  a half-buried rock sinks as it shrinks, and a very large prototype visibly shrinks rather than
+  dissolving. (capability: world.population)
 * **Placement depends on the tile resolution the chunk first became ready at.** Slope/height
   acceptance samples the resident tile's heightmap at whatever LOD was live when the chunk was
   populated; a chunk that first appears at a coarse LOD may keep slightly different instances than

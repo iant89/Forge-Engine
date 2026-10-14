@@ -35,7 +35,7 @@
 import { ShaderStage } from "../gpu/constants.js";
 import { ObjectUniforms, InstanceStruct, MaterialUniforms, SplatUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
 import { VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
-import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
+import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEPTH_CULLED_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
@@ -70,6 +70,12 @@ export interface PipelineKeyOptions {
    * single decision every other branch (key, layout, vertex buffers, module) consults.
    */
   skinned?: boolean;
+  /**
+   * Shadow technique only: the device-culled population caster entries (`DEPTH_CULLED_VERTEX`,
+   * docs/RENDERING.md §4g), which read instance `casterIndices[instance_index]` through the
+   * `populationShadow` group-1 layout. Never skinned.
+   */
+  casterIndices?: boolean;
   sampleCount?: number;
   writeDepth?: boolean;
   /** Fragment entry point for techniques that expose several (`post`, `ssao`). */
@@ -157,6 +163,8 @@ export class PipelineFactory {
   private skinLayout: GPUPipelineLayout | null = null;
   private skinDepthLayout: GPUPipelineLayout | null = null;
   private skinPrepassLayout: GPUPipelineLayout | null = null;
+  private populationShadowLayout: GPUBindGroupLayout | null = null;
+  private populationShadowPipelineLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -170,6 +178,8 @@ export class PipelineFactory {
     depthFrame: GPUBindGroupLayout;
     prepassFrame: GPUBindGroupLayout;
     draw: GPUBindGroupLayout;
+    /** Group 1 of the device-culled population shadow draws: object block, source records, caster indices. */
+    populationShadow: GPUBindGroupLayout;
     material: GPUBindGroupLayout;
     terrain: GPUBindGroupLayout;
     post: GPUBindGroupLayout;
@@ -192,6 +202,7 @@ export class PipelineFactory {
       depthFrame: this.depthFrameLayout!,
       prepassFrame: this.prepassFrameLayout!,
       draw: this.drawLayout!,
+      populationShadow: this.populationShadowLayout!,
       material: this.materialLayout!,
       terrain: this.terrainMaterialLayout!,
       post: this.postBindGroupLayout!,
@@ -286,6 +297,17 @@ export class PipelineFactory {
     // The depth pass has no material group and cannot bind the shadow map (which is the pass target),
     // so it uses depthFrameLayout containing only the per-frame uniform buffer.
     this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout] });
+    // Device-culled population casters (§4g): the chunk's whole source buffer plus one 256-byte
+    // aligned range of its shared caster-index buffer, selected per shadow map by dynamic offset.
+    this.populationShadowLayout = d.createBindGroupLayout({
+      label: "population.shadow.layout",
+      entries: [
+        { binding: BINDINGS.object.binding, visibility: ShaderStage.VERTEX, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: ObjectUniforms.byteSize("uniform") } },
+        { binding: BINDINGS.instances.binding, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage", minBindingSize: InstanceStruct.byteSize("storage") } },
+        { binding: 2, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage", hasDynamicOffset: true, minBindingSize: 4 } },
+      ],
+    });
+    this.populationShadowPipelineLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.populationShadowLayout] });
     this.debugLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout] });
     this.blitLayout = d.createPipelineLayout({ bindGroupLayouts: [d.createBindGroupLayout({ entries: [{ binding: 0, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } }, { binding: 1, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }, { binding: 2, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } }] })] });
     this.postBindGroupLayout = d.createBindGroupLayout({
@@ -381,6 +403,10 @@ export class PipelineFactory {
           const module = this.shaders.get("depth.skinned.wgsl", DEPTH_SKINNED_VERTEX);
           return { vertex: module, fragment: module, vertexEntry: key.instanced ? "vertexMainInstancedSkinned" : "vertexMainSkinned", fragmentEntry: "fragmentMain", skinned: true };
         }
+        if (key.casterIndices) {
+          const module = this.shaders.get("depth.culled.wgsl", DEPTH_CULLED_VERTEX);
+          return { vertex: module, fragment: module, vertexEntry: key.lod ? "vertexMainCulledLod" : "vertexMainCulled", fragmentEntry: "fragmentMain" };
+        }
         // The shadow module carries the LOD instanced entry too: population casters draw through
         // the merged buffer and must honour the same per-instance window bit.
         return { vertex: this.shaders.get("depth.wgsl", DEPTH_VERTEX), fragment: this.shaders.get("depth.wgsl", DEPTH_VERTEX), vertexEntry: key.instanced ? (key.lod ? "vertexMainInstancedLod" : "vertexMainInstanced") : "vertexMain", fragmentEntry: "fragmentMain" };
@@ -429,6 +455,7 @@ export class PipelineFactory {
       options.instanced ? "inst" : "static",
       options.lod ? "lod" : "-",
       skinnable(options) ? "skin" : "-",
+      options.technique === "depth" && options.casterIndices ? "casteridx" : "-",
       options.sampleCount ?? 1,
       options.writeDepth === false ? "nodepthwrite" : "depthwrite",
       options.noDepthTest ? "nodepthtest" : "depthtest",
@@ -566,7 +593,7 @@ export class PipelineFactory {
                   : isPrepass
                     ? this.prepassLayout!
                     : isShadowDepth
-                      ? this.depthOnlyLayout!
+                      ? options.casterIndices ? this.populationShadowPipelineLayout! : this.depthOnlyLayout!
                       : options.technique === "terrain" ? this.terrainLayout! : this.layout!;
     const blend: GPUBlendState | undefined = options.additive
       ? {
