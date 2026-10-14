@@ -174,6 +174,19 @@ export interface RendererOptions {
    * Only batches on the per-instance path take it; the rest keep the CPU assignment.
    */
   populationShadowCulling?: PopulationShadowCulling;
+  /**
+   * Multiplies every population type's `maxDistance` (fe-31; docs/RENDERING.md §4g). Default 1; the
+   * device tiers use 0.75 / 1 / 1.5 for low / medium / high (`populationCullingForTier`). The scaled
+   * limit is the fade end and the cull distance on every path (per-instance and per-batch).
+   */
+  populationDistanceScale?: number;
+  /**
+   * Share of a population type's (scaled) `maxDistance` over which its instances shrink to nothing
+   * before the limit (fe-31): they scale 1 → 0 between `maxDistance·(1 − fraction)` and
+   * `maxDistance`, in `forge.main`, the prepass and every shadow map alike, so the cut-off never
+   * pops. Default 0.25; 0 turns the fade off (instances pop out at the limit, as before).
+   */
+  populationFadeFraction?: number;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -723,6 +736,8 @@ export class Renderer implements RenderFrameContext {
   /** `forge.populationCull.views` is in this frame (the prepass and shadow passes draw its lists). */
   private populationViewsRecorded = false;
   private populationShadowCullingMode: PopulationShadowCulling;
+  private populationDistanceScaleValue: number;
+  private populationFadeFractionValue: number;
   private drawRecords: GPUBuffer | null = null;
   private drawRecordBytes = 0;
   private drawRecordWords = new Uint32Array(0);
@@ -955,6 +970,8 @@ export class Renderer implements RenderFrameContext {
     this.populationCullingEnabled = options.populationCulling !== false;
     this.populationOcclusionEnabled = options.populationOcclusion !== false;
     this.populationShadowCullingMode = options.populationShadowCulling ?? "all";
+    this.populationDistanceScaleValue = sanitizeDistanceScale(options.populationDistanceScale ?? 1);
+    this.populationFadeFractionValue = sanitizeFadeFraction(options.populationFadeFraction ?? DEFAULT_POPULATION_FADE_FRACTION);
     this.deviceLostUnsub = device.onLost(() => {
       this.lost = true;
     });
@@ -1095,6 +1112,30 @@ export class Renderer implements RenderFrameContext {
   set populationShadowCulling(mode: PopulationShadowCulling) {
     if (mode === this.populationShadowCullingMode) return;
     this.populationShadowCullingMode = mode;
+    this.invalidate();
+  }
+
+  /** Population draw-distance multiplier (see `RendererOptions.populationDistanceScale`). */
+  get populationDistanceScale(): number {
+    return this.populationDistanceScaleValue;
+  }
+
+  set populationDistanceScale(scale: number) {
+    const next = sanitizeDistanceScale(scale);
+    if (next === this.populationDistanceScaleValue) return;
+    this.populationDistanceScaleValue = next;
+    this.invalidate();
+  }
+
+  /** Population distance-fade share (see `RendererOptions.populationFadeFraction`). */
+  get populationFadeFraction(): number {
+    return this.populationFadeFractionValue;
+  }
+
+  set populationFadeFraction(fraction: number) {
+    const next = sanitizeFadeFraction(fraction);
+    if (next === this.populationFadeFractionValue) return;
+    this.populationFadeFractionValue = next;
     this.invalidate();
   }
 
@@ -1262,7 +1303,7 @@ export class Renderer implements RenderFrameContext {
         : b.population
           ? b.population.firstMatrix
           : this.lastMatrixFor(b);
-      b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles);
+      b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles, b.population && b.maxDistance > 0 ? b.maxDistance : 0);
       b.popCullSlot = -1;
       if (b.popCull && b.population) {
         // One merged dispatch does this batch's LOD selection, culling and compaction.
@@ -2712,6 +2753,8 @@ export class Renderer implements RenderFrameContext {
     this.cascadeAccessor.relocate(layer * UNIFORM_SLOT);
     this.cascadeAccessor.setMat4("viewProj", matrix);
     this.cascadeAccessor.setI32("layer", layer);
+    // fe-31: the main camera, so population casters shrink with their distance fade in forge.main.
+    this.cascadeAccessor.setVec3("fadeCamera", this.lastCameraPos.x, this.lastCameraPos.y, this.lastCameraPos.z);
   }
 
   private writePostSlot(p: PostParams): number {
@@ -3317,7 +3360,8 @@ export class Renderer implements RenderFrameContext {
     batch.depthSort = -Vec3.distanceSqBetween(this.populationCamPos, submission.bounds.getCenter(this.scratchVec));
     batch.objectOffset = 0;
     batch.cullIndex = index;
-    batch.maxDistance = submission.maxDistance;
+    // fe-31: the tier's draw-distance multiplier; the scaled limit is the fade end and the cull distance.
+    batch.maxDistance = submission.maxDistance * this.populationDistanceScaleValue;
     // Phase 14.4: the merged-buffer window boundary and selection distance (0 = single detail).
     batch.lodHiTriangles = submission.lod?.hiTriangles ?? 0;
     batch.lodDistance = submission.lod?.lodDistance ?? 0;
@@ -3467,7 +3511,7 @@ export class Renderer implements RenderFrameContext {
     return b;
   }
 
-  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number, hiTriangles = 0): number {
+  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number, hiTriangles = 0, fadeEnd = 0): number {
     const offset = this.objectArena.reserve(ObjectUniforms.byteSize("uniform"), 256);
     const a = this.objectAccessor;
     a.relocate(offset);
@@ -3479,6 +3523,10 @@ export class Renderer implements RenderFrameContext {
     // Phase 14.4: the merged LOD buffer's high-window boundary (the LOD entries test it; 0 = not
     // an LOD batch, where no entry reads it).
     a.setU32("hiTriangles", hiTriangles);
+    // fe-31: population distance fade (start, end); end 0 = none. Written every time — the arena is reused.
+    const fade = this.populationFadeFractionValue;
+    if (fadeEnd > 0 && fade > 0) a.setVec4("distanceFade", fadeEnd * (1 - fade), fadeEnd, 0, 0);
+    else a.setVec4("distanceFade", 0, 0, 0, 0);
     return offset;
   }
 
@@ -4450,4 +4498,15 @@ function geometryIdentity(g: Geometry): number {
     geometrySerials.set(g, id);
   }
   return id;
+}
+
+/** fe-31: default `RendererOptions.populationFadeFraction`. */
+export const DEFAULT_POPULATION_FADE_FRACTION = 0.25;
+
+function sanitizeDistanceScale(scale: number): number {
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+function sanitizeFadeFraction(fraction: number): number {
+  return Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : DEFAULT_POPULATION_FADE_FRACTION;
 }

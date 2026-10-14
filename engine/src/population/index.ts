@@ -38,6 +38,8 @@ export {
   sphereOutsidePlanes,
   emptyPopulationCullStats,
   populationCullingForTier,
+  populationFadeScale,
+  POPULATION_DISTANCE_SCALE_BY_TIER,
   type PopulationShadowCulling,
   type PopulationCullBatch,
   type PopulationCullStats,

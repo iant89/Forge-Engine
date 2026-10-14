@@ -1189,6 +1189,11 @@ GOAL:
         shared buffer per chunk, drawn indirectly by `DEPTH_CULLED_VERTEX`; the prepass draws the
         main-view list `forge.main` draws (or its HiZ subset). Low tier: cascades only. CPU twins,
         HUD `pop shadow … in → … drawn`, check:browser terrain shadow A/B. docs/RENDERING.md §4g.
+    [x] Population distance fade and per-tier draw distance (fe-31): instances shrink about their pivot
+        to nothing over the last 25% of their distance (`populationFadeFraction`) in forge.main, the
+        prepass and every shadow map alike, and the per-instance cull fires exactly at the fade end, so
+        nothing pops; `populationDistanceScale` 0.75 / 1 / 1.5 for low / medium / high
+        (`populationCullingForTier`). docs/RENDERING.md §4g; check:browser terrain distance A/B.
 
 
 14.6 Population Streaming

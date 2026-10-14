@@ -437,12 +437,31 @@ fn skinMatrix(input: VertexInput) -> mat4x4<f32> {
 }
 `;
 
+/**
+ * Population distance fade (fe-31, docs/RENDERING.md §4g). An instance shrinks about its pivot from
+ * full size at `fade.x` metres to nothing at `fade.y` (camera to pivot, smoothstep), and the
+ * per-instance cull drops it once its pivot is past `fade.y` — so it is gone before it is culled
+ * and never pops. Every pass that draws a population instance (`forge.main`, the prepass, every
+ * shadow map, culled or not) scales it by this one function of the *main* camera, so shadows and
+ * prepass depth shrink with the colour pass. `fade.y <= 0` (every non-population draw) is exactly 1.
+ */
+export const POPULATION_FADE_WGSL = /* wgsl */ `
+fn populationFadeScale(pivot: vec3<f32>, camera: vec3<f32>, fade: vec4<f32>) -> f32 {
+  if (fade.y <= 0.0) {
+    return 1.0;
+  }
+  let t = clamp((distance(pivot, camera) - fade.x) / max(fade.y - fade.x, 1e-3), 0.0, 1.0);
+  return 1.0 - t * t * (3.0 - 2.0 * t);
+}
+`;
+
 export const STANDARD_DEFINES = /* wgsl */ `
 ${STRUCTS}
 
 ${COMMON}
 
 ${STANDARD_BINDINGS}
+${POPULATION_FADE_WGSL}
 ${WGSL_ATMOSPHERE_FUNCTIONS}
 ${WGSL_ATMOSPHERE_COMMON}
 ${wgslMultiScatteringSampler(BINDINGS.multiScattering.binding)}
@@ -472,7 +491,8 @@ ${STANDARD_DEFINES}
 fn vertexMain(input: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   let model = objectData.model;
-  let world = model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(model[3].xyz, perFrame.cameraPosRender, objectData.distanceFade);
+  let world = model * vec4<f32>(input.position * fade, 1.0);
   out.clipPos = perFrame.viewProj * world;
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
@@ -498,7 +518,8 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   var out: VertexOutput;
   let inst = instances[instanceIndex];
   let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
-  var world = model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(inst.row3.xyz, perFrame.cameraPosRender, objectData.distanceFade);
+  var world = model * vec4<f32>(input.position * fade, 1.0);
   out.clipPos = perFrame.viewProj * world;
   if ((inst.flags & 2u) != 0u) {
     // forge.populationCull: past the batch's distance limit (bit 1, population records only; every
@@ -590,7 +611,8 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
   var out: VertexOutput;
   let inst = instances[instanceIndex];
   let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
-  var world = model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(inst.row3.xyz, perFrame.cameraPosRender, objectData.distanceFade);
+  var world = model * vec4<f32>(input.position * fade, 1.0);
   var clip = perFrame.viewProj * world;
   let inHi = vertexIndex / 3u < objectData.hiTriangles;
   let wantHi = (inst.flags & 1u) == 0u;
@@ -886,6 +908,7 @@ ${InstanceStruct.toWgsl("storage")}
 @group(0) @binding(0) var<uniform> shadowPass: ShadowPassUniforms;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
+${POPULATION_FADE_WGSL}
 
 struct In {
   @location(0) position: vec3<f32>,
@@ -898,7 +921,8 @@ struct Out {
 @vertex
 fn vertexMain(input: In) -> Out {
   var out: Out;
-  out.clip = shadowPass.viewProj * objectData.model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(objectData.model[3].xyz, shadowPass.fadeCamera, objectData.distanceFade);
+  out.clip = shadowPass.viewProj * objectData.model * vec4<f32>(input.position * fade, 1.0);
   return out;
 }
 
@@ -907,7 +931,8 @@ fn vertexMainInstanced(input: In, @builtin(instance_index) instanceIndex: u32) -
   var out: Out;
   let i = instances[instanceIndex];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
-  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
+  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
   return out;
 }
 
@@ -919,7 +944,8 @@ fn vertexMainInstancedLod(input: In, @builtin(instance_index) instanceIndex: u32
   var out: Out;
   let i = instances[instanceIndex];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
-  var clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
+  var clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
   let inHi = vertexIndex / 3u < objectData.hiTriangles;
   let wantHi = (i.flags & 1u) == 0u;
   if (inHi != wantHi) {
@@ -949,6 +975,7 @@ ${InstanceStruct.toWgsl("storage")}
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(1) @binding(2) var<storage, read> casterIndices: array<u32>;
+${POPULATION_FADE_WGSL}
 
 struct In {
   @location(0) position: vec3<f32>,
@@ -963,7 +990,8 @@ fn vertexMainCulled(input: In, @builtin(instance_index) instanceIndex: u32) -> O
   var out: Out;
   let i = instances[casterIndices[instanceIndex]];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
-  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
+  out.clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
   return out;
 }
 
@@ -972,7 +1000,8 @@ fn vertexMainCulledLod(input: In, @builtin(instance_index) instanceIndex: u32, @
   var out: Out;
   let i = instances[casterIndices[instanceIndex]];
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
-  var clip = shadowPass.viewProj * model * vec4<f32>(input.position, 1.0);
+  let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
+  var clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
   let inHi = vertexIndex / 3u < objectData.hiTriangles;
   let wantHi = (i.flags & 1u) == 0u;
   if (inHi != wantHi) {

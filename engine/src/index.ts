@@ -271,7 +271,7 @@ export * from "./environment/index.js";
 export * from "./animation/index.js";
 
 // Rendering
-export { Renderer, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
+export { Renderer, DEFAULT_POPULATION_FADE_FRACTION, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
 export {
   RenderGraph,
   type RenderGraphHandle,
@@ -384,6 +384,7 @@ export {
   DEPTH_VERTEX,
   DEPTH_SKINNED_VERTEX,
   DEPTH_CULLED_VERTEX,
+  POPULATION_FADE_WGSL,
   DEBUG_SHADER,
   BLIT_SHADER,
   BINDINGS,

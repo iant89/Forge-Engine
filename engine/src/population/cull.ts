@@ -94,7 +94,7 @@ export function sphereOutsidePlanes(planes: Float32Array, cx: number, cy: number
 }
 
 /** Write next frame's LOD (bit 0) and distance (bit 1) bits into record `i`; returns the previous flags. */
-function writeNextBits(source: Float32Array, sourceU32: Uint32Array, i: number, batch: PopulationCullBatch, sphere: Float64Array): number {
+function writeNextBits(source: Float32Array, sourceU32: Uint32Array, i: number, batch: PopulationCullBatch): number {
   const b = i * INSTANCE_RECORD_WORDS;
   const previous = sourceU32[b + FLAGS_WORD]!;
   const { camera } = batch;
@@ -103,15 +103,29 @@ function writeNextBits(source: Float32Array, sourceU32: Uint32Array, i: number, 
     const d = Math.hypot(source[b + 12]! - camera.x, source[b + 13]! - camera.y, source[b + 14]! - camera.z);
     if (d > batch.lodDistance) next |= 1;
   }
-  if ((batch.flags & POP_CULL_DISTANCE) !== 0) {
-    instanceSphere(source, b, batch, sphere);
-    if (Math.hypot(sphere[0]! - camera.x, sphere[1]! - camera.y, sphere[2]! - camera.z) - sphere[3]! > batch.maxDistance) next |= INSTANCE_FLAG_FAR;
-  }
+  // Pivot past the fade end (`populationFadeScale` reaches 0 there, fe-31).
+  if ((batch.flags & POP_CULL_DISTANCE) !== 0 && pivotDistance(source, b, camera) > batch.maxDistance) next |= INSTANCE_FLAG_FAR;
   sourceU32[b + FLAGS_WORD] = next >>> 0;
   return previous;
 }
 
 const SPHERE = new Float64Array(4);
+
+/** Camera-to-pivot distance of record `b` (the model's translation, `row3`): the fade and distance metric. */
+function pivotDistance(source: Float32Array, b: number, camera: { x: number; y: number; z: number }): number {
+  return Math.hypot(source[b + 12]! - camera.x, source[b + 13]! - camera.y, source[b + 14]! - camera.z);
+}
+
+/**
+ * CPU twin of the vertex stages' `populationFadeScale` (fe-31): the factor an instance whose pivot is
+ * `distance` metres from the camera is scaled by — 1 up to `fadeStart`, smoothstep down to 0 at
+ * `fadeEnd` (the batch's distance limit, where the cull drops it). `fadeEnd <= 0` means no fade.
+ */
+export function populationFadeScale(distance: number, fadeStart: number, fadeEnd: number): number {
+  if (!(fadeEnd > 0)) return 1;
+  const t = Math.min(1, Math.max(0, (distance - fadeStart) / Math.max(fadeEnd - fadeStart, 1e-3)));
+  return 1 - t * t * (3 - 2 * t);
+}
 
 /**
  * Twin of `forge.populationCull.views` (before the depth passes). Main view: previous distance bit,
@@ -150,7 +164,9 @@ export function cullPopulationViewsOnCpu(
       listed++;
       if (!occludes) stats.drawn++;
     }
-    for (let k = 0; k < shadowPlanes.length; k++) {
+    // Past the fade end the instance is scale 0 in every pass: it casts nothing (fe-31).
+    const shadowMaps = (sourceU32[b + FLAGS_WORD]! & INSTANCE_FLAG_FAR) !== 0 ? 0 : shadowPlanes.length;
+    for (let k = 0; k < shadowMaps; k++) {
       stats.shadowTested++;
       if (sphereOutsidePlanes(shadowPlanes[k]!, cx, cy, cz, r)) continue;
       if (indices) indices[k * indexStride + shadowCounts[k]!] = i;
@@ -182,7 +198,7 @@ export function cullPopulationOcclusionOnCpu(
   occluded: Uint32Array | null,
   stats: PopulationCullStats = emptyPopulationCullStats(),
 ): number {
-  for (let i = 0; i < batch.count; i++) writeNextBits(source, sourceU32, i, batch, SPHERE);
+  for (let i = 0; i < batch.count; i++) writeNextBits(source, sourceU32, i, batch);
   if ((batch.flags & POP_CULL_OCCLUSION) === 0) return 0;
   const listF32 = new Float32Array(compacted.buffer, compacted.byteOffset, compacted.length);
   const planes = cullPlanesFrom(params.viewProj);
@@ -244,9 +260,7 @@ export function cullPopulationInstancesOnCpu(
       const d = Math.hypot(source[b + 12]! - camera.x, source[b + 13]! - camera.y, source[b + 14]! - camera.z);
       if (d > batch.lodDistance) next |= 1;
     }
-    if ((batch.flags & POP_CULL_DISTANCE) !== 0) {
-      if (Math.hypot(cx - camera.x, cy - camera.y, cz - camera.z) - radius > batch.maxDistance) next |= INSTANCE_FLAG_FAR;
-    }
+    if ((batch.flags & POP_CULL_DISTANCE) !== 0 && pivotDistance(source, b, camera) > batch.maxDistance) next |= INSTANCE_FLAG_FAR;
     sourceU32[b + FLAGS_WORD] = next >>> 0;
 
     stats.tested++;
@@ -283,12 +297,31 @@ export function cullPopulationInstancesOnCpu(
  * distance and LOD work is cheap and always pays (it removes vertex work), so every tier keeps it;
  * the HiZ test's texel loop per instance is the part a low-tier GPU (older iPhones, software
  * adapters) can spend more on than it saves, so `low` turns it off; `low` also limits the device
- * shadow-caster cull to the sun's cascades (one index range per cascade, not per spot/point face). Pass the result to
- * `RendererOptions` or the renderer's `populationCulling` / `populationOcclusion` setters.
+ * shadow-caster cull to the sun's cascades (one index range per cascade, not per spot/point face).
+ * `populationDistanceScale` sets the draw distance per tier (`POPULATION_DISTANCE_SCALE_BY_TIER`).
+ * Pass the result to `RendererOptions` or the renderer's matching setters.
  */
-export function populationCullingForTier(tier: "low" | "medium" | "high"): { populationCulling: boolean; populationOcclusion: boolean; populationShadowCulling: PopulationShadowCulling } {
-  return { populationCulling: true, populationOcclusion: tier !== "low", populationShadowCulling: tier === "low" ? "cascades" : "all" };
+export function populationCullingForTier(tier: "low" | "medium" | "high"): {
+  populationCulling: boolean;
+  populationOcclusion: boolean;
+  populationShadowCulling: PopulationShadowCulling;
+  populationDistanceScale: number;
+} {
+  return {
+    populationCulling: true,
+    populationOcclusion: tier !== "low",
+    populationShadowCulling: tier === "low" ? "cascades" : "all",
+    populationDistanceScale: POPULATION_DISTANCE_SCALE_BY_TIER[tier],
+  };
 }
+
+/**
+ * fe-31: how far population draws per device tier, as a multiple of each type's `maxDistance`
+ * (`RendererOptions.populationDistanceScale`). High draws half again as far (distant terrain keeps its
+ * rocks); medium is the authored distance; low trims a quarter — fewer instances to cull, shade and
+ * cast. Every tier fades the last `populationFadeFraction` of the (scaled) distance instead of popping.
+ */
+export const POPULATION_DISTANCE_SCALE_BY_TIER: Readonly<Record<"low" | "medium" | "high", number>> = { low: 0.75, medium: 1, high: 1.5 };
 
 /**
  * Which shadow maps cull population casters per instance on the device (`RendererOptions.

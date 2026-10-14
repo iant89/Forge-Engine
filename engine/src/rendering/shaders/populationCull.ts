@@ -15,14 +15,14 @@
  *    with — the cascade fit already backs the light eye off toward the sun, so an off-screen caster
  *    whose shadow falls into view is inside it). Survivors append their *index* (4 B, not an 80 B
  *    copy) to the map's range of the batch's shared shadow index buffer; the shadow pass draws that
- *    range indirectly through `DEPTH_CULLED_VERTEX`. Distance (bit 1) is ignored, as before: a far
- *    instance still casts.
+ *    range indirectly through `DEPTH_CULLED_VERTEX`. An instance past its distance limit (bit 1) is
+ *    skipped: the distance fade (fe-31) has already shrunk it to nothing in every pass.
  *
  * **`forge.populationCull`** (`POPULATION_CULL_SHADER`, after `forge.objects.cull`, so after the
  * prepass and the HiZ pyramid):
  *
  *  1. **LOD select + distance verdict, for the next frame.** It computes bit 0 (LOD window) and bit 1
- *     (past the batch's distance limit) from this frame's camera and writes both into the *source*
+ *     (pivot past the batch's distance limit, which is the fade end of `populationFadeScale`) from this frame's camera and writes both into the *source*
  *     record. Every depth reader (shadows, prepass) has already run this frame; they read the bits on
  *     the next one. That one-frame lag is what keeps the prepass and `forge.main` on the same bits.
  *  2. **HiZ, when the frame occludes.** Each entry of the main-view list is tested against this
@@ -130,8 +130,9 @@ fn populationViewCullMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  // Shadow maps: one index range per bit of the batch's mask, in bit order.
-  var mask = pop.shadowMask;
+  // Shadow maps: one index range per bit of the batch's mask, in bit order. An instance past its
+  // fade end draws at scale 0 in every pass, so it casts nothing and is not listed (fe-31).
+  var mask = select(pop.shadowMask, 0u, (inst.flags & INSTANCE_FLAG_FAR) != 0u);
   var local = 0u;
   loop {
     if (mask == 0u) {
@@ -190,11 +191,10 @@ fn populationCullMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   if ((pop.flags & POP_CULL_LOD) != 0u && length(src.row3.xyz - pop.camera) > pop.lodDistance) {
     next = next | 1u;
   }
-  if ((pop.flags & POP_CULL_DISTANCE) != 0u) {
-    let c = (instanceModel(src) * vec4<f32>(pop.localCenter, 1.0)).xyz;
-    if (distance(c, pop.camera) - instanceRadius(src) > pop.maxDistance) {
-      next = next | INSTANCE_FLAG_FAR;
-    }
+  // Past the fade end: the pivot distance at which populationFadeScale reaches 0 (fe-31), so a
+  // culled instance had already shrunk to nothing — the cut is invisible.
+  if ((pop.flags & POP_CULL_DISTANCE) != 0u && distance(src.row3.xyz, pop.camera) > pop.maxDistance) {
+    next = next | INSTANCE_FLAG_FAR;
   }
   if (next != previous) {
     instances[i].flags = next;

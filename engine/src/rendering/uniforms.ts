@@ -140,6 +140,8 @@ export const ShadowPassUniforms = new StructDef("ShadowPassUniforms", [
   { name: "_pad0", type: i32 },
   { name: "_pad1", type: i32 },
   { name: "_pad2", type: i32 },
+  { name: "fadeCamera", type: vec3, comment: "the main camera, render-local: population distance fade (fe-31) shrinks casters exactly as forge.main shrinks them" },
+  { name: "_pad3", type: f32 },
 ]);
 
 /**
@@ -189,6 +191,7 @@ export const ObjectUniforms = new StructDef("ObjectUniforms", [
   { name: "instanceOffset", type: u32 },
   { name: "visibilityIndex", type: u32, comment: "this draw's word in the culler's visibility buffer (Phase 13.5)" },
   { name: "hiTriangles", type: u32, comment: "population LOD (Phase 14.4): the merged buffer's high-window triangle count; 0 = not an LOD batch" },
+  { name: "distanceFade", type: vec4, comment: "population distance fade (fe-31): x start, y end (metres from the camera to the instance pivot; scale 1 → 0 between them), y = 0 disables" },
 ]);
 
 /**

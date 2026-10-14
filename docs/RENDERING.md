@@ -667,13 +667,13 @@ shadow-map bit), never depth:
    `indexStride`-slot range per map in bit order, padded to 64 slots so each range starts at a 256-byte
    dynamic offset. The shadow pass binds the range and draws record "shadow k" indirectly through
    `DEPTH_CULLED_VERTEX` (`instances[casterIndices[instance_index]]`, the same maths as the instanced
-   depth entries, LOD window included). Distance (bit 1) is ignored for shadows, as before: a far
-   instance still casts.
+   depth entries, LOD window included). An instance past its distance limit (bit 1) is not listed:
+   the distance fade has already shrunk it to nothing, so it casts nothing.
 
 **`forge.populationCull`** runs after `forge.objects.cull` (so after the prepass and the HiZ pyramid)
 and before `forge.main`:
 
-1. computes this frame's LOD bit (bit 0) and "past the type's `maxDistance`" bit (bit 1) and writes
+1. computes this frame's LOD bit (bit 0) and "pivot past the type's (scaled) `maxDistance`" bit (bit 1) and writes
    them into the *source* record for the next frame — every depth reader has already run this frame;
 2. on a frame that occludes, filters the main-view list (skipping it if the object culler culled the
    whole batch, then the shared HiZ test) into a second buffer and record B, which `forge.main` draws.
@@ -685,6 +685,25 @@ prepass draws the main-view list; `forge.main` draws that same list or its HiZ s
 the same previous bits (same LOD window, same near set). An instance in the subset's complement is one
 HiZ proved hidden behind depth that *is* shaded. The cost of the shared bits is the one-frame lag on LOD
 switches and draw-distance pop-out. A fresh or re-uploaded record has flags 0: drawn, high window.
+
+**Distance fade and draw distance (fe-31).** Population no longer cuts off at its draw distance. Every
+vertex entry that can draw a population instance — `forge.main` and the prepass (the standard module's
+plain, instanced and LOD entries), the shadow passes (`DEPTH_VERTEX`, `DEPTH_CULLED_VERTEX`) — scales
+the instance about its pivot by `populationFadeScale`: 1 up to `maxDistance·(1 − populationFadeFraction)`,
+smoothstep to 0 at `maxDistance` (camera to pivot; default fraction 0.25, per batch in
+`ObjectUniforms.distanceFade`). Colour and prepass read the camera from the per-frame block, the shadow
+passes from `ShadowPassUniforms.fadeCamera` (the same main camera), so the prepass writes the depth
+`forge.main` shades (same module, same expression) and shadows shrink with their casters. The distance
+bit is set exactly when the pivot passes `maxDistance` — where the scale has reached 0 — so the cull is
+invisible; on the per-batch path the object culler drops a chunk only once its whole sphere is past
+the limit, by which point every instance in it has shrunk to nothing. Scale-down rather than dithered
+alpha: it needs no MSAA (alpha-to-coverage) and no discard in the depth passes (which would cost early-Z
+on every rock), and it is exactly reproducible in the shadow maps. `populationFadeFraction: 0` restores
+the hard cut-off. `RendererOptions.populationDistanceScale` multiplies every type's `maxDistance` (fade
+end, cull distance and the object culler's batch limit together); the device tiers use 0.75 / 1 / 1.5
+for low / medium / high (`populationCullingForTier`, `POPULATION_DISTANCE_SCALE_BY_TIER`). Population
+still only exists on resident terrain chunks, so the effective distance is capped by the terrain's
+streaming radius.
 
 **Eligibility and fallback.** A batch takes the path when it is in view, instanced (count > 1 or LOD),
 `RendererOptions.populationCulling` is on (default), the object culler runs on the device (`objectCulling`
@@ -708,15 +727,17 @@ per-batch draw records 32·(2 + k) B. Against one 80 B copy per map, a chunk tou
 **Device tiers.** `populationCullingForTier(tier)` (PR #100 tiers): every tier culls per instance;
 `low` turns off the per-instance HiZ test (`populationOcclusion`) and limits the device shadow-caster
 cull to the sun's cascades (`populationShadowCulling: "cascades"`: fewer index ranges and tests per
-instance; spot/point maps keep the CPU assignment). The demo applies it at start-up (`?tier=` forces a
-tier; `?popcull=0|1` and `?popshadow=all|cascades|off` pin the switches).
+instance; spot/point maps keep the CPU assignment). `populationDistanceScale` is 0.75 / 1 / 1.5 for
+low / medium / high. The demo applies it at start-up (`?tier=` forces a tier; `?popcull=0|1`,
+`?popshadow=all|cascades|off`, `?popdist=<scale>` and `?popfade=<fraction>` pin the switches).
 
 **Readout.** `stats.populationCullBatches` (exact) and the lagged device counters
 `populationInstancesTested` ("in"), `populationInstancesDrawn`, `populationCulledFrustum`,
 `populationCulledDistance`, `populationCulledOccluded`, `populationCulledBatch` ("in" is the sum of the
 other five; each instance lands in exactly one bucket), plus `populationShadowInstancesTested` /
 `populationShadowInstancesDrawn` (caster × map pairs) and the exact `populationShadowDraws`. The demo
-HUD prints `pop cull … in → … drawn  ·  pop shadow <mode> … draws: … in → … drawn`.
+HUD prints `pop cull … in → … drawn` and, on the next line, `pop dist ×<scale> fade <n>%  ·  pop shadow
+<mode> … draws: … in → … drawn`.
 
 **Tests.** `tests/population/populationCull.test.ts`: the reference twin's frustum verdict against brute
 force, the one-frame bit lag, batch-culled skipping, HiZ against a per-pixel reference (zero false culls,
@@ -728,7 +749,12 @@ shadow draw per cascade, every dropped caster vertex-exactly outside its light f
 `forge.main` drawing the same list, the low tier's cascade-only index buffer). `check:browser`'s terrain
 section asserts the passes run and reduce the drawn counts, that the HiZ stage changes no pixel, that
 per-instance vs per-batch differ in at most 1 % of pixels, and that the device caster lists (full and
-cascades-only) present the same frame as the CPU caster assignment.
+cascades-only) present the same frame as the CPU caster assignment. fe-31 adds the fade's CPU twin
+against its WGSL text, the distance bit set exactly where the fade reaches 0, far instances left out
+of every caster list, every population vertex entry calling the fade with the right camera, the
+tier scale moving the cull distance and the fade end together on both paths (mock), and in
+`check:browser` the high tier's ×1.5 distance drawing more (pixels filled in), the fade band changing
+pixels, and faded casters casting the same shadows on the device lists as on the CPU assignment.
 
 ## 5. Conventions
 

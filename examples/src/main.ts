@@ -328,6 +328,12 @@ async function main(): Promise<void> {
     engine.renderer.populationCulling = knobs.populationCulling;
     engine.renderer.populationOcclusion = knobs.populationOcclusion;
     engine.renderer.populationShadowCulling = knobs.populationShadowCulling;
+    engine.renderer.populationDistanceScale = knobs.populationDistanceScale;
+    // `?popdist=<scale>` pins the draw-distance multiplier and `?popfade=<fraction>` the fade share (fe-31).
+    const popDist = Number(query.get("popdist"));
+    if (query.has("popdist") && popDist > 0) engine.renderer.populationDistanceScale = popDist;
+    const popFade = Number(query.get("popfade"));
+    if (query.has("popfade") && popFade >= 0) engine.renderer.populationFadeFraction = popFade;
     // `?popshadow=all|cascades|off` pins the device shadow-caster cull (fe-31) for A/B links.
     const popShadow = query.get("popshadow");
     if (popShadow === "all" || popShadow === "cascades" || popShadow === "off") engine.renderer.populationShadowCulling = popShadow;
@@ -633,6 +639,7 @@ async function main(): Promise<void> {
       r.populationCullBatches > 0
         ? `pop cull${engine.renderer.populationOcclusion ? "+hiz" : ""} ${r.populationCullBatches} batches: ${r.populationInstancesTested} in → ${r.populationInstancesDrawn} drawn` +
           ` (${r.populationCulledFrustum} off-screen, ${r.populationCulledDistance} distant, ${r.populationCulledOccluded} occluded, ${r.populationCulledBatch} batch-culled)`
+        + `\npop dist ×${engine.renderer.populationDistanceScale} fade ${Math.round(engine.renderer.populationFadeFraction * 100)}%`
         + (r.populationShadowDraws > 0
           ? `  ·  pop shadow ${engine.renderer.populationShadowCulling} ${r.populationShadowDraws} draws: ${r.populationShadowInstancesTested} in → ${r.populationShadowInstancesDrawn} drawn`
           : "")
@@ -726,6 +733,12 @@ async function main(): Promise<void> {
       engine.renderer.populationShadowCulling = mode;
     },
     populationShadowCulling: () => engine.renderer.populationShadowCulling,
+    /** Population draw-distance multiplier and fade share (fe-31). */
+    setPopulationDistance: (scale: number, fadeFraction?: number) => {
+      engine.renderer.populationDistanceScale = scale;
+      if (fadeFraction !== undefined) engine.renderer.populationFadeFraction = fadeFraction;
+    },
+    populationDistance: () => ({ scale: engine.renderer.populationDistanceScale, fade: engine.renderer.populationFadeFraction }),
     setIndirectDraws,
     /** Whether forge.main submits through the culler's indirect records (Phase 13.6). */
     indirectDraws: () => engine.renderer.indirectDraws,

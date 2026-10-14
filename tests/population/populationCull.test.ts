@@ -66,6 +66,15 @@ import {
   sphereOutsidePlanes,
   hizLevelCount,
   populationCullingForTier,
+  populationFadeScale,
+  POPULATION_DISTANCE_SCALE_BY_TIER,
+  POPULATION_FADE_WGSL,
+  STANDARD_INSTANCED_VERTEX,
+  STANDARD_LOD_INSTANCED_VERTEX,
+  STANDARD_VERTEX,
+  DEPTH_VERTEX,
+  ObjectUniforms,
+  ShadowPassUniforms,
   rockGeometrySource,
   unindexedLodWindow,
   validateWgsl,
@@ -235,9 +244,10 @@ group("Population cull - CPU twin", () => {
   });
 
   test("tiers: every tier culls per instance, the low tier skips HiZ", () => {
-    assert.deepEqual(populationCullingForTier("low"), { populationCulling: true, populationOcclusion: false, populationShadowCulling: "cascades" });
-    assert.deepEqual(populationCullingForTier("medium"), { populationCulling: true, populationOcclusion: true, populationShadowCulling: "all" });
-    assert.deepEqual(populationCullingForTier("high"), { populationCulling: true, populationOcclusion: true, populationShadowCulling: "all" });
+    assert.deepEqual(populationCullingForTier("low"), { populationCulling: true, populationOcclusion: false, populationShadowCulling: "cascades", populationDistanceScale: 0.75 });
+    assert.deepEqual(populationCullingForTier("medium"), { populationCulling: true, populationOcclusion: true, populationShadowCulling: "all", populationDistanceScale: 1 });
+    assert.deepEqual(populationCullingForTier("high"), { populationCulling: true, populationOcclusion: true, populationShadowCulling: "all", populationDistanceScale: 1.5 });
+    assert.deepEqual(POPULATION_DISTANCE_SCALE_BY_TIER, { low: 0.75, medium: 1, high: 1.5 });
   });
 
   test("the kernels are valid WGSL and stay within 8 storage buffers per stage", () => {
@@ -341,8 +351,84 @@ class StaticPopulation extends SceneObject implements PopulationSource {
   }
 }
 
+
+group("Population distance fade (fe-31)", () => {
+  test("the fade is 1 before its start, smoothstep to 0 at the end, and off when the end is 0", () => {
+    assert.equal(populationFadeScale(10, 60, 80), 1);
+    assert.equal(populationFadeScale(60, 60, 80), 1);
+    assert.equal(populationFadeScale(70, 60, 80), 0.5);
+    assert.equal(populationFadeScale(80, 60, 80), 0);
+    assert.equal(populationFadeScale(500, 60, 80), 0);
+    assert.equal(populationFadeScale(500, 0, 0), 1);
+    let last = 1;
+    for (let d = 60; d <= 80; d += 0.25) {
+      const v = populationFadeScale(d, 60, 80);
+      assert.ok(v <= last, `monotonic at ${d}`);
+      last = v;
+    }
+    // The device copy is the same formula (pinned by text: the WGSL cannot run here).
+    assertContains(POPULATION_FADE_WGSL, "if (fade.y <= 0.0)");
+    assertContains(POPULATION_FADE_WGSL, "clamp((distance(pivot, camera) - fade.x) / max(fade.y - fade.x, 1e-3), 0.0, 1.0)");
+    assertContains(POPULATION_FADE_WGSL, "return 1.0 - t * t * (3.0 - 2.0 * t);");
+  });
+
+  test("the cull distance is the fade end: an instance is culled exactly when its fade has reached 0", () => {
+    const r = rng(31);
+    const pts = Array.from({ length: 500 }, () => ({ x: (r() - 0.5) * 40, y: (r() - 0.5) * 10, z: r() * 120, s: 0.3 + r() * 2 }));
+    const { f, u } = records(pts);
+    const maxDistance = 70;
+    const batch = batchOf(pts.length, { flags: POP_CULL_DISTANCE, maxDistance });
+    cullPopulationOcclusionOnCpu(f, u, batch, new Uint32Array(f.length), 0, true, frameParams(), [], null);
+    let far = 0;
+    pts.forEach((p, i) => {
+      const d = Math.hypot(p.x - EYE.x, p.y - EYE.y, p.z - EYE.z);
+      const culled = (u[i * INSTANCE_RECORD_WORDS + 18]! & INSTANCE_FLAG_FAR) !== 0;
+      // Pivot distance, independent of the instance's size (the fade scales about the pivot).
+      assert.equal(culled, d > maxDistance, `instance ${i} at ${d.toFixed(2)} m`);
+      if (culled) {
+        far++;
+        assert.equal(populationFadeScale(d, maxDistance * 0.75, maxDistance), 0, "culled only once fully shrunk");
+      }
+    });
+    assert.ok(far > 50 && far < 450, `a meaningful split (${far} far)`);
+  });
+
+  test("an instance past the fade end casts nothing: the views pass leaves it out of every shadow list", () => {
+    const pts = Array.from({ length: 8 }, (_, k) => ({ x: 0, y: 0, z: k * 2, s: 1 }));
+    const { f, u } = records(pts);
+    for (const k of [1, 4, 6]) u[k * INSTANCE_RECORD_WORDS + 18] = INSTANCE_FLAG_FAR;
+    const batch = batchOf(8, { flags: POP_CULL_DISTANCE, maxDistance: 5 });
+    const everything = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1].map((v, i) => (i % 4 === 3 ? 1e6 : 0)));
+    const indices = new Uint32Array(64 * 2);
+    const counts = new Uint32Array(2);
+    const stats = emptyPopulationCullStats();
+    cullPopulationViewsOnCpu(f, u, batch, everything, [everything, everything], null, indices, 64, counts, stats);
+    assert.deepEqual([...counts], [5, 5]);
+    for (const k of [0, 1]) assert.deepEqual([...indices.subarray(k * 64, k * 64 + 5)], [0, 2, 3, 5, 7]);
+    assert.equal(stats.shadowTested, 10, "far instances are not even tested");
+    assert.equal(stats.culledDistance, 3);
+  });
+
+  test("every population vertex entry shrinks by the fade; colour and prepass use the camera, shadows the main camera", () => {
+    for (const [name, src, n] of [
+      ["standard", STANDARD_VERTEX, 1],
+      ["standard instanced", STANDARD_INSTANCED_VERTEX, 1],
+      ["standard LOD", STANDARD_LOD_INSTANCED_VERTEX, 1],
+    ] as const) {
+      assert.equal(src.split("populationFadeScale(").length - 2, n, `${name}: one call besides the definition`);
+      assertContains(src, "perFrame.cameraPosRender, objectData.distanceFade)");
+      assertContains(src, "input.position * fade");
+    }
+    assert.equal(DEPTH_VERTEX.split("shadowPass.fadeCamera, objectData.distanceFade)").length - 1, 3, "shadow: plain, instanced, LOD");
+    assert.equal(DEPTH_CULLED_VERTEX.split("shadowPass.fadeCamera, objectData.distanceFade)").length - 1, 2, "device-culled shadow: plain and LOD");
+    for (const src of [DEPTH_VERTEX, DEPTH_CULLED_VERTEX]) assert.equal(validateWgsl(src).length, 0);
+    assert.equal(ObjectUniforms.offsetOf("distanceFade"), 176);
+    assert.equal(ShadowPassUniforms.offsetOf("fadeCamera"), 80);
+  });
+});
+
 group("Population cull - renderer on the mock device", () => {
-  async function fixture(options: { populationCulling?: boolean } = {}) {
+  async function fixture(options: { populationCulling?: boolean; populationDistanceScale?: number; populationFadeFraction?: number } = {}) {
     const device = await GraphicsDevice.create({ forceMock: true });
     device.resize(320, 180);
     const mock = device.mock;
@@ -419,6 +505,44 @@ group("Population cull - renderer on the mock device", () => {
     assert.equal(s.populationInstancesDrawn + s.populationCulledFrustum + s.populationCulledDistance + s.populationCulledOccluded + s.populationCulledBatch, 400);
     assert.ok(s.populationCulledDistance > 0, "the 60 m limit drops the far rows");
     await f.dispose();
+  });
+
+  test("the tier distance scale moves the cull distance and the fade end together, on both paths (fe-31)", async () => {
+    const culledAt = async (scale: number) => {
+      const f = await fixture({ populationDistanceScale: scale });
+      for (let i = 0; i < 4; i++) {
+        f.renderer.renderScene(f.scene);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      assert.deepEqual(f.mock.errors, []);
+      const culled = f.renderer.stats.populationCulledDistance;
+      const internals = f.renderer as unknown as { batchPool: { population: unknown; objectOffset: number; maxDistance: number }[] };
+      const pop = internals.batchPool.find((b) => b.population)!;
+      assert.equal(pop.maxDistance, 60 * scale);
+      const objects = new Float32Array(([...f.mock.liveBuffers].find((b) => b.label === "draw.uniforms") as unknown as { data: ArrayBuffer }).data);
+      const at = (pop.objectOffset + ObjectUniforms.offsetOf("distanceFade")) / 4;
+      assert.deepEqual([...objects.subarray(at, at + 2)], [Math.fround(60 * scale * 0.75), Math.fround(60 * scale)], "fade (start, end) = the scaled limit");
+      await f.dispose();
+      return culled;
+    };
+    const low = await culledAt(0.75);
+    const medium = await culledAt(1);
+    const high = await culledAt(1.5);
+    assert.ok(low > medium && medium > high, `distant culls ${low} > ${medium} > ${high}`);
+
+    // The per-batch path fades too (the object uniform carries it); a fraction of 0 turns it off.
+    const perBatch = await fixture({ populationCulling: false, populationFadeFraction: 0 });
+    perBatch.renderer.renderScene(perBatch.scene);
+    const internals = perBatch.renderer as unknown as { batchPool: { population: unknown; objectOffset: number }[] };
+    const objects = new Float32Array(([...perBatch.mock.liveBuffers].find((b) => b.label === "draw.uniforms") as unknown as { data: ArrayBuffer }).data);
+    const at = (internals.batchPool.find((b) => b.population)!.objectOffset + ObjectUniforms.offsetOf("distanceFade")) / 4;
+    assert.deepEqual([...objects.subarray(at, at + 2)], [0, 0]);
+    perBatch.renderer.populationFadeFraction = 0.5;
+    perBatch.renderer.renderScene(perBatch.scene);
+    const objects2 = new Float32Array(([...perBatch.mock.liveBuffers].find((b) => b.label === "draw.uniforms") as unknown as { data: ArrayBuffer }).data);
+    const at2 = (internals.batchPool.find((b) => b.population)!.objectOffset + ObjectUniforms.offsetOf("distanceFade")) / 4;
+    assert.deepEqual([...objects2.subarray(at2, at2 + 2)], [30, 60]);
+    await perBatch.dispose();
   });
 
   test("populationCulling: false keeps the per-batch path (LOD pass, no cull pass)", async () => {
@@ -578,6 +702,12 @@ group("Population shadow cull - renderer on the mock device", () => {
     const casters = [...f.mock.liveBuffers].find((b) => b.label === "population.shadow.casters") as unknown as { size: number };
     // Two ranges of 400 → 448 slots (64-aligned) × 4 B.
     assert.equal(casters.size, 448 * 4 * 2);
+    // fe-31: every shadow-pass record carries the main camera, so casters fade exactly like forge.main.
+    const passes = new Float32Array(([...f.mock.liveBuffers].find((b) => b.label === "shadowpass.uniforms") as unknown as { data: ArrayBuffer }).data);
+    for (const layer of [0, 1]) {
+      const at = (layer * 256 + ShadowPassUniforms.offsetOf("fadeCamera")) / 4;
+      assert.deepEqual([...passes.subarray(at, at + 3)], [0, 2, -8]);
+    }
     await f.dispose();
   });
 });
