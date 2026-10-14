@@ -9,10 +9,17 @@
  * glint, whitecap foam breaks over the crests, and `WGSL_FOG` submerges the distance exactly like
  * any other surface.
  *
+ * fe-33 ocean: `water.shoreA/B/C` describe an analytic sloped seabed (`scene.settings.water.shore`).
+ * The vertex stage scales every wave by `shoalFactor(depth)` (the CPU twin in
+ * `environment/water.ts`), so waves steepen toward the break line and die in the surf; the fragment
+ * stage colours the body by depth (shallow → deep over `colorDepth`), whitens breaking crests in
+ * the surf zone, lays an animated swash-foam band at the waterline and feathers the opacity to the
+ * sand. Choppiness is folded into each wave's Q on the CPU.
+ *
  * What this is not: there is no screen-space reflection or refraction of the scene (no planar
  * pass, no depth sampling — the "refraction" is the fresnel-mixed body colour plus the reflected
- * sky tint), and no shore foam (there is no depth texture to read the shoreline from). Both are
- * documented in `docs/KNOWN-ISSUES.md`.
+ * sky tint). The shore is analytic, not read from the terrain's depth. Both are documented in
+ * `docs/KNOWN-ISSUES.md`.
  *
  * Bind groups reuse the standard program's frame (group 0) and draw (group 1) layouts and add
  * the water block as group 2. The vertex stage always reads the instance matrix
@@ -70,6 +77,41 @@ struct WaterVertexOutput {
   @location(1) normal: vec3<f32>,
   @location(2) crest: f32,
   @location(3) viewDepth: f32,
+  @location(4) baseXZ: vec2<f32>,
+}
+
+// Still-water depth over the analytic shore bed; a huge value when the shore is off.
+fn shoreDepth(xz: vec2<f32>) -> f32 {
+  if (water.shoreB.w < 0.5) {
+    return 1.0e6;
+  }
+  let along = dot(xz, water.shoreA.xy) - water.shoreA.z;
+  return water.shoreC.x - (water.shoreB.z + water.shoreA.w * along);
+}
+
+// Twin of shoalFactor() in environment/water.ts.
+fn shoalFactor(depth: f32) -> f32 {
+  if (depth <= 0.0) {
+    return 0.0;
+  }
+  let b = max(1.0e-3, water.shoreB.y);
+  if (depth >= 3.0 * b) {
+    return 1.0;
+  }
+  if (depth >= b) {
+    return 1.0 + 0.3 * (1.0 - (depth - b) / (2.0 * b));
+  }
+  let u = depth / b;
+  return 1.3 * u * u * (3.0 - 2.0 * u);
+}
+
+// shoalFactor() with the depth-limited breaking cap (H ≤ 0.78·d), as on the CPU.
+fn shoalLimited(depth: f32) -> f32 {
+  var s = shoalFactor(depth);
+  if (water.shoreC.z > 0.0) {
+    s = min(s, 0.39 * max(depth, 0.0) / water.shoreC.z);
+  }
+  return s;
 }
 
 @vertex
@@ -89,24 +131,26 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   var dydz = 0.0;
   var crestNum = 0.0;
   var crestDen = 0.0;
+  let shoal = shoalLimited(shoreDepth(base.xz));
   for (var i = 0; i < 4; i++) {
     let a = water.wavesA[i];
     let b = water.wavesB[i];
     if (b.x <= 0.0) {
       continue;
     }
+    let amp = b.x * shoal;
     let f = a.z * (a.x * base.x + a.y * base.z - a.w * water.time) + b.z;
     let s = sin(f);
     let c = cos(f);
-    y += b.x * s;
-    dx += b.y * b.x * a.x * c;
-    dz += b.y * b.x * a.y * c;
-    let horizontalDerivative = b.y * b.x * a.z * s;
+    y += amp * s;
+    dx += b.y * amp * a.x * c;
+    dz += b.y * amp * a.y * c;
+    let horizontalDerivative = b.y * amp * a.z * s;
     dxdx -= horizontalDerivative * a.x * a.x;
     dxdz -= horizontalDerivative * a.x * a.y;
     dzdx -= horizontalDerivative * a.x * a.y;
     dzdz -= horizontalDerivative * a.y * a.y;
-    let slope = a.z * b.x * c;
+    let slope = a.z * amp * c;
     dydx += a.x * slope;
     dydz += a.y * slope;
     crestNum += (0.5 + 0.5 * c) * b.x;
@@ -121,6 +165,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   out.crest = select(0.0, crestNum / crestDen, crestDen > 0.0);
   out.clipPos = perFrame.viewProj * vec4<f32>(displaced, 1.0);
   out.viewDepth = out.clipPos.w;
+  out.baseXZ = base.xz;
   return out;
 }
 
@@ -152,7 +197,11 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let ndv = max(dot(N, V), 0.0);
   // Schlick fresnel with F0 = 0.02 (water): grazing rays mirror the sky, steep rays show the body.
   let fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-  let body = mix(water.deepColor, water.shallowColor, clamp(in.crest * 0.5, 0.0, 1.0));
+  // Depth colour: shallow (sand showing through) to deep over colorDepth; crests lift it a little.
+  let depth = shoreDepth(in.baseXZ);
+  let deepness = 1.0 - exp(-max(depth, 0.0) / water.shoreC.y);
+  let depthBody = mix(water.shallowColor, water.deepColor, select(1.0, deepness, water.shoreB.w > 0.5));
+  let body = mix(depthBody, water.shallowColor, clamp(in.crest * 0.5, 0.0, 1.0) * select(1.0, 0.6, water.shoreB.w > 0.5));
   let diffuse = body * (perFrame.ambientColor * perFrame.ambientIntensity + vec3<f32>(0.15));
   let R = reflect(-V, N);
   let sunDir = normalize(water.sunDirection);
@@ -166,16 +215,30 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   var color = mix(diffuse, skyRef, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;
   let breakup = waterNoise(in.worldPos.xz * 1.5 + water.time * 0.35) - 0.5;
   let foamMask = smoothstep(water.foamThreshold, 1.0, clamp(in.crest + breakup * 0.25, 0.0, 1.0));
-  color += water.foamColor * foamMask * 0.85;
+  var foam = foamMask * 0.85;
+  var alpha = water.opacity;
+  if (water.shoreB.w > 0.5) {
+    // Breaking crests across the surf zone, then the swash band hugging the waterline.
+    let b = max(1.0e-3, water.shoreB.y);
+    let fd = max(1.0e-3, water.shoreB.x);
+    let surf = (1.0 - smoothstep(0.0, 1.0, (depth - b) / (0.5 * b))) * smoothstep(0.0, 1.0, depth / fd);
+    let breaking = surf * clamp((in.crest - 0.6) * 2.5, 0.0, 1.0) * water.shoreC.w;
+    let streak = waterNoise(in.worldPos.xz * vec2<f32>(0.6, 2.2) + vec2<f32>(water.time * 0.2, water.time * 0.9));
+    let swash = (1.0 - smoothstep(0.0, 1.0, depth / fd)) * (0.55 + 0.45 * streak) * (0.35 + 0.65 * water.shoreC.w);
+    foam = max(foam, max(breaking * (0.7 + 0.3 * streak), swash));
+    // Feather into the sand instead of a hard intersection line.
+    alpha = alpha * smoothstep(0.0, 0.12, depth + 0.02);
+  }
+  color += water.foamColor * clamp(foam, 0.0, 1.0);
   let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
   color = mix(perFrame.fogColor, color, fogT);
   color = applyAerialPerspective(color, in.worldPos);
   if ((perFrame.flags & 2u) != 0u) {
-    return vec4<f32>(color, water.opacity);
+    return vec4<f32>(color, alpha);
   }
   color = color * perFrame.exposure;
   color = tonemap(color, perFrame.toneMapping);
   color = linearToSrgb(color);
-  return vec4<f32>(color, water.opacity);
+  return vec4<f32>(color, alpha);
 }
 `;

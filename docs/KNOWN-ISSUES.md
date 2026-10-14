@@ -187,8 +187,17 @@ What remains:
 ## Environment (Phase 8b)
 
 * **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
-  the horizon tint: no planar reflection pass, no depth sampling, no shore foam, no caustics, and
+  the horizon tint: no planar reflection pass, no depth sampling, no caustics, and
   submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
+  Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
+  (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the
+  same parameters (`coastalTerrainSource`); shoaling ignores its own gradient in the normals.
+  The cyclone's eye can be carved into the deck as a local hole + eyewall ring (`eyeHole`), but
+  the deck is a flat slab: the wall is a dense ring at deck height, not a towering 3-D wall, and
+  the hole is scaled toward the observer (`eyeHole.scale`) to sit at a readable elevation. Without
+  `eyeHole` the eye still clears the *global* deck. The hole centre is render-local and
+  `CycloneSystem` writes it from world track coordinates, so it assumes the render origin is the
+  world origin (true for the hurricane demo); a floating-origin scene must offset it.
   CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
   (capability: environment.water)
 

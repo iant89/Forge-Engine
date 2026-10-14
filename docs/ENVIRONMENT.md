@@ -456,3 +456,68 @@ HDR post path and the LDR forward path share it.
   the standard, terrain and water modules. On real Chromium + SwiftShader, the environment browser
   section toggled only this setting at frozen noon: the flag went false→true and 41,658/468,000
   pixels changed (maximum channel difference 17), with zero GPU errors.
+
+## 10. Ocean, shoreline and tropical cyclones (fe-33)
+
+**Ocean** (`environment/ocean.ts`): `oceanWavesFromWind({ windSpeed, direction, maxHeight, waveCount, choppiness, seed })`
+builds a Pierson–Moskowitz sea (Hs = 0.21·U²/g, peak λ from Tp = 2πU/(0.877g), deep-water speeds,
+components fanned around the wind) and returns `{ waves, choppiness, foamThreshold, significantHeight }`;
+`applyOceanState(scene, state)` writes it. `oceanGridSource(size, segments, amplitude, focusX, focusZ, exponent)`
+is a water grid that is dense at a focus point; `oceanQualityForTier(tier)` sizes it (low 128 / medium 192 /
+high 288 segments; low evaluates 3 waves).
+
+**Shoreline** (`scene.settings.water.shore`, `WaterShoreSettings`): an analytic sloped bed through
+`origin` at `bedLevel`, rising `slope` per metre along `direction` (toward land). The water shader and
+the CPU (`shoreDepthAt`, `shoalFactor`, `breakingFactor`, `shoreFoamFactor`, `sampleWater`) share it:
+depth colour (`shallowColor` → `deepColor` over `colorDepth`), shoaling to `SHOAL_PEAK` at `breakDepth`
+then dying in the surf, a depth-limited cap (H ≤ 0.78·d, `BREAKER_INDEX`), white water on crests across
+the surf zone (scaled by the sea's amplitude), and an animated swash band under `foamDepth`. Raising
+`water.level` (a surge) floods inland consistently. `water.choppiness` scales every wave's steepness
+(Q clamped to 1).
+
+**Coast** (`terrain/coastal.ts`): `coastalHeightAt(params, x, z)` — seabed (exactly the water's shore
+bed offshore), beach face, berm, a wandering dune ridge, hinterland; `coastalTerrainSource(...)` meshes
+it; `coastalShoreSettings(params, extra)` returns the matching `water.shore`.
+
+**Cyclones** (`environment/cyclone.ts`): script a storm as `CycloneTrack` keyframes (`time, x, z,
+maxWind, radiusMaxWind, eyeRadius, rain, surge`). Field functions: `cycloneWindAt` (calm eye, eyewall ramp,
+`(Rm/r)^0.55` decay, 20° inflow, hemisphere rotation, forward motion ÷ `timeCompression`),
+`cycloneRainAt` (dry eye, eyewall ring, log-spiral bands), `cycloneCoverAt` (clear eye), `cyclonePhaseAt`,
+`saffirSimpsonCategory/Label`. `CycloneSystem` runs the track on the fixed clock and, at an `observer`,
+drives clouds (cover, density, deck wind, albedo), fog (density + colour), the ocean (wind-driven waves
+with a build/decay lag, swell radiating from the centre) and surge; `observed` exposes wind, rain,
+cover, phase, `darkness`, light factors and category for the host. `seek(t)` warms the sea up so a
+scrub lands on the same sea a playthrough would have.
+
+**Rain** (`particles/precipitation.ts`): `PrecipitationField({ follow, drive })` — camera-following,
+wind-slanted GPU rain driven by any `{ intensity, windX, windZ }` callback.
+
+**Foliage sway** (`population/windSway.ts`): `windSway(windX, windZ, t, params)` returns a bend axis,
+lean (quadratic drag, saturating), gust rocking and leaf flutter; `windBendWeights(n)` spreads it up a
+chain. The engine ships no plant models — the hurricane demo's palms live in `examples/`.
+
+Demo: `?scene=hurricane` (`examples/src/scenes/hurricane.ts` is the storm script; `hurricaneScene.ts`
+wires the systems, camera and HUD; `hurricanePalms.ts` is the demo's palm model). `?tier=` forces a tier.
+
+### Local cloud holes (eye of a storm)
+
+`SceneCloudSettings` has a generic local clearing: `holeX`/`holeZ` (render-local metres, fixed in the
+world, not advected by the wind), `holeRadius`, `holeWall` and `holeStrength` (0..1, default 0 =
+off, so every existing scene is unchanged). Inside the radius the deck fades to clear (soft inner
+25 %); across `holeWall` metres outside it the density is raised to the full `density` (a wall
+ring). The shader (`cloudHoleApply` in `cloudLayer.ts`) and the CPU twin (`cloudHoleApply` in
+`clouds.ts`, applied by `cloudLayerDensityAt`) share the formula, so cloud shadows and tools agree.
+The hole needs `coverage > 0` (the deck early-outs when empty).
+
+`CycloneSystem({ eyeHole: { scale, wallScale? } })` drives it: the deck stays overcast through the
+eye and the hole follows the storm centre, scaled toward the observer by `scale` (eye radius ×
+scale; wall = (Rm − eye) × scale × wallScale, default 1.5). The observer's own `cover` (lighting,
+darkness) still opens in the eye.
+
+### Sky exposure dims the deck
+
+`SkyLightingCache.update(sunDir, atmosphere, height, sunIntensity, ambientScale = 1)` now rescales
+its cached sun, ambient and horizon tints when the intensity or `ambientScale` changes (before,
+the change was ignored until the sun moved, and ambient never scaled). The renderer passes the
+sky `exposure` as `ambientScale`, so `setSky({ exposure })` darkens the cloud deck and the water's
+sky tint with the atmosphere — how a storm reaches near-black grey. Exposure 1 is unchanged.

@@ -341,9 +341,9 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "shadowStrength", type: f32, comment: "0..1+ multiplier on the deck shadow's optical depth" },
   { name: "surfaceShadows", type: f32, comment: "0 disables shading the scene below with the deck" },
   { name: "enabled", type: f32, comment: "0 disables the layer (the shader early-outs)" },
-  { name: "_pad0", type: f32 },
-  { name: "_pad1", type: f32 },
-  { name: "_pad2", type: f32 },
+  { name: "holeRadius", type: f32, comment: "fe-33 local clearing radius, metres (0 = none)" },
+  { name: "holeWall", type: f32, comment: "width of the forced-overcast ring outside the clearing" },
+  { name: "holeStrength", type: f32, comment: "0..1 blend of the clearing (0 = deck unchanged)" },
   { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
   { name: "_pad3", type: f32 },
   { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
@@ -351,7 +351,7 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "cloudAlbedo", type: vec3 },
   { name: "_pad5", type: f32 },
   { name: "wind", type: vec2, comment: "mean wind m/s (+x east, +y north→+z); advects the deck" },
-  { name: "_pad6", type: vec2 },
+  { name: "holeCenter", type: vec2, comment: "clearing centre, render-local XZ" },
   /**
    * Per-sub-layer record: `(driftX, driftZ, centreHeight, weight)`. The drift is metres of
    * advection at the frame's clock (`wind × seconds × factor`) and the weight is the layer's share
@@ -383,6 +383,9 @@ export const WaterUniforms = new StructDef("WaterUniforms", [
   { name: "_pad0", type: f32 },
   { name: "sunDirection", type: vec3, comment: "unit vector toward the sun, render axes" },
   { name: "_pad1", type: f32 },
+  { name: "shoreA", type: vec4, comment: "fe-33 shore: (dirX, dirZ toward land, dot(origin, dir), slope)" },
+  { name: "shoreB", type: vec4, comment: "(foamDepth, breakDepth, bedLevel, enabled 0/1)" },
+  { name: "shoreC", type: vec4, comment: "(level, colorDepth, total wave amplitude, surf strength 0..1)" },
 ]);
 
 /**
