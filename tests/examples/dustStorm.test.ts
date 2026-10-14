@@ -91,16 +91,12 @@ import {
   driftMoundRadius,
   settleDriftMound,
   BEAM_RING_OFFSET,
-  GUIDE_PATH_OFFSET,
   WaypointArrowState,
-  ARROW_IN_MARGIN,
   beamPulse,
   BEAM_PULSE_PERIOD,
   buildDrapedRing,
-  buildGuidePath,
   guidePathEnabled,
   waypointArrowEnabled,
-  waypointInView,
   DEVIL_RULES,
   STORM_DUST_PALETTE,
   devilLifespan,
@@ -395,36 +391,15 @@ group("fe-18 waypoint guidance", () => {
     assert.ok(hill(16, -4) - hill(10, -4) > 2);
   });
 
-  test("easy-only path and arrow; path drapes on the terrain toward the beam", () => {
+  test("easy-only path and arrow", () => {
     assert.equal(guidePathEnabled("easy", true), true);
     assert.equal(guidePathEnabled("hard", true), false);
     assert.equal(guidePathEnabled("easy", false), false);
     assert.equal(waypointArrowEnabled("easy"), true);
     assert.equal(waypointArrowEnabled("hard"), false);
-    const path = buildGuidePath(0, 0, 40, 30, hill);
-    for (let v = 0; v < path.positions.length / 3; v++) {
-      const wx = path.positions[v * 3]!;
-      const wz = path.positions[v * 3 + 2]!;
-      assertCloseTo(path.positions[v * 3 + 1]! + path.baseY, hill(wx, wz) + GUIDE_PATH_OFFSET, 5);
-    }
-    const n = path.positions.length / 3;
-    const endX = (path.positions[(n - 1) * 3]! + path.positions[(n - 2) * 3]!) / 2;
-    const endZ = (path.positions[(n - 1) * 3 + 2]! + path.positions[(n - 2) * 3 + 2]!) / 2;
-    assertCloseTo(endX, 40, 3);
-    assertCloseTo(endZ, 30, 3);
   });
 
-  test("arrow visibility: in-view test and hysteresis without flicker", () => {
-    const eye = { x: 0, y: 2, z: 0 };
-    const fwd = { x: 0, y: 0, z: 1 };
-    const fov = Math.PI / 3;
-    assert.equal(waypointInView(eye, fwd, { x: 0, y: 2, z: 50 }, fov, 16 / 9), true);
-    assert.equal(waypointInView(eye, fwd, { x: 0, y: 2, z: -50 }, fov, 16 / 9), false, "behind");
-    assert.equal(waypointInView(eye, fwd, { x: 200, y: 2, z: 50 }, fov, 16 / 9), false, "far right");
-    // Near the frame edge: inside the frame but outside the inner margin.
-    const edge = { x: Math.tan(fov / 2) * (16 / 9) * 0.9 * 50, y: 2, z: 50 };
-    assert.equal(waypointInView(eye, fwd, edge, fov, 16 / 9, 1), true);
-    assert.equal(waypointInView(eye, fwd, edge, fov, 16 / 9, ARROW_IN_MARGIN), false);
+  test("arrow visibility hysteresis without flicker (the on-screen test is targetOnScreen)", () => {
     const st = new WaypointArrowState();
     assert.equal(st.step(0.1, false, false, true), false, "not shown instantly");
     for (let i = 0; i < 5; i++) st.step(0.1, false, false, true);

@@ -23,8 +23,11 @@
  */
 
 import {
+  AtmosphereModel,
   Camera,
   Color,
+  MARS_ATMOSPHERE,
+  Mat4,
   type Engine,
   type Entity,
   Geometry,
@@ -39,14 +42,21 @@ import {
   Vec3,
   VehicleComponent,
   VehicleSystem,
+  createAtmosphere,
   createCylinder,
   createRock,
   heightFunctionGround,
   stormLightFactors,
+  AdaptiveDeviceQuality,
+  readDeviceCapabilityHints,
+  type DeviceCapabilityHints,
+  type DeviceTier,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
-import { loadGlb, type LoadedGlb } from "../assets/glb.js";
+import { DiscoJingle } from "../audio/discoJingle.js";
+import { loadGlb, type GlbPart, type LoadedGlb } from "../assets/glb.js";
+import { STAGE_LIGHT_COUNT, STAGE_TRUSS_HEIGHT, SUSPENSION_PIVOTS, armPieceForWheel, stageLightAim, stageLightColor, splitSuspension, suspensionArmPose, type SuspensionArmPiece } from "./roverDance.js";
 import {
   MARS_CHASE_LOOK_OFFSET_Y,
   MARS_ROVER_WHEELS,
@@ -70,9 +80,7 @@ import {
   ARROW_OUT_MARGIN,
   buildArrowMesh,
   buildDrapedRing,
-  buildGuidePath,
   guidePathEnabled,
-  waypointInView,
   type StripMesh,
   DRIFT_VERTEX_COUNT,
   driftFootprintGrowth,
@@ -121,6 +129,28 @@ import {
   type StormPhase,
   type StormQualityTier,
 } from "./dustStorm.js";
+import {
+  GUIDE_PULSE_POINTS,
+  GUIDE_RIBBON_MAX,
+  GUIDE_RIBBON_START,
+  GUIDE_FLOAT_OFFSET,
+  autoDriveDirection,
+  buildGuideRibbon,
+  clearSkyProgress,
+  courseReachable,
+  findRoute,
+  guidePulse,
+  polylineLength,
+  randomStormCourse,
+  randomStormStart,
+  targetOnScreen,
+  ymcaDance,
+  type YmcaArm,
+  type YmcaPhase,
+  type RouteObstacle,
+  type RoutePoint,
+  type YmcaLetter,
+} from "./dustStormRoute.js";
 
 export interface MarsDustStormState {
   modelLoaded: boolean;
@@ -140,6 +170,30 @@ export interface MarsDustStormState {
   stuck: boolean;
   flipped: boolean;
   won: boolean;
+  /** fe-28: seed of this load's random course (`?seed=` pins it). */
+  courseSeed: number;
+  /** fe-28 finale: phase (null before the win), stage-light envelope/sweep, jingle status. */
+  dancePhase: YmcaPhase | null;
+  stageLights: number;
+  stageSweep: number;
+  jingle: { unlocked: boolean; muted: boolean; started: boolean };
+  /** fe-28: randomized start (10–20 % farther from beam 1 than the surveyed spawn). */
+  start: { x: number; z: number; stretch: number; fallback: boolean };
+  /** fe-28: beam positions of this load's course. */
+  checkpoints: { x: number; z: number }[];
+  /** fe-28: 0 = storm, 1 = clear Mars day (ramps after the last beam). */
+  clearSky: number;
+  /** fe-28: YMCA finale letter being formed (null while rising / between choruses / not won). */
+  dance: YmcaLetter | null;
+  dancing: boolean;
+  /** fe-28: off-screen waypoint arrow currently shown. */
+  arrowVisible: boolean;
+  /** fe-28: drive direction picked by the gas/brake pedals (no gear selector). */
+  gear: 1 | -1;
+  /** fe-28: corner points of the current guide route (rover → beam). */
+  guideRoute: { x: number; z: number }[];
+  /** fe-28: travelling pulse stretch (metres along the drawn ribbon) and its opacity. */
+  guidePulse: { head: number; tail: number; opacity: number };
   elapsed: number;
   penalty: number;
   resets: number;
@@ -147,6 +201,8 @@ export interface MarsDustStormState {
   piles: { depth: number; maxDepth: number }[];
   x: number;
   z: number;
+  /** Chassis heading (radians, 0 = +Z). */
+  yaw: number;
   speed: number;
 }
 
@@ -156,17 +212,37 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   restart(): void;
   /** Switch EASY/HARD (toolbar + touch toggle) and restart the run under the new rules. */
   setDifficulty(difficulty: StormDifficulty): void;
+  /** Place the rover upright at (x, z) facing the active beam (browser checks). */
+  teleport(x: number, z: number): boolean;
+  /** Skip the finale clock ahead (browser screenshot checks on slow software GPUs); no-op unless dancing. */
+  advanceFinale(seconds: number): void;
+  /** fe-28: the adaptive device-quality tracker (tier, reasons, frame-time monitor). */
+  readonly deviceQuality: AdaptiveDeviceQuality;
 }
 
 export interface MarsDustStormOptions {
   loadGlb?: typeof loadGlb;
   difficulty?: StormDifficulty;
   quality?: StormQualityTier;
+  /** fe-28: random course seed; omit for a fresh random course every load (`?seed=` in main.ts). */
+  courseSeed?: number;
+  /** fe-28: force the starting device tier (`?tier=`); omit to classify the device. */
+  deviceTier?: DeviceTier;
+  /** fe-28: capability hints (tests); omit to read navigator + the WebGPU adapter. */
+  deviceHints?: DeviceCapabilityHints;
+  /** fe-28: let the frame-time monitor adapt the tier at runtime (default true; tests pin it). */
+  adaptiveQuality?: boolean;
+  /** fe-28: start with the finale jingle muted (`?mute=1`). */
+  muted?: boolean;
 }
 
 /** Same surveyed spawn as the Mars Showcase (all six wheels planted on the seed-1337 surface). */
-const SPAWN_X = -164;
-const SPAWN_Z = 4;
+const BASE_SPAWN_X = -164;
+const BASE_SPAWN_Z = 4;
+/** fe-28 device tier knobs: guide re-route interval (s), dust emission scale, startup shadow map. */
+export const STORM_TIER_ROUTE_INTERVAL: Readonly<Record<DeviceTier, number>> = { high: 0.5, medium: 1, low: 1.5 };
+export const STORM_TIER_PARTICLES: Readonly<Record<DeviceTier, number>> = { high: 1, medium: 0.7, low: 0.45 };
+export const STORM_TIER_SHADOW_MAP: Readonly<Record<DeviceTier, number>> = { high: 4096, medium: 2048, low: 1024 };
 const STORM_SITE = { name: "Equatorial plain", latDeg: 0, lonDeg: 0, headingDeg: 0 } as const;
 const ROVER_RADIUS = 1.6;
 const BOULDER_COUNT = 36;
@@ -180,6 +256,13 @@ const DUST_G = 0.26;
 const DUST_B = 0.12;
 /** Seconds on its side/roof before the difficulty rule fires. */
 const FLIP_GRACE = 1.5;
+/** Clear-sky finale haze: light enough to read as a clear day, dense enough to hide the streamed terrain edge (~500 m). */
+const FOG_CLEAR = 0.0035;
+const SUN_DIRECTION = new Vec3(200, 300, 200).normalize();
+/** Keep boulders this far from a beam or the spawn (the reach radius + rover length). */
+const BOULDER_KEEP_OUT = 12;
+/** Heights (m above the ground) sampled on a beam for the arrow's "beam is on screen" test. */
+const BEAM_VIEW_SAMPLES = [0.5, 6, 40, 120] as const;
 
 export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOptions = {}): MarsDustStormHandle {
   const loadModel = options.loadGlb ?? loadGlb;
@@ -187,6 +270,13 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   let rules = STORM_DIFFICULTY[difficulty];
   const qualityTier: StormQualityTier = options.quality ?? "full";
   const quality = STORM_QUALITY_TIERS[qualityTier];
+  // fe-28: device tier (cores / memory / adapter limits / mobile UA) + a frame-time monitor.
+  const deviceHints = options.deviceHints ?? readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1]);
+  const device = new AdaptiveDeviceQuality(deviceHints, options.deviceTier ? { initialTier: options.deviceTier } : {});
+  if (device.initial.reasons.length > 0) console.info(`mars dust storm: device tier ${device.tier} (${device.initial.reasons.join(", ")})`);
+  const adaptive = options.adaptiveQuality ?? true;
+  let lastFrameAt = 0;
+  const particleScale = (): number => device.value(STORM_TIER_PARTICLES);
   const gpu = engine.gpu;
   const scene = new Scene({ name: "mars-dust-storm" });
 
@@ -198,7 +288,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   scene.settings.bloom.intensity = 0.12;
   scene.settings.shadow.enabled = true;
   scene.settings.shadow.cascades = quality.shadowCascades;
-  scene.settings.shadow.mapSize = quality.shadowMapSize;
+  scene.settings.shadow.mapSize = Math.min(quality.shadowMapSize, device.value(STORM_TIER_SHADOW_MAP));
   scene.settings.shadow.distance = 120;
   // The storm hides the sky: the background is the dust itself, re-tinted every frame.
   scene.setBackgroundColor(new Color(DUST_R, DUST_G, DUST_B));
@@ -214,6 +304,15 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   scene.add(terrain);
   const groundHeight = (x: number, z: number): number => terrain.getHeightAt(x, z);
   const ground = heightFunctionGround(groundHeight);
+  // fe-28: a random course every load, each beam reachable from the previous (route-checked),
+  // and a random start 10–20 % farther from the first beam than the surveyed spawn.
+  const courseSeed = (options.courseSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  const generated = randomStormCourse(courseSeed, BASE_SPAWN_X, BASE_SPAWN_Z, groundHeight, { fallback: stormCheckpointLayout(BASE_SPAWN_X, BASE_SPAWN_Z) });
+  if (generated.fallback) console.warn(`mars dust storm: no reachable random course for seed ${courseSeed}; using the surveyed layout`);
+  const start = randomStormStart(courseSeed, BASE_SPAWN_X, BASE_SPAWN_Z, generated.checkpoints, groundHeight);
+  if (start.fallback) console.warn(`mars dust storm: no random start validated for seed ${courseSeed}; using the surveyed spawn`);
+  const SPAWN_X = start.x;
+  const SPAWN_Z = start.z;
   const groundY = groundHeight(SPAWN_X, SPAWN_Z);
   terrain.focusPosition.set(SPAWN_X, groundY, SPAWN_Z);
 
@@ -271,6 +370,9 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   chassis.add(component);
 
   let modelLoaded = false;
+  /** fe-28 dance rig: split suspension arms (chassis children) and robotic-arm joints. */
+  const suspensionEntities = new Map<SuspensionArmPiece, Entity>();
+  const armJoints: { entity: Entity; role: string; axis: Vec3; rot: Quat }[] = [];
   let modelError: string | null = null;
   let loaded: LoadedGlb | null = null;
   let disposed = false;
@@ -282,7 +384,49 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       }
       loaded = glb;
       modelLoaded = true;
-      attachStaticRoverModel(scene, chassis, wheelRoots, MARS_ROVER_WHEELS.map((w) => w.name), glb, bodyOffsetY);
+      // fe-28: split the rocker/bogie arms out of the merged body so they dance with the wheels.
+      const body: GlbPart[] = [];
+      const armParts = new Map<SuspensionArmPiece, GlbPart[]>();
+      for (const part of glb.body) {
+        const pieces = splitSuspension(part.geometry.source);
+        if (pieces.size === 1 && pieces.has("body")) {
+          body.push(part);
+          continue;
+        }
+        for (const [piece, src] of pieces) {
+          const split = { name: `${part.name}-${piece}`, geometry: track(Geometry.create(gpu, src)), material: part.material };
+          if (piece === "body") body.push(split);
+          else {
+            const list = armParts.get(piece) ?? [];
+            list.push(split);
+            armParts.set(piece, list);
+          }
+        }
+      }
+      attachStaticRoverModel(scene, chassis, wheelRoots, MARS_ROVER_WHEELS.map((w) => w.name), { ...glb, body }, bodyOffsetY);
+      for (const [piece, parts] of armParts) {
+        const rest = new Vec3(0, bodyOffsetY, 0);
+        const pivot = scene.createTransformedEntity(`rover-susp-${piece}`, rest);
+        chassis.addChild(pivot);
+        pivot.transform.position = rest;
+        for (const part of parts) {
+          const child = scene.createTransformedEntity(`rover-body-${part.name}`, new Vec3());
+          pivot.addChild(child);
+          const renderable = new Renderable();
+          renderable.geometry = part.geometry;
+          renderable.material = part.material;
+          renderable.castShadow = true;
+          renderable.receiveShadow = true;
+          scene.world.addComponent(child.id, renderable);
+        }
+        suspensionEntities.set(piece, pivot);
+      }
+      // fe-28: the robotic arm joins the dance (rotate each joint about its own axis).
+      for (const joint of glb.arm?.joints ?? []) {
+        const id = scene.world.findByName(`rover-${joint.name}`)[0];
+        const entity = id === undefined ? null : scene.world.facade(id);
+        if (entity) armJoints.push({ entity, role: joint.joint, axis: new Vec3(joint.axis[0], joint.axis[1], joint.axis[2]), rot: new Quat() });
+      }
     })
     .catch((error: unknown) => {
       modelError = error instanceof Error ? error.message : String(error);
@@ -304,7 +448,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const storm = new StormField(STORM_SEED);
   const devils = new DustDevilField(quality.devils);
   const accumulation = new DustAccumulation();
-  const course = new StormCourse(stormCheckpointLayout(SPAWN_X, SPAWN_Z), SPAWN_X, SPAWN_Z);
+  const course = new StormCourse(generated.checkpoints, SPAWN_X, SPAWN_Z);
   // Face the first beam at the start.
   const first = course.checkpoints[0]!;
   vehicle.yaw = Math.atan2(first.x - SPAWN_X, first.z - SPAWN_Z);
@@ -353,10 +497,12 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     drift: DriftRecord;
   }
   const props: PropRecord[] = [];
+  const obstacles: RouteObstacle[] = [];
   {
-    const rng = new Rng(STORM_SEED + 31);
+    const rng = new Rng((STORM_SEED + 31) ^ courseSeed);
     const anchors = [{ x: SPAWN_X, z: SPAWN_Z }, ...course.checkpoints];
-    for (let i = 0; i < BOULDER_COUNT; i++) {
+    const spots: RouteObstacle[] = [];
+    for (let i = 0; spots.length < BOULDER_COUNT && i < BOULDER_COUNT * 3; i++) {
       // Scatter along the course legs, never on a beam or the spawn.
       const leg = i % (anchors.length - 1);
       const a = anchors[leg]!;
@@ -369,10 +515,19 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const x = a.x + lx * t + (-lz / len) * side;
       const z = a.z + lz * t + (lx / len) * side;
       const radius = rng.nextRange(0.9, 2.2);
+      // Never on a beam ring or the spawn (random legs can be short or bend back near a beam).
+      if (anchors.some((a) => Math.hypot(a.x - x, a.z - z) < BOULDER_KEEP_OUT + radius)) continue;
+      spots.push({ x, z, radius });
+    }
+    // Boulders must not wall off a leg: drop the last ones until every beam is reachable again.
+    while (spots.length > 0 && !courseReachable(SPAWN_X, SPAWN_Z, course.checkpoints, groundHeight, spots)) spots.pop();
+    for (let i = 0; i < spots.length; i++) {
+      const { x, z, radius } = spots[i]!;
       const y = groundHeight(x, z);
       const boulder = addRenderable(`storm-boulder-${i}`, new Vec3(x, y + radius * 0.35, z), boulderGeometry, rockMaterial);
       boulder.transform.scale = new Vec3(radius, radius, radius);
       props.push({ x, z, radius, pile: accumulation.addPile(x, z, radius), drift: makeDrift(`storm-pile-${i}`, x, z) });
+      obstacles.push({ x, z, radius });
     }
   }
 
@@ -458,22 +613,46 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
 
   // ---------------------------------------------------------------- guidance (fe-18): easy path + off-screen arrow
 
+  // fe-28: the path is a faint, barely-floating ribbon along an obstacle-aware route, with a blue
+  // pulse running along it toward the beam.
   const guideMaterial = track(new Material({
     label: "storm-guide-path",
-    technique: "emissive",
-    color: Color.fromSrgbHex(0x9fe8ff),
-    emissive: Color.fromSrgbHex(0x9fe8ff),
-    emissiveStrength: 1.1,
-    opacity: 0.22,
+    technique: "unlit",
+    color: Color.fromSrgbHex(0x7cc0ff),
+    opacity: 0.08,
     transparent: true,
     doubleSided: true,
     fogExempt: true,
+    depthWrite: false,
   }));
-  let guideMesh: (StripMesh & { baseY: number }) | undefined = buildGuidePath(SPAWN_X, SPAWN_Z, first.x, first.z, groundHeight);
+  const guidePulseMaterial = track(new Material({
+    label: "storm-guide-pulse",
+    technique: "emissive",
+    color: Color.fromSrgbHex(0x2f7dff),
+    emissive: Color.fromSrgbHex(0x2f7dff),
+    emissiveStrength: 2.4,
+    opacity: 0,
+    transparent: true,
+    doubleSided: true,
+    fogExempt: true,
+    depthWrite: false,
+  }));
+  const routeTo = (x: number, z: number, target: { x: number; z: number }): RoutePoint[] =>
+    findRoute(x, z, target.x, target.z, groundHeight, obstacles) ?? [{ x, z }, { x: target.x, z: target.z }];
+  let guideRoute: RoutePoint[] = routeTo(SPAWN_X, SPAWN_Z, first);
+  let guideMesh: (StripMesh & { baseY: number }) | undefined = buildGuideRibbon(guideRoute, groundHeight);
   const guideGeometry = track(Geometry.create(gpu, { label: "storm-guide-path", positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices }));
   const guideEntity = addRenderable("storm-guide-path", new Vec3(SPAWN_X, guideMesh.baseY, SPAWN_Z), guideGeometry, guideMaterial, false);
   const guideRenderable = guideEntity.get(Renderable)!;
+  const pulseRibbonOptions = { from: 0, to: 0, points: GUIDE_PULSE_POINTS, offset: GUIDE_FLOAT_OFFSET + 0.03, halfWidth: 0.5 };
+  let pulseMesh: (StripMesh & { baseY: number }) | undefined = buildGuideRibbon(guideRoute, groundHeight, undefined, pulseRibbonOptions);
+  const pulseGeometry = track(Geometry.create(gpu, { label: "storm-guide-pulse", positions: pulseMesh.positions, normals: pulseMesh.normals, uvs: pulseMesh.uvs, indices: pulseMesh.indices }));
+  const pulseEntity = addRenderable("storm-guide-pulse", new Vec3(SPAWN_X, pulseMesh.baseY, SPAWN_Z), pulseGeometry, guidePulseMaterial, false);
+  const pulseRenderable = pulseEntity.get(Renderable)!;
+  const pulseState = { head: 0, tail: 0, opacity: 0 };
   let guideTimer = 0;
+  let routeTimer = 0;
+  let routeTarget = -1;
   const arrowMesh = buildArrowMesh();
   const arrowGeometry = track(Geometry.create(gpu, { label: "storm-waypoint-arrow", positions: arrowMesh.positions, normals: arrowMesh.normals, uvs: arrowMesh.uvs, indices: arrowMesh.indices }));
   const arrowMaterial = track(ringActive.clone({ label: "storm-waypoint-arrow", emissiveStrength: 7, doubleSided: true }));
@@ -506,7 +685,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
   const arrowRot = new Quat();
   const camForward = new Vec3();
-  const FORWARD = new Vec3(0, 0, -1);
+  const camLook = new Vec3();
+  const camView = new Mat4();
+  const camProj = new Mat4();
+  const camViewProj = new Mat4();
   const UP_AXIS = new Vec3(0, 1, 0);
 
   // ---------------------------------------------------------------- particles (sheet + one system per devil)
@@ -636,7 +818,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   // ---------------------------------------------------------------- input
 
   const keys = new Set<string>();
+  // fe-28 finale jingle: unlocked by the first key/pointer gesture (autoplay rules), M mutes.
+  const jingle = new DiscoJingle({ muted: options.muted ?? false });
+  const unlockAudio = (): void => jingle.unlock();
+  window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("pointerup", unlockAudio);
   const onKeyDown = (event: KeyboardEvent): void => {
+    jingle.unlock();
+    if (event.code === "KeyM" && !event.repeat) jingle.muted = !jingle.muted;
     keys.add(event.code);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
     if (event.code === "KeyR" && !event.repeat) restart();
@@ -687,6 +876,11 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   let stuck = false;
   let flippedFor = 0;
   let lastEvent = "";
+  /** fe-28: storm → clear day blend and the YMCA finale clock (both start at the last beam). */
+  let clearSky = 0;
+  let wonAt = -1;
+  let dancing = false;
+  let danceLetter: YmcaLetter | null = null;
   const force: DevilRoverForce = { ax: 0, az: 0, yawAccel: 0, lift: 0, rollAccel: 0 };
   const windward = { x: 0, z: 0 };
   const moundPos = new Vec3();
@@ -703,6 +897,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     vehicle.pitchRate = 0;
     vehicle.rollRate = 0;
     for (const wheel of vehicle.wheels) wheel.omega = 0;
+    vehicle.selectGear(1, Infinity);
     const target = course.active;
     if (target) vehicle.yaw = Math.atan2(target.x - x, target.z - z);
     vehicle.placeOnGround(ground);
@@ -735,6 +930,12 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
    * pile and the rover's piles, the course, and the rover itself. R and the EASY/HARD toggle use it.
    */
   function restart(): void {
+    stopDance();
+    jingle.stop();
+    jingleStarted = false;
+    clearSky = 0;
+    wonAt = -1;
+    skyOn = false;
     time = 0;
     intensity = storm.intensity(0);
     wind.x = 0;
@@ -752,22 +953,42 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     refreshBeams();
     arrowState.reset();
     guideTimer = 0;
+    // Fresh route from the spawn even when hard mode hides it, so a restart is the fresh state.
+    guideRoute = routeTo(SPAWN_X, SPAWN_Z, first);
+    routeTimer = device.value(STORM_TIER_ROUTE_INTERVAL);
+    routeTarget = course.index;
     stepGuidance(0);
   }
 
+  // fe-28 finale: after the last beam the storm lifts into a clear Mars day (the showcase's sky).
+  const marsAtmosphere = createAtmosphere({}, MARS_ATMOSPHERE);
+  const clearHorizon = new AtmosphereModel(marsAtmosphere).horizonColor(SUN_DIRECTION, 0, new Float64Array(3));
+  let skyOn = false;
   const applyAtmosphere = (): void => {
     const light = stormLightFactors(1, intensity, 0.12, 0.3);
-    sun.intensity = 4.2 * light.sun;
+    const c = clearSky;
+    sun.intensity = 4.2 * (light.sun + (1 - light.sun) * c);
     // Lull intensity maps to the lull fog exactly; gusts close it down to a few rover lengths.
     const gust = Math.max(0, Math.min(1, (intensity - LULL_INTENSITY) / (1 - LULL_INTENSITY)));
-    fogDensity = FOG_LULL + (FOG_GUST - FOG_LULL) * gust;
+    const stormFog = FOG_LULL + (FOG_GUST - FOG_LULL) * gust;
+    // Exponential blend so visibility opens up steadily instead of all at the end.
+    fogDensity = c <= 0 ? stormFog : stormFog * Math.pow(FOG_CLEAR / stormFog, c);
     const level = 0.35 + 0.65 * light.ambient;
-    fogColor.r = DUST_R * level;
-    fogColor.g = DUST_G * level;
-    fogColor.b = DUST_B * level;
+    fogColor.r = DUST_R * level + (clearHorizon[0]! - DUST_R * level) * c;
+    fogColor.g = DUST_G * level + (clearHorizon[1]! - DUST_G * level) * c;
+    fogColor.b = DUST_B * level + (clearHorizon[2]! - DUST_B * level) * c;
     scene.setFog("exp2", { density: fogDensity, color: fogColor });
-    scene.setBackgroundColor(fogColor);
-    scene.setAmbient(ambientColor, 0.25 + 0.25 * light.ambient);
+    // The analytic sky takes over once the haze is mostly gone; until then the dust is the backdrop.
+    if (c > 0.6) {
+      if (!skyOn) {
+        scene.setSky({ atmosphere: marsAtmosphere, quality: "medium", sunIntensity: 20, sunDirection: SUN_DIRECTION });
+        skyOn = true;
+      }
+    } else {
+      skyOn = false;
+      scene.setBackgroundColor(fogColor);
+    }
+    scene.setAmbient(ambientColor, 0.25 + 0.25 * light.ambient + 0.15 * c);
   };
   applyAtmosphere();
 
@@ -779,7 +1000,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     const modules = system.modules;
     const windLen = Math.hypot(wind.x, wind.z) || 1;
     // Storm sheet: a wind-driven slab upwind of the camera.
-    emitter.rate = quality.sheetRate * (0.25 + 0.75 * intensity);
+    emitter.rate = quality.sheetRate * particleScale() * (0.25 + 0.75 * intensity) * (1 - clearSky);
     emitter.position.x = eye.x - (wind.x / windLen) * 25;
     emitter.position.y = groundHeight(eye.x, eye.z) + 7;
     emitter.position.z = eye.z - (wind.z / windLen) * 25;
@@ -809,7 +1030,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const look = devilParticleLook(d, time, devilEmitFrame, devilLooks[i]);
       const e = sys.emitter;
       // Scale with the life envelope so a consumed or dying devil's column thins out, never pops.
-      e.rate = devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME);
+      e.rate = particleScale() * devilEmitRate(quality.devilRate, look, devilEnvelope(d), d.age < DEVIL_BURST_TIME) * (1 - clearSky);
       // fe-22d: the whole devil (grains, base cloud, cards, shadow) dances on the wandering base.
       const bx = d.x + look.curve.baseX;
       const bz = d.z + look.curve.baseZ;
@@ -916,7 +1137,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
           rec.uploaded = true;
         }
         rec.entity.transform.position = moundPos.set(cx, gyCore - 0.2, cz);
-        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity));
+        setOpacity(rec.material, devilCardOpacity(opacity, d, fade, intensity) * (1 - clearSky));
         // fe-22f: terrain tint (the grey card texture carries only shading); upload only on change.
         const tc = devilTints[i]!.color;
         const shade = rec === f.core ? 0.8 : 1.1;
@@ -928,7 +1149,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       }
       // Ground shadow: a thin draped ellipse stretched away from the sun.
       const len = Math.min(height * sunTan, 60) * 0.5;
-      setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun));
+      setOpacity(f.shadowMaterial, 0.32 * env * (0.5 + 0.5 * stormLightFactors(1, intensity, 0.12, 0.3).sun) * (1 - clearSky));
       updateDrift(f.shadow, cx + sunAway.x * len, cz + sunAway.z * len, 0.001, len, d.coreRadius * 0.6, Math.atan2(sunAway.z, sunAway.x), true);
     }
   };
@@ -997,9 +1218,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   };
 
   const update = (dt: number): void => {
+    // Wall-clock frame time (not the clamped sim dt) drives the adaptive tier.
+    const now = performance.now();
+    if (adaptive && modelLoaded && lastFrameAt > 0) device.sample(now - lastFrameAt);
+    lastFrameAt = now;
     if (dt <= 0) return;
     time += dt;
-    intensity = storm.intensity(time);
+    if (wonAt >= 0) clearSky = clearSkyProgress(time - wonAt);
+    intensity = storm.intensity(time) * (1 - clearSky);
     storm.wind(time, wind);
     applyAtmosphere();
     scene.settings.sky.seaLevel = groundHeight(vehicle.position.x, vehicle.position.z);
@@ -1023,6 +1249,12 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
 
     // Input → vehicle, under the stuck / won rules.
     readMarsDriveInput(keys, touch.sample(), drive);
+    // fe-28: no gear selector — gas drives forward, brake slows and then backs up.
+    const forwardSpeed = vehicle.velocity.x * Math.sin(vehicle.yaw) + vehicle.velocity.z * Math.cos(vehicle.yaw);
+    const pedals = autoDriveDirection(vehicle.gear, drive.throttle, drive.brake, forwardSpeed);
+    if (pedals.gear !== (vehicle.gear < 0 ? -1 : 1)) vehicle.selectGear(pedals.gear, Infinity);
+    drive.throttle = pedals.throttle;
+    drive.brake = pedals.brake;
     if (drive.throttle > 0.01) startupBrake = false;
     const speed = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
     // The run (clock and burial) starts with the first throttle, not while the model loads.
@@ -1060,24 +1292,60 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     if (running && course.step(dt, vehicle.position.x, vehicle.position.z)) {
       lastEvent = course.state === "won" ? "STORM SURVIVED" : `BEACON ${course.index} REACHED`;
       refreshBeams();
+      if (course.state === "won") {
+        wonAt = time;
+        startDance();
+        jingleStarted = jingle.play();
+      }
     }
+    if (dancing) stepDance(dt);
     stepPiles(dt);
     stepParticles();
     stepGuidance(dt);
   };
 
-  /** Easy-mode draped path (rebuilt ~5×/s) and the easy-mode off-screen beam arrow. */
+  /**
+   * Easy-mode guidance: a faint floating ribbon along an obstacle-aware route (re-routed ~2×/s,
+   * re-draped ~5×/s) with a blue pulse running to the beam, and the off-screen beam arrow.
+   */
   function stepGuidance(dt: number): void {
     const target = course.active;
     const vx = vehicle.position.x;
     const vz = vehicle.position.z;
     guideRenderable.visible = guidePathEnabled(difficulty, !!target);
     guideTimer -= dt;
+    routeTimer -= dt;
+    if (guideRenderable.visible && target && (routeTimer <= 0 || routeTarget !== course.index)) {
+      routeTimer = device.value(STORM_TIER_ROUTE_INTERVAL);
+      routeTarget = course.index;
+      guideRoute = routeTo(vx, vz, target);
+      guideTimer = 0;
+    }
     if (guideRenderable.visible && target && guideTimer <= 0) {
       guideTimer = 0.2;
-      guideMesh = buildGuidePath(vx, vz, target.x, target.z, groundHeight, guideMesh);
+      // Between re-routes the first corner follows the rover so the ribbon never trails behind it.
+      guideRoute[0] = { x: vx, z: vz };
+      guideMesh = buildGuideRibbon(guideRoute, groundHeight, guideMesh);
       guideGeometry.updateFrom({ positions: guideMesh.positions, normals: guideMesh.normals, uvs: guideMesh.uvs, indices: guideMesh.indices });
       guideEntity.transform.position = moundPos.set(vx, guideMesh.baseY, vz);
+    }
+    pulseRenderable.visible = guideRenderable.visible;
+    if (pulseRenderable.visible) {
+      const len = Math.min(polylineLength(guideRoute), GUIDE_RIBBON_MAX);
+      const start = Math.min(GUIDE_RIBBON_START, len);
+      guidePulse(time, len - start, pulseState);
+      pulseRibbonOptions.from = start + pulseState.tail;
+      pulseRibbonOptions.to = start + pulseState.head;
+      pulseMesh = buildGuideRibbon(guideRoute, groundHeight, pulseMesh, pulseRibbonOptions);
+      // Index buffer never changes: upload positions only (normals/uvs/indices kept).
+      pulseGeometry.updateFrom({ positions: pulseMesh.positions });
+      const origin = guideRoute[0]!;
+      pulseEntity.transform.position = moundPos.set(origin.x, pulseMesh.baseY, origin.z);
+      setOpacity(guidePulseMaterial, pulseState.opacity);
+    } else {
+      pulseState.head = 0;
+      pulseState.tail = 0;
+      pulseState.opacity = 0;
     }
     stepBeamPulse();
     if (!target || !waypointArrowEnabled(difficulty)) {
@@ -1085,19 +1353,216 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       arrowRenderable.visible = false;
       return;
     }
+    // fe-28: a real frustum test. The fe-18 test used local −Z as the camera's look axis, but the
+    // camera looks along its local +Z (`Transform.forward`), so the arrow hid only when the camera
+    // faced away from the beam.
     const eye = cameraEntity.transform.position;
-    cameraEntity.transform.rotation.rotateVector(FORWARD, camForward);
-    // Aim at the beam a few metres up (the ring + lower beam are what the player looks for).
-    const tp = { x: target.x, y: groundHeight(target.x, target.z) + 6, z: target.z };
+    cameraEntity.transform.rotation.rotateVector(Vec3.unitZ, camForward);
+    camLook.set(eye.x + camForward.x, eye.y + camForward.y, eye.z + camForward.z);
+    camView.setLookAt(eye, camLook, UP_AXIS);
     const aspect = camera.aspectOverride > 0 ? camera.aspectOverride : (typeof window !== "undefined" && window.innerHeight > 0 ? window.innerWidth / window.innerHeight : 16 / 9);
-    const inner = waypointInView(eye, camForward, tp, camera.fovY, aspect, ARROW_IN_MARGIN);
-    const outer = waypointInView(eye, camForward, tp, camera.fovY, aspect, ARROW_OUT_MARGIN);
+    camProj.setPerspective(camera.fovY, aspect, camera.near, camera.far);
+    camViewProj.multiplyMatrices(camProj, camView);
+    // The beam counts as in view when any of its ring, lower column or upper column is on screen.
+    const gy = groundHeight(target.x, target.z);
+    let inner = false;
+    let outer = false;
+    for (const up of BEAM_VIEW_SAMPLES) {
+      inner ||= targetOnScreen(camViewProj.m, target.x, gy + up, target.z, ARROW_IN_MARGIN);
+      outer ||= targetOnScreen(camViewProj.m, target.x, gy + up, target.z, ARROW_OUT_MARGIN);
+    }
     arrowRenderable.visible = arrowState.step(dt, inner, outer, waypointArrowEnabled(difficulty));
     if (!arrowRenderable.visible) return;
     const heading = Math.atan2(target.z - vz, target.x - vx);
     arrowEntity.transform.position = moundPos.set(vx, vehicle.position.y + 3.6 + 0.15 * Math.sin(time * 3), vz);
     // Local +X points along the arrow; a Y rotation by −heading maps +X onto (cos h, 0, sin h).
     arrowEntity.transform.rotation = arrowRot.setAxisAngle(UP_AXIS, -heading);
+  }
+
+  // ---------------------------------------------------------------- fe-28 finale: YMCA on the rear wheels
+
+  /** Chassis-local rest hub of every wheel (captured when the dance starts). */
+  const restHubs = MARS_ROVER_WHEELS.map(() => new Vec3());
+  const dancePivot = new Vec3();
+  const danceYaw = new Quat();
+  const dancePitch = new Quat();
+  const danceRot = new Quat();
+  const danceInv = new Quat();
+  const danceSpin = new Quat();
+  const danceWheelRot = new Quat();
+  const danceTmp = new Vec3();
+  const danceOut = new Vec3();
+  const danceWheelPos = new Vec3();
+  const RIGHT_AXIS = new Vec3(1, 0, 0);
+  let danceSpinAngle = 0;
+  let dancePhase: YmcaPhase | null = null;
+  /** Stage-light envelope 0..1 and sweep −1..1 (fe-28). */
+  let danceLights = 0;
+  let danceSweep = 0;
+  const armRestPos = new Vec3();
+  const armPivot = new Vec3();
+  const armTarget = new Vec3();
+  const armOffset = new Vec3();
+  const armPos = new Vec3();
+  const armRot = new Quat();
+  let jingleStarted = false;
+  function startDance(): void {
+    if (dancing) return;
+    vehicle.writeRotation(danceRot);
+    danceInv.copyFrom(danceRot).invert();
+    const center = new Vec3();
+    for (let i = 0; i < vehicle.wheels.length && i < restHubs.length; i++) {
+      vehicle.wheelCenterPosition(vehicle.wheels[i]!, center);
+      danceTmp.set(center.x - vehicle.position.x, center.y - vehicle.position.y, center.z - vehicle.position.z);
+      danceInv.rotateVector(danceTmp, restHubs[i]!);
+    }
+    // Pivot on the rear axle (wheels 4 and 5), where the rover stands.
+    const rl = restHubs[4]!;
+    const rr = restHubs[5]!;
+    danceTmp.set((rl.x + rr.x) / 2, (rl.y + rr.y) / 2, (rl.z + rr.z) / 2);
+    danceRot.rotateVector(danceTmp, danceOut);
+    dancePivot.set(vehicle.position.x + danceOut.x, vehicle.position.y + danceOut.y, vehicle.position.z + danceOut.z);
+    // Freeze the physics: the system would otherwise overwrite the posed transforms every step.
+    vehicle.velocity.set(0, 0, 0);
+    scene.world.removeComponent(chassis.id, VehicleComponent);
+    dancing = true;
+    danceSpinAngle = 0;
+  }
+  function resetDanceRig(): void {
+    for (const e of suspensionEntities.values()) {
+      e.transform.position = armRestPos.set(0, bodyOffsetY, 0);
+      e.transform.rotation = Quat.identity;
+    }
+    for (const j of armJoints) j.entity.transform.rotation = Quat.identity;
+  }
+  /** End the finale (clip over, or a restart): stow the rig and hand the rover back to physics. */
+  function stopDance(): void {
+    danceLetter = null;
+    dancePhase = null;
+    danceLights = 0;
+    if (!dancing) return;
+    dancing = false;
+    resetDanceRig();
+    stepStageLights(0, 0);
+    chassis.add(component);
+  }
+  function stepDance(dt: number): void {
+    const t = time - wonAt;
+    const f = ymcaDance(t);
+    if (f.phase === "done") {
+      // The clip is over and the rover is back on its wheels: physics takes over again.
+      stopDance();
+      dancePhase = "done";
+      return;
+    }
+    dancePhase = f.phase;
+    danceLights = f.lights;
+    danceSweep = f.sweep;
+    stepStageLights(f.lights, f.sweep);
+    danceLetter = f.letter;
+    danceSpinAngle += f.spin * dt;
+    danceYaw.setAxisAngle(UP_AXIS, vehicle.yaw);
+    // Nose up = negative rotation about the chassis +X (maps +Z toward +Y).
+    dancePitch.setAxisAngle(RIGHT_AXIS, -f.pitch);
+    danceRot.copyFrom(danceYaw).multiply(dancePitch);
+    // Chassis origin = pivot (+ bounce) − R · rearAxleLocal.
+    const rl = restHubs[4]!;
+    const rr = restHubs[5]!;
+    danceTmp.set((rl.x + rr.x) / 2, (rl.y + rr.y) / 2, (rl.z + rr.z) / 2);
+    danceRot.rotateVector(danceTmp, danceOut);
+    chassis.transform.position = moundPos.set(dancePivot.x - danceOut.x, dancePivot.y + f.bounce - danceOut.y, dancePivot.z - danceOut.z);
+    chassis.transform.rotation = danceRot;
+    const cp = chassis.transform.position;
+    for (let i = 0; i < wheelRoots.length; i++) {
+      const hub = restHubs[i]!;
+      const d = f.wheels[i]!;
+      danceTmp.set(hub.x + d.x, hub.y + d.y, hub.z + d.z);
+      // The wheel's suspension arm swings (and reaches) with it.
+      const piece = armPieceForWheel(i, hub.x);
+      const armEntity = piece ? suspensionEntities.get(piece) : undefined;
+      if (piece && armEntity) {
+        const [px, py, pz] = SUSPENSION_PIVOTS[piece];
+        armPivot.set(px, py + bodyOffsetY, pz);
+        armOffset.set(0, bodyOffsetY, 0);
+        suspensionArmPose(armPivot, hub, armTarget.copyFrom(danceTmp), armOffset, armPos, armRot);
+        armEntity.transform.position = armPos;
+        armEntity.transform.rotation = armRot;
+      }
+      danceRot.rotateVector(danceTmp, danceOut);
+      wheelRoots[i]!.transform.position = danceWheelPos.set(cp.x + danceOut.x, cp.y + danceOut.y, cp.z + danceOut.z);
+      // Upper wheels wave (spin) on the break; the feet stay still.
+      danceSpin.setAxisAngle(RIGHT_AXIS, i < 4 ? danceSpinAngle * (i % 2 === 0 ? 1 : -1) : 0);
+      danceWheelRot.copyFrom(danceRot).multiply(danceSpin);
+      wheelRoots[i]!.transform.rotation = danceWheelRot;
+    }
+    for (const j of armJoints) {
+      const angle = j.role in f.arm ? f.arm[j.role as keyof YmcaArm] : 0;
+      j.entity.transform.rotation = j.rot.setAxisAngle(j.axis, angle);
+    }
+  }
+
+  // ---------------------------------------------------------------- stage lights (fe-28 finale)
+
+  /** Rainbow spot lights on a truss over the dance: an unlit beam cone + a real spot light each. */
+  const stageConeGeometry = track(createCylinder(gpu, { radiusTop: 0.12, radiusBottom: 1.5, height: STAGE_TRUSS_HEIGHT + 2, radialSegments: 20, capped: false }));
+  const stageLights = Array.from({ length: STAGE_LIGHT_COUNT }, (_, i) => {
+    const material = track(new Material({
+      label: `storm-stage-beam-${i}`,
+      technique: "unlit",
+      color: new Color(1, 1, 1),
+      opacity: 0,
+      transparent: true,
+      doubleSided: true,
+      fogExempt: true,
+      depthWrite: false,
+    }));
+    const head = scene.createTransformedEntity(`storm-stage-light-${i}`, new Vec3(SPAWN_X, groundY, SPAWN_Z));
+    const cone = addRenderable(`storm-stage-beam-${i}`, new Vec3(0, -(STAGE_TRUSS_HEIGHT + 2) / 2, 0), stageConeGeometry, material, false);
+    head.addChild(cone);
+    cone.transform.position = new Vec3(0, -(STAGE_TRUSS_HEIGHT + 2) / 2, 0);
+    const renderable = scene.world.getComponent(cone.id, Renderable)!;
+    renderable.visible = false;
+    const light = new Light();
+    light.kind = "spot";
+    light.castShadow = false;
+    light.range = 40;
+    light.intensity = 0;
+    light.innerCone = Math.cos((10 * Math.PI) / 180);
+    light.outerCone = Math.cos((16 * Math.PI) / 180);
+    light.affectScene = false;
+    scene.world.addComponent(head.id, light);
+    return { head, material, renderable, light, rot: new Quat(), colour: { r: 1, g: 1, b: 1 } };
+  });
+  const stageAim = new Vec3();
+  const stageHead = new Vec3();
+  /** Place, colour and fade the rig around the dancer (envelope 0 hides it entirely). */
+  function stepStageLights(envelope: number, sweep: number): void {
+    const on = envelope > 0.001;
+    const fx = Math.sin(vehicle.yaw);
+    const fz = Math.cos(vehicle.yaw);
+    const rx = fz;
+    const rz = -fx;
+    const gy = groundHeight(dancePivot.x, dancePivot.z);
+    for (let i = 0; i < stageLights.length; i++) {
+      const rec = stageLights[i]!;
+      rec.renderable.visible = on;
+      rec.light.affectScene = on;
+      rec.light.intensity = on ? 40 * envelope : 0;
+      setOpacity(rec.material, on ? 0.1 * envelope : 0);
+      if (!on) continue;
+      const { head, spot } = stageLightAim(i, sweep);
+      stageHead.set(dancePivot.x + rx * head.x + fx * head.z, gy + head.y, dancePivot.z + rz * head.x + fz * head.z);
+      stageAim.set(dancePivot.x + rx * spot.x + fx * spot.z - stageHead.x, gy + spot.y - stageHead.y, dancePivot.z + rz * spot.x + fz * spot.z - stageHead.z);
+      const len = Math.hypot(stageAim.x, stageAim.y, stageAim.z) || 1;
+      // Spot lights shine along −Y: turn +Y onto the reverse of the aim.
+      stageAim.set(-stageAim.x / len, -stageAim.y / len, -stageAim.z / len);
+      rec.head.transform.position = stageHead;
+      rec.head.transform.rotation = rec.rot.fromUnitVectorY(stageAim);
+      const c = stageLightColor(i, time, rec.colour);
+      rec.light.setColor(c.r, c.g, c.b);
+      rec.material.baseColor.set(c.r, c.g, c.b);
+      rec.material.markChanged();
+    }
   }
 
   const formatTime = (s: number): string => {
@@ -1130,6 +1595,20 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stuck,
     flipped: isRoverFlipped(vehicle.roll, vehicle.pitch),
     won: course.state === "won",
+    courseSeed,
+    dancePhase,
+    stageLights: danceLights,
+    stageSweep: danceLights > 0 ? danceSweep : 0,
+    jingle: { unlocked: jingle.unlocked, muted: jingle.muted, started: jingleStarted },
+    start: { x: start.x, z: start.z, stretch: start.stretch, fallback: start.fallback },
+    checkpoints: course.checkpoints.map((c) => ({ x: c.x, z: c.z })),
+    clearSky,
+    dance: danceLetter,
+    dancing,
+    arrowVisible: arrowRenderable.visible,
+    gear: vehicle.gear < 0 ? -1 : 1,
+    guideRoute: guideRoute.map((p) => ({ x: p.x, z: p.z })),
+    guidePulse: { ...pulseState },
     elapsed: course.elapsed,
     penalty: course.penalty,
     resets: course.resets,
@@ -1137,19 +1616,20 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     piles: accumulation.piles.map((p) => ({ depth: p.depth, maxDepth: p.maxDepth })),
     x: vehicle.position.x,
     z: vehicle.position.z,
+    yaw: vehicle.yaw,
     speed: Math.hypot(vehicle.velocity.x, vehicle.velocity.z),
   });
 
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · R restart · EASY/HARD toggle restarts · reach the light beams in order · keep moving or the dust buries you",
+    controlsHint: "WASD / arrows drive (S / brake backs up once stopped) · Space handbrake · R restart · EASY/HARD toggle restarts · reach the light beams in order · keep moving or the dust buries you",
     camera: marsChaseCamera(new Vec3(SPAWN_X, chaseLookY, SPAWN_Z), groundHeight, 60),
     followTarget: marsChaseFollow(vehicle),
     vehicleState: () => ({
       speed: Math.hypot(vehicle.velocity.x, vehicle.velocity.z),
       rpm: vehicle.rpm,
-      gear: 1,
+      gear: vehicle.gear,
       x: vehicle.position.x,
       y: vehicle.position.y,
       z: vehicle.position.z,
@@ -1163,7 +1643,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       const lines = [
         `storm ${storm.phase(time).toUpperCase()} ${Math.round(intensity * 100)}% · wind ${Math.hypot(wind.x, wind.z).toFixed(0)} m/s · devils ${devils.devils.length} · ${difficulty} · ${qualityTier}`,
         course.state === "won"
-          ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}`
+          ? `STORM SURVIVED · ${formatTime(course.total)}${penalty}${danceLetter ? ` · ${danceLetter}!` : ""}${dancing && jingleStarted ? " · M mutes" : ""}`
           : `beacon ${course.index + 1}/${course.checkpoints.length} ${bearingArrow(course.bearing(x, z, vehicle.yaw))} ${course.distance(x, z).toFixed(0)} m · time ${formatTime(course.total)}${penalty}`,
         `burial ${Math.round(burial * 100)}%${stuck ? " · STUCK — pump throttle" : burial > 0.3 ? " · keep moving!" : ""}${course.resets > 0 ? ` · resets ${course.resets}` : ""}`,
       ];
@@ -1174,10 +1654,23 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stormState,
     restart,
     setDifficulty,
+    deviceQuality: device,
+    advanceFinale: (seconds: number): void => {
+      if (dancing && seconds > 0) wonAt -= seconds;
+    },
+    teleport: (x: number, z: number): boolean => {
+      if (dancing || !Number.isFinite(x) || !Number.isFinite(z)) return false;
+      startupBrake = false;
+      placeRover(x, z, false);
+      return true;
+    },
     update,
     dispose(): void {
       disposed = true;
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("pointerup", unlockAudio);
+      jingle.dispose();
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
       btnEasy?.removeEventListener("click", onEasy);

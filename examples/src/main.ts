@@ -60,8 +60,9 @@ import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningS
 import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
-import { buildMarsDustStormScene } from "./scenes/marsDustStormScene.js";
+import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
 import { stormQualityForPlatform } from "./scenes/dustStorm.js";
+import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
@@ -238,6 +239,11 @@ async function main(): Promise<void> {
       currentHandle = buildMarsDustStormScene(engine, {
         difficulty: query.get("difficulty") === "hard" ? "hard" : "easy",
         quality: stormQualityForPlatform(platform.os),
+        // fe-28: a fresh random course every load; `?seed=<uint32>` replays one (tests, sharing).
+        courseSeed: randomCourseSeed(query.get("seed")),
+        // fe-28: `?tier=low|medium|high` forces the device tier; `?mute=1` mutes the finale jingle.
+        deviceTier: ((t) => (t === "low" || t === "medium" || t === "high" ? t : undefined))(query.get("tier")),
+        muted: query.get("mute") === "1",
       });
     } else {
       currentHandle = buildCubesScene(engine);
@@ -692,6 +698,14 @@ async function main(): Promise<void> {
     multiScatteringReference: () => Array.from(engine.renderer.multiScatteringReference().data),
     /** Camera eye / orbit target / distance — the browser gate asserts zoom & pan against this. */
     camera: () => controls?.state() ?? null,
+    /** Re-aim the orbit camera (radians / metres; omitted values keep their current setting). */
+    setOrbit: (azimuth?: number, elevation?: number, distance?: number) => {
+      if (!controls) return false;
+      if (Number.isFinite(azimuth)) controls.azimuth = azimuth!;
+      if (Number.isFinite(elevation)) controls.elevation = elevation!;
+      if (Number.isFinite(distance)) controls.distance = distance!;
+      return true;
+    },
     /** Chassis speed/rpm while a vehicle scene is loaded; null otherwise. */
     vehicleState: () => currentHandle?.vehicleState?.() ?? null,
     /**
@@ -700,6 +714,15 @@ async function main(): Promise<void> {
      */
     setWheelOverride: (override: { steer: number; travel: number; spin: number } | null) =>
       currentHandle?.setWheelOverride?.(override),
+    /** Mars Dust Storm Survival run snapshot (course, guidance, finale); null on other scenes. */
+    marsDustStormState: () => (activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.stormState?.() ?? null : null),
+    /** Mars Dust Storm: move the rover to (x, z) on the ground (browser checks / screenshots). */
+    marsDustStormTeleport: (x: number, z: number) =>
+      activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.teleport?.(x, z) ?? false : false,
+    /** Mars Dust Storm: skip the finale clock ahead (slow software-GPU screenshot runs). */
+    marsDustStormAdvanceFinale: (seconds: number) => {
+      if (activeSceneName === "mars-dust-storm") (currentHandle as MarsDustStormHandle | null)?.advanceFinale?.(seconds);
+    },
     /** Mission, cargo, relay, weather and vehicle snapshot while Alpine Rescue is loaded. */
     alpineRescueState: () => (currentHandle as AlpineRescueSceneHandle | null)?.snapshot?.() ?? null,
     /** Amazon launch, river-course, current, depth and landmark telemetry; null on other scenes. */

@@ -43,12 +43,14 @@ import {
   type Entity,
   type SystemContext,
   type TaskScheduler,
+  Vec3,
   VehicleComponent,
   findGpuParticleWorlds,
 } from "@forge/engine";
-import { buildMarsDustStormScene } from "../../examples/src/scenes/marsDustStormScene.js";
+import { buildMarsDustStormScene, STORM_TIER_PARTICLES, STORM_TIER_ROUTE_INTERVAL } from "../../examples/src/scenes/marsDustStormScene.js";
 import { BURIAL_STUCK, STORM_DIFFICULTY, STORM_QUALITY_TIERS, stormParticleBudget, type StormDifficulty } from "../../examples/src/scenes/dustStorm.js";
 import type { GlbLoadProgress, LoadedGlb } from "../../examples/src/assets/glb.js";
+import { YMCA_TOTAL } from "../../examples/src/scenes/dustStormRoute.js";
 
 const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress: GlbLoadProgress) => void): Promise<LoadedGlb> => {
   const engine = await import("@forge/engine");
@@ -59,16 +61,33 @@ const mockLoadGlb = async (device: unknown, _url: string, onProgress?: (progress
     geometries.push(geometry);
     return { name, geometry, material };
   };
+  // A body mesh with a front-right rocker arm baked in (fe-28 splits it back out).
+  const merged = (() => {
+    const deck = engine.boxGeometrySource({ width: 0.4, height: 0.4, depth: 0.4 });
+    const arm = engine.boxGeometrySource({ width: 0.1, height: 0.1, depth: 0.4 });
+    const armPos = arm.positions.map((v, i) => v + [1.0, 0.6, 0.6][i % 3]!);
+    const n = deck.positions.length / 3;
+    const indices = new Uint32Array([...deck.indices!, ...[...arm.indices!].map((i) => i + n)]);
+    const join = (a?: Float32Array | null, b?: Float32Array | null) => (a && b ? Float32Array.from([...a, ...b]) : null);
+    const geometry = engine.Geometry.create(device as GraphicsDevice, { positions: Float32Array.from([...deck.positions, ...armPos]), normals: join(deck.normals, arm.normals), uvs: join(deck.uvs, arm.uvs), indices });
+    geometries.push(geometry);
+    return { name: "deck", geometry, material };
+  })();
   onProgress?.({ phase: "done", receivedBytes: 1, totalBytes: 1 });
   return {
-    body: [box("deck")],
+    body: [merged],
     wheels: ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"].map((name) => ({
       name,
       hub: [0, 0, 0] as [number, number, number],
       parts: [box(`${name}-tire`)],
     })),
     mast: null,
-    arm: null,
+    arm: {
+      joints: [
+        { name: "arm", joint: "azimuth", offset: [0.5, 0.8, 1.0], axis: [0, 1, 0], parts: [box("arm-base")] },
+        { name: "arm_shoulder", joint: "shoulder", offset: [0, 0, 0.2], axis: [1, 0, 0], parts: [box("arm-upper")] },
+      ],
+    },
     dispose(): void {
       for (const g of geometries) g.dispose();
       material.dispose();
@@ -98,7 +117,7 @@ function fakeButton() {
   });
 }
 
-async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true) {
+async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true, courseSeed = 1234) {
   const windowStub = new EventTarget();
   stubGlobal("window", windowStub);
   const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-hard": fakeButton(), "storm-difficulty": fakeButton() };
@@ -106,7 +125,7 @@ async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = 
   stubGlobal("fetch", spyFunction(() => new Promise<Response>(() => {})));
   const gpu = await GraphicsDevice.create({ forceMock: true });
   const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
-  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced" });
+  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed, deviceHints: {}, adaptiveQuality: false });
   const scene = handle.scene;
   scene.attachToEngine(engine);
   const component = scene.world.getComponent(scene.world.findByName("rover-chassis")[0]!, VehicleComponent)!;
@@ -415,6 +434,215 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
     }
     assert.equal(hard.handle.stormState().resets, 1);
     assert.equal(hard.handle.stormState().flipped, false);
+  });
+});
+
+
+group("Mars Dust Storm Survival — fe-28 polish", () => {
+  test("random course per seed: same seed replays, another seed moves the beams; the route dodges every boulder", async () => {
+    const a = await fixture("easy", true, 11);
+    const sa = a.handle.stormState();
+    assert.equal(sa.courseSeed, 11);
+    const b = await fixture("easy", true, 11);
+    assert.deepEqual(b.handle.stormState().checkpoints, sa.checkpoints);
+    const c = await fixture("easy", true, 12);
+    assert.notDeepEqual(c.handle.stormState().checkpoints, sa.checkpoints);
+    for (const fx of [a, c]) {
+      fx.tick();
+      const route = fx.handle.stormState().guideRoute;
+      assert.ok(route.length >= 2);
+      const rocks = named(fx.scene, "storm-boulder-").map((e) => ({ x: e.transform.position.x, z: e.transform.position.z, r: e.transform.scale.x }));
+      assert.ok(rocks.length > 10);
+      for (let i = 0; i < route.length - 1; i++) {
+        const p = route[i]!;
+        const q = route[i + 1]!;
+        for (let k = 1; k < 40; k++) {
+          const x = p.x + ((q.x - p.x) * k) / 40;
+          const z = p.z + ((q.z - p.z) * k) / 40;
+          for (const r of rocks) assert.ok(Math.hypot(x - r.x, z - r.z) >= r.r * 0.85 + 1.3, `route clips a boulder at ${x.toFixed(1)},${z.toFixed(1)}`);
+        }
+      }
+    }
+  });
+
+  test("the arrow shows only while the beam is off screen", async () => {
+    const { handle, scene, tick } = await fixture();
+    const cam = named(scene, "camera")[0]!;
+    const beam = named(scene, "storm-beam-ring-0")[0]!.transform.position;
+    const eye = { x: handle.stormState().x - 10, z: handle.stormState().z - 10 };
+    // Look straight at the beam from behind the rover: on screen → no arrow.
+    const look = () => {
+      cam.transform.position = new Vec3(eye.x, beam.y + 6, eye.z);
+      cam.transform.lookAt(new Vec3(beam.x, beam.y + 6, beam.z));
+    };
+    look();
+    for (let i = 0; i < 20; i++) { look(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, false, "beam in view: arrow hidden");
+    // Turn the camera to face directly away from the beam: off screen → arrow.
+    const away = () => {
+      cam.transform.position = new Vec3(eye.x, beam.y + 6, eye.z);
+      cam.transform.lookAt(new Vec3(eye.x * 2 - beam.x, beam.y + 6, eye.z * 2 - beam.z));
+    };
+    for (let i = 0; i < 20; i++) { away(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, true, "beam behind the camera: arrow shown");
+    for (let i = 0; i < 20; i++) { look(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, false, "back in view: hidden again");
+  });
+
+  test("no gear selector: brake from rest backs the rover up, gas drives it forward again", async () => {
+    const { handle, vehicle, tick, key } = await fixture();
+    key("keydown", "KeyS");
+    for (let i = 0; i < 90; i++) tick();
+    assert.equal(handle.stormState().gear, -1);
+    const fwd = vehicle.velocity.x * Math.sin(vehicle.yaw) + vehicle.velocity.z * Math.cos(vehicle.yaw);
+    assert.ok(fwd < -0.2, `backing up at ${fwd}`);
+    key("keyup", "KeyS");
+    key("keydown", "KeyW");
+    for (let i = 0; i < 240; i++) tick();
+    key("keyup", "KeyW");
+    assert.equal(handle.stormState().gear, 1);
+    const fwd2 = vehicle.velocity.x * Math.sin(vehicle.yaw) + vehicle.velocity.z * Math.cos(vehicle.yaw);
+    assert.ok(fwd2 > 0.2, `driving forward at ${fwd2}`);
+  });
+
+  test("finale: the last beam clears the sky and the rover stands up for Y-M-C-A; R puts it all back", async () => {
+    const { handle, scene, vehicle, tick, key } = await fixture();
+    start(key, tick);
+    const count = handle.stormState().checkpointCount;
+    for (let i = 0; i < count; i++) {
+      const beam = named(scene, `storm-beam-ring-${i}`)[0]!;
+      vehicle.position.x = beam.transform.position.x;
+      vehicle.position.z = beam.transform.position.z;
+      tick();
+    }
+    assert.equal(handle.stormState().won, true);
+    assert.equal(scene.settings.skyEnabled, false, "clearing starts from the dust backdrop");
+    const letters: string[] = [];
+    const chassis = named(scene, "rover-chassis")[0]!;
+    let maxNoseUp = 0;
+    for (let i = 0; i < 12 * 30; i++) {
+      tick(1 / 30);
+      const l = handle.stormState().dance;
+      if (l && letters[letters.length - 1] !== l) letters.push(l);
+      const f = new Vec3();
+      chassis.transform.rotation.rotateVector(Vec3.unitZ, f);
+      maxNoseUp = Math.max(maxNoseUp, f.y);
+    }
+    const s = handle.stormState();
+    assert.equal(s.clearSky, 1);
+    assert.equal(scene.settings.skyEnabled, true, "the analytic Mars sky is back");
+    assert.ok(s.fogDensity < 0.004, `clear-day haze ${s.fogDensity}`);
+    assert.equal(s.dancing, true);
+    assert.deepEqual(letters.slice(0, 4), ["Y", "M", "C", "A"]);
+    assert.ok(maxNoseUp > 0.85, `stands on its rear wheels (nose-up ${maxNoseUp})`);
+    // The upper wheels leave their rest hubs while the rear pair stays on the ground.
+    const wheels = MARS_WHEELS.map((n) => named(scene, `rover-${n}`)[0]!.transform.position);
+    assert.ok(wheels[0]!.y - wheels[4]!.y > 1.5, "front wheel raised high above the rear");
+    key("keydown", "KeyR");
+    key("keyup", "KeyR");
+    const r = handle.stormState();
+    assert.equal(r.dancing, false);
+    assert.equal(r.clearSky, 0);
+    assert.equal(scene.settings.skyEnabled, false);
+    assert.ok(scene.world.getComponent(chassis.id, VehicleComponent), "physics re-attached");
+  });
+
+  test("finale clip: arms + robotic arm dance, rainbow stage lights sweep, then lights out and the rover lowers back onto its wheels", async () => {
+    const { handle, scene, vehicle, tick, key } = await fixture();
+    start(key, tick);
+    const chassis = named(scene, "rover-chassis")[0]!;
+    const arm = named(scene, "rover-susp-front+")[0]!;
+    assert.ok(arm, "front-right suspension arm split out of the body");
+    assert.equal(named(scene, "rover-susp-middle-").length, 0, "only pieces with triangles are created");
+    const joint = named(scene, "rover-arm_shoulder")[0]!;
+
+    const restY = vehicle.position.y;
+    const count = handle.stormState().checkpointCount;
+    for (let i = 0; i < count; i++) {
+      const beam = named(scene, `storm-beam-ring-${i}`)[0]!;
+      vehicle.position.x = beam.transform.position.x;
+      vehicle.position.z = beam.transform.position.z;
+      tick();
+    }
+    assert.equal(handle.stormState().won, true);
+    const phases: string[] = [];
+    let armMoved = 0;
+    let jointMoved = 0;
+    let lightsMax = 0;
+    let sweepMin = 0;
+    let sweepMax = 0;
+    let beamsSeen = false;
+    for (let i = 0; i < Math.ceil((YMCA_TOTAL + 1) * 30); i++) {
+      tick(1 / 30);
+      const s = handle.stormState();
+      if (s.dancePhase && phases[phases.length - 1] !== s.dancePhase) phases.push(s.dancePhase);
+      if (s.dancePhase === "dance") {
+        armMoved = Math.max(armMoved, Math.hypot(arm.transform.position.x, arm.transform.position.z), 1 - Math.abs(arm.transform.rotation.w));
+        jointMoved = Math.max(jointMoved, 1 - Math.abs(joint.transform.rotation.w));
+        lightsMax = Math.max(lightsMax, s.stageLights);
+        sweepMin = Math.min(sweepMin, s.stageSweep);
+        sweepMax = Math.max(sweepMax, s.stageSweep);
+        beamsSeen ||= named(scene, "storm-stage-beam-").some((e) => scene.world.getComponent(e.id, Renderable)?.visible === true);
+      }
+    }
+    assert.deepEqual(phases, ["rise", "dance", "lower", "done"]);
+    assert.ok(armMoved > 0.05, `suspension arm moves with its wheel (${armMoved})`);
+    assert.ok(jointMoved > 0.01, `robotic arm joint animates (${jointMoved})`);
+    assert.equal(lightsMax, 1);
+    assert.ok(sweepMin < -0.9 && sweepMax > 0.9, "lights sweep left and right");
+    assert.ok(beamsSeen, "stage beams visible during the dance");
+    const s = handle.stormState();
+    assert.equal(s.dancing, false);
+    assert.equal(s.stageLights, 0);
+    assert.ok(named(scene, "storm-stage-beam-").every((e) => scene.world.getComponent(e.id, Renderable)?.visible === false), "lights gone after the clip");
+    assert.ok(scene.world.getComponent(chassis.id, VehicleComponent), "physics re-attached after lowering");
+    assert.deepEqual([arm.transform.rotation.x, arm.transform.rotation.y, arm.transform.rotation.z, arm.transform.rotation.w], [0, 0, 0, 1]);
+    assert.equal(joint.transform.rotation.w, 1);
+    // Back on all six wheels: level chassis at ride height.
+    const f = new Vec3();
+    chassis.transform.rotation.rotateVector(Vec3.unitZ, f);
+    assert.ok(Math.abs(f.y) < 0.2, `nose level again (${f.y})`);
+    assert.ok(Math.abs(vehicle.position.y - restY) < 3, "rover on the ground");
+    assert.equal(s.won, true, "still a win; no restart");
+  });
+
+  test("the F/N/R gear selector is hidden in the dust storm", async () => {
+    const { readFileSync } = await import("node:fs");
+    const html = readFileSync(new URL("../../examples/index.html", import.meta.url), "utf8");
+    assert.match(html, /body\.scene-vehicle:not\(\.scene-mars\):not\(\.scene-storm\) \.veh-gear-switch \{ display: grid; \}/);
+  });
+});
+
+const MARS_WHEELS = ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"];
+
+
+group("Mars Dust Storm Survival — device tier + random start (fe-28)", () => {
+  test("random start is 10–20 % farther from beam 1 than the surveyed spawn; the rover spawns there", async () => {
+    const { handle, vehicle } = await fixture();
+    const s = handle.stormState();
+    assert.equal(s.start.fallback, false);
+    const first = s.checkpoints[0]!;
+    const base = Math.hypot(first.x + 164, first.z - 4);
+    const d = Math.hypot(first.x - s.start.x, first.z - s.start.z);
+    assert.ok(d >= base * 1.1 - 1e-6 && d <= base * 1.2 + 1e-6, `${d} vs ${base}`);
+    assert.ok(Math.hypot(vehicle.position.x - s.start.x, vehicle.position.z - s.start.z) < 0.01);
+  });
+  test("device tier picks the route interval / particle scale; hints classify, ?tier forces", async () => {
+    const { handle } = await fixture();
+    assert.equal(handle.deviceQuality.tier, "high");
+    const gpu = await GraphicsDevice.create({ forceMock: true });
+    const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
+    const phone = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, quality: "reduced", courseSeed: 1234, deviceHints: { mobile: true, hardwareConcurrency: 8 }, adaptiveQuality: false });
+    assert.equal(phone.deviceQuality.tier, "medium");
+    const forced = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, quality: "reduced", courseSeed: 1234, deviceHints: {}, deviceTier: "low", adaptiveQuality: false });
+    assert.equal(forced.deviceQuality.tier, "low");
+    // Let both mock model loads settle before tearing the device down.
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    phone.dispose?.();
+    forced.dispose?.();
+    await gpu.dispose();
+    assert.ok(STORM_TIER_ROUTE_INTERVAL.medium > STORM_TIER_ROUTE_INTERVAL.high && STORM_TIER_ROUTE_INTERVAL.low > STORM_TIER_ROUTE_INTERVAL.medium);
+    assert.ok(STORM_TIER_PARTICLES.low < STORM_TIER_PARTICLES.high);
   });
 });
 

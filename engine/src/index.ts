@@ -48,6 +48,21 @@ export {
 export { Logger, LogLevel, parseLogLevel, ConsoleSink, LogBuffer, type LogLevel as Level, type LogRecord, type LogSink } from "./core/log.js";
 export { EventTarget2, EventBus, Signal, DisposableGroup, type Disposable, type Listener } from "./core/events.js";
 export { ObjectPool, FreeList, IntStack, FloatArena, FloatBuffer, Uint16Buffer, Uint32Buffer, growTyped, makeHandle, handleSlot, handleGeneration, type Poolable, type PoolOptions } from "./core/pool.js";
+export {
+  AdaptiveDeviceQuality,
+  DEVICE_TIERS,
+  FrameTimeMonitor,
+  classifyDeviceTier,
+  isMobileUserAgent,
+  readDeviceCapabilityHints,
+  tierLevel,
+  tierValue,
+  type AdaptiveDeviceQualityOptions,
+  type DeviceCapabilityHints,
+  type DeviceTier,
+  type DeviceTierResult,
+  type FrameTimeMonitorOptions,
+} from "./core/deviceTier.js";
 export { detectPlatform, probeWebGPU, getNavigatorGpu, createLogger, type PlatformInfo } from "./core/platform.js";
 export {
   capabilityRegistry,

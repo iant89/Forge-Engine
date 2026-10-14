@@ -64,6 +64,9 @@ export const linkedSuites = [
   ["tests/examples/alpineSnowpack.test.ts", () => import("./examples/alpineSnowpack.test.ts")],
   ["tests/examples/amazonBoatHull.test.ts", () => import("./examples/amazonBoatHull.test.ts")],
   ["tests/examples/dustStorm.test.ts", () => import("./examples/dustStorm.test.ts")],
+  ["tests/examples/discoJingle.test.ts", () => import("./examples/discoJingle.test.ts")],
+  ["tests/examples/roverDance.test.ts", () => import("./examples/roverDance.test.ts")],
+  ["tests/examples/dustStormRoute.test.ts", () => import("./examples/dustStormRoute.test.ts")],
   ["tests/examples/highGainAntenna.test.ts", () => import("./examples/highGainAntenna.test.ts")],
   ["tests/examples/marsGeneratorScene.test.ts", () => import("./examples/marsGeneratorScene.test.ts")],
   ["tests/examples/marsShowcase.test.ts", () => import("./examples/marsShowcase.test.ts")],
@@ -81,6 +84,7 @@ export const linkedSuites = [
   ["tests/examples/buildInfo.test.ts", () => import("./examples/buildInfo.test.ts")],
   ["tests/examples/copyText.test.ts", () => import("./examples/copyText.test.ts")],
   ["tests/examples/debugPanel.test.ts", () => import("./examples/debugPanel.test.ts")],
+  ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
   ["tests/controls/demoSceneSelection.test.ts", () => import("./controls/demoSceneSelection.test.ts")],
@@ -91,4 +95,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(87);
+report(91);

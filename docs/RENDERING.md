@@ -794,3 +794,25 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 * The graph builds one command buffer and submits it. The engine-level `renderTimeMs` remains a CPU
   submission-side measurement; optional GPU timestamps are reported separately in `Renderer.stats`
   as `gpuFrameTimeMs`, `gpuRenderTimeMs`, `gpuComputeTimeMs` and `gpuPassTimes` (§1).
+
+## Device capability tiers and adaptive quality (fe-28)
+
+`engine/src/core/deviceTier.ts` (exported from the engine root) gives scenes a coarse
+`"low" | "medium" | "high"` tier:
+
+- `readDeviceCapabilityHints(navigator, adapter)` collects `hardwareConcurrency`,
+  `navigator.deviceMemory` (when the browser exposes it), a mobile user-agent hint
+  (`userAgentData.mobile`, UA string, iPadOS-in-desktop-mode) and WebGPU adapter limits/info
+  (`maxTextureDimension2D`, `maxStorageBufferBindingSize`, vendor, architecture,
+  `isFallbackAdapter`). Every input is optional.
+- `classifyDeviceTier(hints)` scores them: unknown is neutral, a mobile UA caps the tier at
+  `medium`, a software/fallback adapter is always `low`. The result carries readable `reasons`.
+- `FrameTimeMonitor` smooths frame times (EMA, outliers > 250 ms ignored) and reports a step down
+  after ~2 s of frames over 125 % of budget, or a step up after ~8 s under 60 %.
+- `AdaptiveDeviceQuality` combines both: it starts at the classified tier, steps down under load
+  and back up, never above the starting tier. `q.value({ low, medium, high })` picks a knob.
+
+Change cheap knobs live (update intervals, particle emission rates) and size-bound ones
+(shadow-map resolution, buffer capacities) only at startup. The Mars Dust Storm uses it for the
+guide re-route interval (0.5 / 1 / 1.5 s), the dust emission rates and the startup shadow-map size;
+`?tier=low|medium|high` forces the starting tier.
