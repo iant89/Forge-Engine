@@ -133,6 +133,14 @@ export interface CycloneFieldOptions {
   inflow?: number;
   /** Number of spiral rainbands. Default 3. */
   bands?: number;
+  /**
+   * Real seconds per track second when a scene compresses a storm's days into minutes (default 1).
+   * The track's translation velocity is divided by it before the forward-motion term is added, so
+   * a 2-minute demo track still has a realistic ~5 m/s forward speed in its wind field.
+   */
+  timeCompression?: number;
+  /** Fraction of the forward speed added to the vortex. Default 0.5. */
+  translation?: number;
 }
 
 export interface CycloneWind {
@@ -176,8 +184,9 @@ export function cycloneWindAt(state: CycloneState, x: number, z: number, options
     wz = (tz * c - rz * sn) * v;
   }
   // Half the forward motion adds to the vortex (strongest on the right of track in the north).
-  wx += state.velocityX * 0.5;
-  wz += state.velocityZ * 0.5;
+  const forward = (options.translation ?? 0.5) / Math.max(1e-6, options.timeCompression ?? 1);
+  wx += state.velocityX * forward;
+  wz += state.velocityZ * forward;
   out.x = wx;
   out.z = wz;
   out.speed = Math.hypot(wx, wz);

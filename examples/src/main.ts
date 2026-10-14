@@ -64,6 +64,7 @@ import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle 
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
+import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
@@ -260,6 +261,14 @@ async function main(): Promise<void> {
         muted: query.get("mute") === "1",
       });
       stormOverride = null;
+    } else if (name === "hurricane") {
+      // fe-33: `?tier=low|medium|high` forces the device tier (ocean grid, rain, palms, shadows).
+      const forced = new URLSearchParams(window.location.search).get("tier");
+      const tier =
+        forced === "low" || forced === "medium" || forced === "high"
+          ? forced
+          : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+      currentHandle = buildHurricaneScene(engine, { deviceTier: tier });
     } else {
       currentHandle = buildCubesScene(engine);
     }
@@ -790,6 +799,16 @@ async function main(): Promise<void> {
       currentHandle?.setWheelOverride?.(override),
     /** Mars Dust Storm Survival run snapshot (course, guidance, finale); null on other scenes. */
     marsDustStormState: () => (activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.stormState?.() ?? null : null),
+    /** Hurricane (fe-33): storm clock/phase/category/wind snapshot; null on other scenes. */
+    hurricaneState: () => (activeSceneName === "hurricane" ? (currentHandle as HurricaneSceneHandle | null)?.hurricaneState?.() ?? null : null),
+    /** Hurricane: jump the storm clock to `seconds` (screenshots / checks); `paused` holds it there. */
+    hurricaneSeek: (seconds: number, paused = false) => {
+      if (activeSceneName !== "hurricane") return false;
+      const handle = currentHandle as HurricaneSceneHandle | null;
+      handle?.seek(seconds);
+      handle?.setPaused(paused);
+      return true;
+    },
     /** Mars Dust Storm: move the rover to (x, z) on the ground (browser checks / screenshots). */
     marsDustStormTeleport: (x: number, z: number) =>
       activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.teleport?.(x, z) ?? false : false,
