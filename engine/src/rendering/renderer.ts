@@ -39,6 +39,8 @@ import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, Objec
 import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { MS_LUT_TEXTURE_FORMAT } from "./shaders/multiScattering.js";
 import { POPULATION_LOD_SHADER } from "./shaders/populationLod.js";
+import { POP_CULL_DISTANCE, POP_CULL_LOD } from "./shaders/populationCull.js";
+import { GpuPopulationCuller } from "./populationCuller.js";
 import { ClusterGrid, CLUSTER_TILES_X, CLUSTER_TILES_Y, CLUSTER_SLICES, CLUSTER_INDEX_CAPACITY, MAX_CLUSTERED_LIGHTS, MAX_LIGHTS_PER_CLUSTER, type ClusterBuildResult, type ClusterLightSource, type ClusterRanges } from "./clusters.js";
 import { GpuLightCuller } from "./lightCulling.js";
 import { GpuMultiScattering, MS_SUN_EPSILON, skyMultiScatteringSignatureChanged, writeSkyMultiScatteringSignature } from "./skyMultiScattering.js";
@@ -150,6 +152,20 @@ export interface RendererOptions {
    * against the records on a real device, which is how `check:browser` proves the two agree.
    */
   indirectDraws?: boolean;
+  /**
+   * Per-instance population culling (`forge.populationCull`, docs/POPULATION.md "Per-instance
+   * culling"): every instance of an instanced population batch is frustum-, distance- and (see
+   * `populationOcclusion`) HiZ-tested on the device, merged with the 14.4 LOD selection, and the
+   * survivors are compacted into the batch's indirect draw. Default `true`. Needs the device object
+   * culler (`objectCulling` resolving to `"gpu"`) and `indirectDraws`; otherwise, or if the pipeline
+   * cannot be built, the batch keeps the per-batch path (cull + `forge.populationLod`).
+   */
+  populationCulling?: boolean;
+  /**
+   * The HiZ stage of per-instance population culling. Default `true`; scenes turn it off on the low
+   * device tier (`populationCullingForTier`). Only runs on frames where the object culler occludes.
+   */
+  populationOcclusion?: boolean;
   /** Maximum instanced draws before splitting into a second batch (driver-friendly cap). */
   maxInstancesPerBatch?: number;
 }
@@ -174,6 +190,19 @@ export interface RenderStats {
   populationUploads: number;
   /** Population batches drawn through the LOD entries, each one `forge.populationLod` dispatch (Phase 14.4). */
   populationLodBatches: number;
+  /** Population batches culled per instance this frame, each one `forge.populationCull` dispatch (exact). */
+  populationCullBatches: number;
+  /**
+   * Instances `forge.populationCull` tested ("in") and compacted into draws ("drawn"), plus why the
+   * rest were dropped. Device counters, read back a frame or two late (0 until one returns).
+   */
+  populationInstancesTested: number;
+  populationInstancesDrawn: number;
+  populationCulledFrustum: number;
+  populationCulledDistance: number;
+  populationCulledOccluded: number;
+  /** Instances skipped because the object culler had culled their whole batch. */
+  populationCulledBatch: number;
   /** Batches the object culler tested this frame (frustum/distance/HiZ), of `batches`. */
   cullTested: number;
   /** Batches it culled as outside the camera frustum (includes the off-screen-rectangle case). */
@@ -360,6 +389,10 @@ interface Batch {
   lodDistance: number;
   /** This batch's `PopulationLodUniforms` slot in the per-frame LOD uniform arena (-1 = none). */
   lodUniformOffset: number;
+  /** Takes the per-instance path this frame (decided at collection; see `RendererOptions.populationCulling`). */
+  popCull: boolean;
+  /** Its slot in the population culler's draw records this frame (-1 = per-batch path). */
+  popCullSlot: number;
   /**
    * Phase 16.5: the skin this batch's vertices are deformed by (null = an ordinary batch). Batches
    * share a skin only when they share the skin *object*, because one palette slot drives the whole
@@ -414,6 +447,14 @@ interface PopulationDeviceRecord {
   seen: boolean;
   /** First instance's composed matrix — the object uniform a count-1 batch draws through. */
   firstMatrix: Float32Array;
+  /** Per-instance culling: the survivors' buffer (same size as `buffer`), allocated on first use. */
+  compacted: GPUBuffer | null;
+  /** Draw group over `compacted` (what `forge.main` binds for a per-instance batch). */
+  compactedGroup: GPUBindGroup | null;
+  /** `forge.populationCull` group 1: `buffer` + `compacted`. */
+  cullGroup: GPUBindGroup | null;
+  /** The cull pass has written bits into `buffer` since its last upload (bit 1 may be stale). */
+  instanceCulled: boolean;
 }
 const TONE_MAP_MODE: Record<string, number> = { none: 0, reinhard: 1, aces: 2, filmic: 3 };
 /**
@@ -501,6 +542,13 @@ export class Renderer implements RenderFrameContext {
     populationBuffers: 0,
     populationUploads: 0,
     populationLodBatches: 0,
+    populationCullBatches: 0,
+    populationInstancesTested: 0,
+    populationInstancesDrawn: 0,
+    populationCulledFrustum: 0,
+    populationCulledDistance: 0,
+    populationCulledOccluded: 0,
+    populationCulledBatch: 0,
     cullTested: 0,
     cullFrustum: 0,
     cullDistance: 0,
@@ -630,6 +678,12 @@ export class Renderer implements RenderFrameContext {
    * loop is the half that binds them.
    */
   private indirectDrawsEnabled: boolean;
+  private populationCullingEnabled: boolean;
+  private populationOcclusionEnabled: boolean;
+  /** `forge.populationCull`'s device half; null until a frame needs it (and after `dispose`). */
+  private populationCuller: GpuPopulationCuller | null = null;
+  /** The pass was added to this frame's graph (else per-instance batches draw from their source). */
+  private populationCullRecorded = false;
   private drawRecords: GPUBuffer | null = null;
   private drawRecordBytes = 0;
   private drawRecordWords = new Uint32Array(0);
@@ -859,6 +913,8 @@ export class Renderer implements RenderFrameContext {
     this.objectCullingMode = objectMode === "auto" ? (device.isMock ? "cpu" : "gpu") : objectMode;
     this.occlusionCullingEnabled = options.occlusionCulling !== false;
     this.indirectDrawsEnabled = options.indirectDraws !== false;
+    this.populationCullingEnabled = options.populationCulling !== false;
+    this.populationOcclusionEnabled = options.populationOcclusion !== false;
     this.deviceLostUnsub = device.onLost(() => {
       this.lost = true;
     });
@@ -962,6 +1018,32 @@ export class Renderer implements RenderFrameContext {
   set indirectDraws(on: boolean) {
     if (on === this.indirectDrawsEnabled) return;
     this.indirectDrawsEnabled = on;
+    this.invalidate();
+  }
+
+  /**
+   * Per-instance population culling (see `RendererOptions.populationCulling`). Public so the demo,
+   * the HUD and `check:browser` can A/B it: like the batch culler it is conservative, so switching it
+   * off only adds draws.
+   */
+  get populationCulling(): boolean {
+    return this.populationCullingEnabled;
+  }
+
+  set populationCulling(on: boolean) {
+    if (on === this.populationCullingEnabled) return;
+    this.populationCullingEnabled = on;
+    this.invalidate();
+  }
+
+  /** The HiZ stage of per-instance population culling (see `RendererOptions.populationOcclusion`). */
+  get populationOcclusion(): boolean {
+    return this.populationOcclusionEnabled;
+  }
+
+  set populationOcclusion(on: boolean) {
+    if (on === this.populationOcclusionEnabled) return;
+    this.populationOcclusionEnabled = on;
     this.invalidate();
   }
 
@@ -1105,6 +1187,7 @@ export class Renderer implements RenderFrameContext {
     else this.pendingSky = null;
     this.writeClouds(scene, skySettings, lights);
     this.writeWater(scene, skySettings, lights);
+    this.populationCuller?.begin();
     for (let i = 0; i < this.batchCount; i++) {
       const b = this.batchPool[i]!;
       // A count-1 population batch draws through the non-instanced entry, which reads the object
@@ -1117,7 +1200,12 @@ export class Renderer implements RenderFrameContext {
           ? b.population.firstMatrix
           : this.lastMatrixFor(b);
       b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles);
-      if (b.lodHiTriangles > 0) {
+      b.popCullSlot = -1;
+      if (b.popCull && b.population) {
+        // One merged dispatch does this batch's LOD selection, culling and compaction.
+        b.popCullSlot = this.queuePopulationCull(b, i);
+        this.stats.populationCullBatches++;
+      } else if (b.lodHiTriangles > 0) {
         b.lodUniformOffset = this.reservePopulationLodUniform(b);
         this.stats.populationLodBatches++;
       }
@@ -1125,6 +1213,8 @@ export class Renderer implements RenderFrameContext {
     this.ensureArenas();
     this.uploadArenas();
     this.prepareObjectCulling(camera, renderWidth, renderHeight, prepass);
+    // After prepareObjectCulling: whether this frame occludes is decided there.
+    this.populationCuller?.upload(this.populationOcclusionEnabled && this.cullOcclusion);
 
     // 5. Frame description + execution.
     this.buildFrame(scene, {
@@ -1279,6 +1369,16 @@ export class Renderer implements RenderFrameContext {
     if (this.objectCullingMode === "gpu" && this.batchCount > 0) {
       this.objectCuller ??= new GpuObjectCuller(this.device, this.pipelines.shaders);
       this.objectCuller.record(g, sceneDepth, this.visibilityBuffer!, this.drawRecords!, this.ensureVisibleList().buffer);
+    }
+    // Per-instance population culling: after the batch verdicts and the pyramid it reads, before
+    // forge.main draws its records. A frame that cannot record it draws those batches from source.
+    this.populationCullRecorded = false;
+    if (this.populationCuller && this.populationCuller.batchCount > 0 && this.objectCuller) {
+      const bindings = this.objectCuller.populationBindings();
+      if (bindings && this.populationCuller.argsBuffer) {
+        this.populationCuller.record(g, bindings, this.visibilityBuffer!);
+        this.populationCullRecorded = true;
+      }
     }
 
     // SSAO over the prepass depth at half resolution: estimate, then a separable bilateral blur.
@@ -1808,12 +1908,22 @@ export class Renderer implements RenderFrameContext {
       if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
       if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
-      // Population batches bind their own chunk buffer through their own group (Phase 14.3).
-      pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      // Population batches bind their own chunk buffer through their own group (Phase 14.3); a
+      // per-instance batch binds its compacted survivors and draws the count the cull pass appended.
+      const popArgs = b.popCullSlot >= 0 && this.populationCullRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
+      pass.setBindGroup(1, popArgs ? b.population!.compactedGroup! : b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (batchSkinned) this.bindSkinning(pass, b, false);
-      if (b.geometry.indexBuffer) {
+      if (popArgs) {
+        if (b.geometry.indexBuffer) {
+          pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+          pass.drawIndexedIndirect(popArgs, b.popCullSlot * DRAW_RECORD_BYTES);
+        } else {
+          pass.drawIndirect(popArgs, b.popCullSlot * DRAW_RECORD_BYTES);
+        }
+        this.stats.indirectDraws++;
+      } else if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         if (records) {
           pass.drawIndexedIndirect(records, b.cullIndex * DRAW_RECORD_BYTES);
@@ -1877,6 +1987,7 @@ export class Renderer implements RenderFrameContext {
     s.populationBuffers = 0;
     s.populationUploads = 0;
     s.populationLodBatches = 0;
+    s.populationCullBatches = 0;
     this.populationUploads = 0;
     s.shadowsDrawn = 0;
     s.shadowsCulled = 0;
@@ -2867,6 +2978,10 @@ export class Renderer implements RenderFrameContext {
         count,
         seen: true,
         firstMatrix,
+        compacted: null,
+        compactedGroup: null,
+        cullGroup: null,
+        instanceCulled: false,
       };
       if (rec.lodHiTriangles !== null) rec.lodGroup = this.createPopulationLodGroup(buffer);
       this.populationDevice.set(submission, rec);
@@ -2917,6 +3032,7 @@ export class Renderer implements RenderFrameContext {
     // Bind groups have no destroy in the WebGPU API (the mock tracks them without one, as with the
     // other draw groups the renderer drops by reference).
     rec.buffer.destroy();
+    rec.compacted?.destroy();
   }
 
   /**
@@ -2927,6 +3043,7 @@ export class Renderer implements RenderFrameContext {
   private rebuildPopulationGroups(): void {
     for (const rec of this.populationDevice.values()) {
       rec.group = this.createPopulationGroup(rec.buffer, rec.count * INSTANCE_STRIDE);
+      if (rec.compacted) rec.compactedGroup = this.createPopulationGroup(rec.compacted, rec.count * INSTANCE_STRIDE);
       rec.lodGroup = rec.lodHiTriangles !== null ? this.createPopulationLodGroup(rec.buffer) : null;
     }
   }
@@ -3047,6 +3164,7 @@ export class Renderer implements RenderFrameContext {
     // Phase 14.4: the merged-buffer window boundary and selection distance (0 = single detail).
     batch.lodHiTriangles = submission.lod?.hiTriangles ?? 0;
     batch.lodDistance = submission.lod?.lodDistance ?? 0;
+    batch.popCull = this.preparePopulationPath(rec, block, count, batch.lodHiTriangles > 0, inView);
     batch.bounds.setFrom(submission.bounds.min, submission.bounds.max);
     batch.shadowRangeCount = 0;
 
@@ -3152,6 +3270,8 @@ export class Renderer implements RenderFrameContext {
         objectOffset: 0,
         cullIndex: 0,
         maxDistance: 0,
+        popCull: false,
+        popCullSlot: -1,
         bounds: new AABB(),
         shadowRanges: [],
         shadowRangeCount: 0,
@@ -3171,6 +3291,8 @@ export class Renderer implements RenderFrameContext {
     b.lodHiTriangles = 0;
     b.lodDistance = 0;
     b.lodUniformOffset = -1;
+    b.popCull = false;
+    b.popCullSlot = -1;
     // A recycled slot must not keep the previous frame's skin either: a batch drawn through the
     // skinned entry point without a palette would read another frame's joints.
     b.skin = null;
@@ -3477,6 +3599,79 @@ export class Renderer implements RenderFrameContext {
     this.stats.cullOccluded = stats.culledOccluded;
     this.stats.cullVisible = stats.visible;
     this.stats.cullRecordZeroed = stats.recordZeroed;
+    this.pollPopulationCulling();
+  }
+
+  /** Publish `forge.populationCull`'s counters (lagged on a device, immediate on the mock's twin). */
+  private pollPopulationCulling(): void {
+    const culler = this.populationCuller;
+    if (!culler) return;
+    culler.poll();
+    const p = culler.stats;
+    this.stats.populationInstancesTested = p.tested;
+    this.stats.populationInstancesDrawn = p.drawn;
+    this.stats.populationCulledFrustum = p.culledFrustum;
+    this.stats.populationCulledDistance = p.culledDistance;
+    this.stats.populationCulledOccluded = p.culledOccluded;
+    this.stats.populationCulledBatch = p.culledBatch;
+  }
+
+  /** Whether this frame can take the per-instance population path at all. */
+  private populationCullingActive(): boolean {
+    return this.populationCullingEnabled && this.objectCullingMode === "gpu" && this.indirectDrawsEnabled;
+  }
+
+  /**
+   * Decide one population batch's path at collection time and keep its record ready for it: a
+   * per-instance batch needs its compacted buffer and groups; a batch leaving the path with a
+   * non-LOD buffer the cull pass wrote bits into is re-uploaded, so no stale "past the limit" bit
+   * (which the prepass and forge.main entries clip) survives. LOD buffers need nothing: the
+   * per-batch `forge.populationLod` pass rewrites both bits every frame.
+   */
+  private preparePopulationPath(rec: PopulationDeviceRecord, block: PopulationInstanceBlock, count: number, lod: boolean, inView: boolean): boolean {
+    const eligible = inView && (count > 1 || lod) && this.populationCullingActive() && (this.populationCuller ??= new GpuPopulationCuller(this.device, this.pipelines.shaders)).ensurePipeline() !== null;
+    if (eligible) {
+      if (!rec.compacted) {
+        const size = rec.count * INSTANCE_STRIDE;
+        rec.compacted = this.device.device.createBuffer({ label: "population.instances.visible", size, usage: BufferUsage.STORAGE });
+        rec.compactedGroup = this.createPopulationGroup(rec.compacted, size);
+        rec.cullGroup = this.populationCuller!.createInstanceGroup(rec.buffer, rec.compacted);
+      }
+      rec.instanceCulled = true;
+      return true;
+    }
+    if (inView && rec.instanceCulled && !lod) {
+      const data = this.populationComposeData(count * INSTANCE_STRIDE);
+      this.composePopulationRecords(block, data, rec.firstMatrix);
+      this.device.device.queue.writeBuffer(rec.buffer, 0, gpuSource(data.subarray(0, count * (INSTANCE_STRIDE >> 2))));
+      this.populationUploads++;
+      rec.instanceCulled = false;
+    } else if (inView && lod) {
+      rec.instanceCulled = false;
+    }
+    return false;
+  }
+
+  /** Queue one per-instance batch with the population culler; returns its draw-record slot. */
+  private queuePopulationCull(b: Batch, index: number): number {
+    const geometryBounds = b.geometry.bounds;
+    const c = geometryBounds.getCenter(this.scratchVec);
+    const radius = Math.hypot(geometryBounds.max.x - c.x, geometryBounds.max.y - c.y, geometryBounds.max.z - c.z);
+    const lod = b.lodHiTriangles > 0;
+    const flags = (lod ? POP_CULL_LOD : 0) | (b.maxDistance > 0 ? POP_CULL_DISTANCE : 0);
+    return this.populationCuller!.add({
+      group: b.population!.cullGroup!,
+      count: b.count,
+      camera: this.populationCamPos,
+      lodDistance: b.lodDistance,
+      localCenter: { x: c.x, y: c.y, z: c.z },
+      localRadius: radius,
+      visibilityIndex: index,
+      flags,
+      maxDistance: b.maxDistance,
+      indexCount: b.indexCount,
+      first: b.geometry.indexBuffer ? b.indexStart : 0,
+    });
   }
 
   /** Group 0 of `forge.prepass`: only the per-frame block (the vertex stage's view-projection). */
@@ -3939,6 +4134,8 @@ export class Renderer implements RenderFrameContext {
     this.skyMultiScattering = null;
     this.objectCuller?.dispose();
     this.objectCuller = null;
+    this.populationCuller?.dispose();
+    this.populationCuller = null;
     for (const rec of this.populationDevice.values()) this.destroyPopulationRecord(rec);
     this.populationDevice.clear();
     this.visibilityBuffer?.destroy();

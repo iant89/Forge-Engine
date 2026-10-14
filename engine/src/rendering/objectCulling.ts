@@ -776,6 +776,7 @@ export class GpuObjectCuller {
   private hizLevels = 0;
   private readonly hizViews: (GPUTextureView | undefined)[] = [];
   private fallback: GPUTexture | null = null;
+  private fallbackViewRef: GPUTextureView | null = null;
   private depthGroups = new Map<GPUTextureView, GPUBindGroup>();
   private groupVisibility: GPUBuffer | null = null;
   private groupRecords: GPUBuffer | null = null;
@@ -925,6 +926,7 @@ export class GpuObjectCuller {
     this.hiz = null;
     this.fallback?.destroy();
     this.fallback = null;
+    this.fallbackViewRef = null;
     this.hizLevels = 0;
     this.hizLevelsFrame = 0;
     this.hizViews.length = 0;
@@ -1027,7 +1029,20 @@ export class GpuObjectCuller {
       format: "r32float",
       usage: TextureUsage.TEXTURE_BINDING,
     });
-    return this.fallback.createView();
+    this.fallbackViewRef ??= this.fallback.createView();
+    return this.fallbackViewRef;
+  }
+
+  /**
+   * What `forge.populationCull` shares with this pass: the frame's cull block (view, projection,
+   * planes, extent, `hizLevels`) and the pyramid it may test against. Valid after `prepare`; the
+   * pyramid is a real view only when this frame occludes (`hizLevels` > 0 in the block), otherwise
+   * the 1×1 fallback the block says not to read. `null` before the first `prepare` or once disposed.
+   */
+  populationBindings(): { uniforms: GPUBuffer; hiz: GPUTextureView; occludes: boolean } | null {
+    if (this.disposed || !this.cullBufferRef) return null;
+    const occludes = this.hizLevelsFrame > 0 && this.hiz !== null;
+    return { uniforms: this.cullBufferRef, hiz: occludes ? this.hizView(0, this.hizLevels) : this.fallbackView(), occludes };
   }
 
   private computePipeline(name: string, source: string, entryPoint: string, entries: GPUBindGroupLayoutEntry[]): GPUComputePipeline {

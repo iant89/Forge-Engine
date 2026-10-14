@@ -39,8 +39,9 @@ fn populationLodMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (distance > lod.lodDistance) {
     lodBit = 1u;
   }
-  // Preserve any other flags (none today); set the LOD bit in slot 0.
-  inst.flags = (inst.flags & 0xFFFFFFFEu) | lodBit;
+  // Set the LOD bit in slot 0 and clear bit 1 (forge.populationCull's distance verdict), so a
+  // buffer that leaves the per-instance path never keeps a stale "past the limit" bit.
+  inst.flags = (inst.flags & 0xFFFFFFFCu) | lodBit;
   instances[i] = inst;
 }
 `;

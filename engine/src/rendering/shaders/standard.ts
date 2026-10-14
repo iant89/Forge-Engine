@@ -500,6 +500,11 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   let model = mat4x4<f32>(inst.row0, inst.row1, inst.row2, inst.row3);
   var world = model * vec4<f32>(input.position, 1.0);
   out.clipPos = perFrame.viewProj * world;
+  if ((inst.flags & 2u) != 0u) {
+    // forge.populationCull: past the batch's distance limit (bit 1, population records only; every
+    // other record keeps flags 0). Clipped like a culled batch so the prepass agrees with forge.main.
+    out.clipPos = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  }
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
@@ -589,7 +594,8 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
   var clip = perFrame.viewProj * world;
   let inHi = vertexIndex / 3u < objectData.hiTriangles;
   let wantHi = (inst.flags & 1u) == 0u;
-  if (inHi != wantHi) {
+  // Bit 1: forge.populationCull put the instance past its distance limit (see vertexMainInstanced).
+  if (inHi != wantHi || (inst.flags & 2u) != 0u) {
     // Same clip-out as the culler's verdict: below the near plane, clipped before rasterisation.
     clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
   }
