@@ -99,6 +99,7 @@ export function palmFrondSource(length = 4.2, width = 1.1, segments = 8): Geomet
 }
 
 interface PalmRuntime {
+  weights: number[];
   site: PalmSite;
   root: Entity;
   segments: Entity[];
@@ -204,6 +205,7 @@ export class PalmGrove extends SceneObject {
         attach(e, nutGeo, nutMat);
       }
       this.palms.push({
+        weights: windBendWeights(segments.length),
         site,
         root,
         segments,
@@ -250,7 +252,7 @@ export class PalmGrove extends SceneObject {
       const sway = windSway(this.windScratch.x, this.windScratch.z, t, { maxBend: o.maxBend ?? 1.05, frequency: p.freq, phase: p.phase }, SWAY);
       windSum += Math.hypot(this.windScratch.x, this.windScratch.z);
       bendSum += sway.bend;
-      const weights = windBendWeights(p.segments.length);
+      const weights = p.weights;
       for (let s = 0; s < p.segments.length; s++) {
         AXIS.set(sway.axisX, 0, sway.axisZ);
         Q.setAxisAngle(AXIS, sway.bend * weights[s]!);
