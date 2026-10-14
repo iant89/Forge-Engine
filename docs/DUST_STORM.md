@@ -57,3 +57,7 @@ ground. Driving off a ridge in still air never starts one. During an episode, th
 blown away once it's more than 30 m horizontally, or 8 m lower, from the safe spot. Easy and
 Advanced respawn there with a short fade and 3 s without wind forces. Expert and Unreal end the
 run with "Blown away".
+
+## End-of-run summary
+
+After a loss (Expert/Unreal "Blown away") or after the completion finale, a summary dialog lists the run stats. **Play again** rebuilds the scene in place (no page reload) with a new random course seed at the same difficulty. **Retry same course** restarts in place on the same seed. Both reset the rover, storm, devils, course, stats, finale, audio and lights. **Escape** or the close button dismisses the dialog without restarting.

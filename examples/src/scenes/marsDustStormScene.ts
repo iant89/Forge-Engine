@@ -243,6 +243,9 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   teleport(x: number, z: number): boolean;
   /** fe-29: the end-of-run summary (title + rows) for the current run. */
   summary(): { title: string; rows: [string, string][] };
+  /** fe-29: the summary's buttons — Play again (new random course, same difficulty) and Retry same course. */
+  playAgain(): void;
+  retrySameCourse(): void;
   /** fe-29 test / screenshot hook: simulate a wind throw (see the blown-away rule). */
   debugBlow(dx: number, dz: number, up?: number): void;
   /** Skip the finale clock ahead (browser screenshot checks on slow software GPUs); no-op unless dancing. */
@@ -263,6 +266,11 @@ export interface MarsDustStormOptions {
   deviceHints?: DeviceCapabilityHints;
   /** fe-28: let the frame-time monitor adapt the tier at runtime (default true; tests pin it). */
   adaptiveQuality?: boolean;
+  /**
+   * fe-29: "Play again" in the end-of-run summary. The host rebuilds the scene in place with a new
+   * random course seed and this difficulty (no page reload). Without it, Play again retries in place.
+   */
+  onNewCourse?: (difficulty: StormDifficulty) => void;
   /** fe-28: start with the finale jingle muted (`?mute=1`). */
   muted?: boolean;
 }
@@ -861,6 +869,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     keys.add(event.code);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
     if (event.code === "KeyR" && !event.repeat) restart();
+    if (event.code === "Escape" && summaryOpen) {
+      event.preventDefault();
+      hideSummary();
+    }
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     keys.delete(event.code);
@@ -917,6 +929,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const gustAccel = { x: 0, z: 0 };
   const stats = new StormRunStats();
   let summaryShown = false;
+  /** The summary dialog is open (Escape, ×, Retry, Play again and R close it). */
+  let summaryOpen = false;
   // End-of-run dialog (loss, or completion once the finale ends). Built lazily; no-op without a DOM.
   let summaryEl: HTMLDivElement | null = null;
   const summaryInput = () => ({
@@ -930,10 +944,12 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stats,
   });
   const hideSummary = (): void => {
+    summaryOpen = false;
     if (summaryEl) summaryEl.style.display = "none";
   };
   const showSummary = (): void => {
     summaryShown = true;
+    summaryOpen = true;
     if (typeof document === "undefined" || typeof document.createElement !== "function" || !document.body) return;
     const { title, rows } = stormRunSummary(summaryInput());
     if (!summaryEl) {
@@ -966,15 +982,17 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     summaryEl.onclick = (e: Event): void => {
       const act = (e.target as HTMLElement | null)?.closest?.("[data-act]")?.getAttribute("data-act");
       if (act === "close") hideSummary();
-      else if (act === "retry") restart();
-      else if (act === "new") {
-        // A new random course: reload without ?seed, keeping the difficulty.
-        const url = new URL(window.location.href);
-        url.searchParams.delete("seed");
-        url.searchParams.set("difficulty", difficulty);
-        window.location.assign(url.toString());
-      }
+      else if (act === "retry") retrySameCourse();
+      else if (act === "new") playAgain();
     };
+  };
+  /** Retry the same course in place: restart() resets rover, storm, devils, course, stats, finale, audio, lights. */
+  const retrySameCourse = (): void => restart();
+  /** New random course in place, same difficulty: the host rebuilds the scene with a fresh seed. */
+  const playAgain = (): void => {
+    hideSummary();
+    if (options.onNewCourse) options.onNewCourse(difficulty);
+    else restart();
   };
   const blown = new BlownAwayTracker();
   blown.reset(vehicle.position.x, vehicle.position.y, vehicle.position.z, vehicle.yaw);
@@ -1802,7 +1820,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     clearance: lastClearance,
     windLift,
     stormStrength: stormStrength(),
-    summaryVisible: summaryShown,
+    summaryVisible: summaryOpen,
     stats: { distance: stats.distance, maxHeight: stats.maxHeight, topSpeed: stats.topSpeed, maxWind: stats.maxWind, timesLifted: stats.timesLifted, respawns: stats.respawns },
     courseSeed,
     dancePhase,
@@ -1870,6 +1888,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
       if (dancing && seconds > 0) wonAt -= seconds;
     },
     summary: () => stormRunSummary(summaryInput()),
+    playAgain: () => playAgain(),
+    retrySameCourse: () => retrySameCourse(),
     /** Test / screenshot hook: a wind throw — lift the rover `up` m and carry it (dx, dz) mid-episode. */
     debugBlow: (dx: number, dz: number, up = 6): void => {
       startupBrake = false;

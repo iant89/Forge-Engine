@@ -61,7 +61,7 @@ import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle 
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
-import { parseStormDifficulty, stormQualityForPlatform } from "./scenes/dustStorm.js";
+import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
@@ -169,6 +169,8 @@ async function main(): Promise<void> {
   /** `?marssite=…` picks the ported Mars generator's site (the volcano by default). */
   const marsSiteParam = new URLSearchParams(window.location.search).get("marssite");
 
+  /** fe-29: one-shot Mars Dust Storm build overrides (Play again rebuilds in place with a new seed). */
+  let stormOverride: { difficulty: StormDifficulty; courseSeed: number } | null = null;
   function loadScene(name: DemoSceneName): void {
     if (currentHandle) {
       currentHandle.dispose?.();
@@ -238,14 +240,23 @@ async function main(): Promise<void> {
       const query = new URLSearchParams(window.location.search);
       currentHandle = buildMarsDustStormScene(engine, {
         // fe-29: easy | advanced | expert | unreal (`hard` = expert).
-        difficulty: parseStormDifficulty(query.get("difficulty")),
+        difficulty: stormOverride?.difficulty ?? parseStormDifficulty(query.get("difficulty")),
         quality: stormQualityForPlatform(platform.os),
         // fe-28: a fresh random course every load; `?seed=<uint32>` replays one (tests, sharing).
-        courseSeed: randomCourseSeed(query.get("seed")),
+        courseSeed: stormOverride?.courseSeed ?? randomCourseSeed(query.get("seed")),
+        // fe-29: Play again — rebuild this scene in place (no reload) with a fresh random seed. Deferred
+        // so the click handler and the current frame finish before the old scene is disposed.
+        onNewCourse: (difficulty) => {
+          setTimeout(() => {
+            stormOverride = { difficulty, courseSeed: randomCourseSeed(null) };
+            loadScene("mars-dust-storm");
+          }, 0);
+        },
         // fe-28: `?tier=low|medium|high` forces the device tier; `?mute=1` mutes the finale jingle.
         deviceTier: ((t) => (t === "low" || t === "medium" || t === "high" ? t : undefined))(query.get("tier")),
         muted: query.get("mute") === "1",
       });
+      stormOverride = null;
     } else {
       currentHandle = buildCubesScene(engine);
     }
