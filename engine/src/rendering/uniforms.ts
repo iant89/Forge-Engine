@@ -369,8 +369,8 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
  * reflection/refraction approximation samples it, not the scene.
  */
 export const WaterUniforms = new StructDef("WaterUniforms", [
-  { name: "wavesA", type: arrayOf(vec4, 4), comment: "(dirX, dirZ, k, speed) × 4" },
-  { name: "wavesB", type: arrayOf(vec4, 4), comment: "(amplitude, q, phase, 0) × 4" },
+  { name: "wavesA", type: arrayOf(vec4, 8), comment: "(dirX, dirZ, k, speed) × 8 (fe-34: was 4)" },
+  { name: "wavesB", type: arrayOf(vec4, 8), comment: "(amplitude, q, phase, 0) × 8" },
   { name: "deepColor", type: vec3 },
   { name: "time", type: f32, comment: "simulated water time, seconds" },
   { name: "shallowColor", type: vec3 },

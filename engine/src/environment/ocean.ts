@@ -38,7 +38,7 @@ export interface OceanWindOptions {
   minHeight?: number;
   /** Half-angle (radians) the components fan around the wind. Default 0.45. */
   spread?: number;
-  /** Components to produce (1..4). Default 4. */
+  /** Components to produce (1..8; 5+ adds wave groups and chop). Default 8. */
   waveCount?: number;
   /** Extra steepness multiplier on top of the wind-driven one. Default 1. */
   choppiness?: number;
@@ -82,6 +82,12 @@ const COMPONENTS = [
   { len: 0.62, amp: 0.55, angle: 1, steep: 0.5 },
   { len: 0.37, amp: 0.3, angle: -1, steep: 0.45 },
   { len: 0.19, amp: 0.14, angle: 0.4, steep: 0.4 },
+  // fe-34 (5..8 components): a near-twin of the peak (wave groups — sets of big waves every
+  // ~12 crests where the two beat in phase, lulls between), a cross-sea and short wind chop.
+  { len: 0.92, amp: 0.85, angle: 0.12, steep: 0.5 },
+  { len: 0.12, amp: 0.08, angle: -0.7, steep: 0.35 },
+  { len: 0.5, amp: 0.32, angle: -0.55, steep: 0.45 },
+  { len: 0.075, amp: 0.045, angle: 0.9, steep: 0.3 },
 ] as const;
 
 /**
@@ -141,11 +147,11 @@ export interface OceanQuality {
 export function oceanQualityForTier(tier: DeviceTier): OceanQuality {
   switch (tier) {
     case "low":
-      return { gridSegments: 128, waveCount: 3 };
+      return { gridSegments: 128, waveCount: 4 };
     case "medium":
-      return { gridSegments: 192, waveCount: 4 };
+      return { gridSegments: 192, waveCount: 6 };
     default:
-      return { gridSegments: 288, waveCount: 4 };
+      return { gridSegments: 288, waveCount: 8 };
   }
 }
 

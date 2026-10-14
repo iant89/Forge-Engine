@@ -41,7 +41,7 @@ export interface GerstnerWave {
 }
 
 /** Maximum waves evaluated by both the water shader and CPU gameplay queries. */
-export const MAX_WATER_WAVES = 4;
+export const MAX_WATER_WAVES = 8;
 
 export interface WaterSample {
   /** Vertical displacement (add to the mean level). */

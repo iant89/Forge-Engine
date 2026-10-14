@@ -136,7 +136,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   var crestNum = 0.0;
   var crestDen = 0.0;
   let shoal = shoalLimited(shoreDepth(base.xz));
-  for (var i = 0; i < 4; i++) {
+  for (var i = 0; i < 8; i++) {
     let a = water.wavesA[i];
     let b = water.wavesB[i];
     if (b.x <= 0.0) {

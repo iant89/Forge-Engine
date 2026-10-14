@@ -2471,13 +2471,13 @@ export class Renderer implements RenderFrameContext {
     }
     // Waves as the vertex shader consumes them: (dirX, dirZ, k, speed) + (amplitude, Q, phase, 0).
     // Limit and normalise against the same wave count as CPU gameplay sampling.
-    const waveCount = Math.min(water.waves.length, 4);
+    const waveCount = Math.min(water.waves.length, 8);
     const baseA = a.offsetOf("wavesA");
     const baseB = a.offsetOf("wavesB");
     const strideA = a.arrayStride("wavesA");
     const strideB = a.arrayStride("wavesB");
     const f32 = this.waterBytes.f32;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const w = water.waves[i];
       const oA = (baseA + i * strideA) >> 2;
       const oB = (baseB + i * strideB) >> 2;

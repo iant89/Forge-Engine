@@ -351,6 +351,11 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
    * (m/s)² (≈ 4e-4 gives ~−1 m in a 50 m/s offshore wind), `limit` caps it. Omit for none.
    */
   coast?: { onshoreX: number; onshoreZ: number; coefficient: number; limit?: number };
+  /**
+   * fe-34 run-up: widen the shore swash/foam band with the sea (`foamDepth = base + runup·Hs`), so
+   * big surf visibly washes up the beach. Default 0 (the shore's own foamDepth is left alone).
+   */
+  runup?: { base: number; perMetre: number };
   /** fe-34: 0..1 gust amplitude (gust speed = wind × (1 + 0.45·gustiness·gust)). Default 0 (steady). */
   gustiness?: number;
   /**
@@ -539,6 +544,7 @@ export class CycloneSystem extends SceneObject {
       this.ocean = oceanWavesFromWind({ windSpeed: this.seaWind, direction: dir, maxHeight: o.maxWaveHeight ?? 5, waveCount: o.waveCount ?? 4, seed: 3 });
       applyOceanState(scene, this.ocean);
       scene.setWater({ level: this.seaLevel + obs.surge + obs.setup + this.tideOffset });
+      if (o.runup) scene.setWater({ shore: { foamDepth: o.runup.base + o.runup.perMetre * this.ocean.significantHeight } });
     }
   }
 
