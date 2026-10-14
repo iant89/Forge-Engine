@@ -183,7 +183,7 @@ export interface MarsDustStormState {
   stuck: boolean;
   flipped: boolean;
   won: boolean;
-  /** fe-29: run lost on hard (reason, e.g. "BLOWN AWAY"). */
+  /** fe-29: run lost on Expert/Unreal (reason, e.g. "BLOWN AWAY"). */
   lost: boolean;
   lostReason: string | null;
   /** fe-29: last safe grounded spot, blown-away respawns, invulnerability left (s), clearance (m). */
@@ -1041,7 +1041,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     lastEvent = `${reason} · BACK TO ${course.lastReached < 0 ? "START" : `BEACON ${course.lastReached + 1}`}`;
   };
 
-  /** fe-29: thrown too far by the wind — respawn at the last safe spot (easy) or lose (hard). */
+  /** fe-29: thrown too far by the wind — respawn at the last safe spot (Easy/Advanced) or lose (Expert/Unreal). */
   const onBlownAway = (): void => {
     blownAwayCount++;
     if (rules.onBlownAway === "lose") {

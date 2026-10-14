@@ -94,9 +94,9 @@ export interface StormDifficultyRules {
   onStuck: "soft" | "reset";
   /** What happens when a devil leaves the rover on its side or roof. */
   onFlip: "right" | "reset";
-  /** fe-29: blown too far from the last safe spot — respawn there (easy) or lose the run (hard). */
+  /** fe-29: blown too far from the last safe spot — respawn there (Easy/Advanced) or lose the run (Expert/Unreal). */
   onBlownAway: "respawn" | "lose";
-  /** fe-29: wind force multiplier ({@link STORM_STRENGTH}); hard is stormier. */
+  /** fe-29: wind force multiplier ({@link STORM_STRENGTH}); rises Easy → Unreal. */
   stormStrength: number;
   /** Seconds added once per soft-stuck episode or auto-righting. */
   timePenalty: number;
@@ -772,7 +772,7 @@ export const BLOWN_AWAY_DROP = 8;
 export const SAFE_STABLE_TIME = 1;
 /** Devil acceleration (m/s²) above which the wind, not the driver, is moving the rover. */
 export const BLOWN_WIND_ACCEL = 2;
-/** Easy-mode respawn invulnerability (s): no devil or gust forces. */
+/** Easy/Advanced respawn invulnerability (s): no devil or gust forces. */
 export const RESPAWN_INVULNERABLE = 3;
 
 export interface BlownAwaySample {
