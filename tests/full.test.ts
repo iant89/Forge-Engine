@@ -61,6 +61,7 @@ export const linkedSuites = [
   ["tests/terrain/terrainMaterials.test.ts", () => import("./terrain/terrainMaterials.test.ts")],
   ["tests/particles/particles.test.ts", () => import("./particles/particles.test.ts")],
   ["tests/population/population.test.ts", () => import("./population/population.test.ts")],
+  ["tests/population/populationCull.test.ts", () => import("./population/populationCull.test.ts")],
   ["tests/examples/alpineSnowpack.test.ts", () => import("./examples/alpineSnowpack.test.ts")],
   ["tests/examples/amazonBoatHull.test.ts", () => import("./examples/amazonBoatHull.test.ts")],
   ["tests/examples/dustStorm.test.ts", () => import("./examples/dustStorm.test.ts")],

@@ -132,3 +132,14 @@ export function cullPopulationInstancesOnCpu(
   }
   return drawn;
 }
+
+/**
+ * The per-instance culling knobs for a device tier (`core/deviceTier.ts`, PR #100): the frustum,
+ * distance and LOD work is cheap and always pays (it removes vertex work), so every tier keeps it;
+ * the HiZ test's texel loop per instance is the part a low-tier GPU (older iPhones, software
+ * adapters) can spend more on than it saves, so `low` turns it off. Pass the result to
+ * `RendererOptions` or the renderer's `populationCulling` / `populationOcclusion` setters.
+ */
+export function populationCullingForTier(tier: "low" | "medium" | "high"): { populationCulling: boolean; populationOcclusion: boolean } {
+  return { populationCulling: true, populationOcclusion: tier !== "low" };
+}

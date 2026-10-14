@@ -939,6 +939,8 @@ export class GpuObjectCuller {
   }
 
   private consume(index: number, buffer: GPUBuffer): void {
+    // Disposed while the map was in flight: the buffer is already destroyed.
+    if (this.disposed) return;
     const words = new Uint32Array(buffer.getMappedRange(0, CULL_STATS_BYTES), 0, CULL_STATS_BYTES >> 2);
     this.lastStats = {
       tested: words[STATS_WORD.tested]!,

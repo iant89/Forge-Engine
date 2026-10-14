@@ -14,7 +14,9 @@ import { DRAW_RECORD_BYTES, DRAW_RECORD_WORDS } from "./objectCulling.js";
 import { ObjectCullUniforms, PopulationCullStatsBlock, PopulationCullUniforms } from "./uniforms.js";
 import { POP_CULL_OCCLUSION, POPULATION_CULL_SHADER, POPULATION_CULL_WORKGROUP } from "./shaders/populationCull.js";
 import type { RenderGraph, RenderGraphPassContext } from "./renderGraph.js";
-import { emptyPopulationCullStats, type PopulationCullStats } from "../population/cull.js";
+import { cullPopulationInstancesOnCpu, emptyPopulationCullStats, type PopulationCullBatch, type PopulationCullStats } from "../population/cull.js";
+import { registerMockComputeKernel } from "../testing/mockGpu.js";
+import type { ObjectCullParams } from "./objectCulling.js";
 
 /** Pipeline label the mock device keys its emulation on. */
 export const POPULATION_CULL_PIPELINE_LABEL = "population.cull.pipeline";
@@ -200,6 +202,8 @@ export class GpuPopulationCuller {
     buffer
       .mapAsync(BufferUsage.MAP_READ)
       .then(() => {
+        // Disposed while the map was in flight: the buffer is gone, and so is anyone reading stats.
+        if (this.disposed) return;
         const w = new Uint32Array(buffer.getMappedRange(0, STATS_BYTES), 0, STATS_BYTES >> 2);
         this.lastStats = {
           tested: w[STATS_WORD.tested]!,
@@ -299,3 +303,63 @@ export class GpuPopulationCuller {
     return this.instanceLayout;
   }
 }
+
+// ------------------------------------------------------------------ mock execution (CPU twin)
+
+const OCU = (name: string) => ObjectCullUniforms.offsetOf(name, "uniform") >> 2;
+const PCU = (name: string) => PopulationCullUniforms.offsetOf(name, "uniform") >> 2;
+
+/**
+ * The mock device runs `cullPopulationInstancesOnCpu` for every `forge.populationCull` dispatch,
+ * reading the same bindings the kernel reads. The mock has no depth pyramid, so the HiZ test is
+ * skipped there (`hizLevels` treated as 0); the twin's occlusion path is covered by its own tests.
+ */
+registerMockComputeKernel(POPULATION_CULL_PIPELINE_LABEL, (dispatch) => {
+  const cullBytes = dispatch.buffer(0, 0);
+  const popBytes = dispatch.buffer(0, 1);
+  const args = dispatch.buffer(0, 2);
+  const statsBytes = dispatch.buffer(0, 3);
+  const visibility = dispatch.buffer(0, 4);
+  const source = dispatch.buffer(1, 0);
+  const compacted = dispatch.buffer(1, 1);
+  if (!cullBytes || !popBytes || !args || !statsBytes || !visibility || !source || !compacted) return;
+  const cf = new Float32Array(cullBytes);
+  const cu = new Uint32Array(cullBytes);
+  const base = dispatch.dynamicOffset(0) >> 2;
+  const pf = new Float32Array(popBytes);
+  const pu = new Uint32Array(popBytes);
+  const params: ObjectCullParams = {
+    view: cf.slice(OCU("view"), OCU("view") + 16),
+    proj: cf.slice(OCU("proj"), OCU("proj") + 16),
+    viewProj: cf.slice(OCU("viewProj"), OCU("viewProj") + 16),
+    cameraPos: { x: cf[OCU("cameraPos")]!, y: cf[OCU("cameraPos") + 1]!, z: cf[OCU("cameraPos") + 2]! },
+    near: cf[OCU("near")]!,
+    far: cf[OCU("far")]!,
+    width: cf[OCU("extent")]!,
+    height: cf[OCU("extent") + 1]!,
+    flags: cu[OCU("flags")]!,
+    hizLevels: 0,
+  };
+  const at = (name: string, k = 0) => pf[base + PCU(name) + k]!;
+  const count = Math.min(pu[base + PCU("count")]!, dispatch.workgroups * POPULATION_CULL_WORKGROUP);
+  const batch: PopulationCullBatch = {
+    camera: { x: at("camera"), y: at("camera", 1), z: at("camera", 2) },
+    lodDistance: at("lodDistance"),
+    localCenter: { x: at("localCenter"), y: at("localCenter", 1), z: at("localCenter", 2) },
+    localRadius: at("localRadius"),
+    count,
+    flags: pu[base + PCU("flags")]!,
+    maxDistance: at("maxDistance"),
+  };
+  const visible = new Uint32Array(visibility)[pu[base + PCU("visibilityIndex")]!] === 0;
+  const stats = emptyPopulationCullStats();
+  const drawn = cullPopulationInstancesOnCpu(new Float32Array(source), new Uint32Array(source), batch, visible, params, [], new Uint32Array(compacted), stats);
+  new Uint32Array(args)[pu[base + PCU("argsWord")]!] += drawn;
+  const sw = new Uint32Array(statsBytes);
+  sw[STATS_WORD.tested] += stats.tested;
+  sw[STATS_WORD.drawn] += stats.drawn;
+  sw[STATS_WORD.culledFrustum] += stats.culledFrustum;
+  sw[STATS_WORD.culledDistance] += stats.culledDistance;
+  sw[STATS_WORD.culledOccluded] += stats.culledOccluded;
+  sw[STATS_WORD.culledBatch] += stats.culledBatch;
+});
