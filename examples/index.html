@@ -389,7 +389,8 @@
         pointer-events: auto;
         backdrop-filter: blur(6px);
       }
-      body.scene-vehicle:not(.scene-mars) .veh-gear-switch { display: grid; }
+      /* fe-28: the dust storm drives forward/reverse from gas/brake alone, so it has no selector. */
+      body.scene-vehicle:not(.scene-mars):not(.scene-storm) .veh-gear-switch { display: grid; }
       .veh-gear {
         width: 42px;
         height: 38px;

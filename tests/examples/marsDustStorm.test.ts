@@ -43,6 +43,7 @@ import {
   type Entity,
   type SystemContext,
   type TaskScheduler,
+  Vec3,
   VehicleComponent,
   findGpuParticleWorlds,
 } from "@forge/engine";
@@ -98,7 +99,7 @@ function fakeButton() {
   });
 }
 
-async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true) {
+async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = true, courseSeed = 1234) {
   const windowStub = new EventTarget();
   stubGlobal("window", windowStub);
   const buttons = { "btn-storm-easy": fakeButton(), "btn-storm-hard": fakeButton(), "storm-difficulty": fakeButton() };
@@ -106,7 +107,7 @@ async function fixture(difficulty: StormDifficulty = "easy", tickWhileLoading = 
   stubGlobal("fetch", spyFunction(() => new Promise<Response>(() => {})));
   const gpu = await GraphicsDevice.create({ forceMock: true });
   const engine = { gpu, tasks: undefined as unknown as TaskScheduler } as Engine;
-  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced" });
+  const handle = buildMarsDustStormScene(engine, { loadGlb: mockLoadGlb, difficulty, quality: "reduced", courseSeed });
   const scene = handle.scene;
   scene.attachToEngine(engine);
   const component = scene.world.getComponent(scene.world.findByName("rover-chassis")[0]!, VehicleComponent)!;
@@ -417,5 +418,124 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
     assert.equal(hard.handle.stormState().flipped, false);
   });
 });
+
+
+group("Mars Dust Storm Survival — fe-28 polish", () => {
+  test("random course per seed: same seed replays, another seed moves the beams; the route dodges every boulder", async () => {
+    const a = await fixture("easy", true, 11);
+    const sa = a.handle.stormState();
+    assert.equal(sa.courseSeed, 11);
+    const b = await fixture("easy", true, 11);
+    assert.deepEqual(b.handle.stormState().checkpoints, sa.checkpoints);
+    const c = await fixture("easy", true, 12);
+    assert.notDeepEqual(c.handle.stormState().checkpoints, sa.checkpoints);
+    for (const fx of [a, c]) {
+      fx.tick();
+      const route = fx.handle.stormState().guideRoute;
+      assert.ok(route.length >= 2);
+      const rocks = named(fx.scene, "storm-boulder-").map((e) => ({ x: e.transform.position.x, z: e.transform.position.z, r: e.transform.scale.x }));
+      assert.ok(rocks.length > 10);
+      for (let i = 0; i < route.length - 1; i++) {
+        const p = route[i]!;
+        const q = route[i + 1]!;
+        for (let k = 1; k < 40; k++) {
+          const x = p.x + ((q.x - p.x) * k) / 40;
+          const z = p.z + ((q.z - p.z) * k) / 40;
+          for (const r of rocks) assert.ok(Math.hypot(x - r.x, z - r.z) >= r.r * 0.85 + 1.3, `route clips a boulder at ${x.toFixed(1)},${z.toFixed(1)}`);
+        }
+      }
+    }
+  });
+
+  test("the arrow shows only while the beam is off screen", async () => {
+    const { handle, scene, tick } = await fixture();
+    const cam = named(scene, "camera")[0]!;
+    const beam = named(scene, "storm-beam-ring-0")[0]!.transform.position;
+    const eye = { x: handle.stormState().x - 10, z: handle.stormState().z - 10 };
+    // Look straight at the beam from behind the rover: on screen → no arrow.
+    const look = () => {
+      cam.transform.position = new Vec3(eye.x, beam.y + 6, eye.z);
+      cam.transform.lookAt(new Vec3(beam.x, beam.y + 6, beam.z));
+    };
+    look();
+    for (let i = 0; i < 20; i++) { look(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, false, "beam in view: arrow hidden");
+    // Turn the camera to face directly away from the beam: off screen → arrow.
+    const away = () => {
+      cam.transform.position = new Vec3(eye.x, beam.y + 6, eye.z);
+      cam.transform.lookAt(new Vec3(eye.x * 2 - beam.x, beam.y + 6, eye.z * 2 - beam.z));
+    };
+    for (let i = 0; i < 20; i++) { away(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, true, "beam behind the camera: arrow shown");
+    for (let i = 0; i < 20; i++) { look(); tick(0.1); }
+    assert.equal(handle.stormState().arrowVisible, false, "back in view: hidden again");
+  });
+
+  test("no gear selector: brake from rest backs the rover up, gas drives it forward again", async () => {
+    const { handle, vehicle, tick, key } = await fixture();
+    key("keydown", "KeyS");
+    for (let i = 0; i < 90; i++) tick();
+    assert.equal(handle.stormState().gear, -1);
+    const fwd = vehicle.velocity.x * Math.sin(vehicle.yaw) + vehicle.velocity.z * Math.cos(vehicle.yaw);
+    assert.ok(fwd < -0.2, `backing up at ${fwd}`);
+    key("keyup", "KeyS");
+    key("keydown", "KeyW");
+    for (let i = 0; i < 240; i++) tick();
+    key("keyup", "KeyW");
+    assert.equal(handle.stormState().gear, 1);
+    const fwd2 = vehicle.velocity.x * Math.sin(vehicle.yaw) + vehicle.velocity.z * Math.cos(vehicle.yaw);
+    assert.ok(fwd2 > 0.2, `driving forward at ${fwd2}`);
+  });
+
+  test("finale: the last beam clears the sky and the rover stands up for Y-M-C-A; R puts it all back", async () => {
+    const { handle, scene, vehicle, tick, key } = await fixture();
+    start(key, tick);
+    const count = handle.stormState().checkpointCount;
+    for (let i = 0; i < count; i++) {
+      const beam = named(scene, `storm-beam-ring-${i}`)[0]!;
+      vehicle.position.x = beam.transform.position.x;
+      vehicle.position.z = beam.transform.position.z;
+      tick();
+    }
+    assert.equal(handle.stormState().won, true);
+    assert.equal(scene.settings.skyEnabled, false, "clearing starts from the dust backdrop");
+    const letters: string[] = [];
+    const chassis = named(scene, "rover-chassis")[0]!;
+    let maxNoseUp = 0;
+    for (let i = 0; i < 12 * 30; i++) {
+      tick(1 / 30);
+      const l = handle.stormState().dance;
+      if (l && letters[letters.length - 1] !== l) letters.push(l);
+      const f = new Vec3();
+      chassis.transform.rotation.rotateVector(Vec3.unitZ, f);
+      maxNoseUp = Math.max(maxNoseUp, f.y);
+    }
+    const s = handle.stormState();
+    assert.equal(s.clearSky, 1);
+    assert.equal(scene.settings.skyEnabled, true, "the analytic Mars sky is back");
+    assert.ok(s.fogDensity < 0.004, `clear-day haze ${s.fogDensity}`);
+    assert.equal(s.dancing, true);
+    assert.deepEqual(letters.slice(0, 4), ["Y", "M", "C", "A"]);
+    assert.ok(maxNoseUp > 0.85, `stands on its rear wheels (nose-up ${maxNoseUp})`);
+    // The upper wheels leave their rest hubs while the rear pair stays on the ground.
+    const wheels = MARS_WHEELS.map((n) => named(scene, `rover-${n}`)[0]!.transform.position);
+    assert.ok(wheels[0]!.y - wheels[4]!.y > 1.5, "front wheel raised high above the rear");
+    key("keydown", "KeyR");
+    key("keyup", "KeyR");
+    const r = handle.stormState();
+    assert.equal(r.dancing, false);
+    assert.equal(r.clearSky, 0);
+    assert.equal(scene.settings.skyEnabled, false);
+    assert.ok(scene.world.getComponent(chassis.id, VehicleComponent), "physics re-attached");
+  });
+
+  test("the F/N/R gear selector is hidden in the dust storm", async () => {
+    const { readFileSync } = await import("node:fs");
+    const html = readFileSync(new URL("../../examples/index.html", import.meta.url), "utf8");
+    assert.match(html, /body\.scene-vehicle:not\(\.scene-mars\):not\(\.scene-storm\) \.veh-gear-switch \{ display: grid; \}/);
+  });
+});
+
+const MARS_WHEELS = ["wheel_FL", "wheel_FR", "wheel_ML", "wheel_MR", "wheel_RL", "wheel_RR"];
 
 await finish();

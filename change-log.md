@@ -16993,6 +16993,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "--gltf-skin also checks CesiumMan",
     "why": "Real-device coverage of a 19-joint rig"
+  },
+  {
+    "id": "1353",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/dustStormRoute.ts",
+    "what": "New fe-28 game model: grid A* route finder over terrain + boulders, random reachable course generator, floating guide ribbon + travelling pulse, clip-space on-screen test, auto forward/reverse, clear-sky ramp and YMCA dance poses",
+    "why": "Ian's Mars Dust Storm polish requests (fast-tracked)"
+  },
+  {
+    "id": "1354",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/marsDustStormScene.ts",
+    "what": "Random reachable course per load (seeded), obstacle-routed floating path with blue pulse, frustum-based off-screen arrow, gas/brake auto reverse, clear Mars day + rear-wheel YMCA finale, teleport hook",
+    "why": "Ian's Mars Dust Storm polish requests"
+  },
+  {
+    "id": "1355",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/dustStorm.ts",
+    "what": "Removed the straight-line buildGuidePath and camera-basis waypointInView (replaced in dustStormRoute.ts); arrow inner margin 0.8 -> 0.92",
+    "why": "The fe-18 in-view test used the wrong camera look axis; the arrow should hide as soon as the beam is on screen"
+  },
+  {
+    "id": "1356",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/main.ts",
+    "what": "Pass ?seed= (or a fresh random seed) to the dust storm; __forge.marsDustStormState / marsDustStormTeleport / setOrbit hooks",
+    "why": "Random course per load with a reproducible seed, and browser screenshots"
+  },
+  {
+    "id": "1357",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Hide the F/N/R gear selector in the dust storm",
+    "why": "Ian asked to remove the gear selector switch"
+  },
+  {
+    "id": "1358",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/dustStormRoute.test.ts",
+    "what": "New unit suite for the fe-28 game model",
+    "why": "TDD for routing, reachability, randomization, arrow, auto reverse and finale"
+  },
+  {
+    "id": "1359",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/marsDustStorm.test.ts",
+    "what": "Fixed course seed in the fixture; fe-28 scene tests (seeded courses, routes clear boulders, arrow on/off screen, auto reverse, clear-sky YMCA finale, gear selector hidden)",
+    "why": "Cover the new scene behaviour on the mock GPU"
+  },
+  {
+    "id": "1360",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/examples/dustStorm.test.ts",
+    "what": "Dropped the removed buildGuidePath / waypointInView assertions",
+    "why": "Those helpers were replaced by fe-28"
+  },
+  {
+    "id": "1361",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link the new dustStormRoute suite",
+    "why": "selrun check requires every suite in the full manifest"
+  },
+  {
+    "id": "1362",
+    "date": "2026-10-13T23:59:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-28-dust-storm-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 87 -> 88 suites, 729 -> 730 coverage claims",
+    "why": "New dustStormRoute suite"
   }
 ]
 ```

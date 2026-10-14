@@ -1373,9 +1373,8 @@ export interface StripMesh {
   indices: Uint16Array;
 }
 
-/** Height above the sampled terrain for draped guidance meshes (beam ring, easy path). */
+/** Height above the sampled terrain for the draped beam ring (the easy path: GUIDE_FLOAT_OFFSET). */
 export const BEAM_RING_OFFSET = 0.12;
-export const GUIDE_PATH_OFFSET = 0.1;
 export const BEAM_RING_SEGMENTS = 48;
 
 /**
@@ -1412,105 +1411,19 @@ export function buildDrapedRing(cx: number, cz: number, radius: number, width: n
   return { positions, normals, uvs, indices: new Uint16Array(idx), baseY };
 }
 
-/** Guide-path resolution and reach (m): beyond `GUIDE_PATH_MAX` only the first stretch is drawn. */
-export const GUIDE_PATH_POINTS = 32;
-export const GUIDE_PATH_MAX = 90;
-export const GUIDE_PATH_HALF_WIDTH = 0.45;
-
 /** The easy-mode glowing path is drawn only in easy, and only while there is a beam to reach. */
 export function guidePathEnabled(difficulty: StormDifficulty, hasTarget: boolean): boolean {
   return difficulty === "easy" && hasTarget;
 }
 
-/**
- * A ribbon from the rover toward the next beam, draped on the terrain `offset` above it. Positions
- * are relative to (x0, ground(x0, z0), z0). The strip starts a little ahead of the rover (so it
- * does not sit under the chassis) and fades out along its length via uv.y (0 near → 1 far).
- */
-export function buildGuidePath(x0: number, z0: number, x1: number, z1: number, ground: GroundHeightFn, out?: StripMesh & { baseY: number }, offset = GUIDE_PATH_OFFSET): StripMesh & { baseY: number } {
-  const N = GUIDE_PATH_POINTS;
-  const mesh = out ?? {
-    positions: new Float32Array(N * 2 * 3),
-    normals: new Float32Array(N * 2 * 3),
-    uvs: new Float32Array(N * 2 * 2),
-    indices: (() => {
-      const idx: number[] = [];
-      for (let i = 0; i < N - 1; i++) {
-        const a = i * 2;
-        idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
-      }
-      return new Uint16Array(idx);
-    })(),
-    baseY: 0,
-  };
-  const baseY = ground(x0, z0);
-  mesh.baseY = baseY;
-  const dx = x1 - x0;
-  const dz = z1 - z0;
-  const dist = Math.hypot(dx, dz);
-  const ux = dist > 1e-6 ? dx / dist : 1;
-  const uz = dist > 1e-6 ? dz / dist : 0;
-  const start = Math.min(2.5, dist);
-  const end = Math.min(dist, GUIDE_PATH_MAX);
-  for (let i = 0; i < N; i++) {
-    const t = start + ((end - start) * i) / (N - 1);
-    const cxw = x0 + ux * t;
-    const czw = z0 + uz * t;
-    for (let j = 0; j < 2; j++) {
-      const side = j === 0 ? -GUIDE_PATH_HALF_WIDTH : GUIDE_PATH_HALF_WIDTH;
-      const wx = cxw - uz * side;
-      const wz = czw + ux * side;
-      const v = i * 2 + j;
-      mesh.positions[v * 3] = wx - x0;
-      mesh.positions[v * 3 + 1] = ground(wx, wz) + offset - baseY;
-      mesh.positions[v * 3 + 2] = wz - z0;
-      mesh.normals[v * 3] = 0;
-      mesh.normals[v * 3 + 1] = 1;
-      mesh.normals[v * 3 + 2] = 0;
-      mesh.uvs[v * 2] = j;
-      mesh.uvs[v * 2 + 1] = i / (N - 1);
-    }
-  }
-  return mesh;
-}
-
-/**
- * Is `target` inside the camera's view? Projects onto the camera basis and compares the angular
- * offsets against the half-FOVs scaled by `margin` (< 1 = must be well inside the frame).
- */
-export function waypointInView(
-  eye: { x: number; y: number; z: number },
-  forward: { x: number; y: number; z: number },
-  target: { x: number; y: number; z: number },
-  fovY: number,
-  aspect: number,
-  margin = 1,
-): boolean {
-  const dx = target.x - eye.x;
-  const dy = target.y - eye.y;
-  const dz = target.z - eye.z;
-  const depth = dx * forward.x + dy * forward.y + dz * forward.z;
-  if (depth <= 0.01) return false;
-  // Camera right = forward × up(0,1,0), normalized; camera up = right × forward.
-  let rx = -forward.z;
-  let rz = forward.x;
-  const rl = Math.hypot(rx, rz) || 1;
-  rx /= rl;
-  rz /= rl;
-  const ux = -rz * forward.y;
-  const uy = rz * forward.x - rx * forward.z;
-  const uz = rx * forward.y;
-  const sx = (dx * rx + dz * rz) / depth;
-  const sy = (dx * ux + dy * uy + dz * uz) / depth;
-  const ty = Math.tan(fovY / 2) * margin;
-  return Math.abs(sy) <= ty && Math.abs(sx) <= ty * aspect;
-}
+// fe-28: the straight-line `buildGuidePath` and the camera-basis `waypointInView` were replaced by
+// the routed ribbon (`buildGuideRibbon`) and the clip-space `targetOnScreen` in dustStormRoute.ts.
 
 /** Hysteresis for the off-screen arrow: show after it is clearly out, hide once clearly in. */
 export const ARROW_SHOW_DELAY = 0.35;
 export const ARROW_HIDE_DELAY = 0.35;
 /** Inner margin for "clearly in view" (hide) vs the frame edge for "out of view" (show). */
-export const ARROW_IN_MARGIN = 0.8;
+export const ARROW_IN_MARGIN = 0.92;
 export const ARROW_OUT_MARGIN = 1.0;
 
 /**
