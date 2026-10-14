@@ -227,6 +227,8 @@ export interface MarsDustStormHandle extends DemoSceneHandle {
   setDifficulty(difficulty: StormDifficulty): void;
   /** Place the rover upright at (x, z) facing the active beam (browser checks). */
   teleport(x: number, z: number): boolean;
+  /** fe-29 test / screenshot hook: simulate a wind throw (see the blown-away rule). */
+  debugBlow(dx: number, dz: number, up?: number): void;
   /** Skip the finale clock ahead (browser screenshot checks on slow software GPUs); no-op unless dancing. */
   advanceFinale(seconds: number): void;
   /** fe-28: the adaptive device-quality tracker (tier, reasons, frame-time monitor). */
@@ -369,6 +371,8 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   vehicle.input.brake = 1;
   vehicle.input.handbrake = 1;
   const bodyOffsetY = groundY - vehicle.position.y;
+  // fe-29: chassis height above the terrain at rest; clearance is measured from it.
+  const rideHeight = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z);
   scene.world.registerSystem(new VehicleSystem());
   const chassis = scene.createTransformedEntity("rover-chassis", new Vec3(vehicle.position.x, vehicle.position.y, vehicle.position.z));
   const wheelRoots: Entity[] = [];
@@ -899,6 +903,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
   const roverMass = vehicle.config.mass;
   const gustAccel = { x: 0, z: 0 };
   const blown = new BlownAwayTracker();
+  blown.reset(vehicle.position.x, vehicle.position.y, vehicle.position.z, vehicle.yaw);
   let blownAwayCount = 0;
   let invulnerable = 0;
   let windLift = 0;
@@ -1006,6 +1011,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     stuck = false;
     invulnerable = 0;
     windLift = 0;
+    lastClearance = 0;
     blownAwayCount = 0;
     if (fadeEl) fadeEl.style.opacity = "0";
     placeRover(SPAWN_X, SPAWN_Z);
@@ -1297,7 +1303,7 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     devils.step(dt, intensity, wind.x, wind.z, vehicle.position.x, vehicle.position.z);
     stepPebbles(dt);
     // fe-29: clearance of the chassis above its equilibrium ride height (≈ 0 when parked).
-    const clearance = vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z) + bodyOffsetY;
+    const clearance = Math.max(0, vehicle.position.y - groundHeight(vehicle.position.x, vehicle.position.z) - rideHeight);
     lastClearance = clearance;
     invulnerable = Math.max(0, invulnerable - dt);
     windLift = 0;
@@ -1320,8 +1326,10 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     }
     // Air drag on a climbing rover: caps the climb so it hovers where lift meets gravity.
     if (windLift > 0 && vehicle.velocity.y > 0) vehicle.velocity.y -= DEVIL_LIFT_DAMPING * vehicle.velocity.y * dt;
-    // Storm gust push, by force / mass from the wind relative to the rover.
-    if (windOn && !startupBrake) {
+    // Storm gust push, by force / mass from the wind relative to the rover. A rover standing still
+    // on its wheels is held by static friction (≈0.25 m/s² of gust vs μ·g ≈ 3 m/s² of grip).
+    const heldStill = Math.hypot(vehicle.velocity.x, vehicle.velocity.z) < 0.5 && vehicle.wheels.every((w) => w.inContact);
+    if (windOn && !startupBrake && !heldStill && !stuck) {
       stormWindAccel(wind.x, wind.z, vehicle.velocity.x, vehicle.velocity.z, roverMass, gustAccel);
       vehicle.velocity.x += gustAccel.x * dt;
       vehicle.velocity.z += gustAccel.z * dt;
@@ -1763,6 +1771,14 @@ export function buildMarsDustStormScene(engine: Engine, options: MarsDustStormOp
     deviceQuality: device,
     advanceFinale: (seconds: number): void => {
       if (dancing && seconds > 0) wonAt -= seconds;
+    },
+    /** Test / screenshot hook: a wind throw — lift the rover `up` m and carry it (dx, dz) mid-episode. */
+    debugBlow: (dx: number, dz: number, up = 6): void => {
+      startupBrake = false;
+      blown.episode = true;
+      vehicle.position.x += dx;
+      vehicle.position.z += dz;
+      vehicle.position.y += up;
     },
     teleport: (x: number, z: number): boolean => {
       if (dancing || !Number.isFinite(x) || !Number.isFinite(z)) return false;

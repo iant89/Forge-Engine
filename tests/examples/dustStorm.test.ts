@@ -103,6 +103,16 @@ import {
   devilEnvelope,
   devilSizeFactor,
   type DevilRules,
+  BlownAwayTracker,
+  BLOWN_AWAY_DISTANCE,
+  DEVIL_GAMEPLAY_MULTIPLIER,
+  DEVIL_LIFT_CEILING,
+  DEVIL_LIFT_DAMPING,
+  MARS_AIR_DENSITY,
+  MARS_G,
+  ROVER_REFERENCE_MASS,
+  SAFE_STABLE_TIME,
+  stormWindAccel,
 } from "../../examples/src/scenes/dustStorm.js";
 
 const devilAt = (overrides: Partial<DustDevil> = {}): DustDevil => ({
@@ -254,7 +264,8 @@ group("course and difficulty (D3/D4)", () => {
   });
 
   test("easy rocks free with a time penalty; hard resets; iOS gets the reduced tier", () => {
-    assert.deepEqual(STORM_DIFFICULTY.easy, { onStuck: "soft", onFlip: "right", timePenalty: 15 });
+    assert.deepEqual(STORM_DIFFICULTY.easy, { onStuck: "soft", onFlip: "right", onBlownAway: "respawn", timePenalty: 15 });
+    assert.equal(STORM_DIFFICULTY.hard.onBlownAway, "lose");
     assert.equal(STORM_DIFFICULTY.hard.onStuck, "reset");
     assert.equal(STORM_DIFFICULTY.hard.onFlip, "reset");
     assert.equal(stormQualityForPlatform("ios"), "reduced");
@@ -834,6 +845,98 @@ group("fe-22f random sizes, full-width core, terrain tint, pebbles", () => {
     assert.equal(small!.state, "falling", "dropped as it weakens");
     for (let i = 0; i < 600 && small!.state !== "ground"; i++) pool.step(1 / 30, [], at, ground, 0, 0);
     assert.equal(small!.state, "ground", "lands");
+  });
+});
+
+/** Integrate the rover's height above ground under devil lift + Mars gravity (the scene's model). */
+function flyColumn(d: DustDevil, mass: number, xAt: (t: number) => number, seconds: number) {
+  let y = 0;
+  let vy = 0;
+  let maxY = 0;
+  const trace: number[] = [];
+  const dt = 1 / 60;
+  for (let t = 0; t < seconds; t += dt) {
+    const f = devilRoverForce(d, xAt(t), 0, undefined, mass, y);
+    vy += (f.lift - MARS_G) * dt;
+    if (f.lift > 0 && vy > 0) vy -= DEVIL_LIFT_DAMPING * vy * dt;
+    y += vy * dt;
+    if (y <= 0) {
+      y = 0;
+      vy = Math.max(0, vy);
+    }
+    maxY = Math.max(maxY, y);
+    trace.push(y);
+  }
+  return { y, maxY, trace };
+}
+
+group("fe-29 force-based wind and blown-away rule", () => {
+  test("wind acceleration is drag force / mass: twice the mass, half the push and lift", () => {
+    const d = devilAt();
+    const ref = devilRoverForce(d, 2, 0, undefined, ROVER_REFERENCE_MASS);
+    const heavy = devilRoverForce(d, 2, 0, undefined, ROVER_REFERENCE_MASS * 2);
+    assertCloseTo(heavy.lift, ref.lift / 2, 9);
+    assertCloseTo(heavy.ax, ref.ax / 2, 9);
+    assertCloseTo(heavy.az, ref.az / 2, 9);
+    // The swirl push is the physical ½ρv²CdA times one documented multiplier.
+    const v = devilTangentialSpeed(d, 6);
+    const edge = devilRoverForce(d, 6, 0);
+    assertCloseTo(edge.az * ROVER_REFERENCE_MASS, 0.5 * MARS_AIR_DENSITY * 1.2 * 6 * v * v * DEVIL_GAMEPLAY_MULTIPLIER, 6);
+    const g1 = stormWindAccel(26, 0, 0, 0, 1025);
+    const g2 = stormWindAccel(26, 0, 0, 0, 2050);
+    assert.ok(g1.x > 0 && g1.x < 0.5, `gust is felt, not a launcher (${g1.x})`);
+    assertCloseTo(g2.x, g1.x / 2, 9);
+    assert.equal(stormWindAccel(10, 0, 10, 0).x, 0, "no push moving with the wind");
+  });
+
+  test("a heavier rover lifts less; too heavy never leaves the ground", () => {
+    const d = devilAt({ swirl: 28 });
+    const light = flyColumn(d, 1025, () => 0.5, 6);
+    const heavy = flyColumn(d, 1500, () => 0.5, 6);
+    const tank = flyColumn(d, 4000, () => 0.5, 6);
+    assert.ok(light.maxY > heavy.maxY, `${light.maxY} > ${heavy.maxY}`);
+    assert.equal(tank.maxY, 0);
+  });
+
+  test("lift is sustained inside the eye (no 4 m cap, bounded below the ceiling) and the rover falls on leaving", () => {
+    const d = devilAt({ swirl: 28 });
+    d.life = 1000;
+    const stay = flyColumn(d, 1025, () => 0.3, 12);
+    assert.ok(stay.maxY > 4, `climbs past the old 4 m cap (${stay.maxY})`);
+    assert.ok(stay.maxY < DEVIL_LIFT_CEILING, "bounded");
+    assert.ok(stay.trace.slice(-120).every((y) => y > 3), "still aloft after 10 s in the eye");
+    const leave = flyColumn(d, 1025, (t) => (t < 6 ? 0.3 : 12), 12);
+    assert.equal(leave.y, 0, "falls back once out of the vortex");
+  });
+
+  test("blown-away tracker: wind throws trigger it, driving does not", () => {
+    const base = { y: 0, yaw: 0, wheels: 6, flipped: false, windLift: 0, windPush: 0 };
+    const t = new BlownAwayTracker();
+    t.reset(0, 0, 0, 0);
+    // Drive 100 m on the ground, and off a ridge (airborne, no wind): never blown away.
+    for (let i = 0; i < 100; i++) assert.equal(t.step(0.1, { ...base, x: i, z: 0, grounded: 6 }), false);
+    for (let i = 0; i < 20; i++) assert.equal(t.step(0.1, { ...base, x: 100 + i, y: -i, z: 0, grounded: 0 }), false);
+    assert.ok(t.safe.x > 80, "safe spot follows stable driving");
+    // A devil lifts the rover and carries it away.
+    const t2 = new BlownAwayTracker();
+    t2.reset(0, 0, 0, 0.7);
+    let fired = -1;
+    for (let i = 0; i < 100 && fired < 0; i++) if (t2.step(0.1, { ...base, x: i, z: 0, grounded: 0, windLift: 4 })) fired = i;
+    assert.ok(fired > BLOWN_AWAY_DISTANCE - 2 && fired < BLOWN_AWAY_DISTANCE + 2, `fires at ~${BLOWN_AWAY_DISTANCE} m (${fired})`);
+    assert.equal(t2.safe.yaw, 0.7);
+    // Short hop inside a devil that lands nearby: episode ends, no trigger, safe spot moves.
+    const t3 = new BlownAwayTracker();
+    t3.reset(0, 0, 0, 0);
+    for (let i = 0; i < 5; i++) t3.step(0.1, { ...base, x: i, z: 0, grounded: 0, windLift: 4 });
+    for (let i = 0; i < (SAFE_STABLE_TIME + 0.2) / 0.1; i++) assert.equal(t3.step(0.1, { ...base, x: 5, z: 0, grounded: 6 }), false);
+    assert.equal(t3.episode, false);
+    assert.equal(t3.safe.x, 5);
+    // Thrown over a ridge: big height loss counts even if close.
+    const t4 = new BlownAwayTracker();
+    t4.reset(0, 10, 0, 0);
+    let dropped = false;
+    for (let i = 0; i < 30 && !dropped; i++) dropped = t4.step(0.1, { ...base, x: i * 0.3, y: 10 - i, z: 0, grounded: 0, windPush: 3 });
+    assert.ok(dropped);
   });
 });
 

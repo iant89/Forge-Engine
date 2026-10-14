@@ -31,7 +31,8 @@ export const suite = {
  * way the engine does, so the vehicle, storm, piles and course all advance together.
  */
 import assert from "node:assert/strict";
-import { afterEach, assertMatchObject, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
+import { afterEach, assertCloseTo, assertMatchObject, finish, group, spyFunction, stubGlobal, test, unstubAllGlobals } from "selrun";
+
 import {
   Clock,
   GraphicsDevice,
@@ -437,6 +438,50 @@ group("Mars Dust Storm Survival — difficulty rules (D3)", () => {
   });
 });
 
+
+group("Mars Dust Storm Survival — fe-29 blown away", () => {
+  test("easy: thrown far by the wind respawns at the last safe spot with invulnerability", async () => {
+    const { handle, vehicle, tick, key } = await fixture("easy");
+    start(key, tick);
+    for (let i = 0; i < 20; i++) tick(0.1); // settle: the start becomes the safe spot
+    const safe = handle.stormState().safe;
+    handle.debugBlow(45, 0);
+    tick(0.05);
+    const s = handle.stormState();
+    assert.equal(s.blownAway, 1);
+    assert.equal(s.lost, false);
+    assert.ok(Math.hypot(s.x - safe.x, s.z - safe.z) < 0.5, "back at the safe spot");
+    assertCloseTo(vehicle.yaw, safe.yaw, 4);
+    assert.ok(s.invulnerable > 2.5);
+    assert.match(handle.overlay(), /BLOWN AWAY/);
+  });
+
+  test("hard: thrown far loses the run ('Blown away'); R restarts", async () => {
+    const { handle, tick, key } = await fixture("hard");
+    start(key, tick);
+    for (let i = 0; i < 20; i++) tick(0.1);
+    handle.debugBlow(0, 45);
+    tick(0.05);
+    const s = handle.stormState();
+    assert.equal(s.lost, true);
+    assert.equal(s.lostReason, "BLOWN AWAY");
+    const t = s.elapsed;
+    tick(0.5);
+    assert.equal(handle.stormState().elapsed, t, "clock stops");
+    assert.match(handle.overlay(), /RUN LOST/);
+    handle.restart();
+    assert.equal(handle.stormState().lost, false);
+  });
+
+  test("driving far in still air never counts as blown away", async () => {
+    const { handle, tick, key } = await fixture("easy");
+    start(key, tick);
+    key("keydown", "KeyW");
+    for (let i = 0; i < 300; i++) tick(0.1);
+    key("keyup", "KeyW");
+    assert.equal(handle.stormState().blownAway, 0);
+  });
+});
 
 group("Mars Dust Storm Survival — fe-28 polish", () => {
   test("random course per seed: same seed replays, another seed moves the beams; the route dodges every boulder", async () => {
