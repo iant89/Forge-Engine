@@ -40,6 +40,9 @@ import {
   type ToneMapping,
   type TerrainWorld,
   Vec3,
+  classifyDeviceTier,
+  populationCullingForTier,
+  readDeviceCapabilityHints,
 } from "@forge/engine";
 import { OrbitControls } from "./controls/orbitControls.js";
 import { buildCubesScene, type DemoSceneHandle } from "./scenes/cubesScene.js";
@@ -311,6 +314,24 @@ async function main(): Promise<void> {
   // one direct draw per batch.
   const indirectParam = new URLSearchParams(window.location.search).get("indirectdraws");
   if (indirectParam === "0" || indirectParam === "1") engine.renderer.indirectDraws = indirectParam === "1";
+  // Per-instance population culling (Phase A): sized from the device tier (PR #100) — every tier
+  // culls per instance, the low tier skips the per-instance HiZ test. `?tier=low|medium|high` forces
+  // the tier; `?popcull=0|1` and `?pophiz=0|1` pin the two switches for A/B links.
+  {
+    const query = new URLSearchParams(window.location.search);
+    const forced = query.get("tier");
+    const tier =
+      forced === "low" || forced === "medium" || forced === "high"
+        ? forced
+        : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+    const knobs = populationCullingForTier(tier);
+    engine.renderer.populationCulling = knobs.populationCulling;
+    engine.renderer.populationOcclusion = knobs.populationOcclusion;
+    const popCull = query.get("popcull");
+    if (popCull === "0" || popCull === "1") engine.renderer.populationCulling = popCull === "1";
+    const popHiz = query.get("pophiz");
+    if (popHiz === "0" || popHiz === "1") engine.renderer.populationOcclusion = popHiz === "1";
+  }
 
   // Loading screen: the overlay tracks the GLB fetch/parse/build phases and the terrain stream,
   // fades out once both are live, and offers retry / skip when the fetch fails.
@@ -605,6 +626,14 @@ async function main(): Promise<void> {
         ? ` ${r.cullTested} tested (${r.cullFrustum} off-screen, ${r.cullDistance} distant, ${r.cullOccluded} occluded)` +
           ` → ${r.cullVisible} drawn${engine.renderer.indirectDraws ? `, ${r.indirectDraws} indirect (${r.cullRecordZeroed} zero)` : ""}`
         : " (counters pending)");
+    // Per-instance population culling (Phase A): instances in vs drawn, a frame or two late.
+    const popCull =
+      r.populationCullBatches > 0
+        ? `pop cull${engine.renderer.populationOcclusion ? "+hiz" : ""} ${r.populationCullBatches} batches: ${r.populationInstancesTested} in → ${r.populationInstancesDrawn} drawn` +
+          ` (${r.populationCulledFrustum} off-screen, ${r.populationCulledDistance} distant, ${r.populationCulledOccluded} occluded, ${r.populationCulledBatch} batch-culled)`
+        : r.populationBatches > 0
+          ? `pop cull per-batch (${r.populationInstances} instances in ${r.populationBatches} batches)`
+          : "";
     const fill = r.clusterFill === "gpu" ? "gpu fill" : r.clusterFill === "cpu" ? "cpu fill" : "";
     const lights = r.clusteredLighting
       ? `lights ${r.lights}  ·  clustered ${r.clusteredLights} over ${r.clustersUsed} clusters (${r.clusterIndices} indices, cap ${r.maxLightsPerCluster}, ${fill})${r.lightsDropped ? "  ·  DROPPED" : ""}`
@@ -616,6 +645,7 @@ async function main(): Promise<void> {
       `sim ${st.simTimeMs.toFixed(2)}ms  render ${st.renderTimeMs.toFixed(2)}ms\n` +
       `${path}  ·  ${shadows}  ·  ${sky}\n` +
       `${depth}  ·  ${cull}\n` +
+      (popCull ? `${popCull}\n` : "") +
       `${lights}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
@@ -677,6 +707,15 @@ async function main(): Promise<void> {
     setOcclusionCulling,
     /** Whether the object culler's HiZ stage runs (Phase 13.5). */
     occlusionCulling: () => engine.renderer.occlusionCulling,
+    /** Per-instance population culling (Phase A) and its HiZ stage; both A/B-able like the batch culler. */
+    setPopulationCulling: (on: boolean) => {
+      engine.renderer.populationCulling = !!on;
+    },
+    populationCulling: () => engine.renderer.populationCulling,
+    setPopulationOcclusion: (on: boolean) => {
+      engine.renderer.populationOcclusion = !!on;
+    },
+    populationOcclusion: () => engine.renderer.populationOcclusion,
     setIndirectDraws,
     /** Whether forge.main submits through the culler's indirect records (Phase 13.6). */
     indirectDraws: () => engine.renderer.indirectDraws,

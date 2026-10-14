@@ -1868,6 +1868,8 @@ async function checkTerrainSection() {
       batches: s.render.populationBatches,
       lodBatches: s.render.populationLodBatches,
       populationLodPass: s.renderPasses.includes("forge.populationLod"),
+      cullBatches: s.render.populationCullBatches,
+      populationCullPass: s.renderPasses.includes("forge.populationCull"),
       entities: s.entities,
       frameInstances: s.instances,
       gpuErrors: s.gpuErrors,
@@ -1877,8 +1879,13 @@ async function checkTerrainSection() {
     throw new Error(`the terrain population did not draw (${populationStart.instances} instances in ${populationStart.batches} batches)`);
   }
   if (!(populationStart.batches >= 4)) throw new Error(`the terrain population drew too few batches (${populationStart.batches})`);
-  if (!(populationStart.lodBatches > 0) || !populationStart.populationLodPass) {
-    throw new Error(`GPU population LOD did not run (${populationStart.lodBatches} LOD batches, pass=${populationStart.populationLodPass})`);
+  // Per-instance culling (Phase A) merges the LOD selection into forge.populationCull, so the LOD
+  // runs either there (cull batches) or in forge.populationLod (the per-batch fallback).
+  if (!((populationStart.lodBatches > 0 && populationStart.populationLodPass) || (populationStart.cullBatches > 0 && populationStart.populationCullPass))) {
+    throw new Error(
+      `GPU population LOD did not run (${populationStart.lodBatches} LOD batches, pass=${populationStart.populationLodPass}; ` +
+        `${populationStart.cullBatches} cull batches, pass=${populationStart.populationCullPass})`,
+    );
   }
   if (!(populationStart.entities < 400)) {
     throw new Error(`population instances became entities (${populationStart.entities} entities for ${populationStart.instances} instances)`);
@@ -1889,6 +1896,63 @@ async function checkTerrainSection() {
       `${populationStart.lodBatches} GPU-LOD batches, entities ${populationStart.entities}, ` +
       `instances(frame) ${populationStart.frameInstances}`,
   );
+
+  // Per-instance population culling (Phase A): the device tests every instance (frustum, distance,
+  // HiZ) and forge.main draws only the compacted survivors. Three things are pinned on the device:
+  //  1. it runs and reduces the drawn count (instances in vs drawn, read back a frame or two late);
+  //  2. its HiZ stage is conservative — on vs off draws the same picture;
+  //  3. against the per-batch path the only pixels that may change are instances past their type's
+  //     draw distance (which the per-batch path drew whenever their chunk straddled the limit).
+  await settle(4);
+  const popOn = await page.evaluate(() => {
+    const s = window.__forge.stats();
+    return { ...s.render, passes: s.renderPasses, gpuErrors: s.gpuErrors };
+  });
+  console.log(
+    `  population cull: ${popOn.populationCullBatches} batches, ${popOn.populationInstancesTested} in → ${popOn.populationInstancesDrawn} drawn ` +
+      `(${popOn.populationCulledFrustum} off-screen, ${popOn.populationCulledDistance} distant, ${popOn.populationCulledOccluded} occluded, ${popOn.populationCulledBatch} batch-culled)`,
+  );
+  if (!(popOn.populationCullBatches > 0) || !popOn.passes.includes("forge.populationCull")) {
+    throw new Error(`per-instance population culling did not run (${popOn.populationCullBatches} batches)`);
+  }
+  if (!(popOn.populationInstancesTested > 0) || !(popOn.populationInstancesDrawn < popOn.populationInstancesTested)) {
+    throw new Error(`per-instance culling drew ${popOn.populationInstancesDrawn} of ${popOn.populationInstancesTested} instances`);
+  }
+  if (popOn.gpuErrors > 0) throw new Error(`gpu errors with per-instance population culling: ${popOn.gpuErrors}`);
+  await keepLuma("pop-cull-on");
+  await page.screenshot({ path: "tools/.browser-check-population-cull-on.png" });
+  await page.evaluate(() => window.__forge.setPopulationOcclusion(false));
+  await settle(3);
+  await keepLuma("pop-cull-nohiz");
+  const popHizDiff = await compareLuma("pop-cull-on", "pop-cull-nohiz");
+  await page.evaluate(() => window.__forge.setPopulationOcclusion(true));
+  await page.evaluate(() => window.__forge.setPopulationCulling(false));
+  await settle(3);
+  const popOff = await page.evaluate(() => {
+    const s = window.__forge.stats();
+    return { ...s.render, passes: s.renderPasses };
+  });
+  await keepLuma("pop-cull-off");
+  await page.screenshot({ path: "tools/.browser-check-population-cull-off.png" });
+  const popOffDiff = await compareLuma("pop-cull-on", "pop-cull-off");
+  await page.evaluate(() => window.__forge.setPopulationCulling(true));
+  await settle(3);
+  console.log(
+    `  population cull A/B: hiz on vs off ${popHizDiff.darker + popHizDiff.brighter} px (max ${popHizDiff.max.toFixed(1)}); ` +
+      `per-instance vs per-batch ${popOffDiff.darker + popOffDiff.brighter} of ${popOffDiff.pixels} px (max ${popOffDiff.max.toFixed(1)}); ` +
+      `per-batch path: ${popOff.populationLodBatches} LOD batches, cull pass ${popOff.passes.includes("forge.populationCull")}`,
+  );
+  if (popHizDiff.darker + popHizDiff.brighter > 0) {
+    throw new Error(`the per-instance HiZ stage changed the picture: ${popHizDiff.darker + popHizDiff.brighter} px — an instance it dropped as hidden was not`);
+  }
+  if (popOff.passes.includes("forge.populationCull") || popOff.populationCullBatches !== 0) {
+    throw new Error("populationCulling off still ran forge.populationCull");
+  }
+  if (popOffDiff.darker + popOffDiff.brighter > popOffDiff.pixels * 0.01) {
+    throw new Error(
+      `per-instance vs per-batch differ in ${popOffDiff.darker + popOffDiff.brighter} px (> 1%) — more than the far-instance draw-distance change can explain`,
+    );
+  }
 
   const WHEEL_STEPS = 4;
   const wheelAtCentre = async (deltaY, clientX, clientY) => {
