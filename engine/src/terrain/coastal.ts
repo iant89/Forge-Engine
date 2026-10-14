@@ -1,6 +1,6 @@
 /**
  * Coastal terrain (fe-33): a procedural beach profile — sloped seabed, sand beach rising to a berm,
- * a dune ridge, and a low hinterland — as a height function, a mesh source, palm sites, and the
+ * a dune ridge, and a low hinterland — as a height function, a mesh source and the
  * matching water shoreline.
  *
  * Coordinates follow the water shore (`SceneWaterSettings.shore`): `origin` is a point on the
