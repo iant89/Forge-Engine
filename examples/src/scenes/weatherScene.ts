@@ -247,23 +247,31 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
 
   const audio = new AudioSystem({ maxVoices: 12, masterVolume: 0.7 });
   const thunder = [0, 1, 2, 3].map((seed) => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }));
+  // Phase 17.6: the engine owns the flash-to-bang gap. Thunder is a simulation event that fires
+  // when sound from the nearest point of the channel reaches the camera (speed of sound from the
+  // weather's temperature), and strikes attach to the highest point their leader reaches — the
+  // masts on the plaza draw nearby bolts.
+  const mastTops = [0, 1, 2, 3].map((i) => {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    return { x: Math.cos(a) * 12, y: 16, z: Math.sin(a) * 12 };
+  });
   const lightning = new LightningSystem({
     name: "lightning",
     weatherName: "weather",
     rate: 0.5,
     areaRadius: 300,
     cloudHeight: 1200,
-    onStrike: (strike) => {
+    strikeTarget: { heightAt: (x, z) => (Math.hypot(x, z) < 1000 ? 2 : 0), attractors: mastTops },
+    listener: () => cameraEntity.transform.position,
+    onThunder: (event) => {
       if (audio.context.state !== "running") return;
-      const eye = cameraEntity.transform.position;
-      const distance = Math.hypot(strike.position.x - eye.x, strike.position.y - eye.y, strike.position.z - eye.z);
+      const strike = event.strike;
       audio.play(thunder[strike.id % thunder.length]!, {
         bus: "ambient",
         spatial: true,
         position: strike.position,
         volume: Math.min(1.4, 0.55 + strike.energy * 0.45),
         playbackRate: 0.88 + (strike.id % 5) * 0.035,
-        delay: distance / 343,
         refDistance: 18,
         maxDistance: 1800,
         rolloffFactor: 0.65,

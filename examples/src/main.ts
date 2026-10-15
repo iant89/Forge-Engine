@@ -967,6 +967,12 @@ async function main(): Promise<void> {
         waterLevel: s.water.level,
         strikes: handle.lightning.strikeCount,
         flash: handle.lightning.flashTotal,
+        thunders: handle.lightning.thunderCount,
+        thunderPending: handle.lightning.pendingThunder.length,
+        lastStrike: handle.lightning.strikes.length > 0 ? { ...handle.lightning.strikes[handle.lightning.strikes.length - 1]!.position } : null,
+        surface: { ...s.surface },
+        grip: handle.weather.grip,
+        fogDensity: s.fog.density,
         underwater: engine.stats().render.underwater,
         clouds: engine.stats().render.clouds,
       };
