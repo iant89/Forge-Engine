@@ -17999,6 +17999,39 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/hurricaneScene.ts",
     "what": "View-framed strikes and waterspouts, HURRICANE_SEED, darker bands",
     "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:30:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles/vortexColumn.ts",
+    "what": "VortexColumnParticles: reusable dust-devil-style particle vortex",
+    "why": "fe-34 v3 (Ian: dust-devil waterspout, brighter bolt)"
+  },
+  {
+    "date": "2026-10-15T02:30:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles/waterspoutVisual.ts",
+    "what": "Waterspouts as water-coloured particle vortices + spray ring",
+    "why": "fe-34 v3 (Ian: dust-devil waterspout, brighter bolt)"
+  },
+  {
+    "date": "2026-10-15T02:30:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/hurricaneScene.ts",
+    "what": "Brighter, thicker bolts with glow; waterspout particle look",
+    "why": "fe-34 v3 (Ian: dust-devil waterspout, brighter bolt)"
   }
 ]
 ```

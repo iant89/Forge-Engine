@@ -1,70 +1,58 @@
 /**
- * Waterspout visual (fe-34): renders a {@link WaterspoutSystem}'s spouts as twisting translucent
- * funnels (a stack of lumpy tapered segments following `waterspoutFunnelAt`, each spun by the
- * spout's rotation so the condensation bands visibly twist) plus a spray ring (a GPU particle
- * field thrown up and out around the base of the strongest spout).
+ * Waterspout visual (fe-34 v3): renders a {@link WaterspoutSystem}'s spouts as particle vortices —
+ * the same swirling-swarm look as the Mars dust devils, generalised into the engine as
+ * {@link VortexColumnParticles}, in water colours (white spray, grey mist, blue-grey condensation) —
+ * plus a spray ring (a GPU particle field thrown up and out around the base of the strongest spout).
+ *
+ * The column follows `waterspoutFunnelAt`: it leans with the funnel's top offset, bends and snakes
+ * with its wander, widens toward the cloud base, and thins out as the spout ropes out and lifts off
+ * the sea (`waterspoutStrength` + the bottom opacity drive the emission).
  *
  * Kept apart from the simulation (`environment/waterspout.ts`) so headless hosts and tests can run
- * spouts without a device. Slots are preallocated (`maxActive × segments` entities) and hidden when
- * unused, so nothing is created or destroyed per frame.
+ * spouts without a device. One particle system per `maxActive` slot is preallocated; nothing is
+ * created or destroyed per frame.
  */
 
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
-import { Renderable } from "../scene/components/index.js";
-import type { Entity } from "../scene/world.js";
-import { Geometry } from "../rendering/geometry.js";
 import type { GraphicsDevice } from "../gpu/device.js";
-import { Material } from "../rendering/material.js";
-import { cylinderGeometrySource } from "../rendering/primitives.js";
-import { Quat, Vec3 } from "../math/index.js";
 import { GpuParticleWorld } from "./gpuWorld.js";
+import { VORTEX_WATER_LOOK, VortexColumnParticles, type VortexColumnColors, type VortexColumnPose } from "./vortexColumn.js";
 import { type WaterspoutSystem, type WaterspoutFunnelSample, waterspoutFunnelAt, waterspoutStrength } from "../environment/waterspout.js";
 
 export interface WaterspoutVisualOptions {
   name?: string;
-  gpu: GraphicsDevice;
+  /** Kept for API compatibility (the particle path needs no geometry). */
+  gpu?: GraphicsDevice;
   spouts: WaterspoutSystem;
   /** Sea surface height under the spouts. */
   seaLevel: () => number;
   /** Cloud base height (the funnel's top). */
   cloudBase: () => number;
-  /** Funnel segments (tier knob). Default 14. */
-  segments?: number;
+  /** Particles per spout column (tier knob). Default 12000. */
+  columnCapacity?: number;
+  /** Column emission at full strength (particles/s). Default 5000. */
+  columnRate?: number;
   /** Spray particles (tier knob). Default 3072; 0 disables the spray ring. */
   sprayCapacity?: number;
-  /** Funnel colour (sRGB hex). Default a rain-grey 0x8a9098. */
-  color?: number;
-  /** Peak funnel opacity. Default 0.72. */
-  opacity?: number;
-  /**
-   * fe-34 v2: skip distance fog. Dense storm fog washes a spout a kilometre out into the horizon
-   * haze; true keeps the funnel readable. Default false.
-   */
-  fogExempt?: boolean;
+  /** Particle colours. Default {@link VORTEX_WATER_LOOK}. */
+  colors?: VortexColumnColors;
+  /** Particle size over life (m). Defaults 3 → 11. */
+  sizeStart?: number;
+  sizeEnd?: number;
 }
-
-interface Slot {
-  entities: Entity[];
-  renderables: Renderable[];
-  material: Material;
-}
-
-const UP = new Vec3(0, 1, 0);
 
 export class WaterspoutVisual extends SceneObject {
   readonly name: string;
   readonly options: WaterspoutVisualOptions;
-  private readonly slots: Slot[] = [];
-  private geometry: Geometry | null = null;
+  private readonly columns: VortexColumnParticles[] = [];
+  private readonly poses: VortexColumnPose[] = [];
   private spray: GpuParticleWorld | null = null;
   private readonly sample: WaterspoutFunnelSample = { dx: 0, dz: 0, radius: 0, opacity: 0 };
-  private readonly next: WaterspoutFunnelSample = { dx: 0, dz: 0, radius: 0, opacity: 0 };
-  private readonly dir = new Vec3();
-  private readonly tilt = new Quat();
-  private readonly spin = new Quat();
-  /** Segments drawn last frame (tests/HUD). */
-  drawnSegments = 0;
+  private readonly top: WaterspoutFunnelSample = { dx: 0, dz: 0, radius: 0, opacity: 0 };
+  private readonly mid: WaterspoutFunnelSample = { dx: 0, dz: 0, radius: 0, opacity: 0 };
+  /** Columns emitting last frame (tests/HUD). */
+  activeColumns = 0;
 
   constructor(options: WaterspoutVisualOptions) {
     super();
@@ -74,36 +62,19 @@ export class WaterspoutVisual extends SceneObject {
 
   override onAttach(scene: Scene): void {
     const o = this.options;
-    const segs = Math.max(4, Math.floor(o.segments ?? 14));
-    // A unit segment (pivot at the bottom) with a lumpy rim so the spin reads as twisting bands.
-    const unit = cylinderGeometrySource({ radiusTop: 1, radiusBottom: 1, height: 1, radialSegments: 9, heightSegments: 2, capped: false });
-    const p = unit.positions;
-    for (let i = 0; i < p.length; i += 3) {
-      const a = Math.atan2(p[i + 2]!, p[i]!);
-      const y = p[i + 1]! + 0.5;
-      const lump = 1 + 0.18 * Math.sin(a * 3 + y * 4.0);
-      p[i] = p[i]! * lump;
-      p[i + 2] = p[i + 2]! * lump;
-      p[i + 1] = y;
-    }
-    unit.bounds = null;
-    this.geometry = Geometry.create(o.gpu, { ...unit, label: "waterspout.segment" });
     const maxActive = o.spouts.options.maxActive ?? 2;
     for (let k = 0; k < maxActive; k++) {
-      const material = new Material({ label: `waterspout.${k}`, color: o.color ?? 0x8a9098, roughness: 1, metallic: 0, transparent: true, opacity: 0, fogExempt: o.fogExempt ?? false });
-      const slot: Slot = { entities: [], renderables: [], material };
-      for (let s = 0; s < segs; s++) {
-        const e = scene.createTransformedEntity(`${this.name}-${k}-${s}`, new Vec3(0, -1000, 0));
-        const r = new Renderable();
-        r.geometry = this.geometry;
-        r.material = material;
-        r.castShadow = false;
-        r.visible = false;
-        scene.world.addComponent(e.id, r);
-        slot.entities.push(e);
-        slot.renderables.push(r);
-      }
-      this.slots.push(slot);
+      const col = new VortexColumnParticles({
+        name: `${this.name}-column-${k}`,
+        capacity: o.columnCapacity ?? 12000,
+        seed: 0x5b0 + k * 17,
+        colors: o.colors ?? VORTEX_WATER_LOOK,
+        sizeStart: o.sizeStart ?? 3,
+        sizeEnd: o.sizeEnd ?? 11,
+      });
+      scene.add(col);
+      this.columns.push(col);
+      this.poses.push({ x: 0, y: 0, z: 0, height: 1, radiusBase: 1, radiusTop: 1, spin: 0, leanX: 0, leanZ: 0, strength: 0, rate: 0 });
     }
     if ((o.sprayCapacity ?? 3072) > 0) {
       this.spray = new GpuParticleWorld({
@@ -113,30 +84,31 @@ export class WaterspoutVisual extends SceneObject {
         maxEmitsPerFrame: 512,
         softParticles: true,
         softScale: 8,
+        softSprite: true,
         stretch: 1.4,
-        cullDistance: 4000,
+        cullDistance: 5000,
         emitter: {
           rate: 0,
           lifeMin: 1.2,
           lifeMax: 2.6,
-          size: 1.2,
+          size: 2,
           position: { x: 0, y: 0, z: 0 },
           jitter: { x: 20, y: 1, z: 20 },
           coneDir: { x: 0, y: 1, z: 0 },
           coneAngle: 1.2,
           speedMin: 6,
-          speedMax: 14,
-          color: { r: 0.85, g: 0.88, b: 0.9, a: 0.6 },
+          speedMax: 16,
+          color: { r: 0.9, g: 0.93, b: 0.95, a: 0.65 },
         },
         modules: {
           gravity: { x: 0, y: -3, z: 0 },
           drag: 0.4,
           turbulence: 3,
           noiseScale: 0.05,
-          colorFrom: { r: 0.85, g: 0.88, b: 0.9, a: 0.6 },
-          colorTo: { r: 0.8, g: 0.83, b: 0.86, a: 0 },
-          sizeStart: 1.2,
-          sizeEnd: 7,
+          colorFrom: { r: 0.9, g: 0.93, b: 0.95, a: 0.65 },
+          colorTo: { r: 0.72, g: 0.78, b: 0.84, a: 0 },
+          sizeStart: 2,
+          sizeEnd: 10,
           rotationSpeed: 0.5,
         },
       });
@@ -145,27 +117,27 @@ export class WaterspoutVisual extends SceneObject {
   }
 
   override onDetach(scene: Scene): void {
-    for (const slot of this.slots) for (const e of slot.entities) scene.destroyEntity(e);
-    this.slots.length = 0;
-    this.geometry?.dispose();
-    this.geometry = null;
+    for (const c of this.columns) scene.removeObject(c);
+    this.columns.length = 0;
+    this.poses.length = 0;
+    if (this.spray) scene.removeObject(this.spray);
+    this.spray = null;
   }
 
   override update(_context: SystemContext): void {
     const o = this.options;
     const spouts = o.spouts.spouts;
     const sea = o.seaLevel();
-    const top = Math.max(sea + 50, o.cloudBase());
-    const height = top - sea;
-    const peak = o.opacity ?? 0.72;
+    const height = Math.max(sea + 50, o.cloudBase()) - sea;
+    const t = o.spouts.time;
     let strongest = -1;
     let strongestValue = 0;
-    this.drawnSegments = 0;
-    for (let k = 0; k < this.slots.length; k++) {
-      const slot = this.slots[k]!;
+    this.activeColumns = 0;
+    for (let k = 0; k < this.columns.length; k++) {
       const spout = spouts[k];
+      const col = this.columns[k]!;
       if (!spout) {
-        for (const r of slot.renderables) r.visible = false;
+        col.set(null);
         continue;
       }
       const strength = waterspoutStrength(spout.age, spout.life);
@@ -173,48 +145,43 @@ export class WaterspoutVisual extends SceneObject {
         strongestValue = strength;
         strongest = k;
       }
-      slot.material.opacity = peak * (0.35 + 0.65 * strength);
-      const n = slot.entities.length;
-      const t = o.spouts.time;
-      for (let s = 0; s < n; s++) {
-        const h0 = s / n;
-        const h1 = (s + 1) / n;
-        const a = waterspoutFunnelAt(spout, h0, t, this.sample);
-        const b = waterspoutFunnelAt(spout, h1, t, this.next);
-        // A segment shows if either end has condensation (the bottom ring has opacity 0 at the sea
-        // surface itself, which used to leave the funnel floating one segment above the water).
-        const visible = Math.max(a.opacity, b.opacity) > 0.05 && a.radius > 0.2;
-        slot.renderables[s]!.visible = visible;
-        if (!visible) continue;
-        this.drawnSegments++;
-        const e = slot.entities[s]!;
-        const x0 = spout.x + a.dx;
-        const z0 = spout.z + a.dz;
-        const y0 = sea + h0 * height;
-        this.dir.set(spout.x + b.dx - x0, height / n, spout.z + b.dz - z0);
-        const len = this.dir.length();
-        this.dir.normalize();
-        this.tilt.fromUnitVectorY(this.dir);
-        // Upper segments spin slower than the tight rope at the sea (the twist).
-        this.spin.setAxisAngle(UP, spout.angle * (1.6 - h0));
-        e.transform.position = new Vec3(x0, y0, z0);
-        e.transform.rotation = this.tilt.clone().multiply(this.spin);
-        const r = Math.max(0.2, a.radius) * (0.75 + 0.25 * a.opacity);
-        e.transform.scale = new Vec3(r, len * 1.04, r);
-      }
+      const base = waterspoutFunnelAt(spout, 0.04, t, this.sample);
+      const mid = waterspoutFunnelAt(spout, 0.5, t, this.mid);
+      const top = waterspoutFunnelAt(spout, 0.97, t, this.top);
+      const p = this.poses[k]!;
+      p.x = spout.x + base.dx;
+      p.y = sea + 0.5;
+      p.z = spout.z + base.dz;
+      p.height = height;
+      p.radiusBase = Math.max(2, base.radius);
+      p.radiusTop = Math.max(p.radiusBase * 1.5, top.radius);
+      p.spin = 0.9 + 0.6 * strength;
+      p.leanX = top.dx - base.dx;
+      p.leanZ = top.dz - base.dz;
+      // Mid-column wander beyond the straight lean → the bend.
+      p.bendX = mid.dx - base.dx - p.leanX * 0.42;
+      p.bendZ = mid.dz - base.dz - p.leanZ * 0.42;
+      p.snakeX = p.snakeZ = 0;
+      // Roping out: the column thins as condensation lifts off the sea (bottom opacity → 0).
+      p.strength = strength * (0.35 + 0.65 * Math.max(base.opacity, 0.2));
+      p.rate = o.columnRate ?? 5000;
+      p.speedMin = 8;
+      p.speedMax = 18;
+      col.set(p);
+      this.activeColumns++;
     }
     const spray = this.spray?.system;
     if (spray) {
       const e = spray.emitter;
       const spout = strongest >= 0 ? spouts[strongest] : undefined;
       if (spout) {
-        const base = waterspoutFunnelAt(spout, 0, o.spouts.time, this.sample);
+        const base = waterspoutFunnelAt(spout, 0, t, this.sample);
         e.position.x = spout.x + base.dx;
         e.position.y = sea + 1;
         e.position.z = spout.z + base.dz;
-        e.jitter.x = e.jitter.z = Math.max(6, spout.baseRadius * 2.5);
+        e.jitter.x = e.jitter.z = Math.max(8, spout.baseRadius * 2.5);
         // The spray ring lives while the vortex touches the sea (forming and mature stages).
-        e.rate = 900 * strongestValue * (base.opacity > 0.05 ? 1 : 0.15);
+        e.rate = 1200 * strongestValue * (base.opacity > 0.05 ? 1 : 0.15);
       } else {
         e.rate = 0;
       }

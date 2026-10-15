@@ -432,7 +432,9 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       lightning,
       viewer: camPos,
       corePixels: tierValue(tier, { low: 4, medium: 5, high: 6 }),
-      glowPixels: tierValue(tier, { low: 12, medium: 16, high: 18 }),
+      strength: 110,
+      glowOpacity: 0.22,
+      glowPixels: tierValue(tier, { low: 16, medium: 20, high: 24 }),
       maxSegments: tierValue(tier, { low: 256, medium: 384, high: 512 }),
     }),
   );
@@ -466,12 +468,12 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     spouts,
     seaLevel,
     cloudBase: () => scene.settings.clouds.height - scene.settings.clouds.thickness * 0.5,
-    segments: tierValue(tier, { low: 10, medium: 14, high: 18 }),
-    // v2: a dark, dense condensation funnel that reads against the grey sky.
-    color: 0x7a828b,
-    opacity: 0.88,
-    // Readable through the rain-band haze from the beach (the storm fog would erase it at 1 km).
-    fogExempt: true,
+    // v3: a swirling particle vortex (the Mars dust-devil look, engine VortexColumnParticles) in
+    // water colours — white spray, grey mist, blue-grey condensation.
+    columnCapacity: tierValue(tier, { low: 6000, medium: 10000, high: 14000 }),
+    columnRate: tierValue(tier, { low: 4000, medium: 6000, high: 8000 }),
+    sizeStart: 9,
+    sizeEnd: 26,
     sprayCapacity: tierValue(tier, { low: 1024, medium: 2048, high: 3072 }),
   });
   scene.add(spoutVisual);
@@ -630,7 +632,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       return true;
     },
     forceStrike(hold = false): boolean {
-      const p = viewSeaPoint(1400, 120);
+      const p = viewSeaPoint(1400, 420);
       const c = lightning.trigger(new Vec3(p.x, 0, p.z), 1.5);
       if (hold) {
         c.age = 0.02;

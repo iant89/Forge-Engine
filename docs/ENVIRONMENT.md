@@ -571,3 +571,11 @@ All of this is engine-side and reusable; the hurricane demo only scripts it.
   billowing storm cloud. The billow shading adds a relief term (one extra density sample toward the light).
 * **`WaterspoutVisual.fogExempt`** keeps a funnel readable through the storm haze; the lowest segment
   now reaches the sea.
+
+**fe-34 v3.** Waterspouts are particle vortices: `VortexColumnParticles` (particles/vortexColumn.ts)
+generalises the Mars dust-devil swarm (column/skirt emit alternation on the GPU vortex spawn, with
+swirl and the axis spring) into a reusable engine piece with caller colours (`VORTEX_WATER_LOOK`: white
+spray, grey mist, blue-grey condensation). `WaterspoutVisual` now drives one column per spout from
+`waterspoutFunnelAt` (lean, bend, widening, rope-out) plus the spray ring; the mesh segments, `segments`,
+`color`, `opacity` and `fogExempt` options are gone. The Mars scene still uses its own devil code
+(migrating it onto `VortexColumnParticles` is a follow-up).

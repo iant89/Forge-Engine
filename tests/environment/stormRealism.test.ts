@@ -12,6 +12,7 @@
  * @covers engine/src/particles/windBlown.ts
  * @covers engine/src/particles/waterspoutVisual.ts
  * @covers engine/src/particles/lightningVisual.ts
+ * @covers engine/src/particles/vortexColumn.ts
  * @covers engine/src/audio/storm.ts
  * @desc fe-34 storm realism: curvy shore, set-up/tide, gusts, billows, lightning branches, waterspouts, wind-blown fields, soundscape, buffet
  */
@@ -31,6 +32,7 @@ export const suite = {
     "engine/src/particles/windBlown.ts",
     "engine/src/particles/waterspoutVisual.ts",
     "engine/src/particles/lightningVisual.ts",
+    "engine/src/particles/vortexColumn.ts",
     "engine/src/audio/storm.ts"
   ],
   desc: "fe-34 storm realism: curvy shore, set-up/tide, gusts, billows, lightning branches, waterspouts, wind-blown fields, soundscape, buffet",
@@ -55,6 +57,7 @@ import {
   LightningSystem,
   lightningRibbonStep,
   lightningSegmentRadius,
+  vortexColumnSpawn,
   Scene,
   Vec3,
   WaterSurface,
@@ -335,6 +338,24 @@ group("fe-34 v2", () => {
     const d6 = dark(6);
     if (d1 > 0 && d1 < 1) assert.ok(d6 > d1);
     else assert.equal(d6, d1);
+  });
+});
+
+group("fe-34 v3 vortex column", () => {
+  test("column frames rise the full funnel; skirt frames hug the base and throw outward", () => {
+    const pose = { x: 0, y: 0, z: 0, height: 600, radiusBase: 14, radiusTop: 110, spin: 1.2, leanX: 40, leanZ: -10, strength: 1, rate: 1000 };
+    const skirt = vortexColumnSpawn(pose, 0, 6, 1);
+    assert.ok(skirt.skirt);
+    assert.ok(skirt.spawn.height < 30 && skirt.spawn.outward > 0 && skirt.spawn.leanX === 0);
+    const col = vortexColumnSpawn(pose, 3, 6, 1);
+    assert.ok(!col.skirt);
+    assert.equal(col.spawn.height, 600);
+    assert.equal(col.spawn.radiusTop, 110);
+    assert.equal(col.spawn.leanX, 40);
+    assert.equal(col.spawn.outward, 0);
+    let skirts = 0;
+    for (let f = 0; f < 60; f++) if (vortexColumnSpawn(pose, f, 6, 1).skirt) skirts++;
+    assert.equal(skirts, 10);
   });
 });
 
