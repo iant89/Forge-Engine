@@ -96,3 +96,73 @@ export function moistureGroundGeometrySource(field: GroundMoistureField, heightA
 export function createMoistureGround(device: GraphicsDevice, field: GroundMoistureField, heightAt: (x: number, z: number) => number, segments?: number): Geometry {
   return Geometry.create(device, moistureGroundGeometrySource(field, heightAt, segments));
 }
+
+/**
+ * fe-37: a {@link GroundMoistureField} drawn as a transparent *overlay* over an existing detailed
+ * surface (a rutted road ribbon, a grass berm) rather than as the ground itself. The field is
+ * coarse (metres per cell); writing it opaque would replace the surface's own texture with blobs.
+ * Here the maps come from {@link GroundMoistureField.writeOverlayMaps}: albedo alpha is the
+ * coverage (mud, standing water, snow drifts), so dry ground is untouched and full mud still lets
+ * the surface below read through. Draw it on a copy of the surface mesh lifted a few centimetres,
+ * with UVs from {@link withFieldUvs}.
+ */
+export class MoistureOverlayMaps {
+  readonly albedo: Texture;
+  readonly metallicRoughness: Texture;
+  readonly material: Material;
+  private readonly albedoData: Uint8Array;
+  private readonly mrData: Uint8Array;
+  uploads = 0;
+
+  constructor(
+    private readonly device: GraphicsDevice,
+    readonly field: GroundMoistureField,
+    label = "moistureOverlay",
+    readonly maxAlpha = 0.8,
+  ) {
+    const n = field.resolution;
+    this.albedoData = new Uint8Array(n * n * 4);
+    this.mrData = new Uint8Array(n * n * 4);
+    field.writeOverlayMaps(this.albedoData, this.mrData, maxAlpha);
+    this.albedo = Texture.fromRgba8(device, n, n, this.albedoData, { label: `${label}.albedo`, srgb: true, mipmaps: false });
+    this.metallicRoughness = Texture.fromRgba8(device, n, n, this.mrData, { label: `${label}.mr`, mipmaps: false });
+    this.material = new Material({ label, color: 0xffffff, roughness: 1, metallic: 1, transparent: true, albedoMap: this.albedo, metallicRoughnessMap: this.metallicRoughness });
+  }
+
+  upload(): void {
+    this.field.writeOverlayMaps(this.albedoData, this.mrData, this.maxAlpha);
+    this.albedo.writeMipData(this.device, 0, 0, this.albedoData);
+    this.metallicRoughness.writeMipData(this.device, 0, 0, this.mrData);
+    this.uploads++;
+  }
+
+  /** 0..1 mean overlay coverage (diagnostics / gates). */
+  meanCoverage(): number {
+    let s = 0;
+    for (let k = 3; k < this.albedoData.length; k += 4) s += this.albedoData[k]!;
+    return s / (255 * (this.albedoData.length / 4));
+  }
+
+  dispose(): void {
+    this.material.dispose();
+    this.albedo.dispose();
+    this.metallicRoughness.dispose();
+  }
+}
+
+/**
+ * Copy of `src` whose UVs map world XZ onto `field`'s patch (texel (i, j) on cell (i, j)), lifted
+ * `lift` metres — the overlay mesh for {@link MoistureOverlayMaps}. Normals and indices are shared
+ * by value; tangents are dropped (the overlay carries no normal map).
+ */
+export function withFieldUvs(src: GeometrySource, field: GroundMoistureField, lift = 0.02, label = "moistureOverlay"): GeometrySource {
+  const n = src.positions.length / 3;
+  const positions = new Float32Array(src.positions);
+  const uvs = new Float32Array(n * 2);
+  for (let k = 0; k < n; k++) {
+    positions[k * 3 + 1] = positions[k * 3 + 1]! + lift;
+    uvs[k * 2] = (positions[k * 3]! - field.originX) / field.size;
+    uvs[k * 2 + 1] = (positions[k * 3 + 2]! - field.originZ) / field.size;
+  }
+  return { positions, normals: src.normals ? new Float32Array(src.normals) : undefined, uvs, indices: src.indices, label };
+}
