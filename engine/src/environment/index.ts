@@ -33,3 +33,6 @@ export * from "./cyclone.js";
 export * from "./lightning.js";
 export * from "./waterspout.js";
 export * from "./windBuffet.js";
+export * from "./snowMelt.js";
+export * from "./moistureField.js";
+export * from "./snowCover.js";

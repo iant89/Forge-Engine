@@ -113,6 +113,11 @@ export class Material {
   readonly tiling = new Vec2(1, 1);
   readonly offset = new Vec2(0, 0);
   dirty = true;
+  /**
+   * fe-38: per-object snow (written by `SnowMeltSystem` through `setSnowCover`): `amount` 0..1, the
+   * `line` — the lowest world normal.y that still carries snow — and the pack's `wetness`.
+   */
+  readonly snowCover = { amount: 0, line: 1, wetness: 0 };
   /** Bumped on any change; the batch cache keys on (this, revision). */
   revision = 0;
 
@@ -288,6 +293,20 @@ export class Material {
     a.setF32("occlusionStrength", this.occlusionStrength);
     a.setF32("alphaCutoff", this.alphaTest);
     a.setU32("flags", flags);
+    const sc = a.struct.field("snowCover", "uniform");
+    const so = sc.offset >> 2;
+    f32[so] = this.snowCover.amount;
+    f32[so + 1] = this.snowCover.line;
+    f32[so + 2] = this.snowCover.wetness;
+    f32[so + 3] = 0;
+  }
+
+  /** {@link SnowCoverTarget}: show snow on every surface of this material facing up past `snowLine`. */
+  setSnowCover(amount: number, snowLine: number, wetness: number): void {
+    this.snowCover.amount = amount;
+    this.snowCover.line = snowLine;
+    this.snowCover.wetness = wetness;
+    this.markChanged();
   }
 
   /** @internal Free GPU resources (called by the renderer on scene unload + by `Material.dispose`). */

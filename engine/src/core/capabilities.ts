@@ -803,6 +803,13 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "`water.screenSpace` (off | refraction | full, per tier via waterScreenSpaceForTier) defers water out of forge.main into forge.water.grab + forge.water. SSR finds only on-screen content (the sky reflection stands in elsewhere), the low tier keeps the sky-only water, there are no caustics, and the analytic shore bed is still two sinusoids.",
   },
   {
+    id: "environment.snowMelt",
+    phase: "17.4",
+    status: "verified",
+    summary: "Energy-balance snow melt (sun, air temperature, surface), per-object snow cover that sheds sheets/clumps/cornices by slope and curvature, and a ground moisture field where meltwater pools and dirt turns to drying mud with lower grip",
+    evidence: ["tests/environment/snowMelt.test.ts", "tools/browser-check.mjs"],
+  },
+  {
     id: "environment.weatherIntegration",
     phase: "17.4",
     status: "verified",

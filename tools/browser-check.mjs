@@ -3102,6 +3102,32 @@ async function checkEnvironmentSection() {
   if (desktopPanel.display !== "block") throw new Error(`the weather button panel is not shown at desktop width (display ${desktopPanel.display})`);
   if (desktopPanel.hint !== "none") throw new Error("the keyboard hint is still shown over the weather button panel at desktop width");
 
+  // fe-38 thaw A/B: the same yard before and after an accelerated noon melt. Object snow must thin
+  // and shed (chunks released and landed), the ground snow must turn into water and mud with lower
+  // grip in the hollow, and the frame must visibly change — all with zero GPU errors.
+  await page.evaluate(() => window.__forge.loadScene("thaw"));
+  await settle(8);
+  await page.evaluate(() => { window.__forge.thawTimeScale(0); window.__forge.thawReset(); });
+  await settle(6);
+  const thawBefore = await page.evaluate(() => window.__forge.thawState());
+  const thawPixA = await samplePixels();
+  await page.evaluate(() => { window.__forge.thawTimeScale(600); window.__forge.thawAdvance(1.2); });
+  await settle(30);
+  const thawMid = await page.evaluate(() => window.__forge.thawState());
+  await page.evaluate(() => { window.__forge.thawAdvance(30); window.__forge.thawTimeScale(0); });
+  await settle(8);
+  const thawAfter = await page.evaluate(() => window.__forge.thawState());
+  const thawPixB = await samplePixels();
+  const thawStats = await page.evaluate(() => window.__forge.stats());
+  const depthSum = (s) => s.covers.reduce((a, c) => a + c.depth, 0);
+  console.log(`  thaw: cover ${depthSum(thawBefore).toFixed(3)} -> ${depthSum(thawAfter).toFixed(3)} m, shed ${thawAfter.shedEvents}, chunks ${thawAfter.released}/${thawAfter.landed}, water ${thawBefore.groundWater.toFixed(2)} -> ${thawAfter.groundWater.toFixed(2)}, mud ${thawBefore.meanMud.toFixed(3)} -> ${thawAfter.meanMud.toFixed(3)}, hollow grip ${thawBefore.hollowGrip.toFixed(2)} -> ${thawAfter.hollowGrip.toFixed(2)}, frame mean ${thawPixA.mean.toFixed(1)} -> ${thawPixB.mean.toFixed(1)}`);
+  if (!(depthSum(thawAfter) < depthSum(thawBefore) * 0.5)) throw new Error("thaw: object snow did not melt");
+  if (!(thawMid.released > 0 && thawAfter.landed > 0)) throw new Error(`thaw: no snow chunks shed/landed (${thawMid.released}/${thawAfter.landed})`);
+  if (!(thawAfter.groundWater > thawBefore.groundWater && thawAfter.meanMud > thawBefore.meanMud)) throw new Error("thaw: meltwater/mud did not form");
+  if (!(thawAfter.hollowGrip < thawBefore.hollowGrip || thawAfter.hollowMud > 0.5)) throw new Error("thaw: the muddy hollow did not lose grip");
+  if (!(Math.abs(thawPixA.mean - thawPixB.mean) > 3)) throw new Error("thaw: the frame did not change after the melt");
+  if (thawStats.gpuErrors !== 0 || thawStats.lastError) throw new Error(`thaw: GPU error ${thawStats.lastError}`);
+
 }
 
 async function checkMarsSection() {
