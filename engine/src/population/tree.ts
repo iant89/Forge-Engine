@@ -401,3 +401,72 @@ export function barkPixels(size = 64, kind: "furrowed" | "birch" = "furrowed", s
   }
   return px;
 }
+
+export interface BushSpecies {
+  name: string;
+  /** Overall height range (m). */
+  height: [number, number];
+  /** Stems from the root crown. Default 5. */
+  stems?: number;
+  /** Outward lean of the stems (rad). Default 0.45. */
+  spread?: number;
+  /** Leaf card size (m). Default 0.4. */
+  leafSize?: number;
+  /** Cards per terminal twig (hi). Default 9 (dense). */
+  leavesPerBranch?: number;
+}
+
+/**
+ * A multi-stem shrub (fe-37c): `stems` thin leaders from one root crown, each leaning outward and
+ * branching twice, densely carded (low clear bole, many cards per twig) so the mass reads solid.
+ * Same contract as {@link generateTree} — same seed → same bush, "lo" a cheaper twin — so it drops
+ * straight into a `VegetationField` model (instancing, LOD, sway, snow/wetness).
+ */
+export function generateBush(species: BushSpecies, seed: number, lod: TreeLod = "hi"): TreeGeometry {
+  const rng = new Rng(seed >>> 0);
+  const stems = Math.max(1, Math.round(species.stems ?? 5));
+  const spread = species.spread ?? 0.45;
+  const wood: { p: number[]; n: number[]; uv: number[]; t: number[]; i: number[] } = { p: [], n: [], uv: [], t: [], i: [] };
+  const leaves: typeof wood = { p: [], n: [], uv: [], t: [], i: [] };
+  let height = 0, crown = 0;
+  const append = (into: typeof wood, src: GeometrySource, yaw: number, lean: number, ox: number, oz: number): void => {
+    const base = into.p.length / 3;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cl = Math.cos(lean), sl = Math.sin(lean);
+    const rot = (x: number, y: number, z: number): [number, number, number] => {
+      // lean about z (tip toward +x), then yaw about y
+      const x1 = x * cl + y * sl, y1 = -x * sl + y * cl;
+      return [x1 * cy + z * sy, y1, -x1 * sy + z * cy];
+    };
+    for (let k = 0; k < src.positions.length; k += 3) {
+      const [x, y, z] = rot(src.positions[k]!, src.positions[k + 1]!, src.positions[k + 2]!);
+      into.p.push(x + ox, y, z + oz);
+      height = Math.max(height, y);
+      crown = Math.max(crown, Math.hypot(x + ox, z + oz));
+      const [nx, ny, nz] = rot(src.normals![k]!, src.normals![k + 1]!, src.normals![k + 2]!);
+      into.n.push(nx, ny, nz);
+    }
+    for (let k = 0; k < src.uvs!.length; k++) into.uv.push(src.uvs![k]!);
+    for (let k = 0; k < src.tangents!.length; k += 4) {
+      const [tx, ty, tz] = rot(src.tangents![k]!, src.tangents![k + 1]!, src.tangents![k + 2]!);
+      into.t.push(tx, ty, tz, src.tangents![k + 3]!);
+    }
+    for (let k = 0; k < src.indices!.length; k++) into.i.push(base + src.indices![k]!);
+  };
+  for (let s = 0; s < stems; s++) {
+    const h = species.height[0] + (species.height[1] - species.height[0]) * rng.nextFloat();
+    const stem = generateTree(
+      { name: species.name, height: [h, h], trunkRadius: 0.02, clearBole: 0.12, levels: 2, children: [5, 3], branchAngle: [0.9, 0.7], lengthRatio: [0.55, 0.5], shape: "round", leafSize: species.leafSize ?? 0.4, leavesPerBranch: species.leavesPerBranch ?? 9, gravitropism: 0.05, wander: 0.25 },
+      (seed * 31 + s * 977) >>> 0,
+      lod,
+    );
+    const yaw = (s / stems) * Math.PI * 2 + rng.nextFloat() * 0.8;
+    const lean = spread * (0.6 + 0.8 * rng.nextFloat()) * (stems > 1 ? 1 : 0);
+    const r = 0.06 + 0.08 * rng.nextFloat();
+    append(wood, stem.wood, yaw, lean, Math.cos(yaw) * r, -Math.sin(yaw) * r);
+    append(leaves, stem.leaves, yaw, lean, Math.cos(yaw) * r, -Math.sin(yaw) * r);
+  }
+  const src = (b: typeof wood, part: string): GeometrySource => ({
+    positions: new Float32Array(b.p), normals: new Float32Array(b.n), uvs: new Float32Array(b.uv), tangents: new Float32Array(b.t), indices: new Uint32Array(b.i), label: `bush.${species.name}.${part}.${lod}`,
+  });
+  return { wood: src(wood, "wood"), leaves: src(leaves, "leaves"), height, crownRadius: crown };
+}

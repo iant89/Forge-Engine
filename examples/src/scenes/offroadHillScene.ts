@@ -44,7 +44,6 @@ import {
   heightFunctionGround,
   litterQuadsSource,
   scatterAlongTrack,
-  sphereGeometrySource,
   tierValue,
   trackRibbonSource,
   trackTerrainGridSource,
@@ -64,6 +63,7 @@ import {
   barkPixels,
   createMeltEnvironment,
   generateTree,
+  generateBush,
   grassBladePixels,
   grassPatchSource,
   leafCardPixels,
@@ -164,45 +164,6 @@ function hillside(x: number, z: number): number {
   const knolls = 7 * fbm2(x / 70, z / 70, 3707, { octaves: 3 });
   const ridges = 2.2 * Math.sin(z / 23 + Math.sin(x / 41) * 1.3);
   return climb + knolls + ridges;
-}
-
-/** Transform-and-append a source into flat arrays (merging static props into one draw). */
-function appendTransformed(
-  into: { p: number[]; n: number[]; uv: number[]; i: number[] },
-  src: GeometrySource,
-  tx: number, ty: number, tz: number,
-  sx: number, sy: number, sz: number,
-  yaw: number, tiltX = 0, tiltZ = 0,
-): void {
-  const base = into.p.length / 3;
-  const c = Math.cos(yaw), s = Math.sin(yaw);
-  const pos = src.positions;
-  const nrm = src.normals!;
-  for (let k = 0; k < pos.length; k += 3) {
-    let x = pos[k]! * sx, y = pos[k + 1]! * sy, z = pos[k + 2]! * sz;
-    // Lean (small, for trunks): shear by height.
-    x += tiltX * y;
-    z += tiltZ * y;
-    into.p.push(tx + x * c + z * s, ty + y, tz - x * s + z * c);
-    let nx = nrm[k]! / sx, ny = nrm[k + 1]! / sy, nz = nrm[k + 2]! / sz;
-    const l = Math.hypot(nx, ny, nz) || 1;
-    nx /= l; ny /= l; nz /= l;
-    into.n.push(nx * c + nz * s, ny, -nx * s + nz * c);
-  }
-  if (src.uvs) for (let k = 0; k < src.uvs.length; k++) into.uv.push(src.uvs[k]!);
-  else for (let k = 0; k < pos.length / 3; k++) into.uv.push(0, 0);
-  const idx = src.indices!;
-  for (let k = 0; k < idx.length; k++) into.i.push(base + idx[k]!);
-}
-
-function flush(into: { p: number[]; n: number[]; uv: number[]; i: number[] }, label: string): GeometrySource {
-  return {
-    positions: new Float32Array(into.p),
-    normals: new Float32Array(into.n),
-    uvs: new Float32Array(into.uv),
-    indices: new Uint32Array(into.i),
-    label,
-  };
 }
 
 function fmtTime(t: number | null): string {
@@ -401,6 +362,26 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       swayDistance: tierValue(tier, { low: 10, medium: 16, high: 24 }),
     });
   }
+  // Understory shrubs (engine multi-stem bushes): spicebush/dogwood greens going gold and red.
+  const bushModels: number[] = [];
+  const bushLeaf = leafMats.get("oval")!;
+  const bushBark = barkMats.values().next().value!;
+  for (let v = 0; v < tierValue(tier, { low: 2, medium: 3, high: 4 }); v++) {
+    const spec = { name: "shrub", height: [1.2, 2.4] as [number, number], stems: 4 + v, spread: 0.5, leafSize: 0.42, leavesPerBranch: 9 };
+    const hiB = generateBush(spec, 500 + v, "hi");
+    const loB = generateBush(spec, 500 + v, "lo");
+    bushModels.push(models.length);
+    models.push({
+      parts: [
+        { hi: geo(hiB.wood), lo: geo(loB.wood), material: bushBark, castShadow: false },
+        { hi: geo(hiB.leaves), lo: geo(loB.leaves), material: bushLeaf, castShadow: true },
+      ],
+      lodDistance: tierValue(tier, { low: 14, medium: 22, high: 30 }),
+      maxDistance: tierValue(tier, { low: 60, medium: 90, high: 130 }),
+      sway: { maxBend: 0.3, halfBendWind: 15, frequency: 0.6 },
+      swayDistance: tierValue(tier, { low: 15, medium: 25, high: 35 }),
+    });
+  }
   let windNow = { x: 0, z: 0 };
   const vegetation = new VegetationField({
     name: "offroad-vegetation",
@@ -434,19 +415,12 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     track.normalAt(g.x, g.z, nrm);
     vegetation.add(grassModels[g.palette % grassModels.length]!, g.x, g.y, g.z, g.yaw, g.scale, treeTint(grassTints[Math.floor(g.random * 31) % grassTints.length]!), nrm);
   }
-  scene.add(vegetation);
-
-  // Greenery behind the berms (understory brush).
-  const blobSrc = sphereGeometrySource({ radius: 1, widthSegments: tier === "low" ? 6 : 8, heightSegments: tier === "low" ? 4 : 6 });
-  const brushColors = [0x4f7a26, 0x6d8c2c, 0x8a8f2e];
-  const brushBufs = brushColors.map(() => ({ p: [] as number[], n: [] as number[], uv: [] as number[], i: [] as number[] }));
-  for (const b of brush) {
-    const sc = 0.9 * b.scale;
-    appendTransformed(brushBufs[b.palette]!, blobSrc, b.x, b.y + sc * 0.35, b.z, sc * 1.3, sc * 0.85, sc, b.yaw);
+  const bushTints = [0x5f8a2c, 0x7a9a30, 0xb89a2a, 0xa8481e, 0x6e7f28];
+  const understory = scatterAlongTrack(track, { seed: 19, lateralMin: track.bermOuterEdge + 6, lateralMax: 38, density: 0.025 * density, scaleMin: 0.8, scaleMax: 1.4, palettes: 5 });
+  for (const b of [...brush, ...understory]) {
+    vegetation.add(bushModels[Math.floor(b.random * 991) % bushModels.length]!, b.x, b.y - 0.05, b.z, b.yaw, b.scale, treeTint(bushTints[Math.floor(b.random * 7717) % bushTints.length]!));
   }
-  brushColors.forEach((c, i) => {
-    add(`brush-${i}`, geo(flush(brushBufs[i]!, `offroad.brush-${i}`)), mat(new Material({ label: `offroad.brush-${i}`, color: c, roughness: 0.9, metallic: 0 })), true);
-  });
+  scene.add(vegetation);
 
   // ------------------------------------------------------------------ start / finish gate
   const gate = track.poseAt(START_S);
