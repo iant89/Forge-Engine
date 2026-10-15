@@ -179,10 +179,11 @@ PHASE 17 - ENVIRONMENT 2.0
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 PHASE 18 - SCRIPTING
-    [~] IN PROGRESS (18.1 lifecycle and 18.5 error isolation landed: scripts on entities run
-        onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/onDestroy in the frame's bands,
-        and a throwing hook is rolled back and faulted without touching the ECS, other systems
-        or the clock; timers, coroutines, typed events and hot reload remain)
+    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers and 18.5 error isolation landed: scripts on
+        entities run onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/onDestroy in the
+        frame's bands, deterministic fixed-step and render-rate timers fire on schedule, and a
+        throwing hook or timer is rolled back and faulted without touching the ECS, other systems
+        or the clock; coroutines, typed events and hot reload remain)
 
 
 ================================================================================
@@ -1938,8 +1939,16 @@ GOAL:
 
 18.2 Timers
 
-    [ ] deterministic timers
-    [ ] render timers
+    [x] deterministic timers
+    [x] render timers
+
+    `Script.after/every(seconds, cb, { clock, steps })` (`scripting/timers.ts`). "sim" timers count
+    whole fixed steps on the runtime's tick and fire at the start of their step, before
+    onFixedUpdate, ordered by due tick then creation: the same fixed-step sequence gives the same
+    firings however frames split it. "render" timers count frame seconds and fire before onUpdate
+    (repeating ones drop overshot intervals). Timers belong to their script: held while it is
+    disabled, cancelled when it is destroyed or faulted, and isolated like hooks.
+    tests/scripting/scriptTimers.test.ts, docs/SCRIPTING.md
 
 
 18.3 Coroutines

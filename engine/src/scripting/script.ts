@@ -30,9 +30,12 @@
 import type { Entity, EntityWorld } from "../scene/world.js";
 import type { EntityId } from "../scene/entityId.js";
 import type { Logger } from "../core/log.js";
+import { UsageError } from "../core/errors.js";
+import type { TimerCallback, TimerHandle, TimerOptions } from "./timers.js";
 
 /** Script hook names, in the order a script first meets them. */
-export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "destroy";
+/** `timer` is a timer callback (Phase 18.2); it is isolated and counted like a hook. */
+export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "destroy";
 
 /**
  * Where a script is in its life:
@@ -55,6 +58,17 @@ export interface ScriptTime {
   readonly alpha: number;
   /** Index of this fixed step within the frame (onFixedUpdate only; 0 elsewhere). */
   readonly fixedStep: number;
+  /**
+   * Fixed steps the runtime has run since it was installed — the deterministic clock "sim" timers
+   * count on. Inside onFixedUpdate it is the current step's number (the first step is 1).
+   */
+  readonly tick: number;
+}
+
+/** @internal What the runtime provides to schedule a script's timers. */
+export interface ScriptTimerHost {
+  _schedule(script: Script, seconds: number, callback: TimerCallback, repeat: boolean, options: TimerOptions | undefined): TimerHandle;
+  _cancelTimers(script: Script): void;
 }
 
 export interface ScriptContext {
@@ -78,6 +92,12 @@ export abstract class Script {
   /** @internal */ _entity: Entity | null = null;
   /** @internal Registered name when created by name, else the class name. */
   _name: string | null = null;
+  /** @internal The adopting runtime (timers go through it). */
+  _host: ScriptTimerHost | null = null;
+  /** @internal The owning component's enable flag lives here. */
+  _component: { enabled: boolean } | null = null;
+  /** @internal Live timers this script owns. */
+  readonly _timers: TimerHandle[] = [];
 
   onCreate?(context: ScriptContext): void;
   onPreUpdate?(context: ScriptContext): void;
@@ -102,6 +122,35 @@ export abstract class Script {
   /** Errors thrown by this script's hooks so far. */
   get errorCount(): number {
     return this._errors;
+  }
+
+  /**
+   * Run `callback` once after `seconds` (Phase 18.2). Default clock "sim": counted in fixed steps,
+   * deterministic; `{ clock: "render" }` counts frame seconds; `{ steps }` gives exact fixed steps.
+   * Available once the script is attached to a world with a runtime.
+   */
+  after(seconds: number, callback: TimerCallback, options?: TimerOptions): TimerHandle {
+    return this.host()._schedule(this, seconds, callback, false, options);
+  }
+
+  /** Run `callback` every `seconds` (or every `steps` fixed steps) until cancelled. */
+  every(seconds: number, callback: TimerCallback, options?: TimerOptions): TimerHandle {
+    return this.host()._schedule(this, seconds, callback, true, options);
+  }
+
+  /** Cancel every timer this script owns. */
+  cancelTimers(): void {
+    this._host?._cancelTimers(this);
+  }
+
+  /** This script's live timers. */
+  get timers(): readonly TimerHandle[] {
+    return this._timers;
+  }
+
+  private host(): ScriptTimerHost {
+    if (!this._host) throw new UsageError(`${this.scriptName}: timers need the script attached to a world with a ScriptRuntime`);
+    return this._host;
   }
 
   /** Name used in errors and stats: the registered name, or the class name. */
