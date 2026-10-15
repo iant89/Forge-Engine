@@ -74,6 +74,7 @@ interface Instance {
   entities: number[];
   /** -1 hidden, 0 hi, 1 lo. */
   state: number;
+  swaying: boolean;
   /** Ground-normal lean (axis x/z, angle) the plant is rooted with; 0 = upright. */
   baseX: number;
   baseZ: number;
@@ -126,7 +127,7 @@ export class VegetationField extends SceneObject {
         baseAngle = Math.acos(Math.max(-1, Math.min(1, normal.y / (Math.hypot(normal.x, normal.y, normal.z) || 1))));
       }
     }
-    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2, baseX, baseZ, baseAngle };
+    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2, swaying: false, baseX, baseZ, baseAngle };
     this.instances.push(inst);
     if (this.scene) this.spawn(this.scene, inst);
     return this.instances.length - 1;
@@ -222,8 +223,10 @@ export class VegetationField extends SceneObject {
       if (state === -1) hidden++;
       else if (state === 0) hi++;
       else lo++;
-      if (state >= 0 && d <= (model.swayDistance ?? model.lodDistance) * this.distanceScale) swaying.push(inst);
-      else if (inst.state >= 0 && state >= 0 && this.swaying.includes(inst)) this.pose_(scene, inst, 0, 0, 0); // leave it upright
+      const sway = state >= 0 && d <= (model.swayDistance ?? model.lodDistance) * this.distanceScale;
+      if (sway) swaying.push(inst);
+      else if (inst.swaying) this.pose_(scene, inst, 0, 0, 0); // leaving the sway ring: stand it upright
+      inst.swaying = sway;
       if (state === inst.state) continue;
       for (let k = 0; k < inst.entities.length; k++) {
         const r = scene.world.getComponent(inst.entities[k]!, Renderable);
