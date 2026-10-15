@@ -25,10 +25,10 @@ export interface VortexColumnColors {
   variation: number;
 }
 
-/** Water: white spray, grey mist, blue-grey condensation. */
+/** Water: deep slate-blue condensation and dark grey mist; white accents come from the spray ring. */
 export const VORTEX_WATER_LOOK: VortexColumnColors = {
-  color: { r: 0.86, g: 0.89, b: 0.92 },
-  alt: { r: 0.5, g: 0.57, b: 0.65 },
+  color: { r: 0.2, g: 0.26, b: 0.34 },
+  alt: { r: 0.4, g: 0.42, b: 0.45 },
   alpha: 0.8,
   variation: 0.7,
 };

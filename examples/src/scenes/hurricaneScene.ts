@@ -247,7 +247,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     eyeHole: { scale: 0.5 },
     stormCloudAlbedo: 0.3,
     // v2: the rain bands are already dark, billowing storm cloud, not white overcast.
-    darknessGain: 3,
+    darknessGain: 3, maxDarkness: 0.9,
     // v3: fully overcast from the outer bands in; blue only in the eye and the far-offshore calm.
     overcast: { from: 16, ramp: 4 },
     seaLevel: 0,
@@ -417,7 +417,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     branches: tierValue(tier, { low: 2, medium: 3, high: 4 }),
     cloudFlashFraction: 0.55,
     // v3: in-cloud flashes light patches of the billowed deck from inside, flickering in pulses.
-    cloudGlow: { radius: 260, intensity: 3, flickerHz: 16 },
+    cloudGlow: { radius: 300, intensity: 4, flickerHz: 16 },
     subdivisions: tierValue(tier, { low: 5, medium: 6, high: 6 }),
     roughness: 0.42,
     flashLightIntensity: 450,
@@ -648,7 +648,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     },
     forceCloudFlash(hold = false): boolean {
       // Ahead of the view and a little left, so the sideways channel lights deck above the beach.
-      const p = viewSeaPoint(1300, -100);
+      const p = viewSeaPoint(1300, 150);
       const c = lightning.trigger(new Vec3(p.x, 0, p.z), 1.4, true);
       if (hold) {
         c.age = 0.03;

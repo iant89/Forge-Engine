@@ -445,7 +445,7 @@ export class LightningSystem extends SceneObject {
     // Recomputed here too: a strike triggered while `paused` (a held debug strike) must still flash.
     this.flashTotal = 0;
     // v3: with `cloudGlow`, an intra-cloud flash lights its own patch of deck, not the whole sky.
-    const icWeight = this.options.cloudGlow ? 0.12 : 1;
+    const icWeight = this.options.cloudGlow ? 0 : 1;
     for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope) * (s.bolt.cloudOnly ? icWeight : 1);
     this.applyCloudGlow();
     for (const s of this.strikes) {

@@ -18032,6 +18032,78 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/hurricaneScene.ts",
     "what": "Brighter, thicker bolts with glow; waterspout particle look",
     "why": "fe-34 v3 (Ian: dust-devil waterspout, brighter bolt)"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1424",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/cyclone.ts",
+    "what": "Overcast floor (overcast {from, ramp}) and maxDarkness cap",
+    "why": "fe-34 v3 sky: no blue in the bands; eyewall stays grey so billows read"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1425",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/cloudLayer.ts",
+    "what": "Two-scale billow relief + underside term, scud darkening, in-cloud flash glow",
+    "why": "fe-34 v3 sky + intra-cloud lightning"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1426",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/uniforms.ts",
+    "what": "CloudUniforms flashIntensity/flashRadius/flashCenter (208 B)",
+    "why": "fe-34 v3 in-cloud flash glow"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1427",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/lightning.ts",
+    "what": "cloudGlow option, lightningFlicker; intra-cloud flashes light a deck patch, not the sky",
+    "why": "fe-34 v3 intra-cloud flashes"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1428",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles/vortexColumn.ts",
+    "what": "Water palette: slate-blue and grey column, white spray accents",
+    "why": "fe-34 v3 (Ian: darker waterspout)"
+  },
+  {
+    "date": "2026-10-15T02:20:00Z",
+    "id": "1429",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/environment/stormRealism.test.ts",
+    "what": "Tests for overcast floor, maxDarkness, flicker, cloud glow",
+    "why": "fe-34 v3 coverage"
   }
 ]
 ```

@@ -344,6 +344,8 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
    * until the eyewall. Drives the cloud albedo, ceiling, scud and billows. Default 1 (linear).
    */
   darknessGain?: number;
+  /** fe-34 v3: upper bound on darkness (default 1). Below 1 keeps the deepest deck grey enough for its billows to read. */
+  maxDarkness?: number;
   /**
    * fe-34 v3: overcast floor. Inside `from` × radiusMaxWind of the centre (the outer bands) the deck
    * is forced toward full cover — ramping in over `ramp` × radiusMaxWind — so no blue shows through
@@ -531,6 +533,8 @@ export class CycloneSystem extends SceneObject {
     if (floor > 0) obs.darkness = Math.max(obs.darkness, floor * (0.3 + 0.7 * obs.storm));
     const gain = Math.max(0.1, o.darknessGain ?? 1);
     if (gain !== 1) obs.darkness = 1 - Math.pow(1 - obs.darkness, gain);
+    // fe-34 v3: cap so the eyewall deck stays dark-grey (billows still read) rather than black.
+    obs.darkness = Math.min(obs.darkness, clamp(o.maxDarkness ?? 1, 0, 1));
     if (o.driveClouds ?? true) {
       const albedo = 1 - (1 - (o.stormCloudAlbedo ?? 0.28)) * obs.darkness;
       CLOUD_ALBEDO.set(albedo, albedo, albedo * 1.03);

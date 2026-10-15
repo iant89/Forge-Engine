@@ -579,3 +579,18 @@ spray, grey mist, blue-grey condensation). `WaterspoutVisual` now drives one col
 `waterspoutFunnelAt` (lean, bend, widening, rope-out) plus the spray ring; the mesh segments, `segments`,
 `color`, `opacity` and `fogExempt` options are gone. The Mars scene still uses its own devil code
 (migrating it onto `VortexColumnParticles` is a follow-up).
+
+#### fe-34 v3 sky: overcast, billows, scud, in-cloud flashes
+
+- `CycloneOptions.overcast {from, ramp}` (in radii of max wind): `cycloneOvercastFloor()` forces
+  coverage to 1 inside `from`, ramping to 0 over `ramp`; the eye returns 0, so blue shows only in the
+  eye hole and the far-offshore calm. Darkness is at least `floor·(0.3 + 0.7·storm)`.
+- `darknessGain` steepens darkening with storm strength; `maxDarkness` caps it (the demo uses 0.9) so
+  the eyewall deck stays dark grey rather than black and its billows still read.
+- Cloud shader: billow relief at two scales plus an underside term along the view direction (lumpy
+  bases, lit tops); with several layers the lowest is darkened as scud racing under the deck.
+- `LightningOptions.cloudGlow {radius, intensity, flickerHz}`: intra-cloud flashes draw no channel and
+  add nothing to sky exposure; instead the brightest live strike writes `flashX/flashZ/flashRadius/
+  flashIntensity` into the clouds, and the shader adds a Gaussian glow in deck space, brightest at thin
+  puff edges, so a patch of billows lights from inside. `lightningFlicker(age, seed, hz)` gives the
+  pulses. Frequency follows the storm through `rate` and `cloudFlashFraction`.

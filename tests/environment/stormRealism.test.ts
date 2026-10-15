@@ -56,6 +56,8 @@ import {
   CycloneTrack,
   LightningSystem,
   lightningRibbonStep,
+  lightningFlicker,
+  cycloneOvercastFloor,
   lightningSegmentRadius,
   vortexColumnSpawn,
   Scene,
@@ -356,6 +358,58 @@ group("fe-34 v3 vortex column", () => {
     let skirts = 0;
     for (let f = 0; f < 60; f++) if (vortexColumnSpawn(pose, f, 6, 1).skirt) skirts++;
     assert.equal(skirts, 10);
+  });
+});
+
+group("fe-34 v3 overcast sky and in-cloud flashes", () => {
+  test("overcast floor: 0 in the eye and far out, 1 inside the outer bands, ramping between", () => {
+    const s = { x: 0, z: 0, eyeRadius: 10, radiusMaxWind: 100 } as never;
+    const o = { from: 16, ramp: 4 };
+    assert.equal(cycloneOvercastFloor(s, 5, 0, o), 0);
+    assert.equal(cycloneOvercastFloor(s, 500, 0, o), 1);
+    assert.equal(cycloneOvercastFloor(s, 1600, 0, o), 1);
+    assertCloseTo(cycloneOvercastFloor(s, 1800, 0, o), 0.5, 9);
+    assert.equal(cycloneOvercastFloor(s, 2500, 0, o), 0);
+    assert.equal(cycloneOvercastFloor(s, 500, 0), 0);
+  });
+  test("maxDarkness caps the deck so the eyewall stays grey", () => {
+    const track = new CycloneTrack([{ time: 0, x: 0, z: 30000, maxWind: 70, radiusMaxWind: 25000, eyeRadius: 9000, rain: 1 }]);
+    const dark = (cap?: number) => {
+      const scene = new Scene();
+      const c = new CycloneSystem({ track, observer: () => ({ x: 0, z: 0 }), darknessGain: 3, maxDarkness: cap });
+      scene.add(c);
+      c.evaluate(0);
+      return c.observed.darkness;
+    };
+    assert.ok(dark(0.6) <= 0.6 + 1e-9);
+    assert.ok(dark() >= dark(0.6));
+  });
+  test("flicker pulses deterministically in [0.25, 1] and steps at flickerHz", () => {
+    const vals = new Set<number>();
+    for (let i = 0; i < 40; i++) {
+      const v = lightningFlicker(i / 16 + 0.01, 7, 16);
+      assert.ok(v >= 0.25 && v <= 1);
+      assert.equal(v, lightningFlicker(i / 16 + 0.02, 7, 16));
+      vals.add(Math.round(v * 1000));
+    }
+    assert.ok(vals.size > 10, "pulses vary");
+  });
+  test("cloudGlow: an intra-cloud flash lights its own deck patch and not the whole sky", () => {
+    const scene = new Scene();
+    const l = new LightningSystem({ seed: 3, rate: 0.001, storm: () => 1, center: () => ({ x: 0, z: 0 }), areaRadius: 10, cloudGlow: { radius: 300, intensity: 4, flickerHz: 16 } });
+    scene.add(l);
+    l.trigger(new Vec3(1000, 0, -500), 1, true).age = 0.02;
+    l.present({} as SystemContext);
+    const c = scene.settings.clouds;
+    assert.ok(c.flashIntensity > 0);
+    assert.equal(c.flashRadius, 300);
+    assert.ok(Math.hypot(c.flashX - 1000, c.flashZ + 500) < 700, "glow centred on the channel");
+    assert.equal(l.flashTotal, 0, "no sky-wide exposure for intra-cloud flashes");
+    const g = new LightningSystem({ seed: 3, rate: 0.001, storm: () => 1, center: () => ({ x: 0, z: 0 }), areaRadius: 10, cloudGlow: { radius: 300 } });
+    new Scene().add(g);
+    g.trigger(new Vec3(0, 0, 0), 1, false).age = 0.02;
+    g.present({} as SystemContext);
+    assert.ok(g.flashTotal > 0, "ground strikes still flash the sky");
   });
 });
 

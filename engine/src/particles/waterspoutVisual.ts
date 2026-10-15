@@ -1,7 +1,7 @@
 /**
  * Waterspout visual (fe-34 v3): renders a {@link WaterspoutSystem}'s spouts as particle vortices —
  * the same swirling-swarm look as the Mars dust devils, generalised into the engine as
- * {@link VortexColumnParticles}, in water colours (white spray, grey mist, blue-grey condensation) —
+ * {@link VortexColumnParticles}, in water colours (slate-blue and grey column, white spray accents) —
  * plus a spray ring (a GPU particle field thrown up and out around the base of the strongest spout).
  *
  * The column follows `waterspoutFunnelAt`: it leans with the funnel's top offset, bends and snakes
