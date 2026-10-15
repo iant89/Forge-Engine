@@ -19,3 +19,7 @@ export * from "./horizon.js";
 export * from "./interaction.js";
 export * from "./mars/index.js";
 export * from "./coastal.js";
+export * from "./track.js";
+export * from "./trackSurface.js";
+export * from "./trackWeather.js";
+export * from "./tireTracks.js";

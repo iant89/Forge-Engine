@@ -37,6 +37,8 @@ export const SOIL_TYPES = {
   dirt: { name: "dirt", color: [0.24, 0.17, 0.11], wetColor: [0.085, 0.06, 0.04], roughness: 0.92, infiltration: 1e-5, capacity: 0.012, muddy: 1 },
   grass: { name: "grass", color: [0.12, 0.17, 0.06], wetColor: [0.06, 0.085, 0.03], roughness: 0.9, infiltration: 1e-5, capacity: 0.02, muddy: 0.35 },
   sand: { name: "sand", color: [0.5, 0.42, 0.28], wetColor: [0.3, 0.24, 0.15], roughness: 0.85, infiltration: 5e-5, capacity: 0.01, muddy: 0 },
+  /** fe-37: compacted road gravel — drains faster than dirt, only partly turns to mud. */
+  gravel: { name: "gravel", color: [0.36, 0.3, 0.22], wetColor: [0.17, 0.14, 0.1], roughness: 0.9, infiltration: 2e-5, capacity: 0.008, muddy: 0.5 },
   rock: { name: "rock", color: [0.22, 0.21, 0.2], wetColor: [0.12, 0.115, 0.11], roughness: 0.8, infiltration: 0, capacity: 0.0005, muddy: 0 },
 } as const satisfies Record<string, SoilType>;
 
@@ -324,6 +326,56 @@ export class GroundMoistureField {
    * follows the glTF layout (G roughness, B metallic): dry 0.9 → mud 0.3 → puddle 0.05 → snow 0.6, and its
    * alpha marks standing water (1 − puddle; the standard shader reflects the sky there).
    */
+  /**
+   * fe-37: set the whole patch to a uniform condition at once (a weather preset in a demo, a save
+   * restore): soil moisture 0..1, standing water (m) and lying snow (m). Omitted fields are kept.
+   * Water is placed evenly; step the field afterwards (with no rain) to let it run into low spots.
+   */
+  setUniform(state: { moisture?: number; water?: number; snow?: number }): void {
+    const n = this.water.length;
+    for (let k = 0; k < n; k++) {
+      if (state.moisture !== undefined) this.moisture[k] = clamp(state.moisture, 0, 1);
+      if (state.water !== undefined) this.water[k] = Math.max(0, state.water);
+      if (state.snow !== undefined) this.snow[k] = Math.max(0, state.snow);
+    }
+  }
+
+  /**
+   * fe-37 overlay maps: the field's mud, standing water and snow drifts as a *partial-coverage*
+   * layer (albedo alpha = coverage) for a transparent decal drawn over a detailed surface — a rutted
+   * road texture keeps its own detail where the overlay is thin, which the opaque
+   * {@link writeSurfaceMaps} (meant to *be* the ground) cannot do. Dry ground is alpha 0. `maxAlpha`
+   * caps the coverage (default 0.8) so even full mud lets the surface's relief read through.
+   */
+  writeOverlayMaps(albedo: Uint8Array, metallicRoughness: Uint8Array, maxAlpha = 0.8): void {
+    const n = this.water.length;
+    for (let k = 0; k < n; k++) {
+      const mud = this.mudOf(k);
+      const puddle = smoothstep(0.002, 0.01, this.water[k]!);
+      const snowCover = smoothstep(0.005, 0.04, this.snow[k]!);
+      const wetCover = 0.35 * smoothstep(0.4, 1, this.moisture[k]!);
+      const cover = Math.max(mud * 0.85, puddle, snowCover * 0.75, wetCover);
+      // Colour: chocolate mud, dark muddy water, white snow, weighted by which dominates.
+      const wMud = Math.max(mud, wetCover) + 1e-4;
+      const wPud = puddle * (1 - snowCover);
+      const wSnow = snowCover * 1.5;
+      const sum = wMud + wPud + wSnow;
+      const r = (0.075 * wMud + 0.05 * wPud + 0.9 * wSnow) / sum;
+      const g = (0.052 * wMud + 0.045 * wPud + 0.91 * wSnow) / sum;
+      const b = (0.035 * wMud + 0.04 * wPud + 0.93 * wSnow) / sum;
+      const rough = (0.3 * wMud + 0.05 * wPud + 0.6 * wSnow) / sum;
+      const o = k * 4;
+      albedo[o] = toSrgb8(r);
+      albedo[o + 1] = toSrgb8(g);
+      albedo[o + 2] = toSrgb8(b);
+      albedo[o + 3] = Math.round(clamp(cover, 0, 1) * clamp(maxAlpha, 0, 1) * 255);
+      metallicRoughness[o] = 255;
+      metallicRoughness[o + 1] = Math.round(clamp(rough, 0, 1) * 255);
+      metallicRoughness[o + 2] = 0;
+      metallicRoughness[o + 3] = Math.round((1 - puddle * (1 - snowCover)) * 255);
+    }
+  }
+
   writeSurfaceMaps(albedo: Uint8Array, metallicRoughness: Uint8Array): void {
     const n = this.water.length;
     for (let k = 0; k < n; k++) {

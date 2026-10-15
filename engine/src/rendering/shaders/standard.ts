@@ -499,7 +499,9 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.uv = input.uv;
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
-  out.tint = vec4<f32>(1.0);
+  // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
+  // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
+  out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
   out.clipPos = cullBatch(out.clipPos);
   return out;
 }
@@ -563,7 +565,9 @@ fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
   out.uv = input.uv;
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
-  out.tint = vec4<f32>(1.0);
+  // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
+  // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
+  out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
   out.clipPos = cullBatch(out.clipPos);
   return out;
 }
@@ -866,8 +870,9 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   let drift = swNoise(worldPos.xz * 0.8 + vec2<f32>(3.7, 9.2)) * 0.35;
   let snow = max(clamp((up * sw.z * 1.35 - drift) * 4.0, 0.0, 1.0), objSnow);
   puddle = puddle * (1.0 - snow);
-  a = a * mix(1.0, 0.75, puddle);
-  r = mix(r, 0.03, puddle);
+  // Puddle body: dark, silty water over the ground (not a paler copy of it).
+  a = mix(a, a * vec3<f32>(0.32, 0.27, 0.22) + vec3<f32>(0.012, 0.010, 0.008), puddle);
+  r = mix(r, 0.14, puddle);
   var n = normalize(mix(N, gN, puddle));
   // Fresh snow: albedo ~0.9 and very nearly neutral (a faint blue from ice absorption in red).
   a = mix(a, vec3<f32>(0.90, 0.91, 0.93), snow);
@@ -944,8 +949,12 @@ ${surfaceSetup}
     if (ws.puddle + ws.wet > 1e-3) {
       let nv = clamp(dot(ws.N, V), 0.0, 1.0);
       let fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-      let skyTone = max(perFrame.fogColor, perFrame.ambientColor * perFrame.ambientIntensity * 1.6);
-      color = color + skyTone * fres * (ws.puddle + 0.35 * ws.wet) * ao;
+      // The sky radiance the ambient term already lights the ground with — not the fog colour: in
+      // rain the haze is a bright grey, and reflecting it turned every puddle pale (fe-37c).
+      let skyTone = perFrame.ambientColor * perFrame.ambientIntensity;
+      // Muddy water reflects a dimmed, slightly brown sky; capped so grazing puddles never wash
+      // out to white (they read as leftover snow otherwise).
+      color = color + skyTone * vec3<f32>(0.42, 0.39, 0.33) * min(fres, 0.18) * (ws.puddle + 0.35 * ws.wet) * ao;
     }
   }
   // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark

@@ -27,6 +27,7 @@ export const DEMO_SCENE_NAMES = [
   "mars-dust-storm",
   "hurricane",
   "thaw",
+  "offroad",
 ] as const;
 
 export type DemoSceneName = (typeof DEMO_SCENE_NAMES)[number];
@@ -58,8 +59,12 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "alpine-rescue":
     case "mars-dust-storm":
     case "hurricane":
+    case "offroad":
     case "thaw":
       return requestedScene;
+    case "offroad-hill":
+    case "hillside":
+      return "offroad";
     case "snowmelt":
     case "mud":
       return "thaw";

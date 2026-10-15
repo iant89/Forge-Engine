@@ -53,3 +53,6 @@ export {
   type PopulationSubmission,
 } from "../scene/population.js";
 export { windSway, windBendAngle, windBendWeights, createWindSwayPose, type WindSwayParams, type WindSwayPose } from "./windSway.js";
+export { generateTree, generateBush, type BushSpecies, leafCardPixels, barkPixels, triangleCount, type TreeSpecies, type TreeGeometry, type TreeLod, type LeafShape } from "./tree.js";
+export { grassPatchSource, grassBladePixels, type GrassPatchOptions } from "./grass.js";
+export { VegetationField, type VegetationFieldOptions, type VegetationModel, type VegetationPart } from "./vegetation.js";
