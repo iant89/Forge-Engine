@@ -11,6 +11,7 @@
  * @covers engine/src/terrain/coastal.ts
  * @covers engine/src/particles/windBlown.ts
  * @covers engine/src/particles/waterspoutVisual.ts
+ * @covers engine/src/particles/lightningVisual.ts
  * @covers engine/src/audio/storm.ts
  * @desc fe-34 storm realism: curvy shore, set-up/tide, gusts, billows, lightning branches, waterspouts, wind-blown fields, soundscape, buffet
  */
@@ -29,6 +30,7 @@ export const suite = {
     "engine/src/terrain/coastal.ts",
     "engine/src/particles/windBlown.ts",
     "engine/src/particles/waterspoutVisual.ts",
+    "engine/src/particles/lightningVisual.ts",
     "engine/src/audio/storm.ts"
   ],
   desc: "fe-34 storm realism: curvy shore, set-up/tide, gusts, billows, lightning branches, waterspouts, wind-blown fields, soundscape, buffet",
@@ -51,6 +53,8 @@ import {
   CycloneSystem,
   CycloneTrack,
   LightningSystem,
+  lightningRibbonStep,
+  lightningSegmentRadius,
   Scene,
   Vec3,
   WaterSurface,
@@ -277,6 +281,60 @@ group("wind made visible", () => {
       strong = Math.max(strong, Math.abs(b.x) + Math.abs(b.z));
     }
     assert.ok(strong > weak * 4 && strong < 1);
+  });
+});
+
+group("fe-34 v2", () => {
+  test("a vertical bolt is jagged (seg × up degeneracy fixed)", () => {
+    const pts = generateBoltPoints(new Vec3(0, 650, 0), new Vec3(0, 0, 0), 7, 6, 0.42);
+    const maxOff = Math.max(...pts.map((p) => Math.hypot(p.x, p.z)));
+    assert.ok(maxOff > 20, `channel wanders (max ${maxOff.toFixed(1)} m)`);
+  });
+  test("bolt width is screen-constant", () => {
+    assertCloseTo(lightningSegmentRadius(2000, 4) / lightningSegmentRadius(1000, 4), 2, 9);
+    const step = lightningRibbonStep({ x: 0, y: 0, z: 1000 }, { x: 0, y: 10, z: 1000 }, { x: 0, y: 0, z: 0 }, 0.001);
+    assertCloseTo(Math.hypot(step.x, step.y, step.z), 1000.0125 * 0.001, 4);
+    assertCloseTo(step.y, 0, 9);
+  });
+  test("gusts follow the storm clock and seed: seek(t) equals playing to t", () => {
+    const track = new CycloneTrack([
+      { time: 0, x: 0, z: 40000, maxWind: 50, radiusMaxWind: 30000, eyeRadius: 9000, rain: 1 },
+      { time: 100, x: 0, z: 30000, maxWind: 50, radiusMaxWind: 30000, eyeRadius: 9000, rain: 1 },
+    ]);
+    const make = (seed: number) => {
+      const scene = new Scene();
+      const c = new CycloneSystem({ track, observer: () => ({ x: 0, z: 0 }), gustiness: 1, gustSeed: seed });
+      scene.add(c);
+      return c;
+    };
+    const played = make(9);
+    for (let i = 0; i < 37; i++) played.update(ctx(30, 1 / 60));
+    const sought = make(9);
+    sought.seek(played.time);
+    assertCloseTo(sought.observed.gust, played.observed.gust, 9);
+    const other = make(10);
+    other.seek(played.time);
+    let differs = false;
+    for (let t = 1; t < 60; t += 3.7) {
+      other.seek(t);
+      sought.seek(t);
+      if (Math.abs(other.observed.gust - sought.observed.gust) > 1e-3) differs = true;
+    }
+    assert.ok(differs, "the seed changes the gusts");
+  });
+  test("darknessGain darkens the bands, leaves clear air and full storm alone", () => {
+    const track = new CycloneTrack([{ time: 0, x: 0, z: 150000, maxWind: 50, radiusMaxWind: 25000, eyeRadius: 9000, rain: 1 }]);
+    const dark = (gain: number) => {
+      const scene = new Scene();
+      const c = new CycloneSystem({ track, observer: () => ({ x: 0, z: 0 }), darknessGain: gain });
+      scene.add(c);
+      c.evaluate(0);
+      return c.observed.darkness;
+    };
+    const d1 = dark(1);
+    const d6 = dark(6);
+    if (d1 > 0 && d1 < 1) assert.ok(d6 > d1);
+    else assert.equal(d6, d1);
   });
 });
 

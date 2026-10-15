@@ -557,3 +557,17 @@ All of this is engine-side and reusable; the hurricane demo only scripts it.
 * **Soundscape.** `StormSoundscape` (audio/) synthesises wind, howl, rain, surf and thunder with WebAudio;
   `stormSoundLevels` is the pure mapping. Browsers need a user gesture, so it is opt-in.
 * **Camera buffet.** `windBuffet(t, windSpeed, gust, strength, out)` gives a small offset + roll for a follow camera.
+
+**fe-34 v2 additions.**
+
+* **Visible bolts.** `LightningBoltVisual` (particles/) draws a `LightningSystem`'s live bolts as emissive,
+  fog-exempt cylinders sized per segment to `corePixels` on screen at its distance
+  (`lightningSegmentRadius`), with a transparent `glowPixels` sheath; brightness follows the flash
+  envelope. The system's own debug-line bolt can also be widened (`boltPixels`, `boltGlowPixels`,
+  `viewer`, `lightningRibbonStep`). Fixes: a vertical bolt (start straight above the strike) used to
+  come out as a straight rod (`seg × up` was zero), and a strike triggered while `paused` never flashed.
+* **Gusts** are a pure function of the storm clock and `gustSeed`, so `seek(t)` equals playing to `t`.
+* **`darknessGain`** (CycloneSystem): darkness → 1 − (1 − d)^gain, so the rain bands are already dark,
+  billowing storm cloud. The billow shading adds a relief term (one extra density sample toward the light).
+* **`WaterspoutVisual.fogExempt`** keeps a funnel readable through the storm haze; the lowest segment
+  now reaches the sea.

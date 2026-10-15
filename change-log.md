@@ -17933,6 +17933,72 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/KNOWN-ISSUES.md",
     "what": "Analytic shore limit partly lifted by the curve",
     "why": "fe-34 hurricane realism"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles/lightningVisual.ts",
+    "what": "LightningBoltVisual: screen-constant emissive bolt geometry with glow",
+    "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/lightning.ts",
+    "what": "Vertical-bolt degeneracy fix, held strikes flash, ribbon options",
+    "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/cyclone.ts",
+    "what": "Gusts on storm clock + gustSeed; darknessGain",
+    "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/cloudLayer.ts",
+    "what": "Billow relief shading",
+    "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/particles/waterspoutVisual.ts",
+    "what": "fogExempt; bottom segment reaches the sea",
+    "why": "fe-34 v2 review feedback"
+  },
+  {
+    "date": "2026-10-15T02:00:00Z",
+    "type": "change",
+    "pr": 106,
+    "branch": "fe-34-hurricane-polish",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/hurricaneScene.ts",
+    "what": "View-framed strikes and waterspouts, HURRICANE_SEED, darker bands",
+    "why": "fe-34 v2 review feedback"
   }
 ]
 ```
