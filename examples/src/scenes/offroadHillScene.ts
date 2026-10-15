@@ -656,8 +656,17 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const tap = (id: string, fn: () => void): void => {
     const el = document.getElementById(id);
     for (const [t, type, f] of suppressTouchChrome(el)) domListeners.push([t, type, f]);
+    // The chrome suppression cancels touchstart, which also cancels the synthetic click on iOS,
+    // so taps act on pointerup; click stays for keyboard/AT activation (deduped after a tap).
+    let lastTap = -1e9;
+    on(el, "pointerup", (event) => {
+      event.preventDefault();
+      lastTap = performance.now();
+      fn();
+    });
     on(el, "click", (event) => {
       event.preventDefault();
+      if (performance.now() - lastTap < 600) return;
       fn();
     });
   };
