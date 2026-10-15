@@ -74,6 +74,10 @@ interface Instance {
   entities: number[];
   /** -1 hidden, 0 hi, 1 lo. */
   state: number;
+  /** Ground-normal lean (axis x/z, angle) the plant is rooted with; 0 = upright. */
+  baseX: number;
+  baseZ: number;
+  baseAngle: number;
 }
 
 const UP = new Vec3(0, 1, 0);
@@ -106,10 +110,23 @@ export class VegetationField extends SceneObject {
     this.distanceScale = options.distanceScale ?? 1;
   }
 
-  /** Place an instance of model `model`. Returns its index. */
-  add(model: number, x: number, y: number, z: number, yaw = 0, scale = 1, tint = 0): number {
+  /**
+   * Place an instance of model `model`. `normal` (unit) roots it perpendicular to sloping ground —
+   * for grass patches on a berm; trees grow plumb, so leave it out for them. Returns its index.
+   */
+  add(model: number, x: number, y: number, z: number, yaw = 0, scale = 1, tint = 0, normal?: { x: number; y: number; z: number }): number {
     if (!this.models[model]) throw new RangeError(`VegetationField: no model ${model}`);
-    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2 };
+    let baseX = 0, baseZ = 0, baseAngle = 0;
+    if (normal) {
+      // axis = up × n = (n.z, 0, −n.x); angle = acos(n.y).
+      const l = Math.hypot(normal.z, normal.x);
+      if (l > 1e-6) {
+        baseX = normal.z / l;
+        baseZ = -normal.x / l;
+        baseAngle = Math.acos(Math.max(-1, Math.min(1, normal.y / (Math.hypot(normal.x, normal.y, normal.z) || 1))));
+      }
+    }
+    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2, baseX, baseZ, baseAngle };
     this.instances.push(inst);
     if (this.scene) this.spawn(this.scene, inst);
     return this.instances.length - 1;
@@ -157,7 +174,7 @@ export class VegetationField extends SceneObject {
 
   private spawn(scene: Scene, inst: Instance): void {
     const model = this.models[inst.model]!;
-    this.qYaw.setAxisAngle(UP, inst.yaw);
+    this.rest(inst);
     for (let k = 0; k < model.parts.length; k++) {
       const part = model.parts[k]!;
       const e = scene.createTransformedEntity(`${this.name}-${inst.model}-${k}`, new Vec3(inst.x, inst.y, inst.z));
@@ -210,12 +227,22 @@ export class VegetationField extends SceneObject {
     this.counts.swaying = swaying.length;
   }
 
-  private pose_(scene: Scene, inst: Instance, axisX: number, axisZ: number, bend: number): void {
+  /** qYaw = ground lean × yaw (the rest pose). */
+  private rest(inst: Instance): void {
     this.qYaw.setAxisAngle(UP, inst.yaw);
+    if (inst.baseAngle !== 0) {
+      this.axis.set(inst.baseX, 0, inst.baseZ);
+      this.qTilt.setAxisAngle(this.axis, inst.baseAngle);
+      this.qYaw.copyFrom(this.qTilt.multiply(this.qYaw));
+    }
+  }
+
+  private pose_(scene: Scene, inst: Instance, axisX: number, axisZ: number, bend: number): void {
+    this.rest(inst);
     if (bend !== 0) {
       this.axis.set(axisX, 0, axisZ);
       this.qTilt.setAxisAngle(this.axis, bend);
-      this.qYaw.premultiply(this.qTilt);
+      this.qYaw.copyFrom(this.qTilt.multiply(this.qYaw));
     }
     for (const id of inst.entities) scene.world.getComponent(id, Transform)?.setRotation(this.qYaw);
   }

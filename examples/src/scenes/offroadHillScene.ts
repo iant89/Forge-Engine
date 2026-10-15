@@ -54,7 +54,30 @@ import {
   type GeometrySource,
   type TrackPlacement,
   type TrackProjection,
+  MoistureOverlayMaps,
+  PrecipitationField,
+  TRACK_GROUND_CONDITIONS,
+  Texture,
+  TrackWeatherGround,
+  VegetationField,
+  WeatherSystem,
+  barkPixels,
+  createMeltEnvironment,
+  generateTree,
+  grassBladePixels,
+  grassPatchSource,
+  leafCardPixels,
+  sampleMeltEnvironment,
+  setWorldSurfaceGripField,
+  triangleCount,
+  weatherPrecipitationDrive,
+  withFieldUvs,
+  type LeafShape,
+  type TreeSpecies,
+  type VegetationModel,
+  type WeatherState,
 } from "@forge/engine";
+import { suppressTouchChrome } from "../controls/vehicleTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 
@@ -80,6 +103,8 @@ export type OffroadCameraMode = "chase" | "cab" | "orbit";
 
 export interface OffroadSceneOptions {
   deviceTier?: DeviceTier;
+  /** Starting weather (the menu and keys 1–5 change it live). */
+  weather?: OffroadWeather;
 }
 
 export interface OffroadSnapshot {
@@ -98,6 +123,13 @@ export interface OffroadSnapshot {
   z: number;
   trees: number;
   leaves: number;
+  grass: number;
+  weather: OffroadWeather;
+  /** Grip multiplier under the car. */
+  grip: number;
+  overlayCoverage: number;
+  vegetation: { hidden: number; hi: number; lo: number; swaying: number };
+  treeTriangles: { hi: number; lo: number };
 }
 
 export interface OffroadSceneHandle extends DemoSceneHandle {
@@ -105,7 +137,21 @@ export interface OffroadSceneHandle extends DemoSceneHandle {
   /** Gate hook: put the car at arc length `s` (+ lateral offset) facing along the track, at rest. */
   placeAt(s: number, lateral?: number, yawOffset?: number): void;
   snapshot(): OffroadSnapshot;
+  setWeather(name: OffroadWeather): void;
+  /** Gate hook: grip at a lateral offset from the centreline at arc length `s`. */
+  gripAt(s: number, lateral: number): number;
 }
+
+/** The demo's weather menu: an engine weather state plus the track ground condition that goes with it. */
+export const OFFROAD_WEATHER = {
+  clear: { label: "Clear sun", ground: "dry", state: { cloudCoverage: 0.12, storm01: 0, precipitation01: 0, temperatureC: 16, humidity01: 0.45, windSpeed: 3, windDirection: Math.PI / 4, gust: 0.25 } },
+  overcast: { label: "Overcast", ground: "damp", state: { cloudCoverage: 0.85, storm01: 0.05, precipitation01: 0, temperatureC: 11, humidity01: 0.8, windSpeed: 6, windDirection: Math.PI / 3, gust: 0.4 } },
+  rain: { label: "Rain", ground: "wet", state: { cloudCoverage: 0.97, storm01: 0.25, precipitation01: 0.75, temperatureC: 10, humidity01: 0.97, windSpeed: 8, windDirection: Math.PI / 2, gust: 0.6 } },
+  snow: { label: "Snow", ground: "snow", state: { cloudCoverage: 0.95, storm01: 0.1, precipitation01: 0.55, temperatureC: -4, humidity01: 0.9, windSpeed: 4, windDirection: Math.PI / 3, gust: 0.35 } },
+  mud: { label: "After the storm", ground: "muddy", state: { cloudCoverage: 0.55, storm01: 0, precipitation01: 0, temperatureC: 12, humidity01: 0.88, windSpeed: 5, windDirection: Math.PI / 2, gust: 0.4 } },
+} as const satisfies Record<string, { label: string; ground: keyof typeof TRACK_GROUND_CONDITIONS; state: Partial<WeatherState> }>;
+export type OffroadWeather = keyof typeof OFFROAD_WEATHER;
+export const OFFROAD_WEATHER_NAMES = Object.keys(OFFROAD_WEATHER) as OffroadWeather[];
 
 /** The hillside before the track is cut: climbs to the north and falls away to the east, with knolls. */
 function hillside(x: number, z: number): number {
@@ -272,40 +318,121 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     add(`leaves-${p}`, geo(litterQuadsSource(track, subset, { size: 0.11, label: `offroad.leaves-${p}` })), mat(new Material({ label: `offroad.leaf-${p}`, color: leafColors[p]!, roughness: 0.85, metallic: 0, doubleSided: true })), false);
   }
 
-  // ------------------------------------------------------------------ forest
+  // ------------------------------------------------------------------ forest (engine procedural trees)
+  // Species and placement are the demo's; the generator, LOD, instancing and sway are the engine's.
   const density = tierValue(tier, { low: 0.4, medium: 0.7, high: 1 });
-  const near = scatterAlongTrack(track, { seed: 7, lateralMin: track.bermOuterEdge + 3, lateralMax: 40, density: 0.038 * density, scaleMin: 0.8, scaleMax: 1.25, palettes: 6 });
-  const back = scatterAlongTrack(track, { seed: 8, lateralMin: 40, lateralMax: 120, density: 0.008 * density, scaleMin: 1, scaleMax: 1.5, palettes: 6 });
-  const brush = scatterAlongTrack(track, { seed: 9, lateralMin: track.bermOuterEdge + 0.8, lateralMax: track.bermOuterEdge + 6, density: 0.16 * density, scaleMin: 0.7, scaleMax: 1.8, palettes: 3 });
-  const trunkSrc = cylinderGeometrySource({ radiusTop: 0.09, radiusBottom: 0.17, height: 1, radialSegments: 6 });
-  const blobSrc = sphereGeometrySource({ radius: 1, widthSegments: tier === "low" ? 6 : 8, heightSegments: tier === "low" ? 4 : 6 });
-  // Autumn mix from the photos: lots of yellow and gold, some orange and red, holdout greens.
-  const canopyColors = [0xc9a227, 0xb7b03a, 0xd07a1e, 0xa83a1c, 0x5f7f2a, 0x8e9a32];
-  const trunkBuf = { p: [] as number[], n: [] as number[], uv: [] as number[], i: [] as number[] };
-  const canopyBufs = canopyColors.map(() => ({ p: [] as number[], n: [] as number[], uv: [] as number[], i: [] as number[] }));
-  const placeTree = (t: TrackPlacement): void => {
-    const h = (7 + t.random * 8) * t.scale;
-    const lean = (t.random - 0.5) * 0.12;
-    appendTransformed(trunkBuf, trunkSrc, t.x, t.y + h * 0.5 - 0.3, t.z, 1.2 * t.scale, h, 1.2 * t.scale, t.yaw, lean, 0);
-    const buf = canopyBufs[t.palette]!;
-    const crown = (2.2 + t.random * 1.6) * t.scale;
-    const blobs = tier === "low" ? 2 : 4;
-    for (let b = 0; b < blobs; b++) {
-      const a = t.yaw + b * 2.1;
-      const r = b === 0 ? 0 : crown * 0.55;
-      const by = h * (0.72 + 0.1 * Math.sin(a * 3)) + (b === 0 ? crown * 0.3 : 0);
-      const sc = crown * (b === 0 ? 1 : 0.75);
-      appendTransformed(buf, blobSrc, t.x + Math.cos(a) * r + lean * by, t.y + by, t.z + Math.sin(a) * r, sc, sc * 0.8, sc, a);
+  const near = scatterAlongTrack(track, { seed: 7, lateralMin: track.bermOuterEdge + 3, lateralMax: 40, density: 0.03 * density, scaleMin: 0.8, scaleMax: 1.25, palettes: 4 });
+  const back = scatterAlongTrack(track, { seed: 8, lateralMin: 40, lateralMax: 120, density: 0.006 * density, scaleMin: 1, scaleMax: 1.5, palettes: 4 });
+  const brush = scatterAlongTrack(track, { seed: 9, lateralMin: track.bermOuterEdge + 0.8, lateralMax: track.bermOuterEdge + 6, density: 0.1 * density, scaleMin: 0.7, scaleMax: 1.8, palettes: 3 });
+  // Ohio-valley autumn mix from the photos: sugar maple (orange/red), oaks (russet), birch and
+  // tulip poplar (yellow/gold). Palette entries are per-instance tints over white leaf cards.
+  const species: Array<{ spec: TreeSpecies; leaf: LeafShape; bark: "furrowed" | "birch"; barkColor: number; tints: number[] }> = [
+    { spec: { name: "maple", height: [9, 15], shape: "round", children: [7, 4, 3], leafSize: 0.75, leavesPerBranch: 6, gravitropism: 0.12 }, leaf: "maple", bark: "furrowed", barkColor: 0x6a6058, tints: [0xe0641c, 0xc8341a, 0xe89a2a, 0xd65a20] },
+    { spec: { name: "oak", height: [10, 16], shape: "round", children: [6, 4, 3], branchAngle: [1.15, 0.85, 0.7], lengthRatio: [0.5, 0.55, 0.5], leafSize: 0.7, leavesPerBranch: 6, gravitropism: 0.02, wander: 0.3 }, leaf: "oval", bark: "furrowed", barkColor: 0x564a40, tints: [0x9a5a24, 0x7f4a1e, 0xa8782c, 0x6f7a2a] },
+    { spec: { name: "birch", height: [8, 13], shape: "columnar", trunkRadius: 0.016, children: [8, 3, 3], branchAngle: [0.8, 0.7, 0.6], lengthRatio: [0.32, 0.6, 0.5], leafSize: 0.55, leavesPerBranch: 6, gravitropism: -0.15, clearBole: 0.3 }, leaf: "birch", bark: "birch", barkColor: 0xe8e4dc, tints: [0xf0c63a, 0xe6b42c, 0xd8c84a, 0xf2d25a] },
+    { spec: { name: "poplar", height: [14, 20], shape: "conical", trunkRadius: 0.018, clearBole: 0.45, children: [8, 3, 3], branchAngle: [0.85, 0.7, 0.6], lengthRatio: [0.36, 0.55, 0.5], leafSize: 0.7, leavesPerBranch: 6, gravitropism: 0.25 }, leaf: "oval", bark: "furrowed", barkColor: 0x777068, tints: [0xd8c23a, 0xc0b43a, 0xe6c840, 0x9aa83a] },
+  ];
+  const textures: Texture[] = [];
+  const tex = (w: number, h: number, px: Uint8Array, label: string, srgb = true): Texture => {
+    const t = Texture.fromRgba8(engine.gpu, w, h, px, { label, srgb, mipmaps: true });
+    textures.push(t);
+    return t;
+  };
+  const leafTexSize = tierValue(tier, { low: 64, medium: 128, high: 128 });
+  const leafMats = new Map<LeafShape, Material>();
+  const barkMats = new Map<string, Material>();
+  const variants = tierValue(tier, { low: 2, medium: 3, high: 3 });
+  const models: VegetationModel[] = [];
+  const modelOf: number[][] = [];
+  const treeTris = { hi: 0, lo: 0 };
+  species.forEach((sp, si) => {
+    let leafMat = leafMats.get(sp.leaf);
+    if (!leafMat) {
+      leafMat = mat(new Material({ label: `offroad.leaves-${sp.leaf}`, color: 0xffffff, roughness: 0.8, metallic: 0, doubleSided: true, albedoMap: tex(leafTexSize, leafTexSize, leafCardPixels(leafTexSize, sp.leaf, 11 + si), `offroad.leaf-${sp.leaf}`) }));
+      leafMat.alphaTest = 0.5;
+      leafMats.set(sp.leaf, leafMat);
     }
+    const barkKey = `${sp.bark}-${sp.barkColor}`;
+    let barkMat = barkMats.get(barkKey);
+    if (!barkMat) {
+      barkMat = mat(new Material({ label: `offroad.bark-${sp.spec.name}`, color: sp.barkColor, roughness: 0.95, metallic: 0, albedoMap: tex(64, 64, barkPixels(64, sp.bark, 5 + si), `offroad.bark-${sp.spec.name}`) }));
+      barkMats.set(barkKey, barkMat);
+    }
+    modelOf[si] = [];
+    for (let v = 0; v < variants; v++) {
+      const seed = 1000 * (si + 1) + v * 77;
+      const hiTree = generateTree(sp.spec, seed, "hi");
+      const loTree = generateTree(sp.spec, seed, "lo");
+      treeTris.hi = Math.max(treeTris.hi, triangleCount(hiTree.wood) + triangleCount(hiTree.leaves));
+      treeTris.lo = Math.max(treeTris.lo, triangleCount(loTree.wood) + triangleCount(loTree.leaves));
+      modelOf[si]!.push(models.length);
+      models.push({
+        parts: [
+          { hi: geo(hiTree.wood), lo: geo(loTree.wood), material: barkMat, castShadow: true },
+          { hi: geo(hiTree.leaves), lo: geo(loTree.leaves), material: leafMat, castShadow: true },
+        ],
+        lodDistance: tierValue(tier, { low: 22, medium: 35, high: 50 }),
+        maxDistance: 0,
+        sway: { maxBend: 0.22, halfBendWind: 30, frequency: 0.3 },
+        swayDistance: tierValue(tier, { low: 30, medium: 50, high: 70 }),
+      });
+    }
+  });
+
+  // ------------------------------------------------------------------ grass (engine procedural blades)
+  const grassTex = tex(8, 64, grassBladePixels(8, 64), "offroad.grass-blade");
+  const grassMat = mat(new Material({ label: "offroad.grass", color: 0xffffff, roughness: 0.85, metallic: 0, doubleSided: true, albedoMap: grassTex }));
+  const grassModels: number[] = [];
+  const grassVariants = 4;
+  for (let v = 0; v < grassVariants; v++) {
+    const opts = { size: 1.3, blades: tierValue(tier, { low: 26, medium: 40, high: 55 }), height: [0.22, 0.5] as [number, number], width: 0.028, seed: 300 + v, sink: 0.06 };
+    grassModels.push(models.length);
+    models.push({
+      parts: [{ hi: geo(grassPatchSource(opts, "hi")), lo: geo(grassPatchSource(opts, "lo")), material: grassMat, castShadow: false }],
+      lodDistance: tierValue(tier, { low: 8, medium: 12, high: 16 }),
+      maxDistance: tierValue(tier, { low: 20, medium: 30, high: 42 }),
+      // Grass bends far more readily than a tree and rocks faster.
+      sway: { maxBend: 0.7, halfBendWind: 9, frequency: 0.9 },
+      swayDistance: tierValue(tier, { low: 10, medium: 16, high: 24 }),
+    });
+  }
+  let windNow = { x: 0, z: 0 };
+  const vegetation = new VegetationField({
+    name: "offroad-vegetation",
+    models,
+    viewer: () => cameraEntity.transform.position,
+    wind: () => windNow,
+  });
+  const treeTint = (c: number): number => (0xff000000 | c) >>> 0;
+  const placeTree = (t: TrackPlacement): void => {
+    const si = Math.floor(t.random * 997) % species.length;
+    const list = modelOf[si]!;
+    const model = list[t.palette % list.length]!;
+    const tints = species[si]!.tints;
+    vegetation.add(model, t.x, t.y, t.z, t.yaw, t.scale, treeTint(tints[Math.floor(t.random * 7919) % tints.length]!));
   };
   for (const t of near) placeTree(t);
   for (const t of back) placeTree(t);
-  const trunkMat = mat(new Material({ label: "offroad.bark", color: 0x5b5148, roughness: 0.95, metallic: 0 }));
-  add("trunks", geo(flush(trunkBuf, "offroad.trunks")), trunkMat, true);
-  canopyColors.forEach((c, i) => {
-    add(`canopy-${i}`, geo(flush(canopyBufs[i]!, `offroad.canopy-${i}`)), mat(new Material({ label: `offroad.canopy-${i}`, color: c, roughness: 0.88, metallic: 0 })), true);
+  const grassSpots = scatterAlongTrack(track, {
+    seed: 41,
+    lateralMin: span + 0.15,
+    lateralMax: track.bermOuterEdge + 3,
+    density: tierValue(tier, { low: 0.12, medium: 0.2, high: 0.3 }),
+    scaleMin: 0.8,
+    scaleMax: 1.25,
+    palettes: 4,
   });
+  // Hydroseeded berm grass (photos): mostly green, some straw where it has gone over.
+  const grassTints = [0x7fae3c, 0x93b84a, 0x6c9a34, 0xb8b060];
+  const nrm = { x: 0, y: 1, z: 0 };
+  for (const g of grassSpots) {
+    track.normalAt(g.x, g.z, nrm);
+    vegetation.add(grassModels[g.palette % grassModels.length]!, g.x, g.y, g.z, g.yaw, g.scale, treeTint(grassTints[Math.floor(g.random * 31) % grassTints.length]!), nrm);
+  }
+  scene.add(vegetation);
+
   // Greenery behind the berms (understory brush).
+  const blobSrc = sphereGeometrySource({ radius: 1, widthSegments: tier === "low" ? 6 : 8, heightSegments: tier === "low" ? 4 : 6 });
   const brushColors = [0x4f7a26, 0x6d8c2c, 0x8a8f2e];
   const brushBufs = brushColors.map(() => ({ p: [] as number[], n: [] as number[], uv: [] as number[], i: [] as number[] }));
   for (const b of brush) {
@@ -444,6 +571,47 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   scene.add(cycle);
   cycle.apply();
 
+  // ------------------------------------------------------------------ weather (engine systems; the menu is the demo's)
+  const weather = new WeatherSystem({ name: "weather", seed: 3710, initial: OFFROAD_WEATHER.clear.state, target: OFFROAD_WEATHER.clear.state });
+  // Grip comes from the track ground below (per surface, with the field's mud); don't count 17.4 twice.
+  weather.driveVehicles = false;
+  scene.add(weather);
+  const trackGround = new TrackWeatherGround(track, { resolution: tierValue(tier, { low: 64, medium: 96, high: 128 }), timeScale: 30 });
+  trackGround.surface = weather.surface;
+  const overlay = new MoistureOverlayMaps(engine.gpu, trackGround.field, "offroad.ground-overlay", 0.78);
+  // Overlay meshes: the road and berm ribbons again, lifted, with UVs onto the field's patch.
+  const overlayAlong = tierValue(tier, { low: 2, medium: 1.5, high: 1 });
+  add("overlay-road", geo(withFieldUvs(trackRibbonSource(track, { from: -span, to: span, across: 9, alongStep: overlayAlong, lift: 0.025, uvMetersAlong: UV_ALONG }), trackGround.field, 0.03, "offroad.overlay-road")), overlay.material, false);
+  for (const side of [-1, 1] as const) {
+    add(`overlay-berm-${side}`, geo(withFieldUvs(trackRibbonSource(track, { from: side * (span - 0.05), to: side * bermOuter, across: 8, alongStep: overlayAlong, lift: 0.03, uvMetersAlong: 4 }), trackGround.field, 0.035, "offroad.overlay-berm")), overlay.material, false);
+  }
+  setWorldSurfaceGripField(scene.world, (x, z) => trackGround.gripAt(x, z));
+  const precipitation = new PrecipitationField({
+    name: "offroad-precipitation",
+    capacity: tierValue(tier, { low: 3072, medium: 8192, high: 12288 }),
+    maxRate: tierValue(tier, { low: 2000, medium: 4200, high: 6500 }),
+    follow: () => cameraEntity.transform.position,
+    drive: () => weatherPrecipitationDrive(weather.state),
+    seed: 371,
+  });
+  scene.add(precipitation);
+  const meltEnv = createMeltEnvironment();
+  let weatherName: OffroadWeather = "clear";
+  const setWeather = (name: OffroadWeather): void => {
+    weatherName = name;
+    const preset = OFFROAD_WEATHER[name];
+    weather.snapTo(preset.state);
+    weather.setTarget(preset.state);
+    const c = TRACK_GROUND_CONDITIONS[preset.ground];
+    weather.surface.wetness = c.surface.wetness;
+    weather.surface.puddles = c.surface.puddles;
+    weather.surface.snow = c.surface.snow;
+    trackGround.applyCondition(c);
+    overlay.upload();
+    vegetation.setSurface(c.surface.wetness, c.surface.snow);
+    weatherMenu.select(name);
+  };
+
   // ------------------------------------------------------------------ camera
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(vehicle.position.x, vehicle.position.y + 3, vehicle.position.z - 7));
   const camera = new Camera();
@@ -467,12 +635,76 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const cycleCamera = (): void => {
     cameraMode = cameraMode === "chase" ? "cab" : cameraMode === "cab" ? "orbit" : "chase";
   };
-  const camButton = document.getElementById("offroad-cam");
-  const onCamButton = (event: Event): void => {
-    event.preventDefault();
-    cycleCamera();
+  // Touch / click buttons (iOS Safari: pointer events + touch-action:none + no callout; the
+  // engine-agnostic chrome suppression is shared with the vehicle pad).
+  const domListeners: Array<[EventTarget, string, EventListener]> = [];
+  const on = (el: EventTarget | null, type: string, fn: EventListener, opts?: AddEventListenerOptions): void => {
+    if (!el) return;
+    el.addEventListener(type, fn, opts);
+    domListeners.push([el, type, fn]);
   };
-  camButton?.addEventListener("click", onCamButton);
+  const tap = (id: string, fn: () => void): void => {
+    const el = document.getElementById(id);
+    for (const [t, type, f] of suppressTouchChrome(el)) domListeners.push([t, type, f]);
+    on(el, "click", (event) => {
+      event.preventDefault();
+      fn();
+    });
+  };
+  tap("offroad-cam", () => cycleCamera());
+  tap("offroad-reset", () => resetToTrack());
+  // Handbrake is held, not toggled: pointerdown → on, up/cancel/lost capture (anywhere) → off.
+  let handbrakeHeld = false;
+  let handbrakePointer: number | null = null;
+  const hbButton = document.getElementById("offroad-hb");
+  for (const [t, type, f] of suppressTouchChrome(hbButton)) domListeners.push([t, type, f]);
+  const hbOff = (event: Event): void => {
+    const e = event as PointerEvent;
+    if (handbrakePointer !== null && e.pointerId !== undefined && e.pointerId !== handbrakePointer) return;
+    handbrakePointer = null;
+    handbrakeHeld = false;
+    hbButton?.classList.remove("pressed");
+  };
+  on(hbButton, "pointerdown", (event) => {
+    const e = event as PointerEvent;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handbrakePointer = e.pointerId;
+    try {
+      hbButton?.setPointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    handbrakeHeld = true;
+    hbButton?.classList.add("pressed");
+  });
+  on(hbButton, "pointerup", hbOff);
+  on(hbButton, "pointercancel", hbOff);
+  on(hbButton, "lostpointercapture", hbOff);
+  on(window, "pointerup", hbOff);
+  on(window, "blur", hbOff);
+  // Weather menu: a toggle button opening five big choices (also keys 1–5).
+  const menuRoot = document.getElementById("offroad-weather-menu");
+  const menuButton = document.getElementById("offroad-weather");
+  const setMenuOpen = (open: boolean): void => {
+    menuRoot?.classList.toggle("open", open);
+    menuButton?.setAttribute("aria-expanded", String(open));
+  };
+  tap("offroad-weather", () => setMenuOpen(!menuRoot?.classList.contains("open")));
+  for (const name of OFFROAD_WEATHER_NAMES) {
+    tap(`offroad-weather-${name}`, () => {
+      setWeather(name);
+      setMenuOpen(false);
+    });
+  }
+  const weatherLabel = document.getElementById("offroad-weather-label");
+  const weatherMenu = {
+    select(name: OffroadWeather): void {
+      for (const n of OFFROAD_WEATHER_NAMES) document.getElementById(`offroad-weather-${n}`)?.setAttribute("aria-pressed", String(n === name));
+      if (weatherLabel) weatherLabel.textContent = OFFROAD_WEATHER[name].label.toUpperCase();
+    },
+  };
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "KeyC" && !event.repeat) cycleCamera();
@@ -485,6 +717,8 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       if (vehicle.selectDriveDirection(reverse)) touch.setGear(reverse ? "R" : "F");
     }
     if (event.code === "KeyT" && !event.repeat) resetToTrack();
+    const digit = /^Digit([1-5])$/.exec(event.code);
+    if (digit && !event.repeat) setWeather(OFFROAD_WEATHER_NAMES[Number(digit[1]) - 1]!);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
   };
   const onKeyUp = (event: KeyboardEvent): void => {
@@ -514,7 +748,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const handle: OffroadSceneHandle = {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · R forward/reverse · C chase / cab / orbit camera · T back on track",
+    controlsHint: "WASD / arrows drive · Space handbrake · R forward/reverse · C camera · T back on track · 1–5 weather (sun, overcast, rain, snow, mud)",
     camera: {
       target: new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z),
       distance: 10,
@@ -547,9 +781,18 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       vehicle.input.throttle = Math.max(keyThrottle, pad.throttle);
       vehicle.input.brake = Math.max(keyBrake, pad.brake);
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
-      vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
+      vehicle.input.handbrake = keys.has("Space") || handbrakeHeld ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
       timer.update(vehicle.position.x, vehicle.position.z, dt);
+
+      // Weather: wind for the plants and rain, the ground field (mud, pooling, melt) and its overlay.
+      const drive = weatherPrecipitationDrive(weather.state);
+      windNow = { x: drive.windX, z: drive.windZ };
+      sampleMeltEnvironment(scene, weather, meltEnv);
+      if (trackGround.update(dt, meltEnv)) {
+        overlay.upload();
+        vegetation.setSurface(weather.surface.wetness, weather.surface.snow);
+      }
 
       // Chase camera: trails behind along a smoothed heading, held above the berms and terrain.
       const k = 1 - Math.exp(-dt * 4);
@@ -570,7 +813,8 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       return (
         `OFF-ROAD HILL  lap ${Math.max(1, lap)}  ${running ? fmtTime(lapTime) : "drive through the gate to start"}\n` +
         `last ${fmtTime(lastLap)}  best ${fmtTime(bestLap)}  progress ${(progress * 100).toFixed(0)}%\n` +
-        `speed ${(vehicle.speed * 3.6).toFixed(0)} km/h  gear ${vehicle.gear === 0 ? "N" : vehicle.gear < 0 ? "R" : vehicle.gear}  camera ${cameraMode}`
+        `speed ${(vehicle.speed * 3.6).toFixed(0)} km/h  gear ${vehicle.gear === 0 ? "N" : vehicle.gear < 0 ? "R" : vehicle.gear}  camera ${cameraMode}\n` +
+        `weather ${OFFROAD_WEATHER[weatherName].label}  grip ${(trackGround.gripAt(vehicle.position.x, vehicle.position.z) * 100).toFixed(0)}%`
       );
     },
     vehicleState: () => ({
@@ -590,6 +834,11 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         chaseLook.set(vehicle.position.x + Math.sin(chaseYaw) * 3, vehicle.position.y + 1.1, vehicle.position.z + Math.cos(chaseYaw) * 3);
       }
     },
+    setWeather,
+    gripAt(s: number, lateral: number): number {
+      const c = spline.sampleAt(s, { x: 0, z: 0, tx: 0, tz: 1 });
+      return trackGround.gripAt(c.x + c.tz * lateral, c.z - c.tx * lateral);
+    },
     placeAt(s: number, lat = 0, yawOffset = 0): void {
       placeAt(s, lat, yawOffset);
       timer.resync();
@@ -602,12 +851,22 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         speedKph: vehicle.speed * 3.6, cameraMode,
         x: vehicle.position.x, y: vehicle.position.y, z: vehicle.position.z,
         trees: near.length + back.length, leaves: litter.length,
+        grass: grassSpots.length,
+        weather: weatherName,
+        grip: trackGround.gripAt(vehicle.position.x, vehicle.position.z),
+        overlayCoverage: overlay.meanCoverage(),
+        vegetation: vegetation.stats_,
+        treeTriangles: treeTris,
       };
     },
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      camButton?.removeEventListener("click", onCamButton);
+      for (const [t, type, f] of domListeners) t.removeEventListener(type, f);
+      menuRoot?.classList.remove("open");
+      setWorldSurfaceGripField(scene.world, undefined);
+      overlay.dispose();
+      for (const t of textures) t.dispose();
       touch.dispose();
       keys.clear();
       disposeTrackSurface(roadTex);
@@ -618,5 +877,6 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       scene.dispose();
     },
   };
+  setWeather(options.weather ?? "clear");
   return handle;
 }

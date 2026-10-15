@@ -65,7 +65,7 @@ import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle 
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
-import { buildOffroadHillScene, type OffroadSceneHandle } from "./scenes/offroadHillScene.js";
+import { OFFROAD_WEATHER_NAMES, buildOffroadHillScene, type OffroadSceneHandle, type OffroadWeather } from "./scenes/offroadHillScene.js";
 import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
@@ -277,7 +277,10 @@ async function main(): Promise<void> {
         forced === "low" || forced === "medium" || forced === "high"
           ? forced
           : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
-      currentHandle = buildOffroadHillScene(engine, { deviceTier: tier });
+      // fe-37b: `?weather=clear|overcast|rain|snow|mud` picks the starting weather (menu / 1–5 change it).
+      const weatherParam = new URLSearchParams(window.location.search).get("weather");
+      const weather = OFFROAD_WEATHER_NAMES.find((w) => w === weatherParam);
+      currentHandle = buildOffroadHillScene(engine, { deviceTier: tier, weather });
     } else if (name === "hurricane") {
       // fe-33: `?tier=low|medium|high` forces the device tier (ocean grid, rain, palms, shadows).
       const forced = new URLSearchParams(window.location.search).get("tier");
@@ -850,6 +853,13 @@ async function main(): Promise<void> {
       h.placeAt(s, lateral, yawOffset);
       return true;
     },
+    /** fe-37b gate/screenshot hook: switch the off-road weather; grip at (s, lateral) for gates. */
+    offroadWeather: (name: OffroadWeather) => {
+      if (activeSceneName !== "offroad") return false;
+      (currentHandle as OffroadSceneHandle).setWeather(name);
+      return true;
+    },
+    offroadGrip: (s: number, lateral: number) => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle).gripAt(s, lateral) : null),
     /**
      * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
      * screen when `hold`), "hold"/"release" freeze lightning + waterspouts. False on other scenes.
