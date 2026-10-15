@@ -78,6 +78,8 @@ struct WaterVertexOutput {
   @location(2) crest: f32,
   @location(3) viewDepth: f32,
   @location(4) baseXZ: vec2<f32>,
+  // fe-35: displacement / local wave amplitude (−1 trough … +1 crest) for crest/trough shading.
+  @location(5) heightN: f32,
 }
 
 // Still-water depth over the analytic shore bed; a huge value when the shore is off.
@@ -86,11 +88,13 @@ fn shoreDepth(xz: vec2<f32>) -> f32 {
     return 1.0e6;
   }
   // fe-34 curvy coast (shoreCurveOffset): shoreD = (k1, phase1, amp1, dot(origin, perp)),
-  // shoreE = (k2, phase2, amp2, 0); perp = (−dirZ, dirX).
+  // shoreE = (k2, phase2, amp2, dropOff); perp = (−dirZ, dirX).
   let across = dot(xz, vec2<f32>(-water.shoreA.y, water.shoreA.x)) - water.shoreD.w;
   let curve = water.shoreD.z * sin(water.shoreD.x * across + water.shoreD.y) + water.shoreE.z * sin(water.shoreE.x * across + water.shoreE.y);
   let along = dot(xz, water.shoreA.xy) - water.shoreA.z - curve;
-  return water.shoreC.x - (water.shoreB.z + water.shoreA.w * along);
+  let d = water.shoreC.x - (water.shoreB.z + water.shoreA.w * along);
+  // fe-35 shelf drop-off (shoreDropOff on the CPU): shoreE.w = dropOff.
+  return d + water.shoreE.w * max(0.0, d - 2.0 * water.shoreB.y);
 }
 
 // Twin of shoalFactor() in environment/water.ts.
@@ -170,6 +174,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   out.clipPos = perFrame.viewProj * vec4<f32>(displaced, 1.0);
   out.viewDepth = out.clipPos.w;
   out.baseXZ = base.xz;
+  out.heightN = y / max(water.shoreC.z * max(shoal, 0.05), 0.01);
   return out;
 }
 
@@ -199,6 +204,7 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   }
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
   let ndv = max(dot(N, V), 0.0);
+  let sunDir0 = normalize(water.sunDirection);
   // Schlick fresnel with F0 = 0.02 (water): grazing rays mirror the sky, steep rays show the body.
   let fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
   // Depth colour: shallow (sand showing through) to deep over colorDepth; crests lift it a little.
@@ -206,7 +212,18 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let deepness = 1.0 - exp(-max(depth, 0.0) / water.shoreC.y);
   let depthBody = mix(water.shallowColor, water.deepColor, select(1.0, deepness, water.shoreB.w > 0.5));
   let body = mix(depthBody, water.shallowColor, clamp(in.crest * 0.5, 0.0, 1.0) * select(1.0, 0.6, water.shoreB.w > 0.5));
-  let diffuse = body * (perFrame.ambientColor * perFrame.ambientIntensity + vec3<f32>(0.15));
+  // fe-35 relief shading. Under an overcast sky the fresnel-mixed sky and body are nearly the same
+  // dark grey, so a displaced swell rendered as a flat sheet. Three cues bring the height back:
+  // troughs darken and crests lift (height), slopes facing the sky/light are lit and lee faces fall
+  // into shade (a wrapped lambert against a sky-weighted key), and thin crests glow green-blue as
+  // light scatters through them (subsurface).
+  // Scaled by the sea's absolute size so a calm sea's ripples do not shade like storm swells.
+  let h = clamp(in.heightN, -1.0, 1.0) * clamp(water.shoreC.z / 2.0, 0.25, 1.0);
+  let keyDir = normalize(vec3<f32>(sunDir0.x, max(sunDir0.y, 0.0) + 0.9, sunDir0.z));
+  let wrapLit = clamp(dot(N, keyDir) * 0.6 + 0.4, 0.0, 1.0);
+  let relief = mix(0.45, 1.25, smoothstep(-0.9, 0.9, h)) * mix(0.55, 1.15, wrapLit);
+  let sss = water.shallowColor * 0.9 * smoothstep(0.35, 1.0, h) * pow(1.0 - ndv, 2.0);
+  let diffuse = body * (perFrame.ambientColor * perFrame.ambientIntensity + vec3<f32>(0.15)) * relief + sss;
   let R = reflect(-V, N);
   let sunDir = normalize(water.sunDirection);
   let rdotl = max(dot(R, sunDir), 0.0);
@@ -215,7 +232,12 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   let sunVisibility = cloudSunVisibility(in.worldPos, cloudFootprint);
   let glint = water.sunTint * water.sunGlint * sunVisibility * (pow(rdotl, 600.0) * 3.0 + pow(rdotl, 60.0) * 0.25);
   // The reflected sky: the horizon tint, lifted toward the zenith with the reflected elevation.
-  let skyRef = water.skyTint * (0.55 + 0.45 * clamp(R.y, 0.0, 1.0));
+  // fe-35: troughs see less sky (the neighbouring crests occlude it) — a cheap horizon occlusion.
+  // Under a storm deck the sky light's horizon tint is nearly as dark as the water body, so the
+  // fresnel mix (the main slope cue at grazing angles) had no contrast; the reflected horizon is at
+  // least the haze the eye sees there (the fog colour).
+  let horizonRef = max(water.skyTint, perFrame.fogColor * 1.15);
+  let skyRef = horizonRef * (0.55 + 0.45 * clamp(R.y, 0.0, 1.0)) * mix(0.6, 1.1, smoothstep(-1.0, 1.0, h));
   var color = mix(diffuse, skyRef, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;
   let breakup = waterNoise(in.worldPos.xz * 1.5 + water.time * 0.35) - 0.5;
   let foamMask = smoothstep(water.foamThreshold, 1.0, clamp(in.crest + breakup * 0.25, 0.0, 1.0));
@@ -233,7 +255,10 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
     // Feather into the sand instead of a hard intersection line.
     alpha = alpha * smoothstep(0.0, 0.12, depth + 0.02);
   }
-  color += water.foamColor * clamp(foam, 0.0, 1.0);
+  // fe-35: foam sits on the relief too — lit on the faces toward the sky, grey in the lee and the
+  // troughs — so a white surf zone still shows its breaking wave shapes.
+  let foamShade = mix(0.35, 1.1, wrapLit) * mix(0.6, 1.1, smoothstep(-0.8, 0.8, h));
+  color = mix(color, water.foamColor * foamShade, clamp(foam, 0.0, 1.0));
   let fogT = fogTransmittance(length(in.worldPos - perFrame.cameraPosRender), perFrame.cameraPosRender.y, in.worldPos.y);
   color = mix(perFrame.fogColor, color, fogT);
   color = applyAerialPerspective(color, in.worldPos);

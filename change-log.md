@@ -18104,6 +18104,114 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/environment/stormRealism.test.ts",
     "what": "Tests for overcast floor, maxDarkness, flicker, cloud glow",
     "why": "fe-34 v3 coverage"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1430",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/ocean.ts",
+    "what": "peakSteepness + heightScale; whitecap floor 0.68",
+    "why": "fe-35: capped storm seas were 400 m long and ~1 % steep (flat)"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1431",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/water.ts",
+    "what": "shoreDropOff shelf drop-off in shoreDepthAt",
+    "why": "fe-35: swells keep height closer to a steep beach"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1432",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/scene/scene.ts",
+    "what": "WaterShoreSettings.dropOff",
+    "why": "fe-35 shelf drop-off"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1433",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "shoreE.w = dropOff",
+    "why": "fe-35 shelf drop-off"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1434",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/uniforms.ts",
+    "what": "shoreE comment: dropOff in w",
+    "why": "fe-35"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1435",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/water.ts",
+    "what": "Relief shading (heightN, wrapped sky key, crest SSS, shaded foam, fog-colour horizon reflection) + drop-off",
+    "why": "fe-35: slopes were invisible under overcast"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1436",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/cyclone.ts",
+    "what": "waveHeightScale / wavePeakSteepness options",
+    "why": "fe-35"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1437",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/hurricaneScene.ts",
+    "what": "Hs cap 9-12 m, heightScale 0.45, >=5 waves, dropOff 2.5, fog 0.0022, seaward framing",
+    "why": "fe-35 (Ian: waves had no height)"
+  },
+  {
+    "date": "2026-10-15T13:30:00Z",
+    "id": "1438",
+    "type": "change",
+    "pr": null,
+    "branch": "fe-35-wave-height",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/environment/ocean.test.ts",
+    "what": "Tests for steepness, heightScale, foam floor, drop-off",
+    "why": "fe-35"
   }
 ]
 ```

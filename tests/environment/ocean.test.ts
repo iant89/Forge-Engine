@@ -76,6 +76,7 @@ import {
   saffirSimpsonCategory,
   shoalFactor,
   shoreDepthAt,
+  shoreDropOff,
   totalWaveAmplitude,
   windBendAngle,
   windBendWeights,
@@ -362,6 +363,39 @@ group("coast, sway and rain", () => {
     assert.ok(d.x > 0 && d.y < 0);
     assertCloseTo(Math.hypot(d.x, d.y, d.z), 1, 12);
     assertCloseTo(precipitationDirection(0, 0, 20).y, -1, 12);
+  });
+});
+
+group("fe-35 visible wave height", () => {
+  test("a capped storm sea keeps a real steepness instead of 400 m, 1 % swells", () => {
+    const sea = oceanWavesFromWind({ windSpeed: 70, direction: 0, maxHeight: 9, waveCount: 4 });
+    assert.equal(sea.significantHeight, 9);
+    assert.ok(sea.peakWavelength < 150, `peak λ ${sea.peakWavelength}`);
+    assertCloseTo(sea.significantHeight / sea.peakWavelength, 1 / 13, 6);
+    // Peak component slope k·A is several degrees, not ~1°.
+    const p = sea.waves[0]!;
+    assert.ok(((2 * Math.PI) / p.wavelength) * p.amplitude > 0.1);
+    // Never longer than the fully developed peak.
+    const light = oceanWavesFromWind({ windSpeed: 3, direction: 0 });
+    assert.ok(light.peakWavelength <= Math.max(4, pmPeakWavelength(3)) + 1e-9);
+  });
+  test("heightScale makes a fetch-limited sea that still grows with the wind up to the cap", () => {
+    const h = (u: number) => oceanWavesFromWind({ windSpeed: u, direction: 0, maxHeight: 9, heightScale: 0.45 }).significantHeight;
+    assertCloseTo(h(20), pmSignificantHeight(20) * 0.45, 9);
+    assert.ok(h(24) < h(40));
+    assert.equal(h(70), 9);
+  });
+  test("whitecaps never cover more than the top of each wave", () => {
+    assert.ok(oceanWavesFromWind({ windSpeed: 80, direction: 0 }).foamThreshold >= 0.68);
+  });
+  test("shelf drop-off deepens only past twice the break depth; CPU sampling follows it", () => {
+    assert.equal(shoreDropOff(3, 2, 2.5), 3);
+    assertCloseTo(shoreDropOff(6, 2, 2.5), 6 + 2.5 * 2, 12);
+    assert.equal(shoreDropOff(6, 2, 0), 6);
+    const scene = new Scene();
+    scene.setWater({ shore: { ...coastalShoreSettings({ originX: 0, originZ: 0, directionX: 0, directionZ: -1, slope: 0.05 }), breakDepth: 2, dropOff: 2.5 } });
+    const w = scene.settings.water;
+    assertCloseTo(shoreDepthAt(w.shore, w.level, 0, 120), shoreDropOff(6, 2, 2.5), 9);
   });
 });
 

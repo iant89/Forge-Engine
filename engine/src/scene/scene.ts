@@ -300,10 +300,17 @@ export interface WaterShoreSettings {
   curveAmp2: number;
   curveLength2: number;
   curvePhase2: number;
+  /**
+   * fe-35 shelf drop-off: beyond twice `breakDepth` the bed falls `dropOff`× faster than `slope`
+   * (depth' = d + dropOff·max(0, d − 2·breakDepth)), so open-sea swells keep their height to within
+   * ~100 m of a steep beach instead of shoaling flat across a wide shallow band. 0 (default) keeps
+   * the single plane. {@link shoreDropOff} is the shared formula.
+   */
+  dropOff: number;
 }
 
 export function defaultWaterShore(): WaterShoreSettings {
-  return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8, curveAmp1: 0, curveLength1: 400, curvePhase1: 0, curveAmp2: 0, curveLength2: 150, curvePhase2: 0 };
+  return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8, curveAmp1: 0, curveLength1: 400, curvePhase1: 0, curveAmp2: 0, curveLength2: 150, curvePhase2: 0, dropOff: 0 };
 }
 
 export interface SceneSettings {
@@ -1185,7 +1192,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
       d.foamDepth = num(shore["foamDepth"], d.foamDepth);
       d.breakDepth = num(shore["breakDepth"], d.breakDepth);
       d.colorDepth = num(shore["colorDepth"], d.colorDepth);
-      for (const k of ["curveAmp1", "curveLength1", "curvePhase1", "curveAmp2", "curveLength2", "curvePhase2"] as const) d[k] = num(shore[k], d[k]);
+      for (const k of ["curveAmp1", "curveLength1", "curvePhase1", "curveAmp2", "curveLength2", "curvePhase2", "dropOff"] as const) d[k] = num(shore[k], d[k]);
     }
     if (Array.isArray(water["waves"])) {
       t.waves = (water["waves"] as Record<string, unknown>[]).map((w) => ({

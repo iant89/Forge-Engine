@@ -358,6 +358,10 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   maxWaveHeight?: number;
   /** Ocean wave count (tier knob). Default 4. */
   waveCount?: number;
+  /** fe-35: fetch-limited sea: scales the fully developed height before `maxWaveHeight`. Default 1. */
+  waveHeightScale?: number;
+  /** fe-35: peak steepness Hs/λp of the sea (see `OceanWindOptions.peakSteepness`). Default 1/13. */
+  wavePeakSteepness?: number;
   /** Mean sea level the surge is added to. Default the water level at attach. */
   seaLevel?: number;
   /** Seconds the sea takes to build with the wind. Default 6. */
@@ -579,7 +583,7 @@ export class CycloneSystem extends SceneObject {
       const windDir = Math.atan2(obs.wind.z, obs.wind.x);
       const w = clamp(obs.wind.speed / 60, 0, 0.5);
       const dir = Math.atan2(Math.sin(this.seaDir) * (1 - w) + Math.sin(windDir) * w, Math.cos(this.seaDir) * (1 - w) + Math.cos(windDir) * w);
-      this.ocean = oceanWavesFromWind({ windSpeed: this.seaWind, direction: dir, maxHeight: o.maxWaveHeight ?? 5, waveCount: o.waveCount ?? 4, seed: 3 });
+      this.ocean = oceanWavesFromWind({ windSpeed: this.seaWind, direction: dir, maxHeight: o.maxWaveHeight ?? 5, waveCount: o.waveCount ?? 4, seed: 3, heightScale: o.waveHeightScale, peakSteepness: o.wavePeakSteepness });
       applyOceanState(scene, this.ocean);
       scene.setWater({ level: this.seaLevel + obs.surge + obs.setup + this.tideOffset });
       if (o.runup) scene.setWater({ shore: { foamDepth: o.runup.base + o.runup.perMetre * this.ocean.significantHeight } });

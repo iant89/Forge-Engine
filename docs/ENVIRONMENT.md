@@ -594,3 +594,28 @@ spray, grey mist, blue-grey condensation). `WaterspoutVisual` now drives one col
   flashIntensity` into the clouds, and the shader adds a Gaussian glow in deck space, brightest at thin
   puff edges, so a patch of billows lights from inside. `lightningFlicker(age, seed, hz)` gives the
   pulses. Frequency follows the storm through `rate` and `cloudFlashFraction`.
+
+#### fe-35 wave height: why the hurricane sea looked flat, and the fix
+
+Root cause (the Gerstner vertex displacement itself was applied correctly; a height-debug render
+showed metre-scale swells offshore):
+
+1. **Steepness collapse.** `oceanWavesFromWind` capped Hs at `maxHeight` but shrank the wavelength
+   only by √(Hs/Hs_developed), so a capped storm sea kept a ~400 m peak: Hs/λ ≈ 1 %, about a 1–3°
+   slope, which renders as a flat sheet. Now `peakSteepness` (default 1/13) sets λp = Hs/steepness,
+   never longer than the fully developed PM peak.
+2. **Height cap.** The hurricane capped Hs at 4–5 m, so mid-storm and the eyewall had the same sea.
+   `heightScale` (fetch-limited sea, demo 0.45) plus `maxWaveHeight` 9/10/12 m let it grow with the storm.
+3. **Framing, beach and fog.** From the old camera framing, the open sea was a ~20 px strip at the
+   horizon behind a wide swash band. On a 6 % beach, depth-limited breaking (H ≤ 0.78·d) flattened
+   everything within ~200 m of shore, and exp2 fog of 0.0045 left <1 % of the sea visible at 500 m. The
+   new `WaterShoreSettings.dropOff` (shelf drop-off; CPU twin `shoreDropOff`, shader `shoreE.w`) lets
+   swells keep their size closer in. The demo looks a little more seaward with the same eye height,
+   and its storm fog is 0.0022.
+4. **Shading.** Under an overcast sky the fresnel-mixed sky and the water body were the same dark grey,
+   and foam covered half of every wave (whitecap threshold floor 0.5). The water shader now darkens
+   troughs and lifts crests (`heightN`, scaled by sea size), wraps a sky key light over the slopes,
+   adds crest subsurface, shades foam by the relief, and reflects at least the fog colour at the
+   horizon. The whitecap floor is 0.68.
+
+The hurricane uses ≥ 5 components on every tier, so the near-twin of the peak beats into wave sets.
