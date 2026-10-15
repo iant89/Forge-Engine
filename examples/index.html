@@ -372,6 +372,16 @@
         display: none;
       }
       body.scene-storm #storm-difficulty { display: flex; }
+      /* fe-37 off-road hill: cycles chase / in-cab / orbit camera (C on a keyboard). */
+      #offroad-cam {
+        right: 0;
+        top: 0;
+        background: rgb(20 83 45 / 0.6);
+        border-color: rgb(134 239 172 / 0.8);
+        color: #f0fdf4;
+        display: none;
+      }
+      body.scene-offroad #offroad-cam { display: flex; }
       #storm-difficulty.active { background: rgb(185 28 28 / 0.92); border-color: #fca5a5; }
       #storm-panel { display: none; }
       body.scene-storm #storm-panel { display: block; }
@@ -683,6 +693,7 @@
             <option value="mars-showcase" selected>Mars Showcase (Perseverance)</option>
             <option value="mars-dust-storm">Mars Dust Storm Survival</option>
             <option value="hurricane">Hurricane Landfall (ocean)</option>
+            <option value="offroad">Off-road Hill Course (autumn)</option>
             <option value="rover-course">Rover Course (Perseverance)</option>
             <option value="skinning">Skinned Arm (P16.5)</option>
             <option value="gltf-skin">glTF Skin (P16.1f)</option>
@@ -739,6 +750,7 @@
         <button type="button" id="amazon-trim-up" class="veh-pad" aria-label="Trim the outboard leg up"><span class="veh-letter">▲</span><span class="veh-caption">LEG UP</span></button>
         <button type="button" id="amazon-trim-down" class="veh-pad" aria-label="Trim the outboard leg down"><span class="veh-letter">▼</span><span class="veh-caption">LEG DOWN</span></button>
         <button type="button" id="storm-difficulty" class="veh-pad" aria-label="Cycle storm difficulty: Easy, Advanced, Expert, Unreal (restarts the run)" aria-pressed="false"><span class="veh-letter">E</span><span class="veh-caption">EASY</span></button>
+        <button type="button" id="offroad-cam" class="veh-pad" aria-label="Cycle camera: chase, in-cab, orbit"><span class="veh-letter">C</span><span class="veh-caption">CAMERA</span></button>
         <button type="button" id="veh-park" class="veh-pad veh-park" aria-label="Toggle parking brake" aria-pressed="false"><span class="veh-letter">P</span><span class="veh-caption">PARK</span></button>
         <button type="button" id="veh-mast" class="veh-pad veh-mast" aria-label="Toggle camera mast" aria-pressed="false"><span class="veh-letter">C</span><span class="veh-caption">MAST</span></button>
         <button type="button" id="veh-arm" class="veh-pad veh-arm" aria-label="Unfold or stow the robotic arm" aria-pressed="false"><span class="veh-letter">D</span><span class="veh-caption">ARM</span></button>

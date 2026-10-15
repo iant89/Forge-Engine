@@ -64,6 +64,7 @@ import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle 
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
+import { buildOffroadHillScene, type OffroadSceneHandle } from "./scenes/offroadHillScene.js";
 import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
@@ -186,7 +187,8 @@ async function main(): Promise<void> {
 
     activeSceneName = name;
     // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
-    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm");
+    document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm" || name === "offroad");
+    document.body.classList.toggle("scene-offroad", name === "offroad");
     document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-storm", name === "mars-dust-storm");
@@ -265,6 +267,14 @@ async function main(): Promise<void> {
         muted: query.get("mute") === "1",
       });
       stormOverride = null;
+    } else if (name === "offroad") {
+      // fe-37: `?tier=low|medium|high` forces the device tier (grid, forest, litter, shadows).
+      const forced = new URLSearchParams(window.location.search).get("tier");
+      const tier =
+        forced === "low" || forced === "medium" || forced === "high"
+          ? forced
+          : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+      currentHandle = buildOffroadHillScene(engine, { deviceTier: tier });
     } else if (name === "hurricane") {
       // fe-33: `?tier=low|medium|high` forces the device tier (ocean grid, rain, palms, shadows).
       const forced = new URLSearchParams(window.location.search).get("tier");
@@ -608,6 +618,8 @@ async function main(): Promise<void> {
   let firstError: string | null = null;
   let shownError: string | null = null;
 
+  const overrideEye = new Vec3();
+  const overrideTarget = new Vec3();
   const frameLoop = (): void => {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -621,7 +633,14 @@ async function main(): Promise<void> {
     updateLoadingOverlay(now);
     // Recomputed every frame so the surface constraint tracks terrain that streams in under a
     // stationary camera; it is a few trig ops plus (on the terrain scene) two height samples.
-    controls?.update();
+    const override = currentHandle && animating ? currentHandle.cameraOverride?.() ?? null : null;
+    if (override && currentHandle) {
+      const t = currentHandle.cameraEntity.transform;
+      t.position = overrideEye.set(override.eye[0], override.eye[1], override.eye[2]);
+      t.lookAt(overrideTarget.set(override.target[0], override.target[1], override.target[2]));
+    } else {
+      controls?.update();
+    }
 
     const st = engine.stats();
     const health = st.deviceLost
@@ -822,6 +841,16 @@ async function main(): Promise<void> {
      * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
      * screen when `hold`), "hold"/"release" freeze lightning + waterspouts. False on other scenes.
      */
+    /** fe-37: off-road hill lap/camera snapshot while that scene is loaded. */
+    offroadState: () => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle | null)?.snapshot() ?? null : null),
+    /** fe-37 gate/screenshot hook: place the car at arc length `s` and pick a camera mode. */
+    offroadPlace: (s: number, lateral = 0, camera: "chase" | "cab" | "orbit" = "chase", yawOffset = 0) => {
+      if (activeSceneName !== "offroad") return false;
+      const h = currentHandle as OffroadSceneHandle;
+      h.setCameraMode(camera);
+      h.placeAt(s, lateral, yawOffset);
+      return true;
+    },
     hurricaneDebug: (action: "waterspout" | "strike" | "cloudflash" | "hold" | "release", hold = false) => {
       if (activeSceneName !== "hurricane") return false;
       const handle = currentHandle as HurricaneSceneHandle | null;

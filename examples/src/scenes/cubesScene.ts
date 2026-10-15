@@ -32,6 +32,12 @@ export interface DemoSceneHandle {
   overlay?: () => string;
   /** World point the orbit target should track each frame (the vehicle playground follows the chassis). */
   followTarget?: () => { x: number; y: number; z: number };
+  /**
+   * Scene-driven camera (chase / in-cab). When it returns a pose the orbit controller is skipped
+   * for that frame and the camera entity is placed at `eye` looking at `target`; `null` hands the
+   * camera back to the orbit controller.
+   */
+  cameraOverride?: () => { eye: [number, number, number]; target: [number, number, number] } | null;
   /** `parkingBrake` is 0/1; the vehicle playground drives it from the PARK toggle / `P`. */
   vehicleState?: () => {
     speed: number;
