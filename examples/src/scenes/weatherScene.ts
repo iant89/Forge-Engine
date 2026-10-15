@@ -38,6 +38,8 @@ import {
   createPlane,
   createSphere,
   waterGridSource,
+  StormSoundscape,
+  weatherSoundInput,
 } from "@forge/engine";
 import { attachWeatherTouch } from "../controls/weatherTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
@@ -263,6 +265,11 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   water.renderable!.material = new Material({ label: "weather.lake", technique: "water" });
 
   const audio = new AudioSystem({ maxVoices: 12, masterVolume: 0.7 });
+  // Phase 17.4 weather audio: wind, rain and lake surf synthesized from the weather state. Opt-in like
+  // every sound in the demos — it starts only once a gesture (the Strike button / L key) has let the
+  // audio context run.
+  let soundscape: StormSoundscape | null = null;
+  let soundscapeFrame = 0;
   const thunder = [0, 1, 2, 3].map((seed) => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }));
   // Phase 17.6: the engine owns the flash-to-bang gap. Thunder is a simulation event that fires
   // when sound from the nearest point of the channel reaches the camera (speed of sound from the
@@ -405,6 +412,10 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       const fz = -eye.z;
       const fl = Math.hypot(fx, fy, fz) || 1;
       audio.setListener({ position: eye, forward: { x: fx / fl, y: fy / fl, z: fz / fl }, up: Vec3.up });
+      if (audio.context.state === "running" && soundscapeFrame++ % 6 === 0) {
+        soundscape ??= new StormSoundscape(audio.context, audio.context.destination, 0.45);
+        soundscape.set(weatherSoundInput(weather.state, 0.15 + 0.6 * weather.state.storm01));
+      }
     },
     overlay(): string {
       const s = weather.state;
@@ -429,6 +440,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     dispose(): void {
       window.removeEventListener("keydown", onKey);
       touch.dispose();
+      soundscape?.dispose();
       void audio.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();

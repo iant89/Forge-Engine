@@ -619,3 +619,51 @@ showed metre-scale swells offshore):
    horizon. The whitecap floor is 0.68.
 
 The hurricane uses ≥ 5 components on every tier, so the near-twin of the peak beats into wave sets.
+
+## 11. Environment state drives the simulation (Phase 17.4–17.6)
+
+### 11.1 Surface weather and traction (17.4)
+
+`environment/surfaceWeather.ts` gives the ground a memory of the weather. `SurfaceWeatherState`
+holds `wetness`, `puddles` and `snow` (0–1); `stepSurfaceWeather` integrates them with
+`DEFAULT_SURFACE_RATES` (seconds): wetting 45, drying 600 (scaled by temperature, humidity and wind),
+puddle fill 600 / drain 2400 (rain above 0.5 on already-wet ground only), snowfall 600, melt 900.
+`snowFraction(T) = clamp((2 − T)/3)` splits precipitation into rain and snow.
+
+`WeatherSystem` integrates it inside `advance()` in ≤ 1 s slices and, by default:
+
+| Option | Default | Effect |
+|---|---|---|
+| `driveSurface` | on | writes `scene.settings.surface` → `PerFrameUniforms.surfaceWeather` (flag bit 7); the standard shader darkens and glosses wet ground, fills flat noise basins with sky-reflecting puddles and lays snow on up-facing surfaces |
+| `driveVehicles` | on | sets every `VehicleComponent`'s `vehicle.surfaceGrip = tyreGripFactor(surface)`; `Vehicle.mu` scales the Pacejka peak |
+| `driveWater` | off | rebuilds the sea from the wind (`weatherOceanOptions`), throttled |
+
+Grip: wet 0.75, puddles ×0.73 more, snow `1 − 0.7√s`, floor 0.2. Braking from 20 m/s measures
+19.3 m dry, 25.8 m wet, 35.3 m in puddles, 64.6 m on snow. Other mappings: `visibilityForFogDensity`
+(metres, Koschmieder ln 20 / σ), `weatherPrecipitationDrive` (adds `snow` for `PrecipitationField`'s
+slow flakes), `weatherSoundInput` (levels for `StormSoundscape`; the weather demo starts it only once
+a gesture has unlocked audio — sound stays opt-in).
+
+### 11.2 Screen-space water (17.5)
+
+`scene.settings.water.screenSpace` = `"off" | "refraction" | "full"` (per tier:
+`waterScreenSpaceForTier`). On HDR frames with a water batch and the camera above water, the
+renderer drops water from `forge.main`, then `forge.water.grab` copies the scene colour and depth
+(MRT into rgba16float + r32float, since depth24plus cannot be copied) and `forge.water` draws the
+water sampling both: a refracted probe (fallback to the straight pixel when the probe hits
+something in front), Beer–Lambert absorption (`absorption`, default 0.35/0.075/0.045 per metre;
+CPU twin `waterTransmittance`), contact foam and a soft edge where the column is thinner than
+`intersectionFoam` (CPU twin `intersectionFoam`), and in `"full"` a 40-step SSR that falls back to
+the sky reflection off-screen. Off keeps the earlier single-pass water exactly.
+
+### 11.3 Lightning as a simulation event (17.6)
+
+The scheduler's rate is `rate × storm01`. With `strikeTarget` (a height function) and attractors,
+`attachStrike` picks the highest point within the rolling-sphere `strikingDistance(I) = 10·I^0.65` m.
+With a `listener`, each strike queues its thunder at `thunderDelay` (nearest channel point ÷
+`speedOfSound(T)`), delivered through `onThunder` on the simulated clock (`pendingThunder`,
+`thunderCount`). On a 120 m ridge the high-ground share rises from 7.8 % to 12.7 %.
+
+Change log: fe-36 — 17.4 surface weather / grip / audio / sea coupling, 17.5 screen-space water,
+17.6 thunder timing and strike attachment; browser-check holds water, lightning and surface still
+during the 17.3 deck A/Bs.

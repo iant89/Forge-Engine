@@ -797,18 +797,26 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "environment.water",
     phase: "17.5",
-    status: "partial",
-    summary: "Gerstner waves with exact displaced-surface normals, fresnel horizon tint and crest foam; no planar reflection, depth absorption or shore foam",
-    evidence: ["tests/environment/environment8b.test.ts"],
-    closesWith: "17.5",
+    status: "verified",
+    summary: "Gerstner/shore water with exact normals; on HDR frames an opt-in screen-space pass adds refraction, Beer-Lambert depth absorption, contact foam/soft edges and SSR reflections",
+    evidence: ["tests/environment/environment17_5.test.ts", "tests/environment/ocean.test.ts", "tests/environment/environment8b.test.ts", "tools/browser-check.mjs"],
+    notes: "`water.screenSpace` (off | refraction | full, per tier via waterScreenSpaceForTier) defers water out of forge.main into forge.water.grab + forge.water. SSR finds only on-screen content (the sky reflection stands in elsewhere), the low tier keeps the sky-only water, there are no caustics, and the analytic shore bed is still two sinusoids.",
+  },
+  {
+    id: "environment.weatherIntegration",
+    phase: "17.4",
+    status: "verified",
+    summary: "Weather drives surface wetness, puddles and snow (shading), vehicle tyre grip, snow/rain particles, visibility, storm audio levels and the sea state",
+    evidence: ["tests/environment/environment17_4.test.ts", "tools/browser-check.mjs"],
+    notes: "Measured braking from 20 m/s: 19.3 m dry, 25.8 m wet, 35.3 m puddles, 64.6 m snow. Surfaces wet everywhere (no occlusion from cover); audio is synthesized level mapping, not yet mixed through the bus graph (roadmap 20.6).",
   },
   {
     id: "environment.lightning",
     phase: "17.6",
     status: "verified",
-    summary: "Deterministic HDR bolts with per-strike flash lights, callbacks, and delayed spatial thunder",
-    evidence: ["tests/environment/environment8b.test.ts", "tests/rendering/wgsl.test.ts"],
-    notes: "Bolt segments use drawEmissiveLine in the HDR scene pass, so their radiance exceeds one and seeds bloom; each live strike owns its own point light and thunder voice."
+    summary: "Deterministic HDR bolts with flash lights, weather-driven rates, rolling-sphere high-point attachment and speed-of-sound thunder events",
+    evidence: ["tests/environment/environment17_6.test.ts", "tests/environment/environment8b.test.ts", "tests/rendering/wgsl.test.ts", "tools/browser-check.mjs"],
+    notes: "Bolt segments use drawEmissiveLine in the HDR scene pass; thunder is queued on the simulated clock at the listener's distance to the channel over speedOfSound(T) and delivered through onThunder.",
   },
   {
     id: "environment.aerialPerspective",

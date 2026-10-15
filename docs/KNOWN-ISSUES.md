@@ -186,22 +186,20 @@ What remains:
 
 ## Environment (Phase 8b)
 
-* **Water reflects the sky tint, not the scene.** The "refraction" is fresnel-mixed body colour plus
-  the horizon tint: no planar reflection pass, no depth sampling, no caustics, and
-  submerged geometry gets no depth tint — the underwater path is the sky skip plus the murk fog.
-  Shore foam, depth colour and breaking (fe-33) come from an *analytic* sloped bed
-  (`water.shore`), not from the terrain's depth, so they only line up with terrain built from the
-  same parameters (`coastalTerrainSource`); shoaling ignores its own gradient in the normals.
-  Since fe-34 the analytic bed can wind (`curveAmp*`/`curveLength*`), so a curvy coast lines up too,
-  but it is still two sinusoids, not the terrain's real depth: bays, spits or eroded coasts will not match.
-  The cyclone's eye can be carved into the deck as a local hole + eyewall ring (`eyeHole`), but
-  the deck is a flat slab: the wall is a dense ring at deck height, not a towering 3-D wall, and
-  the hole is scaled toward the observer (`eyeHole.scale`) to sit at a readable elevation. Without
-  `eyeHole` the eye still clears the *global* deck. The hole centre is render-local and
-  `CycloneSystem` writes it from world track coordinates, so it assumes the render origin is the
-  world origin (true for the hurricane demo); a floating-origin scene must offset it.
-  CPU and GPU evaluate the same four-wave bound with exact horizontal-displacement Jacobian normals.
-  (capability: environment.water)
+* **Screen-space water sees only the screen; the shore is analytic.** Since 17.5 the high tier
+  (`water.screenSpace = "full"`) refracts and absorbs through the real depth buffer and
+  ray-marches reflections, but SSR finds only on-screen content (elsewhere the sky reflection
+  stands in), the low tier and LDR frames keep the sky-only water, there are no caustics, and the
+  underwater path is still the sky skip plus murk fog. Shore breaking and swash come from an
+  *analytic* bed (`water.shore`, two sinusoids even with fe-34's `curveAmp*`), so they only line
+  up with terrain built from the same parameters (`coastalTerrainSource`); contact foam does follow
+  the real geometry. The cyclone eye hole (`eyeHole`) is a dense ring at deck height on a flat slab,
+  scaled toward the observer, and its centre assumes the render origin is the world origin.
+  (roadmap: 17)
+* **Weather wets surfaces under cover, and its audio bypasses the mixer.** The 17.4 surface state is
+  one scene-wide value: ground under a roof gets wet and snowy too, and puddle basins are noise, not
+  terrain hollows. `StormSoundscape` connects to the context's destination rather than a mixer bus.
+  (roadmap: 20.6)
 
 ## World population (Phase 14)
 
