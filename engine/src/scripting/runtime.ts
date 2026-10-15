@@ -1,6 +1,7 @@
 /**
- * ScriptRuntime — runs {@link Script} hooks, timers and coroutines for one world (Phases 18.1–18.3)
- * and isolates their failures (Phase 18.5).
+ * ScriptRuntime — runs {@link Script} hooks, timers, coroutines and event handlers for one world
+ * (Phases 18.1–18.4) and isolates their failures (Phase 18.5). Every phase starts by creating
+ * pending scripts and delivering events posted since the previous phase.
  *
  * `ScriptRuntime.install(world)` registers four systems, one per hook band (see scene/systems.ts):
  *
@@ -38,6 +39,7 @@ import { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
 import { ScriptComponent, _bindScriptRuntime, _scriptBinderOf, type ScriptBinder } from "./component.js";
 import type { Script, ScriptConstructor, ScriptContext, ScriptHost, ScriptPhase, ScriptTime } from "./script.js";
+import { EventRouter, channelOf, type EventListenOptions, type EventSendOptions, type EventSubscription, type EventType, type HostEventHandler, type ScriptEventHandler, type ScriptEvents } from "./events.js";
 import { Coroutine, type CoroutineBody, type CoroutineHandle, type CoroutineOptions, type CoroutineYield, type WaitInstruction } from "./coroutines.js";
 import { Timer, TimerQueue, type TimerCallback, type TimerHandle, type TimerOptions } from "./timers.js";
 
@@ -50,6 +52,8 @@ export interface ScriptRuntimeOptions {
   logger?: Logger;
   /** Called for every recorded error (after the script's state is updated). */
   onError?: (error: ScriptErrorRecord) => void;
+  /** Deepest nested event `emit` allowed (Phase 18.4). Default 16. */
+  maxEventDepth?: number;
 }
 
 export interface ScriptErrorRecord {
@@ -86,6 +90,9 @@ export interface ScriptRuntimeStats {
   coroutinesCompleted: number;
   coroutinesCancelled: number;
   coroutinesFailed: number;
+  /** Event deliveries attempted (Phase 18.4, cumulative) and events waiting in the post queue. */
+  eventsDelivered: number;
+  eventsQueued: number;
 }
 
 type HookName = "onPreUpdate" | "onFixedUpdate" | "onUpdate" | "onLateUpdate";
@@ -158,6 +165,9 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
   private readonly simCoroutines: Coroutine[] = [];
   private readonly renderCoroutines: Coroutine[] = [];
   private coroutineSeq = 0;
+  private readonly router: EventRouter;
+  /** Typed events for host code (Phase 18.4); scripts use `Script.on/emit/post`. */
+  readonly events: ScriptEvents;
   private readonly context: { entity: Entity; world: EntityWorld; time: ScriptTime; logger: Logger };
   private readonly counters: ScriptRuntimeStats = {
     scriptsLive: 0,
@@ -175,6 +185,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     coroutinesCompleted: 0,
     coroutinesCancelled: 0,
     coroutinesFailed: 0,
+    eventsDelivered: 0,
+    eventsQueued: 0,
   };
 
   private constructor(world: EntityWorld, options: ScriptRuntimeOptions) {
@@ -183,6 +195,15 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     this.errorHistory = Math.max(1, Math.floor(options.errorHistory ?? 32));
     this.onError = options.onError;
     this.logger = options.logger ?? null;
+    this.router = new EventRouter((sub, payload) => this.deliverEvent(sub, payload), Math.max(1, Math.floor(options.maxEventDepth ?? 16)));
+    const router = this.router;
+    this.events = {
+      on: <T>(type: EventType<T>, handler: HostEventHandler<T>, opts?: EventListenOptions) =>
+        router.subscribe(type as EventType<unknown>, channelOf(opts?.entity), null, handler as (p: unknown) => void, !!opts?.once),
+      emit: <T>(type: EventType<T>, payload: T, opts?: EventSendOptions) => router.emit(type as EventType<unknown>, payload, channelOf(opts?.to)),
+      post: <T>(type: EventType<T>, payload: T, opts?: EventSendOptions) => router.post(type as EventType<unknown>, payload, channelOf(opts?.to)),
+      listenerCount: (type, opts) => router.count(type, channelOf(opts?.entity)),
+    };
     this.context = { entity: null as unknown as Entity, world, time: this.time, logger: null as unknown as Logger };
     const systems: ISystem[] = [
       new ScriptPhaseSystem(this, "scripts.pre", 0, "preUpdate", undefined),
@@ -200,6 +221,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
       world.events.entityDestroyed.on((id) => {
         const component = world.getComponent(id, ScriptComponent);
         if (component && component._binder === this) this._release(component);
+        // After the entity's own scripts said goodbye: its event channel goes with it.
+        this.router.dropChannel(id);
       }),
     );
   }
@@ -244,6 +267,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     for (const co of this.simCoroutines) if (co.alive) alive++;
     for (const co of this.renderCoroutines) if (co.alive) alive++;
     c.coroutinesActive = alive;
+    c.eventsDelivered = this.router.delivered;
+    c.eventsQueued = this.router.queued;
     return { ...c };
   }
 
@@ -295,6 +320,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     this.counters.scriptsDestroyed++;
     this._cancelTimers(script);
     this._stopCoroutines(script);
+    this.unsubscribeAll(script);
     if (script._started && script.onDestroy && script._entity) this.invoke(script, "destroy", script.onDestroy);
     script._entity = null;
   }
@@ -316,6 +342,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     this.capture(context, phase, fixedStep);
     if (this.compactPending) this.compact();
     this.createPending();
+    // Posted events arrive first, at a defined point of every phase.
+    this.router.flush();
     if (phase === "fixedUpdate") {
       this.fixedTick++;
       this.frameTime.tick = this.fixedTick;
@@ -434,6 +462,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
       faulted = true;
       this._cancelTimers(script);
       this._stopCoroutines(script);
+      this.unsubscribeAll(script);
     }
     this.record(script.scriptName, entity, phase, error, faulted);
     return false;
@@ -723,6 +752,55 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     if (i >= 0) list.splice(i, 1);
   }
 
+  // ------------------------------------------------------------------ events (18.4)
+
+  /** @internal */
+  _subscribe(script: Script, type: EventType<unknown>, handler: ScriptEventHandler<unknown>, options: EventListenOptions | undefined): Disposable {
+    if (this.disposed || script._host !== this) throw new UsageError(`${script.scriptName}: this runtime does not own the script`);
+    if (script._state === "destroyed" || script._state === "faulted") {
+      throw new UsageError(`${script.scriptName}: cannot subscribe on a ${script._state} script`);
+    }
+    if (!type || typeof type.id !== "number") throw new UsageError("on(): not an event type (use defineEvent)");
+    const sub = this.router.subscribe(type, channelOf(options?.entity), script, handler, !!options?.once);
+    const subs = script._subscriptions as EventSubscription[];
+    // Once-listeners and disposed handles leave dead entries; prune before the list can grow.
+    if (subs.length >= 16) {
+      let w = 0;
+      for (let r = 0; r < subs.length; r++) if (subs[r]!.alive) subs[w++] = subs[r]!;
+      subs.length = w;
+    }
+    subs.push(sub);
+    return sub;
+  }
+
+  /** @internal */
+  _send(script: Script, type: EventType<unknown>, payload: unknown, options: EventSendOptions | undefined, queued: boolean): void {
+    if (this.disposed || script._host !== this) throw new UsageError(`${script.scriptName}: this runtime does not own the script`);
+    if (!type || typeof type.id !== "number") throw new UsageError("emit(): not an event type (use defineEvent)");
+    const channel = channelOf(options?.to);
+    if (queued) this.router.post(type, payload, channel);
+    else this.router.emit(type, payload, channel);
+  }
+
+  private deliverEvent(sub: EventSubscription, payload: unknown): void {
+    const owner = sub.owner as Script | null;
+    if (!owner) {
+      try {
+        (sub.handler as (p: unknown) => void)(payload);
+      } catch (e) {
+        this.record("host", sub.channel, "event", e, false);
+      }
+      return;
+    }
+    if (owner._state !== "active" || !owner.enabled || !owner._component?.enabled) return;
+    this.invoke(owner, "event", (ctx) => sub.handler(payload, ctx));
+  }
+
+  private unsubscribeAll(script: Script): void {
+    const subs = script._subscriptions;
+    while (subs.length > 0) subs.pop()!.dispose();
+  }
+
   // ------------------------------------------------------------------ lifecycle
 
   /** Destroy every script (onDestroy runs), unregister the systems and detach from the world. */
@@ -736,6 +814,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     this.renderTimers.clear();
     this.simCoroutines.length = 0;
     this.renderCoroutines.length = 0;
+    this.router.clear();
     for (const d of this.registrations.splice(0)) d.dispose();
     for (const d of this.subscriptions.splice(0)) d.dispose();
     _bindScriptRuntime(this.world, null);

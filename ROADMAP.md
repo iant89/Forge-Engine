@@ -179,12 +179,13 @@ PHASE 17 - ENVIRONMENT 2.0
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 PHASE 18 - SCRIPTING
-    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines and 18.5 error isolation
-        landed: scripts on entities run onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/
-        onDestroy in the frame's bands, deterministic fixed-step and render-rate timers and
-        coroutines (pause/resume, cancellation with finally) run on schedule, and a throwing hook,
-        timer or coroutine is rolled back and faulted without touching the ECS, other systems or
-        the clock; typed events and hot reload remain)
+    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines, 18.4 typed events and 18.5
+        error isolation landed: scripts on entities run onCreate/onPreUpdate/onFixedUpdate/
+        onUpdate/onLateUpdate/onDestroy in the frame's bands, deterministic fixed-step and
+        render-rate timers and coroutines (pause/resume, cancellation with finally) run on
+        schedule, typed world/entity events are emitted now or posted to the next phase, and a
+        throwing hook, timer, coroutine or handler is rolled back and faulted without touching the
+        ECS, other systems or the clock; the 18.6 boundary is partial and hot reload remains)
 
 
 ================================================================================
@@ -1969,7 +1970,15 @@ GOAL:
 
 18.4 Events
 
-    [ ] typed event system
+    [x] typed event system
+
+    `defineEvent<T>(name)` tokens carry the payload type; `Script.on/emit/post` and
+    `runtime.events` (host code) use them (`scripting/events.ts`). World and per-entity channels;
+    `emit` delivers now in subscription order, `post` queues until the start of the next script
+    phase (FIFO, before timers, coroutines and hooks). Script handlers run under hook isolation, only
+    while their script is active and enabled, and are removed with it; re-entrant subscribe and
+    unsubscribe are safe and a depth guard stops event loops. tests/scripting/scriptEvents.test.ts,
+    docs/SCRIPTING.md
 
 
 18.5 Error Isolation
