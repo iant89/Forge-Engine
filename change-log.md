@@ -18344,6 +18344,138 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/TERRAIN-TRACKS.md",
     "what": "New doc for the track systems",
     "why": "fe-37"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1450",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/population/tree.ts",
+    "what": "Procedural trees: branch hierarchy, leaf cards, hi/lo LOD, leaf/bark textures",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1451",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/population/grass.ts",
+    "what": "Procedural blade grass patches with density LOD",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1452",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/population/vegetation.ts",
+    "what": "VegetationField: instanced LOD, visibility, wind sway, snow/wet",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1453",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/terrain/trackWeather.ts",
+    "what": "TrackWeatherGround: per-surface weather grip, moisture field over a track",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1454",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/environment/moistureField.ts",
+    "what": "gravel soil, setUniform, writeOverlayMaps",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1455",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/moistureGround.ts",
+    "what": "MoistureOverlayMaps + withFieldUvs (transparent overlay)",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1456",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/standard.ts",
+    "what": "Count-1 batches keep Renderable.tint",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1457",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/src/scenes/offroadHillScene.ts",
+    "what": "Weather menu, procedural forest/grass, touch handbrake/reset/weather",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1458",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "examples/index.html",
+    "what": "Off-road touch controls and weather menu",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1459",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "tests/population/vegetation.test.ts",
+    "what": "New suite (8 cases)",
+    "why": "fe-37b Ian follow-up"
+  },
+  {
+    "date": "2026-10-15T18:20:00Z",
+    "id": "1460",
+    "type": "change",
+    "pr": 110,
+    "branch": "fe-37-offroad-demo",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "file": "docs/VEGETATION.md",
+    "what": "New doc",
+    "why": "fe-37b Ian follow-up"
   }
 ]
 ```
