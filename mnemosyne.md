@@ -2322,3 +2322,8 @@ Read the module constraints below before changing either pure model.
   bed and the sand shows through as dark ellipses in the sea. Cyclone tracks on a compressed clock need
   `timeCompression` or the forward-motion term adds km/s winds. Palms/plant models belong in examples/; the engine
   only has `windSway`. See engine/src/environment/cyclone.ts, ocean.ts.
+
+- 2026-10-15 (fe-37): A `GeometrySource` without `tangents` gets zero tangents, so any material with a normal map
+  shades garbage (the gravel road read blue-grey and dark). Procedural meshes that take normal maps must supply
+  tangents (see `writeTangent` in engine/src/terrain/track.ts). SwiftShader runs the offroad scene at ~2 real fps
+  with a 0.05 s dt clamp, so browser "drive for N seconds" probes barely move the car; test driving in Node.
