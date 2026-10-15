@@ -635,7 +635,7 @@ puddle fill 600 / drain 2400 (rain above 0.5 on already-wet ground only), snowfa
 | Option | Default | Effect |
 |---|---|---|
 | `driveSurface` | on | writes `scene.settings.surface` → `PerFrameUniforms.surfaceWeather` (flag bit 7); the standard shader darkens and glosses wet ground, fills flat noise basins with sky-reflecting puddles and lays snow on up-facing surfaces |
-| `driveVehicles` | on | sets every `VehicleComponent`'s `vehicle.surfaceGrip = tyreGripFactor(surface)`; `Vehicle.mu` scales the Pacejka peak |
+| `driveVehicles` | on | publishes `tyreGripFactor(surface)` for the world (`scene/surfaceGrip.ts`); `VehicleSystem` writes it into every `vehicle.surfaceGrip` on its fixed step, and `Vehicle.mu` scales the Pacejka peak (environment never imports vehicles) |
 | `driveWater` | off | rebuilds the sea from the wind (`weatherOceanOptions`), throttled |
 
 Grip: wet 0.75, puddles ×0.73 more, snow `1 − 0.7√s`, floor 0.2. Braking from 20 m/s measures

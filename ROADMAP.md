@@ -1830,8 +1830,8 @@ CURRENTLY COMPLETE:
         `scene.settings.surface`, which the standard/terrain shading reads through
         `PerFrameUniforms.surfaceWeather` (flags bit 7, zero cost while dry): a darkened, glossier
         wet film, sky-reflecting puddles in flat noise basins, snow on up-facing ground. Traction:
-        `driveVehicles` writes `tyreGripFactor(surface)` (wet 0.75, standing water down to 0.55,
-        snow 0.3) into every `Vehicle.surfaceGrip`, which scales the Pacejka peak — measured braking
+        `driveVehicles` publishes `tyreGripFactor(surface)`, which `VehicleSystem` applies (wet 0.75, standing water down to 0.55,
+        snow 0.3) to every `Vehicle.surfaceGrip`, which scales the Pacejka peak — measured braking
         from 20 m/s: 19.3 m dry, 25.8 m wet, 35.3 m in puddles, 64.6 m on snow (v^2/2mu g within
         2 %). Visibility: the 8b fog drive, now read back as metres by `visibilityForFogDensity`
         (Koschmieder). Particles: `PrecipitationField` takes `drive.snow` (1.2 m/s flakes, path-length

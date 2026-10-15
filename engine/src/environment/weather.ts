@@ -28,7 +28,7 @@ import type { SystemContext } from "../scene/systems.js";
 import { fbm2 } from "../math/noise.js";
 import { clamp, lerpAngle, TAU } from "../math/scalar.js";
 import { Vec2 } from "../math/vec.js";
-import { VehicleComponent } from "../vehicles/components.js";
+import { setWorldSurfaceGrip } from "../scene/surfaceGrip.js";
 import { applyOceanState, oceanWavesFromWind, type OceanWindOptions } from "./ocean.js";
 import { createSurfaceWeather, stepSurfaceWeather, tyreGripFactor, weatherOceanOptions, DEFAULT_SURFACE_RATES, type SurfaceWeatherRates, type SurfaceWeatherState } from "./surfaceWeather.js";
 import { Light } from "../scene/components/index.js";
@@ -173,7 +173,7 @@ export interface WeatherOptions {
   initialSurface?: Partial<SurfaceWeatherState>;
   /** Surface wetting/drying/snow rates; defaults in `DEFAULT_SURFACE_RATES`. */
   surfaceRates?: Partial<SurfaceWeatherRates>;
-  /** Phase 17.4: set every `VehicleComponent`'s `surfaceGrip` to `tyreGripFactor(surface)`. Default true. */
+  /** Phase 17.4: publish `tyreGripFactor(surface)` for the world; `VehicleSystem` applies it to every vehicle's `surfaceGrip`. Default true. */
   driveVehicles?: boolean;
   /**
    * Phase 17.4: rebuild the scene's Gerstner sea from the wind (`oceanWavesFromWind`) when the
@@ -351,11 +351,8 @@ export class WeatherSystem extends SceneObject {
       scene.settings.surface.puddles = this.surface.puddles;
       scene.settings.surface.snow = this.surface.snow;
     }
-    if (this.driveVehicles) {
-      const grip = tyreGripFactor(this.surface);
-      const vehicles = scene.world.store(VehicleComponent);
-      for (let i = 0; i < vehicles.count; i++) vehicles.valueAt(i).vehicle.surfaceGrip = grip;
-    }
+    // Published through the scene layer; VehicleSystem applies it on its next fixed step.
+    setWorldSurfaceGrip(scene.world, this.driveVehicles ? tyreGripFactor(this.surface) : undefined);
     if (this.driveWater && scene.settings.water.enabled) this.applyWater(scene);
     this.lastAmbientOutput = scene.settings.ambientIntensity;
     this.previousSunFactor = factors.sun;

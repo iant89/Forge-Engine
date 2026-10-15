@@ -9,6 +9,8 @@
  * @covers engine/src/rendering/uniforms.ts
  * @covers engine/src/scene/scene.ts
  * @covers engine/src/vehicles/vehicle.ts
+ * @covers engine/src/vehicles/system.ts
+ * @covers engine/src/scene/surfaceGrip.ts
  * @desc Environment (Phase 17.4): weather integration — wet/puddled/snowy ground, traction, particles, visibility, audio and water
  */
 
@@ -24,6 +26,8 @@ export const suite = {
     "engine/src/rendering/uniforms.ts",
     "engine/src/scene/scene.ts",
     "engine/src/vehicles/vehicle.ts",
+    "engine/src/vehicles/system.ts",
+    "engine/src/scene/surfaceGrip.ts",
   ],
   desc: "Environment (Phase 17.4): weather integration — wet/puddled/snowy ground, traction, particles, visibility, audio and water",
 };
@@ -36,6 +40,8 @@ import {
   Scene,
   Transform,
   Vehicle,
+  VehicleSystem,
+  type SystemContext,
   VehicleComponent,
   WEATHER_PRESETS,
   WeatherSystem,
@@ -129,8 +135,12 @@ group("17.4 simulation coupling", () => {
     car.add(new VehicleComponent(vehicle, flatGround(0)));
     const weather = new WeatherSystem({ initial: { ...heavy }, target: { ...heavy } });
     scene.add(weather);
+    const vehicles = new VehicleSystem();
+    const step = (): void => vehicles.fixedStep({ world: scene.world, fixedDt: 1 / 60 } as unknown as SystemContext, 0);
+    step();
     assertCloseTo(vehicle.surfaceGrip, 1, 9);
     weather.advance(600);
+    step();
     assert.ok(scene.settings.surface.wetness > 0.95);
     assert.ok(scene.settings.surface.puddles > 0.2);
     assertCloseTo(vehicle.surfaceGrip, weather.grip, 9);
@@ -139,6 +149,7 @@ group("17.4 simulation coupling", () => {
     weather.driveVehicles = false;
     vehicle.surfaceGrip = 1;
     weather.advance(1);
+    step();
     assertCloseTo(vehicle.surfaceGrip, 1, 9);
   });
   test("driveWater rebuilds the sea from the wind; a storm raises it", () => {
