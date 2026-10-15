@@ -57,6 +57,7 @@ import { buildVehiclePlaygroundScene } from "./scenes/vehiclePlaygroundScene.js"
 import { buildParticleScene } from "./scenes/particleScene.js";
 import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
+import { buildThawScene, type ThawSceneHandle } from "./scenes/thawScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
 import { buildRoverCourseScene, type RoverCourseHandle } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
@@ -225,6 +226,8 @@ async function main(): Promise<void> {
       currentHandle = buildSkyScene(engine);
     } else if (name === "weather") {
       currentHandle = buildWeatherScene(engine);
+    } else if (name === "thaw") {
+      currentHandle = buildThawScene(engine);
     } else if (name === "mars-showcase") {
       currentHandle = buildMarsShowcaseScene(engine);
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
@@ -946,6 +949,11 @@ async function main(): Promise<void> {
       const handle = currentHandle as WeatherSceneHandle | null;
       handle?.setUnderwater?.(on);
     },
+    /** Thaw scene (fe-38): melt/shed/mud state, a fresh snowfall, the time scale, a deterministic step. */
+    thawState: () => (currentHandle as ThawSceneHandle | null)?.thawState?.() ?? null,
+    thawReset: () => (currentHandle as ThawSceneHandle | null)?.resetSnow?.(),
+    thawTimeScale: (scale: number) => (currentHandle as ThawSceneHandle | null)?.setTimeScale?.(scale),
+    thawAdvance: (realSeconds: number) => (currentHandle as ThawSceneHandle | null)?.advance?.(realSeconds),
     /** Weather scene: live weather/water/lightning state; null on other scenes. */
     weatherState: () => {
       const handle = currentHandle as WeatherSceneHandle | null;

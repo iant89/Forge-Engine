@@ -83,7 +83,10 @@ function sunnyScene(elevationDeg: number, temperatureC: number, intensity = 4): 
 function addCovered(scene: Scene, position: Vec3, cover: SnowCover, rotation?: { axis: Vec3; angle: number }): Transform {
   const e = scene.createTransformedEntity("obj", position);
   const t = scene.world.getComponent(e.id, Transform)!;
-  if (rotation) t.rotation.setAxisAngle(rotation.axis, rotation.angle);
+  if (rotation) {
+    t.rotation.setAxisAngle(rotation.axis, rotation.angle);
+    t.sync();
+  }
   scene.world.addComponent(e.id, cover);
   return t;
 }
@@ -283,8 +286,10 @@ group("rendering contract", () => {
     assertContains(STANDARD_FRAGMENT_BODY, "material.snowCover");
     const m = new Material({ label: "m" });
     m.dirty = false;
+    const rev = m.revision;
     m.setSnowCover(1, 0.4, 0.2);
     assert.equal(m.dirty, true);
+    assert.ok(m.revision > rev, "the renderer re-uploads on a new revision");
     assert.deepEqual({ ...m.snowCover }, { amount: 1, line: 0.4, wetness: 0.2 });
   });
   test("ground mesh UVs span the field so texel (i, j) lands on cell (i, j)", () => {

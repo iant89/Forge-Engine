@@ -29,7 +29,8 @@ import { Rng } from "../math/rng.js";
 import { Component, registerComponent } from "../scene/components.js";
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
-import { Transform, type Light } from "../scene/components/index.js";
+import type { Light } from "../scene/components/index.js";
+import { Quat } from "../math/mat.js";
 import { DEFAULT_SNOW_DENSITY, WATER_DENSITY, createMeltEnvironment, meltRate, sampleMeltEnvironment, snowAlbedo, snowEnergyBalance, substrateFlux, type MeltEnvironment } from "./snowMelt.js";
 import type { GroundMoistureField } from "./moistureField.js";
 import type { WeatherSystem } from "./weather.js";
@@ -150,6 +151,12 @@ export function sphereDetachAngle(theta0: number, mu: number, radius = 1): numbe
   return theta;
 }
 
+/** Where a covered object is (world position and rotation; root entities). */
+export interface SnowPose {
+  readonly position: Vec3;
+  readonly rotation: Quat;
+}
+
 /** A released piece of snow: sliding over its source, then flying, then landed. */
 export interface SnowChunk {
   readonly position: Vec3;
@@ -220,6 +227,7 @@ export class SnowMeltSystem extends SceneObject {
   private readonly rng: Rng;
   private readonly lights: Light[] = [];
   private readonly up = new Vec3();
+  private readonly pose: SnowPose = { position: new Vec3(), rotation: new Quat() };
 
   constructor(options: SnowMeltSystemOptions = {}) {
     super();
@@ -264,8 +272,13 @@ export class SnowMeltSystem extends SceneObject {
       for (let i = 0; i < covers.count; i++) {
         const cover = covers.valueAt(i);
         const id = scene.world.idForSlot(covers.slotAt(i));
-        const transform = scene.world.getComponent(id, Transform);
-        if (transform) this.stepCover(cover, transform, slice);
+        // Read the pose from transform storage (authoritative for both the Transform component and
+        // the entity handle's setters).
+        const slot = scene.world.transformSlot(id, false);
+        if (slot <= 0) continue;
+        scene.world.transforms.getPosition(slot, this.pose.position);
+        scene.world.transforms.getRotation(slot, this.pose.rotation);
+        this.stepCover(cover, this.pose, slice);
       }
       if (this.field && this.stepField) this.field.step(slice, this.environment);
     }
@@ -274,7 +287,7 @@ export class SnowMeltSystem extends SceneObject {
   }
 
   /** Melt, wet and shed one cover over `dt` simulated seconds. */
-  stepCover(cover: SnowCover, transform: Transform, dt: number): void {
+  stepCover(cover: SnowCover, transform: SnowPose, dt: number): void {
     const env = this.environment;
     const up = transform.rotation.rotateVector(Vec3.up, this.up);
     if (cover.depth > 0) {
@@ -314,7 +327,7 @@ export class SnowMeltSystem extends SceneObject {
     this.pushTarget(cover, up);
   }
 
-  private drip(cover: SnowCover, transform: Transform, water: number): void {
+  private drip(cover: SnowCover, transform: SnowPose, water: number): void {
     if (!this.field || water <= 0) return;
     const p = transform.position;
     // Water runs to the bottom of a sphere / the low edge of a slab and drips from there: spread it
@@ -327,7 +340,7 @@ export class SnowMeltSystem extends SceneObject {
     }
   }
 
-  private shed(cover: SnowCover, transform: Transform, up: Vec3): void {
+  private shed(cover: SnowCover, transform: SnowPose, up: Vec3): void {
     const p = transform.position;
     if (cover.shape.kind === "sphere") {
       const r = cover.shape.radius;

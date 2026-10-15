@@ -306,7 +306,7 @@ export class Material {
     this.snowCover.amount = amount;
     this.snowCover.line = snowLine;
     this.snowCover.wetness = wetness;
-    this.dirty = true;
+    this.markChanged();
   }
 
   /** @internal Free GPU resources (called by the renderer on scene unload + by `Material.dispose`). */

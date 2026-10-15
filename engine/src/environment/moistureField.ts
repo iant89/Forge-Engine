@@ -56,7 +56,7 @@ export interface GroundMoistureFieldOptions {
   soilAt?: (x: number, z: number) => SoilName;
   /** Rain rate at precipitation 1, m/s of water. Default 2.8e-6 (10 mm/h). */
   rainRate?: number;
-  /** Seconds for saturated soil to dry by 1/e at 15 °C, no sun, no wind. Default 3600. */
+  /** Seconds for saturated topsoil to drain and dry by 1/e at 15 °C, no sun, no wind. Default 21600 (6 h; about 1–3 h in spring sun). */
   dryingTime?: number;
   /** Standing-water evaporation at 1000 W/m² sun, m/s. Default 1.5e-7 (≈0.5 mm/h). */
   evaporation?: number;
@@ -108,7 +108,7 @@ export class GroundMoistureField {
     this.flux = new Float32Array(n * 4);
     this.soil = new Array<SoilType>(n);
     this.rainRate = options.rainRate ?? 2.8e-6;
-    this.dryingTime = options.dryingTime ?? 3600;
+    this.dryingTime = options.dryingTime ?? 21600;
     this.evaporation = options.evaporation ?? 1.5e-7;
     const heightAt = options.heightAt ?? (() => 0);
     const soilAt = options.soilAt ?? (() => "dirt" as SoilName);
