@@ -40,6 +40,10 @@ import {
   Scene,
   Transform,
   Vehicle,
+  Light,
+  Vec3,
+  neutralizeAmbient,
+  overcastAmbientNeutral,
   VehicleSystem,
   type SystemContext,
   VehicleComponent,
@@ -177,6 +181,71 @@ group("17.4 simulation coupling", () => {
     assert.ok(drive.snow > 0.9 && drive.intensity === 0.8);
     assert.equal(weatherPrecipitationDrive(rain).snow, 0);
     assert.ok(weatherSoundInput(heavy).rain > weatherSoundInput(snowing).rain, "snow is quieter than rain");
+  });
+});
+
+group("17.4 snow reads white (fe-36 v2)", () => {
+  // The measured weather-demo ambient at 15:00 (clear-sky hemisphere, b/r = 3.4).
+  const sky = { r: 0.0818, g: 0.1523, b: 0.2812 };
+  const lum = (c: { r: number; g: number; b: number }): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  test("neutralizeAmbient keeps luminance and removes chroma", () => {
+    const out = neutralizeAmbient(sky, 0.7, { r: 0, g: 0, b: 0 });
+    assertCloseTo(lum(out), lum(sky), 9);
+    assert.ok(out.b / out.r < sky.b / sky.r);
+    assertCloseTo(overcastAmbientNeutral(0, 0), 0, 9);
+    assert.ok(overcastAmbientNeutral(0.8, 0.05) > 0.65);
+  });
+  test("overcast weather greys the ambient (idempotently); clear keeps the sky blue", () => {
+    for (const [preset, maxRatio, minRatio] of [["overcast", 1.5, 1], ["clear", 3.4, 2.6]] as const) {
+      const scene = new Scene();
+      scene.settings.ambientColor.set(sky.r, sky.g, sky.b);
+      const weather = new WeatherSystem({ initial: preset, target: preset });
+      scene.add(weather);
+      weather.advance(1);
+      const once = { ...scene.settings.ambientColor };
+      weather.advance(1);
+      const c = scene.settings.ambientColor;
+      assertCloseTo(c.b, once.b, 9);
+      const ratio = c.b / c.r;
+      assert.ok(ratio < maxRatio && ratio > minRatio, `${preset} ambient b/r ${ratio}`);
+      assertCloseTo(lum(c), lum(sky), 6);
+    }
+  });
+  test("sunlight the deck removes returns as neutral skylight; turning the drive off restores the colour", () => {
+    const run = (transfer: number): { amb: number; sun: number; scene: Scene; weather: WeatherSystem } => {
+      const scene = new Scene();
+      scene.settings.ambientIntensity = 1;
+      scene.settings.ambientColor.set(sky.r, sky.g, sky.b);
+      const e = scene.createTransformedEntity("sun", new Vec3());
+      const sun = new Light();
+      sun.kind = "directional";
+      sun.intensity = 4;
+      sun.direction.set(0, -0.6, -0.8);
+      scene.world.addComponent(e.id, sun);
+      const weather = new WeatherSystem({ initial: "overcast", target: "overcast" });
+      weather.cloudDiffuseTransfer = transfer;
+      scene.add(weather);
+      weather.advance(1);
+      const c = scene.settings.ambientColor;
+      return { amb: lum(c) * scene.settings.ambientIntensity, sun: sun.intensity, scene, weather };
+    };
+    const dim = run(0);
+    const lit = run(0.8);
+    // Overcast removes about half the beam; ~0.8 of it comes back as cos-weighted radiance.
+    const expected = (0.8 * (1 - 0.75 * 0.05) * (4 - lit.sun) * 0.6 * (1 + 0.5)) / Math.PI;
+    assertCloseTo(lit.amb - dim.amb, expected, 2);
+    assert.ok(lit.amb > 3 * dim.amb, `overcast skylight ${lit.amb} vs dim-only ${dim.amb}`);
+    lit.weather.driveLighting = false;
+    lit.weather.apply();
+    assertCloseTo(lit.scene.settings.ambientColor.b, sky.b, 9);
+  });
+  test("snow albedo is near-neutral and the shader greys a snow pixel's ambient", () => {
+    assertContains(STANDARD_FRAGMENT_BODY, "vec3<f32>(0.90, 0.91, 0.93)");
+    assertContains(STANDARD_FRAGMENT_BODY, "mix(skyAmb, vec3<f32>(skyAmbY), 0.65 * ws.snow)");
+    // CPU twin of a shadowed snow pixel under the clear sky: the cool tint stays slight.
+    const shade = neutralizeAmbient(sky, 0.65, { r: 0, g: 0, b: 0 });
+    const ratio = (shade.b * 0.93) / (shade.r * 0.9);
+    assert.ok(ratio > 1.2 && ratio < 1.7, `shadowed snow b/r ${ratio}`);
   });
 });
 

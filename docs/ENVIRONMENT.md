@@ -644,6 +644,14 @@ Grip: wet 0.75, puddles ×0.73 more, snow `1 − 0.7√s`, floor 0.2. Braking fr
 slow flakes), `weatherSoundInput` (levels for `StormSoundscape`; the weather demo starts it only once
 a gesture has unlocked audio — sound stays opt-in).
 
+
+Ambient under cloud: the clear-sky hemispherical ambient is blue, but a deck scatters nearly
+wavelength-independently. `overcastAmbientNeutral` / `neutralizeAmbient` grey the ambient by cover
+(luminance-preserving, idempotent), and `cloudDiffuseTransfer` (default 0.8) returns most of the
+sunlight the deck takes out of the direct beam as neutral skylight, with `cloudShadowFill` (0.5)
+lifting the remaining soft shadows. Snow albedo is `(0.90, 0.91, 0.93)`; a snow cover also greys
+65 % of a pixel's ambient so shadowed snow keeps only a slight cool tint.
+
 ### 11.2 Screen-space water (17.5)
 
 `scene.settings.water.screenSpace` = `"off" | "refraction" | "full"` (per tier:

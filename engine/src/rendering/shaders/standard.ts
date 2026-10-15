@@ -825,9 +825,10 @@ struct WeatheredSurface {
   N: vec3<f32>,
   puddle: f32,
   wet: f32,
+  snow: f32,
 }
 fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>, geomN: vec3<f32>, worldPos: vec3<f32>) -> WeatheredSurface {
-  var out = WeatheredSurface(albedo, roughness, N, 0.0, 0.0);
+  var out = WeatheredSurface(albedo, roughness, N, 0.0, 0.0, 0.0);
   if ((perFrame.flags & 128u) == 0u) {
     return out;
   }
@@ -845,7 +846,8 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   a = a * mix(1.0, 0.75, puddle);
   r = mix(r, 0.03, puddle);
   var n = normalize(mix(N, gN, puddle));
-  a = mix(a, vec3<f32>(0.86, 0.89, 0.93), snow);
+  // Fresh snow: albedo ~0.9 and very nearly neutral (a faint blue from ice absorption in red).
+  a = mix(a, vec3<f32>(0.90, 0.91, 0.93), snow);
   r = mix(r, 0.6, snow);
   n = normalize(mix(n, gN, snow * 0.7));
   out.albedo = a;
@@ -853,6 +855,7 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   out.N = n;
   out.puddle = puddle;
   out.wet = wet * (1.0 - snow);
+  out.snow = snow;
   return out;
 }
 
@@ -903,7 +906,12 @@ ${surfaceSetup}
         }
       }
     }
-    let ambient = perFrame.ambientColor * perFrame.ambientIntensity * ws.albedo;
+    // Snow's ambient is not only the sky dome: the surrounding snowfield bounces neutral light back up
+    // and the pack scatters light many times, so a snow pixel sees a much greyer ambient than the
+    // zenith blue (shadows keep a slight cool tint, never the sky's colour). Luminance-preserving.
+    let skyAmb = perFrame.ambientColor * perFrame.ambientIntensity;
+    let skyAmbY = dot(skyAmb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let ambient = mix(skyAmb, vec3<f32>(skyAmbY), 0.65 * ws.snow) * ws.albedo;
     let ao = ambientOcclusion(in.clipPos.xy, in.viewDepth) * occlusion;
     let irradiance = ambient * (1.0 - F0) * ao;
     color = color + irradiance;

@@ -136,6 +136,28 @@ export function stormLightFactors(coverage: number, storm: number, minimumSun = 
   };
 }
 
+/**
+ * Cloud skylight is grey: a deck scatters nearly wavelength-independently, so the clear-sky blue of
+ * the hemispherical ambient fades as cover grows. Returns the fraction of the ambient's chroma to
+ * remove (0 clear, 0.9 at full cover / storm).
+ */
+export function overcastAmbientNeutral(coverage: number, storm: number): number {
+  return clamp(clamp(coverage, 0, 1) * 0.85 + clamp(storm, 0, 1) * 0.1, 0, 0.9);
+}
+
+/**
+ * Desaturate a linear RGB ambient toward its own luminance (Rec. 709) by `neutral`, keeping the
+ * luminance, so weather changes the ambient's colour without changing its brightness.
+ */
+export function neutralizeAmbient(color: { r: number; g: number; b: number }, neutral: number, out: { r: number; g: number; b: number }): typeof out {
+  const k = clamp(neutral, 0, 1);
+  const y = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+  out.r = color.r + (y - color.r) * k;
+  out.g = color.g + (y - color.g) * k;
+  out.b = color.b + (y - color.b) * k;
+  return out;
+}
+
 export interface WeatherOptions {
   name?: string;
   /** Deterministic seed for the gust/temperature/precipitation fields. Default 1337. */
@@ -187,6 +209,19 @@ const CLOUD_FBM_OCTAVES = 4;
 const SCRATCH_WIND = new Vec2();
 
 export class WeatherSystem extends SceneObject {
+  private lastAmbientColor: { r: number; g: number; b: number } | null = null;
+  /**
+   * Fraction of the direct sunlight the cloud cover removes that returns as neutral diffuse skylight
+   * (scaled down by storm severity: a cumulonimbus reflects and absorbs most of it). Default 0.8;
+   * 0 restores the old dim-only behaviour.
+   */
+  cloudDiffuseTransfer = 0.8;
+  /**
+   * Extra share of the returned skylight that stands in for the cloud base lighting the shadows the
+   * remaining direct beam still casts (a point source cannot cast soft shadows). Default 0.5.
+   */
+  cloudShadowFill = 0.5;
+  private ambientColorSource: { r: number; g: number; b: number } | null = null;
   readonly name: string;
   readonly seed: number;
   readonly state: WeatherState;
@@ -332,12 +367,17 @@ export class WeatherSystem extends SceneObject {
       ? stormLightFactors(this.state.cloudCoverage, this.state.storm01, this.minimumSunLight, this.minimumAmbientLight)
       : { sun: 1, ambient: 1 };
     const lights = scene.collectLights(this.lightingScratch);
+    // Sunlight the deck takes out of the direct beam is not lost: most of it reaches the ground as
+    // diffuse skylight from the cloud base (cos-weighted, as a radiance like ambientColor).
+    let cloudDiffuse = 0;
     for (const light of lights) {
       if (light.kind !== "directional") continue;
       const lastOutput = this.lastLightOutput.get(light);
       const unchanged = this.attenuatedLights.has(light) && lastOutput !== undefined && Math.abs(light.intensity - lastOutput) <= 1e-9;
       const undimmed = unchanged ? light.intensity / Math.max(1e-6, this.previousSunFactor) : light.intensity;
       light.intensity = undimmed * factors.sun;
+      const lum = 0.2126 * light.color.x + 0.7152 * light.color.y + 0.0722 * light.color.z;
+      cloudDiffuse += ((undimmed - light.intensity) * Math.max(0, -light.direction.y) * lum) / Math.PI;
       this.attenuatedLights.add(light);
       this.lastLightOutput.set(light, light.intensity);
     }
@@ -346,6 +386,29 @@ export class WeatherSystem extends SceneObject {
       ? scene.settings.ambientIntensity / Math.max(1e-6, this.previousAmbientFactor)
       : scene.settings.ambientIntensity;
     scene.settings.ambientIntensity = undimmedAmbient * factors.ambient;
+    // Overcast skylight is grey: neutralize the clear-sky ambient's blue by cloud cover. Idempotent
+    // like the intensity: if nobody rewrote the colour since our last write, start from the source.
+    const c = scene.settings.ambientColor;
+    const last = this.lastAmbientColor;
+    const ours = last !== null && Math.abs(c.r - last.r) <= 1e-9 && Math.abs(c.g - last.g) <= 1e-9 && Math.abs(c.b - last.b) <= 1e-9;
+    if (!this.driveLighting && ours && this.ambientColorSource) {
+      // Lighting drive switched off: hand back the colour we were given.
+      c.r = this.ambientColorSource.r;
+      c.g = this.ambientColorSource.g;
+      c.b = this.ambientColorSource.b;
+      this.lastAmbientColor = null;
+    }
+    if (this.driveLighting) {
+      if (!ours) this.ambientColorSource = { r: c.r, g: c.g, b: c.b };
+      neutralizeAmbient(this.ambientColorSource!, overcastAmbientNeutral(this.state.cloudCoverage, this.state.storm01), c);
+      const transfer = this.cloudDiffuseTransfer * (1 - 0.75 * clamp(this.state.storm01, 0, 1));
+      // A cloud base is an extended source: it also fills the shadows the remaining direct beam casts.
+      const add = (transfer * cloudDiffuse * (1 + this.cloudShadowFill)) / Math.max(1e-6, scene.settings.ambientIntensity);
+      c.r += add;
+      c.g += add;
+      c.b += add;
+      this.lastAmbientColor = { r: c.r, g: c.g, b: c.b };
+    }
     if (this.driveSurface) {
       scene.settings.surface.wetness = this.surface.wetness;
       scene.settings.surface.puddles = this.surface.puddles;
