@@ -949,7 +949,9 @@ ${surfaceSetup}
     if (ws.puddle + ws.wet > 1e-3) {
       let nv = clamp(dot(ws.N, V), 0.0, 1.0);
       let fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-      let skyTone = max(perFrame.fogColor, perFrame.ambientColor * perFrame.ambientIntensity * 1.6);
+      // The sky radiance the ambient term already lights the ground with — not the fog colour: in
+      // rain the haze is a bright grey, and reflecting it turned every puddle pale (fe-37c).
+      let skyTone = perFrame.ambientColor * perFrame.ambientIntensity;
       // Muddy water reflects a dimmed, slightly brown sky; capped so grazing puddles never wash
       // out to white (they read as leftover snow otherwise).
       color = color + skyTone * vec3<f32>(0.42, 0.39, 0.33) * min(fres, 0.18) * (ws.puddle + 0.35 * ws.wet) * ao;
