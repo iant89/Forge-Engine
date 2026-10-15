@@ -127,6 +127,7 @@ export interface OffroadSnapshot {
   leaves: number;
   grass: number;
   trackTiles: number;
+  surface: { wetness: number; puddles: number; snow: number };
   weather: OffroadWeather;
   /** Grip multiplier under the car. */
   grip: number;
@@ -874,6 +875,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         trees: near.length + back.length, leaves: litter.length,
         grass: grassSpots.length,
         trackTiles: tracks.tileCount,
+        surface: { ...weather.surface },
         weather: weatherName,
         grip: trackGround.gripAt(vehicle.position.x, vehicle.position.z),
         overlayCoverage: overlay.meanCoverage(),

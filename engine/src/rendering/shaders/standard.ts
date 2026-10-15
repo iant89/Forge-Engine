@@ -872,7 +872,7 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   puddle = puddle * (1.0 - snow);
   // Puddle body: dark, silty water over the ground (not a paler copy of it).
   a = mix(a, a * vec3<f32>(0.32, 0.27, 0.22) + vec3<f32>(0.012, 0.010, 0.008), puddle);
-  r = mix(r, 0.03, puddle);
+  r = mix(r, 0.14, puddle);
   var n = normalize(mix(N, gN, puddle));
   // Fresh snow: albedo ~0.9 and very nearly neutral (a faint blue from ice absorption in red).
   a = mix(a, vec3<f32>(0.90, 0.91, 0.93), snow);
@@ -952,7 +952,7 @@ ${surfaceSetup}
       let skyTone = max(perFrame.fogColor, perFrame.ambientColor * perFrame.ambientIntensity * 1.6);
       // Muddy water reflects a dimmed, slightly brown sky; capped so grazing puddles never wash
       // out to white (they read as leftover snow otherwise).
-      color = color + skyTone * vec3<f32>(0.62, 0.58, 0.5) * min(fres, 0.45) * (ws.puddle + 0.35 * ws.wet) * ao;
+      color = color + skyTone * vec3<f32>(0.42, 0.39, 0.33) * min(fres, 0.18) * (ws.puddle + 0.35 * ws.wet) * ao;
     }
   }
   // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark
