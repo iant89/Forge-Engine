@@ -390,6 +390,8 @@ export const WaterUniforms = new StructDef("WaterUniforms", [
   { name: "shoreC", type: vec4, comment: "(level, colorDepth, total wave amplitude, surf strength 0..1)" },
   { name: "shoreD", type: vec4, comment: "fe-34 curvy coast: (2π/length1, phase1, amp1, dot(origin, perp))" },
   { name: "shoreE", type: vec4, comment: "(2π/length2, phase2, amp2, dropOff)" },
+  { name: "screenA", type: vec4, comment: "Phase 17.5 screen-space water: (mode 0 off / 1 refraction / 2 +SSR, refraction probe multiplier, intersection-foam thickness m, pad)" },
+  { name: "absorption", type: vec4, comment: "Beer–Lambert absorption per metre (rgb), pad" },
 ]);
 
 /**

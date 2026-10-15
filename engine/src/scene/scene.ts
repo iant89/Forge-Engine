@@ -262,7 +262,23 @@ export interface SceneWaterSettings {
   choppiness: number;
   /** Optional analytic shoreline: depth colour, shoaling, breaking and shore foam (fe-33). */
   shore: WaterShoreSettings;
+  /**
+   * Phase 17.5 screen-space water (HDR only; ignored underwater): "off" keeps the sky-only fresnel;
+   * "refraction" composites the water after the opaque scene + sky so it can refract what lies
+   * beneath, absorb it with depth (Beer–Lambert over the real water column read from the depth
+   * buffer) and foam where it meets geometry; "full" adds screen-space reflection of the scene.
+   * `waterScreenSpaceForTier` picks one per device tier. Default "off" (opt-in).
+   */
+  screenSpace: WaterScreenSpaceMode;
+  /** Beer–Lambert absorption per metre of water column (linear RGB). Default [0.35, 0.075, 0.045]. */
+  absorption: [number, number, number];
+  /** Refraction strength: multiplier on the refracted-ray probe (≤ 6 m of column). Default 1; 0 = straight through. */
+  refractionStrength: number;
+  /** Water-column thickness (m) under which geometry intersections foam. Default 0.6; 0 disables. */
+  intersectionFoam: number;
 }
+
+export type WaterScreenSpaceMode = "off" | "refraction" | "full";
 
 /**
  * An analytic sloped seabed (fe-33). The bed rises along `direction` (toward land) through the
@@ -502,6 +518,10 @@ export function defaultWaterSettings(): SceneWaterSettings {
     ],
     choppiness: 1,
     shore: defaultWaterShore(),
+    screenSpace: "off",
+    absorption: [0.35, 0.075, 0.045],
+    refractionStrength: 1,
+    intersectionFoam: 0.6,
   };
 }
 
@@ -1064,6 +1084,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
       murkColor: [s.water.murkColor.r, s.water.murkColor.g, s.water.murkColor.b],
       waves: s.water.waves.map((w) => ({ ...w })),
       shore: { ...s.water.shore },
+      absorption: [...s.water.absorption],
     },
     surface: { ...s.surface },
   };
@@ -1201,6 +1222,11 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.sunGlint = num(water["sunGlint"], t.sunGlint);
     t.foamThreshold = num(water["foamThreshold"], t.foamThreshold);
     t.choppiness = num(water["choppiness"], t.choppiness);
+    if (water["screenSpace"] === "off" || water["screenSpace"] === "refraction" || water["screenSpace"] === "full") t.screenSpace = water["screenSpace"];
+    const absorption = vec(water["absorption"]);
+    if (absorption) t.absorption = [Math.max(0, absorption[0]!), Math.max(0, absorption[1]!), Math.max(0, absorption[2]!)];
+    t.refractionStrength = num(water["refractionStrength"], t.refractionStrength);
+    t.intersectionFoam = num(water["intersectionFoam"], t.intersectionFoam);
     const shore = water["shore"] as Record<string, unknown> | undefined;
     if (shore) {
       const d = t.shore;

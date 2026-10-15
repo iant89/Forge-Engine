@@ -16,10 +16,14 @@
  * the surf zone, lays an animated swash-foam band at the waterline and feathers the opacity to the
  * sand. Choppiness is folded into each wave's Q on the CPU.
  *
- * What this is not: there is no screen-space reflection or refraction of the scene (no planar
- * pass, no depth sampling — the "refraction" is the fresnel-mixed body colour plus the reflected
- * sky tint). The shore is analytic, not read from the terrain's depth. Both are documented in
- * `docs/KNOWN-ISSUES.md`.
+ * Phase 17.5 screen-space mode (`water.screenA.x` > 0, HDR, `settings.water.screenSpace`): the
+ * renderer skips water in `forge.main`, copies the opaque scene + sky and its depth in
+ * `forge.water.grab`, and draws the water afterwards in `forge.water`. The fragment stage then
+ * refracts the scene below (refracted-ray probe with an in-front fallback), absorbs it with the
+ * real water column (Beer–Lambert, `water.absorption`), foams where the column over geometry is
+ * thin, softens the contact edge, and in "full" mode replaces the sky reflection with a
+ * screen-space ray march where it finds the scene. Off-screen content still reflects only the sky
+ * (`docs/KNOWN-ISSUES.md`). With the mode off the program is the fe-35 sky-fresnel water.
  *
  * Bind groups reuse the standard program's frame (group 0) and draw (group 1) layouts and add
  * the water block as group 2. The vertex stage always reads the instance matrix
@@ -37,7 +41,42 @@ export const WATER_BINDINGS = {
   perFrame: { group: 0, binding: 0 },
   instances: { group: 1, binding: 1 },
   water: { group: 2, binding: 0 },
+  /** Phase 17.5: the opaque scene + sky colour behind the water (HDR), copied by `forge.water.grab`. */
+  grabColor: { group: 2, binding: 1 },
+  /** Phase 17.5: the opaque scene's raw depth (r32float), copied by `forge.water.grab`. */
+  grabDepth: { group: 2, binding: 2 },
+  grabSampler: { group: 2, binding: 3 },
 } as const;
+
+/**
+ * Phase 17.5 `forge.water.grab`: one fullscreen triangle that copies the opaque scene + sky colour
+ * and its depth (raw, as r32float — depth24plus cannot be copied or sampled while it is the water
+ * pass's own depth attachment) into the two textures the screen-space water samples.
+ */
+export const WATER_GRAB_SHADER = /* wgsl */ `
+@group(0) @binding(0) var sceneColor: texture_2d<f32>;
+@group(0) @binding(1) var sceneDepth: texture_depth_2d;
+
+struct GrabOut {
+  @location(0) color: vec4<f32>,
+  @location(1) depth: vec4<f32>,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+  let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+  return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment
+fn fragmentMain(@builtin(position) position: vec4<f32>) -> GrabOut {
+  let p = vec2<i32>(position.xy);
+  var out: GrabOut;
+  out.color = vec4<f32>(textureLoad(sceneColor, p, 0).rgb, 1.0);
+  out.depth = vec4<f32>(textureLoad(sceneDepth, p, 0), 0.0, 0.0, 1.0);
+  return out;
+}
+`;
 
 export const WATER_SHADER = /* wgsl */ `
 ${PerFrameUniforms.toWgsl("uniform")}
@@ -53,6 +92,9 @@ ${WaterUniforms.toWgsl("uniform")}
 @group(0) @binding(${BINDINGS.cloud.binding}) var<uniform> cloud: CloudUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 @group(2) @binding(0) var<uniform> water: WaterUniforms;
+@group(2) @binding(1) var grabColor: texture_2d<f32>;
+@group(2) @binding(2) var grabDepth: texture_2d<f32>;
+@group(2) @binding(3) var grabSampler: sampler;
 
 const PI: f32 = 3.141592653589793;
 
@@ -80,6 +122,24 @@ struct WaterVertexOutput {
   @location(4) baseXZ: vec2<f32>,
   // fe-35: displacement / local wave amplitude (−1 trough … +1 crest) for crest/trough shading.
   @location(5) heightN: f32,
+}
+
+// Phase 17.5 screen-space helpers. Pixel coordinates are render-target pixels (renderExtent).
+fn ssDepthAt(pix: vec2<f32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(grabDepth));
+  let c = clamp(vec2<i32>(pix), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
+  return textureLoad(grabDepth, c, 0).r;
+}
+fn ssWorldAt(pix: vec2<f32>, depth: f32) -> vec3<f32> {
+  let uv = pix / perFrame.renderExtent;
+  let h = perFrame.invViewProj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+  return h.xyz / h.w;
+}
+// World → (uv, depth); w < 0 marks a point behind the camera.
+fn ssProject(p: vec3<f32>) -> vec4<f32> {
+  let c = perFrame.viewProj * vec4<f32>(p, 1.0);
+  let w = max(c.w, 1.0e-5);
+  return vec4<f32>(c.x / w * 0.5 + 0.5, 0.5 - c.y / w * 0.5, c.z / w, sign(c.w));
 }
 
 // Still-water depth over the analytic shore bed; a huge value when the shore is off.
@@ -238,11 +298,76 @@ fn fragmentMain(in: WaterVertexOutput, @builtin(front_facing) frontFacing: bool)
   // least the haze the eye sees there (the fog colour).
   let horizonRef = max(water.skyTint, perFrame.fogColor * 1.15);
   let skyRef = horizonRef * (0.55 + 0.45 * clamp(R.y, 0.0, 1.0)) * mix(0.6, 1.1, smoothstep(-1.0, 1.0, h));
-  var color = mix(diffuse, skyRef, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;
+  var transmitted = diffuse;
+  var reflection = skyRef;
+  var alpha = water.opacity;
+  var edgeFoam = 0.0;
+  if (water.screenA.x > 0.5) {
+    // Phase 17.5 screen-space water: the scene behind the surface was copied by forge.water.grab.
+    let extent = perFrame.renderExtent;
+    let px = in.clipPos.xy;
+    let cam = perFrame.cameraPosRender;
+    let rawD = ssDepthAt(px);
+    let open = rawD >= 0.99999;
+    let behind = ssWorldAt(px, rawD);
+    let column0 = select(length(behind - in.worldPos), 1.0e4, open);
+    // Refraction: follow the refracted ray (n = 1.33) a column's length and read the scene where it
+    // lands. A probe that lands on something in front of the water (an object above it) would leak
+    // that object into the water, so it falls back to the straight-through pixel.
+    let Rt = refract(-V, N, 0.75);
+    let probe = in.worldPos + Rt * clamp(column0, 0.0, 6.0) * water.screenA.y;
+    let pr = ssProject(probe);
+    var uvR = pr.xy;
+    var rawR = ssDepthAt(uvR * extent);
+    if (pr.w < 0.0 || any(uvR < vec2<f32>(0.0)) || any(uvR > vec2<f32>(1.0)) || rawR < in.clipPos.z) {
+      uvR = px / extent;
+      rawR = rawD;
+    }
+    let behindR = ssWorldAt(uvR * extent, rawR);
+    let column = select(length(behindR - in.worldPos), 1.0e4, rawR >= 0.99999);
+    // Depth-dependent absorption (Beer–Lambert along the view path through the water); what is
+    // absorbed is replaced by the body's own in-scattered colour.
+    let T = exp(-water.absorption.rgb * column);
+    let under = textureSampleLevel(grabColor, grabSampler, uvR, 0.0).rgb;
+    transmitted = under * T + diffuse * (vec3<f32>(1.0) - T);
+    // Intersection foam: a thin water column over geometry (rocks, piers, hulls, the beach).
+    let vertical = select(max(in.worldPos.y - behind.y, 0.0), 1.0e4, open);
+    if (water.screenA.z > 0.0) {
+      let lace = waterNoise(in.worldPos.xz * 2.4 + vec2<f32>(water.time * 0.3, -water.time * 0.21));
+      edgeFoam = (1.0 - smoothstep(0.0, water.screenA.z, vertical)) * (0.45 + 0.55 * lace);
+    }
+    // Soft contact instead of a hard intersection line.
+    alpha = smoothstep(0.0, 0.08, vertical);
+    if (water.screenA.x > 1.5 && R.y > -0.05) {
+      // Screen-space reflection: march the reflected ray in growing steps, stop where it passes
+      // behind the depth buffer within a thickness tolerance, fade at the screen edges and with
+      // march length. Anything it cannot find on screen stays the sky reflection.
+      var t = 0.3;
+      for (var i = 0; i < 40; i = i + 1) {
+        t = t * 1.16 + 0.35;
+        let p = in.worldPos + R * t;
+        let q = ssProject(p);
+        if (q.w < 0.0 || any(q.xy < vec2<f32>(0.0)) || any(q.xy > vec2<f32>(1.0))) {
+          break;
+        }
+        let sd = ssDepthAt(q.xy * extent);
+        if (sd < 0.99999 && q.z > sd) {
+          let sp = ssWorldAt(q.xy * extent, sd);
+          if (length(p - cam) - length(sp - cam) < max(0.75, t * 0.3)) {
+            let edge = q.xy * 2.0 - 1.0;
+            let fade = (1.0 - smoothstep(0.8, 1.0, max(abs(edge.x), abs(edge.y)))) * (1.0 - f32(i) / 40.0);
+            let hit = textureSampleLevel(grabColor, grabSampler, q.xy, 0.0).rgb;
+            reflection = mix(skyRef, hit, clamp(fade, 0.0, 1.0));
+          }
+          break;
+        }
+      }
+    }
+  }
+  var color = mix(transmitted, reflection, clamp(fresnel * 0.9, 0.0, 1.0)) + glint;
   let breakup = waterNoise(in.worldPos.xz * 1.5 + water.time * 0.35) - 0.5;
   let foamMask = smoothstep(water.foamThreshold, 1.0, clamp(in.crest + breakup * 0.25, 0.0, 1.0));
-  var foam = foamMask * 0.85;
-  var alpha = water.opacity;
+  var foam = max(foamMask * 0.85, edgeFoam);
   if (water.shoreB.w > 0.5) {
     // Breaking crests across the surf zone, then the swash band hugging the waterline.
     let b = max(1.0e-3, water.shoreB.y);

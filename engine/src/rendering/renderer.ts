@@ -100,6 +100,8 @@ export interface RendererOptions {
   skyQuality?: SkyQuality;
   /** `false` never runs `forge.prepass` (and therefore never SSAO), whatever the scene asks. */
   depthPrepass?: boolean;
+  /** Phase 17.5: allow `scene.settings.water.screenSpace` (default true; false forces the sky-only water). */
+  waterScreenSpace?: boolean;
   /** `false` never runs the SSAO passes, whatever `scene.settings.ssao.enabled` says. */
   ssao?: boolean;
   /**
@@ -808,6 +810,13 @@ export class Renderer implements RenderFrameContext {
   private cloudBuffer: GPUBuffer | null = null;
   private waterBuffer: GPUBuffer | null = null;
   private waterBindGroup: GPUBindGroup | null = null;
+  private waterBindGroupViews: [GPUTextureView | null, GPUTextureView | null] = [null, null];
+  private waterGrabFallback: { color: GPUTextureView; depth: GPUTextureView } | null = null;
+  private waterGrabFallbackTextures: GPUTexture[] = [];
+  private waterGrabGroup: GPUBindGroup | null = null;
+  private waterGrabGroupViews: [GPUTextureView | null, GPUTextureView | null] = [null, null];
+  /** Phase 17.5: this frame's screen-space water mode (0 off, 1 refraction, 2 + SSR). */
+  private frameWaterScreenSpace = 0;
   private frameBindGroup: GPUBindGroup | null = null;
   private frameBindGroupView: GPUTextureView | null = null;
   private frameBindGroupAoView: GPUTextureView | null = null;
@@ -1295,6 +1304,7 @@ export class Renderer implements RenderFrameContext {
     if (skySettings) this.writeSky(skySettings);
     else this.pendingSky = null;
     this.writeClouds(scene, skySettings, lights);
+    this.frameWaterScreenSpace = this.waterScreenSpaceMode(scene, hdr, underwater);
     this.writeWater(scene, skySettings, lights);
     this.populationCuller?.begin();
     for (let i = 0; i < this.batchCount; i++) {
@@ -1343,6 +1353,22 @@ export class Renderer implements RenderFrameContext {
     });
     this.stats.aerialPerspective = aerialPerspective;
     this.finishFrame();
+  }
+
+  /**
+   * Phase 17.5: the screen-space water mode this frame can run — HDR only (the grab copies the HDR
+   * scene target), never underwater (the murk path owns that view), and only with a water batch.
+   */
+  private waterScreenSpaceMode(scene: Scene, hdr: boolean, underwater: boolean): number {
+    const water = scene.settings.water;
+    if (!hdr || underwater || !water.enabled || water.screenSpace === "off" || this.options.waterScreenSpace === false) return 0;
+    let any = false;
+    for (let i = 0; i < this.batchCount && !any; i++) {
+      const b = this.batchPool[i]!;
+      any = !b.shadowOnly && b.material.technique === "water";
+    }
+    if (!any) return 0;
+    return water.screenSpace === "full" ? 2 : 1;
   }
 
   /** Systems call this through `SystemContext.render`; it queues per-instance data. */
@@ -1456,8 +1482,9 @@ export class Renderer implements RenderFrameContext {
       width: frame.renderWidth,
       height: frame.renderHeight,
       format: this.device.depthFormat,
-      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || this.cullOcclusion ? TextureUsage.TEXTURE_BINDING : 0),
+      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || this.cullOcclusion || this.frameWaterScreenSpace > 0 ? TextureUsage.TEXTURE_BINDING : 0),
     });
+    const waterScreenSpace = frame.hdr && this.frameWaterScreenSpace > 0;
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
     // Multiple scattering (Phase 17.1): rebuild the table before anything samples it. The two
     // dispatches write a buffer the sky pass reads; they are recorded ahead of every other pass
@@ -1523,7 +1550,7 @@ export class Renderer implements RenderFrameContext {
       color: [{ texture: sceneColor, clearValue: [clear[0], clear[1], clear[2], 1] }],
       // Loads the prepass depth when there is one. The sky pass depth-tests against this buffer
       // (and soft particles sample it), so it must survive the pass when either runs.
-      depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles ? "store" : "discard" },
+      depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles || waterScreenSpace ? "store" : "discard" },
       execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas, aoResult),
     });
     if (frame.sky) {
@@ -1539,6 +1566,28 @@ export class Renderer implements RenderFrameContext {
         color: [{ texture: sceneColor, loadOp: "load" }],
         depth: { texture: sceneDepth, depthLoadOp: "load", depthStoreOp: "store" },
         execute: (ctx) => this.executeSkyPass(ctx, colorFormat),
+      });
+    }
+    // Phase 17.5 screen-space water: copy what the water covers (opaque scene + sky, and its depth),
+    // then draw the water over it reading the copy — refraction, absorption, intersection foam, SSR.
+    if (waterScreenSpace) {
+      const grabColor = g.createTexture("water.grab.color", { width: frame.renderWidth, height: frame.renderHeight, format: HDR_FORMAT, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+      const grabDepth = g.createTexture("water.grab.depth", { width: frame.renderWidth, height: frame.renderHeight, format: "r32float", usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+      g.addPass({
+        name: "forge.water.grab",
+        reads: [sceneColor, sceneDepth],
+        color: [{ texture: grabColor, clearValue: [0, 0, 0, 1] }, { texture: grabDepth, clearValue: [1, 0, 0, 1] }],
+        execute: (ctx) => this.executeWaterGrabPass(ctx, sceneColor, sceneDepth),
+      });
+      const waterReads: RenderGraphHandle[] = [grabColor, grabDepth];
+      if (shadowAtlas !== null) waterReads.push(shadowAtlas);
+      if (aoResult !== null) waterReads.push(aoResult);
+      g.addPass({
+        name: "forge.water",
+        reads: waterReads,
+        color: [{ texture: sceneColor, loadOp: "load" }],
+        depth: { texture: sceneDepth, depthLoadOp: "load", depthStoreOp: "store" },
+        execute: (ctx) => this.executeWaterPass(ctx, colorFormat, shadowAtlas, aoResult, grabColor, grabDepth),
       });
     }
 
@@ -1788,16 +1837,101 @@ export class Renderer implements RenderFrameContext {
     return this.skyBindGroup;
   }
 
-  /** Group 2 for the water program: the single water block, shared by all water draws. */
-  private ensureWaterBindGroup(): GPUBindGroup {
-    if (this.waterBindGroup) return this.waterBindGroup;
+  /**
+   * Group 2 for the water program: the water block plus (Phase 17.5) the grabbed scene colour and
+   * depth. `forge.main` binds 1×1 fallbacks (the screen-space branch is off there); `forge.water`
+   * binds this frame's grab views. Cached per view pair; graph re-allocations drop the cache.
+   */
+  private ensureWaterBindGroup(grabColor: GPUTextureView | null = null, grabDepth: GPUTextureView | null = null): GPUBindGroup {
+    const colorView = grabColor ?? this.ensureWaterGrabFallback().color;
+    const depthView = grabDepth ?? this.ensureWaterGrabFallback().depth;
+    if (this.waterBindGroup && this.waterBindGroupViews[0] === colorView && this.waterBindGroupViews[1] === depthView) return this.waterBindGroup;
     const { water } = this.pipelines.bindGroupLayouts;
     this.waterBindGroup = this.device.device.createBindGroup({
       label: "water.bindgroup",
       layout: water,
-      entries: [{ binding: 0, resource: { buffer: this.waterBuffer! } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.waterBuffer! } },
+        { binding: 1, resource: colorView },
+        { binding: 2, resource: depthView },
+        { binding: 3, resource: this.device.sampler("linear-clamp") },
+      ],
     });
+    this.waterBindGroupViews = [colorView, depthView];
     return this.waterBindGroup;
+  }
+
+  private ensureWaterGrabFallback(): { color: GPUTextureView; depth: GPUTextureView } {
+    if (this.waterGrabFallback) return this.waterGrabFallback;
+    const color = this.device.createTexture({ label: "water.grab.fallback.color", size: { width: 1, height: 1, depthOrArrayLayers: 1 }, format: HDR_FORMAT, usage: TextureUsage.TEXTURE_BINDING });
+    const depth = this.device.createTexture({ label: "water.grab.fallback.depth", size: { width: 1, height: 1, depthOrArrayLayers: 1 }, format: "r32float", usage: TextureUsage.TEXTURE_BINDING });
+    this.waterGrabFallbackTextures = [color, depth];
+    this.waterGrabFallback = { color: color.createView({ label: "water.grab.fallback.color.view" }), depth: depth.createView({ label: "water.grab.fallback.depth.view" }) };
+    return this.waterGrabFallback;
+  }
+
+  private ensureWaterGrabGroup(color: GPUTextureView, depth: GPUTextureView): GPUBindGroup {
+    if (this.waterGrabGroup && this.waterGrabGroupViews[0] === color && this.waterGrabGroupViews[1] === depth) return this.waterGrabGroup;
+    this.waterGrabGroup = this.device.device.createBindGroup({
+      label: "water.grab.bindgroup",
+      layout: this.pipelines.bindGroupLayouts.waterGrab,
+      entries: [
+        { binding: 0, resource: color },
+        { binding: 1, resource: depth },
+      ],
+    });
+    this.waterGrabGroupViews = [color, depth];
+    return this.waterGrabGroup;
+  }
+
+  /** `forge.water.grab`: copy the opaque scene + sky colour and depth for the screen-space water. */
+  private executeWaterGrabPass(ctx: RenderGraphPassContext, sceneColor: RenderGraphHandle, sceneDepth: RenderGraphHandle): void {
+    this.syncGraphEpoch();
+    const pipeline = this.pipelines.getReady({ technique: "waterGrab", colorFormat: HDR_FORMAT, depthFormat: null, transparent: false, doubleSided: true, instanced: false });
+    const pass = ctx.beginRenderPass();
+    if (pipeline) {
+      pass.setPipeline(pipeline.pipeline);
+      pass.setBindGroup(0, this.ensureWaterGrabGroup(ctx.view(sceneColor), ctx.view(sceneDepth, { aspect: "depth-only" })));
+      pass.draw(3);
+      this.stats.drawCalls++;
+    }
+    pass.end();
+  }
+
+  /** `forge.water`: the water batches, after the sky, reading the grab (Phase 17.5). */
+  private executeWaterPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null, ao: RenderGraphHandle | null, grabColor: RenderGraphHandle, grabDepth: RenderGraphHandle): void {
+    this.syncGraphEpoch();
+    const records = this.indirectDrawsEnabled ? this.drawRecords : null;
+    const shadowView = shadowAtlas !== null ? ctx.view(shadowAtlas, { dimension: "2d-array" }) : this.ensureShadowFallback();
+    const aoView = ao !== null ? ctx.view(ao) : this.ensureAoFallback();
+    const pass = ctx.beginRenderPass();
+    pass.setBindGroup(0, this.ensureFrameBindGroup(shadowView, aoView));
+    const waterGroup = this.ensureWaterBindGroup(ctx.view(grabColor), ctx.view(grabDepth));
+    for (let i = 0; i < this.batchCount; i++) {
+      const b = this.batchPool[i]!;
+      if (b.shadowOnly || b.material.technique !== "water") continue;
+      const instanced = b.count > 1 || b.lodHiTriangles > 0;
+      const pipeline = this.pipelines.getReady({ technique: "water", colorFormat, depthFormat: this.device.depthFormat, transparent: b.transparent, doubleSided: b.material.doubleSided, instanced, lod: b.lodHiTriangles > 0, skinned: false, writeDepth: true });
+      if (!pipeline) continue;
+      pass.setPipeline(pipeline.pipeline);
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(2, waterGroup);
+      pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+      if (b.geometry.indexBuffer) {
+        pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+        if (records) {
+          pass.drawIndexedIndirect(records, b.cullIndex * DRAW_RECORD_BYTES);
+          this.stats.indirectDraws++;
+        } else pass.drawIndexed(b.indexCount, b.count, b.indexStart);
+      } else if (records) {
+        pass.drawIndirect(records, b.cullIndex * DRAW_RECORD_BYTES);
+        this.stats.indirectDraws++;
+      } else pass.draw(b.indexCount, b.count);
+      this.stats.drawCalls++;
+      this.stats.triangles += (b.indexCount / 3) * Math.max(1, b.count);
+      this.stats.instances += b.count;
+    }
+    pass.end();
   }
 
   private applyGraphStats(stats: RenderGraphStats): void {
@@ -2037,8 +2171,10 @@ export class Renderer implements RenderFrameContext {
       if (!b.shadowOnly) sorted.push(b);
     }
     sorted.sort((a, b) => (a.transparent === b.transparent ? a.depthSort - b.depthSort : a.transparent ? 1 : -1));
+    const deferWater = this.frameWaterScreenSpace > 0;
     for (const b of sorted) {
       const isWater = b.material.technique === "water";
+      if (isWater && deferWater) continue;
       // An opaque batch whose prepass variant is still compiling must use a depth-writing forward
       // variant this frame; otherwise a missing prepass would leave later opaque geometry unoccluded.
       // LOD batches always draw through the instanced LOD entry (their instance data is the
@@ -2536,6 +2672,8 @@ export class Renderer implements RenderFrameContext {
       if (w.amplitude > 0 && w.wavelength > 0) totalAmp += w.amplitude;
     }
     a.setVec4("shoreC", water.level, Math.max(0.01, shore.colorDepth), totalAmp, Math.min(1, totalAmp / 0.8));
+    a.setVec4("screenA", this.frameWaterScreenSpace, Math.max(0, water.refractionStrength), Math.max(0, water.intersectionFoam), 0);
+    a.setVec4("absorption", Math.max(0, water.absorption[0]), Math.max(0, water.absorption[1]), Math.max(0, water.absorption[2]), 0);
     this.device.device.queue.writeBuffer(this.waterBuffer!, 0, gpuSource(this.waterBytes.bytes.subarray(0, this.waterBytes.byteLength)));
   }
 
@@ -4058,6 +4196,8 @@ export class Renderer implements RenderFrameContext {
     this.objectCuller?.invalidate();
     this.postGroups.clear();
     this.frameBindGroup = null;
+    this.waterGrabGroup = null;
+    this.waterGrabGroupViews = [null, null];
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
     this.frameBindGroupMsTexture = null;
@@ -4472,6 +4612,12 @@ export class Renderer implements RenderFrameContext {
     this.ssaoBuffer = null;
     this.skyBindGroup = null;
     this.waterBindGroup = null;
+    this.waterBindGroupViews = [null, null];
+    this.waterGrabGroup = null;
+    this.waterGrabGroupViews = [null, null];
+    for (const t of this.waterGrabFallbackTextures) t.destroy();
+    this.waterGrabFallbackTextures = [];
+    this.waterGrabFallback = null;
     this.prepassBindGroup = null;
     this.skinPalettes.release();
     this.skinBindGroup = null;

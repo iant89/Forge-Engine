@@ -39,7 +39,7 @@ import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERT
 import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
 import { SKY_SHADER, SKY_BINDINGS } from "./shaders/sky.js";
-import { WATER_SHADER, WATER_BINDINGS } from "./shaders/water.js";
+import { WATER_SHADER, WATER_BINDINGS, WATER_GRAB_SHADER } from "./shaders/water.js";
 import { SSAO_SHADER, SSAO_BINDINGS, type SsaoEntryPoint } from "./shaders/ssao.js";
 import { JOINT_PALETTE_BYTES } from "./skinning.js";
 import { ShaderCache } from "../gpu/shaderCache.js";
@@ -50,7 +50,7 @@ export type PostEntryPoint = "fsPrefilter" | "fsDownsample" | "fsUpsample" | "fs
 export type { SsaoEntryPoint };
 
 export interface PipelineKeyOptions {
-  technique: "standard" | "unlit" | "emissive" | "depth" | "prepass" | "debug" | "blit" | "post" | "sky" | "water" | "ssao" | "terrain";
+  technique: "standard" | "unlit" | "emissive" | "depth" | "prepass" | "debug" | "blit" | "post" | "sky" | "water" | "waterGrab" | "ssao" | "terrain";
   colorFormat: GPUTextureFormat | null;
   depthFormat: GPUTextureFormat | null;
   /** Alpha blending (src-alpha / one-minus-src-alpha) and no depth writes for the colour pass. */
@@ -152,6 +152,8 @@ export class PipelineFactory {
   private skyLayout: GPUPipelineLayout | null = null;
   private waterBindGroupLayout: GPUBindGroupLayout | null = null;
   private waterLayout: GPUPipelineLayout | null = null;
+  private waterGrabBindGroupLayout: GPUBindGroupLayout | null = null;
+  private waterGrabLayout: GPUPipelineLayout | null = null;
   private prepassFrameLayout: GPUBindGroupLayout | null = null;
   private prepassLayout: GPUPipelineLayout | null = null;
   private ssaoBindGroupLayout: GPUBindGroupLayout | null = null;
@@ -185,6 +187,7 @@ export class PipelineFactory {
     post: GPUBindGroupLayout;
     sky: GPUBindGroupLayout;
     water: GPUBindGroupLayout;
+    waterGrab: GPUBindGroupLayout;
     ssao: GPUBindGroupLayout;
     ssaoBlur: GPUBindGroupLayout;
     skin: GPUBindGroupLayout;
@@ -208,6 +211,7 @@ export class PipelineFactory {
       post: this.postBindGroupLayout!,
       sky: this.skyBindGroupLayout!,
       water: this.waterBindGroupLayout!,
+      waterGrab: this.waterGrabBindGroupLayout!,
       ssao: this.ssaoBindGroupLayout!,
       ssaoBlur: this.ssaoBlurBindGroupLayout!,
       skin: this.skinBindGroupLayout!,
@@ -338,8 +342,20 @@ export class PipelineFactory {
       label: "water.layout",
       entries: [
         { binding: WATER_BINDINGS.water.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: WaterUniforms.byteSize("uniform") } },
+        // Phase 17.5: the grabbed scene colour + depth (1×1 fallbacks when the screen-space mode is off).
+        { binding: WATER_BINDINGS.grabColor.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+        { binding: WATER_BINDINGS.grabDepth.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+        { binding: WATER_BINDINGS.grabSampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
       ],
     });
+    this.waterGrabBindGroupLayout = d.createBindGroupLayout({
+      label: "water.grab.layout",
+      entries: [
+        { binding: 0, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+        { binding: 1, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d", multisampled: false } },
+      ],
+    });
+    this.waterGrabLayout = d.createPipelineLayout({ bindGroupLayouts: [this.waterGrabBindGroupLayout] });
     this.waterLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.waterBindGroupLayout] });
     this.prepassLayout = d.createPipelineLayout({ bindGroupLayouts: [this.prepassFrameLayout, this.drawLayout] });
     const ssaoUniform: GPUBindGroupLayoutEntry = { binding: SSAO_BINDINGS.uniforms.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: SsaoUniforms.byteSize("uniform") } };
@@ -377,8 +393,12 @@ export class PipelineFactory {
     this.skinPrepassLayout = d.createPipelineLayout({ bindGroupLayouts: [this.prepassFrameLayout, this.drawLayout, this.skinPlaceholderLayout, this.skinBindGroupLayout] });
   }
 
-  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean; ssao?: boolean; skinned?: boolean } {
+  private moduleFor(key: PipelineKeyOptions): { vertex: GPUShaderModule; fragment: GPUShaderModule; vertexEntry: string; fragmentEntry: string; blit?: boolean; debug?: boolean; post?: boolean; sky?: boolean; water?: boolean; waterGrab?: boolean; ssao?: boolean; skinned?: boolean } {
     switch (key.technique) {
+      case "waterGrab": {
+        const module = this.shaders.get("water.grab.wgsl", WATER_GRAB_SHADER);
+        return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: "fragmentMain", waterGrab: true };
+      }
       case "ssao": {
         const module = this.shaders.get("ssao.wgsl", SSAO_SHADER);
         return { vertex: module, fragment: module, vertexEntry: "vertexMain", fragmentEntry: key.fragmentEntry ?? "fsSsao", ssao: true };
@@ -564,13 +584,15 @@ export class PipelineFactory {
 
   private describe(options: PipelineKeyOptions, key: string): { descriptor: GPURenderPipelineDescriptor; topology: GPUPrimitiveTopology } {
     // `prepass` falls through to the standard module in moduleFor: same source, same vertex entry.
-    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, ssao, skinned } = this.moduleFor(options);
+    const { vertex, fragment, vertexEntry, fragmentEntry, debug, blit, post, sky, water, waterGrab, ssao, skinned } = this.moduleFor(options);
     const sampleCount = options.sampleCount ?? 1;
     const isShadowDepth = options.technique === "depth";
     const isPrepass = options.technique === "prepass";
     const isDepthOnly = isShadowDepth || isPrepass;
-    const fullscreen = blit || post || sky || ssao;
-    const layout = debug
+    const fullscreen = blit || post || sky || ssao || waterGrab;
+    const layout = waterGrab
+      ? this.waterGrabLayout!
+      : debug
       ? this.debugLayout!
       : blit
         ? this.blitLayout!
@@ -622,7 +644,10 @@ export class PipelineFactory {
         : {
             module: fragment,
             entryPoint: fragmentEntry,
-            targets: options.colorFormat
+            // forge.water.grab writes the colour copy and the r32float depth copy together.
+            targets: waterGrab && options.colorFormat
+              ? [{ format: options.colorFormat, writeMask: 0xf }, { format: "r32float", writeMask: 0xf }]
+              : options.colorFormat
               ? [
                   {
                     format: options.colorFormat,
@@ -716,6 +741,8 @@ export class PipelineFactory {
     this.skyLayout = null;
     this.waterBindGroupLayout = null;
     this.waterLayout = null;
+    this.waterGrabBindGroupLayout = null;
+    this.waterGrabLayout = null;
     this.prepassFrameLayout = null;
     this.prepassLayout = null;
     this.ssaoBindGroupLayout = null;
