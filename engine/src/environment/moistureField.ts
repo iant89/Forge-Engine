@@ -34,7 +34,7 @@ export interface SoilType {
 }
 
 export const SOIL_TYPES = {
-  dirt: { name: "dirt", color: [0.24, 0.17, 0.11], wetColor: [0.085, 0.06, 0.04], roughness: 0.92, infiltration: 6e-6, capacity: 0.012, muddy: 1 },
+  dirt: { name: "dirt", color: [0.24, 0.17, 0.11], wetColor: [0.085, 0.06, 0.04], roughness: 0.92, infiltration: 1e-5, capacity: 0.012, muddy: 1 },
   grass: { name: "grass", color: [0.12, 0.17, 0.06], wetColor: [0.06, 0.085, 0.03], roughness: 0.9, infiltration: 1e-5, capacity: 0.02, muddy: 0.35 },
   sand: { name: "sand", color: [0.5, 0.42, 0.28], wetColor: [0.3, 0.24, 0.15], roughness: 0.85, infiltration: 5e-5, capacity: 0.01, muddy: 0 },
   rock: { name: "rock", color: [0.22, 0.21, 0.2], wetColor: [0.12, 0.115, 0.11], roughness: 0.8, infiltration: 0, capacity: 0.0005, muddy: 0 },
@@ -250,8 +250,8 @@ export class GroundMoistureField {
         this.moisture[k] += soak / soil.capacity;
         this.waterOut += soak * area;
       }
-      // Standing water keeps the soil under it saturated; bare soil dries exponentially.
-      if (this.water[k]! < 1e-4) this.moisture[k] *= Math.exp(-dryRate * dt);
+      // The top layer drains (percolation) and dries exponentially; standing water keeps refilling it.
+      this.moisture[k] *= Math.exp(-dryRate * dt);
       const ev = Math.min(this.water[k]!, evap);
       if (ev > 0) {
         this.water[k] -= ev;

@@ -297,16 +297,16 @@ export class SnowMeltSystem extends SceneObject {
         substrateFlux: substrateFlux(env, cover.depth, cover.substrateAlbedo, cos) + cover.substrateHeat,
       });
       const melt = Math.min(cover.depth, meltRate(q) * dt);
+      // Liquid water in the pack follows the melt flux: ~150 W/m² of melt energy saturates it within
+      // ~15 min; without melt it drains and refreezes over ~30 min.
+      const wetTarget = clamp(q / 150, 0, 1);
+      const tau = wetTarget > cover.wetness ? 900 : 1800;
+      cover.wetness = wetTarget + (cover.wetness - wetTarget) * Math.exp(-dt / tau);
       if (melt > 0) {
         cover.depth -= melt;
-        // Liquid water builds up in the pack as it melts (≈ saturated after a fifth of it has melted).
-        cover.wetness = clamp(cover.wetness + (melt / Math.max(cover.depth + melt, 0.005)) * 5, 0, 1);
         const water = (melt * area * DEFAULT_SNOW_DENSITY) / WATER_DENSITY;
         cover.meltwater += water;
         this.drip(cover, transform, water);
-      } else {
-        // No melt: the water drains out and refreezes (≈ 30 min).
-        cover.wetness *= Math.exp(-dt / 1800);
       }
       if (cover.depth < 1e-4) cover.depth = 0;
       this.shed(cover, transform, up);
@@ -444,7 +444,7 @@ export class SnowMeltSystem extends SceneObject {
     const line = cover.shape.kind === "sphere" ? Math.cos(cover.extent) : up.y - 0.08;
     const wet = cover.wetness;
     const p = cover.pushed;
-    if (Math.abs(p[0]! - amount) < 1e-3 && Math.abs(p[1]! - line) < 1e-3 && Math.abs(p[2]! - wet) < 1e-2) return;
+    if ((amount !== 0 || p[0] === 0) && Math.abs(p[0]! - amount) < 1e-3 && Math.abs(p[1]! - line) < 1e-3 && Math.abs(p[2]! - wet) < 1e-2) return;
     p[0] = amount;
     p[1] = line;
     p[2] = wet;
@@ -466,7 +466,7 @@ export class SnowMeltSystem extends SceneObject {
             c.phase = "fall";
           } else {
             const along = GRAVITY * Math.sin(c.theta!) - c.mu * normal;
-            c.omega = Math.max(0.02 / r, c.omega! + (along / r) * h);
+            c.omega = Math.max(0.3 / r, c.omega! + (along / r) * h);
             c.theta = c.theta! + c.omega * h;
             placeOnSphere(c);
             continue;
