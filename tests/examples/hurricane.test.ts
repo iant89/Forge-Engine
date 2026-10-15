@@ -3,6 +3,7 @@
  * @group unit
  * @covers examples/src/scenes/hurricane.ts
  * @covers examples/src/sceneSelection.ts
+ * @covers examples/src/scenes/hurricaneHouses.ts
  * @desc fe-33 hurricane demo script: track, intensification, landfall, eyewall → eye → back eyewall over the beach
  */
 
@@ -11,15 +12,17 @@ export const suite = {
   group: "unit",
   covers:   [
     "examples/src/scenes/hurricane.ts",
-    "examples/src/sceneSelection.ts"
+    "examples/src/sceneSelection.ts",
+    "examples/src/scenes/hurricaneHouses.ts"
   ],
   desc: "fe-33 hurricane demo script: track, intensification, landfall, eyewall → eye → back eyewall over the beach",
 };
 import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
-import { cyclonePhaseAt, cycloneWindAt, saffirSimpsonCategory } from "@forge/engine";
-import { HURRICANE_BEATS, HURRICANE_OBSERVER, HURRICANE_TIME_COMPRESSION, createHurricaneTrack, hurricaneLandfallTime } from "../../examples/src/scenes/hurricane.js";
+import { coastalCoordinates, coastalHeightAt, cyclonePhaseAt, cycloneWindAt, saffirSimpsonCategory } from "@forge/engine";
+import { HURRICANE_BEATS, HURRICANE_COAST, HURRICANE_OBSERVER, hurricaneTide, HURRICANE_TIME_COMPRESSION, createHurricaneTrack, hurricaneLandfallTime } from "../../examples/src/scenes/hurricane.js";
 import { resolveDemoSceneName } from "../../examples/src/sceneSelection.js";
+import { houseSites } from "../../examples/src/scenes/hurricaneHouses.js";
 
 const track = createHurricaneTrack();
 const phaseAt = (t: number) => {
@@ -59,6 +62,23 @@ group("hurricane script", () => {
   test("scene routing", () => {
     assert.equal(resolveDemoSceneName("hurricane"), "hurricane");
     assert.equal(resolveDemoSceneName("beach"), "hurricane");
+  });
+});
+
+group("hurricane polish (fe-34)", () => {
+  test("the sea pulls back before the storm and the tide recovers for the surge", () => {
+    assert.ok(Math.abs(hurricaneTide(0)) < 1e-12);
+    assert.ok(hurricaneTide(HURRICANE_BEATS.lowTide) < -0.6, "low tide at the low-tide beat");
+    assert.ok(hurricaneTide(HURRICANE_BEATS.surge) > -0.05, "tide back by the surge");
+    for (let t = 0; t < 130; t += 0.5) assert.ok(hurricaneTide(t) <= 0 && hurricaneTide(t) >= -0.9);
+  });
+  test("beach houses sit behind the dunes, on dry ground, deterministically", () => {
+    const sites = houseSites(HURRICANE_COAST, 7, 520, 122);
+    assert.deepEqual(sites, houseSites(HURRICANE_COAST, 7, 520, 122));
+    for (const s of sites) {
+      assert.ok(coastalCoordinates(HURRICANE_COAST, s.x, s.z).along > 90, "behind the fore-dune");
+      assert.ok(s.y >= coastalHeightAt(HURRICANE_COAST, s.x, s.z) && s.y > 3, "dry, pilings on the ground");
+    }
   });
 });
 

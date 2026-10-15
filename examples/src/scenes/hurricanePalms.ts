@@ -14,6 +14,7 @@ import {
   Vec3,
   coastalHeightAt,
   createWindSwayPose,
+  shoreCurveOffset,
   cylinderGeometrySource,
   sphereGeometrySource,
   windBendWeights,
@@ -300,8 +301,9 @@ export function palmSites(coast: CoastalTerrainParams, count: number, width: num
   const dz = coast.directionZ / len;
   const out: PalmSite[] = [];
   for (let i = 0; i < count; i++) {
-    const a = minAlong + (maxAlong - minAlong) * hash1(i * 3 + 1, seed);
     const c = ((i + hash1(i * 3 + 2, seed) * 0.8) / Math.max(1, count) - 0.5) * width;
+    // fe-34: measured from the curvy waterline, so the grove follows bays and points.
+    const a = minAlong + (maxAlong - minAlong) * hash1(i * 3 + 1, seed) + shoreCurveOffset(coast, c);
     const x = coast.originX + dx * a - dz * c;
     const z = coast.originZ + dz * a + dx * c;
     const random = hash1(i * 3 + 3, seed);

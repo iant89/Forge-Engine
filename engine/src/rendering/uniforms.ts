@@ -345,13 +345,14 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "holeWall", type: f32, comment: "width of the forced-overcast ring outside the clearing" },
   { name: "holeStrength", type: f32, comment: "0..1 blend of the clearing (0 = deck unchanged)" },
   { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
-  { name: "_pad3", type: f32 },
+  { name: "billow", type: f32, comment: "fe-34 0..1 cumuliform structure kept even when overcast (0 = flat 8b deck)" },
   { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
-  { name: "_pad4", type: f32 },
+  { name: "flashIntensity", type: f32, comment: "fe-34 v3 in-cloud lightning glow (0 = none)" },
   { name: "cloudAlbedo", type: vec3 },
-  { name: "_pad5", type: f32 },
+  { name: "flashRadius", type: f32, comment: "fe-34 v3 glow radius, metres" },
   { name: "wind", type: vec2, comment: "mean wind m/s (+x east, +y north→+z); advects the deck" },
   { name: "holeCenter", type: vec2, comment: "clearing centre, render-local XZ" },
+  { name: "flashCenter", type: vec2, comment: "fe-34 v3 in-cloud flash centre, render-local XZ" },
   /**
    * Per-sub-layer record: `(driftX, driftZ, centreHeight, weight)`. The drift is metres of
    * advection at the frame's clock (`wind × seconds × factor`) and the weight is the layer's share
@@ -369,8 +370,8 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
  * reflection/refraction approximation samples it, not the scene.
  */
 export const WaterUniforms = new StructDef("WaterUniforms", [
-  { name: "wavesA", type: arrayOf(vec4, 4), comment: "(dirX, dirZ, k, speed) × 4" },
-  { name: "wavesB", type: arrayOf(vec4, 4), comment: "(amplitude, q, phase, 0) × 4" },
+  { name: "wavesA", type: arrayOf(vec4, 8), comment: "(dirX, dirZ, k, speed) × 8 (fe-34: was 4)" },
+  { name: "wavesB", type: arrayOf(vec4, 8), comment: "(amplitude, q, phase, 0) × 8" },
   { name: "deepColor", type: vec3 },
   { name: "time", type: f32, comment: "simulated water time, seconds" },
   { name: "shallowColor", type: vec3 },
@@ -386,6 +387,8 @@ export const WaterUniforms = new StructDef("WaterUniforms", [
   { name: "shoreA", type: vec4, comment: "fe-33 shore: (dirX, dirZ toward land, dot(origin, dir), slope)" },
   { name: "shoreB", type: vec4, comment: "(foamDepth, breakDepth, bedLevel, enabled 0/1)" },
   { name: "shoreC", type: vec4, comment: "(level, colorDepth, total wave amplitude, surf strength 0..1)" },
+  { name: "shoreD", type: vec4, comment: "fe-34 curvy coast: (2π/length1, phase1, amp1, dot(origin, perp))" },
+  { name: "shoreE", type: vec4, comment: "(2π/length2, phase2, amp2, 0)" },
 ]);
 
 /**

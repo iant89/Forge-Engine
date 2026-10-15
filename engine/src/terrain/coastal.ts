@@ -13,6 +13,7 @@
 
 import type { WaterShoreSettings } from "../scene/scene.js";
 import { clamp } from "../math/scalar.js";
+import { shoreCurveOffset } from "../environment/water.js";
 
 export interface CoastalTerrainParams {
   originX: number;
@@ -38,6 +39,19 @@ export interface CoastalTerrainParams {
   inlandHeight?: number;
   /** Noise seed for the dune crest / hummocks. Default 1. */
   seed?: number;
+  /**
+   * fe-34 curvy coast: waterline displaced inland by `Σ curveAmpN·sin(2π·across/curveLengthN +
+   * curvePhaseN)` (the water's `shoreCurveOffset`), so bays and points wind along the coast and
+   * the whole profile (beach, berm, dunes) follows them. Default 0 (straight).
+   */
+  curveAmp1?: number;
+  curveLength1?: number;
+  curvePhase1?: number;
+  curveAmp2?: number;
+  curveLength2?: number;
+  curvePhase2?: number;
+  /** Dune field: number of extra hummock rows behind the main ridge (0..2). Default 0. */
+  duneRows?: number;
 }
 
 function hash1(n: number, seed: number): number {
@@ -98,7 +112,8 @@ export function coastalCoordinates(params: CoastalTerrainParams, x: number, z: n
   const r = resolve(params);
   const px = x - r.ox;
   const pz = z - r.oz;
-  return { along: px * r.dx + pz * r.dz, across: -px * r.dz + pz * r.dx };
+  const across = -px * r.dz + pz * r.dx;
+  return { along: px * r.dx + pz * r.dz - shoreCurveOffset(params, across), across };
 }
 
 /** Terrain height at a world XZ. */
@@ -106,8 +121,8 @@ export function coastalHeightAt(params: CoastalTerrainParams, x: number, z: numb
   const r = resolve(params);
   const px = x - r.ox;
   const pz = z - r.oz;
-  const along = px * r.dx + pz * r.dz;
   const across = -px * r.dz + pz * r.dx;
+  const along = px * r.dx + pz * r.dz - shoreCurveOffset(params, across);
   // Seabed and beach face: one plane through the waterline (exactly the water's shore bed)...
   const plane = r.bed + r.slope * along;
   if (along <= 0) return Math.max(plane, r.bed - r.minDepth);
@@ -127,6 +142,14 @@ export function coastalHeightAt(params: CoastalTerrainParams, x: number, z: numb
   const ridge = Math.exp(-dist * dist * 1.6);
   const crest = 0.65 + 0.35 * noise1(across / 23, r.seed + 7) + 0.15 * (noise1(across / 7, r.seed + 3) - 0.5);
   h += r.dune * ridge * crest;
+  // fe-34: secondary dune rows (hummocks with blowouts) behind the fore-dune.
+  const rows = Math.max(0, Math.min(2, Math.round(params.duneRows ?? 0)));
+  for (let k = 1; k <= rows; k++) {
+    const c = duneCentre + k * r.duneW * 0.9 + (noise1(across / 45, r.seed + 20 + k) - 0.5) * 18;
+    const dd = (along - c) / (r.duneW * 0.42);
+    const hump = Math.exp(-dd * dd * 1.8) * (0.35 + 0.65 * noise1(across / 17, r.seed + 30 + k));
+    h += r.dune * (0.75 - 0.2 * k) * hump;
+  }
   // Hinterland behind the dunes.
   h += r.inland * smoothstep(duneCentre, duneCentre + r.duneW, along) * (0.7 + 0.3 * noise1(across / 40 + along / 50, r.seed + 11));
   return h;
@@ -135,7 +158,22 @@ export function coastalHeightAt(params: CoastalTerrainParams, x: number, z: numb
 /** The water shoreline that matches this coast (spread into `scene.setWater({ shore })`). */
 export function coastalShoreSettings(params: CoastalTerrainParams, extra: Partial<WaterShoreSettings> = {}): Partial<WaterShoreSettings> {
   const r = resolve(params);
-  return { enabled: true, originX: r.ox, originZ: r.oz, directionX: r.dx, directionZ: r.dz, bedLevel: r.bed, slope: r.slope, ...extra };
+  return {
+    enabled: true,
+    originX: r.ox,
+    originZ: r.oz,
+    directionX: r.dx,
+    directionZ: r.dz,
+    bedLevel: r.bed,
+    slope: r.slope,
+    curveAmp1: params.curveAmp1 ?? 0,
+    curveLength1: params.curveLength1 ?? 400,
+    curvePhase1: params.curvePhase1 ?? 0,
+    curveAmp2: params.curveAmp2 ?? 0,
+    curveLength2: params.curveLength2 ?? 150,
+    curvePhase2: params.curvePhase2 ?? 0,
+    ...extra,
+  };
 }
 
 export interface CoastalMeshSource {

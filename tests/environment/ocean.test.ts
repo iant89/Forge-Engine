@@ -102,7 +102,7 @@ group("ocean waves from wind", () => {
 
   test("waves follow the wind, respect the height cap and use deep-water speeds", () => {
     const s = oceanWavesFromWind({ windSpeed: 60, direction: Math.PI / 2, maxHeight: 4 });
-    assert.equal(s.waves.length, 4);
+    assert.equal(s.waves.length, 8, "fe-34: eight components by default (groups, cross-sea, chop)");
     assertCloseTo(s.significantHeight, 4, 9);
     assertCloseTo(totalWaveAmplitude(s.waves), 2, 9);
     const w0 = s.waves[0]!;

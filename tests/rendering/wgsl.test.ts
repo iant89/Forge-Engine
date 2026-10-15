@@ -144,15 +144,20 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.SkyUniforms.offsetOf("viewSamples"), 124);
     // Phase 17.3: the deck grew its sub-layer stack — 13 scalars, the three tint vectors, the wind
     // and `layers: array<vec4<f32>, 4>` (drift.xy, centre height, column weight), 16-aligned.
-    assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform"), 192);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform"), 208);
     assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("wind"), 112);
-    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), 128);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), 144);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("flashCenter"), 128); // fe-34 v3 in-cloud flash glow
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("flashIntensity"), 92);
+    assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("billow"), 76); // fe-34: billow must live in CloudUniforms (not ShadowPassUniforms)
     assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform") - RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), MAX_CLOUD_LAYERS * 16);
     // fe-33: three shore vec4s (bed, foam/break depths, level/colour depth/amplitude/surf) follow sunDirection.
-    assert.equal(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform"), 272);
-    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreA"), 224);
-    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("wavesB"), 64);
-    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("sunDirection"), 208);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform"), 432);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreA"), 352);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreD"), 400);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreE"), 416);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("wavesB"), 128);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("sunDirection"), 336);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.byteSize("uniform"), 112);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("radius"), 64);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("depthSize"), 80);

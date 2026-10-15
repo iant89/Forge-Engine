@@ -388,7 +388,7 @@ group("the composite deck", () => {
 group("the deck's GPU contract", () => {
   test("hands the shader the sheets through the uniform record it reads", () => {
     const layers = RENDERING_STRUCTS.CloudUniforms.offsetOf("layers") / 4;
-    assert.equal(layers, 32, "layers is the 128-byte tail of the 192-byte block");
+    assert.equal(layers, 36, "layers is the 128-byte tail of the 208-byte block (fe-34 v3 flash fields)");
     // The WGSL twin's own loop and its guards; the strict validator in rendering:wgsl compiles it.
     assertContains(SKY_SHADER, "let deckFootprint = cloudDeckFootprint(dir)");
     const sources = [STANDARD_FRAGMENT_BODY, WATER_SHADER, SKY_SHADER];

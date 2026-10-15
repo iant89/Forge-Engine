@@ -41,7 +41,7 @@ export interface GerstnerWave {
 }
 
 /** Maximum waves evaluated by both the water shader and CPU gameplay queries. */
-export const MAX_WATER_WAVES = 4;
+export const MAX_WATER_WAVES = 8;
 
 export interface WaterSample {
   /** Vertical displacement (add to the mean level). */
@@ -142,8 +142,28 @@ export function sampleGerstner(
 export function shoreDepthAt(shore: WaterShoreSettings, level: number, x: number, z: number): number {
   if (!shore.enabled) return Number.POSITIVE_INFINITY;
   const len = Math.hypot(shore.directionX, shore.directionZ) || 1;
-  const along = ((x - shore.originX) * shore.directionX + (z - shore.originZ) * shore.directionZ) / len;
+  const dx = shore.directionX / len;
+  const dz = shore.directionZ / len;
+  const px = x - shore.originX;
+  const pz = z - shore.originZ;
+  const along = px * dx + pz * dz - shoreCurveOffset(shore, -px * dz + pz * dx);
   return level - (shore.bedLevel + shore.slope * along);
+}
+
+type ShoreCurve = Pick<WaterShoreSettings, "curveAmp1" | "curveLength1" | "curvePhase1" | "curveAmp2" | "curveLength2" | "curvePhase2">;
+
+/**
+ * fe-34: how far inland (m) the waterline sits at `across` metres along the coast — the curvy-coast
+ * displacement shared by the water (CPU + shader) and `coastalHeightAt`. 0 when both amplitudes are 0.
+ */
+export function shoreCurveOffset(curve: Partial<ShoreCurve>, across: number): number {
+  const TAU = Math.PI * 2;
+  const a1 = curve.curveAmp1 ?? 0;
+  const a2 = curve.curveAmp2 ?? 0;
+  let c = 0;
+  if (a1 !== 0) c += a1 * Math.sin((TAU * across) / Math.max(1, curve.curveLength1 ?? 400) + (curve.curvePhase1 ?? 0));
+  if (a2 !== 0) c += a2 * Math.sin((TAU * across) / Math.max(1, curve.curveLength2 ?? 150) + (curve.curvePhase2 ?? 0));
+  return c;
 }
 
 /** Peak shoaling gain just before the break line (Green's-law-like steepening, capped). */
@@ -308,6 +328,16 @@ export class WaterSurface extends SceneObject {
     if (!scene) return;
     const seconds = context.fixedSteps * context.fixedDt;
     if (seconds !== 0) scene.settings.water.time += seconds;
+    // fe-34: the surface follows the live mean level (surge, tide) — before, the mesh stayed at
+    // the attach level and only the shading saw `water.level` move.
+    if (this.entityId !== 0) {
+      const facade = scene.world.facade(this.entityId as never);
+      const level = scene.settings.water.level;
+      if (facade && facade.transform.position.y !== level) {
+        const p = facade.transform.position;
+        facade.transform.position = new Vec3(p.x, level, p.z);
+      }
+    }
   }
 
   private get water(): SceneWaterSettings | null {

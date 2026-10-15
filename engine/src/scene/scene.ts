@@ -196,6 +196,21 @@ export interface SceneCloudSettings {
   holeRadius: number;
   holeWall: number;
   holeStrength: number;
+  /**
+   * fe-34: 0..1 cumuliform "billow" — keeps puffy noise structure (and shades dense cores darker,
+   * thin edges brighter) even at full coverage, so a storm deck reads as lumpy masses. 0 (default)
+   * is the flat Phase 8b/17.3 deck.
+   */
+  billow: number;
+  /**
+   * fe-34 v3: in-cloud lightning glow — a localised flash lighting the deck from inside around
+   * (flashX, flashZ) with a Gaussian `flashRadius` (m); `flashIntensity` 0 = none. Written per frame
+   * by `LightningSystem` (`cloudGlow`); transient, not part of a saved scene's look.
+   */
+  flashX: number;
+  flashZ: number;
+  flashRadius: number;
+  flashIntensity: number;
   /** Cloud albedo (linear RGB). */
   albedo: Color;
 }
@@ -273,10 +288,22 @@ export interface WaterShoreSettings {
   breakDepth: number;
   /** Depth (m) over which the body colour goes from `shallowColor` to `deepColor`. */
   colorDepth: number;
+  /**
+   * fe-34 curvy coast: the waterline is displaced inland by
+   * `Σ curveAmpN·sin(2π·across/curveLengthN + curvePhaseN)` metres (`across` = metres along the
+   * coast from `origin`), so depth, shoaling, breaking and swash follow a winding shore. Amplitudes
+   * 0 (default) keep the straight shore. {@link shoreCurveOffset} is the shared formula.
+   */
+  curveAmp1: number;
+  curveLength1: number;
+  curvePhase1: number;
+  curveAmp2: number;
+  curveLength2: number;
+  curvePhase2: number;
 }
 
 export function defaultWaterShore(): WaterShoreSettings {
-  return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8 };
+  return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8, curveAmp1: 0, curveLength1: 400, curvePhase1: 0, curveAmp2: 0, curveLength2: 150, curvePhase2: 0 };
 }
 
 export interface SceneSettings {
@@ -418,6 +445,11 @@ export function defaultCloudSettings(): SceneCloudSettings {
     holeRadius: 0,
     holeWall: 0,
     holeStrength: 0,
+    billow: 0,
+    flashX: 0,
+    flashZ: 0,
+    flashRadius: 600,
+    flashIntensity: 0,
     albedo: new Color(1, 1, 1),
   };
 }
@@ -1116,6 +1148,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     t.holeRadius = num(clouds["holeRadius"], t.holeRadius);
     t.holeWall = num(clouds["holeWall"], t.holeWall);
     t.holeStrength = num(clouds["holeStrength"], t.holeStrength);
+    t.billow = num(clouds["billow"], t.billow);
     const albedo = vec(clouds["albedo"]);
     if (albedo) t.albedo.set(albedo[0]!, albedo[1]!, albedo[2]!);
   }
@@ -1152,6 +1185,7 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
       d.foamDepth = num(shore["foamDepth"], d.foamDepth);
       d.breakDepth = num(shore["breakDepth"], d.breakDepth);
       d.colorDepth = num(shore["colorDepth"], d.colorDepth);
+      for (const k of ["curveAmp1", "curveLength1", "curvePhase1", "curveAmp2", "curveLength2", "curvePhase2"] as const) d[k] = num(shore[k], d[k]);
     }
     if (Array.isArray(water["waves"])) {
       t.waves = (water["waves"] as Record<string, unknown>[]).map((w) => ({

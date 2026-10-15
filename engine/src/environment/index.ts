@@ -30,3 +30,5 @@ export * from "./water.js";
 export * from "./ocean.js";
 export * from "./cyclone.js";
 export * from "./lightning.js";
+export * from "./waterspout.js";
+export * from "./windBuffet.js";

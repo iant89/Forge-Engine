@@ -521,3 +521,76 @@ its cached sun, ambient and horizon tints when the intensity or `ambientScale` c
 the change was ignored until the sun moved, and ambient never scaled). The renderer passes the
 sky `exposure` as `ambientScale`, so `setSky({ exposure })` darkens the cloud deck and the water's
 sky tint with the atmosphere — how a storm reaches near-black grey. Exposure 1 is unchanged.
+
+### 10.x Storm realism (fe-34)
+
+All of this is engine-side and reusable; the hurricane demo only scripts it.
+
+* **Curvy coast.** `WaterShoreSettings.curveAmp1/curveLength1/curvePhase1` and `curveAmp2/…2`
+  (default 0 = straight) wind the waterline: `shoreCurveOffset(curve, across)` is the sum of two
+  sinusoids that `shoreDepthAt`, the WGSL `shoreDepth` (`shoreD`/`shoreE`) and
+  `coastalHeightAt` all subtract from the along-shore distance, so foam, depth colour and the
+  terrain agree. `coastalShoreSettings` copies the curve; `duneRows` (0–2) adds hummock rows
+  behind the fore-dune.
+* **Sea level.** `water.level = seaLevel + surge + setup + tideOffset`. `cycloneWindSetup(windX, windZ,
+  onshoreX, onshoreZ, coef, limit)` is wind set-down (offshore wind pulls the sea back — the
+  pre-storm "low tide") and set-up (onshore wind). `CycloneSystem.tideOffset` is a scripted tide.
+  `runup: { base, perMetre }` widens `shore.foamDepth` with significant wave height (swash).
+  `WaterSurface` now moves its mesh to the live level.
+* **Gusts.** `gustiness` (0..1) multiplies the wind by the deterministic `cycloneGustSignal(t, seed)`;
+  `observed.gust` / `observed.gustSpeed` expose it. `ceiling {clear, storm}` lowers the deck,
+  `scud` speeds the lowest layer, `billow {clear, storm}` drives the deck's billows.
+* **Billows.** `clouds.billow` (0..1): `cloudBillow` keeps lumpy structure at full coverage and shades
+  dense cores darker, thin edges brighter. `cloudBillowApply` / `cloudDensityAt(..., billow)` mirror it on CPU.
+* **Ocean.** Up to 8 components (`MAX_WATER_WAVES`); 5–8 add a near-twin of the peak (wave groups /
+  sets), cross-sea and chop. Quality tiers: low 4, medium 6, high 8.
+* **Lightning.** `LightningSystem` options `storm()` (rate scale), `center()`, `surfaceAt(x,z)` (ground or
+  sea strike height), `branches`, `cloudFlashFraction` (intra-cloud flashes, `bolt.cloudOnly`),
+  `boltColor`, `boltWidth`; `paused`; `trigger(position?, energy?, cloudOnly?)`; `lightningBranches()`.
+* **Waterspouts.** `WaterspoutSystem` (environment/) spawns seeded Poisson funnels in an area at a
+  host-scripted `spawnRate()` (`waterspoutSpawnRate(wind, {threshold, full, perSecond})`), drifts them
+  with the steering wind plus wander, and dissipates them (`waterspoutStrength`, rope-out from the
+  bottom in `waterspoutFunnelAt`). `WaterspoutVisual` (particles/) renders funnel segments and a spray ring.
+  `spawn(at?, life?)` forces one (debug hooks).
+* **Wind made visible.** `WindBlownField` with `windBlownPreset("spray"|"spindrift"|"sand"|"mist"|"debris")`;
+  `windBlownVelocity` couples particles to the wind.
+* **Soundscape.** `StormSoundscape` (audio/) synthesises wind, howl, rain, surf and thunder with WebAudio;
+  `stormSoundLevels` is the pure mapping. Browsers need a user gesture, so it is opt-in.
+* **Camera buffet.** `windBuffet(t, windSpeed, gust, strength, out)` gives a small offset + roll for a follow camera.
+
+**fe-34 v2 additions.**
+
+* **Visible bolts.** `LightningBoltVisual` (particles/) draws a `LightningSystem`'s live bolts as emissive,
+  fog-exempt cylinders sized per segment to `corePixels` on screen at its distance
+  (`lightningSegmentRadius`), with a transparent `glowPixels` sheath; brightness follows the flash
+  envelope. The system's own debug-line bolt can also be widened (`boltPixels`, `boltGlowPixels`,
+  `viewer`, `lightningRibbonStep`). Fixes: a vertical bolt (start straight above the strike) used to
+  come out as a straight rod (`seg × up` was zero), and a strike triggered while `paused` never flashed.
+* **Gusts** are a pure function of the storm clock and `gustSeed`, so `seek(t)` equals playing to `t`.
+* **`darknessGain`** (CycloneSystem): darkness → 1 − (1 − d)^gain, so the rain bands are already dark,
+  billowing storm cloud. The billow shading adds a relief term (one extra density sample toward the light).
+* **`WaterspoutVisual.fogExempt`** keeps a funnel readable through the storm haze; the lowest segment
+  now reaches the sea.
+
+**fe-34 v3.** Waterspouts are particle vortices: `VortexColumnParticles` (particles/vortexColumn.ts)
+generalises the Mars dust-devil swarm (column/skirt emit alternation on the GPU vortex spawn, with
+swirl and the axis spring) into a reusable engine piece with caller colours (`VORTEX_WATER_LOOK`: white
+spray, grey mist, blue-grey condensation). `WaterspoutVisual` now drives one column per spout from
+`waterspoutFunnelAt` (lean, bend, widening, rope-out) plus the spray ring; the mesh segments, `segments`,
+`color`, `opacity` and `fogExempt` options are gone. The Mars scene still uses its own devil code
+(migrating it onto `VortexColumnParticles` is a follow-up).
+
+#### fe-34 v3 sky: overcast, billows, scud, in-cloud flashes
+
+- `CycloneOptions.overcast {from, ramp}` (in radii of max wind): `cycloneOvercastFloor()` forces
+  coverage to 1 inside `from`, ramping to 0 over `ramp`; the eye returns 0, so blue shows only in the
+  eye hole and the far-offshore calm. Darkness is at least `floor·(0.3 + 0.7·storm)`.
+- `darknessGain` steepens darkening with storm strength; `maxDarkness` caps it (the demo uses 0.9) so
+  the eyewall deck stays dark grey rather than black and its billows still read.
+- Cloud shader: billow relief at two scales plus an underside term along the view direction (lumpy
+  bases, lit tops); with several layers the lowest is darkened as scud racing under the deck.
+- `LightningOptions.cloudGlow {radius, intensity, flickerHz}`: intra-cloud flashes draw no channel and
+  add nothing to sky exposure; instead the brightest live strike writes `flashX/flashZ/flashRadius/
+  flashIntensity` into the clouds, and the shader adds a Gaussian glow in deck space, brightest at thin
+  puff edges, so a patch of billows lights from inside. `lightningFlicker(age, seed, hz)` gives the
+  pulses. Frequency follows the storm through `rate` and `cloudFlashFraction`.

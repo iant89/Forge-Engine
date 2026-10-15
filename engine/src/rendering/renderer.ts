@@ -2436,7 +2436,11 @@ export class Renderer implements RenderFrameContext {
     a.setF32("holeRadius", clouds.holeRadius);
     a.setF32("holeWall", clouds.holeWall);
     a.setF32("holeStrength", clouds.holeStrength);
+    a.setF32("billow", clouds.billow);
     a.setVec2("holeCenter", clouds.holeX, clouds.holeZ);
+    a.setF32("flashIntensity", clouds.flashIntensity);
+    a.setF32("flashRadius", Math.max(1, clouds.flashRadius));
+    a.setVec2("flashCenter", clouds.flashX, clouds.flashZ);
     // Phase 17.3: the sub-layer stack. The CPU owns the geometry (heights, column weights, drift),
     // so the shader — and the CPU field the tests and tools evaluate — cannot disagree about it.
     // `perFrame.time.x` is the frame clock the deck is drawn at; the shader's own ageing comes from
@@ -2470,13 +2474,13 @@ export class Renderer implements RenderFrameContext {
     }
     // Waves as the vertex shader consumes them: (dirX, dirZ, k, speed) + (amplitude, Q, phase, 0).
     // Limit and normalise against the same wave count as CPU gameplay sampling.
-    const waveCount = Math.min(water.waves.length, 4);
+    const waveCount = Math.min(water.waves.length, 8);
     const baseA = a.offsetOf("wavesA");
     const baseB = a.offsetOf("wavesB");
     const strideA = a.arrayStride("wavesA");
     const strideB = a.arrayStride("wavesB");
     const f32 = this.waterBytes.f32;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const w = water.waves[i];
       const oA = (baseA + i * strideA) >> 2;
       const oB = (baseB + i * strideB) >> 2;
@@ -2519,6 +2523,9 @@ export class Renderer implements RenderFrameContext {
     const sdz = shore.directionZ / sl;
     a.setVec4("shoreA", sdx, sdz, sdx * shore.originX + sdz * shore.originZ, shore.slope);
     a.setVec4("shoreB", shore.foamDepth, shore.breakDepth, shore.bedLevel, shore.enabled ? 1 : 0);
+    const TAU = Math.PI * 2;
+    a.setVec4("shoreD", TAU / Math.max(1, shore.curveLength1), shore.curvePhase1, shore.curveAmp1, -sdz * shore.originX + sdx * shore.originZ);
+    a.setVec4("shoreE", TAU / Math.max(1, shore.curveLength2), shore.curvePhase2, shore.curveAmp2, 0);
     let totalAmp = 0;
     for (let i = 0; i < waveCount; i++) {
       const w = water.waves[i]!;

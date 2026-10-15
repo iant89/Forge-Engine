@@ -431,8 +431,8 @@ group("water surface", () => {
     assertCloseTo(normal.length(), 1, 10);
   });
 
-  test("bounds CPU queries to the same four waves rendered by the GPU", () => {
-    const firstFour = Array.from({ length: 4 }, (_, phase) => ({ ...sine[0]!, phase }));
+  test("bounds CPU queries to the same MAX_WATER_WAVES (8, fe-34) rendered by the GPU", () => {
+    const firstFour = Array.from({ length: 8 }, (_, phase) => ({ ...sine[0]!, amplitude: sine[0]!.amplitude / 2, phase }));
     const ignored = { ...sine[0]!, amplitude: 100, phase: 0.25 };
     const expected = sampleGerstner(firstFour, 0.7, -0.2, 0.4);
     const actual = sampleGerstner([...firstFour, ignored], 0.7, -0.2, 0.4);
