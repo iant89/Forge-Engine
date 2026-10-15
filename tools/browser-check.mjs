@@ -2751,6 +2751,19 @@ async function checkEnvironmentSection() {
   //  1. sheets: 1 vs 4, then 1 again — the setting must move the frame, the repeat must not;
   //  2. the shadow: `surfaceShadows` on vs off — the ground under the deck must darken, and it must
   //     be the only thing that moves (a shadow brightens nothing).
+  // The deck A/Bs below judge the deck alone. Two things in the weather demo move on their own: the
+  // lake (visible since Phase 17.5 put an island in it) keeps animating its waves with the clock
+  // paused, since 17.6 strikes attach to the masts in view, so a bolt can land between two
+  // captures, and since 17.4 the ground keeps wetting/drying after the storm preset above. All three
+  // are held for the A/Bs and restored after.
+  await page.evaluate(() => {
+    const scene = window.__forge.engine.scene;
+    scene.object("water").renderable.visible = false;
+    scene.object("lightning").rate = 0;
+    scene.object("weather").driveSurface = false;
+    Object.assign(scene.settings.surface, { wetness: 0, puddles: 0, snow: 0 });
+  });
+  await page.waitForTimeout(1500);
   await page.evaluate(() => window.__forge.setWeather("overcast"));
   await page.evaluate(() => window.__forge.setTimeOfDay(10));
   await page.evaluate(() => window.__forge.setCoverage(0.7));
@@ -2833,6 +2846,102 @@ async function checkEnvironmentSection() {
       }),
     wx17Before,
   );
+  await page.evaluate(() => {
+    const scene = window.__forge.engine.scene;
+    scene.object("water").renderable.visible = true;
+    scene.object("lightning").rate = 0.5;
+    scene.object("weather").driveSurface = true;
+  });
+  await settle(4);
+
+  // Phase 17.4–17.6 on the real device, framed on the island so the ground and the lake share the view.
+  await page.evaluate(() => {
+    window.__forge.setWeather("overcast");
+    window.__forge.setTimeOfDay(15);
+    window.__forge.setOrbit(2.5, 0.35, 40);
+  });
+  await settle(4);
+  // 17.4 appearance A/B: the ground state pinned (the weather's surface drive held off), dry vs wet +
+  // puddles vs snow. Wet ground must move pixels (darker film, sky-reflecting puddles); snow must
+  // brighten the frame.
+  await page.evaluate(() => {
+    const scene = window.__forge.engine.scene;
+    scene.object("weather").driveSurface = false;
+    Object.assign(scene.settings.surface, { wetness: 0, puddles: 0, snow: 0 });
+  });
+  await waitPresentedFrames(3);
+  await keepLuma("surface-dry");
+  const surfDry = await samplePixels();
+  await page.evaluate(() => Object.assign(window.__forge.engine.scene.settings.surface, { wetness: 1, puddles: 0.8, snow: 0 }));
+  await waitPresentedFrames(3);
+  await keepLuma("surface-wet");
+  await page.screenshot({ path: "tools/.browser-check-surface-wet.png", timeout: 60000 });
+  await page.evaluate(() => Object.assign(window.__forge.engine.scene.settings.surface, { wetness: 0.2, puddles: 0, snow: 0.9 }));
+  await waitPresentedFrames(3);
+  const surfSnow = await samplePixels();
+  await page.screenshot({ path: "tools/.browser-check-surface-snow.png", timeout: 60000 });
+  const surfWet = await compareRgb("surface-dry", "surface-wet");
+  console.log(`17.4 surface: wet+puddles moved ${surfWet.differing}/${surfWet.pixels} pixels (max ${surfWet.max}); snow mean ${surfSnow.mean.toFixed(2)} vs dry ${surfDry.mean.toFixed(2)}`);
+  if (!(surfWet.differing > surfWet.pixels * 0.1)) throw new Error(`wet ground moved too few pixels (${surfWet.differing}/${surfWet.pixels}): settings.surface is not reaching the shading`);
+  if (!(surfSnow.mean > surfDry.mean + 5)) throw new Error(`snow cover did not brighten the ground (${surfSnow.mean.toFixed(1)} vs ${surfDry.mean.toFixed(1)})`);
+  // 17.4 simulation: ten simulated minutes of storm wet the ground through the weather itself, and the
+  // grip every vehicle would get falls with it.
+  const surfSim = await page.evaluate(() => {
+    const scene = window.__forge.engine.scene;
+    const weather = scene.object("weather");
+    Object.assign(weather.surface, { wetness: 0, puddles: 0, snow: 0 });
+    weather.driveSurface = true;
+    window.__forge.setWeather("storm");
+    weather.advance(600);
+    return { ...window.__forge.weatherState(), dryGrip: 1 };
+  });
+  console.log(`17.4 storm 600 s: wetness ${surfSim.surface.wetness.toFixed(3)} puddles ${surfSim.surface.puddles.toFixed(3)} grip ${surfSim.grip.toFixed(3)} fog ${surfSim.fogDensity.toFixed(4)}`);
+  if (!(surfSim.surface.wetness > 0.9 && surfSim.grip < 0.8)) throw new Error(`a storm did not wet the ground / cut grip (${JSON.stringify(surfSim.surface)}, grip ${surfSim.grip})`);
+  await page.evaluate(() => {
+    const weather = window.__forge.engine.scene.object("weather");
+    Object.assign(weather.surface, { wetness: 0, puddles: 0, snow: 0 });
+    window.__forge.setWeather("overcast");
+  });
+  await settle(4);
+
+  // 17.5: the screen-space water against the sky-only water, same frame otherwise. Both must be
+  // GPU-clean; the screen-space one must run its two passes and move the lake's pixels (refracted
+  // island skirt and rocks, depth tint, contact foam, reflections).
+  await page.evaluate(() => window.__forge.setOrbit(1.3, 0.32, 70));
+  await page.evaluate(() => window.__forge.engine.scene.setWater({ screenSpace: "off" }));
+  await waitPresentedFrames(3);
+  await keepLuma("water-off");
+  const waterOffStats = await page.evaluate(() => window.__forge.stats());
+  await page.evaluate(() => window.__forge.engine.scene.setWater({ screenSpace: "full" }));
+  await waitPresentedFrames(3);
+  await keepLuma("water-full");
+  const waterFullStats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-water-screenspace.png", timeout: 60000 });
+  const waterDiff = await compareRgb("water-off", "water-full");
+  console.log(`17.5 water: off passes ${waterOffStats.renderPasses.filter((n) => n.includes("water")).join(",") || "-"}; full ${waterFullStats.renderPasses.filter((n) => n.includes("water")).join(",")}; ${waterDiff.differing}/${waterDiff.pixels} pixels differ (max ${waterDiff.max}) gpuErrors ${waterFullStats.gpuErrors}`);
+  if (waterOffStats.renderPasses.includes("forge.water.grab")) throw new Error("screenSpace off still ran forge.water.grab");
+  if (!(waterFullStats.renderPasses.includes("forge.water.grab") && waterFullStats.renderPasses.includes("forge.water"))) throw new Error("screenSpace full did not run forge.water.grab + forge.water");
+  if (waterFullStats.gpuErrors !== 0 || waterFullStats.lastError) throw new Error(`screen-space water GPU errors: ${waterFullStats.lastError}`);
+  if (!(waterDiff.differing > waterDiff.pixels * 0.1)) throw new Error(`screen-space water moved too few pixels (${waterDiff.differing}/${waterDiff.pixels})`);
+
+  // 17.6: a strike's thunder is a simulated-clock event at distance / c, and the strike attaches to
+  // high ground (the island at +2 m or a mast top at 16 m — never the lake at 0).
+  const thunder = await page.evaluate(() => {
+    const lightning = window.__forge.engine.scene.object("lightning");
+    const before = lightning.thunderCount;
+    const strike = lightning.trigger();
+    const pending = lightning.pendingThunder.find((p) => p.event.strike === strike);
+    const delay = pending ? pending.event.delay : -1;
+    const distance = pending ? pending.event.distance : -1;
+    lightning.advance(Math.max(0, delay - 0.05));
+    const early = lightning.thunderCount - before;
+    lightning.advance(0.1);
+    return { delay, distance, early, heard: lightning.thunderCount - before, y: strike.position.y };
+  });
+  console.log(`17.6 thunder: distance ${thunder.distance.toFixed(1)} m delay ${thunder.delay.toFixed(3)} s; heard early ${thunder.early}, on time ${thunder.heard}; strike y ${thunder.y.toFixed(2)}`);
+  if (!(thunder.delay > 0 && Math.abs(thunder.delay - thunder.distance / 340) < thunder.delay * 0.03)) throw new Error(`thunder delay ${thunder.delay} does not match ${thunder.distance} m / c`);
+  if (!(thunder.early === 0 && thunder.heard === 1)) throw new Error(`thunder was not delivered at its arrival time (early ${thunder.early}, heard ${thunder.heard})`);
+  await page.evaluate(() => window.__forge.setOrbit(2.5, 0.22, 28));
   await settle(4);
 
   // Night, with the weather held clear so only the deck moves: coverage 1 occludes the star field

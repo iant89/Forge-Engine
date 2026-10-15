@@ -838,7 +838,7 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   var a = albedo * mix(1.0, 0.55, wet);
   var r = mix(roughness, min(roughness, 0.2), clamp(sw.x, 0.0, 1.0));
   let basin = swNoise(worldPos.xz * 0.35) * 0.65 + swNoise(worldPos.xz * 1.3 + vec2<f32>(7.3, 2.1)) * 0.35;
-  var puddle = up * up * smoothstep(1.0 - sw.y, 1.0 - sw.y + 0.06, basin) * step(0.001, sw.y);
+  var puddle = up * up * smoothstep(1.0 - 0.6 * sw.y, 1.0 - 0.6 * sw.y + 0.06, basin) * step(0.001, sw.y);
   let drift = swNoise(worldPos.xz * 0.8 + vec2<f32>(3.7, 9.2)) * 0.35;
   let snow = clamp((up * sw.z * 1.35 - drift) * 4.0, 0.0, 1.0);
   puddle = puddle * (1.0 - snow);
