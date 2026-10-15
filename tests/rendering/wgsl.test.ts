@@ -131,7 +131,8 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.offsetOf("fadeCamera"), 80);
     assert.equal(RENDERING_STRUCTS.PostUniforms.byteSize("uniform"), 48);
     assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("flags"), 40);
-    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 80);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 96);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 80);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("tiling"), 48);
     // fe-31: the population distance fade (start, end) closes the per-draw block.
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform"), 192);

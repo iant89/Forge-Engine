@@ -829,7 +829,22 @@ struct WeatheredSurface {
 }
 fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>, geomN: vec3<f32>, worldPos: vec3<f32>) -> WeatheredSurface {
   var out = WeatheredSurface(albedo, roughness, N, 0.0, 0.0, 0.0);
+  // fe-38 per-object snow (material.snowCover): covers every surface facing up past the snow line,
+  // with a soft, slightly ragged edge; a wet pack is greyer and glossier (slush).
+  let msc = material.snowCover;
+  var objSnow = 0.0;
+  if (msc.x > 0.001) {
+    let gNo = normalize(geomN);
+    let rag = swNoise(worldPos.xz * 6.0 + worldPos.yy * 3.0) * 0.08;
+    objSnow = msc.x * smoothstep(msc.y - 0.04, msc.y + 0.04, gNo.y - rag + 0.04);
+  }
   if ((perFrame.flags & 128u) == 0u) {
+    if (objSnow > 0.0) {
+      out.albedo = mix(albedo, mix(vec3<f32>(0.90, 0.91, 0.93), vec3<f32>(0.72, 0.74, 0.76), msc.z * 0.6), objSnow);
+      out.roughness = mix(roughness, mix(0.6, 0.25, msc.z), objSnow);
+      out.N = normalize(mix(N, normalize(geomN), objSnow * 0.7));
+      out.snow = objSnow;
+    }
     return out;
   }
   let sw = perFrame.surfaceWeather;
@@ -841,7 +856,7 @@ fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>
   let basin = swNoise(worldPos.xz * 0.35) * 0.65 + swNoise(worldPos.xz * 1.3 + vec2<f32>(7.3, 2.1)) * 0.35;
   var puddle = up * up * smoothstep(1.0 - 0.6 * sw.y, 1.0 - 0.6 * sw.y + 0.06, basin) * step(0.001, sw.y);
   let drift = swNoise(worldPos.xz * 0.8 + vec2<f32>(3.7, 9.2)) * 0.35;
-  let snow = clamp((up * sw.z * 1.35 - drift) * 4.0, 0.0, 1.0);
+  let snow = max(clamp((up * sw.z * 1.35 - drift) * 4.0, 0.0, 1.0), objSnow);
   puddle = puddle * (1.0 - snow);
   a = a * mix(1.0, 0.75, puddle);
   r = mix(r, 0.03, puddle);
