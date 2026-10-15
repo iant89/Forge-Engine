@@ -822,12 +822,13 @@ async function main(): Promise<void> {
      * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
      * screen when `hold`), "hold"/"release" freeze lightning + waterspouts. False on other scenes.
      */
-    hurricaneDebug: (action: "waterspout" | "strike" | "hold" | "release", hold = false) => {
+    hurricaneDebug: (action: "waterspout" | "strike" | "cloudflash" | "hold" | "release", hold = false) => {
       if (activeSceneName !== "hurricane") return false;
       const handle = currentHandle as HurricaneSceneHandle | null;
       if (!handle) return false;
       if (action === "waterspout") return handle.forceWaterspout();
       if (action === "strike") return handle.forceStrike(hold);
+      if (action === "cloudflash") return handle.forceCloudFlash(hold);
       handle.holdEffects(action === "hold");
       return true;
     },

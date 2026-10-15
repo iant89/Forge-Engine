@@ -347,11 +347,12 @@ export const CloudUniforms = new StructDef("CloudUniforms", [
   { name: "sunTint", type: vec3, comment: "direct sun: transmittance × sunIntensity (linear RGB)" },
   { name: "billow", type: f32, comment: "fe-34 0..1 cumuliform structure kept even when overcast (0 = flat 8b deck)" },
   { name: "ambientTint", type: vec3, comment: "diffuse sky light (linear RGB)" },
-  { name: "_pad4", type: f32 },
+  { name: "flashIntensity", type: f32, comment: "fe-34 v3 in-cloud lightning glow (0 = none)" },
   { name: "cloudAlbedo", type: vec3 },
-  { name: "_pad5", type: f32 },
+  { name: "flashRadius", type: f32, comment: "fe-34 v3 glow radius, metres" },
   { name: "wind", type: vec2, comment: "mean wind m/s (+x east, +y north→+z); advects the deck" },
   { name: "holeCenter", type: vec2, comment: "clearing centre, render-local XZ" },
+  { name: "flashCenter", type: vec2, comment: "fe-34 v3 in-cloud flash centre, render-local XZ" },
   /**
    * Per-sub-layer record: `(driftX, driftZ, centreHeight, weight)`. The drift is metres of
    * advection at the frame's clock (`wind × seconds × factor`) and the weight is the layer's share

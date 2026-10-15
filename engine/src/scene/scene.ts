@@ -202,6 +202,15 @@ export interface SceneCloudSettings {
    * is the flat Phase 8b/17.3 deck.
    */
   billow: number;
+  /**
+   * fe-34 v3: in-cloud lightning glow — a localised flash lighting the deck from inside around
+   * (flashX, flashZ) with a Gaussian `flashRadius` (m); `flashIntensity` 0 = none. Written per frame
+   * by `LightningSystem` (`cloudGlow`); transient, not part of a saved scene's look.
+   */
+  flashX: number;
+  flashZ: number;
+  flashRadius: number;
+  flashIntensity: number;
   /** Cloud albedo (linear RGB). */
   albedo: Color;
 }
@@ -437,6 +446,10 @@ export function defaultCloudSettings(): SceneCloudSettings {
     holeWall: 0,
     holeStrength: 0,
     billow: 0,
+    flashX: 0,
+    flashZ: 0,
+    flashRadius: 600,
+    flashIntensity: 0,
     albedo: new Color(1, 1, 1),
   };
 }

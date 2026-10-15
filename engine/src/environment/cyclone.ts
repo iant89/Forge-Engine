@@ -233,6 +233,20 @@ export function cycloneCoverAt(state: CycloneState, x: number, z: number, eyeCov
   return clamp(0.25 + 0.75 * strength * Math.max(core, 0.6 * band + 0.25 * Math.exp(-r / (12 * rm))), 0, 1);
 }
 
+/**
+ * fe-34 v3: the overcast floor 0..1 at (x, z): 1 inside `from`·rm of the centre (outside the eye),
+ * ramping to 0 over `ramp`·rm beyond it; 0 in the eye and without options.
+ */
+export function cycloneOvercastFloor(state: CycloneState, x: number, z: number, options?: { from?: number; ramp?: number }): number {
+  if (!options) return 0;
+  const r = Math.hypot(x - state.x, z - state.z);
+  if (r < state.eyeRadius) return 0;
+  const rm = Math.max(1, state.radiusMaxWind);
+  const from = (options.from ?? 16) * rm;
+  const ramp = Math.max(1e-3, (options.ramp ?? 4) * rm);
+  return clamp((from + ramp - r) / ramp, 0, 1);
+}
+
 export type CyclonePhase = "clear" | "outer-bands" | "rainbands" | "eyewall" | "eye";
 
 export function cyclonePhaseAt(state: CycloneState, x: number, z: number): CyclonePhase {
@@ -330,6 +344,12 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
    * until the eyewall. Drives the cloud albedo, ceiling, scud and billows. Default 1 (linear).
    */
   darknessGain?: number;
+  /**
+   * fe-34 v3: overcast floor. Inside `from` × radiusMaxWind of the centre (the outer bands) the deck
+   * is forced toward full cover — ramping in over `ramp` × radiusMaxWind — so no blue shows through
+   * the rain bands; the eye (hole) and the far-offshore calm stay clear. Omitted = the band field only.
+   */
+  overcast?: { from?: number; ramp?: number };
   /** Drive the ocean waves + surge. Default true (no-op while water is disabled). */
   driveOcean?: boolean;
   /** Cap on the significant wave height the ocean is allowed. Default 5. */
@@ -476,6 +496,8 @@ export class CycloneSystem extends SceneObject {
     obs.phase = cyclonePhaseAt(s, p.x, p.z);
     obs.rain = cycloneRainAt(s, p.x, p.z, o);
     obs.cover = cycloneCoverAt(s, p.x, p.z, o.eyeCover ?? 0.12, o);
+    const floor = cycloneOvercastFloor(s, p.x, p.z, o.overcast);
+    if (floor > 0) obs.cover = Math.max(obs.cover, floor);
     obs.storm = clamp(obs.wind.speed / 70, 0, 1);
     obs.category = saffirSimpsonCategory(s.maxWind);
     const light = stormLightFactors(obs.cover, Math.max(obs.storm, obs.rain), o.minimumSun ?? 0.12, o.minimumAmbient ?? 0.35);
@@ -505,6 +527,8 @@ export class CycloneSystem extends SceneObject {
     if (!scene || !applyToScene) return;
     // How dark the storm is overhead: thick deck + heavy rain + wind, nothing in the clear eye.
     obs.darkness = clamp(Math.max(obs.rain, obs.storm * 0.9) * clamp((obs.cover - 0.3) / 0.6, 0, 1), 0, 1);
+    // v3: an overcast deck is grey from the start and darkens with the storm.
+    if (floor > 0) obs.darkness = Math.max(obs.darkness, floor * (0.3 + 0.7 * obs.storm));
     const gain = Math.max(0.1, o.darknessGain ?? 1);
     if (gain !== 1) obs.darkness = 1 - Math.pow(1 - obs.darkness, gain);
     if (o.driveClouds ?? true) {
@@ -515,7 +539,7 @@ export class CycloneSystem extends SceneObject {
         // The deck stays overcast through the eye; the hole (fixed in the world, following the
         // storm centre scaled toward the observer) opens the sky overhead and rings it with wall.
         const k = Math.max(1e-4, hole.scale);
-        const deckCover = cycloneCoverAt(s, p.x, p.z, 1, o);
+        const deckCover = Math.max(cycloneCoverAt(s, p.x, p.z, 1, o), floor);
         scene.setClouds({
           coverage: deckCover,
           density: 0.6 + 0.4 * deckCover,

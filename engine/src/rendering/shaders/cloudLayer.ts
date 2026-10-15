@@ -280,9 +280,28 @@ fn cloudDeck(dir: vec3<f32>, sunDir: vec3<f32>, footprint: f32) -> vec4<f32> {
       let reliefStep = 0.11 / cloudLayerScaleOf(i);
       let ahead = layer.w * cloudLayerDensityAt(xz + toLight * reliefStep, i, layerFootprint);
       let relief = clamp((column - ahead) / max(layer.w * 0.35, 1e-3), -1.0, 1.0);
-      billowShade *= 1.0 + billowAmt * 0.55 * relief;
+      // v3: a second, finer relief octave (cauliflower lumps on the big billows) and an underside
+      // term toward the viewer — lumps hanging nearer the eye are their own dark bases, the far
+      // flanks catch light — so the deck reads 3-D from below like cumulonimbus / shelf cloud.
+      let fineStep = reliefStep * 0.4;
+      let aheadFine = layer.w * cloudLayerDensityAt(xz + toLight * fineStep, i, layerFootprint);
+      let reliefFine = clamp((column - aheadFine) / max(layer.w * 0.25, 1e-3), -1.0, 1.0);
+      let toEye = normalize(-dir.xz + vec2<f32>(1e-3, 0.0));
+      let near = layer.w * cloudLayerDensityAt(xz + toEye * reliefStep * 0.6, i, layerFootprint);
+      let underside = clamp((near - column) / max(layer.w * 0.35, 1e-3), -1.0, 1.0);
+      billowShade *= (1.0 + billowAmt * 0.8 * relief) * (1.0 + billowAmt * 0.45 * reliefFine) * (1.0 - billowAmt * 0.35 * underside);
+      billowShade = max(billowShade, 0.05);
     }
-    radiance += transmittance * alpha * cloud.cloudAlbedo * (cloud.sunTint * transmitted + cloud.ambientTint) * silver * billowShade;
+    // v3 scud: with billows on, the lowest sheet is the ragged dark fractus racing under the deck.
+    let scudDark = select(1.0, 1.0 - 0.45 * billowAmt, i == 0 && count > 1);
+    radiance += transmittance * alpha * cloud.cloudAlbedo * (cloud.sunTint * transmitted + cloud.ambientTint) * silver * billowShade * scudDark;
+    // v3 in-cloud lightning: a localised glow lighting the deck from inside. Thin puff edges glow
+    // brightest and dense cores block it, so the billow shapes show in silhouette.
+    if (cloud.flashIntensity > 0.0) {
+      let fd = length(xz - cloud.flashCenter) / max(cloud.flashRadius, 1.0);
+      let glow = cloud.flashIntensity * exp(-fd * fd) * (0.35 + 0.65 * (1.0 - fullness)) * (0.6 + 0.4 * alpha);
+      radiance += transmittance * glow * vec3<f32>(0.78, 0.82, 1.0);
+    }
     transmittance *= 1.0 - alpha;
     if (transmittance <= 0.002) {
       break;

@@ -202,10 +202,26 @@ export interface LightningOptions {
   boltPixels?: number;
   /** fe-34: glow halo either side of the core, in pixels (dimmer, bluer lines). Default 0. */
   boltGlowPixels?: number;
+  /**
+   * fe-34 v3: light the cloud deck from inside around the brightest live strike (intra-cloud
+   * flashes especially): writes `clouds.flash*` each frame — a Gaussian glow of `radius` m whose
+   * intensity is energy × envelope × `intensity`, flickering in pulses (`flickerHz` steps).
+   */
+  cloudGlow?: { radius?: number; intensity?: number; flickerHz?: number };
   /** fe-34: viewer position for the ribbon (render-local); required for `boltPixels` > 1. */
   viewer?: () => { x: number; y: number; z: number };
   /** fe-34: angle subtended by one pixel (rad). Default (π/3)/720 — a 60° fov on a 720-px-tall view. */
   pixelAngle?: number;
+}
+
+/**
+ * fe-34 v3: pulsing flicker 0.25..1 for a flash `age` seconds old — held steps of 1/`hz` s with a
+ * seeded level each, so in-cloud lightning stutters in pulses rather than fading smoothly.
+ */
+export function lightningFlicker(age: number, seed: number, hz = 18): number {
+  const step = Math.floor(Math.max(0, age) * hz);
+  const h = hash1i((seed * 0x9e3779b1 + step * 0x85ebca6b) | 0, 0x2545f491) / 4294967296;
+  return 0.25 + 0.75 * h;
 }
 
 /**
@@ -398,14 +414,43 @@ export class LightningSystem extends SceneObject {
     for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope);
   }
 
+  /** fe-34 v3: push the in-cloud glow of the brightest live strike into the scene's cloud deck. */
+  private applyCloudGlow(): void {
+    const g = this.options.cloudGlow;
+    const scene = this.scene;
+    if (!g || !scene) return;
+    let best: LightningStrike | null = null;
+    let bestF = 0;
+    for (const s of this.strikes) {
+      // Intra-cloud flashes glow fully; a ground strike lights its own patch of base less.
+      const f = s.energy * flashEnvelope(s.age, this.envelope) * (s.bolt.cloudOnly ? 1 : 0.6);
+      if (f > bestF) {
+        bestF = f;
+        best = s;
+      }
+    }
+    if (!best || bestF < 0.01) {
+      if (scene.settings.clouds.flashIntensity !== 0) scene.setClouds({ flashIntensity: 0 });
+      return;
+    }
+    const flicker = lightningFlicker(best.age, best.id, g.flickerHz ?? 18);
+    // Intra-cloud flashes run sideways: centre the glow mid-channel.
+    const pts = best.bolt.points;
+    const mid = pts[Math.floor(pts.length / 2)] ?? best.position;
+    scene.setClouds({ flashX: mid.x, flashZ: mid.z, flashRadius: g.radius ?? 700, flashIntensity: bestF * flicker * (g.intensity ?? 6) });
+  }
+
   /** Drive the light, the sky flash and the bolt lines for the current state. */
   present(context: SystemContext): void {
     // Recomputed here too: a strike triggered while `paused` (a held debug strike) must still flash.
     this.flashTotal = 0;
-    for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope);
+    // v3: with `cloudGlow`, an intra-cloud flash lights its own patch of deck, not the whole sky.
+    const icWeight = this.options.cloudGlow ? 0.12 : 1;
+    for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope) * (s.bolt.cloudOnly ? icWeight : 1);
+    this.applyCloudGlow();
     for (const s of this.strikes) {
       const record = this.strikeLights.get(s.id);
-      if (record) record.light.intensity = s.energy * flashEnvelope(s.age, this.envelope) * this.flashLightIntensity;
+      if (record) record.light.intensity = s.energy * flashEnvelope(s.age, this.envelope) * this.flashLightIntensity * (s.bolt.cloudOnly && this.options.cloudGlow ? 0.3 : 1);
     }
     if (this.flashTotal > 0.001) {
       context.render?.setSkyOverride({ exposure: 1 + this.flashTotal * this.skyFlashExposure });
@@ -415,6 +460,8 @@ export class LightningSystem extends SceneObject {
         for (const s of this.strikes) {
           const f = s.energy * flashEnvelope(s.age, this.envelope);
           if (f <= 0.01) continue;
+          // v3: an intra-cloud flash has no visible channel when the deck glow shows it.
+          if (s.bolt.cloudOnly && this.options.cloudGlow) continue;
           const color = this.options.boltColor ?? 0x00e8ffff;
           const width = this.options.boltWidth ?? 5;
           const viewer = this.options.viewer?.();

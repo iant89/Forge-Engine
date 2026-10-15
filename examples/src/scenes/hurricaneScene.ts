@@ -113,6 +113,8 @@ export interface HurricaneSceneHandle extends DemoSceneHandle {
   /** fe-34 debug hooks (screenshots / checks). */
   forceWaterspout(): boolean;
   forceStrike(hold?: boolean): boolean;
+  /** v3: an intra-cloud flash (no channel) lighting the deck ahead of the view. */
+  forceCloudFlash(hold?: boolean): boolean;
   /** Freeze lightning + waterspouts (the frozen flash/bolt stays on screen). */
   holdEffects(hold: boolean): void;
 }
@@ -243,9 +245,11 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     // v2: thinner storm fog so the swell field reads out to ~0.5 km from the beach.
     fogStorm: 0.0045,
     eyeHole: { scale: 0.5 },
-    stormCloudAlbedo: 0.05,
+    stormCloudAlbedo: 0.3,
     // v2: the rain bands are already dark, billowing storm cloud, not white overcast.
-    darknessGain: 6,
+    darknessGain: 3,
+    // v3: fully overcast from the outer bands in; blue only in the eye and the far-offshore calm.
+    overcast: { from: 16, ramp: 4 },
     seaLevel: 0,
     // fe-34 realism: offshore winds draw the sea back (set-down), onshore winds pile it up.
     coast: { onshoreX: 0, onshoreZ: -1, coefficient: 4e-4, limit: 1.2 },
@@ -411,7 +415,9 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     cloudHeight: 650,
     surfaceAt,
     branches: tierValue(tier, { low: 2, medium: 3, high: 4 }),
-    cloudFlashFraction: 0.45,
+    cloudFlashFraction: 0.55,
+    // v3: in-cloud flashes light patches of the billowed deck from inside, flickering in pulses.
+    cloudGlow: { radius: 260, intensity: 3, flickerHz: 16 },
     subdivisions: tierValue(tier, { low: 5, medium: 6, high: 6 }),
     roughness: 0.42,
     flashLightIntensity: 450,
@@ -636,6 +642,16 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       const c = lightning.trigger(new Vec3(p.x, 0, p.z), 1.5);
       if (hold) {
         c.age = 0.02;
+        lightning.paused = true;
+      }
+      return true;
+    },
+    forceCloudFlash(hold = false): boolean {
+      // Ahead of the view and a little left, so the sideways channel lights deck above the beach.
+      const p = viewSeaPoint(1300, -100);
+      const c = lightning.trigger(new Vec3(p.x, 0, p.z), 1.4, true);
+      if (hold) {
+        c.age = 0.03;
         lightning.paused = true;
       }
       return true;
