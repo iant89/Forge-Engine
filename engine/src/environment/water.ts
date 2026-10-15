@@ -147,7 +147,12 @@ export function shoreDepthAt(shore: WaterShoreSettings, level: number, x: number
   const px = x - shore.originX;
   const pz = z - shore.originZ;
   const along = px * dx + pz * dz - shoreCurveOffset(shore, -px * dz + pz * dx);
-  return level - (shore.bedLevel + shore.slope * along);
+  return shoreDropOff(level - (shore.bedLevel + shore.slope * along), shore.breakDepth, shore.dropOff ?? 0);
+}
+
+/** fe-35: the shelf drop-off applied to a planar still-water depth (twin of the shader's). */
+export function shoreDropOff(depth: number, breakDepth: number, dropOff: number): number {
+  return dropOff > 0 ? depth + dropOff * Math.max(0, depth - 2 * breakDepth) : depth;
 }
 
 type ShoreCurve = Pick<WaterShoreSettings, "curveAmp1" | "curveLength1" | "curvePhase1" | "curveAmp2" | "curveLength2" | "curvePhase2">;

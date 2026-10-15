@@ -44,6 +44,17 @@ export interface OceanWindOptions {
   choppiness?: number;
   /** Phase seed so two seas built from the same wind do not line up. Default 0. */
   seed?: number;
+  /**
+   * fe-35: multiplier on the Pierson–Moskowitz height before the caps (fetch / duration-limited
+   * seas are lower than fully developed ones). Default 1.
+   */
+  heightScale?: number;
+  /**
+   * fe-35: the peak steepness Hs/λp a height-capped or fetch-limited sea keeps. Real wind seas sit
+   * around 1/25–1/10; without this, a capped storm sea kept its fully developed (~400 m) wavelength
+   * and only ~1 % steepness, so even metres-high waves rendered as a flat sheet. Default 1/13.
+   */
+  peakSteepness?: number;
 }
 
 export interface OceanState {
@@ -99,12 +110,13 @@ export function oceanWavesFromWind(options: OceanWindOptions): OceanState {
   const count = clamp(Math.floor(options.waveCount ?? MAX_WATER_WAVES), 1, MAX_WATER_WAVES);
   const maxH = Math.max(0.01, options.maxHeight ?? 6);
   const minH = Math.min(maxH, Math.max(0, options.minHeight ?? 0.12));
-  const hs = clamp(pmSignificantHeight(options.windSpeed), minH, maxH);
-  // Waves in a capped sea are shorter than a fully developed one: shrink λ with the same ratio,
-  // otherwise a capped hurricane sea would be impossibly long, low swells.
-  const developed = pmSignificantHeight(options.windSpeed);
-  const capRatio = developed > hs && developed > 0 ? Math.sqrt(hs / developed) : 1;
-  const peak = clamp(pmPeakWavelength(options.windSpeed) * capRatio, 4, 400);
+  const developed = pmSignificantHeight(options.windSpeed) * Math.max(0, options.heightScale ?? 1);
+  const hs = clamp(developed, minH, maxH);
+  // fe-35: wavelength follows the height through a target steepness, so a capped (or fetch-limited)
+  // sea is shorter and steeper rather than impossibly long and flat. Never longer than the fully
+  // developed peak, never longer than 400 m (grid), never shorter than 4 m.
+  const steep = clamp(options.peakSteepness ?? 1 / 13, 1 / 60, 1 / 7);
+  const peak = clamp(Math.min(pmPeakWavelength(options.windSpeed), hs / steep), 4, 400);
   const spread = options.spread ?? 0.45;
   const seed = options.seed ?? 0;
   let ampSum = 0;
@@ -127,7 +139,8 @@ export function oceanWavesFromWind(options: OceanWindOptions): OceanState {
   // Beaufort 4 (~6 m/s) starts whitecaps; by ~25 m/s the sea is streaked white.
   const w = Math.max(0, options.windSpeed);
   const choppiness = clamp(0.8 + w / 30, 0.8, 1.9) * (options.choppiness ?? 1);
-  const foamThreshold = clamp(0.92 - (w - 5) * 0.012, 0.5, 0.92);
+  // fe-35: floor 0.68 (was 0.5): at 0.5 half of every wave was white, hiding the swell under a flat sheet.
+  const foamThreshold = clamp(0.92 - (w - 5) * 0.012, 0.68, 0.92);
   return { waves, choppiness, foamThreshold, significantHeight: hs, peakWavelength: peak };
 }
 

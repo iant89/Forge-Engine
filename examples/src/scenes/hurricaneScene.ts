@@ -183,7 +183,7 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   // The ocean: shore settings come from the same coast parameters as the sand.
   const water = new WaterSurface({ name: "ocean", level: 0, size: 3000 });
   scene.add(water);
-  scene.setWater({ shore: coastalShoreSettings(HURRICANE_COAST, { foamDepth: 0.7, breakDepth: 2.2, colorDepth: 9 }) });
+  scene.setWater({ shore: coastalShoreSettings(HURRICANE_COAST, { foamDepth: 0.7, breakDepth: 2.2, colorDepth: 9, dropOff: 2.5 }) });
   scene.settings.water.deepColor.set(0.012, 0.075, 0.1);
   scene.settings.water.shallowColor.set(0.08, 0.3, 0.28);
   scene.settings.water.opacity = 0.95;
@@ -239,11 +239,15 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
     track,
     observer: () => HURRICANE_OBSERVER,
     ...fieldOptions,
-    maxWaveHeight: tierValue(tier, { low: 4, medium: 4.5, high: 5 }),
-    waveCount: quality.waveCount,
+    // fe-35: Cat 5 eyewall seas are 9–12 m; a fetch-limited 0.45× PM sea keeps the bands smaller,
+    // and ≥ 5 components so even the low tier has wave groups (sets).
+    maxWaveHeight: tierValue(tier, { low: 9, medium: 10, high: 12 }),
+    waveHeightScale: 0.45,
+    waveCount: Math.max(5, quality.waveCount),
     fogClear: 0.0005,
     // v2: thinner storm fog so the swell field reads out to ~0.5 km from the beach.
-    fogStorm: 0.0045,
+    // fe-35: this is exp2 fog — 0.0045 left 0.6 % of the sea visible at 500 m; 0.0022 keeps ~30 %.
+    fogStorm: 0.0022,
     eyeHole: { scale: 0.5 },
     stormCloudAlbedo: 0.3,
     // v2: the rain bands are already dark, billowing storm cloud, not white overcast.
@@ -313,7 +317,10 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   // fe-34: wind made visible — spray off the surf, spindrift streaming off crests, blowing sand,
   // shredded leaves and mist streaks (engine WindBlownField presets; the demo picks where/when).
   const seaLevel = (): number => scene.settings.water.level;
-  const VIEW_TARGET = new Vec3(80, 3, -10);
+  // fe-35: the orbit target sits 45 m further seaward (was z −10). From the old framing the open sea
+  // was a ~20 px strip at the horizon behind a wide swash band, so even 9 m swells read as a flat
+  // line. The eye keeps its height (~13.6 m) and stays on the beach; it just looks over the surf.
+  const VIEW_TARGET = new Vec3(80, 3, 35);
   const camPos = (): { x: number; y: number; z: number } => cameraEntity.transform.position;
   // fe-34 v2: a sea point in the default view — `dist` metres along the view, `side` metres to the
   // sea side of it, pushed out past the surf so strikes and spouts land where the camera looks.
@@ -588,7 +595,8 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
       distance: 120,
       minDistance: 8,
       maxDistance: 320,
-      azimuth: 1.05,
+      // fe-35: turned slightly seaward (was 1.05) so the open swell, not just the surf, fills the right half.
+      azimuth: 1.0,
       elevation: 0.09,
       minElevation: -0.08,
       maxElevation: 1.2,
