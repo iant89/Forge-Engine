@@ -499,7 +499,9 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.uv = input.uv;
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
-  out.tint = vec4<f32>(1.0);
+  // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
+  // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
+  out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
   out.clipPos = cullBatch(out.clipPos);
   return out;
 }
@@ -563,7 +565,9 @@ fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
   out.uv = input.uv;
   out.tangent = input.tangent;
   out.viewDepth = out.clipPos.w;
-  out.tint = vec4<f32>(1.0);
+  // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
+  // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
+  out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
   out.clipPos = cullBatch(out.clipPos);
   return out;
 }

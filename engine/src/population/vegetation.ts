@@ -159,7 +159,19 @@ export class VegetationField extends SceneObject {
   }
 
   override onAttach(scene: Scene): void {
-    for (const inst of this.instances) if (inst.entities.length === 0) this.spawn(scene, inst);
+    // Entities are created part-major, then model-major: the renderer merges consecutive records
+    // of one (geometry, material) into a single instanced draw, so every instance of a model's
+    // part must sit next to its siblings in the component store. Interleaving (wood, leaves,
+    // wood, …) would turn each plant into its own draw.
+    let maxParts = 0;
+    for (const m of this.models) maxParts = Math.max(maxParts, m.parts.length);
+    for (let k = 0; k < maxParts; k++) {
+      for (let m = 0; m < this.models.length; m++) {
+        if (k >= this.models[m]!.parts.length) continue;
+        for (const inst of this.instances) if (inst.model === m && inst.entities.length === k) this.spawnPart(scene, inst, k);
+      }
+    }
+    for (const inst of this.instances) inst.state = -1;
     this.sinceRefresh = Infinity;
   }
 
@@ -174,23 +186,25 @@ export class VegetationField extends SceneObject {
 
   private spawn(scene: Scene, inst: Instance): void {
     const model = this.models[inst.model]!;
-    this.rest(inst);
-    for (let k = 0; k < model.parts.length; k++) {
-      const part = model.parts[k]!;
-      const e = scene.createTransformedEntity(`${this.name}-${inst.model}-${k}`, new Vec3(inst.x, inst.y, inst.z));
-      const t = scene.world.getComponent(e.id, Transform)!;
-      t.setRotation(this.qYaw);
-      t.setScale(inst.scale);
-      const r = new Renderable();
-      r.geometry = part.hi;
-      r.material = part.material;
-      r.castShadow = part.castShadow ?? false;
-      r.tint = inst.tint;
-      r.visible = false;
-      scene.world.addComponent(e.id, r);
-      inst.entities.push(e.id);
-    }
+    for (let k = 0; k < model.parts.length; k++) this.spawnPart(scene, inst, k);
     inst.state = -1;
+  }
+
+  private spawnPart(scene: Scene, inst: Instance, k: number): void {
+    const part = this.models[inst.model]!.parts[k]!;
+    this.rest(inst);
+    const e = scene.createTransformedEntity(`${this.name}-${inst.model}-${k}`, new Vec3(inst.x, inst.y, inst.z));
+    const t = scene.world.getComponent(e.id, Transform)!;
+    t.setRotation(this.qYaw);
+    t.setScale(inst.scale);
+    const r = new Renderable();
+    r.geometry = part.hi;
+    r.material = part.material;
+    r.castShadow = part.castShadow ?? false;
+    r.tint = inst.tint;
+    r.visible = false;
+    scene.world.addComponent(e.id, r);
+    inst.entities.push(e.id);
   }
 
   /** Re-evaluate LOD and visibility now (also runs on its own every `refreshInterval`). */

@@ -99,7 +99,7 @@ const UV_ALONG = 8;
 const START_S = 18;
 const SPAWN_BACK = 10;
 
-export type OffroadCameraMode = "chase" | "cab" | "orbit";
+export type OffroadCameraMode = "chase" | "cab" | "orbit" | "free";
 
 export interface OffroadSceneOptions {
   deviceTier?: DeviceTier;
@@ -138,6 +138,10 @@ export interface OffroadSceneHandle extends DemoSceneHandle {
   placeAt(s: number, lateral?: number, yawOffset?: number): void;
   snapshot(): OffroadSnapshot;
   setWeather(name: OffroadWeather): void;
+  /** Gate/screenshot hook: fixed camera at `eye` looking at `target` (mode "free"). */
+  lookAt(eye: [number, number, number], target: [number, number, number]): void;
+  /** World point (x, ground y, z) at arc length `s`, lateral offset. */
+  trackPoint(s: number, lateral: number): [number, number, number];
   /** Gate hook: grip at a lateral offset from the centreline at arc length `s`. */
   gripAt(s: number, lateral: number): number;
 }
@@ -385,7 +389,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const grassModels: number[] = [];
   const grassVariants = 4;
   for (let v = 0; v < grassVariants; v++) {
-    const opts = { size: 1.3, blades: tierValue(tier, { low: 26, medium: 40, high: 55 }), height: [0.22, 0.5] as [number, number], width: 0.028, seed: 300 + v, sink: 0.06 };
+    const opts = { size: 1.3, blades: tierValue(tier, { low: 45, medium: 70, high: 100 }), height: [0.16, 0.42] as [number, number], width: 0.022, seed: 300 + v, sink: 0.06 };
     grassModels.push(models.length);
     models.push({
       parts: [{ hi: geo(grassPatchSource(opts, "hi")), lo: geo(grassPatchSource(opts, "lo")), material: grassMat, castShadow: false }],
@@ -581,10 +585,13 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const overlay = new MoistureOverlayMaps(engine.gpu, trackGround.field, "offroad.ground-overlay", 0.78);
   // Overlay meshes: the road and berm ribbons again, lifted, with UVs onto the field's patch.
   const overlayAlong = tierValue(tier, { low: 2, medium: 1.5, high: 1 });
-  add("overlay-road", geo(withFieldUvs(trackRibbonSource(track, { from: -span, to: span, across: 9, alongStep: overlayAlong, lift: 0.025, uvMetersAlong: UV_ALONG }), trackGround.field, 0.03, "offroad.overlay-road")), overlay.material, false);
+  const overlayIds: Entity[] = [];
+  overlayIds.push(add("overlay-road", geo(withFieldUvs(trackRibbonSource(track, { from: -span, to: span, across: 9, alongStep: overlayAlong, lift: 0.025, uvMetersAlong: UV_ALONG }), trackGround.field, 0.03, "offroad.overlay-road")), overlay.material, false));
   for (const side of [-1, 1] as const) {
-    add(`overlay-berm-${side}`, geo(withFieldUvs(trackRibbonSource(track, { from: side * (span - 0.05), to: side * bermOuter, across: 8, alongStep: overlayAlong, lift: 0.03, uvMetersAlong: 4 }), trackGround.field, 0.035, "offroad.overlay-berm")), overlay.material, false);
+    overlayIds.push(add(`overlay-berm-${side}`, geo(withFieldUvs(trackRibbonSource(track, { from: side * (span - 0.05), to: side * bermOuter, across: 8, alongStep: overlayAlong, lift: 0.03, uvMetersAlong: 4 }), trackGround.field, 0.035, "offroad.overlay-berm")), overlay.material, false));
   }
+  // Alpha-blended after the opaques (the renderable's flag picks the blend path).
+  for (const e of overlayIds) scene.world.getComponent(e.id, Renderable)!.transparent = true;
   setWorldSurfaceGripField(scene.world, (x, z) => trackGround.gripAt(x, z));
   const precipitation = new PrecipitationField({
     name: "offroad-precipitation",
@@ -624,6 +631,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const chaseEye = new Vec3(vehicle.position.x, vehicle.position.y + 3, vehicle.position.z - 7);
   const chaseLook = new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z);
   let chaseYaw = vehicle.yaw;
+  // Screenshot/gate hook: a fixed free camera (`lookAt`), not reachable from the UI.
+  const freeEye = new Vec3();
+  const freeTarget = new Vec3();
   const rot = new Quat();
   const tmp = new Vec3();
   const tmp2 = new Vec3();
@@ -763,6 +773,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1, z: vehicle.position.z }),
     cameraOverride: () => {
       if (cameraMode === "orbit") return null;
+      if (cameraMode === "free") return { eye: [freeEye.x, freeEye.y, freeEye.z], target: [freeTarget.x, freeTarget.y, freeTarget.z] };
       vehicle.writeRotation(rot);
       if (cameraMode === "cab") {
         // Driver's eye: left seat, under the visor, looking along the chassis.
@@ -835,6 +846,16 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       }
     },
     setWeather,
+    lookAt(eye: [number, number, number], target: [number, number, number]): void {
+      freeEye.set(eye[0], eye[1], eye[2]);
+      freeTarget.set(target[0], target[1], target[2]);
+      cameraMode = "free";
+    },
+    trackPoint(s: number, lateral: number): [number, number, number] {
+      const c = spline.sampleAt(s, { x: 0, z: 0, tx: 0, tz: 1 });
+      const x = c.x + c.tz * lateral, z = c.z - c.tx * lateral;
+      return [x, heightAt(x, z), z];
+    },
     gripAt(s: number, lateral: number): number {
       const c = spline.sampleAt(s, { x: 0, z: 0, tx: 0, tz: 1 });
       return trackGround.gripAt(c.x + c.tz * lateral, c.z - c.tx * lateral);

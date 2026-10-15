@@ -859,6 +859,15 @@ async function main(): Promise<void> {
       (currentHandle as OffroadSceneHandle).setWeather(name);
       return true;
     },
+    /** fe-37b screenshot hook: free camera from (s, lateral, height) looking at (s2, lateral2, height2) above the ground. */
+    offroadLook: (a: [number, number, number], b: [number, number, number]) => {
+      if (activeSceneName !== "offroad") return false;
+      const h = currentHandle as OffroadSceneHandle;
+      const pa = h.trackPoint(a[0], a[1]);
+      const pb = h.trackPoint(b[0], b[1]);
+      h.lookAt([pa[0], pa[1] + a[2], pa[2]], [pb[0], pb[1] + b[2], pb[2]]);
+      return true;
+    },
     offroadGrip: (s: number, lateral: number) => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle).gripAt(s, lateral) : null),
     /**
      * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
