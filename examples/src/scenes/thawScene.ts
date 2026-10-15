@@ -60,7 +60,8 @@ export function thawHeightAt(x: number, z: number): number {
   // The last 4 m of the patch bank down into the surrounding meadow plane (at BED_Y).
   const edge = FIELD_SIZE / 2 - Math.max(Math.abs(x), Math.abs(z));
   const skirt = Math.min(1, Math.max(0, edge / 4));
-  return BED_Y + (yardHeight(x, z) - BED_Y) * skirt * skirt * (3 - 2 * skirt);
+  // The rim tucks 5 cm under the meadow plane so no seam shows where they meet.
+  return BED_Y - 0.05 + (yardHeight(x, z) - BED_Y + 0.05) * skirt * skirt * (3 - 2 * skirt);
 }
 
 function yardHeight(x: number, z: number): number {
@@ -134,7 +135,7 @@ export function buildThawScene(engine: Engine): ThawSceneHandle {
     scene.world.addComponent(e.id, r);
   }
   {
-    const e = scene.createTransformedEntity("meadow", new Vec3(0, BED_Y - 0.01, 0));
+    const e = scene.createTransformedEntity("meadow", new Vec3(0, BED_Y, 0));
     const r = new Renderable();
     r.geometry = meadowGeometry;
     r.material = meadowMaterial;
@@ -203,15 +204,11 @@ export function buildThawScene(engine: Engine): ThawSceneHandle {
   }
 
   const dustGround = (): void => {
-    // A light dusting on the yard (2 cm), deeper drifts on the grass rim.
     for (let k = 0; k < field.snow.length; k++) {
-      const i = k % field.resolution;
-      const j = (k - i) / field.resolution;
-      const x = field.originX + (i + 0.5) * field.cell;
-      const z = field.originZ + (j + 0.5) * field.cell;
-      field.snow[k] = Math.hypot(x, z) < 13 ? 0.02 : 0.05;
+      // 5 cm over the yard: its meltwater (~15 mm) is more than the dirt holds, so it pools and muds.
+      field.snow[k] = 0.05;
       field.water[k] = 0;
-      field.moisture[k] = 0.25;
+      field.moisture[k] = 0.35;
     }
   };
   // The meadow beyond the patch follows the patch's own grass rim (snowy → green as it melts).

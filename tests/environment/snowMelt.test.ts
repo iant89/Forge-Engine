@@ -230,7 +230,7 @@ group("ground moisture field", () => {
     assert.ok(field.puddleAt(0.2, 0.2) > 0.5);
   });
   test("dirt turns to mud (darker, glossier, less grip) and dries again; rock does not", () => {
-    const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 4, resolution: 4, soilAt: (x) => (x < 2 ? "dirt" : "rock") });
+    const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 4, resolution: 4, openBoundary: false, soilAt: (x) => (x < 2 ? "dirt" : "rock") });
     const wet = createMeltEnvironment({ airTemperatureC: 4, humidity: 0.9 });
     for (let t = 0; t < 200; t++) {
       field.addWater(0.5, 0.5, 0.0002);
@@ -254,6 +254,20 @@ group("ground moisture field", () => {
     for (let t = 0; t < 360; t++) field.step(60, sunny);
     assert.ok(field.mudAt(0.5, 0.5) < 0.05, `dried mud ${field.mudAt(0.5, 0.5)}`);
     assertCloseTo(field.gripAt(0.5, 0.5), 1, 2);
+  });
+  test("puddles are flagged in the MR map's alpha; water leaving an open edge is accounted for", () => {
+    const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 3, resolution: 3, soilAt: () => "rock" });
+    field.water[4] = 0.02;
+    const albedo = new Uint8Array(36);
+    const mr = new Uint8Array(36);
+    field.writeSurfaceMaps(albedo, mr);
+    assert.equal(mr[4 * 4 + 3], 0, "the puddle cell's alpha is 0");
+    assert.equal(mr[3], 255, "dry cells keep alpha 1");
+    assertContains(STANDARD_FRAGMENT_BODY, "standingWater = 1.0 - mr.a");
+    const before = field.totalWater();
+    for (let t = 0; t < 300; t++) field.step(1, createMeltEnvironment({ humidity: 1 }));
+    assert.ok(field.totalWater() < before * 0.5, "most of it ran off the open edge");
+    assertCloseTo(field.totalWater() + field.waterOut, before + 0, 6);
   });
   test("ground snow melts into water in the sun", () => {
     const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 2, resolution: 2 });

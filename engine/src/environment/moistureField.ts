@@ -56,7 +56,9 @@ export interface GroundMoistureFieldOptions {
   soilAt?: (x: number, z: number) => SoilName;
   /** Rain rate at precipitation 1, m/s of water. Default 2.8e-6 (10 mm/h). */
   rainRate?: number;
-  /** Seconds for saturated topsoil to drain and dry by 1/e at 15 °C, no sun, no wind. Default 21600 (6 h; about 1–3 h in spring sun). */
+  /** Water reaching the patch edge runs off it (default true); false walls the patch in. */
+  openBoundary?: boolean;
+  /** Seconds for saturated topsoil to drain and dry by 1/e at 15 °C, no sun, no wind. Default 43200 (12 h; most of a day in spring sun). */
   dryingTime?: number;
   /** Standing-water evaporation at 1000 W/m² sun, m/s. Default 1.5e-7 (≈0.5 mm/h). */
   evaporation?: number;
@@ -87,6 +89,7 @@ export class GroundMoistureField {
   rainRate: number;
   dryingTime: number;
   evaporation: number;
+  openBoundary: boolean;
   /** Seconds simulated so far. */
   simulatedSeconds = 0;
   /** Total water that has entered the field (m³) and left it (soaked, evaporated) — conservation checks. */
@@ -108,8 +111,9 @@ export class GroundMoistureField {
     this.flux = new Float32Array(n * 4);
     this.soil = new Array<SoilType>(n);
     this.rainRate = options.rainRate ?? 2.8e-6;
-    this.dryingTime = options.dryingTime ?? 21600;
+    this.dryingTime = options.dryingTime ?? 43200;
     this.evaporation = options.evaporation ?? 1.5e-7;
+    this.openBoundary = options.openBoundary ?? true;
     const heightAt = options.heightAt ?? (() => 0);
     const soilAt = options.soilAt ?? (() => "dirt" as SoilName);
     for (let j = 0; j < this.resolution; j++) {
@@ -129,6 +133,7 @@ export class GroundMoistureField {
 
   /** Cell index for a world point, or -1 outside the patch. */
   indexAt(x: number, z: number): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return -1;
     const i = Math.floor((x - this.originX) / this.cell);
     const j = Math.floor((z - this.originZ) / this.cell);
     if (i < 0 || j < 0 || i >= this.resolution || j >= this.resolution) return -1;
@@ -138,7 +143,7 @@ export class GroundMoistureField {
   /** Pour `volume` m³ of water onto the ground at (x, z). Returns false outside the patch. */
   addWater(x: number, z: number, volume: number): boolean {
     const k = this.indexAt(x, z);
-    if (k < 0 || !(volume > 0)) return false;
+    if (k < 0 || !(volume > 0) || !Number.isFinite(volume)) return false;
     this.water[k] += volume / this.cellArea;
     this.waterIn += volume;
     return true;
@@ -147,7 +152,7 @@ export class GroundMoistureField {
   /** Drop `volume` m³ of snow at (x, z) (shed clumps landing). */
   addSnow(x: number, z: number, volume: number): boolean {
     const k = this.indexAt(x, z);
-    if (k < 0 || !(volume > 0)) return false;
+    if (k < 0 || !(volume > 0) || !Number.isFinite(volume)) return false;
     this.snow[k] += volume / this.cellArea;
     return true;
   }
@@ -239,7 +244,7 @@ export class GroundMoistureField {
     // 3. Infiltration, evaporation and drying.
     const warmth = Math.max(0.2, 1 + (env.airTemperatureC - 15) * 0.04);
     const sun = Math.max(0, env.sunIrradiance * Math.max(0, env.sunDirection.y) + env.diffuseIrradiance) / 1000;
-    const dryRate = (warmth * (1 + 2 * sun) * (1 + 0.1 * env.windSpeed) * (1.4 - clamp(env.humidity, 0, 1))) / this.dryingTime;
+    const dryRate = (warmth * (1 + 0.8 * sun) * (1 + 0.1 * env.windSpeed) * (1.4 - clamp(env.humidity, 0, 1))) / this.dryingTime;
     const evap = this.evaporation * (0.3 + sun) * (1 + 0.1 * env.windSpeed) * (1.2 - clamp(env.humidity, 0, 1)) * dt;
     for (let k = 0; k < n; k++) {
       const soil = this.soil[k]!;
@@ -284,6 +289,9 @@ export class GroundMoistureField {
             const m = nj * res + ni;
             const drop = this.height[k]! + w - this.height[m]! - this.water[m]!;
             if (drop > 0) out = Math.min(drop * 0.5, w) * h;
+          } else if (w > 0 && this.openBoundary) {
+            // Open edge: water runs off the patch as if the ground outside continued level.
+            out = w * 0.5 * h;
           }
           f[k * 4 + d] = out;
           total += out;
@@ -301,7 +309,10 @@ export class GroundMoistureField {
           if (q <= 0) continue;
           const [di, dj] = NEIGHBOURS[d]!;
           this.water[k] -= q;
-          this.water[(j + dj) * res + i + di] += q;
+          const ni = i + di;
+          const nj = j + dj;
+          if (ni >= 0 && nj >= 0 && ni < res && nj < res) this.water[nj * res + ni] += q;
+          else this.waterOut += q * this.cellArea;
         }
       }
     }
@@ -310,7 +321,8 @@ export class GroundMoistureField {
   /**
    * Render the field into RGBA8 texels (one per cell, row = z): `albedo` is sRGB-encoded colour
    * (dry soil → darker wet soil → dark glossy mud → puddle water → white snow), `metallicRoughness`
-   * follows the glTF layout (G roughness, B metallic): dry 0.9 → mud 0.3 → puddle 0.05 → snow 0.6.
+   * follows the glTF layout (G roughness, B metallic): dry 0.9 → mud 0.3 → puddle 0.05 → snow 0.6, and its
+   * alpha marks standing water (1 − puddle; the standard shader reflects the sky there).
    */
   writeSurfaceMaps(albedo: Uint8Array, metallicRoughness: Uint8Array): void {
     const n = this.water.length;
@@ -347,7 +359,8 @@ export class GroundMoistureField {
       metallicRoughness[o] = 255;
       metallicRoughness[o + 1] = Math.round(clamp(rough, 0, 1) * 255);
       metallicRoughness[o + 2] = 0;
-      metallicRoughness[o + 3] = 255;
+      // Alpha < 1 marks standing water for the standard shader's sky-reflecting puddle film.
+      metallicRoughness[o + 3] = Math.round((1 - puddle * (1 - snowCover)) * 255);
     }
   }
 }
