@@ -761,3 +761,115 @@ export function litterQuadsSource(
   }
   return { positions, normals, uvs, indices, label: options.label ?? "track-litter" };
 }
+
+export interface TrackLapTimerOptions {
+  /** Arc length of the start/finish line. Default 0. */
+  startS?: number;
+  /**
+   * Lap fractions (0..1 from the line) that must be passed in order before a crossing counts as a
+   * lap — stops a reverse-and-recross or a shortcut from scoring. Default [1/3, 2/3].
+   */
+  checkpoints?: readonly number[];
+  /** Largest believable advance per update in metres; a bigger jump (a reset) is not a crossing. Default 25. */
+  maxStep?: number;
+}
+
+export interface TrackLapState {
+  running: boolean;
+  /** 1-based lap in progress (0 before the first crossing). */
+  lap: number;
+  lapTime: number;
+  lastLap: number | null;
+  bestLap: number | null;
+  /** 0..1 position around the lap from the line. */
+  progress: number;
+  /** Checkpoints passed this lap. */
+  checkpointsPassed: number;
+  /** Signed lateral offset from the centreline (Infinity off the corridor). */
+  lateral: number;
+}
+
+/**
+ * Start/finish lap timer for a closed {@link TrackSpline}. Call {@link update} every frame with the
+ * vehicle's XZ and frame time. The clock starts on the first forward crossing of the line; a lap
+ * completes on a later forward crossing once every checkpoint has been passed in order.
+ */
+export class TrackLapTimer {
+  readonly state: TrackLapState = {
+    running: false, lap: 0, lapTime: 0, lastLap: null, bestLap: null, progress: 0, checkpointsPassed: 0, lateral: Infinity,
+  };
+  private readonly startS: number;
+  private readonly checkpoints: readonly number[];
+  private readonly maxStep: number;
+  private lastRel: number | null = null;
+  private readonly proj: TrackProjection = { s: 0, lateral: 0, dist: Infinity, index: -1 };
+
+  constructor(readonly spline: TrackSpline, options: TrackLapTimerOptions = {}) {
+    if (!spline.closed) throw new Error("TrackLapTimer needs a closed spline");
+    this.startS = spline.wrapS(options.startS ?? 0);
+    this.checkpoints = [...(options.checkpoints ?? [1 / 3, 2 / 3])].sort((a, b) => a - b);
+    this.maxStep = options.maxStep ?? 25;
+  }
+
+  /** Signed distance past the line in (−L/2, L/2]. */
+  private rel(s: number): number {
+    const L = this.spline.length;
+    let r = s - this.startS;
+    while (r > L / 2) r -= L;
+    while (r <= -L / 2) r += L;
+    return r;
+  }
+
+  /** Forget the previous position (call after teleporting the vehicle) so no crossing is inferred. */
+  resync(): void {
+    this.lastRel = null;
+  }
+
+  /** Clear times and laps. */
+  reset(): void {
+    Object.assign(this.state, { running: false, lap: 0, lapTime: 0, lastLap: null, bestLap: null, progress: 0, checkpointsPassed: 0 });
+    this.lastRel = null;
+  }
+
+  /** Advance with the vehicle at (x, z). Returns "start", "lap" or null for this update. */
+  update(x: number, z: number, dt: number): "start" | "lap" | null {
+    const st = this.state;
+    if (st.running) st.lapTime += dt;
+    const pr = this.spline.project(x, z, this.proj);
+    if (!Number.isFinite(pr.dist)) {
+      st.lateral = Infinity;
+      this.lastRel = null;
+      return null;
+    }
+    st.lateral = pr.lateral;
+    const L = this.spline.length;
+    const rel = this.rel(pr.s);
+    st.progress = (((rel % L) + L) % L) / L;
+    let event: "start" | "lap" | null = null;
+    const prev = this.lastRel;
+    if (prev !== null && prev < 0 && rel >= 0 && rel - prev < this.maxStep) {
+      if (!st.running) {
+        st.running = true;
+        st.lap = 1;
+        st.lapTime = 0;
+        st.checkpointsPassed = 0;
+        event = "start";
+      } else if (st.checkpointsPassed >= this.checkpoints.length) {
+        st.lastLap = st.lapTime;
+        st.bestLap = st.bestLap === null ? st.lapTime : Math.min(st.bestLap, st.lapTime);
+        st.lap += 1;
+        st.lapTime = 0;
+        st.checkpointsPassed = 0;
+        event = "lap";
+      }
+    }
+    if (st.running && prev !== null && st.checkpointsPassed < this.checkpoints.length) {
+      const next = this.checkpoints[st.checkpointsPassed]! * L;
+      const prevP = ((prev % L) + L) % L;
+      const curP = ((rel % L) + L) % L;
+      if (prevP < next && curP >= next && curP - prevP < this.maxStep) st.checkpointsPassed += 1;
+    }
+    this.lastRel = rel;
+    return event;
+  }
+}

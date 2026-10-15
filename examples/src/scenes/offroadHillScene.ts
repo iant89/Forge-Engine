@@ -27,6 +27,7 @@ import {
   Renderable,
   Scene,
   TrackSpline,
+  TrackLapTimer,
   TrackTerrain,
   Vec3,
   Vehicle,
@@ -503,55 +504,11 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   // ------------------------------------------------------------------ lap timer
   const proj: TrackProjection = { s: 0, lateral: 0, dist: Infinity, index: -1 };
   const L = spline.length;
-  /** Distance travelled past the start line, unwrapped (negative before it). */
-  let lastRel = -SPAWN_BACK;
-  let running = false;
-  let lap = 0;
-  let lapTime = 0;
-  let lastLap: number | null = null;
-  let bestLap: number | null = null;
-  /** Checkpoints at 1/3 and 2/3 of the lap must be passed for a lap to count (no shortcut). */
-  let checkpoints = 0;
-  let progress = 0;
-  let lateral = 0;
-  const relOf = (s: number): number => {
-    let r = s - START_S;
-    if (r > L / 2) r -= L;
-    if (r < -L / 2) r += L;
-    return r;
-  };
+  const timer = new TrackLapTimer(spline, { startS: START_S });
   const resetToTrack = (): void => {
     spline.project(vehicle.position.x, vehicle.position.z, proj);
     placeAt(Number.isFinite(proj.dist) ? proj.s : START_S - SPAWN_BACK);
-  };
-  const updateLap = (dt: number): void => {
-    spline.project(vehicle.position.x, vehicle.position.z, proj);
-    if (!Number.isFinite(proj.dist)) return;
-    lateral = proj.lateral;
-    const s = proj.s;
-    progress = ((s - START_S + L) % L) / L;
-    const rel = relOf(s);
-    if (running) lapTime += dt;
-    // Crossing the line forward: rel goes from slightly negative to slightly positive.
-    if (lastRel < 0 && rel >= 0 && rel - lastRel < 20) {
-      if (!running) {
-        running = true;
-        lapTime = 0;
-        lap = 1;
-        checkpoints = 0;
-      } else if (checkpoints === 3) {
-        lastLap = lapTime;
-        bestLap = bestLap === null ? lapTime : Math.min(bestLap, lapTime);
-        lap += 1;
-        lapTime = 0;
-        checkpoints = 0;
-      }
-    }
-    if (running) {
-      if (progress > 0.33 && progress < 0.5) checkpoints |= 1;
-      if (progress > 0.66 && progress < 0.85 && (checkpoints & 1)) checkpoints |= 2;
-    }
-    lastRel = rel;
+    timer.resync();
   };
 
   const handle: OffroadSceneHandle = {
@@ -592,7 +549,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
-      updateLap(dt);
+      timer.update(vehicle.position.x, vehicle.position.z, dt);
 
       // Chase camera: trails behind along a smoothed heading, held above the berms and terrain.
       const k = 1 - Math.exp(-dt * 4);
@@ -609,6 +566,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       chaseLook.set(vehicle.position.x + Math.sin(chaseYaw) * 3, vehicle.position.y + 1.1, vehicle.position.z + Math.cos(chaseYaw) * 3);
     },
     overlay(): string {
+      const { lap, running, lapTime, lastLap, bestLap, progress } = timer.state;
       return (
         `OFF-ROAD HILL  lap ${Math.max(1, lap)}  ${running ? fmtTime(lapTime) : "drive through the gate to start"}\n` +
         `last ${fmtTime(lastLap)}  best ${fmtTime(bestLap)}  progress ${(progress * 100).toFixed(0)}%\n` +
@@ -634,10 +592,11 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     },
     placeAt(s: number, lat = 0, yawOffset = 0): void {
       placeAt(s, lat, yawOffset);
-      lastRel = relOf(spline.wrapS(s));
+      timer.resync();
       handle.setCameraMode(cameraMode);
     },
     snapshot(): OffroadSnapshot {
+      const { lap, lapTime, lastLap, bestLap, running, progress, lateral } = timer.state;
       return {
         lap, lapTime, lastLap, bestLap, running, progress, trackLength: L, lateral,
         speedKph: vehicle.speed * 3.6, cameraMode,
