@@ -118,6 +118,19 @@ group("Architecture - Import Boundaries", () => {
     }
   });
 
+  test("scripting depends on scene, math and core only (Phase 18.6: no GPU, render or solver internals)", () => {
+    const files = getAllFiles(path.join(engineSrc, "scripting"));
+    assert.ok(files.length > 0);
+    for (const file of files) {
+      for (const imp of parseImports(file)) {
+        if (!imp.specifier.startsWith(".")) continue;
+        const resolved = path.normalize(path.join(path.dirname(file), imp.specifier));
+        const topLevel = path.relative(engineSrc, resolved).split(path.sep)[0];
+        assert.equal(["core", "math", "scene", "scripting"].includes(topLevel ?? ""), true, `scripting file ${path.relative(engineSrc, file)} illegally imports from ${topLevel}: "${imp.specifier}"`);
+      }
+    }
+  });
+
   test("environment depends on scene, math and core only (rendering imports it, never the reverse)", () => {
     const files = getAllFiles(path.join(engineSrc, "environment"));
     assert.ok(files.length > 0);

@@ -89,6 +89,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "15.5": "inProgress",
   "16": "inProgress",
   "17": "inProgress",
+  "18": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -923,9 +924,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "scripting.lifecycle",
     phase: "18.1",
-    status: "planned",
+    status: "inProgress",
     summary: "Gameplay script lifecycle, timers, coroutines, typed events and error isolation",
-    closesWith: "18.1",
+    evidence: ["tests/scripting/scriptLifecycle.test.ts", "tests/engine/architecture.test.ts", "tools/lint-arch.mjs", "docs/SCRIPTING.md"],
+    closesWith: "18",
+    notes: "18.1 lifecycle and 18.5 error isolation landed: Script/ScriptComponent/ScriptRuntime run onCreate, onPreUpdate (band 0), onFixedUpdate (band 100, per fixed step), onUpdate (200), onLateUpdate (450) and onDestroy in creation order; a throwing hook is caught, its queued structural changes are discarded and the entities it created destroyed, and the script is faulted without stopping other scripts or systems. Scripts get copies of the clock's values and no GPU/render/solver handles (18.6 boundary enforced by lint:arch). Timers (18.2), coroutines (18.3), typed events (18.4) and hot reload (18.7) are not built; an infinite loop in a hook still hangs the frame.",
   },
   {
     id: "serialization.scene",

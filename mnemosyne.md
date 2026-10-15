@@ -2335,3 +2335,12 @@ Read the module constraints below before changing either pure model.
   curl the module (`/@fs/<abs path>`) and grep for the edit. Puddles: bisect by splitting the forward
   colour into direct / ambient / sky-reflection terms. In rain, direct ≈ 0 and the pale grey was the
   reflection of `max(fogColor, 1.6·ambient)`; it now reflects the ambient sky radiance (docs/VEGETATION.md).
+
+- 2026-10-15 (Phase 18 start): **Run a single suite the way selrun does:**
+  `TSX_TSCONFIG_PATH=$PWD/tests/tsconfig.json npx tsx tests/<area>/<x>.test.ts`. Without it,
+  `@forge/engine` resolves through `node_modules/@forge/engine` to `engine/dist`, and the suite tests
+  whatever was last built, not the source (a deliberate mutation went uncaught that way). Scripting:
+  each hook runs in `EntityWorld._beginStructuralScope`/`_endStructuralScope`, the same journal
+  `runSystems` uses per system, so a throwing hook's queued structural ops are dropped as a unit
+  (docs/SCRIPTING.md). Mars Showcase `marsShowcaseDamage` drill and `marsShowcaseCollision` contact
+  depth are intermittent under full-suite load; the rock-ram case fails every time, on main too.

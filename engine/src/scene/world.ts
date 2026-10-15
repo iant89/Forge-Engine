@@ -603,6 +603,27 @@ export class EntityWorld {
     }
   }
 
+  /**
+   * @internal Open a deferred-structure scope (the same deferral `runSystems` gives each system):
+   * add/remove/destroy calls inside it are queued, not applied. Returns a mark for
+   * {@link _endStructuralScope}. Used by the script runtime so a failing hook's queued changes can
+   * be dropped as a unit (Phase 18.5).
+   */
+  _beginStructuralScope(): number {
+    this.journalDepth++;
+    return this.journal.length;
+  }
+
+  /**
+   * @internal Close a scope from {@link _beginStructuralScope}. `commit: false` discards every op
+   * queued since `mark`. The outermost scope applies what remains.
+   */
+  _endStructuralScope(mark: number, commit: boolean): void {
+    if (!commit && this.journal.length > mark) this.journal.length = mark;
+    this.journalDepth--;
+    if (this.journalDepth === 0) this.flushJournal();
+  }
+
   flushJournal(): void {
     if (this.journal.length === 0 || this.disposed) return;
     const ops = this.journal.splice(0, this.journal.length);

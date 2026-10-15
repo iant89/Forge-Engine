@@ -225,6 +225,7 @@ export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NA
 export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
 export { setWorldSurfaceGrip, worldSurfaceGrip, setWorldSurfaceGripField, worldSurfaceGripField, type SurfaceGripField } from "./scene/surfaceGrip.js";
 export { Query, ObjectStore, StructStore, type ComponentStorage, type QueryWorld } from "./scene/stores.js";
+export * from "./scripting/index.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";
 export {
