@@ -505,6 +505,8 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
   const positions = new Float32Array(rows * across * 3);
   const normals = new Float32Array(rows * across * 3);
   const uvs = new Float32Array(rows * across * 2);
+  const tangents = new Float32Array(rows * across * 4);
+  const uSign = opts.to >= opts.from ? 1 : -1;
   const pos = { x: 0, z: 0 };
   const nrm = { x: 0, y: 1, z: 0 };
   const h = 0.2;
@@ -538,6 +540,8 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
       normals[k + 2] = nrm.z;
       uvs[(r * across + a) * 2] = u;
       uvs[(r * across + a) * 2 + 1] = s / uvAlong;
+      // Tangent = +u direction (lateral axis, toward `to`) projected onto the surface.
+      writeTangent(tangents, (r * across + a) * 4, nrm, uSign * c.tz, uSign * -c.tx, c.tx, c.tz);
     }
   }
   const indices = new Uint32Array((rows - 1) * (across - 1) * 6);
@@ -556,7 +560,24 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
       }
     }
   }
-  return { positions, normals, uvs, indices, label: opts.label ?? "track-ribbon" };
+  return { positions, normals, uvs, tangents, indices, label: opts.label ?? "track-ribbon" };
+}
+
+/**
+ * Tangent (xyzw) from a horizontal +u direction (ux, uz) and +v direction (vx, vz): the +u axis
+ * projected onto the surface plane, with w the handedness of (N, T, +v).
+ */
+function writeTangent(out: Float32Array, o: number, n: { x: number; y: number; z: number }, ux: number, uz: number, vx: number, vz: number): void {
+  const d = n.x * ux + n.z * uz;
+  let tx = ux - n.x * d, ty = -n.y * d, tz = uz - n.z * d;
+  const len = Math.hypot(tx, ty, tz) || 1;
+  tx /= len; ty /= len; tz /= len;
+  // (N × T) · B
+  const cx = n.y * tz - n.z * ty, cz = n.x * ty - n.y * tx;
+  out[o] = tx;
+  out[o + 1] = ty;
+  out[o + 2] = tz;
+  out[o + 3] = cx * vx + cz * vz >= 0 ? 1 : -1;
 }
 
 export interface TrackGridOptions {
@@ -585,6 +606,7 @@ export function trackTerrainGridSource(
   const positions = new Float32Array(n * n * 3);
   const normals = new Float32Array(n * n * 3);
   const uvs = new Float32Array(n * n * 2);
+  const tangents = new Float32Array(n * n * 4);
   const pr: TrackProjection = { s: 0, lateral: 0, dist: Infinity, index: -1 };
   const nrm = { x: 0, y: 1, z: 0 };
   for (let j = 0; j < n; j++) {
@@ -604,6 +626,7 @@ export function trackTerrainGridSource(
       normals[k + 2] = nrm.z;
       uvs[(j * n + i) * 2] = x / uvScale;
       uvs[(j * n + i) * 2 + 1] = z / uvScale;
+      writeTangent(tangents, (j * n + i) * 4, nrm, 1, 0, 0, 1);
     }
   }
   const indices = new Uint32Array(segments * segments * 6);
@@ -615,7 +638,7 @@ export function trackTerrainGridSource(
       indices[o++] = b; indices[o++] = c; indices[o++] = d;
     }
   }
-  return { positions, normals, uvs, indices, label: opts.label ?? "track-terrain" };
+  return { positions, normals, uvs, tangents, indices, label: opts.label ?? "track-terrain" };
 }
 
 export interface TrackScatterOptions {

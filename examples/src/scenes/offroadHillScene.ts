@@ -212,8 +212,10 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const ground = heightFunctionGround(heightAt, 0.2);
 
   const gridSeg = tierValue(tier, { low: 150, medium: 220, high: 300 });
-  const forestFloor = mat(new Material({ label: "offroad.forest-floor", color: 0x5a4a30, roughness: 0.97, metallic: 0 }));
-  add("ground", geo(trackTerrainGridSource(track, 10, 40, 480, gridSeg, { label: "offroad.ground" })), forestFloor, false);
+  const floorTex = createGrassBermTextures(engine.gpu, { baseColor: 0x6b5232, mulch: 0, meters: 4, seed: 5, size: tierValue(tier, { low: 64, medium: 128, high: 128 }) });
+  const forestFloor = mat(new Material({ label: "offroad.forest-floor", color: 0xb0a090, roughness: 0.97, metallic: 0 }));
+  forestFloor.setMaps({ albedo: floorTex.albedo, normal: floorTex.normal, metallicRoughness: floorTex.metallicRoughness });
+  add("ground", geo(trackTerrainGridSource(track, 10, 40, 480, gridSeg, { label: "offroad.ground", corridorSink: 0.6, sinkTo: track.bermOuterEdge + 2.2 })), forestFloor, false);
   // Horizon skirt: the same hillside, coarse, sunk so it never pokes through the near grid.
   const far = trackTerrainGridSource(track, 10, 40, 2400, 120, { label: "offroad.far" });
   for (let k = 1; k < far.positions.length; k += 3) far.positions[k] = far.positions[k]! - 2.5;
@@ -225,10 +227,11 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     rutOffset: 0.8,
     rutWidth: 0.32,
     metersAlong: UV_ALONG,
+    baseColor: 0xc2ad8c,
     width: tierValue(tier, { low: 128, medium: 256, high: 256 }),
     height: tierValue(tier, { low: 256, medium: 512, high: 512 }),
   });
-  const bermTex = createGrassBermTextures(engine.gpu, { size: tierValue(tier, { low: 128, medium: 256, high: 256 }) });
+  const bermTex = createGrassBermTextures(engine.gpu, { baseColor: 0x84c34a, mulch: 0.3, size: tierValue(tier, { low: 128, medium: 256, high: 256 }) });
   const roadMat = mat(new Material({ label: "offroad.gravel-road", color: 0xffffff, roughness: 1, metallic: 0 }));
   roadMat.setMaps({ albedo: roadTex.albedo, normal: roadTex.normal, metallicRoughness: roadTex.metallicRoughness });
   const bermMat = mat(new Material({ label: "offroad.hydroseed-berm", color: 0xffffff, roughness: 1, metallic: 0 }));
@@ -270,9 +273,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
 
   // ------------------------------------------------------------------ forest
   const density = tierValue(tier, { low: 0.4, medium: 0.7, high: 1 });
-  const near = scatterAlongTrack(track, { seed: 7, lateralMin: track.bermOuterEdge + 3, lateralMax: 40, density: 0.022 * density, scaleMin: 0.8, scaleMax: 1.25, palettes: 6 });
+  const near = scatterAlongTrack(track, { seed: 7, lateralMin: track.bermOuterEdge + 3, lateralMax: 40, density: 0.038 * density, scaleMin: 0.8, scaleMax: 1.25, palettes: 6 });
   const back = scatterAlongTrack(track, { seed: 8, lateralMin: 40, lateralMax: 120, density: 0.008 * density, scaleMin: 1, scaleMax: 1.5, palettes: 6 });
-  const brush = scatterAlongTrack(track, { seed: 9, lateralMin: track.bermOuterEdge + 0.8, lateralMax: track.bermOuterEdge + 6, density: 0.09 * density, scaleMin: 0.6, scaleMax: 1.4, palettes: 3 });
+  const brush = scatterAlongTrack(track, { seed: 9, lateralMin: track.bermOuterEdge + 0.8, lateralMax: track.bermOuterEdge + 6, density: 0.16 * density, scaleMin: 0.7, scaleMax: 1.8, palettes: 3 });
   const trunkSrc = cylinderGeometrySource({ radiusTop: 0.09, radiusBottom: 0.17, height: 1, radialSegments: 6 });
   const blobSrc = sphereGeometrySource({ radius: 1, widthSegments: tier === "low" ? 6 : 8, heightSegments: tier === "low" ? 4 : 6 });
   // Autumn mix from the photos: lots of yellow and gold, some orange and red, holdout greens.
@@ -385,9 +388,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   part("utv-bed", 1.5, 0.34, 0.9, new Vec3(0, 0.42, -1.1), darkMat);
   // Cab: roof, pillars, dash and the dark visor band the in-cab view looks under (photo 2).
   part("utv-roof", 1.5, 0.07, 1.45, new Vec3(0, 1.72, 0.0), darkMat);
-  part("utv-visor", 1.4, 0.16, 0.12, new Vec3(0, 1.62, 0.66), darkMat, false);
+  part("utv-visor", 1.4, 0.22, 0.5, new Vec3(0, 1.58, 0.5), darkMat, false);
   for (const sx of [-0.72, 0.72]) {
-    for (const sz of [0.68, -0.68]) part(`utv-pillar-${sx}-${sz}`, 0.06, 1.35, 0.06, new Vec3(sx, 1.05, sz), darkMat);
+    for (const sz of [0.68, -0.68]) part(`utv-pillar-${sx}-${sz}`, 0.04, 1.35, 0.06, new Vec3(sx, 1.05, sz), darkMat);
   }
   part("utv-dash", 1.4, 0.2, 0.32, new Vec3(0, 0.72, 0.62), darkMat, false);
   part("utv-windscreen-frame", 1.42, 0.05, 0.05, new Vec3(0, 0.84, 0.7), glassMat, false);
@@ -572,7 +575,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       vehicle.writeRotation(rot);
       if (cameraMode === "cab") {
         // Driver's eye: left seat, under the visor, looking along the chassis.
-        rot.rotateVector(tmp.set(-0.32, 1.2, 0.05), tmp);
+        rot.rotateVector(tmp.set(-0.22, 1.25, -0.05), tmp);
         rot.rotateVector(tmp2.set(0, -0.12, 10), tmp2);
         const ex = vehicle.position.x + tmp.x, ey = vehicle.position.y + tmp.y, ez = vehicle.position.z + tmp.z;
         return { eye: [ex, ey, ez], target: [ex + tmp2.x, ey + tmp2.y, ez + tmp2.z] };
@@ -650,6 +653,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       keys.clear();
       disposeTrackSurface(roadTex);
       disposeTrackSurface(bermTex);
+      disposeTrackSurface(floorTex);
       for (const g of geometries) g.dispose();
       scene.dispose();
     },
