@@ -271,6 +271,16 @@ export interface VehicleTelemetry {
 
 export class Vehicle {
   readonly config: VehicleConfig;
+  /**
+   * Road-condition grip multiplier on the tyre peak friction (Phase 17.4), 1 = dry. `WeatherSystem`
+   * writes `tyreGripFactor(surface)` here every step when `driveVehicles` is on (wet ≈ 0.75,
+   * standing water ≈ 0.55, snow ≈ 0.3); gameplay may also set it for ice or oil.
+   */
+  surfaceGrip = 1;
+  /** Effective peak friction coefficient: `config.mu × surfaceGrip`. */
+  get mu(): number {
+    return this.config.mu * Math.max(0, this.surfaceGrip);
+  }
   readonly position = new Vec3();
   readonly velocity = new Vec3();
   /** Radians. 0 faces +Z. Positive yaw rotates +Z toward +X. */
@@ -680,11 +690,11 @@ export class Vehicle {
         this.balanceLongitudinal(w, shares[i] ?? 0, brake * absScale, handbrake, parkingBrake, vLong, dt);
       }
 
-      const D = c.mu * w.normalLoad;
+      const D = this.mu * w.normalLoad;
       let longF = pacejka(w.kappa, { ...c.longitudinal, D });
       let latF = -pacejka(w.alpha, { ...c.lateral, D });
       const mag = Math.hypot(longF, latF);
-      const limit = c.mu * w.normalLoad;
+      const limit = this.mu * w.normalLoad;
       if (mag > limit && mag > 1e-8) {
         const scale = limit / mag;
         longF *= scale;
@@ -1229,7 +1239,7 @@ export class Vehicle {
       demand -= brakeTorque * oppose;
     }
 
-    const D = c.mu * Math.max(0, w.normalLoad);
+    const D = this.mu * Math.max(0, w.normalLoad);
     const peakSlip = Math.max(0.05, c.absSlip);
     if (D < 1) {
       // Unloaded / airborne wheel: free dynamics, but the brake still only removes speed.

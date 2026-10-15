@@ -313,7 +313,20 @@ export function defaultWaterShore(): WaterShoreSettings {
   return { enabled: false, originX: 0, originZ: 0, directionX: 0, directionZ: -1, bedLevel: 0, slope: 0.04, foamDepth: 0.6, breakDepth: 2.5, colorDepth: 8, curveAmp1: 0, curveLength1: 400, curvePhase1: 0, curveAmp2: 0, curveLength2: 150, curvePhase2: 0, dropOff: 0 };
 }
 
+/**
+ * Weathered ground (Phase 17.4), 0..1 each. Written by `WeatherSystem` (`driveSurface`) from its
+ * integrated `SurfaceWeatherState`; read by the standard/terrain shading (darkened, glossier wet
+ * film; mirror puddles on flat ground; snow on up-facing surfaces). All zero = dry, no shader cost.
+ */
+export interface SceneSurfaceSettings {
+  wetness: number;
+  puddles: number;
+  snow: number;
+}
+
 export interface SceneSettings {
+  /** Weathered ground state (Phase 17.4). */
+  surface: SceneSurfaceSettings;
   ambientColor: Color;
   ambientIntensity: number;
   fog: SceneFogSettings;
@@ -388,6 +401,7 @@ export function defaultSceneSettings(): SceneSettings {
     sky: defaultSkySettings(),
     clouds: defaultCloudSettings(),
     water: defaultWaterSettings(),
+    surface: { wetness: 0, puddles: 0, snow: 0 },
     exposure: 1,
     toneMapping: "aces",
     backgroundColor: new Color(0.02, 0.03, 0.05),
@@ -1051,6 +1065,7 @@ function serializeSettings(s: SceneSettings): Record<string, unknown> {
       waves: s.water.waves.map((w) => ({ ...w })),
       shore: { ...s.water.shore },
     },
+    surface: { ...s.surface },
   };
 }
 
@@ -1068,6 +1083,13 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
   if (typeof data["hdr"] === "boolean") target.hdr = data["hdr"];
   if (typeof data["postProcessing"] === "boolean") target.postProcessing = data["postProcessing"];
   if (typeof data["depthPrepass"] === "boolean") target.depthPrepass = data["depthPrepass"];
+  if (data["surface"] && typeof data["surface"] === "object") {
+    const sf = data["surface"] as Record<string, unknown>;
+    const unit = (v: unknown, fallback: number) => Math.min(1, Math.max(0, num(v, fallback)));
+    target.surface.wetness = unit(sf["wetness"], target.surface.wetness);
+    target.surface.puddles = unit(sf["puddles"], target.surface.puddles);
+    target.surface.snow = unit(sf["snow"], target.surface.snow);
+  }
   if (typeof data["clusteredLighting"] === "boolean") target.clusteredLighting = data["clusteredLighting"];
   target.renderScale = num(data["renderScale"], target.renderScale);
   target.iblIntensity = num(data["iblIntensity"], target.iblIntensity);

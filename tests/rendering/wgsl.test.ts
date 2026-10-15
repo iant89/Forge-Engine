@@ -110,7 +110,8 @@ group("generated uniform structs are legal in every browser's uniform address sp
   });
 
   test("keeps the byte layout the CPU writers depend on", () => {
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 256);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 272);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 256);
     assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("flags"), 224);
     assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("fogParams"), 240);
     assert.equal(RENDERING_STRUCTS.LightUniforms.byteSize("uniform"), 80);

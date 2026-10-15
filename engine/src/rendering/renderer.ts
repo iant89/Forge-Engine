@@ -2291,7 +2291,11 @@ export class Renderer implements RenderFrameContext {
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
     const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0) | (aerialPerspective ? 64 : 0);
-    a.setU32("flags", flags);
+    // Phase 17.4: weathered ground (wet film, puddles, snow) — skipped entirely while dry.
+    const surf = settings.surface;
+    const weathered = surf.wetness > 1e-3 || surf.puddles > 1e-3 || surf.snow > 1e-3;
+    a.setU32("flags", flags | (weathered ? 128 : 0));
+    a.setVec4("surfaceWeather", surf.wetness, surf.puddles, surf.snow, 0);
     // With the scene fog off but the camera submerged, exp² carries the murk.
     const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
     a.setVec4("fogParams", FOG_MODE_ID[fogMode] ?? 0, fog.heightFalloff, fog.heightBase, 0);
