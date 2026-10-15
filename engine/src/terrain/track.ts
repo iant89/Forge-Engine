@@ -498,7 +498,7 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
   const sp = track.spline;
   const across = Math.max(2, opts.across ?? 12);
   const step = opts.alongStep ?? sp.step * 2;
-  const rows = Math.max(2, Math.round(sp.length / step) + (sp.closed ? 1 : 1));
+  const rows = Math.max(2, Math.round(sp.length / step) + 1);
   const realStep = sp.length / (rows - 1);
   const lift = opts.lift ?? 0.03;
   const uvAlong = opts.uvMetersAlong ?? 8;

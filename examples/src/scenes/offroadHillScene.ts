@@ -614,6 +614,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       disposeTrackSurface(bermTex);
       disposeTrackSurface(floorTex);
       for (const g of geometries) g.dispose();
+      for (const m of materials) m.dispose();
       scene.dispose();
     },
   };
