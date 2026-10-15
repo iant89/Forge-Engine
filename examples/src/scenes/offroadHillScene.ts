@@ -58,6 +58,7 @@ import {
   TRACK_GROUND_CONDITIONS,
   Texture,
   TrackWeatherGround,
+  TireTrackLayer,
   VegetationField,
   WeatherSystem,
   barkPixels,
@@ -125,6 +126,7 @@ export interface OffroadSnapshot {
   trees: number;
   leaves: number;
   grass: number;
+  trackTiles: number;
   weather: OffroadWeather;
   /** Grip multiplier under the car. */
   grip: number;
@@ -524,6 +526,16 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     wheelIds.push(w.id);
   }
   chassisComp.wheelEntities = wheelIds;
+  // Persistent tyre tracks (engine): the demo only says what the ground is under each tyre.
+  const tracks = new TireTrackLayer(engine.gpu, { heightAt, tileResolution: tierValue(tier, { low: 128, medium: 192, high: 256 }), maxTiles: tierValue(tier, { low: 12, medium: 20, high: 32 }) });
+  const trackSample = { s: 0, lateral: 0, road: 0, rut: 0, berm: 0 };
+  tracks.followVehicle(vehicle, (x, z) => {
+    if (weather.surface.snow > 0.3 || trackGround.field.snow[trackGround.field.indexAt(x, z)]! > 0.02) return "snow";
+    if (trackGround.field.mudAt(x, z) > 0.3) return "mud";
+    track.surfaceAt(x, z, trackSample);
+    return trackSample.berm > 0.5 || !Number.isFinite(trackSample.lateral) || Math.abs(trackSample.lateral) > track.bermOuterEdge ? "grass" : "gravel";
+  });
+  scene.add(tracks);
   chassis.add(chassisComp);
 
   // ------------------------------------------------------------------ sun + sky
@@ -861,6 +873,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         x: vehicle.position.x, y: vehicle.position.y, z: vehicle.position.z,
         trees: near.length + back.length, leaves: litter.length,
         grass: grassSpots.length,
+        trackTiles: tracks.tileCount,
         weather: weatherName,
         grip: trackGround.gripAt(vehicle.position.x, vehicle.position.z),
         overlayCoverage: overlay.meanCoverage(),
