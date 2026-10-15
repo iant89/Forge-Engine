@@ -196,7 +196,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
     assert.equal(catalog.stats.suitesLinked, 102);
     assert.equal(catalog.stats.suitesNamed, 102);
     assert.equal(catalog.stats.suitesWithCoverage, 102);
-    assert.equal(catalog.stats.coverageClaims, 801);
+    assert.equal(catalog.stats.coverageClaims, 806);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
