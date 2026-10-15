@@ -78,6 +78,7 @@ import {
   type WeatherState,
 } from "@forge/engine";
 import { suppressTouchChrome } from "../controls/vehicleTouch.js";
+import { attachPedal, attachSteeringWheel } from "../controls/touchWheel.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 
@@ -703,6 +704,10 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   on(hbButton, "lostpointercapture", hbOff);
   on(window, "pointerup", hbOff);
   on(window, "blur", hbOff);
+  // Steering wheel + pedals (shared controls; the layout is this demo's CSS).
+  const wheel = attachSteeringWheel(document.getElementById("offroad-wheel"), { rim: document.getElementById("offroad-wheel-rim") });
+  const gasPedal = attachPedal(document.getElementById("offroad-gas"));
+  const brakePedal = attachPedal(document.getElementById("offroad-brake"));
   // Weather menu: a toggle button opening five big choices (also keys 1–5).
   const menuRoot = document.getElementById("offroad-weather-menu");
   const menuButton = document.getElementById("offroad-weather");
@@ -798,9 +803,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
       const keySteer = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-      vehicle.input.throttle = Math.max(keyThrottle, pad.throttle);
-      vehicle.input.brake = Math.max(keyBrake, pad.brake);
-      vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
+      vehicle.input.throttle = Math.max(keyThrottle, pad.throttle, gasPedal.value());
+      vehicle.input.brake = Math.max(keyBrake, pad.brake, brakePedal.value());
+      vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer + wheel.value()));
       vehicle.input.handbrake = keys.has("Space") || handbrakeHeld ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
       timer.update(vehicle.position.x, vehicle.position.z, dt);
@@ -893,6 +898,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       for (const [t, type, f] of domListeners) t.removeEventListener(type, f);
+      wheel.dispose();
+      gasPedal.dispose();
+      brakePedal.dispose();
       menuRoot?.classList.remove("open");
       setWorldSurfaceGripField(scene.world, undefined);
       overlay.dispose();
