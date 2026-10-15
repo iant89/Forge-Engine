@@ -243,7 +243,7 @@ What remains:
   state between two steps of the same frame. (capability: scripting.lifecycle)
 * **The API boundary is partial (18.6).** The script context carries no GPU, render or solver
   handles, but a script can reach every component on its entity, including ones that wrap GPU
-  state. Coroutines, typed events and hot reload (18.3, 18.4, 18.7) are not built.
+  state. Typed events and hot reload (18.4, 18.7) are not built.
   (capability: scripting.lifecycle)
 
 ## Documentation debt

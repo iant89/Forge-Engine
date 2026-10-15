@@ -179,11 +179,12 @@ PHASE 17 - ENVIRONMENT 2.0
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 PHASE 18 - SCRIPTING
-    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers and 18.5 error isolation landed: scripts on
-        entities run onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/onDestroy in the
-        frame's bands, deterministic fixed-step and render-rate timers fire on schedule, and a
-        throwing hook or timer is rolled back and faulted without touching the ECS, other systems
-        or the clock; coroutines, typed events and hot reload remain)
+    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines and 18.5 error isolation
+        landed: scripts on entities run onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/
+        onDestroy in the frame's bands, deterministic fixed-step and render-rate timers and
+        coroutines (pause/resume, cancellation with finally) run on schedule, and a throwing hook,
+        timer or coroutine is rolled back and faulted without touching the ECS, other systems or
+        the clock; typed events and hot reload remain)
 
 
 ================================================================================
@@ -1953,8 +1954,17 @@ GOAL:
 
 18.3 Coroutines
 
-    [ ] pause/resume
-    [ ] cancellation
+    [x] pause/resume
+    [x] cancellation
+
+    `Script.startCoroutine(function* (ctx) { ... }, { clock })` (`scripting/coroutines.ts`): the body
+    runs now up to its first yield, then advances once per tick of its clock — "render" before
+    onUpdate, "sim" per fixed step before onFixedUpdate (deterministic: the same ticks however frames
+    split the steps) — waiting on a bare yield, Wait.seconds/steps/frames/until/while or another
+    coroutine's handle. pause() freezes the wait and resume() continues with the time left; cancel()
+    (and destroying or faulting the script) closes the generator so its finally blocks run. Throws
+    from the body, a predicate or a bad yield fail the coroutine under hook isolation.
+    tests/scripting/scriptCoroutines.test.ts, docs/SCRIPTING.md
 
 
 18.4 Events

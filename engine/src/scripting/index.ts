@@ -7,4 +7,5 @@
 export { Script, type ScriptConstructor, type ScriptContext, type ScriptPhase, type ScriptState, type ScriptTime } from "./script.js";
 export { ScriptComponent } from "./component.js";
 export { type TimerCallback, type TimerClock, type TimerHandle, type TimerOptions } from "./timers.js";
+export { Wait, type CoroutineBody, type CoroutineClock, type CoroutineHandle, type CoroutineOptions, type CoroutineState, type CoroutineYield, type WaitInstruction } from "./coroutines.js";
 export { ScriptRuntime, type ScriptErrorRecord, type ScriptRuntimeOptions, type ScriptRuntimeStats } from "./runtime.js";
