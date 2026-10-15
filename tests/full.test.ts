@@ -64,6 +64,7 @@ export const linkedSuites = [
   ["tests/terrain/terrain.test.ts", () => import("./terrain/terrain.test.ts")],
   ["tests/terrain/terrainDeformation.test.ts", () => import("./terrain/terrainDeformation.test.ts")],
   ["tests/terrain/trackTerrain.test.ts", () => import("./terrain/trackTerrain.test.ts")],
+  ["tests/terrain/tireTracks.test.ts", () => import("./terrain/tireTracks.test.ts")],
   ["tests/population/vegetation.test.ts", () => import("./population/vegetation.test.ts")],
   ["tests/terrain/terrainInteraction.test.ts", () => import("./terrain/terrainInteraction.test.ts")],
   ["tests/terrain/terrainMaterials.test.ts", () => import("./terrain/terrainMaterials.test.ts")],
@@ -106,4 +107,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(102);
+report(103);

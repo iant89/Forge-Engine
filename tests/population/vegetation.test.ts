@@ -6,7 +6,7 @@
  * @covers engine/src/population/vegetation.ts
  * @covers engine/src/terrain/trackWeather.ts
  * @covers engine/src/environment/moistureField.ts
- * @desc Pins procedural trees (hierarchy, LOD, determinism, leaf alpha), grass patches (density LOD), the vegetation field's LOD/visibility/sway, and track weather grip + moisture overlay
+ * @desc Pins procedural trees (hierarchy, LOD, determinism, leaf alpha) and bushes, grass patches (density LOD), the vegetation field's LOD/visibility/sway, and track weather grip + moisture overlay
  */
 
 export const suite = {
@@ -19,7 +19,7 @@ export const suite = {
     "engine/src/terrain/trackWeather.ts",
     "engine/src/environment/moistureField.ts",
   ],
-  desc: "Pins procedural trees (hierarchy, LOD, determinism, leaf alpha), grass patches (density LOD), the vegetation field's LOD/visibility/sway, and track weather grip + moisture overlay",
+  desc: "Pins procedural trees (hierarchy, LOD, determinism, leaf alpha) and bushes, grass patches (density LOD), the vegetation field's LOD/visibility/sway, and track weather grip + moisture overlay",
 };
 import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
@@ -36,6 +36,7 @@ import {
   VegetationField,
   barkPixels,
   createMeltEnvironment,
+  generateBush,
   generateTree,
   grassBladePixels,
   grassPatchSource,
@@ -88,6 +89,25 @@ group("procedural trees", () => {
     }
     const bark = barkPixels(32, "birch");
     assert.ok(bark[0]! > 40);
+  });
+
+  test("bushes: several stems from one root crown, deterministic, lo cheaper, shrub-sized", () => {
+    const spec = { name: "shrub", height: [1.2, 2.4] as [number, number], stems: 5, spread: 0.5 };
+    const a = generateBush(spec, 7, "hi");
+    const b = generateBush(spec, 7, "hi");
+    assert.deepEqual(Array.from(a.leaves.positions.slice(0, 30)), Array.from(b.leaves.positions.slice(0, 30)));
+    const one = generateBush({ ...spec, stems: 1 }, 7, "hi");
+    assert.ok(triangleCount(a.wood) > triangleCount(one.wood) * 3, "five stems carry several times one stem's wood");
+    const lo = generateBush(spec, 7, "lo");
+    assert.ok(triangleCount(lo.wood) + triangleCount(lo.leaves) < triangleCount(a.wood) + triangleCount(a.leaves));
+    assert.ok(a.height > 1 && a.height < 3.2, `height ${a.height}`);
+    assert.ok(a.crownRadius > 0.3 && a.crownRadius < 3, `crown ${a.crownRadius}`);
+    // Every stem starts at the root crown, sunk like a tree trunk (0.3 m, so slopes never float it).
+    let minY = Infinity;
+    for (let k = 1; k < a.wood.positions.length; k += 3) minY = Math.min(minY, a.wood.positions[k]!);
+    assert.ok(minY > -0.32 && minY < 0, `wood min y ${minY}`);
+    // Tangents travel with the rotated stems (normal-mapped cards stay lit).
+    assert.equal(a.leaves.tangents!.length / 4, a.leaves.positions.length / 3);
   });
 });
 
