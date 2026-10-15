@@ -17,6 +17,12 @@ export interface PrecipitationDrive {
   /** Horizontal wind, m/s. */
   windX: number;
   windZ: number;
+  /**
+   * 0..1 fraction falling as snow (Phase 17.4; `weatherPrecipitationDrive` derives it from the
+   * temperature). Snow falls at ≈ 1.2 m/s, lives long enough to cross the slab, and is whiter and
+   * larger. Default 0 (rain).
+   */
+  snow?: number;
 }
 
 export interface PrecipitationFieldOptions {
@@ -103,7 +109,9 @@ export class PrecipitationField extends GpuParticleWorld {
   override update(context: SystemContext, dt: number): void {
     const system = this.system;
     const drive = this.field.drive();
-    const fall = this.field.fallSpeed ?? 21;
+    const snow = Math.max(0, Math.min(1, drive.snow ?? 0));
+    const rainFall = this.field.fallSpeed ?? 21;
+    const fall = rainFall + (1.2 - rainFall) * snow;
     const coupling = this.field.windCoupling ?? 0.8;
     this.rate = Math.max(0, Math.min(1, drive.intensity)) * (this.field.maxRate ?? 4200);
     if (system) {
@@ -122,6 +130,10 @@ export class PrecipitationField extends GpuParticleWorld {
       const speed = Math.hypot(fall, drive.windX * coupling, drive.windZ * coupling);
       emitter.speedMin = speed * 0.85;
       emitter.speedMax = speed * 1.1;
+      // Same 19–30 m path length whatever the fall speed, so flakes still cross the slab.
+      emitter.lifeMin = 19 / speed;
+      emitter.lifeMax = 30 / speed;
+      emitter.size = 0.03 + 0.03 * snow;
     }
     super.update(context, dt);
   }

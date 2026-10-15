@@ -417,7 +417,7 @@ export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";
 export { WGSL_CLOUD } from "./rendering/shaders/cloudLayer.js";
-export { WATER_SHADER, WATER_BINDINGS } from "./rendering/shaders/water.js";
+export { WATER_SHADER, WATER_BINDINGS, WATER_GRAB_SHADER } from "./rendering/shaders/water.js";
 export { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX } from "./rendering/shaders/common.js";
 
 // Debug + testing

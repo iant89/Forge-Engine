@@ -11,8 +11,18 @@
  *
  * The envelope is a double stroke: a fast attack (`attack`, default 8 ms) and exponential decay
  * (`decay`, default 90 ms), plus an optional return stroke at `restrikeDelay` with
- * `restrikeStrength` of the energy. Nothing here touches the audio graph; thunder is a Phase 9+
- * concern inside this subsystem; the weather demo uses `onStrike` to synthesize it.
+ * `restrikeStrength` of the energy.
+ *
+ * Phase 17.6 integration:
+ *  - thunder is a *simulation event*: with a `listener`, every strike schedules its thunder for the
+ *    moment sound from the nearest point of the channel reaches the listener (`thunderDelay`, speed
+ *    of sound from the weather's air temperature), and `onThunder` fires on the simulated clock then —
+ *    audio plays it (no delay arithmetic in the host), gameplay can react to it;
+ *  - the strike rate is the storm intensity (weather `storm01`) × `rate`, a Poisson process;
+ *  - with `strikeTarget`, the attachment point follows the terrain: the channel attaches to the
+ *    highest ground or attractor (mast, tree, rod) within the striking distance of its leader
+ *    (`strikingDistance`, the rolling-sphere radius), and ends at that point's height.
+ * Nothing here touches the audio graph itself.
  */
 
 import { SceneObject, type Scene } from "../scene/scene.js";
@@ -45,6 +55,82 @@ export interface LightningStrike {
   /** Seconds the flash (and bolt) lives. */
   duration: number;
   bolt: LightningBolt;
+}
+
+/** Speed of sound in air (m/s) at `temperatureC` (dry air, 331.3 + 0.606·T). */
+export function speedOfSound(temperatureC = 20): number {
+  return 331.3 + 0.606 * temperatureC;
+}
+
+/** Seconds for thunder to travel `distance` metres (the flash-to-bang gap, ≈ 3 s/km). */
+export function thunderDelay(distance: number, temperatureC = 20): number {
+  return Math.max(0, distance) / speedOfSound(temperatureC);
+}
+
+/**
+ * Rolling-sphere striking distance (m) for a return-stroke peak current `peakKA` (IEEE 1243:
+ * r = 10·I^0.65; 30 kA → ≈ 91 m). The leader attaches to the highest point it "sees" within it.
+ */
+export function strikingDistance(peakKA: number): number {
+  return 10 * Math.pow(Math.max(1, peakKA), 0.65);
+}
+
+export interface StrikeTargetOptions {
+  /** Surface height (terrain) at an XZ position. */
+  heightAt: (x: number, z: number) => number;
+  /** Tall attractors (masts, trees, rods): XZ position and top height. Checked before the ground. */
+  attractors?: readonly { x: number; y: number; z: number }[] | (() => readonly { x: number; y: number; z: number }[]);
+  /** Ground samples inside the striking distance. Default 24. */
+  samples?: number;
+  /** Peak current (kA) at strike energy 1 — sets the striking distance. Default 30. */
+  peakCurrentKA?: number;
+}
+
+export interface ThunderEvent {
+  strike: LightningStrike;
+  /** Distance from the listener to the nearest point of the channel (m). */
+  distance: number;
+  /** Seconds between the flash and this event. */
+  delay: number;
+  /** Strike energy (louder/longer thunder). */
+  energy: number;
+}
+
+/**
+ * Pick where a leader descending toward `(x, z)` attaches: the highest point — terrain sample or
+ * attractor top — within the striking distance, ties to the nearest. Deterministic for a seed.
+ */
+export function attachStrike(x: number, z: number, energy: number, seed: number, target: StrikeTargetOptions): { x: number; y: number; z: number } {
+  const radius = strikingDistance((target.peakCurrentKA ?? 30) * Math.max(0.1, energy));
+  let bx = x;
+  let bz = z;
+  let by = target.heightAt(x, z);
+  const consider = (px: number, py: number, pz: number): void => {
+    // A point at the edge of the sphere must stand taller to win: the leader is closer to it the
+    // higher it reaches (height gain vs horizontal offset, rolling sphere tangent).
+    const d = Math.hypot(px - x, pz - z);
+    if (d > radius) return;
+    const effective = py - (d * d) / (2 * radius);
+    const bestD = Math.hypot(bx - x, bz - z);
+    if (effective > by - (bestD * bestD) / (2 * radius) + 1e-6) {
+      bx = px;
+      by = py;
+      bz = pz;
+    }
+  };
+  const samples = Math.max(0, Math.floor(target.samples ?? 24));
+  for (let i = 0; i < samples; i++) {
+    // Stratified golden-angle disc, rotated per strike.
+    const u = (hash1i(i, seed) >>> 8) / 16777216;
+    const r = radius * Math.sqrt((i + u) / samples);
+    const a = i * 2.399963229728653 + (seed % 6283) / 1000;
+    const px = x + Math.cos(a) * r;
+    const pz = z + Math.sin(a) * r;
+    consider(px, target.heightAt(px, pz), pz);
+  }
+  const attractors = typeof target.attractors === "function" ? target.attractors() : (target.attractors ?? []);
+  for (const t of attractors) consider(t.x, t.y, t.z);
+  return { x: bx, y: by, z: bz };
 }
 
 export interface FlashEnvelope {
@@ -186,6 +272,12 @@ export interface LightningOptions {
   center?: () => { x: number; z: number };
   /** fe-34: surface height under a strike (terrain or sea level), so bolts end on the ground or the water. */
   surfaceAt?: (x: number, z: number) => number;
+  /** Phase 17.6: terrain-aware attachment (highest point within the striking distance). */
+  strikeTarget?: StrikeTargetOptions;
+  /** Phase 17.6: listener position (the camera); enables the delayed `onThunder` events. */
+  listener?: () => { x: number; y: number; z: number };
+  /** Phase 17.6: thunder reaching the listener, on the simulated clock. */
+  onThunder?: (event: ThunderEvent) => void;
   /** fe-34: side branches per bolt. Default 0. */
   branches?: number;
   /** fe-34: fraction 0..1 of strikes that are intra-cloud flashes (no channel). Default 0. */
@@ -266,6 +358,13 @@ export class LightningSystem extends SceneObject {
   readonly envelope: FlashEnvelope;
   private readonly options: LightningOptions;
   onStrike?: (strike: LightningStrike) => void;
+  onThunder?: (event: ThunderEvent) => void;
+  /** Thunder still travelling to the listener (`at` = simulated time it arrives). */
+  readonly pendingThunder: { at: number; event: ThunderEvent }[] = [];
+  /** Thunder events delivered since creation. */
+  thunderCount = 0;
+  /** Simulated seconds advanced (the thunder clock). */
+  simulatedSeconds = 0;
 
   /** Live strikes (oldest first). */
   readonly strikes: LightningStrike[] = [];
@@ -300,6 +399,7 @@ export class LightningSystem extends SceneObject {
     this.skyFlashExposure = options.skyFlashExposure ?? 0.8;
     this.envelope = { ...DEFAULT_FLASH_ENVELOPE, ...options.envelope };
     this.onStrike = options.onStrike;
+    this.onThunder = options.onThunder;
     this.options = options;
     this.rng = new Rng(this.seed === 0 ? 0x9e3779b9 : this.seed);
     this.nextStrikeIn = this.drawInterarrival(1);
@@ -316,16 +416,24 @@ export class LightningSystem extends SceneObject {
     return clamp(this.stormOverride, 0, 1);
   }
 
-  /** Schedule a strike now (the demo's thunder key and the browser gate use this). */
-  trigger(position?: Vec3, energy = 1, cloudOnly = false): LightningStrike {
+  /**
+   * Schedule a strike now (the demo's thunder key and the browser gate use this). `seekHighPoint`
+   * (default: when no position is forced) lets `strikeTarget` move the attachment to a high point.
+   */
+  trigger(position?: Vec3, energy = 1, cloudOnly = false, seekHighPoint = position === undefined): LightningStrike {
     const c = this.options.center?.() ?? { x: 0, z: 0 };
     const px = position?.x ?? c.x + (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
     const pz = position?.z ?? c.z + (this.rng.nextFloat() * 2 - 1) * this.areaRadius;
     const boltSeed = this.rng.nextU32();
-    const ground = this.options.surfaceAt ? this.options.surfaceAt(px, pz) : this.groundY;
-    // An intra-cloud flash runs sideways inside the deck instead of down to the surface.
+    // An intra-cloud flash runs sideways inside the deck instead of down to the surface. A ground
+    // strike attaches to the highest point its leader reaches (17.6) when a target is configured.
+    const target = this.options.strikeTarget;
+    const attach = !cloudOnly && target && seekHighPoint ? attachStrike(px, pz, energy, boltSeed, target) : null;
+    const ax = attach?.x ?? px;
+    const az = attach?.z ?? pz;
+    const ground = attach ? attach.y : this.options.surfaceAt ? this.options.surfaceAt(px, pz) : target ? target.heightAt(px, pz) : this.groundY;
     const start = new Vec3(px, this.cloudHeight, pz);
-    const end = cloudOnly ? new Vec3(px + this.cloudHeight * 0.6, this.cloudHeight * 0.95, pz) : new Vec3(px, ground, pz);
+    const end = cloudOnly ? new Vec3(px + this.cloudHeight * 0.6, this.cloudHeight * 0.95, pz) : new Vec3(ax, ground, az);
     const strike: LightningStrike = {
       id: this.nextId++,
       position: end.clone(),
@@ -338,8 +446,37 @@ export class LightningSystem extends SceneObject {
     this.strikes.push(strike);
     if (this.scene) this.createStrikeLight(this.scene, strike);
     this.strikeCount++;
+    this.scheduleThunder(strike);
     this.onStrike?.(strike);
     return strike;
+  }
+
+  /** Air temperature for the speed of sound: the weather's, else 15 °C. */
+  private airTemperature(): number {
+    const weather = this.scene?.object<WeatherSystem>(this.weatherName);
+    return weather ? weather.state.temperatureC : 15;
+  }
+
+  private scheduleThunder(strike: LightningStrike): void {
+    const listener = this.options.listener?.();
+    if (!listener) return;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const p of strike.bolt.points) distance = Math.min(distance, Math.hypot(p.x - listener.x, p.y - listener.y, p.z - listener.z));
+    if (!Number.isFinite(distance)) distance = Math.hypot(strike.position.x - listener.x, strike.position.y - listener.y, strike.position.z - listener.z);
+    const delay = thunderDelay(distance, this.airTemperature());
+    const entry = { at: this.simulatedSeconds + delay, event: { strike, distance, delay, energy: strike.energy } };
+    // Keep the queue in arrival order (a near strike can overtake a far one).
+    let i = this.pendingThunder.length;
+    while (i > 0 && this.pendingThunder[i - 1]!.at > entry.at) i--;
+    this.pendingThunder.splice(i, 0, entry);
+  }
+
+  private deliverThunder(): void {
+    while (this.pendingThunder.length > 0 && this.pendingThunder[0]!.at <= this.simulatedSeconds + 1e-9) {
+      const { event } = this.pendingThunder.shift()!;
+      this.thunderCount++;
+      this.onThunder?.(event);
+    }
   }
 
   override onAttach(scene: Scene): void {
@@ -387,6 +524,7 @@ export class LightningSystem extends SceneObject {
   /** Advance scheduling and strike ages (seconds of simulated time). */
   advance(seconds: number): void {
     if (!(seconds > 0) || !Number.isFinite(seconds) || this.paused) return;
+    this.simulatedSeconds += seconds;
     const storm = this.stormIntensity();
     if (storm > 0 && this.rate > 0) {
       this.nextStrikeIn -= seconds;
@@ -398,7 +536,7 @@ export class LightningSystem extends SceneObject {
         const energy = 0.5 + this.rng.nextFloat();
         const cloudOnly = (this.options.cloudFlashFraction ?? 0) > 0 ? this.rng.nextFloat() < (this.options.cloudFlashFraction ?? 0) : false;
         const c = this.options.center?.() ?? { x: 0, z: 0 };
-        this.trigger(new Vec3(c.x + Math.cos(angle) * radius, this.groundY, c.z + Math.sin(angle) * radius), energy, cloudOnly);
+        this.trigger(new Vec3(c.x + Math.cos(angle) * radius, this.groundY, c.z + Math.sin(angle) * radius), energy, cloudOnly, true);
         this.nextStrikeIn += this.drawInterarrival(storm);
       }
     }
@@ -412,6 +550,7 @@ export class LightningSystem extends SceneObject {
     }
     this.flashTotal = 0;
     for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope);
+    this.deliverThunder();
   }
 
   /** fe-34 v3: push the in-cloud glow of the brightest live strike into the scene's cloud deck. */

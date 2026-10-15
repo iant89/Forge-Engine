@@ -48,6 +48,7 @@ import {
   cycloneWindAt,
   oceanGridSource,
   oceanQualityForTier,
+  waterScreenSpaceForTier,
   saffirSimpsonLabel,
   tierValue,
   waterspoutSpawnRate,
@@ -183,7 +184,8 @@ export function buildHurricaneScene(engine: Engine, options: HurricaneSceneOptio
   // The ocean: shore settings come from the same coast parameters as the sand.
   const water = new WaterSurface({ name: "ocean", level: 0, size: 3000 });
   scene.add(water);
-  scene.setWater({ shore: coastalShoreSettings(HURRICANE_COAST, { foamDepth: 0.7, breakDepth: 2.2, colorDepth: 9, dropOff: 2.5 }) });
+  // Phase 17.5: screen-space water per tier (low keeps the sky-fresnel water).
+  scene.setWater({ shore: coastalShoreSettings(HURRICANE_COAST, { foamDepth: 0.7, breakDepth: 2.2, colorDepth: 9, dropOff: 2.5 }), screenSpace: waterScreenSpaceForTier(tier) });
   scene.settings.water.deepColor.set(0.012, 0.075, 0.1);
   scene.settings.water.shallowColor.set(0.08, 0.3, 0.28);
   scene.settings.water.opacity = 0.95;

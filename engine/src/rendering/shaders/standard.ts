@@ -807,6 +807,58 @@ fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   return base;
 }
 
+// Phase 17.4 weathered ground: a wet film darkens porous albedo and glosses it, puddles pool on
+// flat ground (value-noise basins filled to the coverage level, mirror-smooth, geometric normal),
+// and snow settles on up-facing surfaces. Driven by perFrame.surfaceWeather; flags bit7 gates it.
+fn swHash(p: vec2<f32>) -> f32 {
+  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+fn swNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(swHash(i), swHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(swHash(i + vec2<f32>(0.0, 1.0)), swHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
+}
+struct WeatheredSurface {
+  albedo: vec3<f32>,
+  roughness: f32,
+  N: vec3<f32>,
+  puddle: f32,
+  wet: f32,
+  snow: f32,
+}
+fn weatherSurface(albedo: vec3<f32>, roughness: f32, metallic: f32, N: vec3<f32>, geomN: vec3<f32>, worldPos: vec3<f32>) -> WeatheredSurface {
+  var out = WeatheredSurface(albedo, roughness, N, 0.0, 0.0, 0.0);
+  if ((perFrame.flags & 128u) == 0u) {
+    return out;
+  }
+  let sw = perFrame.surfaceWeather;
+  let gN = normalize(geomN);
+  let up = clamp((gN.y - 0.6) / 0.35, 0.0, 1.0);
+  let wet = clamp(sw.x, 0.0, 1.0) * (1.0 - 0.8 * metallic);
+  var a = albedo * mix(1.0, 0.55, wet);
+  var r = mix(roughness, min(roughness, 0.2), clamp(sw.x, 0.0, 1.0));
+  let basin = swNoise(worldPos.xz * 0.35) * 0.65 + swNoise(worldPos.xz * 1.3 + vec2<f32>(7.3, 2.1)) * 0.35;
+  var puddle = up * up * smoothstep(1.0 - 0.6 * sw.y, 1.0 - 0.6 * sw.y + 0.06, basin) * step(0.001, sw.y);
+  let drift = swNoise(worldPos.xz * 0.8 + vec2<f32>(3.7, 9.2)) * 0.35;
+  let snow = clamp((up * sw.z * 1.35 - drift) * 4.0, 0.0, 1.0);
+  puddle = puddle * (1.0 - snow);
+  a = a * mix(1.0, 0.75, puddle);
+  r = mix(r, 0.03, puddle);
+  var n = normalize(mix(N, gN, puddle));
+  // Fresh snow: albedo ~0.9 and very nearly neutral (a faint blue from ice absorption in red).
+  a = mix(a, vec3<f32>(0.90, 0.91, 0.93), snow);
+  r = mix(r, 0.6, snow);
+  n = normalize(mix(n, gN, snow * 0.7));
+  out.albedo = a;
+  out.roughness = clamp(r, 0.03, 1.0);
+  out.N = n;
+  out.puddle = puddle;
+  out.wet = wet * (1.0 - snow);
+  out.snow = snow;
+  return out;
+}
+
 @fragment
 fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   // The deck's shadow samples the fragment's own footprint, and a derivative is only legal in
@@ -826,9 +878,10 @@ ${surfaceSetup}
   if ((material.flags & FLAGS_UNLIT) != 0u) {
     color = albedo.rgb;
   } else {
-    let F0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
+    let ws = weatherSurface(albedo.rgb, roughness, metallic, N, in.normal, in.worldPos);
+    let F0 = mix(vec3<f32>(0.04), ws.albedo, metallic);
     let cloudSun = cloudSunVisibility(in.worldPos, cloudFootprint);
-    let surface = SurfaceShading(in.worldPos, N, V, in.viewDepth, albedo.rgb, F0, metallic, roughness, cloudSun);
+    let surface = SurfaceShading(in.worldPos, ws.N, V, in.viewDepth, ws.albedo, F0, metallic, ws.roughness, cloudSun);
     // Global lights: the uniform list. With clustering on this holds the directional lights only
     // (they reach every pixel, so there is nothing to cull); with it off it holds everything the
     // fixed 16-entry list can carry, exactly as before.
@@ -853,9 +906,23 @@ ${surfaceSetup}
         }
       }
     }
-    let ambient = perFrame.ambientColor * perFrame.ambientIntensity * albedo.rgb;
-    let irradiance = ambient * (1.0 - F0) * ambientOcclusion(in.clipPos.xy, in.viewDepth) * occlusion;
+    // Snow's ambient is not only the sky dome: the surrounding snowfield bounces neutral light back up
+    // and the pack scatters light many times, so a snow pixel sees a much greyer ambient than the
+    // zenith blue (shadows keep a slight cool tint, never the sky's colour). Luminance-preserving.
+    let skyAmb = perFrame.ambientColor * perFrame.ambientIntensity;
+    let skyAmbY = dot(skyAmb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let ambient = mix(skyAmb, vec3<f32>(skyAmbY), 0.65 * ws.snow) * ws.albedo;
+    let ao = ambientOcclusion(in.clipPos.xy, in.viewDepth) * occlusion;
+    let irradiance = ambient * (1.0 - F0) * ao;
     color = color + irradiance;
+    // Wet film / puddle sky reflection: the ambient has no specular lobe, so standing water would
+    // otherwise read as dark paint. Schlick at water's F0 against the sky/fog tone.
+    if (ws.puddle + ws.wet > 1e-3) {
+      let nv = clamp(dot(ws.N, V), 0.0, 1.0);
+      let fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
+      let skyTone = max(perFrame.fogColor, perFrame.ambientColor * perFrame.ambientIntensity * 1.6);
+      color = color + skyTone * fres * (ws.puddle + 0.35 * ws.wet) * ao;
+    }
   }
   // Emission is radiance the surface adds on its own; it is not modulated by the albedo (a dark
   // base colour with a bright emissive factor is exactly how a glowing core is authored).

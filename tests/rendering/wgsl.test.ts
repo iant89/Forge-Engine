@@ -110,7 +110,8 @@ group("generated uniform structs are legal in every browser's uniform address sp
   });
 
   test("keeps the byte layout the CPU writers depend on", () => {
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 256);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 272);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 256);
     assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("flags"), 224);
     assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("fogParams"), 240);
     assert.equal(RENDERING_STRUCTS.LightUniforms.byteSize("uniform"), 80);
@@ -152,7 +153,9 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.CloudUniforms.offsetOf("billow"), 76); // fe-34: billow must live in CloudUniforms (not ShadowPassUniforms)
     assert.equal(RENDERING_STRUCTS.CloudUniforms.byteSize("uniform") - RENDERING_STRUCTS.CloudUniforms.offsetOf("layers"), MAX_CLOUD_LAYERS * 16);
     // fe-33: three shore vec4s (bed, foam/break depths, level/colour depth/amplitude/surf) follow sunDirection.
-    assert.equal(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform"), 432);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.byteSize("uniform"), 464);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("screenA"), 432);
+    assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("absorption"), 448);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreA"), 352);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreD"), 400);
     assert.equal(RENDERING_STRUCTS.WaterUniforms.offsetOf("shoreE"), 416);

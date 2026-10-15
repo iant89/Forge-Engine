@@ -23,6 +23,9 @@ export const linkedSuites = [
   ["tests/environment/environment8b.test.ts", () => import("./environment/environment8b.test.ts")],
   ["tests/environment/environment17.test.ts", () => import("./environment/environment17.test.ts")],
   ["tests/environment/environment17_3.test.ts", () => import("./environment/environment17_3.test.ts")],
+  ["tests/environment/environment17_4.test.ts", () => import("./environment/environment17_4.test.ts")],
+  ["tests/environment/environment17_5.test.ts", () => import("./environment/environment17_5.test.ts")],
+  ["tests/environment/environment17_6.test.ts", () => import("./environment/environment17_6.test.ts")],
   ["tests/environment/ocean.test.ts", () => import("./environment/ocean.test.ts")],
   ["tests/environment/stormRealism.test.ts", () => import("./environment/stormRealism.test.ts")],
   ["tests/core/workerBundling.test.ts", () => import("./core/workerBundling.test.ts")],
@@ -100,4 +103,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(96);
+report(99);

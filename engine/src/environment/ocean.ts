@@ -236,3 +236,11 @@ export function oceanGridSource(size: number, segments: number, amplitude: numbe
   const pad = Math.max(0.5, amplitude);
   return { positions, normals, uvs, indices, boundsMin: [-half, -pad, -half], boundsMax: [half, pad, half] };
 }
+
+/**
+ * Phase 17.5: the screen-space water mode per device tier — low keeps the sky-only fresnel, medium
+ * refracts/absorbs (one grab copy, no march), high adds the screen-space reflection march.
+ */
+export function waterScreenSpaceForTier(tier: DeviceTier): "off" | "refraction" | "full" {
+  return tier === "low" ? "off" : tier === "medium" ? "refraction" : "full";
+}

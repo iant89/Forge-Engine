@@ -173,7 +173,10 @@ PHASE 17 - ENVIRONMENT 2.0
         real-WebGPU A/B verified; 17.3 landed: the deck is a stack of up to four sheets through
         a slab, each shaded by the sun-path optical depth the shader marches — the same depth
         darkens the scene below — with every octave fading against the pixel's own footprint,
-        verified by a CPU reference plus real-WebGPU layer and shadow A/Bs; 17.4-17.6 remain)
+        verified by a CPU reference plus real-WebGPU layer and shadow A/Bs; 17.4-17.6 landed: the
+        ground wets, puddles and snows from the weather and sets every vehicle's grip, the high tier
+        draws screen-space water (refraction, depth absorption, contact foam, SSR), and thunder and
+        strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 
 ================================================================================
@@ -1810,7 +1813,7 @@ CURRENTLY COMPLETE:
 
 17.4 Weather Integration
 
-    [ ] Weather affects:
+    [x] Weather affects:
 
         terrain appearance
         particles
@@ -1819,27 +1822,77 @@ CURRENTLY COMPLETE:
         audio
         water
 
+        (`environment/surfaceWeather.ts` integrates the ground's memory of the weather —
+        `SurfaceWeatherState` wetness / puddles / snow — on the weather's fixed clock: rain wets dry
+        ground in about a minute, drying takes ~10 min scaled by temperature, humidity and wind,
+        puddles need sustained rain over half intensity on wet ground, snow lies only below +2 C
+        (`snowFraction`) and melts into wetness. `WeatherSystem` publishes it (`driveSurface`) to
+        `scene.settings.surface`, which the standard/terrain shading reads through
+        `PerFrameUniforms.surfaceWeather` (flags bit 7, zero cost while dry): a darkened, glossier
+        wet film, sky-reflecting puddles in flat noise basins, snow on up-facing ground. Traction:
+        `driveVehicles` publishes `tyreGripFactor(surface)`, which `VehicleSystem` applies (wet 0.75, standing water down to 0.55,
+        snow 0.3) to every `Vehicle.surfaceGrip`, which scales the Pacejka peak — measured braking
+        from 20 m/s: 19.3 m dry, 25.8 m wet, 35.3 m in puddles, 64.6 m on snow (v^2/2mu g within
+        2 %). Visibility: the 8b fog drive, now read back as metres by `visibilityForFogDensity`
+        (Koschmieder). Particles: `PrecipitationField` takes `drive.snow` (1.2 m/s flakes, path-length
+        lifetimes), and `weatherPrecipitationDrive` maps the state. Audio: `weatherSoundInput` feeds
+        `StormSoundscape` (the weather demo plays it once a gesture has started audio). Water:
+        `driveWater` rebuilds the sea from the weather's wind (`weatherOceanOptions`: direction,
+        storm height and chop). Real WebGPU A/B on the weather island: wet + puddles move 74 % of
+        the frame's pixels, snow raises the mean from 111 to 158; ten simulated storm minutes
+        through the weather itself reach wetness 1.0, puddles 0.94, grip 0.56, fog 0.0216.
+        tests/environment/environment17_4.test.ts.)
+
 
 17.5 Water Improvements
 
-    [ ] Reflection.
+    [x] Reflection. (High tier: `water.screenSpace = "full"` marches the reflected ray through the
+        grabbed depth (40 growing steps, thickness test, screen-edge and length fade) and replaces
+        the sky reflection wherever it finds the scene; elsewhere the fe-35 sky/fog fresnel stays.
+        Off-screen content still reflects only the sky — KNOWN-ISSUES.)
 
-    [ ] Refraction.
+    [x] Refraction. (The renderer defers water out of `forge.main` on HDR frames,
+        `forge.water.grab` copies the opaque scene + sky colour and its raw depth (MRT, r32float),
+        and `forge.water` draws the water reading them: the refracted ray (n = 1.33) is followed a
+        column's length (<= 6 m x `refractionStrength`) and re-projected, with a fall-back to the
+        straight-through pixel when the probe lands on something in front of the water.)
 
-    [ ] Depth-dependent absorption.
+    [x] Depth-dependent absorption. (Beer-Lambert over the real water column reconstructed from the
+        depth buffer, `scene x T + body x (1 - T)`, `water.absorption` default (0.35, 0.075,
+        0.045)/m — CPU twin `waterTransmittance`: at 5 m red keeps 17 %, green 69 %, blue 80 %.)
 
-    [ ] Shoreline effects.
+    [x] Shoreline effects. (fe-33..35 analytic shore — shoaling, depth-limited breaking, swash band,
+        depth colour, drop-off — plus, in the screen-space mode, the real geometry: a soft contact
+        edge and foam where the column over rocks, piers, hulls and the island is thinner than
+        `intersectionFoam` (CPU twin `intersectionFoam`).)
 
-    [ ] Foam.
+    [x] Foam. (Whitecaps above the wind-driven `foamThreshold`, breaking-crest and swash foam in
+        the surf zone, contact foam at intersections; foam is shaded by the wave relief.
+        Real WebGPU A/B, weather lake, off vs full: 207 503 of 468 000 pixels change, zero GPU
+        errors, and the two passes run only in the screen-space mode; per-tier mode via
+        `waterScreenSpaceForTier` (low off, medium refraction, high full).
+        tests/environment/environment17_5.test.ts, tests/environment/ocean.test.ts.)
 
 
 17.6 Lightning Integration
 
-    [ ] Thunder audio.
+    [x] Thunder audio. (Thunder is a simulation event: with a `listener`, each strike schedules its
+        thunder at the distance from the listener to the nearest point of the channel over the
+        speed of sound at the weather's air temperature (`speedOfSound`, `thunderDelay`), and
+        `onThunder` fires on the simulated clock when it arrives; the weather demo plays its
+        thunder from it. Measured on the device: a 218.7 m strike is heard 0.644 s later — not
+        before, exactly once.)
 
-    [ ] Weather-driven strikes.
+    [x] Weather-driven strikes. (Pre-existing since 8b, now measured: the Poisson rate is
+        `rate x storm01` of the attached `WeatherSystem` — 0 / ~75 / ~150 strikes per ten
+        simulated minutes at storm 0 / 0.5 / 1 with `rate` 0.25.)
 
-    [ ] Terrain-aware strike positioning.
+    [x] Terrain-aware strike positioning. (`strikeTarget`: the leader attaches to the highest
+        ground sample or attractor (mast, tree, rod) inside its rolling-sphere striking distance
+        (`strikingDistance`, 10 x I^0.65 m, 91 m at 30 kA) and the bolt ends at that height
+        (`attachStrike`). Measured on a 120 m ridge: strikes landing above 60 m rise from 7.8 %
+        (area share, no target) to 12.7 %, every bolt ends on the surface.
+        tests/environment/environment17_6.test.ts.)
 
 
 EXIT CRITERIA:

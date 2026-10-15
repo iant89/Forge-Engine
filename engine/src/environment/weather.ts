@@ -28,6 +28,9 @@ import type { SystemContext } from "../scene/systems.js";
 import { fbm2 } from "../math/noise.js";
 import { clamp, lerpAngle, TAU } from "../math/scalar.js";
 import { Vec2 } from "../math/vec.js";
+import { setWorldSurfaceGrip } from "../scene/surfaceGrip.js";
+import { applyOceanState, oceanWavesFromWind, type OceanWindOptions } from "./ocean.js";
+import { createSurfaceWeather, stepSurfaceWeather, tyreGripFactor, weatherOceanOptions, DEFAULT_SURFACE_RATES, type SurfaceWeatherRates, type SurfaceWeatherState } from "./surfaceWeather.js";
 import { Light } from "../scene/components/index.js";
 
 /** One snapshot of the weather. All fields are plain numbers (serialisable, comparable). */
@@ -133,6 +136,28 @@ export function stormLightFactors(coverage: number, storm: number, minimumSun = 
   };
 }
 
+/**
+ * Cloud skylight is grey: a deck scatters nearly wavelength-independently, so the clear-sky blue of
+ * the hemispherical ambient fades as cover grows. Returns the fraction of the ambient's chroma to
+ * remove (0 clear, 0.9 at full cover / storm).
+ */
+export function overcastAmbientNeutral(coverage: number, storm: number): number {
+  return clamp(clamp(coverage, 0, 1) * 0.85 + clamp(storm, 0, 1) * 0.1, 0, 0.9);
+}
+
+/**
+ * Desaturate a linear RGB ambient toward its own luminance (Rec. 709) by `neutral`, keeping the
+ * luminance, so weather changes the ambient's colour without changing its brightness.
+ */
+export function neutralizeAmbient(color: { r: number; g: number; b: number }, neutral: number, out: { r: number; g: number; b: number }): typeof out {
+  const k = clamp(neutral, 0, 1);
+  const y = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+  out.r = color.r + (y - color.r) * k;
+  out.g = color.g + (y - color.g) * k;
+  out.b = color.b + (y - color.b) * k;
+  return out;
+}
+
 export interface WeatherOptions {
   name?: string;
   /** Deterministic seed for the gust/temperature/precipitation fields. Default 1337. */
@@ -164,12 +189,39 @@ export interface WeatherOptions {
   minimumSunLight?: number;
   /** Minimum ambient-intensity multiplier at maximum overcast storm. Default 0.5. */
   minimumAmbientLight?: number;
+  /** Phase 17.4: write the integrated ground state to `scene.settings.surface`. Default true. */
+  driveSurface?: boolean;
+  /** Starting ground state (e.g. `{ wetness: 1 }` for a scene that opens after rain). */
+  initialSurface?: Partial<SurfaceWeatherState>;
+  /** Surface wetting/drying/snow rates; defaults in `DEFAULT_SURFACE_RATES`. */
+  surfaceRates?: Partial<SurfaceWeatherRates>;
+  /** Phase 17.4: publish `tyreGripFactor(surface)` for the world; `VehicleSystem` applies it to every vehicle's `surfaceGrip`. Default true. */
+  driveVehicles?: boolean;
+  /**
+   * Phase 17.4: rebuild the scene's Gerstner sea from the wind (`oceanWavesFromWind`) when the
+   * water is enabled. Default false (scenes with hand-authored waves keep them). Extra options
+   * (`maxHeight`, `waveCount`, …) pass through.
+   */
+  driveWater?: boolean | Omit<Partial<OceanWindOptions>, "windSpeed" | "direction">;
 }
 
 const CLOUD_FBM_OCTAVES = 4;
 const SCRATCH_WIND = new Vec2();
 
 export class WeatherSystem extends SceneObject {
+  private lastAmbientColor: { r: number; g: number; b: number } | null = null;
+  /**
+   * Fraction of the direct sunlight the cloud cover removes that returns as neutral diffuse skylight
+   * (scaled down by storm severity: a cumulonimbus reflects and absorbs most of it). Default 0.8;
+   * 0 restores the old dim-only behaviour.
+   */
+  cloudDiffuseTransfer = 0.8;
+  /**
+   * Extra share of the returned skylight that stands in for the cloud base lighting the shadows the
+   * remaining direct beam still casts (a point source cannot cast soft shadows). Default 0.5.
+   */
+  cloudShadowFill = 0.5;
+  private ambientColorSource: { r: number; g: number; b: number } | null = null;
   readonly name: string;
   readonly seed: number;
   readonly state: WeatherState;
@@ -188,6 +240,15 @@ export class WeatherSystem extends SceneObject {
   minimumAmbientLight: number;
   /** Seconds of simulated weather time advanced since creation. */
   simulatedSeconds = 0;
+  /** Phase 17.4: the ground's integrated memory of the weather (wet film, puddles, snow). */
+  readonly surface: SurfaceWeatherState;
+  readonly surfaceRates: SurfaceWeatherRates;
+  driveSurface: boolean;
+  driveVehicles: boolean;
+  driveWater: false | Omit<Partial<OceanWindOptions>, "windSpeed" | "direction">;
+  private lastWaterWind = Number.NaN;
+  private lastWaterDirection = Number.NaN;
+  private lastWaterStorm = Number.NaN;
 
   private baseFogDensity = 0;
   private baseTurbidity = 2;
@@ -221,6 +282,16 @@ export class WeatherSystem extends SceneObject {
     this.driveLighting = options.driveLighting ?? true;
     this.minimumSunLight = clamp(options.minimumSunLight ?? 0.2, 0, 1);
     this.minimumAmbientLight = clamp(options.minimumAmbientLight ?? 0.5, 0, 1);
+    this.surface = { ...createSurfaceWeather(), ...options.initialSurface };
+    this.surfaceRates = { ...DEFAULT_SURFACE_RATES, ...options.surfaceRates };
+    this.driveSurface = options.driveSurface ?? true;
+    this.driveVehicles = options.driveVehicles ?? true;
+    this.driveWater = options.driveWater === true ? {} : options.driveWater || false;
+  }
+
+  /** Tyre grip multiplier for the current ground state (1 = dry); see `tyreGripFactor`. */
+  get grip(): number {
+    return tyreGripFactor(this.surface);
   }
 
   /** Replace the drift target (a preset or a partial state over the current target). */
@@ -269,6 +340,13 @@ export class WeatherSystem extends SceneObject {
     s.precipitation01 = clamp(approachExponential(s.precipitation01, t.precipitation01, seconds, this.tau.precipitation01), 0, 1);
     s.storm01 = clamp(approachExponential(s.storm01, t.storm01, seconds, this.tau.storm01), 0, 1);
     s.cloudCoverage = clamp(approachExponential(s.cloudCoverage, t.cloudCoverage, seconds, this.tau.cloudCoverage), 0, 1);
+    // Ground state integrates on the same clock, in ≤ 1 s slices so a long skip stays accurate.
+    let left = seconds;
+    while (left > 0) {
+      const step = Math.min(1, left);
+      stepSurfaceWeather(this.surface, s, step, this.surfaceRates);
+      left -= step;
+    }
     this.apply();
     return this;
   }
@@ -289,12 +367,17 @@ export class WeatherSystem extends SceneObject {
       ? stormLightFactors(this.state.cloudCoverage, this.state.storm01, this.minimumSunLight, this.minimumAmbientLight)
       : { sun: 1, ambient: 1 };
     const lights = scene.collectLights(this.lightingScratch);
+    // Sunlight the deck takes out of the direct beam is not lost: most of it reaches the ground as
+    // diffuse skylight from the cloud base (cos-weighted, as a radiance like ambientColor).
+    let cloudDiffuse = 0;
     for (const light of lights) {
       if (light.kind !== "directional") continue;
       const lastOutput = this.lastLightOutput.get(light);
       const unchanged = this.attenuatedLights.has(light) && lastOutput !== undefined && Math.abs(light.intensity - lastOutput) <= 1e-9;
       const undimmed = unchanged ? light.intensity / Math.max(1e-6, this.previousSunFactor) : light.intensity;
       light.intensity = undimmed * factors.sun;
+      const lum = 0.2126 * light.color.x + 0.7152 * light.color.y + 0.0722 * light.color.z;
+      cloudDiffuse += ((undimmed - light.intensity) * Math.max(0, -light.direction.y) * lum) / Math.PI;
       this.attenuatedLights.add(light);
       this.lastLightOutput.set(light, light.intensity);
     }
@@ -303,9 +386,52 @@ export class WeatherSystem extends SceneObject {
       ? scene.settings.ambientIntensity / Math.max(1e-6, this.previousAmbientFactor)
       : scene.settings.ambientIntensity;
     scene.settings.ambientIntensity = undimmedAmbient * factors.ambient;
+    // Overcast skylight is grey: neutralize the clear-sky ambient's blue by cloud cover. Idempotent
+    // like the intensity: if nobody rewrote the colour since our last write, start from the source.
+    const c = scene.settings.ambientColor;
+    const last = this.lastAmbientColor;
+    const ours = last !== null && Math.abs(c.r - last.r) <= 1e-9 && Math.abs(c.g - last.g) <= 1e-9 && Math.abs(c.b - last.b) <= 1e-9;
+    if (!this.driveLighting && ours && this.ambientColorSource) {
+      // Lighting drive switched off: hand back the colour we were given.
+      c.r = this.ambientColorSource.r;
+      c.g = this.ambientColorSource.g;
+      c.b = this.ambientColorSource.b;
+      this.lastAmbientColor = null;
+    }
+    if (this.driveLighting) {
+      if (!ours) this.ambientColorSource = { r: c.r, g: c.g, b: c.b };
+      neutralizeAmbient(this.ambientColorSource!, overcastAmbientNeutral(this.state.cloudCoverage, this.state.storm01), c);
+      const transfer = this.cloudDiffuseTransfer * (1 - 0.75 * clamp(this.state.storm01, 0, 1));
+      // A cloud base is an extended source: it also fills the shadows the remaining direct beam casts.
+      const add = (transfer * cloudDiffuse * (1 + this.cloudShadowFill)) / Math.max(1e-6, scene.settings.ambientIntensity);
+      c.r += add;
+      c.g += add;
+      c.b += add;
+      this.lastAmbientColor = { r: c.r, g: c.g, b: c.b };
+    }
+    if (this.driveSurface) {
+      scene.settings.surface.wetness = this.surface.wetness;
+      scene.settings.surface.puddles = this.surface.puddles;
+      scene.settings.surface.snow = this.surface.snow;
+    }
+    // Published through the scene layer; VehicleSystem applies it on its next fixed step.
+    setWorldSurfaceGrip(scene.world, this.driveVehicles ? tyreGripFactor(this.surface) : undefined);
+    if (this.driveWater && scene.settings.water.enabled) this.applyWater(scene);
     this.lastAmbientOutput = scene.settings.ambientIntensity;
     this.previousSunFactor = factors.sun;
     this.previousAmbientFactor = factors.ambient;
+  }
+
+  /** Rebuild the sea from the wind when it has moved enough to matter (wave sets are not free). */
+  private applyWater(scene: Scene): void {
+    const s = this.state;
+    if (Math.abs(s.windSpeed - this.lastWaterWind) < 0.25 && Math.abs(s.windDirection - this.lastWaterDirection) < 0.02 && Math.abs(s.storm01 - this.lastWaterStorm) < 0.02) return;
+    this.lastWaterWind = s.windSpeed;
+    this.lastWaterDirection = s.windDirection;
+    this.lastWaterStorm = s.storm01;
+    const drive = weatherOceanOptions(s);
+    const extra = this.driveWater || {};
+    applyOceanState(scene, oceanWavesFromWind({ seed: this.seed, ...extra, windSpeed: drive.windSpeed, direction: drive.direction, heightScale: (extra.heightScale ?? 1) * drive.heightScale, choppiness: (extra.choppiness ?? 1) * drive.choppiness }));
   }
 
   /** Mean wind vector (m/s, +x east / +y north→+z) at the current state. */

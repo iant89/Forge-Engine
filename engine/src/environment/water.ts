@@ -441,3 +441,20 @@ export function waterGridSource(size: number, segments: number, amplitude: numbe
   const pad = Math.max(0.5, amplitude);
   return { positions, normals, uvs, indices, boundsMin: [-half, -pad, -half], boundsMax: [half, pad, half] };
 }
+
+/**
+ * Phase 17.5 CPU twin of the screen-space water's absorption: the fraction of light (per linear RGB
+ * channel) that survives `path` metres of water with Beer–Lambert coefficients `absorption` (1/m).
+ * The shader mixes `scene × T + body × (1 − T)` with exactly this `T`.
+ */
+export function waterTransmittance(absorption: readonly [number, number, number], path: number): [number, number, number] {
+  const d = Math.max(0, path);
+  return [Math.exp(-Math.max(0, absorption[0]) * d), Math.exp(-Math.max(0, absorption[1]) * d), Math.exp(-Math.max(0, absorption[2]) * d)];
+}
+
+/** Phase 17.5 CPU twin of the contact-foam band: 1 at the intersection, 0 beyond `width` m of water (smoothstep). */
+export function intersectionFoam(thickness: number, width: number): number {
+  if (!(width > 0)) return 0;
+  const t = Math.min(1, Math.max(0, thickness / width));
+  return 1 - t * t * (3 - 2 * t);
+}

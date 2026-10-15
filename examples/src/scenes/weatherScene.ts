@@ -38,6 +38,8 @@ import {
   createPlane,
   createSphere,
   waterGridSource,
+  StormSoundscape,
+  weatherSoundInput,
 } from "@forge/engine";
 import { attachWeatherTouch } from "../controls/weatherTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
@@ -160,7 +162,11 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   scene.setClouds({ coverage: 0.8, density: 0.9, height: 1500, scale: 0.0008, silverLining: 0.8 });
 
   const meshes = {
-    ground: createPlane(engine.gpu, { width: 2000, depth: 2000 }),
+    // Phase 17.5: an island block standing in the lake (its sides meet the water, so the contact
+    // foams), over a sandy bed the screen-space water refracts and absorbs with depth.
+    ground: createBox(engine.gpu, { width: 70, height: 8, depth: 70 }),
+    bed: createPlane(engine.gpu, { width: 2400, depth: 2400 }),
+    rock: createSphere(engine.gpu, { radius: 3, widthSegments: 32, heightSegments: 18 }),
     sphere: createSphere(engine.gpu, { radius: 1.1, widthSegments: 40, heightSegments: 24 }),
     mast: createCylinder(engine.gpu, { radiusTop: 0.18, radiusBottom: 0.3, height: 14, radialSegments: 16 }),
     slab: createBox(engine.gpu, { width: 4, height: 0.5, depth: 4 }),
@@ -168,6 +174,8 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   };
   const materials = {
     ground: new Material({ label: "weather.ground", color: 0x5a6b52, roughness: 0.95, metallic: 0 }),
+    sand: new Material({ label: "weather.sand", color: 0xc2ad84, roughness: 0.9, metallic: 0 }),
+    rock: new Material({ label: "weather.rock", color: 0x6d6a66, roughness: 0.85, metallic: 0 }),
     stone: new Material({ label: "weather.stone", color: 0xb9b2a4, roughness: 0.7, metallic: 0 }),
     white: new Material({ label: "weather.white", color: 0xf2f2f0, roughness: 0.35, metallic: 0 }),
     signal: new Material({ label: "weather.signal", color: 0xc23a2e, roughness: 0.45, metallic: 0 }),
@@ -182,9 +190,18 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     scene.world.addComponent(e.id, r);
   };
 
-  // The shore sits 2 m above the lake: the slab plaza and the masts stay dry while the water
-  // fills the basin around them.
-  place("ground", new Vec3(0, 2, 0), "ground", "ground", false);
+  // The shore sits 2 m above the lake: the slab plaza and the masts stay dry on the island while the
+  // water fills the basin around it, 6 m deep over the sand.
+  place("ground", new Vec3(0, -2, 0), "ground", "ground", false);
+  place("bed", new Vec3(0, -6, 0), "bed", "sand", false);
+  const rocks: [number, number, number][] = [
+    [48, -0.8, 10],
+    [52, -1.6, -18],
+    [40, -3.6, -36],
+    [-8, -0.6, -50],
+    [24, -4.2, -46],
+  ];
+  rocks.forEach(([x, y, z], i) => place(`rock-${i}`, new Vec3(x, y, z), "rock", "rock"));
   place("slab", new Vec3(0, 2.25, 0), "slab", "stone", false);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
@@ -234,6 +251,8 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   // handle's dispose() below must not touch them twice.
   const water = new WaterSurface({ name: "water", level: 0, size: 1200 });
   scene.add(water);
+  // Phase 17.5: the high-tier screen-space water (refraction, depth absorption, contact foam, SSR).
+  scene.setWater({ screenSpace: "full" });
   const grid = waterGridSource(1200, 96, 1);
   water.renderable!.geometry = Geometry.create(engine.gpu, {
     positions: grid.positions,
@@ -246,24 +265,37 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   water.renderable!.material = new Material({ label: "weather.lake", technique: "water" });
 
   const audio = new AudioSystem({ maxVoices: 12, masterVolume: 0.7 });
+  // Phase 17.4 weather audio: wind, rain and lake surf synthesized from the weather state. Opt-in like
+  // every sound in the demos — it starts only once a gesture (the Strike button / L key) has let the
+  // audio context run.
+  let soundscape: StormSoundscape | null = null;
+  let soundscapeFrame = 0;
   const thunder = [0, 1, 2, 3].map((seed) => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }));
+  // Phase 17.6: the engine owns the flash-to-bang gap. Thunder is a simulation event that fires
+  // when sound from the nearest point of the channel reaches the camera (speed of sound from the
+  // weather's temperature), and strikes attach to the highest point their leader reaches — the
+  // masts on the plaza draw nearby bolts.
+  const mastTops = [0, 1, 2, 3].map((i) => {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    return { x: Math.cos(a) * 12, y: 16, z: Math.sin(a) * 12 };
+  });
   const lightning = new LightningSystem({
     name: "lightning",
     weatherName: "weather",
     rate: 0.5,
     areaRadius: 300,
     cloudHeight: 1200,
-    onStrike: (strike) => {
+    strikeTarget: { heightAt: (x, z) => (Math.abs(x) < 35 && Math.abs(z) < 35 ? 2 : 0), attractors: mastTops },
+    listener: () => cameraEntity.transform.position,
+    onThunder: (event) => {
       if (audio.context.state !== "running") return;
-      const eye = cameraEntity.transform.position;
-      const distance = Math.hypot(strike.position.x - eye.x, strike.position.y - eye.y, strike.position.z - eye.z);
+      const strike = event.strike;
       audio.play(thunder[strike.id % thunder.length]!, {
         bus: "ambient",
         spatial: true,
         position: strike.position,
         volume: Math.min(1.4, 0.55 + strike.energy * 0.45),
         playbackRate: 0.88 + (strike.id % 5) * 0.035,
-        delay: distance / 343,
         refDistance: 18,
         maxDistance: 1800,
         rolloffFactor: 0.65,
@@ -380,6 +412,10 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       const fz = -eye.z;
       const fl = Math.hypot(fx, fy, fz) || 1;
       audio.setListener({ position: eye, forward: { x: fx / fl, y: fy / fl, z: fz / fl }, up: Vec3.up });
+      if (audio.context.state === "running" && soundscapeFrame++ % 6 === 0) {
+        soundscape ??= new StormSoundscape(audio.context, audio.context.destination, 0.45);
+        soundscape.set(weatherSoundInput(weather.state, 0.15 + 0.6 * weather.state.storm01));
+      }
     },
     overlay(): string {
       const s = weather.state;
@@ -404,6 +440,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     dispose(): void {
       window.removeEventListener("keydown", onKey);
       touch.dispose();
+      soundscape?.dispose();
       void audio.dispose();
       for (const m of Object.values(meshes)) m.dispose();
       for (const m of Object.values(materials)) m.dispose();

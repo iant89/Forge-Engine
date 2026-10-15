@@ -21,6 +21,7 @@ import { Vec3 } from "../math/vec.js";
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { VehicleComponent } from "./components.js";
+import { worldSurfaceGrip } from "../scene/surfaceGrip.js";
 
 export class VehicleSystem extends FixedSystem {
   readonly name = "vehicles";
@@ -38,8 +39,10 @@ export class VehicleSystem extends FixedSystem {
     const dt = context.fixedDt;
     const world = context.world;
     const vehicles = world.store(VehicleComponent);
+    const grip = worldSurfaceGrip(world);
     for (let i = 0; i < vehicles.count; i++) {
       const comp = vehicles.valueAt(i);
+      if (grip !== undefined) comp.vehicle.surfaceGrip = grip;
       comp.vehicle.step(dt, comp.ground);
       const id = world.idForSlot(vehicles.slotAt(i));
       const transform = world.getComponent(id, Transform);
