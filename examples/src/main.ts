@@ -840,10 +840,6 @@ async function main(): Promise<void> {
       handle?.setPaused(paused);
       return true;
     },
-    /**
-     * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
-     * screen when `hold`), "hold"/"release" freeze lightning + waterspouts. False on other scenes.
-     */
     /** fe-37: off-road hill lap/camera snapshot while that scene is loaded. */
     offroadState: () => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle | null)?.snapshot() ?? null : null),
     /** fe-37 gate/screenshot hook: place the car at arc length `s` and pick a camera mode. */
@@ -854,6 +850,10 @@ async function main(): Promise<void> {
       h.placeAt(s, lateral, yawOffset);
       return true;
     },
+    /**
+     * Hurricane (fe-34) debug: "waterspout" forces one offshore, "strike" fires a bolt (held on
+     * screen when `hold`), "hold"/"release" freeze lightning + waterspouts. False on other scenes.
+     */
     hurricaneDebug: (action: "waterspout" | "strike" | "cloudflash" | "hold" | "release", hold = false) => {
       if (activeSceneName !== "hurricane") return false;
       const handle = currentHandle as HurricaneSceneHandle | null;
