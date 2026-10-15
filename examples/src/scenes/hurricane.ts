@@ -39,6 +39,9 @@ export const HURRICANE_COAST: CoastalTerrainParams = {
 };
 
 /** Where the storm's effects are evaluated: the viewer on the beach. */
+/** fe-34 v2: the scene seed — gusts, lightning and waterspouts derive their seeds from it. */
+export const HURRICANE_SEED = 3401;
+
 export const HURRICANE_OBSERVER = { x: 0, z: -50 } as const;
 
 /** Real seconds per track second (forward speed in the wind field ≈ 6 m/s). */

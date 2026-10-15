@@ -102,9 +102,12 @@ export function generateBoltPoints(start: Vec3, end: Vec3, seed: number, subdivi
         const dx = (b.x - a.x) / (segLen || 1);
         const dy = (b.y - a.y) / (segLen || 1);
         const dz = (b.z - a.z) / (segLen || 1);
-        // `up` is never parallel to a cloud-to-ground bolt, so this basis is never degenerate.
-        const ux = 0;
-        const uy = 1;
+        // Reference axis for the perpendicular basis: world up, or world X when the segment is
+        // (near-)vertical — fe-34 fix: a vertical bolt (start straight above the strike, which
+        // trigger() produces) made `seg × up` zero and the channel came out a straight rod.
+        const vertical = Math.abs(dy) > 0.9;
+        const ux = vertical ? 1 : 0;
+        const uy = vertical ? 0 : 1;
         const uz = 0;
         let px = dy * uz - dz * uy;
         let py = dz * ux - dx * uz;
@@ -187,9 +190,48 @@ export interface LightningOptions {
   branches?: number;
   /** fe-34: fraction 0..1 of strikes that are intra-cloud flashes (no channel). Default 0. */
   cloudFlashFraction?: number;
-  /** fe-34: bolt line colour (0xRRGGBBAA) and core width in px. Defaults 0x00e8ffff / 5. */
+  /** fe-34: bolt line colour (0xRRGGBBAA). Default 0x00e8ffff. */
   boltColor?: number;
+  /** fe-34: bolt core radiance (emissive line intensity; the flash adds up to 7 on top). Default 5. */
   boltWidth?: number;
+  /**
+   * fe-34: bolt core thickness in screen pixels. Above 1 the channel is drawn as a ribbon of parallel
+   * 1-px lines facing `viewer`, spaced one pixel apart at each segment's distance, so a strike kilometres
+   * away still reads as a thick channel. Default 1 (a single line, the pre-fe-34 look).
+   */
+  boltPixels?: number;
+  /** fe-34: glow halo either side of the core, in pixels (dimmer, bluer lines). Default 0. */
+  boltGlowPixels?: number;
+  /** fe-34: viewer position for the ribbon (render-local); required for `boltPixels` > 1. */
+  viewer?: () => { x: number; y: number; z: number };
+  /** fe-34: angle subtended by one pixel (rad). Default (π/3)/720 — a 60° fov on a 720-px-tall view. */
+  pixelAngle?: number;
+}
+
+/**
+ * fe-34: the screen-facing one-pixel step for a bolt segment a→b seen from `viewer`: a vector
+ * perpendicular to both the segment and the line of sight, `|out| = distance × pixelAngle`.
+ * Zero when the segment points straight at the viewer.
+ */
+export function lightningRibbonStep(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, viewer: { x: number; y: number; z: number }, pixelAngle: number, out = new Vec3()): Vec3 {
+  const mx = (a.x + b.x) * 0.5 - viewer.x;
+  const my = (a.y + b.y) * 0.5 - viewer.y;
+  const mz = (a.z + b.z) * 0.5 - viewer.z;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dz = b.z - a.z;
+  // perp = seg × view
+  let px = dy * mz - dz * my;
+  let py = dz * mx - dx * mz;
+  let pz = dx * my - dy * mx;
+  const pl = Math.hypot(px, py, pz);
+  const dist = Math.hypot(mx, my, mz);
+  if (pl < 1e-9) return out.set(0, 0, 0);
+  const k = (dist * pixelAngle) / pl;
+  px *= k;
+  py *= k;
+  pz *= k;
+  return out.set(px, py, pz);
 }
 
 export class LightningSystem extends SceneObject {
@@ -215,6 +257,9 @@ export class LightningSystem extends SceneObject {
   strikeCount = 0;
   /** Sum of energy × envelope over the live strikes (what the light and sky flash follow). */
   flashTotal = 0;
+  private readonly ribbonStep = new Vec3();
+  private readonly ribbonA = new Vec3();
+  private readonly ribbonB = new Vec3();
 
   private readonly rng: Rng;
   private nextStrikeIn = 0;
@@ -355,6 +400,9 @@ export class LightningSystem extends SceneObject {
 
   /** Drive the light, the sky flash and the bolt lines for the current state. */
   present(context: SystemContext): void {
+    // Recomputed here too: a strike triggered while `paused` (a held debug strike) must still flash.
+    this.flashTotal = 0;
+    for (const s of this.strikes) this.flashTotal += s.energy * flashEnvelope(s.age, this.envelope);
     for (const s of this.strikes) {
       const record = this.strikeLights.get(s.id);
       if (record) record.light.intensity = s.energy * flashEnvelope(s.age, this.envelope) * this.flashLightIntensity;
@@ -369,12 +417,37 @@ export class LightningSystem extends SceneObject {
           if (f <= 0.01) continue;
           const color = this.options.boltColor ?? 0x00e8ffff;
           const width = this.options.boltWidth ?? 5;
+          const viewer = this.options.viewer?.();
+          const pixels = viewer ? Math.max(1, Math.round(this.options.boltPixels ?? 1)) : 1;
+          const glow = viewer ? Math.max(0, Math.round(this.options.boltGlowPixels ?? 0)) : 0;
+          const pixelAngle = this.options.pixelAngle ?? Math.PI / 3 / 720;
+          // Glow: the bolt colour pushed toward blue-violet.
+          const glowColor = ((color & 0xff000000) | 0x8090ff) >>> 0;
           const lines = [s.bolt.points, ...s.bolt.branches];
           for (let b = 0; b < lines.length; b++) {
             const pts = lines[b]!;
             this.lastBolts.push(pts);
             const w = b === 0 ? width + f * 7 : (width + f * 7) * 0.45;
-            for (let i = 1; i < pts.length; i++) render.drawEmissiveLine(pts[i - 1]!, pts[i]!, color, w);
+            // Branches are thinner than the main channel.
+            const core = b === 0 ? pixels : Math.max(1, Math.round(pixels * 0.5));
+            const halo = b === 0 ? glow : Math.round(glow * 0.5);
+            for (let i = 1; i < pts.length; i++) {
+              const p0 = pts[i - 1]!;
+              const p1 = pts[i]!;
+              if (core === 1 && halo === 0) {
+                render.drawEmissiveLine(p0, p1, color, w);
+                continue;
+              }
+              const step = lightningRibbonStep(p0, p1, viewer!, pixelAngle, this.ribbonStep);
+              const half = (core - 1) * 0.5;
+              for (let k = -half - halo; k <= half + halo + 1e-6; k += 1) {
+                const inCore = Math.abs(k) <= half + 1e-6;
+                const edge = inCore ? 1 : 1 - (Math.abs(k) - half) / (halo + 1);
+                this.ribbonA.set(p0.x + step.x * k, p0.y + step.y * k, p0.z + step.z * k);
+                this.ribbonB.set(p1.x + step.x * k, p1.y + step.y * k, p1.z + step.z * k);
+                render.drawEmissiveLine(this.ribbonA, this.ribbonB, inCore ? color : glowColor, inCore ? w : Math.max(0.5, w * 0.35 * edge));
+              }
+            }
           }
         }
       }

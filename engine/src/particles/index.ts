@@ -65,3 +65,4 @@ export { ParticleSystem } from "./system.js";
 export { ParticleWorld } from "./world.js";
 export { WindBlownField, windBlownPreset, windBlownVelocity, type WindBlownFieldOptions, type WindBlownDrive, type WindBlownLook, type WindBlownMaterial } from "./windBlown.js";
 export { WaterspoutVisual, type WaterspoutVisualOptions } from "./waterspoutVisual.js";
+export { LightningBoltVisual, lightningSegmentRadius, type LightningBoltVisualOptions } from "./lightningVisual.js";

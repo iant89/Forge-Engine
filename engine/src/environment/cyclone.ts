@@ -324,6 +324,12 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   fogColorStorm?: Color;
   /** Cloud albedo under the darkest part of the storm (1 = white deck). Default 0.28. */
   stormCloudAlbedo?: number;
+  /**
+   * fe-34 v2: how fast the deck darkens with the storm. darkness → 1 − (1 − darkness)^gain, so gain > 1
+   * makes the outer bands already dark and brooding (cumulonimbus bases) instead of staying white
+   * until the eyewall. Drives the cloud albedo, ceiling, scud and billows. Default 1 (linear).
+   */
+  darknessGain?: number;
   /** Drive the ocean waves + surge. Default true (no-op while water is disabled). */
   driveOcean?: boolean;
   /** Cap on the significant wave height the ocean is allowed. Default 5. */
@@ -358,6 +364,11 @@ export interface CycloneSystemOptions extends CycloneFieldOptions {
   runup?: { base: number; perMetre: number };
   /** fe-34: 0..1 gust amplitude (gust speed = wind × (1 + 0.45·gustiness·gust)). Default 0 (steady). */
   gustiness?: number;
+  /**
+   * fe-34: seed of the gust signal (pass the scene's seed). Gusts are a pure function of the storm
+   * clock (`time`) and this seed, so `seek(t)` and playing to `t` give the same gust. Default 5.
+   */
+  gustSeed?: number;
   /**
    * fe-34 cloud ceiling: deck height (m) in clear air and under the worst of the storm (the ceiling
    * lowers as it darkens). Omit to leave `clouds.height` alone.
@@ -406,8 +417,6 @@ export class CycloneSystem extends SceneObject {
    * (e.g. an astronomical tide or a drawdown beat). Default 0.
    */
   tideOffset = 0;
-  /** Real (unscaled) seconds the system has run — the gust clock. */
-  clock = 0;
   ocean: OceanState | null = null;
   private seaWind = 0;
   private seaDir = 0;
@@ -453,7 +462,6 @@ export class CycloneSystem extends SceneObject {
   override update(context: SystemContext): void {
     const dt = context.fixedSteps * context.fixedDt;
     if (!this.paused && dt > 0) this.time = Math.min(this.track.duration, this.time + dt * this.timeScale);
-    if (dt > 0) this.clock += dt;
     this.evaluate(this.paused ? 0 : dt * this.timeScale);
   }
 
@@ -475,7 +483,7 @@ export class CycloneSystem extends SceneObject {
     obs.ambientFactor = light.ambient;
     obs.surge = s.surge * Math.exp(-Math.pow(obs.distance / (2.5 * s.radiusMaxWind), 2));
     obs.setup = o.coast ? cycloneWindSetup(obs.wind.x, obs.wind.z, o.coast.onshoreX, o.coast.onshoreZ, o.coast.coefficient, o.coast.limit ?? 3) : 0;
-    obs.gust = (o.gustiness ?? 0) > 0 ? cycloneGustSignal(this.clock, 5) * clamp(o.gustiness ?? 0, 0, 1) : 0;
+    obs.gust = (o.gustiness ?? 0) > 0 ? cycloneGustSignal(this.time, o.gustSeed ?? 5) * clamp(o.gustiness ?? 0, 0, 1) : 0;
     obs.gustSpeed = obs.wind.speed * (1 + 0.45 * obs.gust);
     // The sea follows the wind with a lag; swell radiates away from the centre.
     const tau = o.seaTau ?? 6;
@@ -497,6 +505,8 @@ export class CycloneSystem extends SceneObject {
     if (!scene || !applyToScene) return;
     // How dark the storm is overhead: thick deck + heavy rain + wind, nothing in the clear eye.
     obs.darkness = clamp(Math.max(obs.rain, obs.storm * 0.9) * clamp((obs.cover - 0.3) / 0.6, 0, 1), 0, 1);
+    const gain = Math.max(0.1, o.darknessGain ?? 1);
+    if (gain !== 1) obs.darkness = 1 - Math.pow(1 - obs.darkness, gain);
     if (o.driveClouds ?? true) {
       const albedo = 1 - (1 - (o.stormCloudAlbedo ?? 0.28)) * obs.darkness;
       CLOUD_ALBEDO.set(albedo, albedo, albedo * 1.03);

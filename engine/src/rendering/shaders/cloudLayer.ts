@@ -270,7 +270,18 @@ fn cloudDeck(dir: vec3<f32>, sunDir: vec3<f32>, footprint: f32) -> vec4<f32> {
     let alpha = (1.0 - exp(-3.0 * column)) * smoothstep(0.005, 0.08, dir.y);
     // fe-34 billow shading: dense cores darker (storm bases), thin puff edges brighter.
     let fullness = clamp(column / max(layer.w * clamp(cloud.density, 0.0, 1.0), 1e-3), 0.0, 1.0);
-    let billowShade = mix(1.0, 1.45 - 0.95 * fullness * fullness, clamp(cloud.billow, 0.0, 1.0));
+    let billowAmt = clamp(cloud.billow, 0.0, 1.0);
+    var billowShade = mix(1.0, 1.55 - 1.25 * fullness * fullness, billowAmt);
+    if (billowAmt > 0.0) {
+      // fe-34 v2 relief: each puff is lit on the side toward the light and self-shadowed on the far
+      // side (density rising along the light direction = facing away), so the deck reads as rounded
+      // cumuliform masses rather than a printed sheet. One extra density sample per sheet.
+      let toLight = normalize(sunDir.xz + vec2<f32>(1e-3, 0.0));
+      let reliefStep = 0.11 / cloudLayerScaleOf(i);
+      let ahead = layer.w * cloudLayerDensityAt(xz + toLight * reliefStep, i, layerFootprint);
+      let relief = clamp((column - ahead) / max(layer.w * 0.35, 1e-3), -1.0, 1.0);
+      billowShade *= 1.0 + billowAmt * 0.55 * relief;
+    }
     radiance += transmittance * alpha * cloud.cloudAlbedo * (cloud.sunTint * transmitted + cloud.ambientTint) * silver * billowShade;
     transmittance *= 1.0 - alpha;
     if (transmittance <= 0.002) {

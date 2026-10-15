@@ -37,6 +37,11 @@ export interface WaterspoutVisualOptions {
   color?: number;
   /** Peak funnel opacity. Default 0.72. */
   opacity?: number;
+  /**
+   * fe-34 v2: skip distance fog. Dense storm fog washes a spout a kilometre out into the horizon
+   * haze; true keeps the funnel readable. Default false.
+   */
+  fogExempt?: boolean;
 }
 
 interface Slot {
@@ -85,7 +90,7 @@ export class WaterspoutVisual extends SceneObject {
     this.geometry = Geometry.create(o.gpu, { ...unit, label: "waterspout.segment" });
     const maxActive = o.spouts.options.maxActive ?? 2;
     for (let k = 0; k < maxActive; k++) {
-      const material = new Material({ label: `waterspout.${k}`, color: o.color ?? 0x8a9098, roughness: 1, metallic: 0, transparent: true, opacity: 0 });
+      const material = new Material({ label: `waterspout.${k}`, color: o.color ?? 0x8a9098, roughness: 1, metallic: 0, transparent: true, opacity: 0, fogExempt: o.fogExempt ?? false });
       const slot: Slot = { entities: [], renderables: [], material };
       for (let s = 0; s < segs; s++) {
         const e = scene.createTransformedEntity(`${this.name}-${k}-${s}`, new Vec3(0, -1000, 0));
@@ -176,7 +181,9 @@ export class WaterspoutVisual extends SceneObject {
         const h1 = (s + 1) / n;
         const a = waterspoutFunnelAt(spout, h0, t, this.sample);
         const b = waterspoutFunnelAt(spout, h1, t, this.next);
-        const visible = a.opacity > 0.05 && a.radius > 0.2;
+        // A segment shows if either end has condensation (the bottom ring has opacity 0 at the sea
+        // surface itself, which used to leave the funnel floating one segment above the water).
+        const visible = Math.max(a.opacity, b.opacity) > 0.05 && a.radius > 0.2;
         slot.renderables[s]!.visible = visible;
         if (!visible) continue;
         this.drawnSegments++;
