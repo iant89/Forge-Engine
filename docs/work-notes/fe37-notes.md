@@ -29,3 +29,6 @@
 - DONE: engine terrain/tireTracks.ts (TireTrackMap tiled ring-capped, per-surface styles, mud holds water; TireTrackLayer) + demo followVehicle; NO screenshot yet (fe37c-tracks.png), no unit test
 - PARTIAL: puddles still pale gray in rain. Debug (red albedo) shows albedo path ok; pale is additive light. Tried darker body, capped sky reflection, roughness 0.03->0.14: no visible change. NEXT suspect: direct light (sun spec/diffuse with flat gN) or the 0.35*wet film term; try zeroing lightContribution specular for puddles to bisect
 - LEFT: tracks shot + test, docs (VEGETATION.md bushes/tracks/wheel), changelog, gates (typecheck ok at 8f0494d; npm test/browser not rerun), self-review
+- DONE (Claude, finishing pass): puddle bisect on real WebGPU (direct/ambient/sky terms): pale = sky reflection of the bright rain fog; reflection now uses ambient sky radiance (rain frame puddle 89/86/67 -> 68/59/48 sRGB vs road ~101/89/62). The earlier "no visible change" was very likely a stale Vite watcher (sed -i), see mnemosyne.
+- DONE: tests/terrain/tireTracks.test.ts (7 cases) + generateBush case in vegetation suite; selrun 103 suites / 807 claims
+- DONE: docs/VEGETATION.md (bushes, tracks, wheel/pedals, puddle reflection), change-log fe-37c backfill + pr-merge entry, mnemosyne entry
