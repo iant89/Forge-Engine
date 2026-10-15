@@ -223,6 +223,7 @@ export { EntityWorld, Entity, TransformHandle, setComponentErrorHandler } from "
 export { Component, registerComponent, componentInfo, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
 export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
+export { setWorldSurfaceGrip, worldSurfaceGrip, setWorldSurfaceGripField, worldSurfaceGripField, type SurfaceGripField } from "./scene/surfaceGrip.js";
 export { Query, ObjectStore, StructStore, type ComponentStorage, type QueryWorld } from "./scene/stores.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";
@@ -373,6 +374,7 @@ export {
   type RockOptions,
   type CylinderOptions,
 } from "./rendering/primitives.js";
+export { MoistureGroundMaps, moistureGroundGeometrySource, createMoistureGround } from "./rendering/moistureGround.js";
 export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, SplatUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
 export {
   STANDARD_VERTEX,

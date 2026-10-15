@@ -170,6 +170,7 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit, bit5 fogExempt, bit6 emissiveMap, bit7 occlusionMap, bit8 alphaTest" },
   { name: "occlusionStrength", type: f32 },
   { name: "alphaCutoff", type: f32 },
+  { name: "snowCover", type: vec4, comment: "fe-38 per-object snow: amount, snow line (min world normal.y), wetness, unused" },
 ]);
 
 /** Four-surface splat material, opt-in group 2 extension. Every array element is vec4-aligned. */

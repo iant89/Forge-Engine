@@ -675,3 +675,13 @@ With a `listener`, each strike queues its thunder at `thunderDelay` (nearest cha
 Change log: fe-36 — 17.4 surface weather / grip / audio / sea coupling, 17.5 screen-space water,
 17.6 thunder timing and strike attachment; browser-check holds water, lightning and surface still
 during the 17.3 deck A/Bs.
+
+## 12. Snow melt, shedding and mud (fe-38)
+
+Three reusable systems in `engine/src/environment`, demoed by the `thaw` scene (`?scene=thaw`; R new snowfall, T time scale, P pause).
+
+- **`snowMelt.ts`** — a point energy balance: `Q = (1−α)(S·cosθ + D·view) + (5 + 4u)·T − 60(1−cloud)·view + substrate`. Melt depth rate is `Q / (ρ_w · L_f)`. Albedo drops from 0.85 for fresh snow to 0.45 for wet slush. `sampleMeltEnvironment` takes the sun from the scene's brightest directional light and the rest from `Weather`.
+- **`snowCover.ts`** — the `SnowCover` component (depth, extent, wetness) on spheres and boxes, and `SnowMeltSystem`. Snow sheds once the surface slope passes `criticalShedAngle` = 55° − 40°·wetness − a curvature term, clamped to 8–70°. On spheres the cover's edge band breaks into clumps that slide to the detach angle and then fall. A tilted box sheds the whole sheet, and wet box tops drop their cornice. Landed chunks add snow to the ground field. `Material.setSnowCover` drives the standard shader's object-snow layer.
+- **`moistureField.ts`** — `GroundMoistureField`, a height-aware grid with snow, surface water, soil moisture and a soil type for each cell. It handles ground-snow melt, downhill pipe flow (pools fill low spots, and water runs off open edges), infiltration, and evaporation/drying (about a 12 h time constant, faster in sun). Dirt cells turn to mud: darker, glossy and less grippy. `gripAt` feeds vehicles through `setWorldSurfaceGripField`. `rendering/moistureGround.ts` uploads the albedo and MR maps, with MR alpha = 1 − puddle, which the shader renders as a flat, mirror-smooth film.
+
+Verification: `tests/environment/snowMelt.test.ts` and the `thaw` A/B at the end of `check:browser --section=environment`.
