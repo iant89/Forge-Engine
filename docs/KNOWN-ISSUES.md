@@ -242,3 +242,11 @@ What remains:
 cannot be advertised as verified while a capability inside it is not, and a limitation cannot outlive
 its implementation. An earlier revision of the roadmap marked phases done without the code; that is
 what the gate now makes impossible to repeat silently.
+
+## Snow melt and mud (fe-38)
+
+* **Melt ignores shadows.** Each cover takes the full sun from its own facing. Shaded snow (under a car, or behind a rock) melts as fast as sunlit snow. (roadmap: 17)
+* **Chunks are simple projectiles.** Shed clumps slide on their own source shape, then fall onto the terrain height. They do not hit other objects or each other. (roadmap: 17)
+* **One drying climate per field.** Drying and evaporation use the scene-wide sun and humidity, with no per-cell shading. (roadmap: 17)
+* **Puddles reflect only the sky.** The standing-water film is a smooth, flat surface lit by the environment and sky. It shows no reflections of the objects around it. (roadmap: 17)
+* **Only sphere and box covers.** Vehicles and rocks are approximated by their bounding sphere or box. (roadmap: 17)
