@@ -2786,7 +2786,8 @@ async function checkEnvironmentSection() {
   // lake (visible since Phase 17.5 put an island in it) keeps animating its waves with the clock
   // paused, since 17.6 strikes attach to the masts in view, so a bolt can land between two
   // captures, and since 17.4 the ground keeps wetting/drying after the storm preset above. All three
-  // are held for the A/Bs and restored after.
+  // are held for the A/Bs and restored after. The overcast drizzle is held further down, after the
+  // preset that sets it (the next setWeather restores it).
   await page.evaluate(() => {
     const scene = window.__forge.engine.scene;
     scene.object("water").renderable.visible = false;
@@ -2798,6 +2799,15 @@ async function checkEnvironmentSection() {
   await page.evaluate(() => window.__forge.setWeather("overcast"));
   await page.evaluate(() => window.__forge.setTimeOfDay(10));
   await page.evaluate(() => window.__forge.setCoverage(0.7));
+  // The overcast preset drizzles (precipitation 0.05, a few hundred drops), and the streaks moving
+  // between two captures read as a deck that changed: CI measured 4975 px against a 4680 px bound.
+  // Hold the rain at zero over the preset and let the drops already falling (≤ 1.4 s) land.
+  await page.evaluate(() => {
+    const weather = window.__forge.engine.scene.object("weather");
+    weather.setTarget({ precipitation01: 0 });
+    weather.snapTo({ precipitation01: 0 });
+  });
+  await page.waitForTimeout(1600);
   await settle(4);
   const wx17Before = await page.evaluate(() => window.__forge.weatherState());
   await page.evaluate(() => window.__forge.setCloudOptions({ layers: 1, thickness: 600, windX: 0, windZ: 0, shadowStrength: 1, surfaceShadows: false }));
@@ -2957,17 +2967,21 @@ async function checkEnvironmentSection() {
 
   // 17.6: a strike's thunder is a simulated-clock event at distance / c, and the strike attaches to
   // high ground (the island at +2 m or a mast top at 16 m — never the lake at 0).
+  // Only this strike's thunder counts: the storm schedules its own strikes, and `advance` delivers
+  // their thunder too, so a thunderCount delta read "heard early 1, on time 2" on CI.
   const thunder = await page.evaluate(() => {
     const lightning = window.__forge.engine.scene.object("lightning");
-    const before = lightning.thunderCount;
     const strike = lightning.trigger();
+    const ours = () => lightning.pendingThunder.some((p) => p.event.strike === strike);
     const pending = lightning.pendingThunder.find((p) => p.event.strike === strike);
     const delay = pending ? pending.event.delay : -1;
     const distance = pending ? pending.event.distance : -1;
+    const wasPending = ours();
     lightning.advance(Math.max(0, delay - 0.05));
-    const early = lightning.thunderCount - before;
+    const early = wasPending && !ours() ? 1 : 0;
     lightning.advance(0.1);
-    return { delay, distance, early, heard: lightning.thunderCount - before, y: strike.position.y };
+    const heard = wasPending && !ours() ? 1 : 0;
+    return { delay, distance, early, heard, y: strike.position.y };
   });
   console.log(`17.6 thunder: distance ${thunder.distance.toFixed(1)} m delay ${thunder.delay.toFixed(3)} s; heard early ${thunder.early}, on time ${thunder.heard}; strike y ${thunder.y.toFixed(2)}`);
   if (!(thunder.delay > 0 && Math.abs(thunder.delay - thunder.distance / 340) < thunder.delay * 0.03)) throw new Error(`thunder delay ${thunder.delay} does not match ${thunder.distance} m / c`);

@@ -2359,3 +2359,5 @@ Read the module constraints below before changing either pure model.
   a whole-frame mean is the wrong A/B for small features — the weather night check (deck hides stars)
   flipped on lake-glint noise until it counted star pixels in the sky band (tools/browser-check.mjs
   `countStars`). The gate's luma is the canvas only; the HUD is DOM and never in it.
+  Same session: the thunder check counted `thunderCount` (storm strikes add to it) and the frozen
+  deck A/B caught the overcast preset's drizzle (precipitation 0.05) — hold every mover in an A/B.

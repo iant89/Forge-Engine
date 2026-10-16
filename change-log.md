@@ -19296,6 +19296,30 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Note on async pipeline variants after a format/shader toggle, and on mean-based A/B checks.",
     "why": "Session memory."
+  },
+  {
+    "id": "1526",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Thunder check tracks only the triggered strike's queue entry; the frozen-deck stability A/B holds the overcast drizzle at zero and waits for falling drops to land.",
+    "why": "CI failed 'thunder was not delivered at its arrival time (early 1, heard 2)' from the storm's own strikes, and 'deck not temporally stable (4975 px)' from rain streaks moving between captures."
+  },
+  {
+    "id": "1527",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the thunder and frozen-deck checks as they now work.",
+    "why": "Keep the gate description truthful."
   }
 ]
 ```
