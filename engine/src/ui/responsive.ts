@@ -10,6 +10,8 @@
  * visibility, variant and style overrides. When the breakpoint changes the manager applies
  * `snapshot ← default ← rule[breakpoint]` — the snapshot is the element's own values for every key
  * any rule touches, taken when the profile was set, so leaving a breakpoint restores what was there.
+ * Aspects no rule mentions (visibility, variant, style, layout) are never written, so a profile does
+ * not fight other owners of them (a TabContainer hiding its inactive pages, app code toggling a panel).
  * The tree is never rebuilt; only the affected elements invalidate.
  *
  * Scaling: `scaleMode: "fixed"` keeps `uiScale` as set. A reference-resolution mode computes
@@ -178,18 +180,31 @@ export class ResponsiveProfile {
       else throw new UsageError(`ui responsive: unknown layout property "${k}"`);
     }
     this.snapshot = { layout: layout as LayoutPropsInput, visible: element.visible, variant: element.variant, style: element.style };
+    const all = Object.values(rules);
+    this.touches = {
+      layout: keys.size > 0,
+      visible: all.some((r) => r.visible !== undefined),
+      variant: all.some((r) => r.variant !== undefined),
+      style: all.some((r) => r.style !== undefined),
+    };
   }
+
+  /** Which aspects any rule sets. Untouched aspects stay under the element's (or app's) control. */
+  private readonly touches: { layout: boolean; visible: boolean; variant: boolean; style: boolean };
 
   apply(breakpoint: string): void {
     const el = this.element;
     if (el.disposed) return;
     const rule = this.rules[breakpoint] ?? this.rules.default ?? {};
     const base = this.rules.default ?? {};
-    el.setLayout({ ...this.snapshot.layout, ...(base.layout ?? {}), ...(rule.layout ?? {}) });
-    el.visible = rule.visible ?? base.visible ?? this.snapshot.visible;
-    el.variant = rule.variant !== undefined ? rule.variant : base.variant !== undefined ? base.variant : this.snapshot.variant;
-    const style = rule.style !== undefined ? rule.style : base.style !== undefined ? base.style : this.snapshot.style;
-    if (style !== el.style) el.style = style;
+    const t = this.touches;
+    if (t.layout) el.setLayout({ ...this.snapshot.layout, ...(base.layout ?? {}), ...(rule.layout ?? {}) });
+    if (t.visible) el.visible = rule.visible ?? base.visible ?? this.snapshot.visible;
+    if (t.variant) el.variant = rule.variant !== undefined ? rule.variant : base.variant !== undefined ? base.variant : this.snapshot.variant;
+    if (t.style) {
+      const style = rule.style !== undefined ? rule.style : base.style !== undefined ? base.style : this.snapshot.style;
+      if (style !== el.style) el.style = style;
+    }
     base.apply?.(el);
     if (rule !== base) rule.apply?.(el);
     this.applied = breakpoint;

@@ -80,6 +80,17 @@ export interface UIBuildResult {
 
 const ASSET_PROPS = new Set(["icon", "source", "map"]);
 
+/** Levenshtein distance (typo suggestions for unknown component names). */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
 export function validateUIDefinition(def: unknown, ctx: UIBuildContext): ValidationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -100,7 +111,13 @@ export function validateUIDefinition(def: unknown, ctx: UIBuildContext): Validat
     }
     const entry = registry.get(d.type);
     if (!entry) {
-      const near = registry.list().map((r) => r.name).filter((n) => n.toLowerCase() === d.type.toLowerCase() || n.toLowerCase().startsWith(d.type.toLowerCase().slice(0, 4)));
+      const want = d.type.toLowerCase();
+      const near = registry
+        .list()
+        .map((r) => ({ name: r.name, d: editDistance(r.name.toLowerCase(), want) }))
+        .filter((x) => x.d <= Math.max(1, Math.floor(want.length / 4)))
+        .sort((a, b) => a.d - b.d)
+        .map((x) => x.name);
       errors.push(`${path}.type: unknown component "${d.type}"${near.length ? ` (did you mean ${near.slice(0, 3).map((n) => `"${n}"`).join(", ")}?)` : ""}`);
       return;
     }

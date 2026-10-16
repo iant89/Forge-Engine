@@ -56,6 +56,9 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/resources/        ResourceRegistry, handles, refcounting, eviction
   src/debug/            debug draw, visualizers, dev console
   src/gpu/              WebGPU helpers (buffer/texture builders, formats, sync)
+  src/ui/               retained-mode UI framework: element tree, layout, skins/themes, input/focus,
+                        animation, binding, SDF text, widgets, declarative definitions, diagnostics;
+                        ui/gpu is its WebGPU overlay pass (docs/UI.md, docs/UI-GUIDE.md)
 editor/                 @forge/editor — browser dev tools. Depends on engine's public API only.
 examples/               vite apps: spinning-cube (P1), pbr-scene (P2), terrain (P4),
                         vehicle-playground (P6), particles / Phase 12 GPU, sky / day-night (P8a).
@@ -81,6 +84,10 @@ resources - + -> assets |
                                          |
                                     editor / examples
 ```
+
+The UI sits beside this graph rather than on it: `ui/**` imports only `core`, `math` and `ui`, so
+the framework runs headless; `ui/gpu/**` adds `gpu` and `rendering` and implements the renderer's
+`RenderOverlay` contract. `rendering` never imports `ui` (enforced by `npm run lint:arch`).
 
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
 subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
@@ -149,8 +156,9 @@ so a steady frame allocates nothing (asserted by the tests and the browser gate)
 `shadow.cascade(N≤4) → prepass(depth only) → ssao(½-res estimate → blur h → blur v) →
 main(forward, HDR rgba16float, fog + ambient occlusion in-shader) → sky(analytic + cloud deck,
 far plane, depth loaded) → particles(GPU scenes: sim → sort → render → resolve) →
-bloom(prefilter, down×n, up×n) → tonemap → present`, with an LDR path (`main` + `sky` straight
-to the swapchain) when `hdr` is off. Local lights reach the shader through a CPU-built cluster
+bloom(prefilter, down×n, up×n) → tonemap → overlays (forge.ui) → present`, with an LDR path
+(`main` + `sky` straight to the swapchain) when `hdr` is off. Overlays registered with
+`Renderer.addOverlay` (the UI's `UIGpuRenderer`) record last on both paths and load the swapchain. Local lights reach the shader through a CPU-built cluster
 grid rather than a fixed light list (§5.5), which adds no pass to the chain above. Volumetrics,
 reflections, DoF, motion blur and FXAA are not built yet, and neither is the GPU-side cluster
 assignment (roadmap 13.4).

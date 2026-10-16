@@ -33,8 +33,11 @@ The user-facing guide (API reference, recipes) is [`UI-GUIDE.md`](UI-GUIDE.md).
 | Existing UI code | None in the engine. The demo HUD/toolbar/profiler panel are DOM in `examples/`. ARCHITECTURE.md §4 already reserved a `ui` stage between tonemap and present. |
 
 Baseline before the first UI change: `typecheck` clean, `lint:arch` OK (216 engine sources),
-`test:check` OK (109 linked suites, 831 coverage claims), full `npm test` run recorded in the
-Phase 1 report in `change-log.md`.
+`test:check` OK (109 linked suites, 831 coverage claims), full `npm test`: 107 of 109 suites green;
+`examples:marsShowcaseDamage` (the rock-ram case, which fails on `main` too) and
+`examples:marsShowcaseCollision` (contact depth, intermittent under full-suite load) were already
+failing and are unrelated to the UI (see `mnemosyne.md`). After the UI work: 120 suites,
+883 claims, the same two suites failing and nothing else.
 
 ### 1.1 Reused engine capabilities
 
@@ -88,13 +91,16 @@ engine/src/ui/
   style/       theme tokens, skins, resolver + cache, visual states
   input/       UI events + propagation, router (hit test, capture, click, drag), focus, DOM adapter
   text/        font interface, built-in SDF font, fallback chain, text layout + cache, localization
-  render/      draw list (typed-array instances, batching by texture), debug overlay
+  render/      painter (clip/opacity/transform stacks), draw list (typed-array instances, batching
+               by texture), asset registry (textures, sprites, nine-slice, glyph icons)
   gpu/         WebGPU backend: pipeline, WGSL, atlas uploads, render-graph overlay pass
-  anim/        animator (tweens, easing, groups), binding (observables, binder)
-  widgets/     structural, display, interactive, overlays/navigation, game
-  manager.ts   UIManager: viewport, breakpoints, layers, per-frame pipeline, stats
+  anim/        animator (tweens, easing, sequences/parallel groups, reduced motion)
+  data/        observables, computed values, stores, binder (one-way / two-way, converters)
+  widgets/     structural, display, interactive, text input, collections, overlays, navigation, game
+  manager.ts   UIManager: viewport, breakpoints, layers, overlays/modals, tooltips, per-frame pipeline, stats
+  responsive.ts   breakpoints with hysteresis, scale modes, per-element responsive profiles
   declarative.ts  JSON UI definitions (validated, no code execution)
-  diagnostics.ts  inspector, layout validation, invalidation tracking, input trace
+  diagnostics.ts  inspector, layout validation, accessibility tree, input trace, debug overlay
   worldSpace.ts   world → screen projection for world-anchored widgets
 ```
 
@@ -114,7 +120,7 @@ core ◄── math ◄── ui (core, layout, style, input, text, render, anim
  gpu ◄── rendering ◄── ui/gpu  (UIGpuRenderer implements RenderOverlay)
 ```
 
-Inside `ui`: `core` ← `layout`, `style`, `text`, `render` ← `input` ← `anim` ← `widgets` ←
+Inside `ui`: `core` ← `layout`, `style`, `text`, `render` ← `input` ← `anim`, `data` ← `widgets` ←
 `manager`/`declarative`/`diagnostics`. Widgets never import the manager's internals; they reach
 services through the `UIContext` interface the manager implements.
 
@@ -122,14 +128,19 @@ services through the `UIContext` interface the manager implements.
 
 ```
 UIManager.update(dt)
-  1. bindings: flush batched source changes into element properties
+  1. input router: gamepad auto-repeat
   2. animations: advance tweens (delta time, time scale, reduced motion)
   3. element update hooks (only elements that registered for ticks)
-  4. responsive: breakpoint re-evaluation (only after a viewport change)
-  5. styles: resolve the style-dirty set (cached per skin/theme/type/variant/state)
-  6. layout: measure + arrange from the dirty roots only
-  7. focus validation (focused element hidden/disabled/removed → recover)
-UIManager.render(drawList)   (called by the GPU overlay when it records)
+  4. hover tooltip timer
+  5. styles: resolve the style-dirty set (cached per skin/theme/type/variant/state); a changed
+     style starts its transition here, so a state change animates from the next frame
+  6. layout: measure + arrange from the dirty roots only, repeated (bounded by `maxLayoutPasses`)
+     while arrange invalidates; non-convergence is reported with the culprits
+  7. router + focus validation (focused/captured element hidden/disabled/removed → recover)
+Bindings and responsive profiles are not frame steps: a source change writes its target property
+synchronously (which invalidates as any setter does), and a viewport change re-evaluates the
+breakpoint and applies profiles inside `setViewport`.
+UIManager.render()   (called by the GPU overlay when it records)
   8. if anything was render-dirty: rebuild the draw list in paint order; else reuse it
 UIGpuRenderer.record(graph, swapchain)
   9. upload instances (only when rebuilt) + dirty atlas rows; one `forge.ui` pass, one draw per texture run
@@ -157,12 +168,13 @@ Each phase's engineering report is recorded in `change-log.md` (phase entries) a
 
 * An element is owned by its parent. `dispose()` is recursive, removes the element from its parent,
   releases its listeners, bindings, animations, focus, capture and hover, and leaves it permanently
-  unusable (`UsageError` on `add`, `ObjectDisposed` state readable via `disposed`). Removing without
+  unusable (adding a disposed element throws `ObjectDisposedError`; `disposed` reports the state). Removing without
   disposing (`remove(child)`) detaches only; the child can be re-added elsewhere.
 * The manager owns the root, layers, router, focus manager, animator, binder and resolver; `UIManager.dispose()` disposes all of them.
-* Shared visual resources (fonts, textures, atlases, skins, themes) are owned by `UIAssets`
-  (registered by name, refcounted by the GPU backend). Elements hold *names*, never GPU objects, so a
-  skin or texture swap can never leave a dangling GPU reference in the tree.
+* Shared visual resources (fonts, textures, atlases, sprites) are owned by `UIAssets` and registered
+  by name; skins and themes by the `StyleResolver`. Elements hold *names*, never GPU objects, so a
+  skin or texture swap can never leave a dangling GPU reference in the tree. The GPU backend keeps
+  one GPU texture per registered pixel source and destroys it when the asset is unregistered.
 * `UIGpuRenderer` owns every GPU object it creates and releases them in `dispose()`; the mock-GPU
   test asserts nothing is outstanding.
 
@@ -190,9 +202,9 @@ and cycles at registration.
   All layout, hit testing and drawing are in logical units; the GPU backend multiplies by one
   scale in the vertex shader, and the input adapter divides by the same value, so rendering and hit
   testing cannot disagree (pinned by `tests/ui/uiManager.test.ts`).
-* **Element-local**: `element.toLocal(x, y)` / `toGlobal`. Scroll offsets are applied by the scroll
+* **Element-local**: `element.toLocal(x, y)` (inverts render transforms up the parent chain). Scroll offsets are applied by the scroll
   container to its content's arrangement, so `bounds` is always in viewport logical units.
-* **World space**: `projectToViewport(world, viewProj, viewport)` (`ui/worldSpace.ts`), the same
+* **World space**: `projectToViewport(world, viewProj, width, height)` (`ui/worldSpace.ts`), the same
   `Mat4` convention as the renderer.
 
 ## 8. Rendering
@@ -215,18 +227,23 @@ indicators, reduced motion, high-contrast theme and text scaling are implemented
 
 ## 10. Performance (measured)
 
-See `UI-GUIDE.md` §Performance for the benchmark table (`npm run bench`, `benchmarks/src/ui.bench.ts`),
-including host and methodology. Numbers are never quoted without a run.
+See `UI-GUIDE.md` §12 for the measured table (`npm run bench`, `benchmarks/src/ui.bench.ts`), host
+and methodology. Summary of the 2026-10-16 run: a steady frame costs 2.6 µs and does no layout,
+style or draw-list work; 1,000 buttons draw as 2,924 instances in one batch; a full draw-list
+rebuild of them costs ~1 ms, which is the dominant cost of any frame that changes something.
 
 ## 11. Known limitations
 
 * No bidirectional text, complex-script shaping or ligatures. Text is laid out codepoint by codepoint
   with the built-in font's advances and fallback glyph sources; RTL scripts render in logical order.
-* No IME composition events (the router accepts committed text only). No OS clipboard access from
-  the engine; the DOM adapter forwards paste text when the browser provides it.
+* No IME composition events (the router accepts committed text only). The engine core has no OS
+  clipboard access; the DOM adapter writes copies through `navigator.clipboard` and forwards `paste`
+  events as text, and its synchronous `read()` returns null (browsers only expose async reads).
 * Transforms are translation + uniform scale; rotated UI elements are not supported.
 * No native screen-reader integration (see §9).
 * World-space UI is projected screen-space UI (labels/bars anchored to world points with distance
   fade and an optional occlusion callback); there is no in-world 3D panel geometry.
+* Any render-dirty change rebuilds the whole draw list (no per-layer or per-subtree caching of
+  instances); ~1 ms per 1,000 buttons on the benchmark host (UI-GUIDE.md §12).
 * ColorPicker is not shipped (no engine requirement); the `RichText`/`Image` primitives are enough to
   build one.

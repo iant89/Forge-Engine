@@ -832,8 +832,9 @@ export abstract class UIElement implements LayoutNode {
     const transformed = this._translateX !== 0 || this._translateY !== 0 || this._scale !== 1;
     if (transformed) p.pushTransform(this._translateX, this._translateY, this._scale, b.x + b.width / 2, b.y + b.height / 2);
     if (alpha < 1) p.pushOpacity(alpha);
-    let painted = 1;
     const culled = b.x > p.clipX1 || b.y > p.clipY1 || b.x + b.width < p.clipX0 || b.y + b.height < p.clipY0;
+    // Counts elements that drew themselves (a culled element may still have visible children).
+    let painted = culled ? 0 : 1;
     if (!culled || !this.clipChildren) {
       if (!culled) {
         this.paintBackground(p, s);

@@ -299,8 +299,21 @@ export function buildUIGallery(ui: UIManager, options: UIGalleryOptions = {}): U
       extends: "forge",
       components: {
         Panel: { background: "#00000000", image: "parchment.frame", imageTint: "#ffffff", borderWidth: 0, shadowColor: "#00000066", padding: 20, foreground: "#3b2a16" },
-        Label: { foreground: "#3b2a16" },
-        Button: { background: "#8a5a2b", borderColor: "#5c3a1a", foreground: "#fdf6e3", radius: 3, states: { hovered: { background: "#a06a35" }, pressed: { background: "#6d4521" } } },
+        // Body text sits on parchment; the title and captions sit on the 3D scene, so they stay light.
+        Label: { foreground: "#3b2a16", variants: { title: { foreground: "#f3e3c3" }, muted: { foreground: "#c9b28a" }, caption: { foreground: "#c9b28a" } } },
+        // Variants are restyled too: by the precedence rules a parent skin's variant block beats this
+        // skin's base block, so leaving them out would keep forge's blue/red primary and danger buttons.
+        Button: {
+          background: "#8a5a2b",
+          borderColor: "#5c3a1a",
+          foreground: "#fdf6e3",
+          radius: 3,
+          states: { hovered: { background: "#a06a35" }, pressed: { background: "#6d4521" } },
+          variants: {
+            primary: { background: "#4f6b2a", borderColor: "#34481b", foreground: "#fdf6e3", states: { hovered: { background: "#5f7f33" }, pressed: { background: "#3f5621" } } },
+            danger: { background: "#8b2a1e", borderColor: "#5e1b13", foreground: "#fdf6e3", states: { hovered: { background: "#a33526" }, pressed: { background: "#6e2117" } } },
+          },
+        },
         CompassStrip: { foreground: "#3b2a16", accent: "#b91c1c" },
       },
     });

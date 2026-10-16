@@ -166,6 +166,11 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
   maxLayoutPasses: number;
   /** Per-element invalidations within one frame before a "repeatedly invalidated" warning. */
   invalidationWarnThreshold = 64;
+  /** `console.log`/assertion output: a one-line summary, not the whole (cyclic) UI graph. */
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return `<UIManager ${this.viewport.width}x${this.viewport.height} ${this.elements} elements>`;
+  }
+
   readonly lastFrame: UIFrameStats = {
     elements: 0,
     styleResolves: 0,
@@ -210,7 +215,7 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
         return self.root;
       },
       get topModal() {
-        return self.topModal;
+        return self.topModalHost;
       },
       dispatch: (e, t) => this.dispatch(e, t),
     });
@@ -220,7 +225,7 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
         return self.root;
       },
       get topModal() {
-        return self.topModal;
+        return self.topModalHost;
       },
       focus: this.focus,
       hitTest: (x, y) => this.hitTest(x, y),
@@ -493,7 +498,13 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
 
   // ================================================================== overlays
 
+  /** The dialog (or drawer) opened by the most recent `showModal` that is still open. */
   get topModal(): UIElement | null {
+    return this.modalStack[this.modalStack.length - 1]?.el ?? null;
+  }
+
+  /** The framework-owned backdrop host around `topModal`: the focus scope and hit-test blocker. */
+  get topModalHost(): UIElement | null {
     return this.modalStack[this.modalStack.length - 1]?.host ?? null;
   }
 
@@ -697,7 +708,7 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
 
   /** Topmost element at a logical point, after modal blocking. */
   hitTest(x: number, y: number): UIElement | null {
-    const modal = this.topModal;
+    const modal = this.topModalHost;
     for (let i = UI_LAYERS.length - 1; i >= 0; i--) {
       const name = UI_LAYERS[i]!;
       const layer = this.layers.get(name)!;

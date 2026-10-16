@@ -7,6 +7,7 @@
  * @covers engine/src/ui/core/geometry.ts
  * @covers engine/src/ui/core/color.ts
  * @covers engine/src/ui/index.ts
+ * @covers engine/src/ui/core/context.ts
  * @desc UI component tree: ownership, safe reparenting, cycle prevention, recursive disposal, split invalidation with layout boundaries, the component registry (factories, descriptors, collisions, aliases, validation), geometry and colour helpers
  */
 
@@ -20,6 +21,7 @@ export const suite = {
     "engine/src/ui/core/geometry.ts",
     "engine/src/ui/core/color.ts",
     "engine/src/ui/index.ts",
+    "engine/src/ui/core/context.ts",
   ],
   desc: "UI component tree: ownership, safe reparenting, cycle prevention, recursive disposal, split invalidation with layout boundaries, the component registry (factories, descriptors, collisions, aliases, validation), geometry and colour helpers",
 };

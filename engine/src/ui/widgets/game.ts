@@ -302,10 +302,8 @@ export class AbilityButton extends Button {
     this.costText = new TextPart(this.cost > 0 ? String(this.cost) : "");
     this.cooldown = new CooldownIndicator();
     this.insertChild(this.cooldown);
-    this.cooldown.on("ready", () => {
-      this.setStateBit(UIState.Loading, false);
-      this.emit(new UICustomEvent("ready", null));
-    });
+    // The indicator's `ready` event bubbles through this button to listeners on it and above.
+    this.cooldown.on("ready", () => this.setStateBit(UIState.Loading, false));
     this.accessibility.label = this.accessibility.label || options.text || options.icon || "Ability";
   }
 

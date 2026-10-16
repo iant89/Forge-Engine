@@ -325,7 +325,7 @@ export class ContextMenu extends Popup {
       } else if (e.direction === "left" && this.parentMenu) {
         e.preventDefault();
         const owner = this.owner;
-        this.close();
+        this.parentMenu.closeSubmenu();
         owner?.focus(true);
       }
     });
@@ -372,7 +372,7 @@ export class ContextMenu extends Popup {
   private openSubmenu(item: MenuItem, focus: boolean): void {
     const ctx = this.context;
     if (!ctx || !item.def.items) return;
-    if (this.submenu?.owner === item) {
+    if (this.submenu?.owner === item && this.submenu.isOpen) {
       if (focus) this.submenu.focusFirst();
       return;
     }
@@ -384,7 +384,8 @@ export class ContextMenu extends Popup {
     if (focus) sub.focusFirst();
   }
 
-  private closeSubmenu(): void {
+  /** @internal Close (and dispose) the open submenu, if any. */
+  closeSubmenu(): void {
     const s = this.submenu;
     this.submenu = null;
     if (s) {

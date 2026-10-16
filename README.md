@@ -15,18 +15,20 @@ npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase 
 npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
 npm run check:browser:amazon # focused Amazon scene / boat-controls smoke
 npm run check:browser:gltf-skin # focused imported skinned glTF (Khronos SimpleSkin, CC0) animation gate
+npm run check:browser:ui # focused UI gallery: forge.ui pass, real input, skins/themes, compact layout
 npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard
 npm run gltf:strip-skin-sets -- in.glb out.glb [--force] [--dry-run] # drop JOINTS_n/WEIGHTS_n sets (n >= 1) the 4-influence skinning path can't use
 npm run gltf:fix-handedness -- in.glb out.glb [--force] [--dry-run] # bake the glTF right→left-handed mirror the importer otherwise applies at load; run it on a COPY, never the original (the output is mirrored in other glTF viewers)
 npm run demo           # Vite dev server for examples/ (Mars Showcase default)
-npm run demo:amazon    # open the Amazon river launch scene directly
+npm run demo:amazon    # open the Amazon river launch scene directly (?scene=ui for the UI gallery)
 ```
 
 See `AGENTS.md` for working conventions, `ARCHITECTURE.md` for design, `docs/RENDERING.md` for
 what the renderer does today (render graph, HDR + bloom + tone mapping, cascaded shadow maps, the
 depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` for the sun/sky/fog/day-night model,
 `docs/MARS-TERRAIN.md` for the ported Mars generator (the same planet as the external
-`mars-terrain-gen`), and `docs/VERIFICATION.md` for what each check proves.
+`mars-terrain-gen`), `docs/UI.md` and `docs/UI-GUIDE.md` for the engine's UI framework, and
+`docs/VERIFICATION.md` for what each check proves.
 
 The demo toolbar includes a live **Profiler** panel showing unified CPU scopes and asynchronous GPU pass timings. The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
 (the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1

@@ -64,6 +64,16 @@ export const linkedSuites = [
   ["tests/rendering/shaderHotReload.test.ts", () => import("./rendering/shaderHotReload.test.ts")],
   ["tests/rendering/shadows.test.ts", () => import("./rendering/shadows.test.ts")],
   ["tests/rendering/wgsl.test.ts", () => import("./rendering/wgsl.test.ts")],
+  ["tests/ui/uiElement.test.ts", () => import("./ui/uiElement.test.ts")],
+  ["tests/ui/uiLayout.test.ts", () => import("./ui/uiLayout.test.ts")],
+  ["tests/ui/uiStyle.test.ts", () => import("./ui/uiStyle.test.ts")],
+  ["tests/ui/uiInput.test.ts", () => import("./ui/uiInput.test.ts")],
+  ["tests/ui/uiText.test.ts", () => import("./ui/uiText.test.ts")],
+  ["tests/ui/uiAnimation.test.ts", () => import("./ui/uiAnimation.test.ts")],
+  ["tests/ui/uiWidgets.test.ts", () => import("./ui/uiWidgets.test.ts")],
+  ["tests/ui/uiWidgetsGame.test.ts", () => import("./ui/uiWidgetsGame.test.ts")],
+  ["tests/ui/uiManager.test.ts", () => import("./ui/uiManager.test.ts")],
+  ["tests/ui/uiGpu.test.ts", () => import("./ui/uiGpu.test.ts")],
   ["tests/terrain/marsTerrain.test.ts", () => import("./terrain/marsTerrain.test.ts")],
   ["tests/terrain/realisticTerrain.test.ts", () => import("./terrain/realisticTerrain.test.ts")],
   ["tests/terrain/terrain.test.ts", () => import("./terrain/terrain.test.ts")],
@@ -102,6 +112,7 @@ export const linkedSuites = [
   ["tests/examples/copyText.test.ts", () => import("./examples/copyText.test.ts")],
   ["tests/examples/debugPanel.test.ts", () => import("./examples/debugPanel.test.ts")],
   ["tests/examples/beaconDefense.test.ts", () => import("./examples/beaconDefense.test.ts")],
+  ["tests/examples/uiGallery.test.ts", () => import("./examples/uiGallery.test.ts")],
   ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
@@ -113,4 +124,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(109);
+report(120);
