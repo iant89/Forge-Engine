@@ -509,6 +509,9 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
   /** Call one hook inside its own structural scope. Returns false when it threw. */
   private invoke(script: Script, phase: ScriptPhase, hook: Hook): boolean {
     const world = this.world;
+    // The context object is shared: a nested call (an event handler run inside an emit, a coroutine
+    // started from a hook) points it at its own entity, so put the caller's back afterwards.
+    const outerEntity = this.context.entity;
     const ctx = this.prepareContext(script);
     const mark = world._beginStructuralScope();
     const createdMark = this.createdStack.length;
@@ -522,6 +525,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
       failed = true;
       error = e;
     }
+    this.context.entity = outerEntity;
     this.hookDepth--;
     world._endStructuralScope(mark, !failed);
     if (!failed) {
@@ -649,17 +653,22 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     }
     const clock = options?.clock ?? "render";
     if (clock !== "render" && clock !== "sim") throw new UsageError(`coroutine: unknown clock "${String(clock)}"`);
-    const ctx = this.prepareContext(script);
-    const generator = body.call(script, ctx);
-    if (!generator || typeof (generator as Generator).next !== "function") {
-      throw new UsageError(`${script.scriptName}: startCoroutine needs a generator function (function* ...)`);
+    const outerEntity = this.context.entity;
+    try {
+      const ctx = this.prepareContext(script);
+      const generator = body.call(script, ctx);
+      if (!generator || typeof (generator as Generator).next !== "function") {
+        throw new UsageError(`${script.scriptName}: startCoroutine needs a generator function (function* ...)`);
+      }
+      const co = new Coroutine(script, clock, options?.name ?? (body.name || "coroutine"), generator, this.coroutineSeq++, this);
+      (clock === "sim" ? this.simCoroutines : this.renderCoroutines).push(co);
+      script._coroutines.push(co);
+      // The body runs now, up to its first yield.
+      this.stepCoroutine(co, false);
+      return co;
+    } finally {
+      this.context.entity = outerEntity;
     }
-    const co = new Coroutine(script, clock, options?.name ?? (body.name || "coroutine"), generator, this.coroutineSeq++, this);
-    (clock === "sim" ? this.simCoroutines : this.renderCoroutines).push(co);
-    script._coroutines.push(co);
-    // The body runs now, up to its first yield.
-    this.stepCoroutine(co, false);
-    return co;
   }
 
   /** @internal */

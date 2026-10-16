@@ -109,6 +109,31 @@ group("delivery", () => {
     assert.deepEqual(log, ["a:7@ea"]);
   });
 
+  test("a handler run inside an emit leaves the emitter's context alone", () => {
+    // Regression: the context object is shared, and a nested handler used to leave its own entity
+    // in it — an emitter that destroyed `c.entity` after emitting destroyed the listener's entity.
+    const { world } = setup();
+    let after = "";
+    class Target extends Script {
+      override onCreate(): void {
+        this.on(Ping, () => {});
+        this.startCoroutine(function* () {
+          for (;;) yield;
+        });
+      }
+    }
+    attach(world, new Target(), "target");
+    class Emitter extends Script {
+      override onUpdate(c: ScriptContext): void {
+        this.emit(Ping, 1);
+        after = c.entity.name;
+      }
+    }
+    attach(world, new Emitter(), "emitter");
+    world.runSystems(ctx(world));
+    assert.equal(after, "emitter");
+  });
+
   test("post queues until the start of the next phase, first in first out, before that phase's hooks", () => {
     const { world } = setup();
     const log: string[] = [];

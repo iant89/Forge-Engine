@@ -75,11 +75,12 @@ group("starting and waiting", () => {
   test("the body runs now up to its first yield; a bare yield resumes on the clock's next tick, before onUpdate", () => {
     const { world } = setup();
     const log: string[] = [];
-    let resumedCtx: ScriptContext | null = null;
+    let resumedOn = "";
     host(world, (s) => {
       s.startCoroutine(function* (c) {
         log.push(`start ${c.entity.name}`);
-        resumedCtx = yield;
+        const resumed: ScriptContext = yield;
+        resumedOn = resumed.entity.name; // read during the call: the context is not kept
         log.push("second");
         yield;
         log.push("third");
@@ -91,7 +92,7 @@ group("starting and waiting", () => {
     world.runSystems(ctx(world));
     // Started in onCreate (band 0): the render clock's next tick is this frame's update phase.
     assert.deepEqual(log, ["start e", "after start", "second", "update", "third", "update", "update"]);
-    assert.equal(resumedCtx!.entity.name, "e", "each resume receives the context");
+    assert.equal(resumedOn, "e", "each resume receives the context");
   });
 
   test("render waits: seconds count frame dt; frames count frames", () => {
