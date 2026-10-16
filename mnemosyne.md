@@ -2394,3 +2394,13 @@ Read the module constraints below before changing either pure model.
   its capacity measures 0 % hits by construction (the text cache holds 1,024). Running a test file
   directly: `TSX_TSCONFIG_PATH=$PWD/tests/tsconfig.json npx tsx tests/ui/<suite>.test.ts`; never
   `pkill -f` a pattern that also appears in your own shell command line.
+
+- 2026-10-16 (iOS overcast static): **never hash GPU noise with `fract(sin(x) * 43758.5453)`.** On iOS
+  Safari the off-road overcast sky was per-pixel static while every Chromium gate was clean: the cloud
+  hash's argument sits near 7e4 (the seed term, 4242 × 17.13), one f32 step there moves the hash by
+  ~340 before `fract`, and WebKit compiles to Metal with fast math, so `h` is not bit-identical across
+  a cell. Fix: `latticeHash` (integer hash of the cell + seed bits) in `shaders/cloudLayer.ts`, used by
+  cloud, surface-weather and water noise. Also: WGSL rejects mixing `*` and `^` without parentheses
+  ("mixing '*' and '^' requires parenthesis") and `check:wgsl` does NOT catch it — compile new WGSL on a
+  real device (the gate, or `createShaderModule` + `getCompilationInfo` from a page on the Vite server).
+  The user's `?diag=1` panel (examples/src/diag/iosReport.ts) is how iOS reports reach us.

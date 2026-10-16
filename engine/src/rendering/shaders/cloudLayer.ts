@@ -32,9 +32,23 @@
  */
 
 export const WGSL_CLOUD = /* wgsl */ `
+// Integer lattice hash in [0, 1): exact on every GPU. The sine hash it replaces,
+// fract(sin(dot(p, k) + seed * 17.13) * 43758.5453), amplified the last bits of an argument near
+// 7e4 by 4e4, so a compiler free to reassociate or approximate sin (Metal under WebKit's fast math)
+// returned a different value for every pixel of a cell: an overcast deck rendered as TV static on
+// iOS while Chromium, which keeps the arithmetic exact, drew it clean. \`p\` is a lattice point
+// (floor of a noise coordinate); the seed is hashed by its bits. Shared by the surface-weather and
+// water noise, which include this module.
+fn latticeHash(p: vec2<f32>, seed: u32) -> f32 {
+  var h = (bitcast<u32>(i32(p.x)) * 0x8da6b343u) ^ (bitcast<u32>(i32(p.y)) * 0xd8163841u) ^ (seed * 0xcb1ab31fu);
+  h = (h ^ (h >> 16u)) * 0x7feb352du;
+  h = (h ^ (h >> 15u)) * 0x846ca68bu;
+  h = h ^ (h >> 16u);
+  return f32(h >> 8u) * (1.0 / 16777216.0);
+}
+
 fn cloudHash(p: vec2<f32>, seed: f32) -> f32 {
-  let h = dot(p, vec2<f32>(127.1, 311.7)) + seed * 17.13;
-  return fract(sin(h) * 43758.5453123);
+  return latticeHash(p, bitcast<u32>(seed));
 }
 
 fn cloudNoise(p: vec2<f32>, seed: f32) -> f32 {

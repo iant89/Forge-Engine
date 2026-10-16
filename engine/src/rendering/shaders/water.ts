@@ -239,7 +239,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
 }
 
 fn waterHash(p: vec2<f32>) -> f32 {
-  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453123);
+  return latticeHash(p, 0x7a7eu); // WGSL_CLOUD's exact integer hash (the sine hash is not portable)
 }
 
 // One octave of value noise: breaks the foam edge so whitecaps read as patches, not contours.

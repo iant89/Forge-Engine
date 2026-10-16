@@ -818,7 +818,7 @@ fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
 // flat ground (value-noise basins filled to the coverage level, mirror-smooth, geometric normal),
 // and snow settles on up-facing surfaces. Driven by perFrame.surfaceWeather; flags bit7 gates it.
 fn swHash(p: vec2<f32>) -> f32 {
-  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+  return latticeHash(p, 0x5317u); // WGSL_CLOUD's exact integer hash (the sine hash is not portable)
 }
 fn swNoise(p: vec2<f32>) -> f32 {
   let i = floor(p);
