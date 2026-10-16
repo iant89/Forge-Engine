@@ -226,6 +226,11 @@ export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type
 export { setWorldSurfaceGrip, worldSurfaceGrip, setWorldSurfaceGripField, worldSurfaceGripField, type SurfaceGripField } from "./scene/surfaceGrip.js";
 export { Query, ObjectStore, StructStore, type ComponentStorage, type QueryWorld } from "./scene/stores.js";
 export * from "./scripting/index.js";
+
+// UI framework (docs/UI.md); the WebGPU backend is the only part that touches the GPU.
+export * from "./ui/index.js";
+export { UIGpuRenderer, type UIGpuStats } from "./ui/gpu/uiGpuRenderer.js";
+export { UI_SHADER, UI_FRAME_STRUCT } from "./ui/gpu/shader.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";
 export { CoordinateSpace, type CoordinateSpaceOptions } from "./scene/coordinateSpace.js";
 export {
@@ -273,7 +278,7 @@ export * from "./environment/index.js";
 export * from "./animation/index.js";
 
 // Rendering
-export { Renderer, DEFAULT_POPULATION_FADE_FRACTION, type RendererOptions, type RenderStats } from "./rendering/renderer.js";
+export { Renderer, DEFAULT_POPULATION_FADE_FRACTION, type RendererOptions, type RenderStats, type RenderOverlay, type RenderOverlayFrame } from "./rendering/renderer.js";
 export {
   RenderGraph,
   type RenderGraphHandle,

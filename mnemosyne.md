@@ -2374,6 +2374,27 @@ Read the module constraints below before changing either pure model.
   Determinism check pattern: same total steps with random 0–4 step frames vs 1-step frames
   (tests/examples/beaconDefense.test.ts). `tests/core/tasks.test.ts` worker-scope cases are flaky.
 
+- 2026-10-16 (UI framework, branch claude/dazzling-goldberg-k5bc2w): **engine/src/ui is a retained-mode
+  UI drawn by the engine** (docs/UI.md architecture, docs/UI-GUIDE.md usage, `?scene=ui` gallery,
+  `npm run check:browser:ui`). Bugs the tests/screenshots found, all fixed: (1) centred text measured
+  its container's width (`alignWidth` must be the block width, ui/text/textLayout.ts); (2) single-line
+  flex grew the cross size to the widest child; (3) invalidations raised during `arrange` were lost
+  because flags were cleared afterwards — clear first, then work, and report non-convergence; (4)
+  a child skin level missing a token wiped the parent's value — resolve skin levels parent-first; (5)
+  a press-flash tween's cancel cleared the new Pressed state — start the tween before setting state;
+  (6) VirtualizedList treated the viewport bottom as inclusive (one extra row); (7) `navigate` events
+  dropped modifiers so Shift+Arrow could not extend a ListBox selection; (8) **ResponsiveProfile
+  rewrote `visible` from its creation-time snapshot even when no rule mentioned it, re-showing hidden
+  TabContainer pages** (all four settings tabs drew on top of each other — only the screenshot showed
+  it; validateLayout only checks flex/grid siblings). Profiles now write only aspects a rule sets.
+  Lessons: assertion failures on objects holding a UIManager looked like hangs (node's inspect walked
+  the whole graph) — UIElement and UIManager have compact custom inspect now; `ui.topModal` is the
+  dialog, `topModalHost` the backdrop. A parent skin's *variant* beats a child skin's *base* block, so
+  a skin restyling Button must restyle its variants too. An LRU benchmark that cycles more keys than
+  its capacity measures 0 % hits by construction (the text cache holds 1,024). Running a test file
+  directly: `TSX_TSCONFIG_PATH=$PWD/tests/tsconfig.json npx tsx tests/ui/<suite>.test.ts`; never
+  `pkill -f` a pattern that also appears in your own shell command line.
+
 - 2026-10-16 (iOS overcast static): **never hash GPU noise with `fract(sin(x) * 43758.5453)`.** On iOS
   Safari the off-road overcast sky was per-pixel static while every Chromium gate was clean: the cloud
   hash's argument sits near 7e4 (the seed term, 4242 × 17.13), one f32 step there moves the hash by

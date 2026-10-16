@@ -8,6 +8,7 @@ import { assertCullingBenchmark, runCullingBenchmark } from "./src/culling.bench
 import { runEcsBenchmark } from "./src/ecs.bench.ts";
 import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
 import { runParticleBenchmark } from "./src/particles.bench.ts";
+import { assertUIBenchmark, runUIBenchmark } from "./src/ui.bench.ts";
 
 console.log("=== Forge Engine Benchmarks ===");
 console.log("Running ECS 100k-entity benchmark...");
@@ -22,6 +23,9 @@ results.push(...lights.results);
 console.log("Running object-culling benchmark (Phase 13.5)...");
 const culling = runCullingBenchmark();
 results.push(...culling.results);
+console.log("Running UI framework benchmark...");
+const uiBench = runUIBenchmark(1000);
+results.push(...uiBench.results);
 
 console.log("\nBenchmark Results:");
 console.log("--------------------------------------------------------------------------------");
@@ -45,6 +49,13 @@ for (const note of lightNotes) console.log(`  ${note}`);
 const cullNotes = assertCullingBenchmark(culling);
 console.log("Object culling (Phase 13.5):");
 for (const note of cullNotes) console.log(`  ${note}`);
+console.log("UI framework:");
+for (const note of uiBench.notes) console.log(`  ${note}`);
+const uiFails = assertUIBenchmark(uiBench);
+if (uiFails.length > 0) {
+  for (const f of uiFails) console.error(`UI benchmark: ${f}`);
+  process.exit(1);
+}
 const integrate = particles.results[1];
 if (!integrate || integrate.durationMs >= 1000) {
   console.error(`100k particle integrate exceeded 1s (${integrate?.durationMs.toFixed(1) ?? "missing"} ms)`);

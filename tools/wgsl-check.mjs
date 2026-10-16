@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const engine = await import(pathToFileURL(resolve("engine/dist/index.js")).href);
-const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, TERRAIN_FRAGMENT_BODY, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RIBBON_SHADER, PARTICLE_RESOLVE_SHADER, LIGHT_CULL_SHADER, HIZ_DEPTH_SHADER, HIZ_REDUCE_SHADER, OBJECT_CULL_SHADER, POPULATION_LOD_SHADER, POPULATION_CULL_SHADER, POPULATION_VIEW_CULL_SHADER, DEPTH_CULLED_VERTEX, MULTI_SCATTERING_SHADER, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS } = engine;
+const { validateWgsl, preprocessWgsl, STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, TERRAIN_FRAGMENT_BODY, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEBUG_SHADER, BLIT_SHADER, POST_SHADER, SSAO_SHADER, SKY_SHADER, WATER_SHADER, PARTICLE_SIM_SHADER, PARTICLE_EMIT_SHADER, PARTICLE_FULL_SIM_SHADER, PARTICLE_CULL_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_RIBBON_SHADER, PARTICLE_RESOLVE_SHADER, LIGHT_CULL_SHADER, HIZ_DEPTH_SHADER, HIZ_REDUCE_SHADER, OBJECT_CULL_SHADER, POPULATION_LOD_SHADER, POPULATION_CULL_SHADER, POPULATION_VIEW_CULL_SHADER, DEPTH_CULLED_VERTEX, MULTI_SCATTERING_SHADER, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, UI_SHADER, UI_FRAME_STRUCT } = engine;
 
 // The forward shader is validated as the pipeline factory actually compiles it: one module holding
 // the vertex stage and the fragment body (both variants), not the two halves in isolation.
@@ -64,6 +64,8 @@ const modules = {
   "rendering/objectCulling.ts:HIZ_DEPTH_SHADER": HIZ_DEPTH_SHADER,
   "rendering/objectCulling.ts:HIZ_REDUCE_SHADER": HIZ_REDUCE_SHADER,
   "rendering/objectCulling.ts:OBJECT_CULL_SHADER": OBJECT_CULL_SHADER,
+  // The UI overlay (docs/UI.md §8): its uniform struct is generated from UI_FRAME_STRUCT below.
+  "ui/gpu/shader.ts:UI_SHADER": UI_SHADER,
 };
 
 let failed = 0;
@@ -90,7 +92,9 @@ for (const [name, source] of Object.entries(modules)) {
 // cannot drift apart by construction. What can go wrong is the definition itself being illegal in
 // the uniform address space; check every registered struct as if it were bound with `var<uniform>`,
 // both via the layout engine and via the emitted text, exactly as a strict compiler would see it.
-for (const [label, def] of Object.entries(RENDERING_STRUCTS ?? {})) {
+// The UI's uniform lives outside rendering/ (rendering never imports ui), so it joins the check here.
+const UNIFORM_STRUCTS = { ...(RENDERING_STRUCTS ?? {}), UiFrame: UI_FRAME_STRUCT };
+for (const [label, def] of Object.entries(UNIFORM_STRUCTS)) {
   if (!def || typeof def.byteSize !== "function" || typeof def.uniformLayoutProblems !== "function") {
     console.error(`RENDERING_STRUCTS.${label}: not a StructDef (layout registry broken)`);
     failed++;
