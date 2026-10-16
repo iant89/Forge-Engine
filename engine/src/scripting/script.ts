@@ -32,10 +32,14 @@ import type { EntityId } from "../scene/entityId.js";
 import type { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
 import type { TimerCallback, TimerHandle, TimerOptions } from "./timers.js";
+import type { CoroutineBody, CoroutineHandle, CoroutineOptions } from "./coroutines.js";
 
 /** Script hook names, in the order a script first meets them. */
-/** `timer` is a timer callback (Phase 18.2); it is isolated and counted like a hook. */
-export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "destroy";
+/**
+ * `timer` is a timer callback (18.2) and `coroutine` a coroutine step (18.3); both are isolated and
+ * counted like hooks.
+ */
+export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "destroy";
 
 /**
  * Where a script is in its life:
@@ -65,10 +69,12 @@ export interface ScriptTime {
   readonly tick: number;
 }
 
-/** @internal What the runtime provides to schedule a script's timers. */
-export interface ScriptTimerHost {
+/** @internal What the runtime provides to a script: timers (18.2) and coroutines (18.3). */
+export interface ScriptHost {
   _schedule(script: Script, seconds: number, callback: TimerCallback, repeat: boolean, options: TimerOptions | undefined): TimerHandle;
   _cancelTimers(script: Script): void;
+  _startCoroutine(script: Script, body: CoroutineBody, options: CoroutineOptions | undefined): CoroutineHandle;
+  _stopCoroutines(script: Script): void;
 }
 
 export interface ScriptContext {
@@ -93,11 +99,13 @@ export abstract class Script {
   /** @internal Registered name when created by name, else the class name. */
   _name: string | null = null;
   /** @internal The adopting runtime (timers go through it). */
-  _host: ScriptTimerHost | null = null;
+  _host: ScriptHost | null = null;
   /** @internal The owning component's enable flag lives here. */
   _component: { enabled: boolean } | null = null;
   /** @internal Live timers this script owns. */
   readonly _timers: TimerHandle[] = [];
+  /** @internal Running or paused coroutines this script owns. */
+  readonly _coroutines: CoroutineHandle[] = [];
 
   onCreate?(context: ScriptContext): void;
   onPreUpdate?(context: ScriptContext): void;
@@ -148,8 +156,27 @@ export abstract class Script {
     return this._timers;
   }
 
-  private host(): ScriptTimerHost {
-    if (!this._host) throw new UsageError(`${this.scriptName}: timers need the script attached to a world with a ScriptRuntime`);
+  /**
+   * Start a coroutine (Phase 18.3): `body` is a generator function, called with `this` bound to the
+   * script. It runs now up to its first `yield`, then advances on its clock (default "render";
+   * `{ clock: "sim" }` for fixed steps). See `scripting/coroutines.ts` for what it may yield.
+   */
+  startCoroutine(body: CoroutineBody, options?: CoroutineOptions): CoroutineHandle {
+    return this.host()._startCoroutine(this, body, options);
+  }
+
+  /** Cancel every coroutine this script owns (their `finally` blocks run). */
+  stopCoroutines(): void {
+    this._host?._stopCoroutines(this);
+  }
+
+  /** This script's running or paused coroutines. */
+  get coroutines(): readonly CoroutineHandle[] {
+    return this._coroutines;
+  }
+
+  private host(): ScriptHost {
+    if (!this._host) throw new UsageError(`${this.scriptName}: timers and coroutines need the script attached to a world with a ScriptRuntime`);
     return this._host;
   }
 

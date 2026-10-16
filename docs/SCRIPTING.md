@@ -1,7 +1,7 @@
 # Scripting (Phase 18)
 
 Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**,
-**18.2 timers** and **18.5 error isolation**. Coroutines (18.3), typed events (18.4) and hot reload
+**18.2 timers**, **18.3 coroutines** and **18.5 error isolation**. Typed events (18.4) and hot reload
 (18.7) are not built yet. The 18.6 API boundary is partly enforced (below).
 
 ## Using it
@@ -101,6 +101,60 @@ own handle, so a repeating timer can cancel itself.
   `faultAfter`, and rolls back the callback's structural changes.
 
 Seconds are converted with the latest `fixedDt` the runtime has seen (1/60 before the first frame).
+
+## Coroutines (18.3)
+
+```ts
+import { Wait } from "@forge/engine";
+
+class Door extends Script {
+  override onCreate(): void {
+    const opening = this.startCoroutine(function* (ctx) {
+      yield Wait.until(() => switchPressed());   // checked every frame
+      for (let i = 0; i < 30; i++) {
+        moveDoor(i / 30);
+        yield;                                    // one frame
+      }
+      yield Wait.seconds(5);
+      closeDoor();
+    });
+    // opening.pause() / opening.resume() / opening.cancel()
+  }
+}
+```
+
+`startCoroutine(body, { clock, name })` takes a generator function, called with `this` bound to the
+script. It returns a handle with `pause()`, `resume()`, `cancel()`, `state` (`running`, `paused`,
+`done`, `cancelled` or `failed`) and `alive`. `script.coroutines` lists the live ones, and
+`script.stopCoroutines()` cancels them all.
+
+- **It starts now.** The body runs immediately, up to its first `yield`, inside the caller's call.
+  Each later resume receives a fresh context as the value of the `yield` expression.
+- **Clocks.** `"render"` (default) advances once per frame at the start of the update phase, after due
+  render timers and before `onUpdate`. `"sim"` advances once per fixed step, after due sim timers and
+  before `onFixedUpdate`, and lands on the same ticks however frames split the steps. Coroutines on
+  one clock advance in start order. A coroutine started in `onCreate` or `onPreUpdate` gets its next
+  render tick in that same frame's update phase.
+- **What it can yield:**
+  - a bare `yield`, to resume on the next tick;
+  - `Wait.seconds(s)`, which counts frame `dt` on the render clock and whole fixed steps (rounded up)
+    on the sim clock;
+  - `Wait.frames(n)` (render only) or `Wait.steps(n)` (sim only);
+  - `Wait.until(pred)` or `Wait.while(pred)`, re-checked every tick starting with the next one;
+  - another coroutine's handle, to resume once that coroutine has finished, been cancelled or
+    failed.
+
+  Yielding anything else is an error.
+- **Pause and resume.** A paused coroutine stops where it is: its wait stops counting and its
+  predicate is not evaluated. `resume()` continues with the time that was left.
+- **Cancel.** Cancelling closes the generator, so its `finally` blocks run. A coroutine that cancels
+  itself does so at its next `yield`. Coroutines are cancelled when their script is destroyed or
+  faulted.
+- **Ownership and isolation.** A coroutine advances only while its script is active and enabled.
+  While it can't advance, its waits don't count down. A throw from the body, from a predicate or from
+  a bad yield fails the coroutine, still runs its `finally` blocks, rolls back the step's structural
+  changes, and counts as its script's error (phase `"coroutine"`, toward `faultAfter`).
+  `runtime.stats()` counts active, completed, cancelled and failed coroutines.
 
 ## Error isolation (18.5)
 

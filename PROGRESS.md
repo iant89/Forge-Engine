@@ -165,7 +165,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Script lifecycle: onCreate, onPreUpdate, onFixedUpdate, onUpdate, onLateUpdate and onDestroy, in the frame's bands and in creation order (Phase 18.1; `docs/SCRIPTING.md`)
 - [x] Script errors isolated from the ECS, physics, rendering and the clock: a throwing hook's structural changes are rolled back and the script is faulted (Phase 18.5)
 - [x] Deterministic (fixed-step) and render-rate script timers (Phase 18.2)
-- [ ] Pause/resume and cancellable coroutines (Phase 18.3)
+- [x] Coroutines with pause/resume and cancellation, on the render or fixed-step clock (Phase 18.3)
 - [ ] Typed event system (Phase 18.4)
 - [ ] Public-API boundary for scripts _(partial: the script context and the scripting module's imports are limited, but components on an entity are still reachable)_ (Phase 18.6)
 - [ ] Script reload during development (Phase 18.7)

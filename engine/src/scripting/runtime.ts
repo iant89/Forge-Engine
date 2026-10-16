@@ -1,13 +1,13 @@
 /**
- * ScriptRuntime — runs {@link Script} hooks and timers for one world (Phases 18.1, 18.2) and isolates
- * their failures (Phase 18.5).
+ * ScriptRuntime — runs {@link Script} hooks, timers and coroutines for one world (Phases 18.1–18.3)
+ * and isolates their failures (Phase 18.5).
  *
  * `ScriptRuntime.install(world)` registers four systems, one per hook band (see scene/systems.ts):
  *
  *   scripts.pre     order   0   onCreate (pending scripts) · onPreUpdate
- *   scripts.fixed   order 100   per fixed step: tick++, due "sim" timers, onFixedUpdate — before
- *                               "vehicles" and "physics"
- *   scripts.update  order 200   due "render" timers, then onUpdate
+ *   scripts.fixed   order 100   per fixed step: tick++, due "sim" timers, "sim" coroutines,
+ *                               onFixedUpdate — before "vehicles" and "physics"
+ *   scripts.update  order 200   due "render" timers, "render" coroutines, then onUpdate
  *   scripts.late    order 450   onLateUpdate, before "transforms"
  *
  * Every phase first creates scripts that are still pending, so a script attached mid-frame starts
@@ -37,7 +37,8 @@ import type { Disposable } from "../core/events.js";
 import { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
 import { ScriptComponent, _bindScriptRuntime, _scriptBinderOf, type ScriptBinder } from "./component.js";
-import type { Script, ScriptConstructor, ScriptContext, ScriptPhase, ScriptTime, ScriptTimerHost } from "./script.js";
+import type { Script, ScriptConstructor, ScriptContext, ScriptHost, ScriptPhase, ScriptTime } from "./script.js";
+import { Coroutine, type CoroutineBody, type CoroutineHandle, type CoroutineOptions, type CoroutineYield, type WaitInstruction } from "./coroutines.js";
 import { Timer, TimerQueue, type TimerCallback, type TimerHandle, type TimerOptions } from "./timers.js";
 
 export interface ScriptRuntimeOptions {
@@ -79,6 +80,12 @@ export interface ScriptRuntimeStats {
   timersActive: number;
   /** Timer callbacks run (cumulative). */
   timersFired: number;
+  /** Coroutines running or paused (Phase 18.3). */
+  coroutinesActive: number;
+  /** Cumulative coroutine outcomes. */
+  coroutinesCompleted: number;
+  coroutinesCancelled: number;
+  coroutinesFailed: number;
 }
 
 type HookName = "onPreUpdate" | "onFixedUpdate" | "onUpdate" | "onLateUpdate";
@@ -93,7 +100,7 @@ const HOOK_OF: Record<"preUpdate" | "fixedUpdate" | "update" | "lateUpdate", Hoo
 
 const runtimes = new WeakMap<EntityWorld, ScriptRuntime>();
 
-export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
+export class ScriptRuntime implements ScriptBinder, ScriptHost {
   /** Install a runtime on `world` (one per world) and adopt any ScriptComponents already there. */
   static install(world: EntityWorld, options: ScriptRuntimeOptions = {}): ScriptRuntime {
     if (runtimes.has(world) || _scriptBinderOf(world)) throw new UsageError("ScriptRuntime: this world already has a script runtime");
@@ -147,6 +154,10 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
   private timerSeq = 0;
   private readonly heldTimers: Timer[] = [];
   private readonly cancelTimer = (t: Timer): void => this.dropTimer(t);
+  /** Coroutines per clock, in start order (dead ones are compacted after each pass). */
+  private readonly simCoroutines: Coroutine[] = [];
+  private readonly renderCoroutines: Coroutine[] = [];
+  private coroutineSeq = 0;
   private readonly context: { entity: Entity; world: EntityWorld; time: ScriptTime; logger: Logger };
   private readonly counters: ScriptRuntimeStats = {
     scriptsLive: 0,
@@ -160,6 +171,10 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     scriptHookCalls: 0,
     timersActive: 0,
     timersFired: 0,
+    coroutinesActive: 0,
+    coroutinesCompleted: 0,
+    coroutinesCancelled: 0,
+    coroutinesFailed: 0,
   };
 
   private constructor(world: EntityWorld, options: ScriptRuntimeOptions) {
@@ -225,6 +240,10 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     c.scriptsFaulted = faulted;
     c.scriptsLive = active + pending + faulted;
     c.timersActive = this.simTimers.size + this.renderTimers.size;
+    let alive = 0;
+    for (const co of this.simCoroutines) if (co.alive) alive++;
+    for (const co of this.renderCoroutines) if (co.alive) alive++;
+    c.coroutinesActive = alive;
     return { ...c };
   }
 
@@ -275,6 +294,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     this.compactPending = true;
     this.counters.scriptsDestroyed++;
     this._cancelTimers(script);
+    this._stopCoroutines(script);
     if (script._started && script.onDestroy && script._entity) this.invoke(script, "destroy", script.onDestroy);
     script._entity = null;
   }
@@ -300,9 +320,11 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
       this.fixedTick++;
       this.frameTime.tick = this.fixedTick;
       this.fireDue(this.simTimers, this.fixedTick, "sim");
+      this.tickCoroutines(this.simCoroutines, 0);
     } else if (phase === "update") {
       this.renderTime += context.dt;
       this.fireDue(this.renderTimers, this.renderTime, "render");
+      this.tickCoroutines(this.renderCoroutines, context.dt);
     }
     const hookName = HOOK_OF[phase];
     const n = this.live.length;
@@ -361,9 +383,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     this.compactPending = false;
   }
 
-  /** Call one hook inside its own structural scope. Returns false when it threw. */
-  private invoke(script: Script, phase: ScriptPhase, hook: Hook): boolean {
-    const world = this.world;
+  /** Refresh the shared context for `script`: time copies, entity, world, logger. */
+  private prepareContext(script: Script): ScriptContext {
     const ft = this.frameTime, t = this.time;
     t.dt = ft.dt;
     t.fixedDt = ft.fixedDt;
@@ -374,9 +395,16 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     t.tick = ft.tick;
     const ctx = this.context;
     ctx.entity = script._entity!;
-    ctx.world = world;
+    ctx.world = this.world;
     ctx.time = t;
     ctx.logger = this.logger ?? (this.fallbackLogger ??= new Logger({ scope: "scripts" }));
+    return ctx;
+  }
+
+  /** Call one hook inside its own structural scope. Returns false when it threw. */
+  private invoke(script: Script, phase: ScriptPhase, hook: Hook): boolean {
+    const world = this.world;
+    const ctx = this.prepareContext(script);
     const mark = world._beginStructuralScope();
     const createdMark = this.createdStack.length;
     this.hookDepth++;
@@ -405,6 +433,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
       script._state = "faulted";
       faulted = true;
       this._cancelTimers(script);
+      this._stopCoroutines(script);
     }
     this.record(script.scriptName, entity, phase, error, faulted);
     return false;
@@ -504,6 +533,196 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     held.length = 0;
   }
 
+  // ------------------------------------------------------------------ coroutines (18.3)
+
+  /** @internal */
+  _startCoroutine(script: Script, body: CoroutineBody, options: CoroutineOptions | undefined): CoroutineHandle {
+    if (this.disposed || script._host !== this) throw new UsageError(`${script.scriptName}: this runtime does not own the script`);
+    if (script._state === "destroyed" || script._state === "faulted") {
+      throw new UsageError(`${script.scriptName}: cannot start a coroutine on a ${script._state} script`);
+    }
+    const clock = options?.clock ?? "render";
+    if (clock !== "render" && clock !== "sim") throw new UsageError(`coroutine: unknown clock "${String(clock)}"`);
+    const ctx = this.prepareContext(script);
+    const generator = body.call(script, ctx);
+    if (!generator || typeof (generator as Generator).next !== "function") {
+      throw new UsageError(`${script.scriptName}: startCoroutine needs a generator function (function* ...)`);
+    }
+    const co = new Coroutine(script, clock, options?.name ?? (body.name || "coroutine"), generator, this.coroutineSeq++, this);
+    (clock === "sim" ? this.simCoroutines : this.renderCoroutines).push(co);
+    script._coroutines.push(co);
+    // The body runs now, up to its first yield.
+    this.stepCoroutine(co, false);
+    return co;
+  }
+
+  /** @internal */
+  _stopCoroutines(script: Script): void {
+    const list = script._coroutines as Coroutine[];
+    for (const co of [...list]) co.cancel();
+  }
+
+  /** @internal Cancel: mark it, then let the generator run its finally blocks. */
+  _cancelCoroutine(co: Coroutine): void {
+    if (!co.alive) return;
+    co.state = "cancelled";
+    this.counters.coroutinesCancelled++;
+    this.forgetCoroutine(co);
+    const script = co.owner as Script;
+    this.invoke(script, "coroutine", () => {
+      co.executing = true;
+      try {
+        // A finally that yields suspends the generator again; keep returning until it is closed.
+        for (let i = 0; i < 16 && !co.generator.return(undefined).done; i++);
+      } finally {
+        co.executing = false;
+      }
+    });
+  }
+
+  /** Advance one clock's coroutines by one tick (`dt` seconds for render, one step for sim). */
+  private tickCoroutines(list: Coroutine[], dt: number): void {
+    const n = list.length;
+    let dead = 0;
+    for (let i = 0; i < n; i++) {
+      const co = list[i]!;
+      if (!co.alive) {
+        dead++;
+        continue;
+      }
+      if (co.state !== "running") continue;
+      const script = co.owner as Script;
+      if (script._state !== "active" || !script.enabled || !script._component?.enabled) continue;
+      let ready = false;
+      let check = false;
+      switch (co.waitKind) {
+        case "tick":
+          ready = true;
+          break;
+        case "seconds":
+          co.waitAmount -= dt;
+          ready = co.waitAmount <= 1e-9;
+          break;
+        case "ticks":
+          co.waitAmount -= 1;
+          ready = co.waitAmount <= 0;
+          break;
+        case "until":
+        case "while":
+          check = true;
+          break;
+        case "handle":
+          ready = !co.waitHandle!.alive;
+          break;
+      }
+      if (ready || check) this.stepCoroutine(co, check);
+      if (!co.alive) dead++;
+    }
+    if (dead > 0) {
+      let w = 0;
+      for (let r = 0; r < list.length; r++) if (list[r]!.alive) list[w++] = list[r]!;
+      list.length = w;
+    }
+  }
+
+  /** Run one step of a coroutine (optionally gated by its predicate) under hook isolation. */
+  private stepCoroutine(co: Coroutine, checkPredicate: boolean): void {
+    const script = co.owner as Script;
+    const ok = this.invoke(script, "coroutine", (ctx) => {
+      co.executing = true;
+      try {
+        if (checkPredicate) {
+          const value = !!co.waitPredicate!();
+          if ((co.waitKind === "until") !== value) return;
+        }
+        const r = co.generator.next(ctx);
+        if (r.done) {
+          if (co.alive) {
+            co.state = "done";
+            this.counters.coroutinesCompleted++;
+            this.forgetCoroutine(co);
+          }
+          return;
+        }
+        this.setWait(co, r.value);
+      } catch (e) {
+        // Mark it failed before the error reaches invoke(): if the throw faults the script, the
+        // fault cancels the script's other coroutines, not this one a second time.
+        if (co.alive) {
+          co.state = "failed";
+          this.counters.coroutinesFailed++;
+          this.forgetCoroutine(co);
+        }
+        throw e;
+      } finally {
+        co.executing = false;
+      }
+    });
+    if (!ok) {
+      // A throw from a predicate or a bad yield leaves the generator suspended: close it so its
+      // finally blocks run (after a throw from the body it is already closed and this is a no-op).
+      this.invoke(script, "coroutine", () => {
+        co.generator.return(undefined);
+      });
+      return;
+    }
+    if (co.cancelRequested && co.alive) {
+      co.cancelRequested = false;
+      this._cancelCoroutine(co);
+    }
+  }
+
+  private setWait(co: Coroutine, value: CoroutineYield): void {
+    co.waitPredicate = null;
+    co.waitHandle = null;
+    if (value === undefined || value === null) {
+      co.waitKind = "tick";
+      return;
+    }
+    if (value instanceof Coroutine) {
+      co.waitKind = "handle";
+      co.waitHandle = value;
+      return;
+    }
+    const w = value as WaitInstruction;
+    switch (w.kind) {
+      case "seconds": {
+        if (!(w.seconds >= 0) || !Number.isFinite(w.seconds)) throw new UsageError(`Wait.seconds: invalid duration (${w.seconds})`);
+        if (co.clock === "sim") {
+          co.waitKind = "ticks";
+          co.waitAmount = Math.max(1, Math.ceil(w.seconds / this.lastFixedDt - 1e-9));
+        } else {
+          co.waitKind = "seconds";
+          co.waitAmount = w.seconds;
+        }
+        return;
+      }
+      case "steps":
+      case "frames": {
+        const n = w.kind === "steps" ? w.steps : w.frames;
+        if ((w.kind === "steps") !== (co.clock === "sim")) throw new UsageError(`Wait.${w.kind} is for ${w.kind === "steps" ? "sim" : "render"} coroutines`);
+        if (!(n >= 1) || !Number.isFinite(n)) throw new UsageError(`Wait.${w.kind}: invalid count (${n})`);
+        co.waitKind = "ticks";
+        co.waitAmount = Math.floor(n);
+        return;
+      }
+      case "until":
+      case "while":
+        if (typeof w.predicate !== "function") throw new UsageError(`Wait.${w.kind} needs a function`);
+        co.waitKind = w.kind;
+        co.waitPredicate = w.predicate;
+        return;
+      default:
+        throw new UsageError(`coroutine yielded something that is not a wait: ${String(value)}`);
+    }
+  }
+
+  private forgetCoroutine(co: Coroutine): void {
+    const list = (co.owner as Script)._coroutines as Coroutine[];
+    const i = list.indexOf(co);
+    if (i >= 0) list.splice(i, 1);
+  }
+
   // ------------------------------------------------------------------ lifecycle
 
   /** Destroy every script (onDestroy runs), unregister the systems and detach from the world. */
@@ -515,6 +734,8 @@ export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
     this.owners.length = 0;
     this.simTimers.clear();
     this.renderTimers.clear();
+    this.simCoroutines.length = 0;
+    this.renderCoroutines.length = 0;
     for (const d of this.registrations.splice(0)) d.dispose();
     for (const d of this.subscriptions.splice(0)) d.dispose();
     _bindScriptRuntime(this.world, null);
