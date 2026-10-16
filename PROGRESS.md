@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-10-15_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -162,10 +162,13 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 
 ## Gameplay platform (Phases 18, 19)
 
-- [ ] Script lifecycle: onCreate, onPreUpdate, onFixedUpdate, onUpdate, onLateUpdate and onDestroy (Phase 18.1)
-- [ ] Deterministic and render timers, pause/resume and cancellable coroutines (Phase 18.2–18.3)
-- [ ] Typed event system, with script errors isolated from ECS, physics, rendering and the clock (Phase 18.4–18.5)
-- [ ] Script reload during development, and a public-API boundary for scripts (Phase 18.6–18.7)
+- [x] Script lifecycle: onCreate, onPreUpdate, onFixedUpdate, onUpdate, onLateUpdate and onDestroy, in the frame's bands and in creation order (Phase 18.1; `docs/SCRIPTING.md`)
+- [x] Script errors isolated from the ECS, physics, rendering and the clock: a throwing hook's structural changes are rolled back and the script is faulted (Phase 18.5)
+- [x] Deterministic (fixed-step) and render-rate script timers (Phase 18.2)
+- [x] Coroutines with pause/resume and cancellation, on the render or fixed-step clock (Phase 18.3)
+- [ ] Typed event system (Phase 18.4)
+- [ ] Public-API boundary for scripts _(partial: the script context and the scripting module's imports are limited, but components on an entity are still reachable)_ (Phase 18.6)
+- [ ] Script reload during development (Phase 18.7)
 - [ ] Versioned save format with migrations for entities, components and terrain settings _(only scene settings serialize today)_ (Phase 19.1–19.2)
 - [ ] Simulation snapshots: physics, vehicle, weather and RNG state (Phase 19.3)
 - [ ] Input recording, deterministic playback and state hashing (Phase 19.4)

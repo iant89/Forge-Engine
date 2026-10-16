@@ -17,6 +17,7 @@
  *   math/**            -> core, math
  *   scene/**           -> never rendering or environment at runtime (type-only imports allowed)
  *   environment/**     -> core, math, scene, environment
+ *   scripting/**       -> core, math, scene, scripting (Phase 18.6: no gpu/rendering/physics internals)
  *   examples/**        -> "@forge/engine" or a local relative file, never engine/src
  *   tests/**           -> "@forge/engine" or a local relative file outside engine/src
  *   all engine sources -> no WebGL fallback, ever (WebGPU-first, ADR-001)
@@ -90,6 +91,7 @@ checkEngineDir("core", ["core", "math"], "core may only depend on core and math 
 checkEngineDir("gpu", ["core", "gpu", "math", "testing"], "gpu may use core, gpu, math and the test device");
 checkEngineDir("math", ["core", "math"], "math may only depend on core and math");
 checkEngineDir("environment", ["core", "math", "scene", "environment"], "environment must not import rendering or its siblings");
+checkEngineDir("scripting", ["core", "math", "scene", "scripting"], "scripts reach the engine through entities and components, never GPU/render/solver internals");
 
 // scene: no runtime rendering/environment imports (the sky settings block is type-only).
 for (const file of files(path.join(engineSrc, "scene"))) {

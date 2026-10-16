@@ -233,6 +233,19 @@ What remains:
   above). Placement still depends on the tile LOD at first readiness, and generation is inline on
   the main thread (noted above). (capability: world.population)
 
+## Scripting (Phase 18)
+
+* **A hook that never returns hangs the frame.** Error isolation catches throws, not infinite
+  loops: JavaScript cannot interrupt synchronous script code. (`docs/SCRIPTING.md`)
+  (capability: scripting.lifecycle)
+* **Fixed steps are not interleaved across systems.** `scripts.fixed` runs all of a frame's fixed
+  steps before `vehicles` runs its own, like every `FixedSystem`; a script cannot read the vehicle
+  state between two steps of the same frame. (capability: scripting.lifecycle)
+* **The API boundary is partial (18.6).** The script context carries no GPU, render or solver
+  handles, but a script can reach every component on its entity, including ones that wrap GPU
+  state. Typed events and hot reload (18.4, 18.7) are not built.
+  (capability: scripting.lifecycle)
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet

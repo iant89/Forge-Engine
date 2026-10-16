@@ -178,6 +178,14 @@ PHASE 17 - ENVIRONMENT 2.0
         draws screen-space water (refraction, depth absorption, contact foam, SSR), and thunder and
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
+PHASE 18 - SCRIPTING
+    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines and 18.5 error isolation
+        landed: scripts on entities run onCreate/onPreUpdate/onFixedUpdate/onUpdate/onLateUpdate/
+        onDestroy in the frame's bands, deterministic fixed-step and render-rate timers and
+        coroutines (pause/resume, cancellation with finally) run on schedule, and a throwing hook,
+        timer or coroutine is rolled back and faulted without touching the ECS, other systems or
+        the clock; typed events and hot reload remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -1912,24 +1920,51 @@ GOAL:
 
 18.1 Script Lifecycle
 
-    [ ] onCreate
-    [ ] onPreUpdate
-    [ ] onFixedUpdate
-    [ ] onUpdate
-    [ ] onLateUpdate
-    [ ] onDestroy
+    [x] onCreate
+    [x] onPreUpdate
+    [x] onFixedUpdate
+    [x] onUpdate
+    [x] onLateUpdate
+    [x] onDestroy
+
+    `engine/src/scripting/`: subclass `Script`, attach it with `ScriptComponent` (instances, or names
+    registered with `ScriptRuntime.define`), and `ScriptRuntime.install(world)` registers four
+    systems — scripts.pre (band 0: pending onCreate, then onPreUpdate), scripts.fixed (band 100,
+    once per fixed step, before vehicles/physics), scripts.update (200) and scripts.late (450,
+    before transforms). Scripts run in creation order; one attached mid-frame starts at the next
+    phase; `enabled` gates the per-frame hooks and defers onCreate; onDestroy runs on script,
+    component or entity removal (the entity's other components still readable) and on runtime
+    dispose, and only for scripts whose onCreate started. tests/scripting/scriptLifecycle.test.ts,
+    docs/SCRIPTING.md
 
 
 18.2 Timers
 
-    [ ] deterministic timers
-    [ ] render timers
+    [x] deterministic timers
+    [x] render timers
+
+    `Script.after/every(seconds, cb, { clock, steps })` (`scripting/timers.ts`). "sim" timers count
+    whole fixed steps on the runtime's tick and fire at the start of their step, before
+    onFixedUpdate, ordered by due tick then creation: the same fixed-step sequence gives the same
+    firings however frames split it. "render" timers count frame seconds and fire before onUpdate
+    (repeating ones drop overshot intervals). Timers belong to their script: held while it is
+    disabled, cancelled when it is destroyed or faulted, and isolated like hooks.
+    tests/scripting/scriptTimers.test.ts, docs/SCRIPTING.md
 
 
 18.3 Coroutines
 
-    [ ] pause/resume
-    [ ] cancellation
+    [x] pause/resume
+    [x] cancellation
+
+    `Script.startCoroutine(function* (ctx) { ... }, { clock })` (`scripting/coroutines.ts`): the body
+    runs now up to its first yield, then advances once per tick of its clock — "render" before
+    onUpdate, "sim" per fixed step before onFixedUpdate (deterministic: the same ticks however frames
+    split the steps) — waiting on a bare yield, Wait.seconds/steps/frames/until/while or another
+    coroutine's handle. pause() freezes the wait and resume() continues with the time left; cancel()
+    (and destroying or faulting the script) closes the generator so its finally blocks run. Throws
+    from the body, a predicate or a bad yield fail the coroutine under hook isolation.
+    tests/scripting/scriptCoroutines.test.ts, docs/SCRIPTING.md
 
 
 18.4 Events
@@ -1946,6 +1981,15 @@ GOAL:
         rendering
         simulation clock
 
+    [x] Each hook runs in its own deferred-structure scope: when it throws, the add/remove/destroy
+        calls it queued are discarded and the entities it created are destroyed (field writes made
+        before the throw stay). The error is caught in the runtime, so the rest of the phase, every
+        other system (physics, rendering) and later frames run; scripts only ever see copies of
+        the clock's values. The script is faulted after `faultAfter` errors (default 1; a throwing
+        onCreate always faults) and keeps only its onDestroy. Errors are recorded (`errors`,
+        `lastError`, `onError`, the `scripts` logger). Limit: JavaScript cannot interrupt a hook
+        that never returns. tests/scripting/scriptLifecycle.test.ts
+
 
 18.6 Public API Boundary
 
@@ -1956,6 +2000,12 @@ GOAL:
         Physics solver internals
 
     unless using an explicitly documented low-level API.
+
+    [~] The script context carries the entity, the world, time copies and a logger only, and
+        `engine/src/scripting/` may import core, math and scene alone (lint:arch and
+        tests/engine/architecture.test.ts). Not yet closed: an entity's components are reachable
+        from a script, so a script holding a component that wraps GPU state can still reach it;
+        the documented low-level API is the existing `engine.gpu` surface.
 
 
 18.7 Hot Reload
