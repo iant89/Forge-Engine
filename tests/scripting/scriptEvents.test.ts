@@ -26,7 +26,7 @@ import {
   ScriptRuntime,
   SystemScratch,
   defineEvent,
-  type Entity,
+  type ScriptEntity,
   type ScriptContext,
   type ScriptRuntimeOptions,
   type SystemContext,
@@ -97,7 +97,7 @@ group("delivery", () => {
     const a = attach(world, new Listener(log, "a", true), "ea");
     attach(world, new Listener(log, "b", true), "eb");
     attach(world, new Listener(log, "world"), "ew");
-    let target: Entity | null = null;
+    let target: ScriptEntity | null = null;
     class Shooter extends Script {
       override onUpdate(): void {
         target ??= a.entity;
