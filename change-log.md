@@ -19428,6 +19428,90 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/scripting/scriptCoroutines.test.ts",
     "what": "Read the resumed context during the call instead of keeping it.",
     "why": "The test kept the context past the call, which the docs forbid; it relied on the leak."
+  },
+  {
+    "id": "1537",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "LDR and cascade-tint toggles wait for pipelinesPending === 0 before sampling; the night deck check counts star pixels at full resolution instead of comparing whole-frame means.",
+    "why": "CI's advisory gate failed 'LDR path rendered a blank frame' (the swapchain-format pipelines were still compiling, so the frame was the clear colour) and the night check flipped between runs (lake glints outweigh the stars in a mean)."
+  },
+  {
+    "id": "1538",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the pipeline wait on the LDR check and the star-count night check.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1539",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries for claude/browser-gate-fixes.",
+    "why": "Activity history."
+  },
+  {
+    "id": "1540",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Note on async pipeline variants after a format/shader toggle, and on mean-based A/B checks.",
+    "why": "Session memory."
+  },
+  {
+    "id": "1541",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Thunder check tracks only the triggered strike's queue entry; the frozen-deck stability A/B holds the overcast drizzle at zero and waits for falling drops to land.",
+    "why": "CI failed 'thunder was not delivered at its arrival time (early 1, heard 2)' from the storm's own strikes, and 'deck not temporally stable (4975 px)' from rain streaks moving between captures."
+  },
+  {
+    "id": "1542",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the thunder and frozen-deck checks as they now work.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1543",
+    "date": "2026-10-16T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The drizzle hold waits for 1.6 s of simulated clock (engine.clock.fixedTime) instead of 1.6 s of wall time.",
+    "why": "Drops age by fixed steps and SwiftShader frames advance the clock by at most 0.25 s each, so the wall-clock wait left the streaks in both captures."
   }
 ]
 ```
