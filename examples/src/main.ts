@@ -66,6 +66,7 @@ import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/a
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
 import { OFFROAD_WEATHER_NAMES, buildOffroadHillScene, type OffroadSceneHandle, type OffroadWeather } from "./scenes/offroadHillScene.js";
+import { buildScriptingScene, type ScriptingSceneHandle } from "./scenes/scriptingScene.js";
 import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
@@ -281,6 +282,9 @@ async function main(): Promise<void> {
       const weatherParam = new URLSearchParams(window.location.search).get("weather");
       const weather = OFFROAD_WEATHER_NAMES.find((w) => w === weatherParam);
       currentHandle = buildOffroadHillScene(engine, { deviceTier: tier, weather });
+    } else if (name === "scripting") {
+      // Phase 18 exit criterion: a whole game written as scripts against the public API.
+      currentHandle = buildScriptingScene(engine);
     } else if (name === "hurricane") {
       // fe-33: `?tier=low|medium|high` forces the device tier (ocean grid, rain, palms, shadows).
       const forced = new URLSearchParams(window.location.search).get("tier");
@@ -843,6 +847,8 @@ async function main(): Promise<void> {
       handle?.setPaused(paused);
       return true;
     },
+    /** Phase 18: Beacon Defense game state (score, wave, beacon, script stats) while that scene is loaded. */
+    scriptingState: () => (activeSceneName === "scripting" ? (currentHandle as ScriptingSceneHandle | null)?.state() ?? null : null),
     /** fe-37: off-road hill lap/camera snapshot while that scene is loaded. */
     offroadState: () => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle | null)?.snapshot() ?? null : null),
     /** fe-37 gate/screenshot hook: place the car at arc length `s` and pick a camera mode. */

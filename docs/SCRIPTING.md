@@ -1,8 +1,9 @@
 # Scripting (Phase 18)
 
-Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**,
-**18.2 timers**, **18.3 coroutines**, **18.4 typed events**, **18.5 error isolation** and **18.7 hot
-reload**. The 18.6 API boundary is partly enforced (below). The 18.6 API boundary is partly enforced (below).
+Gameplay code as scripts on entities: `engine/src/scripting/`. Phase 18 is complete: **18.1
+lifecycle**, **18.2 timers**, **18.3 coroutines**, **18.4 typed events**, **18.5 error isolation**,
+**18.6 API boundary** and **18.7 hot reload**. The exit criterion is demonstrated by
+[Beacon Defense](#beacon-defense-the-exit-criterion), a whole game written only as scripts.
 
 ## Using it
 
@@ -53,8 +54,12 @@ Rules the tests pin (`tests/scripting/scriptLifecycle.test.ts`):
 - **Enabling.** `script.enabled = false` (or `component.enabled = false`) skips the per-frame hooks
   and defers `onCreate` until the script is enabled.
 - **Destroying.** `onDestroy` runs only for scripts whose `onCreate` started. When the entity is
-  destroyed, its other components are still readable inside `onDestroy`. A destroy requested inside
-  a hook is applied when that hook's scope ends, like any structural change made inside a system.
+  destroyed, its other components are still readable inside `onDestroy`.
+- **Structural changes are queued.** `add`, `remove` and `destroy` made inside a hook (or a timer,
+  coroutine or event handler) are applied at the end of the fixed step when made on the fixed clock,
+  otherwise when the phase's system finishes. So on the fixed clock, step k+1 always sees step k's
+  changes, however many steps the frame runs. `createEntity` itself is immediate. Pose a
+  `Transform` before adding it: it keeps that pose when the add is applied.
 - **Time.** `context.time` holds copies: `dt` (`fixedDt` inside `onFixedUpdate`), `fixedDt`,
   `elapsed`, `frame`, `alpha`, and `fixedStep` (the step index within the frame). The context
   object is reused between calls, so read from it during the call and don't keep it.
@@ -62,7 +67,7 @@ Rules the tests pin (`tests/scripting/scriptLifecycle.test.ts`):
 Like every `FixedSystem`, `scripts.fixed` runs all of the frame's fixed steps before `vehicles` runs
 its own; the engine does not interleave fixed systems step by step. A script that sets inputs in
 `onFixedUpdate` is fine. One that needs to read the vehicle's state after each step is not served by
-that yet.
+that yet; interleaving belongs with deterministic replay (roadmap 19.4).
 
 ## Timers (18.2)
 
@@ -256,11 +261,45 @@ system). When a hook throws:
 **Limit:** JavaScript cannot interrupt a hook that never returns. An infinite loop in a script still
 hangs the frame.
 
-## API boundary (18.6, partial)
+## API boundary (18.6)
 
-A script's context holds the entity, the world, the time copies and a logger. It holds no GPU
-device, render context or solver internals. `engine/src/scripting/` may import only `core`, `math`
-and `scene`, which is enforced by `npm run lint:arch` and `tests/engine/architecture.test.ts`.
+A script's context holds four things: the entity, the world, the time copies and a logger. Both the
+entity and the world are typed down to what gameplay needs:
 
-Not closed yet: a script can reach every component on its entity, so a component that wraps GPU
-state is reachable through it.
+- `ScriptWorld` can create, find, read, change and destroy entities and components. It also offers
+  `store(Class)` to iterate one component type and `worldPosition`. It has no `registerSystem` or
+  `runSystems`, no `dispose`, no structural journal, and no raw transform or component storage.
+- `ScriptEntity` has an entity's components, transform and `destroy`, and no `world` back-pointer.
+  `Script.entity` has the same type.
+
+Host code that needs the full `EntityWorld` uses `runtime.world`. That is the documented low-level
+path; scripts never receive the GPU device or a render context. `engine/src/scripting/` may import
+only `core`, `math` and `scene` (`npm run lint:arch`, `tests/engine/architecture.test.ts`). The
+narrowing is pinned at compile time: `tests/scripting/scriptLifecycle.test.ts` holds
+`@ts-expect-error` lines that make `npm run typecheck` fail if the script-facing types widen again.
+
+Components keep their public API. A script can, for example, swap a `Renderable`'s material. Engine
+internals stay `@internal` and `_`-prefixed.
+
+## Beacon Defense (the exit criterion)
+
+`?scene=scripting` is a complete game written only as scripts against `@forge/engine`
+(`examples/src/scripting/beaconDefense.ts`). The scene file only places the static set and attaches
+the scripts:
+
+| Script | Uses |
+| --- | --- |
+| `WaveDirector` | a `"sim"` coroutine: announce a wave (`post`), spawn its drones `Wait.steps` apart, `Wait.until` the field is clear, rest, repeat |
+| `Drone` | `onFixedUpdate` movement, `DroneHit` on its own entity channel, `post(DroneDown)`, `emit(BeaconHit)` |
+| `Turret` | a repeating `"sim"` timer that picks the nearest drone and emits `DroneHit` to it |
+| `Beacon` | `BeaconHit` damage, a `"render"` timer for the hit flash, `GameOver` once |
+| `Scoreboard` | score and wave from events; after a game over, a timer restarts the game |
+
+`tests/examples/beaconDefense.test.ts` plays it on the mock device. It reaches wave 5+, kills
+drones, loses the beacon and restarts, all with no script errors. It replays identically under
+three different frame splits, and it hot-reloads the turret mid-game (new `fire`, same shot
+counter). It also runs on real WebGPU with zero GPU errors.
+
+Building it found two engine bugs that the tests now pin:
+- A `Transform` added inside a system lost the pose set before the add was applied.
+- Changes made on fixed step k weren't visible on step k+1 within the same frame.

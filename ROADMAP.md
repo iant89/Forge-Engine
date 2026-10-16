@@ -179,14 +179,7 @@ PHASE 17 - ENVIRONMENT 2.0
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 PHASE 18 - SCRIPTING
-    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines, 18.4 typed events, 18.5
-        error isolation and 18.7 hot reload landed: scripts on entities run onCreate/onPreUpdate/
-        onFixedUpdate/onUpdate/onLateUpdate/onDestroy in the frame's bands, deterministic
-        fixed-step and render-rate timers and coroutines run on schedule, typed world/entity events
-        are emitted now or posted to the next phase, a throwing hook, timer, coroutine or handler
-        is rolled back and faulted without touching the ECS, other systems or the clock, and
-        classes hot-reload in place keeping their data; the 18.6 boundary is partial and the exit
-        criterion — a complete gameplay system built without engine changes — is not yet shown)
+    [x]
 
 
 ================================================================================
@@ -2011,11 +2004,13 @@ GOAL:
 
     unless using an explicitly documented low-level API.
 
-    [~] The script context carries the entity, the world, time copies and a logger only, and
-        `engine/src/scripting/` may import core, math and scene alone (lint:arch and
-        tests/engine/architecture.test.ts). Not yet closed: an entity's components are reachable
-        from a script, so a script holding a component that wraps GPU state can still reach it;
-        the documented low-level API is the existing `engine.gpu` surface.
+    [x] The script context carries the entity, the world, time copies and a logger only, typed as
+        `ScriptEntity` / `ScriptWorld`: entities and components, but no registerSystem/runSystems,
+        dispose, structural journal, raw storage or `entity.world` back-pointer. Host code holds
+        the full `EntityWorld` (`runtime.world`) — the documented low-level path; scripts never get
+        the GPU device or a render context. `engine/src/scripting/` may import core, math and scene
+        alone (lint:arch, tests/engine/architecture.test.ts), and @ts-expect-error pins in
+        tests/scripting/scriptLifecycle.test.ts fail the typecheck if the types widen again.
 
 
 18.7 Hot Reload
@@ -2035,6 +2030,14 @@ EXIT CRITERIA:
 
     A complete gameplay system can be implemented without modifying engine
     source code.
+
+    [x] Beacon Defense (`?scene=scripting`, examples/src/scripting/beaconDefense.ts): waves,
+        drones, a turret, a beacon, score, game over and restart, written only as scripts against
+        `@forge/engine`. tests/examples/beaconDefense.test.ts plays it to a game over and restart
+        with no script errors, replays it identically under three frame splits and hot-reloads its
+        turret mid-game; it renders on real WebGPU with zero GPU errors. Building it exposed and
+        fixed two engine bugs (a Transform posed before a deferred add lost its pose; fixed steps
+        did not see the previous step's structural changes within one frame).
 
 
 ================================================================================
