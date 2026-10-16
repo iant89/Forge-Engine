@@ -38,10 +38,11 @@ import type { Disposable } from "../core/events.js";
 
 /** Script hook names, in the order a script first meets them. */
 /**
- * `timer` is a timer callback (18.2), `coroutine` a coroutine step (18.3) and `event` an event
- * handler (18.4); all are isolated and counted like hooks.
+ * `timer` is a timer callback (18.2), `coroutine` a coroutine step (18.3), `event` an event
+ * handler (18.4) and `reload` a hot-reload hook or constructor (18.7); all are isolated and counted
+ * like hooks.
  */
-export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "event" | "destroy";
+export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "event" | "reload" | "destroy";
 
 /**
  * Where a script is in its life:
@@ -119,6 +120,17 @@ export abstract class Script {
   onUpdate?(context: ScriptContext): void;
   onLateUpdate?(context: ScriptContext): void;
   onDestroy?(context: ScriptContext): void;
+  /**
+   * Hot reload (Phase 18.7): called on the *old* instance just before it is replaced, after its
+   * timers, coroutines and event listeners were cancelled. Not called for scripts never created.
+   */
+  onUnload?(context: ScriptContext): void;
+  /**
+   * Hot reload (Phase 18.7): called on the *new* instance in place of onCreate, with the instance it
+   * replaces (its data fields are already copied over). Re-register timers, coroutines and event
+   * listeners here. Without it the new instance's onCreate runs instead.
+   */
+  onReload?(context: ScriptContext, previous: Script): void;
 
   get state(): ScriptState {
     return this._state;

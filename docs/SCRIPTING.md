@@ -1,8 +1,8 @@
 # Scripting (Phase 18)
 
 Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**,
-**18.2 timers**, **18.3 coroutines**, **18.4 typed events** and **18.5 error isolation**. Hot reload
-(18.7) is not built yet. The 18.6 API boundary is partly enforced (below).
+**18.2 timers**, **18.3 coroutines**, **18.4 typed events**, **18.5 error isolation** and **18.7 hot
+reload**. The 18.6 API boundary is partly enforced (below). The 18.6 API boundary is partly enforced (below).
 
 ## Using it
 
@@ -199,6 +199,39 @@ class Turret extends Script {
 - **Host code** uses `runtime.events.on/emit/post/listenerCount`. Host listeners are plain callbacks:
   their errors are caught and recorded as script `"host"`. `runtime.stats()` counts deliveries and
   queued events.
+
+## Hot reload (18.7)
+
+`runtime.reload(name, NewClass)` makes `name` resolve to `NewClass` from now on. It also swaps every
+live script created under that name, or as an instance of the class previously defined for it, for a
+new instance, in place: same entity, same component slot, same execution order. It returns
+`{ replaced, failed }`. The engine stays bundler-agnostic, so the dev server wires it up. With Vite:
+
+```ts
+// scripts/guard.ts
+export class Guard extends Script { /* ... */ }
+if (import.meta.hot) {
+  import.meta.hot.accept((mod) => mod && scripts.reload("Guard", mod.Guard));
+}
+```
+
+For each matching script:
+
+1. **The new instance is constructed first.** If its constructor throws, the error is recorded
+   (phase `"reload"`), the old script keeps running, and it counts as `failed`.
+2. **The old instance is retired.** Its timers, coroutines and event listeners are cancelled, because
+   their closures belong to the old code. Then its `onUnload(ctx)` runs, if it had been created.
+3. **Data carries over.** The old instance's own data fields are copied onto the new one: enumerable
+   fields only, no functions and no `_`-prefixed internals, so `enabled` carries over. Field
+   initializers run first, and the copied values replace them.
+4. **The new instance starts.** If the old one had been created, the new one's
+   `onReload(ctx, previous)` runs. Re-register timers, coroutines and listeners there. Without
+   `onReload`, its `onCreate` runs instead, and sees the carried data (an `onCreate` that resets fields
+   will reset them). A script that was never created stays pending and gets its `onCreate` as usual.
+
+A faulted script is replaced too, so a hot fix revives it. A throw from `onReload`, `onCreate` or
+`onUnload` during a reload faults that instance, like a throwing `onCreate`. Components attached
+later with the name get the new class. `runtime.stats().scriptsReloaded` counts the swaps.
 
 ## Error isolation (18.5)
 

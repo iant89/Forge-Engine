@@ -179,13 +179,14 @@ PHASE 17 - ENVIRONMENT 2.0
         strike attachment are simulation events — measured and real-WebGPU A/B verified)
 
 PHASE 18 - SCRIPTING
-    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines, 18.4 typed events and 18.5
-        error isolation landed: scripts on entities run onCreate/onPreUpdate/onFixedUpdate/
-        onUpdate/onLateUpdate/onDestroy in the frame's bands, deterministic fixed-step and
-        render-rate timers and coroutines (pause/resume, cancellation with finally) run on
-        schedule, typed world/entity events are emitted now or posted to the next phase, and a
-        throwing hook, timer, coroutine or handler is rolled back and faulted without touching the
-        ECS, other systems or the clock; the 18.6 boundary is partial and hot reload remains)
+    [~] IN PROGRESS (18.1 lifecycle, 18.2 timers, 18.3 coroutines, 18.4 typed events, 18.5
+        error isolation and 18.7 hot reload landed: scripts on entities run onCreate/onPreUpdate/
+        onFixedUpdate/onUpdate/onLateUpdate/onDestroy in the frame's bands, deterministic
+        fixed-step and render-rate timers and coroutines run on schedule, typed world/entity events
+        are emitted now or posted to the next phase, a throwing hook, timer, coroutine or handler
+        is rolled back and faulted without touching the ECS, other systems or the clock, and
+        classes hot-reload in place keeping their data; the 18.6 boundary is partial and the exit
+        criterion — a complete gameplay system built without engine changes — is not yet shown)
 
 
 ================================================================================
@@ -2019,7 +2020,15 @@ GOAL:
 
 18.7 Hot Reload
 
-    [ ] development-time script reload
+    [x] development-time script reload
+
+    `ScriptRuntime.reload(name, NewClass)`: re-points the name and swaps every live script of that
+    name (or of the previously defined class) in place — same entity, component slot and execution
+    order. The new instance is built first (a throwing constructor leaves the old script running);
+    the old one's timers, coroutines and event listeners are cancelled and its onUnload runs; its
+    data fields carry over; the new one's onReload(ctx, previous) — or onCreate — re-registers.
+    Faulted scripts are revived. Bundler-agnostic (the docs show the Vite HMR hook).
+    tests/scripting/scriptHotReload.test.ts, docs/SCRIPTING.md
 
 
 EXIT CRITERIA:

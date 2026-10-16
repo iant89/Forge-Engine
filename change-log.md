@@ -19356,6 +19356,138 @@ JSON array below; agents maintain it by hand until then.
     "file": "PROGRESS.md",
     "what": "Typed events done.",
     "why": "Keep in step with ROADMAP."
+  },
+  {
+    "id": "1531",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/runtime.ts",
+    "what": "ScriptRuntime.reload(name, ctor): in-place swap (order kept), construct-first, cancel old timers/coroutines/listeners, onUnload, copy data fields, onReload or onCreate; 'reload' faults like create; scriptsReloaded stat.",
+    "why": "Phase 18.7 hot reload."
+  },
+  {
+    "id": "1532",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/script.ts",
+    "what": "onUnload/onReload hooks; 'reload' phase.",
+    "why": "Phase 18.7 script-facing API."
+  },
+  {
+    "id": "1533",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/index.ts",
+    "what": "Export ScriptReloadReport.",
+    "why": "Public API."
+  },
+  {
+    "id": "1534",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "scripting.lifecycle notes + hot reload evidence; exit criterion still open.",
+    "why": "Registry tracks 18.7."
+  },
+  {
+    "id": "1535",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptHotReload.test.ts",
+    "what": "New suite scripting:scriptHotReload (6 cases).",
+    "why": "Pins in-place swap, data carry-over, old closures cancelled, hooks, failure modes, revival."
+  },
+  {
+    "id": "1536",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link scripting:scriptHotReload; report(108).",
+    "why": "New suite."
+  },
+  {
+    "id": "1537",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 108 suites / 823 claims.",
+    "why": "New suite."
+  },
+  {
+    "id": "1538",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/SCRIPTING.md",
+    "what": "Hot reload section with the Vite HMR hook.",
+    "why": "Phase 18.7 docs."
+  },
+  {
+    "id": "1539",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Hot reload no longer missing; exit criterion not demonstrated.",
+    "why": "18.7 landed."
+  },
+  {
+    "id": "1540",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "18.7 item [x] with notes; state block line.",
+    "why": "18.7 landed."
+  },
+  {
+    "id": "1541",
+    "date": "2026-10-16T00:24:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-hot-reload",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Hot reload done.",
+    "why": "Keep in step with ROADMAP."
   }
 ]
 ```

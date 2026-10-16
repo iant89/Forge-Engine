@@ -67,6 +67,14 @@ export interface ScriptErrorRecord {
   readonly faulted: boolean;
 }
 
+/** Result of {@link ScriptRuntime.reload}. */
+export interface ScriptReloadReport {
+  /** Live scripts swapped to the new class. */
+  replaced: number;
+  /** Scripts whose new instance could not be constructed (the old one keeps running). */
+  failed: number;
+}
+
 export interface ScriptRuntimeStats {
   /** Scripts attached and not yet destroyed (pending + active + faulted). */
   scriptsLive: number;
@@ -80,6 +88,8 @@ export interface ScriptRuntimeStats {
   /** Failing hooks whose structural changes were discarded. */
   scriptRollbacks: number;
   scriptHookCalls: number;
+  /** Scripts replaced by hot reload (Phase 18.7, cumulative). */
+  scriptsReloaded: number;
   /** Timers scheduled and not yet finished or cancelled (Phase 18.2). */
   timersActive: number;
   /** Timer callbacks run (cumulative). */
@@ -179,6 +189,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     scriptErrors: 0,
     scriptRollbacks: 0,
     scriptHookCalls: 0,
+    scriptsReloaded: 0,
     timersActive: 0,
     timersFired: 0,
     coroutinesActive: 0,
@@ -237,6 +248,72 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
 
   isDefined(name: string): boolean {
     return this.registry.has(name);
+  }
+
+  /**
+   * Hot reload (Phase 18.7, development): make `name` resolve to `ctor` from now on and swap every
+   * live script created under that name — or as an instance of the class previously defined for it —
+   * for a new instance of `ctor`, in place (same entity, same component slot, same execution order).
+   *
+   * Per script: construct the new instance first (if the constructor throws, the old script is left
+   * running and the error recorded); cancel the old one's timers, coroutines and event listeners
+   * (their closures belong to the old code) and call its `onUnload`; copy its own data fields
+   * (enumerable, not functions, not `_`-prefixed internals — so `enabled` carries over) onto the new
+   * instance; then, if the old one had been created, run the new one's `onReload(ctx, previous)`, or
+   * its `onCreate` when it has no `onReload`. A script not yet created stays pending and gets its
+   * onCreate as usual. Faulted scripts are replaced too — a hot fix revives them. Hooks run under the
+   * usual isolation; a throw there faults the new instance.
+   */
+  reload(name: string, ctor: ScriptConstructor): ScriptReloadReport {
+    if (this.disposed) throw new UsageError("ScriptRuntime: disposed");
+    if (typeof ctor !== "function") throw new UsageError(`reload("${name}"): not a script class`);
+    const previous = this.registry.get(name);
+    this.registry.set(name, ctor);
+    if (this.compactPending) this.compact();
+    const report: ScriptReloadReport = { replaced: 0, failed: 0 };
+    for (let i = 0; i < this.live.length; i++) {
+      const old = this.live[i]!;
+      if (old._state === "destroyed") continue;
+      if (old._name !== name && !(previous && old.constructor === previous)) continue;
+      let next: Script;
+      try {
+        next = new ctor();
+      } catch (e) {
+        this.record(name, old._entity?.id ?? (0 as EntityId), "reload", e, false);
+        report.failed++;
+        continue;
+      }
+      const component = this.owners[i]!;
+      const started = old._started;
+      this._cancelTimers(old);
+      this._stopCoroutines(old);
+      this.unsubscribeAll(old);
+      if (started && old._state === "active" && old.onUnload && old._entity) this.invoke(old, "reload", old.onUnload);
+      for (const key of Object.keys(old)) {
+        if (key.startsWith("_")) continue;
+        const value = (old as unknown as Record<string, unknown>)[key];
+        if (typeof value === "function") continue;
+        (next as unknown as Record<string, unknown>)[key] = value;
+      }
+      next._name = name;
+      next._entity = old._entity;
+      next._host = this;
+      next._component = component;
+      old._state = "destroyed";
+      old._entity = null;
+      this.live[i] = next;
+      const slot = component._scripts.indexOf(old);
+      if (slot >= 0) component._scripts[slot] = next;
+      this.counters.scriptsReloaded++;
+      report.replaced++;
+      if (started) {
+        next._started = true;
+        const hook: Hook | undefined = next.onReload ? (c) => next.onReload!(c, old) : next.onCreate;
+        if (!hook) next._state = "active";
+        else if (this.invoke(next, "reload", hook) && next._state === "pending") next._state = "active";
+      }
+    }
+    return report;
   }
 
   // ------------------------------------------------------------------ queries
@@ -457,7 +534,7 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
     const entity = script._entity?.id ?? (0 as EntityId);
     script._errors++;
     let faulted = false;
-    if (script._state !== "destroyed" && script._state !== "faulted" && (phase === "create" || (this.faultAfter > 0 && script._errors >= this.faultAfter))) {
+    if (script._state !== "destroyed" && script._state !== "faulted" && (phase === "create" || phase === "reload" || (this.faultAfter > 0 && script._errors >= this.faultAfter))) {
       script._state = "faulted";
       faulted = true;
       this._cancelTimers(script);

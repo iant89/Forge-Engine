@@ -168,7 +168,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Coroutines with pause/resume and cancellation, on the render or fixed-step clock (Phase 18.3)
 - [x] Typed events: world and per-entity channels, immediate or queued to the next phase (Phase 18.4)
 - [ ] Public-API boundary for scripts _(partial: the script context and the scripting module's imports are limited, but components on an entity are still reachable)_ (Phase 18.6)
-- [ ] Script reload during development (Phase 18.7)
+- [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
 - [ ] Versioned save format with migrations for entities, components and terrain settings _(only scene settings serialize today)_ (Phase 19.1–19.2)
 - [ ] Simulation snapshots: physics, vehicle, weather and RNG state (Phase 19.3)
 - [ ] Input recording, deterministic playback and state hashing (Phase 19.4)

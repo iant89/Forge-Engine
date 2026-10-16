@@ -243,7 +243,7 @@ What remains:
   state between two steps of the same frame. (capability: scripting.lifecycle)
 * **The API boundary is partial (18.6).** The script context carries no GPU, render or solver
   handles, but a script can reach every component on its entity, including ones that wrap GPU
-  state. Hot reload (18.7) is not built.
+  state. The phase exit criterion, a complete gameplay system built without engine changes, is not demonstrated yet.
   (capability: scripting.lifecycle)
 
 ## Documentation debt
