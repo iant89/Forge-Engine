@@ -298,7 +298,9 @@ export class GroundMoistureField {
           f[k * 4 + d] = out;
           total += out;
         }
-        if (total > w) {
+        // Only a cell with water has outflow to rescale. Float32 rounding in the transfer below can
+        // leave a cell a hair under zero; `0 > -1e-45` would then divide by zero and 0 × -∞ = NaN.
+        if (w > 0 && total > w) {
           const scale = w / total;
           for (let d = 0; d < 4; d++) f[k * 4 + d] *= scale;
         }

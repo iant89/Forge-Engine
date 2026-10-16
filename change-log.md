@@ -19212,6 +19212,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "PROGRESS.md",
     "what": "Coroutines done.",
     "why": "Keep in step with ROADMAP."
+  },
+  {
+    "id": "1519",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/environment/moistureField.ts",
+    "what": "flow(): rescale outflow only when the cell has water (w > 0 && total > w).",
+    "why": "A cell rounded to -1.4e-45 m divided 0 by itself to -Infinity and 0 x -Infinity poisoned the grid with NaN (thaw gate: water 0.00 -> NaN)."
+  },
+  {
+    "id": "1520",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/environment/snowMelt.test.ts",
+    "what": "Regression case: a hair-negative cell keeps the water grid finite.",
+    "why": "Pins the fix; failed before it."
+  },
+  {
+    "id": "1521",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Root cause and how to reproduce (random frame dts).",
+    "why": "Lesson for future sessions."
   }
 ]
 ```

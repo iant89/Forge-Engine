@@ -2344,3 +2344,10 @@ Read the module constraints below before changing either pure model.
   `runSystems` uses per system, so a throwing hook's queued structural ops are dropped as a unit
   (docs/SCRIPTING.md). Mars Showcase `marsShowcaseDamage` drill and `marsShowcaseCollision` contact
   depth are intermittent under full-suite load; the rock-ram case fails every time, on main too.
+
+- 2026-10-16 (fe-38 fix): **thaw `water 0.00 -> NaN` was a divide-by-zero in `GroundMoistureField.flow`.**
+  Float32 rounding in the flux transfer can leave a cell at -1.4e-45 m; with no outflow its total (0)
+  still exceeded that water, so the rescale did `w / 0 = -∞` and `0 × -∞ = NaN`, which then spread.
+  It needs uneven frame times (the melt slices follow real dt × timeScale), which is why the browser
+  gate hit it intermittently and fixed-dt Node runs did not. Reproduce with random frame dts; the
+  guard is `w > 0 && total > w`. Pinned in tests/environment/snowMelt.test.ts.
