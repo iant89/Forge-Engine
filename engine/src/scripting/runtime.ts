@@ -1,12 +1,13 @@
 /**
- * ScriptRuntime — runs {@link Script} hooks for one world (Phase 18.1) and isolates their failures
- * (Phase 18.5).
+ * ScriptRuntime — runs {@link Script} hooks and timers for one world (Phases 18.1, 18.2) and isolates
+ * their failures (Phase 18.5).
  *
  * `ScriptRuntime.install(world)` registers four systems, one per hook band (see scene/systems.ts):
  *
  *   scripts.pre     order   0   onCreate (pending scripts) · onPreUpdate
- *   scripts.fixed   order 100   onFixedUpdate once per fixed step, before "vehicles" and "physics"
- *   scripts.update  order 200   onUpdate
+ *   scripts.fixed   order 100   per fixed step: tick++, due "sim" timers, onFixedUpdate — before
+ *                               "vehicles" and "physics"
+ *   scripts.update  order 200   due "render" timers, then onUpdate
  *   scripts.late    order 450   onLateUpdate, before "transforms"
  *
  * Every phase first creates scripts that are still pending, so a script attached mid-frame starts
@@ -36,7 +37,8 @@ import type { Disposable } from "../core/events.js";
 import { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
 import { ScriptComponent, _bindScriptRuntime, _scriptBinderOf, type ScriptBinder } from "./component.js";
-import type { Script, ScriptConstructor, ScriptContext, ScriptPhase, ScriptTime } from "./script.js";
+import type { Script, ScriptConstructor, ScriptContext, ScriptPhase, ScriptTime, ScriptTimerHost } from "./script.js";
+import { Timer, TimerQueue, type TimerCallback, type TimerHandle, type TimerOptions } from "./timers.js";
 
 export interface ScriptRuntimeOptions {
   /** Errors a script may throw before it is faulted. Default 1; 0 = never fault (still recorded). */
@@ -73,6 +75,10 @@ export interface ScriptRuntimeStats {
   /** Failing hooks whose structural changes were discarded. */
   scriptRollbacks: number;
   scriptHookCalls: number;
+  /** Timers scheduled and not yet finished or cancelled (Phase 18.2). */
+  timersActive: number;
+  /** Timer callbacks run (cumulative). */
+  timersFired: number;
 }
 
 type HookName = "onPreUpdate" | "onFixedUpdate" | "onUpdate" | "onLateUpdate";
@@ -87,7 +93,7 @@ const HOOK_OF: Record<"preUpdate" | "fixedUpdate" | "update" | "lateUpdate", Hoo
 
 const runtimes = new WeakMap<EntityWorld, ScriptRuntime>();
 
-export class ScriptRuntime implements ScriptBinder {
+export class ScriptRuntime implements ScriptBinder, ScriptTimerHost {
   /** Install a runtime on `world` (one per world) and adopt any ScriptComponents already there. */
   static install(world: EntityWorld, options: ScriptRuntimeOptions = {}): ScriptRuntime {
     if (runtimes.has(world) || _scriptBinderOf(world)) throw new UsageError("ScriptRuntime: this world already has a script runtime");
@@ -128,8 +134,19 @@ export class ScriptRuntime implements ScriptBinder {
   private readonly subscriptions: Disposable[] = [];
   private readonly registrations: Disposable[] = [];
   private disposed = false;
-  private readonly frameTime = { dt: 0, fixedDt: 0, elapsed: 0, frame: 0, alpha: 0, fixedStep: 0 };
-  private readonly time: { -readonly [K in keyof ScriptTime]: ScriptTime[K] } = { dt: 0, fixedDt: 0, elapsed: 0, frame: 0, alpha: 0, fixedStep: 0 };
+  private readonly frameTime = { dt: 0, fixedDt: 0, elapsed: 0, frame: 0, alpha: 0, fixedStep: 0, tick: 0 };
+  private readonly time: { -readonly [K in keyof ScriptTime]: ScriptTime[K] } = { dt: 0, fixedDt: 0, elapsed: 0, frame: 0, alpha: 0, fixedStep: 0, tick: 0 };
+  /** Fixed steps run since install — the "sim" timer clock. */
+  private fixedTick = 0;
+  /** Accumulated frame seconds since install — the "render" timer clock. */
+  private renderTime = 0;
+  /** Latest fixed step length seen (converts "sim" timer seconds to steps). */
+  private lastFixedDt = 1 / 60;
+  private readonly simTimers = new TimerQueue();
+  private readonly renderTimers = new TimerQueue();
+  private timerSeq = 0;
+  private readonly heldTimers: Timer[] = [];
+  private readonly cancelTimer = (t: Timer): void => this.dropTimer(t);
   private readonly context: { entity: Entity; world: EntityWorld; time: ScriptTime; logger: Logger };
   private readonly counters: ScriptRuntimeStats = {
     scriptsLive: 0,
@@ -141,6 +158,8 @@ export class ScriptRuntime implements ScriptBinder {
     scriptErrors: 0,
     scriptRollbacks: 0,
     scriptHookCalls: 0,
+    timersActive: 0,
+    timersFired: 0,
   };
 
   private constructor(world: EntityWorld, options: ScriptRuntimeOptions) {
@@ -205,6 +224,7 @@ export class ScriptRuntime implements ScriptBinder {
     c.scriptsPending = pending;
     c.scriptsFaulted = faulted;
     c.scriptsLive = active + pending + faulted;
+    c.timersActive = this.simTimers.size + this.renderTimers.size;
     return { ...c };
   }
 
@@ -240,6 +260,8 @@ export class ScriptRuntime implements ScriptBinder {
       }
     }
     script._entity = entity;
+    script._host = this;
+    script._component = component;
     component._scripts.push(script);
     this.live.push(script);
     this.owners.push(component);
@@ -252,6 +274,7 @@ export class ScriptRuntime implements ScriptBinder {
     script._state = "destroyed";
     this.compactPending = true;
     this.counters.scriptsDestroyed++;
+    this._cancelTimers(script);
     if (script._started && script.onDestroy && script._entity) this.invoke(script, "destroy", script.onDestroy);
     script._entity = null;
   }
@@ -273,6 +296,14 @@ export class ScriptRuntime implements ScriptBinder {
     this.capture(context, phase, fixedStep);
     if (this.compactPending) this.compact();
     this.createPending();
+    if (phase === "fixedUpdate") {
+      this.fixedTick++;
+      this.frameTime.tick = this.fixedTick;
+      this.fireDue(this.simTimers, this.fixedTick, "sim");
+    } else if (phase === "update") {
+      this.renderTime += context.dt;
+      this.fireDue(this.renderTimers, this.renderTime, "render");
+    }
     const hookName = HOOK_OF[phase];
     const n = this.live.length;
     for (let i = 0; i < n; i++) {
@@ -291,6 +322,8 @@ export class ScriptRuntime implements ScriptBinder {
     t.frame = context.frame;
     t.alpha = context.alpha;
     t.fixedStep = phase === "fixedUpdate" ? fixedStep : 0;
+    t.tick = this.fixedTick;
+    if (context.fixedDt > 0) this.lastFixedDt = context.fixedDt;
     this.logger ??= context.logger.child("scripts");
   }
 
@@ -338,6 +371,7 @@ export class ScriptRuntime implements ScriptBinder {
     t.frame = ft.frame;
     t.alpha = ft.alpha;
     t.fixedStep = ft.fixedStep;
+    t.tick = ft.tick;
     const ctx = this.context;
     ctx.entity = script._entity!;
     ctx.world = world;
@@ -370,6 +404,7 @@ export class ScriptRuntime implements ScriptBinder {
     if (script._state !== "destroyed" && script._state !== "faulted" && (phase === "create" || (this.faultAfter > 0 && script._errors >= this.faultAfter))) {
       script._state = "faulted";
       faulted = true;
+      this._cancelTimers(script);
     }
     this.record(script.scriptName, entity, phase, error, faulted);
     return false;
@@ -391,6 +426,84 @@ export class ScriptRuntime implements ScriptBinder {
     }
   }
 
+  // ------------------------------------------------------------------ timers (18.2)
+
+  /** @internal */
+  _schedule(script: Script, seconds: number, callback: TimerCallback, repeat: boolean, options: TimerOptions | undefined): TimerHandle {
+    if (this.disposed || script._host !== this) throw new UsageError(`${script.scriptName}: this runtime does not own the script`);
+    if (script._state === "destroyed" || script._state === "faulted") {
+      throw new UsageError(`${script.scriptName}: cannot schedule a timer on a ${script._state} script`);
+    }
+    const clock = options?.clock ?? "sim";
+    let interval: number;
+    let due: number;
+    if (clock === "sim") {
+      const steps = options?.steps !== undefined ? Math.floor(options.steps) : Math.ceil(seconds / this.lastFixedDt - 1e-9);
+      if (!(steps >= (repeat ? 1 : 0)) || !Number.isFinite(steps)) throw new UsageError(`timer: invalid duration (${options?.steps ?? seconds})`);
+      const n = Math.max(1, steps);
+      interval = repeat ? n : 0;
+      due = this.fixedTick + n;
+    } else {
+      if (options?.steps !== undefined) throw new UsageError('timer: "steps" applies to the "sim" clock only');
+      if (!(seconds >= 0) || !Number.isFinite(seconds) || (repeat && seconds <= 0)) throw new UsageError(`timer: invalid duration (${seconds})`);
+      interval = repeat ? seconds : 0;
+      due = this.renderTime + seconds;
+    }
+    const timer = new Timer(script, clock, due, interval, callback, this.timerSeq++, this.cancelTimer);
+    (clock === "sim" ? this.simTimers : this.renderTimers).push(timer);
+    (script._timers as Timer[]).push(timer);
+    return timer;
+  }
+
+  /** @internal */
+  _cancelTimers(script: Script): void {
+    const timers = script._timers as Timer[];
+    while (timers.length > 0) timers[timers.length - 1]!.cancel();
+  }
+
+  /** Remove a cancelled or finished timer from its queue and its script. */
+  private dropTimer(t: Timer): void {
+    t.cancelled = true;
+    (t.clock === "sim" ? this.simTimers : this.renderTimers).remove(t);
+    const list = (t.owner as Script)._timers as Timer[];
+    const i = list.indexOf(t);
+    if (i >= 0) list.splice(i, 1);
+  }
+
+  /** Fire every timer due at `now`, in (due, creation) order; hold those whose script cannot run. */
+  private fireDue(queue: TimerQueue, now: number, clock: "sim" | "render"): void {
+    const held = this.heldTimers;
+    // Timers scheduled by the callbacks fired here wait for the next pass (an after(0) chain must
+    // not spin inside one phase).
+    const seqLimit = this.timerSeq;
+    for (let top = queue.peek(); top && top.due <= now; top = queue.peek()) {
+      queue.pop();
+      const script = top.owner as Script;
+      if (top.seq >= seqLimit || script._state !== "active" || !script.enabled || !script._component?.enabled) {
+        held.push(top);
+        continue;
+      }
+      if (top.interval > 0) {
+        if (clock === "sim") {
+          do top.due += top.interval;
+          while (top.due <= now);
+        } else {
+          top.due += top.interval;
+          if (top.due <= now) top.due = now + top.interval;
+        }
+        queue.push(top);
+      } else {
+        this.dropTimer(top);
+      }
+      top.fires++;
+      this.counters.timersFired++;
+      const t = top;
+      this.invoke(script, "timer", (ctx) => t.callback(ctx, t));
+    }
+    for (const t of held) if (!t.cancelled) queue.push(t);
+    held.length = 0;
+  }
+
   // ------------------------------------------------------------------ lifecycle
 
   /** Destroy every script (onDestroy runs), unregister the systems and detach from the world. */
@@ -400,6 +513,8 @@ export class ScriptRuntime implements ScriptBinder {
     this.disposed = true;
     this.live.length = 0;
     this.owners.length = 0;
+    this.simTimers.clear();
+    this.renderTimers.clear();
     for (const d of this.registrations.splice(0)) d.dispose();
     for (const d of this.subscriptions.splice(0)) d.dispose();
     _bindScriptRuntime(this.world, null);

@@ -1,7 +1,7 @@
 # Scripting (Phase 18)
 
-Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**
-and **18.5 error isolation**. Timers (18.2), coroutines (18.3), typed events (18.4) and hot reload
+Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**,
+**18.2 timers** and **18.5 error isolation**. Coroutines (18.3), typed events (18.4) and hot reload
 (18.7) are not built yet. The 18.6 API boundary is partly enforced (below).
 
 ## Using it
@@ -63,6 +63,44 @@ Like every `FixedSystem`, `scripts.fixed` runs all of the frame's fixed steps be
 its own; the engine does not interleave fixed systems step by step. A script that sets inputs in
 `onFixedUpdate` is fine. One that needs to read the vehicle's state after each step is not served by
 that yet.
+
+## Timers (18.2)
+
+```ts
+class Turret extends Script {
+  override onCreate(): void {
+    this.every(0.5, (c) => this.fire(c));                       // "sim": every 30 steps at 60 Hz
+    this.after(0, () => this.reload(), { steps: 90 });          // exact fixed steps
+    this.every(0.25, () => this.blink(), { clock: "render" });  // frame seconds, cosmetic
+  }
+}
+```
+
+`after(seconds, cb, options?)` runs once and `every(seconds, cb, options?)` repeats. Both return a
+handle with `cancel()`, `active`, `fires`, `clock` and `interval`. `script.timers` lists the live
+ones and `script.cancelTimers()` drops them all. The callback receives the script context and its
+own handle, so a repeating timer can cancel itself.
+
+- **`"sim"` (the default) is deterministic.** Seconds become whole fixed steps (`seconds / fixedDt`,
+  rounded up, at least 1), or pass `{ steps }` for an exact count. Due timers fire at the start of
+  the fixed step they land on, before that step's `onFixedUpdate`. Timers due on the same step fire
+  in creation order. The same sequence of fixed steps gives the same firings on the same ticks,
+  however the steps were split across frames. `context.time.tick` is that fixed-step counter (the
+  first step is 1).
+- **`"render"` counts frame seconds** (`dt`, so time scale applies) and fires at the start of the
+  update phase, before `onUpdate`. A repeating render timer fires at most once per frame. If a frame
+  overshoots a whole interval, the missed occurrences are dropped and the next one is scheduled an
+  interval from now.
+- **Timers belong to their script.** They fire only while the script is active and enabled. One that
+  comes due while the script is disabled waits, and fires at the first chance after it is enabled
+  again. A repeating timer then resumes its cadence. Destroying or faulting the script cancels its
+  timers, and scheduling from a destroyed or faulted script, including from inside `onDestroy`, is a
+  usage error. A timer created by a timer callback waits at least until the next pass, so an
+  `after(0)` chain runs once per frame and never spins.
+- **Callbacks are isolated like hooks.** A throw is recorded with phase `"timer"`, counts toward
+  `faultAfter`, and rolls back the callback's structural changes.
+
+Seconds are converted with the latest `fixedDt` the runtime has seen (1/60 before the first frame).
 
 ## Error isolation (18.5)
 
