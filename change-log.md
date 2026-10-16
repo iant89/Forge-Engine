@@ -21175,6 +21175,27 @@ JSON array below; agents maintain it by hand until then.
       "tests/tools/selrun.test.ts"
     ],
     "note": "Backfilled after the merge: the entry was missed before merging."
+  },
+  {
+    "id": "1676",
+    "date": "2026-10-16T21:53:56Z",
+    "type": "pr-merge",
+    "pr": 119,
+    "branch": "claude/offroad-overcast-fix",
+    "base": "main",
+    "title": "Fix the iOS overcast sky rendering as static (exact integer noise hash)",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "The cloud, surface-weather and water noise hashed lattice cells with fract(sin(h)*43758.5453); at the cloud seed h ~ 7e4 one f32 step changes the hash, and WebKit's fast-math Metal compile made it differ per pixel, so iOS Safari drew an overcast sky as static. latticeHash (exact u32 hash of cell + seed bits) in WGSL_CLOUD replaces all three. environment17_3 pins no sine hash in GPU shaders, the old hash's one-ulp sensitivity, and the new hash's distribution. Also backfills the pr-merge entries for #115-#118.",
+    "files": [
+      "change-log.md",
+      "docs/VERIFICATION.md",
+      "engine/src/rendering/shaders/cloudLayer.ts",
+      "engine/src/rendering/shaders/standard.ts",
+      "engine/src/rendering/shaders/water.ts",
+      "mnemosyne.md",
+      "tests/environment/environment17_3.test.ts"
+    ]
   }
 ]
 ```
