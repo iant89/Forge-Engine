@@ -46,6 +46,7 @@ import {
   Transform,
   Scene,
   Vec3,
+  Quat,
   UsageError,
   System,
   FixedSystem,
@@ -294,6 +295,26 @@ group("Scene/ECS - Hierarchy and Transforms", () => {
     assert.equal(world.exists(child.id), false);
     assert.equal(world.exists(grandchild.id), false);
 
+    world.dispose();
+  });
+
+  test("a Transform posed before a deferred attach keeps its pose (entity spawned inside a system)", () => {
+    // Inside a system (and every script hook) adds are queued; the pose set on the component before
+    // the queue applies used to be overwritten by the fresh slot's identity on attach.
+    const world = new EntityWorld();
+    const mark = world._beginStructuralScope();
+    const e = world.createEntity("spawned");
+    const q = new Quat().setAxisAngle(new Vec3(0, 1, 0), 0.5);
+    e.add(new Transform()).setPosition(4, 1, -3).setRotation(q);
+    world._endStructuralScope(mark, true);
+    const t = e.get(Transform)!;
+    assert.deepEqual([t.position.x, t.position.y, t.position.z], [4, 1, -3]);
+    world.updateTransforms([]);
+    const p = e.getPosition();
+    assertCloseTo(p.x, 4, 5);
+    assertCloseTo(p.y, 1, 5);
+    assertCloseTo(p.z, -3, 5);
+    assertCloseTo(t.rotation.y, q.y, 5);
     world.dispose();
   });
 

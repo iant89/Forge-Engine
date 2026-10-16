@@ -439,6 +439,10 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
       const hook = script[hookName];
       if (hook) this.invoke(script, phase, hook);
     }
+    // scripts.fixed runs every fixed step of the frame inside one system update, and the scheduler
+    // defers a system's adds/removes/destroys until it returns. Apply them at the end of each step,
+    // so step k+1 sees step k's changes whether the frame ran one step or five (determinism).
+    if (phase === "fixedUpdate") this.world._applyQueuedStructural();
   }
 
   private capture(context: SystemContext, phase: ScriptPhase, fixedStep: number): void {
