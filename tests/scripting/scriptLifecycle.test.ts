@@ -279,6 +279,39 @@ group("lifecycle (18.1)", () => {
   });
 });
 
+group("API boundary (18.6)", () => {
+  test("a script sees entities and components, not systems, disposal, the journal or raw storage", () => {
+    const { world } = setup();
+    let keys: string[] = [];
+    class Probe18_6 extends Script {
+      override onUpdate(c: ScriptContext): void {
+        keys = Object.keys(c).sort();
+        // Compile-time pins: `npm run typecheck` fails ("unused @ts-expect-error") if the script-facing
+        // types ever widen back to the full EntityWorld / Entity.
+        // @ts-expect-error scripts cannot register or run systems
+        void c.world.registerSystem;
+        // @ts-expect-error scripts cannot dispose the world
+        void c.world.dispose;
+        // @ts-expect-error the structural journal is internal
+        void c.world._beginStructuralScope;
+        // @ts-expect-error raw transform storage is internal
+        void c.world.transforms;
+        // @ts-expect-error an entity does not lead back to the world
+        void c.entity.world;
+        // @ts-expect-error nor does Script.entity
+        void this.entity!.world;
+        // What gameplay does need is there.
+        void c.world.createEntity;
+        void c.world.store;
+        void c.entity.get;
+      }
+    }
+    world.createEntity("p").add(new ScriptComponent(new Probe18_6()));
+    world.runSystems(ctx(world, 0));
+    assert.deepEqual(keys, ["entity", "logger", "time", "world"], "no GPU, render or solver handle on the context");
+  });
+});
+
 group("error isolation (18.5)", () => {
   test("a throwing hook faults its script; the rest of the phase, other systems and later frames run", () => {
     const errors: string[] = [];

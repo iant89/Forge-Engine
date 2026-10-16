@@ -2363,3 +2363,13 @@ Read the module constraints below before changing either pure model.
   deck A/B caught the overcast preset's drizzle (precipitation 0.05) — hold every mover in an A/B.
   Wait on `engine.clock.fixedTime`, not wall time, for simulated things to finish: a frame advances
   the clock by ≤ maxDeltaTime (0.25 s), and SwiftShader frames can take seconds.
+
+- 2026-10-16 (Phase 18 close): **Beacon Defense found two engine bugs and a scripting one.** (1) A
+  `FixedSystem` runs all of a frame's fixed steps inside one system update, so the structural journal
+  only flushed after the last step: step N+1 did not see step N's creates/destroys, and results changed
+  with how frames split steps. Fix: `EntityWorld._applyQueuedStructural()` after each fixed phase run
+  (plain `flushJournal()` re-queues while depth > 0). (2) `Transform.onAttach` reset a pose set before
+  a deferred attach; now it writes the component's TRS when the slot already existed. (3) The shared
+  `ScriptContext` leaked the entity from nested `emit`/`startCoroutine`; `invoke` restores it (#115).
+  Determinism check pattern: same total steps with random 0–4 step frames vs 1-step frames
+  (tests/examples/beaconDefense.test.ts). `tests/core/tasks.test.ts` worker-scope cases are flaky.

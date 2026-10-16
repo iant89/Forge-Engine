@@ -101,6 +101,38 @@ group("sim timers (deterministic)", () => {
     assert.deepEqual(run([0, 0, 5, 0, 7]), steady);
   });
 
+  test("structural changes from one fixed step are visible on the next, however frames split the steps", () => {
+    // Regression: the scheduler defers a system's adds/destroys until the system finishes, and
+    // scripts.fixed runs every fixed step of a frame in one update — so an entity destroyed on step k
+    // of a multi-step frame was still there on step k+1. The runtime now applies them per step.
+    const run = (splits: number[]): string[] => {
+      const { world } = setup();
+      const log: string[] = [];
+      const victims = [world.createEntity("v1").id, world.createEntity("v2").id];
+      class Destroyer extends Script {
+        override onFixedUpdate(c: ScriptContext): void {
+          if (c.time.tick === 2) c.world.destroyEntity(victims[0]!);
+          if (c.time.tick === 3) c.world.createEntity("spawned");
+        }
+      }
+      class Counter extends Script {
+        override onFixedUpdate(c: ScriptContext): void {
+          log.push(`${c.time.tick}:${world.exists(victims[0]!) ? "alive" : "gone"}:${c.world.findByName("spawned").length}`);
+        }
+      }
+      attach(world, new Destroyer(), "d");
+      attach(world, new Counter(), "c");
+      for (const n of splits) world.runSystems(ctx(world, n));
+      return log;
+    };
+    const steady = run([1, 1, 1, 1, 1]);
+    // A queued change (destroy) made on step k is applied when step k ends: other scripts see it
+    // from step k+1. createEntity is never queued, so the spawn is visible on its own step.
+    assert.deepEqual(steady, ["1:alive:0", "2:alive:0", "3:gone:1", "4:gone:1", "5:gone:1"]);
+    assert.deepEqual(run([5]), steady);
+    assert.deepEqual(run([2, 3]), steady);
+  });
+
   test("a timer scheduled from a render-rate hook counts from the current tick", () => {
     const { world } = setup();
     const fired: number[] = [];

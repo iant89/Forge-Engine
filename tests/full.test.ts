@@ -21,6 +21,7 @@ export const linkedSuites = [
   ["tests/scripting/scriptTimers.test.ts", () => import("./scripting/scriptTimers.test.ts")],
   ["tests/scripting/scriptCoroutines.test.ts", () => import("./scripting/scriptCoroutines.test.ts")],
   ["tests/scripting/scriptEvents.test.ts", () => import("./scripting/scriptEvents.test.ts")],
+  ["tests/scripting/scriptHotReload.test.ts", () => import("./scripting/scriptHotReload.test.ts")],
   ["tests/scene/coordinateSpaces.test.ts", () => import("./scene/coordinateSpaces.test.ts")],
   ["tests/scene/ecs.test.ts", () => import("./scene/ecs.test.ts")],
   ["tests/environment/environment.test.ts", () => import("./environment/environment.test.ts")],
@@ -100,6 +101,7 @@ export const linkedSuites = [
   ["tests/examples/buildInfo.test.ts", () => import("./examples/buildInfo.test.ts")],
   ["tests/examples/copyText.test.ts", () => import("./examples/copyText.test.ts")],
   ["tests/examples/debugPanel.test.ts", () => import("./examples/debugPanel.test.ts")],
+  ["tests/examples/beaconDefense.test.ts", () => import("./examples/beaconDefense.test.ts")],
   ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
@@ -111,4 +113,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(107);
+report(109);

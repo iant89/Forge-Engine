@@ -89,7 +89,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "15.5": "inProgress",
   "16": "inProgress",
   "17": "inProgress",
-  "18": "inProgress",
+  "18": "verified",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -924,11 +924,27 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "scripting.lifecycle",
     phase: "18.1",
-    status: "inProgress",
-    summary: "Gameplay script lifecycle, timers, coroutines, typed events and error isolation",
-    evidence: ["tests/scripting/scriptLifecycle.test.ts", "tests/scripting/scriptTimers.test.ts", "tests/scripting/scriptCoroutines.test.ts", "tests/scripting/scriptEvents.test.ts", "tests/engine/architecture.test.ts", "tools/lint-arch.mjs", "docs/SCRIPTING.md"],
-    closesWith: "18",
-    notes: "18.1 lifecycle and 18.5 error isolation landed: Script/ScriptComponent/ScriptRuntime run onCreate, onPreUpdate (band 0), onFixedUpdate (band 100, per fixed step), onUpdate (200), onLateUpdate (450) and onDestroy in creation order; a throwing hook is caught, its queued structural changes are discarded and the entities it created destroyed, and the script is faulted without stopping other scripts or systems. Scripts get copies of the clock's values and no GPU/render/solver handles (18.6 boundary enforced by lint:arch). 18.2 timers landed: `Script.after/every` on a deterministic fixed-step 'sim' clock (fires at the start of its step, due-tick then creation order, identical however frames split the steps) or a 'render' frame clock, owned by the script and isolated like hooks. 18.3 coroutines landed: generator bodies on the 'render' or 'sim' clock waiting on ticks, seconds, steps, frames, predicates or other coroutines, with pause/resume freezing the wait and cancel running finally blocks. 18.4 typed events landed: defineEvent tokens, world and per-entity channels, immediate emit and phase-queued post, isolated script handlers removed with their script, and a depth guard against event loops. Hot reload (18.7) is not built; an infinite loop in a hook still hangs the frame.",
+    status: "verified",
+    summary: "Gameplay script lifecycle, timers, coroutines, typed events, error isolation, API boundary and hot reload",
+    evidence: [
+      "tests/scripting/scriptLifecycle.test.ts",
+      "tests/scripting/scriptTimers.test.ts",
+      "tests/scripting/scriptCoroutines.test.ts",
+      "tests/scripting/scriptEvents.test.ts",
+      "tests/scripting/scriptHotReload.test.ts",
+      "tests/examples/beaconDefense.test.ts",
+      "tests/engine/architecture.test.ts",
+      "tools/lint-arch.mjs",
+      "docs/SCRIPTING.md",
+    ],
+    notes: "Phase 18 complete. Script/ScriptComponent/ScriptRuntime run onCreate, onPreUpdate (band 0), onFixedUpdate (band 100, per fixed step), onUpdate (200), onLateUpdate (450) and onDestroy in creation order; 'sim' (fixed-step, deterministic) and 'render' timers and coroutines; typed world/entity events (emit now, post to the next phase); every hook, timer, coroutine step and handler isolated (queued structural changes rolled back, script faulted, clock untouched); ScriptWorld/ScriptEntity types as the API boundary (pinned at compile time); in-place hot reload keeping data and order. Exit criterion: Beacon Defense (?scene=scripting), a whole game built only from scripts, plays, restarts, replays identically across frame splits and hot-reloads.",
+  },
+  {
+    id: "scripting.hookPreemption",
+    phase: "18.5",
+    status: "deferred",
+    summary: "Interrupting a script hook that never returns",
+    notes: "JavaScript cannot interrupt synchronous work: error isolation catches throws, not infinite loops. No roadmap item schedules preemption (it would need scripts off the main thread).",
   },
   {
     id: "serialization.scene",

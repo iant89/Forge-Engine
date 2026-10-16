@@ -167,8 +167,9 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Deterministic (fixed-step) and render-rate script timers (Phase 18.2)
 - [x] Coroutines with pause/resume and cancellation, on the render or fixed-step clock (Phase 18.3)
 - [x] Typed events: world and per-entity channels, immediate or queued to the next phase (Phase 18.4)
-- [ ] Public-API boundary for scripts _(partial: the script context and the scripting module's imports are limited, but components on an entity are still reachable)_ (Phase 18.6)
-- [ ] Script reload during development (Phase 18.7)
+- [x] Public-API boundary for scripts: `ScriptWorld`/`ScriptEntity` expose entities and components, not systems, disposal or engine internals (Phase 18.6)
+- [x] Exit criterion: Beacon Defense (`?scene=scripting`), a whole game written only as scripts (Phase 18)
+- [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
 - [ ] Versioned save format with migrations for entities, components and terrain settings _(only scene settings serialize today)_ (Phase 19.1–19.2)
 - [ ] Simulation snapshots: physics, vehicle, weather and RNG state (Phase 19.3)
 - [ ] Input recording, deterministic playback and state hashing (Phase 19.4)
@@ -214,6 +215,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [x] **Skinned Arm** (`?scene=skinning`): GPU-skinned demo
 - [x] **PBR Showcase** (`?scene=pbr`): material grid with bloom, shadows and cascade toggles
 - [x] **Cubes** (`?scene=cubes`): the Phase 1 basic scene
+- [x] **Beacon Defense** (`?scene=scripting`): a small game built entirely from Phase 18 scripts
 
 ## Road to 1.0 (Phases 23, 27–29)
 

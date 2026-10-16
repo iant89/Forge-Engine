@@ -27,7 +27,9 @@
  * (Phase 18.6): scripts act on the world through entities and components.
  */
 
-import type { Entity, EntityWorld } from "../scene/world.js";
+import type { Entity, TransformHandle } from "../scene/world.js";
+import type { Component } from "../scene/components.js";
+import type { Vec3 } from "../math/vec.js";
 import type { EntityId } from "../scene/entityId.js";
 import type { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
@@ -36,12 +38,13 @@ import type { CoroutineBody, CoroutineHandle, CoroutineOptions } from "./corouti
 import type { EventListenOptions, EventSendOptions, EventType, ScriptEventHandler } from "./events.js";
 import type { Disposable } from "../core/events.js";
 
-/** Script hook names, in the order a script first meets them. */
 /**
- * `timer` is a timer callback (18.2), `coroutine` a coroutine step (18.3) and `event` an event
- * handler (18.4); all are isolated and counted like hooks.
+ * What a script's code was running when something happened (error records use it): the hook names,
+ * plus `timer` for a timer callback (18.2), `coroutine` a coroutine step (18.3), `event` an event
+ * handler (18.4) and `reload` a hot-reload hook or constructor (18.7); all are isolated and counted
+ * like hooks.
  */
-export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "event" | "destroy";
+export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "event" | "reload" | "destroy";
 
 /**
  * Where a script is in its life:
@@ -81,10 +84,64 @@ export interface ScriptHost {
   _send(script: Script, type: EventType<unknown>, payload: unknown, options: EventSendOptions | undefined, queued: boolean): void;
 }
 
+type ComponentClass<T extends Component> = new (...args: never[]) => T;
+
+/**
+ * The entity as a script sees it (Phase 18.6): its components and transform, and nothing that leads
+ * back to the world's internals — `Entity.world` is deliberately absent.
+ */
+export interface ScriptEntity {
+  readonly id: EntityId;
+  name: string;
+  readonly isValid: boolean;
+  add<T extends Component>(component: T): T;
+  remove<T extends Component>(ctor: ComponentClass<T>): boolean;
+  get<T extends Component>(ctor: ComponentClass<T>): T | undefined;
+  require<T extends Component>(ctor: ComponentClass<T>): T;
+  has<T extends Component>(ctor: ComponentClass<T>): boolean;
+  readonly components: Component[];
+  readonly componentTypes: string[];
+  readonly transform: TransformHandle;
+  setPosition(x: number, y: number, z: number): ScriptEntity;
+  getPosition(out?: Vec3): Vec3;
+  destroy(): void;
+}
+
+/** A read-only view of one component type's live instances. */
+export interface ScriptComponentView<T> {
+  readonly count: number;
+  valueAt(index: number): T;
+  liveValues(): T[];
+}
+
+/**
+ * The world as a script sees it (Phase 18.6): entities and components — create, find, read, change,
+ * destroy. Not here: registering or running systems, disposing the world, the structural journal,
+ * raw transform/component storage or the GPU. Host code that needs those holds the real
+ * `EntityWorld` (`runtime.world`); that is the documented low-level path.
+ */
+export interface ScriptWorld {
+  readonly liveEntityCount: number;
+  exists(id: EntityId): boolean;
+  createEntity(name?: string): ScriptEntity;
+  destroyEntity(id: EntityId): boolean;
+  facade(id: EntityId): ScriptEntity | null;
+  name(id: EntityId): string;
+  findByName(name: string): EntityId[];
+  liveEntityIds(): EntityId[];
+  addComponent<T extends Component>(id: EntityId, component: T): T;
+  removeComponent<T extends Component>(id: EntityId, ctor: ComponentClass<T>): boolean;
+  getComponent<T extends Component>(id: EntityId, ctor: ComponentClass<T>): T | undefined;
+  hasComponent<T extends Component>(id: EntityId, ctor: ComponentClass<T>): boolean;
+  /** Every live component of one type (iterate to find targets, pickups, …). */
+  store<T extends Component>(ctor: ComponentClass<T>): ScriptComponentView<T>;
+  worldPosition(id: EntityId, out?: Vec3): Vec3;
+}
+
 export interface ScriptContext {
   /** The entity the script is attached to. */
-  readonly entity: Entity;
-  readonly world: EntityWorld;
+  readonly entity: ScriptEntity;
+  readonly world: ScriptWorld;
   readonly time: ScriptTime;
   /** The runtime's `scripts` logger. */
   readonly logger: Logger;
@@ -119,13 +176,24 @@ export abstract class Script {
   onUpdate?(context: ScriptContext): void;
   onLateUpdate?(context: ScriptContext): void;
   onDestroy?(context: ScriptContext): void;
+  /**
+   * Hot reload (Phase 18.7): called on the *old* instance just before it is replaced, after its
+   * timers, coroutines and event listeners were cancelled. Not called for scripts never created.
+   */
+  onUnload?(context: ScriptContext): void;
+  /**
+   * Hot reload (Phase 18.7): called on the *new* instance in place of onCreate, with the instance it
+   * replaces (its data fields are already copied over). Re-register timers, coroutines and event
+   * listeners here. Without it the new instance's onCreate runs instead.
+   */
+  onReload?(context: ScriptContext, previous: Script): void;
 
   get state(): ScriptState {
     return this._state;
   }
 
   /** The entity this script is attached to (null before attach and after destroy). */
-  get entity(): Entity | null {
+  get entity(): ScriptEntity | null {
     return this._entity;
   }
 

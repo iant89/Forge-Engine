@@ -38,8 +38,13 @@ export class Transform extends Component {
 
   override onAttach(world: EntityWorld): void {
     this.world = world;
+    // An entity that already has a transform slot (posed through the world before this component
+    // arrived) keeps that pose: read it into the component. A fresh slot takes the component's own
+    // pose instead — set before attach, as it is when the add was queued inside a system or script.
+    const existed = world.hasTransform(this.entity);
     this.slot = world.transformSlot(this.entity, true);
-    world.transforms.writeTRS(this.slot, this as unknown as never);
+    if (existed) world.transforms.writeTRS(this.slot, this as unknown as never);
+    else world.transforms.setLocalTRS(this.slot, this.position, this.rotation, this.scale);
   }
 
   override onDetach(): void {
