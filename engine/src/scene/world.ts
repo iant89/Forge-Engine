@@ -624,6 +624,21 @@ export class EntityWorld {
     if (this.journalDepth === 0) this.flushJournal();
   }
 
+  /**
+   * @internal Apply the queued structural ops now, even inside a running system (which otherwise
+   * re-queues them until it returns). The script runtime calls this between fixed steps so each step
+   * sees the previous step's changes however many steps the frame runs.
+   */
+  _applyQueuedStructural(): void {
+    const depth = this.journalDepth;
+    this.journalDepth = 0;
+    try {
+      this.flushJournal();
+    } finally {
+      this.journalDepth = depth;
+    }
+  }
+
   flushJournal(): void {
     if (this.journal.length === 0 || this.disposed) return;
     const ops = this.journal.splice(0, this.journal.length);
