@@ -20,6 +20,7 @@ export const linkedSuites = [
   ["tests/scripting/scriptLifecycle.test.ts", () => import("./scripting/scriptLifecycle.test.ts")],
   ["tests/scripting/scriptTimers.test.ts", () => import("./scripting/scriptTimers.test.ts")],
   ["tests/scripting/scriptCoroutines.test.ts", () => import("./scripting/scriptCoroutines.test.ts")],
+  ["tests/scripting/scriptEvents.test.ts", () => import("./scripting/scriptEvents.test.ts")],
   ["tests/scene/coordinateSpaces.test.ts", () => import("./scene/coordinateSpaces.test.ts")],
   ["tests/scene/ecs.test.ts", () => import("./scene/ecs.test.ts")],
   ["tests/environment/environment.test.ts", () => import("./environment/environment.test.ts")],
@@ -110,4 +111,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(106);
+report(107);

@@ -33,13 +33,15 @@ import type { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
 import type { TimerCallback, TimerHandle, TimerOptions } from "./timers.js";
 import type { CoroutineBody, CoroutineHandle, CoroutineOptions } from "./coroutines.js";
+import type { EventListenOptions, EventSendOptions, EventType, ScriptEventHandler } from "./events.js";
+import type { Disposable } from "../core/events.js";
 
 /** Script hook names, in the order a script first meets them. */
 /**
- * `timer` is a timer callback (18.2) and `coroutine` a coroutine step (18.3); both are isolated and
- * counted like hooks.
+ * `timer` is a timer callback (18.2), `coroutine` a coroutine step (18.3) and `event` an event
+ * handler (18.4); all are isolated and counted like hooks.
  */
-export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "destroy";
+export type ScriptPhase = "create" | "preUpdate" | "fixedUpdate" | "update" | "lateUpdate" | "timer" | "coroutine" | "event" | "destroy";
 
 /**
  * Where a script is in its life:
@@ -75,6 +77,8 @@ export interface ScriptHost {
   _cancelTimers(script: Script): void;
   _startCoroutine(script: Script, body: CoroutineBody, options: CoroutineOptions | undefined): CoroutineHandle;
   _stopCoroutines(script: Script): void;
+  _subscribe(script: Script, type: EventType<unknown>, handler: ScriptEventHandler<unknown>, options: EventListenOptions | undefined): Disposable;
+  _send(script: Script, type: EventType<unknown>, payload: unknown, options: EventSendOptions | undefined, queued: boolean): void;
 }
 
 export interface ScriptContext {
@@ -106,6 +110,8 @@ export abstract class Script {
   readonly _timers: TimerHandle[] = [];
   /** @internal Running or paused coroutines this script owns. */
   readonly _coroutines: CoroutineHandle[] = [];
+  /** @internal Event subscriptions this script owns. */
+  readonly _subscriptions: Disposable[] = [];
 
   onCreate?(context: ScriptContext): void;
   onPreUpdate?(context: ScriptContext): void;
@@ -175,8 +181,27 @@ export abstract class Script {
     return this._coroutines;
   }
 
+  /**
+   * Listen for a typed event (Phase 18.4) on the world channel, or on an entity's with
+   * `{ entity }`. The handler runs with hook isolation while this script is active and enabled, and
+   * is removed when the script is destroyed or faulted (or when the returned handle is disposed).
+   */
+  on<T>(type: EventType<T>, handler: ScriptEventHandler<T>, options?: EventListenOptions): Disposable {
+    return this.host()._subscribe(this, type as EventType<unknown>, handler as ScriptEventHandler<unknown>, options);
+  }
+
+  /** Deliver an event now (world channel, or `{ to: entity }`). */
+  emit<T>(type: EventType<T>, payload: T, options?: EventSendOptions): void {
+    this.host()._send(this, type as EventType<unknown>, payload, options, false);
+  }
+
+  /** Queue an event for the start of the next script phase. */
+  post<T>(type: EventType<T>, payload: T, options?: EventSendOptions): void {
+    this.host()._send(this, type as EventType<unknown>, payload, options, true);
+  }
+
   private host(): ScriptHost {
-    if (!this._host) throw new UsageError(`${this.scriptName}: timers and coroutines need the script attached to a world with a ScriptRuntime`);
+    if (!this._host) throw new UsageError(`${this.scriptName}: timers, coroutines and events need the script attached to a world with a ScriptRuntime`);
     return this._host;
   }
 

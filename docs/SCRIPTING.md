@@ -1,8 +1,8 @@
 # Scripting (Phase 18)
 
 Gameplay code as scripts on entities: `engine/src/scripting/`. As built so far: **18.1 lifecycle**,
-**18.2 timers**, **18.3 coroutines** and **18.5 error isolation**. Typed events (18.4) and hot reload
-(18.7) are not built yet. The 18.6 API boundary is partly enforced (below).
+**18.2 timers**, **18.3 coroutines**, **18.4 typed events** and **18.5 error isolation**. Hot reload
+(18.7) is not built yet. The 18.6 API boundary is partly enforced (below).
 
 ## Using it
 
@@ -155,6 +155,50 @@ script. It returns a handle with `pause()`, `resume()`, `cancel()`, `state` (`ru
   a bad yield fails the coroutine, still runs its `finally` blocks, rolls back the step's structural
   changes, and counts as its script's error (phase `"coroutine"`, toward `faultAfter`).
   `runtime.stats()` counts active, completed, cancelled and failed coroutines.
+
+## Typed events (18.4)
+
+```ts
+import { defineEvent, type EntityId } from "@forge/engine";
+
+export const Damaged = defineEvent<{ amount: number; from: EntityId }>("Damaged");
+
+class Health extends Script {
+  hp = 100;
+  override onCreate(): void {
+    this.on(Damaged, (e) => (this.hp -= e.amount), { entity: this.entity! }); // hits on me only
+  }
+}
+class Turret extends Script {
+  shoot(target: Entity): void {
+    this.emit(Damaged, { amount: 10, from: this.entityId! }, { to: target });
+  }
+}
+```
+
+- **Typed tokens.** `defineEvent<T>(name)` returns a token that carries the payload type, so emitters
+  and listeners in different modules agree without a shared global type. Two definitions are two
+  different events, even with the same name.
+- **Channels.** An event goes to the world channel, or with `{ to: entity }` to that entity's
+  channel. `this.on(type, handler, { entity })` listens on an entity's channel; without it, on the
+  world channel. A targeted event reaches only that entity's listeners.
+- **`emit` delivers now**, synchronously, in subscription order. **`post` queues the event.** Queued
+  events are delivered first in, first out, at the start of the next script phase (pre, each fixed
+  step, update or late), before that phase's timers, coroutines and hooks. An event posted while the
+  queue is being delivered waits for the phase after that.
+- **Script listeners are isolated like hooks** (phase `"event"`). A throw is recorded, rolls back
+  the handler's structural changes and counts toward `faultAfter`. The emitter and the other
+  listeners are unaffected. A listener hears events only while its script is active and enabled; an
+  event arriving otherwise is not kept for it. Its listeners are removed when the script is destroyed
+  or faulted, and an entity's channel goes away with the entity. `{ once: true }` and disposing the
+  returned handle also unsubscribe.
+- **Re-entrancy.** Handlers may emit, subscribe and unsubscribe. A listener added during a dispatch
+  first hears the next one, and removing a listener never skips a sibling. A nested `emit` deeper
+  than `maxEventDepth` (option, default 16) is refused with a recorded usage error, so an event loop
+  stops instead of recursing.
+- **Host code** uses `runtime.events.on/emit/post/listenerCount`. Host listeners are plain callbacks:
+  their errors are caught and recorded as script `"host"`. `runtime.stats()` counts deliveries and
+  queued events.
 
 ## Error isolation (18.5)
 
