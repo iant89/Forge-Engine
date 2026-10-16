@@ -822,6 +822,13 @@ below are the suite's own fixtures; a bold figure is what the live code measured
   `cloudSunVisibility`, and the sky pass derives the deck's footprint as its first statement. The
   binding contract (group 0 / binding 11 in every material variant) is asserted by
   `tests/rendering/frame.test.ts`.
+* **The GPU noise hash is exact.** No shipped GPU noise (`WGSL_CLOUD`, the standard fragment's
+  surface-weather noise, the water, the sky) hashes with `fract(sin(…))`; the cloud, surface and water
+  hashes all call `latticeHash`, an integer hash of the lattice cell and the seed bits. Its CPU port is
+  spread over [0, 1) (16 bins within 15 % over a 128×128 grid) and stable at far cells. The case it
+  replaced is pinned too: at the deck's default seed one float32 step of the sine hash's argument moves
+  its value by more than 0.1 in **> 150 of 200** cells — what WebKit's fast-math Metal compile did per
+  pixel, drawing an overcast deck as static on iOS while every Chromium gate passed.
 
 ### `tests/rendering/wgsl.test.ts` — the layout rules browsers disagree on
 

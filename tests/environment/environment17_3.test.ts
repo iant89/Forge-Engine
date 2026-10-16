@@ -75,6 +75,7 @@ import {
   createBox,
   defaultCloudDeckParams,
   meanCloudDensity,
+  WGSL_CLOUD,
 } from "@forge/engine";
 
 /** The deck the phase's numbers were measured on: the scene defaults with a real cover. */
@@ -478,6 +479,61 @@ group("the deck's GPU contract", () => {
     await device.dispose();
     assert.deepEqual(mock.outstanding.buffers, []);
     assert.deepEqual(mock.outstanding.textures, []);
+  });
+});
+
+group("the GPU noise lattice hash (iOS overcast static)", () => {
+  // CPU port of WGSL_CLOUD's latticeHash, u32 arithmetic via Math.imul / >>> 0.
+  const latticeHash = (x: number, y: number, seed: number): number => {
+    let h = (Math.imul(x | 0, 0x8da6b343) ^ Math.imul(y | 0, 0xd8163841) ^ Math.imul(seed >>> 0, 0xcb1ab31f)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x7feb352d) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x846ca68b) >>> 0;
+    h = (h ^ (h >>> 16)) >>> 0;
+    return (h >>> 8) / 16777216;
+  };
+  const f32Bits = (v: number): number => new Uint32Array(new Float32Array([v]).buffer)[0]!;
+
+  test("no shipped GPU noise uses the sine hash, and every caller goes through latticeHash", () => {
+    for (const [name, src] of [["WGSL_CLOUD", WGSL_CLOUD], ["STANDARD_FRAGMENT_BODY", STANDARD_FRAGMENT_BODY], ["WATER_SHADER", WATER_SHADER], ["SKY_SHADER", SKY_SHADER]] as const) {
+      const code = src.replace(/\/\/.*$/gm, ""); // comments may quote the old hash
+      assert.ok(!/fract\(\s*sin\(/.test(code), `${name} still hashes with fract(sin(...))`);
+    }
+    assertContains(WGSL_CLOUD, "fn latticeHash(p: vec2<f32>, seed: u32) -> f32");
+    assertContains(WGSL_CLOUD, "return latticeHash(p, bitcast<u32>(seed));");
+    assertContains(STANDARD_FRAGMENT_BODY, "return latticeHash(p, 0x5317u);");
+    assertContains(WATER_SHADER, "return latticeHash(p, 0x7a7eu);");
+  });
+
+  test("the sine hash it replaced turns one float32 step of its argument into a different value", () => {
+    // What a reassociating / approximating compiler (Metal under WebKit's fast math) can do to h:
+    // at the deck's default seed h ≈ 7.3e4, where one f32 step is ~0.0078 and ×43758 makes it ~340.
+    const sineHash = (h: number): number => { const v = Math.sin(h) * 43758.5453123; return v - Math.floor(v); };
+    let jumps = 0;
+    for (let i = 0; i < 200; i++) {
+      const h = Math.fround(127.1 * i + 311.7 * (i % 7) + 4242 * 17.13);
+      const next = new Float32Array(new Uint32Array([f32Bits(h) + 1]).buffer)[0]!;
+      if (Math.abs(sineHash(next) - sineHash(h)) > 0.1) jumps++;
+    }
+    assert.ok(jumps > 150, `one ulp moved the sine hash by > 0.1 in only ${jumps}/200 cells`);
+  });
+
+  test("latticeHash is a pure function of the integer cell and the seed bits, spread over [0, 1)", () => {
+    const seed = f32Bits(4242);
+    const bins = new Array<number>(16).fill(0);
+    let n = 0;
+    for (let y = -64; y < 64; y++) {
+      for (let x = -64; x < 64; x++) {
+        const v = latticeHash(x, y, seed);
+        assert.ok(v >= 0 && v < 1);
+        bins[Math.floor(v * 16)]!++;
+        n++;
+      }
+    }
+    for (const b of bins) assert.ok(Math.abs(b - n / 16) < (n / 16) * 0.15, `bin ${b} vs ${n / 16}`);
+    // Neighbouring cells, seeds and far cells (a deck seen near the horizon) stay distinct.
+    assert.notEqual(latticeHash(10, 20, seed), latticeHash(11, 20, seed));
+    assert.notEqual(latticeHash(10, 20, seed), latticeHash(10, 20, f32Bits(4243)));
+    assert.equal(latticeHash(-240000, 180000, seed), latticeHash(-240000, 180000, seed));
   });
 });
 

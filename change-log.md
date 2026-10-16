@@ -20059,6 +20059,90 @@ JSON array below; agents maintain it by hand until then.
       "tests/tools/selrun.test.ts"
     ],
     "note": "Backfilled after the merge: the entry was missed before merging."
+  },
+  {
+    "id": "1583",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Backfilled pr-merge entries for #115-#118.",
+    "why": "AGENTS.md wants one per merged PR; these were missed."
+  },
+  {
+    "id": "1584",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/cloudLayer.ts",
+    "what": "Replace the sine cloud hash with latticeHash, an exact integer hash of the lattice cell and the seed bits.",
+    "why": "iOS Safari drew the overcast deck as per-pixel static: fract(sin(h)*43758.5453) at h ~ 7e4 amplifies one f32 step of h into a different value, and WebKit's fast-math Metal compile does not keep h bit-identical across a cell."
+  },
+  {
+    "id": "1585",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/standard.ts",
+    "what": "swHash (surface-weather noise) calls latticeHash.",
+    "why": "Same non-portable sine hash; overcast's damp ground runs it."
+  },
+  {
+    "id": "1586",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/rendering/shaders/water.ts",
+    "what": "waterHash calls latticeHash.",
+    "why": "Same non-portable sine hash."
+  },
+  {
+    "id": "1587",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/environment/environment17_3.test.ts",
+    "what": "New group: no GPU shader hashes with fract(sin()), every caller goes through latticeHash, its CPU port is uniform, and the old hash's one-ulp sensitivity is pinned.",
+    "why": "Regression guard for the iOS static."
+  },
+  {
+    "id": "1588",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the new hash group.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1589",
+    "date": "2026-10-16T18:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/offroad-overcast-fix",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Note on the sine hash on Apple GPUs and WGSL's mixed-operator rule.",
+    "why": "Session memory."
   }
 ]
 ```

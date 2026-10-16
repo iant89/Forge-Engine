@@ -2373,3 +2373,13 @@ Read the module constraints below before changing either pure model.
   `ScriptContext` leaked the entity from nested `emit`/`startCoroutine`; `invoke` restores it (#115).
   Determinism check pattern: same total steps with random 0–4 step frames vs 1-step frames
   (tests/examples/beaconDefense.test.ts). `tests/core/tasks.test.ts` worker-scope cases are flaky.
+
+- 2026-10-16 (iOS overcast static): **never hash GPU noise with `fract(sin(x) * 43758.5453)`.** On iOS
+  Safari the off-road overcast sky was per-pixel static while every Chromium gate was clean: the cloud
+  hash's argument sits near 7e4 (the seed term, 4242 × 17.13), one f32 step there moves the hash by
+  ~340 before `fract`, and WebKit compiles to Metal with fast math, so `h` is not bit-identical across
+  a cell. Fix: `latticeHash` (integer hash of the cell + seed bits) in `shaders/cloudLayer.ts`, used by
+  cloud, surface-weather and water noise. Also: WGSL rejects mixing `*` and `^` without parentheses
+  ("mixing '*' and '^' requires parenthesis") and `check:wgsl` does NOT catch it — compile new WGSL on a
+  real device (the gate, or `createShaderModule` + `getCompilationInfo` from a page on the Vite server).
+  The user's `?diag=1` panel (examples/src/diag/iosReport.ts) is how iOS reports reach us.
