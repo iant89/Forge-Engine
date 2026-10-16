@@ -2352,6 +2352,18 @@ Read the module constraints below before changing either pure model.
   gate hit it intermittently and fixed-dt Node runs did not. Reproduce with random frame dts; the
   guard is `w > 0 && total > w`. Pinned in tests/environment/snowMelt.test.ts.
 
+- 2026-10-16 (browser gate): **after any toggle that changes a pipeline key (HDR↔LDR colour format,
+  a debug shader variant), wait for `pipelinesPending === 0` before sampling.** Cache misses compile
+  with `createRenderPipelineAsync` and frames skip those draws meanwhile; locally 4 frames sufficed,
+  on CI's Chromium 131 + SwiftShader the LDR sample was the clear colour (mean 9.67, 1 colour). Also:
+  a whole-frame mean is the wrong A/B for small features — the weather night check (deck hides stars)
+  flipped on lake-glint noise until it counted star pixels in the sky band (tools/browser-check.mjs
+  `countStars`). The gate's luma is the canvas only; the HUD is DOM and never in it.
+  Same session: the thunder check counted `thunderCount` (storm strikes add to it) and the frozen
+  deck A/B caught the overcast preset's drizzle (precipitation 0.05) — hold every mover in an A/B.
+  Wait on `engine.clock.fixedTime`, not wall time, for simulated things to finish: a frame advances
+  the clock by ≤ maxDeltaTime (0.25 s), and SwiftShader frames can take seconds.
+
 - 2026-10-16 (Phase 18 close): **Beacon Defense found two engine bugs and a scripting one.** (1) A
   `FixedSystem` runs all of a frame's fixed steps inside one system update, so the structural journal
   only flushed after the last step: step N+1 did not see step N's creates/destroys, and results changed

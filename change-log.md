@@ -19431,6 +19431,90 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1537",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "LDR and cascade-tint toggles wait for pipelinesPending === 0 before sampling; the night deck check counts star pixels at full resolution instead of comparing whole-frame means.",
+    "why": "CI's advisory gate failed 'LDR path rendered a blank frame' (the swapchain-format pipelines were still compiling, so the frame was the clear colour) and the night check flipped between runs (lake glints outweigh the stars in a mean)."
+  },
+  {
+    "id": "1538",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the pipeline wait on the LDR check and the star-count night check.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1539",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries for claude/browser-gate-fixes.",
+    "why": "Activity history."
+  },
+  {
+    "id": "1540",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Note on async pipeline variants after a format/shader toggle, and on mean-based A/B checks.",
+    "why": "Session memory."
+  },
+  {
+    "id": "1541",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "Thunder check tracks only the triggered strike's queue entry; the frozen-deck stability A/B holds the overcast drizzle at zero and waits for falling drops to land.",
+    "why": "CI failed 'thunder was not delivered at its arrival time (early 1, heard 2)' from the storm's own strikes, and 'deck not temporally stable (4975 px)' from rain streaks moving between captures."
+  },
+  {
+    "id": "1542",
+    "date": "2026-10-16T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the thunder and frozen-deck checks as they now work.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1543",
+    "date": "2026-10-16T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The drizzle hold waits for 1.6 s of simulated clock (engine.clock.fixedTime) instead of 1.6 s of wall time.",
+    "why": "Drops age by fixed steps and SwiftShader frames advance the clock by at most 0.25 s each, so the wall-clock wait left the streaks in both captures."
+  },
+  {
+    "id": "1544",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19442,7 +19526,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.7 hot reload."
   },
   {
-    "id": "1538",
+    "id": "1545",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19454,7 +19538,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.7 script-facing API."
   },
   {
-    "id": "1539",
+    "id": "1546",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19466,7 +19550,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1540",
+    "id": "1547",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19478,7 +19562,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry tracks 18.7."
   },
   {
-    "id": "1541",
+    "id": "1548",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19490,7 +19574,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins in-place swap, data carry-over, old closures cancelled, hooks, failure modes, revival."
   },
   {
-    "id": "1542",
+    "id": "1549",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19502,7 +19586,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1543",
+    "id": "1550",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19514,7 +19598,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1544",
+    "id": "1551",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19526,7 +19610,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.7 docs."
   },
   {
-    "id": "1545",
+    "id": "1552",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19538,7 +19622,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.7 landed."
   },
   {
-    "id": "1546",
+    "id": "1553",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19550,7 +19634,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.7 landed."
   },
   {
-    "id": "1547",
+    "id": "1554",
     "date": "2026-10-16T00:24:31Z",
     "type": "change",
     "pr": null,
@@ -19562,7 +19646,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep in step with ROADMAP."
   },
   {
-    "id": "1548",
+    "id": "1555",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19574,7 +19658,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Fixed steps inside one frame did not see the previous step's structural changes, so a game's outcome depended on how frames split the steps."
   },
   {
-    "id": "1549",
+    "id": "1556",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19586,7 +19670,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Same fixed steps now give the same world regardless of frame splits (Beacon Defense determinism)."
   },
   {
-    "id": "1550",
+    "id": "1557",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19598,7 +19682,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "A Transform posed then added inside a script hook was reset to identity when the queued attach landed."
   },
   {
-    "id": "1551",
+    "id": "1558",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19610,7 +19694,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.6: scripts see a curated world surface, pinned at compile time."
   },
   {
-    "id": "1552",
+    "id": "1559",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19622,7 +19706,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API for script authors."
   },
   {
-    "id": "1553",
+    "id": "1560",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19634,7 +19718,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18 exit criterion."
   },
   {
-    "id": "1554",
+    "id": "1561",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19646,7 +19730,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Hosts Beacon Defense in the demo."
   },
   {
-    "id": "1555",
+    "id": "1562",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19658,7 +19742,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Scene selection for the demo."
   },
   {
-    "id": "1556",
+    "id": "1563",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19670,7 +19754,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demo wiring."
   },
   {
-    "id": "1557",
+    "id": "1564",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19682,7 +19766,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demo scene picker."
   },
   {
-    "id": "1558",
+    "id": "1565",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19694,7 +19778,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the exit criterion."
   },
   {
-    "id": "1559",
+    "id": "1566",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19706,7 +19790,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Guard the curated surface."
   },
   {
-    "id": "1560",
+    "id": "1567",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19718,7 +19802,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the journal fix."
   },
   {
-    "id": "1561",
+    "id": "1568",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19730,7 +19814,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Follow the narrowed context."
   },
   {
-    "id": "1562",
+    "id": "1569",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19742,7 +19826,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the onAttach fix."
   },
   {
-    "id": "1563",
+    "id": "1570",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19754,7 +19838,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1564",
+    "id": "1571",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19766,7 +19850,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1565",
+    "id": "1572",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19778,7 +19862,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Docs follow the code."
   },
   {
-    "id": "1566",
+    "id": "1573",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19790,7 +19874,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.6 landed."
   },
   {
-    "id": "1567",
+    "id": "1574",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19802,7 +19886,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18 complete."
   },
   {
-    "id": "1568",
+    "id": "1575",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19814,7 +19898,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry agrees with ROADMAP."
   },
   {
-    "id": "1569",
+    "id": "1576",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19826,7 +19910,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep in step with ROADMAP."
   },
   {
-    "id": "1570",
+    "id": "1577",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
@@ -19838,7 +19922,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1571",
+    "id": "1578",
     "date": "2026-10-16T12:00:00Z",
     "type": "change",
     "pr": null,
