@@ -19251,6 +19251,186 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1522",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/events.ts",
+    "what": "New: defineEvent tokens, EventRouter (channels, post queue, depth guard, deferred sweep), ScriptEvents host API.",
+    "why": "Phase 18.4 typed events."
+  },
+  {
+    "id": "1523",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/script.ts",
+    "what": "Script.on/emit/post; 'event' phase; ScriptHost gains _subscribe/_send.",
+    "why": "Phase 18.4 script-facing API."
+  },
+  {
+    "id": "1524",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/runtime.ts",
+    "what": "runtime.events; flush posted events at each phase start; isolated delivery; unsubscribe on destroy/fault; drop entity channels; event stats; maxEventDepth option.",
+    "why": "Phase 18.4 runtime."
+  },
+  {
+    "id": "1525",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/index.ts",
+    "what": "Export defineEvent and event types.",
+    "why": "Public API."
+  },
+  {
+    "id": "1526",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "scripting.lifecycle notes + events evidence.",
+    "why": "Registry tracks 18.4."
+  },
+  {
+    "id": "1527",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptEvents.test.ts",
+    "what": "New suite scripting:scriptEvents (9 cases).",
+    "why": "Pins channels, emit/post timing, re-entrancy, isolation, ownership, depth guard, host listeners."
+  },
+  {
+    "id": "1528",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link scripting:scriptEvents; report(107).",
+    "why": "New suite."
+  },
+  {
+    "id": "1529",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 107 suites / 821 claims.",
+    "why": "New suite."
+  },
+  {
+    "id": "1530",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/SCRIPTING.md",
+    "what": "Typed events section.",
+    "why": "Phase 18.4 docs."
+  },
+  {
+    "id": "1531",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Events no longer listed as missing.",
+    "why": "18.4 landed."
+  },
+  {
+    "id": "1532",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "18.4 item [x] with notes; state block line.",
+    "why": "18.4 landed."
+  },
+  {
+    "id": "1533",
+    "date": "2026-10-15T23:50:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Typed events done.",
+    "why": "Keep in step with ROADMAP."
+  },
+  {
+    "id": "1534",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/runtime.ts",
+    "what": "invoke() and startCoroutine restore the caller's ctx.entity after a nested call.",
+    "why": "The shared context kept the nested listener's entity after an emit: an emitter calling c.entity.destroy() destroyed the listener's entity (found by the Beacon Defense demo)."
+  },
+  {
+    "id": "1535",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptEvents.test.ts",
+    "what": "Regression case: the emitter's context is unchanged after emit.",
+    "why": "Failed before the fix."
+  },
+  {
+    "id": "1536",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptCoroutines.test.ts",
+    "what": "Read the resumed context during the call instead of keeping it.",
+    "why": "The test kept the context past the call, which the docs forbid; it relied on the leak."
+  },
+  {
+    "id": "1537",
     "date": "2026-10-16T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -19262,7 +19442,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "CI's advisory gate failed 'LDR path rendered a blank frame' (the swapchain-format pipelines were still compiling, so the frame was the clear colour) and the night check flipped between runs (lake glints outweigh the stars in a mean)."
   },
   {
-    "id": "1523",
+    "id": "1538",
     "date": "2026-10-16T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -19274,7 +19454,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the gate description truthful."
   },
   {
-    "id": "1524",
+    "id": "1539",
     "date": "2026-10-16T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -19286,7 +19466,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1525",
+    "id": "1540",
     "date": "2026-10-16T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -19298,7 +19478,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1526",
+    "id": "1541",
     "date": "2026-10-16T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -19310,7 +19490,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "CI failed 'thunder was not delivered at its arrival time (early 1, heard 2)' from the storm's own strikes, and 'deck not temporally stable (4975 px)' from rain streaks moving between captures."
   },
   {
-    "id": "1527",
+    "id": "1542",
     "date": "2026-10-16T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -19322,7 +19502,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the gate description truthful."
   },
   {
-    "id": "1528",
+    "id": "1543",
     "date": "2026-10-16T16:00:00Z",
     "type": "change",
     "pr": null,
