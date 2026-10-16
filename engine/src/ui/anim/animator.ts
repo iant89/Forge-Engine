@@ -173,8 +173,11 @@ export class UIAnimator {
   /** Animations started since creation (diagnostics). */
   started = 0;
 
+  /** Live (pending or running) animations; cancelled ones awaiting compaction are not counted. */
   get activeCount(): number {
-    return this.running.length;
+    let n = 0;
+    for (const h of this.running) if (h.active) n++;
+    return n;
   }
 
   /** Animate a numeric value; `apply` writes it. The low-level primitive everything else uses. */

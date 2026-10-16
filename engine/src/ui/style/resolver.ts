@@ -5,7 +5,7 @@
  *
  *  1. framework defaults (`DEFAULT_STYLE`)
  *  2. the active skin's component block for each name in the element's style chain, most generic
- *     first, each already flattened through the skin's `extends` chain (parent first)
+ *     first, each applied level by level through the skin's `extends` chain (parent skin first)
  *  3. the element's variant block, again for each chain name
  *  4. for each active state in fixed order (hovered, focused, pressed, selected, checked, expanded,
  *     invalid, loading, disabled, then custom states in definition order): the chain's base state
@@ -14,8 +14,8 @@
  *
  * Token references (`"$color.accent"`) resolve against the active theme (flattened through its own
  * `extends` chain). A missing token or an unparsable colour produces one diagnostic per
- * (skin, property, value) and the property keeps the value from the previous step — never an
- * unrelated style. Resolved styles are frozen and cached by
+ * (skin, property, value) and the property keeps the value from the previous step — the parent
+ * skin's value for the same component when there is one — never an unrelated style. Resolved styles are frozen and cached by
  * (style chain, variant, state set, skin epoch, theme epoch); elements with instance overrides are
  * resolved individually. Nothing is resolved per frame: only elements marked style-dirty are.
  */
@@ -40,6 +40,7 @@ export const DEFAULT_STYLE: ResolvedStyle = DETACHED_STYLE;
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export type DiagnosticSink = (level: "info" | "warn" | "error", message: string) => void;
 
+const NO_LEVELS: readonly ComponentSkin[] = Object.freeze([]);
 const insetsIntern = new Map<string, Readonly<UIInsets>>();
 const cornersIntern = new Map<string, Readonly<UICorners>>();
 
@@ -70,7 +71,13 @@ interface FlatTheme {
 
 interface FlatSkin {
   def: SkinDefinition;
+  /** Merged view per component (tooling). */
   components: Map<string, ComponentSkin>;
+  /**
+   * The component's blocks at each skin level, parent skin first. Resolution applies them in order,
+   * so a child value that fails to resolve (a missing token) leaves the parent skin's value in place.
+   */
+  levels: Map<string, ComponentSkin[]>;
 }
 
 /** Named application-defined visual states (bits after the built-ins). */
@@ -222,11 +229,17 @@ export class StyleResolver {
   setSkin(name: string): void {
     const chain = this.skinChain(name);
     const components = new Map<string, ComponentSkin>();
+    const levels = new Map<string, ComponentSkin[]>();
     for (const n of chain) {
       const comps = this.skins.get(n)!.components ?? {};
-      for (const [comp, block] of Object.entries(comps)) components.set(comp, mergeComponent(components.get(comp), block));
+      for (const [comp, block] of Object.entries(comps)) {
+        components.set(comp, mergeComponent(components.get(comp), block));
+        let list = levels.get(comp);
+        if (!list) levels.set(comp, (list = []));
+        list.push(block);
+      }
     }
-    this.flatSkin = { def: this.skins.get(name)!, components };
+    this.flatSkin = { def: this.skins.get(name)!, components, levels };
     this.activeSkin = name;
     this.invalidateAll();
   }
@@ -267,18 +280,18 @@ export class StyleResolver {
     const skin = this.flatSkin;
     const where = el.typeName;
     if (skin) {
-      for (const name of chain) {
-        const block = skin.components.get(name);
-        if (block) this.apply(draft, block, `${name}`);
-      }
+      const levelsOf = (name: string): readonly ComponentSkin[] => skin.levels.get(name) ?? NO_LEVELS;
+      for (const name of chain) for (const block of levelsOf(name)) this.apply(draft, block, name);
       const variant = el.variant;
       if (variant) {
         let found = false;
         for (const name of chain) {
-          const v = skin.components.get(name)?.variants?.[variant];
-          if (v) {
-            found = true;
-            this.apply(draft, v, `${name}.variants.${variant}`);
+          for (const block of levelsOf(name)) {
+            const v = block.variants?.[variant];
+            if (v) {
+              found = true;
+              this.apply(draft, v, `${name}.variants.${variant}`);
+            }
           }
         }
         if (!found) this.report(`variant:${chain.join(">")}:${variant}`, "warn", `skin "${this.activeSkin}" has no variant "${variant}" for ${where}`);
@@ -288,13 +301,17 @@ export class StyleResolver {
         for (const s of this.states.ordered) {
           if ((state & s.bit) === 0) continue;
           for (const name of chain) {
-            const b = skin.components.get(name)?.states?.[s.name];
-            if (b) this.apply(draft, b, `${name}.states.${s.name}`);
+            for (const block of levelsOf(name)) {
+              const b = block.states?.[s.name];
+              if (b) this.apply(draft, b, `${name}.states.${s.name}`);
+            }
           }
           if (variant) {
             for (const name of chain) {
-              const b = skin.components.get(name)?.variants?.[variant]?.states?.[s.name];
-              if (b) this.apply(draft, b, `${name}.variants.${variant}.states.${s.name}`);
+              for (const block of levelsOf(name)) {
+                const b = block.variants?.[variant]?.states?.[s.name];
+                if (b) this.apply(draft, b, `${name}.variants.${variant}.states.${s.name}`);
+              }
             }
           }
         }

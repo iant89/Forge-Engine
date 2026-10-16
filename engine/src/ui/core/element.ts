@@ -37,6 +37,7 @@ import {
   type LayoutStrategy,
 } from "../layout/types.js";
 import { arrangeAbsoluteChild } from "../layout/anchor.js";
+import { StackLayout } from "../layout/stack.js";
 import { dispatchUIEvent, listenerHandle, type ListenerRecord, type UIEvent, type UIEventListener, type UIEventMap } from "../input/events.js";
 import type { ResolvedStyle, StyleBlock } from "../style/types.js";
 import { UIState } from "../style/types.js";
@@ -54,6 +55,8 @@ export interface AccessibilityInfo {
 }
 
 let nextUid = 1;
+/** Stateless: shared by every element without a layout strategy. */
+const DEFAULT_STACK = new StackLayout();
 
 /** Process-wide layout work counters (the manager reports per-frame deltas). */
 export const LAYOUT_COUNTERS = { measures: 0, arranges: 0 };
@@ -198,6 +201,11 @@ export abstract class UIElement implements LayoutNode {
     return this._typeName ?? (this.constructor as typeof UIElement).styleName;
   }
   /** @internal */ _typeName: string | null = null;
+
+  /** `console.log`/assertion output: the debug name, not the whole (cyclic) element graph. */
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return `<${this.debugName}>`;
+  }
 
   get debugName(): string {
     return `${this.typeName}${this.id ? `#${this.id}` : this.name ? `(${this.name})` : ""}[${this.uid}]`;
@@ -740,17 +748,30 @@ export abstract class UIElement implements LayoutNode {
     return Number.isNaN(max) ? available : Math.min(max, available);
   }
 
-  /** Leaf content size (text, images, composite parts). Containers use their strategy instead. */
-  protected measureContent(_availableWidth: number, _availableHeight: number, _ctx: LayoutContext): { width: number; height: number } {
-    return { width: 0, height: 0 };
+  /**
+   * Content size without a layout strategy: leaves override this (text, images, composite parts);
+   * the default is the stack rule (`StackLayout`'s stretch alignment) — content as large as the
+   * largest flow child's margin box.
+   */
+  protected measureContent(availableWidth: number, availableHeight: number, ctx: LayoutContext): { width: number; height: number } {
+    return DEFAULT_STACK.measureContent(this, availableWidth, availableHeight, ctx);
   }
 
   /** Place this element; re-arranges children only when the rect or their layout changed. */
   arrange(rect: UIRect, ctx: LayoutContext): void {
     const changed = !this._lastArranged.equals(rect);
     if (!changed && !this._arrangeDirty && !this._subtreeDirty) return;
+    const full = changed || this._arrangeDirty;
     this.bounds.copy(rect);
-    if (changed || this._arrangeDirty) {
+    // Clear before doing the work: anything that invalidates *during* this arrangement (a child, an
+    // onArranged hook) must stay dirty so the manager runs another pass — or reports that the
+    // layout does not converge — instead of the flag being silently overwritten afterwards.
+    this._arrangeDirty = false;
+    this._subtreeDirty = false;
+    // A fixed-size element re-arranged in place keeps its (fixed) measurement; anything else keeps the
+    // flag until its parent measures it again.
+    if (this.isLayoutBoundary) this._measureDirty = false;
+    if (full) {
       this._arrangeCount++;
       LAYOUT_COUNTERS.arranges++;
       this._lastArranged.copy(rect);
@@ -766,20 +787,14 @@ export abstract class UIElement implements LayoutNode {
       // Only something inside changed: re-run children at their current rects.
       for (const c of this._children) if (c._visible && c.layoutDirty) c.arrange(c._lastArranged.isValid ? c._lastArranged : c.bounds, ctx);
     }
-    this._arrangeDirty = false;
-    this._subtreeDirty = false;
-    // A fixed-size element re-arranged in place keeps its (fixed) measurement; anything else keeps the
-    // flag until its parent measures it again.
-    if (this.isLayoutBoundary) this._measureDirty = false;
   }
 
-  /** Leaf arrangement hook (place internal parts). Default: stack children over the content box. */
+  /**
+   * Leaf arrangement hook (place internal parts). Default: the stack rule — each flow child over the
+   * content box, stretched on axes it leaves `auto`, at its own size on axes it fixes.
+   */
   protected arrangeContent(content: UIRect, ctx: LayoutContext): void {
-    for (const c of this._children) {
-      if (!c.isFlowChild) continue;
-      c.measure(content.width, content.height, ctx);
-      c.arrange(content, ctx);
-    }
+    DEFAULT_STACK.arrangeContent(this, content, ctx);
   }
 
   /** After arrangement (scroll extents, virtualization windows). */

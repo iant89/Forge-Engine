@@ -222,7 +222,8 @@ export class VirtualizedList<T = unknown> extends VirtualizedBase<T> {
 
   protected range(_w: number, top: number, bottom: number): [number, number] {
     const stride = this.itemExtent + this.gap;
-    return [Math.max(0, Math.floor(top / stride)), Math.min(this.itemsList.length - 1, Math.ceil(bottom / stride))];
+    // `bottom` is exclusive: the last row is the one containing the pixel just above it.
+    return [Math.max(0, Math.floor(top / stride)), Math.min(this.itemsList.length - 1, Math.ceil(bottom / stride) - 1)];
   }
 
   protected itemRect(index: number, width: number, out: UIRect): UIRect {
@@ -262,7 +263,7 @@ export class VirtualizedGrid<T = unknown> extends VirtualizedBase<T> {
     const cols = this.columnsFor(width);
     const stride = this.cellHeight + this.gap;
     const r0 = Math.max(0, Math.floor(top / stride));
-    const r1 = Math.ceil(bottom / stride);
+    const r1 = Math.ceil(bottom / stride) - 1; // `bottom` is exclusive
     return [r0 * cols, Math.min(this.itemsList.length - 1, (r1 + 1) * cols - 1)];
   }
 
@@ -393,7 +394,7 @@ export class ListBox extends UIControl {
       const next = this.nextEnabled(this._active, e.direction === "down" ? 1 : -1);
       if (next === this._active || next < 0) return;
       e.preventDefault();
-      this.moveActive(next, false);
+      this.moveActive(next, e.modifiers.shift);
     });
     this.on("keydown", (e: UIKeyEvent) => this.onKey(e));
   }

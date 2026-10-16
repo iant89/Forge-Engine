@@ -266,7 +266,11 @@ export class InputRouter {
     // The light-dismiss hook may have closed what was under the pointer.
     if (hit && !this.live(hit)) hit = this.hit(x, y);
     this.updateHover(hit, p);
-    if (!hit) return this.record("pointerdown", null, false);
+    if (!hit) {
+      // A press on the world (no UI under the pointer) takes keyboard focus away from the UI.
+      this.host.focus.blur();
+      return this.record("pointerdown", null, false);
+    }
     p.pressed = true;
     if (!hit.effectivelyEnabled) {
       // Blocks click-through; delivers nothing.
@@ -409,7 +413,7 @@ export class InputRouter {
     if (ev.defaultPrevented) return this.record(`keydown ${key}`, target, true);
     switch (key) {
       case "Tab":
-        this.navigate(mods.shift ? "previous" : "next", "keyboard");
+        this.navigate(mods.shift ? "previous" : "next", "keyboard", mods);
         return this.record(`keydown ${key}`, target, true);
       case "ArrowUp":
       case "ArrowDown":
@@ -418,7 +422,7 @@ export class InputRouter {
         const dir = key === "ArrowUp" ? "up" : key === "ArrowDown" ? "down" : key === "ArrowLeft" ? "left" : "right";
         // Arrows only belong to the UI when something in it has focus.
         if (!focusedBefore && !this.host.topModal) return this.record(`keydown ${key}`, target, false);
-        this.navigate(dir, "keyboard");
+        this.navigate(dir, "keyboard", mods);
         return this.record(`keydown ${key}`, target, true);
       }
       case "Enter":
@@ -447,9 +451,9 @@ export class InputRouter {
   }
 
   /** Dispatch `navigate`; its default action moves focus. */
-  navigate(direction: NavigationDirection, source: "keyboard" | "gamepad"): void {
+  navigate(direction: NavigationDirection, source: "keyboard" | "gamepad", mods: Readonly<Modifiers> = NO_MODIFIERS): void {
     const target = this.keyTarget();
-    const ev = new UINavigateEvent(direction, source);
+    const ev = new UINavigateEvent(direction, source, mods);
     this.send(ev, target);
     if (!ev.defaultPrevented) this.host.focus.move(direction, true);
   }

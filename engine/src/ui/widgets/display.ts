@@ -168,13 +168,15 @@ export class RichText extends UIElement {
   private placedWidth = NaN;
   private placedKey = "";
   private size = { width: 0, height: 0 };
+  /** Unknown tags found by the last parse that have not been reported yet (no context at parse time). */
+  private unreportedTags: string[] = [];
 
   constructor(options: UIElementOptions & { markup?: string } = {}) {
     super(options);
     this._markup = options.markup ?? "";
     this.pointerEvents = options.tooltip ? "auto" : "none";
     this.accessibility.role = "text";
-    this.parse();
+    this.parse(true);
   }
 
   get markup(): string {
@@ -183,7 +185,7 @@ export class RichText extends UIElement {
   set markup(m: string) {
     if (m === this._markup) return;
     this._markup = m;
-    this.parse();
+    this.parse(true);
     this.invalidateLayout();
   }
 
@@ -192,7 +194,9 @@ export class RichText extends UIElement {
     return this.tokens.map((t) => (t.newline ? "\n" : t.icon ? "" : t.text)).join("");
   }
 
-  private parse(): void {
+  /** `report` is true for a new markup string; re-parses for theme changes stay quiet. */
+  private parse(report = false): void {
+    if (report) this.unreportedTags = [];
     const out: RichToken[] = [];
     const colors: (UIColor | null)[] = [];
     const sizes: (number | null)[] = [];
@@ -254,7 +258,7 @@ export class RichText extends UIElement {
       } else known = false;
       if (!known) {
         buf += `[${tag}]`;
-        this.context?.diagnostic("warn", `RichText: unknown tag [${tag}]`, this);
+        if (report) this.unreportedTags.push(tag);
       }
       i = close;
     }
@@ -262,6 +266,14 @@ export class RichText extends UIElement {
     this.tokens = out;
     this.placedKey = "";
     this.accessibility.label = this.plainText;
+    this.reportUnknownTags();
+  }
+
+  private reportUnknownTags(): void {
+    const ctx = this.context;
+    if (!ctx || this.unreportedTags.length === 0) return;
+    for (const tag of this.unreportedTags) ctx.diagnostic("warn", `RichText: unknown tag [${tag}]`, this);
+    this.unreportedTags = [];
   }
 
   private tokenColor(ref: string): UIColor | null {
@@ -272,6 +284,7 @@ export class RichText extends UIElement {
   protected override onAttach(): void {
     // Token colours need the theme: re-parse now that we have a context.
     if (this._markup.includes("$")) this.parse();
+    this.reportUnknownTags();
   }
 
   protected override onStyleChanged(): void {

@@ -147,6 +147,8 @@ export class UINavigateEvent extends UIEvent {
   constructor(
     readonly direction: NavigationDirection,
     readonly source: InputSource,
+    /** Keyboard modifiers held with the arrow/Tab key (Shift+Arrow extends list selections). */
+    readonly modifiers: Readonly<Modifiers> = NO_MODIFIERS,
   ) {
     super("navigate");
   }

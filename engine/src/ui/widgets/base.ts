@@ -159,13 +159,14 @@ export abstract class UIControl extends UIElement {
   private flashPressed(): void {
     const ctx = this.context;
     if (!ctx) return;
-    this.setStateBit(UIState.Pressed, true);
+    // Start (and so cancel any running flash, whose onCancel clears the state) before setting it.
     ctx.animator.tween(this, "__pressFlash", 0, 1, () => {}, {
       duration: 0.1,
       essential: true,
       onComplete: () => this.setStateBit(UIState.Pressed, false),
       onCancel: () => this.setStateBit(UIState.Pressed, false),
     });
+    this.setStateBit(UIState.Pressed, true);
   }
 
   /** Emit a two-way-bindable `change` event for `property`. */
