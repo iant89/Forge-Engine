@@ -1131,7 +1131,7 @@ depending on where the animation froze), 0 brighter.
   own thunder must not arrive before `distance / c` and must arrive just after (only that strike's
   queue entry is tracked: the storm's ambient strikes deliver thunder in the same `advance`, which
   read as "heard early 1" on CI); the frozen-deck repeat (1 sheet, 4, 1 again) must differ in
-  < 1 % of pixels, with the overcast drizzle held at zero and the falling drops landed first (the
+  < 1 % of pixels, with the overcast drizzle held at zero and 1.6 s of simulated clock run first so the falling drops land (the
   streaks alone put CI at 4975 px); `triggerLightning()` must register a strike;
   `setUnderwater(true)` must drop `forge.sky` from the pass list with `underwater` set, and
   `setUnderwater(false)` must bring it back. Screenshots:

@@ -2361,3 +2361,5 @@ Read the module constraints below before changing either pure model.
   `countStars`). The gate's luma is the canvas only; the HUD is DOM and never in it.
   Same session: the thunder check counted `thunderCount` (storm strikes add to it) and the frozen
   deck A/B caught the overcast preset's drizzle (precipitation 0.05) — hold every mover in an A/B.
+  Wait on `engine.clock.fixedTime`, not wall time, for simulated things to finish: a frame advances
+  the clock by ≤ maxDeltaTime (0.25 s), and SwiftShader frames can take seconds.

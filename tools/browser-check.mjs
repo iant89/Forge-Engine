@@ -2801,13 +2801,16 @@ async function checkEnvironmentSection() {
   await page.evaluate(() => window.__forge.setCoverage(0.7));
   // The overcast preset drizzles (precipitation 0.05, a few hundred drops), and the streaks moving
   // between two captures read as a deck that changed: CI measured 4975 px against a 4680 px bound.
-  // Hold the rain at zero over the preset and let the drops already falling (≤ 1.4 s) land.
-  await page.evaluate(() => {
+  // Hold the rain at zero over the preset and let the drops already falling (≤ 1.4 s) land. Drops age
+  // by simulated fixed steps, and a frame advances the clock by at most maxDeltaTime however long it
+  // took, so on SwiftShader a wall-clock wait of seconds left them hanging: wait on the clock itself.
+  const drizzleHeldAt = await page.evaluate(() => {
     const weather = window.__forge.engine.scene.object("weather");
     weather.setTarget({ precipitation01: 0 });
     weather.snapTo({ precipitation01: 0 });
+    return window.__forge.engine.clock.fixedTime;
   });
-  await page.waitForTimeout(1600);
+  await page.waitForFunction((t0) => window.__forge.engine.clock.fixedTime >= t0 + 1.6, drizzleHeldAt, { polling: 100, timeout: 240000 });
   await settle(4);
   const wx17Before = await page.evaluate(() => window.__forge.weatherState());
   await page.evaluate(() => window.__forge.setCloudOptions({ layers: 1, thickness: 600, windX: 0, windZ: 0, shadowStrength: 1, surfaceShadows: false }));

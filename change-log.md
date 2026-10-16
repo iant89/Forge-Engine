@@ -19320,6 +19320,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "Describe the thunder and frozen-deck checks as they now work.",
     "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1528",
+    "date": "2026-10-16T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The drizzle hold waits for 1.6 s of simulated clock (engine.clock.fixedTime) instead of 1.6 s of wall time.",
+    "why": "Drops age by fixed steps and SwiftShader frames advance the clock by at most 0.25 s each, so the wall-clock wait left the streaks in both captures."
   }
 ]
 ```
