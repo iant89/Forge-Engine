@@ -19392,6 +19392,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "PROGRESS.md",
     "what": "Typed events done.",
     "why": "Keep in step with ROADMAP."
+  },
+  {
+    "id": "1534",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scripting/runtime.ts",
+    "what": "invoke() and startCoroutine restore the caller's ctx.entity after a nested call.",
+    "why": "The shared context kept the nested listener's entity after an emit: an emitter calling c.entity.destroy() destroyed the listener's entity (found by the Beacon Defense demo)."
+  },
+  {
+    "id": "1535",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptEvents.test.ts",
+    "what": "Regression case: the emitter's context is unchanged after emit.",
+    "why": "Failed before the fix."
+  },
+  {
+    "id": "1536",
+    "date": "2026-10-16T00:50:54Z",
+    "type": "change",
+    "pr": 115,
+    "branch": "claude/phase18-events",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scripting/scriptCoroutines.test.ts",
+    "what": "Read the resumed context during the call instead of keeping it.",
+    "why": "The test kept the context past the call, which the docs forbid; it relied on the leak."
   }
 ]
 ```
