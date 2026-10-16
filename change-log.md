@@ -19248,6 +19248,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Root cause and how to reproduce (random frame dts).",
     "why": "Lesson for future sessions."
+  },
+  {
+    "id": "1522",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "LDR and cascade-tint toggles wait for pipelinesPending === 0 before sampling; the night deck check counts star pixels at full resolution instead of comparing whole-frame means.",
+    "why": "CI's advisory gate failed 'LDR path rendered a blank frame' (the swapchain-format pipelines were still compiling, so the frame was the clear colour) and the night check flipped between runs (lake glints outweigh the stars in a mean)."
+  },
+  {
+    "id": "1523",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the pipeline wait on the LDR check and the star-count night check.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1524",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries for claude/browser-gate-fixes.",
+    "why": "Activity history."
+  },
+  {
+    "id": "1525",
+    "date": "2026-10-16T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/browser-gate-fixes",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Note on async pipeline variants after a format/shader toggle, and on mean-based A/B checks.",
+    "why": "Session memory."
   }
 ]
 ```

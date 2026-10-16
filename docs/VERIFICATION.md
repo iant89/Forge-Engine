@@ -1032,7 +1032,9 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
 - **Shadow A/B**: a readback with shadows off is *brighter* than with them on (the ground under the
   spheres is really being darkened by the cascades, not by ambient occlusion baked into materials).
 - **LDR fallback**: with `hdr` off the pass list has no tonemap or bloom passes and the frame is still
-  a lit scene.
+  a lit scene (≥ 8 distinct colours, mean ≥ 6). The swapchain is a different colour target, so the
+  check first waits for `pipelinesPending === 0`: frames skip draws whose pipeline is still compiling,
+  and on a slow runner a fixed few frames sampled the clear colour alone.
 - **Depth prepass, SSAO and aliasing (Phase 13.1 / 13.2)**: the default frame runs exactly one
   `forge.prepass` (with `prepassDraws >= 1`) and the three `forge.ssao*` passes, in the order
   prepass → estimate → blur.h → blur.v → `forge.main`; `aliasedBytes > 0` with fewer physical than
@@ -1122,8 +1124,10 @@ depending on where the animation froze), 0 brighter.
   must be > 5 % brighter than the clear frame (measured 201 vs 148 — the deck whitens the sky while
   the sun still lights the ground, `docs/KNOWN-ISSUES.md`), with `forge.sky` in the pass list and
   `gpuErrors === 0` (the new water program and cloud bind group compiled on the real adapter); at
-  night with the weather held clear, `setCoverage(1)` must darken the frame vs `setCoverage(0)` (the
-  unlit deck occludes the stars); `triggerLightning()` must register a strike;
+  night with the weather held clear, the clear frame must show ≥ 20 star pixels (full-resolution luma
+  > 24 in the sky band above the horizon, y 2–28 %) and `setCoverage(1)` must leave at most a quarter
+  of them (the unlit deck occludes the stars; measured ~80 → 0 at 1280×720). A whole-frame mean was
+  used before and flipped between runs: the lake's glints outweigh the stars; `triggerLightning()` must register a strike;
   `setUnderwater(true)` must drop `forge.sky` from the pass list with `underwater` set, and
   `setUnderwater(false)` must bring it back. Screenshots:
   `tools/.browser-check-weather-clear.png`, `-storm.png`, `-night.png`, `-underwater.png`.

@@ -2351,3 +2351,11 @@ Read the module constraints below before changing either pure model.
   It needs uneven frame times (the melt slices follow real dt × timeScale), which is why the browser
   gate hit it intermittently and fixed-dt Node runs did not. Reproduce with random frame dts; the
   guard is `w > 0 && total > w`. Pinned in tests/environment/snowMelt.test.ts.
+
+- 2026-10-16 (browser gate): **after any toggle that changes a pipeline key (HDR↔LDR colour format,
+  a debug shader variant), wait for `pipelinesPending === 0` before sampling.** Cache misses compile
+  with `createRenderPipelineAsync` and frames skip those draws meanwhile; locally 4 frames sufficed,
+  on CI's Chromium 131 + SwiftShader the LDR sample was the clear colour (mean 9.67, 1 colour). Also:
+  a whole-frame mean is the wrong A/B for small features — the weather night check (deck hides stars)
+  flipped on lake-glint noise until it counted star pixels in the sky band (tools/browser-check.mjs
+  `countStars`). The gate's luma is the canvas only; the HUD is DOM and never in it.

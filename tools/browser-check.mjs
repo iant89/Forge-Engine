@@ -326,6 +326,10 @@ const settle = (frames = 4) =>
     frames,
   );
 
+/** Wait until no pipeline is still compiling: a frame skips the draws whose pipeline is pending. */
+const waitForPipelines = (timeout = 90000) =>
+  page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { polling: 250, timeout });
+
 /** GPU cull counters are asynchronous; wait until this mode's device readback has actually arrived. */
 const waitForCullReadback = (writesRecords) =>
   page.waitForFunction(
@@ -423,6 +427,28 @@ const compareRgb = (a, b) =>
     },
     [a, b],
   );
+
+/**
+ * Star pixels in a kept frame: luma above 24 in the band of open sky above the horizon of the
+ * weather scene's gate camera (y 2–28 % of the canvas, full width). The HUD is DOM over the canvas,
+ * so it is not in the kept pixels.
+ */
+const countStars = (key) =>
+  page.evaluate((key) => {
+    const L = window.__gateLuma[key];
+    const c = document.querySelector("canvas");
+    const w = c.width;
+    const h = c.height;
+    let stars = 0;
+    let pixels = 0;
+    for (let y = Math.floor(h * 0.02); y < Math.floor(h * 0.28); y++) {
+      for (let x = 0; x < w; x++) {
+        pixels++;
+        if (L[y * w + x] > 24) stars++;
+      }
+    }
+    return { stars, pixels };
+  }, key);
 
 /** Per-pixel comparison of two kept frames: pixels that got darker / brighter from `a` to `b` by more than one level. */
 const compareLuma = (a, b) =>
@@ -1814,7 +1840,11 @@ async function checkRendererSection(backend) {
   });
 
   // The LDR path (forward pass straight into the swapchain, in-shader tone map) must still present.
+  // The swapchain is a different colour target than rgba16float, so every forward pipeline is a new
+  // variant compiled asynchronously, and frames skip those draws until it lands. On a slow SwiftShader
+  // runner four frames is not enough and the sample is the clear colour alone; wait for the compiles.
   await page.evaluate(() => window.__forge.setHdr(false));
+  await waitForPipelines();
   await settle();
   const ldr = await samplePixels();
   const ldrStats = await page.evaluate(() => window.__forge.stats());
@@ -1826,6 +1856,7 @@ async function checkRendererSection(backend) {
 
   // Cascade debug tint is a distinct shader path; it must compile and run clean on real WebGPU.
   await page.evaluate(() => window.__forge.setCascadeDebug(true));
+  await waitForPipelines();
   await settle();
   const tinted = await samplePixels();
   await page.evaluate(() => window.__forge.setCascadeDebug(false));
@@ -2949,16 +2980,32 @@ async function checkEnvironmentSection() {
   await page.evaluate(() => window.__forge.setTimeOfDay(0));
   await page.evaluate(() => window.__forge.setWeather("clear"));
   await page.evaluate(() => window.__forge.setCoverage(0));
+  // A whole-frame mean cannot see this: the stars are a few hundred pixels and the lake's glints
+  // re-roll every frame, so the two means differed by less than their own noise and the check
+  // flipped between runs. Count the stars instead, at full resolution, in the open sky above the
+  // horizon (clear: hundreds of pixels; overcast: none; two clear frames agree within a few).
   await settle(6);
+  await keepLuma("night-clear");
   const wxNightClear = await samplePixels();
   await page.evaluate(() => window.__forge.setCoverage(1));
   await settle(6);
+  await keepLuma("night-overcast");
   const wxNightStorm = await samplePixels();
-  await page.screenshot({ path: "tools/.browser-check-weather-night.png" });
-  console.log(`weather night: clear mean ${wxNightClear.mean.toFixed(2)} vs overcast mean ${wxNightStorm.mean.toFixed(2)}`);
-  if (!(wxNightStorm.mean < wxNightClear.mean)) {
-    throw new Error(`overcast night was not darker than clear night (${wxNightStorm.mean.toFixed(1)} vs ${wxNightClear.mean.toFixed(1)}): the deck is not occluding the stars`);
+  await page.screenshot({ path: "tools/.browser-check-weather-night.png", timeout: 60000 });
+  const starsClear = await countStars("night-clear");
+  const starsOvercast = await countStars("night-overcast");
+  console.log(
+    `weather night: stars ${starsClear.stars} clear vs ${starsOvercast.stars} overcast in ${starsClear.pixels} sky px; ` +
+      `mean ${wxNightClear.mean.toFixed(2)} vs ${wxNightStorm.mean.toFixed(2)}`,
+  );
+  if (starsClear.stars < 20) throw new Error(`clear night shows ${starsClear.stars} star pixels in the open sky: the star field is not drawing`);
+  if (!(starsOvercast.stars * 4 <= starsClear.stars)) {
+    throw new Error(`overcast night kept ${starsOvercast.stars} of ${starsClear.stars} star pixels: the deck is not occluding the stars`);
   }
+  await page.evaluate(() => {
+    delete window.__gateLuma;
+    delete window.__gateRgb;
+  });
 
   // Lightning registers synchronously (the flash itself decays in half a second — the count pins it).
   const strikes = await page.evaluate(() => window.__forge.triggerLightning());
