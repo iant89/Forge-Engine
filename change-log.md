@@ -19215,6 +19215,42 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1519",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/environment/moistureField.ts",
+    "what": "flow(): rescale outflow only when the cell has water (w > 0 && total > w).",
+    "why": "A cell rounded to -1.4e-45 m divided 0 by itself to -Infinity and 0 x -Infinity poisoned the grid with NaN (thaw gate: water 0.00 -> NaN)."
+  },
+  {
+    "id": "1520",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/environment/snowMelt.test.ts",
+    "what": "Regression case: a hair-negative cell keeps the water grid finite.",
+    "why": "Pins the fix; failed before it."
+  },
+  {
+    "id": "1521",
+    "date": "2026-10-16T00:11:39Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/fix-thaw-nan",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Root cause and how to reproduce (random frame dts).",
+    "why": "Lesson for future sessions."
+  },
+  {
+    "id": "1522",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19226,7 +19262,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.4 typed events."
   },
   {
-    "id": "1520",
+    "id": "1523",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19238,7 +19274,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.4 script-facing API."
   },
   {
-    "id": "1521",
+    "id": "1524",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19250,7 +19286,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.4 runtime."
   },
   {
-    "id": "1522",
+    "id": "1525",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19262,7 +19298,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1523",
+    "id": "1526",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19274,7 +19310,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry tracks 18.4."
   },
   {
-    "id": "1524",
+    "id": "1527",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19286,7 +19322,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins channels, emit/post timing, re-entrancy, isolation, ownership, depth guard, host listeners."
   },
   {
-    "id": "1525",
+    "id": "1528",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19298,7 +19334,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1526",
+    "id": "1529",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19310,7 +19346,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1527",
+    "id": "1530",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19322,7 +19358,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 18.4 docs."
   },
   {
-    "id": "1528",
+    "id": "1531",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19334,7 +19370,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.4 landed."
   },
   {
-    "id": "1529",
+    "id": "1532",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
@@ -19346,7 +19382,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "18.4 landed."
   },
   {
-    "id": "1530",
+    "id": "1533",
     "date": "2026-10-15T23:50:59Z",
     "type": "change",
     "pr": null,
