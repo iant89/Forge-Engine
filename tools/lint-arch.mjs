@@ -18,6 +18,7 @@
  *   scene/**           -> never rendering or environment at runtime (type-only imports allowed)
  *   environment/**     -> core, math, scene, environment
  *   scripting/**       -> core, math, scene, scripting (Phase 18.6: no gpu/rendering/physics internals)
+ *   ui/** (not ui/gpu) -> core, math, ui; ui/gpu/** -> also gpu, rendering; nothing else imports ui
  *   examples/**        -> "@forge/engine" or a local relative file, never engine/src
  *   tests/**           -> "@forge/engine" or a local relative file outside engine/src
  *   all engine sources -> no WebGL fallback, ever (WebGPU-first, ADR-001)
@@ -92,6 +93,26 @@ checkEngineDir("gpu", ["core", "gpu", "math", "testing"], "gpu may use core, gpu
 checkEngineDir("math", ["core", "math"], "math may only depend on core and math");
 checkEngineDir("environment", ["core", "math", "scene", "environment"], "environment must not import rendering or its siblings");
 checkEngineDir("scripting", ["core", "math", "scene", "scripting"], "scripts reach the engine through entities and components, never GPU/render/solver internals");
+// ui (docs/UI.md §2): the framework is GPU-free; only ui/gpu (the WebGPU backend) may see gpu/rendering.
+const isUiGpu = (file) => file.includes(`${path.sep}ui${path.sep}gpu${path.sep}`);
+checkEngineDir("ui", ["core", "math", "ui"], "the UI framework depends on core, math and itself; GPU code lives in ui/gpu", isUiGpu);
+for (const file of files(path.join(engineSrc, "ui", "gpu"))) {
+  for (const imp of relativeImports(file)) {
+    if (!imp.specifier.startsWith(".")) continue;
+    const { top } = topLevelOf(file, imp.specifier);
+    if (["core", "math", "ui", "gpu", "rendering"].includes(top)) continue;
+    violations.push({ file, line: imp.line, message: `${path.relative(root, file)} imports "${imp.specifier}" (${top}) — ui/gpu may use core, math, ui, gpu and rendering` });
+  }
+}
+// Nothing outside ui (except the barrel) may depend on the UI.
+for (const file of files(engineSrc)) {
+  if (file.includes(`${path.sep}ui${path.sep}`) || file === path.join(engineSrc, "index.ts")) continue;
+  for (const imp of relativeImports(file)) {
+    if (!imp.specifier.startsWith(".")) continue;
+    const { top } = topLevelOf(file, imp.specifier);
+    if (top === "ui") violations.push({ file, line: imp.line, message: `${path.relative(root, file)} imports the UI ("${imp.specifier}") — engine layers below ui must not depend on it` });
+  }
+}
 
 // scene: no runtime rendering/environment imports (the sky settings block is type-only).
 for (const file of files(path.join(engineSrc, "scene"))) {

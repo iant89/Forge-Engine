@@ -42,6 +42,7 @@
     "check:browser:mars": "node tools/browser-check.mjs --section=mars",
     "check:browser:workers": "node tools/browser-check.mjs --workers-only",
     "check:browser:terrain-layers": "node tools/browser-check.mjs --terrain-layers",
+    "check:browser:ui": "node tools/browser-ui-check.mjs",
     "check:browser:mars-workers": "node tools/browser-check.mjs --mars-workers",
     "check:browser:mars-generator": "node tools/browser-check.mjs --mars-generator",
     "check:browser:mars-interactive": "node tools/browser-check.mjs --mars-interactive",

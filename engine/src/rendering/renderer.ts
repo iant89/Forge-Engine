@@ -79,6 +79,27 @@ import type { Scene, SceneSkySettings, SceneSsaoSettings, SkyQuality } from "../
 import type { SystemContext } from "../scene/systems.js";
 import type { RenderFrameContext, SkyParams, PickResult } from "../scene/renderContext.js";
 import { InternalError, UsageError } from "../core/errors.js";
+import type { Disposable } from "../core/events.js";
+
+/** What an overlay knows about the frame it draws into. */
+export interface RenderOverlayFrame {
+  /** Swapchain size in physical pixels. */
+  width: number;
+  height: number;
+  format: GPUTextureFormat;
+}
+
+/**
+ * Something drawn over the finished frame (the UI). `record` runs after every scene pass has been
+ * declared and before the graph executes; it may add passes that `load` the imported swapchain
+ * `target` (and must not clear it). Overlays are recorded in registration order.
+ */
+export interface RenderOverlay {
+  readonly name: string;
+  /** True when the overlay changed since it last recorded (forces a frame in on-demand presentation). */
+  readonly needsRender: boolean;
+  record(graph: RenderGraph, target: RenderGraphHandle, frame: RenderOverlayFrame): void;
+}
 
 export interface RendererOptions {
   /** Force an override clear colour (the editor's "show without sky" mode). */
@@ -1177,7 +1198,42 @@ export class Renderer implements RenderFrameContext {
 
   /** True when something asked for a redraw since the last frame (editor idle-loop support). */
   get needsRender(): boolean {
-    return this.invalidated;
+    if (this.invalidated) return true;
+    for (const o of this.overlays) if (o.needsRender) return true;
+    return false;
+  }
+
+  private readonly overlays: RenderOverlay[] = [];
+
+  /**
+   * Draw `overlay` after the frame's last scene pass (the tonemap, or the LDR main pass). Returns a
+   * handle that removes it. The renderer never owns the overlay's GPU resources.
+   */
+  addOverlay(overlay: RenderOverlay): Disposable {
+    if (this.overlays.includes(overlay)) throw new UsageError(`renderer: overlay "${overlay.name}" is already added`);
+    this.overlays.push(overlay);
+    this.invalidate();
+    let active = true;
+    return {
+      dispose: () => {
+        if (!active) return;
+        active = false;
+        const i = this.overlays.indexOf(overlay);
+        if (i >= 0) this.overlays.splice(i, 1);
+        this.invalidate();
+      },
+    };
+  }
+
+  /** Overlays currently drawn (in order). */
+  get overlayNames(): string[] {
+    return this.overlays.map((o) => o.name);
+  }
+
+  private recordOverlays(g: RenderGraph, swapchain: RenderGraphHandle): void {
+    if (this.overlays.length === 0) return;
+    const frame: RenderOverlayFrame = { width: this.width, height: this.height, format: this.device.format };
+    for (const o of this.overlays) o.record(g, swapchain, frame);
   }
 
   /** Frames actually rendered (not skipped) — asserted by the "idle loop does not render" test. */
@@ -1643,6 +1699,7 @@ export class Renderer implements RenderFrameContext {
         });
         this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
       }
+      this.recordOverlays(g, swapchain);
       const profiler = this.currentFrameContext?.profiler;
       const profilerFrameIndex = profiler?.currentFrameIndex;
       this.applyGraphStats(g.execute((timing) => this.applyGpuTiming(timing, profiler, profilerFrameIndex)));
@@ -1728,6 +1785,7 @@ export class Renderer implements RenderFrameContext {
       });
     }
     this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
+    this.recordOverlays(g, swapchain);
     const profiler = this.currentFrameContext?.profiler;
     const profilerFrameIndex = profiler?.currentFrameIndex;
     this.applyGraphStats(g.execute((timing) => this.applyGpuTiming(timing, profiler, profilerFrameIndex)));

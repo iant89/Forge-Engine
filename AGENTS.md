@@ -67,6 +67,7 @@ npm run check:browser:mars # full-gate Mars inspector/showcase/drive/HGA/arm sec
 npm run check:browser:mars-workers # scoped native-worker + Mars upload/render check, NOT the full gate
 npm run check:browser:mars-generator # scoped real-WebGPU crater-rim mask check, NOT the full gate
 npm run check:browser:terrain-layers # scoped real-GPU splat pixel oracle + showcase A/B, NOT the full gate
+npm run check:browser:ui  # scoped real-GPU UI gallery: forge.ui pass, real input, skins/themes, compact layout, NOT the full gate
 npm run demo             # Vite dev server for examples/ (binds 0.0.0.0, allowedHosts: true)
 ```
 
@@ -98,7 +99,9 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      streaming; the seam (blocks + source/collector) lives in scene/population.ts
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
-examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase.
+  ui/                retained-mode UI framework (tree, layout, skins/themes, input/focus, widgets, SDF text,
+                     declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
+examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list
 packages/selrun/     local manifest-driven runner, catalog validation, and affected-suite selector
@@ -109,6 +112,7 @@ docs/VERIFICATION.md What each automated gate actually proves — keep it truthf
 docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, sky pass, how to add a pass
 docs/VEHICLES.md     Phase 6 as built, including what the chassis test actually asserts
 docs/PARTICLES.md    Phase 7 as built: CPU is the reference, the compute shader is the integrator only
+docs/UI.md, docs/UI-GUIDE.md  UI framework architecture (as built) and developer guide
 docs/ENVIRONMENT.md  Phase 8a as built: solar model, atmosphere, fog, day/night — and what 8b still owes
 ARCHITECTURE.md      Design + rationale; ROADMAP.md — phase 8b and phases 9–14 are not built
 ```
