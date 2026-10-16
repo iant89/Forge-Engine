@@ -269,6 +269,17 @@ group("ground moisture field", () => {
     assert.ok(field.totalWater() < before * 0.5, "most of it ran off the open edge");
     assertCloseTo(field.totalWater() + field.waterOut, before + 0, 6);
   });
+  test("a cell rounded a hair below zero does not turn the water grid to NaN", () => {
+    // Float32 rounding in the flow transfer can leave a cell at -1.4e-45 m. With no outflow that
+    // cell's total (0) still exceeds its water, and rescaling divided 0 by it: 0 x -Infinity = NaN,
+    // which then spread through the grid (the thaw scene's water went 0.00 -> NaN in the gate).
+    const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 4, resolution: 4, soilAt: () => "rock" });
+    field.water[5] = -1.401298464324817e-45;
+    field.water[10] = 0.01;
+    for (let t = 0; t < 20; t++) field.step(3, createMeltEnvironment({ humidity: 1 }));
+    for (let k = 0; k < field.water.length; k++) assert.ok(Number.isFinite(field.water[k]!), `cell ${k} is ${field.water[k]}`);
+    assert.ok(Number.isFinite(field.totalWater()));
+  });
   test("ground snow melts into water in the sun", () => {
     const field = new GroundMoistureField({ originX: 0, originZ: 0, size: 2, resolution: 2 });
     field.addSnow(0.5, 0.5, 0.05);
