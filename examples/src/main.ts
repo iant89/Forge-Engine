@@ -67,6 +67,7 @@ import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/ama
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
 import { OFFROAD_WEATHER_NAMES, buildOffroadHillScene, type OffroadSceneHandle, type OffroadWeather } from "./scenes/offroadHillScene.js";
 import { buildScriptingScene, type ScriptingSceneHandle } from "./scenes/scriptingScene.js";
+import { buildUIShowcaseScene, type UIShowcaseHandle } from "./scenes/uiShowcaseScene.js";
 import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
 import { randomCourseSeed } from "./scenes/dustStormRoute.js";
@@ -282,6 +283,9 @@ async function main(): Promise<void> {
       const weatherParam = new URLSearchParams(window.location.search).get("weather");
       const weather = OFFROAD_WEATHER_NAMES.find((w) => w === weatherParam);
       currentHandle = buildOffroadHillScene(engine, { deviceTier: tier, weather });
+    } else if (name === "ui") {
+      // The engine-native UI framework (docs/UI.md): drawn by the WebGPU UI overlay pass.
+      currentHandle = buildUIShowcaseScene(engine, canvas, new URLSearchParams(window.location.search));
     } else if (name === "scripting") {
       // Phase 18 exit criterion: a whole game written as scripts against the public API.
       currentHandle = buildScriptingScene(engine);
@@ -734,6 +738,8 @@ async function main(): Promise<void> {
       return activeSceneName;
     },
     stats: () => engine.stats(),
+    /** UI gallery handle (UIManager, gallery, GPU overlay stats) on `?scene=ui`, else null. */
+    ui: () => (activeSceneName === "ui" ? (currentHandle as UIShowcaseHandle | null) : null),
     profilerReport: () => engine.profiler.report(16),
     setProfilerVisible,
     get scene(): Scene {
