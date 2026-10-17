@@ -21820,6 +21820,45 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Notes on snapshot pitfalls (scene settings/grip, scratch arrays of components, Rng spare).",
     "why": "Session memory."
+  },
+  {
+    "id": "1727",
+    "date": "2026-10-17T15:40:00Z",
+    "type": "pr-merge",
+    "pr": 122,
+    "branch": "claude/phase19-snapshots",
+    "base": "main",
+    "title": "Phase 19.3: exact mid-run simulation snapshots (physics, vehicles, weather, RNG) with state hashing",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "core/snapshot.ts adds structural captureState/restoreState (exact through JSON: tagged -0/NaN/infinities, typed arrays) and hashState (FNV-1a of canonical JSON). PhysicsWorld, Vehicle and Rng gain snapshot/restoreSnapshot (Rng now carries the cached Gaussian and restore() clears it); weather, day/night and the lightning schedule implement SceneObject.snapshotState; systems and components get snapshot hooks. scene/snapshot.ts combines them with transforms, scene settings and the world surface grip into captureSceneSnapshot/restoreSceneSnapshot/hashSceneSnapshot, checking structure before restoring. simulationSnapshot (10 cases) pins that a restored session reaches the uninterrupted run's state hash. Closures and transients are deferred as serialization.closuresAndTransients.",
+    "files": [
+      "PROGRESS.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/SERIALIZATION.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/core/snapshot.ts",
+      "engine/src/environment/dayNight.ts",
+      "engine/src/environment/lightning.ts",
+      "engine/src/environment/weather.ts",
+      "engine/src/index.ts",
+      "engine/src/math/rng.ts",
+      "engine/src/physics/system.ts",
+      "engine/src/physics/world.ts",
+      "engine/src/scene/components.ts",
+      "engine/src/scene/scene.ts",
+      "engine/src/scene/snapshot.ts",
+      "engine/src/scene/systems.ts",
+      "engine/src/vehicles/components.ts",
+      "engine/src/vehicles/vehicle.ts",
+      "mnemosyne.md",
+      "tests/full.test.ts",
+      "tests/scene/simulationSnapshot.test.ts",
+      "tests/tools/selrun.test.ts"
+    ]
   }
 ]
 ```
