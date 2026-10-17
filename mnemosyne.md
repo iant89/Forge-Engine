@@ -2419,3 +2419,15 @@ Read the module constraints below before changing either pure model.
   `pipelinesPending === 0` immediately after `setHdr(false)` — that read the previous HDR frame's
   empty queue and returned at once, and CI sampled the clear colour again on #121. Wait for a stats
   field that proves the new mode rendered (`render.hdr === false`) before trusting any counter.
+
+- 2026-10-17 (UI default look → `frontier`): the UI defaults to the warm `frontier` theme + skin
+  (letter-spaced uppercase controls, orange gradient primary, outlined accent buttons; `dark`/`forge`
+  still selectable). Matching a reference design surfaced three layout/text bugs, all fixed with
+  regression tests: (1) `textLayout` fit/overflow tests counted the trailing letter spacing that the
+  reported width excludes, so letter-spaced text laid out at its own measured width was ellipsized
+  ("ME…", "EXPEDITIO…"); (2) `UIElement.measure` laid content out at the *unclamped* definite width
+  (`width: 520, maxWidth: 94vw` measured its text at 520 on a phone) — clamp before measuring; (3)
+  flex `measureContent` used raw bases (arrange clamps them) and measured wrapping items of a
+  single-line row at the full width, so rows reported one line of text. Also: our flex items shrink
+  below their content (no CSS `min-height: auto`), so tall phone pages must scroll (`ScrollView`),
+  not squeeze; and `"M"` is narrower than `"m"` in Forge Sans — pick test strings with care.

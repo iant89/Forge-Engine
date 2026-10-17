@@ -54,7 +54,9 @@ export interface UIManagerOptions {
   uiScale?: number;
   scaleMode?: ScaleMode;
   textScale?: number;
+  /** Theme name (default `"frontier"`). */
   theme?: string;
+  /** Skin name (default `"frontier"`). */
   skin?: string;
   breakpoints?: readonly Breakpoint[];
   breakpointHysteresis?: number;
@@ -246,8 +248,8 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
     if (!options.bare) {
       registerBuiltinComponents(this.components);
       registerBuiltinStyles(this.resolver);
-      this.resolver.setTheme(options.theme ?? "dark");
-      this.resolver.setSkin(options.skin ?? "forge");
+      this.resolver.setTheme(options.theme ?? "frontier");
+      this.resolver.setSkin(options.skin ?? "frontier");
     } else {
       if (options.theme) this.resolver.setTheme(options.theme);
       if (options.skin) this.resolver.setSkin(options.skin);

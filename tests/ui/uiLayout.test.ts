@@ -200,6 +200,50 @@ group("flex", () => {
     assert.deepEqual(r(b), [0, 21, 20, 10]);
   });
 
+  test("a single-line row measures wrapping items at the width they will get (the row grows to fit)", () => {
+    /** 200 units of "text" in 10-unit lines: narrower means taller. */
+    class Para extends UIElement {
+      protected override measureContent(w: number): { width: number; height: number } {
+        const width = Math.min(200, w);
+        return { width, height: Math.ceil(200 / Math.max(1, width)) * 10 };
+      }
+    }
+    const { ui, c } = host({ width: 150 }, new FlexLayout({ direction: "row", gap: 10, align: "start" }));
+    const text = c.add(new Para({ layout: { flexGrow: 1, flexShrink: 1, flexBasis: 0 } }));
+    c.add(new Box(90, 30));
+    frame(ui);
+    assert.equal(text.bounds.width, 50);
+    assert.equal(text.bounds.height, 40, "four lines at 50 wide");
+    assert.equal(c.bounds.height, 40, "the row is as tall as its tallest arranged item");
+  });
+
+  test("a definite width is clamped by maxWidth before the content is measured at it", () => {
+    class Para extends UIElement {
+      protected override measureContent(w: number): { width: number; height: number } {
+        const width = Math.min(600, w);
+        return { width, height: Math.ceil(600 / Math.max(1, width)) * 10 };
+      }
+    }
+    // A "width: 520, maxWidth: 50vw" card in a 400-wide viewport: its text wraps at 200, not 520.
+    const ui = makeUI({ bare: true, width: 400, height: 800 });
+    const card = ui.base.add(new UIContainer({ layout: { width: 520, maxWidth: "50vw" }, strategy: new FlexLayout({ direction: "column" }) }));
+    const p = card.add(new Para());
+    frame(ui);
+    assert.equal(card.bounds.width, 200);
+    assert.equal(p.bounds.height, 30, "three lines at 200 wide");
+    assert.equal(card.bounds.height, 30, "the card's height was measured at the width it got");
+  });
+
+  test("measure clamps a definite basis by min/max exactly as arrange does", () => {
+    // An auto-height column measures its items; one item's minHeight beats its explicit height.
+    const { ui, c } = host({ width: 100 }, new FlexLayout({ direction: "column", gap: 0, align: "start" }));
+    const a = c.add(new Box(20, 10, { height: 40, minHeight: 44 }));
+    const b = c.add(new Box(20, 10, { height: 40, maxHeight: 30 }));
+    frame(ui);
+    assert.deepEqual([r(a)[3], r(b)[3]], [44, 30]);
+    assert.equal(c.bounds.height, 74, "the container measured what it arranges");
+  });
+
   test("wrap breaks lines when the main axis is full and stacks lines with lineGap", () => {
     const { ui, c } = host({ width: 100, height: 200 }, new FlexLayout({ direction: "row", wrap: true, gap: 10, lineGap: 4, align: "start" }));
     const items = [0, 1, 2, 3].map(() => c.add(new Box(40, 10)));

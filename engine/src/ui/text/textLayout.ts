@@ -170,7 +170,9 @@ export function layoutText(
     }
     if (cp === 13) continue;
     const w = advance[i]!;
-    const fits = width + w <= maxWidth + 1e-4 || isSpace(cp) || i === lineStart;
+    // A line's visible width excludes the letter spacing after its last glyph (see "positions"),
+    // so the fit test must too, or text laid out at exactly its measured width would not fit.
+    const fits = width + w - letterSpacing <= maxWidth + 1e-4 || isSpace(cp) || i === lineStart;
     if (!fits && wrap !== "none") {
       if (wrap === "word" && lastBreak >= lineStart) {
         // Break after lastBreak; trailing spaces of the line are not counted.
@@ -217,7 +219,7 @@ export function layoutText(
   if (lineCount > 0) {
     const ls = breaks[lastLine * 3]!;
     let le = lineEnds[lastLine]!;
-    const overWide = lineWidthOf(ls, le) > maxWidth + 1e-4;
+    const overWide = lineWidthOf(ls, le) - letterSpacing > maxWidth + 1e-4;
     if ((truncated || overWide) && overflow === "ellipsis") {
       ellipsisGlyph = resolveGlyph(faces, ELLIPSIS, size) ?? resolveGlyph(faces, 46, size);
       const ew = ellipsisGlyph ? ellipsisGlyph.advance * ellipsisGlyph.scale : 0;
@@ -226,7 +228,7 @@ export function layoutText(
       lineEnds[lastLine] = le;
       truncated = true;
     } else if (overWide && overflow === "clip") {
-      while (le > ls && lineWidthOf(ls, le) > maxWidth + 1e-4) le--;
+      while (le > ls && lineWidthOf(ls, le) - letterSpacing > maxWidth + 1e-4) le--;
       lineEnds[lastLine] = le;
       truncated = true;
     }
@@ -238,9 +240,10 @@ export function layoutText(
   const lineWidths: number[] = [];
   for (let l = 0; l < lineCount; l++) {
     let w = lineWidthOf(breaks[l * 3]!, lineEnds[l]!);
+    // Trailing letter spacing is not part of the visible width; an ellipsis ends the line itself
+    // (it carries no spacing), so the last glyph's spacing before it is visible.
     if (l === lastLine && ellipsisGlyph) w += ellipsisGlyph.advance * ellipsisGlyph.scale;
-    // Trailing letter spacing is not part of the visible width.
-    if (w > 0 && letterSpacing !== 0) w -= letterSpacing;
+    else if (w > 0 && letterSpacing !== 0) w -= letterSpacing;
     lineWidths.push(w);
     blockWidth = Math.max(blockWidth, w);
   }

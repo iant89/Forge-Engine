@@ -427,6 +427,7 @@ export class StyleResolver {
           break;
         case "gradient":
         case "textAlign":
+        case "textTransform":
         case "image":
         case "icon":
         case "transition":
@@ -492,6 +493,7 @@ const STYLE_KEYS = new Set([
   "lineHeight",
   "letterSpacing",
   "textAlign",
+  "textTransform",
   "opacity",
   "shadowColor",
   "shadowOffsetX",

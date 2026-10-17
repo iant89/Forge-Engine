@@ -228,9 +228,10 @@ indicators, reduced motion, high-contrast theme and text scaling are implemented
 ## 10. Performance (measured)
 
 See `UI-GUIDE.md` §12 for the measured table (`npm run bench`, `benchmarks/src/ui.bench.ts`), host
-and methodology. Summary of the 2026-10-16 run: a steady frame costs 2.6 µs and does no layout,
-style or draw-list work; 1,000 buttons draw as 2,924 instances in one batch; a full draw-list
-rebuild of them costs ~1 ms, which is the dominant cost of any frame that changes something.
+and methodology. Summary of the 2026-10-17 run (default frontier look): a steady frame costs
+1.6 µs and does no layout, style or draw-list work; 1,000 buttons draw as 1,934 instances in one
+batch; a full draw-list rebuild of them costs 0.3 ms (about 1 ms on a busier run of the same host),
+the dominant cost of any frame that changes something.
 
 ## 11. Known limitations
 
@@ -244,6 +245,6 @@ rebuild of them costs ~1 ms, which is the dominant cost of any frame that change
 * World-space UI is projected screen-space UI (labels/bars anchored to world points with distance
   fade and an optional occlusion callback); there is no in-world 3D panel geometry.
 * Any render-dirty change rebuilds the whole draw list (no per-layer or per-subtree caching of
-  instances); ~1 ms per 1,000 buttons on the benchmark host (UI-GUIDE.md §12).
+  instances); 0.3–1 ms per 1,000 buttons on the benchmark host (UI-GUIDE.md §12).
 * ColorPicker is not shipped (no engine requirement); the `RichText`/`Image` primitives are enough to
   build one.

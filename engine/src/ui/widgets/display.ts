@@ -295,7 +295,7 @@ export class RichText extends UIElement {
   private place(maxWidth: number): void {
     const ctx = this.context;
     const s = this.computedStyle;
-    const key = `${maxWidth}|${s.fontSize}|${s.fontWeight}|${s.lineHeight}|${ctx?.text.textScale ?? 1}`;
+    const key = `${maxWidth}|${s.fontSize}|${s.fontWeight}|${s.lineHeight}|${s.textTransform}|${ctx?.text.textScale ?? 1}`;
     if (key === this.placedKey) return;
     this.placedKey = key;
     this.placedWidth = maxWidth;
@@ -339,7 +339,7 @@ export class RichText extends UIElement {
           pl = { token: t, layout: null, x: 0, y: 0, width: size, height: h, baseline: (h + size) / 2 - size * 0.15 };
         }
       } else {
-        const l = ctx.text.layout({ text: t.text, family: ctx.text.hasFamily(s.fontFamily) ? s.fontFamily : "default", size, weight: t.bold ? 700 : s.fontWeight, lineHeight: s.lineHeight, letterSpacing: s.letterSpacing });
+        const l = ctx.text.layout({ text: s.textTransform === "uppercase" ? t.text.toUpperCase() : t.text, family: ctx.text.hasFamily(s.fontFamily) ? s.fontFamily : "default", size, weight: t.bold ? 700 : s.fontWeight, lineHeight: s.lineHeight, letterSpacing: s.letterSpacing });
         pl = { token: t, layout: l, x: 0, y: 0, width: l.width, height: l.height, baseline: l.baseline };
       }
       if (x > 0 && x + pl.width > maxWidth && !t.space) endLine();

@@ -150,12 +150,24 @@ ui.components.register("CompassStrip", {
 ## 5. Skins, themes and visual states
 
 * A **theme** is a set of tokens: `{ name, extends?, kind?, tokens: { color, space, radius, font,
-  size, … } }`, referenced from skins as `"$color.accent"`. Built in: `dark`, `light`,
-  `high-contrast`.
+  size, … } }`, referenced from skins as `"$color.accent"`. Built in: **`frontier` (the default:
+  warm near-black surfaces, cream text, tan secondary text, ember-orange accent)**, `dark` (cool slate
+  and blue), `light`, `high-contrast`.
 * A **skin** is per-component styling: `{ name, version, extends?, components: { Button: { …block,
-  variants: { primary: {…} }, states: { hovered: {…}, pressed: {…} } } } }`. Built in: `forge`,
-  `flat`, `glass`. A block sets background (solid or gradient), border, radius, padding, foreground,
-  accent, track, font, shadow, opacity, `image` (sprite/nine-slice) and `transition`.
+  variants: { primary: {…} }, states: { hovered: {…}, pressed: {…} } } } }`. Built in: **`frontier`
+  (the default: letter-spaced uppercase controls and headings, a vertical-gradient primary button
+  with a soft glow, outlined accent buttons, large rounded cards)**, `forge` (mixed case, the base the
+  others extend), `flat`, `glass`. Pick the old look with `new UIManager({ theme: "dark", skin:
+  "forge" })`. A block sets background (solid or gradient), border, radius, padding, foreground,
+  accent, track, font, letter spacing, `textTransform` (`"uppercase"` changes only what is drawn and
+  measured; `text` and the accessible label keep their case), shadow, opacity, `image`
+  (sprite/nine-slice) and `transition`.
+* Variants every built-in skin defines (so they are safe to use whatever skin is active): `Label`
+  `title`, `heading`, `eyebrow` (small accent kicker), `body`, `muted`, `caption`, `strong`, `stat` /
+  `statLabel` (a number over a caption); `RichText` `body`; `Button` `primary`, `outline`, `danger`,
+  `ghost`; `Panel` `inset` (a list row inside a card); `Badge` `status` (outlined green pill).
+  `Button` also takes a `subtitle` (a smaller mixed-case second line, which is also its accessible
+  description). The gallery's menu page and saved-expeditions card show all of them.
 * Register with `ui.resolver.registerSkin(def)` / `registerTheme(def)`; switch at runtime with
   `ui.setSkin(name)` / `ui.setTheme(name)` (everything restyles; transitions animate). Unknown parents,
   `extends` cycles, unknown properties, unknown states and malformed colours are rejected at
@@ -264,21 +276,23 @@ paint hooks). In the demo, `__forge.ui()` exposes the gallery's manager and rend
 
 ## 12. Performance
 
-Measured with `npm run bench` (`benchmarks/src/ui.bench.ts`) on 2026-10-16: Node 22.22.0, a
-4-vCPU Intel Xeon @ 2.80 GHz cloud container, no GPU (the headless pipeline produces the instance
-list the WebGPU backend uploads; GPU time is not included). One run; expect ±15 % between runs.
+Measured with `npm run bench` (`benchmarks/src/ui.bench.ts`) on 2026-10-17 with the default
+frontier theme and skin: Node 22.22.0, a 4-vCPU Intel Xeon @ 2.80 GHz cloud container, no GPU (the
+headless pipeline produces the instance list the WebGPU backend uploads; GPU time is not included).
+One run; runs on this shared host vary noticeably (the 2026-10-16 run of the forge skin measured
+roughly twice these times), so read the table for proportions, not absolutes.
 
 | Workload | Count | Total | Per item |
 | --- | --- | --- | --- |
-| Build + first layout, 1,000 buttons in a wrapping grid | 1,000 | 73.6 ms | 74 µs / button |
-| Steady frame (`update` + `render`, nothing changed) | 300 frames | 0.79 ms | 2.6 µs / frame |
-| Hover sweep (state change → restyle → transition → repaint) | 300 frames | 365 ms | 1.22 ms / frame |
-| One label's text changes inside a fixed-size panel | 300 frames | 363 ms | 1.21 ms / frame |
-| Viewport resize, full relayout of ~2,000 elements | 60 frames | 1,179 ms | 19.7 ms / frame |
-| Draw-list rebuild only (1,000 buttons → 2,924 instances) | 200 | 194 ms | 0.97 ms / rebuild |
-| Virtualized list, 100,000 rows, scrolled every frame | 600 frames | 122 ms | 0.20 ms / frame |
-| Text layout, cache miss (SDF font, ~40-char strings) | 800 | 37.0 ms | 46 µs / string |
-| Text layout, cache hit | 800 | 2.1 ms | 2.6 µs / string |
+| Build + first layout, 1,000 buttons in a wrapping grid | 1,000 | 49.3 ms | 49 µs / button |
+| Steady frame (`update` + `render`, nothing changed) | 300 frames | 0.49 ms | 1.6 µs / frame |
+| Hover sweep (state change → restyle → transition → repaint) | 300 frames | 149 ms | 0.50 ms / frame |
+| One label's text changes inside a fixed-size panel | 300 frames | 138 ms | 0.46 ms / frame |
+| Viewport resize, full relayout of ~2,000 elements | 60 frames | 545 ms | 9.1 ms / frame |
+| Draw-list rebuild only (1,000 buttons → 1,934 instances) | 200 | 63.2 ms | 0.32 ms / rebuild |
+| Virtualized list, 100,000 rows, scrolled every frame | 600 frames | 69.8 ms | 0.12 ms / frame |
+| Text layout, cache miss (SDF font, ~40-char strings) | 800 | 20.5 ms | 26 µs / string |
+| Text layout, cache hit | 800 | 1.7 ms | 2.2 µs / string |
 
 What the guards (shape checks, not stopwatch thresholds) establish on every run:
 
@@ -290,8 +304,8 @@ What the guards (shape checks, not stopwatch thresholds) establish on every run:
 * the 100,000-row list keeps **37** elements alive;
 * the second pass over the same strings is served entirely from the text cache.
 
-Reading the numbers: any render-dirty change rebuilds the whole draw list (~1 ms per 1,000
-buttons here), which is what dominates the hover and text-change rows; layout and style work in
+Reading the numbers: any render-dirty change rebuilds the whole draw list (0.3–1 ms per 1,000
+buttons here, depending on the run), which is what dominates the hover and text-change rows; layout and style work in
 those frames is local. Interfaces with many thousands of simultaneously visible widgets should
 virtualize (`VirtualizedList`/`VirtualizedGrid`) or split static content into layers that do not
 change. A window drag relayouts everything once per resize event.
