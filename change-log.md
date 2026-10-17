@@ -21451,6 +21451,42 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1698",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The LDR check waits for a frame rendered on the LDR path with nothing compiling; waitForPipelines lets two frames render before reading the queue.",
+    "why": "#118's wait read stats() right after the toggle, which still described the previous HDR frame's empty queue, so the race survived and #121's gate sampled the clear colour again."
+  },
+  {
+    "id": "1699",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "LDR fallback bullet describes the corrected wait.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1700",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Correction: stats() lags a toggle by a frame.",
+    "why": "Session memory."
+  },
+  {
+    "id": "1701",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21462,7 +21498,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 19.3 snapshots and state hashing."
   },
   {
-    "id": "1699",
+    "id": "1702",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21474,7 +21510,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 19.3 scene-level snapshots."
   },
   {
-    "id": "1700",
+    "id": "1703",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21486,7 +21522,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "System hook for snapshots."
   },
   {
-    "id": "1701",
+    "id": "1704",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21498,7 +21534,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Scene-object hook for snapshots."
   },
   {
-    "id": "1702",
+    "id": "1705",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21510,7 +21546,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Component hook for snapshots."
   },
   {
-    "id": "1703",
+    "id": "1706",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21522,7 +21558,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "save()/restore() lost or replayed the cached second Gaussian, so a restored stream diverged."
   },
   {
-    "id": "1704",
+    "id": "1707",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21534,7 +21570,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Physics state in snapshots."
   },
   {
-    "id": "1705",
+    "id": "1708",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21546,7 +21582,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Physics in scene snapshots."
   },
   {
-    "id": "1706",
+    "id": "1709",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21558,7 +21594,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Vehicle state in snapshots."
   },
   {
-    "id": "1707",
+    "id": "1710",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21570,7 +21606,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Vehicles in scene snapshots."
   },
   {
-    "id": "1708",
+    "id": "1711",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21582,7 +21618,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Weather in snapshots."
   },
   {
-    "id": "1709",
+    "id": "1712",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21594,7 +21630,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Day/night in snapshots."
   },
   {
-    "id": "1710",
+    "id": "1713",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21606,7 +21642,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Lightning schedule in snapshots."
   },
   {
-    "id": "1711",
+    "id": "1714",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21618,7 +21654,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1712",
+    "id": "1715",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21630,7 +21666,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry follows the code."
   },
   {
-    "id": "1713",
+    "id": "1716",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21642,7 +21678,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins 19.3."
   },
   {
-    "id": "1714",
+    "id": "1717",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21654,7 +21690,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1715",
+    "id": "1718",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21666,7 +21702,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1716",
+    "id": "1719",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21678,7 +21714,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase docs."
   },
   {
-    "id": "1717",
+    "id": "1720",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21690,7 +21726,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Gate description."
   },
   {
-    "id": "1718",
+    "id": "1721",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21702,7 +21738,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Known limitations."
   },
   {
-    "id": "1719",
+    "id": "1722",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21714,7 +21750,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Roadmap follows the code."
   },
   {
-    "id": "1720",
+    "id": "1723",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21726,7 +21762,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep in step."
   },
   {
-    "id": "1721",
+    "id": "1724",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21738,7 +21774,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1722",
+    "id": "1725",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
