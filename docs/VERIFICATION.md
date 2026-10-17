@@ -1007,6 +1007,36 @@ bytes and no allocations; a resize shows a bounded one-off texture cost; and `en
 assembles device bytes, render-graph transient/pooled bytes and registry evicted bytes into one
 `GpuMemoryReport` with `tasks` visibility (`sum.bytes === sum.textureBytes + sum.bufferBytes`).
 
+### `tests/scene/sceneSave.test.ts` — versioned scene saves (Phase 19.1 + 19.2)
+
+12 cases. A scene with a child created before its parent, two entities named `part`, an unnamed
+entity, a rotated and scaled root, a pose written straight to the transform store (as physics does),
+a spot light, a disabled camera and a renderable with a mesh and a material:
+
+* **Round trip.** The save names components by registered name (`Camera`, `Light`, `Renderable`,
+  `Transform` ×3). Loading it through JSON into a blank scene skips nothing and leaves no asset
+  unresolved. Re-saving the loaded scene gives the identical document.
+* **Content.** Parents resolve by key, including both duplicate names. The arm's position is the
+  stored `(7, 8, 9)`, not the stale mirror. Rotation matches to 1e-6, and scale, light fields, the
+  disabled flag and the camera's far plane carry over. The mesh and material resolve to the loader's
+  objects. Mutation-checked: dropping the store read, or the parent keys, fails this case.
+* **Reports.** Without `assetId` the two object fields are reported once each, and an unregistered
+  component cannot reach a save. Loading a save with an unknown type, a constructor that throws and
+  no asset resolver skips exactly those two components, lists both asset references and still
+  loads the rest.
+* **Scene objects.** Day/night (place, date, time, scale, simulated seconds) and weather (state,
+  target, surface, drive flags) round-trip exactly onto objects of the same name. A same-name
+  object of another class is `mismatched`; a different weather seed is a warning; a scene without
+  the objects lists them as `missing`. A `TerrainWorld` built from `terrainOptionsFromState` loads
+  with no warnings and the same pipeline hash; one with another seed is warned about.
+* **Scripts.** A script's fields (number, `Vec3`) and `enabled: false` come back on a new instance
+  built by its defined name. Its object field is reported as dropped. `onCreate` sees the restored
+  value (42). A runtime that does not define the name records one script error.
+* **Versions.** A version-1 file (parents by name) migrates to keys and loads with its transforms
+  and settings. A non-object, a missing version, a newer version, a v2 document without the format
+  tag and a migration registered at the current version are all refused with their reason. A
+  replacement migration's wrong output version is caught, and restoring the shipped step works.
+
 ### `tests/scene/coordinateSpaces.test.ts` — world, render, chunk and terrain spaces (Phase 9.4)
 
 `worldToRender`/`renderToWorld` round-trip in float64, and a point 500 km from the origin survives the
