@@ -184,7 +184,8 @@ PHASE 18 - SCRIPTING
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [~] IN PROGRESS (19.1-19.2 landed: versioned scene saves with entities, components, hierarchy,
         transforms, scripts, environment and terrain settings, and migrations from version 1;
-        simulation snapshots (19.3) and replay (19.4) remain)
+        19.4 landed: input recording, frame-schedule playback and per-part state hashing;
+        simulation snapshots (19.3) remain)
 
 
 ================================================================================
@@ -2082,9 +2083,16 @@ GOAL:
 
 19.4 Replay
 
-    [ ] input recording
-    [ ] deterministic playback
-    [ ] state hashing
+    [x] input recording          (channels: vehicle controls, object fields, custom; changes only;
+                                  plus each frame's dt / fixed steps / alpha, because fixed systems
+                                  are not interleaved and grouping changes the result)
+    [x] deterministic playback   (ReplayPlayer at the input point; Clock.scriptFrames drives a live
+                                  engine; a 720-frame vehicle session with contacts replays
+                                  bit-identically from a fresh scene, through JSON)
+    [x] state hashing            (exact-bit 64-bit StateHasher; per-part hashes: transforms, physics,
+                                  vehicles, objects, plus game parts; divergence names the parts)
+        docs/REPLAY.md, tests/replay/replay.test.ts. A replay starts from a known build until 19.3
+        snapshots let a save stand in for it.
 
 
 19.5 Verification

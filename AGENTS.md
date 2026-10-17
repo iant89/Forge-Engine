@@ -99,6 +99,7 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      streaming; the seam (blocks + source/collector) lives in scene/population.ts
   resources/         ResourceRegistry, textures + defaults
   testing/           MockGPUDevice (strict validation, leak tracking) used by the mock-GPU suites
+  replay/            Phase 19.4: input channels, recorder/player (frame schedule + inputs), exact-bit state hashing (docs/REPLAY.md)
   ui/                retained-mode UI framework (tree, layout, skins/themes, input/focus, widgets, SDF text,
                      declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).

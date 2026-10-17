@@ -576,6 +576,30 @@ gamepad) on a headless `UIManager`; `tests/support/uiHarness.ts` is the shared h
 What these do **not** prove: anything about pixels (the mock device rasterises nothing) — that is
 `check:browser:ui` — or WebKit's stricter WGSL compiler (only `check:wgsl`'s structural rules).
 
+### `tests/replay/replay.test.ts` — replay (Phase 19.4, docs/REPLAY.md)
+
+* `StateHasher` folds exact bits (one ulp, signed zero and string boundaries all change the digest;
+  NaN payloads do not) and its digests are **pinned**, because recordings store hashes.
+* Per-part hashing: nudging a vehicle's velocity by 1e-12 changes only the `vehicles` part.
+* `Clock.scriptFrames` reports a recorded `dt` / fixed-step schedule regardless of wall time, then
+  resumes from wall time at the recorded alpha.
+* A 720-frame session — a car on a rolling heightfield, physics chassis, three dynamic crates it
+  knocks aside, a scene object with saved state — is recorded under a seeded uneven frame rate
+  (0–3 fixed steps per frame), serialized to JSON, and played back on a freshly built scene through
+  a scripted clock driven at a *different* wall rate: no divergence at any of the 12 checkpoints or
+  the final hash, and the vehicle pose is bit-identical.
+* Live input code that keeps writing noise during playback is overridden (this test caught the
+  player writing channels only on recorded changes).
+* Divergences: a tampered throttle value is reported at the first checkpoint after it, naming
+  `vehicles` and `transforms` but not `objects`; a scene built 0.5 m off reports `initial`; a
+  headless driver running one extra fixed step reports `schedule` at that frame.
+* Format validation names the first problem; the player refuses missing or mis-sized channels, a
+  different hash algorithm and a clock with a different fixed step.
+
+What it does **not** prove: replays across machines or browsers (the suite runs one Node build;
+JavaScript's IEEE-754 doubles make that expected, but `Math.sin` and friends are not required to be
+bit-identical across engines), or replays started from a save (19.3).
+
 ### `tests/rendering/objectCulling.test.ts` — the object culler's conservatism (Phase 13.5)
 
 `engine/src/rendering/objectCulling.ts` in sixteen tests. The question is never "does it run" but "does

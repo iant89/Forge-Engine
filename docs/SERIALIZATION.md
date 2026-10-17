@@ -115,4 +115,5 @@ add a test that loads a document written in the old version.
 - **Simulation state (19.3).** Rigid bodies, vehicles and RNG streams are not in a save. The
   `serialization.snapshots` capability tracks this. Weather and day/night restore their clocks, which
   is all their simulation needs.
-- **Replay (19.4)**: input recording, playback and state hashing. Tracked by `determinism.replay`.
+- Replay (19.4) is separate from saves: input, frame schedule and state hashes, in `docs/REPLAY.md`.
+  Until snapshots exist, a replay starts from a known scene build rather than from a save.

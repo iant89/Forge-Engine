@@ -2438,3 +2438,13 @@ Read the module constraints below before changing either pure model.
   the short side made a 390-wide phone UI ~0.5×. Breakpoints read the *logical* width, so a
   1920×1080 window is a 1280×720 `expanded` layout at ×1.5. Remember `width` in tests is physical:
   a 4K panel at dpr 2 is `width: 3840, devicePixelRatio: 2` (CSS 1920).
+
+- 2026-10-17 (Phase 19.4 replay, engine/src/replay): **a replay must record the frame schedule, not
+  just per-step input.** FixedSystems are not interleaved (all vehicle steps of a frame, then all
+  physics steps), so the same steps grouped differently are a different simulation; recordings
+  store each frame's dt / fixedSteps / alpha and `Clock.scriptFrames` replays them in a live engine.
+  The input point is a system at order 105 (after input + scripts.fixed, before vehicles 110); the
+  hash point is a scene object appended to `scene.objects` (objects update after all systems).
+  Bug the suite caught: the player wrote channels only on recorded *changes*, so live input code
+  that kept running won the other frames — write every channel every frame. Hash digests are
+  pinned in tests/replay/replay.test.ts (recordings store them). `Rng` has `nextFloat`, not `next`.

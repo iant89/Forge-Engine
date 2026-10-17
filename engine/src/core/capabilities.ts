@@ -328,9 +328,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "determinism.replay",
     phase: "19.4",
-    status: "planned",
+    status: "verified",
     summary: "Input recording, deterministic playback and state hashing",
-    closesWith: "19.4",
+    evidence: ["tests/replay/replay.test.ts", "docs/REPLAY.md"],
+    notes: "A replay records the frame schedule as well as input (fixed systems are not interleaved) and starts from a known scene build; mid-session snapshots are 19.3",
   },
 
   // ---------------------------------------------------------------- rendering
