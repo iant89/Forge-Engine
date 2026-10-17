@@ -21484,6 +21484,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Correction: stats() lags a toggle by a frame.",
     "why": "Session memory."
+  },
+  {
+    "id": "1701",
+    "date": "2026-10-17T17:00:00Z",
+    "type": "pr-merge",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "base": "main",
+    "title": "Phase 19.1 + 19.2: versioned scene saves (entities, components, transforms, scripts, environment, terrain settings)",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "Scene saves become a versioned forge.scene v2 document (engine/src/scene/serialization.ts): entities keyed by file index with parent keys, components by registered name (registry hook, own serialize(), then field capture with asset references and a dropped-field report), transforms read from the store, scene settings via exportSettings/importSettings, and scene-object state via saveState/loadState (day/night exact, weather, terrain settings with terrainOptionsFromState). ScriptComponent saves scripts by name and restores their data before onCreate. registerSceneSaveMigration with a built-in v1 step. sceneSave pins it (12 cases). Also fixes the LDR blank-frame gate race by waiting for an LDR frame itself before sampling.",
+    "files": [
+      "PROGRESS.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/SERIALIZATION.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/environment/dayNight.ts",
+      "engine/src/environment/weather.ts",
+      "engine/src/index.ts",
+      "engine/src/scene/components.ts",
+      "engine/src/scene/components/index.ts",
+      "engine/src/scene/scene.ts",
+      "engine/src/scene/serialization.ts",
+      "engine/src/scripting/component.ts",
+      "engine/src/scripting/runtime.ts",
+      "engine/src/terrain/world.ts",
+      "mnemosyne.md",
+      "tests/full.test.ts",
+      "tests/scene/sceneSave.test.ts",
+      "tests/tools/selrun.test.ts",
+      "tools/browser-check.mjs"
+    ]
   }
 ]
 ```
