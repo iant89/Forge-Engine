@@ -220,7 +220,26 @@ export {
 // Scene / ECS
 export { Scene, SceneObject, defaultSceneSettings, defaultSkySettings, defaultCloudSettings, defaultWaterSettings, defaultWaterWave, defaultWaterShore, type WaterShoreSettings, type SceneSettings, type SceneShadowSettings, type SceneFogSettings, type SceneSkySettings, type SceneCloudSettings, type SceneWaterSettings, type SceneSsaoSettings, type WaterWaveParams, type SkyQuality, type SerializedScene, type RaycastResult, type FogMode, type ToneMapping } from "./scene/scene.js";
 export { EntityWorld, Entity, TransformHandle, setComponentErrorHandler } from "./scene/world.js";
-export { Component, registerComponent, componentInfo, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
+export { Component, registerComponent, componentInfo, tryComponentInfoByName, componentTypeById, allComponentTypes, resetComponentRegistry, type ComponentTypeInfo, type RegisterComponentOptions, type DeserializationContext } from "./scene/components.js";
+export {
+  SCENE_SAVE_FORMAT,
+  SCENE_SAVE_VERSION,
+  saveScene,
+  loadScene,
+  migrateSceneSave,
+  migrateSceneSaveV1,
+  registerSceneSaveMigration,
+  type SceneSave,
+  type SceneSaveEntity,
+  type SceneSaveComponent,
+  type SceneSaveObject,
+  type SceneSaveOptions,
+  type SceneSaveReport,
+  type SceneLoadOptions,
+  type SceneLoadReport,
+  type SceneSaveMigration,
+  type AssetRef,
+} from "./scene/serialization.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
 export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
 export { setWorldSurfaceGrip, worldSurfaceGrip, setWorldSurfaceGripField, worldSurfaceGripField, type SurfaceGripField } from "./scene/surfaceGrip.js";

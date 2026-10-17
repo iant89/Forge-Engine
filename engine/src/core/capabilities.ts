@@ -90,6 +90,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "16": "inProgress",
   "17": "inProgress",
   "18": "verified",
+  "19": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -949,10 +950,18 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "serialization.scene",
     phase: "19.1",
+    status: "verified",
+    summary: "Versioned scene saves: entities, components, hierarchy, transforms, environment and terrain settings, with migrations",
+    evidence: ["tests/scene/sceneSave.test.ts", "tests/environment/environment.test.ts", "tests/environment/environment8b.test.ts", "docs/SERIALIZATION.md"],
+    notes: "Components save by registered name, parents by file key, assets by reference; scene objects carry state via saveState/loadState; unusable content is reported, not dropped silently. Version 1 files migrate (19.2).",
+  },
+  {
+    id: "serialization.snapshots",
+    phase: "19.3",
     status: "planned",
-    summary: "Versioned scene/snapshot serialization with migrations",
-    closesWith: "19.1",
-    notes: "Scene settings already serialize; entities/components/snapshots do not",
+    summary: "Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run",
+    closesWith: "19.3",
+    notes: "Scene saves restore configuration and the weather/day-night clocks, not rigid-body, vehicle or RNG state",
   },
   {
     id: "audio.system",

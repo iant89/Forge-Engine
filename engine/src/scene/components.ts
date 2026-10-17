@@ -71,14 +71,19 @@ export interface ComponentTypeInfo {
   name: string;
   /** Constructor signature — used by the editor + scene loader to rebuild components. */
   create?: (data: Record<string, unknown>) => Component;
+  /** The registered class. The scene loader builds a component with `create` when given, else `new ctor()`. */
+  ctor: new () => Component;
   /**
    * Storage *factory*. Each `EntityWorld` owns its own store: entity slots restart at 0 in every
    * world, so a store shared between worlds aliases slot 0 of one onto slot 0 of another (a second
    * scene inherited the first scene's components, and disposing either wiped both).
    */
   createStore(): ComponentStorage<Component>;
-  /** Serialize to plain JSON-ish data (default: own enumerable fields, skipping objects). */
-  serialize?: (c: Component) => Record<string, unknown>;
+  /**
+   * Serialize to plain JSON data. Without it the scene saver uses the component's own
+   * `serialize()` method, else captures its fields (scene/serialization.ts).
+   */
+  serialize?: (c: Component, ctx: SerializationContext) => Record<string, unknown>;
   deserialize?: (c: Component, data: Record<string, unknown>, ctx: DeserializationContext) => void;
   /** Editor metadata (which inspector group, whether it can be added more than once). */
   singleton?: boolean;
@@ -86,9 +91,20 @@ export interface ComponentTypeInfo {
   allowMultiple?: boolean;
 }
 
+/** What a registration's `serialize` hook gets from the scene saver (scene/serialization.ts). */
+export interface SerializationContext {
+  /**
+   * The saver's field capture for a nested object (a script, a sub-record): plain fields, vectors,
+   * asset references; anything else is reported as dropped under `label`.
+   */
+  capture(obj: object, label: string): Record<string, unknown>;
+}
+
 export interface DeserializationContext {
   /** Resolve a named/typed asset reference (material, mesh, script). */
   resolveAsset?(kind: string, id: string): unknown;
+  /** The loader's field assignment (the inverse of `SerializationContext.capture`). */
+  apply?(target: object, data: Record<string, unknown>): void;
   /** Register an async post-link step (e.g. bind a material handle once loaded). */
   defer?(fn: () => void | Promise<void>): void;
 }
@@ -101,7 +117,7 @@ let dirty = 1;
 export interface RegisterComponentOptions {
   name?: string;
   create?: (data: Record<string, unknown>) => Component;
-  serialize?: (c: Component) => Record<string, unknown>;
+  serialize?: (c: Component, ctx: SerializationContext) => Record<string, unknown>;
   deserialize?: (c: Component, data: Record<string, unknown>, ctx: DeserializationContext) => void;
   /** Use a struct store with fixed float/int counts instead of an object store. */
   struct?: { floats: number; ints: number };
@@ -126,6 +142,7 @@ export function registerComponent<T extends Component>(ctor: new (...args: never
     id,
     name,
     create: options.create,
+    ctor: ctor as unknown as new () => Component,
     serialize: options.serialize,
     deserialize: options.deserialize,
     createStore: () => new ObjectStore<Component>(id, name) as unknown as ComponentStorage<Component>,
@@ -159,6 +176,11 @@ export function componentInfo<T extends Component>(ctor: (new (...args: never[])
 
 export function tryComponentInfo(ctor: Function): ComponentTypeInfo | undefined {
   return byConstructor.get(ctor);
+}
+
+/** The registration for a type name, or undefined (the scene loader's lookup: it reports, never throws). */
+export function tryComponentInfoByName(name: string): ComponentTypeInfo | undefined {
+  return byName.get(name);
 }
 
 export function allComponentTypes(): readonly ComponentTypeInfo[] {

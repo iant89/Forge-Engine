@@ -9,17 +9,29 @@
  *
  * The component only holds state. The {@link ScriptRuntime} installed on the same world adopts it
  * on attach, runs the hooks and destroys its scripts on detach.
+ *
+ * Scene saves (Phase 19.1) write each script as `{ name, enabled, data }`: its `scriptName` (the
+ * name it was defined under, else its class name) and its own data fields, captured like a
+ * component's (plain values and vectors; other objects are reported as dropped). Loading queues each
+ * script by name; the runtime builds it from its definitions and applies the data before `onCreate`.
+ * Timers, coroutines and subscriptions are not saved — `onCreate` re-registers them.
  */
 
-import { Component, registerComponent, type WorldLike } from "../scene/components.js";
+import { Component, registerComponent, type DeserializationContext, type SerializationContext, type WorldLike } from "../scene/components.js";
 import type { Script, ScriptConstructor } from "./script.js";
 
 /** What a runtime exposes to components; implemented by `ScriptRuntime`. */
 export interface ScriptBinder {
   _adopt(component: ScriptComponent): void;
-  _adoptScript(component: ScriptComponent, script: Script | string): Script | null;
+  _adoptScript(component: ScriptComponent, script: Script | string | ScriptRestore): Script | null;
   _destroyScript(script: Script): void;
   _release(component: ScriptComponent): void;
+}
+
+/** @internal A script loaded from a save: built by name, then given its saved fields before onCreate. */
+export interface ScriptRestore {
+  readonly name: string;
+  restore(script: Script): void;
 }
 
 const binders = new WeakMap<object, ScriptBinder>();
@@ -40,7 +52,7 @@ export class ScriptComponent extends Component {
   /** @internal Live scripts, in the order they were added. */
   readonly _scripts: Script[] = [];
   /** @internal Names/instances given before a runtime saw this component. */
-  _pending: Array<Script | string> = [];
+  _pending: Array<Script | string | ScriptRestore> = [];
   /** @internal The runtime that adopted this component. */
   _binder: ScriptBinder | null = null;
 
@@ -100,4 +112,29 @@ registerComponent(ScriptComponent as never, {
   name: "Script",
   allowMultiple: false,
   editorGroup: "Gameplay",
+  serialize: (c, ctx: SerializationContext) => {
+    const component = c as ScriptComponent;
+    const entries = [...component._scripts, ...component._pending].map((s) => {
+      if (typeof s === "string") return { name: s, enabled: true, data: {} };
+      if (!("_state" in s)) return { name: s.name, enabled: true, data: {} };
+      return { name: s.scriptName, enabled: s.enabled, data: ctx.capture(s, `Script:${s.scriptName}`) };
+    });
+    return { scripts: entries };
+  },
+  deserialize: (c, data, ctx: DeserializationContext) => {
+    const component = c as ScriptComponent;
+    const scripts = Array.isArray(data["scripts"]) ? (data["scripts"] as Record<string, unknown>[]) : [];
+    for (const entry of scripts) {
+      if (typeof entry["name"] !== "string") continue;
+      const fields = entry["data"] && typeof entry["data"] === "object" ? (entry["data"] as Record<string, unknown>) : {};
+      const enabled = entry["enabled"] !== false;
+      component._pending.push({
+        name: entry["name"],
+        restore: (script) => {
+          ctx.apply?.(script, fields);
+          script.enabled = enabled;
+        },
+      });
+    }
+  },
 });

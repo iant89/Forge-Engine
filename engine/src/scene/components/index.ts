@@ -94,6 +94,19 @@ export class Transform extends Component {
     return this;
   }
 
+  /**
+   * Local TRS for a scene save. Systems such as physics write storage directly, so an attached
+   * transform reads the pose back from storage first; the internal slot is never saved (it is an
+   * index into one world).
+   */
+  serialize(): Record<string, unknown> {
+    if (this.world && this.slot !== 0) this.world.transforms.writeTRS(this.slot, this as unknown as never);
+    const p = this.position;
+    const r = this.rotation;
+    const s = this.scale;
+    return { position: [p.x, p.y, p.z], rotation: [r.x, r.y, r.z, r.w], scale: [s.x, s.y, s.z] };
+  }
+
   /** Re-write all of local TRS into storage (after mutating the mirror fields directly). */
   sync(): this {
     this.write();
