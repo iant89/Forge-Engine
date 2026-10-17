@@ -8,6 +8,7 @@
  * share one simulation. Without sharing, registering both creates two independent worlds.
  */
 
+import type { StateRecord } from "../core/snapshot.js";
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { Quat } from "../math/mat.js";
@@ -15,6 +16,7 @@ import { Vec3 } from "../math/vec.js";
 import { RigidBodyComponent, ColliderComponent } from "./components.js";
 import { PhysicsWorld, type PhysicsWorldOptions } from "./world.js";
 import { RigidBody } from "./body.js";
+import type { PhysicsWorldSnapshot } from "./world.js";
 import type { PhysicsBackend } from "./backend.js";
 import { VehicleComponent } from "../vehicles/components.js";
 
@@ -95,6 +97,16 @@ export class PhysicsSystem extends FixedSystem {
       this.world = new PhysicsWorld(options);
       this.ownsWorld = true;
     }
+  }
+
+  /** Phase 19.3: the physics world's mid-run state (PhysicsWorld.snapshot) and this system's step count. */
+  snapshotState(): StateRecord {
+    return { stepsExecuted: this.stepsExecuted, world: this.world.snapshot() as unknown as StateRecord };
+  }
+
+  restoreSnapshotState(state: StateRecord): void {
+    this.world.restoreSnapshot(state["world"] as unknown as PhysicsWorldSnapshot);
+    if (typeof state["stepsExecuted"] === "number") this.stepsExecuted = state["stepsExecuted"];
   }
 
   override fixedStep(context: SystemContext, stepIndex: number): void {

@@ -14,6 +14,8 @@ import { ContactManifold, collideBodies } from "./collision.js";
 import { SequentialImpulseSolver, type SolverOptions } from "./solver.js";
 import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js";
 import { SweepAndPruneBroadphase, type BroadphaseStats } from "./broadphase.js";
+import { UsageError } from "../core/errors.js";
+import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 
 export interface RaycastFilter {
   /** Skip these rigid bodies (e.g. the casting vehicle chassis). */
@@ -105,6 +107,45 @@ export class PhysicsWorld {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Phase 19.3: the world's mid-run state — every body's pose, velocities, force accumulators,
+   * interpolation poses, sleep state and material/mass parameters, plus the world's clock, step
+   * count, accumulator, gravity and next body id. Shapes are construction data and are not included.
+   * Restore into this world (or one built the same way): bodies are matched by id, in order.
+   */
+  snapshot(): PhysicsWorldSnapshot {
+    return {
+      world: { accumulator: this.accumulator, time: this.time, stepCount: this.stepCount, fixedDt: this.fixedDt, nextBodyId: this.nextBodyId, gravity: [this.gravity.x, this.gravity.y, this.gravity.z] },
+      bodies: this.bodies.map((b) => ({ id: b.id, state: captureState(b, { skip: BODY_SNAPSHOT_SKIP }) })),
+    };
+  }
+
+  /**
+   * Restore a `snapshot()`. The world must hold the same bodies in the same order (body order sets
+   * pair and manifold order, so anything else would not continue identically); otherwise this throws
+   * before changing anything.
+   */
+  restoreSnapshot(snap: PhysicsWorldSnapshot): void {
+    const ids = this.bodies.map((b) => b.id);
+    const saved = snap.bodies.map((b) => b.id);
+    if (ids.length !== saved.length || ids.some((id, i) => id !== saved[i])) {
+      throw new UsageError(`PhysicsWorld.restoreSnapshot: bodies [${ids.join(",")}] do not match the snapshot's [${saved.join(",")}]`);
+    }
+    const w = snap.world;
+    this.accumulator = w.accumulator;
+    this.time = w.time;
+    this.stepCount = w.stepCount;
+    this.fixedDt = w.fixedDt;
+    this.nextBodyId = w.nextBodyId;
+    this.gravity.set(w.gravity[0], w.gravity[1], w.gravity[2]);
+    snap.bodies.forEach((entry, i) => {
+      const body = this.bodies[i]!;
+      restoreState(body, entry.state, `body ${entry.id}`);
+      body.updateInertiaWorld();
+      body.updateAABB();
+    });
   }
 
   /**
@@ -368,4 +409,13 @@ export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, 
     prevT = t;
   }
   return false;
+}
+
+/** Derived or construction-time body fields a snapshot leaves out (rebuilt on restore). */
+const BODY_SNAPSHOT_SKIP = ["shape", "aabb", "invInertiaWorld"] as const;
+
+/** A `PhysicsWorld.snapshot()` (JSON-safe). */
+export interface PhysicsWorldSnapshot {
+  world: { accumulator: number; time: number; stepCount: number; fixedDt: number; nextBodyId: number; gravity: [number, number, number] };
+  bodies: { id: number; state: StateRecord }[];
 }

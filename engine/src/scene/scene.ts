@@ -26,6 +26,7 @@ import type { Query } from "./stores.js";
 import type { Component } from "./components.js";
 import { loadScene, saveScene, type SceneLoadOptions, type SceneLoadReport, type SceneSave, type SceneSaveOptions } from "./serialization.js";
 import type { AtmosphereParams } from "../environment/atmosphere.js";
+import type { StateRecord } from "../core/snapshot.js";
 import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "./shadowLimits.js";
 
 export type FogMode = "none" | "linear" | "exp2" | "height";
@@ -555,6 +556,13 @@ export abstract class SceneObject {
    */
   saveState?(): Record<string, unknown>;
   loadState?(state: Record<string, unknown>): string[] | void;
+
+  /**
+   * Phase 19.3: mid-run simulation state for a scene snapshot (scene/snapshot.ts) — everything that
+   * changes as the object simulates, exact enough that a restored object continues identically.
+   */
+  snapshotState?(): StateRecord;
+  restoreSnapshotState?(state: StateRecord): void;
 
   /** Optional: objects that want the scene to skip their entities in the default query. */
   exclusive?: boolean;
