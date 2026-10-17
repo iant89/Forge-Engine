@@ -21487,6 +21487,42 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1701",
+    "date": "2026-10-17T17:00:00Z",
+    "type": "pr-merge",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "base": "main",
+    "title": "Phase 19.1 + 19.2: versioned scene saves (entities, components, transforms, scripts, environment, terrain settings)",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "Scene saves become a versioned forge.scene v2 document (engine/src/scene/serialization.ts): entities keyed by file index with parent keys, components by registered name (registry hook, own serialize(), then field capture with asset references and a dropped-field report), transforms read from the store, scene settings via exportSettings/importSettings, and scene-object state via saveState/loadState (day/night exact, weather, terrain settings with terrainOptionsFromState). ScriptComponent saves scripts by name and restores their data before onCreate. registerSceneSaveMigration with a built-in v1 step. sceneSave pins it (12 cases). Also fixes the LDR blank-frame gate race by waiting for an LDR frame itself before sampling.",
+    "files": [
+      "PROGRESS.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/SERIALIZATION.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/environment/dayNight.ts",
+      "engine/src/environment/weather.ts",
+      "engine/src/index.ts",
+      "engine/src/scene/components.ts",
+      "engine/src/scene/components/index.ts",
+      "engine/src/scene/scene.ts",
+      "engine/src/scene/serialization.ts",
+      "engine/src/scripting/component.ts",
+      "engine/src/scripting/runtime.ts",
+      "engine/src/terrain/world.ts",
+      "mnemosyne.md",
+      "tests/full.test.ts",
+      "tests/scene/sceneSave.test.ts",
+      "tests/tools/selrun.test.ts",
+      "tools/browser-check.mjs"
+    ]
+  },
+  {
+    "id": "1702",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21498,7 +21534,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 19.3 snapshots and state hashing."
   },
   {
-    "id": "1702",
+    "id": "1703",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21510,7 +21546,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 19.3 scene-level snapshots."
   },
   {
-    "id": "1703",
+    "id": "1704",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21522,7 +21558,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "System hook for snapshots."
   },
   {
-    "id": "1704",
+    "id": "1705",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21534,7 +21570,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Scene-object hook for snapshots."
   },
   {
-    "id": "1705",
+    "id": "1706",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21546,7 +21582,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Component hook for snapshots."
   },
   {
-    "id": "1706",
+    "id": "1707",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21558,7 +21594,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "save()/restore() lost or replayed the cached second Gaussian, so a restored stream diverged."
   },
   {
-    "id": "1707",
+    "id": "1708",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21570,7 +21606,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Physics state in snapshots."
   },
   {
-    "id": "1708",
+    "id": "1709",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21582,7 +21618,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Physics in scene snapshots."
   },
   {
-    "id": "1709",
+    "id": "1710",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21594,7 +21630,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Vehicle state in snapshots."
   },
   {
-    "id": "1710",
+    "id": "1711",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21606,7 +21642,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Vehicles in scene snapshots."
   },
   {
-    "id": "1711",
+    "id": "1712",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21618,7 +21654,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Weather in snapshots."
   },
   {
-    "id": "1712",
+    "id": "1713",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21630,7 +21666,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Day/night in snapshots."
   },
   {
-    "id": "1713",
+    "id": "1714",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21642,7 +21678,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Lightning schedule in snapshots."
   },
   {
-    "id": "1714",
+    "id": "1715",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21654,7 +21690,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1715",
+    "id": "1716",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21666,7 +21702,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry follows the code."
   },
   {
-    "id": "1716",
+    "id": "1717",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21678,7 +21714,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins 19.3."
   },
   {
-    "id": "1717",
+    "id": "1718",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21690,7 +21726,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1718",
+    "id": "1719",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21702,7 +21738,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1719",
+    "id": "1720",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21714,7 +21750,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase docs."
   },
   {
-    "id": "1720",
+    "id": "1721",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21726,7 +21762,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Gate description."
   },
   {
-    "id": "1721",
+    "id": "1722",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21738,7 +21774,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Known limitations."
   },
   {
-    "id": "1722",
+    "id": "1723",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21750,7 +21786,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Roadmap follows the code."
   },
   {
-    "id": "1723",
+    "id": "1724",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21762,7 +21798,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep in step."
   },
   {
-    "id": "1724",
+    "id": "1725",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
@@ -21774,7 +21810,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1725",
+    "id": "1726",
     "date": "2026-10-17T15:00:00Z",
     "type": "change",
     "pr": null,
