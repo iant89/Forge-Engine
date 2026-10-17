@@ -244,11 +244,10 @@ What remains:
 
 ## Save / serialization (Phase 19)
 
-* **A scene save restores configuration, not a running simulation.** Rigid bodies, vehicles and
-  RNG streams are not saved yet; a loaded scene starts them from rest. Weather and day/night restore
-  their clocks. (`docs/SERIALIZATION.md`) (roadmap: 19.3)
-* **Script timers, coroutines and subscriptions are not saved.** They are closures; a loaded script
-  re-registers them in `onCreate` from its restored fields. (roadmap: 19.3)
+* **Script timers, coroutines and subscriptions are in neither a save nor a snapshot, and neither are
+  lightning strikes in flight.** Closures cannot be serialized: a loaded script re-registers them in
+  `onCreate`; a restored storm keeps its strike schedule but starts with a clear sky. (capability:
+  serialization.closuresAndTransients)
 
 ## Documentation debt
 

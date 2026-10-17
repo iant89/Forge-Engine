@@ -182,9 +182,10 @@ PHASE 18 - SCRIPTING
     [x]
 
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
-    [~] IN PROGRESS (19.1-19.2 landed: versioned scene saves with entities, components, hierarchy,
-        transforms, scripts, environment and terrain settings, and migrations from version 1;
-        simulation snapshots (19.3) and replay (19.4) remain)
+    [~] IN PROGRESS (19.1-19.3 landed: versioned scene saves with entities, components, hierarchy,
+        transforms, scripts, environment and terrain settings, and migrations from version 1; exact
+        mid-run simulation snapshots of physics, vehicles, weather and RNG with state hashing;
+        input recording and playback (19.4) remain)
 
 
 ================================================================================
@@ -2074,17 +2075,20 @@ GOAL:
 
 19.3 Simulation Snapshots
 
-    [ ] physics state
-    [ ] vehicle state
-    [ ] weather state
-    [ ] RNG state
+    [x] physics state      (PhysicsWorld.snapshot: bodies by id and order, world clock; exact)
+    [x] vehicle state      (Vehicle.snapshot: chassis, wheels, engine, gearbox, damage; structural)
+    [x] weather state      (WeatherSystem / DayNightCycle / LightningSystem schedule)
+    [x] RNG state          (Rng.snapshot, cached Gaussian included)
+        Scene level: captureSceneSnapshot / restoreSceneSnapshot (transforms, settings, surface grip,
+        system/component/object hooks), exact through JSON. A vehicle session restored mid-drive
+        reaches the uninterrupted run's state hash. docs/SERIALIZATION.md, tests/scene/simulationSnapshot.test.ts
 
 
 19.4 Replay
 
     [ ] input recording
     [ ] deterministic playback
-    [ ] state hashing
+    [x] state hashing      (hashState / hashSceneSnapshot: FNV-1a of canonical JSON, landed with 19.3)
 
 
 19.5 Verification
