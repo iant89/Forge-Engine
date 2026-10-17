@@ -326,9 +326,15 @@ const settle = (frames = 4) =>
     frames,
   );
 
-/** Wait until no pipeline is still compiling: a frame skips the draws whose pipeline is pending. */
-const waitForPipelines = (timeout = 90000) =>
-  page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { polling: 250, timeout });
+/**
+ * Wait until no pipeline is still compiling: a frame skips the draws whose pipeline is pending.
+ * `stats()` describes the last frame already rendered, so right after a toggle it still reports the
+ * old frame's (empty) queue: let two frames render under the new settings before reading it.
+ */
+const waitForPipelines = async (timeout = 90000) => {
+  await settle(2);
+  await page.waitForFunction(() => window.__forge.stats().render.pipelinesPending === 0, null, { polling: 250, timeout });
+};
 
 /** GPU cull counters are asynchronous; wait until this mode's device readback has actually arrived. */
 const waitForCullReadback = (writesRecords) =>
@@ -1843,8 +1849,18 @@ async function checkRendererSection(backend) {
   // The swapchain is a different colour target than rgba16float, so every forward pipeline is a new
   // variant compiled asynchronously, and frames skip those draws until it lands. On a slow SwiftShader
   // runner four frames is not enough and the sample is the clear colour alone; wait for the compiles.
+  // Wait for a frame that actually rendered on the LDR path with nothing left compiling: reading the
+  // pending count right after the toggle sees the previous HDR frame's empty queue (the race that let
+  // this check sample the clear colour on CI even after it waited for pipelines).
   await page.evaluate(() => window.__forge.setHdr(false));
-  await waitForPipelines();
+  await page.waitForFunction(
+    () => {
+      const r = window.__forge.stats().render;
+      return r.hdr === false && r.pipelinesPending === 0;
+    },
+    null,
+    { polling: 100, timeout: 90000 },
+  );
   await settle();
   const ldr = await samplePixels();
   const ldrStats = await page.evaluate(() => window.__forge.stats());

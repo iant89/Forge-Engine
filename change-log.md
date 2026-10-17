@@ -21448,6 +21448,42 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Notes on the save design and the two silent losses found.",
     "why": "Session memory."
+  },
+  {
+    "id": "1698",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "The LDR check waits for a frame rendered on the LDR path with nothing compiling; waitForPipelines lets two frames render before reading the queue.",
+    "why": "#118's wait read stats() right after the toggle, which still described the previous HDR frame's empty queue, so the race survived and #121's gate sampled the clear colour again."
+  },
+  {
+    "id": "1699",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "LDR fallback bullet describes the corrected wait.",
+    "why": "Keep the gate description truthful."
+  },
+  {
+    "id": "1700",
+    "date": "2026-10-17T16:00:00Z",
+    "type": "change",
+    "pr": 121,
+    "branch": "claude/phase19-serialization",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Correction: stats() lags a toggle by a frame.",
+    "why": "Session memory."
   }
 ]
 ```

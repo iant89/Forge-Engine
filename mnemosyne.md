@@ -2413,3 +2413,9 @@ Read the module constraints below before changing either pure model.
   before `onCreate`. Transform must read the store (physics writes it directly; the mirror can be
   stale). `DayNightCycle.setTime` wraps with `% 24`, which changes an in-range value's last bits —
   restore exact values by assignment. Probe a save with a tsx script against `saveScene().report`.
+
+- 2026-10-17 (correction to the browser-gate entry): **`engine.stats()` describes the last frame
+  already rendered, so it lags any toggle by at least a frame.** The #118 LDR fix waited for
+  `pipelinesPending === 0` immediately after `setHdr(false)` — that read the previous HDR frame's
+  empty queue and returned at once, and CI sampled the clear colour again on #121. Wait for a stats
+  field that proves the new mode rendered (`render.hdr === false`) before trusting any counter.

@@ -1101,8 +1101,10 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   spheres is really being darkened by the cascades, not by ambient occlusion baked into materials).
 - **LDR fallback**: with `hdr` off the pass list has no tonemap or bloom passes and the frame is still
   a lit scene (≥ 8 distinct colours, mean ≥ 6). The swapchain is a different colour target, so the
-  check first waits for `pipelinesPending === 0`: frames skip draws whose pipeline is still compiling,
-  and on a slow runner a fixed few frames sampled the clear colour alone.
+  check first waits for a frame that rendered on the LDR path (`render.hdr === false`) with
+  `pipelinesPending === 0`: frames skip draws whose pipeline is still compiling, and `stats()`
+  describes the last frame rendered, so reading the queue right after the toggle saw the previous HDR
+  frame's empty queue and sampled the clear colour on CI.
 - **Depth prepass, SSAO and aliasing (Phase 13.1 / 13.2)**: the default frame runs exactly one
   `forge.prepass` (with `prepassDraws >= 1`) and the three `forge.ssao*` passes, in the order
   prepass → estimate → blur.h → blur.v → `forge.main`; `aliasedBytes > 0` with fewer physical than
