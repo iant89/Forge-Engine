@@ -1037,6 +1037,37 @@ a spot light, a disabled camera and a renderable with a mesh and a material:
   tag and a migration registered at the current version are all refused with their reason. A
   replacement migration's wrong output version is caught, and restoring the shipped step works.
 
+### `tests/scene/simulationSnapshot.test.ts` — mid-run simulation snapshots (Phase 19.3)
+
+10 cases. Every "continue" comparison is between an uninterrupted run and a run restored from a
+snapshot that went through `JSON.stringify`/`JSON.parse`:
+
+* **Capture codec.** `-0`, `NaN`, ±∞, `0.1 + 0.2` and float32 arrays round-trip exactly, and nested
+  objects are written into, not replaced. Functions and skipped fields are left out, a shared
+  reference is written once, and an array of another length or a non-array target is refused. The
+  hash ignores key order but sees a one-ulp difference.
+* **RNG.** After 7 Gaussians, so one value is cached, a snapshot restored into another generator
+  continues with the same 9 values. `restore()` of a `save()` position no longer replays a stale
+  cached value.
+* **Physics.** A pile of 8 boxes and spheres, snapshotted at steps 12, 40 and 90 (falling and
+  colliding), restored into a fresh world and stepped 150 more, gives the uninterrupted run's state
+  hash. A world with different bodies is refused and left untouched.
+* **Vehicle.** A car driven 333 steps with throttle, brake, steer and handbrake over rolling ground,
+  restored into a new `Vehicle`, matches the uninterrupted car's hash, gear and rpm after 567 more
+  steps (it covered > 50 m).
+* **Weather and lightning.** Weather, day/night and a lightning storm, restored after 120 s and run
+  200 s more, match the state, surface and clock, and the lightning's strike count and schedule
+  (more than 5 strikes after the snapshot).
+* **Scene session.** A scene with a physics system, a ground plane, 5 crates, a vehicle on rolling
+  ground, weather and day/night:
+  * Two fresh sessions given the same 400 inputs hash the same.
+  * A session restored from a step-300 snapshot reaches the uninterrupted run's hash at step 600,
+    with an identical crate height.
+  * A scene with an extra entity is refused and left untouched, and a non-snapshot document is refused.
+
+Mutation-checked: dropping the surface-grip restore, the cached Gaussian, or body angular velocity
+fails the matching cases.
+
 ### `tests/scene/coordinateSpaces.test.ts` — world, render, chunk and terrain spaces (Phase 9.4)
 
 `worldToRender`/`renderToWorld` round-trip in float64, and a point 500 km from the origin survives the

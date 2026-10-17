@@ -2413,3 +2413,12 @@ Read the module constraints below before changing either pure model.
   before `onCreate`. Transform must read the store (physics writes it directly; the mirror can be
   stale). `DayNightCycle.setTime` wraps with `% 24`, which changes an in-range value's last bits —
   restore exact values by assignment. Probe a save with a tsx script against `saveScene().report`.
+
+- 2026-10-17 (Phase 19.3): **a snapshot must hold everything a step reads, not just what it owns.**
+  The first scene snapshot restored every subsystem exactly and still drifted within two steps: the
+  vehicle read the world's surface grip (`setWorldSurfaceGrip`, a WeakMap outside every object) and
+  the weather read scene settings that day/night rewrites each step. Both now ride in the scene
+  snapshot. Debug drift by hashing each snapshot part (transforms / each system / component / object)
+  right after restore and again two steps later. Structural capture traps: skip scratch arrays that
+  hold component references (weather's `lightingScratch` captured Light components) and
+  variable-length lists (restore refuses length changes). `Rng.save()` dropped the cached Gaussian.

@@ -171,7 +171,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Exit criterion: Beacon Defense (`?scene=scripting`), a whole game written only as scripts (Phase 18)
 - [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
 - [x] Versioned scene saves with migrations: entities, components, hierarchy, transforms, scripts, environment and terrain settings (Phase 19.1–19.2; `docs/SERIALIZATION.md`)
-- [ ] Simulation snapshots: physics, vehicle, weather and RNG state (Phase 19.3)
+- [x] Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run bit-for-bit, with state hashing (Phase 19.3; `docs/SERIALIZATION.md`)
 - [ ] Input recording, deterministic playback and state hashing (Phase 19.4)
 
 ## Debugging, profiling & benchmarks (Phases 21, 22)
