@@ -2404,3 +2404,18 @@ Read the module constraints below before changing either pure model.
   ("mixing '*' and '^' requires parenthesis") and `check:wgsl` does NOT catch it — compile new WGSL on a
   real device (the gate, or `createShaderModule` + `getCompilationInfo` from a page on the Vite server).
   The user's `?diag=1` panel (examples/src/diag/iosReport.ts) is how iOS reports reach us.
+
+- 2026-10-17 (Phase 19.1/19.2): **scene saves live in `engine/src/scene/serialization.ts`.** Scene
+  objects are code, so a save carries their `saveState()` and loading hands it to the same-named
+  object; entities are data and are created. Two silent losses the old v1 path had: it saved
+  `constructor.name` and skipped `_`-prefixed fields, so `ScriptComponent._scripts` (all script state)
+  vanished with no report — now scripts save `{name, enabled, data}` and are rebuilt by defined name
+  before `onCreate`. Transform must read the store (physics writes it directly; the mirror can be
+  stale). `DayNightCycle.setTime` wraps with `% 24`, which changes an in-range value's last bits —
+  restore exact values by assignment. Probe a save with a tsx script against `saveScene().report`.
+
+- 2026-10-17 (correction to the browser-gate entry): **`engine.stats()` describes the last frame
+  already rendered, so it lags any toggle by at least a frame.** The #118 LDR fix waited for
+  `pipelinesPending === 0` immediately after `setHdr(false)` — that read the previous HDR frame's
+  empty queue and returned at once, and CI sampled the clear colour again on #121. Wait for a stats
+  field that proves the new mode rendered (`render.hdr === false`) before trusting any counter.

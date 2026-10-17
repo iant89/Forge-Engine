@@ -311,6 +311,68 @@ export class WeatherSystem extends SceneObject {
     return this;
   }
 
+  /**
+   * Phase 19.1: the weather now, where it is heading, the ground's wetness/puddles/snow, the
+   * simulated clock (the gust field is a pure function of seed and clock) and the drive knobs.
+   */
+  override saveState(): Record<string, unknown> {
+    return {
+      seed: this.seed,
+      gustScale: this.gustScale,
+      patchScale: this.patchScale,
+      tau: { ...this.tau },
+      state: { ...this.state },
+      target: { ...this.target },
+      surface: { ...this.surface },
+      simulatedSeconds: this.simulatedSeconds,
+      driveFog: this.driveFog,
+      rainFogDensity: this.rainFogDensity,
+      driveSky: this.driveSky,
+      humidityTurbidity: this.humidityTurbidity,
+      stormTurbidity: this.stormTurbidity,
+      driveClouds: this.driveClouds,
+      driveLighting: this.driveLighting,
+      minimumSunLight: this.minimumSunLight,
+      minimumAmbientLight: this.minimumAmbientLight,
+      driveSurface: this.driveSurface,
+      driveVehicles: this.driveVehicles,
+      cloudDiffuseTransfer: this.cloudDiffuseTransfer,
+      cloudShadowFill: this.cloudShadowFill,
+    };
+  }
+
+  /** Returns warnings for construction-time settings (seed, time constants, scales) that differ. */
+  override loadState(saved: Record<string, unknown>): string[] {
+    const warnings: string[] = [];
+    const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    for (const k of ["seed", "gustScale", "patchScale"] as const) {
+      const v = num(saved[k]);
+      if (v !== undefined && v !== this[k]) warnings.push(`${k} ${v} differs from this system's ${this[k]} (set at construction)`);
+    }
+    const tau = saved["tau"];
+    if (tau && typeof tau === "object" && JSON.stringify({ ...this.tau }) !== JSON.stringify(tau)) warnings.push("tau differs from this system's (set at construction)");
+    const merge = (into: Record<string, number>, from: unknown): void => {
+      if (!from || typeof from !== "object") return;
+      for (const k of Object.keys(into)) {
+        const v = num((from as Record<string, unknown>)[k]);
+        if (v !== undefined) into[k] = v;
+      }
+    };
+    merge(this.state as unknown as Record<string, number>, saved["state"]);
+    merge(this.target as unknown as Record<string, number>, saved["target"]);
+    merge(this.surface as unknown as Record<string, number>, saved["surface"]);
+    this.simulatedSeconds = num(saved["simulatedSeconds"]) ?? this.simulatedSeconds;
+    for (const k of ["driveFog", "driveSky", "driveClouds", "driveLighting", "driveSurface", "driveVehicles"] as const) {
+      if (typeof saved[k] === "boolean") this[k] = saved[k] as boolean;
+    }
+    for (const k of ["rainFogDensity", "humidityTurbidity", "stormTurbidity", "minimumSunLight", "minimumAmbientLight", "cloudDiffuseTransfer", "cloudShadowFill"] as const) {
+      const v = num(saved[k]);
+      if (v !== undefined) this[k] = v;
+    }
+    if (this.scene) this.apply();
+    return warnings;
+  }
+
   override onAttach(scene: Scene): void {
     this.baseFogDensity = scene.settings.fog.density;
     this.baseTurbidity = scene.settings.sky.turbidity;

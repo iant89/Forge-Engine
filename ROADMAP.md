@@ -181,6 +181,11 @@ PHASE 17 - ENVIRONMENT 2.0
 PHASE 18 - SCRIPTING
     [x]
 
+PHASE 19 - SAVE / SERIALIZATION / REPLAY
+    [~] IN PROGRESS (19.1-19.2 landed: versioned scene saves with entities, components, hierarchy,
+        transforms, scripts, environment and terrain settings, and migrations from version 1;
+        simulation snapshots (19.3) and replay (19.4) remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2051,17 +2056,20 @@ GOAL:
 
 19.1 Scene Serialization
 
-    [ ] entities
-    [ ] components
-    [ ] transforms
-    [ ] environment
-    [ ] terrain settings
+    [x] entities           (keyed by file index; parents by key, so duplicate names round-trip)
+    [x] components         (by registered name; registry hook, own serialize(), or field capture;
+                            assets by reference; dropped fields and skipped types are reported)
+    [x] transforms         (local TRS read from the store, rotation included)
+    [x] environment        (scene settings + DayNightCycle / WeatherSystem saveState/loadState)
+    [x] terrain settings   (TerrainWorld.saveState with the pipeline spec; terrainOptionsFromState)
+        Scripts save their data fields and are rebuilt by defined name before onCreate.
+        docs/SERIALIZATION.md, tests/scene/sceneSave.test.ts
 
 
 19.2 Versioned Save Format
 
-    [ ] schema version
-    [ ] migrations
+    [x] schema version     (format "forge.scene", SCENE_SAVE_VERSION 2; newer versions are refused)
+    [x] migrations         (registerSceneSaveMigration, one step per version; version 1 -> 2 built in)
 
 
 19.3 Simulation Snapshots

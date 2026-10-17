@@ -36,7 +36,7 @@ import {
   type TerrainCellTaskResult,
   installTerrainTaskHandlers,
 } from "./tasks.js";
-import { describePipeline, hashPipelineSpec } from "./pipelineSpec.js";
+import { createPipelineFromSpec, describePipeline, hashPipelineSpec, type TerrainPipelineSpec } from "./pipelineSpec.js";
 import {
   TERRAIN_GENERATOR_VERSION,
   TerrainGenerationCache,
@@ -217,6 +217,41 @@ export class TerrainWorld extends SceneObject {
     });
 
     this.material = options.material ?? this.layeredMaterial?.toMaterial() ?? null;
+  }
+
+  /**
+   * Phase 19.1: the terrain's settings for a scene save — seed, grid, LOD reach, skirts and the
+   * generator pipeline as a spec (null when a stage is not describable; the hash still identifies
+   * it). All of these are fixed at construction: `terrainOptionsFromState` builds a matching world,
+   * and `loadState` reports any setting this world does not share.
+   */
+  override saveState(): Record<string, unknown> {
+    let pipeline: TerrainPipelineSpec | null = null;
+    try {
+      pipeline = describePipeline(this.pipeline);
+    } catch {
+      pipeline = null;
+    }
+    return {
+      seed: this.seed,
+      chunkSize: this.chunkSize,
+      chunkResolution: this.chunkResolution,
+      viewDistance: this.viewDistance,
+      maxLOD: this.maxLOD,
+      skirtDepth: this.skirtDepth,
+      horizonExtent: this.horizonExtent,
+      pipelineHash: this.pipelineHash,
+      pipeline,
+    };
+  }
+
+  override loadState(saved: Record<string, unknown>): string[] {
+    const warnings: string[] = [];
+    for (const k of ["seed", "chunkSize", "chunkResolution", "viewDistance", "maxLOD", "skirtDepth", "horizonExtent", "pipelineHash"] as const) {
+      const v = saved[k];
+      if (typeof v === "number" && v !== this[k]) warnings.push(`${k} ${v} differs from this world's ${this[k]} (build it with terrainOptionsFromState)`);
+    }
+    return warnings;
   }
 
   override onAttach(scene: Scene): void {
@@ -945,4 +980,31 @@ export class TerrainWorld extends SceneObject {
       this.material = null;
     }
   }
+}
+
+/**
+ * Phase 19.1: the construction options of the terrain a scene save describes (TerrainWorld.saveState),
+ * so a loader can build the same world before applying the rest of the save. Runtime-only options
+ * (materials, caches, schedulers) are the caller's.
+ */
+export function terrainOptionsFromState(state: Record<string, unknown>): TerrainWorldOptions {
+  const num = (k: string): number | undefined => (typeof state[k] === "number" && Number.isFinite(state[k]) ? (state[k] as number) : undefined);
+  const out: TerrainWorldOptions = {};
+  const seed = num("seed");
+  if (seed !== undefined) out.seed = seed;
+  const chunkSize = num("chunkSize");
+  if (chunkSize !== undefined) out.chunkSize = chunkSize;
+  const chunkResolution = num("chunkResolution");
+  if (chunkResolution !== undefined) out.chunkResolution = chunkResolution;
+  const viewDistance = num("viewDistance");
+  if (viewDistance !== undefined) out.viewDistance = viewDistance;
+  const maxLOD = num("maxLOD");
+  if (maxLOD !== undefined) out.maxLOD = maxLOD;
+  const skirtDepth = num("skirtDepth");
+  if (skirtDepth !== undefined) out.skirtDepth = skirtDepth;
+  const horizonExtent = num("horizonExtent");
+  if (horizonExtent !== undefined) out.horizonExtent = horizonExtent;
+  const pipeline = state["pipeline"];
+  if (pipeline && typeof pipeline === "object") out.pipeline = createPipelineFromSpec(pipeline as TerrainPipelineSpec);
+  return out;
 }

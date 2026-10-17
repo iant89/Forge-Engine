@@ -170,7 +170,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Public-API boundary for scripts: `ScriptWorld`/`ScriptEntity` expose entities and components, not systems, disposal or engine internals (Phase 18.6)
 - [x] Exit criterion: Beacon Defense (`?scene=scripting`), a whole game written only as scripts (Phase 18)
 - [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
-- [ ] Versioned save format with migrations for entities, components and terrain settings _(only scene settings serialize today)_ (Phase 19.1–19.2)
+- [x] Versioned scene saves with migrations: entities, components, hierarchy, transforms, scripts, environment and terrain settings (Phase 19.1–19.2; `docs/SERIALIZATION.md`)
 - [ ] Simulation snapshots: physics, vehicle, weather and RNG state (Phase 19.3)
 - [ ] Input recording, deterministic playback and state hashing (Phase 19.4)
 

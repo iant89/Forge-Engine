@@ -242,6 +242,14 @@ What remains:
   steps before `vehicles` runs its own, like every `FixedSystem`; a script cannot read the vehicle
   state between two steps of the same frame. (roadmap: 19.4)
 
+## Save / serialization (Phase 19)
+
+* **A scene save restores configuration, not a running simulation.** Rigid bodies, vehicles and
+  RNG streams are not saved yet; a loaded scene starts them from rest. Weather and day/night restore
+  their clocks. (`docs/SERIALIZATION.md`) (roadmap: 19.3)
+* **Script timers, coroutines and subscriptions are not saved.** They are closures; a loaded script
+  re-registers them in `onCreate` from its restored fields. (roadmap: 19.3)
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet

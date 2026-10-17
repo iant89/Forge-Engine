@@ -12,7 +12,7 @@
  */
 
 import { EventTarget2, type Disposable } from "../core/events.js";
-import { UsageError, assert } from "../core/errors.js";
+import { UsageError } from "../core/errors.js";
 import { Color } from "../math/color.js";
 import { Double3 } from "../math/double3.js";
 import { Vec3 } from "../math/vec.js";
@@ -24,6 +24,7 @@ import { Camera, Light, Renderable, Transform } from "./components/index.js";
 import type { SystemContext } from "./systems.js";
 import type { Query } from "./stores.js";
 import type { Component } from "./components.js";
+import { loadScene, saveScene, type SceneLoadOptions, type SceneLoadReport, type SceneSave, type SceneSaveOptions } from "./serialization.js";
 import type { AtmosphereParams } from "../environment/atmosphere.js";
 import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "./shadowLimits.js";
 
@@ -547,6 +548,14 @@ export abstract class SceneObject {
   /** Raycast against this object's geometry. Return `false` when nothing was hit. */
   raycast?(_ray: Ray, _hit: RayHit): boolean;
 
+  /**
+   * Phase 19.1: this object's state for a scene save (plain JSON). Objects are built by code, so a
+   * save carries state, not construction; `loadState` receives it back on the object of the same
+   * name and type, and may return warnings (settings it cannot change after construction).
+   */
+  saveState?(): Record<string, unknown>;
+  loadState?(state: Record<string, unknown>): string[] | void;
+
   /** Optional: objects that want the scene to skip their entities in the default query. */
   exclusive?: boolean;
 }
@@ -901,60 +910,36 @@ export class Scene {
   // ------------------------------------------------------------------ serialization
 
   /**
-   * Serialize to plain JSON. Entities are referenced by *name* (not id) and component types by
-   * registered name, so a save file survives component reordering between builds.
+   * The scene as a versioned save document (scene/serialization.ts): entities with their components
+   * and parent links, the settings, and every scene object's `saveState`. `saveScene` also returns a
+   * report of what could not be written.
    */
-  serialize(): SerializedScene {
-    const entities: SerializedEntity[] = [];
-    for (const id of this.world.liveEntityIds()) {
-      const facade = this.world.facade(id)!;
-      const components: SerializedComponent[] = [];
-      for (const c of facade.components) {
-        components.push({ type: c.constructor.name, data: serializeComponent(c) });
-      }
-      const parentId = this.world.parentOf(id);
-      entities.push({
-        name: this.world.name(id) || undefined,
-        id: id as number,
-        parent: parentId === 0 ? undefined : this.world.name(parentId) || undefined,
-        components,
-      });
-    }
-    return {
-      version: 1,
-      name: this.name,
-      settings: serializeSettings(this.settings),
-      objects: this.objects.map((o) => ({ name: o.name, type: o.constructor.name })),
-      entities,
-    };
+  serialize(options?: SceneSaveOptions): SerializedScene {
+    return saveScene(this, options).save;
   }
 
   /**
-   * Load a serialized scene. Entities are created in list order and parent links are resolved in a
-   * second pass, so a parent may appear after its child in the file.
+   * Load a save document (any supported version; older ones are migrated) onto this scene. Component
+   * types resolve through the registry; pass a function (the original signature) or `resolveType` to
+   * override. Returns what was loaded and what was skipped.
    */
-  applySerialized(data: SerializedScene, resolve?: (typeName: string) => (new (...args: never[]) => Component) | undefined): void {
-    assert(data.version === 1, `Scene.applySerialized: unsupported version ${data.version}`);
-    if (data.name) this.name = data.name;
-    if (data.settings) applySettings(this.settings, data.settings, (key) => this.onSettingsChanged(key as never));
-    const byName = new Map<string, Entity>();
-    const pendingParents: { child: Entity; parentName: string }[] = [];
-    for (const se of data.entities) {
-      const entity = this.createEntity(se.name ?? `entity${this.world.liveEntityCount}`);
-      if (se.name) byName.set(se.name, entity);
-      for (const sc of se.components) {
-        const ctor = resolve?.(sc.type);
-        if (!ctor) continue;
-        const component = new ctor();
-        applyComponentData(component, sc.data);
-        entity.add(component);
-      }
-      if (se.parent) pendingParents.push({ child: entity, parentName: se.parent });
-    }
-    for (const p of pendingParents) {
-      const parent = byName.get(p.parentName);
-      if (parent) p.child.parent = parent;
-    }
+  applySerialized(
+    data: unknown,
+    options?: SceneLoadOptions | ((typeName: string) => (new (...args: never[]) => Component) | undefined),
+  ): SceneLoadReport {
+    const opts: SceneLoadOptions =
+      typeof options === "function" ? { resolveType: (t) => (options(t) as (new () => Component) | undefined) ?? undefined } : (options ?? {});
+    return loadScene(this, data, opts);
+  }
+
+  /** The settings block of a save: lighting, fog, sky, clouds, water, surface weather, shadows, post. */
+  exportSettings(): Record<string, unknown> {
+    return serializeSettings(this.settings);
+  }
+
+  /** Apply a settings block from `exportSettings` (unknown keys ignored), firing the change events. */
+  importSettings(data: Record<string, unknown>): void {
+    applySettings(this.settings, data, (key) => this.onSettingsChanged(key as never));
   }
 
   stats(): Record<string, number | string | boolean> {
@@ -988,58 +973,8 @@ export class Scene {
   }
 }
 
-export interface SerializedComponent {
-  type: string;
-  data: Record<string, unknown>;
-}
-
-export interface SerializedEntity {
-  name?: string;
-  id?: number;
-  parent?: string;
-  components: SerializedComponent[];
-}
-
-export interface SerializedScene {
-  version: 1;
-  name: string;
-  settings: Record<string, unknown>;
-  objects: { name: string; type: string }[];
-  entities: SerializedEntity[];
-}
-
-/** Fields that are safe to auto-capture: primitives and plain vectors/colours. */
-function serializeComponent(c: Component): Record<string, unknown> {
-  const explicit = (c as { serialize?: () => Record<string, unknown> }).serialize;
-  if (explicit) return explicit.call(c);
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(c as unknown as Record<string, unknown>)) {
-    if (key.startsWith("_") || key === "entity" || key === "enabled") continue;
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") out[key] = value;
-    else if (value instanceof Vec3) out[key] = [value.x, value.y, value.z];
-    else if (value instanceof Double3) out[key] = value.toArray();
-    else if (value instanceof Color) out[key] = [value.r, value.g, value.b, value.a];
-    // Objects (geometry, material, node refs) are resolved by the loader through `resolveAsset`.
-  }
-  if ((c as { enabled?: boolean }).enabled === false) out["!disabled"] = true;
-  return out;
-}
-
-function applyComponentData(c: Component, data: Record<string, unknown>): void {
-  const target = c as unknown as Record<string, unknown>;
-  for (const [key, value] of Object.entries(data)) {
-    if (key === "!disabled") {
-      (c as { enabled?: boolean }).enabled = false;
-      continue;
-    }
-    const existing = target[key];
-    if (existing instanceof Vec3 && Array.isArray(value) && value.length >= 3) existing.set(value[0] as number, value[1] as number, value[2] as number);
-    else if (existing instanceof Color && Array.isArray(value) && value.length >= 3) existing.set(value[0] as number, value[1] as number, value[2] as number, (value[3] as number) ?? 1);
-    else if (typeof existing === typeof value || existing === undefined) target[key] = value;
-  }
-  const hook = (c as { onDeserialized?: (data: Record<string, unknown>) => void }).onDeserialized;
-  hook?.call(c, data);
-}
+/** A scene save document (scene/serialization.ts). */
+export type SerializedScene = SceneSave;
 
 function serializeSettings(s: SceneSettings): Record<string, unknown> {
   return {

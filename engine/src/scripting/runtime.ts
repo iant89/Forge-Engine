@@ -37,7 +37,7 @@ import type { EntityId } from "../scene/entityId.js";
 import type { Disposable } from "../core/events.js";
 import { Logger } from "../core/log.js";
 import { UsageError } from "../core/errors.js";
-import { ScriptComponent, _bindScriptRuntime, _scriptBinderOf, type ScriptBinder } from "./component.js";
+import { ScriptComponent, _bindScriptRuntime, _scriptBinderOf, type ScriptBinder, type ScriptRestore } from "./component.js";
 import type { Script, ScriptConstructor, ScriptContext, ScriptHost, ScriptPhase, ScriptTime } from "./script.js";
 import { EventRouter, channelOf, type EventListenOptions, type EventSendOptions, type EventSubscription, type EventType, type HostEventHandler, type ScriptEventHandler, type ScriptEvents } from "./events.js";
 import { Coroutine, type CoroutineBody, type CoroutineHandle, type CoroutineOptions, type CoroutineYield, type WaitInstruction } from "./coroutines.js";
@@ -361,18 +361,26 @@ export class ScriptRuntime implements ScriptBinder, ScriptHost {
   }
 
   /** @internal */
-  _adoptScript(component: ScriptComponent, given: Script | string): Script | null {
+  _adoptScript(component: ScriptComponent, given: Script | string | ScriptRestore): Script | null {
     const entity = this.world.facade(component.entity);
     if (!entity) return null;
     let script: Script;
-    if (typeof given === "string") {
-      const ctor = this.registry.get(given);
+    if (typeof given === "string" || !("_state" in given)) {
+      // A name, or a script loaded from a scene save (built by name, then given its saved fields).
+      const name = typeof given === "string" ? given : given.name;
+      const ctor = this.registry.get(name);
       if (!ctor) {
-        this.record(given, entity.id, "create", new UsageError(`unknown script "${given}" (define it with ScriptRuntime.define)`), false);
+        this.record(name, entity.id, "create", new UsageError(`unknown script "${name}" (define it with ScriptRuntime.define)`), false);
         return null;
       }
-      script = new ctor();
-      script._name = given;
+      try {
+        script = new ctor();
+      } catch (e) {
+        this.record(name, entity.id, "create", e, false);
+        return null;
+      }
+      script._name = name;
+      if (typeof given !== "string") given.restore(script);
     } else {
       script = given;
       if (script._state !== "pending" || script._entity) {

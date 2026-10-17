@@ -201,6 +201,54 @@ export class DayNightCycle extends SceneObject {
     return this;
   }
 
+  /** Phase 19.1: place, date, clock and lighting knobs for a scene save (the sun light is the scene's). */
+  override saveState(): Record<string, unknown> {
+    return {
+      latitude: this.latitude,
+      longitude: this.longitude,
+      timeZone: this.timeZone,
+      year: this.year,
+      dayOfYear: this.dayOfYear,
+      timeOfDay: this.timeOfDay,
+      timeScale: this.timeScale,
+      simulatedSeconds: this.simulatedSeconds,
+      sunIntensity: this.sunIntensity,
+      driveAmbient: this.driveAmbient,
+      ambientScale: this.ambientScale,
+      nightAmbient: [this.nightAmbient.r, this.nightAmbient.g, this.nightAmbient.b, this.nightAmbient.a],
+      driveFog: this.driveFog,
+      driveSky: this.driveSky,
+      observerHeight: this.observerHeight,
+      atmosphere: JSON.parse(JSON.stringify(this.atmosphere.params)) as Record<string, unknown>,
+    };
+  }
+
+  override loadState(state: Record<string, unknown>): void {
+    const num = (k: string, fallback: number): number => (typeof state[k] === "number" && Number.isFinite(state[k]) ? (state[k] as number) : fallback);
+    const bool = (k: string, fallback: boolean): boolean => (typeof state[k] === "boolean" ? (state[k] as boolean) : fallback);
+    this.latitude = num("latitude", this.latitude);
+    this.longitude = num("longitude", this.longitude);
+    this.timeZone = num("timeZone", this.timeZone);
+    this.setDate(num("dayOfYear", this.dayOfYear), num("year", this.year));
+    // Exact restore: setTime's wrap ((h % 24 + 24) % 24) moves an in-range value's last bits.
+    const hours = num("timeOfDay", this.timeOfDay);
+    if (hours >= 0 && hours < 24) this.timeOfDay = hours;
+    else this.setTime(hours);
+    this.timeScale = num("timeScale", this.timeScale);
+    this.simulatedSeconds = num("simulatedSeconds", this.simulatedSeconds);
+    this.sunIntensity = num("sunIntensity", this.sunIntensity);
+    this.driveAmbient = bool("driveAmbient", this.driveAmbient);
+    this.ambientScale = num("ambientScale", this.ambientScale);
+    const night = state["nightAmbient"];
+    if (Array.isArray(night) && night.length >= 3) this.nightAmbient.set(night[0] as number, night[1] as number, night[2] as number, (night[3] as number) ?? 1);
+    this.driveFog = bool("driveFog", this.driveFog);
+    this.driveSky = bool("driveSky", this.driveSky);
+    this.observerHeight = num("observerHeight", this.observerHeight);
+    const atmosphere = state["atmosphere"];
+    if (atmosphere && typeof atmosphere === "object") this.setAtmosphere(atmosphere as Partial<AtmosphereParams>);
+    this.refresh();
+  }
+
   /** Advance the simulated clock (seconds), wrapping days and years. */
   advance(seconds: number): this {
     if (!(seconds !== 0) || !Number.isFinite(seconds)) return this;
