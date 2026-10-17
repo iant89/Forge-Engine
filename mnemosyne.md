@@ -2431,3 +2431,10 @@ Read the module constraints below before changing either pure model.
   single-line row at the full width, so rows reported one line of text. Also: our flex items shrink
   below their content (no CSS `min-height: auto`), so tall phone pages must scroll (`ScrollView`),
   not squeeze; and `"M"` is narrower than `"m"` in Forge Sans — pick test strings with care.
+
+- 2026-10-17 (UI scales with the viewport): `UIManager` defaults to `DEFAULT_SCALE_MODE` (1280×720
+  reference, `match: "expand"` = min of the width/height ratios, clamped [1, 3]); passing `uiScale`
+  still means fixed. Never below 1 on purpose: CSS pixels already normalise phones, and shrinking by
+  the short side made a 390-wide phone UI ~0.5×. Breakpoints read the *logical* width, so a
+  1920×1080 window is a 1280×720 `expanded` layout at ×1.5. Remember `width` in tests is physical:
+  a 4K panel at dpr 2 is `width: 3840, devicePixelRatio: 2` (CSS 1920).

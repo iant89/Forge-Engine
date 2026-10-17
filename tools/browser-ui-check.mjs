@@ -15,6 +15,8 @@
  *  4. theme and skin switching change the pixels;
  *  5. a compact viewport collapses the navigation bar (breakpoint) without layout issues, and the
  *     settings page shows exactly one tab page (responsive grids once re-showed hidden tabs);
+ *  5a. the UI scales with the viewport: a 1920×1080 window draws at uiScale 1.5 and a real click at
+ *     the scaled position hits the intended button;
  *  6. drawing and hit testing agree: the element `hitTestAt` returns at a button's centre is that
  *     button, and the pixel there is the button's colour, not the scene's.
  *
@@ -300,6 +302,35 @@ const parchmentPlay = (await pixels(parchmentPng, [[play.x, play.y]])).at[0];
 check(parchmentPlay.some((v, i) => diff(v, atPlay[i]) > 24), `parchment skin repaints the Continue button (${atPlay} → ${parchmentPlay})`);
 await page.evaluate(() => window.__forge.ui().gallery.setSkin("frontier"));
 
+// 5a. The UI scales with the viewport: a 1920×1080 window draws the 1280×720 layout at 1.5×, and a
+// real click at the scaled position still hits the button (drawing and input share one scale).
+await page.setViewportSize({ width: 1920, height: 1080 });
+await waitFrames(10);
+const large = await page.evaluate(() => {
+  const v = window.__forge.ui().ui.viewport;
+  return { scale: v.uiScale, w: v.width, h: v.height, bp: window.__forge.ui().ui.breakpoint };
+});
+check(Math.abs(large.scale - 1.5) < 1e-6 && Math.abs(large.w - 1280) < 1e-3, `1920x1080 window → uiScale ${large.scale}, logical ${large.w}x${large.h} (${large.bp})`);
+const largeBox = await page.locator("canvas").first().boundingBox();
+const savedBtn = await locate("Saved expeditions");
+await page.mouse.click(largeBox.x + savedBtn.x, largeBox.y + savedBtn.y);
+await waitFrames(4);
+const largeSaved = await page.evaluate(() => {
+  let v = false;
+  window.__forge.ui().gallery.pages.menu.walk((e) => {
+    if (e.name === "saved-expeditions") v = e.visible;
+  });
+  return v;
+});
+check(largeSaved, "a real click at the 1.5x-scaled position opened the saved list");
+await shot("large");
+await page.evaluate(() => window.__forge.ui().ui.root.walk((e) => {
+  if (e.name === "main-menu") e.visible = true;
+  if (e.name === "saved-expeditions") e.visible = false;
+}));
+await page.setViewportSize({ width: 1280, height: 720 });
+await waitFrames(10);
+
 // 5. A compact (phone) viewport collapses the navigation without layout issues.
 await page.setViewportSize({ width: 390, height: 844 });
 await waitFrames(10);
@@ -332,7 +363,7 @@ check(s1.texturesCreated === 0, `steady frame created ${s1.texturesCreated} text
 check(s1.gpuErrors === 0, `still zero GPU errors after the interaction run (${s1.gpuErrors}${s1.lastError ? `: ${s1.lastError}` : ""})`);
 check(s1.uiErrors.length === 0, `no UI error diagnostics after the run (${s1.uiErrors.slice(0, 3).join(" | ")})`);
 check(consoleErrors.length === 0, `no page console errors (${consoleErrors.slice(0, 3).join(" | ")})`);
-console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,compact,compact-saved}.png`);
+console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved}.png`);
 
 console.log(problems.length === 0 ? `${CHECK_NAME} PASS` : `${CHECK_NAME} FAIL (${problems.length})`);
 await finish(problems.length === 0 ? 0 : 1);

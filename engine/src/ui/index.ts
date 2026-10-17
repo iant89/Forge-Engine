@@ -68,7 +68,7 @@ export type { UIPainter, BoxPaint, ImagePaint } from "./render/painter.js";
 
 // Manager, responsive, diagnostics, declarative, world space
 export { UIManager, type UIManagerOptions, type UIFrameStats, type UIDiagnostic } from "./manager.js";
-export { BreakpointSet, ResponsiveProfile, computeUiScale, DEFAULT_BREAKPOINTS, type Breakpoint, type ResponsiveRule, type ResponsiveRules, type ScaleMode } from "./responsive.js";
+export { BreakpointSet, ResponsiveProfile, computeUiScale, DEFAULT_BREAKPOINTS, DEFAULT_SCALE_MODE, type Breakpoint, type ResponsiveRule, type ResponsiveRules, type ScaleMode } from "./responsive.js";
 export { UIDiagnostics, type InspectNode, type LayoutIssue, type AccessibilityNode, type DebugOverlayOptions } from "./diagnostics.js";
 export { buildUI, validateUIDefinition, UI_DEFINITION_VERSION, type UIDefinition, type UIBuildContext, type UIBuildResult } from "./declarative.js";
 export { projectToViewport, distanceFade, type WorldPoint, type ProjectedPoint, type WorldCamera } from "./worldSpace.js";

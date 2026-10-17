@@ -198,7 +198,9 @@ and cycles at registration.
 
 ## 7. Coordinates
 
-* **Physical pixels**: the swapchain. **Logical units**: `physical / (devicePixelRatio × uiScale)`.
+* **Physical pixels**: the swapchain. **Logical units**: `physical / (devicePixelRatio × uiScale)`,
+  where `uiScale` follows the viewport by default (`DEFAULT_SCALE_MODE`: 1280×720 reference,
+  `"expand"`, clamped to [1, 3]; UI-GUIDE.md §3).
   All layout, hit testing and drawing are in logical units; the GPU backend multiplies by one
   scale in the vertex shader, and the input adapter divides by the same value, so rendering and hit
   testing cannot disagree (pinned by `tests/ui/uiManager.test.ts`).

@@ -34,6 +34,7 @@ import {
   BreakpointSet,
   Button,
   computeUiScale,
+  DEFAULT_SCALE_MODE,
   Grid,
   HStack,
   INSTANCE_FLOATS,
@@ -143,6 +144,36 @@ group("responsive", () => {
     assert.equal(ui.viewport.uiScale, 2, "reference mode tracks the resize");
     assert.throws(() => ui.setViewport(0, 10), /positive/);
     assert.throws(() => ui.setUiScale(0), /> 0/);
+  });
+
+  test("by default the UI scales with the viewport: up on large screens, never below its authored size", () => {
+    const cases: [number, number, number, number][] = [
+      // css width, css height, dpr, expected uiScale
+      [1280, 720, 1, 1],
+      [1920, 1080, 1, 1.5],
+      [2560, 1440, 1, 2],
+      [1920, 1080, 2, 1.5], // a 4K panel at 2x: 3840×2160 pixels, a 1920×1080 CSS viewport
+      [2560, 1080, 1, 1.5], // ultrawide: height limits ("expand" keeps the reference layout whole)
+      [390, 844, 1, 1], // phone: breakpoints adapt, text keeps its size
+      [1024, 1366, 1, 1], // tablet portrait
+    ];
+    for (const [w, h, dpr, expected] of cases) {
+      const ui = new UIManager({ width: w * dpr, height: h * dpr, devicePixelRatio: dpr });
+      assert.ok(Math.abs(ui.viewport.uiScale - expected) < 1e-9, `${w}x${h}@${dpr}: ${ui.viewport.uiScale}`);
+      assert.ok(Math.abs(ui.viewport.width - w / expected) < 1e-6 && Math.abs(ui.viewport.height - h / expected) < 1e-6);
+    }
+    const ui = new UIManager({ width: 1280, height: 720 });
+    const b = ui.base.add(new Button({ text: "Scale" }));
+    frame(ui);
+    const logical = b.bounds.width;
+    ui.setViewport(2560, 1440);
+    frame(ui);
+    assert.equal(ui.viewport.uiScale, 2, "a resize rescales");
+    assert.equal(b.bounds.width, logical, "layout is unchanged in logical units: everything is drawn 2× larger");
+    assert.equal(ui.breakpoint, "expanded");
+    assert.deepEqual(new UIManager({ width: 2560, height: 1440, uiScale: 1.25 }).viewport.uiScale, 1.25, "an explicit uiScale is fixed");
+    assert.equal(computeUiScale(DEFAULT_SCALE_MODE, 9000, 9000, 1), 3, "clamped to max");
+    assert.equal(computeUiScale({ referenceWidth: 100, referenceHeight: 100, match: "shrink" }, 300, 150, 1), 3, "shrink takes the larger ratio");
   });
 
   test("text scale re-measures text without touching the UI scale", () => {

@@ -90,9 +90,24 @@ ui.responsive(grid, { compact: { apply: (g) => (g as Grid).setColumns(1) }, defa
 
 Breakpoints (`compact ≥ 0`, `medium ≥ 640`, `expanded ≥ 1024` logical units by default, replace with
 `setBreakpoints`) switch with hysteresis (12 units by default) so a window resting on a boundary does
-not thrash. Leaving a breakpoint restores the element's own values. Scaling: `setUiScale(s)` or
-`setScaleMode({ referenceWidth: 1920, referenceHeight: 1080, match: 0.5, min, max })`; text alone
-scales with `ui.textScale`. `ui.onBreakpointChange` and `ui.onViewportChange` are signals.
+not thrash. Leaving a breakpoint restores the element's own values. `ui.onBreakpointChange` and
+`ui.onViewportChange` are signals.
+
+**The UI scales with the viewport by default** (`DEFAULT_SCALE_MODE`): a layout authored for a
+1280×720 (CSS pixel) window is drawn larger on larger screens at the same proportions — 1920×1080 →
+×1.5, 2560×1440 → ×2, a 4K panel at 2× (1920×1080 CSS) → ×1.5, capped at ×3 — using the smaller of
+the width and height ratios (`match: "expand"`), so the whole reference layout always fits on wide
+or tall screens. It never scales *below* 1: phones, tablets and small windows keep their authored
+text size and adapt through breakpoints instead (breakpoints read the logical width after scaling,
+so a 1920×1080 window is still `expanded`). Because everything is laid out in logical units, a
+resize changes only the scale — no layout work beyond the usual relayout — and input is divided by
+the same scale the GPU multiplies by.
+
+Change it with `new UIManager({ scaleMode: { referenceWidth, referenceHeight, match, min, max } })`
+or `ui.setScaleMode(...)` — `match` is `"expand"`, `"shrink"` (the larger ratio) or a number in
+[0, 1] (log-space blend: 0 follows width, 1 height). `uiScale: s` / `ui.setUiScale(s)` pin a fixed
+scale (e.g. a player's "UI size" setting); `scaleMode: "fixed"` with no `uiScale` restores the old
+unscaled behaviour. Text alone scales with `ui.textScale`.
 
 ## 4. Widgets
 

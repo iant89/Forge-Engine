@@ -21796,6 +21796,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-ui-check.mjs",
     "what": "Check the default look, the Continue gradient pixel, the saved card; restore frontier; phone screenshots of both cards.",
     "why": "Real-GPU evidence for the new default."
+  },
+  {
+    "id": "1725",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/ui/responsive.ts",
+    "what": "ScaleMode match accepts \"expand\"/\"shrink\"; add DEFAULT_SCALE_MODE (1280x720, expand, clamped [1, 3]).",
+    "why": "Scale the UI to the viewport without shrinking it on phones."
+  },
+  {
+    "id": "1726",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/ui/manager.ts",
+    "what": "Default to DEFAULT_SCALE_MODE unless a fixed uiScale is passed; expose scaleMode.",
+    "why": "The UI now scales with the viewport by default."
+  },
+  {
+    "id": "1727",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/ui/index.ts",
+    "what": "Export DEFAULT_SCALE_MODE.",
+    "why": "Public API."
+  },
+  {
+    "id": "1728",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/ui/uiManager.test.ts",
+    "what": "Pin default viewport scaling across phone/tablet/laptop/desktop/ultrawide/4K and fixed-scale opt-out.",
+    "why": "Cover the new default."
+  },
+  {
+    "id": "1729",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tools/browser-ui-check.mjs",
+    "what": "Real-GPU check: a 1920x1080 window scales to 1.5 and a real click at the scaled position hits the button.",
+    "why": "Drawing and input must share the scale."
+  },
+  {
+    "id": "1730",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/UI-GUIDE.md",
+    "what": "Document viewport scaling (defaults, expand/shrink, fixed opt-out).",
+    "why": "Keep the guide true."
+  },
+  {
+    "id": "1731",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/UI.md",
+    "what": "Logical units now follow the default viewport scale.",
+    "why": "Keep the architecture doc true."
+  },
+  {
+    "id": "1732",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "check:browser:ui row: the viewport-scaling check.",
+    "why": "The gate changed."
+  },
+  {
+    "id": "1733",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Note on the viewport-scaling default and why it never shrinks below 1.",
+    "why": "Session memory."
+  },
+  {
+    "id": "1734",
+    "date": "2026-10-17T14:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries for viewport scaling.",
+    "why": "Activity history."
   }
 ]
 ```
