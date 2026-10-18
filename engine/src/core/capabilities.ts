@@ -331,7 +331,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Input recording, deterministic playback and state hashing",
     evidence: ["tests/replay/replay.test.ts", "docs/REPLAY.md"],
-    notes: "A replay records the frame schedule as well as input (fixed systems are not interleaved) and starts from a known scene build; mid-session snapshots are 19.3",
+    notes: "A replay records the frame schedule as well as input (fixed systems are not interleaved) and starts from the same scene build or from a 19.3 snapshot restored into a fresh one",
   },
 
   // ---------------------------------------------------------------- rendering
@@ -959,10 +959,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "serialization.snapshots",
     phase: "19.3",
-    status: "planned",
-    summary: "Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run",
-    closesWith: "19.3",
-    notes: "Scene saves restore configuration and the weather/day-night clocks, not rigid-body, vehicle or RNG state",
+    status: "verified",
+    summary: "Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run, bit-for-bit",
+    evidence: ["tests/scene/simulationSnapshot.test.ts", "docs/SERIALIZATION.md"],
+    notes: "core/snapshot.ts captures object state structurally (exact through JSON); captureSceneSnapshot adds transforms, settings, surface grip, system/component/object hooks and a state hash. A restored vehicle session reaches the uninterrupted run's hash.",
+  },
+  {
+    id: "serialization.closuresAndTransients",
+    phase: "19.3",
+    status: "deferred",
+    summary: "Snapshotting script timers/coroutines/subscriptions and in-flight transients (lightning strikes, pending thunder)",
+    notes: "Closures cannot be serialized; scripts re-register them in onCreate, and replays (19.4) start from the beginning, where they are recreated. Transients are visual/audio and their schedule is restored.",
   },
   {
     id: "audio.system",

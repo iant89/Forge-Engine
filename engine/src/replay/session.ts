@@ -11,8 +11,9 @@
  *    after every system and every earlier scene object. Checkpoint hashes are taken there, so they
  *    describe the frame's finished state, including weather and day/night updates.
  *
- * Playback must start from the state the recording started from: the same scene built the same way
- * (19.3 snapshots will let a save stand in for that). `ReplayPlayer.start()` compares the scene's
+ * Playback must start from the state the recording started from: the same scene built the same way,
+ * or a 19.3 simulation snapshot taken when recording started and restored into a fresh build
+ * (`captureSceneSnapshot` / `restoreSceneSnapshot`). `ReplayPlayer.start()` compares the scene's
  * hash with the recording's initial hash and reports a mismatch before a frame is played.
  *
  * Driving the frames: pass `clock` (an `Engine`'s clock) and the player schedules the recording's

@@ -110,9 +110,14 @@ Each divergence is `{ kind, frame, expected, actual, parts }`:
   identical everywhere, but `Math.sin`, `Math.exp` and friends are only required to be
   approximately right, so V8, JavaScriptCore and SpiderMonkey can differ in the last bit. A replay
   recorded in Chrome may diverge in Safari. Cross-engine verification is part of 19.5.
-- The scene is built the same way for playback as for recording. A scene save (19.1) restores
-  configuration but not rigid-body, vehicle or RNG state; mid-session snapshots are 19.3. Until then
-  a replay starts from a known build, not from an arbitrary save.
+- Playback starts from the state recording started from. There are two ways to get there:
+  - Build the scene the same way.
+  - Save a simulation snapshot (19.3, `captureSceneSnapshot`) when recording starts, and restore it
+    into a fresh build before playing. 19.3 matches bodies, so step the fresh scene once first to
+    let `PhysicsSystem` create them.
+
+  A scene save (19.1) alone is not enough: it restores configuration, not rigid-body, vehicle or
+  RNG state.
 
 ## Format
 

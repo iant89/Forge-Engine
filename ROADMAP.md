@@ -182,10 +182,11 @@ PHASE 18 - SCRIPTING
     [x]
 
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
-    [~] IN PROGRESS (19.1-19.2 landed: versioned scene saves with entities, components, hierarchy,
-        transforms, scripts, environment and terrain settings, and migrations from version 1;
-        19.4 landed: input recording, frame-schedule playback and per-part state hashing;
-        simulation snapshots (19.3) remain)
+    [~] IN PROGRESS (19.1-19.4 landed: versioned scene saves with entities, components, hierarchy,
+        transforms, scripts, environment and terrain settings, and migrations from version 1; exact
+        mid-run simulation snapshots of physics, vehicles, weather and RNG with state hashing;
+        input recording, frame-schedule playback and per-part state hashing for replays;
+        verification across engines (19.5) remains)
 
 
 ================================================================================
@@ -2075,10 +2076,13 @@ GOAL:
 
 19.3 Simulation Snapshots
 
-    [ ] physics state
-    [ ] vehicle state
-    [ ] weather state
-    [ ] RNG state
+    [x] physics state      (PhysicsWorld.snapshot: bodies by id and order, world clock; exact)
+    [x] vehicle state      (Vehicle.snapshot: chassis, wheels, engine, gearbox, damage; structural)
+    [x] weather state      (WeatherSystem / DayNightCycle / LightningSystem schedule)
+    [x] RNG state          (Rng.snapshot, cached Gaussian included)
+        Scene level: captureSceneSnapshot / restoreSceneSnapshot (transforms, settings, surface grip,
+        system/component/object hooks), exact through JSON. A vehicle session restored mid-drive
+        reaches the uninterrupted run's state hash. docs/SERIALIZATION.md, tests/scene/simulationSnapshot.test.ts
 
 
 19.4 Replay
@@ -2090,9 +2094,11 @@ GOAL:
                                   engine; a 720-frame vehicle session with contacts replays
                                   bit-identically from a fresh scene, through JSON)
     [x] state hashing            (exact-bit 64-bit StateHasher; per-part hashes: transforms, physics,
-                                  vehicles, objects, plus game parts; divergence names the parts)
-        docs/REPLAY.md, tests/replay/replay.test.ts. A replay starts from a known build until 19.3
-        snapshots let a save stand in for it.
+                                  vehicles, objects, plus game parts; divergence names the parts.
+                                  Snapshots hash with hashState / hashSceneSnapshot from 19.3)
+        docs/REPLAY.md, tests/replay/replay.test.ts. A replay starts from the same build or from a
+        19.3 snapshot restored into a fresh one (tested: a mid-drive snapshot + 480 recorded frames
+        replay bit-identically).
 
 
 19.5 Verification

@@ -21,6 +21,7 @@
  *   900 debug          debug overlay + stats flush
  */
 
+import type { StateRecord } from "../core/snapshot.js";
 import type { EntityWorld } from "./world.js";
 import type { Clock } from "../core/time.js";
 import type { Logger } from "../core/log.js";
@@ -89,6 +90,9 @@ export interface ISystem {
   dispose?(): void;
   /** Optional: machine-readable counters merged into `engine.stats`. */
   stats?(): Record<string, number | string | boolean>;
+  /** Phase 19.3: mid-run simulation state for a scene snapshot (JSON-safe; see core/snapshot.ts). */
+  snapshotState?(): StateRecord;
+  restoreSnapshotState?(state: StateRecord): void;
 }
 
 /** Base class giving a system a name, a band, and enable/disable plumbing. */

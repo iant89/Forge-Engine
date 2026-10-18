@@ -240,6 +240,25 @@ export {
   type SceneSaveMigration,
   type AssetRef,
 } from "./scene/serialization.js";
+export {
+  SCENE_SNAPSHOT_FORMAT,
+  SCENE_SNAPSHOT_VERSION,
+  captureSceneSnapshot,
+  restoreSceneSnapshot,
+  hashSceneSnapshot,
+  type SceneSnapshot,
+} from "./scene/snapshot.js";
+export {
+  captureState,
+  restoreState,
+  hashState,
+  canonicalState,
+  encodeNumber,
+  decodeNumber,
+  type StateRecord,
+  type StateValue,
+  type CaptureOptions,
+} from "./core/snapshot.js";
 export { Transform, Renderable, Camera, Light, AudioSource, BUILTIN_COMPONENT_NAMES, sphereBounds } from "./scene/components/index.js";
 export { System, FixedSystem, TransformSystem, SystemScratch, type ISystem, type SystemContext, type SystemServices } from "./scene/systems.js";
 export { setWorldSurfaceGrip, worldSurfaceGrip, setWorldSurfaceGripField, worldSurfaceGripField, type SurfaceGripField } from "./scene/surfaceGrip.js";

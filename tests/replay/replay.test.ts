@@ -7,14 +7,14 @@
  * @covers engine/src/replay/session.ts
  * @covers engine/src/replay/index.ts
  * @covers engine/src/core/time.ts
- * @desc Phase 19.4 replay: exact-bit state hashing with per-part digests (pinned), Clock frame scripting, a vehicle-on-terrain session with physics props recorded under a random frame schedule and played back bit-identically through JSON from a freshly built scene, live input overridden during playback, divergence detection (initial state, tampered input, schedule) naming the parts that differ, and format validation
+ * @desc Phase 19.4 replay: exact-bit state hashing with per-part digests (pinned), Clock frame scripting, replay from a 19.3 snapshot, a vehicle-on-terrain session with physics props recorded under a random frame schedule and played back bit-identically through JSON from a freshly built scene, live input overridden during playback, divergence detection (initial state, tampered input, schedule) naming the parts that differ, and format validation
  */
 
 export const suite = {
   name: "replay:replay",
   group: "integration",
   covers: ["engine/src/replay/hash.ts", "engine/src/replay/channels.ts", "engine/src/replay/recording.ts", "engine/src/replay/session.ts", "engine/src/replay/index.ts", "engine/src/core/time.ts"],
-  desc: "Phase 19.4 replay: exact-bit state hashing with per-part digests (pinned), Clock frame scripting, a vehicle-on-terrain session with physics props recorded under a random frame schedule and played back bit-identically through JSON from a freshly built scene, live input overridden during playback, divergence detection (initial state, tampered input, schedule) naming the parts that differ, and format validation",
+  desc: "Phase 19.4 replay: exact-bit state hashing with per-part digests (pinned), Clock frame scripting, replay from a 19.3 snapshot, a vehicle-on-terrain session with physics props recorded under a random frame schedule and played back bit-identically through JSON from a freshly built scene, live input overridden during playback, divergence detection (initial state, tampered input, schedule) naming the parts that differ, and format validation",
 };
 
 import assert from "node:assert/strict";
@@ -52,6 +52,9 @@ import {
   vehicleInputChannel,
   type Clock,
   type ReplayRecording,
+  type StateRecord,
+  captureSceneSnapshot,
+  restoreSceneSnapshot,
   type SystemContext,
   type TickResult,
 } from "@forge/engine";
@@ -67,6 +70,12 @@ class Beacon extends SceneObject {
   }
   override saveState(): Record<string, unknown> {
     return { phase: this.phase };
+  }
+  override snapshotState(): StateRecord {
+    return { phase: this.phase };
+  }
+  override restoreSnapshotState(state: StateRecord): void {
+    this.phase = state.phase as number;
   }
 }
 
@@ -342,6 +351,31 @@ group("record and play", () => {
     assert.equal(bad.divergences[0]!.kind, "schedule");
     assert.equal(bad.divergences[0]!.frame, 40);
     assert.ok(bad.divergences.some((d) => d.kind === "checkpoint" && d.frame === 59), "and the state diverges at the next checkpoint");
+  });
+});
+
+group("from a snapshot (19.3 + 19.4)", () => {
+  test("a session snapshotted mid-run and replayed from that snapshot on an unsettled fresh scene matches", () => {
+    const s = buildSession();
+    const settle = new ManualClock({ fixedDeltaTime: FIXED_DT });
+    for (let i = 0; i < 90; i++) frame(s, settle, FIXED_DT * (1 + (i % 3)));
+    // Save the running simulation, then record what the player does from there.
+    const snap = JSON.stringify(captureSceneSnapshot(s.scene));
+    const recorder = new ReplayRecorder(s.scene, { channels: [vehicleInputChannel("car", s.vehicle)], hashEvery: 60 });
+    recorder.start();
+    const rng = new Rng(17);
+    const clock = new ManualClock({ fixedDeltaTime: FIXED_DT });
+    for (let i = 0; i < 480; i++) frame(s, clock, 0.004 + rng.nextFloat() * 0.045);
+    const rec = JSON.parse(JSON.stringify(recorder.stop())) as unknown;
+    // A fresh build that never ran: the snapshot alone brings it to where recording started.
+    const fresh = buildSession();
+    fresh.driver.enabled = false;
+    frame(fresh, new ManualClock({ fixedDeltaTime: FIXED_DT }), FIXED_DT); // spawn the crates' bodies (19.3 matches bodies)
+    restoreSceneSnapshot(fresh.scene, JSON.parse(snap));
+    const player = playThroughClock(fresh, rec, () => FIXED_DT);
+    assert.deepEqual(player.result().divergences, []);
+    assert.ok(player.result().ok);
+    assert.ok(Object.is(fresh.vehicle.position.z, s.vehicle.position.z), "bit-identical end pose");
   });
 });
 

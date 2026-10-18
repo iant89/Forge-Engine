@@ -1,4 +1,4 @@
-# Scene saves (Phase 19.1 + 19.2)
+# Scene saves and simulation snapshots (Phase 19.1 – 19.3)
 
 A scene save is a versioned JSON document: the scene's entities with their components, transforms
 and parent links; the scene settings (lighting, fog, sky, clouds, water, surface weather, shadows,
@@ -110,10 +110,63 @@ they were.
 To change the format: bump `SCENE_SAVE_VERSION`, register the step from the previous version, and
 add a test that loads a document written in the old version.
 
+## Simulation snapshots (19.3)
+
+A save rebuilds a scene. A **snapshot** captures a scene that is running, so it can be forked or
+rolled back and **continue exactly** as it would have:
+
+```ts
+import { captureSceneSnapshot, restoreSceneSnapshot, hashSceneSnapshot } from "@forge/engine";
+
+const snap = captureSceneSnapshot(scene);      // JSON-safe; exact through JSON.stringify
+// … keep simulating …
+restoreSceneSnapshot(scene, snap);             // back to that instant
+hashSceneSnapshot(captureSceneSnapshot(scene)) // 8 hex digits: equal state, equal hash
+```
+
+A snapshot restores into **the same scene, or one built the same way**: the same entities, in the
+same order and with the same names, the same systems and the same scene objects. Restoring checks
+all of this first and throws before changing anything if it doesn't match.
+
+| Part | What it holds |
+| --- | --- |
+| Transforms | Every live entity's local position, rotation and scale. |
+| Settings, surface grip | `scene.exportSettings()` and the world's uniform grip. Weather and day/night rewrite fog, sky, clouds and grip as they run, and the systems read them back next step. Without these, a restored session drifted within two steps. |
+| Systems | Each world system's `snapshotState()`. The physics system saves its `PhysicsWorld.snapshot()`. A fixed-step system without a hook saves its step count. |
+| Components | Each registered component's `snapshot` hook. `Vehicle` saves `Vehicle.snapshot()`. |
+| Scene objects | Each object's `snapshotState()`: weather, day/night and the lightning strike schedule. |
+
+The pieces underneath:
+
+- **`core/snapshot.ts`** has `captureState(obj, { skip })` and `restoreState(obj, data)`.
+  - Capture walks an object's own fields, private ones included, and records numbers, booleans,
+    strings, arrays, typed arrays and nested objects. It ignores functions, the named `skip` fields
+    and any object it has already visited.
+  - Restore writes back into the existing objects, so a `readonly position = new Vec3()` keeps its
+    identity.
+  - Numbers are exact through JSON: `-0`, `NaN` and the infinities are tagged, and typed arrays are
+    written as `{ "$t", "v" }`.
+  - A shape mismatch, such as an array of a different length, is refused.
+  - `hashState` is FNV-1a over the canonical JSON (sorted keys).
+- **`PhysicsWorld.snapshot()`** saves every body's pose, velocities, force accumulators,
+  interpolation poses, sleep state and mass/material parameters, plus the world clock, step count,
+  accumulator, gravity and next id.
+  - Shapes are construction data and are not included.
+  - Bodies are matched **by id, in order**, because body order sets the pair and manifold order.
+- **`Vehicle.snapshot()`** is structural: chassis pose and rates, wheels, input, engine, gearbox and
+  shift timer, damage flags, and the integrator's previous velocity. A field added to the vehicle
+  later is included without touching the method.
+- **`Rng.snapshot()`** includes the cached second Gaussian. `save()`/`restore()` are positions only,
+  and `restore()` now clears the cache. Before, it replayed a stale value.
+- **`LightningSystem`** saves what decides future strikes: its RNG, its next-strike timer and its
+  counters. Strikes already in flight and thunder still travelling are transients and are not saved.
+
 ## Not covered yet
 
-- **Simulation state (19.3).** Rigid bodies, vehicles and RNG streams are not in a save. The
-  `serialization.snapshots` capability tracks this. Weather and day/night restore their clocks, which
-  is all their simulation needs.
-- Replay (19.4) is separate from saves: input, frame schedule and state hashes, in `docs/REPLAY.md`.
-  Until snapshots exist, a replay starts from a known scene build rather than from a save.
+- **Script timers, coroutines and event subscriptions** are closures, so they are in neither a save
+  nor a snapshot. A loaded script re-registers them in `onCreate`. A replay starts from the
+  beginning, where they are recreated anyway. Tracked as `serialization.closuresAndTransients`.
+- **The engine clock** is the caller's. A snapshot restores simulation state, and whoever drives
+  `scene.update` keeps stepping it.
+- **Replay (19.4)** is separate from saves and snapshots: input, frame schedule and per-part state
+  hashes, in `docs/REPLAY.md`.

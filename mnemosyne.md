@@ -2420,6 +2420,15 @@ Read the module constraints below before changing either pure model.
   empty queue and returned at once, and CI sampled the clear colour again on #121. Wait for a stats
   field that proves the new mode rendered (`render.hdr === false`) before trusting any counter.
 
+- 2026-10-17 (Phase 19.3): **a snapshot must hold everything a step reads, not just what it owns.**
+  The first scene snapshot restored every subsystem exactly and still drifted within two steps: the
+  vehicle read the world's surface grip (`setWorldSurfaceGrip`, a WeakMap outside every object) and
+  the weather read scene settings that day/night rewrites each step. Both now ride in the scene
+  snapshot. Debug drift by hashing each snapshot part (transforms / each system / component / object)
+  right after restore and again two steps later. Structural capture traps: skip scratch arrays that
+  hold component references (weather's `lightingScratch` captured Light components) and
+  variable-length lists (restore refuses length changes). `Rng.save()` dropped the cached Gaussian.
+
 - 2026-10-17 (UI default look → `frontier`): the UI defaults to the warm `frontier` theme + skin
   (letter-spaced uppercase controls, orange gradient primary, outlined accent buttons; `dark`/`forge`
   still selectable). Matching a reference design surfaced three layout/text bugs, all fixed with

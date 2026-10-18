@@ -25,6 +25,7 @@
  * Nothing here touches the audio graph itself.
  */
 
+import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import { Light } from "../scene/components/index.js";
@@ -477,6 +478,19 @@ export class LightningSystem extends SceneObject {
       this.thunderCount++;
       this.onThunder?.(event);
     }
+  }
+
+  /**
+   * Phase 19.3: what decides future strikes — the strike RNG, the next-strike timer, the clock and
+   * counters. Strikes already in flight and thunder still travelling are visual/audio transients and
+   * are not in a snapshot (a restored storm starts with a clear sky and keeps its schedule).
+   */
+  override snapshotState(): StateRecord {
+    return captureState(this, { skip: ["scene", "options", "pendingThunder", "strikes", "lastBolts"] });
+  }
+
+  override restoreSnapshotState(state: StateRecord): void {
+    restoreState(this, state, this.name);
   }
 
   override onAttach(scene: Scene): void {

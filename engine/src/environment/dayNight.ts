@@ -16,6 +16,7 @@
  * highest point, which is what most games want.
  */
 
+import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import { Light } from "../scene/components/index.js";
@@ -273,6 +274,18 @@ export class DayNightCycle extends SceneObject {
     this.timeOfDay = hours;
     this.applied = false;
     return this;
+  }
+
+  /**
+   * Phase 19.3: the cycle's mid-run state (clock, date, the last solar evaluation it compares
+   * against). The sun light is a scene component, the atmosphere and schedules construction data.
+   */
+  override snapshotState(): StateRecord {
+    return captureState(this, { skip: ["scene", "sun", "schedules", "atmosphere"] });
+  }
+
+  override restoreSnapshotState(state: StateRecord): void {
+    restoreState(this, state, this.name);
   }
 
   override onAttach(scene: Scene): void {

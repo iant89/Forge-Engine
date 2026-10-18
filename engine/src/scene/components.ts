@@ -17,6 +17,7 @@ import { UsageError } from "../core/errors.js";
 import { DisposableGroup, type Disposable } from "../core/events.js";
 import { ObjectStore, type ComponentStorage } from "./stores.js";
 import { MAX_COMPONENT_TYPES, type EntityId } from "./entityId.js";
+import type { StateRecord } from "../core/snapshot.js";
 
 export abstract class Component {
   /** Set by the world on attach. 0 = not attached. */
@@ -85,6 +86,9 @@ export interface ComponentTypeInfo {
    */
   serialize?: (c: Component, ctx: SerializationContext) => Record<string, unknown>;
   deserialize?: (c: Component, data: Record<string, unknown>, ctx: DeserializationContext) => void;
+  /** Phase 19.3: mid-run simulation state for a scene snapshot (scene/snapshot.ts). */
+  snapshot?: (c: Component) => StateRecord;
+  restoreSnapshot?: (c: Component, state: StateRecord) => void;
   /** Editor metadata (which inspector group, whether it can be added more than once). */
   singleton?: boolean;
   editorGroup?: string;
@@ -119,6 +123,8 @@ export interface RegisterComponentOptions {
   create?: (data: Record<string, unknown>) => Component;
   serialize?: (c: Component, ctx: SerializationContext) => Record<string, unknown>;
   deserialize?: (c: Component, data: Record<string, unknown>, ctx: DeserializationContext) => void;
+  snapshot?: (c: Component) => StateRecord;
+  restoreSnapshot?: (c: Component, state: StateRecord) => void;
   /** Use a struct store with fixed float/int counts instead of an object store. */
   struct?: { floats: number; ints: number };
   singleton?: boolean;
@@ -145,6 +151,8 @@ export function registerComponent<T extends Component>(ctor: new (...args: never
     ctor: ctor as unknown as new () => Component,
     serialize: options.serialize,
     deserialize: options.deserialize,
+    snapshot: options.snapshot,
+    restoreSnapshot: options.restoreSnapshot,
     createStore: () => new ObjectStore<Component>(id, name) as unknown as ComponentStorage<Component>,
     singleton: options.singleton,
     editorGroup: options.editorGroup ?? name,

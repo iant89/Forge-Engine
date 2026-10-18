@@ -69,7 +69,14 @@ export class VehicleComponent extends Component {
   }
 }
 
-registerComponent(VehicleComponent, { name: "Vehicle", allowMultiple: false });
+registerComponent(VehicleComponent, {
+  name: "Vehicle",
+  allowMultiple: false,
+  // Phase 19.3: the vehicle's mid-run state (Vehicle.snapshot). The chassis body, if any, is in the
+  // physics world's snapshot; the ground query is the scene's.
+  snapshot: (c) => (c as VehicleComponent).vehicle.snapshot(),
+  restoreSnapshot: (c, state) => (c as VehicleComponent).vehicle.restoreSnapshot(state),
+});
 
 export function createVehicleComponent(config?: VehicleConfig, ground?: GroundQuery): VehicleComponent {
   return new VehicleComponent(config ? new Vehicle(config) : new Vehicle(createVehicleConfig()), ground);

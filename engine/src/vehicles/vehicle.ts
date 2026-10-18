@@ -13,6 +13,7 @@
  * `context.fixedDt`. Do not also step from a scene `update`.
  */
 
+import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 import { clamp, f32 } from "../math/scalar.js";
 import { Quat } from "../math/mat.js";
 import { Vec3 } from "../math/vec.js";
@@ -392,6 +393,21 @@ export class Vehicle {
     transmission.shiftTimer = gear === 0 ? 0 : transmission.shiftDuration;
     transmission.shiftCount += 1;
     return true;
+  }
+
+  /**
+   * Phase 19.3: the vehicle's whole mid-run state — chassis pose and rates, wheels (spin, suspension,
+   * forces, contact), input, the engine and transmission (rpm, gear, shift timer), damage flags and
+   * the integrator's previous-velocity memory — captured structurally (core/snapshot.ts), so a
+   * private field added later is included without touching this method. JSON-safe.
+   */
+  snapshot(): StateRecord {
+    return captureState(this);
+  }
+
+  /** Restore a `snapshot()` taken from this vehicle or one built with the same configuration. */
+  restoreSnapshot(snap: StateRecord): void {
+    restoreState(this, snap, "vehicle");
   }
 
   /** Select first or reverse through the safe three-position gear API. */

@@ -136,13 +136,31 @@ export class Rng {
     out.z = z;
   }
 
-  /** Snapshot/restore for replayable simulation forks. */
+  /**
+   * The stream position only. Not a full snapshot: a stream that has drawn an odd number of
+   * `nextGaussian` values also holds the cached second value — use `snapshot()` to fork or restore it.
+   */
   save(): number {
     return this.state;
   }
 
+  /** Restore a `save()` position; clears any cached Gaussian. */
   restore(state: number): void {
     this.state = state | 0;
+    this.hasSpare = false;
+    this.spare = 0;
+  }
+
+  /** Phase 19.3: the full generator state, cached Gaussian included (JSON-safe). */
+  snapshot(): { state: number; hasSpare: boolean; spare: number } {
+    return { state: this.state, hasSpare: this.hasSpare, spare: this.spare };
+  }
+
+  /** Restore a `snapshot()`: the stream continues exactly as it would have. */
+  restoreSnapshot(snap: { state: number; hasSpare: boolean; spare: number }): void {
+    this.state = snap.state | 0;
+    this.hasSpare = snap.hasSpare === true;
+    this.spare = Number(snap.spare) || 0;
   }
 }
 

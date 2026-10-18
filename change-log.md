@@ -21523,6 +21523,345 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1702",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/snapshot.ts",
+    "what": "New: captureState/restoreState (structural, exact through JSON: -0/NaN/inf tagged, typed arrays), canonicalState, hashState (FNV-1a), encode/decodeNumber.",
+    "why": "Phase 19.3 snapshots and state hashing."
+  },
+  {
+    "id": "1703",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scene/snapshot.ts",
+    "what": "New: captureSceneSnapshot/restoreSceneSnapshot/hashSceneSnapshot (transforms, settings, surface grip, system/component/object hooks; structure checked before restore).",
+    "why": "Phase 19.3 scene-level snapshots."
+  },
+  {
+    "id": "1704",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scene/systems.ts",
+    "what": "ISystem.snapshotState/restoreSnapshotState.",
+    "why": "System hook for snapshots."
+  },
+  {
+    "id": "1705",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scene/scene.ts",
+    "what": "SceneObject.snapshotState/restoreSnapshotState.",
+    "why": "Scene-object hook for snapshots."
+  },
+  {
+    "id": "1706",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/scene/components.ts",
+    "what": "Registry snapshot/restoreSnapshot hooks.",
+    "why": "Component hook for snapshots."
+  },
+  {
+    "id": "1707",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/math/rng.ts",
+    "what": "Rng.snapshot/restoreSnapshot with the cached Gaussian; restore() clears the cache.",
+    "why": "save()/restore() lost or replayed the cached second Gaussian, so a restored stream diverged."
+  },
+  {
+    "id": "1708",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/physics/world.ts",
+    "what": "PhysicsWorld.snapshot/restoreSnapshot (bodies by id and order; derived inertia/AABB rebuilt).",
+    "why": "Physics state in snapshots."
+  },
+  {
+    "id": "1709",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/physics/system.ts",
+    "what": "PhysicsSystem snapshot hooks.",
+    "why": "Physics in scene snapshots."
+  },
+  {
+    "id": "1710",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/vehicle.ts",
+    "what": "Vehicle.snapshot/restoreSnapshot (structural).",
+    "why": "Vehicle state in snapshots."
+  },
+  {
+    "id": "1711",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/vehicles/components.ts",
+    "what": "VehicleComponent registry snapshot hooks.",
+    "why": "Vehicles in scene snapshots."
+  },
+  {
+    "id": "1712",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/environment/weather.ts",
+    "what": "WeatherSystem snapshotState (skips scene and the light scratch list).",
+    "why": "Weather in snapshots."
+  },
+  {
+    "id": "1713",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/environment/dayNight.ts",
+    "what": "DayNightCycle snapshotState.",
+    "why": "Day/night in snapshots."
+  },
+  {
+    "id": "1714",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/environment/lightning.ts",
+    "what": "LightningSystem snapshotState (schedule: RNG, timer, counters).",
+    "why": "Lightning schedule in snapshots."
+  },
+  {
+    "id": "1715",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Export the snapshot API.",
+    "why": "Public API."
+  },
+  {
+    "id": "1716",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "serialization.snapshots verified; new deferred serialization.closuresAndTransients.",
+    "why": "Registry follows the code."
+  },
+  {
+    "id": "1717",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/scene/simulationSnapshot.test.ts",
+    "what": "New suite scene:simulationSnapshot, 10 cases.",
+    "why": "Pins 19.3."
+  },
+  {
+    "id": "1718",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link simulationSnapshot; report(122).",
+    "why": "New suite."
+  },
+  {
+    "id": "1719",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 122 / 904.",
+    "why": "New suite."
+  },
+  {
+    "id": "1720",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/SERIALIZATION.md",
+    "what": "Snapshots section.",
+    "why": "Phase docs."
+  },
+  {
+    "id": "1721",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Section for simulationSnapshot.",
+    "why": "Gate description."
+  },
+  {
+    "id": "1722",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Replace the stale save limitation; closures and transients linked to their capability.",
+    "why": "Known limitations."
+  },
+  {
+    "id": "1723",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "19.3 [x], 19.4 state hashing [x]; state line.",
+    "why": "Roadmap follows the code."
+  },
+  {
+    "id": "1724",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Snapshots done.",
+    "why": "Keep in step."
+  },
+  {
+    "id": "1725",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Entries for claude/phase19-snapshots.",
+    "why": "Activity history."
+  },
+  {
+    "id": "1726",
+    "date": "2026-10-17T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase19-snapshots",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Notes on snapshot pitfalls (scene settings/grip, scratch arrays of components, Rng spare).",
+    "why": "Session memory."
+  },
+  {
+    "id": "1727",
+    "date": "2026-10-17T15:40:00Z",
+    "type": "pr-merge",
+    "pr": 122,
+    "branch": "claude/phase19-snapshots",
+    "base": "main",
+    "title": "Phase 19.3: exact mid-run simulation snapshots (physics, vehicles, weather, RNG) with state hashing",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "core/snapshot.ts adds structural captureState/restoreState (exact through JSON: tagged -0/NaN/infinities, typed arrays) and hashState (FNV-1a of canonical JSON). PhysicsWorld, Vehicle and Rng gain snapshot/restoreSnapshot (Rng now carries the cached Gaussian and restore() clears it); weather, day/night and the lightning schedule implement SceneObject.snapshotState; systems and components get snapshot hooks. scene/snapshot.ts combines them with transforms, scene settings and the world surface grip into captureSceneSnapshot/restoreSceneSnapshot/hashSceneSnapshot, checking structure before restoring. simulationSnapshot (10 cases) pins that a restored session reaches the uninterrupted run's state hash. Closures and transients are deferred as serialization.closuresAndTransients.",
+    "files": [
+      "PROGRESS.md",
+      "ROADMAP.md",
+      "change-log.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/SERIALIZATION.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/core/snapshot.ts",
+      "engine/src/environment/dayNight.ts",
+      "engine/src/environment/lightning.ts",
+      "engine/src/environment/weather.ts",
+      "engine/src/index.ts",
+      "engine/src/math/rng.ts",
+      "engine/src/physics/system.ts",
+      "engine/src/physics/world.ts",
+      "engine/src/scene/components.ts",
+      "engine/src/scene/scene.ts",
+      "engine/src/scene/snapshot.ts",
+      "engine/src/scene/systems.ts",
+      "engine/src/vehicles/components.ts",
+      "engine/src/vehicles/vehicle.ts",
+      "mnemosyne.md",
+      "tests/full.test.ts",
+      "tests/scene/simulationSnapshot.test.ts",
+      "tests/tools/selrun.test.ts"
+    ]
+  },
+  {
+    "id": "1728",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21534,7 +21873,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1703",
+    "id": "1729",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21546,7 +21885,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the guide true to the new defaults."
   },
   {
-    "id": "1704",
+    "id": "1730",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21558,7 +21897,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Numbers are quoted only from a run."
   },
   {
-    "id": "1705",
+    "id": "1731",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21570,7 +21909,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The gate changed; record what it proves."
   },
   {
-    "id": "1706",
+    "id": "1732",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21582,7 +21921,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "A maxWidth-clamped card measured its text at the unclamped width, squeezing its children on phones."
   },
   {
-    "id": "1707",
+    "id": "1733",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21594,7 +21933,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API for the new defaults."
   },
   {
-    "id": "1708",
+    "id": "1734",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21606,7 +21945,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Measure and arrange disagreed: rows reported one line of wrapping text and min/max-clamped bases mis-sized containers."
   },
   {
-    "id": "1709",
+    "id": "1735",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21618,7 +21957,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The requested default look."
   },
   {
-    "id": "1710",
+    "id": "1736",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21630,7 +21969,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Match the reference design by default while every skin supports the variants it uses."
   },
   {
-    "id": "1711",
+    "id": "1737",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21642,7 +21981,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New style property."
   },
   {
-    "id": "1712",
+    "id": "1738",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21654,7 +21993,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Uppercase labels without changing the model text."
   },
   {
-    "id": "1713",
+    "id": "1739",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21666,7 +22005,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Letter-spaced text laid out at its own measured width was ellipsized."
   },
   {
-    "id": "1714",
+    "id": "1740",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21678,7 +22017,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Uppercase drawing and measuring for every TextPart-based widget."
   },
   {
-    "id": "1715",
+    "id": "1741",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21690,7 +22029,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Consistent with Label."
   },
   {
-    "id": "1716",
+    "id": "1742",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21702,7 +22041,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Two-line menu buttons from the reference design."
   },
   {
-    "id": "1717",
+    "id": "1743",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21714,7 +22053,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Usable from declarative definitions and bindings."
   },
   {
-    "id": "1718",
+    "id": "1744",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21726,7 +22065,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Show the new default look; the page scrolls on phones instead of squeezing."
   },
   {
-    "id": "1719",
+    "id": "1745",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21738,7 +22077,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1720",
+    "id": "1746",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21750,7 +22089,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Cover the new menu."
   },
   {
-    "id": "1721",
+    "id": "1747",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21762,7 +22101,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Each fails without its fix."
   },
   {
-    "id": "1722",
+    "id": "1748",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21774,7 +22113,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pin the new defaults."
   },
   {
-    "id": "1723",
+    "id": "1749",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21786,7 +22125,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Fails without the textLayout fix."
   },
   {
-    "id": "1724",
+    "id": "1750",
     "date": "2026-10-17T10:00:00Z",
     "type": "change",
     "pr": null,
@@ -21798,7 +22137,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Real-GPU evidence for the new default."
   },
   {
-    "id": "1725",
+    "id": "1751",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21810,7 +22149,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Scale the UI to the viewport without shrinking it on phones."
   },
   {
-    "id": "1726",
+    "id": "1752",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21822,7 +22161,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The UI now scales with the viewport by default."
   },
   {
-    "id": "1727",
+    "id": "1753",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21834,7 +22173,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1728",
+    "id": "1754",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21846,7 +22185,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Cover the new default."
   },
   {
-    "id": "1729",
+    "id": "1755",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21858,7 +22197,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Drawing and input must share the scale."
   },
   {
-    "id": "1730",
+    "id": "1756",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21870,7 +22209,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the guide true."
   },
   {
-    "id": "1731",
+    "id": "1757",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21882,7 +22221,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the architecture doc true."
   },
   {
-    "id": "1732",
+    "id": "1758",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21894,7 +22233,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The gate changed."
   },
   {
-    "id": "1733",
+    "id": "1759",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21906,7 +22245,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1734",
+    "id": "1760",
     "date": "2026-10-17T14:00:00Z",
     "type": "change",
     "pr": null,
@@ -21918,7 +22257,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1735",
+    "id": "1761",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21930,7 +22269,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "A live engine must play a recording's exact frame schedule."
   },
   {
-    "id": "1736",
+    "id": "1762",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21942,7 +22281,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "19.4 state hashing; parts locate divergences."
   },
   {
-    "id": "1737",
+    "id": "1763",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21954,7 +22293,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "19.4 input recording."
   },
   {
-    "id": "1738",
+    "id": "1764",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21966,7 +22305,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "A replay is portable JSON with a checked format."
   },
   {
-    "id": "1739",
+    "id": "1765",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21978,7 +22317,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "19.4 recording and deterministic playback."
   },
   {
-    "id": "1740",
+    "id": "1766",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -21990,7 +22329,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1741",
+    "id": "1767",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22002,7 +22341,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public API."
   },
   {
-    "id": "1742",
+    "id": "1768",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22014,7 +22353,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "19.4 landed."
   },
   {
-    "id": "1743",
+    "id": "1769",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22026,7 +22365,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep the simulation independent of being recorded."
   },
   {
-    "id": "1744",
+    "id": "1770",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22038,7 +22377,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Prove 19.4."
   },
   {
-    "id": "1745",
+    "id": "1771",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22050,7 +22389,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Every suite linked once."
   },
   {
-    "id": "1746",
+    "id": "1772",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22062,7 +22401,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The catalog grew."
   },
   {
-    "id": "1747",
+    "id": "1773",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22074,7 +22413,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Document 19.4."
   },
   {
-    "id": "1748",
+    "id": "1774",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22086,7 +22425,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "19.4 landed."
   },
   {
-    "id": "1749",
+    "id": "1775",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22098,7 +22437,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep limitations true."
   },
   {
-    "id": "1750",
+    "id": "1776",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22110,7 +22449,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New gate."
   },
   {
-    "id": "1751",
+    "id": "1777",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22122,7 +22461,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Roadmap matches the code."
   },
   {
-    "id": "1752",
+    "id": "1778",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22134,7 +22473,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Discoverability."
   },
   {
-    "id": "1753",
+    "id": "1779",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22146,7 +22485,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Architecture doc matches the code."
   },
   {
-    "id": "1754",
+    "id": "1780",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22158,7 +22497,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1755",
+    "id": "1781",
     "date": "2026-10-17T18:00:00Z",
     "type": "change",
     "pr": null,
@@ -22168,6 +22507,150 @@ JSON array below; agents maintain it by hand until then.
     "file": "change-log.md",
     "what": "Entries for 19.4 replay.",
     "why": "Activity history."
+  },
+  {
+    "id": "1782",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/replay/replay.test.ts",
+    "what": "New case: a mid-drive 19.3 snapshot restored into a fresh build replays 480 recorded frames bit-identically; Beacon implements snapshot hooks.",
+    "why": "Prove replay composes with 19.3 snapshots (the Phase 19 exit criterion, on one engine)."
+  },
+  {
+    "id": "1783",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/REPLAY.md",
+    "what": "A replay may start from a 19.3 snapshot (step the fresh scene once first).",
+    "why": "Snapshots landed on main."
+  },
+  {
+    "id": "1784",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/replay/session.ts",
+    "what": "Header: playback may start from a restored snapshot.",
+    "why": "Keep the contract accurate."
+  },
+  {
+    "id": "1785",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "determinism.replay notes: same build or a restored 19.3 snapshot.",
+    "why": "Snapshots landed on main."
+  },
+  {
+    "id": "1786",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Merge 19.3 and 19.4 state text; 19.4 notes snapshot-based replay.",
+    "why": "Both landed."
+  },
+  {
+    "id": "1787",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "Replay suite: the snapshot + replay case; drop the 'not from a save' caveat.",
+    "why": "The gate changed."
+  },
+  {
+    "id": "1788",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "Merge main's 19.3 limitations with the replay cross-engine limitation.",
+    "why": "Both branches edited the section."
+  },
+  {
+    "id": "1789",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/SERIALIZATION.md",
+    "what": "Merge main's 19.3 text; point replay at docs/REPLAY.md.",
+    "why": "Both branches edited the section."
+  },
+  {
+    "id": "1790",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Link both scene:simulationSnapshot and replay:replay; report(123).",
+    "why": "Merge of main."
+  },
+  {
+    "id": "1791",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog pins: 123 suites, 910 claims.",
+    "why": "Merge of main."
+  },
+  {
+    "id": "1792",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Keep both branches' notes.",
+    "why": "Merge of main."
+  },
+  {
+    "id": "1793",
+    "date": "2026-10-18T09:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/dazzling-goldberg-k5bc2w",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Merge main's entries verbatim, then this branch's, renumbered after them.",
+    "why": "Merge of main."
   }
 ]
 ```

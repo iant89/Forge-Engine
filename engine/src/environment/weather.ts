@@ -23,6 +23,7 @@
  * a scene's art direction survives and `driveFog: false` leaves the fog alone entirely.
  */
 
+import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import { fbm2 } from "../math/noise.js";
@@ -371,6 +372,18 @@ export class WeatherSystem extends SceneObject {
     }
     if (this.scene) this.apply();
     return warnings;
+  }
+
+  /**
+   * Phase 19.3: the weather's whole mid-run state (current/target state, surface, clock, the change
+   * detectors and lighting memory it carries between updates), captured structurally.
+   */
+  override snapshotState(): StateRecord {
+    return captureState(this, { skip: ["scene", "lightingScratch"] });
+  }
+
+  override restoreSnapshotState(state: StateRecord): void {
+    restoreState(this, state, this.name);
   }
 
   override onAttach(scene: Scene): void {
