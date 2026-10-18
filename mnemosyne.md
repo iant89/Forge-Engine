@@ -2493,3 +2493,13 @@ Read the module constraints below before changing either pure model.
   fail on main at 1b4ee95 with "mocked rover model attaches" (MockGPUDevice reports `writeBuffer:
   device lost` during the mocked GLB load); Damage is flaky (0/2 or 1/2 passing). Check this before
   blaming a change for a red `npm test`.
+- 2026-10-18 (Phase 20.8 impact/particle audio, engine/src/audio/{impact,particles}.ts): the physics
+  hook is `PhysicsWorld.contactListener`, read-only, with its scratch at **module scope** — a field on
+  the world or on a body would enter snapshots/hashes (`RigidBody` is captured structurally, minus
+  `BODY_SNAPSHOT_SKIP`), which is also why impact materials live in a WeakMap. Manifolds are rebuilt
+  every step (no warm start across steps), so "new contact" means approach speed past a threshold, with
+  a per-pair cooldown. Solver quirk seen, not fixed: a 20 kg box dropped flat onto a plane leaves it
+  spinning ~6.9 rad/s about Y, so it is heard scraping. Particles have no collisions: a hit is a
+  downward ground crossing per slot. `check:browser:rescue` fails on main too on this box (the 15 s
+  snowpack-depth wait at browser-check.mjs:950 under SwiftShader). Shared fake AudioContext for
+  tests: tests/support/fakeAudio.ts.

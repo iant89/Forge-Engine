@@ -1010,6 +1010,28 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "Read once per presented frame after the step and never written back (a run with audio hashes the same as one without). Plays into any AudioNode; bus mixing is roadmap 20.4, and the voices are not distance-filtered beyond the optional HRTF panner (roadmap 20.1).",
   },
   {
+    id: "audio.impact",
+    phase: "20.8",
+    status: "verified",
+    summary: "Impact and scrape audio from the physics solver's contacts, by material and size",
+    evidence: ["tests/audio/impactAudio.test.ts", "docs/AUDIO.md"],
+    notes: "PhysicsWorld.contactListener is opt-in and read-only (a world with a listener reaches the identical snapshot); materials live in a WeakMap, not on bodies. Vehicle raycast wheels are not physics contacts — their landings are 20.7's events.",
+  },
+  {
+    id: "audio.particles",
+    phase: "20.8",
+    status: "verified",
+    summary: "Particle audio from a CPU ParticleSimulation: births, bursts, flow and ground hits",
+    evidence: ["tests/audio/impactAudio.test.ts", "docs/AUDIO.md"],
+  },
+  {
+    id: "audio.gpuParticles",
+    phase: "20.8",
+    status: "deferred",
+    summary: "Particle audio for GPU particle worlds",
+    notes: "GpuParticleWorld keeps particle state on the device; hearing it would need a readback or device-side counters. No roadmap item schedules it.",
+  },
+  {
     id: "editor.tooling",
     phase: "26.1",
     status: "deferred",

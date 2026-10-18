@@ -88,3 +88,59 @@ the state reads gravel and engine load with zero page errors; that is not a comm
 * Spatial is an optional HRTF panner on the whole car; no per-source placement (exhaust vs tyres)
   — 20.1.
 * The engine is synthesized; there is no sample-based (granular RPM-crossfade) engine.
+
+## Particle / impact audio (Phase 20.8)
+
+Collisions and particle effects heard from the simulation.
+
+### Impacts and scrapes
+
+`PhysicsWorld.contactListener` (null by default) is called once per contact manifold after each
+step's solve with a reused `ContactReport`: the bodies, mean point, normal, the largest **approach
+speed before the solve** (the hit), the **tangential speed after it** (the slide) and the solver's
+total normal impulse. It only reads; scratch lives at module scope, so a world with a listener
+reaches the identical snapshot (tested).
+
+`ImpactSoundAnalyzer(world, options)` installs it (chaining any listener already there; `dispose()`
+restores it) and, per `update()`:
+
+| Output | Rule |
+| --- | --- |
+| impact | approach ≥ `minImpactSpeed` (0.6 m/s — resting contact is ~g·dt), once per body pair per `cooldown` (80 ms); strength `log1p(E/2)/log1p(fullEnergy/2)` with `E = ½·m_reduced·v²`; the loudest `maxEventsPerFrame` (12) kept, the rest counted in `dropped` |
+| scrape | slide ≥ `minScrapeSpeed` (0.3 m/s) under load (mean normal force ≈ the lighter body's weight reads as full); fastest slide per pair per frame; the loudest `maxScrapes` (4) |
+| material | `materialOf(body)`, else `setImpactMaterial(body, m)` (a WeakMap — bodies and their snapshots are unchanged), else heightfield/plane → dirt, static → rock, dynamic → wood |
+| size | largest extent of the shape (box side, sphere diameter, capsule tip to tip); ground is ∞ |
+
+`impactVoice(event)` (pure) rings each finite body's material modes, scaled by `√(0.5 m / size)`
+(smaller rings higher), with higher modes quieter and shorter and brought up by harder hits, plus a
+band-passed noise transient coloured by the softer surface (a crate on snow thuds, on rock clacks).
+`ImpactSoundscape` plays one decaying sine per mode plus the transient, each one-shot HRTF-panned at
+the contact, under a voice cap (24); `setScrapes` drives four looping band-passed friction voices.
+
+### Particles
+
+`ParticleSoundAnalyzer(simulation, { kind, groundAt | groundY, burstBirths })` reads a CPU
+`ParticleSimulation`'s state buffer after it stepped: births (`emitted` delta; ≥ `burstBirths` in a
+frame is a burst), alive count, mean speed and centroid, and **ground hits** — slots whose height
+above `groundAt(x, z)` went from positive to ≤ 0 moving down since the last update (the simulation
+has no particle collisions, so the crossing is the hit; a slot reborn this frame has no history).
+`particleSoundLevels` maps them per kind (`sparks`, `debris`, `spray`, `dust`) to a flow hiss (louder
+with √alive and speed), one grain per hit (capped at 12 a frame, brighter for faster falls) and a
+burst one-shot; `ParticleSoundscape` plays them, grains spread across the frame at the hit centroid.
+
+### Demo and verification
+
+Alpine Rescue plays the truck (20.7, six cylinders, on snow) and every physics contact — crates
+(wood), boulders (rock), the medical case (plastic), the truck chassis (metal) and the terrain (snow)
+— from the SOUND button or M. `tests/audio/impactAudio.test.ts` drops, bounces, piles and slides real
+bodies, sprays a real particle simulation onto flat and raised ground, and checks both graphs on a
+recording fake context. A headless-Chromium smoke of `?scene=alpine-rescue` at phone width (SOUND
+tapped) confirmed the context runs, settling bodies produce impacts and scrapes that play and
+release voices, and the truck idles at 40 Hz, with zero page errors; that is not a committed gate.
+
+### Not done
+
+* GPU particle worlds keep their state on the device and are silent (capability: audio.gpuParticles).
+* Raycast vehicle wheels are not physics contacts; their hits are 20.7's suspension events.
+* A box landing flat on a plane comes off it spinning about its vertical axis (a solver artifact,
+  not audio), so it is heard scraping as it settles.

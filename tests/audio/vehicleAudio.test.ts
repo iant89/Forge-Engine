@@ -35,6 +35,7 @@ import {
   type VehicleSoundState,
   type VehicleSurfaceClassifier,
 } from "@forge/engine";
+import { fakeAudioContext, type FakeNode, type FakeParam } from "../support/fakeAudio.js";
 
 const DT = 1 / 60;
 
@@ -250,50 +251,9 @@ group("the simulation is unaffected", () => {
 
 // ------------------------------------------------------------------ WebAudio graph (fake context)
 
-interface FakeParam { value: number; targets: number[]; setTargetAtTime(v: number): void; setValueAtTime(v: number): void; linearRampToValueAtTime(v: number): void; exponentialRampToValueAtTime(v: number): void }
-interface FakeNode { kind: string; type?: string; connected: FakeNode[]; disconnected: number; connect(n: FakeNode): FakeNode; disconnect(): void; [key: string]: unknown }
-
-function fakeContext() {
-  const nodes: FakeNode[] = [];
-  const param = (value = 0): FakeParam => ({
-    value,
-    targets: [],
-    setTargetAtTime(v) { this.targets.push(v); },
-    setValueAtTime(v) { this.value = v; },
-    linearRampToValueAtTime(v) { this.targets.push(v); },
-    exponentialRampToValueAtTime(v) { this.targets.push(v); },
-  });
-  const node = (kind: string, extra: Record<string, unknown> = {}): FakeNode => {
-    const n: FakeNode = {
-      kind,
-      connected: [],
-      disconnected: 0,
-      connect(t) { this.connected.push(t); return t; },
-      disconnect() { this.disconnected++; },
-      ...extra,
-    };
-    nodes.push(n);
-    return n;
-  };
-  const source = (kind: string, extra: Record<string, unknown> = {}) =>
-    node(kind, { started: [] as number[], stopped: 0, onended: null, start(t = 0) { (this.started as number[]).push(t); }, stop() { this.stopped = (this.stopped as number) + 1; }, ...extra });
-  const ctx = {
-    currentTime: 0,
-    sampleRate: 8000,
-    destination: node("destination"),
-    createGain: () => node("gain", { gain: param(1) }),
-    createBiquadFilter: () => node("filter", { type: "lowpass", frequency: param(350), Q: param(1) }),
-    createOscillator: () => source("oscillator", { type: "sine", frequency: param(440) }),
-    createBufferSource: () => source("buffer", { buffer: null, loop: false }),
-    createPanner: () => node("panner", { positionX: param(), positionY: param(), positionZ: param() }),
-    createBuffer: (_c: number, n: number, rate: number) => { const d = new Float32Array(n); return { duration: n / rate, getChannelData: () => d }; },
-  };
-  return { ctx, nodes };
-}
-
 group("soundscape", () => {
   test("the graph is built once, levels reach the voices, events add one-shots, and dispose stops everything", () => {
-    const { ctx, nodes } = fakeContext();
+    const { ctx, nodes } = fakeAudioContext();
     const scape = new VehicleSoundscape(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode, { volume: 0.5 });
     const built = nodes.length;
     const loops = nodes.filter((n) => n.kind === "buffer" || n.kind === "oscillator");
@@ -327,7 +287,7 @@ group("soundscape", () => {
   });
 
   test("VehicleAudio follows one vehicle: spatial position, events and levels from the same frame", () => {
-    const { ctx, nodes } = fakeContext();
+    const { ctx, nodes } = fakeAudioContext();
     const v = new Vehicle(createVehicleConfig());
     const ground = flatGround();
     v.placeOnGround(ground);

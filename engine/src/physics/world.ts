@@ -33,6 +33,33 @@ export interface PhysicsWorldOptions {
   solverOptions?: SolverOptions;
 }
 
+/**
+ * One contact manifold after a step was solved, for listeners that react to contacts (impact
+ * audio, effects, gameplay). Read-only data; the object is reused for every report, so copy what
+ * you keep.
+ */
+export interface ContactReport {
+  readonly bodyA: RigidBody;
+  readonly bodyB: RigidBody;
+  /** Mean contact point. */
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Contact normal (from A to B) of the first point. */
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  /** Largest approach speed along the normal before the solver ran (m/s, ≥ 0): the hit. */
+  readonly closingSpeed: number;
+  /** Tangential relative speed at the mean point after the solver ran (m/s): the slide. */
+  readonly slideSpeed: number;
+  /** Total normal impulse the solver applied this step (N·s). */
+  readonly impulse: number;
+  readonly contacts: number;
+  /** Step length (s). */
+  readonly dt: number;
+}
+
 export class PhysicsWorld {
   readonly bodies: RigidBody[] = [];
   private nextBodyId = 1;
@@ -51,6 +78,12 @@ export class PhysicsWorld {
   accumulator = 0;
   time = 0;
   stepCount = 0;
+  /**
+   * Called once per contact manifold after each step's solve (Phase 20.8). It only reads: the solve,
+   * the integration and every snapshot are the same with or without it, and none is installed by
+   * default, so a world without listeners does no extra work. Not part of a snapshot.
+   */
+  contactListener: ((report: ContactReport) => void) | null = null;
 
   constructor(options: PhysicsWorldOptions = {}) {
     if (options.gravity) this.gravity.copyFrom(options.gravity);
@@ -253,7 +286,15 @@ export class PhysicsWorld {
     }
 
     // 3. Solve velocity & position constraints
+    const listener = this.contactListener;
+    if (listener) {
+      CLOSING.length = manifolds.length;
+      for (let i = 0; i < manifolds.length; i++) CLOSING[i] = closingSpeed(manifolds[i]!);
+    }
     this.solver.solve(manifolds, dt);
+    if (listener) {
+      for (let i = 0; i < manifolds.length; i++) listener(fillReport(manifolds[i]!, CLOSING[i]!, dt));
+    }
 
     // 4. Integrate velocities to positions and update AABBs
     for (let i = 0; i < n; i++) {
@@ -409,6 +450,69 @@ export function raycastHeightfield(ray: Ray, hf: HeightfieldShape, hit: RayHit, 
     prevT = t;
   }
   return false;
+}
+
+// Contact-report scratch lives at module scope, not on the world, so snapshots and state hashes
+// (which only see bodies, and would see world fields) are unaffected by listening.
+const CLOSING: number[] = [];
+const REL = new Vec3();
+const REPORT = {
+  bodyA: null as unknown as RigidBody,
+  bodyB: null as unknown as RigidBody,
+  x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0,
+  closingSpeed: 0, slideSpeed: 0, impulse: 0, contacts: 0, dt: 0,
+};
+
+/** Velocity of B relative to A at a contact point (lever arms rA / rB). */
+function relativeVelocity(a: RigidBody, b: RigidBody, rA: Vec3Ops, rB: Vec3Ops, out: Vec3): Vec3 {
+  const wa = a.angularVelocity, wb = b.angularVelocity;
+  return out.set(
+    b.linearVelocity.x + (wb.y * rB.z - wb.z * rB.y) - (a.linearVelocity.x + (wa.y * rA.z - wa.z * rA.y)),
+    b.linearVelocity.y + (wb.z * rB.x - wb.x * rB.z) - (a.linearVelocity.y + (wa.z * rA.x - wa.x * rA.z)),
+    b.linearVelocity.z + (wb.x * rB.y - wb.y * rB.x) - (a.linearVelocity.z + (wa.x * rA.y - wa.y * rA.x)),
+  );
+}
+
+function closingSpeed(m: ContactManifold): number {
+  let best = 0;
+  for (const c of m.contacts) {
+    const v = relativeVelocity(m.bodyA, m.bodyB, c.rA, c.rB, REL);
+    const vn = v.x * c.normal.x + v.y * c.normal.y + v.z * c.normal.z;
+    if (-vn > best) best = -vn;
+  }
+  return best;
+}
+
+function fillReport(m: ContactManifold, closing: number, dt: number): ContactReport {
+  const n = m.contacts.length;
+  let x = 0, y = 0, z = 0, impulse = 0, sx = 0, sy = 0, sz = 0;
+  for (const c of m.contacts) {
+    x += c.point.x;
+    y += c.point.y;
+    z += c.point.z;
+    impulse += c.normalImpulse;
+    const v = relativeVelocity(m.bodyA, m.bodyB, c.rA, c.rB, REL);
+    const vn = v.x * c.normal.x + v.y * c.normal.y + v.z * c.normal.z;
+    sx += v.x - vn * c.normal.x;
+    sy += v.y - vn * c.normal.y;
+    sz += v.z - vn * c.normal.z;
+  }
+  const first = m.contacts[0]!;
+  const r = REPORT;
+  r.bodyA = m.bodyA;
+  r.bodyB = m.bodyB;
+  r.x = x / n;
+  r.y = y / n;
+  r.z = z / n;
+  r.nx = first.normal.x;
+  r.ny = first.normal.y;
+  r.nz = first.normal.z;
+  r.closingSpeed = closing;
+  r.slideSpeed = Math.sqrt(sx * sx + sy * sy + sz * sz) / n;
+  r.impulse = impulse;
+  r.contacts = n;
+  r.dt = dt;
+  return r;
 }
 
 /** Derived or construction-time body fields a snapshot leaves out (rebuilt on restore). */

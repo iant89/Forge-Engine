@@ -116,7 +116,7 @@ docs/RENDERING.md    The renderer as built: frame structure, render graph rules,
 docs/VEHICLES.md     Phase 6 as built, including what the chassis test actually asserts
 docs/PARTICLES.md    Phase 7 as built: CPU is the reference, the compute shader is the integrator only
 docs/UI.md, docs/UI-GUIDE.md  UI framework architecture (as built) and developer guide
-docs/AUDIO.md        Web Audio mixer, effects and spatial voices; Phase 20.7 vehicle audio from the simulation
+docs/AUDIO.md        Web Audio mixer, effects and spatial voices; Phase 20.7 vehicle and 20.8 impact/particle audio
 docs/ENVIRONMENT.md  Phase 8a as built: solar model, atmosphere, fog, day/night — and what 8b still owes
 ARCHITECTURE.md      Design + rationale; ROADMAP.md — phase 8b and phases 9–14 are not built
 ```
