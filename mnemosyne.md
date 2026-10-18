@@ -2457,3 +2457,26 @@ Read the module constraints below before changing either pure model.
   Bug the suite caught: the player wrote channels only on recorded *changes*, so live input code
   that kept running won the other frames — write every channel every frame. Hash digests are
   pinned in tests/replay/replay.test.ts (recordings store them). `Rng` has `nextFloat`, not `next`.
+
+- 2026-10-18 (Phase 19.5 cross-engine replay): **a replay recorded in Node did not replay in Bun
+  (JavaScriptCore = Safari).** ECMAScript leaves Math.sin/cos/tan/asin/acos/atan/atan2/exp/log/
+  log2/log10/pow/cbrt/hypot (and `**`) implementation-approximated: V8 ports fdlibm, JSC calls the
+  platform libm; the first `Math.atan` in `pacejka` was one ulp apart and the hash diverged in a
+  frame. Fix: `DMath` (engine/src/math/detmath.ts), fdlibm in exact arithmetic + BigInt for huge trig
+  reductions; bit-identical to V8 for the fdlibm functions (incl. V8's `exp(1) = E` special case and
+  fdlibm's — not musl's — sin/cos/tan kernels, log, log10), so Node results did not move. `pow` is
+  e_pow.c (V8 does *not* use it) and `hypot` its own. lint:arch's `DETERMINISTIC_SOURCES` forbids the
+  approximated functions and `**` in simulation code. Bun is installed in this sandbox
+  (`bun --tsconfig-override=examples/tsconfig.json file.ts`; ignore its "Internal error: directory
+  mismatch" notice); `npm run check:replay-engines` runs both engines. Gotchas: number literals with
+  > 20 significant digits may parse differently across engines (write shortest repr); random test
+  inputs must not be built with `**`/Math.pow or the *inputs* differ between engines; the session's
+  weather timetable is game logic, so keep it out of the player-input system that playback disables.
+- 2026-10-18 (captureState bug): an array holding the **same object many times** (the moisture
+  field's `soil` map) was captured as `[obj, null, null, …]` (repeat = already seen) and restoring
+  wrote those nulls back, crashing `mudAt`. Repeats inside arrays are now `{ "$hole": 1 }`, which
+  restore skips. Construction data like `soil` should be in a snapshot's `skip` list anyway.
+- 2026-10-18 (call-site tracing): wrapping every Math function and capturing `new Error().stack` on
+  each call made a 4.6M-call session take > 10 min; sample one call in 200 with
+  `Error.stackTraceLimit = 8`. And `pkill -f <pattern>` kills your own shell when the pattern is in the
+  command line — loop over `pgrep` with a pattern the command itself does not contain.

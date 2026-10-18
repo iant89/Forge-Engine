@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Forge — Replay Verification</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #05070a; color: #cbd5e1; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      main { max-width: 760px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 32px; }
+      h1 { font-size: 16px; margin: 0 0 4px; color: #e2e8f0; }
+      p { margin: 6px 0 14px; color: #94a3b8; }
+      #verdict { font-size: 22px; font-weight: 700; margin: 14px 0; }
+      #verdict.pass { color: #4ade80; }
+      #verdict.fail { color: #f87171; }
+      #verdict.run { color: #fbbf24; }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+      td { padding: 5px 6px; border-bottom: 1px solid #1e293b; vertical-align: top; overflow-wrap: anywhere; }
+      td:first-child { color: #94a3b8; width: 42%; }
+      .ok { color: #4ade80; }
+      .bad { color: #f87171; }
+      textarea { width: 100%; height: 140px; background: #0b1220; color: #cbd5e1; border: 1px solid #1e293b; border-radius: 6px; font: inherit; font-size: 11px; padding: 8px; }
+      button { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px 14px; font: inherit; margin-right: 8px; }
+      a { color: #93c5fd; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Forge replay verification (Phase 19.5)</h1>
+      <p>
+        Replays a committed recording of a complete vehicle session (track, rain, storm, lightning, snow,
+        day/night, physics) in this browser's JavaScript engine and checks every state hash against the
+        hashes recorded in Node. No GPU is used. It takes a few seconds on a desktop and longer on a phone.
+      </p>
+      <div id="verdict" class="run">Running…</div>
+      <table id="rows"></table>
+      <button id="copy" type="button">Copy result</button>
+      <button id="again" type="button">Run again</button>
+      <p></p>
+      <textarea id="json" readonly></textarea>
+      <p><a href="./">← demos</a></p>
+    </main>
+    <script type="module" src="./src/replay/verifyPage.ts"></script>
+  </body>
+</html>

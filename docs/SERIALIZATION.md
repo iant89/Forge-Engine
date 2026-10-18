@@ -168,5 +168,6 @@ The pieces underneath:
   beginning, where they are recreated anyway. Tracked as `serialization.closuresAndTransients`.
 - **The engine clock** is the caller's. A snapshot restores simulation state, and whoever drives
   `scene.update` keeps stepping it.
-- **Replay (19.4)** is separate from saves and snapshots: input, frame schedule and per-part state
-  hashes, in `docs/REPLAY.md`.
+- **Replay (19.4–19.5)** is separate from saves and snapshots: input, frame schedule and per-part state
+  hashes, identical across JavaScript engines, in `docs/REPLAY.md`. Its cross-engine check saves a
+  snapshot mid-session and resumes it to the recorded final hash.
