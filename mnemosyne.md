@@ -2503,3 +2503,13 @@ Read the module constraints below before changing either pure model.
   downward ground crossing per slot. `check:browser:rescue` fails on main too on this box (the 15 s
   snowpack-depth wait at browser-check.mjs:950 under SwiftShader). Shared fake AudioContext for
   tests: tests/support/fakeAudio.ts.
+- 2026-10-18 (Phase 20.1/20.2, engine/src/audio/{spatial,resources}.ts): **Web Audio is right-handed,
+  Forge is left-handed.** Every demo wrote engine coordinates straight into panners/listener, so left
+  and right were mirrored (thunder on the camera's right played left). All writes now go through
+  `setAudioListener`/`setPannerPosition`/`setPannerOrientation` (z negated); `pannerAzimuth` is a
+  CPU twin of the spec's azimuth so a test pins "+X is right when facing +Z". Web Audio removed its
+  own Doppler — `SpatialAudioSource` drives playbackRate. Clips are `ResourceRegistry` entries
+  (`audio:<url>`, bytes = frames × channels × 4); `registry.bytesOfKind(kind)` was added for the
+  audio budget line. tests/support/fakeAudio.ts now fakes listener params, decodeAudioData, state,
+  close and cancelScheduledValues. `check:browser:environment` can die on its first step with
+  "execution context destroyed" (Vite reloading after dep optimization) — re-run once.

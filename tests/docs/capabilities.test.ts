@@ -301,7 +301,12 @@ group("Phase 9.5 — capability registry", () => {
     assert.equal(capabilityStatus("does.notExist"), undefined);
     assert.equal(capabilityRegistry.get("particles.gpuSimulation")?.status, "verified");
     assert.equal(capabilityRegistry.get("particles.gpuRendering")?.closesWith, "12.7");
-    assertContains(capabilityRegistry.list("deferred").map((entry) => entry.id), "audio.system");
+    assertContains(capabilityRegistry.list("deferred").map((entry) => entry.id), "audio.gpuParticles");
+    // Phase 20.1/20.2 split the old catch-all "audio.system" entry.
+    assert.equal(capabilityStatus("audio.spatial"), "verified");
+    assert.equal(capabilityStatus("audio.resources"), "verified");
+    assert.equal(capabilityRegistry.get("audio.mixing")?.closesWith, "20.3");
+    assert.equal(capabilityStatus("audio.system"), undefined);
     assert.equal(capabilityMarker("planned"), "[ ]");
 
     const snapshot = capabilityRegistry.snapshot();

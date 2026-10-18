@@ -187,7 +187,9 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
 PHASE 20 - AUDIO
     [~] IN PROGRESS (20.7 landed: vehicle audio from the simulation — engine RPM, throttle, load,
         gear, tyre slip, suspension and terrain; 20.8 landed: impacts and scrapes from the physics
-        solver's contacts and particle audio from the CPU particle state; 20.1-20.6 are not built)
+        solver's contacts and particle audio from the CPU particle state; 20.1 landed: handedness-
+        correct spatial audio with Doppler, air absorption, occlusion and ECS emitters; 20.2 landed:
+        clips as budgeted registry resources with codec fallback and banks; 20.3-20.6 are not built)
 
 
 ================================================================================
@@ -2137,7 +2139,26 @@ GOAL:
 
 20.1 Spatial Audio
 
+    [x] coordinates              (engine left-handed → Web Audio right-handed: every listener/panner
+                                  write negates z; before this, demo left/right were mirrored)
+    [x] panning, distance, cone  (CPU twins of the spec's azimuth/equal-power, distance models and cone)
+    [x] Doppler                  (from source/listener velocity along the line; scale; clamped)
+    [x] air absorption           (low-pass ~20 kHz up close, an octave per ~350 m)
+    [x] occlusion                (caller query, e.g. a raycast; smoothed gain + low-pass)
+    [x] ECS                      (AudioListenerComponent, AudioEmitterComponent, SpatialAudioSystem
+                                  in band 800 after transforms)
+        engine/src/audio/spatial.ts, tests/audio/spatialAudio.test.ts, docs/AUDIO.md
+
 20.2 Audio Resources
+
+    [x] registry clips           (audio:<url> ResourceRegistry entries: one load per id, handles,
+                                  decoded-byte budget with LRU eviction of idle clips, cancellation)
+    [x] formats                  (alternative sources ranked by canPlayType, fall through on fetch or
+                                  decode failure)
+    [x] validation               (empty/channel-less output rejected; long clips flagged for 20.3)
+    [x] procedural clips + banks (audio:procedural/<name>; AudioBank load/progress/pin/release)
+        engine/src/audio/resources.ts, tests/audio/audioResources.test.ts, docs/AUDIO.md. The weather
+        demo's thunder variants are registry clips, filtered by strike distance.
 
 20.3 Streaming Audio
 

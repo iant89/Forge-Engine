@@ -17,17 +17,47 @@ const engine = audio.play(clip, {
 
 The standard buses are `master`, `music`, `sfx`, `dialogue`, and `ambient`; custom buses can be created. Each bus owns a live `EffectRack`. `FilterEffect`, feedback `DelayEffect`, `ConvolutionReverb`, and `CompressorEffect` can be inserted, removed, bypassed, and parameter-automated through their Web Audio nodes while voices play. Bus and voice gains support ramps to avoid clicks.
 
-## Spatial audio
+## Spatial audio (Phase 20.1)
 
-Spatial voices use an HRTF `PannerNode` by default, with configurable panning/distance models, attenuation, source cones, position and orientation. Update the `AudioVoice` or use `SpatialAudioEmitter` each simulation frame. Call `setListener` with the active camera transform. Web Audio handles HRTF, distance attenuation and Doppler processing on its audio thread. `setOcclusion` supplies a lightweight attenuation hook; richer geometry-driven obstruction can automate a bus `FilterEffect`.
+Spatial voices use an HRTF `PannerNode` by default, with configurable panning/distance models, attenuation, source cones, position and orientation. **All positions and directions are engine space.**
+
+**Handedness.** Forge is left-handed (+X right, +Y up, cameras look down +Z); Web Audio is right-handed (the default listener looks down −Z). Writing engine coordinates straight into a panner mirrors left and right, and before 20.1 every demo did (a strike on the camera's right played in the left ear). `setAudioListener`, `setPannerPosition` and `setPannerOrientation` (`spatial.ts`) negate z and are the only writers; `AudioVoice`, `AudioSystem.setListener` and the vehicle/impact/particle soundscapes all go through them. `pannerAzimuth` and `equalPowerGains` reproduce the spec's azimuth and equal-power panning on the CPU, which is how the suite proves +X is heard on the right of a camera facing +Z. `listenerFromMatrix` reads a camera's world matrix (+Z forward, +Y up).
+
+**Voice chain.** `source → volume gain → occlusion gain → low-pass → panner → bus` (non-spatial voices skip the last two). Occlusion has its own gain so it never fights `setVolume`.
+
+**Propagation** (Web Audio removed its own Doppler):
+
+| Effect | Function | Model |
+| --- | --- | --- |
+| distance | panner, `distanceGain` twin | the spec's inverse / linear / exponential formulas |
+| cone | panner, `coneGain` twin | the spec's inner/outer angle interpolation |
+| Doppler | `dopplerRatio` → `playbackRate` | `(c + v_listener)/(c − v_source)` along the source→listener line, `scale` to tame it, clamped 0.25–4 |
+| air absorption | `airAbsorptionCutoff` → low-pass | ~20 kHz close, an octave lower every ~350 m, floor 1.5 kHz (typical 20 °C / 50 % RH falloff, not ISO 9613-1) |
+| occlusion | caller query (e.g. a physics raycast) | smoothed 0..1 (120 ms) pulling the cutoff toward 900 Hz geometrically and the level to 0.35 |
+| delay | `propagationDelay` | distance / c (lightning schedules thunder with it) |
+
+`SpatialAudioSource(voice)` applies Doppler (velocity from the position delta), air absorption and occlusion to one voice per frame. In the ECS, put `AudioListenerComponent` on the camera entity and `AudioEmitterComponent(clip | () => clip | null, playOptions, spatialOptions)` on sounding entities, and register `SpatialAudioSystem(audioSystem, { occlusion })`: band 800, after transforms, it moves the listener, starts emitters once their clip is ready (and the context runs), follows their transforms and cone direction, and stops a voice when its component is removed. A steady frame creates no nodes. `SpatialAudioEmitter` remains for code that moves a voice by hand.
+
+Not modelled: reverb from geometry, sound bending around corners, per-band absorption beyond one low-pass.
 
 ## Procedural thunder
 
 `createThunderBuffer` builds a deterministic crack and low-frequency rolling tail without downloading an asset. The weather demo plays it through an HRTF voice at the strike position and delays arrival by `distance / 343`, so distant HDR-emissive lightning is seen before it is heard.
 
+## Audio resources (Phase 20.2)
+
+Decoded clips are `ResourceRegistry` entries (`resources.ts`), so audio has what every other asset has: one load per id shared by concurrent requests, refcounted handles, a byte budget with LRU eviction of idle entries, content-hash invalidation, cancellation and validation. Pass `registry: engine.resources` to `AudioSystem` to share the engine's budget; by default it owns a private one.
+
+* **Ids and bytes.** `audio:<first url>`; `bytes` is the decoded size, frames × channels × 4 (Web Audio keeps float32 PCM — a 3 MB Ogg is ~40 MB resident, and that is what the budget must count). `stats().clipBytes` sums it (`registry.bytesOfKind("audio")`).
+* **`acquire(source)`** returns a handle (release it when done); **`load(url)`** keeps one for the life of the system (as before), **`clearCache()`** releases them so they become evictable. A failed load is not kept; the next one retries. Evicting a clip never cuts a voice playing it: Web Audio keeps a playing buffer alive.
+* **Formats.** A source can be alternatives, `[{ url: "a.opus", type: "audio/ogg; codecs=opus" }, { url: "a.m4a", type: "audio/mp4" }]`: types the browser refuses (`canPlayType`) are skipped, "probably" outranks "maybe", and a source that fails to fetch or decode falls through to the next. Forge ships no codecs; `decodeAudioData` decides.
+* **Validation.** Empty or channel-less output is rejected; clips over `streamAbove` (30 s) are flagged — those belong to streaming (20.3).
+* **Procedural clips.** `proceduralClipDescriptor(name, build)` (`audio:procedural/<name>`) caches synthesized buffers like files; the weather demo's thunder variants are registry clips.
+* **Banks.** `new AudioBank(name, audio, { key: source, … })` loads a set together (`load()`, `progress`, `failed`), returns clips by key, can `pin()` them against the budget, and `release()`s them together. Clips are tagged `bank:<name>`.
+
 ## Lifetime
 
-Loads are URL-deduplicated and cached, failed loads are evicted, and the voice limit steals the oldest voice. Ended voices disconnect automatically. Call `dispose()` to stop voices, disconnect graph nodes, clear decoded buffers and close the context.
+The voice limit steals the oldest voice. Ended voices disconnect automatically. Call `dispose()` to stop voices, disconnect graph nodes, release held clips (and dispose the registry if the system owns it) and close the context.
 
 ## Vehicle audio (Phase 20.7)
 

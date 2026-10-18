@@ -330,7 +330,8 @@ group("soundscapes", () => {
     assert.equal(oscillators.length, IMPACT_MATERIAL_SOUND.metal.modes.length);
     assert.equal(created.filter((n) => n.kind === "buffer").length, 1);
     const panner = created.find((n) => n.kind === "panner")!;
-    assert.deepEqual([(panner.positionX as FakeParam).value, (panner.positionZ as FakeParam).value], [1, 2]);
+    // Engine z = 2 is Web Audio z = −2 (left- vs right-handed; spatial.ts).
+    assert.deepEqual([(panner.positionX as FakeParam).value, (panner.positionZ as FakeParam).value], [1, -2]);
     assert.equal(scape.activeVoices, 1);
     scape.play([hit, hit]);
     assert.equal(scape.activeVoices, 2);

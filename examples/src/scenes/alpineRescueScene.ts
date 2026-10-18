@@ -8,6 +8,7 @@ import {
   HeightfieldShape,
   ImpactSoundAnalyzer,
   ImpactSoundscape,
+  setAudioListener,
   type ImpactMaterial,
   type RigidBody,
   Light,
@@ -952,22 +953,11 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       sound.truck.update(dt);
       sound.impacts.play(sound.analyzer.update().events);
       sound.impacts.setScrapes(sound.analyzer.scrapes);
+      // The pursuit camera looks at the truck: hear from the camera, facing it.
       const eye = cameraEntity.transform.position;
-      const l = sound.context.listener;
-      if (l.positionX) {
-        // The pursuit camera looks at the truck: hear from the camera, facing it.
-        const fx = vehicle.position.x - eye.x, fy = vehicle.position.y - eye.y, fz = vehicle.position.z - eye.z;
-        const len = Math.hypot(fx, fy, fz) || 1;
-        l.positionX.value = eye.x;
-        l.positionY.value = eye.y;
-        l.positionZ.value = eye.z;
-        l.forwardX.value = fx / len;
-        l.forwardY.value = fy / len;
-        l.forwardZ.value = fz / len;
-        l.upX.value = 0;
-        l.upY.value = 1;
-        l.upZ.value = 0;
-      }
+      const fx = vehicle.position.x - eye.x, fy = vehicle.position.y - eye.y, fz = vehicle.position.z - eye.z;
+      const len = Math.hypot(fx, fy, fz) || 1;
+      setAudioListener(sound.context, eye, { x: fx / len, y: fy / len, z: fz / len }, Vec3.up);
     } else if (sound) {
       // Keep the frame's contacts from piling up while the context is not running.
       sound.analyzer.update();

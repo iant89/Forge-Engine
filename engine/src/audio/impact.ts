@@ -19,6 +19,7 @@
  * voice cap. Contacts arrive per fixed step; {@link ImpactSoundAnalyzer.update} closes the frame.
  */
 
+import { setPannerPosition } from "./spatial.js";
 import type { RigidBody } from "../physics/body.js";
 import type { ContactReport, PhysicsWorld } from "../physics/world.js";
 
@@ -449,9 +450,7 @@ export class ImpactSoundscape {
       slot.filter.frequency.setTargetAtTime(v.frequency, t, 0.04);
       slot.filter.Q.setTargetAtTime(v.q, t, 0.04);
       if (slot.panner) {
-        slot.panner.positionX.setTargetAtTime(s.x, t, 0.02);
-        slot.panner.positionY.setTargetAtTime(s.y, t, 0.02);
-        slot.panner.positionZ.setTargetAtTime(s.z, t, 0.02);
+        setPannerPosition(slot.panner, s, t, 0.02);
       }
     });
   }
@@ -493,9 +492,7 @@ export class ImpactSoundscape {
     let tail: AudioNode = bus;
     if (this.spatial) {
       const p = this.createPanner();
-      p.positionX.value = e.x;
-      p.positionY.value = e.y;
-      p.positionZ.value = e.z;
+      setPannerPosition(p, e, t);
       bus.connect(p);
       tail = p;
     }

@@ -4,6 +4,9 @@ export type AudioBusName = "master" | "music" | "sfx" | "dialogue" | "ambient" |
 
 export interface AudioClip {
   readonly buffer: AudioBuffer;
+  /** Registry id (`audio:<url>` / `audio:procedural/<name>`) when it came from one. */
+  readonly id?: string;
+  /** The source that decoded (the first playable of a clip's alternatives). */
   readonly url?: string;
   readonly duration: number;
   readonly channels: number;
@@ -45,7 +48,10 @@ export interface ListenerTransform {
 
 export interface AudioStats {
   activeVoices: number;
+  /** Clips the system holds a handle for (loaded through `load`). */
   cachedClips: number;
+  /** Decoded bytes of every audio clip in the registry (held or idle). */
+  clipBytes: number;
   buses: number;
   state: AudioContextState;
 }

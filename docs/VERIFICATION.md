@@ -71,7 +71,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
 | `npm test` | 120 linked suites. 2026-10-16 run (UI framework branch): 1,864 passing cases, 3 failing — `examples:marsShowcaseDamage` (rock ram, fails on `main` too), `examples:marsShowcaseCollision` (intermittent under full-suite load) and one `core:tasks` worker-scope case (passes alone; known flaky, see mnemosyne.md), none in code this branch touched. Earlier history: 1,127 passing cases in 81 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 127 suites have matching headers/exported manifests, unique names, repository-backed areas and 941 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
+| `npm run test:check` | The selrun catalog is complete: all 129 suites have matching headers/exported manifests, unique names, repository-backed areas and 948 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core/math/ui with only `ui/gpu/**` also seeing gpu/rendering), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -602,6 +602,49 @@ What these do **not** prove: anything about pixels (the mock device rasterises n
 
 What it does **not** prove: replays across JavaScript engines — that is `replay:crossEngine` and
 `check:replay-engines` below.
+
+### `tests/audio/spatialAudio.test.ts` — spatial audio (Phase 20.1)
+
+8 cases on `engine/src/audio/spatial.ts`, `source.ts` and `system.ts`:
+
+* **Handedness:** `toAudioSpace` negates z; with a camera facing +Z the spec-twin azimuth of +X is
+  +90° (right), −X is −90°, +Z is 0°, and the equal-power gains favour the right ear; a camera turned
+  to face +X hears −Z on its right. `setAudioListener` and `AudioSystem.setListener` write z negated
+  (engine forward +Z becomes Web Audio's default −Z); `listenerFromMatrix` reads position, +Z forward
+  and +Y up from a hand-built yaw-90° matrix.
+* **Spec twins:** inverse / linear / exponential distance gains against hand-computed values
+  (including inside the reference distance and past the max); the cone at 0°, 90° (interpolated)
+  and 180°, and omnidirectional by default.
+* **Propagation:** Doppler 343/313 approaching at 30 m/s, 343/373 receding, 363/343 for a listener
+  approaching at 20 m/s, 1 when crossing, halved by `scale` 0.5, clamped at 4; air-absorption cutoff
+  20 kHz at 0 m, 10 kHz at 350 m, 1.5 kHz floor; one second per 343 m.
+* **Voices:** a spatial voice chains volume → occlusion → low-pass → panner with the panner at the
+  converted position; a flat voice has neither. `SpatialAudioSource` derives −30 m/s from motion,
+  sets playbackRate to base × Doppler, the cutoff to the air absorption at the distance, darkens
+  monotonically to ~900 Hz and 0.35 gain under full occlusion, and stays neutral with Doppler and
+  absorption off.
+* **ECS:** `SpatialAudioSystem` is band 800; it places the listener (engine z −4 → 4), waits for the
+  emitter's clip, starts it, queries occlusion, follows the entity (engine z 11 → −11), creates no
+  nodes on a steady frame, stops the voice when the component is removed, and starts nothing while
+  the context is suspended.
+
+### `tests/audio/audioResources.test.ts` — audio resources (Phase 20.2)
+
+9 cases on `engine/src/audio/resources.ts`, `system.ts` and the registry's `bytesOfKind`:
+
+* **Registry clips:** two handles and a `load` share one fetch and one decode; the id is
+  `audio:<url>`; bytes are frames × channels × 4 (`stats().clipBytes`); held clips are not evicted,
+  `clearCache` makes them evictable. A 120 kB budget holding a held clip and two idle ones evicts the
+  least recently used idle clip when a fourth loads. A 404 rejects, is not kept, and retries.
+* **Formats:** refused types are skipped and "probably" outranks "maybe"; a missing source and an
+  undecodable one fall through to the third, keeping the first url's id; no playable or no working
+  source rejects naming them.
+* **Validation and cancellation:** a zero-frame decode is rejected (`audio.empty`), a 40 s clip loads
+  with an `audio.long` warning, and a cancelled load fails as cancelled.
+* **Procedural clips and banks:** a procedural clip builds once for two handles and counts its bytes;
+  a bank loads two clips with progress, tags them `bank:<name>`, pins them against eviction, and its
+  release makes both evictable; a bank with a missing clip rejects, names it and reports 0.5 progress.
+  `dispose` keeps a shared registry's (idle) entries and disposes an owned registry.
 
 ### `tests/audio/vehicleAudio.test.ts` — vehicle audio from the simulation (Phase 20.7)
 

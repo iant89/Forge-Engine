@@ -16,6 +16,7 @@
  * frame and bursts as one-shots. Reading the state never changes the simulation.
  */
 
+import { setPannerPosition } from "./spatial.js";
 import { FLAG_ALIVE, PARTICLE_FLOATS, P_AGE, P_FLAGS, P_VX, P_VY, P_VZ, P_X, P_Y, P_Z } from "../particles/layout.js";
 
 /** What the particles are: sets the colour of every voice. */
@@ -214,6 +215,7 @@ export class ParticleSoundscape {
   readonly context: BaseAudioContext;
   readonly output: GainNode;
   readonly levels: ParticleSoundLevels = createParticleSoundLevels();
+  private readonly hit = { x: 0, y: 0, z: 0 };
   private readonly options: ParticleSoundscapeOptions;
   private readonly noise: AudioBuffer;
   private readonly hissSource: AudioBufferSourceNode;
@@ -269,14 +271,13 @@ export class ParticleSoundscape {
     this.hissFilter.frequency.setTargetAtTime(l.hissFrequency, t, 0.08);
     this.hissFilter.Q.setTargetAtTime(l.hissQ, t, 0.08);
     if (this.hissPanner && state.alive > 0) {
-      this.hissPanner.positionX.setTargetAtTime(state.x, t, 0.05);
-      this.hissPanner.positionY.setTargetAtTime(state.y, t, 0.05);
-      this.hissPanner.positionZ.setTargetAtTime(state.z, t, 0.05);
+      setPannerPosition(this.hissPanner, state, t, 0.05);
     }
     if (l.grains > 0 && this.grainPanner) {
-      this.grainPanner.positionX.setValueAtTime(state.hitX, t);
-      this.grainPanner.positionY.setValueAtTime(state.hitY, t);
-      this.grainPanner.positionZ.setValueAtTime(state.hitZ, t);
+      this.hit.x = state.hitX;
+      this.hit.y = state.hitY;
+      this.hit.z = state.hitZ;
+      setPannerPosition(this.grainPanner, this.hit, t);
     }
     const span = Math.max(0, Math.min(0.1, dt));
     for (let i = 0; i < l.grains; i++) {

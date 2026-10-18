@@ -22,6 +22,7 @@
  * per presented frame, not per fixed step, and is not part of the deterministic simulation.
  */
 
+import { setPannerPosition } from "./spatial.js";
 import { pacejkaPeakSlip } from "../vehicles/pacejka.js";
 import type { Vehicle } from "../vehicles/vehicle.js";
 
@@ -413,6 +414,7 @@ export class VehicleSoundscape {
   readonly output: GainNode;
   readonly panner?: PannerNode;
   readonly levels: VehicleSoundLevels = createVehicleSoundLevels();
+  private readonly scratch = { x: 0, y: 0, z: 0 };
   private readonly options: VehicleSoundscapeOptions;
   private readonly noise: AudioBuffer;
   private readonly sources: AudioScheduledSourceNode[] = [];
@@ -513,14 +515,15 @@ export class VehicleSoundscape {
     this.wind = voice("bandpass", 500, 0.5);
   }
 
-  /** Move the spatial voice (no-op for a cockpit mix). */
+  /** Move the spatial voice to an engine-space point (no-op for a cockpit mix). */
   setPosition(x: number, y: number, z: number): void {
     const p = this.panner;
     if (!p) return;
     const t = this.context.currentTime;
-    p.positionX.setTargetAtTime(x, t, 0.02);
-    p.positionY.setTargetAtTime(y, t, 0.02);
-    p.positionZ.setTargetAtTime(z, t, 0.02);
+    this.scratch.x = x;
+    this.scratch.y = y;
+    this.scratch.z = z;
+    setPannerPosition(p, this.scratch, t, 0.02);
   }
 
   /** Ramp every voice toward the state's levels; returns the levels it applied. */
