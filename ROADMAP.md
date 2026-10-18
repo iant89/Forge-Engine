@@ -186,7 +186,8 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
 
 PHASE 20 - AUDIO
     [~] IN PROGRESS (20.7 landed: vehicle audio from the simulation — engine RPM, throttle, load,
-        gear, tyre slip, suspension and terrain; the rest of the phase is not built)
+        gear, tyre slip, suspension and terrain; 20.8 landed: impacts and scrapes from the physics
+        solver's contacts and particle audio from the CPU particle state; 20.1-20.6 are not built)
 
 
 ================================================================================
@@ -2167,6 +2168,18 @@ GOAL:
 
 
 20.8 Particle / Impact Audio
+
+    [x] impacts                  (PhysicsWorld.contactListener, read-only: each solved manifold's
+                                  approach speed, slide speed, impulse, point and normal; a hit past
+                                  0.6 m/s, once per pair per 80 ms, louder by ½·m·v²; capped per frame)
+    [x] scrapes                  (pairs sliding under load: looping friction voices at the slide speed)
+    [x] materials and size       (metal / wood / rock / plastic / glass / rubber / dirt / snow / ice
+                                  modal profiles; smaller bodies ring higher; ground does not ring)
+    [x] particle audio           (a CPU ParticleSimulation's births, bursts, flow and ground crossings:
+                                  hiss, burst one-shots and per-hit grains)
+        engine/src/audio/impact.ts, engine/src/audio/particles.ts, tests/audio/impactAudio.test.ts,
+        docs/AUDIO.md. Alpine Rescue plays the truck (20.7) and every contact (SOUND / M). GPU particle
+        worlds keep their state on the device and are not heard (capability: audio.gpuParticles).
 
 
 EXIT CRITERIA:

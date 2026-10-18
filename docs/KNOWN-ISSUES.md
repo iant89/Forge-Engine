@@ -258,10 +258,13 @@ What remains:
 
 ## Audio (Phase 20)
 
-* **Vehicle audio plays into a single node, not the bus graph.** `VehicleAudio` takes any
-  `AudioNode`; the off-road demo uses the context destination, so there is no ducking or mix
-  against weather and music, and the optional panner places the whole car at one point (no separate
-  exhaust/tyre sources). (roadmap: 20.4)
+* **Vehicle and impact audio play into a single node, not the bus graph.** `VehicleAudio`,
+  `ImpactSoundscape` and `ParticleSoundscape` take any `AudioNode`; the demos use the context
+  destination, so there is no ducking or mix against weather and music, and the optional panner
+  places the whole car at one point (no separate exhaust/tyre sources). (roadmap: 20.4)
+* **GPU particle effects are silent.** Particle audio reads a CPU `ParticleSimulation`'s state
+  buffer; a `GpuParticleWorld` (the fountain, the snowfall) keeps its state on the device.
+  (capability: audio.gpuParticles)
 
 ## Documentation debt
 
