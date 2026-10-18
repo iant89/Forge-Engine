@@ -91,6 +91,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "17": "inProgress",
   "18": "verified",
   "19": "verified",
+  "20": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -999,6 +1000,14 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "deferred",
     summary: "Spatial audio, buses, streaming and simulation-driven mixing",
     closesWith: "20.1",
+  },
+  {
+    id: "audio.vehicle",
+    phase: "20.7",
+    status: "verified",
+    summary: "Vehicle audio driven by the simulation: engine RPM, throttle, load, gear, tyre slip, suspension and terrain",
+    evidence: ["tests/audio/vehicleAudio.test.ts", "docs/AUDIO.md"],
+    notes: "Read once per presented frame after the step and never written back (a run with audio hashes the same as one without). Plays into any AudioNode; bus mixing is roadmap 20.4, and the voices are not distance-filtered beyond the optional HRTF panner (roadmap 20.1).",
   },
   {
     id: "editor.tooling",

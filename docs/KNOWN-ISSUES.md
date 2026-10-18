@@ -256,6 +256,13 @@ What remains:
   `onCreate`; a restored storm keeps its strike schedule but starts with a clear sky. (capability:
   serialization.closuresAndTransients)
 
+## Audio (Phase 20)
+
+* **Vehicle audio plays into a single node, not the bus graph.** `VehicleAudio` takes any
+  `AudioNode`; the off-road demo uses the context destination, so there is no ducking or mix
+  against weather and music, and the optional panner places the whole car at one point (no separate
+  exhaust/tyre sources). (roadmap: 20.4)
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet

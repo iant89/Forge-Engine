@@ -2480,3 +2480,16 @@ Read the module constraints below before changing either pure model.
   each call made a 4.6M-call session take > 10 min; sample one call in 200 with
   `Error.stackTraceLimit = 8`. And `pkill -f <pattern>` kills your own shell when the pattern is in the
   command line — loop over `pgrep` with a pattern the command itself does not contain.
+
+- 2026-10-18 (Phase 20.7 vehicle audio, engine/src/audio/vehicle.ts, docs/AUDIO.md): **engine "load" is
+  not throttle and not raw tyre force.** Summing driven-wheel `longForce·r` back through the ratio
+  read 0.53 load in a closed-throttle handbrake slide (brake/scrub force on driven wheels); cap it by
+  `engine.deliveredTorque(0)`. Squeal keys off combined slip over `pacejkaPeakSlip`, not raw κ/α, so
+  a cruising tyre is silent. The analyzer must stay read-only (a test compares `vehicle.snapshot()`
+  with/without it). Sim quirk seen, not fixed: TC off + grip 0.4 + full throttle makes the gearbox
+  hunt 1↔2 every ~8 frames (wheelspin rpm trips the upshift, the open clutch drops it back).
+  SwiftShader runs `?scene=offroad` below 1 fps, so a browser smoke there proves wiring, not driving.
+- 2026-10-18 (pre-existing, not fixed): `tests/examples/marsShowcaseDamage` and `marsShowcaseCollision`
+  fail on main at 1b4ee95 with "mocked rover model attaches" (MockGPUDevice reports `writeBuffer:
+  device lost` during the mocked GLB load); Damage is flaky (0/2 or 1/2 passing). Check this before
+  blaming a change for a red `npm test`.

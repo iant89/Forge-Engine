@@ -473,6 +473,18 @@
         background: rgb(30 64 175 / 0.62);
         border-color: rgb(147 197 253 / 0.85);
       }
+      /* Phase 20.7: vehicle sound is opt-in (autoplay needs a gesture); every device, beside WEATHER. */
+      #offroad-sound {
+        position: fixed;
+        top: max(10px, env(safe-area-inset-top));
+        left: calc(50% + 64px);
+        min-width: 76px;
+        height: 48px;
+        padding: 0 10px;
+        background: rgb(20 83 45 / 0.6);
+        border-color: rgb(134 239 172 / 0.8);
+      }
+      #offroad-sound[aria-pressed="true"] { background: rgb(21 128 61 / 0.92); border-color: #bbf7d0; }
       #offroad-weather .sub { display: block; font-size: 9px; font-weight: 600; opacity: 0.85; }
       #offroad-weather-menu {
         display: none;
@@ -861,6 +873,7 @@
       <button type="button" id="offroad-gas" class="offroad-pedal" aria-label="Gas pedal (hold; lower = harder)">GAS</button>
       <button type="button" id="offroad-brake" class="offroad-pedal" aria-label="Brake pedal (hold; lower = harder)">BRAKE</button>
       <button type="button" id="offroad-reset" aria-label="Put the car back on the track">RESET</button>
+      <button type="button" id="offroad-sound" aria-label="Vehicle sound on or off (M)" aria-pressed="false">SOUND</button>
       <button type="button" id="offroad-weather" aria-label="Weather menu" aria-expanded="false" aria-controls="offroad-weather-menu">WEATHER<span class="sub" id="offroad-weather-label">CLEAR SUN</span></button>
       <div id="offroad-weather-menu" role="menu" aria-label="Weather">
         <button type="button" id="offroad-weather-clear" role="menuitemradio" aria-pressed="true">1 ☀ CLEAR SUN</button>

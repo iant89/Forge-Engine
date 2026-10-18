@@ -184,6 +184,10 @@ PHASE 18 - SCRIPTING
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [x]
 
+PHASE 20 - AUDIO
+    [~] IN PROGRESS (20.7 landed: vehicle audio from the simulation — engine RPM, throttle, load,
+        gear, tyre slip, suspension and terrain; the rest of the phase is not built)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2144,13 +2148,22 @@ GOAL:
 
 20.7 Vehicle Audio
 
-    Engine RPM
-    throttle
-    load
-    gear
-    tire slip
-    suspension
-    terrain
+    [x] Engine RPM               (firing frequency rpm/60 × cylinders/2; electric motors whine with rpm)
+    [x] throttle                 (intake noise and engine level)
+    [x] load                     (driven-tyre torque over peak engine torque, capped by what the engine
+                                  delivers: zero revving in neutral or sliding at closed throttle; it
+                                  brightens the engine and adds combustion grit; lift-off is overrun)
+    [x] gear                     (shift events with from/to; the open clutch dips the engine voice;
+                                  reverse whine)
+    [x] tire slip                (combined slip over the Pacejka peak × load share, so a tyre squeals
+                                  where it saturates; squeal pitch rises with sliding speed)
+    [x] suspension               (impact / bottom-out / landing events per wheel from compression speed
+                                  and airtime: a bump hits the front axle a wheelbase before the rear)
+    [x] terrain                  (a per-wheel classifier shaped like TireTrackLayer's: asphalt squeals,
+                                  gravel crunches, mud and water slosh, each surface has its own roar)
+        engine/src/audio/vehicle.ts, tests/audio/vehicleAudio.test.ts, docs/AUDIO.md. The analyzer only
+        reads the vehicle (a run with audio reaches the bit-identical snapshot of one without). The
+        off-road demo plays it (SOUND button / M). Mixing through buses is 20.4.
 
 
 20.8 Particle / Impact Audio

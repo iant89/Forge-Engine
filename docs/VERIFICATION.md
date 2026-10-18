@@ -71,7 +71,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
 | `npm test` | 120 linked suites. 2026-10-16 run (UI framework branch): 1,864 passing cases, 3 failing — `examples:marsShowcaseDamage` (rock ram, fails on `main` too), `examples:marsShowcaseCollision` (intermittent under full-suite load) and one `core:tasks` worker-scope case (passes alone; known flaky, see mnemosyne.md), none in code this branch touched. Earlier history: 1,127 passing cases in 81 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 125 suites have matching headers/exported manifests, unique names, repository-backed areas and 935 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
+| `npm run test:check` | The selrun catalog is complete: all 126 suites have matching headers/exported manifests, unique names, repository-backed areas and 937 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core/math/ui with only `ui/gpu/**` also seeing gpu/rendering), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -602,6 +602,37 @@ What these do **not** prove: anything about pixels (the mock device rasterises n
 
 What it does **not** prove: replays across JavaScript engines — that is `replay:crossEngine` and
 `check:replay-engines` below.
+
+### `tests/audio/vehicleAudio.test.ts` — vehicle audio from the simulation (Phase 20.7)
+
+14 cases on `engine/src/audio/vehicle.ts`, every one stepping a real `Vehicle`:
+
+* **Engine:** idle reads idle rpm, no load, no events; the firing frequency is exactly
+  `rpm/60 × cylinders/2`. A full-throttle run upshifts at least twice, each a `shift` event 1→2,
+  2→3 with the clutch-open frames dipping the engine gain and the rpm falling after; ≥ 98 % of the
+  pulling frames read load > 0.5 (the re-engagement frame is a transient).
+* **Load is not throttle:** a neutral free-rev at full throttle reads load 0 (rpm near redline),
+  the same throttle pulling reads > 0.6 with > 3× the combustion grit; lifting off in third reads
+  overrun; a handbrake slide at closed throttle never reads load.
+* **Reverse and electric:** reverse whines; an `ElectricMotor` car is detected as electric, has no
+  combustion voice, and its whine frequency rises > 1.5× with rpm.
+* **Tyres and terrain:** a straight cruise never squeals; a handbrake slide reads slip > 0.8 and
+  squeals; wheelspin with TC off at low grip reads slip; the same slide on gravel squeals < 20 % as
+  much and crunches instead; mud sloshes and rolls duller than asphalt; the surface is read per
+  wheel at its contact point (left on grass, right on asphalt → 50/50).
+* **Suspension:** a smooth road makes no impacts; a 12 cm bump hits the front axle first and the
+  rear 10–20 frames later (2.6 m at ~10 m/s), on the classified surface, at most three hits a wheel;
+  a drop lands on all four wheels once, louder from 1.5 m than 0.6 m, and settling is not a landing.
+* **Read-only:** 300 frames of throttle/steer/handbrake on undulating ground give the identical
+  `vehicle.snapshot()` with and without an analyzer.
+* **Graph (recording fake context):** 12 looping voices start once; `set` returns exactly
+  `vehicleSoundLevels(state)` and reaches the oscillators and gains without creating nodes; a gravel
+  landing and a shift play three self-stopping one-shots; dispose stops and disconnects every voice
+  and leaves the soundscape inert; `VehicleAudio` moves the panner with the car.
+
+What it does **not** prove: what it sounds like — no gate listens to the output. The off-road demo
+was smoke-tested once in headless Chromium (context running after the SOUND click, state reading
+gravel and load, zero page errors); that is not a committed check.
 
 ### `tests/math/detmath.test.ts` — engine-independent transcendentals (Phase 19.5)
 

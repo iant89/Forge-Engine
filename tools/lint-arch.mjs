@@ -20,6 +20,7 @@
  *   scripting/**       -> core, math, scene, scripting (Phase 18.6: no gpu/rendering/physics internals)
  *   ui/** (not ui/gpu) -> core, math, ui; ui/gpu/** -> also gpu, rendering; nothing else imports ui
  *   replay/**          -> core, math, scene, physics, vehicles, replay
+ *   audio/**           -> core, math, vehicles, audio (it reads simulation state; nothing simulated imports audio)
  *   examples/**        -> "@forge/engine" or a local relative file, never engine/src
  *   tests/**           -> "@forge/engine" or a local relative file outside engine/src
  *   all engine sources -> no WebGL fallback, ever (WebGPU-first, ADR-001)
@@ -101,6 +102,9 @@ const isUiGpu = (file) => file.includes(`${path.sep}ui${path.sep}gpu${path.sep}`
 // replay (docs/REPLAY.md): reads scene, physics and vehicle state to hash it; nothing imports replay
 // except the barrel, so the simulation never depends on being recorded.
 checkEngineDir("replay", ["core", "math", "scene", "physics", "vehicles", "replay"], "replay may read core, math, scene, physics and vehicles; it must not reach rendering or the GPU");
+// audio (docs/AUDIO.md): voices read vehicle state after it stepped; it never reaches rendering, and
+// no simulation module imports audio, so the simulation is the same with sound on or off.
+checkEngineDir("audio", ["core", "math", "vehicles", "audio"], "audio may read core, math and vehicle state; it must not reach rendering, the GPU or the scene");
 checkEngineDir("ui", ["core", "math", "ui"], "the UI framework depends on core, math and itself; GPU code lives in ui/gpu", isUiGpu);
 for (const file of files(path.join(engineSrc, "ui", "gpu"))) {
   for (const imp of relativeImports(file)) {

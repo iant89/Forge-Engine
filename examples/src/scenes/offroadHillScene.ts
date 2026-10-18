@@ -32,6 +32,8 @@ import {
   Vec3,
   Vehicle,
   VehicleComponent,
+  VehicleAudio,
+  type VehicleSoundSurface,
   VehicleSystem,
   createBox,
   createCylinder,
@@ -134,6 +136,8 @@ export interface OffroadSnapshot {
   overlayCoverage: number;
   vegetation: { hidden: number; hi: number; lo: number; swaying: number };
   treeTriangles: { hi: number; lo: number };
+  /** Phase 20.7 vehicle audio (opt-in: M / SOUND). */
+  sound: { enabled: boolean; running: boolean; engineHz: number; load: number; slip: number; surface: VehicleSoundSurface | "air" };
 }
 
 export interface OffroadSceneHandle extends DemoSceneHandle {
@@ -530,12 +534,16 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   // Persistent tyre tracks (engine): the demo only says what the ground is under each tyre.
   const tracks = new TireTrackLayer(engine.gpu, { heightAt, tileResolution: tierValue(tier, { low: 128, medium: 192, high: 256 }), maxTiles: tierValue(tier, { low: 12, medium: 20, high: 32 }) });
   const trackSample = { s: 0, lateral: 0, road: 0, rut: 0, berm: 0 };
-  tracks.followVehicle(vehicle, (x, z) => {
+  const groundAt = (x: number, z: number): "snow" | "mud" | "grass" | "gravel" => {
     if (weather.surface.snow > 0.3 || trackGround.field.snow[trackGround.field.indexAt(x, z)]! > 0.02) return "snow";
     if (trackGround.field.mudAt(x, z) > 0.3) return "mud";
     track.surfaceAt(x, z, trackSample);
     return trackSample.berm > 0.5 || !Number.isFinite(trackSample.lateral) || Math.abs(trackSample.lateral) > track.bermOuterEdge ? "grass" : "gravel";
-  });
+  };
+  tracks.followVehicle(vehicle, groundAt);
+  // Phase 20.7: the engine, tyres and suspension are heard from the simulation; the ground the
+  // tyre tracks use is the ground the tyres sound on, plus standing water.
+  const soundSurfaceAt = (x: number, z: number): VehicleSoundSurface => (trackGround.field.puddleAt(x, z) > 0.5 ? "water" : groundAt(x, z));
   scene.add(tracks);
   chassis.add(chassisComp);
 
@@ -659,6 +667,24 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     });
   };
   tap("offroad-cam", () => cycleCamera());
+  // Sound is opt-in and needs a gesture (autoplay policy): the SOUND button or M creates/resumes it.
+  let sound: { context: AudioContext; audio: VehicleAudio } | null = null;
+  let soundOn = false;
+  const soundButton = document.getElementById("offroad-sound");
+  const setSound = (on: boolean): void => {
+    if (on && !sound) {
+      const Ctor = globalThis.AudioContext ?? (globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      const context = new Ctor();
+      sound = { context, audio: new VehicleAudio(vehicle, context, context.destination, { surfaceAt: soundSurfaceAt, volume: 0.5 }) };
+    }
+    soundOn = on;
+    // Never chain behaviour behind these promises: headless autoplay can leave resume() pending.
+    if (sound) void (on ? sound.context.resume() : sound.context.suspend()).catch(() => {});
+    soundButton?.setAttribute("aria-pressed", String(on));
+    if (soundButton) soundButton.textContent = on ? "SOUND ON" : "SOUND";
+  };
+  tap("offroad-sound", () => setSound(!soundOn));
   tap("offroad-reset", () => resetToTrack());
   // Handbrake is held, not toggled: pointerdown → on, up/cancel/lost capture (anywhere) → off.
   let handbrakeHeld = false;
@@ -728,6 +754,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       if (vehicle.selectDriveDirection(reverse)) touch.setGear(reverse ? "R" : "F");
     }
     if (event.code === "KeyT" && !event.repeat) resetToTrack();
+    if (event.code === "KeyM" && !event.repeat) setSound(!soundOn);
     const digit = /^Digit([1-5])$/.exec(event.code);
     if (digit && !event.repeat) setWeather(OFFROAD_WEATHER_NAMES[Number(digit[1]) - 1]!);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
@@ -759,7 +786,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const handle: OffroadSceneHandle = {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · R forward/reverse · C camera · T back on track · 1–5 weather (sun, overcast, rain, snow, mud)",
+    controlsHint: "WASD / arrows drive · Space handbrake · R forward/reverse · C camera · T back on track · 1–5 weather (sun, overcast, rain, snow, mud) · M sound",
     camera: {
       target: new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z),
       distance: 10,
@@ -796,6 +823,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       vehicle.input.handbrake = keys.has("Space") || handbrakeHeld ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
       timer.update(vehicle.position.x, vehicle.position.z, dt);
+      if (sound && soundOn && sound.context.state === "running") sound.audio.update(dt);
 
       // Weather: wind for the plants and rain, the ground field (mud, pooling, melt) and its overlay.
       const drive = weatherPrecipitationDrive(weather.state);
@@ -881,12 +909,27 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         overlayCoverage: overlay.meanCoverage(),
         vegetation: vegetation.stats_,
         treeTriangles: treeTris,
+        sound: {
+          enabled: soundOn,
+          running: sound?.context.state === "running",
+          engineHz: sound?.audio.levels.engineFrequency ?? 0,
+          load: sound?.audio.state.load ?? 0,
+          slip: sound?.audio.state.slip ?? 0,
+          surface: sound ? (sound.audio.state.wheels.find((w) => w.inContact)?.surface ?? "air") : "air",
+        },
       };
     },
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       for (const [t, type, f] of domListeners) t.removeEventListener(type, f);
+      if (sound) {
+        sound.audio.dispose();
+        void sound.context.close().catch(() => {});
+        sound = null;
+      }
+      soundButton?.setAttribute("aria-pressed", "false");
+      if (soundButton) soundButton.textContent = "SOUND";
       wheel.dispose();
       gasPedal.dispose();
       brakePedal.dispose();
