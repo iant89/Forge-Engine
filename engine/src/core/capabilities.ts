@@ -91,6 +91,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "17": "inProgress",
   "18": "verified",
   "19": "verified",
+  "20": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -994,11 +995,50 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "Closures cannot be serialized; scripts re-register them in onCreate, and replays (19.4) start from the beginning, where they are recreated. Transients are visual/audio and their schedule is restored.",
   },
   {
-    id: "audio.system",
+    id: "audio.mixer",
+    phase: "20.4",
+    status: "verified",
+    summary: "Audio buses with live effect racks, anchored volume fades, and a dispose that disconnects every node",
+    evidence: ["tests/audio/audioSystem.test.ts", "docs/AUDIO.md"],
+    notes: "master → speakers, music/sfx/dialogue/ambient → master, custom child buses; unknown buses are usage errors. Verified on MockAudioContext (graph paths, path gain, automation timelines).",
+  },
+  {
+    id: "audio.voices",
+    phase: "20.1",
+    status: "verified",
+    summary: "Spatial voices: HRTF panner, listener, voice limit with stealing, occlusion (volume and low-pass)",
+    evidence: ["tests/audio/audioSystem.test.ts", "docs/AUDIO.md"],
+    notes: "Stolen voices fade 10 ms and stop counting at once; occlusion scales the voice's own volume; every fade is an anchored ramp.",
+  },
+  {
+    id: "audio.clips",
+    phase: "20.2",
+    status: "verified",
+    summary: "Clip loading: one request and decode per URL, failures evicted, release and cache statistics",
+    evidence: ["tests/audio/audioSystem.test.ts", "docs/AUDIO.md"],
+  },
+  {
+    id: "audio.streaming",
+    phase: "20.3",
+    status: "verified",
+    summary: "Streaming audio from media elements through the buses, with the autoplay policy handled",
+    evidence: ["tests/audio/audioSystem.test.ts", "docs/AUDIO.md"],
+    notes: "A refused play() leaves the stream blocked; AudioSystem.resume() from a gesture retries it.",
+  },
+  {
+    id: "audio.simulation",
+    phase: "20.7",
+    status: "planned",
+    summary: "Environmental, weather, vehicle and impact audio driven by simulation state",
+    closesWith: "20.7",
+    notes: "StormSoundscape (fe-34) maps weather to synthesized voices but bypasses the buses (roadmap 20.6).",
+  },
+  {
+    id: "audio.deviceCheck",
     phase: "20.1",
     status: "deferred",
-    summary: "Spatial audio, buses, streaming and simulation-driven mixing",
-    closesWith: "20.1",
+    summary: "A gate that plays the mixer's output on a real device and measures it",
+    notes: "The suites prove graph, timing and bookkeeping on a mock context. An OfflineAudioContext render in the browser gate could measure levels; no roadmap item schedules it.",
   },
   {
     id: "editor.tooling",

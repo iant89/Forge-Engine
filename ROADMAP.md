@@ -184,6 +184,12 @@ PHASE 18 - SCRIPTING
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [x]
 
+PHASE 20 - AUDIO
+    [~] IN PROGRESS (20.1-20.4 landed: spatial voices with a holding voice limit and occlusion,
+        clip loading and caching, streaming through the buses under the autoplay policy, buses with
+        live effects and anchored fades — verified on a strict mock AudioContext; simulation-driven
+        environmental, weather, vehicle and impact audio (20.5-20.8) remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2132,11 +2138,22 @@ GOAL:
 
 20.1 Spatial Audio
 
+    [x] voices, HRTF panner, listener, voice limit (stolen voices fade 10 ms and stop counting at
+        once), occlusion (scales the voice's volume, closes a low-pass to 800 Hz)
+
 20.2 Audio Resources
+
+    [x] load once per URL (shared requests), failures evicted, release, decoded-seconds statistics
 
 20.3 Streaming Audio
 
+    [x] media-element streams through a gain into a bus; blocked by the autoplay policy until
+        resume(); fade-in, volume ramps, end callback, release on dispose
+
 20.4 Buses / Mixing
+
+    [x] master/music/sfx/dialogue/ambient plus custom child buses, live effect racks, anchored
+        volume fades (an unanchored ramp clicks). docs/AUDIO.md, tests/audio/audioSystem.test.ts
 
 20.5 Environmental Audio
 
