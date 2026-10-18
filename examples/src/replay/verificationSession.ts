@@ -12,9 +12,9 @@
  *
  * Every number the simulation computes goes through exact arithmetic or `DMath`; nothing here reads
  * wall time or `Math.random`. `tests/replay/crossEngine.test.ts` replays the committed recording
- * (`tests/replay/fixtures/vehicle-session.replay.json`) in Node, `npm run check:replay-engines` replays
- * it under JavaScriptCore (Bun), and the `?scene=replay-verify` page replays it in whichever browser
- * opens it.
+ * (`examples/src/replay/vehicle-session.replay.json`) in Node, `npm run check:replay-engines` replays
+ * it under JavaScriptCore (Bun), and the demo's `replay-verify.html` page replays it in whichever
+ * browser opens it.
  */
 
 import {
@@ -28,7 +28,13 @@ import {
   PhysicsSystem,
   Profiler,
   Logger,
+  ReplayPlayer,
   ReplayRecorder,
+  captureSceneSnapshot,
+  captureState,
+  hashSceneState,
+  restoreSceneSnapshot,
+  restoreState,
   RigidBodyComponent,
   Rng,
   Scene,
@@ -54,6 +60,8 @@ import {
   type Clock,
   type ReplayChannel,
   type ReplayRecording,
+  type ReplayResult,
+  type StateRecord,
   type SystemContext,
   type TickResult,
   type TrackProjection,
@@ -61,6 +69,8 @@ import {
 } from "@forge/engine";
 
 export const VERIFY_FIXED_DT = 1 / 60;
+/** Length of the committed recording: about 29 s of driving at an uneven 25–250 fps. */
+export const VERIFY_FRAMES = 1080;
 /** Frames the session settles (crates land, suspension rests) before recording starts. */
 export const VERIFY_SETTLE_FRAMES = 45;
 
@@ -86,6 +96,9 @@ function hillside(x: number, z: number): number {
   return climb + knolls + ridges;
 }
 
+/** The track and the weather's surface are references; the grip table, soil map and scratch are construction data. */
+const GROUND_SNAPSHOT_SKIP = ["track", "surface", "grip", "sample", "soil"];
+
 /** Runs the weather ground's moisture/melt step as part of the scene update (the demo does it per frame). */
 class WeatherGroundStep extends SceneObject {
   readonly name = "verify.ground";
@@ -100,6 +113,12 @@ class WeatherGroundStep extends SceneObject {
     sampleMeltEnvironment(this.scene!, this.weather, this.env);
     this.ground.update(dt, this.env);
   }
+  override snapshotState(): StateRecord {
+    return captureState(this.ground, { skip: GROUND_SNAPSHOT_SKIP });
+  }
+  override restoreSnapshotState(state: StateRecord): void {
+    restoreState(this.ground, state, "verify.ground");
+  }
   override saveState(): Record<string, unknown> {
     // Hash the ground the car drives on: standing water, soil moisture (mud) and snow.
     const f = this.ground.field;
@@ -108,35 +127,66 @@ class WeatherGroundStep extends SceneObject {
 }
 
 /**
- * The player: follows the centreline with a look-ahead steer, brakes into the tight corners, uses the
- * handbrake and reverse on a timetable, and walks the weather through its states. It runs in the
- * input band (order 50), before the replay input point, so a recording captures what it wrote.
+ * The game's weather timetable: clear, then rain building to a storm, then snow. It is part of the
+ * session, not the player's input, so it keeps running during playback. The weather jumps between
+ * states (its own drift takes minutes) and then drifts toward the next.
+ */
+class WeatherTimetable extends System {
+  readonly name = "verify.weather";
+  override readonly order = 40;
+  frame = 0;
+  constructor(private readonly weather: WeatherSystem) {
+    super();
+  }
+  update(): void {
+    const f = this.frame++;
+    if (f === VERIFY_SETTLE_FRAMES + 120) this.set(RAIN, STORM);
+    if (f === VERIFY_SETTLE_FRAMES + 420) this.set(STORM, STORM);
+    if (f === VERIFY_SETTLE_FRAMES + 780) this.set(SNOW, SNOW);
+  }
+  snapshotState(): StateRecord {
+    return { frame: this.frame };
+  }
+  restoreSnapshotState(state: StateRecord): void {
+    this.frame = state["frame"] as number;
+  }
+  private set(now: Partial<WeatherState>, next: Partial<WeatherState>): void {
+    this.weather.snapTo(now);
+    this.weather.setTarget(next);
+  }
+}
+
+/**
+ * The player: follows the centreline with a look-ahead steer, brakes into the tight corners, and uses
+ * the handbrake and reverse on a timetable. It runs in the input band (order 50), before the replay
+ * input point, so a recording captures what it wrote; playback disables it.
  */
 class ScriptedDriver extends System {
   readonly name = "verify.driver";
   override readonly order = 50;
   frame = 0;
+  manoeuvre: "idle" | "stopping" | "reversing" | "resuming" | "done" = "idle";
+  private reverseFrames = 0;
   private readonly proj: TrackProjection = { s: 0, lateral: 0, dist: Infinity, index: -1 };
   private readonly ahead = { x: 0, z: 0, tx: 0, tz: 1 };
   constructor(
     private readonly vehicle: Vehicle,
     private readonly spline: TrackSpline,
-    private readonly weather: WeatherSystem,
   ) {
     super();
   }
-  private setWeather(now: Partial<WeatherState>, next: Partial<WeatherState>): void {
-    this.weather.snapTo(now);
-    this.weather.setTarget(next);
+  snapshotState(): StateRecord {
+    return { frame: this.frame, manoeuvre: this.manoeuvre, reverseFrames: this.reverseFrames };
+  }
+  restoreSnapshotState(state: StateRecord): void {
+    this.frame = state["frame"] as number;
+    this.manoeuvre = state["manoeuvre"] as ScriptedDriver["manoeuvre"];
+    this.reverseFrames = state["reverseFrames"] as number;
   }
   update(): void {
     const f = this.frame++;
     const v = this.vehicle;
     const i = v.input;
-    // The weather jumps between states (its own drift takes minutes) and then drifts toward the next.
-    if (f === 120) this.setWeather(RAIN, STORM);
-    if (f === 420) this.setWeather(STORM, STORM);
-    if (f === 780) this.setWeather(SNOW, SNOW);
     this.spline.project(v.position.x, v.position.z, this.proj);
     this.spline.sampleAt(this.proj.s + 9 + v.speed * 0.6, this.ahead);
     const want = DMath.atan2(this.ahead.x - v.position.x, this.ahead.z - v.position.z);
@@ -144,16 +194,25 @@ class ScriptedDriver extends System {
     err = DMath.atan2(DMath.sin(err), DMath.cos(err));
     i.steer = Math.max(-1, Math.min(1, err * 2.2 - this.proj.lateral * 0.05));
     const target = 14 - 9 * Math.min(1, Math.abs(err) * 1.8);
-    if (f >= 560 && f < 620) {
-      // A reverse manoeuvre: stop, back up, go again.
-      v.selectGear(f < 590 ? -1 : 1);
-      i.throttle = f < 590 ? 0.5 : 0;
-      i.brake = f < 590 ? 0 : 0.6;
-      i.steer = -0.3;
+    // A reverse manoeuvre from frame 540: stop, back up for a second, stop, drive on.
+    if (this.manoeuvre === "idle" && f >= 540) this.manoeuvre = "stopping";
+    if (this.manoeuvre !== "idle" && this.manoeuvre !== "done") {
+      i.throttle = 0;
+      i.brake = 1;
       i.handbrake = 0;
+      if (this.manoeuvre === "stopping" && v.speed < 0.3 && v.selectGear(-1)) {
+        this.manoeuvre = "reversing";
+        this.reverseFrames = 0;
+      } else if (this.manoeuvre === "reversing") {
+        i.brake = 0;
+        i.throttle = 0.6;
+        i.steer = -0.4;
+        if (++this.reverseFrames >= 60) this.manoeuvre = "resuming";
+      } else if (this.manoeuvre === "resuming" && v.speed < 0.3 && v.selectGear(1)) {
+        this.manoeuvre = "done";
+      }
       return;
     }
-    if (f === 620) v.selectGear(1);
     i.throttle = v.speed < target ? Math.min(1, (target - v.speed) * 0.35 + 0.25) : 0;
     i.brake = v.speed > target + 2 ? Math.min(1, (v.speed - target) * 0.2) : 0;
     i.handbrake = f % 300 >= 250 && f % 300 < 262 ? 1 : 0;
@@ -168,6 +227,8 @@ export interface VerificationSession {
   track: TrackTerrain;
   ground: TrackWeatherGround;
   crates: RigidBodyComponent[];
+  /** Where each crate was placed (x, z). */
+  crateStarts: { x: number; z: number }[];
   channels: ReplayChannel[];
 }
 
@@ -216,6 +277,7 @@ export function buildVerificationSession(): VerificationSession {
 
   // Crates on the course, a little ahead of the start and off the racing line, for contacts.
   const crates: RigidBodyComponent[] = [];
+  const crateStarts: { x: number; z: number }[] = [];
   const rng = new Rng(19);
   for (let k = 0; k < 6; k++) {
     const c = spline.sampleAt(START_S + 30 + k * 11, { x: 0, z: 0, tx: 0, tz: 1 });
@@ -234,6 +296,7 @@ export function buildVerificationSession(): VerificationSession {
     col.setBox(0.45, 0.45, 0.45);
     e.add(col);
     crates.push(rb);
+    crateStarts.push({ x, z });
   }
 
   const cycle = new DayNightCycle({ name: "dayNight", latitude: 39, dayOfYear: 289, timeOfDay: 13.5, timeScale: 120, driveAmbient: true, driveFog: true, driveSky: true });
@@ -248,9 +311,10 @@ export function buildVerificationSession(): VerificationSession {
   setWorldSurfaceGripField(scene.world, (x, z) => trackGround.gripAt(x, z));
   scene.add(new WeatherGroundStep(weather, trackGround));
 
-  const driver = new ScriptedDriver(vehicle, spline, weather);
+  scene.world.registerSystem(new WeatherTimetable(weather));
+  const driver = new ScriptedDriver(vehicle, spline);
   scene.world.registerSystem(driver);
-  return { scene, vehicle, weather, driver, track, ground: trackGround, crates, channels: [vehicleInputChannel("car", vehicle)] };
+  return { scene, vehicle, weather, driver, track, ground: trackGround, crates, crateStarts, channels: [vehicleInputChannel("car", vehicle)] };
 }
 
 /** A headless frame context, as the engine builds it, for `scene.update`. */
@@ -297,4 +361,75 @@ export function recordVerificationSession(frames: number, options: { seed?: numb
   const clock = new ManualClock({ fixedDeltaTime: VERIFY_FIXED_DT });
   for (let i = 0; i < frames; i++) stepFrame(s.scene, clock, 0.004 + rng.nextFloat() * 0.045);
   return { recording: recorder.stop(), session: s };
+}
+
+/** Frame of the recorded session at which `verifyRecording` saves a snapshot and resumes from it. */
+export const VERIFY_RESUME_FRAME = 540;
+
+export interface VerificationReport {
+  /** Playback of the recording into a fresh build (input from the recording, the driver off). */
+  playback: ReplayResult;
+  /** The recording's final state hash. */
+  expectedFinal: string;
+  /** The live session re-run on the recorded frame schedule (the driver on): its final hash. */
+  rerunFinal: string;
+  /**
+   * The re-run saved at `VERIFY_RESUME_FRAME` (a 19.3 snapshot, through JSON), restored into a fresh
+   * build and continued to the end: its final hash.
+   */
+  resumedFinal: string;
+  /** Every check agreed with the recording. */
+  ok: boolean;
+}
+
+function scheduleFrom(recording: ReplayRecording, from: number): { dt: number; fixedSteps: number; alpha: number }[] {
+  return recording.frames.slice(from).map((f) => ({ dt: f[0], fixedSteps: f[1], alpha: f[2] }));
+}
+
+/**
+ * Verify a recording of the session three ways on this JavaScript engine: play it back, re-run the
+ * scripted session on its frame schedule, and save mid-run then resume from the save. All three must
+ * end on the recording's final hash (and playback must match every checkpoint on the way).
+ */
+export function verifyRecording(recording: ReplayRecording): VerificationReport {
+  // 1. Playback.
+  const played = buildVerificationSession();
+  settleVerificationSession(played);
+  played.driver.enabled = false;
+  const playClock = new ManualClock({ fixedDeltaTime: VERIFY_FIXED_DT });
+  const player = new ReplayPlayer(played.scene, recording, { channels: played.channels, clock: playClock });
+  player.start();
+  for (let guard = 0; !player.finished && guard < recording.frames.length + 10; guard++) stepFrame(played.scene, playClock, VERIFY_FIXED_DT);
+  const playback = player.result();
+  player.stop();
+
+  // 2. The live session on the recorded schedule, saved part-way.
+  const live = buildVerificationSession();
+  settleVerificationSession(live);
+  const liveClock = new ManualClock({ fixedDeltaTime: VERIFY_FIXED_DT });
+  liveClock.scriptFrames(scheduleFrom(recording, 0));
+  let saved = "";
+  for (let i = 0; i < recording.frames.length; i++) {
+    if (i === VERIFY_RESUME_FRAME) saved = JSON.stringify(captureSceneSnapshot(live.scene));
+    stepFrame(live.scene, liveClock, 0);
+  }
+  const rerunFinal = hashSceneState(live.scene, { parts: recording.parts }).hash;
+
+  // 3. A fresh build restored from the save and continued.
+  const resumed = buildVerificationSession();
+  stepFrame(resumed.scene, new ManualClock({ fixedDeltaTime: VERIFY_FIXED_DT }), VERIFY_FIXED_DT); // create the bodies (19.3 matches them)
+  restoreSceneSnapshot(resumed.scene, JSON.parse(saved));
+  const resumeClock = new ManualClock({ fixedDeltaTime: VERIFY_FIXED_DT });
+  resumeClock.scriptFrames(scheduleFrom(recording, VERIFY_RESUME_FRAME));
+  for (let i = VERIFY_RESUME_FRAME; i < recording.frames.length; i++) stepFrame(resumed.scene, resumeClock, 0);
+  const resumedFinal = hashSceneState(resumed.scene, { parts: recording.parts }).hash;
+
+  const expectedFinal = recording.final.hash;
+  return {
+    playback,
+    expectedFinal,
+    rerunFinal,
+    resumedFinal,
+    ok: playback.ok && playback.finished && rerunFinal === expectedFinal && resumedFinal === expectedFinal,
+  };
 }

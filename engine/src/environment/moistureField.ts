@@ -16,6 +16,7 @@
 
 import { clamp, smoothstep } from "../math/scalar.js";
 import { DEFAULT_SNOW_DENSITY, WATER_DENSITY, meltRate, snowAlbedo, snowEnergyBalance, type MeltEnvironment } from "./snowMelt.js";
+import { DMath } from "../math/detmath.js";
 
 export interface SoilType {
   name: string;
@@ -258,7 +259,7 @@ export class GroundMoistureField {
         this.waterOut += soak * area;
       }
       // The top layer drains (percolation) and dries exponentially; standing water keeps refilling it.
-      this.moisture[k] *= Math.exp(-dryRate * dt);
+      this.moisture[k] *= DMath.exp(-dryRate * dt);
       const ev = Math.min(this.water[k]!, evap);
       if (ev > 0) {
         this.water[k] -= ev;
@@ -421,6 +422,6 @@ export class GroundMoistureField {
 
 function toSrgb8(linear: number): number {
   const c = clamp(linear, 0, 1);
-  const s = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  const s = c <= 0.0031308 ? c * 12.92 : 1.055 * DMath.pow(c, 1 / 2.4) - 0.055;
   return Math.round(s * 255);
 }

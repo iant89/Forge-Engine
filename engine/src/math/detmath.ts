@@ -510,36 +510,51 @@ const P5 = 4.1381367970572385e-8;
 const EXP_OVERFLOW = 709.782712893384;
 const EXP_UNDERFLOW = -745.1332191019411;
 
+/** fdlibm's e_exp.c (FreeBSD's, which V8 runs). */
 function exp(x: number): number {
   const hx0 = highWord(x);
-  const negative = hx0 >>> 31;
+  const xsb = hx0 >>> 31;
   const hx = hx0 & 0x7fffffff;
-  if (hx >= 0x4086232b) {
-    // |x| >= 708.39 or NaN
-    if (x !== x) return x;
+  if (hx >= 0x40862e42) {
+    // |x| >= 709.78 or NaN
+    if (hx >= 0x7ff00000) {
+      if (((hx & 0xfffff) | lowWord(x)) !== 0) return x + x; // NaN
+      return xsb === 0 ? x : 0; // exp(±∞) = ∞, 0
+    }
     if (x > EXP_OVERFLOW) return Infinity;
     if (x < EXP_UNDERFLOW) return 0;
   }
-  let hi: number;
-  let lo: number;
-  let k: number;
+  let hi = 0;
+  let lo = 0;
+  let k = 0;
   if (hx > 0x3fd62e42) {
     // |x| > ln2 / 2
-    k = hx >= 0x3ff0a2b2 ? Math.trunc(INVLN2 * x + (negative ? -0.5 : 0.5)) : 1 - negative - negative;
-    hi = x - k * LN2_HI;
-    lo = k * LN2_LO;
+    if (hx < 0x3ff0a2b2) {
+      // and |x| < 1.5 ln2. V8 returns E for exp(1): the reduction below gets its last bit wrong.
+      if (x === 1) return Math.E;
+      hi = xsb === 0 ? x - LN2_HI : x + LN2_HI;
+      lo = xsb === 0 ? LN2_LO : -LN2_LO;
+      k = 1 - xsb - xsb;
+    } else {
+      k = Math.trunc(INVLN2 * x + (xsb === 0 ? 0.5 : -0.5));
+      hi = x - k * LN2_HI; // exact
+      lo = k * LN2_LO;
+    }
     x = hi - lo;
-  } else if (hx > 0x3e300000) {
-    k = 0;
-    hi = x;
-    lo = 0;
-  } else {
+  } else if (hx < 0x3e300000) {
+    // |x| < 2^-28
     return 1 + x;
   }
-  const xx = x * x;
-  const c = x - xx * (P1 + xx * (P2 + xx * (P3 + xx * (P4 + xx * P5))));
-  const y = 1 + ((x * c) / (2 - c) - lo + hi);
-  return k === 0 ? y : scalbn(y, k);
+  const t = x * x;
+  const twopk = k >= -1021 ? fromWords((0x3ff + k) << 20, 0) : fromWords((0x3ff + (k + 1000)) << 20, 0);
+  const c = x - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+  if (k === 0) return 1 - ((x * c) / (c - 2.0) - x);
+  const y = 1 - (lo - (x * c) / (2.0 - c) - hi);
+  if (k >= -1021) {
+    if (k === 1024) return y * 2.0 * pow2(1023);
+    return y * twopk;
+  }
+  return y * twopk * pow2(-1000);
 }
 
 const LG1 = 0.6666666666666735;

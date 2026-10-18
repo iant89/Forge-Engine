@@ -27,6 +27,7 @@
 import type { GeometrySource } from "../rendering/geometry.js";
 import { Rng } from "../math/rng.js";
 import { clamp, smoothstep } from "../math/scalar.js";
+import { DMath } from "../math/detmath.js";
 
 export interface TrackPoint {
   x: number;
@@ -96,7 +97,7 @@ export class TrackSpline {
     else dense.push(at(n - 1).x, at(n - 1).z);
     const dl: number[] = [0];
     for (let i = 2; i < dense.length; i += 2) {
-      dl.push(dl[dl.length - 1]! + Math.hypot(dense[i]! - dense[i - 2]!, dense[i + 1]! - dense[i - 1]!));
+      dl.push(dl[dl.length - 1]! + DMath.hypot(dense[i]! - dense[i - 2]!, dense[i + 1]! - dense[i - 1]!));
     }
     const total = dl[dl.length - 1]!;
     const count = Math.max(2, Math.round(total / this.step));
@@ -124,7 +125,7 @@ export class TrackSpline {
       const b = this.closed ? (i + 1) % samples : Math.min(samples - 1, i + 1);
       const dx = this.px[b]! - this.px[a]!;
       const dz = this.pz[b]! - this.pz[a]!;
-      const len = Math.hypot(dx, dz) || 1;
+      const len = DMath.hypot(dx, dz) || 1;
       this.tx[i] = dx / len;
       this.tz[i] = dz / len;
     }
@@ -161,7 +162,7 @@ export class TrackSpline {
     out.z = this.pz[a]! + (this.pz[b]! - this.pz[a]!) * f;
     const tx = this.tx[a]! + (this.tx[b]! - this.tx[a]!) * f;
     const tz = this.tz[a]! + (this.tz[b]! - this.tz[a]!) * f;
-    const len = Math.hypot(tx, tz) || 1;
+    const len = DMath.hypot(tx, tz) || 1;
     out.tx = tx / len;
     out.tz = tz / len;
     return out;
@@ -384,7 +385,7 @@ export class TrackTerrain {
     const toe = p.roadHalfWidth + p.shoulder;
     const halfB = p.bermWidth / 2;
     const q = (ad - toe - halfB) / halfB;
-    if (Math.abs(q) < 1) y += crest * 0.5 * (1 + Math.cos(Math.PI * q));
+    if (Math.abs(q) < 1) y += crest * 0.5 * (1 + DMath.cos(Math.PI * q));
     return y;
   }
 
@@ -425,7 +426,7 @@ export class TrackTerrain {
   normalAt(x: number, z: number, out: { x: number; y: number; z: number }, step = 0.25): typeof out {
     const dx = (this.heightAt(x + step, z) - this.heightAt(x - step, z)) / (2 * step);
     const dz = (this.heightAt(x, z + step) - this.heightAt(x, z - step)) / (2 * step);
-    const len = Math.hypot(dx, 1, dz);
+    const len = DMath.hypot(dx, 1, dz);
     out.x = -dx / len;
     out.y = 1 / len;
     out.z = -dz / len;
@@ -462,7 +463,7 @@ export class TrackTerrain {
     for (let i = 0; i < n; i += stride) {
       for (let j = i + skip; j < n; j += stride) {
         if (sp.closed && n - (j - i) < skip) continue;
-        best = Math.min(best, Math.hypot(sp.px[i]! - sp.px[j]!, sp.pz[i]! - sp.pz[j]!));
+        best = Math.min(best, DMath.hypot(sp.px[i]! - sp.px[j]!, sp.pz[i]! - sp.pz[j]!));
       }
     }
     return best;
@@ -471,7 +472,7 @@ export class TrackTerrain {
   /** World position of the centreline surface at `s` plus heading (radians, 0 = +Z, +X positive). */
   poseAt(s: number): { x: number; y: number; z: number; yaw: number } {
     const c = this.spline.sampleAt(s, scratchSample);
-    return { x: c.x, y: this.heightAt(c.x, c.z), z: c.z, yaw: Math.atan2(c.tx, c.tz) };
+    return { x: c.x, y: this.heightAt(c.x, c.z), z: c.z, yaw: DMath.atan2(c.tx, c.tz) };
   }
 }
 
@@ -531,7 +532,7 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
       // World gradient: lateral axis = (tz, −tx), along = (tx, tz).
       const gx = dLat * c.tz + dS * c.tx;
       const gz = -dLat * c.tx + dS * c.tz;
-      const len = Math.hypot(gx, 1, gz);
+      const len = DMath.hypot(gx, 1, gz);
       nrm.x = -gx / len;
       nrm.y = 1 / len;
       nrm.z = -gz / len;
@@ -570,7 +571,7 @@ export function trackRibbonSource(track: TrackTerrain, opts: TrackRibbonOptions)
 function writeTangent(out: Float32Array, o: number, n: { x: number; y: number; z: number }, ux: number, uz: number, vx: number, vz: number): void {
   const d = n.x * ux + n.z * uz;
   let tx = ux - n.x * d, ty = -n.y * d, tz = uz - n.z * d;
-  const len = Math.hypot(tx, ty, tz) || 1;
+  const len = DMath.hypot(tx, ty, tz) || 1;
   tx /= len; ty /= len; tz /= len;
   // (N × T) · B
   const cx = n.y * tz - n.z * ty, cz = n.x * ty - n.y * tx;
@@ -736,7 +737,7 @@ export function litterQuadsSource(
     track.normalAt(p.x, p.z, nrm, 0.3);
     const hw = (size * p.scale) / 2;
     const hd = hw * aspect;
-    const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+    const c = DMath.cos(p.yaw), s = DMath.sin(p.yaw);
     // Tangent basis on the surface: project yaw axes onto the plane with normal nrm.
     const ax = c, az = s, bx = -s, bz = c;
     const ay = -(nrm.x * ax + nrm.z * az) / nrm.y;

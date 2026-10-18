@@ -32,6 +32,7 @@
 import { Vec3 } from "../math/vec.js";
 import type { SkyQuality } from "../scene/scene.js";
 import type { MultiScatteringField } from "./multiScattering.js";
+import { DMath } from "../math/detmath.js";
 
 export type RGB = readonly [number, number, number];
 
@@ -139,6 +140,8 @@ export function createAtmosphere(overrides: Partial<AtmosphereParams> = {}, base
 
 // ------------------------------------------------------------------ closed forms
 
+const PI_CUBED = Math.PI * Math.PI * Math.PI;
+
 /**
  * Rayleigh scattering coefficient of air at sea level for a wavelength in nanometres, 1/m:
  * `β = 8π³ (n² − 1)² / (3 N λ⁴) · (6 + 3ρ) / (6 − 7ρ)` with refractive index `n = 1.0003`,
@@ -152,7 +155,8 @@ export function rayleighCoefficient(wavelengthNm: number, options: { refractiveI
   const lambda = wavelengthNm * 1e-9;
   const n2 = n * n - 1;
   const king = (6 + 3 * rho) / (6 - 7 * rho);
-  return ((8 * Math.PI ** 3 * n2 * n2) / (3 * N * lambda ** 4)) * king;
+  const l2 = lambda * lambda;
+  return ((8 * PI_CUBED * n2 * n2) / (3 * N * (l2 * l2))) * king;
 }
 
 /** Rayleigh phase function, normalised over the sphere. */
@@ -247,8 +251,8 @@ export class AtmosphereModel {
       const py = oy + dy * t;
       const pz = oz + dz * t;
       const h = Math.sqrt(px * px + py * py + pz * pz) - p.planetRadius;
-      dR += Math.exp(-h / p.rayleighScaleHeight) * ds;
-      dM += Math.exp(-h / p.mieScaleHeight) * ds;
+      dR += DMath.exp(-h / p.rayleighScaleHeight) * ds;
+      dM += DMath.exp(-h / p.mieScaleHeight) * ds;
       dO += this.ozoneDensity(h) * ds;
     }
     out[0] = p.rayleighScattering[0] * dR + p.mieExtinction[0] * dM + p.ozoneAbsorption[0] * dO;
@@ -274,9 +278,9 @@ export class AtmosphereModel {
       return out;
     }
     this.opticalDepth(0, oy, 0, dx, dy, dz, tTop, samples, this.tmp);
-    out[0] = Math.exp(-this.tmp[0]!);
-    out[1] = Math.exp(-this.tmp[1]!);
-    out[2] = Math.exp(-this.tmp[2]!);
+    out[0] = DMath.exp(-this.tmp[0]!);
+    out[1] = DMath.exp(-this.tmp[1]!);
+    out[2] = DMath.exp(-this.tmp[2]!);
     return out;
   }
 
@@ -365,7 +369,7 @@ export class AtmosphereModel {
     let tPrev = 0;
     for (let i = 0; i < nView; i++) {
       const u1 = (i + 1) / nView;
-      const v1 = descending ? 1 - (1 - u1) ** 3 : u1 ** 3;
+      const v1 = descending ? 1 - (1 - u1) * (1 - u1) * (1 - u1) : u1 * u1 * u1;
       const tNext = pathLength * v1;
       const ds = tNext - tPrev;
       const t = tStart + 0.5 * (tPrev + tNext);
@@ -374,8 +378,8 @@ export class AtmosphereModel {
       const py = originY + dy * t;
       const pz = dz * t;
       const h = Math.max(0, Math.sqrt(px * px + py * py + pz * pz) - p.planetRadius);
-      const dR = Math.exp(-h / p.rayleighScaleHeight) * ds;
-      const dM = Math.exp(-h / p.mieScaleHeight) * ds;
+      const dR = DMath.exp(-h / p.rayleighScaleHeight) * ds;
+      const dM = DMath.exp(-h / p.mieScaleHeight) * ds;
       const dO = this.ozoneDensity(h) * ds;
       const blocked = raySphereEntry(px, py, pz, sunX, sunY, sunZ, p.planetRadius) > 0;
       let hasSunPath = false;
@@ -396,18 +400,18 @@ export class AtmosphereModel {
         const localOd = p.rayleighScattering[c]! * dR + p.mieExtinction[c]! * dM + p.ozoneAbsorption[c]! * dO;
         const midOd = od[c]! + 0.5 * localOd;
         if (hasSunPath) {
-          const attenuation = Math.exp(-(midOd + odLight[c]!));
+          const attenuation = DMath.exp(-(midOd + odLight[c]!));
           sums[c] += attenuation * dR;
           sums[3 + c] += attenuation * dM;
         }
         if (ms !== null) {
-          msSums[c] += Math.exp(-midOd) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
+          msSums[c] += DMath.exp(-midOd) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
         }
         od[c] = od[c]! + localOd;
       }
     }
     for (let c = 0; c < 3; c++) {
-      transmittanceOut[c] = Math.exp(-od[c]!);
+      transmittanceOut[c] = DMath.exp(-od[c]!);
       inScatteringOut[c] = p.sunIntensity * (
         p.rayleighScattering[c]! * sums[c]! * phaseR +
         p.mieScattering[c]! * sums[3 + c]! * phaseM +
@@ -470,8 +474,8 @@ export class AtmosphereModel {
       const py = oy + dy * t;
       const pz = dz * t;
       const h = Math.sqrt(px * px + py * py + pz * pz) - R;
-      const dR = Math.exp(-h / p.rayleighScaleHeight) * ds;
-      const dM = Math.exp(-h / p.mieScaleHeight) * ds;
+      const dR = DMath.exp(-h / p.rayleighScaleHeight) * ds;
+      const dM = DMath.exp(-h / p.mieScaleHeight) * ds;
       const dO = this.ozoneDensity(h) * ds;
       odR += dR;
       odM += dM;
@@ -487,12 +491,12 @@ export class AtmosphereModel {
       for (let c = 0; c < 3; c++) {
         od[c] = p.rayleighScattering[c]! * odR + p.mieExtinction[c]! * odM + p.ozoneAbsorption[c]! * odO;
         if (tLight > 0) {
-          const attenuation = Math.exp(-(od[c]! + odl[c]!));
+          const attenuation = DMath.exp(-(od[c]! + odl[c]!));
           sum[c] += attenuation * dR;
           sum[3 + c] += attenuation * dM;
         }
         if (ms !== null) {
-          msSum[c] += Math.exp(-od[c]!) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
+          msSum[c] += DMath.exp(-od[c]!) * (p.rayleighScattering[c]! * dR + p.mieScattering[c]! * dM) * msSource[c]!;
         }
       }
     }
@@ -509,7 +513,7 @@ export class AtmosphereModel {
       if (nDotL > 0) {
         this.transmittance(len - R, sunDir.x, sunDir.y, sunDir.z, odl, lightSamples);
         for (let c = 0; c < 3; c++) {
-          const viewT = Math.exp(-(p.rayleighScattering[c]! * odR + p.mieExtinction[c]! * odM + p.ozoneAbsorption[c]! * odO));
+          const viewT = DMath.exp(-(p.rayleighScattering[c]! * odR + p.mieExtinction[c]! * odM + p.ozoneAbsorption[c]! * odO));
           out[c] += viewT * (p.groundAlbedo[c]! / Math.PI) * p.sunIntensity * odl[c]! * nDotL;
         }
       }
@@ -536,7 +540,7 @@ export class AtmosphereModel {
       const y = Math.sqrt(1 - u);
       const r = Math.sqrt(u);
       const phi = i * golden;
-      dir.set(r * Math.cos(phi), y, r * Math.sin(phi));
+      dir.set(r * DMath.cos(phi), y, r * DMath.sin(phi));
       this.skyRadiance(dir, sunDir, height, this.tmp, viewSamples, lightSamples, g);
       out[0] += this.tmp[0]!;
       out[1] += this.tmp[1]!;
@@ -555,12 +559,12 @@ export class AtmosphereModel {
   horizonColor(sunDir: Vec3, height: number, out: Float64Array, count = 8, elevationRad = 0.026, viewSamples = 8, lightSamples = 4): Float64Array {
     out[0] = out[1] = out[2] = 0;
     const dir = SCRATCH_DIR;
-    const ce = Math.cos(elevationRad);
-    const se = Math.sin(elevationRad);
+    const ce = DMath.cos(elevationRad);
+    const se = DMath.sin(elevationRad);
     const g = clampG(this.params.mieAnisotropy); // see skyAmbient
     for (let i = 0; i < count; i++) {
       const a = ((i + 0.5) / count) * Math.PI * 2;
-      dir.set(ce * Math.sin(a), se, ce * Math.cos(a));
+      dir.set(ce * DMath.sin(a), se, ce * DMath.cos(a));
       this.skyRadiance(dir, sunDir, height, this.tmp, viewSamples, lightSamples, g);
       out[0] += this.tmp[0]!;
       out[1] += this.tmp[1]!;

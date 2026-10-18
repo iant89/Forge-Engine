@@ -8,9 +8,10 @@
  * arrays, typed arrays and nested objects (vectors, quaternions, sub-records). Functions are ignored.
  * Fields named in `skip` (external references: a scene, a ground query, a shared heightfield) are
  * left out, and so is any object already visited, which keeps shared references from being written
- * twice and cycles from looping. `restoreState(obj, data)` walks the same shape and assigns the
- * recorded values, recursing into the existing nested objects rather than replacing them (so a
- * `readonly position = new Vec3()` keeps its identity). A shape mismatch — an array of a different
+ * twice and cycles from looping; inside an array such an element is written as `{ "$hole": 1 }`, which
+ * restoring skips, so an array holding one object many times keeps its references. `restoreState(obj,
+ * data)` walks the same shape and assigns the recorded values, recursing into the existing nested
+ * objects rather than replacing them (so a `readonly position = new Vec3()` keeps its identity). A shape mismatch — an array of a different
  * length, a missing nested object — throws: a snapshot only fits the structure it was taken from.
  *
  * The data is JSON-safe and stays exact through `JSON.stringify`: `-0`, `NaN` and the infinities are
@@ -40,6 +41,13 @@ const TYPED = new Map<string, new (values: number[]) => ArrayLike<number>>([
   ["Uint32Array", Uint32Array],
   ["Uint8ClampedArray", Uint8ClampedArray],
 ]);
+
+/** An array element `captureState` did not record; `restoreState` leaves the element alone. */
+const HOLE: StateValue = { $hole: 1 };
+
+function isHole(v: StateValue): boolean {
+  return v !== null && typeof v === "object" && !Array.isArray(v) && v["$hole"] === 1 && Object.keys(v).length === 1;
+}
 
 /** A number as state data (exact: `-0`, `NaN` and the infinities are tagged). */
 export function encodeNumber(n: number): StateValue {
@@ -100,7 +108,9 @@ function captureValue(value: unknown, skip: Set<string>, seen: WeakSet<object>):
   }
   if (Array.isArray(o)) {
     const arr: StateValue[] = [];
-    for (const item of o) arr.push(captureValue(item, skip, seen) ?? null);
+    // An element that is not captured (a function, or an object already written: arrays that hold the
+    // same object many times) is a hole, not null, so restoring leaves that element as it is.
+    for (const item of o) arr.push(captureValue(item, skip, seen) ?? HOLE);
     return arr;
   }
   if (o instanceof Map || o instanceof Set || o instanceof WeakMap || o instanceof WeakSet || o instanceof Promise) return undefined;
@@ -134,6 +144,7 @@ function restoreInto(target: Record<string, unknown>, data: StateRecord, path: s
 }
 
 function restoreValue(current: unknown, saved: StateValue, path: string): { assign: boolean; value?: unknown } {
+  if (isHole(saved)) return { assign: false };
   const n = decodeNumber(saved);
   if (n !== undefined) return { assign: true, value: n };
   if (saved === null || typeof saved === "boolean" || typeof saved === "string") return { assign: true, value: saved };

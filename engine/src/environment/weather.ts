@@ -33,6 +33,7 @@ import { setWorldSurfaceGrip } from "../scene/surfaceGrip.js";
 import { applyOceanState, oceanWavesFromWind, type OceanWindOptions } from "./ocean.js";
 import { createSurfaceWeather, stepSurfaceWeather, tyreGripFactor, weatherOceanOptions, DEFAULT_SURFACE_RATES, type SurfaceWeatherRates, type SurfaceWeatherState } from "./surfaceWeather.js";
 import { Light } from "../scene/components/index.js";
+import { DMath } from "../math/detmath.js";
 
 /** One snapshot of the weather. All fields are plain numbers (serialisable, comparable). */
 export interface WeatherState {
@@ -118,7 +119,7 @@ export function approachExponential(current: number, target: number, dt: number,
   if (!(dt > 0)) return current;
   if (!(tau > 0)) return target;
   if (current === target) return current;
-  return target + (current - target) * Math.exp(-dt / tau);
+  return target + (current - target) * DMath.exp(-dt / tau);
 }
 
 /** Wrap an angle to [0, 2π). */
@@ -407,7 +408,7 @@ export class WeatherSystem extends SceneObject {
     const t = this.target;
     s.windSpeed = Math.max(0, approachExponential(s.windSpeed, t.windSpeed, seconds, this.tau.windSpeed));
     // The direction drifts along the shortest arc (a 350° → 10° change turns +20°, not −340°).
-    const rate = this.tau.windDirection > 0 ? 1 - Math.exp(-seconds / this.tau.windDirection) : 1;
+    const rate = this.tau.windDirection > 0 ? 1 - DMath.exp(-seconds / this.tau.windDirection) : 1;
     s.windDirection = wrapAngle(lerpAngle(s.windDirection, t.windDirection, rate));
     s.gust = clamp(approachExponential(s.gust, t.gust, seconds, this.tau.gust), 0, 1);
     s.temperatureC = approachExponential(s.temperatureC, t.temperatureC, seconds, this.tau.temperatureC);
@@ -511,7 +512,7 @@ export class WeatherSystem extends SceneObject {
 
   /** Mean wind vector (m/s, +x east / +y north→+z) at the current state. */
   meanWind(out = new Vec2()): Vec2 {
-    return out.set(Math.sin(this.state.windDirection) * this.state.windSpeed, Math.cos(this.state.windDirection) * this.state.windSpeed);
+    return out.set(DMath.sin(this.state.windDirection) * this.state.windSpeed, DMath.cos(this.state.windDirection) * this.state.windSpeed);
   }
 
   /**
@@ -521,8 +522,8 @@ export class WeatherSystem extends SceneObject {
    */
   sampleWindAt(x: number, z: number, out = new Vec2(), t = this.simulatedSeconds): Vec2 {
     const s = this.state;
-    const wx = Math.sin(s.windDirection) * s.windSpeed;
-    const wz = Math.cos(s.windDirection) * s.windSpeed;
+    const wx = DMath.sin(s.windDirection) * s.windSpeed;
+    const wz = DMath.cos(s.windDirection) * s.windSpeed;
     // Advect the sample point upwind: eddies ride the mean flow (frozen turbulence).
     const px = (x - wx * t) * this.gustScale;
     const pz = (z - wz * t) * this.gustScale;
@@ -538,8 +539,8 @@ export class WeatherSystem extends SceneObject {
    */
   sampleTemperatureAt(x: number, y: number, z: number, t = this.simulatedSeconds): number {
     const s = this.state;
-    const wx = Math.sin(s.windDirection) * s.windSpeed;
-    const wz = Math.cos(s.windDirection) * s.windSpeed;
+    const wx = DMath.sin(s.windDirection) * s.windSpeed;
+    const wz = DMath.cos(s.windDirection) * s.windSpeed;
     const patch = fbm2((x - wx * t) * this.patchScale, (z - wz * t) * this.patchScale, this.seed ^ 0x2bc3, { octaves: 3 });
     return s.temperatureC - TEMPERATURE_LAPSE_PER_M * y + patch * 1.5;
   }
@@ -551,8 +552,8 @@ export class WeatherSystem extends SceneObject {
   samplePrecipitationAt(x: number, z: number, t = this.simulatedSeconds): number {
     const s = this.state;
     if (s.precipitation01 <= 0) return 0;
-    const wx = Math.sin(s.windDirection) * s.windSpeed;
-    const wz = Math.cos(s.windDirection) * s.windSpeed;
+    const wx = DMath.sin(s.windDirection) * s.windSpeed;
+    const wz = DMath.cos(s.windDirection) * s.windSpeed;
     const f = fbm2((x - wx * t) * this.patchScale, (z - wz * t) * this.patchScale, this.seed ^ 0x77aa, { octaves: 3 }) * 0.5 + 0.5;
     return clamp(s.precipitation01 * (0.6 + 0.8 * f), 0, 1);
   }

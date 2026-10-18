@@ -19,6 +19,7 @@ import { clamp } from "../math/scalar.js";
 import type { Scene } from "../scene/scene.js";
 import type { Light } from "../scene/components/index.js";
 import type { WeatherSystem } from "./weather.js";
+import { DMath } from "../math/detmath.js";
 
 export const LATENT_HEAT_FUSION = 334_000; // J/kg
 export const WATER_DENSITY = 1000; // kg/m³
@@ -92,7 +93,7 @@ export function meltRate(q: number, density = DEFAULT_SNOW_DENSITY): number {
  * conducts back up — why snow vanishes from dark objects first.
  */
 export function substrateFlux(env: MeltEnvironment, depth: number, substrateAlbedo: number, cosIncidence: number): number {
-  const reach = Math.exp(-Math.max(0, depth) / 0.03);
+  const reach = DMath.exp(-Math.max(0, depth) / 0.03);
   return reach * (1 - clamp(substrateAlbedo, 0, 1)) * env.sunIrradiance * Math.max(0, cosIncidence) * 0.6;
 }
 
@@ -117,7 +118,7 @@ export function sampleMeltEnvironment(scene: Scene, weather: WeatherSystem | nul
   }
   if (best) {
     const d = best.direction;
-    const len = Math.hypot(d.x, d.y, d.z) || 1;
+    const len = DMath.hypot(d.x, d.y, d.z) || 1;
     out.sunDirection.x = -d.x / len;
     out.sunDirection.y = -d.y / len;
     out.sunDirection.z = -d.z / len;

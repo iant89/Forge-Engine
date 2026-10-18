@@ -17,6 +17,7 @@
 
 import { Vec3 } from "../math/vec.js";
 import { DEG_TO_RAD, RAD_TO_DEG, clamp } from "../math/scalar.js";
+import { DMath } from "../math/detmath.js";
 
 /** Julian day of J2000.0 (2000 January 1, 12:00 TT). */
 export const J2000 = 2451545;
@@ -139,33 +140,34 @@ export function solarCoordinates(jd: number, out: SolarCoordinates = createSolar
   const eccentricity = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
   const mRad = meanAnomaly * DEG_TO_RAD;
   const centre =
-    Math.sin(mRad) * (1.914602 - t * (0.004817 + 0.000014 * t)) +
-    Math.sin(2 * mRad) * (0.019993 - 0.000101 * t) +
-    Math.sin(3 * mRad) * 0.000289;
+    DMath.sin(mRad) * (1.914602 - t * (0.004817 + 0.000014 * t)) +
+    DMath.sin(2 * mRad) * (0.019993 - 0.000101 * t) +
+    DMath.sin(3 * mRad) * 0.000289;
   const trueLongitude = meanLongitude + centre;
   const trueAnomaly = meanAnomaly + centre;
-  const distanceAu = (1.000001018 * (1 - eccentricity * eccentricity)) / (1 + eccentricity * Math.cos(trueAnomaly * DEG_TO_RAD));
+  const distanceAu = (1.000001018 * (1 - eccentricity * eccentricity)) / (1 + eccentricity * DMath.cos(trueAnomaly * DEG_TO_RAD));
   const omega = (125.04 - 1934.136 * t) * DEG_TO_RAD;
-  const apparentLongitude = trueLongitude - 0.00569 - 0.00478 * Math.sin(omega);
+  const apparentLongitude = trueLongitude - 0.00569 - 0.00478 * DMath.sin(omega);
   const seconds = 21.448 - t * (46.815 + t * (0.00059 - t * 0.001813));
   const meanObliquity = 23 + (26 + seconds / 60) / 60;
-  const obliquity = meanObliquity + 0.00256 * Math.cos(omega);
+  const obliquity = meanObliquity + 0.00256 * DMath.cos(omega);
 
   const lamRad = apparentLongitude * DEG_TO_RAD;
   const epsRad = obliquity * DEG_TO_RAD;
-  let rightAscension = Math.atan2(Math.cos(epsRad) * Math.sin(lamRad), Math.cos(lamRad));
+  let rightAscension = DMath.atan2(DMath.cos(epsRad) * DMath.sin(lamRad), DMath.cos(lamRad));
   if (rightAscension < 0) rightAscension += Math.PI * 2;
-  const declination = Math.asin(Math.sin(epsRad) * Math.sin(lamRad));
+  const declination = DMath.asin(DMath.sin(epsRad) * DMath.sin(lamRad));
 
   // Equation of time (Meeus 28.3), in minutes.
-  const y = Math.tan(epsRad / 2) ** 2;
+  const halfTan = DMath.tan(epsRad / 2);
+  const y = halfTan * halfTan;
   const l0 = meanLongitude * DEG_TO_RAD;
   const eot =
-    y * Math.sin(2 * l0) -
-    2 * eccentricity * Math.sin(mRad) +
-    4 * eccentricity * y * Math.sin(mRad) * Math.cos(2 * l0) -
-    0.5 * y * y * Math.sin(4 * l0) -
-    1.25 * eccentricity * eccentricity * Math.sin(2 * mRad);
+    y * DMath.sin(2 * l0) -
+    2 * eccentricity * DMath.sin(mRad) +
+    4 * eccentricity * y * DMath.sin(mRad) * DMath.cos(2 * l0) -
+    0.5 * y * y * DMath.sin(4 * l0) -
+    1.25 * eccentricity * eccentricity * DMath.sin(2 * mRad);
 
   out.century = t;
   out.apparentLongitude = mod360(apparentLongitude) * DEG_TO_RAD;
@@ -184,7 +186,7 @@ export function solarCoordinates(jd: number, out: SolarCoordinates = createSolar
  */
 export function atmosphericRefractionDeg(trueElevationDeg: number): number {
   if (trueElevationDeg > 85) return 0;
-  const te = Math.tan(trueElevationDeg * DEG_TO_RAD);
+  const te = DMath.tan(trueElevationDeg * DEG_TO_RAD);
   let correction: number;
   if (trueElevationDeg > 5) {
     correction = 58.1 / te - 0.07 / (te * te * te) + 0.000086 / (te * te * te * te * te);
@@ -214,15 +216,15 @@ export function solarPosition(jd: number, latitudeDeg: number, longitudeDeg: num
   if (hourAngleDeg < -180) hourAngleDeg += 360;
   const ha = hourAngleDeg * DEG_TO_RAD;
 
-  const cosZenith = clamp(Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(ha), -1, 1);
-  const zenith = Math.acos(cosZenith);
+  const cosZenith = clamp(DMath.sin(lat) * DMath.sin(dec) + DMath.cos(lat) * DMath.cos(dec) * DMath.cos(ha), -1, 1);
+  const zenith = DMath.acos(cosZenith);
   const trueElevationDeg = 90 - zenith * RAD_TO_DEG;
 
   let azimuthDeg: number;
-  const azDenom = Math.cos(lat) * Math.sin(zenith);
+  const azDenom = DMath.cos(lat) * DMath.sin(zenith);
   if (Math.abs(azDenom) > 0.001) {
-    const azRad = clamp((Math.sin(lat) * Math.cos(zenith) - Math.sin(dec)) / azDenom, -1, 1);
-    azimuthDeg = 180 - Math.acos(azRad) * RAD_TO_DEG;
+    const azRad = clamp((DMath.sin(lat) * DMath.cos(zenith) - DMath.sin(dec)) / azDenom, -1, 1);
+    azimuthDeg = 180 - DMath.acos(azRad) * RAD_TO_DEG;
     if (hourAngleDeg > 0) azimuthDeg = -azimuthDeg;
   } else {
     azimuthDeg = latitudeDeg > 0 ? 180 : 0;
@@ -243,8 +245,8 @@ export function solarPosition(jd: number, latitudeDeg: number, longitudeDeg: num
  * east = +X, azimuth clockwise from north.
  */
 export function directionFromElevationAzimuth(elevation: number, azimuth: number, out = new Vec3()): Vec3 {
-  const ce = Math.cos(elevation);
-  return out.set(ce * Math.sin(azimuth), Math.sin(elevation), ce * Math.cos(azimuth));
+  const ce = DMath.cos(elevation);
+  return out.set(ce * DMath.sin(azimuth), DMath.sin(elevation), ce * DMath.cos(azimuth));
 }
 
 /** Unit vector *toward* the sun for a computed position (uses the refracted elevation). */
@@ -254,9 +256,9 @@ export function sunDirection(position: SolarPosition, out = new Vec3()): Vec3 {
 
 /** Inverse of `directionFromElevationAzimuth`: `[elevation, azimuth]` in radians for a unit vector. */
 export function elevationAzimuthOf(direction: { x: number; y: number; z: number }): [number, number] {
-  const len = Math.hypot(direction.x, direction.y, direction.z) || 1;
-  const elevation = Math.asin(clamp(direction.y / len, -1, 1));
-  let azimuth = Math.atan2(direction.x, direction.z);
+  const len = DMath.hypot(direction.x, direction.y, direction.z) || 1;
+  const elevation = DMath.asin(clamp(direction.y / len, -1, 1));
+  let azimuth = DMath.atan2(direction.x, direction.z);
   if (azimuth < 0) azimuth += Math.PI * 2;
   return [elevation, azimuth];
 }
@@ -279,10 +281,10 @@ export function sunEvents(jdMidnightUtc: number, latitudeDeg: number, longitudeD
   const declination = atNoon.declination;
 
   const hourAngleFor = (coords: SolarCoordinates): number | "night" | "day" => {
-    const cosHa = Math.cos(SUNRISE_ZENITH_DEG * DEG_TO_RAD) / (Math.cos(lat) * Math.cos(coords.declination)) - Math.tan(lat) * Math.tan(coords.declination);
+    const cosHa = DMath.cos(SUNRISE_ZENITH_DEG * DEG_TO_RAD) / (DMath.cos(lat) * DMath.cos(coords.declination)) - DMath.tan(lat) * DMath.tan(coords.declination);
     if (cosHa > 1) return "night";
     if (cosHa < -1) return "day";
-    return Math.acos(cosHa) * RAD_TO_DEG;
+    return DMath.acos(cosHa) * RAD_TO_DEG;
   };
   const first = hourAngleFor(atNoon);
   if (first === "night") return { sunrise: null, sunset: null, solarNoon: solarNoonMinutes / 60, dayLength: 0, declination };

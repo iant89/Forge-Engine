@@ -13,6 +13,7 @@
 
 import { clamp } from "../math/scalar.js";
 import type { WeatherState } from "./weather.js";
+import { DMath } from "../math/detmath.js";
 
 export interface SurfaceWeatherState {
   /** 0..1 film wetness (darkens albedo, raises gloss). */
@@ -78,12 +79,12 @@ export function stepSurfaceWeather(state: SurfaceWeatherState, weather: WeatherS
   state.snow = clamp(state.snow - melted + (snowfall / rates.snowFall) * dt, 0, 1);
   // Wetness relaxes toward the rain intensity (any measurable rain wets fully over time).
   const wetTarget = rain > 0.02 ? 1 : 0;
-  if (rain > 0.02) state.wetness += (wetTarget - state.wetness) * (1 - Math.exp(-(dt * (0.25 + rain)) / rates.wetting));
-  state.wetness = clamp(state.wetness + melted * 2 - state.wetness * (1 - Math.exp(-dt * evaporation)) * (rain > 0.02 ? 0 : 1), 0, 1);
+  if (rain > 0.02) state.wetness += (wetTarget - state.wetness) * (1 - DMath.exp(-(dt * (0.25 + rain)) / rates.wetting));
+  state.wetness = clamp(state.wetness + melted * 2 - state.wetness * (1 - DMath.exp(-dt * evaporation)) * (rain > 0.02 ? 0 : 1), 0, 1);
   // Puddles need sustained rain over already-wet ground.
   const fill = Math.max(0, rain - 0.5) * state.wetness;
   if (fill > 0) state.puddles = clamp(state.puddles + (fill / 0.5 / rates.puddleFill) * dt, 0, 1);
-  else state.puddles = clamp(state.puddles * Math.exp((-dt * evaporation * rates.drying) / rates.puddleDrain), 0, 1);
+  else state.puddles = clamp(state.puddles * DMath.exp((-dt * evaporation * rates.drying) / rates.puddleDrain), 0, 1);
   // Puddles can't outlast the film around them by much.
   state.puddles = Math.min(state.puddles, Math.min(1, state.wetness * 1.25));
   return state;
@@ -111,8 +112,8 @@ export function weatherSoundInput(weather: WeatherState, surf = 0): { windSpeed:
 export function weatherPrecipitationDrive(weather: WeatherState): { intensity: number; windX: number; windZ: number; snow: number } {
   return {
     intensity: clamp(weather.precipitation01, 0, 1),
-    windX: Math.sin(weather.windDirection) * weather.windSpeed,
-    windZ: Math.cos(weather.windDirection) * weather.windSpeed,
+    windX: DMath.sin(weather.windDirection) * weather.windSpeed,
+    windZ: DMath.cos(weather.windDirection) * weather.windSpeed,
     snow: snowFraction(weather.temperatureC),
   };
 }
@@ -134,5 +135,5 @@ export function weatherOceanOptions(weather: WeatherState): { windSpeed: number;
  * gameplay (AI sight range) read the same number the renderer's exponential fog produces.
  */
 export function visibilityForFogDensity(density: number): number {
-  return density > 1e-6 ? Math.log(20) / density : Number.POSITIVE_INFINITY;
+  return density > 1e-6 ? DMath.log(20) / density : Number.POSITIVE_INFINITY;
 }
