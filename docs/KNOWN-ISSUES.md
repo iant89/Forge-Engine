@@ -256,6 +256,15 @@ What remains:
   `onCreate`; a restored storm keeps its strike schedule but starts with a clear sky. (capability:
   serialization.closuresAndTransients)
 
+## Audio (Phase 20)
+
+* **Audio is verified on a mock context, not by listening.** The suites prove the node graph, the
+  automation timing and the bookkeeping on `MockAudioContext`; no gate plays the mixer on a device or
+  measures its output. (capability: audio.deviceCheck)
+* **Nothing but the storm drives audio from the simulation yet.** Vehicles, impacts and the
+  environment make no sound of their own, and the storm soundscape plays outside the buses.
+  (capability: audio.simulation)
+
 ## Documentation debt
 
 `ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet

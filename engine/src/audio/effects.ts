@@ -17,6 +17,7 @@ abstract class BaseEffect implements AudioEffect {
 export class FilterEffect extends BaseEffect {
   readonly filter: BiquadFilterNode;
   constructor(context: BaseAudioContext, type: BiquadFilterType = "lowpass", frequency = 20_000, q = 0.707) { super(context); this.filter = context.createBiquadFilter(); this.filter.type = type; this.filter.frequency.value = frequency; this.filter.Q.value = q; this.input.connect(this.filter).connect(this.wet); }
+  override dispose(): void { this.filter.disconnect(); super.dispose(); }
 }
 
 export class DelayEffect extends BaseEffect {

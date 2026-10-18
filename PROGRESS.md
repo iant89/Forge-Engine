@@ -230,7 +230,8 @@ The scene selector includes these demos. Mars Showcase opens by default.
 
 - [ ] Multiplayer networking, dedicated servers and MMO-scale replication
 - [ ] General-purpose scripting VM and visual scripting
-- [ ] Audio system: spatial audio, buses, streaming, and vehicle and impact audio (Phase 20)
+- [x] Audio mixer: spatial voices with a voice limit and occlusion, clip loading, streaming, buses with live effects and smooth fades (Phase 20.1–20.4; `docs/AUDIO.md`)
+- [ ] Simulation-driven audio: environment, weather, vehicle and impact sounds (Phase 20.5–20.8)
 - [ ] Editor and advanced cinematic editor (Phase 26)
 - [ ] WebGL fallback
 - [ ] Cloud asset service
