@@ -33,6 +33,7 @@ import { ElectricMotor } from "./electric.js";
 import type { GroundQuery, GroundSample } from "./ground.js";
 import { computeWheelLoads, distributeWheelLoads, type WheelLoads } from "./loads.js";
 import { DEFAULT_LATERAL, DEFAULT_LONGITUDINAL, pacejka, pacejkaDerivative, pacejkaPeakSlip, type PacejkaCoefficients } from "./pacejka.js";
+import { DMath } from "../math/detmath.js";
 
 export interface VehicleInput {
   /** 0..1 */
@@ -359,7 +360,7 @@ export class Vehicle {
   }
 
   get speed(): number {
-    return Math.hypot(this.velocity.x, this.velocity.z);
+    return DMath.hypot(this.velocity.x, this.velocity.z);
   }
 
   /**
@@ -632,7 +633,7 @@ export class Vehicle {
       }
       const hub = this.hubVelocity(w);
       const heading = this.yaw + w.steerAngle;
-      hubLong[i] = hub.x * Math.sin(heading) + hub.z * Math.cos(heading);
+      hubLong[i] = hub.x * DMath.sin(heading) + hub.z * DMath.cos(heading);
       this.balanceLongitudinal(w, shares[i] ?? 0, brake, handbrake, parkingBrake, hubLong[i]!, dt);
       if (w.driven) peakDrivenSlip = Math.max(peakDrivenSlip, Math.abs(w.kappa));
     }
@@ -687,8 +688,8 @@ export class Vehicle {
 
       const hub = this.hubVelocity(w);
       const heading = w.steerAngle;
-      const s = Math.sin(this.yaw + heading);
-      const co = Math.cos(this.yaw + heading);
+      const s = DMath.sin(this.yaw + heading);
+      const co = DMath.cos(this.yaw + heading);
       // Wheel forward / right in the ground plane (yaw + steer). +steer is a right turn.
       const wfx = s;
       const wfz = co;
@@ -697,7 +698,7 @@ export class Vehicle {
       const vLong = hubLong[i]!;
       const vLat = hub.x * wrx + hub.z * wrz;
       const ref = Math.max(Math.abs(vLong), c.slipReference);
-      w.alpha = Math.atan2(vLat, ref);
+      w.alpha = DMath.atan2(vLat, ref);
       // A brake that has already blown past the ABS slip is scaled down; the slip solve has already
       // held κ on the rising face, so this only trims a request the clamp did not fully catch.
       const absScale = c.absEnabled ? absBrakeScale(w.kappa, c.absSlip, c.absStrength) : 1;
@@ -709,7 +710,7 @@ export class Vehicle {
       const D = this.mu * w.normalLoad;
       let longF = pacejka(w.kappa, { ...c.longitudinal, D });
       let latF = -pacejka(w.alpha, { ...c.lateral, D });
-      const mag = Math.hypot(longF, latF);
+      const mag = DMath.hypot(longF, latF);
       const limit = this.mu * w.normalLoad;
       if (mag > limit && mag > 1e-8) {
         const scale = limit / mag;
@@ -809,7 +810,7 @@ export class Vehicle {
       this.position.y = f32(this.position.y + this.velocity.y * dt);
       this.position.z = f32(this.position.z + this.velocity.z * dt);
       this.yaw = f32(this.yaw + this.yawRate * dt);
-      this.distance += Math.hypot(this.position.x - prevX, this.position.z - prevZ);
+      this.distance += DMath.hypot(this.position.x - prevX, this.position.z - prevZ);
     }
 
     // Keep basis in sync with integrated yaw/pitch/roll before penetration lift and body-frame ax/ay.
@@ -861,8 +862,8 @@ export class Vehicle {
     this.yawQuat.rotateVector(BASIS_FORWARD, this.forward);
     this.yawQuat.rotateVector(BASIS_RIGHT, this.right);
     this.up.set(0, 1, 0);
-    const cp = Math.cos(this.pitch);
-    const sp = Math.sin(this.pitch);
+    const cp = DMath.cos(this.pitch);
+    const sp = DMath.sin(this.pitch);
     if (this.pitch !== 0) {
       const fx = this.forward.x;
       const fy = this.forward.y;
@@ -872,8 +873,8 @@ export class Vehicle {
       this.up.set(-fx * sp, cp - fy * sp, -fz * sp);
     }
     if (this.roll !== 0) {
-      const cr = Math.cos(this.roll);
-      const sr = Math.sin(this.roll);
+      const cr = DMath.cos(this.roll);
+      const sr = DMath.sin(this.roll);
       const rx = this.right.x;
       const ry = this.right.y;
       const rz = this.right.z;
@@ -954,8 +955,8 @@ export class Vehicle {
       zFront /= nFront;
       xRear /= nRear;
       zRear /= nRear;
-      const axleDist = Math.max(0.2, Math.hypot(xFront - xRear, zFront - zRear));
-      pitch = Math.atan2(hFront - hRear, axleDist);
+      const axleDist = Math.max(0.2, DMath.hypot(xFront - xRear, zFront - zRear));
+      pitch = DMath.atan2(hFront - hRear, axleDist);
     }
     if (nLeft > 0 && nRight > 0) {
       hLeft /= nLeft;
@@ -964,8 +965,8 @@ export class Vehicle {
       zLeft /= nLeft;
       xRight /= nRight;
       zRight /= nRight;
-      const trackDist = Math.max(0.2, Math.hypot(xLeft - xRight, zLeft - zRight));
-      roll = Math.atan2(hRight - hLeft, trackDist);
+      const trackDist = Math.max(0.2, DMath.hypot(xLeft - xRight, zLeft - zRight));
+      roll = DMath.atan2(hRight - hLeft, trackDist);
     }
     return { pitch, roll };
   }
@@ -1023,10 +1024,10 @@ export class Vehicle {
       innerX = Math.max(innerX, Math.abs(w.x));
     }
     const reach = Math.abs(refZ - pivotZ);
-    const radius = innerX + reach / Math.max(1e-3, Math.tan(Math.abs(lock)));
+    const radius = innerX + reach / Math.max(1e-3, DMath.tan(Math.abs(lock)));
     const centreX = sign * radius;
     for (const w of steered) {
-      w.steerAngle = Math.atan2(sign * (w.z - pivotZ), -sign * (w.x - centreX));
+      w.steerAngle = DMath.atan2(sign * (w.z - pivotZ), -sign * (w.x - centreX));
     }
   }
 
@@ -1124,7 +1125,7 @@ export class Vehicle {
           ground.sample(hx - dx, hz - dz, this.groundSample);
           if (h - this.groundSample.height <= MAX_STEP_HEIGHT) continue;
         }
-        let ol = Math.hypot(ox, oz);
+        let ol = DMath.hypot(ox, oz);
         // Only a face the chassis is moving *into* is a wall. Rolling off a drop-off samples the
         // same steep normal at the lip, but it faces the way we are going — that is a jump.
         if (steep && ol >= 1e-4 && dx * ox + dz * oz >= 0) continue;
@@ -1133,7 +1134,7 @@ export class Vehicle {
           // against the motion that crossed it.
           ox = -dx;
           oz = -dz;
-          ol = Math.hypot(ox, oz);
+          ol = DMath.hypot(ox, oz);
           if (ol < 1e-6) continue;
         }
         nhx += ox / ol;
@@ -1141,7 +1142,7 @@ export class Vehicle {
         hit = true;
       }
       if (!hit) break;
-      const nl = Math.hypot(nhx, nhz);
+      const nl = DMath.hypot(nhx, nhz);
       if (nl < 1e-6) {
         this.position.x = prevX;
         this.position.z = prevZ;
@@ -1163,7 +1164,7 @@ export class Vehicle {
         if (vn < 0) {
           const tx = this.velocity.x - nhx * vn;
           const tz = this.velocity.z - nhz * vn;
-          const keepT = Math.max(0, 1 - (WALL_FRICTION * -vn) / Math.max(1e-6, Math.hypot(tx, tz)));
+          const keepT = Math.max(0, 1 - (WALL_FRICTION * -vn) / Math.max(1e-6, DMath.hypot(tx, tz)));
           this.velocity.x = f32(tx * keepT - nhx * vn * WALL_RESTITUTION);
           this.velocity.z = f32(tz * keepT - nhz * vn * WALL_RESTITUTION);
         }
@@ -1392,7 +1393,7 @@ const AXIS_Z = { x: 0, y: 0, z: 1 };
  */
 const STATIC_HOLD_SPEED = 0.35;
 /** Ground with a normal Y below this (≈ 55° from level) is a wall, never wheel support (fe-20). */
-export const WALL_NORMAL_Y = Math.cos((55 * Math.PI) / 180);
+export const WALL_NORMAL_Y = DMath.cos((55 * Math.PI) / 180);
 /** Largest rise in the ground under one hardpoint, in one substep, that still counts as a lip (fe-20). */
 const MAX_STEP_HEIGHT = 0.25;
 /** Per-substep cap on the penetration lift — covers a 14 m/s landing at 1/120 s, never a cliff. */

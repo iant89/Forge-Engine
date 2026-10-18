@@ -33,7 +33,18 @@ export default defineConfig({
   },
   server: { host: "0.0.0.0", port: Number(process.env.PORT ?? 5173), strictPort: false, allowedHosts: true },
   preview: { host: "0.0.0.0" },
-  build: { target: "es2022", outDir: fileURLToPath(new URL("dist", import.meta.url)), emptyOutDir: true },
+  build: {
+    target: "es2022",
+    outDir: fileURLToPath(new URL("dist", import.meta.url)),
+    emptyOutDir: true,
+    // replay-verify.html: the Phase 19.5 cross-engine replay check, a page of its own (no WebGPU).
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("index.html", import.meta.url)),
+        "replay-verify": fileURLToPath(new URL("replay-verify.html", import.meta.url)),
+      },
+    },
+  },
   worker: { format: "es" },
   define: { __FORGE_BUILD__: JSON.stringify(buildId()) },
 });

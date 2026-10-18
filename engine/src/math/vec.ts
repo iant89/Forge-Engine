@@ -12,6 +12,7 @@
  */
 
 import { clamp, EPSILON } from "./scalar.js";
+import { DMath } from "./detmath.js";
 
 export interface Vec2Like {
   x: number;
@@ -375,7 +376,7 @@ export class Vec3 {
   /** Unsigned angle (radians) between two non-zero vectors. */
   static angleBetween(a: Vec3Ops, b: Vec3Ops): number {
     const d = Vec3.dotInto(a, b) / (Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z) * Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z) + 1e-12);
-    return Math.acos(clamp(d, -1, 1));
+    return DMath.acos(clamp(d, -1, 1));
   }
 }
 

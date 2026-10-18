@@ -95,6 +95,19 @@ group("structural capture (core/snapshot.ts)", () => {
     assert.equal(hashState({ a: 1, b: [2] }), hashState({ b: [2], a: 1 }), "the hash ignores key order");
     assert.notEqual(hashState({ a: 1 }), hashState({ a: 1.0000000000000002 }));
   });
+
+  test("an array holding one object many times keeps those references on restore (19.5: the moisture field's soil map)", () => {
+    const clay = { muddy: 1 };
+    const sand = { muddy: 0.2 };
+    const field = { soil: [clay, clay, sand, clay], fn: [() => 1], level: 3 };
+    const saved = JSON.parse(JSON.stringify(captureState(field))) as ReturnType<typeof captureState>;
+    field.level = 9;
+    restoreState(field, saved);
+    assert.equal(field.level, 3);
+    assert.deepEqual(field.soil, [clay, clay, sand, clay], "repeated elements are holes, never null");
+    assert.ok(field.soil[1] === clay && field.soil[3] === clay);
+    assert.equal(typeof field.fn[0], "function", "an uncaptured function element is left alone too");
+  });
 });
 
 group("RNG state", () => {

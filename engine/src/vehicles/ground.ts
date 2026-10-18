@@ -5,6 +5,8 @@
  * `(x, z) => ({ height: terrain.getHeightAt(x, z), normal })`, and tests pass a slope or a plane.
  */
 
+import { DMath } from "../math/detmath.js";
+
 export interface GroundSample {
   height: number;
   /** Unit normal, pointing out of the surface (typically +Y-ish). */
@@ -33,10 +35,10 @@ export function flatGround(height = 0): GroundQuery {
  * facing +Z is driving uphill. The normal is `normalize(−∂h/∂x, 1, −∂h/∂z)`.
  */
 export function slopeGround(angleRad: number, axis: "x" | "z" = "z"): GroundQuery {
-  const slope = Math.tan(angleRad);
+  const slope = DMath.tan(angleRad);
   const nx = axis === "x" ? -slope : 0;
   const nz = axis === "z" ? -slope : 0;
-  const len = Math.hypot(nx, 1, nz);
+  const len = DMath.hypot(nx, 1, nz);
   return {
     sample(x, z, out) {
       out.height = (axis === "x" ? x : z) * slope;
@@ -57,7 +59,7 @@ export function heightFunctionGround(heightAt: (x: number, z: number) => number,
       const nx = -dx;
       const ny = 1;
       const nz = -dz;
-      const len = Math.hypot(nx, ny, nz) || 1;
+      const len = DMath.hypot(nx, ny, nz) || 1;
       out.nx = nx / len;
       out.ny = ny / len;
       out.nz = nz / len;

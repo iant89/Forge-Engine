@@ -33,6 +33,7 @@
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",
     "check:mars-port": "tsx tools/mars-port-check.mjs",
+    "check:replay-engines": "node tools/replay-engines.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "check:browser:renderer": "node tools/browser-check.mjs --section=renderer",
     "check:browser:terrain": "node tools/browser-check.mjs --section=terrain",

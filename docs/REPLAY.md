@@ -1,4 +1,4 @@
-# Replay (Phase 19.4)
+# Replay (Phase 19.4 – 19.5)
 
 Record what a player did, play it back, and prove the playback produced the same simulation. The
 code is `engine/src/replay/`; `tests/replay/replay.test.ts` pins it. A replay is input plus a frame
@@ -105,11 +105,10 @@ Each divergence is `{ kind, frame, expected, actual, parts }`:
 
 - Nothing in the simulation reads wall time, `Math.random()` or unseeded randomness. Use `Rng` with a
   seed that is part of the scene's construction.
+- Nothing in the simulation calls `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`,
+  `log`, `log2`, `log10`, `pow`, `cbrt`, `hypot` (or the hyperbolic ones), or uses `**`. Call `DMath`
+  instead, which has the same names (see below).
 - Everything a player influences goes through a channel.
-- Playback runs on the same JavaScript engine family as the recording. Arithmetic on doubles is
-  identical everywhere, but `Math.sin`, `Math.exp` and friends are only required to be
-  approximately right, so V8, JavaScriptCore and SpiderMonkey can differ in the last bit. A replay
-  recorded in Chrome may diverge in Safari. Cross-engine verification is part of 19.5.
 - Playback starts from the state recording started from. There are two ways to get there:
   - Build the scene the same way.
   - Save a simulation snapshot (19.3, `captureSceneSnapshot`) when recording starts, and restore it
@@ -118,6 +117,47 @@ Each divergence is `{ kind, frame, expected, actual, parts }`:
 
   A scene save (19.1) alone is not enough: it restores configuration, not rigid-body, vehicle or
   RNG state.
+
+## Across JavaScript engines (19.5)
+
+A recording made in Chrome replays in Safari, and the other way round: the state hashes are identical
+in V8 and JavaScriptCore. `npm run check:replay-engines` proves it on every CI run.
+
+That holds because of one rule. ECMAScript defines `+ - * /`, `Math.sqrt` and rounding exactly, but
+leaves `Math.sin`, `atan`, `exp`, `pow`, `hypot` and the rest *implementation-approximated*. V8 runs
+fdlibm; JavaScriptCore calls the platform's libm. Before 19.5 the first `Math.atan` in the tyre model
+came back one ulp apart and a recording diverged within a frame.
+
+- **`DMath`** (`engine/src/math/detmath.ts`) has the same functions built only from exact
+  operations, so they return the same bits everywhere. In Node and Chrome they also return
+  `Math`'s bits wherever V8 runs fdlibm, so moving to them changed no existing result.
+- **The engine's simulation calls `DMath`**: physics, vehicles, Quat/Vec/Rng, the atmosphere,
+  solar position, day/night, weather, lightning, the ground moisture field, snow melt and the track
+  terrain. `npm run lint:arch` fails on an approximated `Math` call or a `**` in those sources
+  (`DETERMINISTIC_SOURCES` in `tools/lint-arch.mjs`).
+- **Your simulation code must call it too.** Scripts and game systems are not linted; one
+  `Math.sin` that reaches simulated state is enough to diverge between browsers. Rendering, UI and
+  audio code can keep `Math`.
+
+The check itself is a **complete vehicle session** (`examples/src/replay/verificationSession.ts`):
+the offroad demo's simulation without a renderer, with rain, a storm with lightning, snow, day/night,
+a physics chassis hitting crates and a reverse manoeuvre, driven by a scripted player. Its 1,080-frame
+recording is committed (`examples/src/replay/vehicle-session.replay.json`) as the contract. Every
+engine must:
+
+1. replay it to all 19 checkpoint hashes;
+2. re-run the session live on its frame schedule to the final hash;
+3. save a 19.3 snapshot at frame 540, restore it into a fresh build, and continue to the same hash;
+4. call no approximated `Math` function along the way.
+
+| Where | Engines |
+| --- | --- |
+| `npm run check:replay-engines` (CI) | Node (V8) and Bun (JavaScriptCore) |
+| `tests/replay/crossEngine.test.ts` | Node, plus re-recording the fixture exactly |
+| `replay-verify.html` in the demo (`/Forge-Engine/replay-verify.html` on Pages) | whichever browser opens it: Safari on an iPhone, Firefox |
+
+Re-record the fixture only when the session or the simulation changes on purpose:
+`npm run check:replay-engines -- --write-fixture`.
 
 ## Format
 

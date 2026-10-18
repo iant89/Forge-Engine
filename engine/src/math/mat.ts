@@ -19,6 +19,7 @@
 import type { Vec3Ops } from "./vec.js";
 import { Vec3 } from "./vec.js";
 import { EPSILON, PI, clamp } from "./scalar.js";
+import { DMath } from "./detmath.js";
 /**
  * Staging buffer for `multiplyMatrices` when the receiver is also the left operand. Module-level so
  * the guard costs no allocation; `multiplyMatrices` never yields to other code, so a single buffer
@@ -58,11 +59,11 @@ export class Quat {
   /** `axis` must be unit length. */
   setAxisAngle(axis: Vec3Ops, angleRad: number): this {
     const h = angleRad * 0.5;
-    const s = Math.sin(h);
+    const s = DMath.sin(h);
     this.x = axis.x * s;
     this.y = axis.y * s;
     this.z = axis.z * s;
-    this.w = Math.cos(h);
+    this.w = DMath.cos(h);
     return this;
   }
 
@@ -76,12 +77,12 @@ export class Quat {
   }
 
   setEulerComponents(rx: number, ry: number, rz: number): this {
-    const c1 = Math.cos(rx / 2);
-    const c2 = Math.cos(ry / 2);
-    const c3 = Math.cos(rz / 2);
-    const s1 = Math.sin(rx / 2);
-    const s2 = Math.sin(ry / 2);
-    const s3 = Math.sin(rz / 2);
+    const c1 = DMath.cos(rx / 2);
+    const c2 = DMath.cos(ry / 2);
+    const c3 = DMath.cos(rz / 2);
+    const s1 = DMath.sin(rx / 2);
+    const s2 = DMath.sin(ry / 2);
+    const s3 = DMath.sin(rz / 2);
     this.x = s1 * c2 * c3 + c1 * s2 * s3;
     this.y = c1 * s2 * c3 - s1 * c2 * s3;
     this.z = c1 * c2 * s3 - s1 * s2 * c3;
@@ -93,13 +94,13 @@ export class Quat {
     const { x, y, z, w } = this;
     const sinrCosp = 2 * (w * x + y * z);
     const cosrCosp = 1 - 2 * (x * x + y * y);
-    out.x = Math.atan2(sinrCosp, cosrCosp);
+    out.x = DMath.atan2(sinrCosp, cosrCosp);
     let sinp = 2 * (w * y - z * x);
     sinp = clamp(sinp, -1, 1);
-    out.y = Math.asin(sinp);
+    out.y = DMath.asin(sinp);
     const sinyCosp = 2 * (w * z + x * y);
     const cosyCosp = 1 - 2 * (y * y + z * z);
-    out.z = Math.atan2(sinyCosp, cosyCosp);
+    out.z = DMath.atan2(sinyCosp, cosyCosp);
     return out;
   }
 
@@ -290,10 +291,10 @@ export class Quat {
       Quat.nlerpInto(a, { x: bx, y: by, z: bz, w: bw } as Quat, t, out);
       return;
     }
-    const halfTheta = Math.acos(clamp(cosHalf, -1, 1));
+    const halfTheta = DMath.acos(clamp(cosHalf, -1, 1));
     const sinHalf = Math.sqrt(1 - cosHalf * cosHalf);
-    const ratioA = Math.sin((1 - t) * halfTheta) / sinHalf;
-    const ratioB = Math.sin(t * halfTheta) / sinHalf;
+    const ratioA = DMath.sin((1 - t) * halfTheta) / sinHalf;
+    const ratioB = DMath.sin(t * halfTheta) / sinHalf;
     out.set(
       a.x * ratioA + bx * ratioB,
       a.y * ratioA + by * ratioB,
@@ -689,7 +690,7 @@ export class Mat4 {
   setPerspective(fovYRad: number, aspect: number, near: number, far: number): this {
     const m = this.m;
     m.fill(0);
-    const f = 1 / Math.tan(clamp(fovYRad, 1e-4, PI - 1e-4) / 2);
+    const f = 1 / DMath.tan(clamp(fovYRad, 1e-4, PI - 1e-4) / 2);
     const span = Math.max(far - near, 1e-6);
     m[0] = f / aspect;
     m[5] = f;
@@ -820,9 +821,9 @@ export class Mat4 {
    */
   decompose(pos: Vec3, rot: Quat, scl: Vec3): boolean {
     const m = this.m;
-    let sx = Math.hypot(m[0]!, m[1]!, m[2]!);
-    const sy = Math.hypot(m[4]!, m[5]!, m[6]!);
-    const sz = Math.hypot(m[8]!, m[9]!, m[10]!);
+    let sx = DMath.hypot(m[0]!, m[1]!, m[2]!);
+    const sy = DMath.hypot(m[4]!, m[5]!, m[6]!);
+    const sz = DMath.hypot(m[8]!, m[9]!, m[10]!);
     if (this.determinant() < 0) sx = -sx;
     if (sx < 1e-8 || sy < 1e-8 || sz < 1e-8) return false;
     pos.x = m[12]!;
@@ -928,8 +929,8 @@ export function composeYTRS(
   out: Float32Array,
   offset = 0,
 ): void {
-  const c = Math.cos(radians);
-  const s = Math.sin(radians);
+  const c = DMath.cos(radians);
+  const s = DMath.sin(radians);
   // Column 0: the rotated +X axis, scaled by sx.
   out[offset] = c * sx;
   out[offset + 1] = 0;

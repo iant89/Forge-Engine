@@ -19,6 +19,7 @@ import { RigidBody } from "./body.js";
 import type { PhysicsWorldSnapshot } from "./world.js";
 import type { PhysicsBackend } from "./backend.js";
 import { VehicleComponent } from "../vehicles/components.js";
+import { DMath } from "../math/detmath.js";
 
 /**
  * Options for {@link PhysicsSystem}.
@@ -265,7 +266,7 @@ export class PhysicsSystem extends FixedSystem {
       const qw = Math.min(1, Math.max(-1, this.scratchDeltaQ.w));
       const sinHalf = Math.sqrt(Math.max(0, 1 - qw * qw));
       if (sinHalf > 1e-8) {
-        const angle = 2 * Math.acos(qw);
+        const angle = 2 * DMath.acos(qw);
         const s = (angle * invFrameDt) / sinHalf;
         body.angularVelocity.set(
           this.scratchDeltaQ.x * s,

@@ -10,6 +10,8 @@
  * friction circle after the two axes are evaluated. Coefficients are dimensionless except `D`.
  */
 
+import { DMath } from "../math/detmath.js";
+
 export interface PacejkaCoefficients {
   /** Stiffness factor. Larger → peak at a smaller slip. */
   B: number;
@@ -27,8 +29,8 @@ export const DEFAULT_LATERAL: Omit<PacejkaCoefficients, "D"> = { B: 8.5, C: 1.3,
 /** Magic formula. Pure; no allocation. */
 export function pacejka(slip: number, coeff: PacejkaCoefficients): number {
   const Bx = coeff.B * slip;
-  const atanBx = Math.atan(Bx);
-  return coeff.D * Math.sin(coeff.C * Math.atan(Bx - coeff.E * (Bx - atanBx)));
+  const atanBx = DMath.atan(Bx);
+  return coeff.D * DMath.sin(coeff.C * DMath.atan(Bx - coeff.E * (Bx - atanBx)));
 }
 
 /**
@@ -60,10 +62,10 @@ export function pacejkaShape(slip: number, coeff: Omit<PacejkaCoefficients, "D">
  */
 export function pacejkaDerivative(slip: number, coeff: PacejkaCoefficients): number {
   const Bx = coeff.B * slip;
-  const atanBx = Math.atan(Bx);
+  const atanBx = DMath.atan(Bx);
   const u = Bx - coeff.E * (Bx - atanBx);
   const bx2 = Bx * Bx;
   const du = coeff.B * (1 - (coeff.E * bx2) / (1 + bx2));
-  const atanU = Math.atan(u);
-  return coeff.D * Math.cos(coeff.C * atanU) * coeff.C * (1 / (1 + u * u)) * du;
+  const atanU = DMath.atan(u);
+  return coeff.D * DMath.cos(coeff.C * atanU) * coeff.C * (1 / (1 + u * u)) * du;
 }

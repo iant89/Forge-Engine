@@ -90,7 +90,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "16": "inProgress",
   "17": "inProgress",
   "18": "verified",
-  "19": "inProgress",
+  "19": "verified",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -332,6 +332,28 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     summary: "Input recording, deterministic playback and state hashing",
     evidence: ["tests/replay/replay.test.ts", "docs/REPLAY.md"],
     notes: "A replay records the frame schedule as well as input (fixed systems are not interleaved) and starts from the same scene build or from a 19.3 snapshot restored into a fresh one",
+  },
+  {
+    id: "determinism.crossEngine",
+    phase: "19.5",
+    status: "verified",
+    summary: "The same input stream produces identical state hashes in V8 and JavaScriptCore",
+    evidence: ["tests/math/detmath.test.ts", "tests/replay/crossEngine.test.ts", "tools/replay-engines.mjs", "docs/REPLAY.md"],
+    notes: "Simulation code calls DMath (exact-arithmetic fdlibm) instead of the implementation-approximated Math functions; lint:arch enforces it. check:replay-engines (CI: Node + Bun) replays a committed complete vehicle session, saved mid-run and resumed, to identical hashes. SpiderMonkey is checked by opening replay-verify.html (capability: determinism.firefox).",
+  },
+  {
+    id: "determinism.firefox",
+    phase: "19.5",
+    status: "deferred",
+    summary: "An automated SpiderMonkey (Firefox) run of the cross-engine replay check",
+    notes: "No gate runs Firefox. DMath depends only on IEEE-754 arithmetic, which every engine implements exactly, and replay-verify.html checks any browser by hand. No roadmap item schedules a Firefox runner.",
+  },
+  {
+    id: "scheduling.fixedStepInterleaving",
+    phase: "19.4",
+    status: "deferred",
+    summary: "Interleaving fixed-step systems step by step within a frame",
+    notes: "Each FixedSystem runs all of a frame's steps before the next system runs its own, so the same steps grouped into different frames give a different result. Replays record the frame schedule for this reason; no roadmap item changes the scheduler.",
   },
 
   // ---------------------------------------------------------------- rendering

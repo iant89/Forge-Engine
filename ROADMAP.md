@@ -182,11 +182,7 @@ PHASE 18 - SCRIPTING
     [x]
 
 PHASE 19 - SAVE / SERIALIZATION / REPLAY
-    [~] IN PROGRESS (19.1-19.4 landed: versioned scene saves with entities, components, hierarchy,
-        transforms, scripts, environment and terrain settings, and migrations from version 1; exact
-        mid-run simulation snapshots of physics, vehicles, weather and RNG with state hashing;
-        input recording, frame-schedule playback and per-part state hashing for replays;
-        verification across engines (19.5) remains)
+    [x]
 
 
 ================================================================================
@@ -2104,6 +2100,20 @@ GOAL:
 19.5 Verification
 
     Same input stream must produce identical state hashes.
+
+    [x] identical hashes across JavaScript engines (V8 and JavaScriptCore: Math.atan already
+                                  differed by an ulp and diverged a replay within a frame. Simulation
+                                  code calls DMath, fdlibm in exact arithmetic, bit-identical to V8's
+                                  Math where V8 runs fdlibm; lint:arch forbids the approximated Math
+                                  functions and ** in simulation sources)
+    [x] a complete vehicle session (the offroad demo's simulation headless: track terrain, weather-driven
+                                  ground, rain, storm and lightning, snow, day/night, a physics
+                                  chassis hitting crates, a reverse manoeuvre; 1,080 frames recorded
+                                  under an uneven frame rate and committed as the cross-engine contract)
+    [x] saved and replayed      (playback to all 19 hashes, a live re-run, and a frame-540 snapshot
+                                  resumed in a fresh build all end on the recorded final hash)
+        npm run check:replay-engines (Node + Bun, in CI), tests/replay/crossEngine.test.ts,
+        tests/math/detmath.test.ts, examples/replay-verify.html for any browser, docs/REPLAY.md.
 
 
 EXIT CRITERIA:

@@ -15,6 +15,7 @@
  */
 
 import { TAU } from "./scalar.js";
+import { DMath } from "./detmath.js";
 
 /**
  * Mix a 32-bit unsigned integer to a well-scrambled 32-bit unsigned integer (splitmix32 finalizer,
@@ -120,7 +121,7 @@ export class Rng {
       v = this.nextFloat() * 2 - 1;
       s = u * u + v * v;
     } while (s >= 1 || s === 0);
-    const mul = Math.sqrt((-2 * Math.log(s)) / s);
+    const mul = Math.sqrt((-2 * DMath.log(s)) / s);
     this.spare = v * mul;
     this.hasSpare = true;
     return u * mul;
@@ -131,8 +132,8 @@ export class Rng {
     const z = this.nextFloat() * 2 - 1;
     const a = this.nextFloat() * TAU;
     const r = Math.sqrt(Math.max(0, 1 - z * z));
-    out.x = r * Math.cos(a);
-    out.y = r * Math.sin(a);
+    out.x = r * DMath.cos(a);
+    out.y = r * DMath.sin(a);
     out.z = z;
   }
 

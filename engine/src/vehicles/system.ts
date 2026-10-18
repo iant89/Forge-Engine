@@ -22,6 +22,7 @@ import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { VehicleComponent } from "./components.js";
 import { worldSurfaceGrip, worldSurfaceGripField } from "../scene/surfaceGrip.js";
+import { DMath } from "../math/detmath.js";
 
 export class VehicleSystem extends FixedSystem {
   readonly name = "vehicles";
@@ -84,7 +85,7 @@ export class VehicleSystem extends FixedSystem {
       let nx: number;
       let ny: number;
       let nz: number;
-      const normalLength = Math.hypot(wheel.nx, wheel.ny, wheel.nz);
+      const normalLength = DMath.hypot(wheel.nx, wheel.ny, wheel.nz);
       if (wheel.inContact && Number.isFinite(normalLength) && normalLength > 1e-6 && wheel.ny > 0) {
         nx = wheel.nx / normalLength;
         ny = wheel.ny / normalLength;
@@ -102,7 +103,7 @@ export class VehicleSystem extends FixedSystem {
       let fx = bodyFx - nx * forwardDot;
       let fy = bodyFy - ny * forwardDot;
       let fz = bodyFz - nz * forwardDot;
-      let forwardLength = Math.hypot(fx, fy, fz);
+      let forwardLength = DMath.hypot(fx, fy, fz);
       if (forwardLength < 1e-6) {
         // Degenerate only when the chassis is aimed almost straight into the surface; choose a
         // stable tangent rather than letting the wheel quaternion collapse.
@@ -111,7 +112,7 @@ export class VehicleSystem extends FixedSystem {
         fx = fallback.x - nx * forwardDot;
         fy = fallback.y - ny * forwardDot;
         fz = fallback.z - nz * forwardDot;
-        forwardLength = Math.hypot(fx, fy, fz);
+        forwardLength = DMath.hypot(fx, fy, fz);
       }
       const invForwardLength = 1 / forwardLength;
       fx *= invForwardLength;
@@ -120,8 +121,8 @@ export class VehicleSystem extends FixedSystem {
 
       const steer = wheel.steerAngle;
       if (steer !== 0) {
-        const cos = Math.cos(steer);
-        const sin = Math.sin(steer);
+        const cos = DMath.cos(steer);
+        const sin = DMath.sin(steer);
         const rightX = ny * fz - nz * fy;
         const rightY = nz * fx - nx * fz;
         const rightZ = nx * fy - ny * fx;

@@ -23,6 +23,8 @@
  *   examples/**        -> "@forge/engine" or a local relative file, never engine/src
  *   tests/**           -> "@forge/engine" or a local relative file outside engine/src
  *   all engine sources -> no WebGL fallback, ever (WebGPU-first, ADR-001)
+ *   simulation sources -> no implementation-approximated Math function and no `**` (Phase 19.5: they
+ *                         differ between JavaScript engines; use DMath). DETERMINISTIC_SOURCES below.
  *
  * Run with `npm run lint:arch`. Exits 1 with file:line for every violation.
  */
@@ -185,6 +187,68 @@ function checkHost(dir, label, { allowBarePackages = false } = {}) {
 checkHost("examples/src", "example");
 checkHost("tests", "test", { allowBarePackages: true });
 
+// ----------------------------------------------------------------- deterministic simulation (19.5)
+
+// Everything a replay or a snapshot hash depends on. ECMAScript leaves these Math functions (and `**`)
+// implementation-approximated, so V8 and JavaScriptCore can return different last bits; simulation code
+// calls DMath (engine/src/math/detmath.ts) instead. tests/replay/crossEngine.test.ts checks the same thing
+// at run time: the verification session calls none of them.
+const DETERMINISTIC_SOURCES = [
+  "engine/src/physics",
+  "engine/src/vehicles",
+  "engine/src/replay",
+  "engine/src/core/snapshot.ts",
+  "engine/src/scene/snapshot.ts",
+  "engine/src/math/detmath.ts",
+  "engine/src/math/mat.ts",
+  "engine/src/math/vec.ts",
+  "engine/src/math/rng.ts",
+  "engine/src/math/noise.ts",
+  "engine/src/environment/atmosphere.ts",
+  "engine/src/environment/dayNight.ts",
+  "engine/src/environment/lightning.ts",
+  "engine/src/environment/moistureField.ts",
+  "engine/src/environment/snowMelt.ts",
+  "engine/src/environment/solar.ts",
+  "engine/src/environment/surfaceWeather.ts",
+  "engine/src/environment/weather.ts",
+  "engine/src/terrain/track.ts",
+  "engine/src/terrain/trackWeather.ts",
+  "examples/src/replay",
+];
+const APPROXIMATED =
+  /\bMath\.(acosh?|asinh?|atanh?|atan2|cbrt|cosh?|exp|expm1|hypot|log|log1p|log10|log2|pow|sinh?|tanh?)\s*\(/;
+const EXPONENT = /[\w)\]]\s*\*\*(?!\/)\s*[\w(.-]/;
+
+/** Source with comments and string contents blanked, line structure kept. */
+function codeOnly(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/.*$/gm, "")
+    .replace(/(["'`])(?:\\.|(?!\1)[^\\\n])*\1/g, (m) => m[0] + " ".repeat(m.length - 2) + m[0]);
+}
+
+for (const entry of DETERMINISTIC_SOURCES) {
+  const full = path.join(root, entry);
+  if (!fs.existsSync(full)) {
+    violations.push({ file: full, line: 0, message: `DETERMINISTIC_SOURCES lists ${entry}, which does not exist` });
+    continue;
+  }
+  const list = fs.statSync(full).isDirectory() ? files(full) : [full];
+  for (const file of list) {
+    codeOnly(fs.readFileSync(file, "utf-8"))
+      .split("\n")
+      .forEach((line, index) => {
+        const approx = line.match(APPROXIMATED);
+        if (approx) {
+          violations.push({ file, line: index + 1, message: `${path.relative(root, file)} calls Math.${approx[1]} in simulation code — it differs between JavaScript engines; use DMath.${approx[1]}` });
+        } else if (EXPONENT.test(line)) {
+          violations.push({ file, line: index + 1, message: `${path.relative(root, file)} uses \`**\` in simulation code — it differs between JavaScript engines; multiply, or use DMath.pow` });
+        }
+      });
+  }
+}
+
 // ----------------------------------------------------------------- report
 
 if (violations.length > 0) {
@@ -201,5 +265,5 @@ const scanned = [
 ];
 console.log(
   `lint:arch OK — ${scanned[0]} engine sources, ${scanned[1]} example sources, ${scanned[2]} test files: ` +
-    "boundaries intact, no WebGL fallback, no engine/src deep imports.",
+    "boundaries intact, no WebGL fallback, no engine/src deep imports, no engine-dependent Math in simulation code.",
 );

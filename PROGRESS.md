@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-15_
+_Last updated: 2026-10-18_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -172,7 +172,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
 - [x] Versioned scene saves with migrations: entities, components, hierarchy, transforms, scripts, environment and terrain settings (Phase 19.1–19.2; `docs/SERIALIZATION.md`)
 - [x] Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run bit-for-bit, with state hashing (Phase 19.3; `docs/SERIALIZATION.md`)
-- [ ] Input recording, deterministic playback and state hashing (Phase 19.4)
+- [x] Input recording, deterministic playback and state hashing (Phase 19.4; `docs/REPLAY.md`)
+- [x] Identical replays across JavaScript engines: a complete vehicle session, saved mid-run and replayed, gives the same state hashes in V8 (Chrome) and JavaScriptCore (Safari) (Phase 19.5; `docs/REPLAY.md`)
 
 ## Debugging, profiling & benchmarks (Phases 21, 22)
 

@@ -33,6 +33,7 @@ import { Vec3 } from "../math/vec.js";
 import { clamp } from "../math/scalar.js";
 import { Rng, hash1i } from "../math/rng.js";
 import { WeatherSystem } from "./weather.js";
+import { DMath } from "../math/detmath.js";
 
 export interface LightningBolt {
   /** Polyline from the cloud (`points[0]`) to the ground (last point). */
@@ -73,7 +74,7 @@ export function thunderDelay(distance: number, temperatureC = 20): number {
  * r = 10·I^0.65; 30 kA → ≈ 91 m). The leader attaches to the highest point it "sees" within it.
  */
 export function strikingDistance(peakKA: number): number {
-  return 10 * Math.pow(Math.max(1, peakKA), 0.65);
+  return 10 * DMath.pow(Math.max(1, peakKA), 0.65);
 }
 
 export interface StrikeTargetOptions {
@@ -109,10 +110,10 @@ export function attachStrike(x: number, z: number, energy: number, seed: number,
   const consider = (px: number, py: number, pz: number): void => {
     // A point at the edge of the sphere must stand taller to win: the leader is closer to it the
     // higher it reaches (height gain vs horizontal offset, rolling sphere tangent).
-    const d = Math.hypot(px - x, pz - z);
+    const d = DMath.hypot(px - x, pz - z);
     if (d > radius) return;
     const effective = py - (d * d) / (2 * radius);
-    const bestD = Math.hypot(bx - x, bz - z);
+    const bestD = DMath.hypot(bx - x, bz - z);
     if (effective > by - (bestD * bestD) / (2 * radius) + 1e-6) {
       bx = px;
       by = py;
@@ -125,8 +126,8 @@ export function attachStrike(x: number, z: number, energy: number, seed: number,
     const u = (hash1i(i, seed) >>> 8) / 16777216;
     const r = radius * Math.sqrt((i + u) / samples);
     const a = i * 2.399963229728653 + (seed % 6283) / 1000;
-    const px = x + Math.cos(a) * r;
-    const pz = z + Math.sin(a) * r;
+    const px = x + DMath.cos(a) * r;
+    const pz = z + DMath.sin(a) * r;
     consider(px, target.heightAt(px, pz), pz);
   }
   const attractors = typeof target.attractors === "function" ? target.attractors() : (target.attractors ?? []);
@@ -154,16 +155,16 @@ export const DEFAULT_FLASH_ENVELOPE: Readonly<FlashEnvelope> = Object.freeze({ a
  */
 export function flashEnvelope(t: number, envelope: FlashEnvelope = DEFAULT_FLASH_ENVELOPE): number {
   if (!(t >= 0)) return 0;
-  const main = (1 - Math.exp(-t / Math.max(1e-6, envelope.attack))) * Math.exp(-t / Math.max(1e-6, envelope.decay));
+  const main = (1 - DMath.exp(-t / Math.max(1e-6, envelope.attack))) * DMath.exp(-t / Math.max(1e-6, envelope.decay));
   if (!(envelope.restrikeDelay > 0) || t < envelope.restrikeDelay) return main;
   const tr = t - envelope.restrikeDelay;
-  return main + envelope.restrikeStrength * (1 - Math.exp(-tr / Math.max(1e-6, envelope.attack))) * Math.exp(-tr / Math.max(1e-6, envelope.decay));
+  return main + envelope.restrikeStrength * (1 - DMath.exp(-tr / Math.max(1e-6, envelope.attack))) * DMath.exp(-tr / Math.max(1e-6, envelope.decay));
 }
 
 /** Seconds until the envelope (and the strike) has faded below 1 % of its energy. */
 export function flashDuration(envelope: FlashEnvelope = DEFAULT_FLASH_ENVELOPE): number {
   const tail = envelope.restrikeDelay > 0 ? envelope.restrikeDelay : 0;
-  return tail + envelope.decay * Math.log(100 * (1 + envelope.restrikeStrength));
+  return tail + envelope.decay * DMath.log(100 * (1 + envelope.restrikeStrength));
 }
 
 /**
@@ -184,7 +185,7 @@ export function generateBoltPoints(start: Vec3, end: Vec3, seed: number, subdivi
       const b = out[i]!;
       const mid = new Vec3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
       if (roughness > 0) {
-        const segLen = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+        const segLen = DMath.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
         // Two perpendiculars of the segment; the hash picks the offset in that plane.
         const dx = (b.x - a.x) / (segLen || 1);
         const dy = (b.y - a.y) / (segLen || 1);
@@ -199,7 +200,7 @@ export function generateBoltPoints(start: Vec3, end: Vec3, seed: number, subdivi
         let px = dy * uz - dz * uy;
         let py = dz * ux - dx * uz;
         let pz = dx * uy - dy * ux;
-        const pl = Math.hypot(px, py, pz) || 1;
+        const pl = DMath.hypot(px, py, pz) || 1;
         px /= pl;
         py /= pl;
         pz /= pl;
@@ -234,7 +235,7 @@ export function lightningBranches(main: readonly Vec3[], seed: number, count: nu
     const at = main[1 + Math.floor(rng.nextFloat() * (main.length * 0.6))]!;
     const angle = rng.nextFloat() * Math.PI * 2;
     const len = height * (0.12 + 0.22 * rng.nextFloat());
-    const end = new Vec3(at.x + Math.cos(angle) * len * 0.7, Math.max(bottom.y, at.y - len), at.z + Math.sin(angle) * len * 0.7);
+    const end = new Vec3(at.x + DMath.cos(angle) * len * 0.7, Math.max(bottom.y, at.y - len), at.z + DMath.sin(angle) * len * 0.7);
     out.push(generateBoltPoints(at.clone(), end, rng.nextU32(), Math.max(2, subdivisions - 2), roughness));
   }
   return out;
@@ -333,8 +334,8 @@ export function lightningRibbonStep(a: { x: number; y: number; z: number }, b: {
   let px = dy * mz - dz * my;
   let py = dz * mx - dx * mz;
   let pz = dx * my - dy * mx;
-  const pl = Math.hypot(px, py, pz);
-  const dist = Math.hypot(mx, my, mz);
+  const pl = DMath.hypot(px, py, pz);
+  const dist = DMath.hypot(mx, my, mz);
   if (pl < 1e-9) return out.set(0, 0, 0);
   const k = (dist * pixelAngle) / pl;
   px *= k;
@@ -462,8 +463,8 @@ export class LightningSystem extends SceneObject {
     const listener = this.options.listener?.();
     if (!listener) return;
     let distance = Number.POSITIVE_INFINITY;
-    for (const p of strike.bolt.points) distance = Math.min(distance, Math.hypot(p.x - listener.x, p.y - listener.y, p.z - listener.z));
-    if (!Number.isFinite(distance)) distance = Math.hypot(strike.position.x - listener.x, strike.position.y - listener.y, strike.position.z - listener.z);
+    for (const p of strike.bolt.points) distance = Math.min(distance, DMath.hypot(p.x - listener.x, p.y - listener.y, p.z - listener.z));
+    if (!Number.isFinite(distance)) distance = DMath.hypot(strike.position.x - listener.x, strike.position.y - listener.y, strike.position.z - listener.z);
     const delay = thunderDelay(distance, this.airTemperature());
     const entry = { at: this.simulatedSeconds + delay, event: { strike, distance, delay, energy: strike.energy } };
     // Keep the queue in arrival order (a near strike can overtake a far one).
@@ -550,7 +551,7 @@ export class LightningSystem extends SceneObject {
         const energy = 0.5 + this.rng.nextFloat();
         const cloudOnly = (this.options.cloudFlashFraction ?? 0) > 0 ? this.rng.nextFloat() < (this.options.cloudFlashFraction ?? 0) : false;
         const c = this.options.center?.() ?? { x: 0, z: 0 };
-        this.trigger(new Vec3(c.x + Math.cos(angle) * radius, this.groundY, c.z + Math.sin(angle) * radius), energy, cloudOnly, true);
+        this.trigger(new Vec3(c.x + DMath.cos(angle) * radius, this.groundY, c.z + DMath.sin(angle) * radius), energy, cloudOnly, true);
         this.nextStrikeIn += this.drawInterarrival(storm);
       }
     }
@@ -659,7 +660,7 @@ export class LightningSystem extends SceneObject {
   /** Exponential interarrival at `rate × storm` (mean 1/(rate·storm) seconds). */
   private drawInterarrival(storm: number): number {
     const lambda = Math.max(1e-6, this.rate * Math.max(0, storm));
-    return -Math.log(1 - this.rng.nextFloat()) / lambda;
+    return -DMath.log(1 - this.rng.nextFloat()) / lambda;
   }
 
   override stats(): Record<string, number | string | boolean> {

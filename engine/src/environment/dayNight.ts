@@ -25,6 +25,7 @@ import { Color } from "../math/color.js";
 import { clamp, RAD_TO_DEG, smoothstep } from "../math/scalar.js";
 import { AtmosphereModel, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "./atmosphere.js";
 import { createSolarPosition, daysInYear, julianDayFromDayOfYear, solarPosition, sunDirection, type SolarPosition } from "./solar.js";
+import { DMath } from "../math/detmath.js";
 
 export interface DayNightScheduleState {
   readonly scene: Scene;
@@ -82,7 +83,7 @@ export interface DayNightOptions {
 const HORIZON_RAMP = 0.5 * (Math.PI / 180);
 /** Elevation the fog colour is sampled at: just above the horizon, clear of the ground term. */
 const HORIZON_ELEVATION = 1.5 * (Math.PI / 180);
-const COS_REEVALUATE = Math.cos(0.03 * (Math.PI / 180));
+const COS_REEVALUATE = DMath.cos(0.03 * (Math.PI / 180));
 const SUN_TRANSMITTANCE_SAMPLES = 32;
 
 export class DayNightCycle extends SceneObject {

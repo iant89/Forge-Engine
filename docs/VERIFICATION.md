@@ -71,7 +71,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
 | `npm test` | 120 linked suites. 2026-10-16 run (UI framework branch): 1,864 passing cases, 3 failing — `examples:marsShowcaseDamage` (rock ram, fails on `main` too), `examples:marsShowcaseCollision` (intermittent under full-suite load) and one `core:tasks` worker-scope case (passes alone; known flaky, see mnemosyne.md), none in code this branch touched. Earlier history: 1,127 passing cases in 81 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 120 suites have matching headers/exported manifests, unique names, repository-backed areas and 883 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
+| `npm run test:check` | The selrun catalog is complete: all 125 suites have matching headers/exported manifests, unique names, repository-backed areas and 935 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core/math/ui with only `ui/gpu/**` also seeing gpu/rendering), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -90,6 +90,7 @@ palette deforming the vertices on the real device (details in the `check:browser
 | `npm run check:browser:rescue` | Focused Chromium + SwiftShader smoke for Alpine Search & Rescue: changes scenes through the actual selector, verifies the shared terrain/vehicle physics world has dynamic bodies and advances, loads the medical case through the mission interaction, snaps into the whiteout with live snowfall, toggles headlights/parking, and drives the rescue 4×4 under W. Does **not** run the full renderer/Mars suite | passing locally on real Chromium + SwiftShader: 26 physics bodies / 5 steps, mission cargo loaded, storm=1.00, 870 live snow particles, drive=0.50 m, zero GPU/console errors; screenshot `tools/.browser-check-alpine-rescue.png` inspected |
 | `npm run check:browser:amazon` | Focused Chromium + SwiftShader smoke for the Amazon River: switches through the actual scene selector, waits for the shared water clock and scene pipelines, verifies the floodplain scatter/five bank stops/17 floating channel marks and a safe thalweg launch, then exercises R/F, W throttle, A steering, E outboard trim and neutral through the real keyboard path, plus the phone layout's stick, F/N/R switch and LEG UP/DOWN buttons (the car brake/PARK controls are hidden, the keyboard hint is hidden, and tapping trim moves the leg). Does **not** run the full renderer/Mars suite | passed locally on real Chromium + SwiftShader: 572 trees, 17 buoys, 5 stops, 4 water waves, 8.4 m depth; W moved the launch 6.77 m over 1.5 simulated seconds, helm reached 0.47, phone trim moved 0.05 → 0.12, 100.8 mean frame brightness on the inspected 1280×720 capture, zero GPU errors; screenshots `tools/.browser-check-amazon-river.png` and `tools/.browser-check-amazon-touch.png` inspected |
 | `npm run bench` | Phase 3 100k-entity transform/visibility/culling benchmark, the Phase 7 100k-particle × 30-step integrator (fails if that integrate takes ≥ 1 s or leaves the analytic curve; measured here at ~98 ms), the Phase 13.4 light-count stress benchmark (`benchmarks/src/lights.bench.ts`: prepare/count/fill timed per frame at 16/64/256 lights on a demo-shaped and a grid-saturating rig, with shape guards — the fill follows coverage, the counting pass does not, the worst case stays under a second) and the Phase 13.5 object-culling benchmark (`benchmarks/src/culling.bench.ts`: the CPU twin's frustum/distance/HiZ tests at 512/2048/8192 batches plus a 1280×720 pyramid per frame; measured here 1.1 µs/batch and 9.2 ms/frame at the cap, 39.5 ms for the pyramid — the reduction the twin does not do), and the UI framework benchmark (`benchmarks/src/ui.bench.ts`: build, steady frame, hover, local text change, resize, draw-list rebuild, 100k-row virtualized scroll, text cache; shape guards — a steady frame does 0 measures/0 style resolves/no rebuild, a change behind a layout boundary measures 1 element vs 2,015 for a resize, 1,000 buttons draw in 1 batch, the 100k list keeps 37 elements, the second text pass is all cache hits; numbers in docs/UI-GUIDE.md §12) | passing |
+| `npm run check:replay-engines` | Phase 19.5: `tools/replay-verify.ts` under Node (V8) **and** Bun (JavaScriptCore, Safari's engine). Each engine reproduces the pinned DMath vector digest, replays the committed 1,080-frame vehicle-session recording (`examples/src/replay/vehicle-session.replay.json`) to all 19 state hashes, re-runs the scripted session live on the recorded schedule to the same final hash, resumes a frame-540 snapshot in a fresh build to it, and calls no engine-dependent `Math` function while simulating; the two engines must also agree with each other. Exits 2 (NOT RUN) without Bun. Runs in the CPU-gates CI job (Bun 1.4.2) | passing |
 | `npm run verify` | typecheck, test, and check:wgsl in sequence | passing |
 | `npm run setup:check` | Node/npm/git, every locked package, the headless browser, and the Vulkan loader + ICD the gate needs — one line per dependency, `warn` for anything that only affects the browser gate and `FAIL` for the rest. `--browser` makes the browser and Vulkan required instead of advisory | passing (this sandbox reports the two system packages as a warning: the bundled Chromium ships its own loader and ICD) |
 
@@ -599,9 +600,52 @@ What these do **not** prove: anything about pixels (the mock device rasterises n
 * Format validation names the first problem; the player refuses missing or mis-sized channels, a
   different hash algorithm and a clock with a different fixed step.
 
-What it does **not** prove: replays across machines or browsers (the suite runs one Node build;
-JavaScript's IEEE-754 doubles make that expected, but `Math.sin` and friends are not required to be
-bit-identical across engines).
+What it does **not** prove: replays across JavaScript engines — that is `replay:crossEngine` and
+`check:replay-engines` below.
+
+### `tests/math/detmath.test.ts` — engine-independent transcendentals (Phase 19.5)
+
+6 cases. `DMath` (engine/src/math/detmath.ts) replaces the `Math` functions ECMAScript leaves
+implementation-approximated, using only exact operations:
+
+* **The digest of 280,000 results** (20,000 vectors per function, built from an integer LCG and
+  power-of-two scaling, so the *inputs* are engine-independent too) is pinned; `check:replay-engines`
+  recomputes the same digest under JavaScriptCore.
+* **No engine-dependent operation inside it**, statically (no approximated `Math` call or `**` in the
+  source) and at run time (wrapping every approximated `Math` function counts 0 calls).
+* **Bit-for-bit agreement with V8**, whose `Math` is fdlibm: asin, acos, atan, atan2, exp, log, log2,
+  log10 and cbrt on every vector; sin, cos and tan on every vector below 2^19·π/2, and within 1 ulp
+  above it (an exact `BigInt` reduction instead of fdlibm's Payne–Hanek; `sin(1e22)` is exact). This
+  is why the conversion changed no number any existing suite pins.
+* **pow and hypot**: within 1 and 3 ulp of V8's own (measured against an exact reference during
+  development, DMath's are the more accurate: ≤ 0.80 and ≤ 1.10 ulp vs V8's ≤ 0.89 and ≤ 1.88), with
+  exact cases (2^10, 9^0.5, hypot(3, 4, 12) = 13, subnormal and overflow-scale inputs).
+* **ECMAScript special cases** for NaN, ±0, ±∞, ±1, subnormals and the extremes, including
+  `pow(±1, ±∞) = NaN` and `hypot(NaN, ∞) = ∞`.
+
+### `tests/replay/crossEngine.test.ts` — the Phase 19 exit criterion, on the contract every engine replays (Phase 19.5)
+
+5 cases on `examples/src/replay/verificationSession.ts`, the offroad demo's simulation without its
+renderer: `TrackTerrain` carved into a hillside, `TrackWeatherGround` (moisture, mud, snow, per-surface
+grip), a weather timetable from clear through rain into a storm and then snow, `LightningSystem`,
+`DayNightCycle` at 120×, a raycast car with a physics chassis, six crates, and a scripted driver.
+
+* **The session is complete:** the car drives > 150 m, stops, reverses and drives on (two shifts),
+  knocks at least two crates more than a metre, the storm strikes more than three times, the rain
+  wets the surface and it ends in snow; the frame schedule mixes empty and multi-step frames.
+* **No engine-dependent `Math` call** while building, settling, recording, playing back, re-running
+  or resuming (every approximated function wrapped and counted: 0).
+* **Re-recording reproduces the committed fixture exactly** — schedule, input, initial state and all
+  18 checkpoint hashes plus the final one.
+* **The fixture verifies three ways** (`verifyRecording`): playback into a fresh build matches all 19
+  hashes; the live session re-run on the recorded schedule ends on the final hash; and a 19.3
+  snapshot taken at frame 540 (through JSON), restored into a fresh build and continued ends on it
+  too — save, restore and replay together.
+* A tampered brake value is caught at the first checkpoint after it, naming `vehicles`.
+
+Mutation-checked: putting one `Math.atan` back into the Pacejka tyre model makes `check:replay-engines`
+fail on both engines (237,997 engine-dependent calls). The same session diverged within one frame
+under JavaScriptCore before the conversion.
 
 ### `tests/rendering/objectCulling.test.ts` — the object culler's conservatism (Phase 13.5)
 

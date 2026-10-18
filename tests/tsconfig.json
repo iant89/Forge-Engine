@@ -18,7 +18,9 @@
     "**/*.ts",
     // The generator planner is a plain tool script that also ships into mars-terrain-gen, so it is
     // typechecked here (strict, like everything else) instead of only in the generator repo.
-    "../tools/mars-terrain/plan.ts"
+    "../tools/mars-terrain/plan.ts",
+    // The replay-engines runner executes under Node and Bun; typecheck it with the suites it mirrors.
+    "../tools/replay-verify.ts"
   ],
   "references": [
     {

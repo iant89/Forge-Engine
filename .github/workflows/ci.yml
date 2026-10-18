@@ -84,6 +84,16 @@ jobs:
       - name: Architecture boundaries
         run: npm run lint:arch
 
+      # Phase 19.5: the same input stream must produce identical state hashes on every JavaScript
+      # engine. Bun runs JavaScriptCore, the engine of Safari and every iOS browser; Node runs V8.
+      - name: Setup Bun (JavaScriptCore)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Cross-engine replay (V8 + JavaScriptCore)
+        run: npm run check:replay-engines
+
       - name: Selrun suite catalog is current
         run: npm run test:check
 
@@ -103,8 +113,9 @@ jobs:
         run: |
           cat <<'EOF'
           ::notice title=Not covered by CI::WebGPU browser gate (npm run check:browser) — no GPU in this
-          runner. Also not covered: WebKit/Safari (there is no Safari here), mobile browsers, GPU
-          timings, and the soak tests. A green job means the CPU gates passed, nothing more.
+          runner. Also not covered: WebKit/Safari rendering (there is no Safari here; its JavaScript
+          engine does run the cross-engine replay check), mobile browsers, GPU timings, and the soak
+          tests. A green job means the CPU gates passed, nothing more.
           EOF
 
   browser-gate:

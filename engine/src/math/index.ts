@@ -67,3 +67,4 @@ export {
   NoiseField,
   type FbmOptions,
 } from "./noise.js";
+export { DMath, APPROXIMATED_MATH_FUNCTIONS, type DeterministicMath } from "./detmath.js";

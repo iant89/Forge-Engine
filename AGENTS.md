@@ -53,8 +53,10 @@ npm run test:affected -- --base origin/main  # compare origin/main...HEAD only; 
 npm run test:check       # verify suite manifests, explicit covers, links, and declared count
 npm run check:wgsl       # structural WGSL validation + strict uniform address-space layout of every shipped shader
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
-npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports
+npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports,
+                         # no Math.sin/atan/exp/pow/hypot/… or ** in simulation sources (use DMath)
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
+npm run check:replay-engines  # 19.5: the committed vehicle-session replay gives identical hashes in Node (V8) and Bun (JavaScriptCore)
 npm run gltf:strip-skin-sets -- in.glb out.glb  # strip extra JOINTS_n/WEIGHTS_n sets (all-zero only; --force for weighted, --dry-run)
 npm run check:browser    # REAL WebGPU: Vite demo in headless Chromium/SwiftShader, all sections
 npm run check:browser:renderer # full-gate PBR/rendering A/B section only

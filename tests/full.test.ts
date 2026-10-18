@@ -11,6 +11,7 @@ export const linkedSuites = [
   ["tests/docs/capabilities.test.ts", () => import("./docs/capabilities.test.ts")],
   ["tests/math/bvh.test.ts", () => import("./math/bvh.test.ts")],
   ["tests/math/math.test.ts", () => import("./math/math.test.ts")],
+  ["tests/math/detmath.test.ts", () => import("./math/detmath.test.ts")],
   ["tests/animation/animation.test.ts", () => import("./animation/animation.test.ts")],
   ["tests/animation/animationBlendTree.test.ts", () => import("./animation/animationBlendTree.test.ts")],
   ["tests/animation/animationIK.test.ts", () => import("./animation/animationIK.test.ts")],
@@ -27,6 +28,7 @@ export const linkedSuites = [
   ["tests/scene/sceneSave.test.ts", () => import("./scene/sceneSave.test.ts")],
   ["tests/scene/simulationSnapshot.test.ts", () => import("./scene/simulationSnapshot.test.ts")],
   ["tests/replay/replay.test.ts", () => import("./replay/replay.test.ts")],
+  ["tests/replay/crossEngine.test.ts", () => import("./replay/crossEngine.test.ts")],
   ["tests/environment/environment.test.ts", () => import("./environment/environment.test.ts")],
   ["tests/environment/environment8b.test.ts", () => import("./environment/environment8b.test.ts")],
   ["tests/environment/environment17.test.ts", () => import("./environment/environment17.test.ts")],
@@ -127,4 +129,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(123);
+report(125);
