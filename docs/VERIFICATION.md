@@ -71,7 +71,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run typecheck` | `tsc -b engine` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
 | `npm test` | 120 linked suites. 2026-10-16 run (UI framework branch): 1,864 passing cases, 3 failing — `examples:marsShowcaseDamage` (rock ram, fails on `main` too), `examples:marsShowcaseCollision` (intermittent under full-suite load) and one `core:tasks` worker-scope case (passes alone; known flaky, see mnemosyne.md), none in code this branch touched. Earlier history: 1,127 passing cases in 81 linked suites, including the fe-16 Mars Dust Storm Survival game model (gust cycles, dust devils, dust accumulation, course and difficulty rules) and its mock-GPU scene suite, Phase 17.3 multi-layer cloud CPU checks (the layer stack, the sun-path shadow march against its 24-sample reference, the per-pixel octave fade) and Phase 17.2 finite-path atmospheric-transfer CPU checks, opt-in scene-setting serialization, and renderer flag/fallback/LUT/underwater integration. Also includes Phase 9.1 worker-backed glTF/GLB decoding, mesh-BVH picking/frustum culling and indexed physics broadphase, Phase 13.7 async pipeline, Phase 13.8 timestamp/readback, Phase 13.9 cascade/spot/point-map coverage, Phase 14.2/14.4 population coverage, Phase 15 asset-pipeline coverage, layered-terrain material + Mars showcase + Mars generator inspector, Phase 16 animation + GPU-skinning, and device-failure coverage; see the per-suite notes below | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 129 suites have matching headers/exported manifests, unique names, repository-backed areas and 948 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
+| `npm run test:check` | The selrun catalog is complete: all 130 suites have matching headers/exported manifests, unique names, repository-backed areas and 956 valid `@covers` claims; `tests/full.test.ts` links every discovered suite exactly once in the declared execution order, and `report(n)` equals the link count. Coverage is many-to-many; production import closure is not used for selection | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core/math/ui with only `ui/gpu/**` also seeing gpu/rendering), no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` (they must use `@forge/engine`) | passing |
 | `npm run docs:check` | The capability registry agrees with itself and with the documents: unique ids, `verified` entries carry evidence that exists on disk, unfinished entries name a roadmap item or phase that exists (or, if they are unmapped, carry a note saying why the roadmap schedules nothing), `ROADMAP.md`'s engine-state block matches the registry's phase statuses, every Phase 9 item is claimed, and every bullet in `docs/KNOWN-ISSUES.md` references a capability that is *not* verified (a stale limitation fails the gate) | passing |
@@ -752,6 +752,42 @@ grip), a weather timetable from clear through rain into a storm and then snow, `
 Mutation-checked: putting one `Math.atan` back into the Pacejka tyre model makes `check:replay-engines`
 fail on both engines (237,997 engine-dependent calls). The same session diverged within one frame
 under JavaScriptCore before the conversion.
+
+### `tests/audio/audioSystem.test.ts` — the audio mixer (Phase 20.1–20.4, docs/AUDIO.md)
+
+18 cases on `MockAudioContext` (`engine/src/testing/mockAudio.ts`), which models the node graph, the
+automation timeline and the autoplay policy:
+
+* **The mock itself** evaluates set, linear and exponential ramps, `setTargetAtTime`, cancel and
+  cancel-and-hold as Web Audio specifies. An unanchored ramp starts at time 0 (the worst case), the
+  clock only runs while the context does, and a source ends exactly once.
+* **Buses:** the default tree, and a voice's loudness as the product along its path (master × bus ×
+  voice, a child bus inheriting its parent). A bus fade starts at the bus's level, and a reversal
+  mid-fade continues from where it got to. Unknown buses and parents are usage errors. Effects insert,
+  bypass and leave while a voice plays.
+* **Voices:**
+  * `setVolume`, `stop(fadeOut)` and `fadeIn` ramp from the voice's current level.
+  * A burst of 10 voices into a limit of 4 leaves 4 counted, with 6 stolen and fading for 10 ms, then
+    disconnected.
+  * One-shots leave the set when they end; `stopVoice` frees a slot during its fade.
+* **Spatial:** panner options and positions; the listener jumps or glides from where it is.
+* **Occlusion** scales the voice's own volume (a 0.5 voice goes to 0.125, not 0.25) and closes the
+  low-pass evenly in octaves; clearing it restores both.
+* **Clips:** concurrent loads make one request and one decode, and the cache counts clips and decoded
+  seconds. `release` refetches. A 404 or an `EncodingError` is evicted, so a retry succeeds.
+* **Streams:**
+  * A stream routes through its gain into its bus, and plays, pauses, stops and rewinds.
+  * The autoplay policy leaves it `blocked` until `resume()`, then it fades in from silence; `ended`
+    fires `onEnded`.
+  * `dispose` releases the element and its listeners.
+* **Lifecycle:** `dispose` with voices, streams and effects leaves **no node connected** (this caught
+  `FilterEffect` never disconnecting its filter) and closes the context; resume and suspend follow the
+  context.
+
+Mutation-checked: removing the ramp anchor, the old voice stealing (it kept counting a fading voice,
+so the limit was exceeded) and the old occlusion (it overwrote the voice's volume) each fail their
+cases. What it does **not** prove: what anything sounds like — nothing plays on a device
+(capability: audio.deviceCheck).
 
 ### `tests/rendering/objectCulling.test.ts` — the object culler's conservatism (Phase 13.5)
 

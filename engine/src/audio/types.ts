@@ -47,11 +47,19 @@ export interface ListenerTransform {
 }
 
 export interface AudioStats {
+  /** Voices counting against `maxVoices`. */
   activeVoices: number;
-  /** Clips the system holds a handle for (loaded through `load`). */
+  /** Voices fading out after being stolen or stopped with a fade. */
+  releasingVoices: number;
+  /** Voices stolen by the limit since the system was created. */
+  stolenVoices: number;
+  streams: number;
+  /** Clips the system keeps (loaded through `load`). */
   cachedClips: number;
-  /** Decoded bytes of every audio clip in the registry (held or idle). */
+  /** Decoded bytes of every audio clip in the registry, kept or idle (frames × channels × 4). */
   clipBytes: number;
+  /** Seconds of decoded audio held by the clip cache, summed over channels. */
+  decodedSeconds: number;
   buses: number;
   state: AudioContextState;
 }

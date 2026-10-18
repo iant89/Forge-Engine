@@ -114,6 +114,7 @@ export function audioClipDescriptor(context: BaseAudioContext, source: AudioClip
       const candidates = rankAudioSources(source, options.canPlayType);
       if (candidates.length === 0) throw new Error(`${id}: no playable source (every type was refused by canPlayType)`);
       const errors: string[] = [];
+      let only: unknown = null;
       for (const c of candidates) {
         if (ctx.signal.aborted) break;
         try {
@@ -125,11 +126,14 @@ export function audioClipDescriptor(context: BaseAudioContext, source: AudioClip
           const buffer = await context.decodeAudioData(data.slice(0));
           return clipOf(buffer, c.url, id);
         } catch (error) {
+          only = error;
           errors.push(`${c.url}: ${error instanceof Error ? error.message : String(error)}`);
           ctx.logger?.warn(`audio ${id}: ${c.url} failed, trying the next source`);
         }
       }
       if (ctx.signal.aborted) throw new Error(`${id}: cancelled`);
+      // One source: its own error (an EncodingError stays one), not a summary of one.
+      if (candidates.length === 1 && only !== null) throw only;
       throw new Error(`${id}: every source failed (${errors.join("; ")})`);
     },
   };

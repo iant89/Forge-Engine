@@ -28,6 +28,8 @@ import {
   Clock,
   EntityWorld,
   Logger,
+  OCCLUSION_CUTOFF,
+  OCCLUSION_FLOOR,
   Mat4,
   Profiler,
   SpatialAudioSource,
@@ -121,7 +123,7 @@ group("spec twins and propagation", () => {
 });
 
 group("voices", () => {
-  test("a spatial voice chains volume → occlusion → low-pass → panner, at the converted position", () => {
+  test("a spatial voice chains gain → low-pass → panner, at the converted position", () => {
     const { ctx, nodes } = fakeAudioContext();
     const audio = new AudioSystem({ context: ctx as unknown as AudioContext });
     const built = nodes.length;
@@ -132,7 +134,7 @@ group("voices", () => {
     assert.equal((panner.positionZ as FakeParam).value, -5);
     assert.equal(filter.type, "lowpass");
     assert.ok((filter.connected as FakeNode[]).includes(panner));
-    assert.ok((voice.occlusionGain as unknown as FakeNode).connected.includes(filter));
+    assert.ok((voice.gain as unknown as FakeNode).connected.includes(filter));
     const flat = audio.play(ctx.createBuffer(1, 800, 8000) as unknown as AudioBuffer);
     assert.equal(flat.filter, undefined);
     assert.equal(flat.panner, undefined);
@@ -159,14 +161,14 @@ group("voices", () => {
     }
     assert.ok(s.occlusion > 0.99, `occlusion ${s.occlusion}`);
     for (let i = 1; i < cutoffs.length; i++) assert.ok(cutoffs[i]! <= cutoffs[i - 1]! + 1e-9, "darkens monotonically, no step");
-    assert.ok(close(s.cutoff, 900, 5), "fully occluded → the occluded cutoff");
-    const occ = (voice.occlusionGain as unknown as { gain: FakeParam }).gain;
-    assert.ok(close(occ.targets.at(-1)!, 0.35, 0.01));
+    assert.ok(close(s.cutoff, OCCLUSION_CUTOFF, 5), "fully occluded → the voice's occluded cutoff");
+    const gain = (voice.gain as unknown as { gain: FakeParam }).gain;
+    assert.ok(close(gain.targets.at(-1)!, OCCLUSION_FLOOR, 0.01), "and its occluded gain floor");
     const off = new SpatialAudioSource(audio.play(ctx.createBuffer(1, 800, 8000) as unknown as AudioBuffer, { spatial: true }), { doppler: 0, airAbsorption: 0 });
     off.update(1 / 60, { x: 0, y: 0, z: 10 }, ear);
     off.update(1 / 60, { x: 0, y: 0, z: 0 }, ear);
     assert.equal(off.doppler, 1);
-    assert.equal(off.cutoff, 20_000);
+    assert.equal(off.cutoff, 24_000, "no air absorption: open at Nyquist");
   });
 });
 

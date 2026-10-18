@@ -1,29 +1,71 @@
-# Audio
+# Audio (Phase 20)
 
-Forge's audio subsystem is a browser-native Web Audio mixer (`engine/src/audio`). It uses the browser's asynchronous decoder, so WAV, MP3, Ogg Vorbis/Opus, AAC and other formats work whenever the current browser advertises the corresponding codec. Unsupported or malformed data rejects `load`/`decode`; Forge does not ship codec binaries.
+Forge's audio is Web Audio, organised as a mixer: buses, decoded clips, voices and streams, owned by
+one `AudioSystem`. The code is `engine/src/audio/`; `tests/audio/audioSystem.test.ts` checks it on a
+strict mock context (`engine/src/testing/mockAudio.ts`).
 
 ```ts
-const audio = new AudioSystem({ maxVoices: 96 });
-await audio.resume(); // call from a click/tap to satisfy autoplay policy
-const clip = await audio.load("/audio/engine.ogg");
-const engine = audio.play(clip, {
-  loop: true, spatial: true, bus: "sfx",
-  position: { x: 0, y: 0.7, z: 2 },
-  refDistance: 2, maxDistance: 150, fadeIn: 0.25,
-});
+import { AudioSystem } from "@forge/engine";
+
+const audio = new AudioSystem({ masterVolume: 0.8, maxVoices: 32 });
+button.onclick = () => audio.resume();               // browsers start audio only after a gesture
+
+const clip = await audio.load("/sfx/door.ogg");     // fetched and decoded once per URL
+const door = audio.play(clip, { spatial: true, position: doorPos, refDistance: 2 });
+audio.setListener({ position: eye, forward, up });   // every frame, from the camera
+
+const music = audio.stream("/music/theme.ogg", { loop: true, fadeIn: 2 });
+await music.play();                                  // "blocked" until a gesture, then resume() plays it
+audio.setBusVolume("music", 0.3, 1.5);               // duck the music over 1.5 s
 ```
 
-## Mixer and effects
+## Buses (20.4)
 
-The standard buses are `master`, `music`, `sfx`, `dialogue`, and `ambient`; custom buses can be created. Each bus owns a live `EffectRack`. `FilterEffect`, feedback `DelayEffect`, `ConvolutionReverb`, and `CompressorEffect` can be inserted, removed, bypassed, and parameter-automated through their Web Audio nodes while voices play. Bus and voice gains support ramps to avoid clicks.
+| Bus | Feeds | Use |
+| --- | --- | --- |
+| `master` | the speakers | everything |
+| `music`, `sfx`, `dialogue`, `ambient` | `master` | the defaults; voices go to `sfx`, streams to `music` |
+| your own: `createBus("radio", "sfx")` | its parent | grouping you can fade or process together |
 
-## Spatial audio (Phase 20.1)
+Each bus has an `EffectRack` (`audio.bus(name)`): filters, delay, convolution reverb and a compressor
+can be added and removed while sounds play, and bypassed. An unknown bus or parent is a `UsageError`,
+never a silent route to the speakers.
+
+## Clips (20.2)
+
+- `load(url)` fetches and decodes a URL once. Concurrent loads share the request.
+- A 404 or an undecodable file rejects and is **evicted**, so a later load retries.
+- `release(url)` and `clearCache()` drop clips; voices already playing them carry on.
+- `stats()` reports `cachedClips` and `decodedSeconds` (seconds × channels) for the clips `load`
+  keeps, and `clipBytes` for every audio clip in the registry. Codec support is the browser's `decodeAudioData` (WAV, MP3, AAC; Ogg/Opus outside Safari).
+
+Under `load` the clips are registry resources — see *Audio resources (20.2)* below.
+
+## Voices (20.1)
+
+`play(clip, options)` starts a voice: buffer source → gain → (low-pass → panner, when `spatial`) → bus.
+
+- **Fades start where the sound is.** Every gradual change — `setVolume(v, ramp)`, `stop(fadeOut)`,
+  `setBusVolume`, a listener glide — is an anchored ramp (`rampParam`). An unanchored
+  `linearRampToValueAtTime` starts from the previous automation event, which after a cancel can be
+  long ago: the fade jumps, which is a click.
+- **The voice limit holds.** Past `maxVoices`, the oldest voice is stolen: it fades out over 10 ms
+  (`VOICE_STEAL_FADE`) and stops counting at once. `stats()` shows `activeVoices`, `releasingVoices`
+  and `stolenVoices`. `stopVoice(voice, fade)` frees a slot the same way.
+- **Spatial voices** use an HRTF panner by default (`distanceModel`, `refDistance`, `rolloffFactor`
+  and cones are options). Positions are **engine space** (see *Spatial audio* below for the
+  handedness conversion). `setListener` moves the ear; it falls back to the deprecated setters on
+  Safari before 14.1. `SpatialAudioEmitter` moves a looping voice with an entity.
+- **Occlusion** (`setOcclusion(0..1)`) scales the voice's own volume down to `OCCLUSION_FLOOR` (25 %)
+  and closes its low-pass from the Nyquist frequency to `OCCLUSION_CUTOFF` (800 Hz), evenly in octaves.
+  A quiet voice stays quiet behind a wall. The same low-pass carries air absorption
+  (`setAirAbsorption(cutoff)`): the cutoff is the air cutoff, closed further toward 800 Hz by occlusion.
+
+## Spatial audio (20.1)
 
 Spatial voices use an HRTF `PannerNode` by default, with configurable panning/distance models, attenuation, source cones, position and orientation. **All positions and directions are engine space.**
 
 **Handedness.** Forge is left-handed (+X right, +Y up, cameras look down +Z); Web Audio is right-handed (the default listener looks down −Z). Writing engine coordinates straight into a panner mirrors left and right, and before 20.1 every demo did (a strike on the camera's right played in the left ear). `setAudioListener`, `setPannerPosition` and `setPannerOrientation` (`spatial.ts`) negate z and are the only writers; `AudioVoice`, `AudioSystem.setListener` and the vehicle/impact/particle soundscapes all go through them. `pannerAzimuth` and `equalPowerGains` reproduce the spec's azimuth and equal-power panning on the CPU, which is how the suite proves +X is heard on the right of a camera facing +Z. `listenerFromMatrix` reads a camera's world matrix (+Z forward, +Y up).
-
-**Voice chain.** `source → volume gain → occlusion gain → low-pass → panner → bus` (non-spatial voices skip the last two). Occlusion has its own gain so it never fights `setVolume`.
 
 **Propagation** (Web Audio removed its own Doppler):
 
@@ -33,31 +75,79 @@ Spatial voices use an HRTF `PannerNode` by default, with configurable panning/di
 | cone | panner, `coneGain` twin | the spec's inner/outer angle interpolation |
 | Doppler | `dopplerRatio` → `playbackRate` | `(c + v_listener)/(c − v_source)` along the source→listener line, `scale` to tame it, clamped 0.25–4 |
 | air absorption | `airAbsorptionCutoff` → low-pass | ~20 kHz close, an octave lower every ~350 m, floor 1.5 kHz (typical 20 °C / 50 % RH falloff, not ISO 9613-1) |
-| occlusion | caller query (e.g. a physics raycast) | smoothed 0..1 (120 ms) pulling the cutoff toward 900 Hz geometrically and the level to 0.35 |
+| occlusion | caller query (e.g. a physics raycast) → `setOcclusion` | smoothed 0..1 (120 ms); the voice's gain floor (25 %) and low-pass toward 800 Hz |
 | delay | `propagationDelay` | distance / c (lightning schedules thunder with it) |
 
-`SpatialAudioSource(voice)` applies Doppler (velocity from the position delta), air absorption and occlusion to one voice per frame. In the ECS, put `AudioListenerComponent` on the camera entity and `AudioEmitterComponent(clip | () => clip | null, playOptions, spatialOptions)` on sounding entities, and register `SpatialAudioSystem(audioSystem, { occlusion })`: band 800, after transforms, it moves the listener, starts emitters once their clip is ready (and the context runs), follows their transforms and cone direction, and stops a voice when its component is removed. A steady frame creates no nodes. `SpatialAudioEmitter` remains for code that moves a voice by hand.
+`SpatialAudioSource(voice)` applies Doppler (velocity from the position delta), air absorption (`setAirAbsorption`) and occlusion (`setOcclusion`) to one voice per frame. In the ECS, put `AudioListenerComponent` on the camera entity and `AudioEmitterComponent(clip | () => clip | null, playOptions, spatialOptions)` on sounding entities, and register `SpatialAudioSystem(audioSystem, { occlusion })`: band 800, after transforms, it moves the listener, starts emitters once their clip is ready (and the context runs), follows their transforms and cone direction, and stops a voice when its component is removed. A steady frame creates no nodes. `SpatialAudioEmitter` remains for code that moves a voice by hand.
 
 Not modelled: reverb from geometry, sound bending around corners, per-band absorption beyond one low-pass.
 
-## Procedural thunder
-
-`createThunderBuffer` builds a deterministic crack and low-frequency rolling tail without downloading an asset. The weather demo plays it through an HRTF voice at the strike position and delays arrival by `distance / 343`, so distant HDR-emissive lightning is seen before it is heard.
-
-## Audio resources (Phase 20.2)
+## Audio resources (20.2)
 
 Decoded clips are `ResourceRegistry` entries (`resources.ts`), so audio has what every other asset has: one load per id shared by concurrent requests, refcounted handles, a byte budget with LRU eviction of idle entries, content-hash invalidation, cancellation and validation. Pass `registry: engine.resources` to `AudioSystem` to share the engine's budget; by default it owns a private one.
 
 * **Ids and bytes.** `audio:<first url>`; `bytes` is the decoded size, frames × channels × 4 (Web Audio keeps float32 PCM — a 3 MB Ogg is ~40 MB resident, and that is what the budget must count). `stats().clipBytes` sums it (`registry.bytesOfKind("audio")`).
-* **`acquire(source)`** returns a handle (release it when done); **`load(url)`** keeps one for the life of the system (as before), **`clearCache()`** releases them so they become evictable. A failed load is not kept; the next one retries. Evicting a clip never cuts a voice playing it: Web Audio keeps a playing buffer alive.
+* **`acquire(source)`** returns a handle (release it when done); **`load(url)`** keeps one until **`release(url)`** (which also evicts the entry unless something else holds it, so the next load fetches again) or **`clearCache()`** (which leaves them to idle eviction). `AudioSystemOptions.fetch` is used for every fetch. A failed load is not kept; the next one retries. Evicting a clip never cuts a voice playing it: Web Audio keeps a playing buffer alive.
 * **Formats.** A source can be alternatives, `[{ url: "a.opus", type: "audio/ogg; codecs=opus" }, { url: "a.m4a", type: "audio/mp4" }]`: types the browser refuses (`canPlayType`) are skipped, "probably" outranks "maybe", and a source that fails to fetch or decode falls through to the next. Forge ships no codecs; `decodeAudioData` decides.
-* **Validation.** Empty or channel-less output is rejected; clips over `streamAbove` (30 s) are flagged — those belong to streaming (20.3).
+* **Validation.** Empty or channel-less output is rejected; clips over `streamAbove` (30 s) are flagged — those belong in `stream()` (20.3). With a single source, a failure rejects with that source's own error (an `EncodingError` stays one).
 * **Procedural clips.** `proceduralClipDescriptor(name, build)` (`audio:procedural/<name>`) caches synthesized buffers like files; the weather demo's thunder variants are registry clips.
 * **Banks.** `new AudioBank(name, audio, { key: source, … })` loads a set together (`load()`, `progress`, `failed`), returns clips by key, can `pin()` them against the budget, and `release()`s them together. Clips are tagged `bank:<name>`.
 
-## Lifetime
+## Streams (20.3)
 
-The voice limit steals the oldest voice. Ended voices disconnect automatically. Call `dispose()` to stop voices, disconnect graph nodes, release held clips (and dispose the registry if the system owns it) and close the context.
+`stream(url, options)` plays long audio — music, ambience beds — from a media element through a
+`MediaElementAudioSourceNode`, so it streams and decodes progressively but still mixes on a bus.
+
+- `play()` resolves with the state. A refusal by the autoplay policy leaves the stream `blocked`,
+  and `audio.resume()` (from a gesture) retries it.
+- `fadeIn`, `setVolume(v, ramp)`, `pause()`, `stop()` (rewinds), `onEnded`.
+- Cross-origin streams need CORS (`crossOrigin` defaults to `"anonymous"`): without it the browser
+  outputs silence through Web Audio.
+- `dispose()` releases the element's network stream and its listeners.
+
+
+## Procedural thunder
+
+`createThunderBuffer` builds a deterministic crack and low-frequency rolling tail without downloading an
+asset. The weather demo keeps four variants as registry clips (`proceduralClipDescriptor`), plays them
+through an HRTF voice at the strike position, closes the voice's low-pass by the strike's distance
+(air absorption), and the lightning simulation delays arrival by `distance / c`, so distant lightning
+is seen before it is heard. (Web Audio's panner does distance
+attenuation and HRTF, not Doppler: the spec removed it, so a moving source's pitch shift is the
+game's to apply through `playbackRate`.)
+
+## Lifecycle
+
+`resume()` and `suspend()` follow the context. `dispose()` stops every voice and stream, disconnects
+every node (the suite checks that nothing is left connected), releases kept clips (disposing the
+registry when the system owns it) and closes the context.
+
+## The mock (how this is tested)
+
+`createMockAudio()` returns a `MockAudioContext` typed as `AudioContext`:
+
+- **Graph.** Nodes record their connections. `paths(node)`, `reachesDestination(node)` and
+  `pathGain(node, t)` (the product of the gains along every path to the speakers) say whether a
+  sound is audible and how loud. `connectedNodes()` is the leak check.
+- **Automation.** `AudioParam.valueAt(t)` evaluates the event timeline: set, linear and exponential
+  ramps, `setTargetAtTime`, cancel, and cancel-and-hold. An unanchored ramp starts from time 0, the
+  worst case.
+- **Time.** `advance(seconds)` only moves while the context is `running`. Sources end once, at their
+  stop or natural end.
+- **Decoding.** `decodeAudioData` accepts `encodeMockAudio({ seconds, channels })` and rejects
+  anything else with `EncodingError`.
+- **Media elements.** `play()` can be refused (`autoplayBlocked`).
+
+It proves the graph, the timing and the bookkeeping, not what anything sounds like: no gate plays
+audio on a device yet. The 20.1/20.2/20.7/20.8 suites use a lighter recording fake
+(`tests/support/fakeAudio.ts`) for graph shape and parameter targets.
+
+## Still to come
+
+Environmental (20.5) and weather (20.6) audio driven by simulation state, through the buses. The storm
+soundscape (`StormSoundscape`, fe-34) already maps weather to synthesized wind, rain, surf and thunder,
+but plays straight into a node rather than through the buses; so do the vehicle, impact and particle
+soundscapes in the demos, though each accepts a bus's `input`.
 
 ## Vehicle audio (Phase 20.7)
 
@@ -113,10 +203,9 @@ the state reads gravel and engine load with zero page errors; that is not a comm
 
 ### Not done
 
-* Output goes to any `AudioNode` (the context destination in the demo); routing through
-  `AudioSystem` buses with ducking/mixing is 20.4.
-* Spatial is an optional HRTF panner on the whole car; no per-source placement (exhaust vs tyres)
-  — 20.1.
+* Output goes to any `AudioNode`; the demo uses the context destination rather than a bus
+  (`audio.bus("sfx").input` works), so nothing ducks it.
+* Spatial is an optional HRTF panner on the whole car; no per-source placement (exhaust vs tyres).
 * The engine is synthesized; there is no sample-based (granular RPM-crossfade) engine.
 
 ## Particle / impact audio (Phase 20.8)

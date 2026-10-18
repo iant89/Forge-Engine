@@ -24,6 +24,7 @@ import { Component, registerComponent } from "../scene/components.js";
 import { Transform } from "../scene/components/index.js";
 import { System, type SystemContext } from "../scene/systems.js";
 import type { Vec3Ops } from "../math/vec.js";
+import { rampParam } from "./params.js";
 import type { AudioVoice } from "./source.js";
 import type { AudioSystem } from "./system.js";
 import type { AudioClip, PlayOptions } from "./types.js";
@@ -62,19 +63,27 @@ export function setPannerOrientation(panner: PannerNode, d: Vec3Ops, time: numbe
   write(panner.orientationZ, -d.z, time, smoothing);
 }
 
-/** Place the context's listener from engine-space position, forward and up. */
-export function setAudioListener(context: BaseAudioContext, position: Vec3Ops, forward: Vec3Ops, up: Vec3Ops, time = context.currentTime, smoothing = 0): void {
+/**
+ * Place the context's listener from an engine-space position, forward and up. `ramp` > 0 glides there
+ * with anchored ramps (starting where the listener is, params.ts); 0 jumps.
+ */
+export function setAudioListener(context: BaseAudioContext, position: Vec3Ops, forward: Vec3Ops, up: Vec3Ops, ramp = 0): void {
   const l = context.listener;
   if (l.positionX) {
-    write(l.positionX, position.x, time, smoothing);
-    write(l.positionY, position.y, time, smoothing);
-    write(l.positionZ, -position.z, time, smoothing);
-    write(l.forwardX, forward.x, time, smoothing);
-    write(l.forwardY, forward.y, time, smoothing);
-    write(l.forwardZ, -forward.z, time, smoothing);
-    write(l.upX, up.x, time, smoothing);
-    write(l.upY, up.y, time, smoothing);
-    write(l.upZ, -up.z, time, smoothing);
+    const now = context.currentTime;
+    const set = (param: AudioParam, value: number): void => {
+      if (ramp > 0) rampParam(param, value, now, ramp);
+      else param.setValueAtTime(value, now);
+    };
+    set(l.positionX, position.x);
+    set(l.positionY, position.y);
+    set(l.positionZ, -position.z);
+    set(l.forwardX, forward.x);
+    set(l.forwardY, forward.y);
+    set(l.forwardZ, -forward.z);
+    set(l.upX, up.x);
+    set(l.upY, up.y);
+    set(l.upZ, -up.z);
   } else {
     // Older WebKit: the deprecated setters.
     const legacy = l as unknown as { setPosition(x: number, y: number, z: number): void; setOrientation(x: number, y: number, z: number, ux: number, uy: number, uz: number): void };
@@ -213,24 +222,22 @@ export interface SpatialAudioOptions {
   speedOfSound?: number;
   /** Air absorption half distance (m); 0 disables. Default 350. */
   airAbsorption?: number;
-  /** Gain and cutoff at full occlusion. Defaults 0.35 and 900 Hz. */
-  occludedGain?: number;
-  occludedCutoff?: number;
   /** Seconds for occlusion to settle (a blocker passing should not click). Default 0.12. */
   occlusionSmoothing?: number;
 }
 
 /**
  * Per-frame spatial state of one playing voice: position (and the velocity it implies), Doppler,
- * air absorption and occlusion. Needs a spatial voice (`PlayOptions.spatial`), which carries the
- * low-pass `filter` this drives.
+ * air absorption and occlusion. Needs a spatial voice (`PlayOptions.spatial`): occlusion goes through
+ * `AudioVoice.setOcclusion` (gain floor `OCCLUSION_FLOOR`, filter toward `OCCLUSION_CUTOFF`) and air
+ * absorption through `setAirAbsorption`, which share the voice's one low-pass.
  */
 export class SpatialAudioSource {
   /** Smoothed 0..1 occlusion. */
   occlusion = 0;
   /** Doppler ratio applied last update. */
   doppler = 1;
-  /** Low-pass cutoff applied last update (Hz). */
+  /** Low-pass cutoff applied last update (Hz): `voice.cutoff`. */
   cutoff = 20_000;
   distance = 0;
   readonly velocity = { x: 0, y: 0, z: 0 };
@@ -243,8 +250,6 @@ export class SpatialAudioSource {
       doppler: options.doppler ?? 1,
       speedOfSound: options.speedOfSound ?? 343,
       airAbsorption: options.airAbsorption ?? 350,
-      occludedGain: options.occludedGain ?? 0.35,
-      occludedCutoff: options.occludedCutoff ?? 900,
       occlusionSmoothing: options.occlusionSmoothing ?? 0.12,
     };
   }
@@ -268,16 +273,14 @@ export class SpatialAudioSource {
     const k = o.occlusionSmoothing > 0 ? 1 - Math.exp(-Math.max(0, dt) / o.occlusionSmoothing) : 1;
     this.occlusion += (Math.max(0, Math.min(1, occluded)) - this.occlusion) * k;
     this.doppler = o.doppler > 0 ? dopplerRatio(position, this.velocity, listener, listenerVelocity, o.speedOfSound, o.doppler) : 1;
-    const air = o.airAbsorption > 0 ? airAbsorptionCutoff(this.distance, o.airAbsorption) : 20_000;
-    // Occlusion pulls the cutoff toward `occludedCutoff` geometrically (an octave scale).
-    this.cutoff = air * Math.pow(Math.min(1, o.occludedCutoff / air), this.occlusion);
     const v = this.voice;
     const t = v.context.currentTime;
     v.setPosition(position);
     if (forward) v.setOrientation(forward);
     v.source.playbackRate.setTargetAtTime(this.baseRate * this.doppler, t, 0.03);
-    v.filter?.frequency.setTargetAtTime(this.cutoff, t, 0.03);
-    v.setOcclusionGain(1 - (1 - o.occludedGain) * this.occlusion);
+    v.setAirAbsorption(o.airAbsorption > 0 ? airAbsorptionCutoff(this.distance, o.airAbsorption) : Infinity);
+    v.setOcclusion(this.occlusion);
+    this.cutoff = v.cutoff;
   }
 }
 
@@ -399,7 +402,7 @@ export class SpatialAudioSystem extends System {
         e.started = true;
       }
       if (!e.voice || !e.spatialSource) continue;
-      if (e.voice.ended) {
+      if (e.voice.finished) {
         e.voice = null;
         e.spatialSource = null;
         continue;

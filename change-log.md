@@ -23275,6 +23275,308 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "1842",
+    "date": "2026-10-18T12:11:26Z",
+    "type": "pr-merge",
+    "pr": 124,
+    "branch": "claude/phase19-verification",
+    "base": "main",
+    "title": "Phase 19.5: identical replay hashes across JavaScript engines (V8 + JavaScriptCore), Phase 19 complete",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "summary": "DMath (fdlibm in exact arithmetic, bit-identical to V8 where V8 runs fdlibm) replaces the implementation-approximated Math functions in all simulation code, enforced by lint:arch. A complete headless vehicle session is committed as a 1,080-frame recording; check:replay-engines (Node + Bun, in CI) and replay-verify.html replay it, re-run it and resume a mid-session save to identical hashes. Fixes captureState writing null for repeated array elements. Phase 19 verified.",
+    "files": [
+      ".github/workflows/ci.yml",
+      "AGENTS.md",
+      "PROGRESS.md",
+      "ROADMAP.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/REPLAY.md",
+      "docs/SERIALIZATION.md",
+      "docs/VERIFICATION.md",
+      "engine/src/core/capabilities.ts",
+      "engine/src/core/snapshot.ts",
+      "engine/src/environment/atmosphere.ts",
+      "engine/src/environment/dayNight.ts",
+      "engine/src/environment/lightning.ts",
+      "engine/src/environment/moistureField.ts",
+      "engine/src/environment/snowMelt.ts",
+      "engine/src/environment/solar.ts",
+      "engine/src/environment/surfaceWeather.ts",
+      "engine/src/environment/weather.ts",
+      "engine/src/math/detmath.ts",
+      "engine/src/math/index.ts",
+      "engine/src/math/mat.ts",
+      "engine/src/math/rng.ts",
+      "engine/src/math/vec.ts",
+      "engine/src/physics/system.ts",
+      "engine/src/terrain/track.ts",
+      "engine/src/vehicles/ground.ts",
+      "engine/src/vehicles/pacejka.ts",
+      "engine/src/vehicles/system.ts",
+      "engine/src/vehicles/vehicle.ts",
+      "examples/replay-verify.html",
+      "examples/src/replay/dmathVectors.ts",
+      "examples/src/replay/vehicle-session.replay.json",
+      "examples/src/replay/verificationSession.ts",
+      "examples/src/replay/verifyPage.ts",
+      "examples/src/replay/verifyWorker.ts",
+      "examples/vite.config.ts",
+      "mnemosyne.md",
+      "package.json",
+      "tests/full.test.ts",
+      "tests/math/detmath.test.ts",
+      "tests/replay/crossEngine.test.ts",
+      "tests/scene/simulationSnapshot.test.ts",
+      "tests/tools/selrun.test.ts",
+      "tests/tsconfig.json",
+      "tools/lint-arch.mjs",
+      "tools/replay-engines.mjs",
+      "tools/replay-verify.ts"
+    ],
+    "note": "Backfilled: the PR was merged before its pr-merge entry was written."
+  },
+  {
+    "id": "1843",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "PROGRESS.md",
+    "what": "Phase 20 split into the verified mixer and the remaining simulation-driven audio.",
+    "why": "Checklist follows the registry."
+  },
+  {
+    "id": "1844",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md",
+    "what": "Phase 20 in progress; 20.1–20.4 items filled in.",
+    "why": "Registry state block and items."
+  },
+  {
+    "id": "1845",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/AUDIO.md",
+    "what": "Rewritten as the 20.1–20.4 reference: buses, clips, voices (anchored fades, voice limit, occlusion), streams, lifecycle, the mock; keeps procedural thunder; drops the false Doppler claim.",
+    "why": "Document the mixer as built and what verifies it."
+  },
+  {
+    "id": "1846",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/KNOWN-ISSUES.md",
+    "what": "New Audio section: verified on a mock, not by listening; nothing but the storm drives audio yet.",
+    "why": "Honest limits for Phase 20 so far."
+  },
+  {
+    "id": "1847",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "docs/VERIFICATION.md",
+    "what": "New audio suite section; catalog counts 126/943.",
+    "why": "Keep the gate descriptions truthful."
+  },
+  {
+    "id": "1848",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/effects.ts",
+    "what": "FilterEffect.dispose disconnects its filter.",
+    "why": "It leaked a connected biquad after a rack was cleared."
+  },
+  {
+    "id": "1849",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/index.ts",
+    "what": "Exports streams, ramp helpers and the occlusion/steal constants.",
+    "why": "Public API."
+  },
+  {
+    "id": "1850",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/params.ts",
+    "what": "New rampParam/holdParam: anchored automation helpers.",
+    "why": "Unanchored ramps start from the previous event and click."
+  },
+  {
+    "id": "1851",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/source.ts",
+    "what": "Voice: anchored fades, volume × occlusion factors, occlusion low-pass on spatial voices, finished/fadingOut, dispose stops and notifies once.",
+    "why": "Fixes occlusion overwriting volume and fade clicks; adds the low-pass the roadmap asks for."
+  },
+  {
+    "id": "1852",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/stream.ts",
+    "what": "New AudioStream: media-element streaming through a gain into a bus, autoplay-blocked state, fade-in, dispose releasing the element.",
+    "why": "20.3 streaming audio."
+  },
+  {
+    "id": "1853",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/system.ts",
+    "what": "Voice limit steals properly (stolen voices stop counting), anchored bus and listener ramps, unknown buses are usage errors, injectable fetch/media element, release, stream(), richer stats, dispose disconnects everything.",
+    "why": "Fixes the limit overrun and fade clicks; 20.2/20.3 additions; testable without a browser."
+  },
+  {
+    "id": "1854",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/types.ts",
+    "what": "AudioStats gains releasingVoices, stolenVoices, streams and decodedSeconds.",
+    "why": "Observability for the limit and the cache."
+  },
+  {
+    "id": "1855",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "audio.system replaced by audio.mixer/voices/clips/streaming (verified), audio.simulation (planned, 20.7) and audio.deviceCheck (deferred); phase 20 inProgress.",
+    "why": "Registry reflects what is verified and what remains."
+  },
+  {
+    "id": "1856",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Exports the new audio API and the mock audio context.",
+    "why": "Public API for games and tests."
+  },
+  {
+    "id": "1857",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/testing/mockAudio.ts",
+    "what": "New MockAudioContext: node graph and path gain, AudioParam timelines, time and source ending, decoding, autoplay-blocked media elements.",
+    "why": "Audio has no browser gate; a strict mock is how its graph and timing are verified."
+  },
+  {
+    "id": "1858",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Notes on the audio mock and the four audio bugs it found.",
+    "why": "Session memory."
+  },
+  {
+    "id": "1859",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/audio/audioSystem.test.ts",
+    "what": "New suite: mock timeline rules, buses, fades, voice limit, spatial, occlusion, clips, streams, dispose leak check (18 cases, mutation-checked).",
+    "why": "Verifies 20.1–20.4."
+  },
+  {
+    "id": "1860",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/docs/capabilities.test.ts",
+    "what": "Deferred-example id changed from audio.system to editor.tooling.",
+    "why": "audio.system was split into verified entries."
+  },
+  {
+    "id": "1861",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "Links audio:audioSystem; report(126).",
+    "why": "Catalog includes the new suite."
+  },
+  {
+    "id": "1862",
+    "date": "2026-10-18T15:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/phase20-audio",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Catalog counts 126 suites / 943 claims.",
+    "why": "One suite added."
+  },
+  {
+    "id": "1863",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23286,7 +23588,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.7: audio that responds to the vehicle simulation rather than scripted cues."
   },
   {
-    "id": "1843",
+    "id": "1864",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23298,7 +23600,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public surface for 20.7."
   },
   {
-    "id": "1844",
+    "id": "1865",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23310,7 +23612,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demos and tests use @forge/engine only."
   },
   {
-    "id": "1845",
+    "id": "1866",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23322,7 +23624,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Audio reads vehicle state; it must not reach rendering/GPU, and nothing simulated imports it."
   },
   {
-    "id": "1846",
+    "id": "1867",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23334,7 +23636,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the mapping and that the analyzer never changes the simulation."
   },
   {
-    "id": "1847",
+    "id": "1868",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23346,7 +23648,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The catalog must link every suite."
   },
   {
-    "id": "1848",
+    "id": "1869",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23358,7 +23660,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Hear 20.7 in the demo; autoplay needs a gesture."
   },
   {
-    "id": "1849",
+    "id": "1870",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23370,7 +23672,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Touch devices have no M key."
   },
   {
-    "id": "1850",
+    "id": "1871",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23382,7 +23684,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The registry must match the roadmap state block."
   },
   {
-    "id": "1851",
+    "id": "1872",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23394,7 +23696,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "20.7 landed."
   },
   {
-    "id": "1852",
+    "id": "1873",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23406,7 +23708,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Document the new subsystem where audio is documented."
   },
   {
-    "id": "1853",
+    "id": "1874",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23418,7 +23720,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep gate docs truthful."
   },
   {
-    "id": "1854",
+    "id": "1875",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23430,7 +23732,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Honest limitation."
   },
   {
-    "id": "1855",
+    "id": "1876",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23442,7 +23744,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Discoverability."
   },
   {
-    "id": "1856",
+    "id": "1877",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23454,7 +23756,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1857",
+    "id": "1878",
     "date": "2026-10-18T15:32:06Z",
     "type": "change",
     "pr": null,
@@ -23466,7 +23768,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1858",
+    "id": "1879",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23478,7 +23780,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.8 impacts need the solver contacts; module-scope scratch keeps snapshots and hashes unchanged."
   },
   {
-    "id": "1859",
+    "id": "1880",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23490,7 +23792,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.8 impact audio from the simulation."
   },
   {
-    "id": "1860",
+    "id": "1881",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23502,7 +23804,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.8 particle audio from the CPU particle state."
   },
   {
-    "id": "1861",
+    "id": "1882",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23514,7 +23816,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public surface for 20.8."
   },
   {
-    "id": "1862",
+    "id": "1883",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23526,7 +23828,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demos and tests use @forge/engine only."
   },
   {
-    "id": "1863",
+    "id": "1884",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23538,7 +23840,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Audio reads contact and particle state."
   },
   {
-    "id": "1864",
+    "id": "1885",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23550,7 +23852,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins 20.8."
   },
   {
-    "id": "1865",
+    "id": "1886",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23562,7 +23864,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Both audio suites assert on the graph."
   },
   {
-    "id": "1866",
+    "id": "1887",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23574,7 +23876,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Removes the duplicate."
   },
   {
-    "id": "1867",
+    "id": "1888",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23586,7 +23888,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "The catalog must link every suite."
   },
   {
-    "id": "1868",
+    "id": "1889",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23598,7 +23900,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suite."
   },
   {
-    "id": "1869",
+    "id": "1890",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23610,7 +23912,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Hear 20.7 and 20.8 in a scene with physics props."
   },
   {
-    "id": "1870",
+    "id": "1891",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23622,7 +23924,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Touch devices; five buttons do not fit 390 pt."
   },
   {
-    "id": "1871",
+    "id": "1892",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23634,7 +23936,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry matches the roadmap."
   },
   {
-    "id": "1872",
+    "id": "1893",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23646,7 +23948,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "20.8 landed."
   },
   {
-    "id": "1873",
+    "id": "1894",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23658,7 +23960,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Document 20.8."
   },
   {
-    "id": "1874",
+    "id": "1895",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23670,7 +23972,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Keep gate docs truthful."
   },
   {
-    "id": "1875",
+    "id": "1896",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23682,7 +23984,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Honest limitations."
   },
   {
-    "id": "1876",
+    "id": "1897",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23694,7 +23996,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Discoverability."
   },
   {
-    "id": "1877",
+    "id": "1898",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23706,7 +24008,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1878",
+    "id": "1899",
     "date": "2026-10-18T18:08:05Z",
     "type": "change",
     "pr": null,
@@ -23718,7 +24020,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1879",
+    "id": "1900",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23730,7 +24032,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.1; demos had left and right mirrored."
   },
   {
-    "id": "1880",
+    "id": "1901",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23742,7 +24044,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Phase 20.2: clips get the registry contract."
   },
   {
-    "id": "1881",
+    "id": "1902",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23754,7 +24056,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "20.1 voice chain and handedness."
   },
   {
-    "id": "1882",
+    "id": "1903",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23766,7 +24068,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "20.1/20.2."
   },
   {
-    "id": "1883",
+    "id": "1904",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23778,7 +24080,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry identity and the budget line."
   },
   {
-    "id": "1884",
+    "id": "1905",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23790,7 +24092,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Handedness."
   },
   {
-    "id": "1885",
+    "id": "1906",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23802,7 +24104,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Handedness."
   },
   {
-    "id": "1886",
+    "id": "1907",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23814,7 +24116,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Handedness."
   },
   {
-    "id": "1887",
+    "id": "1908",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23826,7 +24128,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Public surface."
   },
   {
-    "id": "1888",
+    "id": "1909",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23838,7 +24140,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demos and tests use @forge/engine only."
   },
   {
-    "id": "1889",
+    "id": "1910",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23850,7 +24152,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Per-kind budget reporting (audio clip bytes)."
   },
   {
-    "id": "1890",
+    "id": "1911",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23862,7 +24164,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "ECS components and registry clips."
   },
   {
-    "id": "1891",
+    "id": "1912",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23874,7 +24176,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Demo of 20.1/20.2."
   },
   {
-    "id": "1892",
+    "id": "1913",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23886,7 +24188,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Handedness."
   },
   {
-    "id": "1893",
+    "id": "1914",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23898,7 +24200,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins handedness, twins, propagation, voices and the ECS system."
   },
   {
-    "id": "1894",
+    "id": "1915",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23910,7 +24212,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins registry clips, budget, fallback, validation, procedural clips and banks."
   },
   {
-    "id": "1895",
+    "id": "1916",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23922,7 +24224,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Handedness fix."
   },
   {
-    "id": "1896",
+    "id": "1917",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23934,7 +24236,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suites need them."
   },
   {
-    "id": "1897",
+    "id": "1918",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23946,7 +24248,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Catalog."
   },
   {
-    "id": "1898",
+    "id": "1919",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23958,7 +24260,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "New suites."
   },
   {
-    "id": "1899",
+    "id": "1920",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23970,7 +24272,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Registry matches the roadmap."
   },
   {
-    "id": "1900",
+    "id": "1921",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23982,7 +24284,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "20.1/20.2 landed."
   },
   {
-    "id": "1901",
+    "id": "1922",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -23994,7 +24296,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Document 20.1/20.2."
   },
   {
-    "id": "1902",
+    "id": "1923",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -24006,7 +24308,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Gate docs."
   },
   {
-    "id": "1903",
+    "id": "1924",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -24018,7 +24320,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Discoverability."
   },
   {
-    "id": "1904",
+    "id": "1925",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -24030,7 +24332,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Session memory."
   },
   {
-    "id": "1905",
+    "id": "1926",
     "date": "2026-10-18T20:18:29Z",
     "type": "change",
     "pr": null,
@@ -24042,7 +24344,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Activity history."
   },
   {
-    "id": "1906",
+    "id": "1927",
     "date": "2026-10-18T20:46:35Z",
     "type": "change",
     "pr": null,
@@ -24052,6 +24354,186 @@ JSON array below; agents maintain it by hand until then.
     "file": "tests/docs/capabilities.test.ts",
     "what": "Pin the split audio entries (audio.spatial/resources verified, audio.mixing planned for 20.3, audio.gpuParticles deferred) instead of audio.system.",
     "why": "The catch-all entry was replaced in 20.1/20.2."
+  },
+  {
+    "id": "1928",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/source.ts",
+    "what": "Merge with main (#125): main AudioVoice (anchored ramps, occlusion factor, finished) plus handedness-correct writers and setAirAbsorption sharing the occlusion low-pass.",
+    "why": "Resolve the #125 conflict keeping both behaviours."
+  },
+  {
+    "id": "1929",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/system.ts",
+    "what": "Merge with main (#125): main mixer (buses, streams, voice stealing, rampParam) with clips through the ResourceRegistry; release() evicts when last holder; stats keep decodedSeconds and add clipBytes.",
+    "why": "Resolve the #125 conflict keeping both behaviours."
+  },
+  {
+    "id": "1930",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/spatial.ts",
+    "what": "setAudioListener takes main ramp semantics (anchored glide); SpatialAudioSource drives setOcclusion/setAirAbsorption; finished instead of ended.",
+    "why": "Fit 20.1 onto the merged voice model."
+  },
+  {
+    "id": "1931",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/resources.ts",
+    "what": "A single-source clip that fails rejects with its own error (EncodingError stays one).",
+    "why": "Main audioSystem suite pins the error name."
+  },
+  {
+    "id": "1932",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/audio/types.ts",
+    "what": "AudioStats union: main voice/stream/decodedSeconds fields plus clipBytes.",
+    "why": "Merge."
+  },
+  {
+    "id": "1933",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/index.ts",
+    "what": "Audio barrel: main exports (streams, params, mock audio) plus 20.1/20.2/20.7/20.8 exports.",
+    "why": "Merge."
+  },
+  {
+    "id": "1934",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "engine/src/core/capabilities.ts",
+    "what": "Keep main audio.mixer/voices/clips/streaming/deviceCheck and this branch spatial/resources/vehicle/impact/particles/gpuParticles; audio.simulation narrowed to audio.environmental (20.5).",
+    "why": "Registry matches both landed sets."
+  },
+  {
+    "id": "1935",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/audio/audioSystem.test.ts",
+    "what": "Spatial test expects converted coordinates (panner z 4 for engine z -4; listener forward z -1).",
+    "why": "The old expectation pinned the mirrored left/right that 20.1 fixes."
+  },
+  {
+    "id": "1936",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/audio/spatialAudio.test.ts",
+    "what": "Voice chain gain -> low-pass -> panner; occluded floor/cutoff are OCCLUSION_FLOOR/OCCLUSION_CUTOFF; open cutoff is Nyquist.",
+    "why": "Merged voice model."
+  },
+  {
+    "id": "1937",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/support/fakeAudio.ts",
+    "what": "Sample rate 48 kHz.",
+    "why": "Nyquist above the air-absorption cutoffs the spatial suite checks."
+  },
+  {
+    "id": "1938",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/docs/capabilities.test.ts",
+    "what": "Pins main deferred entry plus audio.spatial/resources and audio.environmental.",
+    "why": "Merge."
+  },
+  {
+    "id": "1939",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/full.test.ts",
+    "what": "report(130) with both sides suites linked.",
+    "why": "Merge."
+  },
+  {
+    "id": "1940",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "tests/tools/selrun.test.ts",
+    "what": "130 suites / 956 claims.",
+    "why": "Merge."
+  },
+  {
+    "id": "1941",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "ROADMAP.md, docs/AUDIO.md, docs/KNOWN-ISSUES.md, docs/VERIFICATION.md, mnemosyne.md",
+    "what": "Merged both sides: state block covers 20.1-20.4, 20.7, 20.8; AUDIO.md interleaves main sections with spatial/resources/vehicle/impact; stale limitation replaced.",
+    "why": "Merge."
+  },
+  {
+    "id": "1942",
+    "date": "2026-10-18T21:08:51Z",
+    "type": "change",
+    "pr": 128,
+    "branch": "claude/phase20-spatial-resources",
+    "model": "Claude Opus 5.5",
+    "modelVersion": null,
+    "file": "change-log.md",
+    "what": "Main entries kept verbatim; this branch entries renumbered 1863+ after main.",
+    "why": "Both sides had numbered from 1842."
   }
 ]
 ```

@@ -185,11 +185,12 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [x]
 
 PHASE 20 - AUDIO
-    [~] IN PROGRESS (20.7 landed: vehicle audio from the simulation — engine RPM, throttle, load,
-        gear, tyre slip, suspension and terrain; 20.8 landed: impacts and scrapes from the physics
-        solver's contacts and particle audio from the CPU particle state; 20.1 landed: handedness-
-        correct spatial audio with Doppler, air absorption, occlusion and ECS emitters; 20.2 landed:
-        clips as budgeted registry resources with codec fallback and banks; 20.3-20.6 are not built)
+    [~] IN PROGRESS (20.1-20.4 landed: handedness-correct spatial voices with Doppler, air
+        absorption, occlusion, a holding voice limit and ECS emitters; clips as budgeted registry
+        resources with codec fallback and banks; streaming through the buses under the autoplay
+        policy; buses with live effects and anchored fades — verified on strict mock AudioContexts;
+        20.7 vehicle audio and 20.8 impact/particle audio landed; environmental and weather audio
+        (20.5-20.6) remain)
 
 
 ================================================================================
@@ -2139,6 +2140,8 @@ GOAL:
 
 20.1 Spatial Audio
 
+    [x] voices, HRTF panner, listener, voice limit (stolen voices fade 10 ms and stop counting at
+        once), occlusion (scales the voice's volume, closes a low-pass to 800 Hz)
     [x] coordinates              (engine left-handed → Web Audio right-handed: every listener/panner
                                   write negates z; before this, demo left/right were mirrored)
     [x] panning, distance, cone  (CPU twins of the spec's azimuth/equal-power, distance models and cone)
@@ -2151,18 +2154,25 @@ GOAL:
 
 20.2 Audio Resources
 
+    [x] load once per URL (shared requests), failures evicted, release, decoded-seconds statistics
     [x] registry clips           (audio:<url> ResourceRegistry entries: one load per id, handles,
                                   decoded-byte budget with LRU eviction of idle clips, cancellation)
     [x] formats                  (alternative sources ranked by canPlayType, fall through on fetch or
                                   decode failure)
-    [x] validation               (empty/channel-less output rejected; long clips flagged for 20.3)
+    [x] validation               (empty/channel-less output rejected; long clips flagged for streaming)
     [x] procedural clips + banks (audio:procedural/<name>; AudioBank load/progress/pin/release)
         engine/src/audio/resources.ts, tests/audio/audioResources.test.ts, docs/AUDIO.md. The weather
         demo's thunder variants are registry clips, filtered by strike distance.
 
 20.3 Streaming Audio
 
+    [x] media-element streams through a gain into a bus; blocked by the autoplay policy until
+        resume(); fade-in, volume ramps, end callback, release on dispose
+
 20.4 Buses / Mixing
+
+    [x] master/music/sfx/dialogue/ambient plus custom child buses, live effect racks, anchored
+        volume fades (an unanchored ramp clicks). docs/AUDIO.md, tests/audio/audioSystem.test.ts
 
 20.5 Environmental Audio
 

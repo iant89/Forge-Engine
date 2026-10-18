@@ -44,7 +44,7 @@ export function fakeAudioContext(options: FakeAudioOptions = {}) {
   };
   const ctx = {
     currentTime: 0,
-    sampleRate: 8000,
+    sampleRate: 48_000,
     destination: node("destination"),
     createGain: () => node("gain", { gain: param(1) }),
     createBiquadFilter: () => node("filter", { type: "lowpass", frequency: param(350), Q: param(1) }),

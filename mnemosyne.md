@@ -2481,6 +2481,16 @@ Read the module constraints below before changing either pure model.
   `Error.stackTraceLimit = 8`. And `pkill -f <pattern>` kills your own shell when the pattern is in the
   command line — loop over `pgrep` with a pattern the command itself does not contain.
 
+- 2026-10-18 (Phase 20.1–20.4 audio mixer): `engine/src/testing/mockAudio.ts` is the audio twin of
+  MockGPUDevice — node graph (`paths`, `pathGain`, `connectedNodes` leak check), AudioParam timelines
+  (`valueAt(t)`), time that only runs while `running`, autoplay-blocked media elements. Bugs it found
+  in the pre-existing `engine/src/audio`: (1) every fade used an **unanchored**
+  `linearRampToValueAtTime`, which ramps from the previous automation event — after a cancel that can
+  be t = 0, so the fade jumps (a click); all ramps now go through `rampParam` (cancelAndHold, or
+  read-value + cancel + setValueAtTime on Firefox); (2) voice stealing faded the oldest voice but kept
+  counting it, so bursts exceeded `maxVoices`; (3) `setOcclusion` overwrote the voice's own volume;
+  (4) `FilterEffect` never disconnected its filter on dispose. docs/AUDIO.md had claimed Web Audio does
+  Doppler — the spec removed it.
 - 2026-10-18 (Phase 20.7 vehicle audio, engine/src/audio/vehicle.ts, docs/AUDIO.md): **engine "load" is
   not throttle and not raw tyre force.** Summing driven-wheel `longForce·r` back through the ratio
   read 0.53 load in a closed-throttle handbrake slide (brake/scrub force on driven wheels); cap it by
