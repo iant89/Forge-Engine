@@ -25,7 +25,7 @@ export {
   type FullConfig,
   type BackendPreference,
 } from "./core/config.js";
-export { Clock, ManualClock, RateLimiter, type TickResult, type ClockOptions } from "./core/time.js";
+export { Clock, ManualClock, RateLimiter, type TickResult, type ClockOptions, type ScriptedFrame } from "./core/time.js";
 export {
   ForgeError,
   UsageError,
@@ -267,6 +267,7 @@ export * from "./scripting/index.js";
 
 // UI framework (docs/UI.md); the WebGPU backend is the only part that touches the GPU.
 export * from "./ui/index.js";
+export * from "./replay/index.js";
 export { UIGpuRenderer, type UIGpuStats } from "./ui/gpu/uiGpuRenderer.js";
 export { UI_SHADER, UI_FRAME_STRUCT } from "./ui/gpu/shader.js";
 export { NULL_ENTITY, entitySlot, entityGeneration, makeEntityId, describeEntity, type EntityId } from "./scene/entityId.js";

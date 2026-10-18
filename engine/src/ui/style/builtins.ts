@@ -1,10 +1,13 @@
 /**
  * Built-in themes and skins.
  *
- * Themes (tokens only): `dark` (default), `light`, `high-contrast` (WCAG AAA text contrast, thick
- * focus and borders, no translucency). Skins (construction only, written in tokens): `forge`
- * (rounded, soft shadows — the default), `flat` (extends forge: square corners, no shadows, tighter
- * padding) and `glass` (extends forge: translucent gradient surfaces). Any theme works with any skin;
+ * Themes (tokens only): `frontier` (the default: warm near-black, cream text, ember-orange accent),
+ * `dark` (cool slate and blue), `light`, `high-contrast` (WCAG AAA text contrast, thick focus and
+ * borders, no translucency). Skins (construction only, written in tokens): `frontier` (the default:
+ * letter-spaced uppercase controls and headings, gradient primary with glow, outlined accent
+ * buttons), `forge` (rounded, soft shadows, mixed case), `flat` (extends forge: square corners, no
+ * shadows, tighter padding) and `glass` (extends forge: translucent gradient surfaces). Any theme
+ * works with any skin;
  * `tests/ui/uiStyle.test.ts` resolves every component in every combination and checks that no token
  * is missing.
  */
@@ -32,6 +35,11 @@ export const DARK_THEME: ThemeDefinition = {
       accentHover: "#60a5fa",
       accentPressed: "#2563eb",
       accentText: "#ffffff",
+      accentEnd: "#2563eb",
+      accentBorder: "#3b82f680",
+      accentGlow: "#3b82f640",
+      highlight: "#fbbf24",
+      successSurface: "#14532d80",
       danger: "#ef4444",
       dangerHover: "#f87171",
       success: "#22c55e",
@@ -79,6 +87,11 @@ export const LIGHT_THEME: ThemeDefinition = {
       accent: "#2563eb",
       accentHover: "#1d4ed8",
       accentPressed: "#1e40af",
+      accentEnd: "#1d4ed8",
+      accentBorder: "#2563eb80",
+      accentGlow: "#2563eb33",
+      highlight: "#b45309",
+      successSurface: "#dcfce7",
       track: "#0f172a1f",
       selection: "#2563eb26",
       backdrop: "#0f172a66",
@@ -112,6 +125,11 @@ export const HIGH_CONTRAST_THEME: ThemeDefinition = {
       accentHover: "#ffff66",
       accentPressed: "#cccc00",
       accentText: "#000000",
+      accentEnd: "#ffff00",
+      accentBorder: "#ffff00",
+      accentGlow: "#00000000",
+      highlight: "#ffff00",
+      successSurface: "#000000",
       danger: "#ff6b6b",
       track: "#333333",
       selection: "#ffff0066",
@@ -126,7 +144,164 @@ export const HIGH_CONTRAST_THEME: ThemeDefinition = {
   },
 };
 
-/** Default skin: rounded corners, soft shadows, token colours. */
+/**
+ * Default theme: warm near-black surfaces, cream text, tan secondary text and an ember-orange accent
+ * (a dusty-planet palette). Text contrast is AA or better on its surfaces (pinned by uiStyle tests).
+ */
+export const FRONTIER_THEME: ThemeDefinition = {
+  name: "frontier",
+  kind: "dark",
+  extends: "dark",
+  tokens: {
+    color: {
+      background: "#0c0907",
+      surface: "#15100d",
+      surfaceAlt: "#1c1612",
+      surfaceHover: "#2a211b",
+      surfacePressed: "#100c0a",
+      border: "#3a2c22",
+      text: "#f3e9dc",
+      textMuted: "#a8968a",
+      textInverse: "#1c0f06",
+      accent: "#f98b47",
+      accentHover: "#ff9d5e",
+      accentPressed: "#de6c2a",
+      accentText: "#1f1007",
+      accentEnd: "#e3702e",
+      accentBorder: "#f98b4766",
+      accentGlow: "#f5853f59",
+      highlight: "#f7c24a",
+      danger: "#e2553e",
+      dangerHover: "#ef6a52",
+      success: "#7bc67e",
+      successSurface: "#7bc67e14",
+      warning: "#f2b24c",
+      track: "#00000066",
+      selection: "#f98b4729",
+      backdrop: "#080504b8",
+      shadow: "#000000a6",
+      tooltip: "#f3e9dc",
+      tooltipText: "#1c0f06",
+      health: "#e2553e",
+      healthLow: "#f98b47",
+      shield: "#62b6d4",
+      trail: "#f6d58acc",
+      positive: "#7bc67e",
+      negative: "#ef6a52",
+      mark: "#1f1007",
+      thumb: "#f3e9dc",
+    },
+    radius: { sm: 6, md: 10, lg: 18, pill: 999 },
+    fontSize: { sm: 12, md: 15, lg: 18, xl: 26, xxl: 46 },
+    number: { border: 1, focus: 2, controlHeight: 40, iconSize: 18 },
+  },
+};
+
+/**
+ * Default skin: letter-spaced uppercase labels on controls and headings, an orange gradient primary
+ * button with a soft glow, outlined accent buttons, large rounded cards. Written in tokens, so it
+ * works with every theme; under `frontier` it reads as a mission-control console.
+ *
+ * Extra variants it adds: `Label` `eyebrow` (small accent kicker over a heading), `stat` / `statLabel`
+ * (a number over a spaced caption), `body` (also on `RichText`); `Button` `outline` (accent text and
+ * border, no fill); `Panel` `inset` (a list row inside a card); `Badge` `status` (green outlined pill).
+ */
+export const FRONTIER_SKIN: SkinDefinition = {
+  name: "frontier",
+  version: 1,
+  extends: "forge",
+  components: {
+    Label: {
+      variants: {
+        title: { fontSize: "$fontSize.xxl", fontWeight: 800, letterSpacing: 7, textTransform: "uppercase", lineHeight: 1.05 },
+        heading: { fontSize: "$fontSize.xl", fontWeight: 800, letterSpacing: 3, textTransform: "uppercase" },
+        eyebrow: { foreground: "$color.accent", fontSize: 11.5, fontWeight: 700, letterSpacing: 3.4, textTransform: "uppercase" },
+        body: { foreground: "$color.textMuted", fontSize: "$fontSize.md", lineHeight: 1.6 },
+        muted: { foreground: "$color.textMuted", fontSize: "$fontSize.md", lineHeight: 1.5 },
+        caption: { foreground: "$color.textMuted", fontSize: "$fontSize.sm", letterSpacing: 1.2 },
+        stat: { fontSize: 30, fontWeight: 800 },
+        statLabel: { foreground: "$color.textMuted", fontSize: 10.5, fontWeight: 600, letterSpacing: 2.2, textTransform: "uppercase" },
+      },
+    },
+    Panel: {
+      background: "$color.surface",
+      borderColor: "$color.border",
+      radius: "$radius.lg",
+      padding: 22,
+      shadowColor: "$color.shadow",
+      shadowBlur: 28,
+      shadowOffsetY: 10,
+      variants: { inset: { radius: "$radius.md", padding: [14, 14], shadowColor: "#00000000", shadowBlur: 0, shadowOffsetY: 0 } },
+    },
+    RichText: { variants: { body: { foreground: "$color.textMuted", fontSize: "$fontSize.md", lineHeight: 1.6 } } },
+    ModalDialog: { padding: 24 },
+    Button: {
+      background: "$color.surfaceAlt",
+      borderColor: "$color.border",
+      radius: "$radius.md",
+      padding: [12, 18],
+      minHeight: 44,
+      fontSize: 14,
+      fontWeight: 700,
+      letterSpacing: 2.2,
+      textTransform: "uppercase",
+      states: {
+        hovered: { background: "$color.surfaceHover", borderColor: "$color.accentBorder" },
+        pressed: { background: "$color.surfacePressed" },
+      },
+      variants: {
+        primary: {
+          background: "$color.accent",
+          backgroundEnd: "$color.accentEnd",
+          gradient: "vertical",
+          borderColor: "$color.accentHover",
+          foreground: "$color.accentText",
+          shadowColor: "$color.accentGlow",
+          shadowBlur: 24,
+          shadowOffsetY: 4,
+          states: { hovered: { background: "$color.accentHover" }, pressed: { background: "$color.accentPressed", backgroundEnd: "$color.accentPressed" } },
+        },
+        outline: {
+          background: "#00000000",
+          borderColor: "$color.accentBorder",
+          foreground: "$color.accent",
+          fontSize: "$fontSize.sm",
+          letterSpacing: 1.8,
+          padding: [8, 12],
+          minHeight: 36,
+          iconSize: 10,
+          spacing: 6,
+          states: { hovered: { background: "$color.selection", borderColor: "$color.accent" }, pressed: { background: "$color.surfacePressed" } },
+        },
+        danger: { background: "$color.danger", borderColor: "$color.danger", foreground: "#ffffff", states: { hovered: { background: "$color.dangerHover" } } },
+        ghost: { background: "#00000000", borderColor: "#00000000", foreground: "$color.textMuted", states: { hovered: { background: "$color.surfaceHover", foreground: "$color.text" } } },
+        // Navigation reads as tabs, not commands: mixed case, so six items fit beside the pickers.
+        nav: { textTransform: "none", letterSpacing: 0.3, fontWeight: 600, padding: [8, 12], minHeight: 36, background: "#00000000", borderColor: "#00000000", foreground: "$color.textMuted", states: { hovered: { background: "$color.surfaceHover", foreground: "$color.text" }, checked: { background: "$color.selection", borderColor: "#00000000", foreground: "$color.accent" } } },
+        menu: { letterSpacing: 1.5, fontSize: "$fontSize.sm", minHeight: 30 },
+        crumb: { textTransform: "none", letterSpacing: 0, minHeight: 24, fontWeight: 600 },
+        "crumb-current": { textTransform: "none", letterSpacing: 0, minHeight: 24 },
+        choice: { textTransform: "none", letterSpacing: 0, fontWeight: 500 },
+      },
+    },
+    IconButton: { padding: 6, letterSpacing: 0, minWidth: 34 },
+    TabButton: { fontSize: "$fontSize.sm", letterSpacing: 2, padding: [9, 14], minHeight: 36, radius: [10, 10, 0, 0] },
+    TabPages: { radius: [0, 12, 12, 12] },
+    TextInput: { radius: "$radius.md", padding: [10, 12], minHeight: 40 },
+    Dropdown: { radius: "$radius.md", padding: [9, 12] },
+    Popup: { radius: "$radius.md" },
+    NavigationBar: { background: "$color.background" },
+    Badge: {
+      variants: {
+        status: { background: "$color.successSurface", foreground: "$color.success", borderColor: "$color.success", borderWidth: 1, padding: [6, 14], fontSize: "$fontSize.sm", letterSpacing: 2.5, textTransform: "uppercase" },
+      },
+    },
+    CollapseHeader: { textTransform: "uppercase", letterSpacing: 2, fontSize: "$fontSize.sm" },
+    NotificationToast: { radius: "$radius.md" },
+    StatDisplay: { custom: { positive: "#7bc67e", negative: "#ef6a52" } },
+  },
+};
+
+/** The previous default skin: rounded corners, soft shadows, token colours. */
 export const FORGE_SKIN: SkinDefinition = {
   name: "forge",
   version: 1,
@@ -139,10 +314,25 @@ export const FORGE_SKIN: SkinDefinition = {
         strong: { fontWeight: 700 },
         muted: { foreground: "$color.textMuted", fontSize: "$fontSize.sm" },
         caption: { foreground: "$color.textMuted", fontSize: "$fontSize.sm" },
+        eyebrow: { foreground: "$color.accent", fontSize: "$fontSize.sm", fontWeight: 700, letterSpacing: 1.5 },
+        body: { foreground: "$color.textMuted", lineHeight: 1.45 },
+        stat: { fontSize: "$fontSize.xl", fontWeight: 700 },
+        statLabel: { foreground: "$color.textMuted", fontSize: "$fontSize.sm" },
         badge: { background: "$color.accent", foreground: "$color.accentText", radius: "$radius.sm", padding: [1, 6], fontSize: "$fontSize.sm", fontWeight: 700 },
       },
     },
-    Panel: { background: "$color.surface", borderColor: "$color.border", borderWidth: "$number.border", radius: "$radius.lg", padding: "$space.lg", shadowColor: "$color.shadow", shadowBlur: 18, shadowOffsetY: 6 },
+    Panel: {
+      background: "$color.surface",
+      borderColor: "$color.border",
+      borderWidth: "$number.border",
+      radius: "$radius.lg",
+      padding: "$space.lg",
+      shadowColor: "$color.shadow",
+      shadowBlur: 18,
+      shadowOffsetY: 6,
+      variants: { inset: { background: "$color.surfaceAlt", radius: "$radius.md", padding: "$space.md", shadowColor: "#00000000", shadowBlur: 0, shadowOffsetY: 0 } },
+    },
+    RichText: { variants: { body: { foreground: "$color.textMuted", lineHeight: 1.45 } } },
     ModalBackdrop: { background: "$color.backdrop" },
     ModalDialog: { padding: 20 },
     Tooltip: { background: "$color.tooltip", foreground: "$color.tooltipText", radius: "$radius.sm", padding: [6, 10], fontSize: "$fontSize.sm", shadowColor: "$color.shadow", shadowBlur: 8, shadowOffsetY: 2 },
@@ -177,6 +367,7 @@ export const FORGE_SKIN: SkinDefinition = {
         crumb: { background: "#00000000", borderColor: "#00000000", foreground: "$color.accent", padding: [4, 6], minHeight: 24, fontWeight: 400, states: { hovered: { background: "$color.surfaceHover" } } },
         "crumb-current": { background: "#00000000", borderColor: "#00000000", padding: [4, 6], minHeight: 24 },
         choice: { textAlign: "start", background: "$color.surfaceAlt" },
+        outline: { background: "#00000000", borderColor: "$color.accentBorder", foreground: "$color.accent", states: { hovered: { background: "$color.selection", borderColor: "$color.accent" } } },
       },
     },
     IconButton: { padding: 8, minWidth: "$number.controlHeight" },
@@ -223,7 +414,7 @@ export const FORGE_SKIN: SkinDefinition = {
     ProgressBar: { track: "$color.track", accent: "$color.accent", radius: "$radius.pill", minHeight: 10, fontSize: "$fontSize.sm" },
     CircularProgress: { borderWidth: 6, minWidth: 48, fontSize: "$fontSize.sm" },
     LoadingIndicator: { borderWidth: 3, minWidth: 24 },
-    Badge: { background: "$color.accent", foreground: "$color.accentText", radius: "$radius.pill", padding: [2, 7], fontSize: "$fontSize.sm", fontWeight: 700, variants: { danger: { background: "$color.danger" }, success: { background: "$color.success" } } },
+    Badge: { background: "$color.accent", foreground: "$color.accentText", radius: "$radius.pill", padding: [2, 7], fontSize: "$fontSize.sm", fontWeight: 700, variants: { danger: { background: "$color.danger" }, success: { background: "$color.success" }, status: { background: "$color.successSurface", foreground: "$color.success", borderColor: "$color.success", borderWidth: 1, padding: [4, 10] } } },
     StatDisplay: { custom: { positive: "#4ade80", negative: "#f87171" } },
     StatusIndicator: { iconSize: 14 },
     ScrollView: { foreground: "$color.textMuted" },
@@ -312,9 +503,11 @@ export const GLASS_SKIN: SkinDefinition = {
 
 export function registerBuiltinStyles(resolver: StyleResolver): void {
   resolver.registerTheme(DARK_THEME);
+  resolver.registerTheme(FRONTIER_THEME);
   resolver.registerTheme(LIGHT_THEME);
   resolver.registerTheme(HIGH_CONTRAST_THEME);
   resolver.registerSkin(FORGE_SKIN);
+  resolver.registerSkin(FRONTIER_SKIN);
   resolver.registerSkin(FLAT_SKIN);
   resolver.registerSkin(GLASS_SKIN);
 }

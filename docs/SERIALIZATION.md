@@ -168,5 +168,5 @@ The pieces underneath:
   beginning, where they are recreated anyway. Tracked as `serialization.closuresAndTransients`.
 - **The engine clock** is the caller's. A snapshot restores simulation state, and whoever drives
   `scene.update` keeps stepping it.
-- **Replay (19.4)**: input recording and deterministic playback. State hashing landed with 19.3.
-  Tracked by `determinism.replay`.
+- **Replay (19.4)** is separate from saves and snapshots: input, frame schedule and per-part state
+  hashes, in `docs/REPLAY.md`.

@@ -74,8 +74,10 @@ export class FlexLayout implements LayoutStrategy {
       const mMain = row ? m.left + m.right : m.top + m.bottom;
       const mCross = row ? m.top + m.bottom : m.left + m.right;
       const s = c.measure(row ? Math.max(0, availableWidth - mMain) : Math.max(0, availableWidth - mCross), row ? Math.max(0, availableHeight - mCross) : Math.max(0, availableHeight - mMain), ctx);
-      const basis = this.basisOf(c, row ? availableWidth : availableHeight, ctx);
-      const itemMain = (Number.isNaN(basis) ? (row ? s.width : s.height) : basis) + mMain;
+      const basis = this.basisOf(c, availMain, ctx);
+      // Clamp the basis exactly as arrangeContent does, or measure and arrange disagree on the
+      // container's size whenever an item's min/max (or its skin minimum) overrides its basis.
+      const itemMain = (Number.isNaN(basis) ? (row ? s.width : s.height) : this.clampMain(c, basis, availMain, ctx)) + mMain;
       const itemCross = (row ? s.height : s.width) + mCross;
       if (this.wrap && count > 0 && Number.isFinite(availMain) && lineMain + this.gap + itemMain > availMain + 1e-6) {
         totalMain = Math.max(totalMain, lineMain);
@@ -93,7 +95,38 @@ export class FlexLayout implements LayoutStrategy {
       totalMain = Math.max(totalMain, lineMain);
       totalCross += lineCross + (lines > 0 ? this.lineGap : 0);
     }
+    // A single-line row will grow/shrink its items to the width it gets, and wrapping text gets
+    // taller as it gets narrower: measure each item's height at the width arrange will give it, or
+    // the row reports one line of text and its content overflows when the items shrink.
+    if (row && !this.wrap && Number.isFinite(availableWidth) && lines === 0 && count > 0) {
+      totalCross = this.crossAtResolvedWidths(node, availableWidth, availableHeight, ctx);
+    }
     return row ? { width: totalMain, height: totalCross } : { width: totalCross, height: totalMain };
+  }
+
+  /** Height of a single-line row after resolving flexible widths against `width`. */
+  private crossAtResolvedWidths(node: LayoutNode, width: number, availableHeight: number, ctx: LayoutContext): number {
+    const items = this.items;
+    items.length = 0;
+    for (const c of node.layoutChildren) if (c.isFlowChild) items.push(c);
+    const n = items.length;
+    const { base, main } = this;
+    base.length = main.length = this.frozen.length = n;
+    for (let i = 0; i < n; i++) {
+      const c = items[i]!;
+      const m = c.marginBox;
+      const basis = this.basisOf(c, width, ctx);
+      base[i] = !Number.isNaN(basis) ? this.clampMain(c, basis, width, ctx) : c.measure(Math.max(0, width - m.left - m.right), Math.max(0, availableHeight - m.top - m.bottom), ctx).width;
+    }
+    this.resolveFlexible(items, 0, n, width, ctx);
+    let cross = 0;
+    for (let i = 0; i < n; i++) {
+      const c = items[i]!;
+      const m = c.marginBox;
+      cross = Math.max(cross, c.measure(main[i]!, Math.max(0, availableHeight - m.top - m.bottom), ctx).height + m.top + m.bottom);
+    }
+    items.length = 0;
+    return cross;
   }
 
   private basisOf(c: LayoutNode, parentMain: number, ctx: LayoutContext): number {

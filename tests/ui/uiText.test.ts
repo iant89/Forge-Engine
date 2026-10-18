@@ -70,6 +70,23 @@ group("measurement and wrapping", () => {
     assert.ok(close(spaced.width, w16 + 2 * 4), "4 gaps between 5 letters (trailing spacing not counted)");
   });
 
+  test("letter-spaced text laid out at its own measured width neither wraps nor ellipsizes", () => {
+    const e = engine();
+    for (const letterSpacing of [0, 2.4, 4.5]) {
+      const natural = e.layout({ text: "LANDING ZONES", family: "default", size: 12, weight: 600, letterSpacing });
+      for (const overflow of ["ellipsis", "clip"] as const) {
+        const fitted = e.layout({ text: "LANDING ZONES", family: "default", size: 12, weight: 600, letterSpacing, maxWidth: natural.width, wrap: "none", overflow });
+        assert.equal(fitted.truncated, false, `spacing ${letterSpacing}, ${overflow}`);
+        assert.ok(close(fitted.width, natural.width), `spacing ${letterSpacing}, ${overflow}: ${fitted.width} vs ${natural.width}`);
+      }
+      const wrapped = e.layout({ text: "LANDING ZONES", family: "default", size: 12, letterSpacing, maxWidth: e.layout({ text: "LANDING ZONES", family: "default", size: 12, letterSpacing }).width, wrap: "word" });
+      assert.equal(wrapped.lines.length, 1, `spacing ${letterSpacing}: one line`);
+    }
+    // A genuinely narrower box still ellipsizes, and the ellipsis is the line's last visible glyph.
+    const cut = e.layout({ text: "LANDING ZONES", family: "default", size: 12, letterSpacing: 3, maxWidth: 60, wrap: "none", overflow: "ellipsis" });
+    assert.ok(cut.truncated && cut.width <= 60 + 1e-3, `${cut.width}`);
+  });
+
   test("synthetic bold widens advances", () => {
     const e = engine();
     assert.ok(e.layout({ text: "Bold", family: "default", size: 20, weight: 700 }).width > e.layout({ text: "Bold", family: "default", size: 20 }).width);

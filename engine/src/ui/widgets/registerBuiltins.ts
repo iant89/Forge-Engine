@@ -111,7 +111,7 @@ export function registerBuiltinComponents(r: ComponentRegistry): void {
 
   const I = "interactive";
   const press = { name: "onPress", type: "any", serializable: false } as PropertyDescriptor;
-  reg(r, "Button", (o) => new Button(o as never), [P.text, P.textKey, P.icon, { name: "iconAfter", type: "boolean" }, press], { category: I, description: "Push button" });
+  reg(r, "Button", (o) => new Button(o as never), [P.text, P.textKey, P.icon, { name: "iconAfter", type: "boolean" }, { name: "subtitle", type: "string", affects: ["layout"], description: "Second, smaller line under the text" }, press], { category: I, description: "Push button" });
   reg(r, "IconButton", (o) => new IconButton(o as never), [P.icon, { name: "label", type: "string" }, press], { category: I, description: "Icon-only button" });
   reg(r, "ToggleButton", (o) => new ToggleButton(o as never), [P.text, P.icon, P.checked], { category: I, description: "Latching button" });
   reg(r, "TabButton", (o) => new TabButton(o as never), [P.text, P.icon], { category: I, description: "Tab strip button" });

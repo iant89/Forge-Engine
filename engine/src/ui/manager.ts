@@ -39,7 +39,7 @@ import { InputRouter } from "./input/router.js";
 import { dispatchUIEvent, UICustomEvent, type UIEvent } from "./input/events.js";
 import { UIDrawList, DrawListPainter } from "./render/drawList.js";
 import { UIAssets } from "./render/assets.js";
-import { BreakpointSet, ResponsiveProfile, computeUiScale, type Breakpoint, type ResponsiveRules, type ScaleMode } from "./responsive.js";
+import { BreakpointSet, DEFAULT_SCALE_MODE, ResponsiveProfile, computeUiScale, type Breakpoint, type ResponsiveRules, type ScaleMode } from "./responsive.js";
 import { registerBuiltinComponents } from "./widgets/registerBuiltins.js";
 import { registerBuiltinStyles } from "./style/builtins.js";
 import { ModalHost, TooltipBubble } from "./widgets/overlayHosts.js";
@@ -50,11 +50,14 @@ export interface UIManagerOptions {
   width?: number;
   height?: number;
   devicePixelRatio?: number;
-  /** User UI scale (multiplies the device pixel ratio). */
+  /** A fixed UI scale (multiplies the device pixel ratio); setting it turns viewport scaling off. */
   uiScale?: number;
+  /** How the scale follows the viewport (default `DEFAULT_SCALE_MODE`; `"fixed"` with no uiScale = 1). */
   scaleMode?: ScaleMode;
   textScale?: number;
+  /** Theme name (default `"frontier"`). */
   theme?: string;
+  /** Skin name (default `"frontier"`). */
   skin?: string;
   breakpoints?: readonly Breakpoint[];
   breakpointHysteresis?: number;
@@ -155,7 +158,7 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
   private layoutInvalidatedDuringPass: UIElement[] = [];
   private readonly invalidationCounts = new Map<UIElement, number>();
   private readonly hotReported = new Set<UIElement>();
-  private scaleMode: ScaleMode;
+  private _scaleMode: ScaleMode;
   private fixedUiScale: number;
   private cssWidth = 1;
   private cssHeight = 1;
@@ -202,7 +205,8 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
     this.breakpoints = new BreakpointSet(options.breakpoints, options.breakpointHysteresis);
     this.tooltipDelay = options.tooltipDelay ?? 0.5;
     this.maxLayoutPasses = options.maxLayoutPasses ?? 8;
-    this.scaleMode = options.scaleMode ?? "fixed";
+    // Passing a uiScale asks for that exact scale; otherwise the UI scales with the viewport.
+    this._scaleMode = options.scaleMode ?? (options.uiScale !== undefined ? "fixed" : DEFAULT_SCALE_MODE);
     this.fixedUiScale = options.uiScale ?? 1;
     this.animator.reducedMotion = options.reducedMotion ?? false;
     this.text.textScale = options.textScale ?? 1;
@@ -246,8 +250,8 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
     if (!options.bare) {
       registerBuiltinComponents(this.components);
       registerBuiltinStyles(this.resolver);
-      this.resolver.setTheme(options.theme ?? "dark");
-      this.resolver.setSkin(options.skin ?? "forge");
+      this.resolver.setTheme(options.theme ?? "frontier");
+      this.resolver.setSkin(options.skin ?? "frontier");
     } else {
       if (options.theme) this.resolver.setTheme(options.theme);
       if (options.skin) this.resolver.setSkin(options.skin);
@@ -424,20 +428,25 @@ export class UIManager implements UIContext, UIOverlayService, UIStyleService {
     vp.devicePixelRatio = devicePixelRatio;
     this.cssWidth = width / devicePixelRatio;
     this.cssHeight = height / devicePixelRatio;
-    vp.uiScale = computeUiScale(this.scaleMode, this.cssWidth, this.cssHeight, this.fixedUiScale);
+    vp.uiScale = computeUiScale(this._scaleMode, this.cssWidth, this.cssHeight, this.fixedUiScale);
     this.viewportChanged();
   }
 
   setUiScale(scale: number): void {
     if (!(scale > 0)) throw new UsageError("ui: uiScale must be > 0");
     this.fixedUiScale = scale;
-    this.scaleMode = "fixed";
+    this._scaleMode = "fixed";
     this.viewport.uiScale = scale;
     this.viewportChanged();
   }
 
+  /** The active scale mode (`"fixed"` after `setUiScale`). */
+  get scaleMode(): ScaleMode {
+    return this._scaleMode;
+  }
+
   setScaleMode(mode: ScaleMode): void {
-    this.scaleMode = mode;
+    this._scaleMode = mode;
     this.viewport.uiScale = computeUiScale(mode, this.cssWidth, this.cssHeight, this.fixedUiScale);
     this.viewportChanged();
   }

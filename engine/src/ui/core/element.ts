@@ -81,6 +81,7 @@ export const DETACHED_STYLE: ResolvedStyle = Object.freeze({
   lineHeight: 1.25,
   letterSpacing: 0,
   textAlign: "start",
+  textTransform: "none",
   opacity: 1,
   shadowColor: 0,
   shadowOffsetX: 0,
@@ -585,6 +586,7 @@ export abstract class UIElement implements LayoutNode {
       prev.fontWeight !== next.fontWeight ||
       prev.lineHeight !== next.lineHeight ||
       prev.letterSpacing !== next.letterSpacing ||
+      prev.textTransform !== next.textTransform ||
       prev.minWidth !== next.minWidth ||
       prev.minHeight !== next.minHeight ||
       prev.iconSize !== next.iconSize ||
@@ -728,6 +730,11 @@ export abstract class UIElement implements LayoutNode {
       if (!Number.isNaN(w) && Number.isNaN(h)) h = w / ratio;
       else if (Number.isNaN(w) && !Number.isNaN(h)) w = h * ratio;
     }
+    // A definite size is clamped by min/max *before* the content is laid out at it: a `width: 520,
+    // maxWidth: "94vw"` panel on a phone must wrap its text at 94vw, or its height is computed for
+    // a width it never gets and its children are squeezed when it is arranged.
+    if (!Number.isNaN(w)) w = this.clampWidth(w, availableWidth, ctx);
+    if (!Number.isNaN(h)) h = this.clampHeight(h, availableHeight, ctx);
     if (Number.isNaN(w) || Number.isNaN(h)) {
       const innerW = Number.isNaN(w) ? Math.max(0, this.maxFor(availableWidth, true, ctx) - padW) : Math.max(0, w - padW);
       const innerH = Number.isNaN(h) ? Math.max(0, this.maxFor(availableHeight, false, ctx) - padH) : Math.max(0, h - padH);

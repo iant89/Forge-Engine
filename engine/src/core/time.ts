@@ -20,6 +20,15 @@ export interface TickResult {
   alpha: number;
 }
 
+/** One frame of a recorded schedule: the variable delta and the fixed steps it ran (replays). */
+export interface ScriptedFrame {
+  /** `deltaTime` of the frame (already scaled, as systems saw it). */
+  dt: number;
+  fixedSteps: number;
+  /** Interpolation alpha the frame reported. */
+  alpha: number;
+}
+
 export interface ClockOptions {
   fixedDeltaTime?: number;
   maxDeltaTime?: number;
@@ -54,6 +63,9 @@ export class Clock {
   private _startWallTime: number;
   /** Real seconds elapsed regardless of pausing/scaling — used by the profiler's frame graph. */
   private _wallClockElapsed = 0;
+  /** Frames to replay verbatim before wall time drives the clock again (see `scriptFrames`). */
+  private scripted: readonly ScriptedFrame[] = [];
+  private scriptedIndex = 0;
 
   constructor(options: ClockOptions = {}) {
     this.fixedDeltaTime = options.fixedDeltaTime ?? 1 / 60;
@@ -139,6 +151,7 @@ export class Clock {
    * Advance the clock. Called exactly once per presented frame by `Application`.
    */
   tick(): TickResult {
+    if (this.scriptedIndex < this.scripted.length) return this.tickScripted();
     const now = this.timeSource();
     let raw = now - this.lastTime;
     this.lastTime = now;
@@ -176,6 +189,52 @@ export class Clock {
       alpha = clamp(this.accumulator / fixed, 0, 1);
     }
     return { fixedSteps: steps, alpha };
+  }
+
+  /**
+   * Replay a recorded frame schedule: each following `tick()` reports the next frame's `dt`,
+   * `fixedSteps` and `alpha` exactly, whatever wall time did. Pause, time scale and the catch-up
+   * limit do not apply (the recording already contains their effect). When the schedule runs out,
+   * the clock resumes from wall time without a jump. Calling again replaces any remaining frames.
+   */
+  scriptFrames(frames: readonly ScriptedFrame[]): void {
+    this.scripted = frames;
+    this.scriptedIndex = 0;
+  }
+
+  /** Scripted frames not yet consumed. */
+  get scriptedFramesRemaining(): number {
+    return this.scripted.length - this.scriptedIndex;
+  }
+
+  /** Drop any remaining scripted frames; the next tick reads wall time again. */
+  cancelScriptedFrames(): void {
+    this.scripted = [];
+    this.scriptedIndex = 0;
+    this.lastTime = this.timeSource();
+  }
+
+  private tickScripted(): TickResult {
+    const f = this.scripted[this.scriptedIndex++]!;
+    const now = this.timeSource();
+    this.lastTime = now;
+    this._wallClockElapsed = now - this._startWallTime;
+    this._unscaledDeltaTime = f.dt;
+    this._deltaTime = f.dt;
+    this._smoothedDelta = this._smoothedDelta * 0.9 + f.dt * 0.1;
+    this._frameIndex++;
+    this._elapsedTime += f.dt;
+    for (let i = 0; i < f.fixedSteps; i++) {
+      this._fixedTime += this.fixedDeltaTime;
+      this._fixedStepIndex++;
+    }
+    // Leave the accumulator where the recording's alpha says, so wall time continues seamlessly.
+    this.accumulator = clamp(f.alpha, 0, 1) * this.fixedDeltaTime;
+    if (this.scriptedIndex >= this.scripted.length) {
+      this.scripted = [];
+      this.scriptedIndex = 0;
+    }
+    return { fixedSteps: f.fixedSteps, alpha: f.alpha };
   }
 
   /** Force an exact number of fixed steps (replay, tests, deterministic offline capture). */

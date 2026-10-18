@@ -34,6 +34,11 @@ export interface ButtonOptions extends UIControlOptions {
   icon?: string;
   /** Icon after the text instead of before it. */
   iconAfter?: boolean;
+  /**
+   * Second, smaller line under the text ("Continue" over "Ares Expo 2 · Sol 6"). Drawn in mixed case
+   * at ~82 % size whatever the skin's `textTransform`; it is also the accessible description.
+   */
+  subtitle?: string;
 }
 
 export class Button extends UIControl {
@@ -42,10 +47,14 @@ export class Button extends UIControl {
   private _icon: string | null;
   private _textKey: string | null;
   iconAfter: boolean;
+  private readonly sub = new TextPart("", { overflow: "ellipsis" });
+  private subStyleFor: ResolvedStyle | null = null;
+  private subStyle: ResolvedStyle | null = null;
 
   constructor(options: ButtonOptions = {}) {
     super(options);
     this.label = new TextPart(options.text ?? "", { overflow: "ellipsis" });
+    if (options.subtitle) this.subtitle = options.subtitle;
     this._icon = options.icon ?? null;
     this._textKey = options.textKey ?? null;
     this.iconAfter = options.iconAfter ?? false;
@@ -83,6 +92,24 @@ export class Button extends UIControl {
     if (this._textKey && this.context) this.setText(this.context.localizer.t(this._textKey));
   }
 
+  get subtitle(): string {
+    return this.sub.text;
+  }
+  set subtitle(t: string) {
+    if (!this.sub.set(t)) return;
+    this.accessibility.description = t;
+    this.invalidateLayout();
+  }
+
+  /** The subtitle's style: derived from the button's (smaller, lighter, mixed case), cached per style. */
+  private subtitleStyle(s: ResolvedStyle): ResolvedStyle {
+    if (this.subStyleFor !== s || !this.subStyle) {
+      this.subStyleFor = s;
+      this.subStyle = { ...s, fontSize: Math.round(s.fontSize * 0.82 * 2) / 2, fontWeight: Math.min(s.fontWeight, 500), letterSpacing: Math.min(s.letterSpacing * 0.4, 1), textTransform: "none" };
+    }
+    return this.subStyle;
+  }
+
   get icon(): string | null {
     return this._icon;
   }
@@ -96,16 +123,23 @@ export class Button extends UIControl {
     const s = this.computedStyle;
     const iconW = this._icon ? s.iconSize : 0;
     const gap = this._icon && this.label.text ? s.spacing : 0;
-    const l = this.label.text ? this.label.layout(this.context, s, Math.max(0, availableWidth - iconW - gap)) : null;
-    return { width: iconW + gap + (l ? Math.min(l.width, Math.max(0, availableWidth - iconW - gap)) : 0), height: Math.max(iconW, l?.height ?? 0) };
+    const textW = Math.max(0, availableWidth - iconW - gap);
+    const l = this.label.text ? this.label.layout(this.context, s, textW) : null;
+    const st = this.sub.text ? this.sub.layout(this.context, this.subtitleStyle(s), textW) : null;
+    const blockW = Math.max(l?.width ?? 0, st?.width ?? 0);
+    const blockH = (l?.height ?? 0) + (st ? st.height + 2 : 0);
+    return { width: iconW + gap + Math.min(blockW, textW), height: Math.max(iconW, blockH) };
   }
 
   protected override paintContent(p: UIPainter, s: ResolvedStyle): void {
     const c = this.contentRect;
     const iconW = this._icon ? s.iconSize : 0;
     const gap = this._icon && this.label.text ? s.spacing : 0;
-    const l = this.label.text ? this.label.layout(this.context, s, Math.max(0, c.width - iconW - gap)) : null;
-    const total = iconW + gap + (l?.width ?? 0);
+    const textW = Math.max(0, c.width - iconW - gap);
+    const l = this.label.text ? this.label.layout(this.context, s, textW) : null;
+    const st = this.sub.text ? this.sub.layout(this.context, this.subtitleStyle(s), textW) : null;
+    const blockW = Math.max(l?.width ?? 0, st?.width ?? 0);
+    const total = iconW + gap + blockW;
     const align = s.textAlign;
     let x = align === "center" ? c.x + (c.width - total) / 2 : align === "end" ? c.right - total : c.x;
     const iconY = c.y + (c.height - iconW) / 2;
@@ -113,9 +147,13 @@ export class Button extends UIControl {
       paintIcon(this.context, p, this._icon, x, iconY, iconW, s.foreground);
       x += iconW + gap;
     }
-    if (l) {
-      p.text(l, x, c.y + (c.height - l.height) / 2, s.foreground);
-      x += l.width + gap;
+    if (l || st) {
+      const blockH = (l?.height ?? 0) + (st ? st.height + 2 : 0);
+      const y = c.y + (c.height - blockH) / 2;
+      const lineX = (w: number): number => (align === "center" ? x + (blockW - w) / 2 : align === "end" ? x + blockW - w : x);
+      if (l) p.text(l, lineX(l.width), y, s.foreground);
+      if (st) p.text(st, lineX(st.width), y + (l ? l.height + 2 : 0), withAlpha(s.foreground, 0.78));
+      x += blockW + gap;
     }
     if (this._icon && this.iconAfter) paintIcon(this.context, p, this._icon, x, iconY, iconW, s.foreground);
   }

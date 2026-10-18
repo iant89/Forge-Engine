@@ -54,6 +54,9 @@ export type Easing = "linear" | "easeIn" | "easeOut" | "easeInOut" | "easeOutBac
 export type GradientDirection = "none" | "vertical" | "horizontal";
 export type TextAlign = "start" | "center" | "end";
 
+/** Display-only case transform; the element's text (and its accessible label) keep their own case. */
+export type TextTransform = "none" | "uppercase";
+
 /** Animated state transition for a set of style properties. */
 export interface TransitionDefinition {
   /** Which properties animate; `"all"` animates every interpolable property. */
@@ -98,6 +101,7 @@ export interface ResolvedStyle {
   readonly lineHeight: number;
   readonly letterSpacing: number;
   readonly textAlign: TextAlign;
+  readonly textTransform: TextTransform;
   readonly opacity: number;
   readonly shadowColor: UIColor;
   readonly shadowOffsetX: number;
@@ -143,6 +147,7 @@ export interface StyleBlock {
   lineHeight?: NumberValue;
   letterSpacing?: NumberValue;
   textAlign?: TextAlign;
+  textTransform?: TextTransform;
   opacity?: NumberValue;
   shadowColor?: ColorValue;
   shadowOffsetX?: NumberValue;

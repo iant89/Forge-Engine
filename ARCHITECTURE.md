@@ -56,6 +56,8 @@ engine/                 @forge/engine — the runtime. Builds with tsc, zero run
   src/resources/        ResourceRegistry, handles, refcounting, eviction
   src/debug/            debug draw, visualizers, dev console
   src/gpu/              WebGPU helpers (buffer/texture builders, formats, sync)
+  src/replay/           input recording, deterministic playback and state hashing (docs/REPLAY.md);
+                        reads scene/physics/vehicle state, imported by nothing but the barrel
   src/ui/               retained-mode UI framework: element tree, layout, skins/themes, input/focus,
                         animation, binding, SDF text, widgets, declarative definitions, diagnostics;
                         ui/gpu is its WebGPU overlay pass (docs/UI.md, docs/UI-GUIDE.md)

@@ -21,9 +21,9 @@ export { AnchorLayout, placeAnchored } from "./layout/anchor.js";
 export { StackLayout } from "./layout/stack.js";
 
 // Style
-export { UIState, BUILTIN_STATES, FIRST_CUSTOM_STATE_BIT, TRANSITION_PROPERTIES, type ResolvedStyle, type StyleBlock, type StatefulStyleBlock, type ComponentSkin, type SkinDefinition, type ThemeDefinition, type ThemeTokens, type TransitionDefinition, type TransitionProperty, type Easing, type GradientDirection, type TextAlign } from "./style/types.js";
+export { UIState, BUILTIN_STATES, FIRST_CUSTOM_STATE_BIT, TRANSITION_PROPERTIES, type ResolvedStyle, type StyleBlock, type StatefulStyleBlock, type ComponentSkin, type SkinDefinition, type ThemeDefinition, type ThemeTokens, type TransitionDefinition, type TransitionProperty, type Easing, type GradientDirection, type TextAlign, type TextTransform } from "./style/types.js";
 export { StyleResolver, StateRegistry, DEFAULT_STYLE, validateSkin, validateTheme } from "./style/resolver.js";
-export { DARK_THEME, LIGHT_THEME, HIGH_CONTRAST_THEME, FORGE_SKIN, FLAT_SKIN, GLASS_SKIN, registerBuiltinStyles } from "./style/builtins.js";
+export { DARK_THEME, FRONTIER_THEME, LIGHT_THEME, HIGH_CONTRAST_THEME, FORGE_SKIN, FRONTIER_SKIN, FLAT_SKIN, GLASS_SKIN, registerBuiltinStyles } from "./style/builtins.js";
 
 // Input
 export {
@@ -68,7 +68,7 @@ export type { UIPainter, BoxPaint, ImagePaint } from "./render/painter.js";
 
 // Manager, responsive, diagnostics, declarative, world space
 export { UIManager, type UIManagerOptions, type UIFrameStats, type UIDiagnostic } from "./manager.js";
-export { BreakpointSet, ResponsiveProfile, computeUiScale, DEFAULT_BREAKPOINTS, type Breakpoint, type ResponsiveRule, type ResponsiveRules, type ScaleMode } from "./responsive.js";
+export { BreakpointSet, ResponsiveProfile, computeUiScale, DEFAULT_BREAKPOINTS, DEFAULT_SCALE_MODE, type Breakpoint, type ResponsiveRule, type ResponsiveRules, type ScaleMode } from "./responsive.js";
 export { UIDiagnostics, type InspectNode, type LayoutIssue, type AccessibilityNode, type DebugOverlayOptions } from "./diagnostics.js";
 export { buildUI, validateUIDefinition, UI_DEFINITION_VERSION, type UIDefinition, type UIBuildContext, type UIBuildResult } from "./declarative.js";
 export { projectToViewport, distanceFade, type WorldPoint, type ProjectedPoint, type WorldCamera } from "./worldSpace.js";

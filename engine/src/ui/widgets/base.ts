@@ -66,11 +66,11 @@ export class TextPart {
     if (!ctx) return null;
     const size = sizeOverride ?? style.fontSize;
     const wrapWidth = this.wrap === "none" && this.overflow === "visible" ? Infinity : maxWidth;
-    const key = `${wrapWidth}|${size}|${style.fontFamily}|${style.fontWeight}|${style.lineHeight}|${style.letterSpacing}|${this.align ?? style.textAlign}|${ctx.text.textScale}`;
+    const key = `${wrapWidth}|${size}|${style.fontFamily}|${style.fontWeight}|${style.lineHeight}|${style.letterSpacing}|${style.textTransform}|${this.align ?? style.textAlign}|${ctx.text.textScale}`;
     if (this.layoutResult && key === this.key) return this.layoutResult;
     this.key = key;
     this.layoutResult = ctx.text.layout({
-      text: this._text,
+      text: style.textTransform === "uppercase" ? this._text.toUpperCase() : this._text,
       family: ctx.text.hasFamily(style.fontFamily) ? style.fontFamily : "default",
       size,
       weight: style.fontWeight,

@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
 import {
   Button,
+  Label,
   DEFAULT_STYLE,
   StyleResolver,
   UIElement,
@@ -286,7 +287,7 @@ group("built-in themes and skins", () => {
   });
 
   test("light and dark body text keep at least AA (4.5:1) contrast", () => {
-    for (const theme of ["dark", "light"]) {
+    for (const theme of ["frontier", "dark", "light"]) {
       const ui = makeUI({ theme });
       const t = (k: string): number => ui.resolver.token(`color.${k}`) as number;
       assert.ok(contrastRatio(t("text"), t("surface")) >= 4.5, `${theme} text/surface`);
@@ -294,12 +295,31 @@ group("built-in themes and skins", () => {
     }
   });
 
+  test("frontier: accent text on the orange accent stays readable; the skin uppercases control labels only on screen", () => {
+    const ui = makeUI();
+    const t = (k: string): number => ui.resolver.token(`color.${k}`) as number;
+    assert.ok(contrastRatio(t("accentText"), t("accent")) >= 4.5, "dark text on the orange primary");
+    assert.ok(contrastRatio(t("accent"), t("surface")) >= 4.5, "orange outline text on a card");
+    const b = ui.base.add(new Button({ text: "Resume", variant: "outline" }));
+    ui.update(0);
+    assert.equal(b.computedStyle.textTransform, "uppercase");
+    assert.ok(b.computedStyle.letterSpacing > 0);
+    assert.equal(b.text, "Resume", "the model keeps its case");
+    assert.equal(b.accessibility.label, "Resume", "and so does the accessible label");
+    // Layout measures the transformed text: "abcd" is narrower than "ABCD".
+    const lower = ui.base.add(new Label({ text: "abcd", style: { textTransform: "none" } }));
+    const upper = ui.base.add(new Label({ text: "abcd", style: { textTransform: "uppercase" } }));
+    frame(ui);
+    assert.ok(upper.bounds.width > lower.bounds.width + 4, `${upper.bounds.width} vs ${lower.bounds.width}`);
+    assert.equal(upper.text, "abcd");
+  });
+
   test("setting an unknown theme or skin fails without changing the active one", () => {
     const ui = makeUI();
     assert.throws(() => ui.setTheme("nope"), UsageError);
-    assert.equal(ui.theme, "dark");
+    assert.equal(ui.theme, "frontier", "frontier is the default theme");
     assert.throws(() => ui.setSkin("nope"), UsageError);
-    assert.equal(ui.skin, "forge");
+    assert.equal(ui.skin, "frontier", "frontier is the default skin");
   });
 });
 

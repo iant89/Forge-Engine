@@ -76,6 +76,7 @@ import {
   type WorldCamera,
   type WorldPoint,
   SafeArea,
+  Separator,
 } from "@forge/engine";
 
 // ====================================================================== custom component
@@ -242,33 +243,33 @@ const ITEMS: InventoryItem[] = [
 
 export const GALLERY_STRINGS = {
   en: {
-    "menu.title": "FORGE",
-    "menu.play": "Play",
+    "menu.title": "Red Frontier",
     "menu.continue": "Continue",
+    "menu.new": "New expedition",
+    "menu.saved": "Saved expeditions",
     "menu.settings": "Settings",
-    "menu.credits": "Credits",
     "menu.quit": "Quit",
     "settings.title": "Settings",
     "hud.objective": "Reach the beacon",
     "inv.title": "Inventory",
   },
   de: {
-    "menu.title": "FORGE",
-    "menu.play": "Spielen",
+    "menu.title": "Rote Grenze",
     "menu.continue": "Fortsetzen",
+    "menu.new": "Neue Expedition",
+    "menu.saved": "Gespeicherte Expeditionen",
     "menu.settings": "Einstellungen",
-    "menu.credits": "Mitwirkende",
     "menu.quit": "Beenden",
     "settings.title": "Einstellungen",
     "hud.objective": "Erreiche das Leuchtfeuer",
     "inv.title": "Inventar",
   },
   fr: {
-    "menu.title": "FORGE",
-    "menu.play": "Jouer",
+    "menu.title": "Frontière rouge",
     "menu.continue": "Continuer",
+    "menu.new": "Nouvelle expédition",
+    "menu.saved": "Expéditions sauvegardées",
     "menu.settings": "Paramètres",
-    "menu.credits": "Crédits",
     "menu.quit": "Quitter",
     "settings.title": "Paramètres",
     "hud.objective": "Atteindre la balise",
@@ -354,27 +355,87 @@ export function buildUIGallery(ui: UIManager, options: UIGalleryOptions = {}): U
       if (ok) options.onQuit?.();
       return ok;
     });
+  // The menu page follows the frontier look: eyebrow kicker, large spaced title, body copy with
+  // highlighted words, a stat row, then one card that switches between the main menu and the saved
+  // expeditions list (the same card, so focus and layout never jump between two panels).
+  const saves = [
+    { name: "Ares Expo 2", meta: "Sol 6 · Pioneer · Territory · Terra Sirenum · Sep 22, 2026" },
+    { name: "Test 3", meta: "Sol 10 · Pioneer · Planetary Survey · Jezero crater · Sep 20, 2026" },
+    { name: "Ares Expedition", meta: "Sol 17 · Pioneer · Territory · Arabia Terra · Sep 17, 2026" },
+  ];
+  let showSaved: (on: boolean) => void = () => {};
   {
-    const page = new Stack({ direction: "column", gap: 12, align: "center", justify: "center", name: "page-menu" });
+    // Scrolls rather than squeezing: on a phone the menu (like the reference app's) is taller than
+    // the screen, and flex items shrunk below their content would overlap.
+    const page = new ScrollView({ name: "page-menu", contentLayout: { direction: "column", gap: 0, align: "center" } });
     page.setLayout({ flexGrow: 1, alignSelf: "stretch" });
-    page.add(new Label({ textKey: "menu.title", variant: "title" }));
-    page.add(new Label({ text: "a WebGPU engine UI, drawn by the engine", variant: "muted" }));
-    const menu = page.add(new Panel({ gap: 8, name: "main-menu" }));
-    menu.setLayout({ width: 260 });
-    const mk = (key: string, onPress: () => void, variant?: string, enabled = true): Button => {
-      const b = menu.add(new Button({ textKey: key, variant, onPress, enabled }));
+    const col = page.add(new Stack({ direction: "column", gap: 14, name: "menu-column" }));
+    col.setLayout({ width: 520, maxWidth: "100%", margin: [8, 0, 56, 0] });
+    col.add(new Label({ text: "Ares Expeditionary Command · 2066", variant: "eyebrow", wrap: "word" })).setLayout({ alignSelf: "stretch" });
+    col.add(new Label({ textKey: "menu.title", variant: "title", wrap: "word" })).setLayout({ alignSelf: "stretch" });
+    col.add(
+      new RichText({
+        markup: "One human. A handful of machines. An entire planet that doesn't want you there. Found a colony, keep the air on, and automate yourself out of the daily grind — before [b][color=$color.highlight]Mars[/color][/b] automates [b][color=$color.highlight]you[/color][/b] out of existence.",
+        variant: "body",
+      }),
+    ).setLayout({ alignSelf: "stretch" });
+    const stats = col.add(new Stack({ direction: "row", gap: 14, name: "menu-stats" }));
+    stats.setLayout({ alignSelf: "stretch", margin: [4, 0, 4, 0] });
+    for (const [value, label] of [["3", "Expeditions"], ["33", "Sols survived"], ["18", "Landing zones"]] as const) {
+      stats.add(new Separator({ orientation: "vertical" }));
+      const stat = stats.add(new Stack({ direction: "column", gap: 2 }));
+      stat.setLayout({ flexShrink: 1 });
+      stat.add(new Label({ text: value, variant: "stat" }));
+      stat.add(new Label({ text: label, variant: "statLabel", overflow: "ellipsis" }));
+    }
+
+    // Main menu card.
+    const menu = col.add(new Panel({ gap: 12, name: "main-menu" }));
+    menu.setLayout({ alignSelf: "stretch" });
+    const mk = (key: string, subtitle: string, icon: string, onPress: () => void, variant?: string): Button => {
+      const b = menu.add(new Button({ textKey: key, subtitle, icon, variant, onPress, style: { textAlign: "start", padding: [14, 22], spacing: 22 } }));
       b.setLayout({ alignSelf: "stretch" });
       return b;
     };
-    mk("menu.play", () => navigate("hud"), "primary");
-    mk("menu.continue", () => {}, undefined, false);
-    mk("menu.settings", () => navigate("settings"));
-    mk("menu.credits", () => {
-      const d = new ConfirmationDialog({ title: "Credits", message: "Forge UI framework — retained mode, SDF text (Forge Sans, DejaVu-derived), WebGPU batching.", confirmText: "Close", cancelText: "Back" });
-      void d.ask(ui);
-    });
-    mk("menu.quit", () => void confirmQuit(), "danger");
-    page.add(new Label({ text: "Tab / arrows / gamepad d-pad move focus · Enter or A activates · Esc or B closes dialogs", variant: "caption", wrap: "word", align: "center" })).setLayout({ maxWidth: 420 });
+    mk("menu.continue", `${saves[0]!.name} · Sol 6 · Pioneer · Sep 22, 2026`, "triangle-right", () => navigate("hud"), "primary");
+    mk("menu.new", "Found a colony on untouched ground", "star", () => navigate("hud"));
+    mk("menu.saved", `${saves.length} colonies on file`, "menu", () => showSaved(true));
+    mk("menu.settings", "Graphics, audio, controls, accessibility", "settings", () => navigate("settings"));
+    mk("menu.quit", "Back to the desktop", "close", () => void confirmQuit());
+    menu.add(new Label({ text: "Prototype 5 · deterministic sim · autosaves locally", variant: "caption", align: "center", wrap: "word" })).setLayout({ alignSelf: "stretch", margin: [4, 0, 0, 0] });
+
+    // Saved expeditions card (same column, swapped with the main menu).
+    const saved = col.add(new Panel({ gap: 12, name: "saved-expeditions", visible: false }));
+    saved.setLayout({ alignSelf: "stretch" });
+    const head = saved.add(new Stack({ direction: "row", gap: 8, align: "center", wrap: true }));
+    head.setLayout({ alignSelf: "stretch" });
+    head.add(new Button({ text: "Back", icon: "arrow-left", variant: "ghost", onPress: () => showSaved(false) }));
+    head.add(new Spacer());
+    head.add(new Button({ text: "New expedition", icon: "star", onPress: () => navigate("hud") }));
+    saved.add(new Label({ text: "Colony records", variant: "eyebrow" }));
+    saved.add(new Label({ text: "Saved expeditions", variant: "heading", wrap: "word" })).setLayout({ alignSelf: "stretch" });
+    saved.add(new Label({ text: "Most recently played first. Select a colony to resume it where you left off.", variant: "muted", wrap: "word" })).setLayout({ alignSelf: "stretch" });
+    for (const save of saves) {
+      const row = saved.add(new Panel({ direction: "row", gap: 10, align: "center", variant: "inset", name: `save-${save.name}` }));
+      row.setLayout({ alignSelf: "stretch" });
+      const info = row.add(new Stack({ direction: "column", gap: 4 }));
+      info.setLayout({ flexGrow: 1, flexShrink: 1, flexBasis: 0 });
+      info.add(new Label({ text: save.name, variant: "strong", style: { fontSize: "$fontSize.lg" } }));
+      info.add(new Label({ text: save.meta, variant: "muted", wrap: "word" })).setLayout({ alignSelf: "stretch" });
+      row.add(new Button({ text: "Resume", icon: "triangle-right", iconAfter: true, variant: "outline", onPress: () => navigate("hud"), accessibility: { label: `Resume ${save.name}` } }));
+      const more = row.add(new Button({ text: "•••", variant: "ghost", tooltip: "More options", accessibility: { label: `More options for ${save.name}` }, onPress: () => toasts.show(`${save.name}: rename, duplicate or delete`) }));
+      more.style = { padding: [6, 4], letterSpacing: 1, minWidth: 30 };
+    }
+
+    showSaved = (on: boolean): void => {
+      menu.visible = !on;
+      saved.visible = on;
+      const first = ui.focus.sequence(on ? saved : menu)[0];
+      if (ui.focus.focusVisible && first) first.focus(true);
+    };
+
+    const build = col.add(new Badge({ text: "Latest build · 3bd4b39", variant: "status", name: "build-badge" }));
+    build.setLayout({ alignSelf: "end" });
     pages.menu = page;
   }
 

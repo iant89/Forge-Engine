@@ -16,8 +16,9 @@
  *
  * Scaling: `scaleMode: "fixed"` keeps `uiScale` as set. A reference-resolution mode computes
  * `uiScale = exp(lerp(ln(w / refW), ln(h / refH), match))` clamped to `[min, max]` (match 0 = scale
- * with width, 1 = with height) — useful for HUDs authored at 1920×1080. Scaling is combined with
- * breakpoints, not a substitute for them.
+ * with width, 1 = with height), or the smaller (`"expand"`) / larger (`"shrink"`) ratio. The manager
+ * defaults to `DEFAULT_SCALE_MODE` (1280×720, expand, never below 1). Scaling is combined with
+ * breakpoints, not a substitute for them: breakpoints read the *logical* width after scaling.
  */
 
 import { UsageError } from "../core/errors.js";
@@ -101,15 +102,33 @@ export class BreakpointSet {
   }
 }
 
-export type ScaleMode = "fixed" | { referenceWidth: number; referenceHeight: number; match?: number; min?: number; max?: number };
+/**
+ * How the UI scale follows the viewport. `match` is a number in [0, 1] (log-space blend of the width
+ * and height ratios), `"expand"` (the smaller ratio: the whole reference layout always fits) or
+ * `"shrink"` (the larger ratio: the reference layout always fills, cropping the other axis).
+ */
+export type ScaleMode = "fixed" | { referenceWidth: number; referenceHeight: number; match?: number | "expand" | "shrink"; min?: number; max?: number };
+
+/**
+ * The default: a UI authored for a 1280×720 (CSS pixel) window grows with the viewport so it fills a
+ * large monitor at the same proportions (1920×1080 → 1.5, 2560×1440 → 2), and never shrinks below
+ * its authored size — phones, tablets and small windows keep scale 1 and adapt through breakpoints,
+ * so text stays at its designed size where screens are small.
+ */
+export const DEFAULT_SCALE_MODE: ScaleMode = Object.freeze({ referenceWidth: 1280, referenceHeight: 720, match: "expand", min: 1, max: 3 });
 
 /** UI scale for a physical size under a scale mode (`fixedScale` is returned for "fixed"). */
 export function computeUiScale(mode: ScaleMode, cssWidth: number, cssHeight: number, fixedScale: number): number {
   if (mode === "fixed") return fixedScale;
-  const match = Math.max(0, Math.min(1, mode.match ?? 0.5));
-  const lw = Math.log(Math.max(1e-6, cssWidth / mode.referenceWidth));
-  const lh = Math.log(Math.max(1e-6, cssHeight / mode.referenceHeight));
-  const s = Math.exp(lw + (lh - lw) * match);
+  const rw = Math.max(1e-6, cssWidth / mode.referenceWidth);
+  const rh = Math.max(1e-6, cssHeight / mode.referenceHeight);
+  let s: number;
+  if (mode.match === "expand") s = Math.min(rw, rh);
+  else if (mode.match === "shrink") s = Math.max(rw, rh);
+  else {
+    const match = Math.max(0, Math.min(1, mode.match ?? 0.5));
+    s = Math.exp(Math.log(rw) + (Math.log(rh) - Math.log(rw)) * match);
+  }
   return Math.max(mode.min ?? 0.25, Math.min(mode.max ?? 4, s));
 }
 

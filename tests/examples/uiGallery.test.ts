@@ -87,9 +87,9 @@ group("responsive layout", () => {
 });
 
 group("interaction", () => {
-  test("keyboard only: Tab reaches the menu, Enter on Play opens the HUD page", () => {
+  test("keyboard only: Tab reaches the menu, Enter on Continue opens the HUD page", () => {
     const { ui, g } = setup();
-    const play = labelled(g.pages.menu!, "Play");
+    const play = labelled(g.pages.menu!, "Continue");
     let guard = 0;
     while (ui.focus.focused !== play && guard++ < 40) key(ui, "Tab");
     assert.equal(ui.focus.focused, play, `focus order: ${ui.diagnostics.focusOrder().join(", ")}`);
@@ -101,16 +101,46 @@ group("interaction", () => {
 
   test("gamepad: d-pad moves focus and A activates", () => {
     const { ui, g } = setup();
-    labelled(g.pages.menu!, "Play").focus(true);
+    labelled(g.pages.menu!, "Saved expeditions").focus(true);
     ui.router.gamepadButton("down", true);
     ui.router.gamepadButton("down", false);
     frame(ui);
-    // "Continue" is disabled, so down skips to Settings.
     assert.equal(ui.focus.focused?.accessibility.label, "Settings");
     ui.router.gamepadButton("a", true);
     ui.router.gamepadButton("a", false);
     frame(ui);
     assert.equal(g.page, "settings");
+  });
+
+  test("menu: the default look is frontier; Saved expeditions swaps the card and Back returns", () => {
+    const { ui, g } = setup();
+    assert.deepEqual([ui.theme, ui.skin], ["frontier", "frontier"]);
+    const cont = labelled(g.pages.menu!, "Continue") as Button;
+    assert.equal(cont.variant, "primary");
+    assert.equal(cont.computedStyle.gradient, "vertical", "gradient primary");
+    assert.equal(cont.computedStyle.textTransform, "uppercase");
+    assert.ok(cont.subtitle.length > 0 && cont.accessibility.description === cont.subtitle);
+    const menu = find(g.pages.menu!, (e) => e.name === "main-menu")!;
+    const saved = find(g.pages.menu!, (e) => e.name === "saved-expeditions")!;
+    labelled(g.pages.menu!, "Saved expeditions").focus(true);
+    key(ui, "Enter");
+    assert.ok(!menu.visible && saved.visible);
+    const resumes = [] as UIElement[];
+    saved.walk((e) => {
+      if (e.accessibility.label.startsWith("Resume ")) resumes.push(e);
+    });
+    assert.equal(resumes.length, 3);
+    assert.ok(resumes.every((r) => r.variant === "outline"));
+    assert.ok(saved.isAncestorOf(ui.focus.focused!), "focus moved into the saved list");
+    assert.deepEqual(ui.diagnostics.validateLayout(saved).filter((i) => i.kind === "overlap" || i.kind === "invalid-geometry"), []);
+    click(ui, labelled(saved, "Back"));
+    assert.ok(menu.visible && !saved.visible);
+    click(ui, labelled(g.pages.menu!, "Saved expeditions"));
+    resumes[1]!.focus(true); // the menu scrolls; focusing reveals the row like a keyboard user would
+    frame(ui);
+    assert.ok(ui.hitTest(center(resumes[1]!).x, center(resumes[1]!).y) === resumes[1], "revealed and hittable");
+    click(ui, resumes[1]!);
+    assert.equal(g.page, "hud", "Resume opens the colony");
   });
 
   test("settings: only the selected tab's page is visible, at every breakpoint", () => {
@@ -147,7 +177,7 @@ group("interaction", () => {
 
   test("every skin × theme renders without diagnostics; skins always differ, themes recolour token-driven skins", () => {
     const { ui, g } = setup();
-    const play = labelled(g.pages.menu!, "Play") as Button;
+    const play = labelled(g.pages.menu!, "Continue") as Button;
     const title = find(g.pages.menu!, (e) => e.variant === "title")!;
     const panel = find(g.pages.menu!, (e) => e.name === "main-menu")!;
     const look = new Map<string, string>();
@@ -158,7 +188,7 @@ group("interaction", () => {
         advance(ui, 0.5);
         const ps = play.computedStyle;
         const ms = panel.computedStyle;
-        look.set(`${skin}/${theme}`, JSON.stringify([ps.background, ps.foreground, ps.radius.topLeft, ps.borderWidth, ms.background, ms.image, ms.radius.topLeft, ms.borderWidth, title.computedStyle.foreground]));
+        look.set(`${skin}/${theme}`, JSON.stringify([ps.background, ps.backgroundEnd, ps.gradient, ps.foreground, ps.radius.topLeft, ps.borderWidth, ps.letterSpacing, ps.textTransform, ms.background, ms.image, ms.radius.topLeft, ms.borderWidth, title.computedStyle.foreground]));
         assert.ok(ui.render().count > 50, `${skin}/${theme} draws`);
       }
     }

@@ -240,9 +240,16 @@ What remains:
   (capability: scripting.hookPreemption)
 * **Fixed steps are not interleaved across systems.** `scripts.fixed` runs all of a frame's fixed
   steps before `vehicles` runs its own, like every `FixedSystem`; a script cannot read the vehicle
-  state between two steps of the same frame. (roadmap: 19.4)
+  state between two steps of the same frame, and the same steps grouped into different frames give
+  a different result. Replays record the frame schedule for this reason (`docs/REPLAY.md`).
+  (roadmap: 19.5)
 
 ## Save / serialization (Phase 19)
+
+* **Replays are verified on one JavaScript engine.** `Math.sin`/`Math.exp` and other library
+  functions may differ in the last bit between V8, JavaScriptCore and SpiderMonkey, so a replay
+  recorded in one browser can diverge in another; the state hashes will say where.
+  (`docs/REPLAY.md`) (roadmap: 19.5)
 
 * **Script timers, coroutines and subscriptions are in neither a save nor a snapshot, and neither are
   lightning strikes in flight.** Closures cannot be serialized: a loaded script re-registers them in
