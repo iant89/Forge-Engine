@@ -35,6 +35,9 @@ import { ResourceLifecycleError, UsageError } from "../core/errors.js";
 import type { Logger } from "../core/log.js";
 import { ResourceHandle, ResourceRegistry, type ResourceDescriptor } from "./registry.js";
 
+const streamerNow = (): number =>
+  typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+
 export interface StreamerOptions {
   /** Max concurrent in-flight loads admitted by the streamer (default 4). */
   maxConcurrent?: number;
@@ -61,6 +64,17 @@ export interface StreamedLoad<T> {
   handle(): ResourceHandle<T> | null;
 }
 
+export interface StreamedLoadDebugRecord {
+  id: string;
+  kind: string;
+  state: StreamingState;
+  priority: number;
+  estimatedBytes: number;
+  sequence: number;
+  ageMs: number;
+  loadMs: number;
+}
+
 export interface StreamingStats {
   queued: number;
   inFlight: number;
@@ -79,6 +93,9 @@ interface PendingLoad<T> {
   priority: number;
   /** Insertion order — the FIFO tiebreak inside a priority. */
   seq: number;
+  createdAt: number;
+  startedAt: number | null;
+  settledAt: number | null;
   state: StreamingState;
   handle: ResourceHandle<T> | null;
   cancelledByUser: boolean;
@@ -218,6 +235,24 @@ export class AssetStreamer {
     }
   }
 
+  /** Bounded metadata-only load inventory; descriptor payloads and resource values are omitted. */
+  inspect(limit = 128): StreamedLoadDebugRecord[] {
+    const cap = Number.isFinite(limit) ? Math.max(0, Math.min(1024, Math.floor(limit))) : 128;
+    const time = streamerNow();
+    return [...this.loads.values()]
+      .slice(0, cap)
+      .map((load) => ({
+        id: load.descriptor.id,
+        kind: load.descriptor.kind,
+        state: load.state,
+        priority: load.priority,
+        estimatedBytes: Math.max(0, load.descriptor.estimatedBytes ?? 0),
+        sequence: load.seq,
+        ageMs: Math.max(0, time - load.createdAt),
+        loadMs: load.startedAt === null ? 0 : Math.max(0, (load.settledAt ?? time) - load.startedAt),
+      }));
+  }
+
   stats(): StreamingStats {
     return {
       queued: this.queue.length,
@@ -252,6 +287,9 @@ export class AssetStreamer {
       descriptor,
       priority: descriptor.priority ?? 0,
       seq: this.seq++,
+      createdAt: streamerNow(),
+      startedAt: null,
+      settledAt: null,
       state: "queued",
       handle: null,
       cancelledByUser: false,
@@ -272,6 +310,7 @@ export class AssetStreamer {
 
   private admit<T>(load: PendingLoad<T>, chargeBudget: boolean): void {
     load.state = "loading";
+    if (load.startedAt === null) load.startedAt = streamerNow();
     load.handle = this.registry.acquire(load.descriptor);
     if (chargeBudget && this.uploadBudgetBytes > 0) {
       const est = Math.max(0, load.descriptor.estimatedBytes ?? 0);
@@ -308,6 +347,7 @@ export class AssetStreamer {
   private settleLoad<T>(load: PendingLoad<T>, state: "ready" | "failed" | "cancelled"): void {
     if (load.state === "ready" || load.state === "failed" || load.state === "cancelled") return;
     load.state = state;
+    load.settledAt = streamerNow();
     if (state === "ready") this.readyCount++;
     else if (state === "failed") this.failedCount++;
     else this.cancelledCount++;

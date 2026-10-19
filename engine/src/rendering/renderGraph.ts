@@ -155,6 +155,36 @@ export interface RenderGraphStats {
   submits: number;
 }
 
+/** A pass description captured for the render-graph inspector. */
+export interface RenderGraphPassRecord {
+  name: string;
+  index: number;
+  live: boolean;
+  sideEffect: boolean;
+  reads: string[];
+  writes: { resource: string; subresource: string | null; load: boolean }[];
+  dependsOn: number[];
+}
+
+/** A transient or imported texture and its computed live range / physical alias slot. */
+export interface RenderGraphResourceRecord {
+  name: string;
+  imported: boolean;
+  width: number;
+  height: number;
+  format: GPUTextureFormat;
+  bytes: number;
+  firstUse: number;
+  lastUse: number;
+  physical: number;
+}
+
+export interface RenderGraphFrameRecord {
+  passes: RenderGraphPassRecord[];
+  resources: RenderGraphResourceRecord[];
+  pool: { key: string; bytes: number; idleFrames: number; usedThisFrame: boolean }[];
+}
+
 export interface RenderGraphOptions {
   /** Idle frames a pooled texture survives before it is destroyed (default 2). */
   retireAfterFrames?: number;
@@ -268,6 +298,7 @@ export class RenderGraph {
   private latestCompletedGpuFrameIndex = -1;
   private disposed = false;
   private building = false;
+  private frameInspectable = false;
 
   constructor(
     readonly device: GraphicsDevice,
@@ -283,6 +314,7 @@ export class RenderGraph {
     if (this.disposed) throw new UsageError("RenderGraph.begin: graph is disposed");
     this.resources = [];
     this.passes = [];
+    this.frameInspectable = false;
     this.building = true;
   }
 
@@ -404,7 +436,45 @@ export class RenderGraph {
       throw error;
     }
     this.retireIdle();
+    this.frameInspectable = true;
     return stats;
+  }
+
+  /**
+   * Copy the last successfully executed frame for diagnostics. Valid until the next `begin()`;
+   * callers should request this on demand rather than from a render-frame hot path.
+   */
+  inspect(): RenderGraphFrameRecord {
+    if (!this.frameInspectable) throw new UsageError("RenderGraph.inspect: no completed frame; execute a frame first and inspect before the next begin()");
+    const passes = this.passes.map((pass): RenderGraphPassRecord => ({
+      name: pass.desc.name,
+      index: pass.index,
+      live: pass.live,
+      sideEffect: pass.desc.sideEffect === true,
+      reads: pass.reads.map((handle) => this.resources[handle]?.name ?? `#${handle}`),
+      writes: pass.writes.map((write) => ({
+        resource: this.resources[write.handle]?.name ?? `#${write.handle}`,
+        subresource: write.sub === WHOLE ? null : write.sub,
+        load: write.loads,
+      })),
+      dependsOn: [...pass.dependencies].sort((a, b) => a - b),
+    }));
+    const resources = this.resources.map((resource): RenderGraphResourceRecord => ({
+      name: resource.name,
+      imported: resource.imported !== null,
+      width: resource.desc.width,
+      height: resource.desc.height,
+      format: resource.desc.format,
+      bytes: resource.bytes,
+      firstUse: resource.firstUse,
+      lastUse: resource.lastUse,
+      physical: resource.physical,
+    }));
+    const pool: RenderGraphFrameRecord["pool"] = [];
+    for (const list of this.pool.values()) {
+      for (const texture of list) pool.push({ key: texture.key, bytes: texture.bytes, idleFrames: texture.idleFrames, usedThisFrame: texture.usedThisFrame });
+    }
+    return { passes, resources, pool };
   }
 
   /** Destroy every pooled texture. Safe to call twice. */
@@ -429,6 +499,7 @@ export class RenderGraph {
     this.stats.pooledBytes = 0;
     this.resources = [];
     this.passes = [];
+    this.frameInspectable = false;
   }
 
   /** Physical texture count currently pooled (idle ones included). */

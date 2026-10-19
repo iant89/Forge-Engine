@@ -81,6 +81,7 @@ export {
   type TaskDescriptor,
   type TaskSchedulerOptions,
   type TaskStats,
+  type TaskDebugRecord,
   type TaskWorkerLike,
   type WorkerErrorEventLike,
   type WorkerMessage,
@@ -123,7 +124,7 @@ export {
 } from "./core/tasks/taskHandlers.js";
 
 // GPU
-export { GraphicsDevice, type DeviceCaps, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
+export { GraphicsDevice, type DeviceCaps, type GpuResourceRecord, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
 export { ShaderCache, preprocessWgsl, derivativeControlFlowIssues, fixedStorageArrayIssues, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
 export { BufferBuilder, StructAccessor, WriteBuffer, FloatAccessor } from "./gpu/bufferWriter.js";
 export { StructDef, diffWgslStruct, alignOf, sizeOf, strideOf, f32, i32, u32, bool_, vec2, vec3, vec4, mat2x2, mat3x3, mat4x4, arrayOf, ofStruct, type AddressSpace, type FieldType } from "./gpu/layout.js";
@@ -161,7 +162,7 @@ export {
 export { ResourceRegistry, ResourceHandle, DetachedResource, type ResourceDescriptor, type ResourceState, type ResourceLoadContext } from "./resources/registry.js";
 export { AssetId, hashContent, type AssetIdInfo } from "./resources/assetId.js";
 export { AssetGraph } from "./resources/assetGraph.js";
-export { AssetStreamer, type StreamerOptions, type StreamedLoad, type StreamingState, type StreamingStats } from "./resources/streaming.js";
+export { AssetStreamer, type StreamerOptions, type StreamedLoad, type StreamingState, type StreamingStats, type StreamedLoadDebugRecord } from "./resources/streaming.js";
 export { AssetHotReloader, HOT_RELOAD_PRIORITY, type HotReloadOptions, type HotReloadResult } from "./resources/hotReload.js";
 export {
   AssetValidationError,
@@ -329,6 +330,9 @@ export {
   type RenderGraphPassDesc,
   type RenderGraphStats,
   type RenderGraphOptions,
+  type RenderGraphPassRecord,
+  type RenderGraphResourceRecord,
+  type RenderGraphFrameRecord,
   type GpuPassKind,
   type GpuPassTime,
   type GpuTimingFrame,
@@ -469,6 +473,15 @@ export { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX
 
 // Debug + testing
 export { Profiler, ProfileScope, profile, type ProfilerOptions, type ScopeStats, type FrameRecord } from "./debug/profiler.js";
+export { inspectEcs, inspectEntity, summariseEcsFields, type EcsInspectOptions, type EcsSnapshot, type EcsSystemInfo, type EcsEntityInfo, type EcsComponentInfo, type EcsFieldValue } from "./debug/ecsInspector.js";
+export { inspectRenderGraph, formatRenderGraph, type RenderGraphView, type RenderGraphPassView } from "./debug/renderGraphInspector.js";
+export { inspectGpuResources, formatGpuResources, groupOfLabel, type GpuResourceView, type GpuResourceGroup, type GpuResourceInspectOptions } from "./debug/gpuResourceInspector.js";
+export { physicsDebugDraw, drawPhysicsDebug, type PhysicsDebugLine, type PhysicsDebugLineKind, type PhysicsDebugView, type PhysicsDebugOptions } from "./debug/physicsDebugDraw.js";
+export { inspectTerrain, terrainDebugLines, drawTerrainDebug, type TerrainChunkState, type TerrainChunkDebugInfo, type TerrainDebugSnapshot, type TerrainDebugOptions, type TerrainDebugLine } from "./debug/terrainDebugger.js";
+export { inspectParticles, particleDebugLines, drawParticleDebug, type ParticleDebugSample, type ParticleEmitterDebugInfo, type ParticleWorldDebugInfo, type ParticleDebugSnapshot, type ParticleDebugOptions, type ParticleDebugLine, type ParticleDebugLineKind } from "./debug/particleDebugger.js";
+export { inspectStreaming, type StreamingDebugEngine, type StreamingObjectDebugInfo, type StreamingDebugSnapshot, type StreamingDebugOptions } from "./debug/streamingDebugger.js";
+export { inspectEnvironment, environmentDebugLines, drawEnvironmentDebug, type EnvironmentDebugOptions, type DayNightDebugInfo, type SunLightDebugInfo, type WeatherDebugInfo, type LightningStrikeDebugInfo, type LightningDebugInfo, type EnvironmentDebugSnapshot, type EnvironmentDebugLineKind, type EnvironmentDebugLine } from "./debug/environmentDebugger.js";
+export { DeveloperConsole, createDeveloperConsole, type DeveloperConsoleHost, type DeveloperConsoleOptions, type DeveloperConsoleCommand, type DeveloperConsoleCommandContext, type DeveloperConsoleEntry } from "./debug/console.js";
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */
