@@ -302,6 +302,10 @@ group("Phase 9.5 — capability registry", () => {
     assert.equal(capabilityRegistry.get("particles.gpuSimulation")?.status, "verified");
     assert.equal(capabilityRegistry.get("particles.gpuRendering")?.closesWith, "12.7");
     assertContains(capabilityRegistry.list("deferred").map((entry) => entry.id), "editor.tooling");
+    assertContains(capabilityRegistry.list("deferred").map((entry) => entry.id), "audio.gpuParticles");
+    assert.equal(capabilityStatus("audio.spatial"), "verified");
+    assert.equal(capabilityStatus("audio.resources"), "verified");
+    assert.equal(capabilityRegistry.get("audio.environmental")?.closesWith, "20.5");
     assert.equal(capabilityMarker("planned"), "[ ]");
 
     const snapshot = capabilityRegistry.snapshot();

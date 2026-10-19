@@ -39,6 +39,8 @@ import {
   createSphere,
   waterGridSource,
   StormSoundscape,
+  airAbsorptionCutoff,
+  proceduralClipDescriptor,
   weatherSoundInput,
 } from "@forge/engine";
 import { attachWeatherTouch } from "../controls/weatherTouch.js";
@@ -270,7 +272,9 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   // audio context run.
   let soundscape: StormSoundscape | null = null;
   let soundscapeFrame = 0;
-  const thunder = [0, 1, 2, 3].map((seed) => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }));
+  // Phase 20.2: the thunder variants are procedural clips in the audio registry (built once, cached
+  // and budgeted like files).
+  const thunder = [0, 1, 2, 3].map((seed) => audio.acquire(proceduralClipDescriptor(`thunder/${seed}`, () => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }))));
   // Phase 17.6: the engine owns the flash-to-bang gap. Thunder is a simulation event that fires
   // when sound from the nearest point of the channel reaches the camera (speed of sound from the
   // weather's temperature), and strikes attach to the highest point their leader reaches — the
@@ -290,7 +294,9 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
     onThunder: (event) => {
       if (audio.context.state !== "running") return;
       const strike = event.strike;
-      audio.play(thunder[strike.id % thunder.length]!, {
+      const clip = thunder[strike.id % thunder.length]!.currentValue;
+      if (!clip) return;
+      const voice = audio.play(clip, {
         bus: "ambient",
         spatial: true,
         position: strike.position,
@@ -300,6 +306,9 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
         maxDistance: 1800,
         rolloffFactor: 0.65,
       });
+      // Phase 20.1: distant thunder loses its crack to the air (the panner only lowers the level).
+      const eye = cameraEntity.transform.position;
+      voice.filter?.frequency.setValueAtTime(airAbsorptionCutoff(Math.hypot(strike.position.x - eye.x, strike.position.y - eye.y, strike.position.z - eye.z)), audio.context.currentTime);
     },
   });
   scene.add(lightning);

@@ -261,9 +261,14 @@ What remains:
 * **Audio is verified on a mock context, not by listening.** The suites prove the node graph, the
   automation timing and the bookkeeping on `MockAudioContext`; no gate plays the mixer on a device or
   measures its output. (capability: audio.deviceCheck)
-* **Nothing but the storm drives audio from the simulation yet.** Vehicles, impacts and the
-  environment make no sound of their own, and the storm soundscape plays outside the buses.
-  (capability: audio.simulation)
+* **The simulation soundscapes bypass the buses in the demos.** `VehicleAudio`, `ImpactSoundscape`,
+  `ParticleSoundscape` and `StormSoundscape` take any `AudioNode` (a bus's `input` works), but the
+  demos connect them to the context destination, so there is no ducking or mix against music, and
+  the optional vehicle panner places the whole car at one point (no separate exhaust/tyre sources).
+  (capability: audio.environmental)
+* **GPU particle effects are silent.** Particle audio reads a CPU `ParticleSimulation`'s state
+  buffer; a `GpuParticleWorld` (the fountain, the snowfall) keeps its state on the device.
+  (capability: audio.gpuParticles)
 
 ## Documentation debt
 

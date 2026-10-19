@@ -6,6 +6,11 @@ import {
   Geometry,
   GpuParticleWorld,
   HeightfieldShape,
+  ImpactSoundAnalyzer,
+  ImpactSoundscape,
+  setAudioListener,
+  type ImpactMaterial,
+  type RigidBody,
   Light,
   LightningSystem,
   Material,
@@ -18,6 +23,7 @@ import {
   TerrainWorld,
   Vec3,
   Vehicle,
+  VehicleAudio,
   VehicleComponent,
   VehicleSystem,
   createVehicleConfig,
@@ -119,6 +125,8 @@ export interface AlpineRescueSnapshot {
   positionZ: number;
   physicsBodies: number;
   physicsSteps: number;
+  /** Phase 20.7/20.8 audio (opt-in: M / SOUND). */
+  sound: { enabled: boolean; running: boolean; engineHz: number; impacts: number; impactsDropped: number; scrapes: number; voices: number };
 }
 
 export interface AlpineRescueSceneHandle extends DemoSceneHandle {
@@ -216,7 +224,7 @@ function makeBoxBody(
   entity: ReturnType<Scene["createTransformedEntity"]>,
   halfExtents: { x: number; y: number; z: number },
   options: { mass?: number; friction?: number; restitution?: number } = {},
-): void {
+): RigidBodyComponent {
   const collider = new ColliderComponent();
   collider.setBox(halfExtents.x, halfExtents.y, halfExtents.z);
   const body = new RigidBodyComponent();
@@ -226,6 +234,7 @@ function makeBoxBody(
   body.restitution = options.restitution ?? 0.08;
   entity.add(collider);
   entity.add(body);
+  return body;
 }
 
 export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle {
@@ -405,6 +414,9 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     beaconVisuals.push({ ring: halo.require(Renderable), light: beaconLight, active: false });
   }
 
+  // Phase 20.8: what each physics body sounds like when it hits something (bodies spawn later, so
+  // the components are kept and resolved when sound starts).
+  const soundBodies: Array<[RigidBodyComponent, ImpactMaterial]> = [];
   // The frozen spruce line and scattered granite make the winding service track read at speed.
   const rockGeometry = ownGeometry(createBox(engine.gpu, { width: 1.2, height: 0.84, depth: 1.1 }));
   for (let i = 0; i < 22; i++) {
@@ -431,7 +443,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     const scale = 0.62 + seededNoise(i, 19) * 0.9;
     rock.transform.scale = new Vec3(scale * 1.22, scale, scale * 0.94);
     rock.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), seededNoise(i, 21) * Math.PI * 2);
-    makeBoxBody(rock, { x: scale * 0.73, y: scale * 0.42, z: scale * 0.52 });
+    soundBodies.push([makeBoxBody(rock, { x: scale * 0.73, y: scale * 0.42, z: scale * 0.52 }), "rock"]);
   }
 
   // Establish a shared terrain world so cargo and route crates can bounce, tip, and collide with the truck.
@@ -517,7 +529,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   const cargoMesh = addRenderable(scene, "Priority medical supply case mesh", new Vec3(), cubeGeometry, cargoMaterial);
   cargoMesh.transform.scale = new Vec3(0.8, 0.72, 0.8);
   supplyCrate.addChild(cargoMesh);
-  makeBoxBody(supplyCrate, { x: 0.42, y: 0.36, z: 0.42 }, { mass: 28, friction: 0.78, restitution: 0.06 });
+  soundBodies.push([makeBoxBody(supplyCrate, { x: 0.42, y: 0.36, z: 0.42 }, { mass: 28, friction: 0.78, restitution: 0.06 }), "plastic"]);
   let dynamicPropCount = 1;
   for (let i = 0; i < 7; i++) {
     const z = ROUTE_START_Z + 24 + i * 31;
@@ -527,7 +539,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     const mesh = addRenderable(scene, `Trail supply crate ${i + 1} mesh`, new Vec3(), cubeGeometry, crateMaterial);
     mesh.transform.scale = new Vec3(0.94, 0.94, 0.94);
     crate.addChild(mesh);
-    makeBoxBody(crate, { x: 0.47, y: 0.47, z: 0.47 }, { mass: 19 + (i % 3) * 4, friction: 0.74, restitution: 0.1 });
+    soundBodies.push([makeBoxBody(crate, { x: 0.47, y: 0.47, z: 0.47 }, { mass: 19 + (i % 3) * 4, friction: 0.74, restitution: 0.1 }), "wood"]);
     dynamicPropCount++;
   }
 
@@ -773,6 +785,36 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   const weatherButton = typeof document !== "undefined" ? document.getElementById("rescue-weather") as HTMLButtonElement | null : null;
   const headlightButton = typeof document !== "undefined" ? document.getElementById("rescue-headlights") as HTMLButtonElement | null : null;
   const parkButton = typeof document !== "undefined" ? document.getElementById("rescue-park") as HTMLButtonElement | null : null;
+  const soundButton = typeof document !== "undefined" ? document.getElementById("rescue-sound") as HTMLButtonElement | null : null;
+
+  // Phase 20.7 + 20.8 audio, opt-in from a gesture (autoplay policy): the truck's engine, tyres and
+  // suspension, and every physics contact — crates, boulders, the case and the truck on snow.
+  let sound: { context: AudioContext; truck: VehicleAudio; analyzer: ImpactSoundAnalyzer; impacts: ImpactSoundscape } | null = null;
+  let soundOn = false;
+  const materialOf = (body: RigidBody): ImpactMaterial | undefined => {
+    if (body === chassisBody) return "metal";
+    if (body === terrainBody) return "snow";
+    for (const [component, material] of soundBodies) if (component.body === body) return material;
+    return undefined;
+  };
+  const setSound = (on: boolean): void => {
+    if (on && !sound) {
+      const Ctor = globalThis.AudioContext ?? (globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      const context = new Ctor();
+      sound = {
+        context,
+        truck: new VehicleAudio(vehicle, context, context.destination, { surfaceAt: () => "snow", volume: 0.45, cylinders: 6 }),
+        analyzer: new ImpactSoundAnalyzer(physicsWorld, { materialOf }),
+        impacts: new ImpactSoundscape(context, context.destination, { volume: 0.8 }),
+      };
+    }
+    soundOn = on;
+    // Never chain behaviour behind these promises: headless autoplay can leave resume() pending.
+    if (sound) void (on ? sound.context.resume() : sound.context.suspend()).catch(() => {});
+    updateUi();
+  };
+  const onSoundClick = () => setSound(!soundOn);
 
   const updateUi = () => {
     if (interactButton) {
@@ -781,6 +823,11 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     }
     if (weatherButton) weatherButton.textContent = weatherTarget === "storm" ? "CALM THE STORM" : "CALL STORM";
     if (headlightButton) headlightButton.textContent = headlightsOn ? "LIGHTS ON · F" : "LIGHTS OFF · F";
+    if (soundButton) {
+      soundButton.textContent = soundOn ? "SOUND ON · M" : "SOUND · M";
+      soundButton.setAttribute("aria-pressed", String(soundOn));
+      soundButton.classList.toggle("active", soundOn);
+    }
     if (parkButton) {
       parkButton.textContent = parked ? "RELEASE PARK · P" : "PARK · P";
       parkButton.classList.toggle("active", parked);
@@ -864,6 +911,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   weatherButton?.addEventListener("click", onWeatherClick);
   headlightButton?.addEventListener("click", onHeadlightsClick);
   parkButton?.addEventListener("click", onParkClick);
+  soundButton?.addEventListener("click", onSoundClick);
 
   const onKeyDown = (event: KeyboardEvent) => {
     const key = event.code.toLowerCase();
@@ -873,6 +921,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     if (!event.repeat && key === "keyp") onParkClick();
     if (!event.repeat && key === "keyf") toggleHeadlights();
     if (!event.repeat && key === "keyg") onWeatherClick();
+    if (!event.repeat && key === "keym") onSoundClick();
   };
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code.toLowerCase());
   const onBlur = () => keys.clear();
@@ -900,6 +949,19 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     vehicle.input.parkingBrake = parked ? 1 : 0;
     vehicle.input.steer = parked ? 0 : steer;
     touch?.setPark(parked);
+    if (sound && soundOn && sound.context.state === "running") {
+      sound.truck.update(dt);
+      sound.impacts.play(sound.analyzer.update().events);
+      sound.impacts.setScrapes(sound.analyzer.scrapes);
+      // The pursuit camera looks at the truck: hear from the camera, facing it.
+      const eye = cameraEntity.transform.position;
+      const fx = vehicle.position.x - eye.x, fy = vehicle.position.y - eye.y, fz = vehicle.position.z - eye.z;
+      const len = Math.hypot(fx, fy, fz) || 1;
+      setAudioListener(sound.context, eye, { x: fx / len, y: fy / len, z: fz / len }, Vec3.up);
+    } else if (sound) {
+      // Keep the frame's contacts from piling up while the context is not running.
+      sound.analyzer.update();
+    }
 
     const flasher = Math.floor(elapsed / 0.24);
     if (flasher !== flashFrame) {
@@ -951,6 +1013,20 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     weatherButton?.removeEventListener("click", onWeatherClick);
     headlightButton?.removeEventListener("click", onHeadlightsClick);
     parkButton?.removeEventListener("click", onParkClick);
+    soundButton?.removeEventListener("click", onSoundClick);
+    if (sound) {
+      sound.truck.dispose();
+      sound.impacts.dispose();
+      sound.analyzer.dispose();
+      void sound.context.close().catch(() => {});
+      sound = null;
+    }
+    soundOn = false;
+    if (soundButton) {
+      soundButton.textContent = "SOUND · M";
+      soundButton.setAttribute("aria-pressed", "false");
+      soundButton.classList.remove("active");
+    }
     touch?.dispose();
     scene.dispose();
     physicsWorld.clear();
@@ -963,7 +1039,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     cameraEntity,
     camera: cameraSetup,
     followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 0.9, z: vehicle.position.z }),
-    controlsHint: "WASD / ARROWS drive · E interact · F headlights · G weather · P park · drag to orbit · touch controls on mobile",
+    controlsHint: "WASD / ARROWS drive · E interact · F headlights · G weather · P park · M sound · drag to orbit · touch controls on mobile",
     overlay: hud,
     update,
     dispose,
@@ -1001,6 +1077,15 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
         positionZ: vehicle.position.z,
         physicsBodies: physicsWorld.bodies.length,
         physicsSteps: physicsWorld.stepCount,
+        sound: {
+          enabled: soundOn,
+          running: sound?.context.state === "running",
+          engineHz: sound?.truck.levels.engineFrequency ?? 0,
+          impacts: sound?.analyzer.events.length ?? 0,
+          impactsDropped: sound?.analyzer.dropped ?? 0,
+          scrapes: sound?.analyzer.scrapes.length ?? 0,
+          voices: sound?.impacts.activeVoices ?? 0,
+        },
       };
     },
   };

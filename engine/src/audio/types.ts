@@ -4,6 +4,9 @@ export type AudioBusName = "master" | "music" | "sfx" | "dialogue" | "ambient" |
 
 export interface AudioClip {
   readonly buffer: AudioBuffer;
+  /** Registry id (`audio:<url>` / `audio:procedural/<name>`) when it came from one. */
+  readonly id?: string;
+  /** The source that decoded (the first playable of a clip's alternatives). */
   readonly url?: string;
   readonly duration: number;
   readonly channels: number;
@@ -51,7 +54,10 @@ export interface AudioStats {
   /** Voices stolen by the limit since the system was created. */
   stolenVoices: number;
   streams: number;
+  /** Clips the system keeps (loaded through `load`). */
   cachedClips: number;
+  /** Decoded bytes of every audio clip in the registry, kept or idle (frames × channels × 4). */
+  clipBytes: number;
   /** Seconds of decoded audio held by the clip cache, summed over channels. */
   decodedSeconds: number;
   buses: number;

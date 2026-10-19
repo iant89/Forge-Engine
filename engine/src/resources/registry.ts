@@ -727,6 +727,13 @@ export class ResourceRegistry {
     return out.sort();
   }
 
+  /** Phase 20.2: accounted bytes of every ready entry of one kind (the audio clip budget line). */
+  bytesOfKind(kind: string): number {
+    let total = 0;
+    for (const e of this.entries.values()) if (e.descriptor.kind === kind && e.state === "ready") total += e.bytes;
+    return total;
+  }
+
   /** The descriptor for an entry (editor inspection / hot-reload version reporting), or null. */
   descriptorOf<T = unknown>(id: string): ResourceDescriptor<T> | null {
     return (this.entries.get(id)?.descriptor as ResourceDescriptor<T> | undefined) ?? null;

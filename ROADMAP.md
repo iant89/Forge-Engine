@@ -185,10 +185,12 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [x]
 
 PHASE 20 - AUDIO
-    [~] IN PROGRESS (20.1-20.4 landed: spatial voices with a holding voice limit and occlusion,
-        clip loading and caching, streaming through the buses under the autoplay policy, buses with
-        live effects and anchored fades — verified on a strict mock AudioContext; simulation-driven
-        environmental, weather, vehicle and impact audio (20.5-20.8) remain)
+    [~] IN PROGRESS (20.1-20.4 landed: handedness-correct spatial voices with Doppler, air
+        absorption, occlusion, a holding voice limit and ECS emitters; clips as budgeted registry
+        resources with codec fallback and banks; streaming through the buses under the autoplay
+        policy; buses with live effects and anchored fades — verified on strict mock AudioContexts;
+        20.7 vehicle audio and 20.8 impact/particle audio landed; environmental and weather audio
+        (20.5-20.6) remain)
 
 
 ================================================================================
@@ -2140,10 +2142,27 @@ GOAL:
 
     [x] voices, HRTF panner, listener, voice limit (stolen voices fade 10 ms and stop counting at
         once), occlusion (scales the voice's volume, closes a low-pass to 800 Hz)
+    [x] coordinates              (engine left-handed → Web Audio right-handed: every listener/panner
+                                  write negates z; before this, demo left/right were mirrored)
+    [x] panning, distance, cone  (CPU twins of the spec's azimuth/equal-power, distance models and cone)
+    [x] Doppler                  (from source/listener velocity along the line; scale; clamped)
+    [x] air absorption           (low-pass ~20 kHz up close, an octave per ~350 m)
+    [x] occlusion                (caller query, e.g. a raycast; smoothed gain + low-pass)
+    [x] ECS                      (AudioListenerComponent, AudioEmitterComponent, SpatialAudioSystem
+                                  in band 800 after transforms)
+        engine/src/audio/spatial.ts, tests/audio/spatialAudio.test.ts, docs/AUDIO.md
 
 20.2 Audio Resources
 
     [x] load once per URL (shared requests), failures evicted, release, decoded-seconds statistics
+    [x] registry clips           (audio:<url> ResourceRegistry entries: one load per id, handles,
+                                  decoded-byte budget with LRU eviction of idle clips, cancellation)
+    [x] formats                  (alternative sources ranked by canPlayType, fall through on fetch or
+                                  decode failure)
+    [x] validation               (empty/channel-less output rejected; long clips flagged for streaming)
+    [x] procedural clips + banks (audio:procedural/<name>; AudioBank load/progress/pin/release)
+        engine/src/audio/resources.ts, tests/audio/audioResources.test.ts, docs/AUDIO.md. The weather
+        demo's thunder variants are registry clips, filtered by strike distance.
 
 20.3 Streaming Audio
 
@@ -2161,16 +2180,37 @@ GOAL:
 
 20.7 Vehicle Audio
 
-    Engine RPM
-    throttle
-    load
-    gear
-    tire slip
-    suspension
-    terrain
+    [x] Engine RPM               (firing frequency rpm/60 × cylinders/2; electric motors whine with rpm)
+    [x] throttle                 (intake noise and engine level)
+    [x] load                     (driven-tyre torque over peak engine torque, capped by what the engine
+                                  delivers: zero revving in neutral or sliding at closed throttle; it
+                                  brightens the engine and adds combustion grit; lift-off is overrun)
+    [x] gear                     (shift events with from/to; the open clutch dips the engine voice;
+                                  reverse whine)
+    [x] tire slip                (combined slip over the Pacejka peak × load share, so a tyre squeals
+                                  where it saturates; squeal pitch rises with sliding speed)
+    [x] suspension               (impact / bottom-out / landing events per wheel from compression speed
+                                  and airtime: a bump hits the front axle a wheelbase before the rear)
+    [x] terrain                  (a per-wheel classifier shaped like TireTrackLayer's: asphalt squeals,
+                                  gravel crunches, mud and water slosh, each surface has its own roar)
+        engine/src/audio/vehicle.ts, tests/audio/vehicleAudio.test.ts, docs/AUDIO.md. The analyzer only
+        reads the vehicle (a run with audio reaches the bit-identical snapshot of one without). The
+        off-road demo plays it (SOUND button / M). Mixing through buses is 20.4.
 
 
 20.8 Particle / Impact Audio
+
+    [x] impacts                  (PhysicsWorld.contactListener, read-only: each solved manifold's
+                                  approach speed, slide speed, impulse, point and normal; a hit past
+                                  0.6 m/s, once per pair per 80 ms, louder by ½·m·v²; capped per frame)
+    [x] scrapes                  (pairs sliding under load: looping friction voices at the slide speed)
+    [x] materials and size       (metal / wood / rock / plastic / glass / rubber / dirt / snow / ice
+                                  modal profiles; smaller bodies ring higher; ground does not ring)
+    [x] particle audio           (a CPU ParticleSimulation's births, bursts, flow and ground crossings:
+                                  hiss, burst one-shots and per-hit grains)
+        engine/src/audio/impact.ts, engine/src/audio/particles.ts, tests/audio/impactAudio.test.ts,
+        docs/AUDIO.md. Alpine Rescue plays the truck (20.7) and every contact (SOUND / M). GPU particle
+        worlds keep their state on the device and are not heard (capability: audio.gpuParticles).
 
 
 EXIT CRITERIA:

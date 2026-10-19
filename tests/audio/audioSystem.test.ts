@@ -216,11 +216,12 @@ group("voices (20.1)", () => {
     const v = audio.play(clip(), { loop: true, spatial: true, position: { x: 3, y: 0, z: -4 }, refDistance: 2, rolloffFactor: 0.5, distanceModel: "exponential" });
     const p = v.panner as unknown as { refDistance: number; rolloffFactor: number; distanceModel: string; panningModel: string; positionX: { value: number }; positionZ: { value: number } };
     assert.deepEqual([p.refDistance, p.rolloffFactor, p.distanceModel, p.panningModel], [2, 0.5, "exponential", "HRTF"]);
-    assert.deepEqual([p.positionX.value, p.positionZ.value], [3, -4]);
+    // Engine space is left-handed, Web Audio right-handed: z crosses negated (20.1, spatial.ts).
+    assert.deepEqual([p.positionX.value, p.positionZ.value], [3, 4]);
     v.setPosition({ x: -1, y: 2, z: 0 });
     assert.equal(p.positionX.value, -1);
     audio.setListener({ position: { x: 10, y: 1, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
-    assert.deepEqual([mock.listener.positionX.value, mock.listener.forwardZ.value], [10, 1], "ramp 0 jumps");
+    assert.deepEqual([mock.listener.positionX.value, mock.listener.forwardZ.value], [10, -1], "ramp 0 jumps; engine forward +Z is Web Audio's −Z");
     mock.advance(1);
     audio.setListener({ position: { x: 20, y: 1, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 0.5);
     assert.equal(mock.listener.positionX.valueAt(1), 10, "a glide starts where the listener is");

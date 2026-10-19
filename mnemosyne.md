@@ -2491,3 +2491,35 @@ Read the module constraints below before changing either pure model.
   counting it, so bursts exceeded `maxVoices`; (3) `setOcclusion` overwrote the voice's own volume;
   (4) `FilterEffect` never disconnected its filter on dispose. docs/AUDIO.md had claimed Web Audio does
   Doppler — the spec removed it.
+- 2026-10-18 (Phase 20.7 vehicle audio, engine/src/audio/vehicle.ts, docs/AUDIO.md): **engine "load" is
+  not throttle and not raw tyre force.** Summing driven-wheel `longForce·r` back through the ratio
+  read 0.53 load in a closed-throttle handbrake slide (brake/scrub force on driven wheels); cap it by
+  `engine.deliveredTorque(0)`. Squeal keys off combined slip over `pacejkaPeakSlip`, not raw κ/α, so
+  a cruising tyre is silent. The analyzer must stay read-only (a test compares `vehicle.snapshot()`
+  with/without it). Sim quirk seen, not fixed: TC off + grip 0.4 + full throttle makes the gearbox
+  hunt 1↔2 every ~8 frames (wheelspin rpm trips the upshift, the open clutch drops it back).
+  SwiftShader runs `?scene=offroad` below 1 fps, so a browser smoke there proves wiring, not driving.
+- 2026-10-18 (pre-existing, not fixed): `tests/examples/marsShowcaseDamage` and `marsShowcaseCollision`
+  fail on main at 1b4ee95 with "mocked rover model attaches" (MockGPUDevice reports `writeBuffer:
+  device lost` during the mocked GLB load); Damage is flaky (0/2 or 1/2 passing). Check this before
+  blaming a change for a red `npm test`.
+- 2026-10-18 (Phase 20.8 impact/particle audio, engine/src/audio/{impact,particles}.ts): the physics
+  hook is `PhysicsWorld.contactListener`, read-only, with its scratch at **module scope** — a field on
+  the world or on a body would enter snapshots/hashes (`RigidBody` is captured structurally, minus
+  `BODY_SNAPSHOT_SKIP`), which is also why impact materials live in a WeakMap. Manifolds are rebuilt
+  every step (no warm start across steps), so "new contact" means approach speed past a threshold, with
+  a per-pair cooldown. Solver quirk seen, not fixed: a 20 kg box dropped flat onto a plane leaves it
+  spinning ~6.9 rad/s about Y, so it is heard scraping. Particles have no collisions: a hit is a
+  downward ground crossing per slot. `check:browser:rescue` fails on main too on this box (the 15 s
+  snowpack-depth wait at browser-check.mjs:950 under SwiftShader). Shared fake AudioContext for
+  tests: tests/support/fakeAudio.ts.
+- 2026-10-18 (Phase 20.1/20.2, engine/src/audio/{spatial,resources}.ts): **Web Audio is right-handed,
+  Forge is left-handed.** Every demo wrote engine coordinates straight into panners/listener, so left
+  and right were mirrored (thunder on the camera's right played left). All writes now go through
+  `setAudioListener`/`setPannerPosition`/`setPannerOrientation` (z negated); `pannerAzimuth` is a
+  CPU twin of the spec's azimuth so a test pins "+X is right when facing +Z". Web Audio removed its
+  own Doppler — `SpatialAudioSource` drives playbackRate. Clips are `ResourceRegistry` entries
+  (`audio:<url>`, bytes = frames × channels × 4); `registry.bytesOfKind(kind)` was added for the
+  audio budget line. tests/support/fakeAudio.ts now fakes listener params, decodeAudioData, state,
+  close and cancelScheduledValues. `check:browser:environment` can die on its first step with
+  "execution context destroyed" (Vite reloading after dep optimization) — re-run once.

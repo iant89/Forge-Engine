@@ -3,14 +3,18 @@
  *
  * A voice's loudness is `volume × occlusion attenuation`; `setVolume` and `setOcclusion` change one
  * factor each, so occluding a quiet voice keeps it quiet rather than resetting it to full volume.
- * Spatial voices carry a low-pass filter that occlusion closes (22 kHz open, 800 Hz fully occluded),
- * which is what an obstruction sounds like. Every fade is an anchored ramp (`rampParam`), so it starts
+ * Spatial voices carry one low-pass filter shared by air absorption and occlusion: the cutoff is the
+ * air-absorption cutoff (`setAirAbsorption`, open = Nyquist) pulled toward `OCCLUSION_CUTOFF` as
+ * occlusion rises (22 kHz open, 800 Hz fully occluded), which is what distance and an obstruction
+ * sound like. Positions and directions are engine space, converted to Web Audio's handedness by the
+ * spatial.ts writers. Every fade is an anchored ramp (`rampParam`), so it starts
  * at the level the voice is at. `onEnded` runs exactly once, when the source finishes or the voice is
  * disposed, and the voice disconnects all of its nodes then.
  */
 
 import type { Vec3Ops } from "../math/vec.js";
 import { rampParam } from "./params.js";
+import { setPannerOrientation, setPannerPosition } from "./spatial.js";
 import type { PlayOptions } from "./types.js";
 
 /** Remaining gain at full occlusion. */
@@ -18,21 +22,14 @@ export const OCCLUSION_FLOOR = 0.25;
 /** Low-pass cutoff of a fully occluded voice (Hz); an open voice is at the Nyquist limit. */
 export const OCCLUSION_CUTOFF = 800;
 
-function setParam(param: AudioParam, value: number, time: number): void {
-  param.setValueAtTime(value, time);
-}
-function setPosition(panner: PannerNode, value: Vec3Ops, time: number): void {
-  setParam(panner.positionX, value.x, time);
-  setParam(panner.positionY, value.y, time);
-  setParam(panner.positionZ, value.z, time);
-}
-
 export class AudioVoice {
   private ended = false;
   private disposed = false;
   private stopping = false;
   private volume: number;
   private occlusion = 0;
+  /** Air-absorption cutoff (Hz); Infinity = open. */
+  private air = Infinity;
   private readonly onEndedCallback: (voice: AudioVoice) => void;
   readonly gain: GainNode;
   readonly panner?: PannerNode;
@@ -65,7 +62,7 @@ export class AudioVoice {
       p.coneInnerAngle = options.coneInnerAngle ?? 360;
       p.coneOuterAngle = options.coneOuterAngle ?? 360;
       p.coneOuterGain = options.coneOuterGain ?? 0;
-      if (options.position) setPosition(p, options.position, context.currentTime);
+      if (options.position) setPannerPosition(p, options.position, context.currentTime);
       if (options.orientation) this.setOrientation(options.orientation);
       this.gain.connect(f).connect(p);
       tail = p;
@@ -123,16 +120,14 @@ export class AudioVoice {
     this.applyGain(ramp);
   }
 
+  /** Engine-space position. */
   setPosition(value: Vec3Ops): void {
-    if (this.panner) setPosition(this.panner, value, this.context.currentTime);
+    if (this.panner) setPannerPosition(this.panner, value, this.context.currentTime);
   }
 
+  /** Engine-space direction the cone faces. */
   setOrientation(value: Vec3Ops): void {
-    if (!this.panner) return;
-    const t = this.context.currentTime;
-    setParam(this.panner.orientationX, value.x, t);
-    setParam(this.panner.orientationY, value.y, t);
-    setParam(this.panner.orientationZ, value.z, t);
+    if (this.panner) setPannerOrientation(this.panner, value, this.context.currentTime);
   }
 
   /**
@@ -143,10 +138,22 @@ export class AudioVoice {
   setOcclusion(amount: number, ramp = 0.03): void {
     this.occlusion = Math.max(0, Math.min(1, amount));
     this.applyGain(ramp);
-    if (this.filter) {
-      const open = this.context.sampleRate / 2;
-      rampParam(this.filter.frequency, open * Math.pow(OCCLUSION_CUTOFF / open, this.occlusion), this.context.currentTime, ramp);
-    }
+    this.applyFilter(ramp);
+  }
+
+  /**
+   * Phase 20.1: the air-absorption cutoff for the voice's distance (`airAbsorptionCutoff`), capped at
+   * Nyquist; occlusion still closes the filter from there toward `OCCLUSION_CUTOFF`. Spatial only.
+   */
+  setAirAbsorption(cutoff: number, ramp = 0.03): void {
+    this.air = Math.max(1, cutoff);
+    this.applyFilter(ramp);
+  }
+
+  /** The low-pass cutoff the voice is heading to (Hz): air absorption, then occlusion. */
+  get cutoff(): number {
+    const open = Math.min(this.context.sampleRate / 2, this.air);
+    return open * Math.pow(Math.min(1, OCCLUSION_CUTOFF / open), this.occlusion);
   }
 
   dispose(): void {
@@ -165,6 +172,10 @@ export class AudioVoice {
     this.filter?.disconnect();
     this.panner?.disconnect();
     this.onEndedCallback(this);
+  }
+
+  private applyFilter(ramp: number): void {
+    if (this.filter) rampParam(this.filter.frequency, this.cutoff, this.context.currentTime, ramp);
   }
 
   private applyGain(ramp: number): void {
