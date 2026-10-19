@@ -26317,6 +26317,48 @@ JSON array below; agents maintain it by hand until then.
   "file": "mnemosyne.md",
   "what": "Session notes for the Alpine realism pass: the wheel-parenting bug, why a road in streamed terrain has to be cut into the cells, bicubic-vs-linear ground, the engine snow shader's early saturation, sub-zero weather presets, docs-check rule 6, and how to work with the software rasterizer.",
   "why": "Session memory."
+},
+{
+  "id": "2127",
+  "date": "2026-10-19T20:45:35Z",
+  "type": "pr-merge",
+  "pr": 135,
+  "branch": "arena/bb0d87e0-forge-engine",
+  "base": "main",
+  "title": "Make the Alpine rescue demo look and drive like a mountain rescue",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Makes Alpine Search & Rescue (?scene=alpine-rescue) look and drive like a mountain rescue instead of a lump field with a box truck. Vehicle: the truck had no wheels - VehicleSystem writes world poses into wheel entities, which the scene had parented to the chassis, so they sat ~300 m away; wheels are now root entities, and the body is a lofted wagon with real wheel arches, roof rack, light bar and lathe-turned winter tyres (meshKit.ts, alpineRescueVehicle.ts). Terrain: the 320 m route ran over raw hillside with grades up to 87% and cross-slopes up to 62%. The new engine stage TrackGradingGenerator (describable through a track-grading codec with a canonical-JSON identity, so it reaches workers and the cache key) cuts a designed, grade-limited bed into every streamed chunk (worst cross-slope 0.2%, worst grade 10%, zero chunk-border mismatch), and the road ribbon is built from the same bed. The scene's pipeline no longer runs ThermalErosionGenerator (not seam-safe: chunk borders disagree by up to ~6 m, right along the route) or ValleyCarvingGenerator (isolated crater pits); both stages are unchanged and their caveats are written up in docs/TERRAIN-REALISTIC.md. The ground is a four-layer PBR splat (snow, rock, scree, tundra) with procedural normal-mapped textures. Snow: the z-fighting overlay mesh is replaced by the engine's weather snow, fed through a remapped shade because the engine shader saturates flat ground at cover ~0.43, with a sub-zero ALPINE_WEATHER set so snow lies instead of melting. Adds ?tier=low|medium|high and the __forge.rescuePlace / rescueSnowpack screenshot hooks; mission logic and every snapshot / DOM hook are unchanged. Six new suites (84 checks) plus new alpineSnowpack groups; the selrun catalog is now 152 suites / 1048 coverage claims. Rebased onto main at 4e4bf3a.",
+  "files": [
+    "README.md",
+    "change-log.md",
+    "docs/TERRAIN-REALISTIC.md",
+    "docs/TERRAIN-TRACKS.md",
+    "docs/VERIFICATION.md",
+    "engine/src/terrain/index.ts",
+    "engine/src/terrain/pipelineSpec.ts",
+    "engine/src/terrain/trackGrading.ts",
+    "examples/src/main.ts",
+    "examples/src/scenes/alpineRescueScene.ts",
+    "examples/src/scenes/alpineRescueVehicle.ts",
+    "examples/src/scenes/alpineRoute.ts",
+    "examples/src/scenes/alpineSnowpack.ts",
+    "examples/src/scenes/alpineTerrain.ts",
+    "examples/src/scenes/meshKit.ts",
+    "examples/src/textures/alpine.ts",
+    "mnemosyne.md",
+    "tests/examples/alpineRescueScene.test.ts",
+    "tests/examples/alpineRescueVehicle.test.ts",
+    "tests/examples/alpineRoute.test.ts",
+    "tests/examples/alpineSnowpack.test.ts",
+    "tests/examples/alpineTextures.test.ts",
+    "tests/examples/meshKit.test.ts",
+    "tests/full.test.ts",
+    "tests/terrain/trackGrading.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tools/lint-arch.mjs"
+  ],
+  "note": "check:browser:rescue was not green in the authoring sandbox (2-vCPU SwiftShader, ~14 s per frame in the storm against the gate's 15 s wall-clock waits); the unmodified base commit fails at the same line (tools/browser-check.mjs:950), so it is a throughput limit rather than a regression. It still needs a run on a machine with a real GPU."
 }
 ]
 ```
