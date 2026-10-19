@@ -305,7 +305,9 @@ group("Phase 9.5 — capability registry", () => {
     assertContains(capabilityRegistry.list("deferred").map((entry) => entry.id), "audio.gpuParticles");
     assert.equal(capabilityStatus("audio.spatial"), "verified");
     assert.equal(capabilityStatus("audio.resources"), "verified");
-    assert.equal(capabilityRegistry.get("audio.environmental")?.closesWith, "20.5");
+    assert.equal(capabilityStatus("audio.environmental"), "verified");
+    assert.equal(capabilityStatus("audio.weather"), "verified");
+    assert.equal(ROADMAP_PHASE_STATUS["20"], "verified");
     assert.equal(capabilityMarker("planned"), "[ ]");
 
     const snapshot = capabilityRegistry.snapshot();

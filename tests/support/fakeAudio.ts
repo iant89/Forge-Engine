@@ -50,6 +50,8 @@ export function fakeAudioContext(options: FakeAudioOptions = {}) {
     createBiquadFilter: () => node("filter", { type: "lowpass", frequency: param(350), Q: param(1) }),
     createOscillator: () => source("oscillator", { type: "sine", frequency: param(440) }),
     createBufferSource: () => source("buffer", { buffer: null, loop: false, playbackRate: param(1), detune: param(0) }),
+    createStereoPanner: () => node("stereoPanner", { pan: param(0) }),
+    createConvolver: () => node("convolver", { buffer: null }),
     createPanner: () => node("panner", { positionX: param(), positionY: param(), positionZ: param(), orientationX: param(1), orientationY: param(), orientationZ: param() }),
     createBuffer: (c: number, n: number, rate: number) => buffer(c, n, rate),
     state: options.state ?? "running",

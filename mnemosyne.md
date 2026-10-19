@@ -2523,3 +2523,11 @@ Read the module constraints below before changing either pure model.
   audio budget line. tests/support/fakeAudio.ts now fakes listener params, decodeAudioData, state,
   close and cancelScheduledValues. `check:browser:environment` can die on its first step with
   "execution context destroyed" (Vite reloading after dep optimization) — re-run once.
+- 2026-10-19 (Phase 20.5/20.6, engine/src/audio/ambience.ts + environment/soundInput.ts): audio and
+  environment may not import each other (lint:arch), so the environment exports plain data
+  (`ambienceSoundInput`) shaped like audio's `AmbienceInput` and the host passes it across. Wind
+  "direction" is where it blows *toward* (compass, clockwise from north = +Z); the sound comes from the
+  opposite side, and a listener's right in XZ is (cos yaw, −sin yaw). Rebuilding a ConvolverNode
+  impulse every frame is expensive — quantise the decay (0.25 s buckets). Demos now mix through
+  `AudioSystem` buses (`audio.bus(name).input` is the bus's input gain). Phase 20 is verified;
+  `audio.deviceCheck` and `audio.gpuParticles` stay deferred.

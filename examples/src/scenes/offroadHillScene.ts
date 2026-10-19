@@ -33,6 +33,9 @@ import {
   Vehicle,
   VehicleComponent,
   VehicleAudio,
+  AudioSystem,
+  EnvironmentSoundscape,
+  ambienceSoundInput,
   type VehicleSoundSurface,
   VehicleSystem,
   createBox,
@@ -668,15 +671,20 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   };
   tap("offroad-cam", () => cycleCamera());
   // Sound is opt-in and needs a gesture (autoplay policy): the SOUND button or M creates/resumes it.
-  let sound: { context: AudioContext; audio: VehicleAudio } | null = null;
+  // Phase 20.4-20.7: the UTV on the sfx bus, the hillside's ambience (wind, rain on the track, birds,
+  // crickets, snow damping) on the ambient bus, the woods' reverb on sfx.
+  let sound: { mixer: AudioSystem; context: AudioContext; audio: VehicleAudio; ambience: EnvironmentSoundscape } | null = null;
   let soundOn = false;
   const soundButton = document.getElementById("offroad-sound");
   const setSound = (on: boolean): void => {
     if (on && !sound) {
       const Ctor = globalThis.AudioContext ?? (globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
-      const context = new Ctor();
-      sound = { context, audio: new VehicleAudio(vehicle, context, context.destination, { surfaceAt: soundSurfaceAt, volume: 0.5 }) };
+      const mixer = new AudioSystem({ context: new Ctor() });
+      const context = mixer.context;
+      const ambience = new EnvironmentSoundscape(context, mixer.bus("ambient").input, { volume: 0.45 });
+      mixer.bus("sfx").add(ambience.reverb);
+      sound = { mixer, context, audio: new VehicleAudio(vehicle, context, mixer.bus("sfx").input, { surfaceAt: soundSurfaceAt, volume: 0.5 }), ambience };
     }
     soundOn = on;
     // Never chain behaviour behind these promises: headless autoplay can leave resume() pending.
@@ -823,7 +831,13 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       vehicle.input.handbrake = keys.has("Space") || handbrakeHeld ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
       timer.update(vehicle.position.x, vehicle.position.z, dt);
-      if (sound && soundOn && sound.context.state === "running") sound.audio.update(dt);
+      if (sound && soundOn && sound.context.state === "running") {
+        sound.audio.update(dt);
+        sound.ambience.update(
+          ambienceSoundInput(weather.state, weather.surface, { sunElevationDeg: cycle.elevationDeg, listenerYaw: cameraMode === "cab" ? vehicle.yaw : chaseYaw, reflectivity: 0.3 }),
+          dt,
+        );
+      }
 
       // Weather: wind for the plants and rain, the ground field (mud, pooling, melt) and its overlay.
       const drive = weatherPrecipitationDrive(weather.state);
@@ -925,7 +939,8 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       for (const [t, type, f] of domListeners) t.removeEventListener(type, f);
       if (sound) {
         sound.audio.dispose();
-        void sound.context.close().catch(() => {});
+        sound.ambience.dispose();
+        void sound.mixer.dispose().catch(() => {});
         sound = null;
       }
       soundButton?.setAttribute("aria-pressed", "false");
