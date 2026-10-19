@@ -482,6 +482,7 @@ export { inspectParticles, particleDebugLines, drawParticleDebug, type ParticleD
 export { inspectStreaming, type StreamingDebugEngine, type StreamingObjectDebugInfo, type StreamingDebugSnapshot, type StreamingDebugOptions } from "./debug/streamingDebugger.js";
 export { inspectEnvironment, environmentDebugLines, drawEnvironmentDebug, type EnvironmentDebugOptions, type DayNightDebugInfo, type SunLightDebugInfo, type WeatherDebugInfo, type LightningStrikeDebugInfo, type LightningDebugInfo, type EnvironmentDebugSnapshot, type EnvironmentDebugLineKind, type EnvironmentDebugLine } from "./debug/environmentDebugger.js";
 export { DeveloperConsole, createDeveloperConsole, type DeveloperConsoleHost, type DeveloperConsoleOptions, type DeveloperConsoleCommand, type DeveloperConsoleCommandContext, type DeveloperConsoleEntry } from "./debug/console.js";
+export { PROFILE_CATEGORIES, classifyProfileName, profileLabel, frameBreakdown, formatFrameBreakdown, type ProfileCategory, type FrameBreakdown } from "./debug/frameBreakdown.js";
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */

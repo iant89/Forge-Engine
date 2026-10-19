@@ -2241,20 +2241,30 @@ GOAL:
     Make Forge self-diagnosing.
 
 
-21.1 Frame Profiler
+21.1 Frame Profiler [x]
 
     Track:
 
-        CPU frame
-        GPU frame
-        simulation
-        physics
-        terrain
-        streaming
-        rendering
-        particles
-        scripting
-        audio
+        [x] CPU frame
+        [x] GPU frame (timestamp queries, when the adapter has them)
+        [x] simulation
+        [x] physics
+        [x] terrain
+        [x] streaming
+        [x] rendering
+        [x] particles
+        [x] scripting
+        [x] audio (SpatialAudioSystem; soundscapes driven outside the scene are not timed)
+
+    As built: engine/src/debug/frameBreakdown.ts. EntityWorld.runSystems and Scene.update open a
+    `<category>:<name>` profiler scope per system and per scene-object hook (the category comes from
+    a `profileCategory` **getter**, never an own field, so snapshots and replay hashes do not change;
+    labels are cached in a WeakMap for the same reason, and classifyProfileName guesses from the name
+    otherwise). The engine wraps the asset streamer in `streaming:assets`, and
+    Engine.frameBreakdown() folds the scopes into the eight categories above plus CPU and GPU frame
+    time, with the frame's unattributed remainder reported separately. Pinned by
+    tests/core/frameBreakdown.test.ts. The per-frame *timeline* that draws this history is still
+    open (see docs/KNOWN-ISSUES.md).
 
 
 21.2 ECS Inspector

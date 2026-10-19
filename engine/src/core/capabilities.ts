@@ -276,9 +276,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "diagnostics.profiler",
     phase: "21.1",
     status: "partial",
-    summary: "CPU scope profiler plus asynchronously merged GPU pass samples, frame records, EWMAs, reports, and a live demo overlay",
+    summary: "CPU scope profiler plus asynchronously merged GPU pass samples, frame records, EWMAs, reports, categorised frame breakdown, and a live demo overlay",
+    evidence: ["tests/core/frameBreakdown.test.ts"],
     closesWith: "21.1",
-    notes: "The toolbar Profiler panel is a floating window (drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted) that refreshes the unified CPU/GPU report at 4 Hz and exposes it through window.__forge; tests/examples/profilerPanel.test.ts pins the panel wiring and check:browser:ui drives it with real pointer input. The graphical per-frame timeline remains open.",
+    notes: "Systems, scene-object hooks and the asset streamer are categorised scopes; Engine.frameBreakdown() folds them into simulation/physics/terrain/streaming/rendering/particles/scripting/audio plus CPU and GPU frame time (tests/core/frameBreakdown.test.ts). The toolbar Profiler panel is a floating window (drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted) that refreshes the unified CPU/GPU report at 4 Hz and exposes it through window.__forge; tests/examples/profilerPanel.test.ts pins the panel wiring and check:browser:ui drives it with real pointer input. The graphical per-frame timeline remains open.",
   },
   {
     id: "diagnostics.ecsInspector",

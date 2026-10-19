@@ -180,6 +180,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] CPU scope profiler, with GPU pass times merged into frame records
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
+- [~] Frame profiler (Phase 21.1): CPU/GPU frame records, per-scope EWMAs and the categorised `Engine.frameBreakdown()` (simulation, physics, terrain, streaming, rendering, particles, scripting, audio) are implemented and pinned by `tests/core/frameBreakdown.test.ts`
 - [ ] Profiler frame timeline (Phase 21.1) _(partial: the demo's Profiler panel is a floating window — draggable, resizable, collapsible and dockable to a viewport edge — showing the live unified CPU/GPU scope table at 4 Hz; the per-frame timeline strip is not drawn yet)_
 - [~] ECS Inspector data API (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested; interactive demo/editor panel remains open
 - [~] Render Graph and GPU Resource inspector APIs (Phases 21.3–21.4): pass/dependency/alias data and live labelled allocation summaries are public and tested; interactive panels remain open

@@ -135,6 +135,7 @@ export const linkedSuites = [
   ["tests/core/streamingDebugger.test.ts", () => import("./core/streamingDebugger.test.ts")],
   ["tests/core/environmentDebugger.test.ts", () => import("./core/environmentDebugger.test.ts")],
   ["tests/core/developerConsole.test.ts", () => import("./core/developerConsole.test.ts")],
+  ["tests/core/frameBreakdown.test.ts", () => import("./core/frameBreakdown.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/tools/selrunImpact.test.ts", () => import("./tools/selrunImpact.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
@@ -146,4 +147,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(142);
+report(143);

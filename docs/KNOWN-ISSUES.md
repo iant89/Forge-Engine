@@ -6,8 +6,10 @@ the honest detail lives; nothing here is hidden behind a green gate.
 ## Diagnostics (Phase 21)
 
 * **The profiler has no graphical per-frame timeline yet.** The public `Profiler` API records bounded
-  frame histories and the demo exposes CPU/GPU scope reports in a floating panel, but it does not yet
-  draw the frame/scope history as a timeline. (capability: diagnostics.profiler)
+  frame histories, `Engine.frameBreakdown()` folds the categorised scopes into per-subsystem time, and
+  the demo exposes CPU/GPU scope reports in a floating panel — but nothing yet draws the frame/scope
+  history as a timeline, so a spike is visible as a number and not as a shape.
+  (capability: diagnostics.profiler)
 * **The ECS inspector is an API, not yet an interactive panel.** `inspectEcs` and `inspectEntity` expose
   bounded, read-only snapshots for tools and tests; the demo/editor does not yet let a user browse
   entities and components on screen. (capability: diagnostics.ecsInspector)

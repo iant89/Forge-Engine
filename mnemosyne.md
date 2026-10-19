@@ -2577,3 +2577,19 @@ nothing is invisible to every DOM test, because a fake DOM happily returns zero 
 list of selectors meant to hit real markup needs a test that pins it against that markup. Reproduced
 both ways in Chromium before committing (old list covers `wx-pause` at 390x844, new one covers
 nothing in five scene/viewport combinations).
+
+## 2026-10-19 — Phase 21.1 frame profiler
+Every system (`EntityWorld.runSystems`) and scene-object hook (`Scene.update`) is a profiler scope
+`<category>:<name>`; see `engine/src/debug/frameBreakdown.ts`. A class picks its category with a
+`profileCategory` *getter*, never an own field, because `captureState` snapshots own fields and the
+replay hashes would change — `tests/core/frameBreakdown.test.ts` asserts `Object.keys` is still just
+`["name"]`. Labels are cached in a `WeakMap` for the same reason. The engine adds `streaming:assets`
+around the streamer, and `frameBreakdown()` folds scopes into the roadmap's eight categories plus
+CPU/GPU frame time, reporting the frame time inside no categorised scope as `unattributedMs` so a
+mislabelled system shows up as shrinkage there rather than vanishing. Demo soundscapes run outside
+the scene, so `audio` only covers `SpatialAudioSystem`.
+
+Landed by rebasing PR #132 (`claude/phase21-frame-profiler`) onto main: its third commit duplicated
+the inspectors that PR #133 had already merged, so only the two frame-profiler commits were taken
+and the docs were re-derived against main's counts (143 suites, 1017 coverage claims) rather than
+the branch's stale ones.
