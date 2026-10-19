@@ -2647,3 +2647,57 @@ in this repo rather than from theory:
 A tab whose subsystem is absent from the scene returns a note row; a tab whose snapshot throws is
 reported in the notes bar. Both were deliberate: a diagnostic window that dies because a scene has no
 terrain is worse than useless.
+
+### 2026-10-19 — Alpine rescue realism pass: the truck had no wheels, the "road" was a lump field, the snow was a z-fighting sheet
+
+What looked like "bad terrain" in `?scene=alpine-rescue` was several independent defects, each found by
+measuring rather than eyeballing:
+
+* **The wheels were ~300 m from the truck.** `VehicleSystem.writeWheels` writes each wheel entity's *world*
+  pose (`Vehicle.wheelCenterPosition` is world-space) into its local `Transform`, so a wheel entity must be a
+  **root** with its meshes as children (the off-road scene does exactly this). The scene had parented the
+  wheel entities to the chassis, so every wheel was offset by the chassis's own world position — the truck
+  drove around with no visible wheels (the old wheels were also box primitives). Measured in the browser:
+  chassis (244.5, 5.4, -179.5), wheels at about (469, -91, -357). Pinned by
+  `tests/examples/alpineRescueScene.test.ts` ("wheels are root entities…"): within a wheelbase of the chassis
+  and hanging below it.
+* **The route ran along a chunk border over a field of lumps.** Along the 320 m centre line the raw terrain had
+  grades up to 87 % and cross-slopes up to 62 %. The scene's pipeline also ran `ThermalErosionGenerator`
+  (not seam-safe: neighbouring chunks disagree along their border by up to 3 m in x / 6 m in z — and the route
+  *is* the x = 256 chunk border) and `ValleyCarvingGenerator` (isolated crater pits, roughness x2.7).
+  Details and numbers in `docs/TERRAIN-REALISTIC.md` § Caveats. The demo now uses analytic height → grading →
+  slopes, which is seamless by construction and makes every LOD sample one surface.
+* **A road in streamed terrain has to be cut into the cells.** `TrackTerrain` carves a height *function*;
+  `TerrainWorld` streams cells from a `GeneratorPipeline`, and `describePipeline` throws on a stage it does
+  not know (the constructor hashes it). So `TrackGradingGenerator` (`engine/src/terrain/trackGrading.ts`) is a
+  describable stage carrying its whole configuration as canonical JSON (the Mars stage's pattern). It grades
+  each vertex from its own position and natural height only. The bed is *designed* up front
+  (`designBedProfile`: double box filter + a symmetric grade limit = mean of the highest and lowest
+  Lipschitz envelopes), because the stage cannot sample the centre line itself.
+* **`Heightmap.getHeight` is bicubic; the mesh is linear.** Beside a sharp feature the physics ground leans a few
+  centimetres off the mesh, so keep a graded bench wider than the surface drawn on it (±6 m vs a ±3.4 m ribbon).
+* **The engine's snow shader saturates early and whitens *everything*.** `weatherSurface` mixes
+  `(up·cover·1.35 − drift)·4` toward white on every up-facing standard-material fragment — road, tyre-track
+  decals and the truck's hood included — and it is already 1.0 everywhere on flat ground by cover ≈ 0.43. So
+  (a) a pale road disappears the instant it snows (the road texture is dark, sanded and trafficked now), and
+  (b) a linear depth→cover mapping finishes the visible burial in the first fifth of the storm. The scene now
+  feeds the shader `alpineSnowShade01(cover)` (0.1 → 0.46) via `WeatherSystem.driveSurface = false` and keeps
+  the raw cover in `weather.surface.snow` for `tyreGripFactor` and the audio.
+* **The engine weather presets are mid-latitude** (overcast 14 °C, storm 12 °C): a "snow" scene on them melts
+  its own snow and rains. `WeatherSystem.snapTo/setTarget` take partial states, so the demo has its own
+  sub-zero `ALPINE_WEATHER` set; `WeatherPresetName` and the snapshot's `weatherTarget` strings are unchanged.
+* `tools/docs-check.mjs` rule 6: every `KNOWN-ISSUES.md` bullet must cite a capability/roadmap item that is
+  **not** `verified`. Defects in a verified capability belong in that subsystem's own doc, not there.
+
+Working with the software rasterizer (SwiftShader) on this box:
+
+* The rescue scene presents at roughly 4–11 s/frame at 640–840 px, so a multi-view capture takes 20–30 min.
+  Screenshot at ≥ 840 px wide: below 820 px the demo switches to its touch layout and the HUD buttons cover the
+  truck. `?tier=low|medium|high` is the speed knob; `window.__forge.rescuePlace(s)` / `rescueSnowpack(m)` put
+  the truck anywhere on the road and any pack depth on screen without simulating minutes at ~1 fps.
+* **Do not edit `examples/` or `engine/src/` while a capture runs**: Vite hot-reloads the page and Playwright
+  dies with "Execution context was destroyed". Tests and docs are safe.
+* Build offline previews first. A 100-line z-buffer rasterizer (back-face culling by the engine's convention:
+  `cross(p1 − p0, p2 − p0)` points *out*) iterated the truck in seconds and caught a missing cabin (a loft that
+  silently skipped every band because its stations were listed front-to-back). Signed volume is a precise
+  winding test for closed solids; the same trick caught the door shut-lines crossing the open wheel arch.

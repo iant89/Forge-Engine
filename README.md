@@ -61,8 +61,10 @@ on an Earth-gravity obstacle track with cones, gates and knockable props), **Ski
 (a standalone GPU-skinning demo: four linked box segments bend around four joints in a travelling-wave
 pose; it is not another Mars/rover scene), and **Alpine Search & Rescue: Whiteout Run** (a drivable
 mountain rescue 4×4 mission: load medical supplies, visit three distress beacons, deliver the kit,
-and return as snowfall and wind build; dynamic crates and roadside rocks use the shared terrain/vehicle
-physics world). Direct links include `?scene=pbr`, `?scene=cubes`,
+and return as snowfall and wind build; the service track is graded into the streamed terrain, the ground
+is a four-layer PBR splat (snow, rock, scree, tundra), the engine's weather snow settles on everything and
+lowers tyre grip as it deepens, and spruce, boulders, crates and wheel tracks share the terrain/vehicle
+physics world; `?tier=low|medium|high` scales forest, textures and shadows). Direct links include `?scene=pbr`, `?scene=cubes`,
 `?scene=terrain`, `?scene=realistic`, `?scene=mars-generator`, `?scene=vehicle`, `?scene=particles`,
 `?scene=sky`, `?scene=weather`, `?scene=mars-showcase`, `?scene=mars-dust-storm` (Mars Dust Storm Survival; `?difficulty=easy|advanced|expert|unreal` sets the starting difficulty, `hard` = expert; wind and difficulty: [docs/DUST_STORM.md](docs/DUST_STORM.md)),
 `?scene=rover-course`, `?scene=skinning`,

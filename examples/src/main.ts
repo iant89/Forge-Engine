@@ -278,7 +278,13 @@ async function main(): Promise<void> {
     } else if (name === "gltf-skin") {
       currentHandle = buildGltfSkinScene(engine);
     } else if (name === "alpine-rescue") {
-      currentHandle = buildAlpineRescueScene(engine);
+      // `?tier=low|medium|high` forces the device tier (forest density, texture sizes, shadows).
+      const forced = new URLSearchParams(window.location.search).get("tier");
+      const tier =
+        forced === "low" || forced === "medium" || forced === "high"
+          ? forced
+          : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+      currentHandle = buildAlpineRescueScene(engine, { deviceTier: tier });
     } else if (name === "amazon-river") {
       currentHandle = buildAmazonRiverScene(engine);
     } else if (name === "mars-dust-storm") {
@@ -958,6 +964,14 @@ async function main(): Promise<void> {
     setAmazonTrim: (trim: number) => (currentHandle as AmazonRiverSceneHandle | null)?.setTrim?.(trim),
     setAmazonInput: (input: Parameters<AmazonRiverSceneHandle["setInput"]>[0]) =>
       (currentHandle as AmazonRiverSceneHandle | null)?.setInput?.(input),
+    /** Gate/screenshot hook: park the Alpine Rescue truck on the road at arc length `s` (+ lateral offset). */
+    rescuePlace: (s: number, lateral = 0) => {
+      (currentHandle as AlpineRescueSceneHandle | null)?.placeTruck?.(s, lateral);
+    },
+    /** Gate/screenshot hook: set the Alpine Rescue snow pack depth in metres (0 … 0.55). */
+    rescueSnowpack: (depthM: number) => {
+      (currentHandle as AlpineRescueSceneHandle | null)?.setSnowpackDepth?.(depthM);
+    },
     /** Try the current rescue interaction; returns false when the objective is out of reach. */
     interactRescue: () => (currentHandle as AlpineRescueSceneHandle | null)?.interact?.() ?? false,
     /** Set the Alpine Rescue weather target for a deterministic browser smoke check. */

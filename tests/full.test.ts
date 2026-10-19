@@ -90,6 +90,7 @@ export const linkedSuites = [
   ["tests/terrain/terrain.test.ts", () => import("./terrain/terrain.test.ts")],
   ["tests/terrain/terrainDeformation.test.ts", () => import("./terrain/terrainDeformation.test.ts")],
   ["tests/terrain/trackTerrain.test.ts", () => import("./terrain/trackTerrain.test.ts")],
+  ["tests/terrain/trackGrading.test.ts", () => import("./terrain/trackGrading.test.ts")],
   ["tests/terrain/tireTracks.test.ts", () => import("./terrain/tireTracks.test.ts")],
   ["tests/population/vegetation.test.ts", () => import("./population/vegetation.test.ts")],
   ["tests/terrain/terrainInteraction.test.ts", () => import("./terrain/terrainInteraction.test.ts")],
@@ -98,6 +99,11 @@ export const linkedSuites = [
   ["tests/population/population.test.ts", () => import("./population/population.test.ts")],
   ["tests/population/populationCull.test.ts", () => import("./population/populationCull.test.ts")],
   ["tests/examples/alpineSnowpack.test.ts", () => import("./examples/alpineSnowpack.test.ts")],
+  ["tests/examples/meshKit.test.ts", () => import("./examples/meshKit.test.ts")],
+  ["tests/examples/alpineTextures.test.ts", () => import("./examples/alpineTextures.test.ts")],
+  ["tests/examples/alpineRoute.test.ts", () => import("./examples/alpineRoute.test.ts")],
+  ["tests/examples/alpineRescueVehicle.test.ts", () => import("./examples/alpineRescueVehicle.test.ts")],
+  ["tests/examples/alpineRescueScene.test.ts", () => import("./examples/alpineRescueScene.test.ts")],
   ["tests/examples/amazonBoatHull.test.ts", () => import("./examples/amazonBoatHull.test.ts")],
   ["tests/examples/dustStorm.test.ts", () => import("./examples/dustStorm.test.ts")],
   ["tests/examples/hurricane.test.ts", () => import("./examples/hurricane.test.ts")],
@@ -150,4 +156,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(146);
+report(152);

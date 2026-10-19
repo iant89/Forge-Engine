@@ -179,7 +179,27 @@ scene.add(terrain);
 
 - 33x33 chunk: ~2-5ms total on desktop (height 0.5ms, thermal 0.3ms, hydraulic 1-2ms, valley 0.5ms, biome 0.5ms)
 - Deterministic and worker-safe: same `(seed, cx, cz)` produces bit-identical results regardless of execution order.
-- Seamless: all height sampling uses world coordinates, so chunk edges match within 1e-4.
+- Seamless where the stages are: `RealisticHeightGenerator` is analytic in world coordinates, and hydraulic erosion and valley carving left shared chunk borders matching to within 3 mm when measured — but see "Caveats" below: thermal erosion does not.
+
+## Caveats (measured on the Alpine rescue demo's terrain, 128 m chunks, 33² vertices)
+
+These are properties of the stages as shipped, found while making `?scene=alpine-rescue` look right. The
+demo's pipeline avoids both (it is analytic height → `TrackGradingGenerator` → slopes, see
+`docs/TERRAIN-TRACKS.md`); the factory and the `"alpine"` preset still include them.
+
+- **`ThermalErosionGenerator` is not seam-safe.** It only erodes interior vertices, but it deposits onto
+  whichever neighbour is lowest — border vertices included — so each chunk modifies its shared border
+  differently. Neighbouring chunks disagreed along their border by up to 3.1 m in x and 6.3 m in z (mean
+  0.08 / 0.3 m) with 2 iterations; with the stage removed they agree exactly. The coarser LODs are generated
+  by re-running the pipeline at their own resolution, so an erosion stage also makes LODs disagree with LOD 0.
+  A fix would keep border vertices out of both the source and the receiver sets (and bump
+  `TERRAIN_GENERATOR_VERSION`).
+- **`ValleyCarvingGenerator` (`enableRivers`) carves isolated pits and chunk-aligned channels at 4 m
+  cells.** Mean vertex roughness rose 2.7× (0.145 → 0.388 m) and about one vertex in a hundred became a
+  crater-like pit (hard rim, roughly 10–15 m across), plus straight cuts along chunk borders. Hydraulic
+  erosion at 3 iterations changed nothing measurable in the same area.
+- Net effect for a road: the raw hillside along the demo's 320 m route had a worst cross-slope of 62 % and a
+  worst grade of 87 %, which no vehicle can use — hence the grading stage.
 
 ## Visual Reference
 
