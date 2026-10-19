@@ -20,6 +20,7 @@
     "test:affected:print": "selrun affected --print",
     "test:all": "selrun run --all",
     "test:check": "selrun check",
+    "test:audit": "selrun audit",
     "pr:checks": "node tools/pr-checks.mjs",
     "gltf:strip-skin-sets": "node tools/gltf-strip-extra-skin-sets.mjs",
     "gltf:fix-handedness": "node tools/gltf-fix-handedness.mjs",

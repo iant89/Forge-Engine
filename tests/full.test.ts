@@ -125,6 +125,7 @@ export const linkedSuites = [
   ["tests/examples/uiGallery.test.ts", () => import("./examples/uiGallery.test.ts")],
   ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
+  ["tests/tools/selrunImpact.test.ts", () => import("./tools/selrunImpact.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
   ["tests/controls/demoSceneSelection.test.ts", () => import("./controls/demoSceneSelection.test.ts")],
   ["tests/controls/roverToolTouch.test.ts", () => import("./controls/roverToolTouch.test.ts")],
@@ -134,4 +135,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(130);
+report(131);
