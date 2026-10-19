@@ -25067,6 +25067,20 @@ JSON array below; agents maintain it by hand until then.
   "file": "tests/examples/profilerPanel.test.ts",
   "what": "New group: every selector in PROFILER_AVOID must match markup in examples/index.html (the runtime-created icons excepted), the touch buttons must be avoided, .touch-controls must not come back; plus a placement check that the icon lands clear of a full-width bottom panel.",
   "why": "A selector that matches nothing is invisible to the unit suites, so the avoid list had silently stopped avoiding the touch panels and only the real-browser gate noticed. This pins the list against the page it has to match."
+},
+{
+  "id": "1984",
+  "date": "2026-10-19T09:41:51Z",
+  "type": "pr-merge",
+  "pr": 131,
+  "branch": "arena/74850571-forge-engine",
+  "base": "main",
+  "title": "Make the demo Profiler panel a floating window: resizable, collapsible, dockable",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "The profiler is now mounted through mountDebugPanel, so it gains the same chrome the diag HUD has: drag by the title bar, a 44px corner resize grip, collapse to a corner icon, hold near an edge to dock, localStorage-persisted layout, safe-area insets and clipboard copy. A new mountProfilerPanel seam in examples/src/diag/profilerPanel.ts wraps it, and the panelLayout helpers are shared with the HUD. The #btn-profiler toolbar toggle, __forge.profilerReport(), __forge.setProfilerVisible() and the UI gallery gate's hiding of #profiler-panel/#profiler-icon all keep working. The advisory WebGPU browser gate failed on the first push because the collapsed icon's obstacle list named .touch-controls, a selector no element in examples/index.html carries, so the icon parked on top of the weather panel's Pause button; the fix avoids .touch-btn (the 13 real buttons) and a new test pins every selector in the list against the demo markup.",
+  "files": ["examples/src/diag/panelLayout.ts", "examples/src/diag/debugPanel.ts", "examples/src/diag/profilerPanel.ts", "examples/src/main.ts", "examples/index.html", "tests/examples/profilerPanel.test.ts", "tests/examples/debugPanel.test.ts", "tests/support/fakeDom.ts", "tests/full.test.ts", "tools/browser-ui-check.mjs", "docs/VERIFICATION.md", "README.md", "PROGRESS.md", "engine/src/core/capabilities.ts"],
+  "note": "Merge commit 98bf57c1674bd55460f5e625ec38ccca481636a8; 3 commits (cf51762, 1efa088, 44aee03), +878/-138 across 16 files. CPU gates pass in 4m36s and the advisory WebGPU browser gate passes in 59m1s on the merged tip."
 }
 ]
 ```

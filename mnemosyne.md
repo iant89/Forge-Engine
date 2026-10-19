@@ -2577,3 +2577,11 @@ nothing is invisible to every DOM test, because a fake DOM happily returns zero 
 list of selectors meant to hit real markup needs a test that pins it against that markup. Reproduced
 both ways in Chromium before committing (old list covers `wx-pause` at 390x844, new one covers
 nothing in five scene/viewport combinations).
+
+### 2026-10-19 — PR #131 merged
+
+"Makes the demo Profiler panel a floating window: resizable, collapsible, dockable" merged into
+`main` as `98bf57c` (CPU gates 4m36s, advisory WebGPU browser gate 59m1s — green on the merged tip).
+The lesson from the gate failure above is the durable part: **a selector that matches nothing is
+invisible to every DOM test**, so the icon-obstacle list now has a test pinning it to
+`examples/index.html`.
