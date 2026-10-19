@@ -31,7 +31,7 @@ depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` fo
 `mars-terrain-gen`), `docs/UI.md` and `docs/UI-GUIDE.md` for the engine's UI framework, and
 `docs/VERIFICATION.md` for what each check proves.
 
-The demo toolbar includes a live **Profiler** panel showing unified CPU scopes and asynchronous GPU pass timings. The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
+The demo toolbar includes a live **Profiler** panel showing unified CPU scopes and asynchronous GPU pass timings. It is a floating window like the stats HUD: drag it by its title bar, resize it from the corner grip, collapse it to a corner icon, and hold a drag near a viewport edge for two seconds to dock it there — the layout persists across reloads. The demo (`npm run demo`) opens directly on **Mars Showcase**: a 6-wheeled Perseverance rover
 (the public-domain NASA/JPL GLB) on an electric drivetrain (`ElectricMotor` + 60:1
 `ReductionDrive`, ≈6 km/h top speed with regenerative braking) driving over streamed, cratered Mars
 terrain beneath a Mars sky, with wind-blown and wheel-kick dust. The showcase now uses the ported

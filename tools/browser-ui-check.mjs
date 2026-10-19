@@ -18,7 +18,11 @@
  *  5a. the UI scales with the viewport: a 1920×1080 window draws at uiScale 1.5 and a real click at
  *     the scaled position hits the intended button;
  *  6. drawing and hit testing agree: the element `hitTestAt` returns at a button's centre is that
- *     button, and the pixel there is the button's colour, not the scene's.
+ *     button, and the pixel there is the button's colour, not the scene's;
+ *  7. the demo's floating Profiler panel works as a window: the toolbar hook opens it, it paints live
+ *     numbers and keeps repainting them, a real drag of the title bar moves it, a real drag of the
+ *     corner grip resizes it, the bar's collapse button leaves only a corner icon that re-opens it,
+ *     and holding a drag near a viewport edge for the dwell docks it flush there.
  *
  * Screenshots: `tools/.browser-ui-<page>.png` (git-ignored). Look at them.
  * Exit codes: 0 pass, 1 fail, 2 NOT RUN (no browser/adapter).
@@ -125,9 +129,6 @@ try {
   console.error(`${CHECK_NAME} FAIL — the UI scene did not start\n${consoleErrors.slice(0, 5).join("\n")}`);
   await finish(1);
 }
-// Hide the demo's DOM chrome so screenshots show only the canvas.
-await page.addStyleTag({ content: "#hud,#hud-panel,#toolbar,#toolbar-toggle,#controls-hint,#error,#profiler-panel,.touch-controls{display:none!important}" });
-
 const waitFrames = async (n = 6) => {
   const start = await page.evaluate(() => window.__forge.stats().frame);
   await page.waitForFunction((s) => window.__forge.stats().frame >= s, start + n, { timeout: 60000 });
@@ -138,6 +139,81 @@ const shot = async (name) => {
   await page.locator("canvas").first().screenshot({ path });
   return path;
 };
+
+// 7. The demo's floating Profiler panel, driven by real pointer input: it opens from the toolbar
+//    hook, paints live numbers, drags by its title bar, resizes by its corner grip, collapses to a
+//    corner icon and docks flush to a viewport edge. (tests/examples/profilerPanel.test.ts pins the
+//    same wiring against a fake DOM; this is the real page.)
+const panelLayout = () => page.evaluate(() => window.__forge.profilerLayout());
+const reportText = () => page.evaluate(() => document.getElementById("profiler").textContent ?? "");
+/** Drag an element by (dx, dy) with a real mouse, optionally holding still for `dwellMs` first. */
+const dragBy = async (selector, dx, dy, dwellMs = 0) => {
+  const box = await page.locator(selector).first().boundingBox();
+  const vp = page.viewportSize();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const tx = Math.min(Math.max(cx + dx, 1), vp.width - 1);
+  const ty = Math.min(Math.max(cy + dy, 1), vp.height - 1);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(tx, ty, { steps: 8 });
+  if (dwellMs > 0) await sleep(dwellMs);
+  await page.mouse.up();
+};
+const opened = await page.evaluate(() => {
+  window.__forge.setProfilerVisible(true);
+  return window.__forge.profilerLayout();
+});
+await waitFrames(2);
+check(opened.visible === true && opened.collapsed === false, `the Profiler button opens the panel (visible ${opened.visible})`);
+// The panel's rect and the real element must agree: a stale `position: fixed` rule on the report
+// body would leave the chrome laid out somewhere else entirely.
+const box = await page.locator("#profiler-panel").boundingBox();
+check(
+  Math.abs(box.x - opened.rect.x) < 1.5 && Math.abs(box.y - opened.rect.y) < 1.5 && Math.abs(box.width - opened.rect.w) < 1.5 && Math.abs(box.height - opened.rect.h) < 1.5,
+  `the panel is laid out at its rect (${box.width.toFixed(0)}x${box.height.toFixed(0)} at ${box.x.toFixed(0)},${box.y.toFixed(0)} vs ${opened.rect.w}x${opened.rect.h} at ${opened.rect.x},${opened.rect.y})`,
+);
+const first = await reportText();
+const frameNow = (text) => Number(/frame (\d+)/.exec(text)?.[1] ?? "0");
+check(/frame \d+/.test(first) && first.includes("scope"), `the report is painted (${first.split("\n")[0].slice(0, 64)})`);
+// Software rendering runs the gallery at a few frames a second, so wait for the frame counter to
+// move rather than sleeping a fixed slice of it.
+const firstFrame = frameNow(first);
+let second = first;
+try {
+  await page.waitForFunction((f) => Number(/frame (\d+)/.exec(document.getElementById("profiler").textContent ?? "")?.[1] ?? 0) > f, firstFrame, { timeout: 60000 });
+  second = await reportText();
+} catch {
+  /* reported below */
+}
+check(frameNow(second) > firstFrame, `the live report keeps updating (frame ${firstFrame} → ${frameNow(second)})`);
+
+const at = await panelLayout();
+await dragBy("#profiler-panel .fdp-bar", 60, -80);
+const moved = await panelLayout();
+check(moved.rect.x === at.rect.x + 60 && moved.rect.y === at.rect.y - 80, `dragging the title bar moves the panel (${at.rect.x},${at.rect.y} → ${moved.rect.x},${moved.rect.y})`);
+await dragBy("#profiler-panel .fdp-grip", 40, 60);
+const sized = await panelLayout();
+check(sized.rect.w === moved.rect.w + 40 && sized.rect.h === moved.rect.h + 60, `the corner grip resizes it (${moved.rect.w}x${moved.rect.h} → ${sized.rect.w}x${sized.rect.h})`);
+
+await page.locator("#profiler-panel .fdp-toggle").click();
+const hidden = await panelLayout();
+check(hidden.visible === false && hidden.collapsed === true, "the bar's collapse button closes it");
+check(await page.locator("#profiler-icon").isVisible(), "and leaves a corner icon behind");
+await page.locator("#profiler-icon").click();
+check((await panelLayout()).visible === true, "the corner icon brings it back");
+
+// Hold the drag within the snap threshold of the left edge for the dwell: the ghost appears, and
+// releasing on it docks the panel flush against that edge.
+await dragBy("#profiler-panel .fdp-bar", -2000, 0, 2300);
+const docked = await panelLayout();
+check(docked.snap?.x === "left", `releasing on the dock ghost snaps it to the left edge (${JSON.stringify(docked.snap)})`);
+check(docked.rect.x === 10, `docked flush inside the safe area (x ${docked.rect.x})`);
+await page.evaluate(() => window.__forge.setProfilerVisible(false));
+check((await panelLayout()).visible === false, "the Profiler button closes it again");
+
+// Hide the demo's DOM chrome so screenshots show only the canvas.
+await page.addStyleTag({ content: "#hud,#hud-panel,#toolbar,#toolbar-toggle,#controls-hint,#error,#profiler-panel,#profiler-icon,.touch-controls{display:none!important}" });
 
 await waitFrames(10);
 const s0 = await page.evaluate(() => {

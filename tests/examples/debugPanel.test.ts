@@ -23,6 +23,7 @@ import {
   SnapTracker, bounds, clampRect, cornerIcon, readInsets, withMargin, dragRect, isOffscreen, loadLayout, nearEdges, placeIcon, resizeRect, resolveRect, saveLayout, snapRect,
   type StorageLike,
 } from "../../examples/src/diag/panelLayout.js";
+import { FakeEl, env } from "../support/fakeDom.js";
 
 const VP = { w: 400, h: 800 };
 const MIN = { w: 100, h: 60 };
@@ -207,88 +208,7 @@ group("edge snapping", () => {
   });
 });
 
-// ---- DOM-level tests with a tiny fake document/window ----
-
-class FakeEl {
-  children: FakeEl[] = [];
-  parentNode: FakeEl | null = null;
-  attrs: Record<string, string> = {};
-  listeners: Record<string, ((e: unknown) => void)[]> = {};
-  classes = new Set<string>();
-  style: Record<string, string> = {};
-  textContent = "";
-  innerHTML = "";
-  id = "";
-  type = "";
-  title = "";
-  value = "";
-  readOnly = false;
-  contentEditable = "";
-  box = { left: 0, top: 0, width: 0, height: 0 };
-  captured: number | null = null;
-  constructor(public tag: string) {}
-  get className(): string { return [...this.classes].join(" "); }
-  set className(v: string) { this.classes = new Set(v.split(/\s+/).filter(Boolean)); }
-  classList = {
-    add: (c: string) => this.classes.add(c),
-    remove: (c: string) => this.classes.delete(c),
-    toggle: (c: string, on: boolean) => (on ? this.classes.add(c) : this.classes.delete(c)),
-    contains: (c: string) => this.classes.has(c),
-  };
-  setAttribute(k: string, v: string) { this.attrs[k] = v; }
-  appendChild(c: FakeEl) { c.parentNode?.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
-  append(...cs: FakeEl[]) { for (const c of cs) this.appendChild(c); }
-  removeChild(c: FakeEl) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; }
-  insertBefore(c: FakeEl, ref: FakeEl) { c.parentNode?.removeChild(c); c.parentNode = this; this.children.splice(this.children.indexOf(ref), 0, c); return c; }
-  remove() { this.parentNode?.removeChild(this); }
-  addEventListener(t: string, f: (e: unknown) => void) { (this.listeners[t] ??= []).push(f); }
-  removeEventListener(t: string, f: (e: unknown) => void) { this.listeners[t] = (this.listeners[t] ?? []).filter((x) => x !== f); }
-  fire(t: string, e: Record<string, unknown> = {}) {
-    let stopped = false;
-    const ev = { pointerId: 1, clientX: 0, clientY: 0, button: 0, stopPropagation: () => (stopped = true), preventDefault() {}, ...e };
-    for (const f of this.listeners[t] ?? []) f(ev);
-    return stopped;
-  }
-  click() { this.fire("click"); }
-  setPointerCapture(id: number) { this.captured = id; }
-  getBoundingClientRect() { return this.box; }
-  focus() {}
-  select() {}
-  setSelectionRange() {}
-}
-
-function env(opts: { execOk?: boolean; vp?: { w: number; h: number } } = {}) {
-  const head = new FakeEl("head");
-  const body = new FakeEl("body");
-  const execs: string[] = [];
-  const obstacles: FakeEl[] = [];
-  const doc = {
-    head, body,
-    createElement: (t: string) => new FakeEl(t),
-    getElementById: (id: string) => head.children.find((c) => c.id === id) ?? null,
-    querySelectorAll: (sel: string) => (sel === ".obstacle" ? obstacles : []),
-    execCommand: (c: string) => { execs.push(c); return opts.execOk ?? true; },
-  };
-  let clock = 0;
-  const intervals = new Map<number, () => void>();
-  let nextId = 1;
-  const winListeners: Record<string, (() => void)[]> = {};
-  const win = {
-    innerWidth: opts.vp?.w ?? 400,
-    innerHeight: opts.vp?.h ?? 800,
-    addEventListener: (t: string, f: () => void) => void (winListeners[t] ??= []).push(f),
-    removeEventListener: (t: string, f: () => void) => void (winListeners[t] = (winListeners[t] ?? []).filter((x) => x !== f)),
-    setInterval: (f: () => void) => { const id = nextId++; intervals.set(id, f); return id; },
-    clearInterval: (id: number) => void intervals.delete(id),
-    setTimeout: () => 0,
-    clearTimeout: () => {},
-  };
-  const advance = (ms: number) => {
-    for (let t = 0; t < ms; t += 100) { clock += 100; for (const f of [...intervals.values()]) f(); }
-  };
-  const rotate = (w: number, h: number) => { win.innerWidth = w; win.innerHeight = h; for (const f of winListeners.resize ?? []) f(); };
-  return { doc: doc as unknown as Document, win: win as unknown as DebugPanelOptions["win"], head, body, execs, obstacles, advance, rotate, now: () => clock };
-}
+// ---- DOM-level tests with the shared fake document/window (tests/support/fakeDom.ts) ----
 
 function mount(e: ReturnType<typeof env>, extra: Partial<DebugPanelOptions> = {}) {
   const panelBody = new FakeEl("div");
@@ -338,6 +258,18 @@ group("mountDebugPanel", () => {
     assert.equal(again.p.collapsed, true, "restored collapsed");
     again.icon.click();
     assert.equal(again.p.collapsed, false);
+  });
+  test("onCollapsedChange fires for every collapse source (bar, icon, setCollapsed) but not on mount", () => {
+    const e = env();
+    const seen: boolean[] = [];
+    const m = mount(e, { onCollapsedChange: (c) => seen.push(c) });
+    assert.deepEqual(seen, [], "mounting must not announce the restored state; read `collapsed` for it");
+    (m.p.toggleButton as unknown as FakeEl).click();
+    assert.deepEqual(seen, [true], "bar collapse button");
+    m.icon.click();
+    assert.deepEqual(seen, [true, false], "corner icon expands");
+    m.p.setCollapsed(true);
+    assert.deepEqual(seen, [true, false, true], "host-driven setCollapsed too");
   });
   test("drag by the bar moves + clamps, uses pointer capture, and persists the rect", () => {
     const e = env();

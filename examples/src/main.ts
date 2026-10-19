@@ -74,6 +74,7 @@ import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
+import { mountProfilerPanel } from "./diag/profilerPanel.js";
 import { bounds } from "./diag/panelLayout.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
@@ -122,7 +123,7 @@ const btnStress = document.getElementById("btn-stress") as HTMLButtonElement | n
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
 const btnProfiler = document.getElementById("btn-profiler") as HTMLButtonElement | null;
-const profilerPanel = document.getElementById("profiler-panel") as HTMLPreElement | null;
+const profilerBody = document.getElementById("profiler") as HTMLPreElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
 const loadingModel = document.getElementById("loading-model") as HTMLDivElement | null;
 const loadingTerrain = document.getElementById("loading-terrain") as HTMLDivElement | null;
@@ -142,16 +143,12 @@ async function main(): Promise<void> {
   // report what the new compute passes cost (the render graph degrades to no-op when the adapter
   // does not expose `timestamp-query`).
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2, gpuTimestamps: true } });
-  let profilerVisible = false;
-  let nextProfilerPaint = 0;
-  const setProfilerVisible = (visible: boolean): void => {
-    profilerVisible = visible;
-    btnProfiler?.classList.toggle("active", visible);
-    btnProfiler?.setAttribute("aria-pressed", visible ? "true" : "false");
-    profilerPanel?.classList.toggle("shown", visible);
-    if (visible && profilerPanel) profilerPanel.textContent = engine.profiler.report(16);
-  };
-  btnProfiler?.addEventListener("click", () => setProfilerVisible(!profilerVisible));
+  // Floating Profiler panel: draggable, resizable (corner grip), collapsible (bar button → corner
+  // icon) and dockable to a viewport edge, with the toolbar button kept in sync with it. Starts
+  // closed; `tick` in the frame loop repaints it ~4×/s while it is open.
+  const profiler = mountProfilerPanel({ body: profilerBody!, button: btnProfiler, report: () => engine.profiler.report(16) });
+  profiler.ui.root.id = "profiler-panel";
+  profiler.ui.icon.id = "profiler-icon";
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}  build ${FORGE_BUILD}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
@@ -714,10 +711,7 @@ async function main(): Promise<void> {
       hud.textContent += `\n${extra}`;
     }
 
-    if (profilerVisible && profilerPanel && now >= nextProfilerPaint) {
-      profilerPanel.textContent = engine.profiler.report(16);
-      nextProfilerPaint = now + 250;
-    }
+    profiler.tick(now);
 
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
@@ -741,7 +735,9 @@ async function main(): Promise<void> {
     /** UI gallery handle (UIManager, gallery, GPU overlay stats) on `?scene=ui`, else null. */
     ui: () => (activeSceneName === "ui" ? (currentHandle as UIShowcaseHandle | null) : null),
     profilerReport: () => engine.profiler.report(16),
-    setProfilerVisible,
+    setProfilerVisible: (visible: boolean) => profiler.setVisible(visible),
+    /** Floating Profiler panel geometry (visible · rect · docked edges) for the browser gate. */
+    profilerLayout: () => profiler.layout(),
     get scene(): Scene {
       return currentHandle!.scene;
     },

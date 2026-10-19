@@ -22,29 +22,17 @@
         font-size: 11.5px;
         line-height: 1.5;
       }
-      #profiler-panel {
-        display: none;
-        position: fixed;
-        left: max(10px, env(safe-area-inset-left));
-        bottom: max(10px, env(safe-area-inset-bottom));
-        z-index: 11;
-        min-width: 360px;
-        max-width: min(620px, calc(100vw - 20px));
-        max-height: 46vh;
-        margin: 0;
-        overflow: auto;
-        padding: 10px 12px;
-        border: 1px solid rgb(96 165 250 / 0.5);
-        border-radius: 6px;
-        background: rgb(5 7 10 / 0.9);
+      /* The profiler report is the body of a floating panel (drag by the bar, resize by the corner
+         grip, collapse to the icon, dock to an edge) — see examples/src/diag/profilerPanel.ts. */
+      #profiler {
+        padding: 8px 12px;
+        background: rgb(5 7 10 / 0.75);
         color: #dbeafe;
         font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
         white-space: pre;
-        pointer-events: auto;
-        user-select: text;
-        backdrop-filter: blur(6px);
+        backdrop-filter: blur(4px);
       }
-      #profiler-panel.shown { display: block; }
+      #profiler-panel { z-index: 10; }
       #toolbar {
         position: fixed;
         right: max(10px, env(safe-area-inset-right));
@@ -795,7 +783,7 @@
   <body>
     <div id="wrap"><canvas id="view"></canvas></div>
     <div id="hud">starting…</div>
-    <pre id="profiler-panel" aria-live="polite" aria-label="CPU and GPU profiler timeline"></pre>
+    <pre id="profiler" aria-live="polite" aria-label="CPU and GPU profiler timeline"></pre>
     <div id="rescue-hud" aria-live="off" aria-label="Alpine Rescue mission status"></div>
     <div id="toolbar">
       <button type="button" id="toolbar-toggle" aria-label="Demo settings" aria-controls="toolbar-panels" aria-expanded="false" title="Demo settings">☰</button>

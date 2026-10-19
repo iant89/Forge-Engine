@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-18_
+_Last updated: 2026-10-19_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -177,10 +177,10 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 
 ## Debugging, profiling & benchmarks (Phases 21, 22)
 
-- [x] CPU scope profiler, with GPU pass times merged into frame records _(partial: no profiler UI)_
+- [x] CPU scope profiler, with GPU pass times merged into frame records
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
-- [ ] Profiler UI and frame timeline (Phase 21.1)
+- [ ] Profiler frame timeline (Phase 21.1) _(partial: the demo's Profiler panel is a floating window — draggable, resizable, collapsible and dockable to a viewport edge — showing the live unified CPU/GPU scope table at 4 Hz; the per-frame timeline strip is not drawn yet)_
 - [ ] Inspectors and debug draw for ECS, render graph, GPU resources, physics, terrain, particles, streaming and environment, plus a console (Phase 21.2–21.10)
 - [ ] Benchmarks for every subsystem, including 1M-scale runs (Phase 22)
 - [ ] Automatic regression detection against stored benchmark history (Phase 22.7)
