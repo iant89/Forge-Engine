@@ -28,6 +28,7 @@ import { loadScene, saveScene, type SceneLoadOptions, type SceneLoadReport, type
 import type { AtmosphereParams } from "../environment/atmosphere.js";
 import type { StateRecord } from "../core/snapshot.js";
 import { DEFAULT_SPOT_SHADOWS, MAX_SPOT_SHADOWS } from "./shadowLimits.js";
+import { profileLabel } from "../debug/frameBreakdown.js";
 
 export type FogMode = "none" | "linear" | "exp2" | "height";
 export type ToneMapping = "none" | "reinhard" | "aces" | "filmic";
@@ -840,20 +841,28 @@ export class Scene {
     // Fixed-step substeps run inside the simulation systems (see systems.ts), so the scene only
     // needs one pass here; scene objects get their own fixedUpdate hook.
     for (const o of this.objects) {
-      if (!o.enabled) continue;
+      if (!o.enabled || !o.fixedUpdate) continue;
+      const label = profileLabel(o);
+      context.profiler?.begin(label);
       try {
-        o.fixedUpdate?.(context, context.fixedDt, 0);
+        o.fixedUpdate(context, context.fixedDt, 0);
       } catch (e) {
         reportSceneError(`${o.name}.fixedUpdate`, e);
+      } finally {
+        context.profiler?.end(label);
       }
     }
     this.world.runSystems(context);
     for (const o of this.objects) {
-      if (!o.enabled) continue;
+      if (!o.enabled || !o.update) continue;
+      const label = profileLabel(o);
+      context.profiler?.begin(label);
       try {
-        o.update?.(context, dt);
+        o.update(context, dt);
       } catch (e) {
         reportSceneError(`${o.name}.update`, e);
+      } finally {
+        context.profiler?.end(label);
       }
     }
   }

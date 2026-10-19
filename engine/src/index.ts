@@ -469,6 +469,7 @@ export { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX
 
 // Debug + testing
 export { Profiler, ProfileScope, profile, type ProfilerOptions, type ScopeStats, type FrameRecord } from "./debug/profiler.js";
+export { PROFILE_CATEGORIES, classifyProfileName, profileLabel, frameBreakdown, formatFrameBreakdown, type ProfileCategory, type FrameBreakdown } from "./debug/frameBreakdown.js";
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */

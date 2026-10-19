@@ -29,6 +29,7 @@ import { ResourceRegistry } from "../resources/registry.js";
 import { AssetStreamer, type StreamingStats } from "../resources/streaming.js";
 import { AssetHotReloader } from "../resources/hotReload.js";
 import { Profiler, type ScopeStats } from "../debug/profiler.js";
+import { frameBreakdown, type FrameBreakdown } from "../debug/frameBreakdown.js";
 import { Renderer, type RenderStats } from "../rendering/renderer.js";
 import { Scene } from "../scene/scene.js";
 import { SystemScratch, type SystemContext, type SystemServices, type ISystem } from "../scene/systems.js";
@@ -350,8 +351,10 @@ export class Engine {
     this.scratch.beginFrame();
     // Asset streaming (Phase 15.3): open the frame's upload budget and admit the highest-
     // priority queued loads *before* any system runs, so a scene can use what lands this frame.
+    this.profiler.begin("streaming:assets");
     this.streamer.newFrame();
     this.streamer.pump();
+    this.profiler.end("streaming:assets");
     const tick = manualDt === undefined ? this.clock.tick() : this.manualTick(manualDt);
     this.lastTick = tick;
     this.frameCounter++;
@@ -563,6 +566,11 @@ export class Engine {
   /** Profile aggregates for the debug overlay / `npm run bench`. */
   profileSnapshot(): ScopeStats[] {
     return this.profiler.snapshot();
+  }
+
+  /** Where the frame's time went, by subsystem (Phase 21.1); see `debug/frameBreakdown.ts`. */
+  frameBreakdown(topPerCategory = 3): FrameBreakdown {
+    return frameBreakdown(this.profiler.snapshot(), this.profiler.lastFrame()?.gpuMs ?? 0, topPerCategory);
   }
 
   /** Force a redraw even in "dirty" mode. */
