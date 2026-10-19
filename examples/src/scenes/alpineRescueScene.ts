@@ -8,6 +8,9 @@ import {
   HeightfieldShape,
   ImpactSoundAnalyzer,
   ImpactSoundscape,
+  AudioSystem,
+  EnvironmentSoundscape,
+  ambienceSoundInput,
   setAudioListener,
   type ImpactMaterial,
   type RigidBody,
@@ -789,7 +792,9 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
 
   // Phase 20.7 + 20.8 audio, opt-in from a gesture (autoplay policy): the truck's engine, tyres and
   // suspension, and every physics contact — crates, boulders, the case and the truck on snow.
-  let sound: { context: AudioContext; truck: VehicleAudio; analyzer: ImpactSoundAnalyzer; impacts: ImpactSoundscape } | null = null;
+  // The truck and every contact on the sfx bus, the mountain's ambience (wind, the whiteout, snow
+  // damping, birds by day) on the ambient bus, the valley's reverb on sfx (Phase 20.4-20.8).
+  let sound: { mixer: AudioSystem; context: AudioContext; truck: VehicleAudio; analyzer: ImpactSoundAnalyzer; impacts: ImpactSoundscape; ambience: EnvironmentSoundscape } | null = null;
   let soundOn = false;
   const materialOf = (body: RigidBody): ImpactMaterial | undefined => {
     if (body === chassisBody) return "metal";
@@ -801,12 +806,18 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     if (on && !sound) {
       const Ctor = globalThis.AudioContext ?? (globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
-      const context = new Ctor();
+      const mixer = new AudioSystem({ context: new Ctor() });
+      const context = mixer.context;
+      const sfx = mixer.bus("sfx").input;
+      const ambience = new EnvironmentSoundscape(context, mixer.bus("ambient").input, { volume: 0.5 });
+      mixer.bus("sfx").add(ambience.reverb);
       sound = {
+        mixer,
         context,
-        truck: new VehicleAudio(vehicle, context, context.destination, { surfaceAt: () => "snow", volume: 0.45, cylinders: 6 }),
+        truck: new VehicleAudio(vehicle, context, sfx, { surfaceAt: () => "snow", volume: 0.45, cylinders: 6 }),
         analyzer: new ImpactSoundAnalyzer(physicsWorld, { materialOf }),
-        impacts: new ImpactSoundscape(context, context.destination, { volume: 0.8 }),
+        impacts: new ImpactSoundscape(context, sfx, { volume: 0.8 }),
+        ambience,
       };
     }
     soundOn = on;
@@ -958,6 +969,10 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       const fx = vehicle.position.x - eye.x, fy = vehicle.position.y - eye.y, fz = vehicle.position.z - eye.z;
       const len = Math.hypot(fx, fy, fz) || 1;
       setAudioListener(sound.context, eye, { x: fx / len, y: fy / len, z: fz / len }, Vec3.up);
+      sound.ambience.update(
+        ambienceSoundInput(weather.state, weather.surface, { sunElevationDeg: dayNight.elevationDeg, listenerYaw: Math.atan2(fx, fz), reflectivity: 0.45 }),
+        dt,
+      );
     } else if (sound) {
       // Keep the frame's contacts from piling up while the context is not running.
       sound.analyzer.update();
@@ -1018,7 +1033,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       sound.truck.dispose();
       sound.impacts.dispose();
       sound.analyzer.dispose();
-      void sound.context.close().catch(() => {});
+      sound.ambience.dispose();
+      void sound.mixer.dispose().catch(() => {});
       sound = null;
     }
     soundOn = false;

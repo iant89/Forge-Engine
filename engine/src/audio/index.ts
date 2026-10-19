@@ -96,3 +96,16 @@ export {
   type AudioClipOptions,
   type AudioClipProvider,
 } from "./resources.js";
+export {
+  EnvironmentSoundscape,
+  ambienceLevels,
+  createAmbienceInput,
+  createAmbienceLevels,
+  birdActivity,
+  cricketChirpRate,
+  environmentReverb,
+  createReverbImpulse,
+  type AmbienceInput,
+  type AmbienceLevels,
+  type EnvironmentSoundscapeOptions,
+} from "./ambience.js";

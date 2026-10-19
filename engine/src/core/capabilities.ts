@@ -91,7 +91,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "17": "inProgress",
   "18": "verified",
   "19": "verified",
-  "20": "inProgress",
+  "20": "verified",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -841,7 +841,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Weather drives surface wetness, puddles and snow (shading), vehicle tyre grip, snow/rain particles, visibility, storm audio levels and the sea state",
     evidence: ["tests/environment/environment17_4.test.ts", "tools/browser-check.mjs"],
-    notes: "Measured braking from 20 m/s: 19.3 m dry, 25.8 m wet, 35.3 m puddles, 64.6 m snow. Surfaces wet everywhere (no occlusion from cover); audio is synthesized level mapping, not yet mixed through the bus graph (roadmap 20.6).",
+    notes: "Measured braking from 20 m/s: 19.3 m dry, 25.8 m wet, 35.3 m puddles, 64.6 m snow. Surfaces wet everywhere (no occlusion from cover); weather audio is the 20.6 EnvironmentSoundscape on the ambient bus.",
   },
   {
     id: "environment.lightning",
@@ -1028,10 +1028,18 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "audio.environmental",
     phase: "20.5",
-    status: "planned",
-    summary: "Environmental and weather audio driven by simulation state, mixed through the buses",
-    closesWith: "20.5",
-    notes: "StormSoundscape (fe-34) maps weather to synthesized voices but bypasses the buses (roadmap 20.6). Vehicle (20.7) and impact/particle (20.8) audio are built.",
+    status: "verified",
+    summary: "Environmental audio: birds with a dawn chorus, crickets at Dolbear's rate, listener context (underwater, indoors) and surroundings-driven reverb",
+    evidence: ["tests/audio/ambienceAudio.test.ts", "docs/AUDIO.md"],
+    notes: "Ambience is synthesized and driven by plain data (environment/soundInput.ts builds it); there are no positional ambient emitters for rivers or trees and no recorded beds.",
+  },
+  {
+    id: "audio.weather",
+    phase: "20.6",
+    status: "verified",
+    summary: "Weather audio from the weather and the ground: directional wind and gusts, rain coloured by wet ground, puddles and snow cover, roof drumming, snow damping, surf",
+    evidence: ["tests/audio/ambienceAudio.test.ts", "docs/AUDIO.md"],
+    notes: "The weather, off-road and Alpine demos mix it, vehicles and impacts through the ambient/sfx buses. StormSoundscape remains for the hurricane demo.",
   },
   {
     id: "audio.spatial",

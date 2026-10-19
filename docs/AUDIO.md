@@ -142,12 +142,34 @@ It proves the graph, the timing and the bookkeeping, not what anything sounds li
 audio on a device yet. The 20.1/20.2/20.7/20.8 suites use a lighter recording fake
 (`tests/support/fakeAudio.ts`) for graph shape and parameter targets.
 
-## Still to come
+## Environmental and weather audio (20.5, 20.6)
 
-Environmental (20.5) and weather (20.6) audio driven by simulation state, through the buses. The storm
-soundscape (`StormSoundscape`, fe-34) already maps weather to synthesized wind, rain, surf and thunder,
-but plays straight into a node rather than through the buses; so do the vehicle, impact and particle
-soundscapes in the demos, though each accepts a bus's `input`.
+`EnvironmentSoundscape` (`ambience.ts`) is the world's ambience, driven by plain data
+(`AmbienceInput`) that `ambienceSoundInput(weather.state, weather.surface, context)`
+(`environment/soundInput.ts`) builds from the weather, the ground's memory of it (17.4) and the
+listener's situation; audio and the environment never import each other. Call `update(input, dt)`
+each frame; `ambienceLevels(input)` is the pure mapping the suite tests.
+
+| Driven by | Sound |
+| --- | --- |
+| wind speed, gustiness | roar and a whistling gust howl, both rising with speed |
+| wind direction vs `listenerYaw` | stereo pan toward the side the wind comes from |
+| rain (liquid part of precipitation; snowfall is silent) | rain hiss; **wet ground and puddles** make it louder and brighter (splashes), **snow cover** duller |
+| `enclosure` | the outdoor bed low-passed and quieter; rain becomes roof drumming |
+| snow cover | the whole outdoor bed loses its highs (snow absorbs) |
+| `underwater` | everything muffled to 350 Hz plus a low rumble; no birds |
+| `surf` × storm | breaking waves |
+| sun elevation, rain, wind, temperature | **birds**: none at night, a dawn chorus a few degrees above the horizon, steady by day; quiet in rain, wind over ~10 m/s and frost. Phrases of 2–5 swept chirps at random points around the listener |
+| sun elevation, temperature | **crickets** on warm nights (> 8 °C), chirping at Dolbear's rate (≈ (7·T + 30)/min) |
+| `reflectivity`, `enclosure` | reverb decay 0.3–2.7 s and mix: procedural impulses, rebuilt only when the decay crosses a 0.25 s bucket |
+
+`soundscape.reverb` is an `AudioEffect`: add it to a bus (`audio.bus("sfx").add(scape.reverb)`) so
+engines and impacts ring like the place they are in. The weather, off-road and Alpine demos now run
+on an `AudioSystem`: ambience on `ambient`, vehicles and impacts on `sfx` with the reverb. The older
+`StormSoundscape` (fe-34) stays for the hurricane demo, which still plays it straight to the speakers.
+
+Not modelled: positional ambient emitters (a river, wind in particular trees), recorded beds, and
+weather on surfaces under cover (the surface state is scene-wide).
 
 ## Vehicle audio (Phase 20.7)
 
