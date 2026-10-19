@@ -180,15 +180,16 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] CPU scope profiler, with GPU pass times merged into frame records
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
-- [ ] Profiler frame timeline (Phase 21.1) _(partial: the demo's Profiler panel is a floating window — draggable, resizable, collapsible and dockable to a viewport edge — showing the live unified CPU/GPU scope table at 4 Hz; the per-frame timeline strip is not drawn yet)_
-- [~] ECS Inspector data API (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested; interactive demo/editor panel remains open
-- [~] Render Graph and GPU Resource inspector APIs (Phases 21.3–21.4): pass/dependency/alias data and live labelled allocation summaries are public and tested; interactive panels remain open
-- [~] Physics Debug Draw (Phase 21.5): bounded collider wireframes with optional AABBs/velocity vectors and a renderer-independent line sink are public and tested; contact-manifold overlays and an interactive panel remain open
-- [~] Terrain Debugger (Phase 21.6): read-only chunk/LOD/streaming snapshot and bounded LOD-coloured chunk-bound lines are public and tested; interactive panel remains open
-- [~] Particle Debugger (Phase 21.7): bounded CPU samples, emitter settings, and particle/velocity line data for CPU worlds and ECS components; GPU worlds expose counters/settings without readback; interactive panel remains open
-- [~] Streaming Debugger (Phase 21.8): bounded asset-load/task inventories and scene streaming-owner stats are public and tested; interactive panel remains open
-- [~] Environment Debugger (Phase 21.9): read-only sun, atmosphere, cloud, weather/wind/precipitation, water and lightning snapshots plus renderer-independent debug lines; interactive panel remains open
-- [~] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; bounded input/output/history; visible interactive console panel remains open
+- [x] Frame profiler (Phase 21.1): CPU/GPU frame records, per-scope EWMAs, the categorised `Engine.frameBreakdown()` (simulation, physics, terrain, streaming, rendering, particles, scripting, audio) and the drawn frame timeline — a category-stacked column per frame against the budget line with a lane chart of the selected frame's scopes, in the demo's floating Profiler panel (hover to select, tap to pin)
+- [ ] Timeline scrub, pause and zoom (Phase 21.1 follow-up) _(partial: the strip shows the last 180 frames only, its GPU marker is the frame total, and per-pass device times stay in the text report)_
+- [x] ECS Inspector (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested, and the demo's floating Inspector window browses them — entity list, component populations, a filter and a per-entity detail pane
+- [x] Render Graph and GPU Resource inspectors (Phases 21.3–21.4): pass/dependency/alias data and live labelled allocation summaries are public, tested and browsable in the Inspector window's Graph and GPU tabs
+- [~] Physics Debug Draw (Phase 21.5): bounded collider wireframes with optional AABBs/velocity vectors and a renderer-independent line sink are public, tested and browsable in the Inspector window's Physics tab, whose overlay checkbox draws them each frame; contact-manifold overlays remain open
+- [x] Terrain Debugger (Phase 21.6): read-only chunk/LOD/streaming snapshot and bounded LOD-coloured chunk-bound lines are public, tested and browsable in the Inspector window's Terrain tab, whose overlay checkbox draws them each frame
+- [~] Particle Debugger (Phase 21.7): bounded CPU samples, emitter settings, and particle/velocity line data for CPU worlds and ECS components, browsable in the Inspector window's Particles tab with its own overlay; GPU worlds expose counters/settings without readback
+- [x] Streaming Debugger (Phase 21.8): bounded asset-load/task inventories and scene streaming-owner stats are public, tested and browsable in the Inspector window's Streaming tab under one filter
+- [x] Environment Debugger (Phase 21.9): read-only sun, atmosphere, cloud, weather/wind/precipitation, water and lightning snapshots plus renderer-independent debug lines, browsable in the Inspector window's World tab with its own sun/wind overlay
+- [~] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; bounded input/output/history; the Inspector window exposes the diagnostics interactively but the visible console terminal remains open
 - [ ] Benchmarks for every subsystem, including 1M-scale runs (Phase 22)
 - [ ] Automatic regression detection against stored benchmark history (Phase 22.7)
 

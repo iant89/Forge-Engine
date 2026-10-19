@@ -29,6 +29,7 @@ import { componentInfo, componentTypeById, type Component, type ComponentTypeInf
 import { entityGeneration, entitySlot, makeEntityId, NULL_ENTITY, type EntityId } from "./entityId.js";
 import { ObjectStore, Query, type ComponentStorage } from "./stores.js";
 import { TransformSystem, type ISystem, type SystemContext } from "./systems.js";
+import { profileLabel } from "../debug/frameBreakdown.js";
 
 export interface EntityWorldOptions {
   initialCapacity?: number;
@@ -592,11 +593,14 @@ export class EntityWorld {
     for (const system of this.systems) {
       if (!system.enabled) continue;
       this.journalDepth++;
+      const label = profileLabel(system);
+      context.profiler?.begin(label);
       try {
         system.update(context);
       } catch (e) {
         reportComponentError(`system ${system.name}`, e);
       } finally {
+        context.profiler?.end(label);
         this.journalDepth--;
         this.flushJournal();
       }

@@ -5,31 +5,32 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Diagnostics (Phase 21)
 
-* **The profiler has no graphical per-frame timeline yet.** The public `Profiler` API records bounded
-  frame histories and the demo exposes CPU/GPU scope reports in a floating panel, but it does not yet
-  draw the frame/scope history as a timeline. (capability: diagnostics.profiler)
-* **The ECS inspector is an API, not yet an interactive panel.** `inspectEcs` and `inspectEntity` expose
-  bounded, read-only snapshots for tools and tests; the demo/editor does not yet let a user browse
-  entities and components on screen. (capability: diagnostics.ecsInspector)
-* **Render graph and GPU resource inspectors have no interactive panels yet.** `inspectRenderGraph`
-  reports executed/culled passes, dependencies, transient lifetimes and aliases; `inspectGpuResources`
-  lists live labelled buffers/textures, byte totals and recent churn. Both are public on-demand APIs;
-  users still need a console or panel to browse the reports in the demo. (capability:
-  diagnostics.renderGraphInspector) (capability: diagnostics.gpuResourceInspector)
-* **Physics and terrain diagnostics are data/line APIs, not interactive tools yet.** `physicsDebugDraw`
-  can generate bounded collider wireframes, optional AABBs and velocity vectors, but it does not yet
-  draw contact manifolds or expose a demo/editor panel. `inspectTerrain` and `terrainDebugLines`
-  report streaming/chunk state and LOD-coloured bounds, but there is no interactive terrain panel.
-  (capability: diagnostics.physicsDebugDraw) (capability: diagnostics.terrainDebugger)
-* **Particle and streaming diagnostics are APIs, not interactive panels yet.** CPU particles can be
-  sampled, but GPU particle positions are not read back (the snapshot reports GPU counters and emitter
-  configuration only). `inspectStreaming` reports bounded asset/task metadata and scene-owner stats;
-  users still need a console or panel to browse them. (capability: diagnostics.particleDebugger)
-  (capability: diagnostics.streamingDebugger)
-* **The environment debugger has no interactive panel yet.** `inspectEnvironment` returns detached
-  snapshots of sun/atmosphere, weather, clouds, water and lightning; line APIs provide sun/wind/bolt
-  overlays, but users must currently consume them from their own tool or renderer callback.
-  (capability: diagnostics.environmentDebugger)
+* **The timeline strip is a three-second window with no scrub or zoom.** The demo's strip draws the
+  last 180 frames as category-stacked columns with a lane chart of the selected frame, and hover/click
+  selects and pins a frame, but the history cannot be paused, scrubbed or zoomed, so a spike older
+  than three seconds is gone by the time you reach for it. The GPU marker is the frame *total*: the
+  per-pass device times that the text report shows have no lane of their own. Columns are
+  category-coloured only while the profiler collects slices (`detailed`, on when `gpuTimestamps` is);
+  without them each column is still the frame's CPU time, drawn entirely as `other`.
+  (capability: diagnostics.frameTimeline)
+* **The Inspector is one read-only window, one tab at a time.** The toolbar's Inspector button opens
+  a floating window with a tab per diagnostic API — ECS, systems, render graph, GPU resources,
+  physics, terrain, particles, streaming and world — each with a filter, a summary strip and a detail
+  pane for the selected row, refreshing at 2 Hz while it is open. It is a single instance: you cannot
+  open two tabs side by side, pin a row for comparison, or dock it next to the Profiler's own report.
+  It inspects and never edits (no field is writable, no snapshot is mutated), and rows are capped per
+  tab so a large scene must be narrowed with the filter rather than scrolled. A tab whose subsystem is
+  absent from the scene says so in a note instead of showing an empty list.
+  (capability: diagnostics.inspectorPanel)
+* **Physics overlays stop at collider wireframes.** The Inspector's Physics tab lists bodies and its
+  overlay draws bounded collider wireframes with optional AABBs and velocity vectors, but contact
+  manifolds have no overlay: two bodies resting on each other show their shapes and not the contacts
+  between them, which is the case a physics overlay is usually opened for.
+  (capability: diagnostics.physicsDebugDraw)
+* **GPU particle worlds report counters, not particles.** The Inspector's Particles tab shows
+  backend, capacity, alive/emitted counts, emitter settings and a bounded sample of particles for CPU
+  worlds, and draws their bounds; a GPU world's particle buffer is not read back, so it gets counters
+  and emitter settings with no particle rows and no overlay. (capability: diagnostics.particleDebugger)
 * **The Phase 21 console is an embeddable API, not a visible demo terminal yet.** `DeveloperConsole`
   offers safe, registered commands for engine stats and the diagnostic APIs, with bounded history,
   input and output. A host application must supply the terminal UI and connect any additional custom

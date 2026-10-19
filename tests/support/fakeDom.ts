@@ -23,6 +23,7 @@ export class FakeEl {
   type = "";
   title = "";
   value = "";
+  checked = false;
   readOnly = false;
   contentEditable = "";
   box = { left: 0, top: 0, width: 0, height: 0 };

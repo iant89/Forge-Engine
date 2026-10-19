@@ -123,6 +123,8 @@ export const linkedSuites = [
   ["tests/examples/copyText.test.ts", () => import("./examples/copyText.test.ts")],
   ["tests/examples/debugPanel.test.ts", () => import("./examples/debugPanel.test.ts")],
   ["tests/examples/profilerPanel.test.ts", () => import("./examples/profilerPanel.test.ts")],
+  ["tests/examples/profilerTimeline.test.ts", () => import("./examples/profilerTimeline.test.ts")],
+  ["tests/examples/inspectorPanel.test.ts", () => import("./examples/inspectorPanel.test.ts")],
   ["tests/examples/beaconDefense.test.ts", () => import("./examples/beaconDefense.test.ts")],
   ["tests/examples/uiGallery.test.ts", () => import("./examples/uiGallery.test.ts")],
   ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
@@ -135,6 +137,8 @@ export const linkedSuites = [
   ["tests/core/streamingDebugger.test.ts", () => import("./core/streamingDebugger.test.ts")],
   ["tests/core/environmentDebugger.test.ts", () => import("./core/environmentDebugger.test.ts")],
   ["tests/core/developerConsole.test.ts", () => import("./core/developerConsole.test.ts")],
+  ["tests/core/frameBreakdown.test.ts", () => import("./core/frameBreakdown.test.ts")],
+  ["tests/core/frameTimeline.test.ts", () => import("./core/frameTimeline.test.ts")],
   ["tests/core/tasks.test.ts", () => import("./core/tasks.test.ts")],
   ["tests/tools/selrunImpact.test.ts", () => import("./tools/selrunImpact.test.ts")],
   ["tests/controls/armTouch.test.ts", () => import("./controls/armTouch.test.ts")],
@@ -146,4 +150,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(142);
+report(146);

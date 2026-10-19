@@ -188,7 +188,7 @@ PHASE 20 - AUDIO
     [x]
 
 PHASE 21 - PROFILER / DEBUG TOOLS
-    [~] IN PROGRESS (21.2–21.10 diagnostic APIs landed; interactive panels, 21.1 timeline and the visible 21.10 console remain)
+    [~] IN PROGRESS (21.2–21.9 are browsable in the demo's Inspector window; the visible 21.10 console, contact-manifold overlays and the timeline's scrub/zoom remain)
 
 
 ================================================================================
@@ -2241,76 +2241,98 @@ GOAL:
     Make Forge self-diagnosing.
 
 
-21.1 Frame Profiler
+21.1 Frame Profiler [x]
 
     Track:
 
-        CPU frame
-        GPU frame
-        simulation
-        physics
-        terrain
-        streaming
-        rendering
-        particles
-        scripting
-        audio
+        [x] CPU frame
+        [x] GPU frame (timestamp queries, when the adapter has them)
+        [x] simulation
+        [x] physics
+        [x] terrain
+        [x] streaming
+        [x] rendering
+        [x] particles
+        [x] scripting
+        [x] audio (SpatialAudioSystem; soundscapes driven outside the scene are not timed)
+
+    As built: engine/src/debug/frameBreakdown.ts and engine/src/debug/frameTimeline.ts.
+    EntityWorld.runSystems and Scene.update open a `<category>:<name>` profiler scope per system and
+    per scene-object hook (the category comes from a `profileCategory` **getter**, never an own field,
+    so snapshots and replay hashes do not change; labels are cached in a WeakMap for the same reason,
+    and classifyProfileName guesses from the name otherwise). The engine wraps the asset streamer in
+    `streaming:assets`, and Engine.frameBreakdown() folds the scopes into the eight categories above
+    plus CPU and GPU frame time, with the frame's unattributed remainder reported separately.
+
+    The history is also *drawn*: frameTimeline() charges every scope its self time (so nested scopes
+    are counted once) and layoutTimeline() turns the last 180 frames into rectangles — a category-
+    stacked column per frame against the budget line, and a lane chart of the selected frame's
+    scopes underneath. The demo's floating Profiler panel paints that into a canvas above the text
+    report: hover a column to select that frame, tap to pin it. Pinned by
+    tests/core/frameBreakdown.test.ts and tests/core/frameTimeline.test.ts (model and geometry),
+    tests/examples/profilerTimeline.test.ts (the strip, against a fake canvas) and check:browser:ui
+    (real pointer input on real WebGPU frame records). The strip's own follow-ups — a bounded window
+    with no scrub or zoom, a frame-total-only GPU marker — are in docs/KNOWN-ISSUES.md.
 
 
 21.2 ECS Inspector
 
-    [~] Read-only, bounded ECS snapshot API for systems, entity hierarchy, component populations
+    [x] Read-only, bounded ECS snapshot API for systems, entity hierarchy, component populations
         and scalar component fields (engine/src/debug/ecsInspector.ts, tests/core/ecsInspector.test.ts).
-        Interactive demo/editor panel remains open.
+        The demo's Inspector window browses it: the ECS tab lists entities and component populations
+        with a filter, and selecting an entity shows its hierarchy, transform and component fields.
 
 21.3 Render Graph Inspector
 
-    [~] On-demand pass/resource snapshot includes liveness, culling reasons, dependencies, transient
-        lifetimes, alias slots, texture-pool state and available GPU pass timings. The interactive
-        demo/editor panel remains open (engine/src/debug/renderGraphInspector.ts).
+    [x] On-demand pass/resource snapshot includes liveness, culling reasons, dependencies, transient
+        lifetimes, alias slots, texture-pool state and available GPU pass timings. The Inspector
+        window's Graph tab browses executed and culled passes, their reads/writes/dependencies and
+        the transient/aliased/pooled byte totals (engine/src/debug/renderGraphInspector.ts).
 
 21.4 GPU Resource Inspector
 
-    [~] Device-level live buffer/texture inventory grouped by label, with allocation sizes, recent
-        churn and GPU object totals. The interactive demo/editor panel remains open
-        (engine/src/debug/gpuResourceInspector.ts).
+    [x] Device-level live buffer/texture inventory grouped by label, with allocation sizes, recent
+        churn and GPU object totals. The Inspector window's GPU tab browses it, naming the largest
+        allocation and the pipeline/bind-group counts (engine/src/debug/gpuResourceInspector.ts).
 
 21.5 Physics Debug Draw
 
     [~] Bounded read-only collider wireframes for rigid bodies, with optional AABBs and linear
         velocity vectors. Backend-independent line data/callback can be forwarded to Renderer.drawLine
-        (engine/src/debug/physicsDebugDraw.ts, tests/core/physicsDebugDraw.test.ts). Contact-manifold
-        overlays and the interactive demo/editor panel remain open.
+        (engine/src/debug/physicsDebugDraw.ts, tests/core/physicsDebugDraw.test.ts). The Inspector
+        window's Physics tab lists bodies and switches the wireframe overlay on each frame;
+        contact-manifold overlays remain open.
 
 21.6 Terrain Debugger
 
-    [~] Read-only terrain streaming snapshot with chunk state, LOD, budgets, resident bytes and
+    [x] Read-only terrain streaming snapshot with chunk state, LOD, budgets, resident bytes and
         generated height/bounds; bounded LOD-coloured chunk wireframes are renderer-independent
-        (engine/src/debug/terrainDebugger.ts, tests/core/terrainDebugger.test.ts). The interactive
-        terrain panel remains open.
+        (engine/src/debug/terrainDebugger.ts, tests/core/terrainDebugger.test.ts). The Inspector
+        window's Terrain tab browses the chunks and switches the LOD-coloured bounds overlay on.
 
 21.7 Particle Debugger
 
     [~] Read-only CPU particle samples and emitter settings across scene-object and ECS simulations;
         bounded particle/velocity/emitter line data can be forwarded to Renderer.drawLine. GPU worlds
         report counters and emitter settings without particle-buffer readback
-        (engine/src/debug/particleDebugger.ts, tests/core/particleDebugger.test.ts). The interactive
-        panel remains open.
+        (engine/src/debug/particleDebugger.ts, tests/core/particleDebugger.test.ts). The Inspector
+        window's Particles tab browses CPU worlds (counts, emitter settings, a bounded particle
+        sample) and switches their overlay on; GPU worlds get counters only.
 
 21.8 Streaming Debugger
 
-    [~] Bounded asset-load and background-task inventories include IDs, states, priorities, ages,
+    [x] Bounded asset-load and background-task inventories include IDs, states, priorities, ages,
         timing and payload-free diagnostics, alongside stats from scene streaming owners
-        (engine/src/debug/streamingDebugger.ts, tests/core/streamingDebugger.test.ts). The interactive
-        panel remains open.
+        (engine/src/debug/streamingDebugger.ts, tests/core/streamingDebugger.test.ts). The Inspector
+        window's Streaming tab browses all three under one filter.
 
 21.9 Environment Debugger
 
-    [~] Read-only snapshots cover sun direction/lights and day-night state, effective atmosphere,
+    [x] Read-only snapshots cover sun direction/lights and day-night state, effective atmosphere,
         cloud parameters, weather targets/surface state, sampled wind and precipitation, water waves/
         shoreline, and active lightning/thunder. Sun, wind, and bolt line data is backend-independent
         (engine/src/debug/environmentDebugger.ts, tests/core/environmentDebugger.test.ts). The
-        interactive environment panel remains open.
+        Inspector window's World tab browses them, with a sun/wind overlay checkbox.
 
 
 21.10 Console
@@ -2323,6 +2345,22 @@ GOAL:
     environment diagnostics already added in Phase 21.
     A host can attach the model to a terminal/editor surface; no visible demo console panel has
     been added yet. See tests/core/developerConsole.test.ts.
+
+    The milestone's diagnostics are browsed interactively instead, in the demo's floating Inspector
+    window (examples/src/diag/inspectorPanel.ts and examples/src/diag/inspectorTabs.ts, opened from
+    the toolbar's Inspector button): one tab per API above — ECS, systems, render graph, GPU
+    resources, physics, terrain, particles, streaming and world — each with a summary strip, a filter,
+    a list and a detail pane for the selected row, refreshing at 2 Hz while it is open and costing
+    nothing while it is closed. Rows carry a stable key, so a selection survives a refresh by identity
+    and not by position; the detail is computed lazily for the selected row only; the list is rebuilt
+    only when its contents change; a tab whose subsystem is missing from the scene reports a note
+    instead of throwing; and four tabs offer a debug-line overlay that the panel only flags — the
+    demo's frame loop asks what to draw and pushes the lines through `Renderer.drawLine`, so an
+    overlay costs nothing until it is switched on. Pinned by tests/examples/inspectorPanel.test.ts
+    (the whole window against a fake DOM) and by section 7b of check:browser:ui (real Chromium, real
+    terrain chunks and real debug lines). Its remaining limits — one window, one tab at a time,
+    read-only, capped rows, no contact manifolds, no GPU particle rows — are in docs/KNOWN-ISSUES.md
+    against capability diagnostics.inspectorPanel.
 
 
 EXIT CRITERIA:

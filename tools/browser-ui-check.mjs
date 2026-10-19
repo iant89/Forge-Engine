@@ -22,9 +22,16 @@
  *  7. the demo's floating Profiler panel works as a window: the toolbar hook opens it, it paints live
  *     numbers and keeps repainting them, a real drag of the title bar moves it, a real drag of the
  *     corner grip resizes it, the bar's collapse button leaves only a corner icon that re-opens it,
- *     and holding a drag near a viewport edge for the dwell docks it flush there.
+ *     and holding a drag near a viewport edge for the dwell docks it flush there;
+ *  7a. the panel's frame timeline strip paints a real frame history, hovering a column selects that
+ *     frame and a click pins it (and a second click releases it);
+ *  7b. the demo's floating Inspector window browses the Phase 21 diagnostic APIs on a scene that has
+ *     terrain in it: the toolbar button opens it, all nine tabs load and paint rows, a click on a row
+ *     fills the detail pane, the filter narrows the list, and the Terrain tab's overlay checkbox
+ *     switches on debug lines the frame loop really draws.
  *
- * Screenshots: `tools/.browser-ui-<page>.png` (git-ignored). Look at them.
+ * Screenshots: `tools/.browser-ui-<page>.png`, `tools/.browser-ui-profiler-timeline.png` and
+ * `tools/.browser-ui-inspector.png` (git-ignored). Look at them.
  * Exit codes: 0 pass, 1 fail, 2 NOT RUN (no browser/adapter).
  */
 
@@ -187,6 +194,79 @@ try {
   /* reported below */
 }
 check(frameNow(second) > firstFrame, `the live report keeps updating (frame ${firstFrame} → ${frameNow(second)})`);
+
+// 7a. The panel's frame timeline strip, driven by real pointer input on a real canvas: it paints the
+//     frame history, hovering a column selects that frame (not the newest one), and a click pins it
+//     so the readout stops moving. (tests/examples/profilerTimeline.test.ts pins the same wiring
+//     against a fake canvas; this is the real page, real WebGPU frame records and a real pointer.)
+const timelineState = () => page.evaluate(() => window.__forge.profilerTimeline());
+const stripBox = await page.locator("#profiler-panel canvas").first().boundingBox();
+check(!!stripBox && stripBox.width > 40 && stripBox.height > 40, `the panel carries a timeline strip (${stripBox ? `${stripBox.width.toFixed(0)}x${stripBox.height.toFixed(0)}` : "absent"})`);
+const strip = await timelineState();
+check(strip && strip.painted > 0 && strip.cssWidth > 40, `the strip has painted (${strip?.painted} paints, ${strip?.cssWidth}x${strip?.cssHeight} css px at dpr ${strip?.dpr})`);
+check(strip && strip.frames > 1 && strip.columns > 1, `the strip has a history to draw (${strip?.frames} frames, ${strip?.columns} columns)`);
+check(strip && strip.peakMs > 0, `and a real frame time behind it (peak ${strip?.peakMs?.toFixed(2)} ms)`);
+check(typeof strip?.readout === "string" && /^#\d+\s+cpu /.test(strip.readout ?? ""), `with a readout naming the selected frame (${JSON.stringify((strip?.readout ?? "").split("\n")[0])})`);
+
+// The strip's own pixels: a blank canvas paints every check above and shows the user nothing. The
+// backdrop is drawn at 0.92 alpha, so every opaque pixel is a column, a lane, a marker or a label.
+const ink = await page.evaluate(() => {
+  const canvas = document.querySelector("#profiler-panel canvas");
+  const context = canvas.getContext("2d");
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  const counts = new Map();
+  let opaque = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 250) continue;
+    opaque++;
+    const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return { opaque, total: data.length / 4, colours: counts.size, top: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4) };
+});
+check(ink.opaque > ink.total * 0.02, `the strip has pixels on it, not a blank canvas (${((100 * ink.opaque) / ink.total).toFixed(1)}% opaque)`);
+check(ink.colours >= 3, `in more than one category colour (${ink.colours} distinct opaque colours, heaviest ${ink.top.map(([c, n]) => `${c}:${n}`).join(" ")})`);
+
+// Hover a column a third of the way in: the strip must select that frame, not the newest one.
+const hoverX = stripBox.x + stripBox.width * 0.34;
+const hoverY = stripBox.y + stripBox.height * 0.25;
+await page.mouse.move(hoverX, hoverY);
+await sleep(400); // one 4 Hz repaint plus margin, under software rendering
+const hovered = await timelineState();
+check(hovered.pinned === false, "a hover does not pin the strip");
+check(
+  hovered.selectedFrame !== null && hovered.selectedFrame < strip.selectedFrame,
+  `hovering a column selects that frame (#${hovered.selectedFrame} of #${strip.selectedFrame})`,
+);
+check(hovered.readout.startsWith(`#${hovered.selectedFrame} `), `and the readout follows it (${JSON.stringify(hovered.readout.split("\n")[0])})`);
+
+// Click to pin, then hover somewhere else: a pinned strip must not move.
+await page.mouse.click(hoverX, hoverY);
+await sleep(400);
+const pinned = await timelineState();
+check(pinned.pinned === true, "a click pins the frame under the pointer");
+check(pinned.selectedFrame === hovered.selectedFrame, `and it is the frame that was under it (#${pinned.selectedFrame})`);
+await page.mouse.move(stripBox.x + stripBox.width * 0.85, hoverY);
+await sleep(400);
+const stillPinned = await timelineState();
+check(stillPinned.selectedFrame === pinned.selectedFrame, `pinned: hovering elsewhere leaves it alone (still #${stillPinned.selectedFrame})`);
+await page.locator("#profiler-panel").screenshot({ path: "tools/.browser-ui-profiler-timeline.png" });
+
+// Release the pin by clicking the pinned column again. The strip keeps scrolling while it is pinned
+// (that is the point of pinning by frame number), so the column that was under the pointer has
+// drifted left by now: ask the strip where its pinned column is and click *that*, and try a couple
+// of times because a frame may land between the look-up and the click.
+let released = await timelineState();
+for (let attempt = 0; attempt < 3 && released.pinned; attempt++) {
+  const slot = stripBox.width / released.columns;
+  const leftmost = released.frames - released.columns;
+  const pinnedX = stripBox.x + (released.selected - leftmost + 0.5) * slot;
+  await page.mouse.click(pinnedX, hoverY);
+  await sleep(400);
+  released = await timelineState();
+}
+check(released.pinned === false, "clicking the pinned frame again releases it");
+await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y - 60);
 
 const at = await panelLayout();
 await dragBy("#profiler-panel .fdp-bar", 60, -80);
@@ -439,7 +519,98 @@ check(s1.texturesCreated === 0, `steady frame created ${s1.texturesCreated} text
 check(s1.gpuErrors === 0, `still zero GPU errors after the interaction run (${s1.gpuErrors}${s1.lastError ? `: ${s1.lastError}` : ""})`);
 check(s1.uiErrors.length === 0, `no UI error diagnostics after the run (${s1.uiErrors.slice(0, 3).join(" | ")})`);
 check(consoleErrors.length === 0, `no page console errors (${consoleErrors.slice(0, 3).join(" | ")})`);
-console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved}.png`);
+
+// 7b. The demo's floating Inspector window, browsed with real pointer input on a scene that has
+//     terrain in it (section 7's UI scene has no terrain, physics, particles or weather to browse).
+//     tests/examples/inspectorPanel.test.ts pins the same wiring against a fake DOM; this is the real
+//     page, a real WebGPU frame loop, real pointer input and real terrain chunks.
+const errorsBeforeInspector = consoleErrors.length;
+await page.goto(`${BASE}?scene=terrain`);
+try {
+  await page.waitForFunction(() => (window.__forge?.stats?.().frame ?? 0) > 3, null, { timeout: 180000 });
+} catch {
+  console.error(`${CHECK_NAME} FAIL — the terrain scene did not start\n${consoleErrors.slice(errorsBeforeInspector).join("\n")}`);
+  await finish(1);
+}
+const inspectorState = () => page.evaluate(() => window.__forge.inspectorState());
+const inspectorLayout = () => page.evaluate(() => window.__forge.inspectorLayout());
+const inspectorTab = (title) => page.locator("#inspector-panel .fip-tabs button", { hasText: new RegExp(`^${title}$`) });
+const inspectorText = (selector) => page.locator(`#inspector-panel ${selector}`).first().textContent();
+
+check((await inspectorLayout()).visible === false, "the Inspector starts closed");
+await page.locator("#btn-inspector").click();
+await waitFrames(3);
+check((await inspectorLayout()).visible === true, "the Inspector toolbar button opens it");
+const ecsTab = await inspectorState();
+check(ecsTab.tab === "ecs" && ecsTab.rows > 0, `and it paints the scene's entities at once (${ecsTab.rows} rows)`);
+check(/entities \d+/.test((await inspectorText(".fip-summary")) ?? ""), `with a summary over the list ("${((await inspectorText(".fip-summary")) ?? "").slice(0, 60)}")`);
+
+// Every tab, clicked: each one loads its own snapshot without a page error, and eight of the nine
+// have something to show in a terrain scene (the particles tab has no world here, but it must say so
+// rather than throwing).
+const loaded = [];
+for (const title of ["ECS", "Systems", "Graph", "GPU", "Physics", "Terrain", "Particles", "Streaming", "World"]) {
+  await inspectorTab(title).click();
+  await waitFrames(2);
+  const state = await inspectorState();
+  const notes = (await inspectorText(".fip-notes")) ?? "";
+  loaded.push({ title, tab: state.tab, rows: state.rows, summary: ((await inspectorText(".fip-summary")) ?? "").slice(0, 48), notes: notes.slice(0, 48) });
+  check(state.tab !== "" && state.refreshed > 0, `the ${title} tab loads (${state.rows} rows)`);
+  check(!/error|undefined|NaN/.test(`${state.tab} ${loaded.at(-1).summary} ${loaded.at(-1).notes}`), `and the ${title} tab reads cleanly ("${loaded.at(-1).summary}")`);
+}
+check(loaded.length === 9 && new Set(loaded.map((t) => t.tab)).size === 9, `all nine tabs are distinct (${loaded.map((t) => t.tab).join(", ")})`);
+check(loaded.filter((t) => t.rows > 0).length >= 7, `and most have rows to browse (${loaded.map((t) => `${t.tab}:${t.rows}`).join(" ")})`);
+await page.locator("#inspector-panel").screenshot({ path: "tools/.browser-ui-inspector.png" });
+
+// Terrain: click a chunk row and the detail pane must fill in with that chunk's own numbers.
+await inspectorTab("Terrain").click();
+await waitFrames(2);
+const chunkRows = await page.locator("#inspector-panel .fip-list > *").count();
+check(chunkRows > 0, `the Terrain tab lists chunks (${chunkRows} rows)`);
+await page.locator("#inspector-panel .fip-list > *").first().click();
+await waitFrames(2);
+const selectedChunk = await inspectorState();
+const detailText = (await inspectorText(".fip-detail")) ?? "";
+check(!!selectedChunk.selected, `clicking a chunk selects it (${selectedChunk.selected})`);
+check(detailText.length > 40 && detailText.includes(String(selectedChunk.selected)), `and the detail pane fills in with it (${detailText.split("\n").length} lines, ${JSON.stringify(detailText.slice(0, 44))})`);
+
+// The filter narrows the list, and clearing it brings the rows back.
+const beforeFilter = (await inspectorState()).rows;
+await page.locator("#inspector-panel .fip-filter").fill("0:0");
+await waitFrames(2);
+const filtered = await inspectorState();
+check(filtered.rows < beforeFilter, `the filter narrows the list (${beforeFilter} → ${filtered.rows} rows for "0:0")`);
+await page.locator("#inspector-panel .fip-filter").fill("");
+await waitFrames(2);
+check((await inspectorState()).rows === beforeFilter, `and clearing it brings them back (${(await inspectorState()).rows} rows)`);
+
+// The overlay: off by default, and switching it on makes the frame loop draw real debug lines.
+check((await inspectorState()).drawn === 0, "no debug lines are drawn while the overlay is off");
+await page.locator("#inspector-panel .fip-overlay").check();
+await waitFrames(6);
+const overlayOn = await inspectorState();
+check(overlayOn.overlays.includes("terrain"), `the checkbox switches the Terrain overlay on (${JSON.stringify(overlayOn.overlays)})`);
+check(overlayOn.drawn > 0, `and the frame loop really draws it (${overlayOn.drawn} debug lines per frame)`);
+await page.locator("#inspector-panel").screenshot({ path: "tools/.browser-ui-inspector-overlay.png" });
+await page.locator("#inspector-panel .fip-overlay").uncheck();
+await waitFrames(4);
+const overlayOff = await inspectorState();
+check(overlayOff.overlays.length === 0 && overlayOff.drawn === 0, `switching it off stops the lines (${overlayOff.drawn} drawn)`);
+
+// The window chrome: collapse to a corner icon, and the icon brings it back.
+await page.locator("#inspector-panel .fdp-toggle").click();
+await waitFrames(2);
+const inspectorCollapsed = await inspectorLayout();
+check(inspectorCollapsed.visible === false && inspectorCollapsed.collapsed === true, "the bar's collapse button closes it");
+check(await page.locator("#inspector-icon").isVisible(), "and leaves a corner icon behind");
+await page.locator("#inspector-icon").click();
+await waitFrames(2);
+check((await inspectorLayout()).visible === true, "the corner icon brings it back");
+await page.evaluate(() => window.__forge.setInspectorVisible(false));
+check((await inspectorLayout()).visible === false, "the Inspector button closes it again");
+check(consoleErrors.length === errorsBeforeInspector, `no page console errors from the Inspector run (${consoleErrors.slice(errorsBeforeInspector, errorsBeforeInspector + 3).join(" | ")})`);
+
+console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved,inspector,inspector-overlay}.png`);
 
 console.log(problems.length === 0 ? `${CHECK_NAME} PASS` : `${CHECK_NAME} FAIL (${problems.length})`);
 await finish(problems.length === 0 ? 0 : 1);
