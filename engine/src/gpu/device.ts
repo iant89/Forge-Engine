@@ -151,6 +151,24 @@ export interface GpuMemoryStats {
   };
 }
 
+/** One live `GPUBuffer`/`GPUTexture` created through this device (Phase 21.4 resource inspector). */
+export interface GpuResourceRecord {
+  id: number;
+  kind: "texture" | "buffer";
+  label: string;
+  bytes: number;
+  /** `GPUBufferUsage` / `GPUTextureUsage` bits. */
+  usage: number;
+  /** Texture only. */
+  format?: GPUTextureFormat;
+  width?: number;
+  height?: number;
+  layers?: number;
+  mips?: number;
+  /** `beginFrame()` count when it was created. */
+  createdFrame: number;
+}
+
 export class GraphicsDevice {
   private constructor(
     readonly adapter: GPUAdapter | null,
@@ -241,11 +259,28 @@ export class GraphicsDevice {
         memory.textureCount++;
         memory.sinceFrameStart.texturesCreated++;
         memory.sinceFrameStart.bytesCreated += bytes;
+        const id = this.nextResourceId++;
+        const size = descriptor.size as { width?: number; height?: number; depthOrArrayLayers?: number } | number[];
+        const dims = Array.isArray(size) ? { width: size[0], height: size[1], depthOrArrayLayers: size[2] } : size;
+        this.liveResources.set(id, {
+          id,
+          kind: "texture",
+          label: descriptor.label ?? "",
+          bytes,
+          usage: descriptor.usage,
+          format: descriptor.format,
+          width: dims.width ?? 1,
+          height: dims.height ?? 1,
+          layers: dims.depthOrArrayLayers ?? 1,
+          mips: descriptor.mipLevelCount ?? 1,
+          createdFrame: this.frameIndex,
+        });
         // `destroy()` is the only signal that a texture's memory is gone.
         if (texture && typeof texture.destroy === "function") {
           const destroy = texture.destroy.bind(texture);
           (texture as unknown as { destroy(): void }).destroy = () => {
             destroy();
+            this.liveResources.delete(id);
             memory.texturesDestroyed++;
             memory.textureBytes -= bytes;
             memory.textureCount--;
@@ -264,10 +299,13 @@ export class GraphicsDevice {
         memory.bufferCount++;
         memory.sinceFrameStart.buffersCreated++;
         memory.sinceFrameStart.bytesCreated += bytes;
+        const id = this.nextResourceId++;
+        this.liveResources.set(id, { id, kind: "buffer", label: descriptor.label ?? "", bytes, usage: descriptor.usage, createdFrame: this.frameIndex });
         if (buffer && typeof buffer.destroy === "function") {
           const destroy = buffer.destroy.bind(buffer);
           (buffer as unknown as { destroy(): void }).destroy = () => {
             destroy();
+            this.liveResources.delete(id);
             memory.buffersDestroyed++;
             memory.bufferBytes -= bytes;
             memory.bufferCount--;
@@ -324,6 +362,7 @@ export class GraphicsDevice {
 
   /** Start a new frame's allocation window (`sinceFrameStart`). Called by the engine each frame. */
   beginFrame(): void {
+    this.frameIndex++;
     this.memory.sinceFrameStart.texturesCreated = 0;
     this.memory.sinceFrameStart.buffersCreated = 0;
     this.memory.sinceFrameStart.bytesCreated = 0;
@@ -358,6 +397,18 @@ export class GraphicsDevice {
   private readonly collectedErrors: string[] = [];
   private _lastError: string | null = null;
   /** Live allocation accounting; the fields are mutated by the instrumented device methods. */
+  private readonly liveResources = new Map<number, GpuResourceRecord>();
+  private nextResourceId = 1;
+  private frameIndex = 0;
+
+  /**
+   * Every live buffer and texture with its label, size and usage, largest first. Allocates; for
+   * inspectors. Resources created before the device was wrapped (none in practice) are missing.
+   */
+  resourceList(): GpuResourceRecord[] {
+    return [...this.liveResources.values()].sort((a, b) => b.bytes - a.bytes || a.id - b.id);
+  }
+
   private readonly memory: GpuMemoryStats = {
     textureBytes: 0,
     bufferBytes: 0,

@@ -123,7 +123,7 @@ export {
 } from "./core/tasks/taskHandlers.js";
 
 // GPU
-export { GraphicsDevice, type DeviceCaps, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
+export { GraphicsDevice, type DeviceCaps, type GpuResourceRecord, type EngineLimits, type GraphicsDeviceOptions } from "./gpu/device.js";
 export { ShaderCache, preprocessWgsl, derivativeControlFlowIssues, fixedStorageArrayIssues, mixedOperatorIssues, reservedWordIssues, reversedSmoothstepIssues, validateWgsl, WGSL_RESERVED_WORDS, type WgslIssue, type ShaderStats } from "./gpu/shaderCache.js";
 export { BufferBuilder, StructAccessor, WriteBuffer, FloatAccessor } from "./gpu/bufferWriter.js";
 export { StructDef, diffWgslStruct, alignOf, sizeOf, strideOf, f32, i32, u32, bool_, vec2, vec3, vec4, mat2x2, mat3x3, mat4x4, arrayOf, ofStruct, type AddressSpace, type FieldType } from "./gpu/layout.js";
@@ -329,6 +329,9 @@ export {
   type RenderGraphPassDesc,
   type RenderGraphStats,
   type RenderGraphOptions,
+  type RenderGraphPassRecord,
+  type RenderGraphResourceRecord,
+  type RenderGraphFrameRecord,
   type GpuPassKind,
   type GpuPassTime,
   type GpuTimingFrame,
@@ -470,6 +473,9 @@ export { WGSL_ATMOSPHERE_FUNCTIONS, WGSL_COLOR, WGSL_FOG, WGSL_FULLSCREEN_VERTEX
 // Debug + testing
 export { Profiler, ProfileScope, profile, type ProfilerOptions, type ScopeStats, type FrameRecord } from "./debug/profiler.js";
 export { PROFILE_CATEGORIES, classifyProfileName, profileLabel, frameBreakdown, formatFrameBreakdown, type ProfileCategory, type FrameBreakdown } from "./debug/frameBreakdown.js";
+export { inspectEcs, inspectEntity, summariseFields, type EcsSnapshot, type EcsInspectOptions, type EntityInfo, type SystemInfo, type ComponentInfo, type FieldValue } from "./debug/ecsInspector.js";
+export { inspectRenderGraph, formatRenderGraph, type RenderGraphView, type RenderGraphPassView } from "./debug/renderGraphInspector.js";
+export { inspectGpuResources, formatGpuResources, groupOfLabel, type GpuResourceView, type GpuResourceGroup, type GpuResourceInspectOptions } from "./debug/gpuResourceInspector.js";
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */

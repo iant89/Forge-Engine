@@ -155,6 +155,43 @@ export interface RenderGraphStats {
   submits: number;
 }
 
+/** One pass of the last described frame, for the render graph inspector (Phase 21.3). */
+export interface RenderGraphPassRecord {
+  name: string;
+  /** Declaration order. */
+  index: number;
+  live: boolean;
+  sideEffect: boolean;
+  /** Resource names sampled. */
+  reads: string[];
+  /** Resource names attached, `name` or `name[l<layer>/m<mip>]`, with `+load` when contents are kept. */
+  writes: string[];
+  /** Declaration indices of the passes this one depends on. */
+  dependsOn: number[];
+}
+
+/** One resource of the last described frame. */
+export interface RenderGraphResourceRecord {
+  name: string;
+  imported: boolean;
+  width: number;
+  height: number;
+  format: GPUTextureFormat;
+  bytes: number;
+  /** Executed-pass order of the first/last use; -1 when unused (culled away). */
+  firstUse: number;
+  lastUse: number;
+  /** Physical pool slot it aliased into this frame; -1 for imported or unused. */
+  physical: number;
+}
+
+export interface RenderGraphFrameRecord {
+  passes: RenderGraphPassRecord[];
+  resources: RenderGraphResourceRecord[];
+  /** Pooled physical textures by descriptor key. */
+  pool: { key: string; bytes: number; idleFrames: number; usedThisFrame: boolean }[];
+}
+
 export interface RenderGraphOptions {
   /** Idle frames a pooled texture survives before it is destroyed (default 2). */
   retireAfterFrames?: number;
@@ -405,6 +442,37 @@ export class RenderGraph {
     }
     this.retireIdle();
     return stats;
+  }
+
+  /**
+   * The frame most recently described (passes, dependencies, liveness, resource live ranges, the
+   * pool). Allocates; meant for inspectors, not the frame loop. Valid after `execute()` until the
+   * next `begin()`.
+   */
+  inspect(): RenderGraphFrameRecord {
+    const passes = this.passes.map((p): RenderGraphPassRecord => ({
+      name: p.desc.name,
+      index: p.index,
+      live: p.live,
+      sideEffect: p.desc.sideEffect === true,
+      reads: p.reads.map((h) => this.resources[h]?.name ?? `#${h}`),
+      writes: p.writes.map((w) => `${this.resources[w.handle]?.name ?? `#${w.handle}`}${w.sub === WHOLE ? "" : `[${w.sub}]`}${w.loads ? "+load" : ""}`),
+      dependsOn: [...p.dependencies].sort((a, b) => a - b),
+    }));
+    const resources = this.resources.map((r): RenderGraphResourceRecord => ({
+      name: r.name,
+      imported: r.imported !== null,
+      width: r.desc.width,
+      height: r.desc.height,
+      format: r.desc.format,
+      bytes: r.bytes,
+      firstUse: r.firstUse,
+      lastUse: r.lastUse,
+      physical: r.physical,
+    }));
+    const pool: RenderGraphFrameRecord["pool"] = [];
+    for (const list of this.pool.values()) for (const t of list) pool.push({ key: t.key, bytes: t.bytes, idleFrames: t.idleFrames, usedThisFrame: t.usedThisFrame });
+    return { passes, resources, pool };
   }
 
   /** Destroy every pooled texture. Safe to call twice. */
