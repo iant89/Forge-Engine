@@ -2531,3 +2531,28 @@ Read the module constraints below before changing either pure model.
   impulse every frame is expensive — quantise the decay (0.25 s buckets). Demos now mix through
   `AudioSystem` buses (`audio.bus(name).input` is the bus's input gain). Phase 20 is verified;
   `audio.deviceCheck` and `audio.gpuParticles` stay deferred.
+- 2026-10-19 (demo Profiler panel, examples/src/diag/profilerPanel.ts): the profiler is now the
+  third tenant of `mountDebugPanel`, which already had everything "resizable / collapsible /
+  dockable" means here — title-bar drag, a 44px corner grip, collapse to a corner icon, and a 2 s
+  dwell near a viewport edge that shows a ghost and snaps on release. Two things it did *not* have,
+  both added: `onCollapsedChange` (so the toolbar's Profiler button can follow a collapse the panel
+  caused itself — the bar button and the icon are separate controls) and an `ICONS.profiler`.
+  Gotchas worth remembering:
+  * `mountDebugPanel` moves the body element into a flex container, so any `position: fixed` /
+    `left` / `bottom` / `max-*` rules on it (the old `#profiler-panel` CSS) take over and pin the
+    report to the viewport. Body CSS must be padding/colour/font only. The report `<pre>` was
+    renamed `#profiler` so the panel root could take `#profiler-panel` (mirroring `#hud` /
+    `#hud-panel` / `#hud-icon`).
+  * A panel's *default* rect is inside the safe area + a 10px margin (`bounds()`), and `snapRect`
+    snaps to `bounds()`, not to the raw viewport edge — so a docked panel sits 10px in, and a
+    default-bottom panel is already "near the bottom edge" for snapping purposes.
+  * `passThroughBody: true` (used by the stats HUD) sets `pointer-events: none` on the body, so the
+    report cannot be selected or scrolled — Copy is the way the text leaves the page.
+  * Repainting is throttled from `performance.now()`, the same clock the demo's frame loop uses;
+    painting only while open keeps a closed profiler free. `defaultCollapsed: true` starts the
+    panel closed, so the corner icon is visible from the first frame (the gate hides
+    `#profiler-icon` for its screenshots).
+  * The fake-DOM harness both panel suites need now lives in `tests/support/fakeDom.ts`; its clock
+    drives the dwell timer, the 1 s icon re-placement and the repaint throttle, so the tests are
+    deterministic. A drag delta of -2000px is clamped to the viewport in the browser gate because
+    Playwright refuses negative mouse coordinates.

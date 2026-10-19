@@ -55,6 +55,7 @@ export const ICONS = {
     22,
   ),
   stats: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', 22),
+  profiler: svg('<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5V13l2.5 1.5M9 2.5h6M12 2.5V6"/>', 22),
   grip: svg('<path d="M20 8L8 20M20 14l-6 6M20 19l-1 1"/>', 16),
 };
 
@@ -119,6 +120,12 @@ export interface DebugPanelOptions {
   margin?: number;
   /** Test hook: returns the probe's computed padding. Default getComputedStyle(probe). */
   readSafeArea?: () => { paddingLeft: string; paddingTop: string; paddingRight: string; paddingBottom: string } | null;
+  /**
+   * Called whenever the collapsed state changes — by the bar's collapse button, the corner icon, or
+   * `setCollapsed` — so a host that mirrors the state elsewhere (the demo toolbar's Profiler
+   * button) stays in sync. Not called during mount: read `collapsed` for the restored state.
+   */
+  onCollapsedChange?: (collapsed: boolean) => void;
   /** Body ignores touches (they reach the canvas); only the bar, its buttons and the grip take input. */
   passThroughBody?: boolean;
   storage?: StorageLike | null;
@@ -307,6 +314,7 @@ export function mountDebugPanel(opts: DebugPanelOptions): DebugPanel {
     collapsed = c;
     persist();
     relayout();
+    opts.onCollapsedChange?.(c);
     if (!c) toggleButton.focus?.();
   };
   const resetLayout = (): void => {

@@ -24836,5 +24836,188 @@ JSON array below; agents maintain it by hand until then.
     "what": "pr-merge entry for #128 and the 20.5/20.6 entries.",
     "why": "Activity history."
   }
+,
+{
+  "id": "1965",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/diag/profilerPanel.ts",
+  "what": "New mountProfilerPanel: the demo's Profiler report inside the shared floating debug-panel chrome (title-bar drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted in localStorage), with the toolbar Profiler button and the panel's own controls driving one collapsed state, and a 4 Hz repaint that only runs while the panel is open.",
+  "why": "The profiler was a fixed-position <pre> that could only be shown or hidden: on a phone it buried the scene, it could not be resized to read more rows, and it could not be moved out of the way of the controls you were profiling."
+},
+{
+  "id": "1966",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/diag/debugPanel.ts",
+  "what": "Added an onCollapsedChange option (fired by the bar's collapse button, the corner icon and setCollapsed, but never during mount) and an ICONS.profiler stopwatch for the collapsed state.",
+  "why": "A host that mirrors a panel's state elsewhere - the demo toolbar's Profiler button - had no way to follow a collapse it did not cause, so the two could disagree."
+},
+{
+  "id": "1967",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/main.ts",
+  "what": "The Profiler panel is mounted through mountProfilerPanel (root #profiler-panel, icon #profiler-icon); the frame loop calls profiler.tick(now) instead of hand-rolling the 250 ms repaint, and __forge gains profilerLayout() (visible, rect, docked edges).",
+  "why": "Keeps one owner for the panel's visibility and repaint throttle, and gives the browser gate a way to assert on the panel's real geometry."
+},
+{
+  "id": "1968",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/index.html",
+  "what": "The report <pre> is now #profiler with body-only CSS (padding, colours, font, white-space); #profiler-panel is the floating panel root and is held under the toolbar at z-index 10 like #hud-panel.",
+  "why": "The old #profiler-panel rules (position:fixed, left/bottom, min/max-width, max-height) fought the panel chrome the element is moved into, and would have pinned the report to the viewport inside a flex container."
+},
+{
+  "id": "1969",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tools/browser-ui-check.mjs",
+  "what": "New section 7 drives the Profiler panel with real pointer input: open from __forge.setProfilerVisible, the panel's rect matches its laid-out box, the live report keeps repainting, a title-bar drag moves it, a corner-grip drag resizes it, the collapse button leaves a corner icon that re-opens it, and a 2 s dwell near the left edge docks it flush. The chrome-hiding style tag also hides #profiler-icon.",
+  "why": "The unit suite pins the wiring against a fake DOM; only a real page can show that the panel is laid out where it says it is and that drag, resize and dock actually work."
+},
+{
+  "id": "1970",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/profilerPanel.test.ts",
+  "what": "New suite: starts closed, the toolbar button / bar button / corner icon drive one state, a layout restored open is adopted, repainting is throttled and never happens while closed, and the shared chrome resizes and docks the panel.",
+  "why": "The profiler panel had no coverage at all, and its two jobs (mirrored open/close state, throttled repaint) are exactly the kind of wiring that silently rots."
+},
+{
+  "id": "1971",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/debugPanel.test.ts",
+  "what": "Imports the fake DOM harness from tests/support/fakeDom.ts instead of defining it locally, and pins onCollapsedChange for every collapse source.",
+  "why": "The profiler-panel suite needs the same harness; duplicating 100 lines of fake DOM would let the two drift apart."
+},
+{
+  "id": "1972",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/support/fakeDom.ts",
+  "what": "New shared helper: FakeEl plus an env() with a controllable clock and interval callbacks, so the dwell-snap timer, the icon re-placement tick and the repaint throttle are deterministic.",
+  "why": "Both floating-panel suites need a DOM/window that mountDebugPanel can poke at without a browser."
+},
+{
+  "id": "1973",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/full.test.ts",
+  "what": "Linked tests/examples/profilerPanel.test.ts after examples:debugPanel; report(133).",
+  "why": "Suite count and ordering must stay in step with the catalog."
+},
+{
+  "id": "1974",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "engine/src/core/capabilities.ts",
+  "what": "diagnostics.profiler notes now describe the panel as a floating window (drag, resize, collapse, dock, persisted) with its own suite and a real-input browser check; only the graphical frame timeline remains open.",
+  "why": "The registry claimed \"no profiler UI\" and that \"a dedicated Profiler unit suite remains open\", both of which this change fixes."
+},
+{
+  "id": "1975",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "PROGRESS.md",
+  "what": "Dropped the \"partial: no profiler UI\" note from the CPU scope profiler line and restated Phase 21.1 as the frame timeline alone.",
+  "why": "Progress honesty."
+},
+{
+  "id": "1976",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "README.md",
+  "what": "The Profiler panel paragraph now says it is a floating window: drag, corner-grip resize, collapse to an icon, and a 2 s dwell near an edge to dock.",
+  "why": "Discoverability of the new interactions."
+},
+{
+  "id": "1977",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "docs/VERIFICATION.md",
+  "what": "check:browser:ui row lists the Profiler panel's real-pointer-input assertions.",
+  "why": "Gate docs must say what the gate now proves."
+}
+,
+{
+  "id": "1978",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "mnemosyne.md",
+  "what": "Profiler-panel session notes: mountDebugPanel body CSS gotchas, snap-vs-margin geometry, pass-through bodies, the shared fake DOM harness.",
+  "why": "Session memory."
+}
+,
+{
+  "id": "1979",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/tools/selrun.test.ts",
+  "what": "Catalog expectations 132 -> 133 suites and 965 -> 966 coverage claims.",
+  "why": "The catalog suite pins the exact suite/claim counts, which the new profiler-panel suite moves."
+}
 ]
 ```

@@ -277,7 +277,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "partial",
     summary: "CPU scope profiler plus asynchronously merged GPU pass samples, frame records, EWMAs, reports, and a live demo overlay",
     closesWith: "21.1",
-    notes: "The toolbar Profiler panel refreshes the unified CPU/GPU report at 4 Hz and exposes the same report through window.__forge; a dedicated Profiler unit suite and graphical frame timeline remain open.",
+    notes: "The toolbar Profiler panel is a floating window (drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted) that refreshes the unified CPU/GPU report at 4 Hz and exposes it through window.__forge; tests/examples/profilerPanel.test.ts pins the panel wiring and check:browser:ui drives it with real pointer input. The graphical per-frame timeline remains open.",
   },
   {
     id: "testing.mockGpu",
