@@ -24,10 +24,14 @@
  *     corner grip resizes it, the bar's collapse button leaves only a corner icon that re-opens it,
  *     and holding a drag near a viewport edge for the dwell docks it flush there;
  *  7a. the panel's frame timeline strip paints a real frame history, hovering a column selects that
- *     frame and a click pins it (and a second click releases it).
+ *     frame and a click pins it (and a second click releases it);
+ *  7b. the demo's floating Inspector window browses the Phase 21 diagnostic APIs on a scene that has
+ *     terrain in it: the toolbar button opens it, all nine tabs load and paint rows, a click on a row
+ *     fills the detail pane, the filter narrows the list, and the Terrain tab's overlay checkbox
+ *     switches on debug lines the frame loop really draws.
  *
- * Screenshots: `tools/.browser-ui-<page>.png` and `tools/.browser-ui-profiler-timeline.png`
- * (git-ignored). Look at them.
+ * Screenshots: `tools/.browser-ui-<page>.png`, `tools/.browser-ui-profiler-timeline.png` and
+ * `tools/.browser-ui-inspector.png` (git-ignored). Look at them.
  * Exit codes: 0 pass, 1 fail, 2 NOT RUN (no browser/adapter).
  */
 
@@ -515,7 +519,98 @@ check(s1.texturesCreated === 0, `steady frame created ${s1.texturesCreated} text
 check(s1.gpuErrors === 0, `still zero GPU errors after the interaction run (${s1.gpuErrors}${s1.lastError ? `: ${s1.lastError}` : ""})`);
 check(s1.uiErrors.length === 0, `no UI error diagnostics after the run (${s1.uiErrors.slice(0, 3).join(" | ")})`);
 check(consoleErrors.length === 0, `no page console errors (${consoleErrors.slice(0, 3).join(" | ")})`);
-console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved}.png`);
+
+// 7b. The demo's floating Inspector window, browsed with real pointer input on a scene that has
+//     terrain in it (section 7's UI scene has no terrain, physics, particles or weather to browse).
+//     tests/examples/inspectorPanel.test.ts pins the same wiring against a fake DOM; this is the real
+//     page, a real WebGPU frame loop, real pointer input and real terrain chunks.
+const errorsBeforeInspector = consoleErrors.length;
+await page.goto(`${BASE}?scene=terrain`);
+try {
+  await page.waitForFunction(() => (window.__forge?.stats?.().frame ?? 0) > 3, null, { timeout: 180000 });
+} catch {
+  console.error(`${CHECK_NAME} FAIL — the terrain scene did not start\n${consoleErrors.slice(errorsBeforeInspector).join("\n")}`);
+  await finish(1);
+}
+const inspectorState = () => page.evaluate(() => window.__forge.inspectorState());
+const inspectorLayout = () => page.evaluate(() => window.__forge.inspectorLayout());
+const inspectorTab = (title) => page.locator("#inspector-panel .fip-tabs button", { hasText: new RegExp(`^${title}$`) });
+const inspectorText = (selector) => page.locator(`#inspector-panel ${selector}`).first().textContent();
+
+check((await inspectorLayout()).visible === false, "the Inspector starts closed");
+await page.locator("#btn-inspector").click();
+await waitFrames(3);
+check((await inspectorLayout()).visible === true, "the Inspector toolbar button opens it");
+const ecsTab = await inspectorState();
+check(ecsTab.tab === "ecs" && ecsTab.rows > 0, `and it paints the scene's entities at once (${ecsTab.rows} rows)`);
+check(/entities \d+/.test((await inspectorText(".fip-summary")) ?? ""), `with a summary over the list ("${((await inspectorText(".fip-summary")) ?? "").slice(0, 60)}")`);
+
+// Every tab, clicked: each one loads its own snapshot without a page error, and eight of the nine
+// have something to show in a terrain scene (the particles tab has no world here, but it must say so
+// rather than throwing).
+const loaded = [];
+for (const title of ["ECS", "Systems", "Graph", "GPU", "Physics", "Terrain", "Particles", "Streaming", "World"]) {
+  await inspectorTab(title).click();
+  await waitFrames(2);
+  const state = await inspectorState();
+  const notes = (await inspectorText(".fip-notes")) ?? "";
+  loaded.push({ title, tab: state.tab, rows: state.rows, summary: ((await inspectorText(".fip-summary")) ?? "").slice(0, 48), notes: notes.slice(0, 48) });
+  check(state.tab !== "" && state.refreshed > 0, `the ${title} tab loads (${state.rows} rows)`);
+  check(!/error|undefined|NaN/.test(`${state.tab} ${loaded.at(-1).summary} ${loaded.at(-1).notes}`), `and the ${title} tab reads cleanly ("${loaded.at(-1).summary}")`);
+}
+check(loaded.length === 9 && new Set(loaded.map((t) => t.tab)).size === 9, `all nine tabs are distinct (${loaded.map((t) => t.tab).join(", ")})`);
+check(loaded.filter((t) => t.rows > 0).length >= 7, `and most have rows to browse (${loaded.map((t) => `${t.tab}:${t.rows}`).join(" ")})`);
+await page.locator("#inspector-panel").screenshot({ path: "tools/.browser-ui-inspector.png" });
+
+// Terrain: click a chunk row and the detail pane must fill in with that chunk's own numbers.
+await inspectorTab("Terrain").click();
+await waitFrames(2);
+const chunkRows = await page.locator("#inspector-panel .fip-list > *").count();
+check(chunkRows > 0, `the Terrain tab lists chunks (${chunkRows} rows)`);
+await page.locator("#inspector-panel .fip-list > *").first().click();
+await waitFrames(2);
+const selectedChunk = await inspectorState();
+const detailText = (await inspectorText(".fip-detail")) ?? "";
+check(!!selectedChunk.selected, `clicking a chunk selects it (${selectedChunk.selected})`);
+check(detailText.length > 40 && detailText.includes(String(selectedChunk.selected)), `and the detail pane fills in with it (${detailText.split("\n").length} lines, ${JSON.stringify(detailText.slice(0, 44))})`);
+
+// The filter narrows the list, and clearing it brings the rows back.
+const beforeFilter = (await inspectorState()).rows;
+await page.locator("#inspector-panel .fip-filter").fill("0:0");
+await waitFrames(2);
+const filtered = await inspectorState();
+check(filtered.rows < beforeFilter, `the filter narrows the list (${beforeFilter} → ${filtered.rows} rows for "0:0")`);
+await page.locator("#inspector-panel .fip-filter").fill("");
+await waitFrames(2);
+check((await inspectorState()).rows === beforeFilter, `and clearing it brings them back (${(await inspectorState()).rows} rows)`);
+
+// The overlay: off by default, and switching it on makes the frame loop draw real debug lines.
+check((await inspectorState()).drawn === 0, "no debug lines are drawn while the overlay is off");
+await page.locator("#inspector-panel .fip-overlay").check();
+await waitFrames(6);
+const overlayOn = await inspectorState();
+check(overlayOn.overlays.includes("terrain"), `the checkbox switches the Terrain overlay on (${JSON.stringify(overlayOn.overlays)})`);
+check(overlayOn.drawn > 0, `and the frame loop really draws it (${overlayOn.drawn} debug lines per frame)`);
+await page.locator("#inspector-panel").screenshot({ path: "tools/.browser-ui-inspector-overlay.png" });
+await page.locator("#inspector-panel .fip-overlay").uncheck();
+await waitFrames(4);
+const overlayOff = await inspectorState();
+check(overlayOff.overlays.length === 0 && overlayOff.drawn === 0, `switching it off stops the lines (${overlayOff.drawn} drawn)`);
+
+// The window chrome: collapse to a corner icon, and the icon brings it back.
+await page.locator("#inspector-panel .fdp-toggle").click();
+await waitFrames(2);
+const inspectorCollapsed = await inspectorLayout();
+check(inspectorCollapsed.visible === false && inspectorCollapsed.collapsed === true, "the bar's collapse button closes it");
+check(await page.locator("#inspector-icon").isVisible(), "and leaves a corner icon behind");
+await page.locator("#inspector-icon").click();
+await waitFrames(2);
+check((await inspectorLayout()).visible === true, "the corner icon brings it back");
+await page.evaluate(() => window.__forge.setInspectorVisible(false));
+check((await inspectorLayout()).visible === false, "the Inspector button closes it again");
+check(consoleErrors.length === errorsBeforeInspector, `no page console errors from the Inspector run (${consoleErrors.slice(errorsBeforeInspector, errorsBeforeInspector + 3).join(" | ")})`);
+
+console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved,inspector,inspector-overlay}.png`);
 
 console.log(problems.length === 0 ? `${CHECK_NAME} PASS` : `${CHECK_NAME} FAIL (${problems.length})`);
 await finish(problems.length === 0 ? 0 : 1);

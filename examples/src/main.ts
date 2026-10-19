@@ -74,7 +74,9 @@ import { randomCourseSeed } from "./scenes/dustStormRoute.js";
 import { isDemoSceneName, resolveDemoSceneName, type DemoSceneName } from "./sceneSelection.js";
 import type { DiagForge } from "./diag/iosReport.js";
 import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
-import { mountProfilerPanel } from "./diag/profilerPanel.js";
+import { mountProfilerPanel, PROFILER_AVOID } from "./diag/profilerPanel.js";
+import { mountInspectorPanel } from "./diag/inspectorPanel.js";
+import { INSPECTOR_TABS, type InspectorSource } from "./diag/inspectorTabs.js";
 import { bounds } from "./diag/panelLayout.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
 
@@ -123,6 +125,8 @@ const btnStress = document.getElementById("btn-stress") as HTMLButtonElement | n
 const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement | null;
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
 const btnProfiler = document.getElementById("btn-profiler") as HTMLButtonElement | null;
+const btnInspector = document.getElementById("btn-inspector") as HTMLButtonElement | null;
+const inspectorBody = document.getElementById("inspector") as HTMLDivElement | null;
 const profilerBody = document.getElementById("profiler") as HTMLPreElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
 const loadingModel = document.getElementById("loading-model") as HTMLDivElement | null;
@@ -157,6 +161,29 @@ async function main(): Promise<void> {
   profiler.ui.root.id = "profiler-panel";
   profiler.ui.icon.id = "profiler-icon";
   const profilerTimeline = profiler.timelineState;
+  // Floating Inspector window: the same draggable / resizable / dockable chrome, browsing the
+  // Phase 21 diagnostic APIs — ECS, systems, render graph, GPU resources, physics, terrain,
+  // particles, streaming and environment — with a debug-line overlay toggle where the API has one.
+  // It starts closed and refreshes ~2×/s while it is open; the frame loop draws the overlays.
+  const inspector = mountInspectorPanel({
+    body: inspectorBody!,
+    button: btnInspector,
+    tabs: INSPECTOR_TABS,
+    source: (): InspectorSource => ({
+      currentScene: engine.currentScene,
+      profiler: engine.profiler,
+      renderer: engine.renderer,
+      gpu: engine.gpu,
+      streamer: engine.streamer,
+      tasks: engine.tasks,
+      stats: () => engine.stats(),
+      drawLine: (a, b, color) => engine.renderer.drawLine(a, b, color),
+    }),
+    // The collapsed icon shares the bottom-right corner with the profiler's; it slides clear of it.
+    avoid: [...PROFILER_AVOID, "#profiler-icon"],
+  });
+  inspector.ui.root.id = "inspector-panel";
+  inspector.ui.icon.id = "inspector-icon";
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}  build ${FORGE_BUILD}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
@@ -719,7 +746,11 @@ async function main(): Promise<void> {
       hud.textContent += `\n${extra}`;
     }
 
+    // Overlays first: the renderer consumes its debug-line buffer during the frame it draws, so a
+    // line pushed here lands in this frame's debug pass rather than the next one.
+    inspector.drawOverlays();
     profiler.tick(now);
+    inspector.tick(now);
 
     if (st.lastError && st.lastError !== shownError) {
       firstError ??= st.lastError;
@@ -748,6 +779,12 @@ async function main(): Promise<void> {
     profilerLayout: () => profiler.layout(),
     /** The panel's frame timeline: history, columns, selection and the readout (browser gate). */
     profilerTimeline: () => profilerTimeline(),
+    setInspectorVisible: (visible: boolean) => inspector.setVisible(visible),
+    /** Inspector state (tab · rows · selection · overlays) and geometry for the browser gate. */
+    inspectorState: () => inspector.state(),
+    inspectorLayout: () => inspector.layout(),
+    /** Force one refresh now, for a gate that just changed something and wants it reflected. */
+    inspectorRefresh: () => inspector.tick(1e12),
     get scene(): Scene {
       return currentHandle!.scene;
     },

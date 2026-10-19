@@ -2617,3 +2617,33 @@ each:
 Pinning is by *frame number*, not window position: the history is a ring, so a positional pin would
 silently slide onto a different frame. When the pinned frame scrolls out, the pin is dropped rather
 than quietly moved.
+
+## 2026-10-19 — Phase 21 interactive Inspector window
+`examples/src/diag/inspectorPanel.ts` is the shell and `examples/src/diag/inspectorTabs.ts` the nine
+adapters (ECS, systems, graph, GPU, physics, terrain, particles, streaming, world) that turn each
+Phase 21 snapshot into `{summary, rows, notes}` plus a lazy `detail()` thunk. Four traps, each found
+in this repo rather than from theory:
+
+* **Selection is by row key, never by index.** A 2 Hz refresh re-reads the world: entities are
+  created and destroyed, rows move, and a positional selection silently slides onto a different
+  entity — the classic "I was looking at the rover, now I'm looking at a rock". The key rides on the
+  row's DOM node and is resolved at click time, and when a keyed row disappears the selection goes
+  with it (`tests/examples/inspectorPanel.test.ts` destroys the row above the selected one to pin
+  this).
+* **Detail must be lazy.** Eager `sections` per row meant computing `inspectEntity` for every entity
+  in the scene on every refresh, which is most of the cost of the snapshot; `detail?: () =>
+  readonly InspectorSection[]` is called for the selected row only and cached until the selection
+  changes.
+* **`children`, not `childElementCount` / `lastElementChild`.** `tests/support/fakeDom.ts` implements
+  neither, so `Math.min(rows.length, list.childElementCount)` is `NaN` and the loop body never runs —
+  an empty list with no error. `.children` behaves identically in a real DOM, so use it.
+* **Overlays are flags, not drawing.** The panel never touches the renderer; it records which overlay
+  keys are on, and the host's frame loop calls `drawOverlays()`, which pushes lines through
+  `source.drawLine`. In the demo that call must run *before* `profiler.tick`/render, because
+  `Renderer.drawLine` accumulates into `debugLines` and `drawDebugLines` clears it each frame.
+  `state().drawn` counts what was pushed, which is how `check:browser:ui` proves it without
+  double-drawing.
+
+A tab whose subsystem is absent from the scene returns a note row; a tab whose snapshot throws is
+reported in the notes bar. Both were deliberate: a diagnostic window that dies because a scene has no
+terrain is worse than useless.
