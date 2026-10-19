@@ -2701,3 +2701,30 @@ Working with the software rasterizer (SwiftShader) on this box:
   `cross(p1 − p0, p2 − p0)` points *out*) iterated the truck in seconds and caught a missing cabin (a loft that
   silently skipped every band because its stations were listed front-to-back). Signed volume is a precise
   winding test for closed solids; the same trick caught the door shut-lines crossing the open wheel arch.
+
+---
+
+## 2026-10-19 — Vertical F / N / R Shifter, Neutral Startup, Rolling F→R Grind & Rolling R→F Rear-Wheel Lock
+
+* **Vertical F / N / R shifter (`examples/index.html`, `examples/src/controls/vehicleTouch.ts`):**
+  `.veh-gear-switch` uses `grid-template-columns: 42px;` (stacking `F`, `N`, `R` vertically while keeping
+  `display: grid` for the dust-storm and browser gates), `z-index: 16`, and starts with `#veh-gear-n` active
+  (`aria-pressed="true"`). On `body.scene-rescue` (`?scene=alpine-rescue`), touch/mobile rules position
+  `.veh-gear-switch` above `#rescue-touch` and `.veh-face` (or beside `.veh-face` on short landscape viewports)
+  so it is never hidden behind the gas/brake/rescue buttons. `attachVehicleTouch` initializes the switch visual
+  to `"N"` whenever `onGearSelect` is bound.
+* **Demos using the F / N / R shifter (`vehiclePlaygroundScene.ts`, `offroadHillScene.ts`, `alpineRescueScene.ts`, `amazonRiverScene.ts`):**
+  All start with `N` selected (`vehicle.selectGear(0)` / `touch.setGear("N")`) and allow selecting `F`, `N`, or `R`
+  from the on-screen shifter or keyboard (`KeyF`, `KeyN`, `KeyR`).
+* **Rolling `F → R` transmission grind (`drivetrain.ts`, `vehicle.ts`, `audio/vehicle.ts`):**
+  Shifting into `R` (`-1`) while rolling forward (`forwardSpeed > maxShiftSpeed`) sets `transmission.grinding = true`
+  and holds `shiftTimer` (`0.7..1.5` s) with `transmission.ratio === 0` until the timer expires, at which point
+  `grinding` clears and the reverse gear ratio engages. `VehicleSoundAnalyzer` / `vehicleSoundLevels` /
+  `VehicleSoundscape` drive `grindGain` and `grindFrequency` through a resonant bandpass voice fed from existing
+  looping sources (preserving the 12-source graph invariant) so the metallic grinding sound plays until `R` kicks in.
+* **Rolling `R → F` rear-wheel lock (`vehicle.ts`):**
+  Shifting into `F` (`1`) while rolling backward (`forwardSpeed < -maxShiftSpeed`) latches `vehicle.rearWheelLock = true`,
+  locking the rear wheels (`w.omega = 0`) and skidding/holding them until the user presses the gas (`input.throttle > 0.01`).
+  Re-selecting `F` (`selectGear(1)`) while already in a forward gear (`transmission.gear > 0`) is a no-op so automatic
+  upshifts (`1 → 2 → 3`) are preserved across deterministic replay recordings.
+

@@ -82,6 +82,8 @@ export interface VehicleSoundState {
   gear: number;
   /** The clutch is open for a shift (no torque path). */
   shifting: boolean;
+  /** True while a rolling forward-to-reverse shift is grinding before R engages. */
+  grinding?: boolean;
   /** Chassis ground speed (m/s). */
   speed: number;
   airborne: boolean;
@@ -176,6 +178,7 @@ export class VehicleSoundAnalyzer {
       overrun: 0,
       gear: vehicle.gear,
       shifting: false,
+      grinding: false,
       speed: 0,
       airborne: false,
       slip: 0,
@@ -199,6 +202,7 @@ export class VehicleSoundAnalyzer {
     s.throttle = clamp01(v.input.throttle);
     s.gear = v.gear;
     s.shifting = tr.shifting;
+    s.grinding = Boolean(tr.grinding);
     s.speed = v.speed;
     s.airborne = v.airborne;
 
@@ -308,6 +312,9 @@ export interface VehicleSoundLevels {
   squealGain: number;
   squealFrequency: number;
   windGain: number;
+  /** Metallic gear-tooth clash while shifting F → R during a forward roll. */
+  grindGain: number;
+  grindFrequency: number;
 }
 
 export interface VehicleSoundLevelOptions {
@@ -321,6 +328,7 @@ export function createVehicleSoundLevels(): VehicleSoundLevels {
   return {
     engineFrequency: 0, engineGain: 0, engineBrightness: 0, engineRoughness: 0, intakeGain: 0, intakeFrequency: 0, overrunGain: 0,
     whineFrequency: 0, whineGain: 0, roarGain: 0, roarCutoff: 0, crunchGain: 0, crunchFrequency: 0, sloshGain: 0, squealGain: 0, squealFrequency: 0, windGain: 0,
+    grindGain: 0, grindFrequency: 0,
   };
 }
 
@@ -352,6 +360,13 @@ export function vehicleSoundLevels(state: VehicleSoundState, options: VehicleSou
     out.overrunGain = 0.3 * clamp01(state.overrun);
     out.whineFrequency = rps * 9;
     out.whineGain = state.gear < 0 ? Math.min(0.15, 0.03 * state.speed) : 0;
+  }
+  if (state.grinding) {
+    out.grindGain = Math.min(0.85, 0.45 + 0.04 * Math.max(0, state.speed));
+    out.grindFrequency = 950 + 55 * Math.min(20, Math.max(0, state.speed));
+  } else {
+    out.grindGain = 0;
+    out.grindFrequency = 0;
   }
 
   // Ground: each surface contributes by the share of wheels on it.
@@ -430,6 +445,7 @@ export class VehicleSoundscape {
   private readonly slosh: Voice;
   private readonly squeal: Voice;
   private readonly wind: Voice;
+  private readonly grind: Voice;
   private rng: number;
   private disposed = false;
 
@@ -513,6 +529,18 @@ export class VehicleSoundscape {
     this.slosh = voice("lowpass", 350, 4);
     this.squeal = voice("bandpass", 900, 22);
     this.wind = voice("bandpass", 500, 0.5);
+
+    const grindFilter = context.createBiquadFilter();
+    grindFilter.type = "bandpass";
+    grindFilter.frequency.value = 1200;
+    grindFilter.Q.value = 6.5;
+    const grindGain = context.createGain();
+    grindGain.gain.value = 0;
+    const gritSource = this.sources[4];
+    gritSource?.connect(grindFilter);
+    this.oscillators.second.connect(grindFilter);
+    grindFilter.connect(grindGain).connect(this.output);
+    this.grind = { gain: grindGain, filter: grindFilter };
   }
 
   /** Move the spatial voice to an engine-space point (no-op for a cockpit mix). */
@@ -554,6 +582,13 @@ export class VehicleSoundscape {
     this.squeal.gain.gain.setTargetAtTime(l.squealGain, t, k);
     this.squeal.filter.frequency.setTargetAtTime(l.squealFrequency, t, k);
     this.wind.gain.gain.setTargetAtTime(l.windGain, t, k * 4);
+    if (l.grindGain > 0) {
+      this.grind.gain.gain.setTargetAtTime(l.grindGain * (0.45 + 0.55 * this.random()), t, 0.012);
+      this.grind.filter.frequency.setTargetAtTime(l.grindFrequency * (0.75 + 0.6 * this.random()), t, 0.012);
+    } else {
+      this.grind.gain.gain.setTargetAtTime(0, t, k * 0.5);
+      this.grind.filter.frequency.setTargetAtTime(1200, t, k);
+    }
     return l;
   }
 

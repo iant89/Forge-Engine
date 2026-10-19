@@ -307,6 +307,8 @@ export class Vehicle {
   distance = 0;
   stepCount = 0;
   airborne = false;
+  /** Latched when shifting from R to F while rolling back; locks rear wheels until throttle is applied. */
+  rearWheelLock = false;
 
   private readonly groundSample: GroundSample = { height: 0, nx: 0, ny: 1, nz: 0 };
   private readonly forward = new Vec3(0, 0, 1);
@@ -382,16 +384,63 @@ export class Vehicle {
     return this.config.transmission.gear;
   }
 
+  /** Signed longitudinal speed along the chassis forward axis (m/s; positive = forward, negative = backward). */
+  get forwardSpeed(): number {
+    this.rebuildBasis();
+    return this.velocity.x * this.forward.x + this.velocity.y * this.forward.y + this.velocity.z * this.forward.z;
+  }
+
+  /** True while a rolling forward-to-reverse shift is grinding before the reverse gear kicks in. */
+  get grinding(): boolean {
+    return this.config.transmission.grinding;
+  }
+
+  private isRearWheel(w: WheelState): boolean {
+    return w.z < 0 || w.handbrake;
+  }
+
   /**
-   * Select reverse (-1), neutral (0), or first (1). Neutral is always safe; changing between drive
-   * directions while moving is rejected so controls cannot instantaneously reverse drivetrain torque.
+   * Select reverse (-1), neutral (0), or first (1).
+   * - Shifting into neutral (0) always disengages immediately and clears grinding / rear-wheel lock.
+   * - Shifting from forward into reverse (-1) while rolling forward grinds the transmission until R kicks in.
+   * - Shifting from reverse into forward (1) while rolling back locks the rear wheels until throttle is applied.
    */
   selectGear(gear: -1 | 0 | 1, maxShiftSpeed = 0.5): boolean {
     const transmission = this.config.transmission;
-    if (transmission.gear === gear) return true;
-    if (gear !== 0 && this.speed > Math.max(0, maxShiftSpeed)) return false;
+    if (transmission.gear === gear || (gear === 1 && transmission.gear > 0)) return true;
+    if (gear === 0) {
+      transmission.gear = 0;
+      transmission.shiftTimer = 0;
+      transmission.grinding = false;
+      this.rearWheelLock = false;
+      transmission.shiftCount += 1;
+      return true;
+    }
+    const threshold = Number.isFinite(maxShiftSpeed) ? Math.max(0, maxShiftSpeed) : 0.5;
+    const vFwd = this.forwardSpeed;
+    if (gear === -1 && vFwd > threshold) {
+      transmission.gear = -1;
+      transmission.grinding = true;
+      this.rearWheelLock = false;
+      transmission.shiftTimer = clamp(0.65 + vFwd * 0.08, 0.7, 1.5);
+      transmission.shiftCount += 1;
+      return true;
+    }
+    if (gear === 1 && vFwd < -threshold) {
+      transmission.gear = 1;
+      transmission.grinding = false;
+      transmission.shiftTimer = transmission.shiftDuration;
+      transmission.shiftCount += 1;
+      this.rearWheelLock = true;
+      for (const w of this.wheels) {
+        if (this.isRearWheel(w)) w.omega = 0;
+      }
+      return true;
+    }
     transmission.gear = gear;
-    transmission.shiftTimer = gear === 0 ? 0 : transmission.shiftDuration;
+    transmission.grinding = false;
+    this.rearWheelLock = false;
+    transmission.shiftTimer = transmission.shiftDuration;
     transmission.shiftCount += 1;
     return true;
   }
@@ -563,11 +612,12 @@ export class Vehicle {
   private integrate(dt: number, ground: GroundQuery): void {
     const c = this.config;
     const throttle = clamp(this.input.throttle, 0, 1);
+    if (throttle > 0.01) this.rearWheelLock = false;
     const brake = clamp(this.input.brake, 0, 1);
     const handbrake = clamp(this.input.handbrake, 0, 1);
     const parkingBrake = clamp(this.input.parkingBrake, 0, 1);
     // Any brake holds a standstill; the standstill threshold decides when that becomes a park.
-    const holdBrake = Math.max(brake, handbrake, parkingBrake);
+    const holdBrake = Math.max(brake, handbrake, parkingBrake, this.rearWheelLock ? 1 : 0);
 
     this.rebuildBasis();
     this.sampleWheels(ground, dt);
@@ -603,6 +653,12 @@ export class Vehicle {
     c.engine.throttle = throttle;
     const ratio = c.transmission.ratio;
     let motorTorque = ratio !== 0 ? c.engine.deliveredTorque(0) : 0;
+    if (ratio < 0) {
+      const vFwd = this.velocity.x * this.forward.x + this.velocity.y * this.forward.y + this.velocity.z * this.forward.z;
+      if (vFwd > 0.1) {
+        motorTorque += Math.min(c.engine.peakTorque * 0.5, vFwd * 65);
+      }
+    }
     // Regenerative braking (electric drivetrains): part of the brake demand becomes a negative
     // motor torque instead of pad torque, riding the same signed-demand slip solve as reverse
     // drive, so TC, ABS and the friction circle see one consistent picture. It fades out below
@@ -678,6 +734,10 @@ export class Vehicle {
         // a held brake in the air must not keep a landing wheel spinning, nor wind it backwards.
         w.longForce = 0;
         w.latForce = 0;
+        if (this.rearWheelLock && this.isRearWheel(w)) {
+          w.omega = 0;
+          continue;
+        }
         const free = shares[i] ?? 0;
         const brakeTorque = this.brakeTorqueAt(w, brake, handbrake, parkingBrake);
         const oppose = Math.abs(w.omega) > 0.25 ? Math.sign(w.omega) : 1;
@@ -734,6 +794,11 @@ export class Vehicle {
     if (this.speed > 0.05) {
       fx -= (this.velocity.x / this.speed) * aero.drag;
       fz -= (this.velocity.z / this.speed) * aero.drag;
+    }
+    if (c.transmission.grinding && this.speed > 0.05 && contactCount > 0) {
+      const grindDrag = Math.min(c.mass * 2.2, (c.mass * this.speed) / dt);
+      fx -= (this.velocity.x / this.speed) * grindDrag;
+      fz -= (this.velocity.z / this.speed) * grindDrag;
     }
     if (this.speed > 0.01 && contactCount > 0 && c.rollingResistance > 0) {
       let totalLoad = 0;
@@ -1235,6 +1300,12 @@ export class Vehicle {
     const c = this.config;
     const r = c.wheelRadius;
     const ref = Math.max(Math.abs(vLong), c.slipReference);
+    const peakSlip = Math.max(0.05, c.absSlip);
+    if (this.rearWheelLock && this.isRearWheel(w)) {
+      w.omega = 0;
+      w.kappa = clamp((0 - vLong) / ref, -peakSlip, peakSlip);
+      return;
+    }
     const brakeTorque = this.brakeTorqueAt(w, brake, handbrake, parkingBrake);
 
     if (!w.driven && brakeTorque < 1) {
@@ -1257,7 +1328,6 @@ export class Vehicle {
     }
 
     const D = this.mu * Math.max(0, w.normalLoad);
-    const peakSlip = Math.max(0.05, c.absSlip);
     if (D < 1) {
       // Unloaded / airborne wheel: free dynamics, but the brake still only removes speed.
       w.omega = stepWheelSpeed(w.omega, demand, driveTorque, brakeTorque, c.wheelInertia, dt);

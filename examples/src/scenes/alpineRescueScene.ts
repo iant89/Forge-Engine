@@ -79,7 +79,7 @@ import {
   type WeatherState,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
-import { attachVehicleTouch } from "../controls/vehicleTouch.js";
+import { attachVehicleTouch, type VehicleGearPosition } from "../controls/vehicleTouch.js";
 import { ALPINE_SNOWPACK_INITIAL_DEPTH_M, ALPINE_SNOWPACK_MAX_DEPTH_M, advanceAlpineSnowpack, alpineSnowCover01, alpineSnowShade01 } from "./alpineSnowpack.js";
 import {
   ALPINE_SEED,
@@ -166,6 +166,9 @@ export interface AlpineRescueSnapshot {
   /** Surface-grip multiplier currently applied to the truck's tyres (weather × road/off-road). */
   grip: number;
   speedKph: number;
+  gear: number;
+  grinding: boolean;
+  rearWheelLock: boolean;
   headlightsOn: boolean;
   parked: boolean;
   dynamicProps: number;
@@ -189,6 +192,7 @@ export interface AlpineRescueOptions {
 
 export interface AlpineRescueSceneHandle extends DemoSceneHandle {
   interact(): boolean;
+  setGear(position: VehicleGearPosition): boolean;
   setWeatherTarget(preset: WeatherPresetName): void;
   /** Gate/screenshot hook: put the truck on the road at arc length `s` (+ lateral offset), at rest. */
   placeTruck(s: number, lateral?: number): void;
@@ -590,6 +594,7 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
   vehicle.position.set(DEPOT_APPROACH_X, 0, DEPOT_APPROACH_Z);
   vehicle.yaw = route.poseAt(spawnProjection.s).yaw;
   vehicle.placeOnGround(groundAt);
+  vehicle.selectGear(0);
   vehicle.input.brake = 1;
   vehicle.input.handbrake = 1;
   let startupHold = true;
@@ -993,7 +998,7 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
   };
 
   const uiRoot = typeof document !== "undefined" ? document.getElementById("vehicle-touch") : null;
-  const touch = uiRoot ? attachVehicleTouch(uiRoot, { onParkToggle: () => { parked = !parked; touch?.setPark(parked); } }) : null;
+  let touch: ReturnType<typeof attachVehicleTouch> | null = null;
   const interactButton = typeof document !== "undefined" ? document.getElementById("rescue-interact") as HTMLButtonElement | null : null;
   const weatherButton = typeof document !== "undefined" ? document.getElementById("rescue-weather") as HTMLButtonElement | null : null;
   const headlightButton = typeof document !== "undefined" ? document.getElementById("rescue-headlights") as HTMLButtonElement | null : null;
@@ -1055,6 +1060,30 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
       parkButton.setAttribute("aria-pressed", String(parked));
     }
   };
+
+  const selectGear = (position: VehicleGearPosition): boolean => {
+    const target: -1 | 0 | 1 = position === "R" ? -1 : position === "N" ? 0 : 1;
+    if (!vehicle.selectGear(target, Infinity)) return false;
+    if (target !== 0) {
+      startupHold = false;
+      parked = false;
+      if (!soundOn) setSound(true);
+    }
+    touch?.setGear(position);
+    updateUi();
+    return true;
+  };
+  touch = uiRoot
+    ? attachVehicleTouch(uiRoot, {
+        onParkToggle: () => {
+          parked = !parked;
+          touch?.setPark(parked);
+          updateUi();
+        },
+        onGearSelect: (position) => selectGear(position),
+      })
+    : null;
+  touch?.setGear("N");
 
   const setWeatherTarget = (preset: WeatherPresetName) => {
     weatherTarget = preset;
@@ -1143,7 +1172,12 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
     keys.add(key);
     if (!event.repeat && key === "keye") interact();
     if (!event.repeat && key === "keyp") onParkClick();
-    if (!event.repeat && key === "keyf") toggleHeadlights();
+    if (!event.repeat && key === "keyf") {
+      toggleHeadlights();
+      selectGear("F");
+    }
+    if (!event.repeat && key === "keyn") selectGear("N");
+    if (!event.repeat && key === "keyr") selectGear("R");
     if (!event.repeat && key === "keyg") onWeatherClick();
     if (!event.repeat && key === "keym") onSoundClick();
   };
@@ -1161,6 +1195,8 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
     vehicle.yaw = pose.yaw;
     vehicle.velocity.set(0, 0, 0);
     vehicle.yawRate = 0;
+    vehicle.rearWheelLock = false;
+    vehicle.selectGear(vehicle.gear < 0 ? -1 : vehicle.gear > 0 ? 1 : 0, Infinity);
     vehicle.placeOnGround(groundAt);
     vehicle.input.brake = 1;
     vehicle.input.handbrake = 1;
@@ -1186,10 +1222,10 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
     const throttle = Math.max(0, forward, touchForward);
     const brake = Math.max(0, -forward, sample?.brake ?? 0);
     const steer = Math.abs(touchSteer) > Math.abs(lateral) ? touchSteer : lateral;
-    if (throttle > 0.03 || Math.abs(steer) > 0.03) startupHold = false;
-    if (throttle > 0.03) parked = false;
-    vehicle.input.throttle = startupHold || parked ? 0 : throttle;
-    vehicle.input.brake = parked ? 1 : Math.max(brake, startupHold ? 1 : 0);
+    if ((throttle > 0.03 && vehicle.gear !== 0) || Math.abs(steer) > 0.03) startupHold = false;
+    if (throttle > 0.03 && vehicle.gear !== 0) parked = false;
+    vehicle.input.throttle = parked ? 0 : throttle;
+    vehicle.input.brake = parked ? 1 : Math.max(brake, startupHold && throttle <= 0.03 ? 1 : 0);
     vehicle.input.handbrake = parked ? 1 : keys.has("space") ? 1 : 0;
     vehicle.input.parkingBrake = parked ? 1 : 0;
     vehicle.input.steer = parked ? 0 : steer;
@@ -1310,14 +1346,29 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
     cameraEntity,
     camera: cameraSetup,
     followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 0.9, z: vehicle.position.z }),
-    controlsHint: "WASD / ARROWS drive · E interact · F headlights · G weather · P park · M sound · drag to orbit · touch controls on mobile",
+    controlsHint: "WASD / ARROWS drive · F / N / R gear · E interact · F headlights · G weather · P park · M sound · drag to orbit · touch controls on mobile",
     overlay: hud,
     update,
     dispose,
     interact,
+    setGear: selectGear,
     setWeatherTarget,
     placeTruck,
     setSnowpackDepth,
+    vehicleState: () => ({
+      speed: vehicle.speed,
+      rpm: vehicle.rpm,
+      gear: vehicle.gear,
+      grinding: vehicle.grinding,
+      rearWheelLock: vehicle.rearWheelLock,
+      position: [vehicle.position.x, vehicle.position.y, vehicle.position.z] as [number, number, number],
+      wheels: vehicle.wheels.map((w) => ({
+        inContact: w.inContact,
+        compression: w.compression,
+        normalLoad: w.normalLoad,
+        skid: w.skid,
+      })),
+    }),
     snapshot: () => {
       const current = objective();
       const system = snowfall.system;
@@ -1344,6 +1395,9 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
         temperatureC: weather.state.temperatureC,
         grip: vehicle.surfaceGrip,
         speedKph: Math.abs(vehicle.speed) * 3.6,
+        gear: vehicle.gear,
+        grinding: vehicle.grinding,
+        rearWheelLock: vehicle.rearWheelLock,
         headlightsOn,
         parked,
         dynamicProps: dynamicPropCount,

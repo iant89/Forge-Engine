@@ -32,6 +32,7 @@ import {
   Scene,
   Vec3,
   Vehicle,
+  VehicleAudio,
   VehicleComponent,
   VehicleSystem,
   VehicleWheelSource,
@@ -320,14 +321,38 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
     touch.setPark(parkingBrake);
   };
 
+  let sound: { context: AudioContext; audio: VehicleAudio } | null = null;
+  const ensureSound = (): void => {
+    if (!sound) {
+      const Ctor = globalThis.AudioContext ?? (globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      try {
+        const context = new Ctor();
+        sound = { context, audio: new VehicleAudio(vehicle, context, context.destination, { volume: 0.45 }) };
+      } catch {
+        return;
+      }
+    }
+    if (sound.context.state === "suspended") void sound.context.resume().catch(() => {});
+  };
+
+  vehicle.selectGear(0);
   const keys = new Set<string>();
   let touch: ReturnType<typeof attachVehicleTouch>;
+  const selectPosition = (position: "F" | "N" | "R"): boolean => {
+    ensureSound();
+    const ok = vehicle.selectGear(position === "F" ? 1 : position === "R" ? -1 : 0);
+    if (ok) touch.setGear(position);
+    return ok;
+  };
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "KeyP" && !event.repeat) setParkingBrake(!parkingBrake);
+    if (event.code === "KeyF" && !event.repeat) selectPosition("F");
+    if (event.code === "KeyN" && !event.repeat) selectPosition("N");
     if (event.code === "KeyR" && !event.repeat) {
       const reverse = vehicle.gear >= 0;
-      if (vehicle.selectDriveDirection(reverse)) touch.setGear(reverse ? "R" : "F");
+      selectPosition(reverse ? "R" : "F");
     }
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
   };
@@ -337,10 +362,10 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
-    onGearSelect: (position) => vehicle.selectGear(position === "F" ? 1 : position === "R" ? -1 : 0),
+    onGearSelect: (position) => selectPosition(position),
     onParkToggle: () => setParkingBrake(!parkingBrake),
   });
-  touch.setGear("F");
+  touch.setGear("N");
 
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(-8, 4.5, -4));
   const camera = new Camera();
@@ -391,7 +416,7 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
     scene,
     cameraEntity,
     controlsHint:
-      "WASD / arrows drive · R forward/reverse · Space handbrake · P parking brake · Drag to orbit · Scroll zoom · camera follows",
+      "F / N / R gear · WASD / arrows drive · Space handbrake · P parking brake · Drag to orbit · Scroll zoom · camera follows",
     camera: {
       target: new Vec3(0, 1.6, 6),
       distance: 12,
@@ -404,7 +429,7 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
       keyboard: false,
     },
     followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1.2, z: vehicle.position.z }),
-    update(): void {
+    update(dt = 1 / 60): void {
       const pad = touch.sample();
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
@@ -415,9 +440,12 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
       vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer));
       vehicle.input.handbrake = keys.has("Space") ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
+      if (sound && sound.context.state === "running") {
+        sound.audio.update(dt);
+      }
     },
     overlay(): string {
-      const gear = vehicle.gear === 0 ? "N" : String(vehicle.gear);
+      const gear = vehicle.gear === 0 ? "N" : vehicle.gear < 0 ? "R" : String(vehicle.gear);
       const park = parkingBrake ? "  PARK" : "";
       const front = rig.valueOf(wheelChannelName("wheel", 0, "steer"));
       const compression = Math.max(...vehicle.wheels.map((w) => w.compression));
@@ -448,6 +476,11 @@ export function buildVehiclePlaygroundScene(engine: Engine): DemoSceneHandle {
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();
       keys.clear();
+      if (sound) {
+        sound.audio.dispose();
+        void sound.context.close().catch(() => {});
+        sound = null;
+      }
       bodyMesh.dispose();
       cabinMesh.dispose();
       postMesh.dispose();

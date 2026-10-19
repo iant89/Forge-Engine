@@ -25,6 +25,7 @@ export const suite = {
  * contextmenu and touchstart (non-passive) in addition to the CSS user-select rules.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { afterEach, finish, group, test } from "selrun";
 import { attachVehicleTouch, stickDeflection, type VehicleTouchHandle } from "../../examples/src/controls/vehicleTouch.js";
 
@@ -347,15 +348,23 @@ group("attachVehicleTouch — F/N/R switch", () => {
     handle = null;
   });
 
-  test("requests all three positions and lights accepted selection", () => {
+  test("starts with N selected, stacks F/N/R vertically in HTML, and lights accepted F or R selection", () => {
+    const html = readFileSync(new URL("../../examples/index.html", import.meta.url), "utf8");
+    assert.match(html, /\.veh-gear-switch\s*\{[\s\S]*?grid-template-columns:\s*42px;/, "F/N/R shifter is stacked vertically");
+    assert.match(html, /body\.scene-rescue\s+\.veh-gear-switch\s*\{/, "Alpine rescue positions F/N/R shifter clear of bottom buttons");
+    assert.match(html, /id="veh-gear-n"\s+class="veh-gear active"[^>]*aria-pressed="true"/, "HTML starts with N active");
+
     const { root, gearF, gearN, gearR } = stubRoot();
     const requested: string[] = [];
     handle = attachVehicleTouch(root, { onGearSelect: (position) => { requested.push(position); return true; } });
-    handle.setGear("F");
-    assert.equal(gearF.classes.has("active"), true);
-    gearN.fire("pointerdown");
+    assert.equal(gearN.classes.has("active"), true);
+    assert.equal(gearN.attrs.get("aria-pressed"), "true");
+    assert.equal(gearF.classes.has("active"), false);
+    assert.equal(gearR.classes.has("active"), false);
+
+    gearF.fire("pointerdown");
     gearR.fire("pointerdown");
-    assert.deepEqual(requested, ["N", "R"]);
+    assert.deepEqual(requested, ["F", "R"]);
     assert.equal(gearF.classes.has("active"), false);
     assert.equal(gearN.classes.has("active"), false);
     assert.equal(gearR.classes.has("active"), true);

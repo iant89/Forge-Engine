@@ -170,11 +170,14 @@ group("Alpine rescue — the truck", () => {
     assert.equal(spots.length, 2);
   });
 
-  test("starts on the road facing along it, then drives forward under throttle", async () => {
+  test("starts on the road in Neutral facing along it, then drives forward under throttle once shifted to F", async () => {
     const { handle, component, tick, key } = await fixture();
     tick(30);
     const start = handle.snapshot();
+    assert.equal(start.gear, 0, "starts in Neutral (N)");
     assert.equal(start.speedKph < 1, true, "holds still until the driver asks");
+    assert.equal(handle.setGear("F"), true);
+    assert.equal(handle.snapshot().gear, 1);
     key("keydown", "KeyW");
     tick(240);
     key("keyup", "KeyW");
@@ -183,6 +186,43 @@ group("Alpine rescue — the truck", () => {
     assert.ok(driven.speedKph > 3, `speed ${driven.speedKph.toFixed(1)} km/h`);
     assert.ok(component.vehicle.wheels.some((wheel) => wheel.inContact));
     for (let i = 0; i < 4; i++) assert.ok(Math.abs(component.vehicle.wheels[i]!.spin) > 0.5 || component.vehicle.wheels[i]!.omega !== 0, `wheel ${i} turns`);
+  });
+
+  test("F - N - R shifter grinds on rolling F -> R and locks rear wheels on rolling-back R -> F", async () => {
+    const { handle, component, tick, key } = await fixture();
+    tick(10);
+    assert.equal(handle.snapshot().gear, 0);
+    handle.setGear("F");
+    key("keydown", "KeyW");
+    tick(120);
+    key("keyup", "KeyW");
+    assert.ok(component.vehicle.forwardSpeed > 1, "rolling forward in F");
+
+    handle.setGear("R");
+    assert.equal(handle.snapshot().gear, -1);
+    assert.equal(handle.snapshot().grinding, true, "grinds when shifted to R while rolling forward");
+    tick(95);
+    assert.equal(handle.snapshot().grinding, false, "grind finishes once R gear engages");
+
+    key("keydown", "KeyW");
+    tick(120);
+    key("keyup", "KeyW");
+    assert.ok(component.vehicle.forwardSpeed < -1, "rolling backward in R");
+
+    handle.setGear("F");
+    assert.equal(handle.snapshot().gear, 1);
+    assert.equal(handle.snapshot().rearWheelLock, true, "locks rear wheels when shifted to F while rolling back");
+    tick(10);
+    for (let i = 0; i < component.vehicle.wheels.length; i++) {
+      const w = component.vehicle.wheels[i]!;
+      if (component.vehicle.isRearWheel(i)) {
+        assert.equal(w.omega, 0, `rear wheel ${i} locked until throttle`);
+      }
+    }
+    key("keydown", "KeyW");
+    tick(5);
+    key("keyup", "KeyW");
+    assert.equal(handle.snapshot().rearWheelLock, false, "pressing gas releases rear wheel lock");
   });
 });
 

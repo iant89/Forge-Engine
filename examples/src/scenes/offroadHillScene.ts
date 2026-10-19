@@ -675,6 +675,7 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   // crickets, snow damping) on the ambient bus, the woods' reverb on sfx.
   let sound: { mixer: AudioSystem; context: AudioContext; audio: VehicleAudio; ambience: EnvironmentSoundscape } | null = null;
   let soundOn = false;
+  let userMuted = false;
   const soundButton = document.getElementById("offroad-sound");
   const setSound = (on: boolean): void => {
     if (on && !sound) {
@@ -692,7 +693,10 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
     soundButton?.setAttribute("aria-pressed", String(on));
     if (soundButton) soundButton.textContent = on ? "SOUND ON" : "SOUND";
   };
-  tap("offroad-sound", () => setSound(!soundOn));
+  tap("offroad-sound", () => {
+    userMuted = soundOn;
+    setSound(!soundOn);
+  });
   tap("offroad-reset", () => resetToTrack());
   // Handbrake is held, not toggled: pointerdown → on, up/cancel/lost capture (anywhere) → off.
   let handbrakeHeld = false;
@@ -750,6 +754,13 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       if (weatherLabel) weatherLabel.textContent = OFFROAD_WEATHER[name].label.toUpperCase();
     },
   };
+  vehicle.selectGear(0);
+  const selectPosition = (position: "F" | "N" | "R"): boolean => {
+    if (!userMuted && !soundOn) setSound(true);
+    const ok = vehicle.selectGear(position === "F" ? 1 : position === "R" ? -1 : 0);
+    if (ok) touch.setGear(position);
+    return ok;
+  };
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
     if (event.code === "KeyC" && !event.repeat) cycleCamera();
@@ -757,12 +768,17 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       parkingBrake = !parkingBrake;
       touch.setPark(parkingBrake);
     }
+    if (event.code === "KeyF" && !event.repeat) selectPosition("F");
+    if (event.code === "KeyN" && !event.repeat) selectPosition("N");
     if (event.code === "KeyR" && !event.repeat) {
       const reverse = vehicle.gear >= 0;
-      if (vehicle.selectDriveDirection(reverse)) touch.setGear(reverse ? "R" : "F");
+      selectPosition(reverse ? "R" : "F");
     }
     if (event.code === "KeyT" && !event.repeat) resetToTrack();
-    if (event.code === "KeyM" && !event.repeat) setSound(!soundOn);
+    if (event.code === "KeyM" && !event.repeat) {
+      userMuted = soundOn;
+      setSound(!soundOn);
+    }
     const digit = /^Digit([1-5])$/.exec(event.code);
     if (digit && !event.repeat) setWeather(OFFROAD_WEATHER_NAMES[Number(digit[1]) - 1]!);
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
@@ -773,13 +789,13 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   touch = attachVehicleTouch(document.getElementById("vehicle-touch"), {
-    onGearSelect: (position) => vehicle.selectGear(position === "F" ? 1 : position === "R" ? -1 : 0),
+    onGearSelect: (position) => selectPosition(position),
     onParkToggle: () => {
       parkingBrake = !parkingBrake;
       touch.setPark(parkingBrake);
     },
   });
-  touch.setGear("F");
+  touch.setGear("N");
 
   // ------------------------------------------------------------------ lap timer
   const proj: TrackProjection = { s: 0, lateral: 0, dist: Infinity, index: -1 };

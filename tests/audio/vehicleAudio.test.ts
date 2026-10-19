@@ -130,6 +130,25 @@ group("engine: rpm, throttle, load, gear", () => {
     assert.ok(slide.states.every((s) => s.load === 0), "tyre scrub on driven wheels is not engine load");
   });
 
+  test("shifting F → R while rolling forward makes a transmission grinding sound until R kicks in", () => {
+    const d = drive(120, (v) => {
+      v.selectGear(1);
+      v.setVelocity(0, 0, 4);
+      v.selectGear(-1);
+    });
+    const early = d.states[5]!;
+    assert.equal(early.grinding, true);
+    const earlyLevels = vehicleSoundLevels(early);
+    assert.ok(earlyLevels.grindGain > 0.4, `expected grinding sound while R has not engaged, got ${earlyLevels.grindGain}`);
+    assert.ok(earlyLevels.grindFrequency > 1000);
+
+    const late = last(d);
+    assert.equal(late.grinding, false, "grinding stops once R gear kicks in");
+    const lateLevels = vehicleSoundLevels(late);
+    assert.equal(lateLevels.grindGain, 0);
+    assert.equal(lateLevels.grindFrequency, 0);
+  });
+
   test("reverse gear whines; an electric motor whines with rpm and has no combustion voice", () => {
     const rev = last(drive(120, (v) => { v.selectGear(-1); v.input.throttle = 0.6; }));
     assert.equal(rev.gear, -1);

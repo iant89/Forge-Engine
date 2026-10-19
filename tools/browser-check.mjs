@@ -955,6 +955,7 @@ async function checkAlpineRescue() {
   await page.locator("#rescue-headlights").click();
   const lights = await page.evaluate(() => window.__forge.alpineRescueState());
   if (lights.headlightsOn) throw new Error("rescue headlight action did not toggle the lamps off");
+  await page.locator("#veh-gear-f").click();
   const beforeDrive = lights.positionZ;
   await page.keyboard.down("KeyW");
   try {
@@ -2227,6 +2228,7 @@ async function checkVehicleParticleSection() {
   // comes back. The unit suites pin the lock rule; this proves the scene/key/input wiring on a real
   // device, and that the visual odometer is not left turning (a parked car used to creep).
   const parkFrom = await page.evaluate(() => window.__forge.vehicleState());
+  await page.keyboard.press("KeyF");
   await page.keyboard.press("KeyP");
   const parkLatched = await page.evaluate(() => window.__forge.vehicleState());
   const parkLamp = await page.evaluate(() => document.getElementById("veh-park")?.classList.contains("active"));
