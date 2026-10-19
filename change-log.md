@@ -26359,6 +26359,35 @@ JSON array below; agents maintain it by hand until then.
     "tools/lint-arch.mjs"
   ],
   "note": "check:browser:rescue was not green in the authoring sandbox (2-vCPU SwiftShader, ~14 s per frame in the storm against the gate's 15 s wall-clock waits); the unmodified base commit fails at the same line (tools/browser-check.mjs:950), so it is a throughput limit rather than a regression. It still needs a run on a machine with a real GPU."
+},
+{
+  "id": "2128",
+  "date": "2026-10-19T22:45:00Z",
+  "type": "feature",
+  "branch": "arena/00a5a523-forge-engine",
+  "base": "main",
+  "title": "Stack F-N-R shifter vertically, start in N, grind F->R while rolling forward, and lock rear wheels on R->F while rolling back",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Stacks the F - N - R shifter vertically (.veh-gear-switch grid-template-columns: 42px) and starts all F-N-R shifter demos (vehiclePlaygroundScene, offroadHillScene, alpineRescueScene, amazonRiverScene) in Neutral (N) with F, N, and R selectable via UI or keyboard (KeyF, KeyN, KeyR), positioning the shifter clear of the gas/brake/rescue buttons on Alpine Rescue. When a vehicle is rolling forward and shifted into R, Transmission.grinding engages and VehicleSoundAnalyzer / vehicleSoundLevels / VehicleSoundscape synthesize a metallic gear-tooth grinding sound while shiftTimer counts down until the R gear kicks in. When a vehicle is rolling backward in R and shifted into F, Vehicle.rearWheelLock latches and locks the rear wheels (omega = 0) until the user presses the gas.",
+  "files": [
+    "change-log.md",
+    "engine/src/audio/vehicle.ts",
+    "engine/src/vehicles/drivetrain.ts",
+    "engine/src/vehicles/vehicle.ts",
+    "examples/index.html",
+    "examples/src/controls/vehicleTouch.ts",
+    "examples/src/scenes/alpineRescueScene.ts",
+    "examples/src/scenes/offroadHillScene.ts",
+    "examples/src/scenes/vehiclePlaygroundScene.ts",
+    "mnemosyne.md",
+    "tests/audio/vehicleAudio.test.ts",
+    "tests/controls/vehicleTouch.test.ts",
+    "tests/examples/alpineRescueScene.test.ts",
+    "tests/examples/mechanicalScene.test.ts",
+    "tests/vehicles/vehicles.test.ts",
+    "tools/browser-check.mjs"
+  ]
 }
 ]
 ```

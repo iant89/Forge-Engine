@@ -249,20 +249,51 @@ group("vehicles — chassis", () => {
     return { vehicle, ground };
   }
 
-  test("selects reverse only while effectively stopped", () => {
-    const { vehicle } = car();
-    assert.equal(vehicle.selectDriveDirection(true), true);
-    assert.equal(vehicle.gear, -1);
-    assert.ok(vehicle.config.transmission.shiftTimer > 0);
-    vehicle.setVelocity(0, 0, 2);
-    assert.equal(vehicle.selectDriveDirection(false), false);
-    assert.equal(vehicle.gear, -1);
+  test("grinds when shifting F → R while rolling forward until R kicks in, and locks rear wheels on R → F while rolling back until gas is pressed", () => {
+    const dt = 1 / 60;
+    const { vehicle, ground } = car();
     assert.equal(vehicle.selectGear(0), true);
     assert.equal(vehicle.gear, 0);
-    assert.equal(vehicle.selectGear(1), false);
-    vehicle.setVelocity(0, 0, 0);
-    assert.equal(vehicle.selectDriveDirection(false), true);
+    assert.equal(vehicle.grinding, false);
+    assert.equal(vehicle.rearWheelLock, false);
+
+    // Stopped shift into F: engages cleanly with no grind or rear lock.
+    assert.equal(vehicle.selectGear(1), true);
     assert.equal(vehicle.gear, 1);
+    assert.equal(vehicle.grinding, false);
+
+    // Rolling forward in F, user shifts to R: grinds until R gear kicks in.
+    vehicle.setVelocity(0, 0, 3);
+    assert.equal(vehicle.selectGear(-1), true);
+    assert.equal(vehicle.gear, -1);
+    assert.equal(vehicle.grinding, true);
+    assert.equal(vehicle.config.transmission.ratio, 0, "R gear has not kicked in while grinding");
+    for (let i = 0; i < 20; i++) vehicle.step(dt, ground);
+    assert.equal(vehicle.grinding, true, "still grinding mid-shift");
+    assert.equal(vehicle.config.transmission.ratio, 0);
+    for (let i = 0; i < 100 && vehicle.grinding; i++) vehicle.step(dt, ground);
+    assert.equal(vehicle.grinding, false, "grinding stops once R gear kicks in");
+    assert.ok(vehicle.config.transmission.ratio < 0, "R gear ratio is now engaged");
+
+    // Rolling back in R, user shifts to F: rear wheels lock up until the user presses the gas.
+    vehicle.setVelocity(0, 0, -3);
+    assert.equal(vehicle.selectGear(1), true);
+    assert.equal(vehicle.gear, 1);
+    assert.equal(vehicle.rearWheelLock, true);
+    const rears = vehicle.wheels.filter((w) => w.z < 0);
+    const fronts = vehicle.wheels.filter((w) => w.z > 0);
+    assert.ok(rears.every((w) => w.omega === 0), "rear wheels lock immediately");
+    const spinAtLock = rears.map((w) => w.spin);
+    for (let i = 0; i < 20; i++) vehicle.step(dt, ground);
+    assert.equal(vehicle.rearWheelLock, true, "rear wheel lock persists with no gas");
+    assert.ok(rears.every((w, idx) => w.omega === 0 && w.spin === spinAtLock[idx]), "rear wheels stay locked while rolling back");
+    assert.ok(fronts.some((w) => w.omega < 0), "front wheels are not locked while rolling back");
+
+    // Pressing the gas releases the rear wheel lock and drives forward.
+    vehicle.input.throttle = 0.8;
+    for (let i = 0; i < 30; i++) vehicle.step(dt, ground);
+    assert.equal(vehicle.rearWheelLock, false, "pressing gas unlocks the rear wheels");
+    assert.ok(rears.every((w) => w.omega > 0), "rear wheels spin forward under throttle");
   });
 
   test("stops from 20 m/s within 15% of v² / (2μg)", () => {

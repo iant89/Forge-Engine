@@ -259,6 +259,7 @@ export function attachVehicleTouch(root: HTMLElement | null, options: VehicleTou
   bindGear("F");
   bindGear("N");
   bindGear("R");
+  if (options.onGearSelect) setGearVisual("N");
 
   // MAST, ARM and PARK are tap toggles, not holds: fire on press for immediate feedback (the
   // scene's setMast / setArm / setPark lights the button from the commanded state in the same tick).

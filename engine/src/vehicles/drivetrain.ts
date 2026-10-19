@@ -115,6 +115,8 @@ export class Transmission {
   gear = 1;
   /** Remaining clutch-open time. */
   shiftTimer = 0;
+  /** True while a rolling forward-to-reverse shift is grinding before the reverse gear meshes. */
+  grinding = false;
   /** Shifts completed. Tests and the HUD both read this. */
   shiftCount = 0;
 
@@ -147,8 +149,10 @@ export class Transmission {
   update(rpm: number, throttle: number, dt: number): boolean {
     if (this.shiftTimer > 0) {
       this.shiftTimer = Math.max(0, this.shiftTimer - dt);
+      if (this.shiftTimer === 0) this.grinding = false;
       return false;
     }
+    this.grinding = false;
     if (this.gear >= 1 && this.gear < this.ratios.length && rpm >= this.upshiftRpm && throttle >= this.upshiftThrottle) {
       this.gear += 1;
       this.shiftTimer = this.shiftDuration;

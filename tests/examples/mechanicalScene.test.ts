@@ -168,6 +168,8 @@ group("vehicle playground — mechanical wheel assemblies", () => {
 
   test("poses the hierarchy from wheel telemetry while the car drives", async () => {
     const { handle, scene, tick, entity, vehicle } = await fixture();
+    assert.equal(vehicle.gear, 0, "starts in neutral (N)");
+    vehicle.selectGear(1);
     handle.vehicleState!(); // the state path the browser gate reads
     tick(60, (v) => {
       v.input.throttle = 0.7;

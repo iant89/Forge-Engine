@@ -134,8 +134,14 @@
         z-index: 12;
         pointer-events: none;
       }
+      body.scene-vehicle #vehicle-touch { display: block; }
+      .veh-stick,
+      .veh-face {
+        display: none;
+      }
       @media (pointer: coarse), (max-width: 820px) {
-        body.scene-vehicle #vehicle-touch { display: block; }
+        body.scene-vehicle .veh-stick,
+        body.scene-vehicle .veh-face { display: block; }
         body.scene-vehicle #controls-hint { display: none; }
         #toolbar { max-width: min(220px, 54vw); }
         #toolbar.toolbar-open #toolbar-panels { max-height: min(50vh, 360px); overflow: auto; }
@@ -499,9 +505,10 @@
       .veh-gear-switch {
         display: none;
         position: fixed;
+        z-index: 16;
         right: max(16px, env(safe-area-inset-right));
         bottom: max(174px, calc(env(safe-area-inset-bottom) + 174px));
-        grid-template-columns: repeat(3, 42px);
+        grid-template-columns: 42px;
         padding: 4px;
         gap: 3px;
         border: 1px solid rgb(148 163 184 / 0.58);
@@ -512,6 +519,17 @@
       }
       /* fe-28: the dust storm drives forward/reverse from gas/brake alone, so it has no selector. */
       body.scene-vehicle:not(.scene-mars):not(.scene-storm) .veh-gear-switch { display: grid; }
+      @media (pointer: coarse), (max-width: 820px) {
+        body.scene-rescue .veh-gear-switch {
+          bottom: max(264px, calc(env(safe-area-inset-bottom) + 264px));
+        }
+      }
+      @media (pointer: coarse) and (max-height: 520px), (max-width: 820px) and (max-height: 520px) {
+        body.scene-rescue .veh-gear-switch {
+          right: calc(max(14px, env(safe-area-inset-right)) + 168px);
+          bottom: max(14px, env(safe-area-inset-bottom));
+        }
+      }
       .veh-gear {
         width: 42px;
         height: 38px;
@@ -880,8 +898,8 @@
         <div id="veh-stick-knob" class="veh-knob"></div>
       </div>
       <div id="veh-gear-switch" class="veh-gear-switch" role="group" aria-label="Drive direction">
-        <button type="button" id="veh-gear-f" class="veh-gear" aria-label="Forward gear" aria-pressed="true">F</button>
-        <button type="button" id="veh-gear-n" class="veh-gear" aria-label="Neutral gear" aria-pressed="false">N</button>
+        <button type="button" id="veh-gear-f" class="veh-gear" aria-label="Forward gear" aria-pressed="false">F</button>
+        <button type="button" id="veh-gear-n" class="veh-gear active" aria-label="Neutral gear" aria-pressed="true">N</button>
         <button type="button" id="veh-gear-r" class="veh-gear" aria-label="Reverse gear" aria-pressed="false">R</button>
       </div>
       <div class="veh-face">
