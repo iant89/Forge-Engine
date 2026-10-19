@@ -218,6 +218,7 @@ const DETERMINISTIC_SOURCES = [
   "engine/src/environment/surfaceWeather.ts",
   "engine/src/environment/weather.ts",
   "engine/src/terrain/track.ts",
+  "engine/src/terrain/trackGrading.ts",
   "engine/src/terrain/trackWeather.ts",
   "examples/src/replay",
 ];

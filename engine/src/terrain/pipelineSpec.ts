@@ -38,6 +38,7 @@ import {
   ValleyCarvingGenerator,
 } from "./realistic.js";
 import { MarsTerrainStage, type MarsSiteOptions } from "./mars/stage.js";
+import { TrackGradingGenerator } from "./trackGrading.js";
 import type { MarsGenParams } from "./mars/config.js";
 
 export type TerrainStageKind =
@@ -53,6 +54,7 @@ export type TerrainStageKind =
   | "detail-noise"
   | "climate-biome"
   | "realistic-scatter"
+  | "track-grading"
   | "mars";
 
 /**
@@ -237,6 +239,13 @@ export const TERRAIN_STAGE_CODECS: readonly StageCodec[] = [
   codec("detail-noise", ["amplitude", "frequency", "octaves", "minSlope", "blend"], (s) => s instanceof DetailNoiseGenerator, (options) => new DetailNoiseGenerator(options)),
   codec("climate-biome", ["seaLevel", "snowLine", "lapseRate", "moistureFrequency"], (s) => s instanceof ClimateBiomeGenerator, (options) => new ClimateBiomeGenerator(options)),
   codec("realistic-scatter", ["countPerChunk", "maxSlope", "minHeight", "maxHeight"], (s) => s instanceof RealisticScatterGenerator, (options) => new RealisticScatterGenerator(options)),
+  // Track grading carries its complete configuration (centrelines + designed bed) as canonical JSON.
+  codec<{ identity: string }>(
+    "track-grading",
+    ["identity"],
+    (s) => s instanceof TrackGradingGenerator,
+    (options) => TrackGradingGenerator.fromIdentity(options.identity),
+  ),
   // Analytic Mars stages round-trip from their full JSON configuration. Stages holding a live
   // Stage A field cache still refuse reconstruction: a worker must never omit that correction.
   codec<MarsStageSpecFields>(

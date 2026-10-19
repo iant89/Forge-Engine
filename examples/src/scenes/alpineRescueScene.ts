@@ -1,88 +1,130 @@
+/**
+ * Alpine Search & Rescue: Whiteout Run (`?scene=alpine-rescue`).
+ *
+ * A mountain-rescue 4×4 carries a medical kit up a service track, lights three distress beacons and
+ * comes home as a snowstorm closes in. The ground, road, truck and weather are all engine systems
+ * doing what they were built for:
+ *
+ * - **Terrain**: a streamed `TerrainWorld` whose pipeline grades the road and depot pad into every
+ *   chunk (`TrackGradingGenerator`), drawn with the four-layer PBR splat material (snow, rock,
+ *   scree, tundra) weighted by slope, curvature and noise (`alpineTerrain.ts`).
+ * - **Snow**: the engine's weather snow cover settles on every up-facing surface — ground, boulders,
+ *   boughs, the truck's roof — and drives tyre grip, so the route gets slippery as it buries.
+ *   (This replaces a translucent overlay mesh that z-fought the terrain.)
+ * - **Vehicle**: the engine raycast 4×4 on a lofted wagon body with lathe-turned winter tyres. The
+ *   wheel entities are roots posed by `VehicleSystem` in world space — never children of the chassis.
+ * - **World**: procedural spruce forest, boulders, wheel tracks in the snow, a depot and beacon towers.
+ *
+ * The mission (load the kit, light ECHO 01/02, deliver at ECHO 03, return) and every snapshot / DOM
+ * hook are unchanged.
+ */
+
 import {
+  AudioSystem,
   Camera,
   ColliderComponent,
   Color,
   DayNightCycle,
+  EnvironmentSoundscape,
   Geometry,
   GpuParticleWorld,
   HeightfieldShape,
   ImpactSoundAnalyzer,
   ImpactSoundscape,
-  AudioSystem,
-  EnvironmentSoundscape,
-  ambienceSoundInput,
-  setAudioListener,
-  type ImpactMaterial,
-  type RigidBody,
   Light,
   LightningSystem,
   Material,
-  Quat,
   PhysicsSystem,
   PhysicsWorld,
+  Quat,
   Renderable,
   RigidBodyComponent,
   Scene,
   TerrainWorld,
+  Texture,
+  TireTrackLayer,
   Vec3,
   Vehicle,
   VehicleAudio,
   VehicleComponent,
   VehicleSystem,
-  createVehicleConfig,
+  VegetationField,
   WeatherSystem,
-  type Engine,
+  ambienceSoundInput,
+  barkPixels,
+  boxGeometrySource,
   createBox,
   createCylinder,
-  createRealisticTerrainMaterial,
-  createRealisticTerrainPipeline,
   createTorus,
   createVehicleChassis,
+  createVehicleConfig,
+  cylinderGeometrySource,
+  fbm2,
+  generateTree,
+  hash2i,
   heightFunctionGround,
+  rockGeometrySource,
+  setAudioListener,
+  setWorldSurfaceGripField,
+  smoothstep,
+  sphereGeometrySource,
+  tierValue,
+  type DeviceTier,
+  type Engine,
   type GeometrySource,
+  type ImpactMaterial,
+  type RigidBody,
+  type TreeSpecies,
+  type VegetationModel,
+  type WeatherState,
 } from "@forge/engine";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
+import { ALPINE_SNOWPACK_INITIAL_DEPTH_M, ALPINE_SNOWPACK_MAX_DEPTH_M, advanceAlpineSnowpack, alpineSnowCover01, alpineSnowShade01 } from "./alpineSnowpack.js";
 import {
-  ALPINE_SNOWPACK_INITIAL_DEPTH_M,
-  ALPINE_SNOWPACK_MAX_DEPTH_M,
-  advanceAlpineSnowpack,
-} from "./alpineSnowpack.js";
+  ALPINE_SEED,
+  BASE_Z,
+  DEPOT_APPROACH_X,
+  DEPOT_APPROACH_Z,
+  DEPOT_HUT_X,
+  DEPOT_X,
+  INTERACT_RADIUS,
+  RELAY_SITES,
+  ROAD_START_Z,
+  ROUTE_END_Z,
+  ROUTE_X,
+  designAlpineRoute,
+  roadRibbonSource,
+  type RouteProjection,
+} from "./alpineRoute.js";
+import { AlpineTerrainMaterial, alpineNaturalHeight, createAlpinePipeline, createGradedHeight } from "./alpineTerrain.js";
+import { buildRescueTruckSources } from "./alpineRescueVehicle.js";
+import { MeshBuilder, chain, prismSource, roundedBoxSource, rotateX, rotateZ, translate, tubeBetween } from "./meshKit.js";
+import {
+  createAlpineSurfaceTextures,
+  createHiVisStripeTextures,
+  createSnowRoadTextures,
+  createTyreTreadTextures,
+  disposeMaterialTextureSet,
+  disposeSplatTextureSet,
+  spruceBoughPixels,
+  type MaterialTextureSet,
+} from "../textures/alpine.js";
 
-const SEED = 7421;
-const BASE_X = 256;
-const DEPOT_X = BASE_X - 16;
-const DEPOT_HUT_X = DEPOT_X - 14;
-const BASE_Z = -188;
-const ROUTE_X = 256;
-const ROUTE_START_Z = -166;
-const RELAY_SITES = [
-  { name: "EAST RIDGE DISTRESS BEACON", callsign: "ECHO 01", x: 269, z: -92 },
-  { name: "PINE NOTCH DISTRESS BEACON", callsign: "ECHO 02", x: 244, z: -4 },
-  { name: "GLACIER GATE DISTRESS BEACON", callsign: "ECHO 03", x: 260, z: 96 },
-] as const;
-const ROUTE_MAIN_START_Z = ROUTE_START_Z - 13;
-const ROUTE_END_Z = RELAY_SITES[2].z + 28;
-const DEPOT_APPROACH_Z = BASE_Z + 8.5;
-const ROUTE_MERGE_Z = ROUTE_START_Z + 12;
-const DEPOT_APPROACH_X = DEPOT_X + 4.5;
-const INTERACT_RADIUS = 11;
-const ROAD_WIDTH = 5.2;
+export type WeatherPresetName = "clear" | "overcast" | "rain" | "storm";
 
-function mainRouteCenterX(z: number): number {
-  const t = (z - ROUTE_MAIN_START_Z) / (ROUTE_END_Z - ROUTE_MAIN_START_Z);
-  return ROUTE_X + Math.sin(t * Math.PI * 2.4) * 4.2 + Math.sin(t * 8.1) * 1.15;
-}
-
-function roadCenterX(z: number): number {
-  if (z >= ROUTE_MERGE_Z) return mainRouteCenterX(z);
-  const mergeX = mainRouteCenterX(ROUTE_MERGE_Z);
-  const t = Math.max(0, Math.min(1, (z - DEPOT_APPROACH_Z) / (ROUTE_MERGE_Z - DEPOT_APPROACH_Z)));
-  const eased = t * t * (3 - 2 * t);
-  return DEPOT_APPROACH_X + (mergeX - DEPOT_APPROACH_X) * eased;
-}
-
-type WeatherPresetName = "clear" | "overcast" | "rain" | "storm";
+/**
+ * The demo's four weather states. The engine's built-in presets are mid-latitude (overcast 14 °C,
+ * storm 12 °C), which would melt the snow and make "snow" fall as rain; these hold the air below
+ * freezing so the engine's own surface model (snow lies, grip drops) is physically consistent.
+ * `rain` is the snow-squall step between overcast and the storm.
+ */
+export const ALPINE_WEATHER: Readonly<Record<WeatherPresetName, Readonly<Partial<WeatherState>>>> = Object.freeze({
+  clear: Object.freeze({ windSpeed: 3, windDirection: 0.9, gust: 0.2, temperatureC: -3, humidity01: 0.45, precipitation01: 0, storm01: 0, cloudCoverage: 0.3 }),
+  overcast: Object.freeze({ windSpeed: 6, windDirection: 0.92, gust: 0.42, temperatureC: -5, humidity01: 0.82, precipitation01: 0.05, storm01: 0.04, cloudCoverage: 0.74 }),
+  rain: Object.freeze({ windSpeed: 10, windDirection: 1.1, gust: 0.65, temperatureC: -7, humidity01: 0.93, precipitation01: 0.55, storm01: 0.3, cloudCoverage: 0.95 }),
+  storm: Object.freeze({ windSpeed: 16, windDirection: 1.45, gust: 1, temperatureC: -10, humidity01: 1, precipitation01: 1, storm01: 1, cloudCoverage: 1 }),
+});
 
 type RescueStage = "load-kit" | "relay-1" | "relay-2" | "deliver-kit" | "return" | "complete";
 
@@ -118,6 +160,11 @@ export interface AlpineRescueSnapshot {
   snowEmitted: number;
   /** Current deposited snow depth on the route surface. */
   snowpackDepthM: number;
+  /** The engine weather snow cover (0 bare … 1 buried) the renderer and the tyre-grip factor read. */
+  snowCover: number;
+  temperatureC: number;
+  /** Surface-grip multiplier currently applied to the truck's tyres (weather × road/off-road). */
+  grip: number;
   speedKph: number;
   headlightsOn: boolean;
   parked: boolean;
@@ -128,68 +175,31 @@ export interface AlpineRescueSnapshot {
   positionZ: number;
   physicsBodies: number;
   physicsSteps: number;
+  /** Instanced spruce in the forest field and resident wheel-track tiles. */
+  trees: number;
+  trackTiles: number;
   /** Phase 20.7/20.8 audio (opt-in: M / SOUND). */
   sound: { enabled: boolean; running: boolean; engineHz: number; impacts: number; impactsDropped: number; scrapes: number; voices: number };
+}
+
+export interface AlpineRescueOptions {
+  /** Quality tier (forest density, texture sizes, shadows, effects). Default `"high"`. */
+  deviceTier?: DeviceTier;
 }
 
 export interface AlpineRescueSceneHandle extends DemoSceneHandle {
   interact(): boolean;
   setWeatherTarget(preset: WeatherPresetName): void;
+  /** Gate/screenshot hook: put the truck on the road at arc length `s` (+ lateral offset), at rest. */
+  placeTruck(s: number, lateral?: number): void;
+  /** Gate/screenshot hook: set the deposited snow depth (m), updating the engine's snow cover now. */
+  setSnowpackDepth(depthM: number): void;
   snapshot(): AlpineRescueSnapshot;
 }
 
 function seededNoise(index: number, salt: number): number {
   const value = Math.sin(index * 127.1 + salt * 311.7) * 43_758.5453;
   return value - Math.floor(value);
-}
-
-function roadGeometrySource(heightAt: (x: number, z: number) => number) {
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const uvs: number[] = [];
-  const indices: number[] = [];
-  const samples = 320;
-  const z0 = DEPOT_APPROACH_Z;
-  const z1 = ROUTE_END_Z;
-
-  for (let i = 0; i <= samples; i++) {
-    const t = i / samples;
-    const z = z0 + (z1 - z0) * t;
-    const centerX = roadCenterX(z);
-    const beforeZ = Math.max(z0, z - 0.5);
-    const afterZ = Math.min(z1, z + 0.5);
-    const beforeX = roadCenterX(beforeZ);
-    const afterX = roadCenterX(afterZ);
-    const dx = afterX - beforeX;
-    const dz = afterZ - beforeZ;
-    const length = Math.hypot(dx, dz) || 1;
-    const sideX = dz / length;
-    const sideZ = -dx / length;
-
-    for (const side of [-1, 1]) {
-      const x = centerX + sideX * ROAD_WIDTH * 0.5 * side;
-      const sampleZ = z + sideZ * ROAD_WIDTH * 0.5 * side;
-      const y = heightAt(x, sampleZ) + 0.22;
-      positions.push(x, y, sampleZ);
-      normals.push(0, 1, 0);
-      uvs.push(side === -1 ? 0 : 1, t * 13);
-    }
-
-    if (i < samples) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      indices.push(a, b, c, b, d, c);
-    }
-  }
-
-  return {
-    positions: new Float32Array(positions),
-    normals: new Float32Array(normals),
-    uvs: new Float32Array(uvs),
-    indices: new Uint32Array(indices),
-  };
 }
 
 function addRenderable(
@@ -240,10 +250,17 @@ function makeBoxBody(
   return body;
 }
 
-export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle {
+/** Uniform [0, 1) from integer coordinates: the deterministic dice behind placement. */
+function dice(x: number, z: number, salt: number): number {
+  return hash2i(x * 7919 + salt, z, ALPINE_SEED) / 4294967296;
+}
+
+export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOptions = {}): AlpineRescueSceneHandle {
+  const tier: DeviceTier = options.deviceTier ?? "high";
   const scene = new Scene({ name: "Alpine Search & Rescue: Whiteout Run" });
   const ownedGeometries: Geometry[] = [];
   const ownedMaterials: Material[] = [];
+  const ownedTextures: Array<{ dispose(): void }> = [];
   const ownGeometry = <T extends Geometry>(geometry: T): T => {
     ownedGeometries.push(geometry);
     return geometry;
@@ -252,37 +269,37 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     ownedMaterials.push(material);
     return material;
   };
+  const geo = (source: GeometrySource): Geometry => ownGeometry(Geometry.create(engine.gpu, source));
+  const tex = (width: number, height: number, pixels: Uint8Array, label: string, srgb = true): Texture => {
+    const texture = Texture.fromRgba8(engine.gpu, width, height, pixels, { label, srgb, mipmaps: true });
+    ownedTextures.push(texture);
+    return texture;
+  };
+  const withMaps = (material: Material, set: MaterialTextureSet): Material => {
+    material.setMaps({ albedo: set.albedo, normal: set.normal, metallicRoughness: set.metallicRoughness });
+    return material;
+  };
 
-  const terrainPipeline = createRealisticTerrainPipeline({
-    seed: SEED,
-    continentalAmplitude: 80,
-    mountainAmplitude: 160,
-    hillAmplitude: 35,
-    detailAmplitude: 5,
-    warpAmount: 60,
-    snowLine: 160,
-    thermalIterations: 2,
-    hydraulicIterations: 3,
-    enableRivers: true,
-    enableDetail: false,
-    scatterCount: 10,
-  });
-  const terrainMaterial = createRealisticTerrainMaterial("alpine", {
-    color: Color.fromSrgbHex(0xc5d0d3),
-    roughness: 0.92,
-    metallic: 0.01,
-  });
+  // ------------------------------------------------------------------ road + terrain
+  const route = designAlpineRoute(alpineNaturalHeight());
+  const gradedHeight = createGradedHeight(route.corridors);
+  const surfaceTextures = createAlpineSurfaceTextures(engine.gpu, tierValue(tier, { low: 128, medium: 256, high: 256 }));
+  ownedTextures.push({ dispose: () => disposeSplatTextureSet(surfaceTextures.maps) });
+  const groundMaterial = new AlpineTerrainMaterial(surfaceTextures.maps, surfaceTextures.meanLinear);
+  // The apron beyond the streamed tiles is one flat, snowy colour.
+  const horizonMaterial = ownMaterial(new Material({ label: "alpine horizon snow", color: Color.fromSrgbHex(0xc9d4da), roughness: 0.95, metallic: 0 }));
   const terrain = new TerrainWorld({
-    seed: SEED,
-    viewDistance: 580,
+    seed: ALPINE_SEED,
+    viewDistance: tierValue(tier, { low: 420, medium: 520, high: 600 }),
     maxLOD: 3,
     chunkSize: 128,
     chunkResolution: 33,
     maxChunksLoaded: 78,
     maxGenerationsPerFrame: 2,
     warmUpChunks: 14,
-    pipeline: terrainPipeline,
-    material: terrainMaterial,
+    pipeline: createAlpinePipeline(route.corridors),
+    layeredMaterial: groundMaterial,
+    material: horizonMaterial,
   });
   scene.add(terrain);
 
@@ -294,91 +311,100 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   });
   const physicsWorld = new PhysicsWorld({ gravity: new Vec3(0, -9.81, 0), fixedDt: 1 / 60, maxSubsteps: 8 });
   const terrainBody = physicsWorld.setHeightfield(terrainPhysics);
-  if (terrainBody) terrainBody.friction = 0.96;
+  // Crates and boulders slide on snow far more readily than on dry ground.
+  if (terrainBody) terrainBody.friction = 0.62;
 
-  const roadGeometry = ownGeometry(Geometry.create(engine.gpu, roadGeometrySource(heightAt)));
-  const roadMaterial = ownMaterial(new Material({
-    label: "whiteout-run packed snow trail",
-    color: Color.fromSrgbHex(0x849398),
-    roughness: 0.92,
-    metallic: 0,
-    doubleSided: true,
-  }));
+  // The plough-packed trail: a ribbon on the graded bed, lit and normal-mapped (ruts, banks, grit).
+  const roadTextures = createSnowRoadTextures(engine.gpu, {
+    halfSpan: 3.4,
+    roadHalfWidth: 2.7,
+    rutOffset: 0.85,
+    rutWidth: 0.34,
+    metersAlong: 8,
+    width: tierValue(tier, { low: 128, medium: 256, high: 256 }),
+    height: tierValue(tier, { low: 256, medium: 512, high: 512 }),
+  });
+  ownedTextures.push({ dispose: () => disposeMaterialTextureSet(roadTextures) });
+  const roadMaterial = withMaps(ownMaterial(new Material({ label: "alpine packed-snow trail", color: 0xffffff, roughness: 1, metallic: 0 })), roadTextures);
+  const roadGeometry = geo(
+    roadRibbonSource(route, {
+      halfSpan: 3.4,
+      across: tierValue(tier, { low: 7, medium: 9, high: 11 }),
+      alongStep: tierValue(tier, { low: 2.5, medium: 1.5, high: 1.0 }),
+      lift: 0.035,
+      uvMetersAlong: 8,
+    }),
+  );
   addRenderable(scene, "Packed snow rescue trail", new Vec3(), roadGeometry, roadMaterial, false);
 
-  const snowEdgeMaterial = ownMaterial(new Material({
-    label: "snow trail edge",
-    color: Color.fromSrgbHex(0xb8c8cd),
-    roughness: 0.87,
-  }));
-  const trailStakeGeometry = ownGeometry(createBox(engine.gpu, { width: 0.14, height: 1.45, depth: 0.14 }));
-  const trailCapGeometry = ownGeometry(createBox(engine.gpu, { width: 0.28, height: 0.14, depth: 0.2 }));
+  // Marker stakes along both edges: fibreglass poles with reflective teal caps (they carry the
+  // route through a whiteout).
+  const stakeMaterial = ownMaterial(new Material({ label: "trail stake", color: Color.fromSrgbHex(0xd9a441), roughness: 0.6, metallic: 0 }));
+  const trailStakeGeometry = ownGeometry(createBox(engine.gpu, { width: 0.07, height: 1.7, depth: 0.07 }));
+  const trailCapGeometry = ownGeometry(createBox(engine.gpu, { width: 0.18, height: 0.22, depth: 0.1 }));
   const trailCapMaterial = ownMaterial(Material.emissive(0x4bd7c4, 1.3, { label: "trail marker teal" }));
-  for (let i = 0; i < 15; i++) {
-    const t = i / 14;
-    const z = ROUTE_START_Z + 10 + (RELAY_SITES[2].z - ROUTE_START_Z - 6) * t;
-    const x = mainRouteCenterX(z);
+  const stakeCount = Math.floor((route.length - 36) / 20);
+  for (let i = 0; i < stakeCount; i++) {
+    const pose = route.poseAt(18 + i * 20);
     for (const side of [-1, 1]) {
-      const px = x + side * (ROAD_WIDTH * 0.55 + 0.8);
-      const pz = z + Math.sin(t * Math.PI * 2.4 + 0.2) * 0.6;
+      // Right of travel is (cos yaw, -sin yaw) for heading `yaw` (0 = +Z, +X positive).
+      const px = pose.x + Math.cos(pose.yaw) * side * 4.1;
+      const pz = pose.z - Math.sin(pose.yaw) * side * 4.1;
       const py = heightAt(px, pz);
-      const post = addRenderable(scene, `Trail marker ${i + 1} ${side < 0 ? "left" : "right"}`, new Vec3(px, py + 0.72, pz), trailStakeGeometry, snowEdgeMaterial);
-      addChildRenderable(scene, post, `Trail marker glint ${i + 1}`, new Vec3(0, 0.53, 0), trailCapGeometry, trailCapMaterial, false);
+      const post = addRenderable(scene, `Trail marker ${i + 1} ${side < 0 ? "left" : "right"}`, new Vec3(px, py + 0.8, pz), trailStakeGeometry, stakeMaterial);
+      addChildRenderable(scene, post, `Trail marker glint ${i + 1}`, new Vec3(0, 0.78, 0), trailCapGeometry, trailCapMaterial, false);
     }
   }
 
-  const groundMaterial = ownMaterial(new Material({ label: "rescue station timber", color: Color.fromSrgbHex(0x49565b), roughness: 0.86 }));
-  const redMaterial = ownMaterial(new Material({ label: "rescue orange", color: Color.fromSrgbHex(0xe56d38), roughness: 0.55, metallic: 0.08 }));
+  // ------------------------------------------------------------------ materials
+  const timberMaterial = ownMaterial(new Material({ label: "rescue station timber", color: Color.fromSrgbHex(0x86705a), roughness: 0.88 }));
+  const roofMetalMaterial = ownMaterial(new Material({ label: "rescue station roof", color: Color.fromSrgbHex(0x3e484d), roughness: 0.5, metallic: 0.6 }));
+  const redMaterial = ownMaterial(new Material({ label: "rescue red", color: Color.fromSrgbHex(0xc43c24), roughness: 0.5, metallic: 0.08 }));
   const darkMetalMaterial = ownMaterial(Material.metal(0x303a40, 0.42));
-  const glassMaterial = ownMaterial(new Material({ label: "rescue vehicle glass", color: Color.fromSrgbHex(0x153440), metallic: 0.55, roughness: 0.18 }));
-  const tireMaterial = ownMaterial(new Material({ label: "winter tire rubber", color: Color.fromSrgbHex(0x151b1e), roughness: 0.94 }));
-  const bodyMaterial = ownMaterial(new Material({ label: "SAR vehicle enamel", color: Color.fromSrgbHex(0xff7048), emissive: Color.fromSrgbHex(0x571e11), emissiveStrength: 0.26, metallic: 0.12, roughness: 0.36 }));
   const beaconDimMaterial = ownMaterial(Material.emissive(0x29a9a8, 0.65, { label: "inactive beacon ring" }));
   const beaconActiveMaterial = ownMaterial(Material.emissive(0x68ffd9, 3.4, { label: "active beacon ring" }));
   const beaconDoneMaterial = ownMaterial(Material.emissive(0x94ee85, 1.5, { label: "completed beacon ring" }));
+  const warmWindowMaterial = ownMaterial(Material.emissive(0xffc772, 1.4, { label: "depot window glow" }));
   const baseLightMaterial = ownMaterial(Material.emissive(0xf1d58a, 1.1, { label: "station lantern" }));
-  const cargoMaterial = ownMaterial(new Material({ label: "medical supply case", color: Color.fromSrgbHex(0x309c86), metallic: 0.18, roughness: 0.42 }));
-  const crateMaterial = ownMaterial(new Material({ label: "trail cargo crate", color: Color.fromSrgbHex(0x855b38), roughness: 0.83 }));
-  const pineMaterial = ownMaterial(new Material({ label: "mountain pine", color: Color.fromSrgbHex(0x244638), roughness: 0.9 }));
-  const pineDarkMaterial = ownMaterial(new Material({ label: "pine shadow", color: Color.fromSrgbHex(0x19352d), roughness: 0.92 }));
-  const rockMaterial = ownMaterial(new Material({ label: "snow-scoured rock", color: Color.fromSrgbHex(0x667174), roughness: 0.97 }));
-  const headlampMaterial = ownMaterial(Material.emissive(0xffe8b8, 1.8, { label: "rescue headlamp glass" }));
-  const redFlasherMaterial = ownMaterial(Material.emissive(0xf04435, 2.8, { label: "red emergency light" }));
-  const blueFlasherMaterial = ownMaterial(Material.emissive(0x47baff, 2.8, { label: "blue emergency light" }));
+  const cargoMaterial = ownMaterial(new Material({ label: "medical supply case", color: Color.fromSrgbHex(0x2f9c86), emissive: Color.fromSrgbHex(0x1c6d5f), emissiveStrength: 0.22, metallic: 0.12, roughness: 0.45 }));
+  const caseTrimMaterial = ownMaterial(new Material({ label: "case trim", color: Color.fromSrgbHex(0x1b2a2c), roughness: 0.6, metallic: 0.3 }));
+  const crossMaterial = ownMaterial(new Material({ label: "case cross", color: Color.fromSrgbHex(0xf4f4f1), emissive: Color.fromSrgbHex(0xffffff), emissiveStrength: 0.35, roughness: 0.5 }));
+  const crateMaterial = ownMaterial(new Material({ label: "trail cargo crate", color: Color.fromSrgbHex(0x9b6e44), roughness: 0.85 }));
+  const crateFrameMaterial = ownMaterial(new Material({ label: "crate frame", color: Color.fromSrgbHex(0x4e3a29), roughness: 0.9 }));
+  const drumMaterial = ownMaterial(new Material({ label: "fuel drum", color: Color.fromSrgbHex(0x2d5f8a), roughness: 0.5, metallic: 0.5 }));
+  const rockMaterials = [0x6b7073, 0x585d61, 0x7d7f7c].map((hex, i) => ownMaterial(new Material({ label: `granite ${i}`, color: Color.fromSrgbHex(hex), roughness: 0.96, metallic: 0 })));
 
-  const cubeGeometry = ownGeometry(createBox(engine.gpu, { width: 1, height: 1, depth: 1 }));
-  const trunkGeometry = ownGeometry(createCylinder(engine.gpu, { radiusTop: 0.13, radiusBottom: 0.23, height: 2.2, radialSegments: 8 }));
-  const pineLowerGeometry = ownGeometry(createCylinder(engine.gpu, { radiusTop: 0.04, radiusBottom: 1.35, height: 2.8, radialSegments: 8 }));
-  const pineUpperGeometry = ownGeometry(createCylinder(engine.gpu, { radiusTop: 0.02, radiusBottom: 0.96, height: 2.35, radialSegments: 8 }));
-  const beaconPoleGeometry = ownGeometry(createCylinder(engine.gpu, { radiusTop: 0.09, radiusBottom: 0.13, height: 3.4, radialSegments: 8 }));
-  const beaconTopGeometry = ownGeometry(createBox(engine.gpu, { width: 0.58, height: 0.32, depth: 0.58 }));
-  const beaconRingGeometry = ownGeometry(createTorus(engine.gpu, { radius: 2.4, tube: 0.1 }));
-  const stationRoofGeometry = ownGeometry(createBox(engine.gpu, { width: 6.2, height: 0.42, depth: 5.2 }));
-  const stationWallGeometry = ownGeometry(createBox(engine.gpu, { width: 5.7, height: 2.75, depth: 4.5 }));
-  const shedDoorGeometry = ownGeometry(createBox(engine.gpu, { width: 1.6, height: 2.15, depth: 0.16 }));
-  const headlampGeometry = ownGeometry(createBox(engine.gpu, { width: 0.3, height: 0.24, depth: 0.12 }));
-  const flasherGeometry = ownGeometry(createBox(engine.gpu, { width: 0.36, height: 0.16, depth: 0.2 }));
-  const wheelGeometry = ownGeometry(createBox(engine.gpu, { width: 0.34, height: 0.78, depth: 0.78 }));
-  const bodyGeometry = ownGeometry(createBox(engine.gpu, { width: 1.96, height: 0.76, depth: 3.82 }));
-  const cabinGeometry = ownGeometry(createBox(engine.gpu, { width: 1.63, height: 0.88, depth: 1.92 }));
-  const bumperGeometry = ownGeometry(createBox(engine.gpu, { width: 2.08, height: 0.2, depth: 0.22 }));
-  const roofGeometry = ownGeometry(createBox(engine.gpu, { width: 1.26, height: 0.15, depth: 0.66 }));
-
-  // Weathered mountain rescue outpost: a warm, readable landmark at the routehead.
+  // ------------------------------------------------------------------ depot
+  // A timber outpost on the graded pad: gabled steel roof, warm windows, radio mast, fuel drums.
   const baseHeight = heightAt(DEPOT_HUT_X, BASE_Z);
   const depotGround = heightAt(DEPOT_X, BASE_Z);
   const base = scene.createTransformedEntity("Whiteout Run rescue depot", new Vec3(DEPOT_HUT_X, baseHeight, BASE_Z));
-  const station = addRenderable(scene, "Rescue depot walls", new Vec3(0, 1.55, -0.55), stationWallGeometry, groundMaterial);
-  base.addChild(station);
-  const roof = addRenderable(scene, "Rescue depot roof", new Vec3(0, 3.1, -0.55), stationRoofGeometry, darkMetalMaterial);
-  base.addChild(roof);
-  const door = addRenderable(scene, "Rescue depot door", new Vec3(0, 1.12, 1.72), shedDoorGeometry, redMaterial);
-  base.addChild(door);
-  const signGeometry = ownGeometry(createBox(engine.gpu, { width: 3.2, height: 0.58, depth: 0.14 }));
-  const sign = addRenderable(scene, "SAR DEPOT sign", new Vec3(0, 3.4, 1.84), signGeometry, beaconDoneMaterial, false);
-  base.addChild(sign);
+  const hutWalls = new MeshBuilder();
+  hutWalls.add(roundedBoxSource({ width: 5.7, height: 2.75, depth: 4.5, radius: 0.05, segments: 2 }), translate(0, 1.3, -0.55));
+  for (const z of [-2.8, 1.7]) for (const x of [-2.9, 2.9]) hutWalls.add(roundedBoxSource({ width: 0.2, height: 2.85, depth: 0.2, radius: 0.03, segments: 2 }), translate(x, 1.33, z + (z > 0 ? 0.0 : 0.0)));
+  hutWalls.add(prismSource(5.7, 1.2, 4.5), translate(0, 2.68, -0.55));
+  addChildRenderable(scene, base, "Rescue depot walls", new Vec3(), geo(hutWalls.build("depot-walls")), timberMaterial);
+  const roofBuilder = new MeshBuilder();
+  const slope = Math.atan2(1.2, 2.25 + 0.35);
+  const panelLength = Math.hypot(1.2, 2.25 + 0.35) + 0.08;
   for (const side of [-1, 1]) {
-    const lantern = scene.createTransformedEntity(`Depot lantern ${side}`, new Vec3(side * 2.22, 2.72, 1.88));
+    // Each panel pivots at the ridge and falls toward its eave, overhanging the wall by 0.35 m.
+    roofBuilder.add(
+      boxGeometrySource({ width: 6.3, height: 0.14, depth: panelLength }),
+      chain(translate(0, 0, side * panelLength * 0.5), rotateX(-side * slope), translate(0, 2.68 + 1.2 + 0.05, -0.55)),
+    );
+  }
+  roofBuilder.add(roundedBoxSource({ width: 6.34, height: 0.12, depth: 0.28, radius: 0.04, segments: 2 }), translate(0, 2.68 + 1.2 + 0.1, -0.55));
+  addChildRenderable(scene, base, "Rescue depot roof", new Vec3(), geo(roofBuilder.build("depot-roof")), roofMetalMaterial);
+  addChildRenderable(scene, base, "Rescue depot door", new Vec3(0, 1.08, 1.72), geo(boxGeometrySource({ width: 1.5, height: 2.1, depth: 0.14 })), redMaterial);
+  const windows = new MeshBuilder();
+  for (const x of [-1.9, 1.9]) windows.add(boxGeometrySource({ width: 0.9, height: 0.7, depth: 0.08 }), translate(x, 1.5, 1.72));
+  windows.add(boxGeometrySource({ width: 0.08, height: 0.7, depth: 0.9 }), translate(2.88, 1.5, -0.6));
+  windows.add(boxGeometrySource({ width: 0.08, height: 0.7, depth: 0.9 }), translate(-2.88, 1.5, -0.6));
+  addChildRenderable(scene, base, "Rescue depot windows", new Vec3(), geo(windows.build("depot-windows")), warmWindowMaterial, false);
+  addChildRenderable(scene, base, "SAR DEPOT sign", new Vec3(0, 2.95, 1.84), geo(boxGeometrySource({ width: 3.2, height: 0.5, depth: 0.12 })), beaconDoneMaterial, false);
+  for (const side of [-1, 1]) {
+    const lantern = scene.createTransformedEntity(`Depot lantern ${side}`, new Vec3(side * 2.22, 2.6, 1.9));
     const lanternLight = new Light();
     lanternLight.kind = "point";
     lanternLight.setColor(1, 0.72, 0.43);
@@ -386,27 +412,55 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     lanternLight.range = 19;
     lantern.add(lanternLight);
     base.addChild(lantern);
-    const lanternBox = addRenderable(scene, `Depot lantern glow ${side}`, new Vec3(side * 2.22, 2.72, 1.94), headlampGeometry, baseLightMaterial, false);
-    base.addChild(lanternBox);
+    addChildRenderable(scene, base, `Depot lantern glow ${side}`, new Vec3(side * 2.22, 2.6, 1.96), geo(roundedBoxSource({ width: 0.26, height: 0.3, depth: 0.14, radius: 0.04, segments: 2 })), baseLightMaterial, false);
   }
+  // Radio mast with a red aviation lamp, fuel drums and a stack of crates beside the hut.
+  const mast = new MeshBuilder();
+  const mastTube = tubeBetween([3.4, 0, -2.4], [3.4, 6.4, -2.4], 0.07, 8);
+  mast.add(mastTube.source, mastTube.transform);
+  for (const [dx, dz] of [[-1, -1], [1, -1], [0, 1]] as const) {
+    const stay = tubeBetween([3.4 + dx * 1.7, 0, -2.4 + dz * 1.7], [3.4, 5.2, -2.4], 0.012, 5);
+    mast.add(stay.source, stay.transform);
+  }
+  addChildRenderable(scene, base, "Depot radio mast", new Vec3(), geo(mast.build("depot-mast")), darkMetalMaterial);
+  addChildRenderable(scene, base, "Depot mast lamp", new Vec3(3.4, 6.5, -2.4), geo(sphereGeometrySource({ radius: 0.11, widthSegments: 10, heightSegments: 6 })), beaconActiveMaterial, false);
+  const drums = new MeshBuilder();
+  for (const [x, z] of [[-3.7, 1.4], [-3.7, 0.5], [-3.7, -0.4]] as const) drums.add(cylinderGeometrySource({ radiusTop: 0.29, radiusBottom: 0.29, height: 0.9, radialSegments: 14, capped: true }), translate(x, 0.45, z));
+  addChildRenderable(scene, base, "Depot fuel drums", new Vec3(), geo(drums.build("depot-drums")), drumMaterial);
   // A low plinth makes the base beacon legible from the approach.
+  const beaconRingGeometry = ownGeometry(createTorus(engine.gpu, { radius: 2.4, tube: 0.1 }));
   const baseMarker = addRenderable(scene, "Rescue depot navigation ring", new Vec3(DEPOT_X, depotGround + 0.18, BASE_Z + 4), beaconRingGeometry, beaconDimMaterial, false);
   baseMarker.transform.scale = new Vec3(0.68, 0.68, 0.68);
 
-  // Route and destination beacons.
+  // ------------------------------------------------------------------ relay beacons
+  const tower = new MeshBuilder();
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    const leg = tubeBetween([Math.cos(a) * 0.95, 0, Math.sin(a) * 0.95], [Math.cos(a) * 0.1, 2.5, Math.sin(a) * 0.1], 0.04, 6);
+    tower.add(leg.source, leg.transform);
+  }
+  const towerMast = tubeBetween([0, 0, 0], [0, 3.5, 0], 0.075, 8);
+  tower.add(towerMast.source, towerMast.transform);
+  tower.add(cylinderGeometrySource({ radiusTop: 0.5, radiusBottom: 0.55, height: 0.08, radialSegments: 14, capped: true }), translate(0, 0.04, 0));
+  tower.add(sphereGeometrySource({ radius: 0.34, widthSegments: 14, heightSegments: 6, thetaLength: 1.1 }), chain(rotateZ(Math.PI / 2 - 0.25), translate(0.18, 2.95, 0)));
+  const towerGeometry = geo(tower.build("beacon-tower"));
+  const housing = new MeshBuilder();
+  housing.add(roundedBoxSource({ width: 0.62, height: 0.4, depth: 0.5, radius: 0.06, segments: 3 }), translate(0, 2.3, 0));
+  housing.add(roundedBoxSource({ width: 0.3, height: 0.14, depth: 0.3, radius: 0.04, segments: 2 }), translate(0, 3.58, 0));
+  const housingGeometry = geo(housing.build("beacon-housing"));
+  const beaconLampGeometry = ownGeometry(createCylinder(engine.gpu, { radiusTop: 0.13, radiusBottom: 0.13, height: 0.2, radialSegments: 12 }));
   const beaconVisuals: BeaconVisual[] = [];
   for (let i = 0; i < RELAY_SITES.length; i++) {
     const site = RELAY_SITES[i]!;
     const y = heightAt(site.x, site.z);
     const root = scene.createTransformedEntity(`${site.callsign} beacon`, new Vec3(site.x, y, site.z));
-    const pole = addRenderable(scene, `${site.callsign} transmitter mast`, new Vec3(0, 1.7, 0), beaconPoleGeometry, darkMetalMaterial);
-    root.addChild(pole);
-    const cap = addRenderable(scene, `${site.callsign} beacon housing`, new Vec3(0, 3.38, 0), beaconTopGeometry, redMaterial);
-    root.addChild(cap);
+    addChildRenderable(scene, root, `${site.callsign} transmitter mast`, new Vec3(), towerGeometry, darkMetalMaterial);
+    addChildRenderable(scene, root, `${site.callsign} beacon housing`, new Vec3(), housingGeometry, redMaterial);
+    addChildRenderable(scene, root, `${site.callsign} beacon lamp`, new Vec3(0, 3.78, 0), beaconLampGeometry, beaconActiveMaterial, false);
     const halo = addRenderable(scene, `${site.callsign} activation ring`, new Vec3(0, 0.19, 0), beaconRingGeometry, beaconDimMaterial, false);
     halo.transform.scale = new Vec3(1.18, 1.18, 1.18);
     root.addChild(halo);
-    const lightEntity = scene.createTransformedEntity(`${site.callsign} search light`, new Vec3(0, 3.8, 0));
+    const lightEntity = scene.createTransformedEntity(`${site.callsign} search light`, new Vec3(0, 3.95, 0));
     const beaconLight = new Light();
     beaconLight.kind = "point";
     beaconLight.setColor(0.32, 0.83, 0.72);
@@ -420,80 +474,199 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   // Phase 20.8: what each physics body sounds like when it hits something (bodies spawn later, so
   // the components are kept and resolved when sound starts).
   const soundBodies: Array<[RigidBodyComponent, ImpactMaterial]> = [];
-  // The frozen spruce line and scattered granite make the winding service track read at speed.
-  const rockGeometry = ownGeometry(createBox(engine.gpu, { width: 1.2, height: 0.84, depth: 1.1 }));
-  for (let i = 0; i < 22; i++) {
-    const side = i % 2 === 0 ? -1 : 1;
-    const x = ROUTE_X + side * (28 + seededNoise(i, 2) * 66);
-    const z = ROUTE_START_Z - 34 + seededNoise(i, 7) * 300;
-    const y = heightAt(x, z);
-    const tree = scene.createTransformedEntity(`Alpine spruce ${i + 1}`, new Vec3(x, y, z));
-    const trunk = addRenderable(scene, `Spruce trunk ${i + 1}`, new Vec3(0, 1.12, 0), trunkGeometry, groundMaterial, false);
-    tree.addChild(trunk);
-    const lower = addRenderable(scene, `Spruce boughs lower ${i + 1}`, new Vec3(0, 2.05, 0), pineLowerGeometry, pineMaterial);
-    lower.transform.scale = new Vec3(1, 1 + seededNoise(i, 9) * 0.32, 1);
-    tree.addChild(lower);
-    const upper = addRenderable(scene, `Spruce boughs upper ${i + 1}`, new Vec3(0, 3.05, 0), pineUpperGeometry, pineDarkMaterial);
-    upper.transform.scale = new Vec3(1, 0.94 + seededNoise(i, 11) * 0.4, 1);
-    tree.addChild(upper);
-  }
+
+  // ------------------------------------------------------------------ boulders
+  // Four granite shapes shared by every boulder, so hundreds of rocks are a handful of draws.
+  const rockShapes = [0, 1, 2, 3].map((seed) => geo(rockGeometrySource({ radius: 0.5, segments: 12, roughness: 0.34, flatten: 0.2 + seed * 0.05, seed: 11 + seed * 37 })));
+  // Roadside boulders carry static bodies so the truck and the crates can hit them.
   for (let i = 0; i < 16; i++) {
     const side = i % 2 === 0 ? -1 : 1;
-    const z = ROUTE_START_Z + 14 + i * 15.2;
-    const x = ROUTE_X + side * (6.7 + seededNoise(i, 15) * 4.8);
-    const y = heightAt(x, z);
-    const rock = addRenderable(scene, `Roadside boulder ${i + 1}`, new Vec3(x, y + 0.34, z), rockGeometry, rockMaterial);
-    const scale = 0.62 + seededNoise(i, 19) * 0.9;
-    rock.transform.scale = new Vec3(scale * 1.22, scale, scale * 0.94);
+    const s = 24 + i * ((route.length - 60) / 16);
+    const pose = route.poseAt(s);
+    const lateral = side * (7.2 + seededNoise(i, 15) * 4.6);
+    const x = pose.x + Math.cos(pose.yaw) * lateral;
+    const z = pose.z - Math.sin(pose.yaw) * lateral;
+    const scale = 0.95 + seededNoise(i, 19) * 1.35;
+    const rock = addRenderable(scene, `Roadside boulder ${i + 1}`, new Vec3(x, heightAt(x, z) + scale * 0.18, z), rockShapes[i % rockShapes.length]!, rockMaterials[i % rockMaterials.length]!);
+    rock.transform.scale = new Vec3(scale * 1.25, scale, scale * 0.95);
     rock.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), seededNoise(i, 21) * Math.PI * 2);
-    soundBodies.push([makeBoxBody(rock, { x: scale * 0.73, y: scale * 0.42, z: scale * 0.52 }), "rock"]);
+    soundBodies.push([makeBoxBody(rock, { x: scale * 0.56, y: scale * 0.33, z: scale * 0.42 }), "rock"]);
+  }
+  // Scatter: the same shapes strewn down the slopes, thicker where the ground is steep.
+  let looseRocks = 0;
+  {
+    const CELL = 17;
+    const rockCount = tierValue(tier, { low: 0.35, medium: 0.7, high: 1 });
+    for (let gz = Math.floor((ROAD_START_Z - 60) / CELL); gz < Math.ceil((ROUTE_END_Z + 80) / CELL); gz++) {
+      for (let gx = Math.floor((ROUTE_X - 200) / CELL); gx < Math.ceil((ROUTE_X + 200) / CELL); gx++) {
+        const x = (gx + 0.15 + 0.7 * dice(gx, gz, 1)) * CELL;
+        const z = (gz + 0.15 + 0.7 * dice(gx, gz, 2)) * CELL;
+        const pr = route.project(x, z);
+        if (Number.isFinite(pr.distance) && pr.distance < 9) continue;
+        const y = gradedHeight(x, z);
+        const gradeX = (gradedHeight(x + 2, z) - gradedHeight(x - 2, z)) / 4;
+        const gradeZ = (gradedHeight(x, z + 2) - gradedHeight(x, z - 2)) / 4;
+        const steepness = Math.atan(Math.hypot(gradeX, gradeZ));
+        if (dice(gx, gz, 3) > (0.1 + 0.8 * smoothstep(0.25, 0.7, steepness)) * rockCount) continue;
+        const scale = 0.5 + dice(gx, gz, 4) * dice(gx, gz, 5) * 3.2;
+        const rock = addRenderable(scene, `Scree boulder ${looseRocks + 1}`, new Vec3(x, y + scale * 0.12, z), rockShapes[Math.floor(dice(gx, gz, 6) * 4)]!, rockMaterials[Math.floor(dice(gx, gz, 7) * 3)]!);
+        rock.transform.scale = new Vec3(scale * (1 + dice(gx, gz, 8) * 0.5), scale * (0.7 + dice(gx, gz, 9) * 0.5), scale);
+        rock.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), dice(gx, gz, 10) * Math.PI * 2);
+        looseRocks++;
+      }
+    }
   }
 
+  // ------------------------------------------------------------------ cargo and crates
+  const caseBody = new MeshBuilder();
+  caseBody.add(roundedBoxSource({ width: 0.8, height: 0.48, depth: 0.54, radius: 0.05, segments: 3 }));
+  const caseBodyGeometry = geo(caseBody.build("case-body"));
+  const caseTrim = new MeshBuilder();
+  caseTrim.add(boxGeometrySource({ width: 0.82, height: 0.03, depth: 0.56 }), translate(0, 0.02, 0));
+  for (const x of [-0.26, 0.26]) caseTrim.add(roundedBoxSource({ width: 0.09, height: 0.1, depth: 0.58, radius: 0.015, segments: 2 }), translate(x, 0.12, 0));
+  caseTrim.add(roundedBoxSource({ width: 0.3, height: 0.045, depth: 0.06, radius: 0.02, segments: 2 }), translate(0, 0.28, 0));
+  const caseTrimGeometry = geo(caseTrim.build("case-trim"));
+  const caseCross = new MeshBuilder();
+  for (const [w, d] of [[0.32, 0.09], [0.09, 0.32]] as const) caseCross.add(boxGeometrySource({ width: w, height: 0.012, depth: d }), translate(0, 0.243, 0));
+  for (const s of [-1, 1]) for (const [w, h] of [[0.2, 0.06], [0.06, 0.2]] as const) caseCross.add(boxGeometrySource({ width: w, height: h, depth: 0.012 }), translate(0, 0.0, s * 0.272));
+  const caseCrossGeometry = geo(caseCross.build("case-cross"));
+
+  const supplyCrate = scene.createTransformedEntity(
+    "Priority medical supply case",
+    new Vec3(DEPOT_X + 3, heightAt(DEPOT_X + 3, BASE_Z + 2) + 0.27, BASE_Z + 2),
+  );
+  addChildRenderable(scene, supplyCrate, "Priority medical supply case mesh", new Vec3(), caseBodyGeometry, cargoMaterial);
+  addChildRenderable(scene, supplyCrate, "Medical case trim", new Vec3(), caseTrimGeometry, caseTrimMaterial, false);
+  addChildRenderable(scene, supplyCrate, "Medical case cross", new Vec3(), caseCrossGeometry, crossMaterial, false);
+  soundBodies.push([makeBoxBody(supplyCrate, { x: 0.4, y: 0.24, z: 0.27 }, { mass: 28, friction: 0.78, restitution: 0.06 }), "plastic"]);
+  let dynamicPropCount = 1;
+
+  const crateBody = new MeshBuilder();
+  crateBody.add(roundedBoxSource({ width: 0.94, height: 0.94, depth: 0.94, radius: 0.025, segments: 2 }));
+  const crateBodyGeometry = geo(crateBody.build("crate-body"));
+  const crateFrame = new MeshBuilder();
+  for (const x of [-0.46, 0.46]) for (const z of [-0.46, 0.46]) crateFrame.add(boxGeometrySource({ width: 0.1, height: 0.98, depth: 0.1 }), translate(x, 0, z));
+  for (const y of [-0.34, 0.34]) {
+    crateFrame.add(boxGeometrySource({ width: 0.98, height: 0.08, depth: 0.98 }), translate(0, y, 0));
+  }
+  const crateFrameGeometry = geo(crateFrame.build("crate-frame"));
+  for (let i = 0; i < 7; i++) {
+    const pose = route.poseAt(30 + i * 36);
+    // Alternate sides of the centre line, partly on the running surface: a few are real obstacles.
+    const lateral = (i % 2 === 0 ? 1 : -1) * (2.3 + seededNoise(i, 27) * 2.2);
+    const x = pose.x + Math.cos(pose.yaw) * lateral;
+    const z = pose.z - Math.sin(pose.yaw) * lateral;
+    const crate = scene.createTransformedEntity(`Physical trail supply crate ${i + 1}`, new Vec3(x, heightAt(x, z) + 0.5, z));
+    crate.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), seededNoise(i, 29) * Math.PI);
+    addChildRenderable(scene, crate, `Trail supply crate ${i + 1} mesh`, new Vec3(), crateBodyGeometry, crateMaterial);
+    addChildRenderable(scene, crate, `Trail supply crate ${i + 1} frame`, new Vec3(), crateFrameGeometry, crateFrameMaterial);
+    soundBodies.push([makeBoxBody(crate, { x: 0.47, y: 0.47, z: 0.47 }, { mass: 19 + (i % 3) * 4, friction: 0.74, restitution: 0.1 }), "wood"]);
+    dynamicPropCount++;
+  }
+
+  // ------------------------------------------------------------------ vehicle
   // Establish a shared terrain world so cargo and route crates can bounce, tip, and collide with the truck.
   const physicsSystem = new PhysicsSystem({ world: physicsWorld });
   scene.world.registerSystem(new VehicleSystem());
   scene.world.registerSystem(physicsSystem);
 
-  const vehicle = new Vehicle(createVehicleConfig({
-    mass: 2380,
-    wheelbase: 2.72,
-    track: 1.67,
-    wheelRadius: 0.42,
-    cgHeight: 0.58,
-    mu: 1.24,
-    rollingResistance: 0.042,
-    maxBrakeTorque: 5600,
-    parkingBrakeTorque: 9400,
-  }));
+  const vehicle = new Vehicle(
+    createVehicleConfig({
+      mass: 2380,
+      wheelbase: 2.72,
+      track: 1.67,
+      wheelRadius: 0.42,
+      cgHeight: 0.58,
+      // Peak friction on a dry surface; the weather grip factor (snow cover) and the road/off-road
+      // grip field below scale it — about 0.5 on the packed road in a full storm, 0.9 at the start.
+      mu: 1.45,
+      rollingResistance: 0.042,
+      maxBrakeTorque: 5600,
+      parkingBrakeTorque: 9400,
+      layout: "awd",
+    }),
+  );
+  const spawnProjection = route.project(DEPOT_APPROACH_X, DEPOT_APPROACH_Z);
   vehicle.position.set(DEPOT_APPROACH_X, 0, DEPOT_APPROACH_Z);
+  vehicle.yaw = route.poseAt(spawnProjection.s).yaw;
   vehicle.placeOnGround(groundAt);
-  vehicle.yaw = 0;
   vehicle.input.brake = 1;
   vehicle.input.handbrake = 1;
   let startupHold = true;
   let parked = false;
 
+  const staticCompression = (vehicle.config.mass * vehicle.config.gravity) / (vehicle.wheels.length * vehicle.config.springRate);
+  const truck = buildRescueTruckSources({
+    wheelbase: vehicle.config.wheelbase,
+    track: vehicle.config.track,
+    wheelRadius: vehicle.config.wheelRadius,
+    hubDrop: vehicle.config.suspensionRest - staticCompression,
+    cgToFront: vehicle.config.cgToFront,
+  });
+
+  const truckTextures: MaterialTextureSet[] = [];
+  const tyreSpan = tyreTreadSpan(truck.dims.wheelRadius, truck.dims.wheelWidth);
+  const tyreTextures = createTyreTreadTextures(engine.gpu, { treadFrom: tyreSpan[0], treadTo: tyreSpan[1] });
+  const stripeTextures = createHiVisStripeTextures(engine.gpu);
+  truckTextures.push(tyreTextures, stripeTextures);
+  ownedTextures.push({ dispose: () => truckTextures.forEach((set) => disposeMaterialTextureSet(set)) });
+  const paintMaterial = ownMaterial(new Material({ label: "SAR vehicle enamel", color: Color.fromSrgbHex(0xf2641f), metallic: 0.08, roughness: 0.42 }));
+  const roofMaterial = ownMaterial(new Material({ label: "SAR vehicle roof", color: Color.fromSrgbHex(0xe9eceb), metallic: 0.1, roughness: 0.42 }));
+  const glassMaterial = ownMaterial(new Material({ label: "rescue vehicle glass", color: Color.fromSrgbHex(0x0d171c), metallic: 0.4, roughness: 0.07 }));
+  const trimMaterial = ownMaterial(new Material({ label: "vehicle trim", color: Color.fromSrgbHex(0x16181a), roughness: 0.72, metallic: 0.05 }));
+  const steelMaterial = ownMaterial(new Material({ label: "vehicle steel", color: Color.fromSrgbHex(0x8a9298), roughness: 0.4, metallic: 0.85 }));
+  const underbodyMaterial = ownMaterial(new Material({ label: "vehicle underbody", color: Color.fromSrgbHex(0x0e0f10), roughness: 0.95 }));
+  const headlampMaterial = ownMaterial(Material.emissive(0xfff1d0, 1.8, { label: "rescue headlamp glass" }));
+  const tailLampMaterial = ownMaterial(Material.emissive(0xff2a18, 0.9, { label: "tail lamp" }));
+  const amberMaterial = ownMaterial(Material.emissive(0xffa020, 0.9, { label: "indicator lamp" }));
+  const reverseMaterial = ownMaterial(new Material({ label: "reverse lamp", color: Color.fromSrgbHex(0xe8e8e8), emissive: Color.fromSrgbHex(0xffffff), emissiveStrength: 0, roughness: 0.3 }));
+  const lightBarMaterial = ownMaterial(new Material({ label: "light bar housing", color: Color.fromSrgbHex(0x1a1c1e), roughness: 0.5, metallic: 0.3 }));
+  const stripeMaterial = withMaps(ownMaterial(new Material({ label: "hi-vis stripe", color: 0xffffff, roughness: 1, metallic: 0, tiling: [1.5, 1] })), stripeTextures);
+  const tyreMaterial = withMaps(ownMaterial(new Material({ label: "winter tyre", color: 0xffffff, roughness: 1, metallic: 0 })), tyreTextures);
+  const rimDiscMaterial = ownMaterial(new Material({ label: "wheel dish", color: Color.fromSrgbHex(0x2b2e33), roughness: 0.5, metallic: 0.6 }));
+  const rimSpokeMaterial = ownMaterial(new Material({ label: "wheel spokes", color: Color.fromSrgbHex(0xaeb4ba), roughness: 0.32, metallic: 0.9 }));
+  const hubMaterial = ownMaterial(new Material({ label: "wheel hub", color: Color.fromSrgbHex(0x9aa0a6), roughness: 0.35, metallic: 0.9 }));
+  const redFlasherMaterial = ownMaterial(Material.emissive(0xf04435, 2.8, { label: "red emergency light" }));
+  const blueFlasherMaterial = ownMaterial(Material.emissive(0x47baff, 2.8, { label: "blue emergency light" }));
+
   const truckRoot = scene.createTransformedEntity("Alpine rescue 4x4", vehicle.position.clone());
-  const vehicleBody = addRenderable(scene, "Rescue 4x4 body", new Vec3(0, 0.05, 0), bodyGeometry, bodyMaterial);
-  truckRoot.addChild(vehicleBody);
-  const cabin = addRenderable(scene, "Rescue 4x4 cab", new Vec3(0, 0.77, -0.25), cabinGeometry, glassMaterial);
-  truckRoot.addChild(cabin);
-  const roofRack = addRenderable(scene, "Rescue roof rack", new Vec3(0, 1.26, -0.2), roofGeometry, darkMetalMaterial);
-  truckRoot.addChild(roofRack);
-  for (const z of [-1.9, 1.85]) {
-    const bumper = addRenderable(scene, `Rescue bumper ${z}`, new Vec3(0, -0.2, z), bumperGeometry, darkMetalMaterial);
-    truckRoot.addChild(bumper);
+  const part = (name: string, source: GeometrySource, material: Material, castShadow = true) =>
+    addChildRenderable(scene, truckRoot, name, new Vec3(), geo(source), material, castShadow);
+  part("Rescue 4x4 paint", truck.body.paint, paintMaterial);
+  part("Rescue 4x4 roof", truck.body.roof, roofMaterial);
+  part("Rescue 4x4 glass", truck.body.glass, glassMaterial, false);
+  part("Rescue 4x4 trim", truck.body.trim, trimMaterial);
+  part("Rescue 4x4 steel", truck.body.steel, steelMaterial);
+  part("Rescue 4x4 underbody", truck.body.underbody, underbodyMaterial, false);
+  part("Rescue headlamp lenses", truck.body.headlamps, headlampMaterial, false);
+  part("Rescue tail lamps", truck.body.tailLamps, tailLampMaterial, false);
+  part("Rescue indicators", truck.body.amber, amberMaterial, false);
+  part("Rescue reverse lamps", truck.body.reverse, reverseMaterial, false);
+  part("Rescue hi-vis stripe", truck.body.stripe, stripeMaterial, false);
+  part("Rescue light bar", truck.body.lightBar, lightBarMaterial, false);
+  const redLamp = addChildRenderable(scene, truckRoot, "Rescue red flasher", new Vec3(...truck.flashers.redAt), geo(truck.flashers.red), redFlasherMaterial, false);
+  const blueLamp = addChildRenderable(scene, truckRoot, "Rescue blue flasher", new Vec3(...truck.flashers.blueAt), geo(truck.flashers.blue), blueFlasherMaterial, false);
+  const redFlasher = redLamp.require(Renderable);
+  const blueFlasher = blueLamp.require(Renderable);
+  // The flashers throw coloured light on the snow, alternating with the lenses.
+  const flasherLights: Light[] = [];
+  for (const [at, rgb] of [[truck.flashers.redAt, [1, 0.22, 0.16]], [truck.flashers.blueAt, [0.2, 0.5, 1]]] as const) {
+    const entity = scene.createTransformedEntity("Rescue flasher light", new Vec3(at[0], at[1] + 0.25, at[2]));
+    const light = new Light();
+    light.kind = "point";
+    light.setColor(rgb[0], rgb[1], rgb[2]);
+    light.intensity = 0;
+    light.range = 15;
+    entity.add(light);
+    truckRoot.addChild(entity);
+    flasherLights.push(light);
   }
-  const wheelEntities: ReturnType<Scene["createTransformedEntity"]>[] = [];
-  for (let i = 0; i < vehicle.wheels.length; i++) {
-    const wheel = addRenderable(scene, `Rescue wheel ${i + 1}`, new Vec3(vehicle.wheels[i]!.x, 0, vehicle.wheels[i]!.z), wheelGeometry, tireMaterial);
-    wheelEntities.push(wheel);
-    truckRoot.addChild(wheel);
-  }
-  for (const side of [-1, 1]) {
-    const lamp = scene.createTransformedEntity(`Rescue headlamp ${side}`, new Vec3(side * 0.68, 0.19, 1.97));
-    const lampMesh = addRenderable(scene, `Headlamp lens ${side}`, new Vec3(), headlampGeometry, headlampMaterial, false);
-    lamp.addChild(lampMesh);
+  let flashFrame = -1;
+
+  // Two spot headlamps, one at each lens.
+  const headlightSpots: Light[] = [];
+  for (const at of truck.dims.headlamps) {
+    const lamp = scene.createTransformedEntity("Rescue headlamp", new Vec3(at[0], at[1], at[2] + 0.04));
     const spot = new Light();
     spot.kind = "spot";
     spot.setColor(1, 0.84, 0.62);
@@ -503,19 +676,37 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     spot.outerCone = 0.66;
     lamp.add(spot);
     truckRoot.addChild(lamp);
+    headlightSpots.push(spot);
   }
-  const beaconBar = addRenderable(scene, "Rescue light bar", new Vec3(0, 1.42, 0.18), roofGeometry, darkMetalMaterial, false);
-  truckRoot.addChild(beaconBar);
-  const redLamp = addRenderable(scene, "Rescue red flasher", new Vec3(-0.4, 1.52, 0.18), flasherGeometry, redFlasherMaterial, false);
-  const blueLamp = addRenderable(scene, "Rescue blue flasher", new Vec3(0.4, 1.52, 0.18), flasherGeometry, blueFlasherMaterial, false);
-  truckRoot.addChild(redLamp);
-  truckRoot.addChild(blueLamp);
-  const redFlasher = redLamp.require(Renderable);
-  const blueFlasher = blueLamp.require(Renderable);
-  let flashFrame = -1;
+
+  // The spare wheel on the tailgate (same shared wheel meshes, turned to face aft).
+  const wheelParts: Array<[string, GeometrySource, Material]> = [
+    ["tyre", truck.wheel.tyre, tyreMaterial],
+    ["rim", truck.wheel.rimDisc, rimDiscMaterial],
+    ["spokes", truck.wheel.rimSpokes, rimSpokeMaterial],
+    ["hub", truck.wheel.hub, hubMaterial],
+  ];
+  const wheelGeometries = wheelParts.map(([, source]) => geo(source));
+  const spareRoot = scene.createTransformedEntity("Rescue spare wheel", new Vec3(...truck.spare.position));
+  spareRoot.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), truck.spare.yaw);
+  truckRoot.addChild(spareRoot);
+  wheelParts.forEach(([name, , material], k) => addChildRenderable(scene, spareRoot, `Spare ${name}`, new Vec3(), wheelGeometries[k]!, material));
+
+  // The four wheels: root entities that `VehicleSystem` poses in world space each step (a wheel
+  // parented to the chassis would be offset by the chassis's own pose). Left-hand wheels turn their
+  // meshes 180° so the rim face is always outboard.
+  const wheelEntities: Array<ReturnType<Scene["createTransformedEntity"]>> = [];
+  for (let i = 0; i < vehicle.wheels.length; i++) {
+    const wheel = scene.createTransformedEntity(`Rescue wheel ${i + 1}`, vehicle.position.clone());
+    wheelParts.forEach(([name, , material], k) => {
+      const child = addChildRenderable(scene, wheel, `Rescue wheel ${i + 1} ${name}`, new Vec3(), wheelGeometries[k]!, material);
+      if (vehicle.wheels[i]!.x < 0) child.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), Math.PI);
+    });
+    wheelEntities.push(wheel);
+  }
 
   const chassisBody = createVehicleChassis(vehicle, physicsWorld, {
-    halfExtents: { x: 1.02, y: 0.43, z: 1.82 },
+    halfExtents: { x: 1.02, y: 0.43, z: 2.1 },
     friction: 0.92,
     restitution: 0.02,
   });
@@ -524,32 +715,112 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   vehicleComponent.attachChassis(chassisBody, physicsWorld);
   truckRoot.add(vehicleComponent);
 
-  // Objective cargo and physics-enabled tip hazards use the same body/collider integration as the truck.
-  const supplyCrate = scene.createTransformedEntity(
-    "Priority medical supply case",
-    new Vec3(DEPOT_X + 3, heightAt(DEPOT_X + 3, BASE_Z + 2) + 0.53, BASE_Z + 2),
-  );
-  const cargoMesh = addRenderable(scene, "Priority medical supply case mesh", new Vec3(), cubeGeometry, cargoMaterial);
-  cargoMesh.transform.scale = new Vec3(0.8, 0.72, 0.8);
-  supplyCrate.addChild(cargoMesh);
-  soundBodies.push([makeBoxBody(supplyCrate, { x: 0.42, y: 0.36, z: 0.42 }, { mass: 28, friction: 0.78, restitution: 0.06 }), "plastic"]);
-  let dynamicPropCount = 1;
-  for (let i = 0; i < 7; i++) {
-    const z = ROUTE_START_Z + 24 + i * 31;
-    const x = ROUTE_X + (i % 2 === 0 ? 1 : -1) * (2.9 + seededNoise(i, 27) * 2.0);
-    const y = heightAt(x, z);
-    const crate = scene.createTransformedEntity(`Physical trail supply crate ${i + 1}`, new Vec3(x, y + 0.48, z));
-    const mesh = addRenderable(scene, `Trail supply crate ${i + 1} mesh`, new Vec3(), cubeGeometry, crateMaterial);
-    mesh.transform.scale = new Vec3(0.94, 0.94, 0.94);
-    crate.addChild(mesh);
-    soundBodies.push([makeBoxBody(crate, { x: 0.47, y: 0.47, z: 0.47 }, { mass: 19 + (i % 3) * 4, friction: 0.74, restitution: 0.1 }), "wood"]);
-    dynamicPropCount++;
-  }
+  // Packed road grips better than the drifted snow beside it; the weather factor scales both.
+  const gripProbe: RouteProjection = { s: 0, lateral: Infinity, distance: Infinity };
+  setWorldSurfaceGripField(scene.world, (x, z) => {
+    route.project(x, z, gripProbe);
+    const onRoad = 1 - smoothstep(2.9, 4.6, Math.abs(gripProbe.lateral));
+    return 0.8 + 0.32 * onRoad;
+  });
 
+  // Wheel tracks: every grounded tyre presses a persistent, darker trail into the snow.
+  const trackLayer = new TireTrackLayer(engine.gpu, {
+    heightAt,
+    tileSize: 28,
+    tileResolution: tierValue(tier, { low: 128, medium: 192, high: 256 }),
+    maxTiles: tierValue(tier, { low: 10, medium: 18, high: 28 }),
+    lift: 0.075,
+  });
+  trackLayer.followVehicle(vehicle, () => "snow", 0.3);
+  scene.add(trackLayer);
+
+  // ------------------------------------------------------------------ forest
+  // Procedural spruce: engine trees (`generateTree`) with a needle-bough card, drawn as instanced,
+  // LOD-switched, wind-swayed vegetation that holds snow on its boughs.
+  const boughTexture = tex(128, 128, spruceBoughPixels(128, 17), "alpine.spruce-bough");
+  const barkTexture = tex(64, 64, barkPixels(64, "furrowed", 5), "alpine.spruce-bark");
+  const needleMaterial = ownMaterial(new Material({ label: "alpine spruce needles", color: 0xffffff, roughness: 0.9, metallic: 0, doubleSided: true, albedoMap: boughTexture }));
+  needleMaterial.alphaTest = 0.5;
+  const barkMaterial = ownMaterial(new Material({ label: "alpine spruce bark", color: Color.fromSrgbHex(0x8a7560), roughness: 0.95, metallic: 0, albedoMap: barkTexture }));
+  const spruce: TreeSpecies = {
+    name: "spruce",
+    height: [12, 19],
+    shape: "conical",
+    trunkRadius: 0.02,
+    clearBole: 0.1,
+    children: [10, 4, 3],
+    branchAngle: [1.38, 1.1, 0.9],
+    lengthRatio: [0.5, 0.55, 0.5],
+    gravitropism: -0.12,
+    leafSize: 1.15,
+    leavesPerBranch: tierValue(tier, { low: 6, medium: 7, high: 8 }),
+    wander: 0.05,
+  };
+  const youngSpruce: TreeSpecies = { ...spruce, name: "young spruce", height: [5, 8.5], leafSize: 0.7, leavesPerBranch: tierValue(tier, { low: 4, medium: 5, high: 6 }), children: [8, 4, 3] };
+  const treeModels: VegetationModel[] = [];
+  const variants = tierValue(tier, { low: 2, medium: 3, high: 3 });
+  for (const [si, species] of [spruce, youngSpruce].entries()) {
+    for (let v = 0; v < variants; v++) {
+      const seed = 4100 + si * 900 + v * 77;
+      const hi = generateTree(species, seed, "hi");
+      const lo = generateTree(species, seed, "lo");
+      treeModels.push({
+        parts: [
+          { hi: geo(hi.wood), lo: geo(lo.wood), material: barkMaterial, castShadow: true },
+          { hi: geo(hi.leaves), lo: geo(lo.leaves), material: needleMaterial, castShadow: true },
+        ],
+        lodDistance: tierValue(tier, { low: 45, medium: 70, high: 95 }),
+        maxDistance: tierValue(tier, { low: 190, medium: 290, high: 400 }),
+        sway: { maxBend: 0.1, halfBendWind: 30, frequency: 0.28 },
+        swayDistance: tierValue(tier, { low: 30, medium: 55, high: 80 }),
+      });
+    }
+  }
+  let windNow = { x: 0, z: 0 };
+  const vegetation = new VegetationField({
+    name: "alpine-vegetation",
+    models: treeModels,
+    viewer: () => cameraEntity.transform.position,
+    wind: () => windNow,
+  });
+  const treeTints = [0x3c604a, 0x446a50, 0x365843, 0x4d7357, 0x3f6550].map((c) => (0xff000000 | c) >>> 0);
+  {
+    const CELL = 10;
+    const density = tierValue(tier, { low: 0.4, medium: 0.7, high: 1 });
+    const keepClear = [
+      ...RELAY_SITES.map((site) => ({ x: site.x, z: site.z, r: 11 })),
+      { x: DEPOT_X - 6, z: BASE_Z, r: 26 },
+    ];
+    for (let gz = Math.floor((ROAD_START_Z - 70) / CELL); gz < Math.ceil((ROUTE_END_Z + 90) / CELL); gz++) {
+      for (let gx = Math.floor((ROUTE_X - 230) / CELL); gx < Math.ceil((ROUTE_X + 230) / CELL); gx++) {
+        const x = (gx + 0.15 + 0.7 * dice(gx, gz, 21)) * CELL;
+        const z = (gz + 0.15 + 0.7 * dice(gx, gz, 22)) * CELL;
+        const pr = route.project(x, z);
+        const distance = Number.isFinite(pr.distance) ? pr.distance : 99;
+        if (distance < 10.5) continue;
+        if (keepClear.some((k) => Math.hypot(x - k.x, z - k.z) < k.r)) continue;
+        // Stands and meadows: a slow noise decides where the forest is thick; the road verge is thin.
+        const stand = fbm2(x / 90, z / 90, 0x7b3d, { octaves: 3 }) * 0.5 + 0.5;
+        const verge = smoothstep(10.5, 34, distance);
+        const p = (0.1 + 0.7 * smoothstep(0.36, 0.62, stand)) * (0.3 + 0.7 * verge) * density;
+        if (dice(gx, gz, 23) > p) continue;
+        const y = gradedHeight(x, z);
+        if (y > 90) continue;
+        const gradeX = (gradedHeight(x + 2, z) - gradedHeight(x - 2, z)) / 4;
+        const gradeZ = (gradedHeight(x, z + 2) - gradedHeight(x, z - 2)) / 4;
+        if (Math.hypot(gradeX, gradeZ) > 0.95) continue;
+        const kind = dice(gx, gz, 24) < 0.28 ? 1 : 0;
+        const model = kind * variants + (Math.floor(dice(gx, gz, 25) * 997) % variants);
+        vegetation.add(model, x, y, z, dice(gx, gz, 26) * Math.PI * 2, 0.8 + dice(gx, gz, 27) * 0.5, treeTints[Math.floor(dice(gx, gz, 28) * treeTints.length)]!);
+      }
+    }
+  }
+  scene.add(vegetation);
+
+  // ------------------------------------------------------------------ sky, light, weather
   const sunEntity = scene.createTransformedEntity("Whiteout Run arctic sun", new Vec3(0, 0, 0));
   const sun = new Light();
   sun.kind = "directional";
-  sun.setColor(0.72, 0.84, 1);
   sun.intensity = 4.2;
   sun.castShadow = true;
   sunEntity.add(sun);
@@ -565,33 +836,27 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   scene.add(dayNight);
 
   scene.setFog("exp2", { density: 0.00038, color: Color.fromSrgbHex(0x89999e), start: 18, end: 740 });
-  scene.setSky({ quality: "medium", turbidity: 7.8, rayleigh: 1.35, mie: 0.78, exposure: 1.0, sunDiscIntensity: 110 });
+  scene.setSky({ quality: tier === "low" ? "low" : "medium", turbidity: 7.8, rayleigh: 1.35, mie: 0.78, exposure: 1.0, sunDiscIntensity: 110 });
   scene.setClouds({ coverage: 0.74, density: 0.78, height: 720, scale: 0.0011, silverLining: 0.72, albedo: Color.fromSrgbHex(0xd7e0e3) });
   scene.setAmbient(Color.fromSrgbHex(0x8198a0), 0.44);
   scene.settings.hdr = true;
   scene.settings.toneMapping = "aces";
-  scene.settings.bloom.enabled = true;
+  scene.settings.bloom.enabled = tier !== "low";
   scene.settings.bloom.threshold = 1.12;
   scene.settings.bloom.intensity = 0.12;
   scene.settings.shadow.enabled = true;
-  scene.settings.shadow.cascades = 3;
-  scene.settings.shadow.distance = 520;
-  scene.settings.shadow.mapSize = 2048;
-  scene.settings.ssao.enabled = true;
+  scene.settings.shadow.cascades = tierValue(tier, { low: 2, medium: 3, high: 3 });
+  scene.settings.shadow.distance = tierValue(tier, { low: 220, medium: 420, high: 520 });
+  scene.settings.shadow.mapSize = tierValue(tier, { low: 1024, medium: 2048, high: 2048 });
+  scene.settings.ssao.enabled = tier !== "low";
   scene.setExposure(1.04);
 
+  const initialPackM = ALPINE_SNOWPACK_INITIAL_DEPTH_M;
   const weather = new WeatherSystem({
-    initial: {
-      windSpeed: 6,
-      windDirection: 0.92,
-      gust: 0.42,
-      temperatureC: 4,
-      humidity01: 0.82,
-      precipitation01: 0.05,
-      storm01: 0.04,
-      cloudCoverage: 0.74,
-    },
-    target: "overcast",
+    // The demo opens under broken cloud that thickens toward overcast ("CLOUDING OVER"): the low sun
+    // still models the snow and throws shadows for the first minutes.
+    initial: { ...ALPINE_WEATHER.overcast, cloudCoverage: 0.5, humidity01: 0.7 },
+    target: ALPINE_WEATHER.overcast,
     tau: {
       windSpeed: 24,
       windDirection: 38,
@@ -602,78 +867,20 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       storm01: 32,
       cloudCoverage: 48,
     },
+    // The scene owns the pack depth: the cover drives tyre grip and audio, and the renderer is
+    // given a remapped shade (see `alpineSnowShade01`), so the engine must not overwrite it.
+    initialSurface: { snow: alpineSnowCover01(initialPackM) },
+    driveSurface: false,
     rainFogDensity: 0.0042,
     driveFog: true,
     driveClouds: true,
     driveSky: true,
   });
   scene.add(weather);
-
-  // A terrain-conforming translucent blanket sits just above the ground and the packed rescue
-  // road. The same surface rises as snow deposits, so the storm leaves a visible, growing layer.
-  const snowColumns = 46;
-  const snowRows = 194;
-  const snowMinX = ROUTE_X - 46;
-  const snowMaxX = ROUTE_X + 46;
-  const snowMinZ = BASE_Z - 38;
-  const snowMaxZ = ROUTE_END_Z + 38;
-  const snowVertexWidth = snowColumns + 1;
-  const snowVertexCount = snowVertexWidth * (snowRows + 1);
-  const snowPositions = new Float32Array(snowVertexCount * 3);
-  const snowNormals = new Float32Array(snowVertexCount * 3);
-  const snowUvs = new Float32Array(snowVertexCount * 2);
-  const snowIndices = new Uint32Array(snowColumns * snowRows * 6);
-  const snowBaseHeights = new Float32Array(snowVertexCount);
-  for (let row = 0; row <= snowRows; row++) {
-    const z = snowMinZ + ((snowMaxZ - snowMinZ) * row) / snowRows;
-    const onRoad = z >= DEPOT_APPROACH_Z && z <= ROUTE_END_Z;
-    const centerX = roadCenterX(z);
-    for (let column = 0; column <= snowColumns; column++) {
-      const vertex = row * snowVertexWidth + column;
-      const x = snowMinX + ((snowMaxX - snowMinX) * column) / snowColumns;
-      const roadTop = onRoad && Math.abs(x - centerX) <= ROAD_WIDTH * 0.5;
-      const baseHeight = heightAt(x, z) + (roadTop ? 0.24 : 0.015);
-      snowBaseHeights[vertex] = baseHeight;
-      snowPositions[vertex * 3] = x;
-      snowPositions[vertex * 3 + 1] = baseHeight + ALPINE_SNOWPACK_INITIAL_DEPTH_M;
-      snowPositions[vertex * 3 + 2] = z;
-      snowNormals[vertex * 3 + 1] = 1;
-      snowUvs[vertex * 2] = column / snowColumns;
-      snowUvs[vertex * 2 + 1] = row / snowRows;
-    }
-  }
-  let snowIndex = 0;
-  for (let row = 0; row < snowRows; row++) {
-    for (let column = 0; column < snowColumns; column++) {
-      const a = row * snowVertexWidth + column;
-      const b = a + 1;
-      const c = a + snowVertexWidth;
-      const d = c + 1;
-      // Clockwise in XZ produces +Y-facing triangles.
-      snowIndices.set([a, c, b, b, c, d], snowIndex);
-      snowIndex += 6;
-    }
-  }
-  const snowpackMaterial = ownMaterial(Material.unlit({
-    label: "whiteout accumulating snowpack",
-    color: 0xe3edf1,
-    opacity: 0.58,
-    transparent: true,
-    doubleSided: true,
-  }));
-  const snowpackGeometry = ownGeometry(Geometry.create(engine.gpu, {
-    positions: snowPositions,
-    normals: snowNormals,
-    uvs: snowUvs,
-    indices: snowIndices,
-    label: "whiteout.snowpack",
-  } satisfies GeometrySource));
-  const snowpackEntity = addRenderable(scene, "Accumulating snowpack", new Vec3(), snowpackGeometry, snowpackMaterial, false);
-  const snowpackRenderable = snowpackEntity.get(Renderable)!;
-  snowpackRenderable.castShadow = false;
-  snowpackRenderable.receiveShadow = false;
-  let snowpackDepthM = ALPINE_SNOWPACK_INITIAL_DEPTH_M;
-  let renderedSnowpackDepthM = snowpackDepthM;
+  scene.settings.surface.snow = alpineSnowShade01(alpineSnowCover01(initialPackM));
+  vegetation.setSurface(0, alpineSnowShade01(alpineSnowCover01(initialPackM)));
+  let snowpackDepthM = initialPackM;
+  let appliedShade = alpineSnowShade01(alpineSnowCover01(initialPackM));
 
   // GPU camera-facing flakes vary in size, drift with the wind, and flutter instead of falling as
   // identical high-speed rods. The soft, mostly unstretched billboards read as swirling snow.
@@ -715,10 +922,11 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   });
   scene.add(snowfall);
 
+  // Thundersnow is rare: the strike rate is `rate × storm intensity`, so only the full storm flashes.
   const lightning = new LightningSystem({
     name: "Whiteout Run lightning",
-    seed: SEED + 400,
-    rate: 0.14,
+    seed: ALPINE_SEED + 400,
+    rate: 0.035,
     areaRadius: 440,
     cloudHeight: 600,
     groundY: 7,
@@ -735,8 +943,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
   scene.world.addComponent(cameraEntity.id, camera);
   cameraEntity.transform.lookAt(new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z));
   const cameraSetup = {
-    target: new Vec3(vehicle.position.x, vehicle.position.y + 1.1, vehicle.position.z),
-    distance: 14.5,
+    target: new Vec3(vehicle.position.x, vehicle.position.y + 1.3, vehicle.position.z),
+    distance: 11.5,
     azimuth: 0.44,
     elevation: 0.25,
     minDistance: 5,
@@ -748,6 +956,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     keyboard: false,
   };
 
+  // ------------------------------------------------------------------ mission state
   let stage: RescueStage = "load-kit";
   let cargoLoaded = false;
   let cargoDelivered = false;
@@ -779,7 +988,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     const speed = Math.round(Math.abs(vehicle.speed) * 3.6);
     const band = weather.state.precipitation01 > 0.48 ? "WHITEOUT" : weather.state.precipitation01 > 0.2 ? "SNOW SQUALL" : "CLOUDING OVER";
     const hint = stage === "complete" ? "F · cycle headlights   P · park" : distance <= INTERACT_RADIUS ? "E / TAP · INTERACT" : "WASD / ARROWS · DRIVE   E / TAP · INTERACT";
-    return `ALPINE SAR  /  WHITEOUT RUN\n${current.title}\n${current.detail}\nRANGE  ${distance.toFixed(0)} m     BEACONS  ${relays}/3     MED KIT  ${cargo}\n${band}  ·  ${weather.state.windSpeed.toFixed(0)} m/s wind     SNOWPACK ${snowpackDepthM.toFixed(2)} m     ${speed} km/h\n${hint}`;
+    const temperature = `${weather.state.temperatureC.toFixed(0)} °C`;
+    return `ALPINE SAR  /  WHITEOUT RUN\n${current.title}\n${current.detail}\nRANGE  ${distance.toFixed(0)} m     BEACONS  ${relays}/3     MED KIT  ${cargo}\n${band}  ·  ${weather.state.windSpeed.toFixed(0)} m/s wind  ·  ${temperature}     SNOWPACK ${snowpackDepthM.toFixed(2)} m     ${speed} km/h\n${hint}`;
   };
 
   const uiRoot = typeof document !== "undefined" ? document.getElementById("vehicle-touch") : null;
@@ -848,9 +1058,12 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
 
   const setWeatherTarget = (preset: WeatherPresetName) => {
     weatherTarget = preset;
-    weather.setTarget(preset);
+    weather.setTarget(ALPINE_WEATHER[preset]);
     updateUi();
   };
+
+  /** Where the loaded case rides: on the roof rack, base resting on the rails. */
+  const cargoRest = new Vec3(truck.dims.cargo[0], truck.dims.cargo[1] + 0.26, truck.dims.cargo[2]);
 
   const interact = (): boolean => {
     if (stage === "complete" || objectiveDistance() > INTERACT_RADIUS) return false;
@@ -858,7 +1071,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       supplyCrate.remove(RigidBodyComponent);
       supplyCrate.remove(ColliderComponent);
       supplyCrate.parent = null;
-      supplyCrate.transform.position = new Vec3(0, 1.42, -0.14);
+      supplyCrate.transform.position = cargoRest.clone();
+      supplyCrate.transform.rotation = new Quat();
       truckRoot.addChild(supplyCrate);
       cargoLoaded = true;
       stage = "relay-1";
@@ -877,7 +1091,7 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       beaconVisuals[2]!.active = true;
       beaconVisuals[2]!.ring.material = beaconActiveMaterial;
       beaconVisuals[2]!.light.intensity = 29;
-      const drop = new Vec3(RELAY_SITES[2]!.x + 3.7, heightAt(RELAY_SITES[2]!.x + 3.7, RELAY_SITES[2]!.z + 1) + 0.42, RELAY_SITES[2]!.z + 1);
+      const drop = new Vec3(RELAY_SITES[2]!.x + 3.7, heightAt(RELAY_SITES[2]!.x + 3.7, RELAY_SITES[2]!.z + 1) + 0.27, RELAY_SITES[2]!.z + 1);
       supplyCrate.parent = null;
       supplyCrate.transform.position = drop;
       supplyCrate.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), vehicle.yaw);
@@ -901,15 +1115,14 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
 
   const toggleHeadlights = () => {
     headlightsOn = !headlightsOn;
-    for (const entity of truckRoot.children) {
-      const light = entity.get(Light);
-      if (light?.kind === "spot") light.intensity = headlightsOn ? 68 : 0;
-    }
+    for (const spot of headlightSpots) spot.intensity = headlightsOn ? 68 : 0;
+    headlampMaterial.emissiveStrength = headlightsOn ? 1.8 : 0.05;
+    headlampMaterial.markChanged();
     updateUi();
   };
   const onWeatherClick = () => {
     const next: WeatherPresetName = weatherTarget === "storm" ? "clear" : "storm";
-    weather.snapTo(next);
+    weather.snapTo(ALPINE_WEATHER[next]);
     setWeatherTarget(next);
   };
   const onHeadlightsClick = () => toggleHeadlights();
@@ -941,6 +1154,27 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
   }
+
+  const placeTruck = (s: number, lateral = 0): void => {
+    const pose = route.poseAt(Math.max(0, Math.min(route.length, s)));
+    vehicle.position.set(pose.x + Math.cos(pose.yaw) * lateral, 0, pose.z - Math.sin(pose.yaw) * lateral);
+    vehicle.yaw = pose.yaw;
+    vehicle.velocity.set(0, 0, 0);
+    vehicle.yawRate = 0;
+    vehicle.placeOnGround(groundAt);
+    vehicle.input.brake = 1;
+    vehicle.input.handbrake = 1;
+    startupHold = true;
+  };
+
+  const setSnowpackDepth = (depthM: number): void => {
+    snowpackDepthM = Math.max(0, Math.min(ALPINE_SNOWPACK_MAX_DEPTH_M, Number.isFinite(depthM) ? depthM : 0));
+    const cover = alpineSnowCover01(snowpackDepthM);
+    weather.surface.snow = cover;
+    appliedShade = alpineSnowShade01(cover);
+    scene.settings.surface.snow = appliedShade;
+    vegetation.setSurface(0, appliedShade);
+  };
 
   const update = (dt: number) => {
     elapsed += dt;
@@ -978,14 +1212,33 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       sound.analyzer.update();
     }
 
+    // Emergency lights: lenses and the snow around the truck alternate red / blue.
     const flasher = Math.floor(elapsed / 0.24);
     if (flasher !== flashFrame) {
       flashFrame = flasher;
-      redFlasher.material = flasher % 2 === 0 ? redFlasherMaterial : darkMetalMaterial;
-      blueFlasher.material = flasher % 2 === 0 ? darkMetalMaterial : blueFlasherMaterial;
+      const redOn = flasher % 2 === 0;
+      redFlasher.material = redOn ? redFlasherMaterial : darkMetalMaterial;
+      blueFlasher.material = redOn ? darkMetalMaterial : blueFlasherMaterial;
+      flasherLights[0]!.intensity = redOn ? 16 : 0;
+      flasherLights[1]!.intensity = redOn ? 0 : 16;
+    }
+    // Brake and reverse lamps follow the pedals.
+    const braking = vehicle.input.brake > 0.1 && !startupHold;
+    const tailStrength = braking || parked ? 3.6 : 0.9;
+    if (tailLampMaterial.emissiveStrength !== tailStrength) {
+      tailLampMaterial.emissiveStrength = tailStrength;
+      tailLampMaterial.markChanged();
+    }
+    const reversing = vehicle.gear < 0 || (vehicle.speed < -0.3 && forward < 0);
+    const reverseStrength = reversing ? 2.4 : 0;
+    if (reverseMaterial.emissiveStrength !== reverseStrength) {
+      reverseMaterial.emissiveStrength = reverseStrength;
+      reverseMaterial.markChanged();
     }
 
     const precipitation = weather.state.precipitation01;
+    const wind = weather.meanWind();
+    windNow = { x: wind.x, z: wind.y };
     const snowSystem = snowfall.system;
     if (snowSystem) {
       const emitter = snowSystem.emitter;
@@ -996,21 +1249,21 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       emitter.position.x = vehicle.position.x;
       emitter.position.y = vehicle.position.y + 22;
       emitter.position.z = vehicle.position.z;
-      const wind = weather.meanWind();
       snowSystem.modules.velocityBoost.x = wind.x * 0.11;
       snowSystem.modules.velocityBoost.z = wind.y * 0.11;
       snowSystem.modules.turbulence = 1.1 + weather.state.gust * 0.9;
     }
 
+    // The pack deepens in snowfall. The engine's snow shader settles the remapped shade on every
+    // up-facing surface; the raw cover feeds the tyre-grip factor, so the truck gets slipperier as it buries.
     snowpackDepthM = advanceAlpineSnowpack(snowpackDepthM, precipitation, dt);
-    if (snowpackDepthM - renderedSnowpackDepthM >= 0.002) {
-      for (let vertex = 0; vertex < snowBaseHeights.length; vertex++) {
-        snowPositions[vertex * 3 + 1] = snowBaseHeights[vertex]! + snowpackDepthM;
-      }
-      snowpackGeometry.updateFrom({ positions: snowPositions });
-      snowpackMaterial.opacity = 0.55 + (snowpackDepthM / ALPINE_SNOWPACK_MAX_DEPTH_M) * 0.3;
-      snowpackMaterial.markChanged();
-      renderedSnowpackDepthM = snowpackDepthM;
+    const cover = alpineSnowCover01(snowpackDepthM);
+    weather.surface.snow = cover;
+    const shade = alpineSnowShade01(cover);
+    scene.settings.surface.snow = shade;
+    if (Math.abs(shade - appliedShade) >= 0.004) {
+      vegetation.setSurface(0, shade);
+      appliedShade = shade;
     }
     updateUi();
   };
@@ -1044,10 +1297,12 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
       soundButton.classList.remove("active");
     }
     touch?.dispose();
+    setWorldSurfaceGripField(scene.world, undefined);
     scene.dispose();
     physicsWorld.clear();
     for (const geometry of ownedGeometries) geometry.dispose();
     for (const material of ownedMaterials) material.dispose();
+    for (const texture of ownedTextures) texture.dispose();
   };
 
   return {
@@ -1061,6 +1316,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     dispose,
     interact,
     setWeatherTarget,
+    placeTruck,
+    setSnowpackDepth,
     snapshot: () => {
       const current = objective();
       const system = snowfall.system;
@@ -1083,6 +1340,9 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
         snowAlive,
         snowEmitted: system?.emitted ?? 0,
         snowpackDepthM,
+        snowCover: alpineSnowCover01(snowpackDepthM),
+        temperatureC: weather.state.temperatureC,
+        grip: vehicle.surfaceGrip,
         speedKph: Math.abs(vehicle.speed) * 3.6,
         headlightsOn,
         parked,
@@ -1093,6 +1353,8 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
         positionZ: vehicle.position.z,
         physicsBodies: physicsWorld.bodies.length,
         physicsSteps: physicsWorld.stepCount,
+        trees: vegetation.count,
+        trackTiles: trackLayer.tileCount,
         sound: {
           enabled: soundOn,
           running: sound?.context.state === "running",
@@ -1106,3 +1368,21 @@ export function buildAlpineRescueScene(engine: Engine): AlpineRescueSceneHandle 
     },
   };
 }
+
+/**
+ * Where the flat tread starts and ends along the tyre profile's arc length (0..1), so the tread
+ * texture lands on the tread and the sidewall stays smooth. Mirrors `tyreProfile` in the vehicle.
+ */
+function tyreTreadSpan(wheelRadius: number, wheelWidth: number): [number, number] {
+  const k = wheelRadius / 0.42;
+  const h = wheelWidth / 2 / 0.15;
+  const pts: Array<[number, number]> = [
+    [0.265, -0.115], [0.3, -0.138], [0.35, -0.15], [0.395, -0.146], [0.412, -0.128], [0.42, -0.095],
+    [0.42, 0.095], [0.412, 0.128], [0.395, 0.146], [0.35, 0.15], [0.3, 0.138], [0.265, 0.115],
+  ];
+  const arc: number[] = [0];
+  for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1]! + Math.hypot((pts[i]![0] - pts[i - 1]![0]) * k, (pts[i]![1] - pts[i - 1]![1]) * h));
+  const total = arc[arc.length - 1]!;
+  return [arc[5]! / total, arc[6]! / total];
+}
+
