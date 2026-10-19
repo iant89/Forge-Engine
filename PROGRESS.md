@@ -181,7 +181,14 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
 - [ ] Profiler frame timeline (Phase 21.1) _(partial: the demo's Profiler panel is a floating window — draggable, resizable, collapsible and dockable to a viewport edge — showing the live unified CPU/GPU scope table at 4 Hz; the per-frame timeline strip is not drawn yet)_
-- [ ] Inspectors and debug draw for ECS, render graph, GPU resources, physics, terrain, particles, streaming and environment, plus a console (Phase 21.2–21.10)
+- [~] ECS Inspector data API (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested; interactive demo/editor panel remains open
+- [~] Render Graph and GPU Resource inspector APIs (Phases 21.3–21.4): pass/dependency/alias data and live labelled allocation summaries are public and tested; interactive panels remain open
+- [~] Physics Debug Draw (Phase 21.5): bounded collider wireframes with optional AABBs/velocity vectors and a renderer-independent line sink are public and tested; contact-manifold overlays and an interactive panel remain open
+- [~] Terrain Debugger (Phase 21.6): read-only chunk/LOD/streaming snapshot and bounded LOD-coloured chunk-bound lines are public and tested; interactive panel remains open
+- [~] Particle Debugger (Phase 21.7): bounded CPU samples, emitter settings, and particle/velocity line data for CPU worlds and ECS components; GPU worlds expose counters/settings without readback; interactive panel remains open
+- [~] Streaming Debugger (Phase 21.8): bounded asset-load/task inventories and scene streaming-owner stats are public and tested; interactive panel remains open
+- [~] Environment Debugger (Phase 21.9): read-only sun, atmosphere, cloud, weather/wind/precipitation, water and lightning snapshots plus renderer-independent debug lines; interactive panel remains open
+- [~] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; bounded input/output/history; visible interactive console panel remains open
 - [ ] Benchmarks for every subsystem, including 1M-scale runs (Phase 22)
 - [ ] Automatic regression detection against stored benchmark history (Phase 22.7)
 

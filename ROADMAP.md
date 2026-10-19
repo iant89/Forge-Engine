@@ -52,8 +52,8 @@ CURRENT CODEBASE BASELINE:
                 separately as Phase 15.5 below.
     Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
                 rocks, push/roll/destruction, rover impact response and persistent sand tracks)
-                Phases 16 and 17 are IN PROGRESS ([~]) and Phases 18 through 28 remain
-                NOT STARTED ([ ]) in their sections below, and
+                Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
+                Phase 21 is IN PROGRESS ([~]), and Phases 22 through 28 remain NOT STARTED ([ ]).
                 Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
                 keys directly).
 
@@ -186,6 +186,9 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
 
 PHASE 20 - AUDIO
     [x]
+
+PHASE 21 - PROFILER / DEBUG TOOLS
+    [~] IN PROGRESS (21.2–21.10 diagnostic APIs landed; interactive panels, 21.1 timeline and the visible 21.10 console remain)
 
 
 ================================================================================
@@ -2256,33 +2259,70 @@ GOAL:
 
 21.2 ECS Inspector
 
+    [~] Read-only, bounded ECS snapshot API for systems, entity hierarchy, component populations
+        and scalar component fields (engine/src/debug/ecsInspector.ts, tests/core/ecsInspector.test.ts).
+        Interactive demo/editor panel remains open.
+
 21.3 Render Graph Inspector
+
+    [~] On-demand pass/resource snapshot includes liveness, culling reasons, dependencies, transient
+        lifetimes, alias slots, texture-pool state and available GPU pass timings. The interactive
+        demo/editor panel remains open (engine/src/debug/renderGraphInspector.ts).
 
 21.4 GPU Resource Inspector
 
+    [~] Device-level live buffer/texture inventory grouped by label, with allocation sizes, recent
+        churn and GPU object totals. The interactive demo/editor panel remains open
+        (engine/src/debug/gpuResourceInspector.ts).
+
 21.5 Physics Debug Draw
+
+    [~] Bounded read-only collider wireframes for rigid bodies, with optional AABBs and linear
+        velocity vectors. Backend-independent line data/callback can be forwarded to Renderer.drawLine
+        (engine/src/debug/physicsDebugDraw.ts, tests/core/physicsDebugDraw.test.ts). Contact-manifold
+        overlays and the interactive demo/editor panel remain open.
 
 21.6 Terrain Debugger
 
+    [~] Read-only terrain streaming snapshot with chunk state, LOD, budgets, resident bytes and
+        generated height/bounds; bounded LOD-coloured chunk wireframes are renderer-independent
+        (engine/src/debug/terrainDebugger.ts, tests/core/terrainDebugger.test.ts). The interactive
+        terrain panel remains open.
+
 21.7 Particle Debugger
+
+    [~] Read-only CPU particle samples and emitter settings across scene-object and ECS simulations;
+        bounded particle/velocity/emitter line data can be forwarded to Renderer.drawLine. GPU worlds
+        report counters and emitter settings without particle-buffer readback
+        (engine/src/debug/particleDebugger.ts, tests/core/particleDebugger.test.ts). The interactive
+        panel remains open.
 
 21.8 Streaming Debugger
 
+    [~] Bounded asset-load and background-task inventories include IDs, states, priorities, ages,
+        timing and payload-free diagnostics, alongside stats from scene streaming owners
+        (engine/src/debug/streamingDebugger.ts, tests/core/streamingDebugger.test.ts). The interactive
+        panel remains open.
+
 21.9 Environment Debugger
 
-    Show:
-
-        sun
-        atmosphere
-        weather
-        cloud coverage
-        wind
-        precipitation
-        water
-        lightning
+    [~] Read-only snapshots cover sun direction/lights and day-night state, effective atmosphere,
+        cloud parameters, weather targets/surface state, sampled wind and precipitation, water waves/
+        shoreline, and active lightning/thunder. Sun, wind, and bolt line data is backend-independent
+        (engine/src/debug/environmentDebugger.ts, tests/core/environmentDebugger.test.ts). The
+        interactive environment panel remains open.
 
 
 21.10 Console
+
+    `DeveloperConsole` / `createDeveloperConsole` (engine/src/debug/console.ts) provide an
+    embeddable, read-only diagnostic command model with quoted-argument parsing, explicit command
+    registration (input is never evaluated as JavaScript), completion, help, and bounded history,
+    input, and output. Built-ins expose CPU/GPU profiler scopes and recent frame slices, engine
+    stats, plus the ECS, render graph, GPU resources, physics, terrain, particles, streaming, and
+    environment diagnostics already added in Phase 21.
+    A host can attach the model to a terminal/editor surface; no visible demo console panel has
+    been added yet. See tests/core/developerConsole.test.ts.
 
 
 EXIT CRITERIA:

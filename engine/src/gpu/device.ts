@@ -32,20 +32,35 @@ import { createMockGpu, type MockGPUDevice, type MockGPUAdapter } from "../testi
  * mip/layer count. Returns 0 for a descriptor this build cannot size rather than throwing: the count
  * of allocations still has to be right when the byte estimate is not.
  */
-function describeTextureBytes(descriptor: GPUTextureDescriptor): number {
+interface TextureDimensions {
+  width: number;
+  height: number;
+  depthOrArrayLayers: number;
+}
+
+function textureDimensions(descriptor: GPUTextureDescriptor): TextureDimensions {
   const raw = descriptor.size as unknown;
   const dims = Array.isArray(raw)
     ? { width: Number(raw[0]), height: raw[1] === undefined ? 1 : Number(raw[1]), depthOrArrayLayers: raw[2] === undefined ? 1 : Number(raw[2]) }
     : typeof raw === "number"
       ? { width: raw, height: 1, depthOrArrayLayers: 1 }
       : (raw as { width: number; height?: number; depthOrArrayLayers?: number });
-  if (!Number.isFinite(dims.width) || dims.width <= 0) return 0;
+  return {
+    width: Number.isFinite(dims.width) ? dims.width : 0,
+    height: Number.isFinite(dims.height) ? dims.height! : 1,
+    depthOrArrayLayers: Number.isFinite(dims.depthOrArrayLayers) ? dims.depthOrArrayLayers! : 1,
+  };
+}
+
+function describeTextureBytes(descriptor: GPUTextureDescriptor): number {
+  const dims = textureDimensions(descriptor);
+  if (dims.width <= 0) return 0;
   try {
     return textureSizeBytes({
       format: descriptor.format,
       width: dims.width,
-      height: dims.height ?? 1,
-      depthOrArrayLayers: dims.depthOrArrayLayers ?? 1,
+      height: dims.height,
+      depthOrArrayLayers: dims.depthOrArrayLayers,
       mipLevelCount: descriptor.mipLevelCount ?? 1,
     });
   } catch {
@@ -151,6 +166,22 @@ export interface GpuMemoryStats {
   };
 }
 
+/** Live allocation metadata for the Phase 21.4 GPU resource inspector. */
+export interface GpuResourceRecord {
+  id: number;
+  kind: "texture" | "buffer";
+  label: string;
+  bytes: number;
+  usage: number;
+  createdFrame: number;
+  /** Texture-only metadata. */
+  format?: GPUTextureFormat;
+  width?: number;
+  height?: number;
+  layers?: number;
+  mips?: number;
+}
+
 export class GraphicsDevice {
   private constructor(
     readonly adapter: GPUAdapter | null,
@@ -241,11 +272,31 @@ export class GraphicsDevice {
         memory.textureCount++;
         memory.sinceFrameStart.texturesCreated++;
         memory.sinceFrameStart.bytesCreated += bytes;
-        // `destroy()` is the only signal that a texture's memory is gone.
+        const id = this.nextResourceId++;
+        const dimensions = textureDimensions(descriptor);
+        this.liveResources.set(id, {
+          id,
+          kind: "texture",
+          label: descriptor.label ?? "",
+          bytes,
+          usage: descriptor.usage,
+          createdFrame: this.frameNumber,
+          format: descriptor.format,
+          width: dimensions.width,
+          height: dimensions.height,
+          layers: dimensions.depthOrArrayLayers,
+          mips: descriptor.mipLevelCount ?? 1,
+        });
+        // `destroy()` is the only signal that a texture's memory is gone. WebGPU destroy is
+        // idempotent; keep both the resource list and memory counters idempotent too.
         if (texture && typeof texture.destroy === "function") {
           const destroy = texture.destroy.bind(texture);
+          let destroyed = false;
           (texture as unknown as { destroy(): void }).destroy = () => {
+            if (destroyed) return;
             destroy();
+            destroyed = true;
+            this.liveResources.delete(id);
             memory.texturesDestroyed++;
             memory.textureBytes -= bytes;
             memory.textureCount--;
@@ -258,16 +309,29 @@ export class GraphicsDevice {
     const wrapBuffer = (original: (descriptor: GPUBufferDescriptor) => GPUBuffer): ((descriptor: GPUBufferDescriptor) => GPUBuffer) =>
       (descriptor) => {
         const buffer = original.call(this.device, descriptor);
-        const bytes = Math.max(0, descriptor.size | 0);
+        const bytes = Math.max(0, Math.floor(descriptor.size));
         memory.buffersCreated++;
         memory.bufferBytes += bytes;
         memory.bufferCount++;
         memory.sinceFrameStart.buffersCreated++;
         memory.sinceFrameStart.bytesCreated += bytes;
+        const id = this.nextResourceId++;
+        this.liveResources.set(id, {
+          id,
+          kind: "buffer",
+          label: descriptor.label ?? "",
+          bytes,
+          usage: descriptor.usage,
+          createdFrame: this.frameNumber,
+        });
         if (buffer && typeof buffer.destroy === "function") {
           const destroy = buffer.destroy.bind(buffer);
+          let destroyed = false;
           (buffer as unknown as { destroy(): void }).destroy = () => {
+            if (destroyed) return;
             destroy();
+            destroyed = true;
+            this.liveResources.delete(id);
             memory.buffersDestroyed++;
             memory.bufferBytes -= bytes;
             memory.bufferCount--;
@@ -322,8 +386,21 @@ export class GraphicsDevice {
     return { ...this.memory, sinceFrameStart: { ...this.memory.sinceFrameStart } };
   }
 
+  /** Zero-based device frame used to label recent resource allocations. */
+  get frameIndex(): number {
+    return this.frameNumber;
+  }
+
+  /** Every live texture and buffer, largest first. Returned records are detached snapshots. */
+  resourceList(): GpuResourceRecord[] {
+    return [...this.liveResources.values()]
+      .sort((a, b) => b.bytes - a.bytes || a.id - b.id)
+      .map((resource) => ({ ...resource }));
+  }
+
   /** Start a new frame's allocation window (`sinceFrameStart`). Called by the engine each frame. */
   beginFrame(): void {
+    this.frameNumber++;
     this.memory.sinceFrameStart.texturesCreated = 0;
     this.memory.sinceFrameStart.buffersCreated = 0;
     this.memory.sinceFrameStart.bytesCreated = 0;
@@ -357,6 +434,10 @@ export class GraphicsDevice {
   private errorCount = 0;
   private readonly collectedErrors: string[] = [];
   private _lastError: string | null = null;
+  /** Live buffer/texture allocation metadata, maintained by the same wrappers as memory counters. */
+  private readonly liveResources = new Map<number, GpuResourceRecord>();
+  private nextResourceId = 1;
+  private frameNumber = 0;
   /** Live allocation accounting; the fields are mutated by the instrumented device methods. */
   private readonly memory: GpuMemoryStats = {
     textureBytes: 0,

@@ -153,6 +153,18 @@ export interface TaskSchedulerOptions {
   createWorker?: (index: number) => TaskWorkerLike;
 }
 
+export interface TaskDebugRecord {
+  id: number;
+  name: string;
+  key: string;
+  priority: number;
+  state: "queued" | "running";
+  ageMs: number;
+  runtimeMs: number;
+  cancelRequested: boolean;
+  progress: number | null;
+}
+
 export interface TaskStats {
   queued: number;
   running: number;
@@ -353,6 +365,23 @@ export class TaskScheduler implements Disposable {
 
   get pending(): number {
     return this.queue.length + this.running;
+  }
+
+  /** Bounded task metadata for diagnostics. Payloads and transfer buffers are deliberately omitted. */
+  inspect(limit = 128): TaskDebugRecord[] {
+    const cap = Number.isFinite(limit) ? Math.max(0, Math.min(1024, Math.floor(limit))) : 128;
+    const time = now();
+    return [...this.byId.values()].slice(0, cap).map((rec) => ({
+      id: rec.id,
+      name: rec.name,
+      key: rec.key,
+      priority: rec.priority,
+      state: rec.state === "running" ? "running" : "queued",
+      ageMs: Math.max(0, time - rec.enqueuedAt),
+      runtimeMs: rec.state === "running" ? Math.max(0, time - rec.startedAt) : 0,
+      cancelRequested: rec.cancelRequested,
+      progress: rec.progress && rec.progress.value >= 0 ? rec.progress.value : null,
+    }));
   }
 
   get stats(): TaskStats {
