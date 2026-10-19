@@ -26,6 +26,7 @@ export * from "./fog.js";
 export * from "./dayNight.js";
 export * from "./weather.js";
 export * from "./surfaceWeather.js";
+export * from "./soundInput.js";
 export * from "./clouds.js";
 export * from "./water.js";
 export * from "./ocean.js";

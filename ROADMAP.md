@@ -185,12 +185,7 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
     [x]
 
 PHASE 20 - AUDIO
-    [~] IN PROGRESS (20.1-20.4 landed: handedness-correct spatial voices with Doppler, air
-        absorption, occlusion, a holding voice limit and ECS emitters; clips as budgeted registry
-        resources with codec fallback and banks; streaming through the buses under the autoplay
-        policy; buses with live effects and anchored fades — verified on strict mock AudioContexts;
-        20.7 vehicle audio and 20.8 impact/particle audio landed; environmental and weather audio
-        (20.5-20.6) remain)
+    [x]
 
 
 ================================================================================
@@ -2176,7 +2171,23 @@ GOAL:
 
 20.5 Environmental Audio
 
+    [x] wildlife                 (birds from the sun's elevation with a dawn chorus, silenced by rain,
+                                  wind and frost; crickets on warm nights at Dolbear's rate)
+    [x] listener context         (underwater: everything muffled to a rumble; indoors: the outdoor bed
+                                  low-passed, rain becomes roof drumming)
+    [x] reverb                   (decay and mix from the surroundings' reflectivity and enclosure;
+                                  procedural impulses, rebuilt per 0.25 s bucket; a bus effect)
+
 20.6 Weather Audio
+
+    [x] wind                     (roar and gust howl from speed and gustiness, panned from the side it
+                                  blows from relative to the listener)
+    [x] rain on the ground       (liquid rain only; brighter and louder on wet ground and puddles from
+                                  the surface model, duller on snow cover; snowfall is silent)
+    [x] snow damping, surf       (snow cover absorbs the outdoor bed's highs; surf from shore × storm)
+        engine/src/audio/ambience.ts, engine/src/environment/soundInput.ts,
+        tests/audio/ambienceAudio.test.ts, docs/AUDIO.md. The weather, off-road and Alpine demos play
+        it with their vehicles and impacts through the ambient/sfx buses.
 
 20.7 Vehicle Audio
 

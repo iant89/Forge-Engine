@@ -38,10 +38,10 @@ import {
   createPlane,
   createSphere,
   waterGridSource,
-  StormSoundscape,
+  EnvironmentSoundscape,
+  ambienceSoundInput,
   airAbsorptionCutoff,
   proceduralClipDescriptor,
-  weatherSoundInput,
 } from "@forge/engine";
 import { attachWeatherTouch } from "../controls/weatherTouch.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
@@ -270,8 +270,10 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
   // Phase 17.4 weather audio: wind, rain and lake surf synthesized from the weather state. Opt-in like
   // every sound in the demos — it starts only once a gesture (the Strike button / L key) has let the
   // audio context run.
-  let soundscape: StormSoundscape | null = null;
-  let soundscapeFrame = 0;
+  // Phase 20.5/20.6: the ambience (wind, rain on the ground it falls on, surf, birds, crickets, snow
+  // damping, underwater) through the ambient bus; its reverb on the sfx bus so thunder-adjacent
+  // one-shots ring like the plaza.
+  let soundscape: EnvironmentSoundscape | null = null;
   // Phase 20.2: the thunder variants are procedural clips in the audio registry (built once, cached
   // and budgeted like files).
   const thunder = [0, 1, 2, 3].map((seed) => audio.acquire(proceduralClipDescriptor(`thunder/${seed}`, () => createThunderBuffer(audio.context, { seed: 0x7100 + seed, duration: 5 }))));
@@ -410,7 +412,7 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       groundClearance: 0.6,
       groundHeight: () => 2,
     },
-    update(): void {
+    update(dt: number): void {
       // Weather, water, lightning and the cycle all step from the engine's fixed clock. The touch
       // panel is only painted — the keyboard and `window.__forge` change the same state without
       // going through it — and a frame whose state did not move writes nothing.
@@ -421,9 +423,22 @@ export function buildWeatherScene(engine: Engine): WeatherSceneHandle {
       const fz = -eye.z;
       const fl = Math.hypot(fx, fy, fz) || 1;
       audio.setListener({ position: eye, forward: { x: fx / fl, y: fy / fl, z: fz / fl }, up: Vec3.up });
-      if (audio.context.state === "running" && soundscapeFrame++ % 6 === 0) {
-        soundscape ??= new StormSoundscape(audio.context, audio.context.destination, 0.45);
-        soundscape.set(weatherSoundInput(weather.state, 0.15 + 0.6 * weather.state.storm01));
+      if (audio.context.state === "running") {
+        if (!soundscape) {
+          soundscape = new EnvironmentSoundscape(audio.context, audio.bus("ambient").input, { volume: 0.5 });
+          audio.bus("sfx").add(soundscape.reverb);
+        }
+        soundscape.update(
+          ambienceSoundInput(weather.state, weather.surface, {
+            sunElevationDeg: cycle.elevationDeg,
+            listenerYaw: Math.atan2(fx, fz),
+            underwater: isUnderwater(),
+            // The plaza sits on the lake shore; the stone masts reflect a little.
+            surf: 0.15 + 0.6 * weather.state.storm01,
+            reflectivity: 0.25,
+          }),
+          dt,
+        );
       }
     },
     overlay(): string {
