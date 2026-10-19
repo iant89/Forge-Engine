@@ -2577,3 +2577,10 @@ nothing is invisible to every DOM test, because a fake DOM happily returns zero 
 list of selectors meant to hit real markup needs a test that pins it against that markup. Reproduced
 both ways in Chromium before committing (old list covers `wx-pause` at 390x844, new one covers
 nothing in five scene/viewport combinations).
+
+## 2026-10-19 — Phase 21.1 frame profiler
+Every system (`EntityWorld.runSystems`) and scene-object hook (`Scene.update`) is a profiler scope
+`<category>:<name>`; see `engine/src/debug/frameBreakdown.ts`. A class picks its category with a
+`profileCategory` *getter*; never an own field, since `captureState` snapshots own fields and the
+replay hashes would change. Labels are cached in a WeakMap for the same reason. Demo soundscapes run
+outside the scene, so `audio` only covers SpatialAudioSystem.

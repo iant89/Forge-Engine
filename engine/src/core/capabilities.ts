@@ -92,6 +92,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "18": "verified",
   "19": "verified",
   "20": "verified",
+  "21": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([

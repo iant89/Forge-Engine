@@ -187,6 +187,11 @@ PHASE 19 - SAVE / SERIALIZATION / REPLAY
 PHASE 20 - AUDIO
     [x]
 
+PHASE 21 - PROFILER / DEBUG TOOLS
+    [~] IN PROGRESS (21.1 landed: systems, scene objects and the asset streamer are
+        categorised profiler scopes; Engine.frameBreakdown() reports CPU/GPU frame and
+        per-category time. 21.2-21.10 not started)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2238,20 +2243,25 @@ GOAL:
     Make Forge self-diagnosing.
 
 
-21.1 Frame Profiler
+21.1 Frame Profiler [x]
 
     Track:
 
-        CPU frame
-        GPU frame
-        simulation
-        physics
-        terrain
-        streaming
-        rendering
-        particles
-        scripting
-        audio
+        [x] CPU frame
+        [x] GPU frame (timestamp queries, when the adapter has them)
+        [x] simulation
+        [x] physics
+        [x] terrain
+        [x] streaming
+        [x] rendering
+        [x] particles
+        [x] scripting
+        [x] audio (SpatialAudioSystem; soundscapes driven outside the scene are not timed)
+
+    As built: engine/src/debug/frameBreakdown.ts; EntityWorld.runSystems and Scene.update open a
+    `<category>:<name>` scope per system/object hook (category from a profileCategory getter, else
+    the name), the engine adds `streaming:assets`, and Engine.frameBreakdown() folds the profiler's
+    scopes into the categories. Pinned by tests/core/frameBreakdown.test.ts.
 
 
 21.2 ECS Inspector
