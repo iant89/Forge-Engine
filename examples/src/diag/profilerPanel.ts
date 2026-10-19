@@ -17,15 +17,29 @@
 import { ICONS, mountDebugPanel, type DebugPanel, type DebugPanelOptions, type StorageLike } from "./debugPanel.js";
 import { bounds, type Rect, type SnapEdges } from "./panelLayout.js";
 
-/** On-screen controls a collapsed profiler icon must not cover (the same set the diag icon uses). */
+/**
+ * On-screen controls a collapsed profiler icon must not cover.
+ *
+ * These are the *buttons*, not their containers: the touch overlays (`#weather-touch`, `#sky-touch`,
+ * …) are `position: fixed; inset: 0` full-viewport layers with `pointer-events: none`, so listing a
+ * container would shove the icon off the top of the screen instead of one row up. `.touch-btn` is
+ * what the demo actually renders (13 of them across the sky, weather, offroad, vehicle, rescue and
+ * rover-tool panels), and `tests/examples/profilerPanel.test.ts` pins every selector here against
+ * `examples/index.html` so this list cannot rot again — an earlier revision named `.touch-controls`,
+ * which no element in the page carries, and the icon sat on top of the weather panel's Pause button.
+ *
+ * `#hud-icon` and `#forge-diag-icon` are created at runtime by `mountDebugPanel`, so they are absent
+ * from the static markup but present when this runs.
+ */
 export const PROFILER_AVOID = [
   "#toolbar",
-  "#forge-diag-icon",
   "#hud-icon",
+  "#forge-diag-icon",
   "#controls-hint",
-  ".touch-controls",
+  ".touch-btn",
   ".veh-face",
   "#veh-gear-switch",
+  "#veh-stick",
   ".arm-stick",
   "#rover-tool-panel",
 ];

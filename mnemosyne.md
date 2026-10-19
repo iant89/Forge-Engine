@@ -2556,3 +2556,24 @@ Read the module constraints below before changing either pure model.
     drives the dwell timer, the 1 s icon re-placement and the repaint throttle, so the tests are
     deterministic. A drag delta of -2000px is clamped to the viewport in the browser gate because
     Playwright refuses negative mouse coordinates.
+
+### 2026-10-19 — The advisory browser gate found a bug the unit suites could not see
+
+`PROFILER_AVOID` (the collapsed profiler icon's obstacle list) named `.touch-controls` — a selector
+that exists only in the UI gate's own hide list and in `profilerPanel.ts`, and in no element of
+`examples/index.html`. So the icon avoided nothing on the touch side: at phone width in the weather
+scene it parked in the bottom-right corner, `z-index: 61` over the weather panel's `pointer-events:
+auto` buttons, and the gate's `page.click('#wx-pause')` timed out waiting for it to be visible,
+enabled and stable. The base commit passes the same job, which is what pinned it on this change.
+
+What the demo really renders is `.touch-btn` (13 of them) inside full-viewport `position: fixed;
+inset: 0` containers (`#weather-touch`, `#sky-touch`, `#offroad-touch`, `#vehicle-touch`,
+`#rover-tool-touch`, `#rescue-touch`, `#arm-touch`). Avoiding the *containers* would be wrong:
+`placeIcon` slides up past an obstacle and clamps at the safe area, so a full-screen box would
+shove the icon to the top edge instead of one row up. Avoiding the buttons is the right granularity.
+
+The general lesson, now enforced by `tests/examples/profilerPanel.test.ts`: a selector that matches
+nothing is invisible to every DOM test, because a fake DOM happily returns zero boxes for it. Any
+list of selectors meant to hit real markup needs a test that pins it against that markup. Reproduced
+both ways in Chromium before committing (old list covers `wx-pause` at 390x844, new one covers
+nothing in five scene/viewport combinations).

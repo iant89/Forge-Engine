@@ -15,8 +15,9 @@ export const suite = {
 };
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { finish, group, test } from "selrun";
-import { mountProfilerPanel, type ProfilerPanelOptions } from "../../examples/src/diag/profilerPanel.js";
+import { PROFILER_AVOID, mountProfilerPanel, type ProfilerPanelOptions } from "../../examples/src/diag/profilerPanel.js";
 import { saveLayout, type StorageLike } from "../../examples/src/diag/panelLayout.js";
 import { FakeEl, env, type FakeEnv } from "../support/fakeDom.js";
 
@@ -146,6 +147,41 @@ group("profiler panel repaint throttle", () => {
     e.advance(300);
     m.p.tick();
     assert.equal(m.paints(), 2, "the frame loop's clock is the panel's clock");
+  });
+});
+
+group("profiler panel collapsed icon placement", () => {
+  test("every avoid selector matches markup the demo actually renders", () => {
+    // The icon is placed by bounding box, so a selector matching nothing silently lets it land on
+    // top of a control. `.touch-controls` was exactly that: no element in the page carries it, and
+    // the icon sat over the weather panel's Pause button until it was replaced by `.touch-btn`.
+    const html = readFileSync(new URL("../../examples/index.html", import.meta.url), "utf8");
+    const body = html.slice(html.indexOf("<body>"));
+    const runtimeOnly = new Set(["#hud-icon", "#forge-diag-icon"]);
+    const missing = PROFILER_AVOID.filter((selector) => {
+      if (runtimeOnly.has(selector)) return false;
+      if (selector.startsWith("#")) return !body.includes(`id="${selector.slice(1)}"`);
+      return !new RegExp(`class="[^"]*\\b${selector.slice(1)}\\b`).test(body);
+    });
+    assert.deepEqual(missing, [], "avoid selectors must exist in examples/index.html");
+    assert.ok(PROFILER_AVOID.includes(".touch-btn"), "the touch panels' buttons must be avoided");
+    assert.ok(!PROFILER_AVOID.includes(".touch-controls"), "and not a selector no element carries");
+  });
+
+  test("the collapsed icon is placed clear of the demo's on-screen controls", () => {
+    const e = env();
+    // A full-width touch panel along the bottom, like #weather-touch at phone width.
+    // `.obstacle` is the fake DOM's convention: its querySelectorAll answers only that selector.
+    const panel = new FakeEl("div");
+    panel.box = { left: 0, top: 600, width: 400, height: 200 };
+    const pause = new FakeEl("button");
+    pause.box = { left: 300, top: 740, width: 90, height: 44 };
+    e.obstacles.push(panel, pause);
+    e.body.append(panel, pause);
+    const m = mountProfiler(e, { avoid: [".obstacle"] });
+    // placeIcon writes inline left/top, exactly as the real panel does.
+    const top = Number(m.icon.style.top.replace("px", ""));
+    assert.ok(top + 44 <= 600, `the icon sits above the touch panel (y ${top})`);
   });
 });
 

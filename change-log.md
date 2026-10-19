@@ -25043,6 +25043,30 @@ JSON array below; agents maintain it by hand until then.
   "file": "tools/browser-ui-check.mjs",
   "what": "The live-report check waits for the frame counter to advance (60 s) instead of sleeping 700 ms; software rendering runs the gallery at a few frames a second.",
   "why": "The first real-browser run failed that check on the fixed sleep; polling for the counter is the honest version of the same assertion."
+},
+{
+  "id": "1982",
+  "date": "2026-10-19T08:40:00Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/diag/profilerPanel.ts",
+  "what": "PROFILER_AVOID avoids .touch-btn and #veh-stick, the controls that really exist, instead of .touch-controls, a selector no element in the demo carries; the doc comment also explains why the buttons are listed rather than their full-viewport containers.",
+  "why": "The advisory WebGPU browser gate failed on the PR at page.click('#wx-pause'). With .touch-controls matching nothing, the collapsed 44px icon parked in the bottom-right corner on top of the weather panel's Pause button; probed in Chromium at 390x844, the old list covers wx-pause and the new one covers no button at all."
+},
+{
+  "id": "1983",
+  "date": "2026-10-19T08:40:00Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/profilerPanel.test.ts",
+  "what": "New group: every selector in PROFILER_AVOID must match markup in examples/index.html (the runtime-created icons excepted), the touch buttons must be avoided, .touch-controls must not come back; plus a placement check that the icon lands clear of a full-width bottom panel.",
+  "why": "A selector that matches nothing is invisible to the unit suites, so the avoid list had silently stopped avoiding the touch panels and only the real-browser gate noticed. This pins the list against the page it has to match."
 }
 ]
 ```
