@@ -25019,5 +25019,30 @@ JSON array below; agents maintain it by hand until then.
   "what": "Catalog expectations 132 -> 133 suites and 965 -> 966 coverage claims.",
   "why": "The catalog suite pins the exact suite/claim counts, which the new profiler-panel suite moves."
 }
+,
+{
+  "id": "1980",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/profilerPanel.test.ts",
+  "what": "Tidied the panel-chrome aliases (direct m.grip/m.bar/m.icon use) after the first green run.",
+  "why": "Readability."
+},
+{
+  "id": "1981",
+  "date": "2026-10-19T06:20:36Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/74850571-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tools/browser-ui-check.mjs",
+  "what": "The live-report check waits for the frame counter to advance (60 s) instead of sleeping 700 ms; software rendering runs the gallery at a few frames a second.",
+  "why": "The first real-browser run failed that check on the fixed sleep; polling for the counter is the honest version of the same assertion."
+}
 ]
 ```

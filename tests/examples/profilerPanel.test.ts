@@ -86,11 +86,11 @@ group("profiler panel open/close state", () => {
     const e = env();
     const m = mountProfiler(e);
     m.button.click();
-    (m.toggle).click();
+    m.toggle.click();
     assert.equal(m.p.visible, false, "the panel's collapse button wins");
     assert.equal(m.button.classes.has("active"), false);
     assert.equal(m.button.attrs["aria-pressed"], "false");
-    m.p.ui.icon.click();
+    m.icon.click();
     assert.equal(m.p.visible, true);
     assert.equal(m.button.attrs["aria-pressed"], "true", "and the toolbar button follows the icon");
   });
@@ -157,26 +157,24 @@ group("profiler panel chrome: resize, dock, dispose", () => {
     assert.deepEqual(m.p.ui.rect, { x: 10, y: 554, w: 360, h: 236 }, "defaults to the bottom of the safe area (10px margin)");
 
     // Shrink with the corner grip, down to the minimum size.
-    const grip = m.grip;
-    grip.fire("pointerdown", { clientX: 100, clientY: 300 });
-    grip.fire("pointermove", { clientX: -60, clientY: 184 }); // -160 x, -116 y
-    grip.fire("pointerup", { clientX: -60, clientY: 184 });
+    m.grip.fire("pointerdown", { clientX: 100, clientY: 300 });
+    m.grip.fire("pointermove", { clientX: -60, clientY: 184 }); // -160 x, -116 y
+    m.grip.fire("pointerup", { clientX: -60, clientY: 184 });
     assert.deepEqual(m.p.ui.rect, { x: 10, y: 554, w: 240, h: 120 }, "the grip resizes, clamped to the minimum");
 
     // Drag into the middle of the screen: no edge is near, so no dock ghost appears however long
     // the pointer is held there.
-    const bar = m.bar;
-    bar.fire("pointerdown", { clientX: 100, clientY: 300 });
-    bar.fire("pointermove", { clientX: 150, clientY: 200 });
+    m.bar.fire("pointerdown", { clientX: 100, clientY: 300 });
+    m.bar.fire("pointermove", { clientX: 150, clientY: 200 });
     e.advance(2100);
     assert.ok(!m.ghost.classes.has("fdp-ghost-on"), "no dock hint in the middle of the screen");
 
     // Back into the bottom-left corner and held: the ghost shows after the dwell, and releasing on
     // it docks the panel there and records the edges.
-    bar.fire("pointermove", { clientX: 100, clientY: 392 });
+    m.bar.fire("pointermove", { clientX: 100, clientY: 392 });
     e.advance(2100);
     assert.ok(m.ghost.classes.has("fdp-ghost-on"), "held near the corner");
-    bar.fire("pointerup", { clientX: 100, clientY: 392 });
+    m.bar.fire("pointerup", { clientX: 100, clientY: 392 });
     assert.deepEqual(m.p.layout(), { visible: true, collapsed: false, rect: { x: 10, y: 670, w: 240, h: 120 }, snap: { x: "left", y: "bottom" } });
   });
 
