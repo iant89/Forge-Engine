@@ -25964,6 +25964,47 @@ JSON array below; agents maintain it by hand until then.
   {"id": "2096", "date": "2026-10-19T19:30:00Z", "type": "change", "pr": null, "branch": "arena/d4ebc506-forge-engine", "model": "Arena Agent Mode", "modelVersion": null, "file": "PROGRESS.md", "what": "Moved the inspector items to done and kept physics, particles and the console terminal open.", "why": "Track the delivered panels separately from the manifold, GPU-readback and console work that remains."},
   {"id": "2097", "date": "2026-10-19T19:30:00Z", "type": "change", "pr": null, "branch": "arena/d4ebc506-forge-engine", "model": "Arena Agent Mode", "modelVersion": null, "file": "docs/KNOWN-ISSUES.md", "what": "Replaced the five 'no interactive panel' limitations with the Inspector's real ones: one read-only window with one tab at a time and capped rows, no contact-manifold overlay, and no GPU particle rows.", "why": "The old limitations are closed; the new ones are what a user will actually hit."},
   {"id": "2098", "date": "2026-10-19T19:30:00Z", "type": "change", "pr": null, "branch": "arena/d4ebc506-forge-engine", "model": "Arena Agent Mode", "modelVersion": null, "file": "docs/VERIFICATION.md", "what": "Refreshed the catalog counts and described the Inspector's browser-gate evidence.", "why": "Keep the gate table truthful about what each check proves."},
-  {"id": "2099", "date": "2026-10-19T19:30:00Z", "type": "change", "pr": null, "branch": "arena/d4ebc506-forge-engine", "model": "Arena Agent Mode", "modelVersion": null, "file": "mnemosyne.md", "what": "Recorded the Inspector lessons: keyed selection over positional, lazy detail, children over childElementCount in a fake DOM, and overlays as flags the host draws.", "why": "Keep the refresh-and-selection traps discoverable."}
+  {"id": "2099", "date": "2026-10-19T19:30:00Z", "type": "change", "pr": null, "branch": "arena/d4ebc506-forge-engine", "model": "Arena Agent Mode", "modelVersion": null, "file": "mnemosyne.md", "what": "Recorded the Inspector lessons: keyed selection over positional, lazy detail, children over childElementCount in a fake DOM, and overlays as flags the host draws.", "why": "Keep the refresh-and-selection traps discoverable."},
+  {
+  "id": "2100",
+  "date": "2026-10-19T18:50:00Z",
+  "type": "pr-merge",
+  "pr": 134,
+  "branch": "arena/d4ebc506-forge-engine",
+  "base": "main",
+  "title": "Browse the Phase 21 diagnostics in an interactive Inspector window (21.2–21.10)",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "The remaining Phase 21 UI work in two halves. (1) The demo's floating Profiler panel draws the frame history: a category-stacked column per frame against the 60 Hz budget line with a lane chart of the selected frame's scopes, hover to select and click to pin; engine-side (engine/src/debug/frameTimeline.ts) it is pure geometry that charges every scope its self time and inherits an ancestor's category, so nested scopes are counted once and a host can draw it without a canvas. (2) The toolbar's Inspector button opens a floating window with one tab per diagnostic API — ECS, systems, render graph, GPU resources, physics, terrain, particles, streaming, world — each with a summary, a filter, a list and a detail pane, refreshing at 2 Hz while open and costing nothing while closed; rows are keyed so a selection survives a refresh by identity, detail is computed lazily for the selected row only, the list is rebuilt only when its contents change, and four tabs offer an opt-in debug-line overlay that the host's frame loop draws through Renderer.drawLine. Six inspector capabilities move to verified with the window as evidence; physics and particles stay partial (no contact-manifold overlay, no GPU particle readback) and diagnostics.inspectorPanel is partial for the window's own limits. The visible 21.10 console terminal remains open, so Phase 21 stays in progress. Rebases the closed PR #132's frame-profiler commits onto main rather than superseding them.",
+  "files": [
+    "PROGRESS.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/src/core/capabilities.ts",
+    "engine/src/core/engine.ts",
+    "engine/src/debug/frameBreakdown.ts",
+    "engine/src/debug/frameTimeline.ts",
+    "engine/src/index.ts",
+    "engine/src/scene/scene.ts",
+    "engine/src/scene/world.ts",
+    "examples/index.html",
+    "examples/src/diag/inspectorPanel.ts",
+    "examples/src/diag/inspectorTabs.ts",
+    "examples/src/diag/profilerPanel.ts",
+    "examples/src/diag/profilerTimeline.ts",
+    "examples/src/main.ts",
+    "mnemosyne.md",
+    "tests/core/frameBreakdown.test.ts",
+    "tests/core/frameTimeline.test.ts",
+    "tests/examples/inspectorPanel.test.ts",
+    "tests/examples/profilerTimeline.test.ts",
+    "tests/full.test.ts",
+    "tests/support/fakeDom.ts",
+    "tests/tools/selrun.test.ts",
+    "tools/browser-ui-check.mjs"
+  ]
+}
 ]
 ```
