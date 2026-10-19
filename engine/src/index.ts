@@ -483,6 +483,7 @@ export { inspectStreaming, type StreamingDebugEngine, type StreamingObjectDebugI
 export { inspectEnvironment, environmentDebugLines, drawEnvironmentDebug, type EnvironmentDebugOptions, type DayNightDebugInfo, type SunLightDebugInfo, type WeatherDebugInfo, type LightningStrikeDebugInfo, type LightningDebugInfo, type EnvironmentDebugSnapshot, type EnvironmentDebugLineKind, type EnvironmentDebugLine } from "./debug/environmentDebugger.js";
 export { DeveloperConsole, createDeveloperConsole, type DeveloperConsoleHost, type DeveloperConsoleOptions, type DeveloperConsoleCommand, type DeveloperConsoleCommandContext, type DeveloperConsoleEntry } from "./debug/console.js";
 export { PROFILE_CATEGORIES, classifyProfileName, profileLabel, frameBreakdown, formatFrameBreakdown, type ProfileCategory, type FrameBreakdown } from "./debug/frameBreakdown.js";
+export { TIMELINE_CATEGORIES, DEFAULT_TIMELINE_FRAMES, DEFAULT_TIMELINE_BUDGET_MS, DEFAULT_TIMELINE_LANES, frameTimeline, layoutTimeline, hitTestTimeline, formatTimelineFrame, type TimelineCategory, type TimelineSlice, type TimelineFrame, type FrameTimelineOptions, type TimelineModel, type TimelineSegment, type TimelineColumn, type TimelineLaneSlice, type TimelineLanes, type TimelineLayoutOptions, type TimelineLayout, type TimelineHit } from "./debug/frameTimeline.js";
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */

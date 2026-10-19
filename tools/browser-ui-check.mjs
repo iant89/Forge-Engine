@@ -22,9 +22,12 @@
  *  7. the demo's floating Profiler panel works as a window: the toolbar hook opens it, it paints live
  *     numbers and keeps repainting them, a real drag of the title bar moves it, a real drag of the
  *     corner grip resizes it, the bar's collapse button leaves only a corner icon that re-opens it,
- *     and holding a drag near a viewport edge for the dwell docks it flush there.
+ *     and holding a drag near a viewport edge for the dwell docks it flush there;
+ *  7a. the panel's frame timeline strip paints a real frame history, hovering a column selects that
+ *     frame and a click pins it (and a second click releases it).
  *
- * Screenshots: `tools/.browser-ui-<page>.png` (git-ignored). Look at them.
+ * Screenshots: `tools/.browser-ui-<page>.png` and `tools/.browser-ui-profiler-timeline.png`
+ * (git-ignored). Look at them.
  * Exit codes: 0 pass, 1 fail, 2 NOT RUN (no browser/adapter).
  */
 
@@ -187,6 +190,79 @@ try {
   /* reported below */
 }
 check(frameNow(second) > firstFrame, `the live report keeps updating (frame ${firstFrame} → ${frameNow(second)})`);
+
+// 7a. The panel's frame timeline strip, driven by real pointer input on a real canvas: it paints the
+//     frame history, hovering a column selects that frame (not the newest one), and a click pins it
+//     so the readout stops moving. (tests/examples/profilerTimeline.test.ts pins the same wiring
+//     against a fake canvas; this is the real page, real WebGPU frame records and a real pointer.)
+const timelineState = () => page.evaluate(() => window.__forge.profilerTimeline());
+const stripBox = await page.locator("#profiler-panel canvas").first().boundingBox();
+check(!!stripBox && stripBox.width > 40 && stripBox.height > 40, `the panel carries a timeline strip (${stripBox ? `${stripBox.width.toFixed(0)}x${stripBox.height.toFixed(0)}` : "absent"})`);
+const strip = await timelineState();
+check(strip && strip.painted > 0 && strip.cssWidth > 40, `the strip has painted (${strip?.painted} paints, ${strip?.cssWidth}x${strip?.cssHeight} css px at dpr ${strip?.dpr})`);
+check(strip && strip.frames > 1 && strip.columns > 1, `the strip has a history to draw (${strip?.frames} frames, ${strip?.columns} columns)`);
+check(strip && strip.peakMs > 0, `and a real frame time behind it (peak ${strip?.peakMs?.toFixed(2)} ms)`);
+check(typeof strip?.readout === "string" && /^#\d+\s+cpu /.test(strip.readout ?? ""), `with a readout naming the selected frame (${JSON.stringify((strip?.readout ?? "").split("\n")[0])})`);
+
+// The strip's own pixels: a blank canvas paints every check above and shows the user nothing. The
+// backdrop is drawn at 0.92 alpha, so every opaque pixel is a column, a lane, a marker or a label.
+const ink = await page.evaluate(() => {
+  const canvas = document.querySelector("#profiler-panel canvas");
+  const context = canvas.getContext("2d");
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  const counts = new Map();
+  let opaque = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 250) continue;
+    opaque++;
+    const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return { opaque, total: data.length / 4, colours: counts.size, top: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4) };
+});
+check(ink.opaque > ink.total * 0.02, `the strip has pixels on it, not a blank canvas (${((100 * ink.opaque) / ink.total).toFixed(1)}% opaque)`);
+check(ink.colours >= 3, `in more than one category colour (${ink.colours} distinct opaque colours, heaviest ${ink.top.map(([c, n]) => `${c}:${n}`).join(" ")})`);
+
+// Hover a column a third of the way in: the strip must select that frame, not the newest one.
+const hoverX = stripBox.x + stripBox.width * 0.34;
+const hoverY = stripBox.y + stripBox.height * 0.25;
+await page.mouse.move(hoverX, hoverY);
+await sleep(400); // one 4 Hz repaint plus margin, under software rendering
+const hovered = await timelineState();
+check(hovered.pinned === false, "a hover does not pin the strip");
+check(
+  hovered.selectedFrame !== null && hovered.selectedFrame < strip.selectedFrame,
+  `hovering a column selects that frame (#${hovered.selectedFrame} of #${strip.selectedFrame})`,
+);
+check(hovered.readout.startsWith(`#${hovered.selectedFrame} `), `and the readout follows it (${JSON.stringify(hovered.readout.split("\n")[0])})`);
+
+// Click to pin, then hover somewhere else: a pinned strip must not move.
+await page.mouse.click(hoverX, hoverY);
+await sleep(400);
+const pinned = await timelineState();
+check(pinned.pinned === true, "a click pins the frame under the pointer");
+check(pinned.selectedFrame === hovered.selectedFrame, `and it is the frame that was under it (#${pinned.selectedFrame})`);
+await page.mouse.move(stripBox.x + stripBox.width * 0.85, hoverY);
+await sleep(400);
+const stillPinned = await timelineState();
+check(stillPinned.selectedFrame === pinned.selectedFrame, `pinned: hovering elsewhere leaves it alone (still #${stillPinned.selectedFrame})`);
+await page.locator("#profiler-panel").screenshot({ path: "tools/.browser-ui-profiler-timeline.png" });
+
+// Release the pin by clicking the pinned column again. The strip keeps scrolling while it is pinned
+// (that is the point of pinning by frame number), so the column that was under the pointer has
+// drifted left by now: ask the strip where its pinned column is and click *that*, and try a couple
+// of times because a frame may land between the look-up and the click.
+let released = await timelineState();
+for (let attempt = 0; attempt < 3 && released.pinned; attempt++) {
+  const slot = stripBox.width / released.columns;
+  const leftmost = released.frames - released.columns;
+  const pinnedX = stripBox.x + (released.selected - leftmost + 0.5) * slot;
+  await page.mouse.click(pinnedX, hoverY);
+  await sleep(400);
+  released = await timelineState();
+}
+check(released.pinned === false, "clicking the pinned frame again releases it");
+await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y - 60);
 
 const at = await panelLayout();
 await dragBy("#profiler-panel .fdp-bar", 60, -80);

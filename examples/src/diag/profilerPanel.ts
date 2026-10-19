@@ -16,9 +16,11 @@
  */
 import { ICONS, mountDebugPanel, type DebugPanel, type DebugPanelOptions, type StorageLike } from "./debugPanel.js";
 import { bounds, type Rect, type SnapEdges } from "./panelLayout.js";
+import { mountProfilerTimeline, type ProfilerTimeline, type ProfilerTimelineOptions, type TimelineState } from "./profilerTimeline.js";
 
 /**
  * On-screen controls a collapsed profiler icon must not cover.
+ *
  *
  * These are the *buttons*, not their containers: the touch overlays (`#weather-touch`, `#sky-touch`,
  * …) are `position: fixed; inset: 0` full-viewport layers with `pointer-events: none`, so listing a
@@ -47,6 +49,12 @@ export const PROFILER_AVOID = [
 export interface ProfilerPanelOptions {
   /** The element that shows the report (the `<pre>`); it is moved into the floating panel. */
   body: HTMLElement;
+  /**
+   * Draw the frame/scope history as a strip above the report (Phase 21.1). Omit or pass `null` for
+   * the text-only panel. The strip is mounted with this panel's `doc`/`win`/`now`, so the fake-DOM
+   * suite drives it deterministically.
+   */
+  timeline?: ProfilerTimelineOptions | null;
   /** Toolbar button that opens / closes the panel; absent is fine (the panel still works). */
   button?: HTMLElement | null;
   /** The report text; called on open and on each throttled repaint. */
@@ -81,6 +89,8 @@ export interface ProfilerPanel {
   tick(nowMs?: number): void;
   /** Current geometry + dock state (used by the browser gate and dev tooling). */
   layout(): ProfilerPanelLayout;
+  /** The timeline strip's state, or null when the panel was mounted without one. */
+  timelineState(): TimelineState | null;
   dispose(): void;
 }
 
@@ -91,8 +101,45 @@ export function mountProfilerPanel(options: ProfilerPanelOptions): ProfilerPanel
   let visible = false;
   let nextPaint = 0;
 
+  /**
+   * With a timeline, the panel's body is a small column: the strip, a one-line readout of the frame
+   * it has selected, then the text report. The strip is a canvas because 180 columns × N categories
+   * of DOM nodes would repaint far worse than the 4 Hz throttle the text report lives on; the
+   * readout is a real element so it stays selectable and copyable.
+   */
+  let timeline: ProfilerTimeline | null = null;
+  let readout: HTMLElement | null = null;
+  let panelBody: HTMLElement = options.body;
+  if (options.timeline) {
+    panelBody = doc.createElement("div");
+    panelBody.style.cssText = "display:flex;flex-direction:column;min-height:0;overflow:hidden";
+    // The wrapper has to stand exactly where the report stood: `mountDebugPanel` inserts its own
+    // root *before* the body it is given and then adopts it, so a wrapper that is not in the
+    // document yet leaves the whole panel detached (and the demo's `#profiler-panel` id unreachable).
+    options.body.parentNode?.insertBefore(panelBody, options.body);
+    timeline = mountProfilerTimeline({ ...options.timeline, doc, win: options.win, now });
+    // `pointer-events: auto` is repeated here (the widget sets it too, for hosts that mount the
+    // strip on its own) because the panel's body is pointer-transparent and a `cssText` assignment
+    // replaces every inline style on the element.
+    timeline.el.style.cssText = "flex:0 0 auto;display:block;width:100%;height:96px;pointer-events:auto;touch-action:pan-y";
+    readout = doc.createElement("div");
+    readout.style.cssText =
+      "flex:0 0 auto;font:10px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:#a7f3d0;" +
+      "padding:3px 8px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    // The report keeps the padding and colour the page gave it, but it is now one flex child among
+    // three rather than the panel's own body, so it has to scroll for itself.
+    options.body.style.cssText += ";margin:0;flex:1 1 auto;min-height:0;overflow:auto";
+    panelBody.appendChild(timeline.el);
+    panelBody.appendChild(readout);
+    panelBody.appendChild(options.body);
+  }
+
   const paint = (): void => {
     options.body.textContent = options.report();
+    if (timeline) {
+      timeline.paint();
+      if (readout) readout.textContent = timeline.state().readout;
+    }
   };
   const syncButton = (open: boolean): void => {
     const button = options.button;
@@ -113,7 +160,7 @@ export function mountProfilerPanel(options: ProfilerPanelOptions): ProfilerPanel
   };
 
   const ui = mountDebugPanel({
-    body: options.body,
+    body: panelBody,
     title: "profiler",
     barEdge: "top",
     getText: () => options.report(),
@@ -166,7 +213,9 @@ export function mountProfilerPanel(options: ProfilerPanelOptions): ProfilerPanel
       paint();
     },
     layout: () => ({ visible, collapsed: ui.collapsed, rect: ui.rect, snap: ui.snap }),
+    timelineState: () => timeline?.state() ?? null,
     dispose() {
+      timeline?.dispose();
       ui.dispose();
     },
   };

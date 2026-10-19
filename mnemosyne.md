@@ -2593,3 +2593,27 @@ Landed by rebasing PR #132 (`claude/phase21-frame-profiler`) onto main: its thir
 the inspectors that PR #133 had already merged, so only the two frame-profiler commits were taken
 and the docs were re-derived against main's counts (143 suites, 1017 coverage claims) rather than
 the branch's stale ones.
+
+## 2026-10-19 — Phase 21.1 frame timeline
+The strip in the demo's Profiler panel draws `engine/src/debug/frameTimeline.ts`, which folds
+`profiler.frameHistory()` into rectangles. Three things are easy to get wrong and cost a debug cycle
+each:
+
+* **Charge self time, not duration.** Slices nest (`Frame` wraps the whole scene update, and every
+  system and scene-object scope sits inside it). Summing durations counts a system's time once for
+  itself and again for every enclosing scope — a 12.5 ms frame added up to 27 ms. Self time
+  (`durationMs` minus direct children) partitions the frame exactly, and a container's overhead then
+  shows up as `other` where it belongs.
+* **Inherit the category, don't guess it twice.** `upload` inside `terrain:TerrainSystem` has no
+  `<category>:` prefix; `classifyProfileName("upload")` says `simulation`. Walking the ancestor chain
+  first (own prefix → nearest categorised ancestor → name guess for a leaf → `other`) is what keeps
+  the colours honest.
+* **A wrapper must stand where the body stood.** Giving `mountDebugPanel` a wrapper div that was
+  never appended to the document left the whole floating panel detached: `mountDebugPanel` inserts
+  its root *before* the body it is handed, so a parentless body means a parentless root, and the
+  demo's `#profiler-panel` id (and every browser-gate locator) found nothing. The unit test asserts
+  `panel.ui.root.parentNode` now.
+
+Pinning is by *frame number*, not window position: the history is a ring, so a positional pin would
+silently slide onto a different frame. When the pinned frame scrolls out, the pin is dropped rather
+than quietly moved.

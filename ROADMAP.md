@@ -2256,15 +2256,23 @@ GOAL:
         [x] scripting
         [x] audio (SpatialAudioSystem; soundscapes driven outside the scene are not timed)
 
-    As built: engine/src/debug/frameBreakdown.ts. EntityWorld.runSystems and Scene.update open a
-    `<category>:<name>` profiler scope per system and per scene-object hook (the category comes from
-    a `profileCategory` **getter**, never an own field, so snapshots and replay hashes do not change;
-    labels are cached in a WeakMap for the same reason, and classifyProfileName guesses from the name
-    otherwise). The engine wraps the asset streamer in `streaming:assets`, and
-    Engine.frameBreakdown() folds the scopes into the eight categories above plus CPU and GPU frame
-    time, with the frame's unattributed remainder reported separately. Pinned by
-    tests/core/frameBreakdown.test.ts. The per-frame *timeline* that draws this history is still
-    open (see docs/KNOWN-ISSUES.md).
+    As built: engine/src/debug/frameBreakdown.ts and engine/src/debug/frameTimeline.ts.
+    EntityWorld.runSystems and Scene.update open a `<category>:<name>` profiler scope per system and
+    per scene-object hook (the category comes from a `profileCategory` **getter**, never an own field,
+    so snapshots and replay hashes do not change; labels are cached in a WeakMap for the same reason,
+    and classifyProfileName guesses from the name otherwise). The engine wraps the asset streamer in
+    `streaming:assets`, and Engine.frameBreakdown() folds the scopes into the eight categories above
+    plus CPU and GPU frame time, with the frame's unattributed remainder reported separately.
+
+    The history is also *drawn*: frameTimeline() charges every scope its self time (so nested scopes
+    are counted once) and layoutTimeline() turns the last 180 frames into rectangles — a category-
+    stacked column per frame against the budget line, and a lane chart of the selected frame's
+    scopes underneath. The demo's floating Profiler panel paints that into a canvas above the text
+    report: hover a column to select that frame, tap to pin it. Pinned by
+    tests/core/frameBreakdown.test.ts and tests/core/frameTimeline.test.ts (model and geometry),
+    tests/examples/profilerTimeline.test.ts (the strip, against a fake canvas) and check:browser:ui
+    (real pointer input on real WebGPU frame records). The strip's own follow-ups — a bounded window
+    with no scrub or zoom, a frame-total-only GPU marker — are in docs/KNOWN-ISSUES.md.
 
 
 21.2 ECS Inspector

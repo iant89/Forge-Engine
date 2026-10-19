@@ -5,11 +5,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Diagnostics (Phase 21)
 
-* **The profiler has no graphical per-frame timeline yet.** The public `Profiler` API records bounded
-  frame histories, `Engine.frameBreakdown()` folds the categorised scopes into per-subsystem time, and
-  the demo exposes CPU/GPU scope reports in a floating panel — but nothing yet draws the frame/scope
-  history as a timeline, so a spike is visible as a number and not as a shape.
-  (capability: diagnostics.profiler)
+* **The timeline strip is a three-second window with no scrub or zoom.** The demo's strip draws the
+  last 180 frames as category-stacked columns with a lane chart of the selected frame, and hover/click
+  selects and pins a frame, but the history cannot be paused, scrubbed or zoomed, so a spike older
+  than three seconds is gone by the time you reach for it. The GPU marker is the frame *total*: the
+  per-pass device times that the text report shows have no lane of their own. Columns are
+  category-coloured only while the profiler collects slices (`detailed`, on when `gpuTimestamps` is);
+  without them each column is still the frame's CPU time, drawn entirely as `other`.
+  (capability: diagnostics.frameTimeline)
 * **The ECS inspector is an API, not yet an interactive panel.** `inspectEcs` and `inspectEntity` expose
   bounded, read-only snapshots for tools and tests; the demo/editor does not yet let a user browse
   entities and components on screen. (capability: diagnostics.ecsInspector)

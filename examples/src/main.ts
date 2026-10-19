@@ -145,10 +145,18 @@ async function main(): Promise<void> {
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2, gpuTimestamps: true } });
   // Floating Profiler panel: draggable, resizable (corner grip), collapsible (bar button → corner
   // icon) and dockable to a viewport edge, with the toolbar button kept in sync with it. Starts
-  // closed; `tick` in the frame loop repaints it ~4×/s while it is open.
-  const profiler = mountProfilerPanel({ body: profilerBody!, button: btnProfiler, report: () => engine.profiler.report(16) });
+  // closed; `tick` in the frame loop repaints it ~4×/s while it is open. The panel's upper third is
+  // the frame timeline: one column per frame, stacked by category, with the selected frame's scope
+  // lanes underneath it (hover to inspect, tap to pin).
+  const profiler = mountProfilerPanel({
+    body: profilerBody!,
+    button: btnProfiler,
+    report: () => engine.profiler.report(16),
+    timeline: { frames: () => engine.profiler.frameHistory() },
+  });
   profiler.ui.root.id = "profiler-panel";
   profiler.ui.icon.id = "profiler-icon";
+  const profilerTimeline = profiler.timelineState;
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}  build ${FORGE_BUILD}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
@@ -738,6 +746,8 @@ async function main(): Promise<void> {
     setProfilerVisible: (visible: boolean) => profiler.setVisible(visible),
     /** Floating Profiler panel geometry (visible · rect · docked edges) for the browser gate. */
     profilerLayout: () => profiler.layout(),
+    /** The panel's frame timeline: history, columns, selection and the readout (browser gate). */
+    profilerTimeline: () => profilerTimeline(),
     get scene(): Scene {
       return currentHandle!.scene;
     },
