@@ -6,9 +6,10 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
 npm test                 # selrun full suite, in tests/full.test.ts order
-npm run test:affected    # select from working-tree changes; production via explicit @covers only
+npm run test:affected    # fail-safe selection: coverage + transitive/subsystem impact + smoke floor
 npm run test:affected -- --base origin/main  # select from origin/main...HEAD, ignoring worktree changes
 npm run test:check       # validate suite manifests, all coverage claims, links, and count
+npm run test:audit       # compare selected scope; --scenarios FILE checks injected-regression misses
 npm run check:browser    # separate real-WebGPU gate (headless Chromium + SwiftShader)
 npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
 npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B

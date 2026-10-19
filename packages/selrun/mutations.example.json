@@ -1,0 +1,19 @@
+[
+  {
+    "name": "clamp lower-bound regression",
+    "file": "engine/src/math/scalar.ts",
+    "replace": [
+      {
+        "search": "return value < min ? min : value > max ? max : value;",
+        "replacement": "return value < min ? max : value > max ? max : value;"
+      }
+    ]
+  },
+  {
+    "name": "lerp arithmetic operators",
+    "file": "engine/src/math/scalar.ts",
+    "operators": ["arithmetic"],
+    "startLine": 32,
+    "endLine": 34
+  }
+]

@@ -105,7 +105,9 @@ export async function finish(): Promise<void> {
   if (finished) throw new Error("selrun: finish() may only be called once per suite process");
   finished = true;
 
+  const suiteStartedAt = performance.now();
   let passed = 0;
+  let failedCases = 0;
   let skipped = 0;
   const failures: Array<{ name: string; error: unknown }> = [];
   const activeScopes: HookScope[] = [];
@@ -113,8 +115,10 @@ export async function finish(): Promise<void> {
 
   const recordFailure = (name: string, error: unknown): void => {
     failures.push({ name, error });
-    console.error(`  - FAIL ${name}`);
-    console.error(formatError(error));
+    const detail = formatError(error);
+    const [summary, ...stack] = detail.split("\n");
+    console.error(`\t\t\t- ${summary}`);
+    for (const line of stack) console.error(`\t\t\t  ${line.trim()}`);
   };
   const runWithTimeout = async (body: TestBody, timeoutMs: number, label: string): Promise<void> => {
     let timer: NodeJS.Timeout | undefined;
@@ -142,11 +146,23 @@ export async function finish(): Promise<void> {
     }
   };
 
+  console.log("\n[SELRUN · TEST RESULTS]");
+  console.log("\n────────────────────────────────────────────────────────────");
+  let lastDisplayedGroup = "";
+
   for (const testCase of cases) {
-    const label = [...testCase.groups, testCase.name].join(" > ");
+    const groupLabel = testCase.groups.map((groupName) => groupName.split(" - ", 1)[0]).join(" / ") || "Ungrouped";
+    const displayedGroup = groupLabel.toLocaleUpperCase();
+    const testLabel = testCase.name.charAt(0).toLocaleUpperCase() + testCase.name.slice(1);
+    const caseStartedAt = performance.now();
+    if (displayedGroup !== lastDisplayedGroup) {
+      console.log(`\n\t[${displayedGroup}]`);
+      lastDisplayedGroup = displayedGroup;
+    }
     if (testCase.skipReason !== undefined) {
       skipped++;
-      console.log(`  - SKIP ${label} — ${testCase.skipReason}`);
+      console.log(`\t\t↷ ${testLabel} (${formatDuration(performance.now() - caseStartedAt)})`);
+      console.log(`\t\t\t! ${testCase.skipReason} !`);
       continue;
     }
 
@@ -163,7 +179,7 @@ export async function finish(): Promise<void> {
         } catch (error) {
           failedBeforeAll.add(scope);
           groupSetupFailed = true;
-          recordFailure(label, error);
+          recordFailure(testLabel, error);
           break;
         }
       }
@@ -178,7 +194,7 @@ export async function finish(): Promise<void> {
             for (const hook of scope.beforeEach) await runHook(hook);
           }
           await testCase.body!();
-        }, 20_000, `test ${label}`);
+        }, 20_000, `test ${testLabel}`);
       } catch (error) {
         testError = error;
       }
@@ -190,21 +206,39 @@ export async function finish(): Promise<void> {
           await runHook(hook);
         } catch (error) {
           if (testError === undefined) testError = error;
-          else recordFailure(label, error);
+          else recordFailure(testLabel, error);
         }
       }
     }
 
-    if (testError !== undefined) recordFailure(label, testError);
-    else if (!groupSetupFailed) passed++;
+    const caseDuration = performance.now() - caseStartedAt;
+    if (testError !== undefined) {
+      failedCases++;
+      console.log(`\t\t✗ ${testLabel} (${formatDuration(caseDuration)})`);
+      recordFailure(testLabel, testError);
+    } else if (groupSetupFailed) {
+      failedCases++;
+      console.log(`\t\t✗ ${testLabel} (${formatDuration(caseDuration)})`);
+      console.error("\t\t\t- Group setup failed; see setup error above.");
+    } else {
+      passed++;
+      console.log(`\t\t✓ ${testLabel} (${formatDuration(caseDuration)})`);
+    }
   }
 
   while (activeScopes.length > 0) await closeScope(activeScopes.pop()!);
 
-  console.log(
-    `selrun: ${passed} passed, ${failures.length} failed, ${skipped} skipped (${cases.length} cases)`,
-  );
-  if (failures.length > 0) process.exitCode = 1;
+  const suiteDuration = performance.now() - suiteStartedAt;
+  console.log("\n────────────────────────────────────────────────────────────");
+  console.log(`Results  ✓ ${passed} passed   ✗ ${failedCases} failed   ↷ ${skipped} skipped   (${cases.length} checks)`);
+  console.log(`Duration ${formatDuration(suiteDuration)}`);
+  if (failedCases > 0 || failures.length > 0) process.exitCode = 1;
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds < 1) return `${milliseconds.toFixed(2)} ms`;
+  if (milliseconds < 1_000) return `${milliseconds.toFixed(1)} ms`;
+  return `${(milliseconds / 1_000).toFixed(2)} s`;
 }
 
 function formatError(error: unknown): string {

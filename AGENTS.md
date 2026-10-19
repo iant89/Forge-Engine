@@ -220,22 +220,24 @@ no build step between editing engine source and seeing it in the browser.
   Before each PR merge, append a `pr-merge` entry summarising all changes in that PR. Validate the
   ```json fence still parses after every edit.
 
-## 8. Selective testing — explicit production coverage, test-only import tracing
+## 8. Selective testing — conservative, fail-safe impact analysis
 
 `npm test` runs every linked suite in the declared order, one process per suite. During the edit loop,
-`npm run test:affected` uses the same catalog to run only suites supported by direct-file, explicit
-coverage, or test-helper evidence. The rules are implemented and tested in `packages/selrun/` and
-summarized in `docs/TESTING.md`.
+`npm run test:affected` uses the same catalog and combines direct coverage, transitive production
+dependencies, subsystem mappings, test-helper imports, and a mandatory smoke floor. If the change set,
+graph, or coverage metadata cannot be resolved confidently, it falls back to the full suite. The rules
+are implemented and tested in `packages/selrun/` and summarized in `docs/TESTING.md`.
 
-* **Production changes use only explicit `@covers` claims.** Every suite has both a leading JSDoc
-  header and an exported `suite` manifest. Each cover is a repository-backed path (or a deliberate
-  glob); one source file may be covered by many suites, and one suite may cover many source files.
-  Never collapse claims or assign a single owner per source path. Importing `@forge/engine` does not
-  imply coverage of every file re-exported by the public barrel.
-* **Static import closure is test-only.** A changed suite selects itself directly. A changed test
-  helper selects suites whose static imports reach it, including through other test helpers. Dynamic
-  imports are not followed. Production changes are never selected by importing a production module;
-  they require an explicit `@covers` match.
+* **Coverage claims remain explicit and many-to-many.** Every suite has both a leading JSDoc header
+  and an exported `suite` manifest. Each cover is a repository-backed path (or a deliberate glob);
+  one source file may be covered by many suites, and one suite may cover many source files. Never
+  collapse claims or assign a single owner per source path. Importing `@forge/engine` alone does not
+  imply direct coverage of every file re-exported by the public barrel.
+* **Impact evidence is complementary.** A changed suite selects itself. A changed test helper selects
+  suites whose static imports reach it (including through other test helpers); dynamic imports are not
+  followed. Production changes additionally select direct covers, tests covering transitive importers,
+  and suites mapped to the affected subsystem. Foundation utilities expand across subsystem boundaries.
+  The smoke floor always runs; config, deleted/unresolved, unmapped, or large changes run the full suite.
 * **Working-tree and base changes are different inputs.** With no `--base`, selection includes staged,
   unstaged, deleted, renamed, and untracked paths. `npm run test:affected -- --base REF` compares
   exactly `REF...HEAD` and ignores all local working-tree state. Rename/copy records include both paths.
