@@ -2728,3 +2728,47 @@ Working with the software rasterizer (SwiftShader) on this box:
   Re-selecting `F` (`selectGear(1)`) while already in a forward gear (`transmission.gear > 0`) is a no-op so automatic
   upshifts (`1 → 2 → 3`) are preserved across deterministic replay recordings.
 
+## 2026-10-19 — Off-road demo: a two-stroke quad, a forest that culls, and handlebar-rate steering
+
+* **The lag was the shadow pass, not the trees (`engine/src/population/vegetation.ts`, `offroadHillScene.ts`):**
+  the off-road forest was planted with `maxDistance: 0` (never culled) and *both* parts of every tree
+  `castShadow: true`, so facing the treeline drew ~6700 visible renderables and had thousands of casters
+  walking the depth pass every frame. `VegetationModel` now takes a third ring, `shadowDistance`: past it
+  `refresh()` clears `castShadow` on the instance's parts (`Instance.casting`, counted in `stats_.casting`).
+  Trees are `lodDistance` 16/22/30, `maxDistance` 70/105/145, `shadowDistance` 26/38/52, `swayDistance`
+  22/32/44 (low/medium/high); bushes `maxDistance` 45/70/100 + `shadowDistance` 28/38/48; the backdrop
+  scatter is thinner and pulled in (lateral 40..95, 0.005·density); `scene.settings.shadow.distance`
+  40/55/70. Measured on the mock GPU at the spawn, high tier: visible 6705 → 2813, casters → 664.
+  **Always give a vegetation model a finite `maxDistance`** — 0 means "draw it forever".
+* **`Frustum.classifyAABB` fast path (`engine/src/rendering/renderer.ts`):** when the coarse plane test
+  returns `PlaneTest.Inside`, the AABB is fully in the frustum, so `collectBatches` skips the BVH
+  intersection. Most renderables in a scene are fully inside; only `Crossing` needs the tree.
+* **Two-stroke audio without new nodes (`engine/src/audio/vehicle.ts`):** `VehicleAudio` options take
+  `strokes?: 2 | 4`; `firingsPerRev = cylinders × 2/strokes`, so a 2-stroke fires every revolution.
+  It also brightens the engine voice with rpm, cuts roughness to 0.55 (buzz, not rumble), and puts the
+  expansion-chamber ring at `4 ×` the firing frequency on the **whine** voice above 42% of the rev range
+  under throttle — the voice a four-stroke leaves free in forward gear. The 12-source graph is pinned by
+  `tests/audio/vehicleAudio.test.ts`, so anything new has to reuse a voice that is already there.
+* **Light machines need their own config (`engine/src/vehicles/vehicle.ts`, `docs/VEHICLES.md`):**
+  `VehicleOptions` now exposes `inertiaYaw/Pitch/Roll`, `angularDamping`, `lsdBias`, `tcSlip`,
+  `tcStrength`, `handbrakeTorque`, `suspensionRest`, `suspensionTravel`, `wheelInertia`,
+  `maxSteerAngle`, `efficiency`. Defaults are untouched (the car's), and `tests/vehicles/vehicles.test.ts`
+  pins both halves. Car numbers on a 265 kg quad are unplayable: 4500 N·m of brake on a 0.27 m tyre is
+  16.7 kN at a wheel carrying ~650 N, so all four lock the moment the pedal is touched.
+* **Rate-limit digital input before `vehicle.input` (`offroadHillScene.ts`):** keys are full-lock-or-nothing,
+  and on a short-wheelbase machine that reads as darting. The demo ramps steer 4.2/s toward lock and 6.5/s
+  back to centre (bars self-centre faster than they turn), throttle 5.5/s up / 9/s down, brake 8/s / 10/s.
+* **`examples/src/scenes/offroadQuad.ts`:** `buildQuadSources(spec)` returns per-material merged
+  `GeometrySource`s (`plastic/trim/steel/engine/exhaust/lamps`), two wheel assemblies (narrow front,
+  wide rear, tyre + rim + disc) built about their own origin with the axle along **+X**, and `dims`
+  for cameras/lamps. Body heights are authored **off the ground plane**: `hubDrop = suspensionRest −
+  mass·g/(4·springRate)` is what the scene passes, so the seat stays 0.79 m above the ground however
+  long the suspension is. Knobs and spokes are plain boxes — `roundedBoxSource` is ~300 tris each and
+  30 tyre lugs a wheel made the quad 32k tris; boxes brought it to 10k.
+* **Wheel entities are roots, not children of the chassis.** `VehicleSystem` writes world poses into
+  `VehicleComponent.wheelEntities`; parenting them to the chassis offsets them by the chassis pose
+  (this is the same bug the Alpine truck had). Left-side wheel meshes get a 180° yaw about +Y so the
+  rim dish faces outboard.
+* **`DemoSceneHandle.vehicleState` is a closed shape** (`speed/rpm/gear/x/y/z/parkingBrake?/mechanical?`).
+  Returning scene-specific fields from it is a typecheck error — and `npm run typecheck` is *not* part of
+  `npm test`, so it ships silently unless you run it. Alpine Rescue had exactly that (fixed here).

@@ -180,6 +180,55 @@ group("vegetation field", () => {
     scene.removeObject(field);
     assert.equal(renderables().length, 0);
   });
+
+  test("shadow casting is its own ring: a caster stops casting before it stops being drawn", () => {
+    const scene = new Scene();
+    const viewer = { x: 0, y: 0, z: 0 };
+    const leafMat = mat();
+    const hi = geo("hi"), lo = geo("lo");
+    // Two parts, both casters, and a shadow ring inside the draw distance (a forest's cost is its
+    // shadow pass: thousands of casters that are too far away for their shadows to be readable).
+    const ringed = {
+      parts: [{ hi, lo, material: leafMat, castShadow: true }, { hi: lo, lo, material: leafMat, castShadow: true }],
+      lodDistance: 10,
+      maxDistance: 50,
+      shadowDistance: 20,
+      swayDistance: 30,
+    };
+    const unringed = { parts: [{ hi, lo, material: leafMat, castShadow: true }], lodDistance: 10, maxDistance: 50, swayDistance: 30 };
+    const field = new VegetationField({ models: [ringed, unringed], viewer: () => viewer, wind: () => ({ x: 0, z: 0 }) });
+    field.add(0, 5, 0, 0); // inside the ring: drawn and casting
+    field.add(0, 30, 0, 0); // drawn, past the ring: no longer a caster
+    field.add(0, 90, 0, 0); // past the draw distance: hidden
+    field.add(1, 30, 0, 4); // no ring: casts wherever it is drawn
+    scene.add(field);
+    field.update({} as never, 0.016);
+    const partsAt = (x: number, z: number): Renderable[] => {
+      const st = scene.world.store(Renderable);
+      const out: Renderable[] = [];
+      for (let i = 0; i < st.count; i++) {
+        const id = scene.world.idForSlot(st.slotAt(i)) as unknown as number;
+        const t = scene.world.getComponent(id, Transform)!;
+        if (t.position.x === x && t.position.z === z) out.push(scene.world.getComponent(id, Renderable)!);
+      }
+      return out;
+    };
+    assert.equal(partsAt(5, 0).length, 2, "both parts of the near plant exist");
+    assert.ok(partsAt(5, 0).every((r) => r.visible && r.castShadow), "inside the ring, every caster casts");
+    assert.ok(partsAt(30, 0).every((r) => r.visible && !r.castShadow), "outside the ring it is drawn but not a caster");
+    assert.ok(partsAt(90, 0).every((r) => !r.visible), "past the draw distance it is hidden");
+    assert.ok(partsAt(30, 4).every((r) => r.visible && r.castShadow), "a model with no ring keeps casting");
+    assert.equal(field.stats_.casting, 2, "casting counts instances, not parts");
+
+    // The ring follows the viewer: what was near is now far, and vice versa.
+    viewer.x = 30;
+    field.refresh();
+    assert.ok(partsAt(30, 0).every((r) => r.castShadow), "the ring moved with the viewer");
+    assert.ok(partsAt(5, 0).every((r) => r.visible && !r.castShadow), "and the plant left behind stopped casting");
+    assert.ok(partsAt(90, 0).every((r) => !r.visible), "still hidden");
+    assert.equal(field.stats_.casting, 2);
+    scene.removeObject(field);
+  });
 });
 
 group("track weather ground", () => {

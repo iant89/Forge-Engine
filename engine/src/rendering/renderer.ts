@@ -31,7 +31,7 @@ import { Double3 } from "../math/double3.js";
 import { BufferBuilder, StructAccessor, WriteBuffer } from "../gpu/bufferWriter.js";
 import { Mat4, composeYTRS } from "../math/mat.js";
 import { Vec3 } from "../math/vec.js";
-import { AABB, Frustum } from "../math/geometry.js";
+import { AABB, Frustum, PlaneTest } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
 import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
@@ -3113,8 +3113,13 @@ export class Renderer implements RenderFrameContext {
         this.scratchBox.transformByMatrix(this.scratchMat, this.scratchWorldBox);
       }
       const box = this.scratchWorldBox;
-      const coarseInView = this.frustum.intersectsAABB(box);
-      const meshInView = coarseInView && (posed || r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
+      // A box wholly inside the frustum needs no per-triangle refinement: everything it contains is
+      // visible. `classifyAABB` runs the same six plane tests `intersectsAABB` does, so the Inside
+      // verdict is free, and it skips the geometry's BVH walk — once per visible renderable per
+      // frame, which is what a dense instanced forest spends its CPU on.
+      const coarse = this.frustum.classifyAABB(box);
+      const coarseInView = coarse !== PlaneTest.Outside;
+      const meshInView = coarseInView && (coarse === PlaneTest.Inside || posed || r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
       const inView = meshInView && (r.layer & camera.cullingMask) !== 0;
       r.isVisible = inView;
       // Debug bounds: record the would-be footprint of everything that *has* a renderable this

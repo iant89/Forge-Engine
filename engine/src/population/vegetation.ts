@@ -13,6 +13,8 @@
  * one (density LOD for grass — the lo patch has a third of the blades). Visible instances inside
  * `swayDistance` are posed every frame by the engine's vegetation wind (`windSway`): the whole plant
  * leans about its root, downwind, with its own phase so a stand ripples instead of moving in step.
+ * A third ring, `shadowDistance`, decides which instances still cast into the shadow maps — the
+ * per-cascade redraw of a forest is what a treeline costs, and a distant crown is a silhouette.
  *
  * Weather: {@link VegetationField.setSurface} puts the 17.4 wetness/snow on the field's materials as
  * per-object snow (`Material.setSnowCover`), with a low snow line so blades and leaf cards — which
@@ -46,6 +48,13 @@ export interface VegetationModel {
   sway?: WindSwayParams;
   /** Sway only inside this distance (m). Default `lodDistance`. */
   swayDistance?: number;
+  /**
+   * Cast shadows only inside this distance (m); default (omitted/0) keeps whatever the part asked
+   * for at every visible distance. Shadow maps redraw every caster per cascade, so on a forested
+   * scene this — not `maxDistance` — is the knob that decides the frame cost: a treeline 300 m away
+   * is a silhouette in the colour pass and contributes nothing worth rasterising into a 2048² map.
+   */
+  shadowDistance?: number;
 }
 
 export interface VegetationFieldOptions {
@@ -75,6 +84,8 @@ interface Instance {
   /** -1 hidden, 0 hi, 1 lo. */
   state: number;
   swaying: boolean;
+  /** True while the instance's shadow-casting parts are inside the model's `shadowDistance`. */
+  casting: boolean;
   /** Ground-normal lean (axis x/z, angle) the plant is rooted with; 0 = upright. */
   baseX: number;
   baseZ: number;
@@ -99,7 +110,7 @@ export class VegetationField extends SceneObject {
   private readonly qYaw = new Quat();
   private readonly qTilt = new Quat();
   private readonly axis = new Vec3();
-  private readonly counts = { hidden: 0, hi: 0, lo: 0, swaying: 0 };
+  private readonly counts = { hidden: 0, hi: 0, lo: 0, swaying: 0, casting: 0 };
 
   constructor(options: VegetationFieldOptions) {
     super();
@@ -127,7 +138,7 @@ export class VegetationField extends SceneObject {
         baseAngle = Math.acos(Math.max(-1, Math.min(1, normal.y / (Math.hypot(normal.x, normal.y, normal.z) || 1))));
       }
     }
-    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2, swaying: false, baseX, baseZ, baseAngle };
+    const inst: Instance = { model, x, y, z, yaw, scale, tint, phase: (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % (Math.PI * 2), entities: [], state: -2, swaying: false, casting: false, baseX, baseZ, baseAngle };
     this.instances.push(inst);
     if (this.scene) this.spawn(this.scene, inst);
     return this.instances.length - 1;
@@ -138,7 +149,7 @@ export class VegetationField extends SceneObject {
   }
 
   /** Visibility counts from the last refresh (diagnostics / gates). */
-  get stats_(): { hidden: number; hi: number; lo: number; swaying: number } {
+  get stats_(): { hidden: number; hi: number; lo: number; swaying: number; casting: number } {
     return { ...this.counts };
   }
 
@@ -181,6 +192,7 @@ export class VegetationField extends SceneObject {
       for (const id of inst.entities) scene.destroyEntity({ id });
       inst.entities.length = 0;
       inst.state = -2;
+      inst.casting = false;
     }
     this.swaying = [];
   }
@@ -201,20 +213,22 @@ export class VegetationField extends SceneObject {
     const r = new Renderable();
     r.geometry = part.hi;
     r.material = part.material;
-    r.castShadow = part.castShadow ?? false;
+    // Instances spawn hidden and outside the shadow ring; `refresh` turns both on when the viewer
+    // is close enough, so nothing that is not drawn can be rasterised into a shadow map.
+    r.castShadow = (part.castShadow ?? false) && inst.casting;
     r.tint = inst.tint;
     r.visible = false;
     scene.world.addComponent(e.id, r);
     inst.entities.push(e.id);
   }
 
-  /** Re-evaluate LOD and visibility now (also runs on its own every `refreshInterval`). */
+  /** Re-evaluate LOD, visibility and shadow casting now (also runs on its own every `refreshInterval`). */
   refresh(): void {
     const scene = this.scene;
     if (!scene) return;
     const v = this.viewer();
     const swaying: Instance[] = [];
-    let hidden = 0, hi = 0, lo = 0;
+    let hidden = 0, hi = 0, lo = 0, casting = 0;
     for (const inst of this.instances) {
       const model = this.models[inst.model]!;
       const d = Math.hypot(inst.x - v.x, inst.y - v.y, inst.z - v.z);
@@ -227,21 +241,29 @@ export class VegetationField extends SceneObject {
       if (sway) swaying.push(inst);
       else if (inst.swaying) this.pose_(scene, inst, 0, 0, 0); // leaving the sway ring: stand it upright
       inst.swaying = sway;
-      if (state === inst.state) continue;
+      // Shadow casting is its own ring: a part the model marked as a caster stops being one beyond
+      // `shadowDistance` (0/omitted = cast at every visible distance).
+      const shadowDistance = (model.shadowDistance ?? 0) * this.distanceScale;
+      const casts = state >= 0 && (shadowDistance <= 0 || d <= shadowDistance);
+      if (casts) casting++;
+      if (state === inst.state && casts === inst.casting) continue;
       for (let k = 0; k < inst.entities.length; k++) {
         const r = scene.world.getComponent(inst.entities[k]!, Renderable);
         if (!r) continue;
         const part = model.parts[k]!;
         r.visible = state >= 0;
         if (state >= 0) r.geometry = state === 1 && part.lo ? part.lo : part.hi;
+        r.castShadow = (part.castShadow ?? false) && casts;
       }
       inst.state = state;
+      inst.casting = casts;
     }
     this.swaying = swaying;
     this.counts.hidden = hidden;
     this.counts.hi = hi;
     this.counts.lo = lo;
     this.counts.swaying = swaying.length;
+    this.counts.casting = casting;
   }
 
   /** qYaw = ground lean × yaw (the rest pose). */

@@ -81,6 +81,33 @@ group("engine: rpm, throttle, load, gear", () => {
     assert.equal(l.roarGain, 0, "no tyre roar standing still");
   });
 
+  test("two strokes: twice the firings of a four-stroke single, brighter, and an expansion-chamber ring up top", () => {
+    const parked = last(drive(120));
+    const idle = parked.rpm;
+    const four = vehicleSoundLevels(parked, { cylinders: 1 });
+    const two = vehicleSoundLevels(parked, { cylinders: 1, strokes: 2 });
+    assert.ok(Math.abs(four.engineFrequency - (idle / 60) * 0.5) < 1e-9, `a single four-stroke fires every other revolution (${four.engineFrequency.toFixed(2)} Hz)`);
+    assert.ok(Math.abs(two.engineFrequency - idle / 60) < 1e-9, `a two-stroke fires every revolution (${two.engineFrequency.toFixed(2)} Hz)`);
+    assert.equal(two.engineFrequency, four.engineFrequency * 2);
+
+    // Deep in the rev range under throttle is where a two-stroke's pipe speaks.
+    const d = drive(600, (v) => (v.input.throttle = 1));
+    const loaded = d.states.reduce((best, s) => (s.rpmNorm > best.rpmNorm ? s : best), d.states[0]!);
+    assert.ok(loaded.rpmNorm > 0.6, `reached ${(loaded.rpmNorm * 100).toFixed(0)}% of the rev range`);
+    const band = vehicleSoundLevels(loaded, { cylinders: 1, strokes: 2 });
+    const sameState = vehicleSoundLevels(loaded, { cylinders: 1 });
+    assert.ok(band.engineBrightness > sameState.engineBrightness, "the pipe note is brighter");
+    assert.ok(band.engineRoughness < sameState.engineRoughness, "and it buzzes rather than rumbles");
+    assert.ok(band.whineGain > 0.02, `the expansion chamber rings (${band.whineGain.toFixed(3)})`);
+    assert.ok(Math.abs(band.whineFrequency - band.engineFrequency * 4) < 1e-9, "on the voice a four-stroke leaves free in forward gear");
+    assert.equal(sameState.whineGain, 0, "that voice is silent on a four-stroke going forward");
+
+    // Below the band the pipe is quiet — the ring is the top end, not the whole rev range.
+    const low = d.states.find((s) => s.throttle > 0.5 && s.rpmNorm > 0.05 && s.rpmNorm < 0.4)!;
+    assert.ok(low, "there is a state under throttle below the band");
+    assert.equal(vehicleSoundLevels(low, { cylinders: 1, strokes: 2 }).whineGain, 0);
+  });
+
   test("full throttle: pitch follows rpm through the gears, load is high, and each upshift is an event with from/to", () => {
     const d = drive(600, (v) => (v.input.throttle = 1));
     const shifts = d.events.filter((e) => e.kind === "shift");

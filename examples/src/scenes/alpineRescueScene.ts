@@ -1359,15 +1359,10 @@ export function buildAlpineRescueScene(engine: Engine, options: AlpineRescueOpti
       speed: vehicle.speed,
       rpm: vehicle.rpm,
       gear: vehicle.gear,
-      grinding: vehicle.grinding,
-      rearWheelLock: vehicle.rearWheelLock,
-      position: [vehicle.position.x, vehicle.position.y, vehicle.position.z] as [number, number, number],
-      wheels: vehicle.wheels.map((w) => ({
-        inContact: w.inContact,
-        compression: w.compression,
-        normalLoad: w.normalLoad,
-        skid: w.skid,
-      })),
+      x: vehicle.position.x,
+      y: vehicle.position.y,
+      z: vehicle.position.z,
+      parkingBrake: parked ? 1 : 0,
     }),
     snapshot: () => {
       const current = objective();

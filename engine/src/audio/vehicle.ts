@@ -290,7 +290,7 @@ export class VehicleSoundAnalyzer {
 }
 
 export interface VehicleSoundLevels {
-  /** Firing frequency (Hz): rpm / 60 × cylinders / 2. */
+  /** Firing frequency (Hz): rpm / 60 × cylinders / 2 for a four-stroke, rpm / 60 × cylinders for a two-stroke. */
   engineFrequency: number;
   engineGain: number;
   /** Low-pass cutoff on the engine harmonics: load and revs open it up. */
@@ -301,7 +301,7 @@ export interface VehicleSoundLevels {
   intakeFrequency: number;
   /** Lift-off burble. */
   overrunGain: number;
-  /** Electric-motor whine, or reverse-gear whine for a combustion car. */
+  /** Electric-motor whine, reverse-gear whine for a combustion car, or a two-stroke's expansion-chamber ring. */
   whineFrequency: number;
   whineGain: number;
   roarGain: number;
@@ -318,8 +318,16 @@ export interface VehicleSoundLevels {
 }
 
 export interface VehicleSoundLevelOptions {
-  /** Cylinder count of a four-stroke engine (sets the firing order frequency). Default 4. */
+  /** Cylinder count of the engine (sets the firing order frequency). Default 4. */
   cylinders?: number;
+  /**
+   * Combustion cycle. A four-stroke fires each cylinder once every *two* crank revolutions, so the
+   * firing frequency is `rpm / 60 × cylinders / 2` (the default); a two-stroke fires once per
+   * revolution, which is why a 250 cc single rings at twice the pitch of a 500 cc four-stroke twin
+   * at the same rpm. Two-strokes also get an expansion-chamber resonance on the whine voice that
+   * opens up with revs and throttle. Ignored for an electric powertrain.
+   */
+  strokes?: 2 | 4;
   /** Electric motor whine: Hz per motor rev/s (pole pairs × slot harmonics). Default 14. */
   whineOrder?: number;
 }
@@ -351,15 +359,30 @@ export function vehicleSoundLevels(state: VehicleSoundState, options: VehicleSou
     out.whineFrequency = rps * (options.whineOrder ?? 14);
     out.whineGain = rps > 0.5 ? Math.min(0.6, (0.06 + 0.3 * load + 0.08 * throttle) * (0.4 + 0.6 * r)) : 0;
   } else {
-    out.engineFrequency = (rps * cylinders) / 2;
+    // Firing events per crank revolution: a four-stroke fires each cylinder every second
+    // revolution, a two-stroke every revolution.
+    const firingsPerRev = cylinders * (2 / (options.strokes === 2 ? 2 : 4));
+    const twoStroke = options.strokes === 2;
+    out.engineFrequency = rps * firingsPerRev;
     out.engineGain = Math.min(1, 0.18 + 0.32 * throttle + 0.38 * load + 0.12 * r) * clutch;
-    out.engineBrightness = 250 + 1800 * load + 900 * throttle + 2200 * r;
-    out.engineRoughness = Math.min(0.5, 0.03 + 0.3 * load * throttle) * clutch;
+    // A two-stroke's pipe note is bright and gets brighter as the powerband comes in; the
+    // four-stroke's is the same load/throttle/rev opening it always had.
+    out.engineBrightness = 250 + 1800 * load + 900 * throttle + 2200 * r + (twoStroke ? 600 + 1400 * r : 0);
+    out.engineRoughness = Math.min(0.5, 0.03 + 0.3 * load * throttle) * clutch * (twoStroke ? 0.55 : 1);
     out.intakeGain = throttle * (0.05 + 0.25 * r);
     out.intakeFrequency = 300 + 1600 * r;
     out.overrunGain = 0.3 * clamp01(state.overrun);
-    out.whineFrequency = rps * 9;
-    out.whineGain = state.gear < 0 ? Math.min(0.15, 0.03 * state.speed) : 0;
+    const reverseWhine = state.gear < 0 ? Math.min(0.15, 0.03 * state.speed) : 0;
+    if (twoStroke) {
+      // Expansion-chamber resonance: a ring a few orders above the firing note that only speaks in
+      // the upper half of the rev range and under throttle — the sound a 2-stroke quad is known for.
+      out.whineFrequency = rps * firingsPerRev * 4;
+      const pipe = 0.22 * clamp01((r - 0.42) / 0.58) * (0.3 + 0.7 * throttle) * clutch;
+      out.whineGain = Math.min(0.3, Math.max(reverseWhine, pipe));
+    } else {
+      out.whineFrequency = rps * 9;
+      out.whineGain = reverseWhine;
+    }
   }
   if (state.grinding) {
     out.grindGain = Math.min(0.85, 0.45 + 0.04 * Math.max(0, state.speed));

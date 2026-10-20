@@ -399,15 +399,15 @@
         background: rgb(15 23 42 / 0.62);
         backdrop-filter: blur(3px);
       }
-      /* fe-37c: steering wheel (left) and gas/brake pedals (right) replace the stick and round pads. */
+      /* fe-37c: handlebars (left) and gas/brake pedals (right) replace the stick and round pads. */
       #offroad-wheel, .offroad-pedal { display: none; }
       #offroad-wheel {
         position: fixed;
         left: max(14px, env(safe-area-inset-left));
         bottom: max(14px, env(safe-area-inset-bottom));
-        width: 156px;
-        height: 156px;
-        border-radius: 50%;
+        width: 176px;
+        height: 120px;
+        border-radius: 26px;
         pointer-events: auto;
         touch-action: none;
         user-select: none;
@@ -824,7 +824,7 @@
             <option value="mars-dust-storm">Mars Dust Storm Survival</option>
             <option value="hurricane">Hurricane Landfall (ocean)</option>
             <option value="thaw">Thaw (snow melt, shedding, mud)</option>
-            <option value="offroad">Off-road Hill Course (autumn)</option>
+            <option value="offroad">Off-road Hill Course (autumn, two-stroke quad)</option>
             <option value="scripting">Beacon Defense (P18 scripting)</option>
             <option value="ui">UI Framework Gallery (WebGPU UI)</option>
             <option value="rover-course">Rover Course (Perseverance)</option>
@@ -871,18 +871,22 @@
     </div>
     <div id="offroad-touch">
       <button type="button" id="offroad-hb" aria-label="Handbrake (hold)">HAND<br />BRAKE</button>
-      <div id="offroad-wheel" role="application" aria-label="Steering wheel. Drag around to steer.">
-        <svg id="offroad-wheel-rim" viewBox="-50 -50 100 100" aria-hidden="true">
-          <circle r="44" fill="none" stroke="#e2e8f0" stroke-opacity="0.85" stroke-width="9" />
-          <circle r="44" fill="none" stroke="#0f172a" stroke-opacity="0.5" stroke-width="2" stroke-dasharray="3 7" />
-          <circle r="11" fill="#1e293b" fill-opacity="0.85" stroke="#e2e8f0" stroke-width="2" />
-          <path d="M -40 4 L -11 4 M 11 4 L 40 4 M 0 11 L 0 40" stroke="#e2e8f0" stroke-opacity="0.85" stroke-width="7" stroke-linecap="round" />
-          <rect x="-3" y="-49" width="6" height="11" rx="2" fill="#f97316" />
+      <div id="offroad-wheel" role="application" aria-label="Handlebars. Drag around to steer.">
+        <!-- The demo rides a two-stroke quad, so the drag control is drawn as bars, not a wheel.
+             Same gesture: the angle of the finger about the centre is the steering demand. -->
+        <svg id="offroad-wheel-rim" viewBox="-88 -52 176 104" aria-hidden="true">
+          <path d="M -62 30 L -50 4 L 50 4 L 62 30" fill="none" stroke="#e2e8f0" stroke-opacity="0.85" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M -62 30 L -50 4 L 50 4 L 62 30" fill="none" stroke="#0f172a" stroke-opacity="0.45" stroke-width="3" stroke-dasharray="4 9" />
+          <rect x="-79" y="16" width="20" height="30" rx="9" fill="#1e293b" fill-opacity="0.9" stroke="#e2e8f0" stroke-width="2.5" transform="rotate(-24 -69 31)" />
+          <rect x="59" y="16" width="20" height="30" rx="9" fill="#1e293b" fill-opacity="0.9" stroke="#e2e8f0" stroke-width="2.5" transform="rotate(24 69 31)" />
+          <path d="M -34 9 L -44 26 M 34 9 L 44 26" stroke="#94a3b8" stroke-opacity="0.9" stroke-width="5" stroke-linecap="round" />
+          <rect x="-13" y="-8" width="26" height="18" rx="4" fill="#1e293b" fill-opacity="0.9" stroke="#e2e8f0" stroke-width="2.5" />
+          <rect x="-4" y="-26" width="8" height="16" rx="3" fill="#f97316" />
         </svg>
       </div>
       <button type="button" id="offroad-gas" class="offroad-pedal" aria-label="Gas pedal (hold; lower = harder)">GAS</button>
       <button type="button" id="offroad-brake" class="offroad-pedal" aria-label="Brake pedal (hold; lower = harder)">BRAKE</button>
-      <button type="button" id="offroad-reset" aria-label="Put the car back on the track">RESET</button>
+      <button type="button" id="offroad-reset" aria-label="Put the quad back on the track">RESET</button>
       <button type="button" id="offroad-sound" aria-label="Vehicle sound on or off (M)" aria-pressed="false">SOUND</button>
       <button type="button" id="offroad-weather" aria-label="Weather menu" aria-expanded="false" aria-controls="offroad-weather-menu">WEATHER<span class="sub" id="offroad-weather-label">CLEAR SUN</span></button>
       <div id="offroad-weather-menu" role="menu" aria-label="Weather">

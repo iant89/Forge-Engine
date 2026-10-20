@@ -21,6 +21,8 @@ A `SceneObject` holding models (parts = hi/lo geometry + material) and instances
 Instances are `Renderable` entities spawned part-major and model-major, so the renderer merges them into instanced draws.
 Every `refreshInterval` it applies hide (`maxDistance`) and hi/lo (`lodDistance`), both scaled by `distanceScale` for tiers.
 Instances inside `swayDistance` lean about their root through `windSway`. `setSurface(wetness, snow)` writes per-object snow/wetness to the materials.
+Shadow casting is a **third ring** (fe-37d): a model's `shadowDistance` (default `Infinity`) turns `castShadow` off on its parts past that range, so a forest stops paying for shadows it cannot show. `stats_`/`stats()` report `casting` alongside `hidden`, `hi`, `lo` and `swaying`. Keep `maxDistance` finite: a model left at `0` is drawn forever, and its casters walk the shadow pass every frame.
+The off-road hill demo had exactly that: ~3500 trees with `maxDistance: 0` and both parts casting, so facing the treeline cost ~6700 visible renderables and thousands of casters. With `maxDistance` 70/105/145 m, `shadowDistance` 26/38/52 m and `lodDistance` 16/22/30 m (low/medium/high), the same view draws ~2800 renderables with 664 casters.
 Limits: the sway is a whole-plant lean (no per-vertex bending). Leaf shadows are card-shaped, because the depth pass has no alpha test.
 
 ## Track weather — `engine/src/terrain/trackWeather.ts`
@@ -43,9 +45,10 @@ Only mud ruts hold water. Their deep middle carries the MR-alpha water mark, so 
 Evicted tiles and `onDetach` release their GPU textures, geometry and entity. Pinned by `tests/terrain/tireTracks.test.ts`.
 
 ## Touch wheel and pedals — `examples/src/controls/touchWheel.ts` (fe-37c)
-Demo-side input, shared by any driving scene. `attachSteeringWheel(el)` follows the finger around the wheel's centre (hand-over-hand works), clamps to ±135° and springs back on release; `value()` is steer −1..1.
+Demo-side input, shared by any driving scene. `attachSteeringWheel(el, { maxAngle = 135, returnRate = 10, rim })` follows the finger around the control's centre (hand-over-hand works), clamps to ±`maxAngle` and springs back on release; `value()` is steer −1..1.
 `attachPedal(el)` is hold-to-press, with pressure set by how far down the pedal the finger sits (top 0.35 → bottom 1).
-Each control tracks only its own pointer, so steering and pedals work together (multi-touch). The off-road touch layout puts the wheel on the left, GAS/BRAKE on the right, and the gear switch top right.
+Each control tracks only its own pointer, so steering and pedals work together (multi-touch). The off-road touch layout puts the steering control on the left, GAS/BRAKE on the right, and the gear switch top right.
+The control is a drawing, not a wheel: the off-road demo rides a quad, so `#offroad-wheel` is handlebars (`maxAngle: 45`, `returnRate: 14`) and the same gesture steers it.
 
 ## Renderer note
 Count-1 batches draw through the non-instanced entry, which now reads the tint from the batch's instance record (`objectData.instanceCount == 1`). Before this, a lone tinted renderable drew untinted.

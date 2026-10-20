@@ -213,12 +213,17 @@ group("Alpine rescue — the truck", () => {
     assert.equal(handle.snapshot().gear, 1);
     assert.equal(handle.snapshot().rearWheelLock, true, "locks rear wheels when shifted to F while rolling back");
     tick(10);
+    // `Vehicle.isRearWheel` is private; this is its condition - behind the CG, or flagged for the
+    // handbrake - so the lock is asserted on the same wheels the engine locks.
+    let rears = 0;
     for (let i = 0; i < component.vehicle.wheels.length; i++) {
       const w = component.vehicle.wheels[i]!;
-      if (component.vehicle.isRearWheel(i)) {
+      if (w.z < 0 || w.handbrake) {
+        rears++;
         assert.equal(w.omega, 0, `rear wheel ${i} locked until throttle`);
       }
     }
+    assert.ok(rears >= 2, `${rears} wheels are rears`);
     key("keydown", "KeyW");
     tick(5);
     key("keyup", "KeyW");

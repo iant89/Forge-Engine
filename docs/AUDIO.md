@@ -190,7 +190,7 @@ presented frame after the vehicle stepped.
 
 | Roadmap item | Read from the simulation | Sound |
 | --- | --- | --- |
-| Engine RPM | `vehicle.rpm`, normalised idle→redline | Firing frequency `rpm/60 × cylinders/2` (sawtooth + half-order sine + 2nd-order square); an `ElectricMotor` (no idle, a regen torque) is a whine at `rpm/60 × 14` instead |
+| Engine RPM | `vehicle.rpm`, normalised idle→redline | Firing frequency `rpm/60 × firingsPerRev` (sawtooth + half-order sine + 2nd-order square), where `firingsPerRev = cylinders × 2/strokes` — a four-stroke fires each cylinder every other revolution, a two-stroke every one; an `ElectricMotor` (no idle, a regen torque) is a whine at `rpm/60 × 14` instead |
 | throttle | `vehicle.input.throttle` | Engine level, intake noise band rising with rpm |
 | load | Σ driven-tyre `longForce × r` back through the ratio and efficiency, **capped by the torque the engine is delivering**, over peak torque | Load opens the engine low-pass and adds combustion grit; lift-off in gear above idle is *overrun* (burble). Revving in neutral or with the clutch open is unloaded; a closed-throttle slide is not load |
 | gear | `vehicle.gear`, `transmission.shiftCount` / `shifting` | A `shift` event (from/to, harder at high throttle) plays a clunk; the open clutch dips the engine voice; reverse whines |
@@ -200,6 +200,15 @@ presented frame after the vehicle stepped.
 
 The terrain classifier has the shape of `TireTrackLayer.followVehicle`'s, so a scene that already
 says what the ground is for tyre tracks reuses it (the off-road demo does, adding standing water).
+
+`{ cylinders, strokes }` are the whole engine character: `strokes: 2` doubles the firing frequency of
+the same cylinder count (a single-cylinder two-stroke buzzes an octave above a single-cylinder
+four-stroke), opens the engine low-pass further and brightens it with rpm (`+600 + 1400 × rpmNorm`),
+and cuts the combustion grit to 0.55 — a two-stroke buzzes rather than rumbles. Above 42% of the rev
+range and under throttle it also puts an **expansion-chamber ring** at `4 ×` the firing frequency on
+the whine voice (the one a four-stroke leaves free in forward gear, where it only carries reverse
+whine), capped at 0.3. The off-road hill demo runs `{ cylinders: 1, strokes: 2 }`. No nodes are added:
+the graph stays 12 sources, which `tests/audio/vehicleAudio.test.ts` pins.
 
 ### Contracts
 
