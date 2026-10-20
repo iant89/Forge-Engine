@@ -306,11 +306,12 @@ between `prev` and `cur` states with an `alpha` — physics framerate never affe
 and visuals never affect physics (tested by running the same sim at 15/30/60/144 Hz display
 rates and asserting identical trajectories).
 
-WASM: the solver's hot inner loops are structured so a future `forge-physics.wasm` can
-replace `Narrowphase`/`Solver` behind the existing interface (see ADR-009). No Rust
-toolchain exists in the current development container, so shipping hand-written WASM now
-would be unverified code — the engine instead keeps the layout WASM-ready (flat arrays, no
-GC-visible object graph in the solver) and measures in JS.
+WASM: Phase 25 starts at the ownership boundary rather than shipping an unverified solver.
+`WasmPhysicsMemory` owns a versioned `WebAssembly.Memory`: a fixed flat header/body ABI, optional
+SharedArrayBuffer seqlock publication, transferable exact state frames, and pre-publication/load
+finite-record validation. JavaScript still owns body topology, shapes and heightfield callbacks.
+`ForgeWasmPhysics` provisions that memory but fails fast on gameplay methods because no verified
+narrowphase/solver/integration module exists yet; the production backend remains `ForgeJSPhysics`. This is ABI and validation substrate, not a speedup.
 
 ---
 

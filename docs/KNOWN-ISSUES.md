@@ -183,6 +183,17 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   upstream material map. `?scene=mars-generator&marssite=0,0` remains the shipped inspector for seeing
   those veneers alongside the real crater-rim material boundary. (capability: terrain.marsGeneratorPort)
 
+## Physics (Phase 25)
+
+* **The WASM memory ABI is not a WASM solver.** `WasmPhysicsMemory` now gives a future module stable
+  f64 world/body records, optional SharedArrayBuffer seqlock publication and transferable exact state
+  frames, but JavaScript still owns body topology and executes every broadphase, contact and solver
+  step. `ForgeWasmPhysics` intentionally throws on gameplay calls rather than silently using the JS
+  solver. There is no runtime add/remove command queue, worker ownership handshake, JS/WASM tolerance
+  gate, CCD implementation or WASM performance result yet. The fixed body capacity is chosen when
+  memory is created; a state frame applies only to a host world with matching ids, order, body types
+  and shape parameters. (capability: physics.wasmBackend)
+
 ## Vehicles (Phase 6 / 11)
 
 Phase 11 connected the raycast car to the physics heightfield and a kinematic chassis collider.

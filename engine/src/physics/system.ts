@@ -3,9 +3,10 @@
  *
  * Runs in band 300 (physics), before band 500 (transforms).
  *
- * By default constructs and owns a {@link PhysicsWorld} (single-owner). Pass `world` or
- * `backend` to adopt an existing world so Vehicle demos / {@link ForgeJSPhysics} and ECS
- * share one simulation. Without sharing, registering both creates two independent worlds.
+ * By default constructs and owns a {@link PhysicsWorld} (single-owner). Pass `world` or a JS
+ * `backend` to adopt an existing world so Vehicle demos / {@link ForgeJSPhysics} and ECS share one
+ * simulation. A backend with no executable world (the in-progress WASM backend) is rejected rather
+ * than silently replaced with a JS world.
  */
 
 import type { StateRecord } from "../core/snapshot.js";
@@ -20,6 +21,7 @@ import type { PhysicsWorldSnapshot } from "./world.js";
 import type { PhysicsBackend } from "./backend.js";
 import { VehicleComponent } from "../vehicles/components.js";
 import { DMath } from "../math/detmath.js";
+import { UsageError } from "../core/errors.js";
 
 /**
  * Options for {@link PhysicsSystem}.
@@ -33,8 +35,8 @@ export interface PhysicsSystemOptions extends PhysicsWorldOptions {
   /** Adopt this world instead of constructing a new one. */
   world?: PhysicsWorld;
   /**
-   * Adopt `backend.world` when it is a JS backend. Ignored if `world` is also set.
-   * WASM backends have no world yet — falls back to creating a new owned world.
+   * Adopt `backend.world` when it is executable. Ignored if `world` is also set.
+   * A backend with `world === null` is rejected; it never silently falls back to JS.
    */
   backend?: PhysicsBackend;
 }
@@ -88,6 +90,11 @@ export class PhysicsSystem extends FixedSystem {
 
   constructor(options: PhysicsSystemOptions = {}) {
     super();
+    if (!options.world && options.backend && options.backend.world === null) {
+      throw new UsageError(
+        `PhysicsSystem cannot adopt the ${options.backend.kind} backend: it does not expose an executable PhysicsWorld`,
+      );
+    }
     const adopted = options.world ?? options.backend?.world ?? null;
     if (adopted) {
       this.world = adopted;

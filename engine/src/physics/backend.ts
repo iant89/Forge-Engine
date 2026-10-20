@@ -3,8 +3,8 @@
  *
  * Gameplay talks to {@link PhysicsBackend}. {@link ForgeJSPhysics} wraps a
  * {@link PhysicsWorld} (creates one by default, or adopts via `{ world }` / {@link ForgeJSPhysics.wrap}).
- * {@link ForgeWasmPhysics} is a future stub (Phase 25) so callers can select a backend without
- * rewriting vehicle or prop code.
+ * Phase 25 gives {@link ForgeWasmPhysics} the versioned linear-memory ABI used by a future solver;
+ * it still fails fast instead of silently running the JavaScript solver under a misleading name.
  */
 
 import { Vec3 } from "../math/vec.js";
@@ -13,6 +13,7 @@ import type { GroundSample } from "../vehicles/ground.js";
 import { RigidBody } from "./body.js";
 import { HeightfieldShape } from "./shapes.js";
 import { PhysicsWorld, type PhysicsWorldOptions, type RaycastFilter } from "./world.js";
+import { WasmPhysicsMemory } from "./wasmMemory.js";
 
 export type PhysicsBackendKind = "js" | "wasm";
 
@@ -141,19 +142,36 @@ export class ForgeJSPhysics implements PhysicsBackend {
   }
 }
 
+export interface ForgeWasmPhysicsOptions {
+  /** Fixed body-slot capacity for the Phase 25 linear-memory ABI. */
+  bodyCapacity?: number;
+  /** SharedArrayBuffer-backed WASM memory for a future worker-hosted solver. Off by default. */
+  sharedMemory?: boolean;
+}
+
 /**
- * Future WASM physics backend (Phase 25). Constructing or stepping throws until the WASM module lands.
+ * Phase 25 WASM backend seam.
+ *
+ * The first Phase 25 slice owns a real, versioned {@link WebAssembly.Memory} through
+ * {@link stateMemory}; no solver module is shipped yet. Every gameplay method therefore remains
+ * fail-fast. In particular, this class never disguises the JS solver as a WASM implementation.
  */
 export class ForgeWasmPhysics implements PhysicsBackend {
   readonly kind = "wasm" as const;
   readonly world: PhysicsWorld | null = null;
+  readonly stateMemory: WasmPhysicsMemory;
 
-  constructor(_options?: PhysicsWorldOptions) {
-    // Intentionally empty — Phase 25 fills this in.
+  constructor(options: ForgeWasmPhysicsOptions = {}) {
+    this.stateMemory = new WasmPhysicsMemory({
+      capacity: options.bodyCapacity,
+      shared: options.sharedMemory,
+    });
   }
 
   private fail(): never {
-    throw new Error("ForgeWasmPhysics is not implemented yet (roadmap Phase 25)");
+    throw new Error(
+      "ForgeWasmPhysics solver module is not available yet; only the Phase 25 linear-memory ABI is implemented",
+    );
   }
 
   step(_dt: number): number {
@@ -182,10 +200,16 @@ export class ForgeWasmPhysics implements PhysicsBackend {
   }
 }
 
+export function createPhysicsBackend(kind?: "js", options?: ForgeJSPhysicsOptions): ForgeJSPhysics;
+export function createPhysicsBackend(kind: "wasm", options?: ForgeWasmPhysicsOptions): ForgeWasmPhysics;
+export function createPhysicsBackend(
+  kind: PhysicsBackendKind,
+  options?: ForgeJSPhysicsOptions | ForgeWasmPhysicsOptions,
+): PhysicsBackend;
 export function createPhysicsBackend(
   kind: PhysicsBackendKind = "js",
-  options?: ForgeJSPhysicsOptions,
+  options?: ForgeJSPhysicsOptions | ForgeWasmPhysicsOptions,
 ): PhysicsBackend {
-  if (kind === "wasm") return new ForgeWasmPhysics(options);
-  return new ForgeJSPhysics(options);
+  if (kind === "wasm") return new ForgeWasmPhysics(options as ForgeWasmPhysicsOptions | undefined);
+  return new ForgeJSPhysics(options as ForgeJSPhysicsOptions | undefined);
 }

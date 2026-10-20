@@ -903,9 +903,28 @@ mock: the scene's rig resolves, one skinned batch is collected with four joints 
 the palette upload is sized to those joints and follows the pose the scene writes. The pixels are the
 browser gate's job — a mock rasterises nothing.
 
+### `tests/physics/physics.test.ts` — Phase 25 WASM state ABI
+
+Two focused checks start Phase 25 without pretending an absent solver exists. The first captures a JS
+reference world into the versioned `WebAssembly.Memory` layout, transfers its used prefix by moving
+an `ArrayBuffer`, loads it into a differently sized memory, applies it to an identically constructed
+world and proves the complete `PhysicsWorld.snapshot()` is exact before and after 30 further fixed
+steps. That includes clock/accumulator/gravity, solver settings, poses, interpolation poses,
+velocities, forces/torques, masses/inertias, material coefficients and sleep state. The second uses a
+real shared `WebAssembly.Memory`, requires a stable even seqlock sequence and exact used-byte count,
+pins numeric records for all six current shape kinds, then proves capacity, non-finite host/frame
+state and shape-topology mismatches fail before publication or target mutation.
+
+These are memory/layout and snapshot-transfer checks, not cross-backend validation. No WASM module
+runs a broadphase, contact, integration or solver step, no performance comparison is made, and the
+host still owns body creation/destruction and heightfield callbacks. `ForgeWasmPhysics` therefore
+remains fail-fast and capability `physics.wasmBackend` remains `inProgress`.
+
 ### `tests/vehicles/vehiclePhysics.test.ts` — Phase 11 physics / vehicle integration
 
-Pins the Phase 11 exit criteria: `PhysicsBackend` / `ForgeJSPhysics` / `ForgeWasmPhysics` stub;
+Pins the Phase 11 exit criteria: `PhysicsBackend` / `ForgeJSPhysics` and the fail-fast
+`ForgeWasmPhysics` seam (selected through `createPhysicsBackend`, with Phase 25 state memory but no
+solver); `PhysicsSystem` rejects that non-executable backend instead of creating an implicit JS world;
 heightfield registered on the world; visual = collision = vehicle contact samples; kinematic
 chassis collides with dynamic props; pitch/roll carry angular rates from suspension reaction + geometric spring and settle on slopes; wheel
 contact via physics raycast/heightfield queries; crater/bump/side-slope/jump/unload/impact/rollover
