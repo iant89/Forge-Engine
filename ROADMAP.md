@@ -218,8 +218,9 @@ PHASE 26 - EDITOR
 
 PHASE 27 - ENGINE API 1.0
     [~] IN PROGRESS (the root-only package boundary and deterministic 2,180-export name/kind/
-        stability snapshot are CI-gated; declaration-signature compatibility, per-symbol approval,
-        complete API docs/examples, migration/versioning/deprecation policy and extensions remain)
+        stability plus direct/transitive declaration-contract snapshot are CI-gated; compatibility
+        decisions, per-symbol approval, complete API docs/examples, migration/versioning/deprecation
+        policy and extensions remain)
 
 
 ================================================================================
@@ -2842,24 +2843,28 @@ GOAL:
 27.1 Public API Audit
 
     [~] `@forge/engine` exposes only its package root; TypeScript resolves that barrel into a
-        deterministic checked-in `forge.api-surface/1` snapshot of every name, type/value kind and
-        stability label. CI fails on unreviewed additions, removals, renames or classifications.
-    [~] public — the 2,171 current package-root candidates are baselined, not yet individually
-        approved for 1.0 signature/semantic compatibility.
-    [~] internal — deep package paths are blocked and any root export tagged `@internal` fails the
-        audit; a complete declaration-level review still remains.
+        deterministic checked-in `forge.api-surface/2` snapshot of every name, type/value kind,
+        stability label, direct declaration and transitive engine-local type contract. CI fails on
+        unreviewed additions, removals, renames, classifications or declaration drift.
+    [~] public — the 2,171 current package-root candidates and their emitted contracts are
+        baselined, not yet individually approved for 1.0 semantic compatibility.
+    [~] internal — deep package paths are blocked, any root export tagged `@internal` fails the
+        audit, and unexported declaration dependencies feed transitive contract hashes; a complete
+        human review still remains.
     [~] experimental — nine non-executable WASM-physics seam exports carry explained
         `@experimental` tags.
     [~] deprecated — the category and explained-tag rule are enforced; there are currently no
         deprecated top-level exports and no finalized support window.
-    [ ] Add declaration-signature/member compatibility diffing and complete per-symbol approval.
+    [x] Add direct declaration-signature/member and transitive engine-local compatibility drift
+        detection using body/comment/path-free TypeScript declaration emit.
+    [ ] Complete per-symbol approval and decide which detected changes are compatible for 1.0.
 
 
 27.2 API Documentation
 
     [~] `docs/API.md` and the published package README document the package boundary, stability
-        meanings, audit/update workflow and exact limits of the first snapshot. Comprehensive
-        symbol/reference documentation remains.
+        meanings, audit/update workflow and exact limits of the declaration-contract gate.
+        Comprehensive symbol/reference documentation remains.
 
 27.3 Examples
 

@@ -2943,3 +2943,21 @@ Working with the software rasterizer (SwiftShader) on this box:
   to export only `.` and keeps root/package/`VERSION` values equal. `engine/README.md` now ships in the
   package and `docs/API.md` documents the review loop and limits. Full reference docs/examples,
   migration guidance, final semver/deprecation policy and the unified extension API remain open.
+
+## 2026-10-20 — Phase 27.1: declaration drift must be visible without pretending hashes judge compatibility
+
+* **Fingerprint the declarations consumers receive, not source syntax or implementation bodies.**
+  `tools/api-audit.mjs` now emits the engine's `.d.ts` tree in memory, resolves the emitted package
+  root, strips ordinary comments, and records a SHA-256 `declarationHash` for every one of the 2,180
+  root names. Parameters, overload order, returns, generics, modifiers, members, enums and inferred
+  exported types therefore drift even when the root name and stability label stay unchanged.
+* **A direct declaration is not the whole contract.** Each row also has a `contractHash` over the
+  path-free transitive closure of engine-local declarations it references. This catches an unexported
+  helper such as `ResolveOptions` changing while `resolveConfig`'s own emitted line remains identical.
+  The audit test mutates isolated source copies to prove both direct `Transform` member drift and the
+  transitive-helper case; it never edits the live checkout during a suite run.
+* **The snapshot is a review trigger, not a compatibility oracle.** `forge.api-surface/2` records the
+  signature algorithm and TypeScript version for reproducibility, but any additive or breaking hash
+  change needs a human decision. Runtime meaning, serialization/shader ABI, external ambient type
+  internals, member-level deprecation policy and approval of the 2,171 public candidates remain open;
+  normal documentation and implementation-body edits intentionally do not churn the hashes.

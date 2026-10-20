@@ -3,8 +3,8 @@
 WebGPU-first 3D game and real-time simulation engine for the browser.
 
 > Forge is currently `0.1.x`. Phase 27 has started the API 1.0 audit; the root export surface is
-> machine-pinned, but signature compatibility, complete reference documentation, migration policy,
-> and the 1.0 extension contract are not finished.
+> machine-pinned through direct/transitive declaration fingerprints, but compatibility decisions,
+> complete reference documentation, migration policy, and the 1.0 extension contract are not finished.
 
 ## Import
 
@@ -39,8 +39,9 @@ The currently experimental names are the Phase 25 WASM-physics state/memory seam
 ship an executable WASM physics solver; JavaScript physics remains the production backend.
 
 The source repository contains the deterministic `engine/api-surface.json` audit and the full policy
-in `docs/API.md`. A pinned top-level name is not yet proof that all of its methods and members have
-completed 1.0 compatibility review.
+in `docs/API.md`. Direct and transitive declaration fingerprints now detect parameter/member/type
+changes, but a detected declaration is still only a 1.0 candidate: the gate does not decide whether a
+change is compatible or prove runtime semantics, and per-symbol approval remains open.
 
 ## Requirements
 

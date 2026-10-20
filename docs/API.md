@@ -28,8 +28,8 @@ editor, examples, and tests.
 
 The public barrel is `engine/src/index.ts`. It currently resolves to **2,180 named exports**:
 2,171 public candidates, 9 experimental exports, and no deprecated top-level exports. That is a
-large pre-1.0 surface. The Phase 27 audit freezes its current shape so it can be reduced or approved
-intentionally rather than drifting accidentally.
+large pre-1.0 surface. The Phase 27 audit freezes both the names and their emitted TypeScript
+contracts so the surface can be reduced or approved intentionally rather than drifting accidentally.
 
 ## Stability labels
 
@@ -58,21 +58,31 @@ The JavaScript physics implementation remains the production backend.
 
 ## Surface audit
 
-The checked-in `engine/api-surface.json` is generated from TypeScript's resolved module symbols, not
-from a regular expression over export statements. Each row records:
+The checked-in `engine/api-surface.json` uses schema `forge.api-surface/2` and is generated from
+TypeScript's resolved module symbols and in-memory declaration emit, not from a regular expression
+over export statements. Each row records:
 
 - the exported name;
 - whether consumers receive a type, a runtime value, or both;
-- its public/experimental/deprecated classification.
+- its public/experimental/deprecated classification;
+- a `declarationHash` of that symbol's body-free emitted declaration;
+- a `contractHash` that also covers every engine-local declaration reachable through its types.
 
-The snapshot deliberately omits declaration order and implementation file paths, so internal moves
-do not look like API changes. It also validates that:
+The direct hash detects parameter, return, overload, generic-constraint, class/interface member,
+modifier, enum, tuple, and inferred exported-type drift. The transitive hash means changing an
+unexported helper such as an options interface still marks every root contract that depends on it.
+Both hashes exclude implementation bodies, ordinary prose comments, and source paths. Internal file
+moves that preserve emitted declarations therefore stay quiet; emitted declaration order remains
+conservative because overload order can affect TypeScript resolution. The snapshot also validates
+that:
 
 - `@forge/engine` has exactly one package export (`"."`);
 - its JavaScript and type entry points are `dist/index.js` and `dist/index.d.ts`;
 - the root package, engine package, and exported `VERSION` agree;
 - no default or `@internal` export leaks into the root;
 - names are unique and deterministically sorted;
+- every direct/transitive fingerprint is canonical and uses the recorded signature format;
+- the pinned TypeScript version that produced the declaration form is recorded;
 - stability tags are non-conflicting and explained where required.
 
 Run the gate before committing any public-barrel change:
@@ -93,17 +103,22 @@ npm run verify
 ```
 
 `api:update` is not an approval mechanism. It only writes the current resolved surface; reviewers
-must decide whether an addition, removal, rename, kind change, or stability change is appropriate.
-CI runs `api:check` and rejects an unreviewed snapshot drift.
+must decide whether an addition, removal, rename, kind/stability change, direct declaration change,
+or transitive type change is appropriate. Hashes identify the affected root contracts; reviewers
+inspect the source declaration change and its dependent names before accepting new hashes. CI runs
+`api:check` and rejects an unreviewed snapshot drift.
 
-## What the first audit does not prove
+## What the declaration gate does not prove
 
-This initial snapshot catches top-level name, type/value-kind, package-boundary, and stability-label
-changes. It does **not** yet compare function parameters, class members, generic constraints, enum
-values, object mutability, runtime behavior, serialization schemas, or WebGPU shader/layout ABIs.
-A name can therefore remain in the snapshot while receiving a breaking signature change. Closing
-Phase 27.1 requires per-symbol review and a declaration-level compatibility check rather than merely
-retaining this baseline.
+The second audit slice closes the mechanical gap where a root name could keep the same classification
+while its parameters or members changed unnoticed. It is deliberately a **change detector**, not a
+compatibility oracle: additive and breaking declaration edits both require review, and the 2,171
+public candidates have not yet been individually approved as the 1.0 surface. The hashes also do not
+prove runtime behavior, performance, serialization compatibility, shader/buffer ABI compatibility,
+or the meaning of a broadly typed runtime constant whose value changes without changing its emitted
+type. External ambient-library declarations are named but not recursively copied into the snapshot,
+and member-level stability/deprecation policy remains separate work. Ordinary documentation edits
+and implementation-body changes intentionally do not alter the declaration hashes.
 
 Phase 27.2–27.7 also remain open: comprehensive symbol documentation and examples, a migration
 guide, final semantic-versioning and deprecation windows, and a supported extension API for systems,
