@@ -28797,6 +28797,39 @@ JSON array below; agents maintain it by hand until then.
   "file": "tests/tools/selrun.test.ts",
   "what": "Advances the catalog and CLI contract to 157 linked suites and 1,077 explicit coverage claims.",
   "why": "Keep selrun’s self-audit synchronized with the new core error evidence suite."
+},
+{
+  "id": "2319",
+  "date": "2026-10-20T21:46:21Z",
+  "type": "pr-merge",
+  "pr": 145,
+  "branch": "arena/9ab826e8-forge-engine",
+  "base": "main",
+  "title": "Phase 27.1: start per-symbol API approvals",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Starts the next Phase 27.1 step with a separate forge.api-approvals/1 ledger that api:update cannot create or rewrite. The ledger binds each approved public name to its type/value kind, exact direct declaration hash, exact transitive engine-local contract hash and a named human review with repository-backed evidence. api:check now validates canonical schema/fields, sorted unique reviews and symbols, known approved-1.0-candidate decisions, evidence paths, public stability, accurate approved/pending counts and exact current contracts; an isolated ForgeError member mutation proves source drift invalidates the decision, while write-mode coverage proves surface regeneration leaves approval data untouched. The first bounded core-errors/1 review approves all 17 root exports from core/errors.ts and adds seven package-root runtime checks for error inheritance, machine codes, payloads, asset URLs/custom codes, disposal/inline messages, assertion guard boundaries and enabled/disabled behavior. The generated 2,180-row surface remains unchanged: 17 of 2,171 public candidates are approved, 2,154 remain pending, nine remain experimental and none are deprecated. This does not establish final semver/deprecation policy, approve unrelated candidates, prove unrelated runtime/serialization/shader behavior, complete later Phase 27 deliverables, claim API 1.0 or close Phase 27. Local verification passed npm run verify with 157/157 suites in 218.10 seconds plus API/docs/architecture/catalog/build/package/changelog/diff gates. CI passed both CPU gates and the advisory real-WebGPU Chromium + SwiftShader gate.",
+  "files": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "README.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/API.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/README.md",
+    "engine/api-approvals.json",
+    "engine/src/core/capabilities.ts",
+    "engine/src/index.ts",
+    "mnemosyne.md",
+    "tests/core/errors.test.ts",
+    "tests/full.test.ts",
+    "tests/tools/apiAudit.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tools/api-audit.mjs"
+  ]
 }
 ]
 ```
