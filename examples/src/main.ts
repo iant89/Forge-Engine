@@ -67,6 +67,7 @@ import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/ama
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
 import { OFFROAD_WEATHER_NAMES, buildOffroadHillScene, type OffroadSceneHandle, type OffroadWeather } from "./scenes/offroadHillScene.js";
 import { buildScriptingScene, type ScriptingSceneHandle } from "./scenes/scriptingScene.js";
+import { buildBeaconDefenseScene, type BeaconDefenseHandle } from "./scenes/beaconDefenseScene.js";
 import { buildUIShowcaseScene, type UIShowcaseHandle } from "./scenes/uiShowcaseScene.js";
 import { buildHurricaneScene, type HurricaneSceneHandle } from "./scenes/hurricaneScene.js";
 import { parseStormDifficulty, stormQualityForPlatform, type StormDifficulty } from "./scenes/dustStorm.js";
@@ -327,6 +328,17 @@ async function main(): Promise<void> {
     } else if (name === "scripting") {
       // Phase 18 exit criterion: a whole game written as scripts against the public API.
       currentHandle = buildScriptingScene(engine);
+    } else if (name === "beacon") {
+      // Beacon Defense, the playable game: the same scripting layer, plus the arena, the engine-UI
+      // HUD, particles, sound and the pointer/keyboard control that make it a game you play.
+      const forced = new URLSearchParams(window.location.search).get("tier");
+      const tier =
+        forced === "low" || forced === "medium" || forced === "high"
+          ? forced
+          : classifyDeviceTier(readDeviceCapabilityHints(undefined, engine.gpu.adapter as unknown as Parameters<typeof readDeviceCapabilityHints>[1])).tier;
+      // `?sound=0` starts silent; otherwise the first click or key press unlocks the soundscape.
+      const soundParam = new URLSearchParams(window.location.search).get("sound");
+      currentHandle = buildBeaconDefenseScene(engine, { canvas, deviceTier: tier, sound: soundParam !== "0" });
     } else if (name === "hurricane") {
       // fe-33: `?tier=low|medium|high` forces the device tier (ocean grid, rain, palms, shadows).
       const forced = new URLSearchParams(window.location.search).get("tier");
@@ -904,6 +916,54 @@ async function main(): Promise<void> {
     },
     /** Phase 18: Beacon Defense game state (score, wave, beacon, script stats) while that scene is loaded. */
     scriptingState: () => (activeSceneName === "scripting" ? (currentHandle as ScriptingSceneHandle | null)?.state() ?? null : null),
+    /** The playable Beacon Defense game (`?scene=beacon`): full run snapshot, or null on other scenes. */
+    beaconState: () => (activeSceneName === "beacon" ? (currentHandle as BeaconDefenseHandle | null)?.state() ?? null : null),
+    /**
+     * Drive the Beacon Defense game from outside (gates and screenshots): `aim x,z`, `fire`,
+     * `ability emp|overcharge|repair`, `upgrade damage|rate|range|multishot|shield|cooling`,
+     * `callWave`, `restart`, `pause 0|1`, `camera arena|turret|top`, `sound 0|1`.
+     */
+    beaconCommand: (command: string, arg?: string): boolean => {
+      if (activeSceneName !== "beacon") return false;
+      const handle = currentHandle as BeaconDefenseHandle | null;
+      if (!handle) return false;
+      switch (command) {
+        case "aim": {
+          const [x, z] = (arg ?? "0,0").split(",").map(Number);
+          if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+          handle.aimAt(x, z);
+          return true;
+        }
+        case "fire":
+          handle.fire();
+          return true;
+        case "ability":
+          if (arg !== "emp" && arg !== "overcharge" && arg !== "repair") return false;
+          handle.useAbility(arg);
+          return true;
+        case "upgrade":
+          if (!arg || !["damage", "rate", "range", "multishot", "shield", "cooling"].includes(arg)) return false;
+          handle.buyUpgrade(arg as "damage" | "rate" | "range" | "multishot" | "shield" | "cooling");
+          return true;
+        case "callWave":
+          handle.callWave();
+          return true;
+        case "restart":
+          handle.restart();
+          return true;
+        case "pause":
+          handle.setPaused(arg === "1");
+          return true;
+        case "camera":
+          if (arg !== "arena" && arg !== "turret" && arg !== "top") return false;
+          handle.setCameraMode(arg);
+          return true;
+        case "sound":
+          return handle.setSound(arg === "1");
+        default:
+          return false;
+      }
+    },
     /** fe-37: off-road hill lap/camera snapshot while that scene is loaded. */
     offroadState: () => (activeSceneName === "offroad" ? (currentHandle as OffroadSceneHandle | null)?.snapshot() ?? null : null),
     /** fe-37 gate/screenshot hook: place the car at arc length `s` and pick a camera mode. */

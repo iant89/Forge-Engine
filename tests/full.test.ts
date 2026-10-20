@@ -133,6 +133,7 @@ export const linkedSuites = [
   ["tests/examples/profilerTimeline.test.ts", () => import("./examples/profilerTimeline.test.ts")],
   ["tests/examples/inspectorPanel.test.ts", () => import("./examples/inspectorPanel.test.ts")],
   ["tests/examples/beaconDefense.test.ts", () => import("./examples/beaconDefense.test.ts")],
+  ["tests/examples/beaconDefenseGame.test.ts", () => import("./examples/beaconDefenseGame.test.ts")],
   ["tests/examples/uiGallery.test.ts", () => import("./examples/uiGallery.test.ts")],
   ["tests/core/deviceTier.test.ts", () => import("./core/deviceTier.test.ts")],
   ["tests/core/ecsInspector.test.ts", () => import("./core/ecsInspector.test.ts")],
@@ -157,4 +158,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(153);
+report(154);

@@ -2801,3 +2801,60 @@ Working with the software rasterizer (SwiftShader) on this box:
   `bash scripts/setup-deps.sh --no-browser && npm run build` has run. `--no-browser` skips the ~70 MB
   Chromium payload when no browser gate is planned. The repo is also a **shallow** clone: `git show
   <older-sha>` fails until `git fetch --depth=20 origin main`.
+
+## 2026-10-20 — Beacon Defense, the playable game (`?scene=beacon`)
+
+* **What was built:** the Phase 18 scripting criterion grown into a game you play —
+  `examples/src/scripting/beaconDefenseGame.ts` (rules: tables, events, `GameState`/`Beacon`/`Drone`/
+  `Turret`/`WaveDirector`), `examples/src/scenes/beaconDefenseScene.ts` (arena, models, lights,
+  particles, tracers, input, camera), `examples/src/ui/beaconHud.ts` (engine-UI HUD + generated
+  minimap), `examples/src/audio/beaconSounds.ts` (15 synthesised effects), documented in
+  `docs/BEACON-DEFENSE.md`. `?scene=scripting` is untouched. Pinned by
+  `tests/examples/beaconDefenseGame.test.ts` (23 checks, ~20 s).
+* **Determinism rule this found (the important one): a spawn a rule depends on must happen inside the
+  step that causes it.** `EventRouter.flush()` runs at the start of *every* phase (`preUpdate`,
+  `fixedUpdate` ×N, `update`, `lateUpdate`), so a **posted** event's delivery point moves with the
+  frame's step count: with 1-step frames a `DroneSplit` posted during `fixedUpdate` was handled in
+  that frame's `update` phase, with 4-step frames it was handled inside the next fixed step. The wave
+  director's clear check (`Wait.until(() => store(DroneTag).count === 0)`) could therefore see an
+  empty field between a splitter dying and its shards arriving, and cleared a wave a frame early on
+  some splits. Fix: the dying `Drone` creates its own shards through the shared `spawnDrone()`;
+  `DroneSplit` survives as a notification for effects only. Same reason the scene posts `PlayerAim`/
+  `PlayerFire` once per frame instead of per pointer event.
+* **Another real bug of the same family:** the AI turret incremented its shot/hit counters and posted
+  `ShotFired` but never emitted `DroneHit` — a gun that scores without damaging anything. 23 hits, 1
+  kill, 6 leaks in 30 s was the signature. Watch for counters that move without the damage event.
+* **`ParticleSimulation` facts:** the emitter's **default `rate` is 40/s**, so a burst-driven sim must
+  pass `emitter: { rate: 0 }` or ambient particles appear that no event asked for. `sim.emitted` only
+  counts what `step()` emitted — bursts that call `emitter.emit(state, 1/60, count)` directly (which
+  spawns exactly `count`, because `emit` accumulates `rate*dt`) need their own tally.
+  `ColorOverLifeModule`/`SizeOverLifeModule` *overwrite* per-particle colour/size by lerping module
+  constants, so per-burst colours must be applied while posing sprites (tint + scale from age), not by
+  a module. `createTorus` already lies in the XZ plane; `meshKit.revolveSource` lathes around **X**.
+* **Host-side event API:** `runtime.events.post(type, payload, { to: entityId })` — the third argument
+  is an **options object**, not a channel id. Passing an `EntityId` there silently delivers on the
+  wrong channel (an entity-scoped `this.on(..., { entity })` never hears it), and nothing throws.
+* **Engine UI facts worth keeping:** `ToastKind` is `"info" | "success" | "warning" | "error"` (no
+  `"danger"`); `Button.subtitle` is a required `string`, so `undefined` is a type error; anchored HUD
+  widgets need `setLayout({ position: "absolute", anchor: {...} })` and `centerX` cannot be combined
+  with `left`/`right` (UsageError), same for `centerY` vs `top`/`bottom`; `CooldownIndicator` exposes
+  only `start(duration)`/`reset()` — start it once when the cooldown begins and let `ui.update(dt)`
+  tick it, passing `dt = 0` while paused so rings cannot drift; `TransformHandle`
+  (`ScriptEntity.transform`) has **no** `setPosition`/`setRotationEuler`/`setScale` — use the
+  `Transform` component (`c.entity.get(Transform)`) inside scripts. `Transform.forward()` is local +Z,
+  so aiming along `(dx, dz)` is `setRotationEuler(0, Math.atan2(dx, dz), 0)`.
+* **Test-harness facts:** `gpu.mock` is the `MockGPUDevice`, whose counters are plain fields
+  (`submitCount`, `errors`, `outstanding`) — `submittedFrames`/`leakedCount`/`stats()` live on the
+  `createMockGpu()` facade instead. `MockAudioContext.currentTime` only moves via `mock.advance(s)`,
+  so a rate-limited soundscape drops every repeat unless the test advances it. A real render pass can
+  be driven headlessly with `new Renderer(gpu, { shadowMapSize: 256 })` +
+  `renderer.renderScene(scene, context)` over the mock device (shadows, bloom and the UI overlay
+  included) — ~6 s for 120 frames at `deviceTier: "low"`, and it catches scene bugs no mock-GPU
+  component test sees. `AudioBuffer.copyToChannel` wants `Float32Array<ArrayBuffer>`; use
+  `buffer.getChannelData(0).set(pcm)` instead.
+* **Adding a demo scene touches five places:** `examples/src/sceneSelection.ts` (`DEMO_SCENE_NAMES` +
+  a `case` that returns the name itself, because `tests/controls/demoSceneSelection.test.ts` asserts
+  every canonical name resolves to itself), the branch in `examples/src/main.ts` plus any
+  `window.__forge` hooks, an `<option>` in `examples/index.html`, the link list and `report(N)` in
+  `tests/full.test.ts`, and the seven counts plus the `check OK — N linked suites, M claims` regex in
+  `tests/tools/selrun.test.ts`. Catalog after this branch: **154 suites / 1065 claims**.

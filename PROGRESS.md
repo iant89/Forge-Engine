@@ -169,6 +169,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Typed events: world and per-entity channels, immediate or queued to the next phase (Phase 18.4)
 - [x] Public-API boundary for scripts: `ScriptWorld`/`ScriptEntity` expose entities and components, not systems, disposal or engine internals (Phase 18.6)
 - [x] Exit criterion: Beacon Defense (`?scene=scripting`), a whole game written only as scripts (Phase 18)
+- [x] Beacon Defense playable (`?scene=beacon`): the same scripting discipline with a full game around it — waves, upgrades, abilities, HUD, particles, procedural sound; deterministic across frame splits and winnable at wave 12 (`docs/BEACON-DEFENSE.md`)
 - [x] Script hot reload during development, keeping each script's data and order (Phase 18.7)
 - [x] Versioned scene saves with migrations: entities, components, hierarchy, transforms, scripts, environment and terrain settings (Phase 19.1–19.2; `docs/SERIALIZATION.md`)
 - [x] Simulation snapshots: physics, vehicle, weather and RNG state restored mid-run bit-for-bit, with state hashing (Phase 19.3; `docs/SERIALIZATION.md`)
@@ -225,6 +226,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [x] **PBR Showcase** (`?scene=pbr`): material grid with bloom, shadows and cascade toggles
 - [x] **Cubes** (`?scene=cubes`): the Phase 1 basic scene
 - [x] **Beacon Defense** (`?scene=scripting`): a small game built entirely from Phase 18 scripts
+- [x] **Beacon Defense: Playable** (`?scene=beacon`): that game grown into one you play — twelve waves, four drone types, six upgrades, three cooldown abilities, win and loss, engine-UI HUD with a generated minimap, particle bursts, tracers and fifteen synthesised effects (`docs/BEACON-DEFENSE.md`)
 
 ## Road to 1.0 (Phases 23, 27–29)
 
