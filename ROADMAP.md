@@ -216,6 +216,11 @@ PHASE 26 - EDITOR
         copied entity/component inspection and undoable rename/reparent/transform/enabled edits
         landed; the visual shell, gizmos, creation/deletion and specialist panels remain)
 
+PHASE 27 - ENGINE API 1.0
+    [~] IN PROGRESS (the root-only package boundary and deterministic 2,180-export name/kind/
+        stability snapshot are CI-gated; declaration-signature compatibility, per-symbol approval,
+        complete API docs/examples, migration/versioning/deprecation policy and extensions remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2836,23 +2841,47 @@ GOAL:
 
 27.1 Public API Audit
 
-    [ ] public
-    [ ] internal
-    [ ] experimental
-    [ ] deprecated
+    [~] `@forge/engine` exposes only its package root; TypeScript resolves that barrel into a
+        deterministic checked-in `forge.api-surface/1` snapshot of every name, type/value kind and
+        stability label. CI fails on unreviewed additions, removals, renames or classifications.
+    [~] public — the 2,171 current package-root candidates are baselined, not yet individually
+        approved for 1.0 signature/semantic compatibility.
+    [~] internal — deep package paths are blocked and any root export tagged `@internal` fails the
+        audit; a complete declaration-level review still remains.
+    [~] experimental — nine non-executable WASM-physics seam exports carry explained
+        `@experimental` tags.
+    [~] deprecated — the category and explained-tag rule are enforced; there are currently no
+        deprecated top-level exports and no finalized support window.
+    [ ] Add declaration-signature/member compatibility diffing and complete per-symbol approval.
 
 
 27.2 API Documentation
 
+    [~] `docs/API.md` and the published package README document the package boundary, stability
+        meanings, audit/update workflow and exact limits of the first snapshot. Comprehensive
+        symbol/reference documentation remains.
+
 27.3 Examples
+
+    [ ] Existing demos are not yet a reviewed 1.0 example set.
 
 27.4 Migration Guide
 
+    [ ] No 1.0 migration guide yet.
+
 27.5 Versioning Policy
+
+    [ ] Package and exported `VERSION` are checked for equality, but the final semantic-versioning
+        policy and release process remain open.
 
 27.6 Deprecation Policy
 
+    [~] `@deprecated` exports require an explanation and are tracked by the API snapshot. Minimum
+        support windows, migration requirements and removal rules remain open.
+
 27.7 Extension API
+
+    [ ] Existing subsystem hooks are not yet one supported 1.0 extension contract.
 
     Support registration of:
 

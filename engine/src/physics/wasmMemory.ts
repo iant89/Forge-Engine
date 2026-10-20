@@ -29,13 +29,18 @@ const HEADER_F64_INDEX = HEADER_F64_BYTE_OFFSET / 8;
 const BODY_META_BYTES = 16;
 const BODY_F64_BYTE_OFFSET = BODY_META_BYTES;
 
-/** Transfer object schema. Bump this together with {@link WASM_PHYSICS_LAYOUT.version}. */
+/**
+ * Transfer object schema. Bump this together with {@link WASM_PHYSICS_LAYOUT.version}.
+ * @experimental The Phase 25 WASM backend does not execute a solver yet.
+ */
 export const WASM_PHYSICS_STATE_SCHEMA = "forge.physics-wasm-state/1" as const;
 
 /**
  * Public ABI consumed by a future `forge-physics.wasm` module. All offsets are bytes from the start
  * of the memory (header) or body slot. As required by WebAssembly linear memory, fields are
  * little-endian: numerical body state is f64 and metadata is u32.
+ *
+ * @experimental The Phase 25 WASM backend does not execute a solver yet.
  */
 export const WASM_PHYSICS_LAYOUT = Object.freeze({
   /** `FPW1` bytes when the u32 is stored in WebAssembly's little-endian linear memory. */
@@ -146,6 +151,7 @@ const B_SHAPE_PARAMETERS = (WASM_PHYSICS_LAYOUT.body.shapeParameters - BODY_F64_
 const BODY_TYPE_TO_CODE: Readonly<Record<BodyType, number>> = WASM_PHYSICS_LAYOUT.bodyTypes;
 const SHAPE_TYPE_TO_CODE: Readonly<Record<ShapeType, number>> = WASM_PHYSICS_LAYOUT.shapeTypes;
 
+/** @experimental Options for the Phase 25 solver-memory seam. */
 export interface WasmPhysicsMemoryOptions {
   /** Fixed number of body slots. The first ABI version never grows behind a WASM module's back. */
   capacity?: number;
@@ -153,7 +159,10 @@ export interface WasmPhysicsMemoryOptions {
   shared?: boolean;
 }
 
-/** A copy-safe and transferable stable frame from {@link WasmPhysicsMemory.takeSnapshot}. */
+/**
+ * A copy-safe and transferable stable frame from {@link WasmPhysicsMemory.takeSnapshot}.
+ * @experimental The state format exists, but no executable WASM solver consumes it yet.
+ */
 export interface WasmPhysicsStateSnapshot {
   readonly schema: typeof WASM_PHYSICS_STATE_SCHEMA;
   readonly version: typeof WASM_PHYSICS_LAYOUT.version;
@@ -168,6 +177,8 @@ export interface WasmPhysicsStateSnapshot {
  *
  * `captureWorld` and `applyToWorld` are validation/reference seams, not a second solver. Runtime
  * topology stays in JS, while the numerical state is flat and directly importable by WebAssembly.
+ *
+ * @experimental No executable WASM solver ships yet.
  */
 export class WasmPhysicsMemory {
   readonly memory: WebAssembly.Memory;

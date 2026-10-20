@@ -2921,3 +2921,25 @@ Working with the software rasterizer (SwiftShader) on this box:
   material/particle/vehicle/environment panels, asset browser or editor profiler. Existing runtime
   inspectors remain read-only diagnostics. Phase 26 and `editor.tooling` stay `inProgress` until the
   Mars exit criterion is met.
+
+## 2026-10-20 — Phase 27 started: freeze the package boundary before promising 1.0
+
+* **The 1.0 audit begins with resolved exports, not a hand-maintained list.** `tools/api-audit.mjs`
+  asks TypeScript for every symbol reachable from `engine/src/index.ts` and commits only the consumer-
+  visible contract — name, type/value kind and stability — to `engine/api-surface.json`. It omits
+  source paths and declaration order so internal moves do not look like API changes. CI and the
+  `tools:apiAudit` suite reject drift; `api:update` is an explicit review action, not an approval.
+* **The current barrel is a baseline, not a victory: 2,180 names is too large to call audited.**
+  2,171 names are public *candidates*. The snapshot catches accidental additions/removals/renames and
+  type-vs-value changes, but it does not yet compare parameters, class members, generics, enum values,
+  mutability, semantics or serialized/shader ABI. Phase 27.1 remains `inProgress` until those
+  declarations are reviewed and a signature-level compatibility gate exists.
+* **Stability lives next to declarations.** Package-root symbols default to `public`; explained
+  `@experimental` and `@deprecated` tags override it; conflicting or explanation-free tags fail; an
+  exported `@internal` symbol fails instead of being catalogued. The nine Phase 25 WASM-memory/backend
+  names are experimental because no executable WASM solver ships. There are no deprecated top-level
+  exports yet, so support windows and removal rules remain policy work rather than invented history.
+* **One package root means one supported import boundary.** The audit requires `engine/package.json`
+  to export only `.` and keeps root/package/`VERSION` values equal. `engine/README.md` now ships in the
+  package and `docs/API.md` documents the review loop and limits. Full reference docs/examples,
+  migration guidance, final semver/deprecation policy and the unified extension API remain open.

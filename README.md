@@ -5,6 +5,8 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 ```sh
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
+npm run api:check      # Phase 27: reject unreviewed @forge/engine export/classification drift
+npm run api:update     # rewrite the reviewed API snapshot after inspecting a deliberate change
 npm run bench          # Phase 22 benchmark guards; add -- --json PATH for a host-described snapshot
 npm test                 # selrun full suite, in tests/full.test.ts order
 npm run test:affected    # fail-safe selection: coverage + transitive/subsystem impact + smoke floor
@@ -25,8 +27,8 @@ npm run demo           # Vite dev server for examples/ (Mars Showcase default)
 npm run demo:amazon    # open the Amazon river launch scene directly (?scene=ui for the UI gallery)
 ```
 
-See `AGENTS.md` for working conventions, `ARCHITECTURE.md` for design, `docs/RENDERING.md` for
-what the renderer does today (render graph, HDR + bloom + tone mapping, cascaded shadow maps, the
+See `AGENTS.md` for working conventions, `ARCHITECTURE.md` for design, `docs/API.md` for the
+public package boundary and Phase 27 surface-audit workflow, `docs/RENDERING.md` for what the renderer does today (render graph, HDR + bloom + tone mapping, cascaded shadow maps, the
 depth prepass and SSAO, the analytic sky pass and fog), `docs/ENVIRONMENT.md` for the sun/sky/fog/day-night model,
 `docs/MARS-TERRAIN.md` for the ported Mars generator (the same planet as the external
 `mars-terrain-gen`), `docs/UI.md` and `docs/UI-GUIDE.md` for the engine's UI framework, and

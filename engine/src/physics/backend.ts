@@ -15,6 +15,7 @@ import { HeightfieldShape } from "./shapes.js";
 import { PhysicsWorld, type PhysicsWorldOptions, type RaycastFilter } from "./world.js";
 import { WasmPhysicsMemory } from "./wasmMemory.js";
 
+/** @experimental The `wasm` backend has a state ABI but no executable solver yet. */
 export type PhysicsBackendKind = "js" | "wasm";
 
 export interface PhysicsBackend {
@@ -142,6 +143,7 @@ export class ForgeJSPhysics implements PhysicsBackend {
   }
 }
 
+/** @experimental Configuration for the non-executable Phase 25 WASM backend seam. */
 export interface ForgeWasmPhysicsOptions {
   /** Fixed body-slot capacity for the Phase 25 linear-memory ABI. */
   bodyCapacity?: number;
@@ -155,6 +157,8 @@ export interface ForgeWasmPhysicsOptions {
  * The first Phase 25 slice owns a real, versioned {@link WebAssembly.Memory} through
  * {@link stateMemory}; no solver module is shipped yet. Every gameplay method therefore remains
  * fail-fast. In particular, this class never disguises the JS solver as a WASM implementation.
+ *
+ * @experimental No executable WASM solver ships yet.
  */
 export class ForgeWasmPhysics implements PhysicsBackend {
   readonly kind = "wasm" as const;
@@ -200,6 +204,7 @@ export class ForgeWasmPhysics implements PhysicsBackend {
   }
 }
 
+/** @experimental Backend selection includes the non-executable `wasm` option. */
 export function createPhysicsBackend(kind?: "js", options?: ForgeJSPhysicsOptions): ForgeJSPhysics;
 export function createPhysicsBackend(kind: "wasm", options?: ForgeWasmPhysicsOptions): ForgeWasmPhysics;
 export function createPhysicsBackend(

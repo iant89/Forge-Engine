@@ -355,26 +355,28 @@ Every phase ends with: build → typecheck → tests → demo run (headless WebG
 
 ## 12. Public API shape
 
+`@forge/engine` exposes one package entry point: its root barrel. Source modules may export symbols
+for composition inside the engine, but package consumers, the editor, examples and tests never reach
+into `engine/src`. `engine/package.json`, the architecture gates and Phase 27's API audit enforce that
+boundary independently.
+
 ```ts
-const engine = new Engine({ canvas, quality: "high", assets: { baseUrl: "/assets" } });
-await engine.initialize();               // resolves { backend, features, limits, degraded[] }
+import { Engine, Scene, Transform } from "@forge/engine";
 
-const scene = new Scene();
-scene.add(new TerrainWorld({ seed: 1234, chunkSize: 512, maxLOD: 12 }));
+const engine = await Engine.create({ canvas, autostart: false });
+const scene = new Scene({ name: "Mars workshop" });
 const rover = scene.createEntity("Rover");
-rover.add(new Transform().setWorldPosition(0, 0, 0));
-rover.add(new MeshRenderer(mesh, material));
-rover.add(new VehicleBody({ mass: 1800, drivetrain: "4WD" }));
-rover.add(new ScriptComponent("RoverController"));
-
+rover.add(new Transform()).setPosition(0, 1, 0);
 engine.setScene(scene);
 engine.start();
 ```
 
-Lower-level access for advanced users goes through `engine.gpu` (`device`, `queue`,
-`createRenderPipeline`, `createComputePipeline`, `createBindGroup`, buffers/textures/samplers)
-and `engine.renderGraph.appendPass(...)`. `engine.gpu` hands out *raw* WebGPU objects the
-caller owns, but engine-owned internals are never returned mutable. See `docs/API.md`.
+`engine/api-surface.json` is the deterministic resolved snapshot of every top-level export name,
+type/value kind and public/experimental/deprecated label. `npm run api:check` also rejects a default
+export, an `@internal` leak, unexplained or conflicting stability tags, package/version drift and any
+package subpath export. The first snapshot is a pre-1.0 baseline: it does not yet compare declaration
+signatures, class members or runtime semantics, and therefore is not the Phase 27 exit criterion.
+See `docs/API.md` for the exact policy, update workflow and current limitations.
 
 ---
 

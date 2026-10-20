@@ -98,6 +98,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "24": "inProgress",
   "25": "inProgress",
   "26": "inProgress",
+  "27": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -1258,6 +1259,22 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "deferred",
     summary: "A gate that plays the mixer's output on a real device and measures it",
     notes: "The suites prove graph, timing and bookkeeping on a mock context. An OfflineAudioContext render in the browser gate could measure levels; no roadmap item schedules it.",
+  },
+  {
+    id: "api.publicSurface",
+    phase: "27.1",
+    status: "inProgress",
+    summary: "Root-only @forge/engine API with a deterministic name/kind/stability snapshot and CI drift gate",
+    evidence: [
+      "engine/api-surface.json",
+      "tools/api-audit.mjs",
+      "tests/tools/apiAudit.test.ts",
+      "docs/API.md",
+      "engine/README.md",
+      ".github/workflows/ci.yml",
+    ],
+    closesWith: "27.1",
+    notes: "The first audit resolves all 2,180 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, and classifies explained @experimental/@deprecated tags. It does not yet diff declaration signatures or members, approve every public candidate for 1.0, or complete API docs/examples/migration/versioning/deprecation/extension policy.",
   },
   {
     id: "editor.tooling",
