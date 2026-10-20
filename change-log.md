@@ -28309,6 +28309,44 @@ JSON array below; agents maintain it by hand until then.
   "file": "change-log.md",
   "what": "Records the Phase 26 merge and one machine-readable provenance entry for every Phase 27 file change.",
   "why": "Maintain chronological per-file history for the public API audit slice."
+},
+{
+  "id": "2282",
+  "date": "2026-10-20T14:40:47Z",
+  "type": "pr-merge",
+  "pr": 143,
+  "branch": "arena/55f6b308-forge-engine",
+  "base": "main",
+  "title": "Phase 27: audit the public engine surface",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Starts Phase 27 conservatively without declaring Engine API 1.0 complete. TypeScript now resolves the sole @forge/engine package root into a deterministic forge.api-surface/1 snapshot of 2,180 top-level exports (2,171 public candidates, 9 experimental WASM-physics seam names, 0 deprecated), recording each name, type/value kind and stability. The api:check gate rejects additions, removals, renames, kind/stability drift, default or @internal leaks, package subpaths, entry-point/version disagreement and noncanonical snapshots; api:update remains an explicit reviewed action. Adds docs/API.md and the README shipped in the engine package, updates architecture/roadmap/progress/capability/known-issue/contributor records, and gives the snapshot direct selrun ownership. The new five-check suite raises the catalog to 156 suites and 1,074 coverage claims. The package remains 0.1.0: signature/member compatibility, per-symbol approval, complete reference docs/examples, migration guidance, final versioning/deprecation policy and the extension API remain open. Verification passed locally with npm run verify (156/156 suites), API/docs/architecture/catalog/build/package gates, and in CI with both CPU gates and the real-WebGPU Chromium + SwiftShader advisory gate green.",
+  "files": [
+    ".github/workflows/ci.yml",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "README.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/API.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/README.md",
+    "engine/api-surface.json",
+    "engine/src/core/capabilities.ts",
+    "engine/src/index.ts",
+    "engine/src/physics/backend.ts",
+    "engine/src/physics/wasmMemory.ts",
+    "mnemosyne.md",
+    "package.json",
+    "packages/selrun/src/subsystems.mjs",
+    "tests/full.test.ts",
+    "tests/tools/apiAudit.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tests/tools/selrunImpact.test.ts",
+    "tools/api-audit.mjs"
+  ]
 }
 ]
 ```
