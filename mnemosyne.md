@@ -2873,3 +2873,28 @@ Working with the software rasterizer (SwiftShader) on this box:
   generation/arena compaction, terrain mesh/LOD generation, shadow submission compaction, removal of
   the 8,192-batch ceiling and world-scale particle hardening remain open, so Phase 24 and capability
   `rendering.gpuDrivenWorld` stay `inProgress`.
+
+## 2026-10-20 — Phase 25 started: freeze the WASM ownership/state boundary before writing a solver
+
+* **Do not label the JS solver as WASM.** `ForgeWasmPhysics` now owns a real `WebAssembly.Memory`, but
+  every gameplay method still fails fast until a narrowphase/integration/solver module actually runs.
+  `PhysicsSystem({ backend })` rejects a backend whose `world` is null instead of silently constructing
+  an unrelated JS world. The production backend remains `ForgeJSPhysics`.
+* **`forge.physics-wasm-state/1` is the first ABI.** `WasmPhysicsMemory` uses a 192-byte world header
+  and fixed 448-byte f64 body records, with public byte offsets and stable body/shape codes. It carries
+  clock/gravity/solver settings and complete numerical body state. JS owns body ids/order/types,
+  shapes, heightfield callbacks and add/remove commands; capture/load reject non-finite records and
+  applying a frame validates the complete topology before mutating anything. Capacity is fixed when
+  memory is created so a future module never loses its imported memory or views behind an implicit
+  grow.
+* **Shared publication is explicit and single-writer.** `{ shared: true }` creates
+  SharedArrayBuffer-backed WebAssembly memory and publishes frames under an odd/even u32 seqlock.
+  Ordinary same-thread memory is the default because browsers need cross-origin isolation for shared
+  memory. Stable snapshots copy only the used prefix into an `ArrayBuffer`, so the caller can transfer
+  ownership to a worker without serializing object graphs.
+* **The tests prove transfer, not cross-backend physics.** A moved binary frame restores an
+  identically constructed JS world exactly and its next 30 fixed steps remain bit-identical; all six
+  shape codes, shared sequencing, capacity/non-finite failure and pre-mutation topology rejection are
+  pinned.
+  No WASM instruction executes physics yet, so there is no tolerance claim, speedup, CCD or Phase 25
+  completion claim. Capability `physics.wasmBackend` and Phase 25 remain `inProgress`.

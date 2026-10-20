@@ -206,6 +206,11 @@ PHASE 24 - GPU-DRIVEN WORLD SCALE
         enabled, indirect records; Mars exposes the handoff; CPU batch/prepass submission, instance
         generation, generic compaction and complete GPU particle rendering remain)
 
+PHASE 25 - WASM PHYSICS
+    [~] IN PROGRESS (versioned fixed-capacity WebAssembly.Memory ABI, optional shared seqlock memory
+        and transferable exact state frames landed; the WASM solver, runtime body commands,
+        cross-backend tolerance gate and CCD remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2692,21 +2697,41 @@ GOAL:
 
 25.1 WASM Backend
 
+    [ ] `ForgeWasmPhysics` now owns the memory a solver module will import, but no WASM narrowphase,
+        solver or integration kernel ships yet. Its gameplay methods deliberately fail instead of
+        disguising `PhysicsWorld` as WASM.
+
 25.2 Shared Memory Representation
+
+    [~] `WasmPhysicsMemory` defines versioned schema `forge.physics-wasm-state/1`: a 192-byte world
+        header and fixed 448-byte f64 body records in `WebAssembly.Memory`, with stable numeric codes
+        for body/shape kinds. Optional shared memory uses an even/odd single-writer seqlock. JS still
+        owns topology, heightfield callbacks and body add/remove commands; capacity is fixed at create.
 
 25.3 Snapshot Transfer
 
+    [~] The used memory prefix can be copied into a transferable `ArrayBuffer`, loaded into a memory
+        with a different capacity and applied only to an identically constructed host world. World
+        clock/gravity/solver settings and complete numerical body state round-trip exactly; malformed
+        records and non-finite host/frame state are rejected before publication or mutation. This is
+        a solver-state frame, not a replacement for the generic save format or topology serialization.
+
 25.4 Backend Selection
 
-    Example:
+    [~] The existing public selector remains explicit:
 
         physics.backend = "js"
         physics.backend = "wasm"
 
+    `js` is production-ready. `wasm` provisions the ABI but fails fast until 25.1 lands; there is no
+    silent fallback and `PhysicsSystem` still requires a JS `PhysicsWorld`.
+
 
 25.5 Cross-Backend Validation
 
-    Same input must produce equivalent results within defined tolerances.
+    [ ] The ABI tests prove transferred JS state continues bit-for-bit identically in another JS
+        reference world. Same-input JS/WASM comparison and its defined tolerances cannot exist until
+        a WASM solver executes.
 
 
 EXIT CRITERIA:

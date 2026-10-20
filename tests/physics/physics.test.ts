@@ -9,6 +9,7 @@
  * @covers engine/src/physics/broadphase.ts
  * @covers engine/src/physics/collision.ts
  * @covers engine/src/physics/shapes.ts
+ * @covers engine/src/physics/wasmMemory.ts
  * @covers engine/src/physics/world.ts
  * @desc Pins physics behavior and regression guarantees
  */
@@ -25,6 +26,7 @@ export const suite = {
     "engine/src/physics/broadphase.ts",
     "engine/src/physics/collision.ts",
     "engine/src/physics/shapes.ts",
+    "engine/src/physics/wasmMemory.ts",
     "engine/src/physics/world.ts"
   ],
   desc: "Pins physics behavior and regression guarantees",
@@ -46,6 +48,9 @@ import {
   RayHit,
   collideBodies,
   SweepAndPruneBroadphase,
+  WASM_PHYSICS_LAYOUT,
+  WASM_PHYSICS_STATE_SCHEMA,
+  WasmPhysicsMemory,
 } from "@forge/engine";
 
 group("Physics - Free Fall & Dynamics Integration", () => {
@@ -380,6 +385,144 @@ group("Physics - Heightfield Contacts", () => {
     // slop), and never passes through it.
     assert.ok(ball.position.y > surface + 0.5 - 0.05);
     assert.ok(ball.position.y < surface + 0.5 + 0.05);
+  });
+});
+
+group("Phase 25 — WASM linear-memory ABI and snapshot transfer", () => {
+  const makeWorld = (ballHeight: number): PhysicsWorld => {
+    const world = new PhysicsWorld({
+      gravity: { x: 0.25, y: -3.5, z: 0.5 },
+      fixedDt: 1 / 120,
+      maxSubsteps: 6,
+      solverOptions: {
+        velocityIterations: 5,
+        positionIterations: 3,
+        baumgarte: 0.17,
+        penetrationSlop: 0.007,
+        velocityRestThreshold: 0.42,
+      },
+    });
+    world.addBody(new RigidBody({
+      type: "static",
+      shape: new PlaneShape(new Vec3(0, 1, 0), -10),
+      friction: 0.9,
+    }));
+    world.addBody(new RigidBody({
+      shape: new SphereShape(0.375),
+      mass: 2.5,
+      position: new Vec3(2, ballHeight, -4),
+      linearVelocity: new Vec3(1.25, -0.5, 0.75),
+      angularVelocity: new Vec3(0.1, 0.2, -0.3),
+      restitution: 0.35,
+      friction: 0.62,
+      linearDamping: 0.025,
+      angularDamping: 0.075,
+      gravityScale: 0.8,
+    }));
+    return world;
+  };
+
+  const makeShapeWorld = (): PhysicsWorld => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    world.addBody(new RigidBody({ shape: new SphereShape(0.25), position: new Vec3(1, 2, 3) }));
+    world.addBody(new RigidBody({ type: "static", shape: new BoxShape(1, 2, 3) }));
+    world.addBody(new RigidBody({ type: "kinematic", shape: new CapsuleShape(0.4, 0.8) }));
+    world.addBody(new RigidBody({ shape: new CylinderShape(0.6, 1.2) }));
+    world.addBody(new RigidBody({ type: "static", shape: new PlaneShape(new Vec3(0, 1, 0), 2) }));
+    world.addBody(new RigidBody({
+      type: "static",
+      shape: new HeightfieldShape({ sampleHeight: (x, z) => x * 0.1 + z * 0.2 }),
+    }));
+    return world;
+  };
+
+  test("round-trips an exact JS reference frame through a transferable binary snapshot", () => {
+    const source = makeWorld(12);
+    for (let i = 0; i < 17; i++) source.stepOnce();
+    const sourceBall = source.bodies[1]!;
+    sourceBall.applyForce({ x: 3, y: -2, z: 1 });
+    sourceBall.applyTorque({ x: -0.5, y: 0.25, z: 0.75 });
+    source.accumulator = source.fixedDt * 0.25;
+
+    const memory = new WasmPhysicsMemory({ capacity: 8 });
+    const sequence = memory.captureWorld(source);
+    assert.equal(sequence > 0 && sequence % 2 === 0, true);
+    assert.equal(memory.bodyCount, 2);
+    assert.deepEqual([...new Uint8Array(memory.memory.buffer, 0, 4)], [0x46, 0x50, 0x57, 0x31]); // FPW1
+    assert.equal(memory.usedByteLength, WASM_PHYSICS_LAYOUT.headerBytes + 2 * WASM_PHYSICS_LAYOUT.bodyStride);
+
+    const snapshot = memory.takeSnapshot();
+    assert.equal(snapshot.schema, WASM_PHYSICS_STATE_SCHEMA);
+    assert.equal(snapshot.version, WASM_PHYSICS_LAYOUT.version);
+    const transferred = structuredClone(snapshot, { transfer: [snapshot.bytes] });
+    assert.equal(snapshot.bytes.byteLength, 0); // the sender relinquished its copy
+
+    const target = makeWorld(99);
+    const targetMemory = new WasmPhysicsMemory({ capacity: 4 });
+    targetMemory.loadSnapshot(transferred);
+    targetMemory.applyToWorld(target);
+    assert.deepEqual(target.snapshot(), source.snapshot());
+
+    // The transfer includes force/torque accumulators and solver settings, so continuation agrees.
+    for (let i = 0; i < 30; i++) {
+      source.stepOnce();
+      target.stepOnce();
+    }
+    assert.deepEqual(target.snapshot(), source.snapshot());
+  });
+
+  test("offers shared seqlock memory and rejects capacity, invalid frames, or host-topology mismatches", () => {
+    const world = makeWorld(8);
+    const shared = new WasmPhysicsMemory({ capacity: 2, shared: true });
+    shared.captureWorld(world);
+    assert.equal(shared.shared, true);
+    assert.equal(shared.memory.buffer instanceof SharedArrayBuffer, true);
+    assert.equal(shared.sequence % 2, 0);
+    assert.equal(shared.takeSnapshot().byteLength, WASM_PHYSICS_LAYOUT.headerBytes + 2 * WASM_PHYSICS_LAYOUT.bodyStride);
+
+    // Every current host shape has a stable numeric code and parameter payload in the same ABI.
+    const shapes = makeShapeWorld();
+    const shapeMemory = new WasmPhysicsMemory({ capacity: 6 });
+    shapeMemory.captureWorld(shapes);
+    const words = new Uint32Array(shapeMemory.memory.buffer);
+    const shapeCodes = shapes.bodies.map((_, i) =>
+      words[(WASM_PHYSICS_LAYOUT.headerBytes + i * WASM_PHYSICS_LAYOUT.bodyStride + WASM_PHYSICS_LAYOUT.body.shape) >> 2]!,
+    );
+    assert.deepEqual(shapeCodes, [
+      WASM_PHYSICS_LAYOUT.shapeTypes.sphere,
+      WASM_PHYSICS_LAYOUT.shapeTypes.box,
+      WASM_PHYSICS_LAYOUT.shapeTypes.capsule,
+      WASM_PHYSICS_LAYOUT.shapeTypes.cylinder,
+      WASM_PHYSICS_LAYOUT.shapeTypes.plane,
+      WASM_PHYSICS_LAYOUT.shapeTypes.heightfield,
+    ]);
+    const shapeClone = makeShapeWorld();
+    const cloneMemory = new WasmPhysicsMemory({ capacity: 8 });
+    cloneMemory.loadSnapshot(shapeMemory.takeSnapshot());
+    cloneMemory.applyToWorld(shapeClone);
+    assert.deepEqual(shapeClone.snapshot(), shapes.snapshot());
+
+    const tooSmall = new WasmPhysicsMemory({ capacity: 1 });
+    assertThrows(() => tooSmall.captureWorld(world), /2 bodies.*capacity is 1/);
+
+    const mismatch = makeWorld(8);
+    mismatch.bodies[1]!.shape = new SphereShape(0.5);
+    const before = mismatch.bodies[1]!.position.y;
+    assertThrows(() => shared.applyToWorld(mismatch), /shape parameters/);
+    assert.equal(mismatch.bodies[1]!.position.y, before); // validation happens before mutation
+
+    const corrupted = shared.takeSnapshot();
+    const positionIndex = (WASM_PHYSICS_LAYOUT.headerBytes + WASM_PHYSICS_LAYOUT.body.position) >> 3;
+    new Float64Array(corrupted.bytes)[positionIndex] = Number.NaN;
+    assertThrows(() => cloneMemory.loadSnapshot(corrupted), /not finite/);
+
+    const sourceBody = world.bodies[1]!;
+    const sourceX = sourceBody.position.x;
+    const sequenceBeforeRejectedCapture = shared.sequence;
+    sourceBody.position.x = Number.POSITIVE_INFINITY;
+    assertThrows(() => shared.captureWorld(world), /non-finite numerical state/);
+    assert.equal(shared.sequence, sequenceBeforeRejectedCapture); // reject before making the seqlock odd
+    sourceBody.position.x = sourceX;
   });
 });
 

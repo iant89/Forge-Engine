@@ -92,7 +92,8 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      shadows.ts (cascade fit), PipelineFactory, Material, Geometry, primitives,
                      uniforms (single source of truth for WGSL structs), shaders/{standard,post,sky,common}.ts
   scene/             Scene, EntityWorld (ECS-ish), component stores, Transform/Camera/Light/Renderable
-  physics/           fixed-step rigid bodies (Phase 5). Vehicles are not in this solver.
+  physics/           fixed-step JS rigid bodies plus the Phase 25 versioned WASM state-memory ABI;
+                     the WASM solver is not implemented. Vehicle dynamics are not in the rigid-body solver.
   vehicles/          raycast car: Pacejka, suspension, engine/gearbox/diff, aero, TC/ABS (docs/VEHICLES.md)
   particles/         CPU simulation + a compute integrator for the same gravity/drag/life step (docs/PARTICLES.md)
   environment/       sun position (NOAA/Meeus), AtmosphereModel (CPU twin of the sky shader), fog formulas,

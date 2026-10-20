@@ -67,7 +67,9 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Heightfield collision and raycasts against the same terrain data the renderer draws
 - [x] Pluggable physics backend: vehicles and ECS can share one world
 - [ ] Continuous collision detection for fast impacts (Phase 25.1)
-- [ ] WASM physics backend with shared memory, snapshots and cross-backend validation (Phase 25; `ForgeWasmPhysics` is an empty stub)
+- [~] WASM physics: versioned linear/shared memory ABI and transferable exact state frames are
+  implemented; `ForgeWasmPhysics` still has no solver, runtime topology queue, cross-backend
+  tolerance gate or performance result (Phase 25)
 
 ## Vehicles (Phases 6, 11, 16.6)
 

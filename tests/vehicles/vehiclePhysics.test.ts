@@ -83,10 +83,14 @@ group("Phase 11.1 — PhysicsBackend", () => {
     assert.equal(sample.height, 0);
   });
 
-  test("ForgeWasmPhysics is a stub that throws until Phase 25", () => {
-    const wasm = new ForgeWasmPhysics();
+  test("ForgeWasmPhysics owns the Phase 25 state ABI but fails fast until a solver module exists", () => {
+    const wasm = createPhysicsBackend("wasm", { bodyCapacity: 32 });
+    assert.equal(wasm instanceof ForgeWasmPhysics, true);
     assert.equal(wasm.kind, "wasm");
-    assertThrows(() => wasm.step(1 / 60), /Phase 25/);
+    assert.equal(wasm.stateMemory.capacity, 32);
+    assert.equal(wasm.stateMemory.memory instanceof WebAssembly.Memory, true);
+    assertThrows(() => wasm.step(1 / 60), /solver module is not available/);
+    assertThrows(() => new PhysicsSystem({ backend: wasm }), /does not expose an executable PhysicsWorld/);
   });
 });
 

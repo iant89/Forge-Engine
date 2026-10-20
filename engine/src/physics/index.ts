@@ -11,3 +11,4 @@ export * from "./world.js";
 export * from "./components.js";
 export * from "./system.js";
 export * from "./backend.js";
+export * from "./wasmMemory.js";

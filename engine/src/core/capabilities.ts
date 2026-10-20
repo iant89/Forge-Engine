@@ -96,6 +96,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "22": "inProgress",
   "23": "inProgress",
   "24": "inProgress",
+  "25": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -784,9 +785,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "physics.backend",
     phase: "11.1",
     status: "verified",
-    summary: "PhysicsBackend interface with ForgeJSPhysics (create or adopt/share a PhysicsWorld) and ForgeWasmPhysics stub; PhysicsSystem can adopt the same world",
+    summary: "PhysicsBackend interface with ForgeJSPhysics (create or adopt/share a PhysicsWorld) and an explicit fail-fast ForgeWasmPhysics seam; PhysicsSystem can adopt the same JS world",
     evidence: ["tests/vehicles/vehiclePhysics.test.ts", "engine/src/physics/backend.ts", "engine/src/physics/system.ts"],
-    notes: "Default is single-owner; pass world/backend or ForgeJSPhysics.wrap to share. Pairing Vehicle + ECS without sharing creates two worlds (docs/VEHICLES.md)",
+    notes: "Default is single-owner; pass world/backend or ForgeJSPhysics.wrap to share. Pairing Vehicle + ECS without sharing creates two worlds (docs/VEHICLES.md). ForgeWasmPhysics now provisions the Phase 25 state ABI but is not a solver and is never an implicit JS fallback.",
   },
   {
     id: "physics.spatialIndex",
@@ -799,9 +800,16 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "physics.wasmBackend",
     phase: "25.1",
-    status: "planned",
-    summary: "WASM physics backend behind the same gameplay API",
+    status: "inProgress",
+    summary: "Versioned WebAssembly.Memory physics-state ABI with optional shared seqlock memory and transferable exact state frames; solver module still absent",
+    evidence: [
+      "engine/src/physics/wasmMemory.ts",
+      "engine/src/physics/backend.ts",
+      "tests/physics/physics.test.ts",
+      "tests/vehicles/vehiclePhysics.test.ts",
+    ],
     closesWith: "25.1",
+    notes: "WasmPhysicsMemory has a 192-byte world header, fixed 448-byte f64 records, finite-record and host-topology validation, and schema forge.physics-wasm-state/1. ForgeWasmPhysics owns that memory but every gameplay method still fails fast. No WASM narrowphase/solver/integrator, runtime topology command queue, worker ownership protocol, JS/WASM tolerance gate, CCD or performance result exists yet.",
   },
   {
     id: "vehicles.raycastModel",

@@ -270,7 +270,9 @@ vehicleComponent.attachChassis(chassis, backend.world);
 Rules of thumb:
 
 - Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
-- Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`.
+- Adopt with `{ world }`, `{ backend }`, or `ForgeJSPhysics.wrap(world)`. `{ backend }` requires an
+  executable `backend.world`; the in-progress `ForgeWasmPhysics` is rejected instead of silently
+  creating a separate JS world.
 - When adopting, explicitly provided `gravity` / `fixedDt` / `solverOptions` are **copied onto the
   shared world** (they are not silently ignored). Omit a field to leave the adopted world's value
   unchanged. Example: `new PhysicsSystem({ world: backend.world, gravity: { x: 0, y: 0, z: 0 } })`
