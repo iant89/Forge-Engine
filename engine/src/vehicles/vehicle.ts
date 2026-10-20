@@ -126,15 +126,40 @@ export interface VehicleOptions {
   cgHeight?: number;
   cgToFront?: number;
   wheelRadius?: number;
+  /**
+   * Rotational inertias (kg·m²). Omitted, they scale with mass the way a car's do
+   * (`0.9 m` yaw, `0.55 m` pitch, `0.4 m` roll) — right for a 1.4 t sedan, an order of magnitude out
+   * for a 350 kg quad, which yaws and rolls far more readily than its weight suggests. Set them for
+   * anything whose mass is not concentrated in a long, wide body.
+   */
+  inertiaYaw?: number;
+  inertiaPitch?: number;
+  inertiaRoll?: number;
+  /** Pitch/roll rate damping while airborne or on sparse contact. Default 3.5. */
+  angularDamping?: number;
   layout?: DrivetrainLayout;
   differential?: DifferentialType;
+  /** LSD torque bias toward the slower driven wheel (1 = open). Default 2.5. */
+  lsdBias?: number;
   aero?: AeroConfig | null;
   tcEnabled?: boolean;
   absEnabled?: boolean;
+  /** Slip the traction control starts cutting at, and how hard (1 = full cut per unit slip). */
+  tcSlip?: number;
+  tcStrength?: number;
   maxBrakeTorque?: number;
+  /** Handbrake (rears) torque; the parking brake has its own. Defaults suit a car, not a quad. */
+  handbrakeTorque?: number;
   parkingBrakeTorque?: number;
+  suspensionRest?: number;
+  suspensionTravel?: number;
   springRate?: number;
   damperRate?: number;
+  wheelInertia?: number;
+  /** Full-lock steering angle (rad), softened with speed by `steerAngle`. Default 0.48. */
+  maxSteerAngle?: number;
+  /** Driveline efficiency from crank to wheel torque. Default 0.9. */
+  efficiency?: number;
   engine?: EngineModel;
   transmission?: Transmission;
   longitudinal?: Omit<PacejkaCoefficients, "D">;
@@ -206,37 +231,37 @@ export function createVehicleConfig(options: VehicleOptions = {}): VehicleConfig
   return {
     mass,
     gravity,
-    inertiaYaw: options.mass ? options.mass * 0.9 : 1200,
-    inertiaPitch: options.mass ? options.mass * 0.55 : 700,
-    inertiaRoll: options.mass ? options.mass * 0.4 : 500,
-    angularDamping: 3.5,
+    inertiaYaw: options.inertiaYaw ?? (options.mass ? options.mass * 0.9 : 1200),
+    inertiaPitch: options.inertiaPitch ?? (options.mass ? options.mass * 0.55 : 700),
+    inertiaRoll: options.inertiaRoll ?? (options.mass ? options.mass * 0.4 : 500),
+    angularDamping: options.angularDamping ?? 3.5,
     wheelbase,
     track,
     cgHeight: options.cgHeight ?? 0.5,
     cgToFront,
     wheelRadius: options.wheelRadius ?? 0.34,
-    wheelInertia: 0.9,
-    suspensionRest: 0.28,
-    suspensionTravel: 0.14,
+    wheelInertia: options.wheelInertia ?? 0.9,
+    suspensionRest: options.suspensionRest ?? 0.28,
+    suspensionTravel: options.suspensionTravel ?? 0.14,
     springRate,
     damperRate: options.damperRate ?? 2 * Math.sqrt(springRate * (mass / WHEEL_COUNT)) * 0.55,
     mu: options.mu ?? 1.05,
-    maxSteerAngle: 0.48,
+    maxSteerAngle: options.maxSteerAngle ?? 0.48,
     maxBrakeTorque: options.maxBrakeTorque ?? 4500,
-    handbrakeTorque: 6000,
+    handbrakeTorque: options.handbrakeTorque ?? 6000,
     parkingBrakeTorque: options.parkingBrakeTorque ?? 7000,
     layout,
     differential: options.differential ?? "lsd",
-    lsdBias: 2.5,
+    lsdBias: options.lsdBias ?? 2.5,
     slipReference: 1,
     longitudinal: long,
     lateral: options.lateral ?? DEFAULT_LATERAL,
     aero: options.aero === null ? ZERO_AERO : (options.aero ?? { rho: 1.225, dragCoefficient: 0.31, liftCoefficient: 0.15, frontalArea: 2.2 }),
-    efficiency: 0.9,
+    efficiency: options.efficiency ?? 0.9,
     tcEnabled: options.tcEnabled ?? true,
     absEnabled: options.absEnabled ?? true,
-    tcSlip: 0.12,
-    tcStrength: 6,
+    tcSlip: options.tcSlip ?? 0.12,
+    tcStrength: options.tcStrength ?? 6,
     absSlip: pacejkaPeakSlip(long),
     absStrength: 10,
     rollingResistance: options.rollingResistance ?? 0,

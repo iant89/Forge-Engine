@@ -91,6 +91,47 @@ launch is unchanged; base speed, power cap and no-load speed are scaled 1.5× fo
 top speed is still an order of magnitude below the old combustion tune. The no-load motor speed is
 not a downhill speed limiter.
 
+## Light machines: quads, ATVs, bikes (fe-37d)
+
+The defaults above are a car's and stay a car's: mass-scaled inertias (`0.9·m` yaw, `0.55·m` pitch,
+`0.4·m` roll), `angularDamping` 3.5, `wheelInertia` 0.9, `suspensionRest` 0.28 / `suspensionTravel`
+0.14, `maxSteerAngle` 0.48 rad, brakes 4500 / handbrake 6000 / park 7000 N·m, `lsdBias` 2.5,
+`tcSlip` 0.12, `tcStrength` 6, `efficiency` 0.9. A machine with a quarter of a car's mass and half
+its wheelbase needs its own numbers, so every one of those is an option: `inertiaYaw`,
+`inertiaPitch`, `inertiaRoll`, `angularDamping`, `wheelInertia`, `suspensionRest`,
+`suspensionTravel`, `maxSteerAngle`, `handbrakeTorque`, `lsdBias`, `tcSlip`, `tcStrength`,
+`efficiency`.
+
+What they mean on the 265 kg two-stroke sport quad the off-road hill demo rides:
+
+* **Inertias and damping.** `78 / 42 / 26 kg·m²` with `angularDamping 4.5`. The mass-scaled car
+  numbers would still be plausible here (238 yaw) — the problem is the *ratio* to a 1.28 m
+  wheelbase, which steers like a barge and hides what the suspension is doing. Roll below pitch
+  below yaw is the order a tall rider wants: it pitches into braking, rolls into a turn, resists yaw.
+* **Brakes.** 420 N·m pedal, 520 handbrake, 560 park. Car torque on a 0.27 m tyre is
+  4500/0.27 ≈ 16.7 kN of braking force at a wheel carrying ~650 N — every wheel locks the instant
+  the pedal is touched, which reads as "the brakes grab". Scaled, the tyre saturates first and ABS
+  has something to modulate.
+* **Traction control.** `tcSlip 0.18`, `tcStrength 5`: knobbies on loose gravel want to spin a
+  little, and a two-stroke only pulls inside its band, so a car's 0.12 window cuts the power away
+  exactly where it is needed.
+* **Steering.** `maxSteerAngle 0.4` rad is a ~3 m turn radius at a 1.28 m wheelbase. `steerAngle`
+  still softens it with speed (`1/(1 + max(0, v − 8)·0.04)`), so full lock at speed understeers
+  instead of hooking.
+* **Suspension and wheel inertia.** `suspensionRest 0.26` with `suspensionTravel 0.21` (long travel,
+  `springRate`/`damperRate` for a quarter of the mass) and `wheelInertia 0.42`, so the wheels spin up
+  with the crank instead of soaking the powerband.
+* **Aero.** An upright rider is a bluff body: `dragCoefficient 0.78`, `frontalArea 0.85`. It is also
+  what stops the quad running away downhill in neutral.
+
+Two things stay the **scene's** job. The body has to be authored off the ground plane:
+`hubDrop = suspensionRest − staticCompression`, with
+`staticCompression = mass·g/(4·springRate)` (0.0625 m here). And digital keys need rate-limiting
+before they reach `vehicle.input` — instant full lock from a keypress is what makes a light machine
+dart. The off-road demo ramps steer at 4.2/s toward lock and 6.5/s back to centre, throttle 5.5/s up
+and 9/s down, brake 8/s and 10/s. Pinned by `tests/vehicles/vehicles.test.ts` (options honoured,
+defaults unchanged) and `tests/examples/offroadHillScene.test.ts` (the ramps, the band, the brakes).
+
 ## Wheel visuals are suspension-anchored
 
 `VehicleSystem` poses each wheel entity with `Vehicle.wheelCenterPosition`: the hardpoint (the

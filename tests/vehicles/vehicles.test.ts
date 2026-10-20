@@ -483,6 +483,79 @@ group("vehicles — chassis", () => {
     assertCloseTo(t.position.y, vehicle.position.y, 5);
     world.dispose();
   });
+
+  test("a light, short machine can set its own inertias, suspension, steer and traction limits", () => {
+    // The defaults are still the car's: mass-scaled inertias, 3.5 angular damping, 0.48 rad of lock,
+    // car-scale brake torques, a 0.12 traction-control window. Nothing here moved for existing demos.
+    const car = createVehicleConfig({ mass: 1000 });
+    assertCloseTo(car.inertiaYaw, 900, 6);
+    assertCloseTo(car.inertiaPitch, 550, 6);
+    assertCloseTo(car.inertiaRoll, 400, 6);
+    assert.equal(car.angularDamping, 3.5);
+    assert.equal(car.wheelInertia, 0.9);
+    assert.equal(car.suspensionRest, 0.28);
+    assert.equal(car.suspensionTravel, 0.14);
+    assert.equal(car.maxSteerAngle, 0.48);
+    assert.equal(car.maxBrakeTorque, 4500);
+    assert.equal(car.handbrakeTorque, 6000);
+    assert.equal(car.parkingBrakeTorque, 7000);
+    assert.equal(car.lsdBias, 2.5);
+    assert.equal(car.tcSlip, 0.12);
+    assert.equal(car.tcStrength, 6);
+    assert.equal(car.efficiency, 0.9);
+
+    // And every one of them is an option, so a quad does not have to live with car numbers.
+    const quadOptions = {
+      mass: 265,
+      wheelbase: 1.28,
+      track: 0.98,
+      cgToFront: 0.6,
+      wheelRadius: 0.27,
+      cgHeight: 0.52,
+      inertiaYaw: 78,
+      inertiaPitch: 42,
+      inertiaRoll: 26,
+      angularDamping: 4.5,
+      suspensionRest: 0.26,
+      suspensionTravel: 0.21,
+      wheelInertia: 0.42,
+      maxSteerAngle: 0.4,
+      maxBrakeTorque: 420,
+      handbrakeTorque: 520,
+      parkingBrakeTorque: 560,
+      lsdBias: 2.2,
+      tcSlip: 0.18,
+      tcStrength: 5,
+      efficiency: 0.85,
+    };
+    const quad = createVehicleConfig(quadOptions);
+    for (const [key, value] of Object.entries(quadOptions)) {
+      assert.equal(quad[key as keyof typeof quad], value, `${key} is honoured`);
+    }
+    // The wheel hardpoints follow the track and cgToFront, as they always did.
+    const fronts = quad.wheels.filter((w) => w.z > 0);
+    assert.equal(fronts.length, 2);
+    assertCloseTo(fronts[0]!.z, 0.6, 6);
+    assertCloseTo(Math.abs(fronts[0]!.x), 0.49, 6);
+    assertCloseTo(quad.wheels.find((w) => w.z < 0)!.z, -0.68, 6);
+
+    // Full lock is the quad's, not the car's, and it reaches the steered wheels.
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ ...quadOptions, aero: null }));
+    vehicle.placeOnGround(ground);
+    vehicle.input.steer = 1;
+    vehicle.step(1 / 60, ground);
+    const steered = vehicle.wheels.filter((w) => w.steered);
+    assert.equal(steered.length, 2);
+    for (const wheel of steered) {
+      assert.ok(wheel.steerAngle > 0.2, `steered wheel at ${wheel.steerAngle.toFixed(3)} rad`);
+      assert.ok(wheel.steerAngle <= vehicle.config.maxSteerAngle + 1e-9, `never past ${vehicle.config.maxSteerAngle} rad`);
+    }
+
+    // A wider traction-control window: the same wheelspin the car would cut, the quad carries.
+    assert.equal(tractionControlScale(0.18, quad.tcSlip, quad.tcStrength), 1);
+    assert.ok(tractionControlScale(0.18, car.tcSlip, car.tcStrength) < 1, "the car cuts torque at 0.18 slip");
+  });
 });
 
 group("vehicles — brakes and the parking brake", () => {

@@ -39,10 +39,10 @@ import {
   type VehicleSoundSurface,
   VehicleSystem,
   createBox,
-  createCylinder,
   createGrassBermTextures,
   createGravelRoadTextures,
   createVehicleConfig,
+  EngineModel,
   cylinderGeometrySource,
   disposeTrackSurface,
   fbm2,
@@ -50,6 +50,7 @@ import {
   litterQuadsSource,
   scatterAlongTrack,
   tierValue,
+  Transmission,
   trackRibbonSource,
   trackTerrainGridSource,
   type DeviceTier,
@@ -87,6 +88,11 @@ import { suppressTouchChrome } from "../controls/vehicleTouch.js";
 import { attachPedal, attachSteeringWheel } from "../controls/touchWheel.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
+import {
+  buildQuadSources,
+  QUAD_FRONT_TYRE_WIDTH,
+  QUAD_REAR_TYRE_WIDTH,
+} from "./offroadQuad.js";
 
 /** Loop control points: up the west side, switchback at the top, down the east side. */
 const COURSE: ReadonlyArray<{ x: number; z: number }> = [
@@ -105,6 +111,25 @@ const UV_ALONG = 8;
 /** Arc length of the start/finish line; the car spawns a little before it. */
 const START_S = 18;
 const SPAWN_BACK = 10;
+
+/**
+ * Handlebar feel (rad/s of steering input): a quad's bars are light and self-centring, so lock comes
+ * on slower than the fingers move and releases faster when they stop — otherwise digital keys give
+ * instant full lock, and the quad darts.
+ */
+const STEER_RATE = 4.2;
+const STEER_RETURN = 6.5;
+/** Throttle/brake input ramps (1/s), up and down. No rider snaps from nothing to wide open. */
+const THROTTLE_RISE = 5.5;
+const THROTTLE_FALL = 9;
+const BRAKE_RISE = 8;
+const BRAKE_FALL = 10;
+
+/** Move `current` toward `target` by at most `maxStep` (per frame, so `rate * dt`). */
+const approach = (current: number, target: number, maxStep: number): number => {
+  const delta = target - current;
+  return Math.abs(delta) <= maxStep ? target : current + Math.sign(delta) * maxStep;
+};
 
 export type OffroadCameraMode = "chase" | "cab" | "orbit" | "free";
 
@@ -137,7 +162,7 @@ export interface OffroadSnapshot {
   /** Grip multiplier under the car. */
   grip: number;
   overlayCoverage: number;
-  vegetation: { hidden: number; hi: number; lo: number; swaying: number };
+  vegetation: { hidden: number; hi: number; lo: number; swaying: number; casting: number };
   treeTriangles: { hi: number; lo: number };
   /** Phase 20.7 vehicle audio (opt-in: M / SOUND). */
   sound: { enabled: boolean; running: boolean; engineHz: number; load: number; slip: number; surface: VehicleSoundSurface | "air" };
@@ -190,7 +215,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   scene.settings.exposure = 1.0;
   scene.settings.bloom.enabled = tier !== "low";
   scene.settings.shadow.enabled = true;
-  scene.settings.shadow.distance = tierValue(tier, { low: 60, medium: 90, high: 120 });
+  // Shadows reach as far as the vegetation's shadow ring and no further: the extra range bought
+  // nothing (a 120 m cascade over a 2 m quad is mush) and cost caster work every frame.
+  scene.settings.shadow.distance = tierValue(tier, { low: 40, medium: 55, high: 70 });
   scene.settings.shadow.cascades = tierValue(tier, { low: 2, medium: 3, high: 4 });
   scene.settings.shadow.mapSize = tierValue(tier, { low: 1024, medium: 2048, high: 2048 });
   scene.setSky({ quality: tier === "low" ? "low" : "medium" });
@@ -298,7 +325,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   // Species and placement are the demo's; the generator, LOD, instancing and sway are the engine's.
   const density = tierValue(tier, { low: 0.4, medium: 0.7, high: 1 });
   const near = scatterAlongTrack(track, { seed: 7, lateralMin: track.bermOuterEdge + 3, lateralMax: 40, density: 0.03 * density, scaleMin: 0.8, scaleMax: 1.25, palettes: 4 });
-  const back = scatterAlongTrack(track, { seed: 8, lateralMin: 40, lateralMax: 120, density: 0.006 * density, scaleMin: 1, scaleMax: 1.5, palettes: 4 });
+  // Backdrop forest: thin enough to read as a treeline, and pulled in to the distance the trees
+  // are culled at, so no instance is spawned that can never be drawn.
+  const back = scatterAlongTrack(track, { seed: 8, lateralMin: 40, lateralMax: 95, density: 0.005 * density, scaleMin: 1, scaleMax: 1.5, palettes: 4 });
   const brush = scatterAlongTrack(track, { seed: 9, lateralMin: track.bermOuterEdge + 0.8, lateralMax: track.bermOuterEdge + 6, density: 0.1 * density, scaleMin: 0.7, scaleMax: 1.8, palettes: 3 });
   // Ohio-valley autumn mix from the photos: sugar maple (orange/red), oaks (russet), birch and
   // tulip poplar (yellow/gold). Palette entries are per-instance tints over white leaf cards.
@@ -347,10 +376,15 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
           { hi: geo(hiTree.wood), lo: geo(loTree.wood), material: barkMat, castShadow: true },
           { hi: geo(hiTree.leaves), lo: geo(loTree.leaves), material: leafMat, castShadow: true },
         ],
-        lodDistance: tierValue(tier, { low: 22, medium: 35, high: 50 }),
-        maxDistance: 0,
+        // Facing the treeline the field used to draw ~3500 trees × 2 shadow-casting parts every
+        // frame (`maxDistance: 0` never culled, and both parts cast at any range). The three
+        // distances below are what keeps that affordable: the low model from 16 m, no draw beyond
+        // 70 m, and no shadow cast beyond 26 m — a tree's shadow is only readable close in.
+        lodDistance: tierValue(tier, { low: 16, medium: 22, high: 30 }),
+        maxDistance: tierValue(tier, { low: 70, medium: 105, high: 145 }),
+        shadowDistance: tierValue(tier, { low: 26, medium: 38, high: 52 }),
         sway: { maxBend: 0.22, halfBendWind: 30, frequency: 0.3 },
-        swayDistance: tierValue(tier, { low: 30, medium: 50, high: 70 }),
+        swayDistance: tierValue(tier, { low: 22, medium: 32, high: 44 }),
       });
     }
   });
@@ -387,7 +421,8 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
         { hi: geo(hiB.leaves), lo: geo(loB.leaves), material: bushLeaf, castShadow: true },
       ],
       lodDistance: tierValue(tier, { low: 14, medium: 22, high: 30 }),
-      maxDistance: tierValue(tier, { low: 60, medium: 90, high: 130 }),
+      maxDistance: tierValue(tier, { low: 45, medium: 70, high: 100 }),
+      shadowDistance: tierValue(tier, { low: 28, medium: 38, high: 48 }),
       sway: { maxBend: 0.3, halfBendWind: 15, frequency: 0.6 },
       swayDistance: tierValue(tier, { low: 15, medium: 25, high: 35 }),
     });
@@ -457,20 +492,89 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   stripe.transform.position = new Vec3(gate.x, gate.y + 0.07, gate.z);
   stripe.transform.rotation = gateRot.clone();
 
-  // ------------------------------------------------------------------ vehicle (engine raycast car)
+  // ------------------------------------------------------------------ vehicle: a two-stroke sport quad
   scene.world.registerSystem(new VehicleSystem());
+  /**
+   * A 421 cc two-stroke single's port timing: soft and almost flat below 4000 rpm, a steep "hit"
+   * as the powerband opens, peak at 7600, then a fall-off into the limiter. `EngineModel` clamps at
+   * the redline, so the curve only describes the band — and the band is why the gearing is close.
+   */
+  const twoStrokeTorque = (rpm: number): number => {
+    if (rpm <= 0) return 0;
+    if (rpm < 4000) return 15 + 11 * (rpm / 4000);
+    if (rpm < 7600) {
+      const t = (rpm - 4000) / 3600;
+      return 26 + 20 * (t * t * (3 - 2 * t));
+    }
+    return 46 - 20 * Math.min(1, (rpm - 7600) / 1900);
+  };
+  const quadEngine = new EngineModel({
+    peakTorque: 46,
+    inertia: 0.055,
+    frictionTorque: 1.6,
+    idleRpm: 1900,
+    redlineRpm: 9500,
+    torqueCurve: twoStrokeTorque,
+  });
+  const quadGearbox = new Transmission({
+    // Close-ratio five-speed behind a 3.45 final drive: every upshift drops the crank back into the
+    // band (9000 → ~7100), and the downshift threshold sits above the band's floor so it cannot
+    // lug. Top gear totals 9.4:1 — about 100 km/h at the limiter on 0.27 m tyres.
+    ratios: [6.0, 4.55, 3.6, 3.0, 2.72],
+    reverseRatio: 4.4,
+    finalDrive: 3.45,
+    upshiftRpm: 9000,
+    downshiftRpm: 5600,
+    shiftDuration: 0.09,
+    upshiftThrottle: 0.12,
+  });
   const vehicle = new Vehicle(createVehicleConfig({
-    mass: 1250,
-    wheelbase: 2.35,
-    track: 1.45,
-    wheelRadius: 0.36,
-    cgHeight: 0.55,
-    mu: 1.0,
-    rollingResistance: 0.03,
-    maxBrakeTorque: 3200,
+    // 180 kg of quad and an 85 kg rider.
+    mass: 265,
+    wheelbase: 1.28,
+    track: 0.98,
+    cgToFront: 0.6,
+    wheelRadius: 0.27,
+    cgHeight: 0.52,
+    // A quad is a rider on a short wheelbase, not a long wide body: the mass-scaled car inertias
+    // (0.9·m yaw) would make it steer like a barge and hide the suspension's work in pitch/roll.
+    inertiaYaw: 78,
+    inertiaPitch: 42,
+    inertiaRoll: 26,
+    angularDamping: 4.5,
+    mu: 1.15,
+    rollingResistance: 0.05,
+    suspensionRest: 0.26,
+    suspensionTravel: 0.21,
+    springRate: 10400,
+    damperRate: 1250,
+    wheelInertia: 0.42,
+    maxSteerAngle: 0.4,
+    // Light machine: the car-scale brake/handbrake torques (4500/6000 N·m) locked all four wheels
+    // the instant the pedal was touched, which read as "the brakes grab".
+    maxBrakeTorque: 420,
+    handbrakeTorque: 520,
+    parkingBrakeTorque: 560,
+    layout: "awd",
+    lsdBias: 2.2,
+    // Let it spin a little: knobbies on loose gravel, and a two-stroke that only pulls in the band.
+    tcSlip: 0.18,
+    tcStrength: 5,
+    // An upright rider is a bluff body. It is also what stops the quad running away downhill.
+    aero: { rho: 1.225, dragCoefficient: 0.78, liftCoefficient: 0.02, frontalArea: 0.85 },
+    engine: quadEngine,
+    transmission: quadGearbox,
   }));
-  vehicle.config.suspensionRest = 0.36;
-  vehicle.config.suspensionTravel = 0.22;
+  const quadStaticCompression = (vehicle.config.mass * vehicle.config.gravity) / (4 * vehicle.config.springRate);
+  const quad = buildQuadSources({
+    wheelbase: vehicle.config.wheelbase,
+    track: vehicle.config.track,
+    wheelRadius: vehicle.config.wheelRadius,
+    hubDrop: vehicle.config.suspensionRest - quadStaticCompression,
+    cgToFront: vehicle.config.cgToFront,
+    frontTyreWidth: QUAD_FRONT_TYRE_WIDTH,
+    rearTyreWidth: QUAD_REAR_TYRE_WIDTH,
+  });
   const placeAt = (s: number, lateral = 0, yawOffset = 0): void => {
     const c = spline.sampleAt(s, { x: 0, z: 0, tx: 0, tz: 1 });
     vehicle.position.set(c.x + c.tz * lateral, 0, c.z - c.tx * lateral);
@@ -481,57 +585,60 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   };
   placeAt(START_S - SPAWN_BACK);
 
-  const bodyMat = mat(new Material({ label: "offroad.utv-paint", color: 0x2f5d3a, roughness: 0.45, metallic: 0.2 }));
-  const darkMat = mat(new Material({ label: "offroad.utv-trim", color: 0x1c1d1f, roughness: 0.7, metallic: 0.1 }));
-  const glassMat = mat(new Material({ label: "offroad.utv-glass", color: 0x22323a, roughness: 0.15, metallic: 0.5 }));
-  const tyreMat = mat(new Material({ label: "offroad.tyre", color: 0x1b1b1b, roughness: 0.95, metallic: 0 }));
-  const rimMat = mat(new Material({ label: "offroad.rim", color: 0x8d8f91, roughness: 0.4, metallic: 0.8 }));
-  const chassis = scene.createTransformedEntity("utv", vehicle.position.clone());
-  const part = (name: string, w: number, h: number, d: number, at: Vec3, m: Material, shadow = true): Entity => {
-    const g = createBox(engine.gpu, { width: w, height: h, depth: d });
-    geometries.push(g);
-    const e = scene.createTransformedEntity(name, at);
+  const plasticMat = mat(new Material({ label: "offroad.quad-plastic", color: 0x1f6fd0, roughness: 0.42, metallic: 0.05 }));
+  const trimMat = mat(new Material({ label: "offroad.quad-trim", color: 0x1b1d21, roughness: 0.78, metallic: 0.05 }));
+  const steelMat = mat(new Material({ label: "offroad.quad-steel", color: 0x9aa0a6, roughness: 0.38, metallic: 0.85 }));
+  const engineMat = mat(new Material({ label: "offroad.quad-engine", color: 0xa8adb2, roughness: 0.45, metallic: 0.7 }));
+  const exhaustMat = mat(new Material({ label: "offroad.quad-exhaust", color: 0x6d7378, roughness: 0.32, metallic: 0.9 }));
+  const lampMat = mat(new Material({ label: "offroad.quad-lamp", color: 0xfff6e2, roughness: 0.18, metallic: 0, emissive: Color.fromSrgbHex(0xfff0c8), emissiveStrength: 0.85 }));
+  const tyreMat = mat(new Material({ label: "offroad.tyre", color: 0x17181a, roughness: 0.95, metallic: 0 }));
+  const rimMat = mat(new Material({ label: "offroad.rim", color: 0xb9bcc0, roughness: 0.34, metallic: 0.85 }));
+  const brakeMat = mat(new Material({ label: "offroad.brake", color: 0x53575c, roughness: 0.5, metallic: 0.8 }));
+  const chassis = scene.createTransformedEntity("quad", vehicle.position.clone());
+  /** One merged draw per material: the quad's whole body is six of them. */
+  const quadPart = (name: string, source: GeometrySource, material: Material, shadow = true): void => {
+    const e = scene.createTransformedEntity(name, new Vec3());
     chassis.addChild(e);
-    e.transform.position = at;
+    e.transform.position = new Vec3();
     const r = new Renderable();
-    r.geometry = g;
-    r.material = m;
+    r.geometry = geo(source);
+    r.material = material;
     r.castShadow = shadow;
     scene.world.addComponent(e.id, r);
-    return e;
   };
-  part("utv-tub", 1.5, 0.42, 3.1, new Vec3(0, 0.05, 0), bodyMat);
-  part("utv-hood", 1.42, 0.3, 0.95, new Vec3(0, 0.38, 1.05), bodyMat);
-  part("utv-bed", 1.5, 0.34, 0.9, new Vec3(0, 0.42, -1.1), darkMat);
-  // Cab: roof, pillars, dash and the dark visor band the in-cab view looks under (photo 2).
-  part("utv-roof", 1.5, 0.07, 1.45, new Vec3(0, 1.72, 0.0), darkMat);
-  part("utv-visor", 1.4, 0.22, 0.5, new Vec3(0, 1.58, 0.5), darkMat, false);
-  for (const sx of [-0.72, 0.72]) {
-    for (const sz of [0.68, -0.68]) part(`utv-pillar-${sx}-${sz}`, 0.04, 1.35, 0.06, new Vec3(sx, 1.05, sz), darkMat);
-  }
-  part("utv-dash", 1.4, 0.2, 0.32, new Vec3(0, 0.72, 0.62), darkMat, false);
-  part("utv-windscreen-frame", 1.42, 0.05, 0.05, new Vec3(0, 0.84, 0.7), glassMat, false);
-  part("utv-seat", 1.2, 0.5, 0.45, new Vec3(0, 0.52, -0.35), darkMat);
+  quadPart("quad-plastic", quad.body.plastic, plasticMat);
+  quadPart("quad-trim", quad.body.trim, trimMat, false);
+  quadPart("quad-steel", quad.body.steel, steelMat);
+  quadPart("quad-engine", quad.body.engine, engineMat);
+  quadPart("quad-exhaust", quad.body.exhaust, exhaustMat);
+  quadPart("quad-lamps", quad.body.lamps, lampMat, false);
+
   const chassisComp = new VehicleComponent(vehicle, ground);
-  const tyreGeo = createCylinder(engine.gpu, { radiusTop: 0.36, radiusBottom: 0.36, height: 0.28, radialSegments: 18, capped: true });
-  const rimGeo = createCylinder(engine.gpu, { radiusTop: 0.2, radiusBottom: 0.2, height: 0.3, radialSegments: 10, capped: true });
-  geometries.push(tyreGeo, rimGeo);
-  const lay = new Quat().setAxisAngle(new Vec3(0, 0, 1), -Math.PI / 2);
+  // Fronts are narrower than rears, so there are two wheel assemblies; each axle shares one.
+  const wheelSets = [
+    { tyre: geo(quad.wheelFront.tyre), rim: geo(quad.wheelFront.rim), brake: geo(quad.wheelFront.brake) },
+    { tyre: geo(quad.wheelRear.tyre), rim: geo(quad.wheelRear.rim), brake: geo(quad.wheelRear.brake) },
+  ];
   const wheelIds: number[] = [];
   for (let i = 0; i < vehicle.wheels.length; i++) {
-    const w = scene.createTransformedEntity(`utv-wheel-${i}`, vehicle.position.clone());
-    for (const [g, m] of [[tyreGeo, tyreMat], [rimGeo, rimMat]] as const) {
-      const e = scene.createTransformedEntity(`utv-wheel-${i}-${m.label}`, new Vec3());
-      w.addChild(e);
+    const wheel = vehicle.wheels[i]!;
+    // Wheel centres are root entities: `VehicleSystem` poses them in world space, so a wheel
+    // parented to the chassis would be offset by the chassis's own pose.
+    const root = scene.createTransformedEntity(`quad-wheel-${i}`, vehicle.position.clone());
+    const set = wheelSets[wheel.z >= 0 ? 0 : 1]!;
+    for (const [name, geometry, material] of [["tyre", set.tyre, tyreMat], ["rim", set.rim, rimMat], ["brake", set.brake, brakeMat]] as const) {
+      const e = scene.createTransformedEntity(`quad-wheel-${i}-${name}`, new Vec3());
+      root.addChild(e);
       e.transform.position = new Vec3();
-      e.transform.rotation = lay.clone();
+      // Left-side wheels turn their meshes 180° so the rim dish always faces outboard.
+      if (wheel.x < 0) e.transform.rotation = new Quat().setAxisAngle(new Vec3(0, 1, 0), Math.PI);
       const r = new Renderable();
-      r.geometry = g;
-      r.material = m;
+      r.geometry = geometry;
+      r.material = material;
       r.castShadow = true;
       scene.world.addComponent(e.id, r);
     }
-    wheelIds.push(w.id);
+    wheelIds.push(root.id);
   }
   chassisComp.wheelEntities = wheelIds;
   // Persistent tyre tracks (engine): the demo only says what the ground is under each tyre.
@@ -627,8 +734,8 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   scene.world.addComponent(cameraEntity.id, camera);
 
   let cameraMode: OffroadCameraMode = "chase";
-  const chaseEye = new Vec3(vehicle.position.x, vehicle.position.y + 3, vehicle.position.z - 7);
-  const chaseLook = new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z);
+  const chaseEye = new Vec3(vehicle.position.x, vehicle.position.y + 1.9, vehicle.position.z - 4.6);
+  const chaseLook = new Vec3(vehicle.position.x, vehicle.position.y + 0.85, vehicle.position.z);
   let chaseYaw = vehicle.yaw;
   // Screenshot/gate hook: a fixed free camera (`lookAt`), not reachable from the UI.
   const freeEye = new Vec3();
@@ -640,6 +747,10 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   // ------------------------------------------------------------------ input
   const keys = new Set<string>();
   let parkingBrake = false;
+  /** Rate-limited rider inputs: the demand from keys/touch, and what is actually applied. */
+  let steerNow = 0;
+  let throttleNow = 0;
+  let brakeNow = 0;
   let touch: ReturnType<typeof attachVehicleTouch>;
   const cycleCamera = (): void => {
     cameraMode = cameraMode === "chase" ? "cab" : cameraMode === "cab" ? "orbit" : "chase";
@@ -685,7 +796,9 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       const context = mixer.context;
       const ambience = new EnvironmentSoundscape(context, mixer.bus("ambient").input, { volume: 0.45 });
       mixer.bus("sfx").add(ambience.reverb);
-      sound = { mixer, context, audio: new VehicleAudio(vehicle, context, mixer.bus("sfx").input, { surfaceAt: soundSurfaceAt, volume: 0.5 }), ambience };
+      // One cylinder, two strokes: firings per crank revolution, so it buzzes an octave above a
+      // single-cylinder four-stroke, and the expansion chamber rings on the whine voice.
+      sound = { mixer, context, audio: new VehicleAudio(vehicle, context, mixer.bus("sfx").input, { surfaceAt: soundSurfaceAt, volume: 0.5, cylinders: 1, strokes: 2 }), ambience };
     }
     soundOn = on;
     // Never chain behaviour behind these promises: headless autoplay can leave resume() pending.
@@ -730,7 +843,13 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   on(window, "pointerup", hbOff);
   on(window, "blur", hbOff);
   // Steering wheel + pedals (shared controls; the layout is this demo's CSS).
-  const wheel = attachSteeringWheel(document.getElementById("offroad-wheel"), { rim: document.getElementById("offroad-wheel-rim") });
+  // Handlebars, not a steering wheel: ±45° of finger rotation is full lock on a quad, and the bars
+  // snap back to centre harder than a wheel does (`returnRate` 1/s).
+  const wheel = attachSteeringWheel(document.getElementById("offroad-wheel"), {
+    maxAngle: 45,
+    returnRate: 14,
+    rim: document.getElementById("offroad-wheel-rim"),
+  });
   const gasPedal = attachPedal(document.getElementById("offroad-gas"));
   const brakePedal = attachPedal(document.getElementById("offroad-brake"));
   // Weather menu: a toggle button opening five big choices (also keys 1–5).
@@ -810,27 +929,27 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
   const handle: OffroadSceneHandle = {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · R forward/reverse · C camera · T back on track · 1–5 weather (sun, overcast, rain, snow, mud) · M sound",
+    controlsHint: "WASD / arrows ride · F / N / R gear · Space handbrake · P park · C camera (chase, rider, orbit) · T back on track · 1–5 weather (sun, overcast, rain, snow, mud) · M sound",
     camera: {
-      target: new Vec3(vehicle.position.x, vehicle.position.y + 1, vehicle.position.z),
-      distance: 10,
-      minDistance: 3,
-      maxDistance: 80,
+      target: new Vec3(vehicle.position.x, vehicle.position.y + 0.85, vehicle.position.z),
+      distance: 7,
+      minDistance: 2,
+      maxDistance: 40,
       azimuth: vehicle.yaw + Math.PI,
       elevation: 0.3,
       groundHeight: heightAt,
-      groundClearance: 1.2,
+      groundClearance: 0.8,
       keyboard: false,
     },
-    followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 1, z: vehicle.position.z }),
+    followTarget: () => ({ x: vehicle.position.x, y: vehicle.position.y + 0.85, z: vehicle.position.z }),
     cameraOverride: () => {
       if (cameraMode === "orbit") return null;
       if (cameraMode === "free") return { eye: [freeEye.x, freeEye.y, freeEye.z], target: [freeTarget.x, freeTarget.y, freeTarget.z] };
       vehicle.writeRotation(rot);
       if (cameraMode === "cab") {
-        // Driver's eye: left seat, under the visor, looking along the chassis.
-        rot.rotateVector(tmp.set(-0.22, 1.25, -0.05), tmp);
-        rot.rotateVector(tmp2.set(0, -0.12, 10), tmp2);
+        // Rider's eye: on the seat, behind the bars, looking slightly down the trail.
+        rot.rotateVector(tmp.set(quad.dims.riderEye[0], quad.dims.riderEye[1], quad.dims.riderEye[2]), tmp);
+        rot.rotateVector(tmp2.set(0, -0.18, 10), tmp2);
         const ex = vehicle.position.x + tmp.x, ey = vehicle.position.y + tmp.y, ez = vehicle.position.z + tmp.z;
         return { eye: [ex, ey, ez], target: [ex + tmp2.x, ey + tmp2.y, ez + tmp2.z] };
       }
@@ -841,9 +960,16 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       const keyThrottle = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
       const keyBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
       const keySteer = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-      vehicle.input.throttle = Math.max(keyThrottle, pad.throttle, gasPedal.value());
-      vehicle.input.brake = Math.max(keyBrake, pad.brake, brakePedal.value());
-      vehicle.input.steer = Math.max(-1, Math.min(1, keySteer + pad.steer + wheel.value()));
+      const throttleDemand = Math.max(keyThrottle, pad.throttle, gasPedal.value());
+      const brakeDemand = Math.max(keyBrake, pad.brake, brakePedal.value());
+      const steerDemand = Math.max(-1, Math.min(1, keySteer + pad.steer + wheel.value()));
+      throttleNow = approach(throttleNow, throttleDemand, (throttleDemand > throttleNow ? THROTTLE_RISE : THROTTLE_FALL) * dt);
+      brakeNow = approach(brakeNow, brakeDemand, (brakeDemand > brakeNow ? BRAKE_RISE : BRAKE_FALL) * dt);
+      // Toward lock at handlebar speed, back to centre faster — the bars return themselves.
+      steerNow = approach(steerNow, steerDemand, (Math.abs(steerDemand) > Math.abs(steerNow) ? STEER_RATE : STEER_RETURN) * dt);
+      vehicle.input.throttle = throttleNow;
+      vehicle.input.brake = brakeNow;
+      vehicle.input.steer = steerNow;
       vehicle.input.handbrake = keys.has("Space") || handbrakeHeld ? 1 : 0;
       vehicle.input.parkingBrake = parkingBrake ? 1 : 0;
       timer.update(vehicle.position.x, vehicle.position.z, dt);
@@ -869,21 +995,23 @@ export function buildOffroadHillScene(engine: Engine, options: OffroadSceneOptio
       let dy = vehicle.yaw - chaseYaw;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       chaseYaw += dy * (1 - Math.exp(-dt * 3));
-      const dist = 6.8;
+      // A 2 m machine wants a much tighter chase than the 4.5 m truck this demo used to carry: 4.6 m
+      // back and 1.9 m up keeps the whole quad and the trail ahead of it in frame at 62°.
+      const dist = 4.6;
       const tx = vehicle.position.x - Math.sin(chaseYaw) * dist;
       const tz = vehicle.position.z - Math.cos(chaseYaw) * dist;
-      const ty = Math.max(vehicle.position.y + 2.6, heightAt(tx, tz) + 1.6);
+      const ty = Math.max(vehicle.position.y + 1.9, heightAt(tx, tz) + 1.0);
       chaseEye.x += (tx - chaseEye.x) * k;
       chaseEye.y += (ty - chaseEye.y) * k;
       chaseEye.z += (tz - chaseEye.z) * k;
-      chaseLook.set(vehicle.position.x + Math.sin(chaseYaw) * 3, vehicle.position.y + 1.1, vehicle.position.z + Math.cos(chaseYaw) * 3);
+      chaseLook.set(vehicle.position.x + Math.sin(chaseYaw) * 2.4, vehicle.position.y + 0.85, vehicle.position.z + Math.cos(chaseYaw) * 2.4);
     },
     overlay(): string {
       const { lap, running, lapTime, lastLap, bestLap, progress } = timer.state;
       return (
         `OFF-ROAD HILL  lap ${Math.max(1, lap)}  ${running ? fmtTime(lapTime) : "drive through the gate to start"}\n` +
         `last ${fmtTime(lastLap)}  best ${fmtTime(bestLap)}  progress ${(progress * 100).toFixed(0)}%\n` +
-        `speed ${(vehicle.speed * 3.6).toFixed(0)} km/h  gear ${vehicle.gear === 0 ? "N" : vehicle.gear < 0 ? "R" : vehicle.gear}  camera ${cameraMode}\n` +
+        `speed ${(vehicle.speed * 3.6).toFixed(0)} km/h  ${Math.round(vehicle.rpm / 50) * 50} rpm  gear ${vehicle.gear === 0 ? "N" : vehicle.gear < 0 ? "R" : vehicle.gear}  camera ${cameraMode}\n` +
         `weather ${OFFROAD_WEATHER[weatherName].label}  grip ${(trackGround.gripAt(vehicle.position.x, vehicle.position.z) * 100).toFixed(0)}%`
       );
     },
