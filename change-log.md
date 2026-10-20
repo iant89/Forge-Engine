@@ -27598,6 +27598,37 @@ JSON array below; agents maintain it by hand until then.
   "file": "tests/tools/selrun.test.ts",
   "what": "Updates the pinned repository coverage-claim total after vehicle physics added PhysicsSystem as an explicit owner.",
   "why": "Keep the catalog self-test synchronized with the intentional new Phase 25 coverage edge."
+},
+{
+  "id": "2227",
+  "date": "2026-10-20T09:56:16Z",
+  "type": "pr-merge",
+  "pr": 141,
+  "branch": "arena/35e4d800-forge-engine",
+  "base": "main",
+  "title": "Phase 25: establish the WASM physics state ABI",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Starts Phase 25 without misrepresenting the JS solver as WASM. Adds public schema forge.physics-wasm-state/1 in fixed-capacity WebAssembly.Memory (192-byte world header, 448-byte little-endian f64 body records), stable body/shape codes, finite and malformed-record checks, exact transferable state frames, optional SharedArrayBuffer single-writer seqlock publication, and validate-before-mutate host-topology application. ForgeWasmPhysics owns and configures that memory and the typed backend factory selects it, but gameplay methods remain fail-fast because no WASM narrowphase, integration or solver module exists. PhysicsSystem now rejects a backend with no executable world instead of silently creating JS state. Capabilities and roadmap keep Phase 25 in progress and explicitly leave runtime topology commands, worker ownership, JS/WASM equivalence tolerances, CCD and performance evidence open. Verification passed: npm run verify (typecheck, 154/154 suites, WGSL), lint:arch, docs:check, selrun catalog (154 suites / 1059 claims), engine build, demo production build, physics 13/13 and vehicle-physics 39/39.",
+  "files": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VEHICLES.md",
+    "docs/VERIFICATION.md",
+    "engine/src/core/capabilities.ts",
+    "engine/src/physics/backend.ts",
+    "engine/src/physics/index.ts",
+    "engine/src/physics/system.ts",
+    "engine/src/physics/wasmMemory.ts",
+    "mnemosyne.md",
+    "tests/physics/physics.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tests/vehicles/vehiclePhysics.test.ts"
+  ]
 }
 ]
 ```
