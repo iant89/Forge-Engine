@@ -105,6 +105,8 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   replay/            Phase 19.4: input channels, recorder/player (frame schedule + inputs), exact-bit state hashing (docs/REPLAY.md)
   ui/                retained-mode UI framework (tree, layout, skins/themes, input/focus, widgets, SDF text,
                      declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
+editor/              @forge/editor — Phase 26 public-API-only hierarchy/inspection/history model;
+                     no visual editor shell or gizmo yet (docs/EDITOR.md)
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list
@@ -168,7 +170,8 @@ no build step between editing engine source and seeing it in the browser.
   fields that already exist on the class.
 * **GPU lifetime is explicit.** Anything that creates a `GPUBuffer`/`GPUTexture` must release it in a
   `dispose()`; `tests/rendering/rendering.test.ts` asserts `mock.outstanding` is empty after teardown.
-* **Public API only from the demo/tests** (`@forge/engine`), never deep imports into `engine/src`.
+* **Public API only from the editor/demo/tests** (`@forge/engine`), never deep imports into
+  `engine/src`. Runtime code never imports `@forge/editor`; both directions are architecture gates.
 
 ## 4. Editing rules
 

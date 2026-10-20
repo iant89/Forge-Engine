@@ -22,7 +22,7 @@ import {
   isMobileUserAgent,
   readDeviceCapabilityHints,
   tierValue,
-} from "../../engine/src/core/deviceTier.js";
+} from "@forge/engine";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 const DESKTOP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36";

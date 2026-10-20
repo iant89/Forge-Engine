@@ -2898,3 +2898,26 @@ Working with the software rasterizer (SwiftShader) on this box:
   pinned.
   No WASM instruction executes physics yet, so there is no tolerance claim, speedup, CCD or Phase 25
   completion claim. Capability `physics.wasmBackend` and Phase 25 remain `inProgress`.
+
+## 2026-10-20 — Phase 26 started: the editor is a host package, never a runtime subsystem
+
+* **The package boundary is the first feature.** `editor/` builds as `@forge/editor` and imports the
+  runtime only through `@forge/engine`; `engine/src` may never import the editor. Both the architecture
+  suite and `lint:arch` scan that direction. Their import readers now use the TypeScript AST, because
+  the old line regex skipped multiline, side-effect, type-query and dynamic imports (and exposed one
+  existing multiline deep import in `tests/core/deviceTier.test.ts`, now corrected to the public barrel).
+* **`EditorSession` is the DOM-free document model.** It returns bounded deterministic root-first
+  hierarchy rows, keeps collapse/selection as editor-local view state, and makes filters include
+  matching entities plus ancestors for context. Selected inspection is copied plain data; transform
+  values come from authoritative transform storage rather than potentially stale component mirror
+  fields. This lets a Forge UI shell, DOM shell or external host share one authoring contract later.
+* **Only identity-safe edits enter history.** Rename, local-TRS, reparent and component-enabled edits
+  validate generational entity handles and component identity on every apply/revert. The bounded
+  history retains a failed undo/redo instead of corrupting its stacks. Host-side entity destruction
+  clears selection and history so a command cannot target a recycled slot. Reparent keeps local TRS,
+  not world pose, and transform writes keep the public `Transform` mirror synchronized.
+* **Do not call this a visible editor yet.** There is no browser shell, viewport/gizmo, create/delete,
+  generic property schema, multi-selection, world-pose-preserving reparent, specialist terrain/
+  material/particle/vehicle/environment panels, asset browser or editor profiler. Existing runtime
+  inspectors remain read-only diagnostics. Phase 26 and `editor.tooling` stay `inProgress` until the
+  Mars exit criterion is met.

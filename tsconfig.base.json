@@ -26,6 +26,6 @@
     "noPropertyAccessFromIndexSignature": false,
     "newLine": "lf"
   },
-  "references": [{ "path": "./engine" }],
+  "references": [{ "path": "./engine" }, { "path": "./editor" }],
   "files": []
 }

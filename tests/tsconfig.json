@@ -4,7 +4,8 @@
     "baseUrl": "..",
     "allowImportingTsExtensions": true,
     "paths": {
-      "@forge/engine": ["engine/src/index.ts"]
+      "@forge/engine": ["engine/src/index.ts"],
+      "@forge/editor": ["editor/src/index.ts"]
     },
     "types": [
       "@webgpu/types",
@@ -25,6 +26,9 @@
   "references": [
     {
       "path": "../engine"
+    },
+    {
+      "path": "../editor"
     }
   ]
 }

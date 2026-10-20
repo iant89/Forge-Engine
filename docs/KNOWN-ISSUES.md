@@ -194,6 +194,16 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   memory is created; a state frame applies only to a host world with matching ids, order, body types
   and shape parameters. (capability: physics.wasmBackend)
 
+## Editor (Phase 26)
+
+* **The editor is currently a document model, not an application.** `@forge/editor` can browse a
+  bounded hierarchy, select/inspect entities and perform undoable rename, local-TRS, reparent and
+  component-enabled edits entirely through the public runtime API. There is no visible shell,
+  viewport gizmo, create/duplicate/delete workflow, generic property schema, world-pose-preserving
+  reparent, multi-selection or specialist terrain/material/particle/vehicle/environment/streaming/
+  render-graph/asset/profiler panel. Existing runtime diagnostics remain read-only and do not close
+  those editor items. (capability: editor.tooling)
+
 ## Vehicles (Phase 6 / 11)
 
 Phase 11 connected the raycast car to the physics heightfield and a kinematic chassis collider.

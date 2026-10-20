@@ -21,6 +21,7 @@
  *   ui/** (not ui/gpu) -> core, math, ui; ui/gpu/** -> also gpu, rendering; nothing else imports ui
  *   replay/**          -> core, math, scene, physics, vehicles, replay
  *   audio/**           -> core, math, scene, resources, vehicles, physics, particles, audio (reads simulation state; nothing simulated imports audio)
+ *   editor/**          -> "@forge/engine" or a local relative editor file; runtime never imports editor
  *   examples/**        -> "@forge/engine" or a local relative file, never engine/src
  *   tests/**           -> "@forge/engine" or a local relative file outside engine/src
  *   all engine sources -> no WebGL fallback, ever (WebGPU-first, ADR-001)
@@ -33,33 +34,53 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engineSrc = path.join(root, "engine", "src");
+const editorSrc = path.join(root, "editor", "src");
 
 const violations = [];
 
-function files(dir, ext = ".ts") {
+const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
+
+function files(dir, ext = undefined) {
   if (!fs.existsSync(dir)) return [];
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...files(full, ext));
-    else if (entry.isFile() && entry.name.endsWith(ext)) out.push(full);
+    else if (entry.isFile() && (ext ? entry.name.endsWith(ext) : SOURCE_EXTENSIONS.has(path.extname(entry.name)))) out.push(full);
   }
   return out;
 }
 
-/** Relative specifiers only; package imports are checked separately. */
-function relativeImports(file) {
+/** Static, type-query, import-equals, literal dynamic and CommonJS imports across multiline declarations. */
+function parsedImports(file) {
+  const source = fs.readFileSync(file, "utf-8");
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const found = [];
-  const lines = fs.readFileSync(file, "utf-8").split("\n");
-  lines.forEach((line, index) => {
-    const isTypeOnly = /^\s*(?:import|export)\s+type\s+/.test(line);
-    const match = line.match(/(?:import|export)\s+(?:type\s+)?.*?from\s+["']([^"']+)["']/);
-    if (!match) return;
-    found.push({ specifier: match[1], isTypeOnly, line: index + 1 });
-  });
+  const add = (node, literal, isTypeOnly = false) => {
+    if (!literal || !ts.isStringLiteralLike(literal)) return;
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    found.push({ specifier: literal.text, isTypeOnly, line });
+  };
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node)) add(node, node.moduleSpecifier, node.importClause?.isTypeOnly === true);
+    else if (ts.isExportDeclaration(node)) add(node, node.moduleSpecifier, node.isTypeOnly);
+    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      add(node, node.moduleReference.expression, node.isTypeOnly);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      add(node, node.argument.literal, true);
+    } else if (ts.isCallExpression(node) && (
+      node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || (ts.isIdentifier(node.expression) && node.expression.text === "require")
+    )) {
+      add(node, node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return found;
 }
 
@@ -72,7 +93,7 @@ function topLevelOf(file, specifier) {
 function checkEngineDir(dir, allowed, note, exempt = () => false) {
   for (const file of files(path.join(engineSrc, dir))) {
     if (exempt(file)) continue;
-    for (const imp of relativeImports(file)) {
+    for (const imp of parsedImports(file)) {
       if (!imp.specifier.startsWith(".")) continue;
       const { top } = topLevelOf(file, imp.specifier);
       if (allowed.includes(top)) continue;
@@ -108,7 +129,7 @@ checkEngineDir("replay", ["core", "math", "scene", "physics", "vehicles", "repla
 checkEngineDir("audio", ["core", "math", "scene", "resources", "vehicles", "physics", "particles", "audio"], "audio may read core, math, scene components, resources and vehicle, physics and particle state; it must not reach rendering or the GPU");
 checkEngineDir("ui", ["core", "math", "ui"], "the UI framework depends on core, math and itself; GPU code lives in ui/gpu", isUiGpu);
 for (const file of files(path.join(engineSrc, "ui", "gpu"))) {
-  for (const imp of relativeImports(file)) {
+  for (const imp of parsedImports(file)) {
     if (!imp.specifier.startsWith(".")) continue;
     const { top } = topLevelOf(file, imp.specifier);
     if (["core", "math", "ui", "gpu", "rendering"].includes(top)) continue;
@@ -118,7 +139,7 @@ for (const file of files(path.join(engineSrc, "ui", "gpu"))) {
 // Nothing outside ui (except the barrel) may depend on the UI.
 for (const file of files(engineSrc)) {
   if (file.includes(`${path.sep}ui${path.sep}`) || file === path.join(engineSrc, "index.ts")) continue;
-  for (const imp of relativeImports(file)) {
+  for (const imp of parsedImports(file)) {
     if (!imp.specifier.startsWith(".")) continue;
     const { top } = topLevelOf(file, imp.specifier);
     if (top === "ui") violations.push({ file, line: imp.line, message: `${path.relative(root, file)} imports the UI ("${imp.specifier}") — engine layers below ui must not depend on it` });
@@ -127,7 +148,7 @@ for (const file of files(engineSrc)) {
 
 // scene: no runtime rendering/environment imports (the sky settings block is type-only).
 for (const file of files(path.join(engineSrc, "scene"))) {
-  for (const imp of relativeImports(file)) {
+  for (const imp of parsedImports(file)) {
     if (!imp.specifier.startsWith(".")) continue;
     const { top } = topLevelOf(file, imp.specifier);
     if (top !== "rendering" && top !== "environment") continue;
@@ -140,9 +161,26 @@ for (const file of files(path.join(engineSrc, "scene"))) {
   }
 }
 
+// The editor is a host above the public package boundary. No runtime source — including the
+// composition root — may import it through either a package or relative path.
+for (const file of files(engineSrc)) {
+  for (const imp of parsedImports(file)) {
+    const resolved = imp.specifier.startsWith(".")
+      ? path.normalize(path.join(path.dirname(file), imp.specifier))
+      : "";
+    if (imp.specifier === "@forge/editor" || imp.specifier.startsWith("@forge/editor/") || resolved === editorSrc || resolved.startsWith(`${editorSrc}${path.sep}`)) {
+      violations.push({
+        file,
+        line: imp.line,
+        message: `${path.relative(root, file)} imports the editor ("${imp.specifier}") — runtime must never depend on editor`,
+      });
+    }
+  }
+}
+
 // ----------------------------------------------------------------- never WebGL
 
-for (const file of files(engineSrc, ".ts")) {
+for (const file of files(engineSrc)) {
   const text = fs.readFileSync(file, "utf-8");
   if (/webgl/i.test(text)) {
     const line = text.split("\n").findIndex((l) => /webgl/i.test(l)) + 1;
@@ -158,7 +196,7 @@ for (const file of files(engineSrc, ".ts")) {
 
 function checkHost(dir, label, { allowBarePackages = false } = {}) {
   for (const file of files(path.join(root, dir))) {
-    for (const imp of relativeImports(file)) {
+    for (const imp of parsedImports(file)) {
       const isPublicApi = imp.specifier === "@forge/engine";
       const isRelative = imp.specifier.startsWith("./") || imp.specifier.startsWith("../");
       if (!isPublicApi && !isRelative) {
@@ -189,6 +227,7 @@ function checkHost(dir, label, { allowBarePackages = false } = {}) {
   }
 }
 
+checkHost("editor/src", "editor");
 checkHost("examples/src", "example");
 checkHost("tests", "test", { allowBarePackages: true });
 
@@ -266,10 +305,11 @@ if (violations.length > 0) {
 
 const scanned = [
   files(path.join(engineSrc)).length,
+  files(editorSrc).length,
   files(path.join(root, "examples", "src")).length,
   files(path.join(root, "tests")).length,
 ];
 console.log(
-  `lint:arch OK — ${scanned[0]} engine sources, ${scanned[1]} example sources, ${scanned[2]} test files: ` +
+  `lint:arch OK — ${scanned[0]} engine sources, ${scanned[1]} editor sources, ${scanned[2]} example sources, ${scanned[3]} test files: ` +
     "boundaries intact, no WebGL fallback, no engine/src deep imports, no engine-dependent Math in simulation code.",
 );

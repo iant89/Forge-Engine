@@ -97,6 +97,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "23": "inProgress",
   "24": "inProgress",
   "25": "inProgress",
+  "26": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -1261,9 +1262,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "editor.tooling",
     phase: "26.1",
-    status: "deferred",
-    summary: "Editor built exclusively on the public API",
+    status: "inProgress",
+    summary: "Public-API-only @forge/editor workspace with hierarchy, selection, copied inspection and bounded authoring history",
+    evidence: [
+      "editor/src/session.ts",
+      "editor/src/history.ts",
+      "tests/editor/editor.test.ts",
+      "tests/engine/architecture.test.ts",
+      "docs/EDITOR.md",
+    ],
     closesWith: "26.1",
+    notes: "The document model supports bounded hierarchy/filter/collapse, single selection, copied entity/component inspection, and undoable rename/reparent/local-TRS/component-enabled edits. It has no visual shell, gizmo, create/delete flow, generic property schema or specialist terrain/material/particle/vehicle/environment/asset/profiler panels yet. lint:arch and architecture tests enforce that editor imports only @forge/engine and runtime never imports editor.",
   },
   {
     id: "ui.framework",
