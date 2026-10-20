@@ -28539,6 +28539,36 @@ JSON array below; agents maintain it by hand until then.
   "file": "change-log.md",
   "what": "Adds one structured provenance record for every file in the Phase 27.1 declaration-contract slice.",
   "why": "Maintain the repository-required chronological per-file history."
+},
+{
+  "id": "2299",
+  "date": "2026-10-20T17:19:11Z",
+  "type": "pr-merge",
+  "pr": 144,
+  "branch": "arena/46f2b031-forge-engine",
+  "base": "main",
+  "title": "Phase 27.1: fingerprint engine declaration contracts",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Continues Phase 27.1 by migrating the 2,180-row @forge/engine baseline to forge.api-surface/2. The audit now emits the declaration tree in memory and records a body/comment/path-free SHA-256 declarationHash for every root export plus a contractHash over its transitive engine-local declaration dependencies. This catches parameters, overloads, returns, generics, modifiers, class/interface members, enums, inferred exported types and unexported helper changes without treating implementation bodies or documentation edits as API drift. CLI differences distinguish changed direct declarations from dependent transitive contracts, record the TypeScript/signature format, and preserve all existing root-only package, classification, stability and version gates. Seven checks include isolated source-copy mutations proving a new Transform member changes its direct declaration while an added field on non-root ResolveOptions changes only resolveConfig's transitive contract; slow source-derived emit scenarios run under an explicit hook budget. All 2,180 prior name/kind/stability classifications remain unchanged. This is a detector, not a compatibility oracle: package version stays 0.1.0 and per-symbol approval, runtime/serialization/shader semantics, external ambient definitions, member deprecation policy and later Phase 27 documentation/examples/migration/versioning/extensions remain open. Verification passed locally with npm run verify (156/156 suites), API/docs/architecture/catalog/build/package gates, and in CI with both CPU gates and the real-WebGPU Chromium + SwiftShader advisory gate green.",
+  "files": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "README.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/API.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/README.md",
+    "engine/api-surface.json",
+    "engine/src/core/capabilities.ts",
+    "engine/src/index.ts",
+    "mnemosyne.md",
+    "tests/tools/apiAudit.test.ts",
+    "tools/api-audit.mjs"
+  ]
 }
 ]
 ```
