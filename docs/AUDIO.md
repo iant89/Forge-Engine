@@ -207,8 +207,9 @@ four-stroke), opens the engine low-pass further and brightens it with rpm (`+600
 and cuts the combustion grit to 0.55 — a two-stroke buzzes rather than rumbles. Above 42% of the rev
 range and under throttle it also puts an **expansion-chamber ring** at `4 ×` the firing frequency on
 the whine voice (the one a four-stroke leaves free in forward gear, where it only carries reverse
-whine), capped at 0.3. The off-road hill demo runs `{ cylinders: 1, strokes: 2 }`. No nodes are added:
-the graph stays 12 sources, which `tests/audio/vehicleAudio.test.ts` pins.
+whine), capped at 0.3. No nodes are added: the graph stays 12 sources, which
+`tests/audio/vehicleAudio.test.ts` pins. No demo ships a two-stroke at the moment — the off-road hill
+demo's quad was reverted to its UTV — so `{ cylinders: 1, strokes: 2 }` is capability, not a scene.
 
 ### Contracts
 

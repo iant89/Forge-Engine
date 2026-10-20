@@ -2772,3 +2772,32 @@ Working with the software rasterizer (SwiftShader) on this box:
 * **`DemoSceneHandle.vehicleState` is a closed shape** (`speed/rpm/gear/x/y/z/parkingBrake?/mechanical?`).
   Returning scene-specific fields from it is a typecheck error — and `npm run typecheck` is *not* part of
   `npm test`, so it ships silently unless you run it. Alpine Rescue had exactly that (fixed here).
+
+## 2026-10-20 — Off-road demo: the quad is gone, the UTV is back (keep the fixes)
+
+* **The user asked for the off-road demo's vehicle to go back to a truck**, so `?scene=offroad` carries
+  the original box-built UTV again (`utv-tub/hood/bed/roof/visor/pillars/dash/seat`, cylinder tyres and
+  rims, mass 1250, wheelbase 2.35, track 1.45, `suspensionRest` 0.36 / `suspensionTravel` 0.22 now
+  passed as options instead of mutating `vehicle.config` afterwards). **`examples/src/scenes/
+  offroadQuad.ts` is deleted** — the earlier entry above describing it is history, not current code.
+  If a quad/ATV is ever wanted again, it is in PR #137 (`4ed667b`), which builds the whole machine from
+  `meshKit` and is a better starting point than rewriting it.
+* **What stayed, deliberately:** the lag fix (`VegetationModel.shadowDistance` + `Instance.casting` +
+  `stats_.casting`, the demo's tree/bush rings 16/22/30 · 70/105/145 · 26/38/52 and 45/70/100 ·
+  28/38/48, the thinner backdrop scatter, shadow range 40/55/70, and `classifyAABB`'s `Inside` fast
+  path), the handling fix (rate-limited steer/throttle/brake — those rates suit a car as much as a
+  quad), the rpm line in the overlay, the accurate controls hint, and every engine capability added for
+  the quad: `VehicleAudioOptions.strokes`, and the `VehicleOptions` fields (`inertiaYaw/Pitch/Roll`,
+  `angularDamping`, `wheelInertia`, `suspensionRest/Travel`, `maxSteerAngle`, `handbrakeTorque`,
+  `lsdBias`, `tcSlip`, `tcStrength`, `efficiency`). Reverting a demo's vehicle is not a reason to
+  revert the engine — all of it defaults to the old behaviour and is pinned by tests.
+* **Reverting a scene's vehicle is mostly camera and chrome, not just the body.** The chase eye, the
+  orbit distance/min/max, `groundClearance`, `followTarget`, the in-cab eye offset, the touch control's
+  drawing and `maxAngle`, the controls hint and the aria labels are all sized to the machine. Check
+  `git diff <pre-change-commit> -- examples/index.html` comes back empty when the chrome is meant to be
+  untouched — that is how the handlebar SVG was caught.
+* **A new sandbox has no `node_modules` and no `engine/dist`** (both are excluded from workspace
+  snapshots), so `tsc`/`tsx` fail with "tsc: not found" or `ERR_MODULE_NOT_FOUND` until
+  `bash scripts/setup-deps.sh --no-browser && npm run build` has run. `--no-browser` skips the ~70 MB
+  Chromium payload when no browser gate is planned. The repo is also a **shallow** clone: `git show
+  <older-sha>` fails until `git fetch --depth=20 origin main`.

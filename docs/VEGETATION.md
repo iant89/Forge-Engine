@@ -47,8 +47,8 @@ Evicted tiles and `onDetach` release their GPU textures, geometry and entity. Pi
 ## Touch wheel and pedals — `examples/src/controls/touchWheel.ts` (fe-37c)
 Demo-side input, shared by any driving scene. `attachSteeringWheel(el, { maxAngle = 135, returnRate = 10, rim })` follows the finger around the control's centre (hand-over-hand works), clamps to ±`maxAngle` and springs back on release; `value()` is steer −1..1.
 `attachPedal(el)` is hold-to-press, with pressure set by how far down the pedal the finger sits (top 0.35 → bottom 1).
-Each control tracks only its own pointer, so steering and pedals work together (multi-touch). The off-road touch layout puts the steering control on the left, GAS/BRAKE on the right, and the gear switch top right.
-The control is a drawing, not a wheel: the off-road demo rides a quad, so `#offroad-wheel` is handlebars (`maxAngle: 45`, `returnRate: 14`) and the same gesture steers it.
+Each control tracks only its own pointer, so steering and pedals work together (multi-touch). The off-road touch layout puts the wheel on the left, GAS/BRAKE on the right, and the gear switch top right.
+The control is a drawing, so a scene can dress it for the machine: `#offroad-wheel` is a steering wheel for the demo's UTV, and the same gesture would steer handlebars (`maxAngle: 45`, `returnRate: 14`) on a quad or bike.
 
 ## Renderer note
 Count-1 batches draw through the non-instanced entry, which now reads the tint from the batch's instance record (`objectData.instanceCount == 1`). Before this, a lone tinted renderable drew untinted.
