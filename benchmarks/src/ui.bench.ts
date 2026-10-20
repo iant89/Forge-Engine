@@ -14,8 +14,9 @@
  * - **draw-list rebuild** — painting 1,000 buttons into the instance buffer;
  * - **virtualized scroll** — a 100,000-row list scrolled every frame;
  * - **text layout** — 800 distinct strings shaped through the SDF font (cache misses), then the same
- *   strings again (cache hits; 800 fits the engine's default 1,024-entry LRU — cycling more strings
- *   than the capacity through an LRU is a 0 % hit rate by construction).
+ *   strings through one untimed cache-branch warm-up and one timed cache-hit pass (800 fits the
+ *   engine's default 1,024-entry LRU — cycling more strings than the capacity through an LRU is a
+ *   0 % hit rate by construction).
  *
  * The guards are shape checks, not stopwatch thresholds, so a slower runner does not go red: a steady
  * frame must do zero layout/style work, a local text change must measure a small fraction of what a
@@ -165,6 +166,10 @@ export function runUIBenchmark(buttons = 1000): UIBenchmark {
   const cacheMissMs = time(() => {
     for (const s of strings) tui.text.layout({ text: s, family: "default", size: 16 });
   });
+  // Warm the cache-hit branch before timing it. The miss pass warms shaping and insertion, but the
+  // first all-hit pass is still V8's first sustained trip through the lookup-only branch; treating
+  // that JIT transition as cache cost made the 5x shape guard flaky on otherwise healthy hosts.
+  for (const s of strings) tui.text.layout({ text: s, family: "default", size: 16 });
   const hitsBefore = tui.text.stats.hits;
   const cacheHitMs = time(() => {
     for (const s of strings) tui.text.layout({ text: s, family: "default", size: 16 });

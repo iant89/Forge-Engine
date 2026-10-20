@@ -5,6 +5,7 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 ```sh
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
+npm run bench          # Phase 22 benchmark guards; add -- --json PATH for a host-described snapshot
 npm test                 # selrun full suite, in tests/full.test.ts order
 npm run test:affected    # fail-safe selection: coverage + transitive/subsystem impact + smoke floor
 npm run test:affected -- --base origin/main  # select from origin/main...HEAD, ignoring worktree changes

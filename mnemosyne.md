@@ -2801,3 +2801,21 @@ Working with the software rasterizer (SwiftShader) on this box:
   `bash scripts/setup-deps.sh --no-browser && npm run build` has run. `--no-browser` skips the ~70 MB
   Chromium payload when no browser gate is planned. The repo is also a **shallow** clone: `git show
   <older-sha>` fails until `git fetch --depth=20 origin main`.
+
+## 2026-10-20 — Phase 22 started: core benchmark matrix and snapshot schema
+
+* **22.1 is the first complete slice:** `benchmarks/src/core.bench.ts` adds allocation-free Vec3/Mat4
+  kernels, 8,192 inline scheduler jobs plus a 4,096-subscriber dedup fan-out, and 10,000
+  ResourceRegistry loads/hits/releases/LRU evictions beside the existing 100k ECS workload. Guards
+  validate checksums and exact scheduler/resource accounting; absolute limits are deliberately broad
+  catastrophe bounds because unlike CI hosts are not comparable.
+* **`npm run bench -- --json PATH` writes snapshot schema 1:** every result/check, total duration and
+  Node/OS/CPU/memory identity. `PERFORMANCE.md` holds the first audited baseline. This is only the
+  substrate for 22.7: stable metric IDs, repeated samples/variance, stored raw history and an automatic
+  same-host comparator remain open, as do the 22.2–22.6 workload matrices.
+* **Warm cache branches before timing them.** The UI benchmark's first all-hit text pass included V8's
+  JIT transition and intermittently missed its 5x shape guard on healthy code (5.87 ms here). An
+  untimed all-hit pass makes the timed lookup path measure cache work (0.77 ms in the Phase 22 run),
+  without weakening the guard.
+* Root `npm run typecheck` now includes `benchmarks/tsconfig.json`; benchmark TypeScript can no longer
+  compile only when someone happens to run `npm run bench:build`.

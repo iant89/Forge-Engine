@@ -1,5 +1,5 @@
 /**
- * 100k-Entity Transform & Visibility Benchmark.
+ * 100k-Entity Transform & Visibility Benchmark (Phase 22.1: ECS).
  *
  * Exercises:
  *  - Entity allocation & component attachment at 100k scale
@@ -109,4 +109,25 @@ export function runEcsBenchmark(entityCount = 100_000): BenchmarkResult[] {
 
   world.dispose();
   return results;
+}
+
+/** Correctness and catastrophe guards for the Phase 22.1 ECS workload. */
+export function assertEcsBenchmark(results: readonly BenchmarkResult[], entityCount = 100_000): string[] {
+  if (results.length !== 3) throw new Error(`ECS benchmark produced ${results.length} rows, expected 3`);
+  for (const entry of results) {
+    if (entry.count !== entityCount) {
+      throw new Error(`ECS benchmark "${entry.name}" measured ${entry.count}/${entityCount} entities`);
+    }
+    if (!Number.isFinite(entry.durationMs) || !(entry.durationMs > 0) || !Number.isFinite(entry.opsPerSec)) {
+      throw new Error(`ECS benchmark did not measure "${entry.name}" (${entry.durationMs} ms)`);
+    }
+  }
+  const totalMs = results.reduce((sum, entry) => sum + entry.durationMs, 0);
+  // This is intentionally broad. Narrow cross-host performance comparison uses Phase 22.7's recorded
+  // JSON snapshots; a 30-second core ECS pass is a broken fallback on any supported development host.
+  if (totalMs >= 30_000) throw new Error(`the ${entityCount.toLocaleString()}-entity ECS pass took ${totalMs.toFixed(1)} ms`);
+  return [
+    `${entityCount.toLocaleString()} entities: create ${results[0]!.durationMs.toFixed(2)} ms, ` +
+      `transform ${results[1]!.durationMs.toFixed(2)} ms, cull ${results[2]!.durationMs.toFixed(2)} ms`,
+  ];
 }

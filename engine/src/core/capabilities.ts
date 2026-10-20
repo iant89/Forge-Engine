@@ -93,6 +93,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "19": "verified",
   "20": "verified",
   "21": "inProgress",
+  "22": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -285,6 +286,29 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     ],
     closesWith: "21.1",
     notes: "Systems, scene-object hooks and the asset streamer are categorised scopes; Engine.frameBreakdown() folds them into simulation/physics/terrain/streaming/rendering/particles/scripting/audio plus CPU and GPU frame time, and frameTimeline/layoutTimeline turn the frame history into drawable rectangles. The toolbar Profiler panel is a floating window (drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted) that refreshes the unified CPU/GPU report and redraws the timeline strip at 4 Hz; check:browser:ui drives both with real pointer input on real WebGPU frame records. The strip's own follow-ups (a bounded window with no scrub, a frame-total-only GPU marker) are tracked as diagnostics.frameTimeline.",
+  },
+  {
+    id: "diagnostics.coreBenchmarks",
+    phase: "22.1",
+    status: "verified",
+    summary: "Repeatable core benchmark matrix for 100k ECS entities, math kernels, inline task scheduling and resource lifecycle operations",
+    evidence: [
+      "benchmarks/src/ecs.bench.ts",
+      "benchmarks/src/core.bench.ts",
+      "benchmarks/run.mjs",
+      ".github/workflows/ci.yml",
+      "PERFORMANCE.md",
+    ],
+    notes: "npm run bench executes correctness, work-shape and catastrophe guards in CI; npm run bench -- --json PATH writes the measurements and exact host metadata for historical comparison.",
+  },
+  {
+    id: "diagnostics.benchmarkRegression",
+    phase: "22.7",
+    status: "inProgress",
+    summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
+    evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
+    closesWith: "22.7",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.2-22.6 workload matrix.",
   },
   {
     id: "diagnostics.frameTimeline",

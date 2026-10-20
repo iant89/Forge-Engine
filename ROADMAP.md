@@ -53,9 +53,12 @@ CURRENT CODEBASE BASELINE:
     Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
                 rocks, push/roll/destruction, rover impact response and persistent sand tracks)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IN PROGRESS ([~]), and Phases 22 through 28 remain NOT STARTED ([ ]).
-                Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
-                keys directly).
+                Phase 21 is IN PROGRESS ([~]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
+                matrix covers ECS, math, scheduling and resource management, and the runner emits
+                a versioned host-described JSON snapshot; rendering, terrain, physics, particle/world
+                scale sweeps and automatic historical comparison remain. Phases 23 through 28 remain
+                NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
+                the phase keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -189,6 +192,9 @@ PHASE 20 - AUDIO
 
 PHASE 21 - PROFILER / DEBUG TOOLS
     [~] IN PROGRESS (21.2–21.9 are browsable in the demo's Inspector window; the visible 21.10 console, contact-manifold overlays and the timeline's scrub/zoom remain)
+
+PHASE 22 - BENCHMARK + REGRESSION SYSTEM
+    [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
 
 
 ================================================================================
@@ -2380,10 +2386,17 @@ GOAL:
 
 22.1 Core
 
-    [ ] ECS
-    [ ] math
-    [ ] scheduler
-    [ ] resource management
+    [x] ECS
+    [x] math
+    [x] scheduler
+    [x] resource management
+
+    As built: `npm run bench` runs 100,000-entity creation/transform/frustum work, one million
+    allocation-free Vec3 cross/normalize kernels, 250,000 Mat4 multiplies, 8,192 inline scheduler
+    jobs plus a 4,096-subscriber dedup fan-out, and 10,000 ResourceRegistry loads, cache hits,
+    handle releases and LRU evictions. Every workload validates its result/accounting and carries a
+    deliberately generous catastrophe bound; narrow cross-host stopwatch thresholds are not used.
+    (`benchmarks/src/ecs.bench.ts`, `benchmarks/src/core.bench.ts`)
 
 
 22.2 Rendering
@@ -2432,9 +2445,12 @@ GOAL:
 
 22.7 Regression Recording
 
-    Store historical benchmark results in:
-
-        PERFORMANCE.md
+    [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
+        operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1
+        baseline is recorded; stable metric IDs, repeated samples and an automatic same-host
+        comparator/history remain).
+    [ ] Fail automatically on a statistically significant regression against comparable history.
 
 
 EXIT CRITERIA:
