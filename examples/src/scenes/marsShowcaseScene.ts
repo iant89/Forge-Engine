@@ -128,6 +128,11 @@ import {
   type RoverToolWorldPoint,
 } from "./roverTools.js";
 import { HighGainAntennaController } from "./highGainAntenna.js";
+import {
+  captureMarsReferenceState,
+  MarsReferenceTraversalMonitor,
+  type MarsReferenceState,
+} from "./marsReferenceTelemetry.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import {
   MARS_BASE_SUSPENSION_REST,
@@ -238,6 +243,13 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     y: number;
     z: number;
   };
+  /**
+   * Phase 23 validation snapshot: frame/subsystem telemetry, streaming state and cumulative
+   * continuous-traversal accounting. `ready` describes the live workload, not phase completion.
+   */
+  marsReferenceState(): MarsReferenceState;
+  /** Reset traversal counters at the rover's current position (for a fresh soak/run). */
+  resetMarsReferenceTraversal(): void;
   /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
   retryModelLoad(): void;
   /** Raise (true) or stow (false) the Remote Sensing Mast; the spring animates it smoothly. */
@@ -971,6 +983,14 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   };
   const ground = heightFunctionGround(deformedGroundHeight);
   const vehicle = createMarsRoverVehicle(ground, SPAWN_X, SPAWN_Z);
+  const referenceTraversal = new MarsReferenceTraversalMonitor(vehicle.position.x, vehicle.position.z, terrain.chunkSize);
+  const roverChunkReady = (): boolean => {
+    const key = chunkCoordKey(
+      Math.floor(vehicle.position.x / terrain.chunkSize),
+      Math.floor(vehicle.position.z / terrain.chunkSize),
+    );
+    return terrain.chunks.get(key)?.state === "ready";
+  };
   const motor = vehicle.config.engine as ElectricMotor;
   // Hold the newly spawned rover until the user explicitly asks it to move. This covers both
   // rolling on the landing slope and input arriving before the async GLB has finished building.
@@ -2974,6 +2994,56 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     toolTouch?.setProgress(toolOperationProgress);
   }
 
+  const readyTerrainChunks = (): number => {
+    let ready = 0;
+    for (const chunk of terrain.chunks.values()) if (chunk.state === "ready") ready++;
+    return ready;
+  };
+
+  const referenceState = (): MarsReferenceState => {
+    // Unit fixtures intentionally provide only gpu/tasks. Keep that useful reduced host supported,
+    // while the real demo always supplies both public diagnostics methods.
+    const diagnostics = engine as unknown as { stats?: unknown; frameBreakdown?: unknown; renderer?: Engine["renderer"] };
+    const stats = typeof diagnostics.stats === "function" ? engine.stats() : null;
+    const breakdown = typeof diagnostics.frameBreakdown === "function" ? engine.frameBreakdown() : null;
+    const objectCulling = diagnostics.renderer?.objectCulling ?? "cpu";
+    const indirectDraws = diagnostics.renderer?.indirectDraws ?? false;
+    const terrainStats = terrain.stats();
+    return captureMarsReferenceState(
+      {
+        modelLoaded,
+        modelError,
+        wheelCount: vehicle.wheels.length,
+        contactWheels: vehicle.wheels.filter((wheel) => wheel.inContact).length,
+        speed: vehicle.speed,
+        terrain: {
+          chunks: Number(terrainStats.chunks ?? 0),
+          readyChunks: readyTerrainChunks(),
+          residentBytes: Number(terrainStats.residentBytes ?? 0),
+          roverChunkReady: roverChunkReady(),
+          generation: terrainGeneration(),
+          hasErosion: marsStage.hasErosionCorrection,
+          scheduledThisFrame: terrain.streamingStats.scheduledThisFrame,
+          generatedThisFrame: terrain.streamingStats.generatedThisFrame,
+          uploadedThisFrame: terrain.streamingStats.uploadedThisFrame,
+        },
+        particles: {
+          ambientDust: ambientDust.simulation.alive,
+          wheelDust: kickDustAlive(),
+          toolDust: toolDust.simulation.alive,
+          debris: wheelRockChipsAlive(),
+        },
+        traversal: referenceTraversal.snapshot(),
+        gpuWorld: {
+          objectCulling,
+          indirectDraws,
+        },
+      },
+      stats,
+      breakdown,
+    );
+  };
+
   return {
     scene,
     cameraEntity,
@@ -2985,6 +3055,13 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = deformedGroundHeight(vehicle.position.x, vehicle.position.z);
+      referenceTraversal.sample({
+        dt,
+        x: vehicle.position.x,
+        z: vehicle.position.z,
+        speed: vehicle.speed,
+        roverChunkReady: roverChunkReady(),
+      });
       stepInteractiveRocks(dt);
       stepToolMarks(dt);
       // Record shallow wheel impressions separately from the procedural heightfield. The renderer
@@ -3199,12 +3276,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     marsState: () => {
       const terrainStats = terrain.stats();
       const populationStats = population.stats();
-      let readyChunks = 0;
-      for (const chunk of terrain.chunks.values()) if (chunk.state === "ready") readyChunks++;
-      const roverChunkKey = chunkCoordKey(
-        Math.floor(vehicle.position.x / terrain.chunkSize),
-        Math.floor(vehicle.position.z / terrain.chunkSize),
-      );
+      const readyChunks = readyTerrainChunks();
       return {
         modelLoaded,
         modelError,
@@ -3218,7 +3290,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         terrainMaterialLayers: terrainLayers.layers.map((layer) => layer.name),
         terrainSplatTiles: [...terrain.chunks.values()].filter((chunk) => chunk.tile?.gpuMaterial !== null && chunk.tile?.gpuMaterial !== undefined).length,
         terrainReadyChunks: readyChunks,
-        terrainRoverChunkReady: terrain.chunks.get(roverChunkKey)?.state === "ready",
+        terrainRoverChunkReady: roverChunkReady(),
         terrainGroundHeight: deformedGroundHeight(vehicle.position.x, vehicle.position.z),
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
@@ -3284,6 +3356,10 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         y: vehicle.position.y,
         z: vehicle.position.z,
       };
+    },
+    marsReferenceState: referenceState,
+    resetMarsReferenceTraversal(): void {
+      referenceTraversal.reset(vehicle.position.x, vehicle.position.z);
     },
     retryModelLoad(): void {
       if (!disposed) startModelLoad();

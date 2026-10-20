@@ -2801,3 +2801,75 @@ Working with the software rasterizer (SwiftShader) on this box:
   `bash scripts/setup-deps.sh --no-browser && npm run build` has run. `--no-browser` skips the ~70 MB
   Chromium payload when no browser gate is planned. The repo is also a **shallow** clone: `git show
   <older-sha>` fails until `git fetch --depth=20 origin main`.
+
+## 2026-10-20 — Phase 22 started: core benchmark matrix and snapshot schema
+
+* **22.1 is the first complete slice:** `benchmarks/src/core.bench.ts` adds allocation-free Vec3/Mat4
+  kernels, 8,192 inline scheduler jobs plus a 4,096-subscriber dedup fan-out, and 10,000
+  ResourceRegistry loads/hits/releases/LRU evictions beside the existing 100k ECS workload. Guards
+  validate checksums and exact scheduler/resource accounting; absolute limits are deliberately broad
+  catastrophe bounds because unlike CI hosts are not comparable.
+* **`npm run bench -- --json PATH` writes snapshot schema 1:** every result/check, total duration and
+  Node/OS/CPU/memory identity. `PERFORMANCE.md` holds the first audited baseline. This is only the
+  substrate for 22.7: stable metric IDs, repeated samples/variance, stored raw history and an automatic
+  same-host comparator remain open, as do the 22.2–22.6 workload matrices.
+* **Warm cache branches before timing them.** The UI benchmark's first all-hit text pass included V8's
+  JIT transition and intermittently missed its 5x shape guard on healthy code (5.87 ms here). An
+  untimed all-hit pass makes the timed lookup path measure cache work (0.77 ms in the Phase 22 run),
+  without weakening the guard.
+* Root `npm run typecheck` now includes `benchmarks/tsconfig.json`; benchmark TypeScript can no longer
+  compile only when someone happens to run `npm run bench:build`.
+
+## 2026-10-20 — Phase 23 started: make Mars a measured reference slice, not another demo
+
+* **Reconcile before rebuilding.** `?scene=mars-showcase` already owns streamed seed-1337 terrain,
+  craters/rocks/real LOD, Mars atmosphere/haze/lights, a six-wheel electric rover and dust/debris.
+  Phase 23 starts by naming and testing that workload rather than creating a duplicate scene. The
+  roadmap now checks only what the scene really proves: erosion, solar/weather integration, the wider
+  camera matrix, sustained traversal and Mars replay remain visibly open.
+* **`forge.mars-reference/1` is the validation boundary** (`marsReferenceTelemetry.ts`). It folds the
+  public `Engine.stats()` and `Engine.frameBreakdown()` results together with scene-owned terrain,
+  particles and rover state. The same object drives the HUD and `window.__forge.marsReferenceState()`;
+  browser automation should consume this contract instead of scraping overlay text or re-deriving
+  counters from unrelated APIs.
+* **Unavailable data stays unavailable.** GPU frame time is `null` / HUD `n/a` unless timestamp
+  queries are supported and a result has resolved; reduced mock fixtures without full Engine
+  diagnostics report `available: false`. GPU memory is device texture bytes + buffer bytes only —
+  graph transient/pool figures overlap those allocations and must not be added again.
+* **Continuous driving needs longitudinal evidence, not one pose.** `MarsReferenceTraversalMonitor`
+  accumulates XZ distance, moving time, distinct chunk coordinates, maximum radius and moving-time
+  missing-ready-chunk gaps. A jump larger than one terrain chunk is recorded as a discontinuity and
+  excluded from distance, so a debug placement/origin adjustment cannot masquerade as a successful
+  traverse. Startup warm-up does not count as a streaming gap while the rover is parked.
+* **The new counters are instrumentation, not the Phase 23 exit gate.** Focused tests pin aggregation,
+  fallback and traversal semantics, but no sustained route/soak threshold or real-browser schema arm
+  exists yet. `diagnostics.marsReferenceTelemetry` therefore remains `inProgress`, and generic replay
+  infrastructure does not count as Mars replay until the reference route records, replays and hashes.
+
+## 2026-10-20 — Phase 24 started: make GPU culling authoritative for opted-in world geometry
+
+* **The existing compute culler was not discovering off-frustum world geometry.** `collectBatches()`
+  rejected every renderable against the CPU frustum before writing object-cull bounds, so GPU culling,
+  compaction and indirect draw machinery only re-tested CPU survivors. `Renderable.gpuDrivenVisibility`
+  is the explicit ownership boundary: in resolved GPU object-culling mode, an opaque, non-overlay
+  renderable on a camera-visible layer remains in the cull set after a failed CPU pre-test. Streamed
+  terrain chunks and the horizon apron opt in; ordinary objects, transparent/overlay surfaces, layer
+  mismatches and explicit CPU mode (including a mock's `auto` resolution) retain the conservative path.
+* **Do not redefine `Renderable.isVisible`.** It remains the synchronous CPU pre-test result; an
+  asynchronous device verdict cannot safely be written back into scene state. Renderer diagnostics
+  instead expose exact current-frame `gpuDrivenBatches`, `gpuDrivenInstances` and
+  `gpuDrivenOutside`, while `cullTested/Visible/Frustum/Distance/Occluded` remain the most recently
+  mapped device results.
+* **Visibility output and indirect output are separate contracts.** The culler always writes a
+  visibility word. Indirect mode additionally writes the record's instance count; direct mode clips
+  rejected batches in the vertex stage. Comments and docs must keep the indirect claim conditional.
+* **`forge.gpu-world/1` is the Phase 24 observability boundary.** Mars publishes resolved culling and
+  indirect modes, exact handoff counts, recent object-cull verdicts, indirect work and population
+  compaction through the reference snapshot, HUD and `window.__forge.gpuWorldState()`. The focused
+  Mars browser arm waits for a CPU-rejected terrain handoff plus an asynchronous device frustum
+  verdict and enforces `visible + frustum + distance + occluded = tested`.
+* **This ownership handoff is not yet a speedup claim.** CPU renderable traversal, batching, instance
+  uploads, prepass submission and one draw/indirect call per batch remain. Generic GPU instance
+  generation/arena compaction, terrain mesh/LOD generation, shadow submission compaction, removal of
+  the 8,192-batch ceiling and world-scale particle hardening remain open, so Phase 24 and capability
+  `rendering.gpuDrivenWorld` stay `inProgress`.

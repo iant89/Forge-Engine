@@ -93,6 +93,9 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "19": "verified",
   "20": "verified",
   "21": "inProgress",
+  "22": "inProgress",
+  "23": "inProgress",
+  "24": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -285,6 +288,43 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     ],
     closesWith: "21.1",
     notes: "Systems, scene-object hooks and the asset streamer are categorised scopes; Engine.frameBreakdown() folds them into simulation/physics/terrain/streaming/rendering/particles/scripting/audio plus CPU and GPU frame time, and frameTimeline/layoutTimeline turn the frame history into drawable rectangles. The toolbar Profiler panel is a floating window (drag, corner-grip resize, collapse to a corner icon, dwell-snap docking to a viewport edge, layout persisted) that refreshes the unified CPU/GPU report and redraws the timeline strip at 4 Hz; check:browser:ui drives both with real pointer input on real WebGPU frame records. The strip's own follow-ups (a bounded window with no scrub, a frame-total-only GPU marker) are tracked as diagnostics.frameTimeline.",
+  },
+  {
+    id: "diagnostics.coreBenchmarks",
+    phase: "22.1",
+    status: "verified",
+    summary: "Repeatable core benchmark matrix for 100k ECS entities, math kernels, inline task scheduling and resource lifecycle operations",
+    evidence: [
+      "benchmarks/src/ecs.bench.ts",
+      "benchmarks/src/core.bench.ts",
+      "benchmarks/run.mjs",
+      ".github/workflows/ci.yml",
+      "PERFORMANCE.md",
+    ],
+    notes: "npm run bench executes correctness, work-shape and catastrophe guards in CI; npm run bench -- --json PATH writes the measurements and exact host metadata for historical comparison.",
+  },
+  {
+    id: "diagnostics.benchmarkRegression",
+    phase: "22.7",
+    status: "inProgress",
+    summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
+    evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
+    closesWith: "22.7",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.2-22.6 workload matrix.",
+  },
+  {
+    id: "diagnostics.marsReferenceTelemetry",
+    phase: "23",
+    status: "inProgress",
+    summary: "Versioned Mars reference-slice snapshot and HUD for frame, subsystem, streaming, particle, memory and continuous-traversal telemetry",
+    evidence: [
+      "tests/examples/marsReferenceTelemetry.test.ts",
+      "tests/examples/marsShowcase.test.ts",
+      "examples/src/scenes/marsReferenceTelemetry.ts",
+      "examples/src/main.ts",
+    ],
+    closesWith: "23.8",
+    notes: "Schema forge.mars-reference/1 aggregates public Engine.stats()/frameBreakdown() data with scene-owned terrain, particle and traversal counters. GPU time is null/n/a without resolved timestamp queries, GPU bytes do not double-count graph pools, and moving-time terrain gaps plus discontinuities remain visible. Focused tests are present; a real-browser contract assertion and sustained traversal thresholds/logging remain before this becomes a completed validation gate.",
   },
   {
     id: "diagnostics.frameTimeline",
@@ -611,6 +651,22 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["tests/rendering/objectCulling.test.ts", "tests/rendering/frame.test.ts", "tools/browser-check.mjs"],
     notes: "docs/RENDERING.md §4e. RendererOptions.indirectDraws (default on, demo ?indirectdraws=0|1 + setIndirectDraws), stats.indirectDraws plus cullVisible/cullRecordZeroed; RendererOptions.objectCulling stays the A/B. A direct-submission frame writes no record (CULL_FLAG_RECORDS). check:browser pins indirectDraws === batches with the counters' identities on a real device, A/Bs the two submission paths to an identical picture (0 px beyond one level), and drives a 1 m draw distance that makes the device, not the CPU, zero records. Culling the shadow cascades through the same pass and rewriting the instance arena from the compaction list are not done",
     closesWith: "13.6",
+  },
+  {
+    id: "rendering.gpuDrivenWorld",
+    phase: "24",
+    status: "inProgress",
+    summary: "Opt-in device-authoritative world visibility: streamed terrain keeps CPU-rejected bounds in the GPU cull set and optional indirect records, with exact handoff counters in the Mars reference slice",
+    evidence: [
+      "tests/rendering/frame.test.ts",
+      "tests/terrain/terrain.test.ts",
+      "tests/examples/marsReferenceTelemetry.test.ts",
+      "engine/src/terrain/world.ts",
+      "examples/src/scenes/marsReferenceTelemetry.ts",
+      "tools/browser-check.mjs",
+    ],
+    closesWith: "24",
+    notes: "Renderable.gpuDrivenVisibility delegates opaque frustum discovery to forge.objects.cull in resolved GPU mode and preserves explicit CPU/auto-mock, layer-mask and transparent fallbacks. Terrain chunks and the horizon apron opt in. Schema forge.gpu-world/1 reports managed batches/instances, CPU-rejected handoffs and recent object/population device counters; the focused Mars browser arm requires a CPU-rejected handoff and an asynchronous device frustum verdict with exact accounting. This is the first 24.1/24.6 slice, not full GPU-driven submission: CPU batch assembly, per-tile prepass/draw calls, the 8192-batch cap, general instance generation, generic instance-arena compaction and particle rendering hardening remain.",
   },
   {
     id: "rendering.asyncPipelines",

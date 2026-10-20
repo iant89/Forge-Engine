@@ -44,7 +44,7 @@ the bundled-Chromium path is the one that works; do not spend time trying to `pl
 ## 1. Commands you will actually run
 
 ```sh
-npm run typecheck        # strict engine + examples + tests typecheck
+npm run typecheck        # strict engine + examples + tests + benchmarks typecheck
 npm test                 # selrun full suite; ordered, one process per linked suite
 npm run test:serial      # explicitly run the ordered linked suites sequentially
 npm run test:affected    # select from staged/unstaged/deleted/renamed/untracked changes (see §8)
@@ -108,7 +108,7 @@ examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehic
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list
 packages/selrun/     local manifest-driven runner, catalog validation, and affected-suite selector
-benchmarks/          100k-entity ECS bench and 100k-particle integrator bench (`npm run bench`)
+benchmarks/          Phase 22 matrix: core/ECS plus particle, light, culling and UI workloads (`npm run bench`); `-- --json PATH` writes a host-described snapshot
 tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B); browser smokes remain separate from Node suites
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates

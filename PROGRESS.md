@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-19_
+_Last updated: 2026-10-20_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -47,7 +47,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [ ] SSAO for orthographic cameras
 - [ ] Transparency and post effects that use the prepass depth
 - [ ] Clustered lighting for orthographic cameras _(deferred)_
-- [ ] GPU-driven world scale: GPU instance generation and GPU terrain culling (Phase 24)
+- [~] GPU-driven world scale: streamed terrain now opts into device-authoritative frustum culling (and indirect counts when enabled), with Mars handoff telemetry plus a real-device browser assertion; CPU batch/prepass submission and GPU instance generation remain (Phase 24)
 
 ## Terrain (Phases 4, 10)
 
@@ -180,6 +180,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] CPU scope profiler, with GPU pass times merged into frame records
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
+- [x] Phase 22.1 core matrix: 100k ECS entities, allocation-free Vec3/Mat4 kernels, inline task dispatch/deduplication, and ResourceRegistry load/cache/eviction paths, all with correctness/accounting and catastrophe guards
+- [x] Benchmark snapshot schema 1 (`npm run bench -- --json PATH`): operation counts, timings, guard results and exact host metadata; the first audited baseline is in `PERFORMANCE.md`
 - [x] Frame profiler (Phase 21.1): CPU/GPU frame records, per-scope EWMAs, the categorised `Engine.frameBreakdown()` (simulation, physics, terrain, streaming, rendering, particles, scripting, audio) and the drawn frame timeline — a category-stacked column per frame against the budget line with a lane chart of the selected frame's scopes, in the demo's floating Profiler panel (hover to select, tap to pin)
 - [ ] Timeline scrub, pause and zoom (Phase 21.1 follow-up) _(partial: the strip shows the last 180 frames only, its GPU marker is the frame total, and per-pass device times stay in the text report)_
 - [x] ECS Inspector (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested, and the demo's floating Inspector window browses them — entity list, component populations, a filter and a per-entity detail pane
@@ -190,8 +192,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Streaming Debugger (Phase 21.8): bounded asset-load/task inventories and scene streaming-owner stats are public, tested and browsable in the Inspector window's Streaming tab under one filter
 - [x] Environment Debugger (Phase 21.9): read-only sun, atmosphere, cloud, weather/wind/precipitation, water and lightning snapshots plus renderer-independent debug lines, browsable in the Inspector window's World tab with its own sun/wind overlay
 - [~] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; bounded input/output/history; the Inspector window exposes the diagnostics interactively but the visible console terminal remains open
-- [ ] Benchmarks for every subsystem, including 1M-scale runs (Phase 22)
-- [ ] Automatic regression detection against stored benchmark history (Phase 22.7)
+- [ ] Rendering, terrain, physics and full particle/world-scale benchmark matrices, including 500k and 1M runs (Phase 22.2–22.6)
+- [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
 
 ## Testing & CI (Phases 0, 2, 9, 28)
 
@@ -228,7 +230,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 
 ## Road to 1.0 (Phases 23, 27–29)
 
-- [ ] Mars reference vertical slice: continuous driving across streamed terrain, with environment, telemetry and replay. The Mars Showcase covers much of this, but the phase checklist is not complete (Phase 23)
+- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
 - [ ] Public API audit, stability labels, API docs, examples, migration guide, versioning and deprecation policy (Phase 27.1–27.6)
 - [ ] Extension API for systems, components, importers, terrain generators, materials, physics shapes, debug visualisers and console commands (Phase 27.7)
 - [ ] Production hardening: device loss and recovery, browser capability negotiation, low-end GPU degradation, memory pressure, and worker/asset/streaming failure recovery (Phase 28.1–28.9)

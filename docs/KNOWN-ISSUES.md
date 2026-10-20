@@ -37,6 +37,16 @@ the honest detail lives; nothing here is hidden behind a green gate.
   commands. This supports programmatic diagnosis without engine-source edits but does not close the
   usability/UI portion of the milestone. (capability: diagnostics.developerConsole)
 
+## Benchmarks (Phase 22)
+
+* **Only the core benchmark matrix is complete, and history is not compared automatically.** Phase
+  22.1 now measures ECS, allocation-free math, inline scheduler dispatch/deduplication and resource
+  loading/cache/eviction with correctness and catastrophe guards. The runner can write a schema-1
+  JSON snapshot with exact host metadata, and `PERFORMANCE.md` records the first measured baseline,
+  but rendering, terrain, physics, particle/world scale sweeps remain incomplete. There are no stable
+  metric IDs, repeated-sample variance or same-host regression policy yet, so ordinary timing drift
+  does not fail CI automatically. (capability: diagnostics.benchmarkRegression)
+
 ## Rendering (Phase 2)
 
 * **Shadow vertex work still repeats across overlapping maps.** The renderer assigns each
@@ -71,6 +81,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
   keep their own per-cascade AABB test rather than this pass, and a non-perspective or near-plane-
   straddling camera still skips the occlusion test. (`docs/RENDERING.md` §4e)
   (capability: rendering.cullCoverage)
+* **GPU-driven terrain visibility is not GPU-driven terrain submission yet.** Phase 24's first slice
+  keeps opted-in streamed tiles in the device cull set (and indirect set when enabled) even when the
+  CPU pre-test rejects them, but the CPU still walks each resident renderable, builds its batch,
+  submits its prepass and issues one draw/indirect call. Until the visible list drives submission and
+  arena compaction, moving the authoritative verdict to the GPU can increase CPU command work versus
+  early CPU rejection; the
+  `gpuDriven*` counters make that transitional cost explicit rather than calling it a speedup.
+  (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
 * **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
   transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
@@ -301,8 +319,9 @@ What remains:
 
 ## Documentation debt
 
-`ARCHITECTURE.md` describes the target design and refers to documents that do not exist yet
-(`PERFORMANCE.md`, `ASSETS.md`, ADRs). Sections marked "As built" in `ARCHITECTURE.md` and
+`ARCHITECTURE.md` describes the target design and still refers to documents that do not exist yet
+(`ASSETS.md` and some ADRs). `PERFORMANCE.md` now exists as Phase 22's audited benchmark history.
+Sections marked "As built" in `ARCHITECTURE.md` and
 `docs/RENDERING.md` describe what is real today. `ROADMAP.md`'s status block, this file and
 `engine/src/core/capabilities.ts` are cross-checked by `npm run docs:check` (Phase 9.6), so a phase
 cannot be advertised as verified while a capability inside it is not, and a limitation cannot outlive

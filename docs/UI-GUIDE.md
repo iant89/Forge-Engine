@@ -307,7 +307,7 @@ roughly twice these times), so read the table for proportions, not absolutes.
 | Draw-list rebuild only (1,000 buttons → 1,934 instances) | 200 | 63.2 ms | 0.32 ms / rebuild |
 | Virtualized list, 100,000 rows, scrolled every frame | 600 frames | 69.8 ms | 0.12 ms / frame |
 | Text layout, cache miss (SDF font, ~40-char strings) | 800 | 20.5 ms | 26 µs / string |
-| Text layout, cache hit | 800 | 1.7 ms | 2.2 µs / string |
+| Text layout, warmed cache hit | 800 | 1.7 ms | 2.2 µs / string |
 
 What the guards (shape checks, not stopwatch thresholds) establish on every run:
 
@@ -317,7 +317,8 @@ What the guards (shape checks, not stopwatch thresholds) establish on every run:
 * 1,000 skinned buttons with labels draw as **1** batch (solid primitives and SDF glyphs share the
   font atlas; only a different texture splits a batch);
 * the 100,000-row list keeps **37** elements alive;
-* the second pass over the same strings is served entirely from the text cache.
+* after one untimed cache-branch warm-up, the timed pass over the same strings is served entirely
+  from the text cache (the warm-up keeps JIT transition cost out of the cache-hit shape guard).
 
 Reading the numbers: any render-dirty change rebuilds the whole draw list (0.3–1 ms per 1,000
 buttons here, depending on the run), which is what dominates the hover and text-change rows; layout and style work in

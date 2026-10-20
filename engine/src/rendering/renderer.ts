@@ -223,6 +223,18 @@ export interface RenderStats {
   batches: number;
   culled: number;
   /**
+   * Phase 24 opt-in world batches whose visibility is authoritative on the device this frame.
+   * These are ordinary batches and remain included in `batches`.
+   */
+  gpuDrivenBatches: number;
+  /** Renderable instances inside `gpuDrivenBatches`. */
+  gpuDrivenInstances: number;
+  /**
+   * GPU-driven instances the CPU frustum rejected but deliberately handed to the device culler.
+   * This is the concrete amount of visibility discovery moved off the CPU this frame.
+   */
+  gpuDrivenOutside: number;
+  /**
    * Population batches submitted this frame (Phase 14): one per visible (chunk, type) slice. They
    * are ordinary batches — shadow assignment, prepass, device culling and indirect records all
    * apply — but they come from `PopulationSource`s, not from `Renderable` entities.
@@ -608,6 +620,9 @@ export class Renderer implements RenderFrameContext {
     instances: 0,
     batches: 0,
     culled: 0,
+    gpuDrivenBatches: 0,
+    gpuDrivenInstances: 0,
+    gpuDrivenOutside: 0,
     populationBatches: 0,
     populationInstances: 0,
     populationBuffers: 0,
@@ -2347,6 +2362,9 @@ export class Renderer implements RenderFrameContext {
     s.instances = 0;
     s.batches = 0;
     s.culled = 0;
+    s.gpuDrivenBatches = 0;
+    s.gpuDrivenInstances = 0;
+    s.gpuDrivenOutside = 0;
     s.populationBatches = 0;
     s.populationInstances = 0;
     s.populationBuffers = 0;
@@ -3120,7 +3138,22 @@ export class Renderer implements RenderFrameContext {
       const coarse = this.frustum.classifyAABB(box);
       const coarseInView = coarse !== PlaneTest.Outside;
       const meshInView = coarseInView && (coarse === PlaneTest.Inside || posed || r.boundsOverride !== null || r.geometry.intersectsFrustum(this.frustum, this.scratchMat));
-      const inView = meshInView && (r.layer & camera.cullingMask) !== 0;
+      const layerInView = (r.layer & camera.cullingMask) !== 0;
+      const inView = meshInView && layerInView;
+      // Phase 24: large opaque world chunks may keep CPU-rejected bounds in the batch set so the
+      // device culler's frustum test is authoritative. Layer masks remain a CPU authoring rule, and
+      // transparent/overlay ordering cannot be delegated to an unordered visibility pass. Explicit
+      // CPU mode — including the mock's auto-resolved mode — retains the old rejection path exactly.
+      const gpuDriven =
+        r.gpuDrivenVisibility &&
+        this.objectCullingMode === "gpu" &&
+        layerInView &&
+        !r.transparent &&
+        !r.overlay;
+      if (gpuDriven) {
+        this.stats.gpuDrivenInstances++;
+        if (!inView) this.stats.gpuDrivenOutside++;
+      }
       r.isVisible = inView;
       // Debug bounds: record the would-be footprint of everything that *has* a renderable this
       // frame, culled or not — the boxes are what proves where the model is supposed to sit.
@@ -3133,9 +3166,11 @@ export class Renderer implements RenderFrameContext {
       let shadowOnly = false;
       if (!inView) {
         this.stats.culled++;
-        // Off-screen casters still matter when any active directional or spot frustum contains them.
-        if (!caster || shadowMask === 0) continue;
-        shadowOnly = true;
+        if (!gpuDriven) {
+          // Off-screen casters still matter when any active directional or spot frustum contains them.
+          if (!caster || shadowMask === 0) continue;
+          shadowOnly = true;
+        }
       }
       // Phase 16.5: a batch skins when the renderable names a skin *and* its geometry carries the
       // vertex stream the skinned entry points read. A skin without attributes cannot deform
@@ -3145,7 +3180,7 @@ export class Renderer implements RenderFrameContext {
       const skinnable = r.skin !== null && r.skin.joints.length > 0 && r.geometry.skinBuffer !== null;
       if (r.skin !== null && !skinnable) this.stats.skinFallbacks++;
       const skin = skinnable ? r.skin : null;
-      const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}|${skin ? "sk" : "-"}`;
+      const key = `${geometryIdentity(r.geometry)}|${r.material.pipelineKey}|${r.transparent ? "t" : "o"}|${r.overlay ? "ov" : "-"}|${caster ? "cs" : "-"}|${shadowOnly ? "so" : "-"}|${gpuDriven ? "gd" : "-"}|${skin ? "sk" : "-"}`;
       // Merge only when this record lands exactly at the previous batch's end — instances must
       // be contiguous to share one draw, which is why batches are emitted in one pass. A new
       // batch starts 256-aligned (the WebGPU dynamic-offset rule for the window in setBindGroup);
@@ -3189,6 +3224,7 @@ export class Renderer implements RenderFrameContext {
       index = this.batchCount;
       this.batchIndex.set(key, index);
       const b = this.acquireBatch();
+      if (gpuDriven) this.stats.gpuDrivenBatches++;
       b.geometry = r.geometry;
       b.material = r.material;
       b.instanceOffset = instanceOffset;

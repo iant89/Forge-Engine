@@ -53,9 +53,12 @@ CURRENT CODEBASE BASELINE:
     Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
                 rocks, push/roll/destruction, rover impact response and persistent sand tracks)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IN PROGRESS ([~]), and Phases 22 through 28 remain NOT STARTED ([ ]).
-                Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase
-                keys directly).
+                Phase 21 is IN PROGRESS ([~]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
+                matrix covers ECS, math, scheduling and resource management, and the runner emits
+                a versioned host-described JSON snapshot; rendering, terrain, physics, particle/world
+                scale sweeps and automatic historical comparison remain. Phases 23 through 28 remain
+                NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
+                the phase keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -189,6 +192,19 @@ PHASE 20 - AUDIO
 
 PHASE 21 - PROFILER / DEBUG TOOLS
     [~] IN PROGRESS (21.2–21.9 are browsable in the demo's Inspector window; the visible 21.10 console, contact-manifold overlays and the timeline's scrub/zoom remain)
+
+PHASE 22 - BENCHMARK + REGRESSION SYSTEM
+    [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
+
+PHASE 23 - MARS REFERENCE VERTICAL SLICE
+    [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
+        versioned telemetry/streaming/traversal contract; erosion, environment breadth, continuous
+        traversal validation, camera modes and integrated deterministic replay remain)
+
+PHASE 24 - GPU-DRIVEN WORLD SCALE
+    [~] IN PROGRESS (streamed terrain can now hand CPU-rejected bounds to device culling and, when
+        enabled, indirect records; Mars exposes the handoff; CPU batch/prepass submission, instance
+        generation, generic compaction and complete GPU particle rendering remain)
 
 
 ================================================================================
@@ -2380,10 +2396,17 @@ GOAL:
 
 22.1 Core
 
-    [ ] ECS
-    [ ] math
-    [ ] scheduler
-    [ ] resource management
+    [x] ECS
+    [x] math
+    [x] scheduler
+    [x] resource management
+
+    As built: `npm run bench` runs 100,000-entity creation/transform/frustum work, one million
+    allocation-free Vec3 cross/normalize kernels, 250,000 Mat4 multiplies, 8,192 inline scheduler
+    jobs plus a 4,096-subscriber dedup fan-out, and 10,000 ResourceRegistry loads, cache hits,
+    handle releases and LRU evictions. Every workload validates its result/accounting and carries a
+    deliberately generous catastrophe bound; narrow cross-host stopwatch thresholds are not used.
+    (`benchmarks/src/ecs.bench.ts`, `benchmarks/src/core.bench.ts`)
 
 
 22.2 Rendering
@@ -2432,9 +2455,12 @@ GOAL:
 
 22.7 Regression Recording
 
-    Store historical benchmark results in:
-
-        PERFORMANCE.md
+    [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
+        operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1
+        baseline is recorded; stable metric IDs, repeated samples and an automatic same-host
+        comparator/history remain).
+    [ ] Fail automatically on a statistically significant regression against comparable history.
 
 
 EXIT CRITERIA:
@@ -2457,62 +2483,80 @@ This is the primary validation environment for Forge.
 
 23.1 Mars Terrain
 
-    [ ] Large procedural Mars terrain
-    [ ] Craters
+    [x] Large procedural Mars terrain
+    [x] Craters
     [ ] erosion
-    [ ] rocks
-    [ ] LOD
-    [ ] streaming
+    [x] rocks
+    [x] LOD
+    [x] streaming
+
+    As built: Mars Showcase evaluates the deterministic seed-1337 analytic Mars stage over streamed
+    128 m chunks, with crater fields, streamed rock populations, real lower-resolution LOD meshes,
+    skirts and bounded worker generation/upload. The scene and its Phase 23 snapshot both report
+    `hasErosion: false`: the external Stage A erosion cache is still absent and is not implied by the
+    completed terrain checks. (`marsShowcaseScene.ts`, `marsShared.ts`, `marsShowcase.test.ts`)
 
 
 23.2 Mars Environment
 
-    [ ] Mars atmosphere
-    [ ] dust haze
+    [x] Mars atmosphere
+    [x] dust haze
     [ ] solar cycle
     [ ] weather
     [ ] clouds where appropriate
-    [ ] lighting
+    [x] lighting
+
+    As built: the showcase uses the Mars atmosphere, exponential dust haze and shadowed directional
+    lighting. Its sun is static; the separate sky/weather demos do not satisfy this reference slice's
+    solar-cycle, Mars weather or cloud integration requirements.
 
 
 23.3 Rover
 
-    [ ] physics chassis
-    [ ] suspension
-    [ ] wheels
-    [ ] tire model
-    [ ] drivetrain
-    [ ] steering
-    [ ] braking
+    [~] physics chassis (vehicle dynamics are live; full rigid-body terrain/world contact remains a
+        known Phase 6 hardening boundary)
+    [x] suspension
+    [x] wheels
+    [x] tire model
+    [x] drivetrain
+    [x] steering
+    [x] braking
+
+    As built: the six-wheel battery-electric rover uses the shared Vehicle simulation, per-wheel
+    suspension/contact, combined-slip tires, reduction drivetrain, front/rear steering and
+    regenerative/friction braking. This does not upgrade the capability registry's honest partial
+    status for the chassis/contact architecture.
 
 
 23.4 Rover Environment Interaction
 
-    [ ] crater traversal
-    [ ] slope traversal
-    [ ] rock collisions
-    [ ] wheel slip
-    [ ] suspension movement
+    [ ] crater traversal (present in terrain, but no reference-route/soak acceptance gate yet)
+    [x] slope traversal
+    [x] rock collisions
+    [x] wheel slip
+    [x] suspension movement
 
 
 23.5 Particles
 
-    [ ] wheel dust
-    [ ] drifting dust
-    [ ] debris
-    [ ] exhaust
+    [x] wheel dust
+    [x] drifting dust
+    [x] debris
+    [ ] exhaust (the reference rover is battery-electric; roadmap disposition remains explicit)
 
 
 23.6 Streaming
 
-    [ ] continuous terrain traversal
-    [ ] object streaming
-    [ ] asset streaming
+    [~] continuous terrain traversal (distance, visited chunks and moving-time terrain gaps are now
+        measured; a sustained route/soak acceptance gate remains)
+    [x] object streaming
+    [~] asset streaming (live GLB progress and engine asset counters are visible; continuous-run
+        recovery/budget validation remains)
 
 
 23.7 Camera
 
-    [ ] chase
+    [x] chase
     [ ] cockpit
     [ ] free
     [ ] cinematic
@@ -2520,18 +2564,28 @@ This is the primary validation environment for Forge.
 
 23.8 Telemetry HUD
 
+    [~] The Mars HUD and `window.__forge.marsReferenceState()` expose schema
+        `forge.mars-reference/1`; focused tests pin aggregation and unavailable-data semantics. A
+        real-browser assertion and sustained-run thresholds/logging remain before telemetry is a
+        completed validation gate.
+
     Show:
 
-        FPS
-        CPU frame
-        GPU frame
-        physics
-        terrain
-        streaming
-        particle count
-        visible objects
-        loaded chunks
-        GPU memory
+        [x] FPS
+        [x] CPU frame
+        [x] GPU frame (real timestamp value or explicit `n/a`; never estimated)
+        [x] physics
+        [x] terrain
+        [x] streaming
+        [x] particle count
+        [x] visible objects
+        [x] loaded chunks
+        [x] GPU memory
+
+    The same snapshot includes terrain generation/upload queues and cumulative traversal distance,
+    moving time, visited chunks, missing-ready-chunk frames and discontinuities. GPU memory is live
+    buffer + texture allocation; overlapping transient/pool counters are not double-counted.
+    (`marsReferenceTelemetry.ts`, `main.ts`, `marsReferenceTelemetry.test.ts`)
 
 
 23.9 Deterministic Replay
@@ -2539,6 +2593,9 @@ This is the primary validation environment for Forge.
     [ ] record input
     [ ] replay
     [ ] state hashes
+
+    The engine already owns generic recording/session/hash infrastructure, but none of these checks
+    are complete until the Mars reference route is wired to and verified through that infrastructure.
 
 
 EXIT CRITERIA:
@@ -2559,19 +2616,56 @@ GOAL:
 
 24.1 GPU Object Culling
 
+    [~] `forge.objects.cull` already performs per-batch frustum/distance/HiZ tests and writes
+        visibility plus indirect records when that path is enabled. Phase 24 now lets opted-in opaque
+        world renderables bypass CPU frustum rejection on the real-device path, but CPU batch assembly
+        and the 8,192-batch cap remain.
+
 24.2 GPU LOD Selection
+
+    [~] Population instances select their high/low geometry window on the GPU. General renderables
+        and terrain chunk mesh density are still selected on the CPU.
 
 24.3 GPU Visibility Compaction
 
+    [~] The object culler produces a dense visible-batch list and population culling compacts
+        per-instance records. The generic instance arena and CPU submission loop do not consume the
+        visible-batch list yet.
+
 24.4 Indirect Rendering
+
+    [x] `forge.main` consumes GPU-written indexed/non-indexed indirect records; a culled batch has
+        zero instances and executes no vertex work. WebGPU still requires one CPU-issued indirect
+        call per batch because the engine has no multi-draw API.
 
 24.5 GPU Instance Generation
 
+    [ ] Population scatter and generic instance transforms are still generated on the CPU/workers.
+
 24.6 GPU Terrain Culling
+
+    [~] Every streamed terrain tile and the horizon apron set `Renderable.gpuDrivenVisibility`.
+        On a real GPU path, CPU-rejected tile bounds remain in `forge.objects.cull`, which makes the
+        device's frustum verdict authoritative and writes the indirect count when that default path
+        is enabled. Explicit CPU mode (including the mock's `auto` resolution) remains the
+        deterministic fallback. Per-tile CPU collection and prepass/draw submission remain.
 
 24.7 GPU Particle Simulation
 
+    [x] Storage-buffer emission/full simulation runs in fixed-step compute passes; the more limited
+        CPU particle implementation remains the deterministic reference path.
+
 24.8 GPU Particle Rendering
+
+    [~] GPU billboards, stretched billboards, soft particles and trail ribbons render through the
+        graph; mesh particles, HiZ particle culling and terrain collision remain.
+
+    Phase 24 validation begins in Mars rather than a synthetic-only scene. The HUD and
+    `window.__forge.gpuWorldState()` expose additive schema `forge.gpu-world/1`: resolved culling and
+    indirect modes, managed terrain batches/instances, bounds the CPU rejected but handed to the
+    device, recent object-cull visibility/reasons and population compaction counts. Current-frame
+    handoff counters are exact; device results remain intentionally asynchronous. The focused Mars
+    browser gate requires a real device frustum rejection and exact cull-accounting identity.
 
 
 TARGET:

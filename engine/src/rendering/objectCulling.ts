@@ -1,10 +1,11 @@
 /**
  * GPU object culling — Phase 13.5 (docs/RENDERING.md §4d).
  *
- * `Renderer.collectBatches` frustum-culls every renderable on the CPU before it becomes a batch:
- * that test decides what enters the frame (an instance the camera cannot see never gets an instance
- * record), so the batches the device receives are already rectangularly visible. It cannot decide two
- * things, and those are what this module is for:
+ * `Renderer.collectBatches` normally frustum-culls a renderable on the CPU before it becomes a
+ * batch. Phase 24 adds an explicit exception: opaque `Renderable.gpuDrivenVisibility` world chunks
+ * stay in the bounds/cull set in resolved GPU mode even when that pre-test rejects them, so this
+ * module's frustum result is authoritative for those chunks. Ordinary renderables retain the
+ * conservative CPU pre-test and use the device pass for the decisions the CPU cannot make cheaply:
  *
  *  - **Occlusion.** An object can be inside the frustum and still have every one of its pixels behind
  *    nearer geometry — terrain, a wall, another object. Only the frame's own depth buffer knows that,
@@ -22,9 +23,10 @@
  *
  *  1. **Frustum.** The six planes are extracted from `ObjectCullUniforms.viewProj` inside the shader
  *     with the same rows `Frustum.setFromViewProjection` uses (its private `extractStandard`), and a
- *     one is culled. For the batches the CPU uploaded this is a *guard*, not a saving — their boxes
- *     are in view by construction — but it is what makes the occlusion test well defined (a batch
- *     outside the frustum has no rectangle), and it is also the only place that notices a sphere
+ *     rejected one is culled. For ordinary batches this is a *guard*, not a saving — their boxes are
+ *     in view by construction. For Phase 24 GPU-driven world chunks it is the authoritative test.
+ *     Either way it makes the occlusion test well defined (a batch outside the frustum has no
+ *     rectangle), and it is also the only place that notices a sphere
  *     which misses the screen entirely: the CPU tests the box, the device tests the sphere, and a
  *     sphere that contains an on-screen box cannot happen, but a sphere whose *rectangle* is off
  *     screen is exactly the case where both agree the batch cannot be drawn.
