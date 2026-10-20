@@ -59,6 +59,7 @@ group("subsystem mapping and smoke floor", () => {
     assert.equal(subsystemForFile("engine/src/terrain/pipelineSpec.ts"), "terrain");
     assert.equal(subsystemForFile("engine/src/scene/world.ts"), "scene");
     assert.equal(subsystemForFile("editor/src/session.ts"), "editor");
+    assert.equal(subsystemForFile("engine/api-surface.json"), "engine-barrel");
     assert.equal(subsystemForFile("tools/browser-check.mjs"), "tools");
     assert.equal(subsystemForFile("package.json"), "config");
     assert.equal(mapFileToSubsystem("engine/src/math/vec.ts"), "math");
@@ -105,6 +106,13 @@ group("subsystem mapping and smoke floor", () => {
     const selection = selectWithImpact(repoSuites, ["editor/src/session.ts"], { root: repoRoot, graph: repoGraph });
     assert.equal(selection.fallback, false);
     assert.ok(selection.suites.some((suite) => suite.file === "tests/editor/editor.test.ts"));
+    assert.ok(selection.suites.some((suite) => suite.file === "tests/engine/architecture.test.ts"));
+  });
+
+  test("the API snapshot is owned and selects its audit suite", () => {
+    const selection = selectWithImpact(repoSuites, ["engine/api-surface.json"], { root: repoRoot, graph: repoGraph });
+    assert.equal(selection.fallback, false);
+    assert.ok(selection.suites.some((suite) => suite.file === "tests/tools/apiAudit.test.ts"));
     assert.ok(selection.suites.some((suite) => suite.file === "tests/engine/architecture.test.ts"));
   });
 

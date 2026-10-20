@@ -32,7 +32,7 @@ export const SUBSYSTEMS = {
   "testing": ["engine/src/testing/**"],
   "editor": ["editor/src/**"],
   // Cross-cutting
-  "engine-barrel": ["engine/src/index.ts"],
+  "engine-barrel": ["engine/src/index.ts", "engine/api-surface.json"],
   // Tooling and config subsystems — changes here are high-confidence fallback triggers
   "tools": ["tools/**"],
   "benchmarks": ["benchmarks/**"],

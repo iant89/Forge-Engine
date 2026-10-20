@@ -55,6 +55,8 @@ npm run check:wgsl       # structural WGSL validation + strict uniform address-s
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports,
                          # no Math.sin/atan/exp/pow/hypot/… or ** in simulation sources (use DMath)
+npm run api:check        # Phase 27 package-root export name/kind/stability snapshot
+npm run api:update       # deliberate API changes only; review engine/api-surface.json before committing
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
 npm run check:replay-engines  # 19.5: the committed vehicle-session replay gives identical hashes in Node (V8) and Bun (JavaScriptCore)
 npm run gltf:strip-skin-sets -- in.glb out.glb  # strip extra JOINTS_n/WEIGHTS_n sets (all-zero only; --force for weighted, --dry-run)
@@ -105,6 +107,7 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   replay/            Phase 19.4: input channels, recorder/player (frame schedule + inputs), exact-bit state hashing (docs/REPLAY.md)
   ui/                retained-mode UI framework (tree, layout, skins/themes, input/focus, widgets, SDF text,
                      declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
+engine/api-surface.json  Phase 27 reviewed package-root name/kind/stability snapshot (docs/API.md)
 editor/              @forge/editor — Phase 26 public-API-only hierarchy/inspection/history model;
                      no visual editor shell or gizmo yet (docs/EDITOR.md)
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).
@@ -112,9 +115,10 @@ examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehic
 tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list
 packages/selrun/     local manifest-driven runner, catalog validation, and affected-suite selector
 benchmarks/          Phase 22 matrix: core/ECS plus particle, light, culling and UI workloads (`npm run bench`); `-- --json PATH` writes a host-described snapshot
-tools/               wgsl-check.mjs (includes PARTICLE_SIM_SHADER + SKY_SHADER), browser-check.mjs (real-GPU gravity check, sky A/B); browser smokes remain separate from Node suites
+tools/               api-audit.mjs (Phase 27 public surface), wgsl-check.mjs, browser-check.mjs (real-GPU smokes); browser smokes remain separate from Node suites
 scripts/             setup-deps.sh
 docs/VERIFICATION.md What each automated gate actually proves — keep it truthful when you change gates
+docs/API.md          Phase 27 package boundary, stability labels and public-surface audit workflow
 docs/RENDERING.md    The renderer as built: frame structure, render graph rules, HDR/bloom, CSM, sky pass, how to add a pass
 docs/VEHICLES.md     Phase 6 as built, including what the chassis test actually asserts
 docs/PARTICLES.md    Phase 7 as built: CPU is the reference, the compute shader is the integrator only
@@ -172,6 +176,9 @@ no build step between editing engine source and seeing it in the browser.
   `dispose()`; `tests/rendering/rendering.test.ts` asserts `mock.outstanding` is empty after teardown.
 * **Public API only from the editor/demo/tests** (`@forge/engine`), never deep imports into
   `engine/src`. Runtime code never imports `@forge/editor`; both directions are architecture gates.
+* **The package-root API is reviewed data.** A deliberate export or stability change requires
+  `npm run api:update`, inspection of `engine/api-surface.json`, `docs/API.md`/migration notes as
+  appropriate, and a passing `npm run api:check`. Never refresh the snapshot just to silence CI.
 
 ## 4. Editing rules
 

@@ -7,6 +7,9 @@
  * Importing this module has one side effect you should know about: it registers the engine's
  * built-in component types with the component registry (see `scene/components/index.ts`). That is
  * why `registerComponent` ids are stable — the barrel always imports them in this order.
+ *
+ * Phase 27 pins every resolved name, type/value kind and stability tag in `engine/api-surface.json`.
+ * Deliberate changes require `npm run api:update` plus review; see `docs/API.md`.
  */
 
 // Math

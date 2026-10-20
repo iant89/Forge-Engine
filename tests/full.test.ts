@@ -3,6 +3,7 @@ import { report } from "selrun";
 /** Ordered full-suite links: cheap unit suites first, heavier integrations next, DOM suites last. */
 export const linkedSuites = [
   ["tests/engine/architecture.test.ts", () => import("./engine/architecture.test.ts")],
+  ["tests/tools/apiAudit.test.ts", () => import("./tools/apiAudit.test.ts")],
   ["tests/tools/gpuEnv.test.ts", () => import("./tools/gpuEnv.test.ts")],
   ["tests/tools/marsTerrainPlan.test.ts", () => import("./tools/marsTerrainPlan.test.ts")],
   ["tests/tools/prChecks.test.ts", () => import("./tools/prChecks.test.ts")],
@@ -159,4 +160,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(155);
+report(156);

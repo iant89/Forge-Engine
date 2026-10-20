@@ -84,6 +84,9 @@ jobs:
       - name: Architecture boundaries
         run: npm run lint:arch
 
+      - name: Public API surface
+        run: npm run api:check
+
       # Phase 19.5: the same input stream must produce identical state hashes on every JavaScript
       # engine. Bun runs JavaScriptCore, the engine of Safari and every iOS browser; Node runs V8.
       - name: Setup Bun (JavaScriptCore)

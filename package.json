@@ -31,6 +31,8 @@
     "demo:showcase": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=mars-showcase\"",
     "demo:amazon": "vite --config examples/vite.config.ts --host 0.0.0.0 --open \"/?scene=amazon-river\"",
     "lint:arch": "node tools/lint-arch.mjs",
+    "api:check": "node tools/api-audit.mjs",
+    "api:update": "node tools/api-audit.mjs --write",
     "docs:check": "tsx tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",
