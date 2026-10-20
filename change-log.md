@@ -26662,6 +26662,150 @@ JSON array below; agents maintain it by hand until then.
     "tests/tools/selrun.test.ts",
     "tests/vehicles/vehicles.test.ts"
   ]
+},
+{
+  "id": "2150",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/scenes/offroadQuad.ts",
+  "what": "Deleted. The two-stroke sport quad module (`buildQuadSources`, the wheel assemblies, `dims`, the tyre-width constants) is removed with the vehicle it built.",
+  "why": "The demo is going back to a truck, and an unused geometry module in examples/ is dead weight. It stays in git history at PR #137 (4ed667b) if a quad/ATV is wanted again."
+},
+{
+  "id": "2151",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/src/scenes/offroadHillScene.ts",
+  "what": "The vehicle block is the UTV again: the box-built tub, hood, bed, cab (roof, visor, four pillars, dash, windscreen frame, seat), cylinder tyres and rims laid along the axle, and the 1250 kg config (wheelbase 2.35, track 1.45, wheelRadius 0.36, cgHeight 0.55, mu 1.0, rollingResistance 0.03, maxBrakeTorque 3200, suspensionRest 0.36, suspensionTravel 0.22 - the last two now passed as options instead of mutating `vehicle.config` after construction) with the engine's and gearbox's defaults. Camera and chrome sized back to the machine: chase 6.8 m back / 2.6 m up / 1.6 m of terrain clearance, look 3 m ahead at +1.1, orbit distance 10 (min 3, max 80, groundClearance 1.2), followTarget +1, the in-cab eye at the driver's seat (-0.22, 1.25, -0.05), the steering-wheel touch control at its default 135 deg / 10 per second, the four-stroke engine voice, and the controls hint back to 'drive' and 'in-cab'. Kept: the rate-limited steer/throttle/brake, the vegetation distance and shadow rings, the thinner backdrop scatter, the 40/55/70 m shadow range, the rpm line in the overlay and `vegetation.casting` in the snapshot type.",
+  "why": "The request was to switch the off-road demo's vehicle back to a truck. The lag fix and the handling fix were separate asks and are not tied to the quad, so they stay: the ramps suit a car as much as a quad, and the forest's cost was the shadow pass either way."
+},
+{
+  "id": "2152",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "examples/index.html",
+  "what": "Back to the pre-quad state: `#offroad-wheel` is the steering-wheel SVG in a 156 px circle with the 'Steering wheel. Drag around to steer.' label, RESET says 'Put the car back on the track', and the scene option is 'Off-road Hill Course (autumn)'. The file is byte-identical to 0ebef0e again.",
+  "why": "The UTV has a steering wheel, so handlebars in the corner would contradict it. The control is a drawing, so only the drawing had to change back."
+},
+{
+  "id": "2153",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/examples/offroadHillScene.test.ts",
+  "what": "Rewritten for the UTV (9 checks): the body's parts and four cab pillars under one root with no `quad-` names left, the config numbers, wheels as root entities sharing one tyre and one rim geometry, rate-limited steering and its faster return, ramped throttle with a pull-away under the rev limit, braking from speed with ABS modulating, a handbrake slide on the driven rears, the forest's distance and shadow rings with a caster count under 300, the snapshot's `casting`, the chase and in-cab cameras, course placement and weather. Dropped with the vehicle: the quad geometry group and the two-stroke band/gearing cases. Coverage claims fall from 11 to 9 (offroadQuad.ts and meshKit.ts no longer covered here).",
+  "why": "The suite has to test the machine the demo actually carries; the two-stroke and light-machine behaviour stays pinned where it belongs - the audio and vehicle suites."
+},
+{
+  "id": "2154",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "tests/tools/selrun.test.ts",
+  "what": "Coverage claims move 1059 -> 1057 (the `check OK` regex included); the suite count stays 153.",
+  "why": "The off-road suite covers two fewer files now that the quad module is gone."
+},
+{
+  "id": "2155",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "docs/VEGETATION.md",
+  "what": "The touch section says the control is a drawing a scene can dress for its machine: `#offroad-wheel` is a steering wheel for the UTV, and the same gesture would steer handlebars (`maxAngle: 45`, `returnRate: 14`) on a quad or bike. The shadow-ring documentation and the measured off-road numbers are unchanged.",
+  "why": "The handlebars paragraph described a demo that no longer exists, but the capability (and the numbers) is worth keeping documented."
+},
+{
+  "id": "2156",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "docs/AUDIO.md",
+  "what": "The two-stroke paragraph keeps the `strokes: 2 | 4` contract and drops the claim that the off-road hill demo runs it, noting instead that no demo ships a two-stroke at the moment.",
+  "why": "The option is engine capability that stays tested; the doc should not point at a scene that no longer uses it."
+},
+{
+  "id": "2157",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "docs/VEHICLES.md",
+  "what": "'Light machines: quads, ATVs, bikes' reframes the 265 kg quad as a worked example rather than the off-road demo's vehicle, and notes that the demo's input rates suit a car as much as a quad.",
+  "why": "The options and the reasoning behind them are still the useful part; only the claim about which demo rides them had to change."
+},
+{
+  "id": "2158",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "mnemosyne.md",
+  "what": "New entry: the quad is gone and the UTV is back, `offroadQuad.ts` is deleted (the earlier entry describing it is history), what stayed and why, the reminder that reverting a scene's vehicle is mostly camera and chrome, and the sandbox facts (no node_modules/engine/dist until setup-deps, shallow clone until `git fetch --depth`).",
+  "why": "Session memory - the next session will read the quad entry above and needs to know it no longer describes the tree."
+},
+{
+  "id": "2159",
+  "date": "2026-10-20T01:47:42Z",
+  "type": "change",
+  "pr": null,
+  "branch": "arena/00627ca3-forge-engine",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "file": "change-log.md",
+  "what": "Appends the per-file `change` entries for this branch and the `pr-merge` summary for the PR.",
+  "why": "Maintenance rule: one entry per file changed, plus a pr-merge entry before the merge."
+},
+{
+  "id": "2160",
+  "date": "2026-10-20T01:52:10Z",
+  "type": "pr-merge",
+  "pr": 138,
+  "branch": "arena/00627ca3-forge-engine",
+  "base": "main",
+  "title": "Off-road demo: back to the truck (keeps the culling and handling fixes)",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Switches the off-road hill demo's vehicle back from PR #137's two-stroke sport quad to the UTV it had: the box-built tub, hood, bed and cab (roof, visor, four pillars, dash, windscreen frame, seat), cylinder tyres and rims laid along the axle, and the 1250 kg config (wheelbase 2.35, track 1.45, wheelRadius 0.36, cgHeight 0.55, mu 1.0, rollingResistance 0.03, maxBrakeTorque 3200, suspensionRest 0.36 and suspensionTravel 0.22 - the last two now passed as options instead of written into vehicle.config after construction) on the engine's and gearbox's defaults. examples/src/scenes/offroadQuad.ts is deleted (it stays in history at 4ed667b). Everything sized to the machine goes back with it: chase camera 6.8 m back / 2.6 m up / 1.6 m of terrain clearance, orbit distance 10 (min 3, max 80, groundClearance 1.2), followTarget +1, the in-cab eye at the driver's seat, the steering-wheel touch control at its default 135 deg and returnRate 10, the default four-stroke engine voice, the 'drive'/'in-cab' wording, and examples/index.html byte-identical to 0ebef0e. Deliberately kept, because none of it was about the quad: the lag fix (VegetationModel.shadowDistance with Instance.casting and stats_.casting, tree rings 16/22/30 lod / 70/105/145 max / 26/38/52 shadow, bushes 45/70/100 + 28/38/48, the thinner backdrop scatter, the 40/55/70 m scene shadow range, and Renderer.collectBatches skipping the BVH refinement when classifyAABB says Inside - measured at the spawn on the mock GPU, high tier, visible renderables 6705 -> 2813 and casters -> 664); the handling fix (rate-limited input: steer 4.2/s toward lock and 6.5/s back to centre, throttle 5.5/s up and 9/s down, brake 8/s and 10/s, since instant full lock from a digital key darts in a UTV too); and every engine capability built for the quad, all defaulting to the old behaviour - VehicleAudioOptions.strokes and the VehicleOptions fields (inertiaYaw/Pitch/Roll, angularDamping, wheelInertia, suspensionRest/Travel, maxSteerAngle, handbrakeTorque, lsdBias, tcSlip, tcStrength, efficiency). Also kept: the rpm line in the overlay, the corrected controls hint, and vegetation.casting in the snapshot. Tests: the off-road suite is rewritten for the UTV (9 checks - body assembly and config, wheels as root entities sharing one tyre and rim geometry, the input ramps, a pull-away under the rev limit, braking from speed with ABS modulating, a handbrake slide on the driven rears, the forest's rings with casters under 300, the snapshot's casting, the chase and in-cab cameras, course placement and weather); the quad geometry and two-stroke cases go with the vehicle and that behaviour stays pinned in the audio and vehicle suites. The selrun catalog is 153 suites / 1057 coverage claims. Docs updated so nothing points at a scene that no longer exists (VEGETATION.md, AUDIO.md, VEHICLES.md). Gates green: build, typecheck, lint:arch, selrun check, docs:check, npm test (153/153) and check:wgsl.",
+  "files": [
+    "change-log.md",
+    "docs/AUDIO.md",
+    "docs/VEGETATION.md",
+    "docs/VEHICLES.md",
+    "examples/index.html",
+    "examples/src/scenes/offroadHillScene.ts",
+    "examples/src/scenes/offroadQuad.ts",
+    "mnemosyne.md",
+    "tests/examples/offroadHillScene.test.ts",
+    "tests/tools/selrun.test.ts"
+  ]
 }
 ]
 ```

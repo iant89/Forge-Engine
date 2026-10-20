@@ -102,7 +102,8 @@ its wheelbase needs its own numbers, so every one of those is an option: `inerti
 `suspensionTravel`, `maxSteerAngle`, `handbrakeTorque`, `lsdBias`, `tcSlip`, `tcStrength`,
 `efficiency`.
 
-What they mean on the 265 kg two-stroke sport quad the off-road hill demo rides:
+What they mean on a 265 kg two-stroke sport quad (a worked example — the off-road hill demo briefly
+rode one before going back to its UTV, and the options are what made it drivable):
 
 * **Inertias and damping.** `78 / 42 / 26 kg·m²` with `angularDamping 4.5`. The mass-scaled car
   numbers would still be plausible here (238 yaw) — the problem is the *ratio* to a 1.28 m
@@ -129,8 +130,9 @@ Two things stay the **scene's** job. The body has to be authored off the ground 
 `staticCompression = mass·g/(4·springRate)` (0.0625 m here). And digital keys need rate-limiting
 before they reach `vehicle.input` — instant full lock from a keypress is what makes a light machine
 dart. The off-road demo ramps steer at 4.2/s toward lock and 6.5/s back to centre, throttle 5.5/s up
-and 9/s down, brake 8/s and 10/s. Pinned by `tests/vehicles/vehicles.test.ts` (options honoured,
-defaults unchanged) and `tests/examples/offroadHillScene.test.ts` (the ramps, the band, the brakes).
+and 9/s down, brake 8/s and 10/s — rates that suit a car as much as a quad. Pinned by
+`tests/vehicles/vehicles.test.ts` (options honoured, defaults unchanged) and
+`tests/examples/offroadHillScene.test.ts` (the ramps, the brakes, the handbrake slide).
 
 ## Wheel visuals are suspension-anchored
 
