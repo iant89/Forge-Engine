@@ -303,3 +303,12 @@ counter). It also runs on real WebGPU with zero GPU errors.
 Building it found two engine bugs that the tests now pin:
 - A `Transform` added inside a system lost the pose set before the add was applied.
 - Changes made on fixed step k weren't visible on step k+1 within the same frame.
+
+That scene stays as it is: small, scripts-only, the criterion itself. The playable game it grew into
+— twelve waves, four drone types, six upgrades, three abilities, an engine-UI HUD, particles and
+procedural sound — lives at `?scene=beacon` and is documented in
+[BEACON-DEFENSE.md](BEACON-DEFENSE.md). Its rules are scripts against the same public API; the arena,
+the HUD and the sound are the stage around them, and the two halves only exchange typed events. It
+found one more determinism rule worth stating here: a spawn that a rule depends on must happen inside
+the step that causes it, because *posted* events are flushed at the start of every phase and so their
+delivery point moves with the frame's step count.
