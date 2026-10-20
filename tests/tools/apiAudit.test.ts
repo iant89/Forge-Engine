@@ -3,6 +3,7 @@
  * @group unit
  * @covers .github/workflows/ci.yml
  * @covers docs/API.md
+ * @covers engine/api-approvals.json
  * @covers engine/api-surface.json
  * @covers engine/package.json
  * @covers engine/README.md
@@ -12,7 +13,7 @@
  * @covers package.json
  * @covers README.md
  * @covers tools/api-audit.mjs
- * @desc Phase 27.1 root-only API classification plus direct and transitive declaration-contract drift gates
+ * @desc Phase 27.1 root-only contracts plus separately reviewed, hash-bound per-symbol approvals
  */
 
 export const suite = {
@@ -21,6 +22,7 @@ export const suite = {
   covers: [
     ".github/workflows/ci.yml",
     "docs/API.md",
+    "engine/api-approvals.json",
     "engine/api-surface.json",
     "engine/package.json",
     "engine/README.md",
@@ -31,7 +33,7 @@ export const suite = {
     "README.md",
     "tools/api-audit.mjs",
   ],
-  desc: "Phase 27.1 root-only API classification plus direct and transitive declaration-contract drift gates",
+  desc: "Phase 27.1 root-only contracts plus separately reviewed, hash-bound per-symbol approvals",
 };
 
 import assert from "node:assert/strict";
@@ -70,13 +72,45 @@ interface ApiSurface {
   exports: ApiExportRow[];
 }
 
+interface ApiApprovals {
+  schema: string;
+  package: string;
+  surfaceSchema: string;
+  signatureFormat: string;
+  policy: string;
+  counts: {
+    approved: number;
+    pendingPublic: number;
+    experimental: number;
+    deprecated: number;
+  };
+  reviews: Array<{
+    id: string;
+    decision: string;
+    summary: string;
+    evidence: string[];
+  }>;
+  approvals: Array<{
+    name: string;
+    kind: ApiExportRow["kind"];
+    declarationHash: string;
+    contractHash: string;
+    review: string;
+  }>;
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const tool = path.join(root, "tools", "api-audit.mjs");
 const snapshotFile = path.join(root, "engine", "api-surface.json");
+const approvalsFile = path.join(root, "engine", "api-approvals.json");
 const temporaryDirectories: string[] = [];
 
 function snapshot(): ApiSurface {
   return JSON.parse(fs.readFileSync(snapshotFile, "utf8")) as ApiSurface;
+}
+
+function approvals(): ApiApprovals {
+  return JSON.parse(fs.readFileSync(approvalsFile, "utf8")) as ApiApprovals;
 }
 
 function run(...args: string[]): { status: number | null; stdout: string; stderr: string } {
@@ -90,6 +124,12 @@ function temporarySnapshot(): string {
   return path.join(directory, "api-surface.json");
 }
 
+function temporaryApprovalLedger(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "forge-api-approval-"));
+  temporaryDirectories.push(directory);
+  return path.join(directory, "api-approvals.json");
+}
+
 function temporaryRepository(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "forge-api-repository-"));
   temporaryDirectories.push(directory);
@@ -98,8 +138,13 @@ function temporaryRepository(): string {
   for (const file of ["package.json", "tsconfig.base.json"]) {
     fs.copyFileSync(path.join(root, file), path.join(directory, file));
   }
-  for (const file of ["api-surface.json", "package.json", "tsconfig.json"]) {
+  for (const file of ["api-approvals.json", "api-surface.json", "package.json", "tsconfig.json"]) {
     fs.copyFileSync(path.join(root, "engine", file), path.join(directory, "engine", file));
+  }
+  for (const file of ["docs/API.md", "tests/core/errors.test.ts"]) {
+    const destination = path.join(directory, file);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(root, file), destination);
   }
   fs.symlinkSync(path.join(root, "node_modules"), path.join(directory, "node_modules"), "dir");
   return directory;
@@ -117,9 +162,11 @@ group("Phase 27 public API audit", () => {
   let staleResult = pendingResult();
   let directDriftResult = pendingResult();
   let transitiveDriftResult = pendingResult();
+  let approvalDriftResult = pendingResult();
   let writeResult = pendingResult();
   let badOptionResult = pendingResult();
   let writtenSnapshotText = "";
+  let preservedApprovalText = "";
 
   // Declaration emit is intentionally source-derived and takes several seconds. Prepare each CLI
   // scenario once under an explicit hook budget so a loaded CI runner cannot trip selrun's 20 s
@@ -170,10 +217,29 @@ group("Phase 27 public API audit", () => {
       path.join(transitiveRepository, "engine", "api-surface.json"),
     );
 
+    const approvalRepository = temporaryRepository();
+    const errorsFile = path.join(approvalRepository, "engine", "src", "core", "errors.ts");
+    const errorsSource = fs.readFileSync(errorsFile, "utf8");
+    const errorsMarker = "  readonly details?: unknown;";
+    assert.ok(errorsSource.includes(errorsMarker));
+    fs.writeFileSync(
+      errorsFile,
+      errorsSource.replace(errorsMarker, `${errorsMarker}\n  readonly phase27ApprovalProbe?: number;`),
+    );
+    approvalDriftResult = run(
+      "--root",
+      approvalRepository,
+      "--snapshot",
+      path.join(approvalRepository, "engine", "api-surface.json"),
+    );
+
     const writeFile = temporarySnapshot();
     fs.writeFileSync(writeFile, "{}\n");
-    writeResult = run("--write", "--snapshot", writeFile);
+    const manualApprovalFile = temporaryApprovalLedger();
+    fs.writeFileSync(manualApprovalFile, "manual approval data is never generated\n");
+    writeResult = run("--write", "--snapshot", writeFile, "--approvals", manualApprovalFile);
     writtenSnapshotText = fs.readFileSync(writeFile, "utf8");
+    preservedApprovalText = fs.readFileSync(manualApprovalFile, "utf8");
     badOptionResult = run("--not-an-api-option");
   }, 180_000);
 
@@ -227,6 +293,58 @@ group("Phase 27 public API audit", () => {
     );
   });
 
+  test("binds the first explicit approval batch to separately reviewed exact contracts", () => {
+    const ledger = approvals();
+    assert.equal(ledger.schema, "forge.api-approvals/1");
+    assert.equal(ledger.package, "@forge/engine");
+    assert.equal(ledger.surfaceSchema, "forge.api-surface/2");
+    assert.equal(ledger.signatureFormat, "forge.typescript-declaration-signature/1");
+    assert.equal(ledger.policy, "forge.api-approval-policy/1");
+    assert.deepEqual(ledger.counts, {
+      approved: 17,
+      pendingPublic: 2_154,
+      experimental: 9,
+      deprecated: 0,
+    });
+    assert.deepEqual(
+      ledger.reviews.map(({ id, decision }) => ({ id, decision })),
+      [{ id: "core-errors/1", decision: "approved-1.0-candidate" }],
+    );
+    assert.deepEqual(
+      ledger.approvals.map((entry) => entry.name),
+      [
+        "AssetError",
+        "CapabilityError",
+        "ForgeError",
+        "InlineOnlyError",
+        "InternalError",
+        "ObjectDisposedError",
+        "ResourceLifecycleError",
+        "UnsupportedPlatformError",
+        "UsageError",
+        "assert",
+        "assertDefined",
+        "assertInRange",
+        "assertInt",
+        "assertNever",
+        "assertPositive",
+        "assertionsEnabledValue",
+        "setAssertionsEnabled",
+      ],
+    );
+    for (const approval of ledger.approvals) {
+      const current = byName(snapshot(), approval.name);
+      assert.equal(current.stability, "public");
+      assert.equal(approval.kind, current.kind);
+      assert.equal(approval.declarationHash, current.declarationHash);
+      assert.equal(approval.contractHash, current.contractHash);
+      assert.equal(approval.review, "core-errors/1");
+    }
+    assert.equal(approvalDriftResult.status, 1);
+    assert.match(approvalDriftResult.stderr, /ForgeError approved declarationHash no longer matches/);
+    assert.match(approvalDriftResult.stderr, /re-review the symbol before updating its approval/);
+  });
+
   test("keeps the package, documentation, scripts and CI on the root-only audited contract", () => {
     const enginePackage = JSON.parse(fs.readFileSync(path.join(root, "engine", "package.json"), "utf8"));
     const rootPackage = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -242,13 +360,18 @@ group("Phase 27 public API audit", () => {
     const docs = fs.readFileSync(path.join(root, "docs", "API.md"), "utf8");
     assert.match(docs, /2,180 named exports/);
     assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
+    assert.match(docs, /`engine\/api-approvals\.json`/);
+    assert.match(docs, /17\/2,171 public candidates/);
     assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
   });
 
   test("passes the reviewed snapshot", () => {
     assert.equal(cleanResult.status, 0, cleanResult.stderr);
-    assert.match(cleanResult.stdout, /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\)/);
+    assert.match(
+      cleanResult.stdout,
+      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 17\/2,171 public candidates approved \(2,154 pending\)/,
+    );
   });
 
   test("rejects a semantic drift with an actionable diff", () => {
@@ -272,6 +395,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(writeResult.status, 0, writeResult.stderr);
     assert.match(writeResult.stdout, /api:update OK — wrote 2,180 exports/);
     assert.equal(writtenSnapshotText, fs.readFileSync(snapshotFile, "utf8"));
+    assert.equal(preservedApprovalText, "manual approval data is never generated\n");
 
     assert.equal(badOptionResult.status, 2);
     assert.match(badOptionResult.stderr, /unknown option/);

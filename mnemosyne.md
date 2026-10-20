@@ -2961,3 +2961,22 @@ Working with the software rasterizer (SwiftShader) on this box:
   change needs a human decision. Runtime meaning, serialization/shader ABI, external ambient type
   internals, member-level deprecation policy and approval of the 2,171 public candidates remain open;
   normal documentation and implementation-body edits intentionally do not churn the hashes.
+
+## 2026-10-20 — Phase 27.1: approvals are manual, exact-contract decisions with runtime evidence
+
+* **Keep decisions out of the generated surface.** `engine/api-approvals.json` is a separate
+  `forge.api-approvals/1` ledger that `api:update` never creates or rewrites. Each approved name binds
+  a named human review to its public kind plus exact direct and transitive hashes. The API gate checks
+  canonical ordering, review references, approved/pending counts and current-contract equality; a
+  later kind, stability or declaration change makes the old decision stale instead of letting a
+  regenerated surface silently bless it.
+* **Start with one inspectable module, not a bulk claim.** `core-errors/1` reviews all 17 package-root
+  names from `core/errors.ts`: nine typed errors and eight assertion helpers. Their declarations are
+  hash-bound, while `tests/core/errors.test.ts` independently pins error inheritance, machine codes,
+  payloads, messages, guard boundaries and the assertion throw/report switch through the package
+  root. This is the first bounded 1.0-candidate decision, not approval by export proximity.
+* **Approval is not release or a compatibility oracle.** The ledger says the inspected contract is a
+  supported 1.0 candidate and forces explicit re-review on drift. It does not automatically call a
+  future change additive or breaking, settle semver/deprecation policy, or approve the remaining
+  2,154 public candidates. API 1.0, later Phase 27 documentation/examples/migration/extensions and
+  the Phase 27 exit criterion remain open.

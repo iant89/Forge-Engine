@@ -9,8 +9,9 @@
  * why `registerComponent` ids are stable — the barrel always imports them in this order.
  *
  * Phase 27 pins every resolved name, type/value kind, stability tag, direct declaration and
- * transitive engine-local type contract in `engine/api-surface.json`. Deliberate changes require
- * `npm run api:update` plus review; see `docs/API.md`.
+ * transitive engine-local type contract in `engine/api-surface.json`. Separately reviewed candidates
+ * live in `engine/api-approvals.json`, which `api:update` never writes. Deliberate changes require
+ * review of both affected records; see `docs/API.md`.
  */
 
 // Math

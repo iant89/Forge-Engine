@@ -1,0 +1,146 @@
+{
+  "schema": "forge.api-approvals/1",
+  "package": "@forge/engine",
+  "surfaceSchema": "forge.api-surface/2",
+  "signatureFormat": "forge.typescript-declaration-signature/1",
+  "policy": "forge.api-approval-policy/1",
+  "counts": {
+    "approved": 17,
+    "pendingPublic": 2154,
+    "experimental": 9,
+    "deprecated": 0
+  },
+  "reviews": [
+    {
+      "id": "core-errors/1",
+      "decision": "approved-1.0-candidate",
+      "summary": "Approve the public error taxonomy and assertion helpers as the first bounded 1.0-candidate review batch; runtime error codes, inheritance, details and assertion behavior are pinned by the cited suite.",
+      "evidence": [
+        "docs/API.md",
+        "engine/src/core/errors.ts",
+        "tests/core/errors.test.ts"
+      ]
+    }
+  ],
+  "approvals": [
+    {
+      "name": "AssetError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:574b3d2b8ba1584858148a3dd0b6892bdaf446c9f5a2a79eb1a836130b534bb7",
+      "contractHash": "sha256:76dd28b2758ac4f1c762c91dbfcfa0376e54055c4bf9b6fb249e194762eb90cf",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "CapabilityError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:7031c5a5c237b8596ccacbdee83794adea78950834f3afe9a1f7fec18cef2ece",
+      "contractHash": "sha256:009ae21722e1f82f4e174e73be3d739cf668a79dca8bc6c77d08523cac485929",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "ForgeError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:e8aa762ae494e1eecdf863d23dda2717a492a4680f4ca04ccb105d7a83a8b80b",
+      "contractHash": "sha256:0b543bc0d6c9e4eb8cb4365613c8463a66970f78e9c9d47a42f7efd7ac53befe",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "InlineOnlyError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:82df3b314cd5e83d4a4c02141ccc0942b2a2137bf1fb65336429ed33231ecac9",
+      "contractHash": "sha256:cf6a380cfe55a55ce76b5573c1546e1445d8687a66df1b9c0881805039b6e896",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "InternalError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:24cc2f8b74957be11167d00beb5fb763923ef8687cd2a64dd25cd078339e9a4f",
+      "contractHash": "sha256:8bf91307077698e195fadfc61608ce656f624a4f6dd7705b9fb4f4f96233ebb7",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "ObjectDisposedError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:2979031c86ee2d3e7273d919e9ad08e20712419e0708c45be0ce998be98d1ea7",
+      "contractHash": "sha256:181e0081f3eca577fe04386bf56c532852a5bf93cb2ddc64b899adaf6fce3f4d",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "ResourceLifecycleError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:a64ad7bac18db6567666acd2f8b1ec9f10a4818e0864ca0737e14190c5168425",
+      "contractHash": "sha256:3f49875ab81a9bdb93b4a3407c0a828a3eab502d034582a3e55a4ec8286068b0",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "UnsupportedPlatformError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:3286a1218b31307fcef3cfecbd8a40a92f5d9e9805bea2da85e7d988b78a4e17",
+      "contractHash": "sha256:9931b41a43bfa276fba547c1afaa4e12245adc6b92c87beecaa89dccba7a4502",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "UsageError",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:99c1cab658912fdda5f5a150562ec24a99d70b45df3f7ef24672d437b593e2bb",
+      "contractHash": "sha256:317db9a71b038c5a2e42171e887e4955367449c621069d9227b4287d09db3724",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assert",
+      "kind": "value",
+      "declarationHash": "sha256:47d005fc76530a2341b5fac146a201f952a227e7c800016d7ebef6b0ad9d27ac",
+      "contractHash": "sha256:ffdb789c40b6d98d50659dbc9ff1d55c29d87d2b2b55b460a206e00329bcc3e1",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertDefined",
+      "kind": "value",
+      "declarationHash": "sha256:43976679abaa635446a4db6d8ab1f4ec72cacc349dc0423b2b252efc696aa37c",
+      "contractHash": "sha256:88bf7df7a3e2436281d03c676785ea1f17cc2774bae8b8f79828bda90e3f2c1e",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertInRange",
+      "kind": "value",
+      "declarationHash": "sha256:b14fcf61e405211d6dc195dcadc1f3ed5016703581c9597112d378ba319edef1",
+      "contractHash": "sha256:7ec21982843ecd0298cbf7b411c608bd58cc3d22c6533ec6f3405a906846eb0b",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertInt",
+      "kind": "value",
+      "declarationHash": "sha256:98243fc111f1fce412014f897ba58323d3dc2fda418b34f9ff27a1b41ee933f1",
+      "contractHash": "sha256:760e241649b6b096dd44543ad332304cff75ef59d1b5d3d07310141824aba660",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertNever",
+      "kind": "value",
+      "declarationHash": "sha256:ef4c80c3d5a82f0a9aa38f1ef1a6a98c581c25f9323a09f10690e41aa5f5cea3",
+      "contractHash": "sha256:05b0fcdc6ff401612df2dcbbbb105a7cf5592bb2526ed675383f87e4722a0575",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertPositive",
+      "kind": "value",
+      "declarationHash": "sha256:5fecb0baad1c31da4bca44a3ba54a257422406b0e208bbcd0a96448a5c038f1a",
+      "contractHash": "sha256:51256bb2a0636316615ba93552861d083169ca4e37462326a927f43de81b61e9",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "assertionsEnabledValue",
+      "kind": "value",
+      "declarationHash": "sha256:6e29a1e73bdcd682cf678f7c15dd8d40cfc84ca62f3f16b7cb24e7b904a15bf5",
+      "contractHash": "sha256:e5ceb77c2ef1d89231cf4f67e6e45b6200ee98ffc2756fee5c7b6b4c3803eecc",
+      "review": "core-errors/1"
+    },
+    {
+      "name": "setAssertionsEnabled",
+      "kind": "value",
+      "declarationHash": "sha256:ddb7fc6c546cf8799e707e6ea6645b6bfe655abe0cb8c2a2d12cc76750dbe98f",
+      "contractHash": "sha256:9ace45772c9389ceae35ce16d83ea809b4672a72f95fc0d94a1cf357853154b4",
+      "review": "core-errors/1"
+    }
+  ]
+}

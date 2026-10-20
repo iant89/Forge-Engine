@@ -6,13 +6,16 @@
  * resolved exports of `engine/src/index.ts`, classifies every top-level name, emits the declarations
  * consumers receive, and compares that contract with the reviewed `engine/api-surface.json`
  * snapshot. It deliberately omits implementation paths and function bodies while fingerprinting
- * direct declarations and their engine-local type dependencies.
+ * direct declarations and their engine-local type dependencies. A separate, manually reviewed
+ * approval ledger binds approved 1.0 candidates to the exact declaration contracts that were
+ * inspected; regenerating the surface can never grant or refresh an approval.
  *
  * Usage:
  *   npm run api:check
  *   npm run api:update
  *   node tools/api-audit.mjs --json
  *   node tools/api-audit.mjs --snapshot /tmp/surface.json [--write]
+ *   node tools/api-audit.mjs --approvals /tmp/approvals.json
  *   node tools/api-audit.mjs --root /tmp/forge-copy
  */
 
@@ -24,6 +27,9 @@ import ts from "typescript";
 
 export const API_SURFACE_SCHEMA = "forge.api-surface/2";
 export const API_SIGNATURE_FORMAT = "forge.typescript-declaration-signature/1";
+export const API_APPROVAL_SCHEMA = "forge.api-approvals/1";
+export const API_APPROVAL_POLICY = "forge.api-approval-policy/1";
+export const API_APPROVAL_DECISION = "approved-1.0-candidate";
 export const API_STABILITIES = Object.freeze(["public", "experimental", "deprecated"]);
 export const API_KINDS = Object.freeze(["type", "value", "type-and-value"]);
 
@@ -470,6 +476,177 @@ export function canonicalApiSurface(surface) {
   return `${JSON.stringify(surface, null, 2)}\n`;
 }
 
+export function canonicalApiApprovals(approvals) {
+  return `${JSON.stringify(approvals, null, 2)}\n`;
+}
+
+function validateObjectKeys(value, expected, label, failures) {
+  const actual = Object.keys(value).sort(compareText);
+  const wanted = [...expected].sort(compareText);
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
+    const missing = wanted.filter((key) => !actual.includes(key));
+    const unknown = actual.filter((key) => !wanted.includes(key));
+    const details = [
+      missing.length > 0 ? `missing ${missing.join(", ")}` : "",
+      unknown.length > 0 ? `unknown ${unknown.join(", ")}` : "",
+    ].filter(Boolean).join("; ");
+    failures.push(`${label} fields are invalid${details ? ` (${details})` : ""}`);
+  }
+}
+
+function approvalCountsFor(surface, approvals) {
+  return {
+    approved: approvals.length,
+    pendingPublic: surface.counts.public - approvals.length,
+    experimental: surface.counts.experimental,
+    deprecated: surface.counts.deprecated,
+  };
+}
+
+/**
+ * Validate the manual approval ledger against the current resolved surface.
+ *
+ * Approval is intentionally separate from `api:update`: a row means a reviewer inspected that
+ * exact public declaration and transitive contract under a named review batch. Any subsequent
+ * contract or classification drift makes the approval stale until it is reviewed explicitly.
+ */
+export function validateRecordedApprovals(approvals, surface, root = defaultRoot) {
+  const failures = [];
+  if (!approvals || typeof approvals !== "object" || Array.isArray(approvals)) {
+    return ["approval ledger root must be an object"];
+  }
+  validateObjectKeys(
+    approvals,
+    ["schema", "package", "surfaceSchema", "signatureFormat", "policy", "counts", "reviews", "approvals"],
+    "approval ledger",
+    failures,
+  );
+  if (approvals.schema !== API_APPROVAL_SCHEMA) failures.push(`approval ledger schema must be ${API_APPROVAL_SCHEMA}`);
+  if (approvals.package !== surface.package) failures.push(`approval ledger package must be ${surface.package}`);
+  if (approvals.surfaceSchema !== API_SURFACE_SCHEMA) failures.push(`approval ledger surfaceSchema must be ${API_SURFACE_SCHEMA}`);
+  if (approvals.signatureFormat !== API_SIGNATURE_FORMAT) {
+    failures.push(`approval ledger signatureFormat must be ${API_SIGNATURE_FORMAT}`);
+  }
+  if (approvals.policy !== API_APPROVAL_POLICY) failures.push(`approval ledger policy must be ${API_APPROVAL_POLICY}`);
+
+  const reviews = Array.isArray(approvals.reviews) ? approvals.reviews : [];
+  if (!Array.isArray(approvals.reviews)) failures.push("approval ledger reviews must be an array");
+  const reviewIds = new Set();
+  let previousReview = null;
+  for (const [index, review] of reviews.entries()) {
+    if (!review || typeof review !== "object" || Array.isArray(review)) {
+      failures.push(`approval review ${index} must be an object`);
+      continue;
+    }
+    validateObjectKeys(review, ["id", "decision", "summary", "evidence"], `approval review ${index}`, failures);
+    if (typeof review.id !== "string" || !/^[a-z0-9][a-z0-9.-]*\/[1-9][0-9]*$/.test(review.id)) {
+      failures.push(`approval review ${index} has an invalid id`);
+      continue;
+    }
+    if (reviewIds.has(review.id)) failures.push(`approval ledger repeats review ${review.id}`);
+    reviewIds.add(review.id);
+    if (previousReview !== null && compareText(previousReview, review.id) >= 0) {
+      failures.push(`approval reviews are not strictly sorted at ${review.id}`);
+    }
+    previousReview = review.id;
+    if (review.decision !== API_APPROVAL_DECISION) {
+      failures.push(`${review.id} has unknown decision ${JSON.stringify(review.decision)}`);
+    }
+    if (typeof review.summary !== "string" || review.summary.trim().length === 0) {
+      failures.push(`${review.id} must have a non-empty summary`);
+    }
+    const validEvidence = Array.isArray(review.evidence)
+      && review.evidence.length > 0
+      && review.evidence.every((item) => typeof item === "string" && item.length > 0)
+      && new Set(review.evidence).size === review.evidence.length;
+    if (!validEvidence) {
+      failures.push(`${review.id} must list unique non-empty evidence paths`);
+    } else {
+      for (const evidence of review.evidence) {
+        const normalized = path.normalize(evidence);
+        const evidencePath = path.resolve(root, normalized);
+        if (path.isAbsolute(evidence) || normalized === ".." || normalized.startsWith(`..${path.sep}`)) {
+          failures.push(`${review.id} evidence must be a repository-relative path: ${evidence}`);
+        } else if (!fs.existsSync(evidencePath) || !fs.statSync(evidencePath).isFile()) {
+          failures.push(`${review.id} evidence does not exist: ${evidence}`);
+        }
+      }
+    }
+  }
+
+  const rows = Array.isArray(approvals.approvals) ? approvals.approvals : [];
+  if (!Array.isArray(approvals.approvals)) failures.push("approval ledger approvals must be an array");
+  const surfaceByName = new Map(surface.exports.map((item) => [item.name, item]));
+  const names = new Set();
+  const usedReviews = new Set();
+  let previousName = null;
+  for (const [index, item] of rows.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      failures.push(`approval row ${index} must be an object`);
+      continue;
+    }
+    validateObjectKeys(
+      item,
+      ["name", "kind", "declarationHash", "contractHash", "review"],
+      `approval row ${index}`,
+      failures,
+    );
+    if (typeof item.name !== "string" || item.name.length === 0) {
+      failures.push(`approval row ${index} has no string name`);
+      continue;
+    }
+    if (names.has(item.name)) failures.push(`approval ledger repeats symbol ${item.name}`);
+    names.add(item.name);
+    if (previousName !== null && compareText(previousName, item.name) >= 0) {
+      failures.push(`approval rows are not strictly sorted at ${item.name}`);
+    }
+    previousName = item.name;
+    if (!API_KINDS.includes(item.kind)) failures.push(`${item.name} approval has unknown kind ${JSON.stringify(item.kind)}`);
+    if (!signatureHashPattern.test(item.declarationHash ?? "")) failures.push(`${item.name} approval has an invalid declarationHash`);
+    if (!signatureHashPattern.test(item.contractHash ?? "")) failures.push(`${item.name} approval has an invalid contractHash`);
+    if (typeof item.review !== "string" || !reviewIds.has(item.review)) {
+      failures.push(`${item.name} approval references unknown review ${JSON.stringify(item.review)}`);
+    } else {
+      usedReviews.add(item.review);
+    }
+
+    const current = surfaceByName.get(item.name);
+    if (!current) {
+      failures.push(`${item.name} is approved but no longer exported from @forge/engine`);
+      continue;
+    }
+    if (current.stability !== "public") {
+      failures.push(`${item.name} is approved but its current stability is ${current.stability}, not public`);
+    }
+    if (item.kind !== current.kind) failures.push(`${item.name} approved kind no longer matches the current API surface`);
+    if (item.declarationHash !== current.declarationHash) {
+      failures.push(`${item.name} approved declarationHash no longer matches the current API surface; re-review the symbol before updating its approval`);
+    }
+    if (item.contractHash !== current.contractHash) {
+      failures.push(`${item.name} approved contractHash no longer matches the current API surface; re-review the symbol before updating its approval`);
+    }
+  }
+  for (const reviewId of reviewIds) {
+    if (!usedReviews.has(reviewId)) failures.push(`${reviewId} has no approved symbols`);
+  }
+
+  if (!approvals.counts || typeof approvals.counts !== "object" || Array.isArray(approvals.counts)) {
+    failures.push("approval ledger counts must be an object");
+  } else {
+    validateObjectKeys(
+      approvals.counts,
+      ["approved", "pendingPublic", "experimental", "deprecated"],
+      "approval ledger counts",
+      failures,
+    );
+    const expectedCounts = approvalCountsFor(surface, rows);
+    if (JSON.stringify(approvals.counts) !== JSON.stringify(expectedCounts)) {
+      failures.push("approval ledger counts do not match the current API surface and approval rows");
+    }
+  }
+  return failures;
+}
+
 /** Validate a recorded surface independently of the current source tree. */
 export function validateRecordedSurface(surface) {
   const failures = [];
@@ -539,7 +716,7 @@ export function diffApiSurfaces(recorded, current) {
 }
 
 function parseArgs(argv) {
-  const options = { write: false, json: false, snapshot: null, root: defaultRoot, help: false };
+  const options = { write: false, json: false, snapshot: null, approvals: null, root: defaultRoot, help: false };
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (argument === "--write") options.write = true;
@@ -561,17 +738,26 @@ function parseArgs(argv) {
       const value = argument.slice("--snapshot=".length);
       if (!value) throw new ApiAuditError("--snapshot requires a path");
       options.snapshot = path.resolve(value);
+    } else if (argument === "--approvals") {
+      const value = argv[++index];
+      if (!value) throw new ApiAuditError("--approvals requires a path");
+      options.approvals = path.resolve(value);
+    } else if (argument.startsWith("--approvals=")) {
+      const value = argument.slice("--approvals=".length);
+      if (!value) throw new ApiAuditError("--approvals requires a path");
+      options.approvals = path.resolve(value);
     } else {
       throw new ApiAuditError(`unknown option: ${argument}`);
     }
   }
   if (options.write && options.json) throw new ApiAuditError("--write and --json cannot be combined");
   options.snapshot ??= path.join(options.root, "engine", "api-surface.json");
+  options.approvals ??= path.join(options.root, "engine", "api-approvals.json");
   return options;
 }
 
 function usage() {
-  return "Usage: node tools/api-audit.mjs [--write | --json] [--root PATH] [--snapshot PATH]";
+  return "Usage: node tools/api-audit.mjs [--write | --json] [--root PATH] [--snapshot PATH] [--approvals PATH]";
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -620,6 +806,28 @@ export function main(argv = process.argv.slice(2)) {
     console.error(`api:check FAILED — invalid API snapshot:\n  ${invalid.join("\n  ")}`);
     return 1;
   }
+
+  let approvals;
+  let approvalsText;
+  try {
+    approvalsText = fs.readFileSync(options.approvals, "utf8");
+    approvals = JSON.parse(approvalsText);
+  } catch (error) {
+    console.error(
+      `api:check FAILED — cannot read approval ledger ${options.approvals}: ${String(error)}\n`
+      + "The approval ledger is manual reviewed data and is not created by api:update.",
+    );
+    return 1;
+  }
+  const invalidApprovals = validateRecordedApprovals(approvals, current, options.root);
+  if (approvalsText !== canonicalApiApprovals(approvals)) {
+    invalidApprovals.push("approval ledger JSON formatting is not canonical");
+  }
+  if (invalidApprovals.length > 0) {
+    console.error(`api:check FAILED — invalid API approval ledger:\n  ${invalidApprovals.join("\n  ")}`);
+    return 1;
+  }
+
   const differences = diffApiSurfaces(recorded, current);
   if (differences.length > 0 || recordedText !== canonicalApiSurface(recorded)) {
     if (recordedText !== canonicalApiSurface(recorded)) differences.push("snapshot JSON formatting is not canonical");
@@ -629,7 +837,9 @@ export function main(argv = process.argv.slice(2)) {
   }
   console.log(
     `api:check OK — ${current.counts.total.toLocaleString("en-US")} exports `
-    + `(${current.counts.public.toLocaleString("en-US")} public, ${current.counts.experimental} experimental, ${current.counts.deprecated} deprecated); root-only boundary and declaration contracts intact.`,
+    + `(${current.counts.public.toLocaleString("en-US")} public, ${current.counts.experimental} experimental, ${current.counts.deprecated} deprecated); `
+    + `${approvals.counts.approved.toLocaleString("en-US")}/${current.counts.public.toLocaleString("en-US")} public candidates approved `
+    + `(${approvals.counts.pendingPublic.toLocaleString("en-US")} pending); root-only boundary, declaration contracts and approvals intact.`,
   );
   return 0;
 }
