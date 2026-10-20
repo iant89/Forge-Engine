@@ -26782,6 +26782,30 @@ JSON array below; agents maintain it by hand until then.
   "file": "change-log.md",
   "what": "Appends the per-file `change` entries for this branch and the `pr-merge` summary for the PR.",
   "why": "Maintenance rule: one entry per file changed, plus a pr-merge entry before the merge."
+},
+{
+  "id": "2160",
+  "date": "2026-10-20T01:52:10Z",
+  "type": "pr-merge",
+  "pr": 138,
+  "branch": "arena/00627ca3-forge-engine",
+  "base": "main",
+  "title": "Off-road demo: back to the truck (keeps the culling and handling fixes)",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Switches the off-road hill demo's vehicle back from PR #137's two-stroke sport quad to the UTV it had: the box-built tub, hood, bed and cab (roof, visor, four pillars, dash, windscreen frame, seat), cylinder tyres and rims laid along the axle, and the 1250 kg config (wheelbase 2.35, track 1.45, wheelRadius 0.36, cgHeight 0.55, mu 1.0, rollingResistance 0.03, maxBrakeTorque 3200, suspensionRest 0.36 and suspensionTravel 0.22 - the last two now passed as options instead of written into vehicle.config after construction) on the engine's and gearbox's defaults. examples/src/scenes/offroadQuad.ts is deleted (it stays in history at 4ed667b). Everything sized to the machine goes back with it: chase camera 6.8 m back / 2.6 m up / 1.6 m of terrain clearance, orbit distance 10 (min 3, max 80, groundClearance 1.2), followTarget +1, the in-cab eye at the driver's seat, the steering-wheel touch control at its default 135 deg and returnRate 10, the default four-stroke engine voice, the 'drive'/'in-cab' wording, and examples/index.html byte-identical to 0ebef0e. Deliberately kept, because none of it was about the quad: the lag fix (VegetationModel.shadowDistance with Instance.casting and stats_.casting, tree rings 16/22/30 lod / 70/105/145 max / 26/38/52 shadow, bushes 45/70/100 + 28/38/48, the thinner backdrop scatter, the 40/55/70 m scene shadow range, and Renderer.collectBatches skipping the BVH refinement when classifyAABB says Inside - measured at the spawn on the mock GPU, high tier, visible renderables 6705 -> 2813 and casters -> 664); the handling fix (rate-limited input: steer 4.2/s toward lock and 6.5/s back to centre, throttle 5.5/s up and 9/s down, brake 8/s and 10/s, since instant full lock from a digital key darts in a UTV too); and every engine capability built for the quad, all defaulting to the old behaviour - VehicleAudioOptions.strokes and the VehicleOptions fields (inertiaYaw/Pitch/Roll, angularDamping, wheelInertia, suspensionRest/Travel, maxSteerAngle, handbrakeTorque, lsdBias, tcSlip, tcStrength, efficiency). Also kept: the rpm line in the overlay, the corrected controls hint, and vegetation.casting in the snapshot. Tests: the off-road suite is rewritten for the UTV (9 checks - body assembly and config, wheels as root entities sharing one tyre and rim geometry, the input ramps, a pull-away under the rev limit, braking from speed with ABS modulating, a handbrake slide on the driven rears, the forest's rings with casters under 300, the snapshot's casting, the chase and in-cab cameras, course placement and weather); the quad geometry and two-stroke cases go with the vehicle and that behaviour stays pinned in the audio and vehicle suites. The selrun catalog is 153 suites / 1057 coverage claims. Docs updated so nothing points at a scene that no longer exists (VEGETATION.md, AUDIO.md, VEHICLES.md). Gates green: build, typecheck, lint:arch, selrun check, docs:check, npm test (153/153) and check:wgsl.",
+  "files": [
+    "change-log.md",
+    "docs/AUDIO.md",
+    "docs/VEGETATION.md",
+    "docs/VEHICLES.md",
+    "examples/index.html",
+    "examples/src/scenes/offroadHillScene.ts",
+    "examples/src/scenes/offroadQuad.ts",
+    "mnemosyne.md",
+    "tests/examples/offroadHillScene.test.ts",
+    "tests/tools/selrun.test.ts"
+  ]
 }
 ]
 ```
