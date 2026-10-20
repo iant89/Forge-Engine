@@ -3,8 +3,9 @@
 WebGPU-first 3D game and real-time simulation engine for the browser.
 
 > Forge is currently `0.1.x`. Phase 27 has started the API 1.0 audit; the root export surface is
-> machine-pinned through direct/transitive declaration fingerprints, but compatibility decisions,
-> complete reference documentation, migration policy, and the 1.0 extension contract are not finished.
+> machine-pinned through direct/transitive declaration fingerprints and 17 core error/assertion
+> symbols have completed a bounded review. The other 2,154 public candidates, complete reference
+> documentation, migration policy, and the 1.0 extension contract are not finished.
 
 ## Import
 
@@ -38,10 +39,12 @@ Top-level exports are classified as:
 The currently experimental names are the Phase 25 WASM-physics state/memory seam. Forge does not yet
 ship an executable WASM physics solver; JavaScript physics remains the production backend.
 
-The source repository contains the deterministic `engine/api-surface.json` audit and the full policy
-in `docs/API.md`. Direct and transitive declaration fingerprints now detect parameter/member/type
-changes, but a detected declaration is still only a 1.0 candidate: the gate does not decide whether a
-change is compatible or prove runtime semantics, and per-symbol approval remains open.
+The source repository contains the deterministic `engine/api-surface.json` audit, the separately
+reviewed `engine/api-approvals.json` ledger, and the full policy in `docs/API.md`. Direct and
+transitive declaration fingerprints detect parameter/member/type changes. Approval rows bind a named
+human review to exact hashes and become stale on contract drift; regenerating the surface cannot
+refresh them. Only the 17 core error/assertion symbols have been approved as 1.0 candidates so far,
+and the gate still does not decide compatibility or prove runtime semantics without separate evidence.
 
 ## Requirements
 

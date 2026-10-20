@@ -218,8 +218,9 @@ PHASE 26 - EDITOR
 
 PHASE 27 - ENGINE API 1.0
     [~] IN PROGRESS (the root-only package boundary and deterministic 2,180-export name/kind/
-        stability plus direct/transitive declaration-contract snapshot are CI-gated; compatibility
-        decisions, per-symbol approval, complete API docs/examples, migration/versioning/deprecation
+        stability plus direct/transitive declaration-contract snapshot are CI-gated; a separate
+        exact-contract ledger starts per-symbol review with 17 approved core error/assertion names,
+        while 2,154 public candidates, complete API docs/examples, migration/versioning/deprecation
         policy and extensions remain)
 
 
@@ -2845,9 +2846,10 @@ GOAL:
     [~] `@forge/engine` exposes only its package root; TypeScript resolves that barrel into a
         deterministic checked-in `forge.api-surface/2` snapshot of every name, type/value kind,
         stability label, direct declaration and transitive engine-local type contract. CI fails on
-        unreviewed additions, removals, renames, classifications or declaration drift.
-    [~] public — the 2,171 current package-root candidates and their emitted contracts are
-        baselined, not yet individually approved for 1.0 semantic compatibility.
+        unreviewed additions, removals, renames, classifications or declaration drift; a separate
+        `forge.api-approvals/1` ledger fails when an approved exact contract becomes stale.
+    [~] public — all 2,171 current package-root candidates are baselined; the first bounded review
+        approves the 17 error/assertion symbols from `core/errors.ts`, with 2,154 still pending.
     [~] internal — deep package paths are blocked, any root export tagged `@internal` fails the
         audit, and unexported declaration dependencies feed transitive contract hashes; a complete
         human review still remains.
@@ -2857,13 +2859,15 @@ GOAL:
         deprecated top-level exports and no finalized support window.
     [x] Add direct declaration-signature/member and transitive engine-local compatibility drift
         detection using body/comment/path-free TypeScript declaration emit.
-    [ ] Complete per-symbol approval and decide which detected changes are compatible for 1.0.
+    [~] Complete per-symbol approval and decide which detected changes are compatible for 1.0: the
+        separate non-generated ledger, exact-hash stale-approval gate and `core-errors/1` review are
+        complete for 17 names; 2,154 public candidates remain.
 
 
 27.2 API Documentation
 
     [~] `docs/API.md` and the published package README document the package boundary, stability
-        meanings, audit/update workflow and exact limits of the declaration-contract gate.
+        meanings, audit/update/approval workflow and exact limits of the declaration/approval gates.
         Comprehensive symbol/reference documentation remains.
 
 27.3 Examples

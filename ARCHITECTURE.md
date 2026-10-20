@@ -374,10 +374,14 @@ engine.start();
 `engine/api-surface.json` is the deterministic resolved snapshot of every top-level export name,
 type/value kind and public/experimental/deprecated label. Its direct declaration hashes cover emitted
 parameters, overloads, generics and members; transitive hashes also cover referenced engine-local
-helper declarations. `npm run api:check` rejects contract drift, a default export, an `@internal` leak,
-unexplained/conflicting stability tags, package/version drift and any package subpath export. This is
-still a pre-1.0 baseline: the gate detects but does not judge compatibility, approve each candidate,
-or prove runtime/serialization/shader semantics. See `docs/API.md` for the exact policy and limits.
+helper declarations. `engine/api-approvals.json` is deliberately separate, never-generated review
+data: a row binds a named human 1.0-candidate decision to those exact hashes, so `api:update` cannot
+grant approval and later contract drift makes the decision stale. `npm run api:check` rejects surface
+or approved-contract drift, malformed approval references/counts, a default export, an `@internal`
+leak, unexplained/conflicting stability tags, package/version drift and any package subpath export.
+This is still pre-1.0: only 17 core error/assertion symbols are approved, 2,154 public candidates
+remain, and neither hash file proves runtime/serialization/shader semantics. See `docs/API.md` for the
+exact policy and limits.
 
 ---
 
