@@ -59,8 +59,9 @@ A scene with no camera clears the swapchain in a single `forge.clear` pass and s
 rendered frame, so the HUD keeps ticking while a scene loads.
 
 `Renderer.stats` (also `engine.stats().render`) reports the frame that just ran: `drawCalls`,
-`triangles`, `instances`, `batches`, `culled`, `cullTested`, `cullFrustum`, `cullDistance`, `cullOccluded`
-(§4d; the device path reports them one frame late), `shadowsDrawn`, `shadowsCulled`, `shadowInstancesDrawn`, `shadowInstancesCulled`, `shadowCascades`, `spotShadowMaps`, `pointShadowMaps`,
+`triangles`, `instances`, `batches`, `culled`, `gpuDrivenBatches`, `gpuDrivenInstances`,
+`gpuDrivenOutside` (the Phase 24 handoff is current-frame exact), `cullTested`, `cullFrustum`,
+`cullDistance`, `cullOccluded` (§4d; device verdict counters report one frame late), `shadowsDrawn`, `shadowsCulled`, `shadowInstancesDrawn`, `shadowInstancesCulled`, `shadowCascades`, `spotShadowMaps`, `pointShadowMaps`,
 `hdr`, `bloomMips`, `sky`, `skySamples`, `depthPrepass`, `prepassDraws` (depth-only draws, not in
 `drawCalls`, like `shadowsDrawn`), `ssao`, `passes`, `culledPasses`, `transientTextures`,
 `physicalTextures`, `aliasedBytes`, `texturesCreated`, `clusteredLighting`, `lights` (every light in
@@ -520,6 +521,23 @@ visibility buffer the pass never wrote would draw the frame's culled batches as 
 said no. The twin has no depth buffer, so its occlusion bit is never set: HiZ is a device-only test,
 and the CPU arm is frustum + distance. Both write the same buffer, so the switch changes who does the
 arithmetic and no pixels.
+
+**Phase 24 world handoff.** `Renderable.gpuDrivenVisibility` changes who owns the *initial* frustum
+answer, not the culling algorithm. With resolved `objectCulling === "gpu"`, an opted-in opaque,
+non-overlay renderable on a camera-visible layer remains in the frame's batch/bounds set when the CPU
+pre-test says it is outside. The device test then writes its visibility word and, when indirect draws
+are enabled, zeroes its indirect instance count (direct mode consumes the visibility word in the
+vertex stage). Streamed terrain tiles and the horizon apron opt in; ordinary objects do not.
+Transparent/overlay ordering and camera layer masks remain CPU-authoritative, and explicit CPU mode
+(or the mock's `auto` resolution) retains the old early rejection exactly. If the compute pipeline is
+not ready, the zero-initialised visibility/CPU-seeded record keeps the object; hardware frustum
+clipping makes that conservative failure safe.
+
+The exact current-frame handoff is visible as `gpuDrivenBatches`, `gpuDrivenInstances` and
+`gpuDrivenOutside`; unlike the mapped device verdict counters, these need no readback. Mars carries
+those values plus recent object/population cull results in additive schema `forge.gpu-world/1`. This is
+a visibility-ownership step, not full GPU submission: the CPU still walks renderables, builds batches,
+issues the prepass and one draw/indirect call per batch, and uploads ordinary instance records.
 
 **The frame.** The cull passes land between `forge.prepass` and the SSAO chain: before the prepass the
 depth does not exist, and after `forge.main` a verdict would arrive a pass too late to be consumed.

@@ -11,6 +11,8 @@
 import type { EngineStats, FrameBreakdown } from "@forge/engine";
 
 export const MARS_REFERENCE_SCHEMA = "forge.mars-reference/1" as const;
+/** Additive Phase 24 workload diagnostics nested in the Mars reference snapshot. */
+export const GPU_WORLD_TELEMETRY_SCHEMA = "forge.gpu-world/1" as const;
 
 export interface MarsReferenceTraversalSample {
   dt: number;
@@ -149,6 +151,10 @@ export interface MarsReferenceSceneSample {
     debris: number;
   };
   traversal: MarsReferenceTraversal;
+  gpuWorld: {
+    objectCulling: "cpu" | "gpu";
+    indirectDraws: boolean;
+  };
 }
 
 export interface MarsReferenceTelemetry {
@@ -172,6 +178,26 @@ export interface MarsReferenceTelemetry {
   gpuBufferBytes: number | null;
 }
 
+export interface GpuWorldTelemetry {
+  schema: typeof GPU_WORLD_TELEMETRY_SCHEMA;
+  /** Resolved renderer path (`auto` has already become cpu or gpu). */
+  objectCulling: "cpu" | "gpu";
+  indirectDrawsEnabled: boolean;
+  /** Current-frame exact CPU handoff counters for `Renderable.gpuDrivenVisibility`. */
+  managedBatches: number | null;
+  managedInstances: number | null;
+  cpuRejectedInstances: number | null;
+  /** Device cull counters arrive asynchronously and can describe a recent prior frame. */
+  objectBatchesTested: number | null;
+  objectBatchesVisible: number | null;
+  objectBatchesCulledFrustum: number | null;
+  objectBatchesCulledDistance: number | null;
+  objectBatchesCulledOccluded: number | null;
+  indirectDraws: number | null;
+  populationInstancesTested: number | null;
+  populationInstancesDrawn: number | null;
+}
+
 export interface MarsReferenceState {
   schema: typeof MARS_REFERENCE_SCHEMA;
   phase: 23;
@@ -185,6 +211,8 @@ export interface MarsReferenceState {
     gpuHealthy: boolean | null;
   };
   telemetry: MarsReferenceTelemetry;
+  /** Phase 24 GPU-driven workload counters, additive to the Phase 23 reference contract. */
+  gpuWorld: GpuWorldTelemetry;
   terrain: MarsReferenceSceneSample["terrain"];
   particles: MarsReferenceSceneSample["particles"] & { total: number };
   rover: {
@@ -256,6 +284,22 @@ export function captureMarsReferenceState(
       gpuMemoryBytes: textureBytes === null || bufferBytes === null ? null : textureBytes + bufferBytes,
       gpuTextureBytes: textureBytes,
       gpuBufferBytes: bufferBytes,
+    },
+    gpuWorld: {
+      schema: GPU_WORLD_TELEMETRY_SCHEMA,
+      objectCulling: sample.gpuWorld.objectCulling,
+      indirectDrawsEnabled: sample.gpuWorld.indirectDraws,
+      managedBatches: numberOrNull(stats?.render.gpuDrivenBatches),
+      managedInstances: numberOrNull(stats?.render.gpuDrivenInstances),
+      cpuRejectedInstances: numberOrNull(stats?.render.gpuDrivenOutside),
+      objectBatchesTested: numberOrNull(stats?.render.cullTested),
+      objectBatchesVisible: numberOrNull(stats?.render.cullVisible),
+      objectBatchesCulledFrustum: numberOrNull(stats?.render.cullFrustum),
+      objectBatchesCulledDistance: numberOrNull(stats?.render.cullDistance),
+      objectBatchesCulledOccluded: numberOrNull(stats?.render.cullOccluded),
+      indirectDraws: numberOrNull(stats?.render.indirectDraws),
+      populationInstancesTested: numberOrNull(stats?.render.populationInstancesTested),
+      populationInstancesDrawn: numberOrNull(stats?.render.populationInstancesDrawn),
     },
     terrain: { ...sample.terrain },
     particles: { ...sample.particles, total: particleCount },

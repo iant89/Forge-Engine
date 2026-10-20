@@ -210,6 +210,9 @@ group("Mars Showcase — ported terrain integration", () => {
     assert.equal(reference.readiness.sixWheelRover, true);
     assert.equal(reference.readiness.engineTelemetry, false); // Reduced fixture intentionally has no Engine.stats().
     assert.equal(reference.telemetry.loadedChunks, 0);
+    assert.equal(reference.gpuWorld.schema, "forge.gpu-world/1");
+    assert.equal(reference.gpuWorld.objectCulling, "cpu"); // Reduced fixture has no Renderer.
+    assert.equal(reference.gpuWorld.managedBatches, null);
     assert.equal(reference.limitations.erosionCache, "missing");
     assertContains(handle.overlay?.(), "analytic only (no erosion cache)");
   });

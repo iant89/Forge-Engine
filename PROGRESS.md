@@ -47,7 +47,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [ ] SSAO for orthographic cameras
 - [ ] Transparency and post effects that use the prepass depth
 - [ ] Clustered lighting for orthographic cameras _(deferred)_
-- [ ] GPU-driven world scale: GPU instance generation and GPU terrain culling (Phase 24)
+- [~] GPU-driven world scale: streamed terrain now opts into device-authoritative frustum culling (and indirect counts when enabled), with Mars handoff telemetry plus a real-device browser assertion; CPU batch/prepass submission and GPU instance generation remain (Phase 24)
 
 ## Terrain (Phases 4, 10)
 

@@ -95,6 +95,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "21": "inProgress",
   "22": "inProgress",
   "23": "inProgress",
+  "24": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -650,6 +651,22 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["tests/rendering/objectCulling.test.ts", "tests/rendering/frame.test.ts", "tools/browser-check.mjs"],
     notes: "docs/RENDERING.md §4e. RendererOptions.indirectDraws (default on, demo ?indirectdraws=0|1 + setIndirectDraws), stats.indirectDraws plus cullVisible/cullRecordZeroed; RendererOptions.objectCulling stays the A/B. A direct-submission frame writes no record (CULL_FLAG_RECORDS). check:browser pins indirectDraws === batches with the counters' identities on a real device, A/Bs the two submission paths to an identical picture (0 px beyond one level), and drives a 1 m draw distance that makes the device, not the CPU, zero records. Culling the shadow cascades through the same pass and rewriting the instance arena from the compaction list are not done",
     closesWith: "13.6",
+  },
+  {
+    id: "rendering.gpuDrivenWorld",
+    phase: "24",
+    status: "inProgress",
+    summary: "Opt-in device-authoritative world visibility: streamed terrain keeps CPU-rejected bounds in the GPU cull set and optional indirect records, with exact handoff counters in the Mars reference slice",
+    evidence: [
+      "tests/rendering/frame.test.ts",
+      "tests/terrain/terrain.test.ts",
+      "tests/examples/marsReferenceTelemetry.test.ts",
+      "engine/src/terrain/world.ts",
+      "examples/src/scenes/marsReferenceTelemetry.ts",
+      "tools/browser-check.mjs",
+    ],
+    closesWith: "24",
+    notes: "Renderable.gpuDrivenVisibility delegates opaque frustum discovery to forge.objects.cull in resolved GPU mode and preserves explicit CPU/auto-mock, layer-mask and transparent fallbacks. Terrain chunks and the horizon apron opt in. Schema forge.gpu-world/1 reports managed batches/instances, CPU-rejected handoffs and recent object/population device counters; the focused Mars browser arm requires a CPU-rejected handoff and an asynchronous device frustum verdict with exact accounting. This is the first 24.1/24.6 slice, not full GPU-driven submission: CPU batch assembly, per-tile prepass/draw calls, the 8192-batch cap, general instance generation, generic instance-arena compaction and particle rendering hardening remain.",
   },
   {
     id: "rendering.asyncPipelines",

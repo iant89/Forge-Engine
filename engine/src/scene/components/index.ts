@@ -233,6 +233,17 @@ export class Renderable extends Component {
    * frame and can be animated; a merged batch keeps the most permissive limit of its members.
    */
   maxDistance = 0;
+  /**
+   * Phase 24: let a real GPU culler make the authoritative frustum decision. When enabled on an
+   * opaque object, the renderer keeps it in the frame's batch/bounds set even when the CPU frustum
+   * pre-test rejects it; `forge.objects.cull` then writes visibility and, when enabled, zeroes its
+   * indirect record. Explicit CPU mode (including a mock renderer's default `auto` resolution),
+   * camera-layer rejection, transparent and overlay objects retain the normal CPU decision.
+   *
+   * This removes visibility discovery from the CPU for streamed world chunks. It does not yet
+   * remove CPU batch assembly or the prepass submission, both reported as open Phase 24 work.
+   */
+  gpuDrivenVisibility = false;
   /** Local-space bounds override (used when geometry bounds are wrong or intentionally loose). */
   boundsOverride: AABB | null = null;
 

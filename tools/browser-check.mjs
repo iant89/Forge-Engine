@@ -3284,6 +3284,31 @@ async function checkMarsSection() {
     (s) => s.terrainRoverChunkReady && s.terrainReadyChunks > 0 && s.contactWheels >= 4,
     45000,
   );
+  // Phase 24: terrain chunks rejected by the CPU pre-test stay in the real device's cull set. Wait
+  // for both the exact current-frame handoff and an asynchronous device readback with a frustum
+  // verdict; the mock cannot satisfy this arm because auto resolves to CPU there.
+  await page.waitForFunction(() => {
+    const s = window.__forge.gpuWorldState?.();
+    return s?.schema === "forge.gpu-world/1" &&
+      s.objectCulling === "gpu" &&
+      s.indirectDrawsEnabled === true &&
+      s.managedBatches > 0 &&
+      s.managedInstances > 0 &&
+      s.cpuRejectedInstances > 0 &&
+      s.objectBatchesTested > 0 &&
+      s.objectBatchesCulledFrustum > 0;
+  }, null, { polling: 400, timeout: 120000 });
+  const gpuWorld = await page.evaluate(() => window.__forge.gpuWorldState());
+  const decided = gpuWorld.objectBatchesVisible + gpuWorld.objectBatchesCulledFrustum +
+    gpuWorld.objectBatchesCulledDistance + gpuWorld.objectBatchesCulledOccluded;
+  if (decided !== gpuWorld.objectBatchesTested) {
+    throw new Error(`mars gpu world: cull accounting mismatch (${decided} decisions / ${gpuWorld.objectBatchesTested} tested)`);
+  }
+  console.log(
+    `mars gpu world: managed=${gpuWorld.managedBatches} batches/${gpuWorld.managedInstances} instances, ` +
+      `cpu-out=${gpuWorld.cpuRejectedInstances}, device visible=${gpuWorld.objectBatchesVisible}/${gpuWorld.objectBatchesTested}, ` +
+      `frustum=${gpuWorld.objectBatchesCulledFrustum}, indirect=${gpuWorld.indirectDraws}`,
+  );
   await verifyMarsWorkers(page);
   await checkShowcaseLayers();
   const checkMarsSurface = (state) => {
@@ -3419,11 +3444,25 @@ async function checkMarsSection() {
       `pivot ${(armPivotsMoving.armPivotDeg?.[2] ?? 0).toFixed(1)}°`,
   );
   await page.evaluate(() => window.__forge.setArm(false));
+  // Reversing does not immediately make armT fall: the acceleration-limited choreography first
+  // brakes its positive unfold velocity, so t can keep rising for several very slow SwiftShader
+  // frames. Count that rising envelope as reversal progress, then count distance back from the peak.
+  // A truly frozen arm still returns one value and exhausts the 90 s stall budget.
+  let armStowPeak = -Infinity;
+  let armStowReturning = false;
+  const armStowProgress = (s) => {
+    if (!Number.isFinite(s.armT)) return Number.NaN;
+    if (!armStowReturning) {
+      if (s.armT > armStowPeak + 1e-9) armStowPeak = s.armT;
+      else if (s.armT < armStowPeak - 1e-9) armStowReturning = true;
+    }
+    return armStowReturning ? armStowPeak + (armStowPeak - s.armT) : armStowPeak;
+  };
   const armStowed = await pollMars(
     "mars showcase: robotic arm did not stow back (no arm progress for 90s)",
     (s) => s.armDeployed === false && s.armT === 0,
     90000,
-    (s) => -s.armT, // stowing runs the same clock backwards
+    armStowProgress,
   );
   console.log(
     `mars showcase arm: unfold t=${armMoving.armT.toFixed(2)} joints=[${armMoving.armJoints.map((v) => v.toFixed(1)).join(", ")}] ` +

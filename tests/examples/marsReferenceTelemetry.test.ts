@@ -2,20 +2,21 @@
  * @suite examples:marsReferenceTelemetry
  * @group unit
  * @covers examples/src/scenes/marsReferenceTelemetry.ts
- * @desc Phase 23 Mars reference snapshot and continuous traversal accounting.
+ * @desc Phase 23 Mars reference/traversal and Phase 24 GPU-world telemetry contracts.
  */
 
 export const suite = {
   name: "examples:marsReferenceTelemetry",
   group: "unit",
   covers: ["examples/src/scenes/marsReferenceTelemetry.ts"],
-  desc: "Phase 23 Mars reference snapshot and continuous traversal accounting.",
+  desc: "Phase 23 Mars reference/traversal and Phase 24 GPU-world telemetry contracts.",
 };
 
 import assert from "node:assert/strict";
 import { assertCloseTo, finish, group, test } from "selrun";
 import type { EngineStats, FrameBreakdown } from "@forge/engine";
 import {
+  GPU_WORLD_TELEMETRY_SCHEMA,
   MARS_REFERENCE_SCHEMA,
   MarsReferenceTraversalMonitor,
   captureMarsReferenceState,
@@ -52,6 +53,7 @@ function sceneSample(overrides: Partial<MarsReferenceSceneSample> = {}): MarsRef
       discontinuities: 0,
       currentChunk: "1,-1",
     },
+    gpuWorld: { objectCulling: "gpu", indirectDraws: true },
     ...overrides,
   };
 }
@@ -65,7 +67,21 @@ function engineStats(gpuTimingAvailable = true): EngineStats {
     deviceFatal: false,
     gpuErrors: 0,
     streaming: { queued: 4, inFlight: 2 },
-    render: { gpuTimingAvailable, gpuFrameTimeMs: 7.5 },
+    render: {
+      gpuTimingAvailable,
+      gpuFrameTimeMs: 7.5,
+      gpuDrivenBatches: 12,
+      gpuDrivenInstances: 12,
+      gpuDrivenOutside: 7,
+      cullTested: 40,
+      cullVisible: 18,
+      cullFrustum: 12,
+      cullDistance: 6,
+      cullOccluded: 4,
+      indirectDraws: 40,
+      populationInstancesTested: 900,
+      populationInstancesDrawn: 320,
+    },
     gpuMemory: { textureBytes: 10_000, bufferBytes: 2_500 },
   } as unknown as EngineStats;
 }
@@ -163,6 +179,22 @@ group("Mars reference telemetry contract", () => {
     assert.equal(state.telemetry.gpuMemoryBytes, 12_500);
     assert.equal(state.streaming.assetQueued, 4);
     assert.equal(state.streaming.assetInFlight, 2);
+    assert.deepEqual(state.gpuWorld, {
+      schema: GPU_WORLD_TELEMETRY_SCHEMA,
+      objectCulling: "gpu",
+      indirectDrawsEnabled: true,
+      managedBatches: 12,
+      managedInstances: 12,
+      cpuRejectedInstances: 7,
+      objectBatchesTested: 40,
+      objectBatchesVisible: 18,
+      objectBatchesCulledFrustum: 12,
+      objectBatchesCulledDistance: 6,
+      objectBatchesCulledOccluded: 4,
+      indirectDraws: 40,
+      populationInstancesTested: 900,
+      populationInstancesDrawn: 320,
+    });
     assert.equal(state.limitations.erosionCache, "missing");
   });
 
@@ -179,6 +211,9 @@ group("Mars reference telemetry contract", () => {
     assert.equal(reduced.telemetry.fps, null);
     assert.equal(reduced.telemetry.cpuFrameMs, null);
     assert.equal(reduced.telemetry.gpuMemoryBytes, null);
+    assert.equal(reduced.gpuWorld.schema, GPU_WORLD_TELEMETRY_SCHEMA);
+    assert.equal(reduced.gpuWorld.managedBatches, null);
+    assert.equal(reduced.gpuWorld.objectCulling, "gpu");
     // Scene-owned counters remain useful even without an Engine fixture.
     assert.equal(reduced.telemetry.particleCount, 26);
     assert.equal(reduced.telemetry.loadedChunks, 8);

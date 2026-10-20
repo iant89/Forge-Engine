@@ -749,6 +749,9 @@ export class TerrainWorld extends SceneObject {
     entity.add(new Transform());
     const r = entity.add(new Renderable());
     r.boundsOverride = source.bounds ?? null;
+    // Phase 24: the streamed world describes its horizon apron; resolved GPU mode decides whether
+    // this surface is in the camera frustum. Explicit CPU/auto-mock mode keeps the fallback.
+    r.gpuDrivenVisibility = true;
     r.castShadow = false;
     r.receiveShadow = true;
     if (device) {
@@ -787,6 +790,10 @@ export class TerrainWorld extends SceneObject {
 
     const r = entity.add(new Renderable());
     r.boundsOverride = chunk.tile.bounds;
+    // Phase 24.6: resident chunks stay in the GPU cull set on real devices even when the CPU's
+    // frustum pre-test rejects them. The culler writes visibility (and the indirect count when that
+    // path is enabled); CPU mode falls back to the existing conservative rejection path.
+    r.gpuDrivenVisibility = true;
     r.castShadow = true;
     r.receiveShadow = true;
 

@@ -82,6 +82,7 @@ import {
   Scene,
   Camera,
   Transform,
+  Renderable,
   EntityWorld,
   Clock,
   Logger,
@@ -1126,6 +1127,11 @@ group("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     terrain.update(ctx, 0.016);
     const attached = terrain.activeEntities.size;
     assert.ok(attached > 0);
+    // Phase 24.6: every resident tile opts into device-authoritative visibility. Explicit CPU mode
+    // (including the mock's auto resolution) remains the fallback; this is intent, not a forced path.
+    for (const entity of terrain.activeEntities.values()) {
+      assert.equal(scene.world.getComponent(entity, Renderable)?.gpuDrivenVisibility, true);
+    }
     // attachChunkEntity is the sole incrementer — must match entity attaches, not 2x.
     assert.equal(terrain.streamingStats.uploadedThisFrame, attached);
     assert.ok(terrain.streamingStats.uploadedThisFrame <= terrain.budgets.generationsPerFrame);
@@ -1208,6 +1214,9 @@ group("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     const sampledAfter = (terrain as unknown as { sampledCells: Map<string, unknown> }).sampledCells.size;
     // With resident-only sampling, sampledCells should stay empty (never used by horizon).
     assert.equal(sampledAfter, 0);
+    const [horizon] = scene.world.findByName("terrain_horizon_skirt");
+    assert.notEqual(horizon, undefined);
+    assert.equal(scene.world.getComponent(horizon!, Renderable)?.gpuDrivenVisibility, true);
 
     scene.dispose();
     world.dispose();

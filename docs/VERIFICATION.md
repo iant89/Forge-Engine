@@ -331,7 +331,7 @@ The material fixture also compares every uploaded mask against the helper applie
 Mars cell, asserts shared four-slice arrays and the dust/rock/sand/crust order, and toggles between
 layered and single materials without changing geometry buffers, ground height or six-wheel contacts.
 
-### `tests/examples/marsReferenceTelemetry.test.ts` — Phase 23's validation contract
+### `tests/examples/marsReferenceTelemetry.test.ts` — Phase 23/24 validation contracts
 
 Four focused checks pin schema `forge.mars-reference/1`, public engine-stat/frame-breakdown folding,
 particle and loaded-chunk totals, non-overlapping GPU-memory accounting, explicit `null` GPU timing on
@@ -341,10 +341,24 @@ moving; rejects a position jump larger than one terrain chunk as a discontinuity
 current rover position. Mars Showcase exposes the same snapshot through its handle and
 `window.__forge.marsReferenceState()`, and paints the values into the normal HUD.
 
-This starts, but does not finish, the Phase 23 acceptance gate. No focused browser arm yet asserts the
-schema against a real timestamp-capable adapter, and no sustained route/soak threshold converts the
-counters into pass/fail. Erosion remains explicitly `missing`; environment, camera and replay gaps are
-tracked separately in `ROADMAP.md`.
+The snapshot now also carries additive Phase 24 schema `forge.gpu-world/1`. Its test pins the resolved
+object-culling/indirect modes, exact managed-batch/instance and CPU-rejected handoff counters, recent
+object-cull visibility/reasons and population compaction counters. `tests/rendering/frame.test.ts`
+places an opaque non-shadow object wholly outside the CPU frustum and proves `gpuDrivenVisibility`
+keeps exactly that batch in a GPU-mode cull dispatch, then proves opt-out and CPU mode both restore
+early rejection. `tests/terrain/terrain.test.ts` proves every attached streamed tile and the horizon
+apron opt in.
+
+The focused `check:browser:mars` arm waits for schema `forge.gpu-world/1` on the real WebGPU path,
+requires GPU culling + indirect draws, at least one managed terrain batch and at least one CPU-rejected
+instance handed to the device, then requires the asynchronously mapped culler counters to report a
+frustum rejection and satisfy `visible + frustum + distance + occluded = tested`. This proves the new
+ownership boundary executes; it does not prove it is faster.
+
+This starts, but does not finish, either acceptance gate. No sustained route/soak threshold converts
+the counters into pass/fail, and physical-adapter performance has not been measured. GPU instance
+generation, generic arena compaction and CPU submission removal remain open. Erosion, environment,
+camera and replay gaps remain tracked separately in `ROADMAP.md`.
 
 ### `tests/terrain/terrainMaterials.test.ts` — four-layer GPU data, draws and lifetime
 

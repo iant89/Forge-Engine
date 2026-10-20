@@ -2845,3 +2845,31 @@ Working with the software rasterizer (SwiftShader) on this box:
   fallback and traversal semantics, but no sustained route/soak threshold or real-browser schema arm
   exists yet. `diagnostics.marsReferenceTelemetry` therefore remains `inProgress`, and generic replay
   infrastructure does not count as Mars replay until the reference route records, replays and hashes.
+
+## 2026-10-20 — Phase 24 started: make GPU culling authoritative for opted-in world geometry
+
+* **The existing compute culler was not discovering off-frustum world geometry.** `collectBatches()`
+  rejected every renderable against the CPU frustum before writing object-cull bounds, so GPU culling,
+  compaction and indirect draw machinery only re-tested CPU survivors. `Renderable.gpuDrivenVisibility`
+  is the explicit ownership boundary: in resolved GPU object-culling mode, an opaque, non-overlay
+  renderable on a camera-visible layer remains in the cull set after a failed CPU pre-test. Streamed
+  terrain chunks and the horizon apron opt in; ordinary objects, transparent/overlay surfaces, layer
+  mismatches and explicit CPU mode (including a mock's `auto` resolution) retain the conservative path.
+* **Do not redefine `Renderable.isVisible`.** It remains the synchronous CPU pre-test result; an
+  asynchronous device verdict cannot safely be written back into scene state. Renderer diagnostics
+  instead expose exact current-frame `gpuDrivenBatches`, `gpuDrivenInstances` and
+  `gpuDrivenOutside`, while `cullTested/Visible/Frustum/Distance/Occluded` remain the most recently
+  mapped device results.
+* **Visibility output and indirect output are separate contracts.** The culler always writes a
+  visibility word. Indirect mode additionally writes the record's instance count; direct mode clips
+  rejected batches in the vertex stage. Comments and docs must keep the indirect claim conditional.
+* **`forge.gpu-world/1` is the Phase 24 observability boundary.** Mars publishes resolved culling and
+  indirect modes, exact handoff counts, recent object-cull verdicts, indirect work and population
+  compaction through the reference snapshot, HUD and `window.__forge.gpuWorldState()`. The focused
+  Mars browser arm waits for a CPU-rejected terrain handoff plus an asynchronous device frustum
+  verdict and enforces `visible + frustum + distance + occluded = tested`.
+* **This ownership handoff is not yet a speedup claim.** CPU renderable traversal, batching, instance
+  uploads, prepass submission and one draw/indirect call per batch remain. Generic GPU instance
+  generation/arena compaction, terrain mesh/LOD generation, shadow submission compaction, removal of
+  the 8,192-batch ceiling and world-scale particle hardening remain open, so Phase 24 and capability
+  `rendering.gpuDrivenWorld` stay `inProgress`.

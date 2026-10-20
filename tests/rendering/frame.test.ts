@@ -1626,6 +1626,65 @@ group("object culling", () => {
     await f.dispose();
   });
 
+  test("hands opted-in off-frustum world bounds to GPU culling while CPU policies remain authoritative", async () => {
+    const f = await fixture({ renderer: { objectCulling: "gpu", occlusionCulling: false } });
+    const chunk = f.scene.createTransformedEntity("gpu-world-chunk", new Vec3(1000, 0, 0));
+    const renderable = new Renderable();
+    renderable.geometry = f.boxGeometry;
+    renderable.material = f.boxMaterial;
+    renderable.castShadow = false;
+    renderable.gpuDrivenVisibility = true;
+    f.scene.world.addComponent(chunk.id, renderable);
+
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    const handedOffBatches = f.renderer.stats.batches;
+    assert.equal(renderable.isVisible, false); // CPU pre-test rejected it; the handoff is explicit.
+    assert.equal(f.renderer.stats.gpuDrivenBatches, 1);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 1);
+    assert.equal(f.renderer.stats.gpuDrivenOutside, 1);
+    assertContains(f.renderer.passNames, "forge.objects.cull");
+    const dispatch = f.mock.commandLog.filter((e) => e.type === "dispatch" && e.label === "objects.cull").at(-1);
+    assertMatchObject(dispatch, { x: Math.ceil(handedOffBatches / 64), y: 1, z: 1 });
+
+    // Opting out restores ordinary CPU frustum rejection, even while the device culler is active.
+    renderable.gpuDrivenVisibility = false;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.batches, handedOffBatches - 1);
+    assert.equal(f.renderer.stats.gpuDrivenBatches, 0);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 0);
+    assert.equal(f.renderer.stats.gpuDrivenOutside, 0);
+
+    // Ordered surfaces and authoring layers stay CPU-owned even when the marker and GPU mode are on.
+    renderable.gpuDrivenVisibility = true;
+    renderable.transparent = true;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.batches, handedOffBatches - 1);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 0);
+    renderable.transparent = false;
+    renderable.overlay = true;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.batches, handedOffBatches - 1);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 0);
+    renderable.overlay = false;
+    renderable.layer = 2;
+    f.scene.findCamera()!.camera.cullingMask = 1;
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.batches, handedOffBatches - 1);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 0);
+
+    // Explicit CPU mode (the mock's default auto resolution) is the portability fallback.
+    renderable.layer = 1;
+    f.renderer.objectCulling = "cpu";
+    f.renderer.renderScene(f.scene);
+    assert.equal(f.renderer.stats.batches, handedOffBatches - 1);
+    assert.equal(f.renderer.stats.gpuDrivenBatches, 0);
+    assert.equal(f.renderer.stats.gpuDrivenInstances, 0);
+    assert.equal(f.renderer.stats.gpuDrivenOutside, 0);
+    assertNotContains(f.renderer.passNames, "forge.objects.cull");
+    await f.dispose();
+  });
+
   test("submits the frame through the culler's records, and a culled batch's draw carries no instances", async () => {
     const f = await fixture();
     f.renderer.renderScene(f.scene);

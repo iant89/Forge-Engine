@@ -3003,9 +3003,11 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   const referenceState = (): MarsReferenceState => {
     // Unit fixtures intentionally provide only gpu/tasks. Keep that useful reduced host supported,
     // while the real demo always supplies both public diagnostics methods.
-    const diagnostics = engine as unknown as { stats?: unknown; frameBreakdown?: unknown };
+    const diagnostics = engine as unknown as { stats?: unknown; frameBreakdown?: unknown; renderer?: Engine["renderer"] };
     const stats = typeof diagnostics.stats === "function" ? engine.stats() : null;
     const breakdown = typeof diagnostics.frameBreakdown === "function" ? engine.frameBreakdown() : null;
+    const objectCulling = diagnostics.renderer?.objectCulling ?? "cpu";
+    const indirectDraws = diagnostics.renderer?.indirectDraws ?? false;
     const terrainStats = terrain.stats();
     return captureMarsReferenceState(
       {
@@ -3032,6 +3034,10 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
           debris: wheelRockChipsAlive(),
         },
         traversal: referenceTraversal.snapshot(),
+        gpuWorld: {
+          objectCulling,
+          indirectDraws,
+        },
       },
       stats,
       breakdown,

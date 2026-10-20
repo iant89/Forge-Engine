@@ -201,6 +201,11 @@ PHASE 23 - MARS REFERENCE VERTICAL SLICE
         versioned telemetry/streaming/traversal contract; erosion, environment breadth, continuous
         traversal validation, camera modes and integrated deterministic replay remain)
 
+PHASE 24 - GPU-DRIVEN WORLD SCALE
+    [~] IN PROGRESS (streamed terrain can now hand CPU-rejected bounds to device culling and, when
+        enabled, indirect records; Mars exposes the handoff; CPU batch/prepass submission, instance
+        generation, generic compaction and complete GPU particle rendering remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2611,19 +2616,56 @@ GOAL:
 
 24.1 GPU Object Culling
 
+    [~] `forge.objects.cull` already performs per-batch frustum/distance/HiZ tests and writes
+        visibility plus indirect records when that path is enabled. Phase 24 now lets opted-in opaque
+        world renderables bypass CPU frustum rejection on the real-device path, but CPU batch assembly
+        and the 8,192-batch cap remain.
+
 24.2 GPU LOD Selection
+
+    [~] Population instances select their high/low geometry window on the GPU. General renderables
+        and terrain chunk mesh density are still selected on the CPU.
 
 24.3 GPU Visibility Compaction
 
+    [~] The object culler produces a dense visible-batch list and population culling compacts
+        per-instance records. The generic instance arena and CPU submission loop do not consume the
+        visible-batch list yet.
+
 24.4 Indirect Rendering
+
+    [x] `forge.main` consumes GPU-written indexed/non-indexed indirect records; a culled batch has
+        zero instances and executes no vertex work. WebGPU still requires one CPU-issued indirect
+        call per batch because the engine has no multi-draw API.
 
 24.5 GPU Instance Generation
 
+    [ ] Population scatter and generic instance transforms are still generated on the CPU/workers.
+
 24.6 GPU Terrain Culling
+
+    [~] Every streamed terrain tile and the horizon apron set `Renderable.gpuDrivenVisibility`.
+        On a real GPU path, CPU-rejected tile bounds remain in `forge.objects.cull`, which makes the
+        device's frustum verdict authoritative and writes the indirect count when that default path
+        is enabled. Explicit CPU mode (including the mock's `auto` resolution) remains the
+        deterministic fallback. Per-tile CPU collection and prepass/draw submission remain.
 
 24.7 GPU Particle Simulation
 
+    [x] Storage-buffer emission/full simulation runs in fixed-step compute passes; the more limited
+        CPU particle implementation remains the deterministic reference path.
+
 24.8 GPU Particle Rendering
+
+    [~] GPU billboards, stretched billboards, soft particles and trail ribbons render through the
+        graph; mesh particles, HiZ particle culling and terrain collision remain.
+
+    Phase 24 validation begins in Mars rather than a synthetic-only scene. The HUD and
+    `window.__forge.gpuWorldState()` expose additive schema `forge.gpu-world/1`: resolved culling and
+    indirect modes, managed terrain batches/instances, bounds the CPU rejected but handed to the
+    device, recent object-cull visibility/reasons and population compaction counts. Current-frame
+    handoff counters are exact; device results remain intentionally asynchronous. The focused Mars
+    browser gate requires a real device frustum rejection and exact cull-accounting identity.
 
 
 TARGET:

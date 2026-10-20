@@ -761,7 +761,11 @@ async function main(): Promise<void> {
           `\nref particles ${reference.telemetry.particleCount} · visible ${count(reference.telemetry.visibleObjects)}` +
           ` · chunks ${reference.telemetry.loadedChunks} · gpu mem ${memory === null ? "n/a" : `${(memory / 1048576).toFixed(1)}MB`}` +
           `\ntraverse ${reference.traversal.distanceMeters.toFixed(1)}m / ${reference.traversal.visitedChunks} chunks` +
-          ` · moving ${reference.traversal.movingSeconds.toFixed(1)}s · gaps ${reference.traversal.terrainGapFrames}`;
+          ` · moving ${reference.traversal.movingSeconds.toFixed(1)}s · gaps ${reference.traversal.terrainGapFrames}` +
+          `\ngpu world ${reference.gpuWorld.objectCulling}/${reference.gpuWorld.indirectDrawsEnabled ? "indirect" : "direct"}` +
+          ` · managed ${count(reference.gpuWorld.managedBatches)} batches / ${count(reference.gpuWorld.managedInstances)} instances` +
+          ` · cpu-out ${count(reference.gpuWorld.cpuRejectedInstances)}` +
+          ` · recent visible ${count(reference.gpuWorld.objectBatchesVisible)}/${count(reference.gpuWorld.objectBatchesTested)}`;
       }
     }
     const extra = currentHandle?.overlay?.();
@@ -1010,6 +1014,11 @@ async function main(): Promise<void> {
     marsReferenceState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return activeSceneName === "mars-showcase" ? handle?.marsReferenceState?.() ?? null : null;
+    },
+    /** Phase 24 GPU-driven workload counters (`forge.gpu-world/1`); null outside Mars Showcase. */
+    gpuWorldState: () => {
+      const handle = currentHandle as MarsShowcaseSceneHandle | null;
+      return activeSceneName === "mars-showcase" ? handle?.marsReferenceState?.()?.gpuWorld ?? null : null;
     },
     /** Start a fresh continuous-traversal accounting window at the rover's current position. */
     resetMarsReferenceTraversal: () => {

@@ -81,6 +81,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
   keep their own per-cascade AABB test rather than this pass, and a non-perspective or near-plane-
   straddling camera still skips the occlusion test. (`docs/RENDERING.md` §4e)
   (capability: rendering.cullCoverage)
+* **GPU-driven terrain visibility is not GPU-driven terrain submission yet.** Phase 24's first slice
+  keeps opted-in streamed tiles in the device cull set (and indirect set when enabled) even when the
+  CPU pre-test rejects them, but the CPU still walks each resident renderable, builds its batch,
+  submits its prepass and issues one draw/indirect call. Until the visible list drives submission and
+  arena compaction, moving the authoritative verdict to the GPU can increase CPU command work versus
+  early CPU rejection; the
+  `gpuDriven*` counters make that transitional cost explicit rather than calling it a speedup.
+  (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
 * **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
   transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
   saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
