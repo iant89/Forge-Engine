@@ -55,7 +55,7 @@ npm run check:wgsl       # structural WGSL validation + strict uniform address-s
 npm run verify           # typecheck + test + check:wgsl — run this before every commit
 npm run lint:arch        # import boundaries (ARCHITECTURE.md §2), no WebGL anywhere, no engine/src deep imports,
                          # no Math.sin/atan/exp/pow/hypot/… or ** in simulation sources (use DMath)
-npm run api:check        # Phase 27 package-root export name/kind/stability snapshot
+npm run api:check        # Phase 27 package-root classification + direct/transitive declaration contracts
 npm run api:update       # deliberate API changes only; review engine/api-surface.json before committing
 npm run docs:check       # capability registry agrees with ROADMAP.md's state block and docs/KNOWN-ISSUES.md
 npm run check:replay-engines  # 19.5: the committed vehicle-session replay gives identical hashes in Node (V8) and Bun (JavaScriptCore)
@@ -107,7 +107,7 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
   replay/            Phase 19.4: input channels, recorder/player (frame schedule + inputs), exact-bit state hashing (docs/REPLAY.md)
   ui/                retained-mode UI framework (tree, layout, skins/themes, input/focus, widgets, SDF text,
                      declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
-engine/api-surface.json  Phase 27 reviewed package-root name/kind/stability snapshot (docs/API.md)
+engine/api-surface.json  Phase 27 reviewed package-root classification + declaration-contract snapshot (docs/API.md)
 editor/              @forge/editor — Phase 26 public-API-only hierarchy/inspection/history model;
                      no visual editor shell or gizmo yet (docs/EDITOR.md)
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).
@@ -176,9 +176,11 @@ no build step between editing engine source and seeing it in the browser.
   `dispose()`; `tests/rendering/rendering.test.ts` asserts `mock.outstanding` is empty after teardown.
 * **Public API only from the editor/demo/tests** (`@forge/engine`), never deep imports into
   `engine/src`. Runtime code never imports `@forge/editor`; both directions are architecture gates.
-* **The package-root API is reviewed data.** A deliberate export or stability change requires
-  `npm run api:update`, inspection of `engine/api-surface.json`, `docs/API.md`/migration notes as
-  appropriate, and a passing `npm run api:check`. Never refresh the snapshot just to silence CI.
+* **The package-root API is reviewed data.** A deliberate export, stability, direct declaration or
+  transitive engine-local type change requires `npm run api:update`, inspection of
+  `engine/api-surface.json`, `docs/API.md`/migration notes as appropriate, and a passing
+  `npm run api:check`. Hash drift identifies affected contracts; it does not approve the change.
+  Never refresh the snapshot just to silence CI.
 
 ## 4. Editing rules
 

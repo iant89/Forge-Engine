@@ -372,11 +372,12 @@ engine.start();
 ```
 
 `engine/api-surface.json` is the deterministic resolved snapshot of every top-level export name,
-type/value kind and public/experimental/deprecated label. `npm run api:check` also rejects a default
-export, an `@internal` leak, unexplained or conflicting stability tags, package/version drift and any
-package subpath export. The first snapshot is a pre-1.0 baseline: it does not yet compare declaration
-signatures, class members or runtime semantics, and therefore is not the Phase 27 exit criterion.
-See `docs/API.md` for the exact policy, update workflow and current limitations.
+type/value kind and public/experimental/deprecated label. Its direct declaration hashes cover emitted
+parameters, overloads, generics and members; transitive hashes also cover referenced engine-local
+helper declarations. `npm run api:check` rejects contract drift, a default export, an `@internal` leak,
+unexplained/conflicting stability tags, package/version drift and any package subpath export. This is
+still a pre-1.0 baseline: the gate detects but does not judge compatibility, approve each candidate,
+or prove runtime/serialization/shader semantics. See `docs/API.md` for the exact policy and limits.
 
 ---
 

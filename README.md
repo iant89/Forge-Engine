@@ -5,7 +5,7 @@ Browser-native, WebGPU-first 3D game and real-time simulation engine.
 ```sh
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
-npm run api:check      # Phase 27: reject unreviewed @forge/engine export/classification drift
+npm run api:check      # Phase 27: reject unreviewed export, declaration, or type-contract drift
 npm run api:update     # rewrite the reviewed API snapshot after inspecting a deliberate change
 npm run bench          # Phase 22 benchmark guards; add -- --json PATH for a host-described snapshot
 npm test                 # selrun full suite, in tests/full.test.ts order

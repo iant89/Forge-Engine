@@ -12,7 +12,7 @@
  * @covers package.json
  * @covers README.md
  * @covers tools/api-audit.mjs
- * @desc Phase 27.1 root-only public API classification, deterministic snapshot and drift gate
+ * @desc Phase 27.1 root-only API classification plus direct and transitive declaration-contract drift gates
  */
 
 export const suite = {
@@ -31,7 +31,7 @@ export const suite = {
     "README.md",
     "tools/api-audit.mjs",
   ],
-  desc: "Phase 27.1 root-only public API classification, deterministic snapshot and drift gate",
+  desc: "Phase 27.1 root-only API classification plus direct and transitive declaration-contract drift gates",
 };
 
 import assert from "node:assert/strict";
@@ -40,12 +40,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, finish, group, test } from "selrun";
+import { afterAll, beforeAll, finish, group, test } from "selrun";
 
 interface ApiExportRow {
   name: string;
   kind: "type" | "value" | "type-and-value";
   stability: "public" | "experimental" | "deprecated";
+  declarationHash: string;
+  contractHash: string;
 }
 
 interface ApiSurface {
@@ -53,6 +55,8 @@ interface ApiSurface {
   package: string;
   packageVersion: string;
   entrypoint: string;
+  signatureFormat: string;
+  typescriptVersion: string;
   counts: {
     total: number;
     public: number;
@@ -70,9 +74,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const tool = path.join(root, "tools", "api-audit.mjs");
 const snapshotFile = path.join(root, "engine", "api-surface.json");
 const temporaryDirectories: string[] = [];
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
-});
 
 function snapshot(): ApiSurface {
   return JSON.parse(fs.readFileSync(snapshotFile, "utf8")) as ApiSurface;
@@ -89,6 +90,21 @@ function temporarySnapshot(): string {
   return path.join(directory, "api-surface.json");
 }
 
+function temporaryRepository(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "forge-api-repository-"));
+  temporaryDirectories.push(directory);
+  fs.mkdirSync(path.join(directory, "engine"), { recursive: true });
+  fs.cpSync(path.join(root, "engine", "src"), path.join(directory, "engine", "src"), { recursive: true });
+  for (const file of ["package.json", "tsconfig.base.json"]) {
+    fs.copyFileSync(path.join(root, file), path.join(directory, file));
+  }
+  for (const file of ["api-surface.json", "package.json", "tsconfig.json"]) {
+    fs.copyFileSync(path.join(root, "engine", file), path.join(directory, "engine", file));
+  }
+  fs.symlinkSync(path.join(root, "node_modules"), path.join(directory, "node_modules"), "dir");
+  return directory;
+}
+
 function byName(surface: ApiSurface, name: string): ApiExportRow {
   const item = surface.exports.find((entry) => entry.name === name);
   assert.ok(item, `missing API export ${name}`);
@@ -96,12 +112,83 @@ function byName(surface: ApiSurface, name: string): ApiExportRow {
 }
 
 group("Phase 27 public API audit", () => {
+  const pendingResult = (): ReturnType<typeof run> => ({ status: null, stdout: "", stderr: "beforeAll did not run" });
+  let cleanResult = pendingResult();
+  let staleResult = pendingResult();
+  let directDriftResult = pendingResult();
+  let transitiveDriftResult = pendingResult();
+  let writeResult = pendingResult();
+  let badOptionResult = pendingResult();
+  let writtenSnapshotText = "";
+
+  // Declaration emit is intentionally source-derived and takes several seconds. Prepare each CLI
+  // scenario once under an explicit hook budget so a loaded CI runner cannot trip selrun's 20 s
+  // per-case timer while spawnSync has the event loop blocked.
+  beforeAll(() => {
+    cleanResult = run();
+
+    const stale = snapshot();
+    const versionIndex = stale.exports.findIndex((entry) => entry.name === "VERSION");
+    assert.ok(versionIndex >= 0);
+    stale.exports.splice(versionIndex, 1);
+    stale.counts.total--;
+    stale.counts.public--;
+    stale.counts.value--;
+    const staleFile = temporarySnapshot();
+    fs.writeFileSync(staleFile, `${JSON.stringify(stale, null, 2)}\n`);
+    staleResult = run("--snapshot", staleFile);
+
+    const directRepository = temporaryRepository();
+    const transformFile = path.join(directRepository, "engine", "src", "scene", "components", "index.ts");
+    const transformSource = fs.readFileSync(transformFile, "utf8");
+    const transformMarker = "  setRotation(q: Quat): this {";
+    assert.ok(transformSource.includes(transformMarker));
+    fs.writeFileSync(transformFile, transformSource.replace(transformMarker, [
+      "  phase27SignatureProbe(value: number): void {",
+      "    void value;",
+      "  }",
+      "",
+      transformMarker,
+    ].join("\n")));
+    directDriftResult = run(
+      "--root",
+      directRepository,
+      "--snapshot",
+      path.join(directRepository, "engine", "api-surface.json"),
+    );
+
+    const transitiveRepository = temporaryRepository();
+    const configFile = path.join(transitiveRepository, "engine", "src", "core", "config.ts");
+    const configSource = fs.readFileSync(configFile, "utf8");
+    const configMarker = "  strict?: boolean;";
+    assert.ok(configSource.includes(configMarker));
+    fs.writeFileSync(configFile, configSource.replace(configMarker, `${configMarker}\n  phase27SignatureProbe?: number;`));
+    transitiveDriftResult = run(
+      "--root",
+      transitiveRepository,
+      "--snapshot",
+      path.join(transitiveRepository, "engine", "api-surface.json"),
+    );
+
+    const writeFile = temporarySnapshot();
+    fs.writeFileSync(writeFile, "{}\n");
+    writeResult = run("--write", "--snapshot", writeFile);
+    writtenSnapshotText = fs.readFileSync(writeFile, "utf8");
+    badOptionResult = run("--not-an-api-option");
+  }, 180_000);
+
+  afterAll(() => {
+    for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
+  });
+
   test("records one sorted classification for every package-root export", () => {
     const surface = snapshot();
-    assert.equal(surface.schema, "forge.api-surface/1");
+    assert.equal(surface.schema, "forge.api-surface/2");
     assert.equal(surface.package, "@forge/engine");
     assert.equal(surface.packageVersion, "0.1.0");
     assert.equal(surface.entrypoint, "engine/src/index.ts");
+    assert.equal(surface.signatureFormat, "forge.typescript-declaration-signature/1");
+    assert.match(surface.typescriptVersion, /^5\.9\./);
     assert.ok(surface.counts.total > 2_000, "the pre-1.0 barrel is intentionally audited before it is reduced");
     assert.equal(surface.exports.length, surface.counts.total);
     assert.equal(new Set(surface.exports.map((entry) => entry.name)).size, surface.exports.length);
@@ -109,9 +196,19 @@ group("Phase 27 public API audit", () => {
       surface.exports.map((entry) => entry.name),
       [...surface.exports.map((entry) => entry.name)].sort(),
     );
-    assert.deepEqual(byName(surface, "AABB"), { name: "AABB", kind: "type-and-value", stability: "public" });
-    assert.deepEqual(byName(surface, "EntityId"), { name: "EntityId", kind: "type", stability: "public" });
-    assert.deepEqual(byName(surface, "VERSION"), { name: "VERSION", kind: "value", stability: "public" });
+    assert.deepEqual(
+      [byName(surface, "AABB"), byName(surface, "EntityId"), byName(surface, "VERSION")]
+        .map(({ name, kind, stability }) => ({ name, kind, stability })),
+      [
+        { name: "AABB", kind: "type-and-value", stability: "public" },
+        { name: "EntityId", kind: "type", stability: "public" },
+        { name: "VERSION", kind: "value", stability: "public" },
+      ],
+    );
+    for (const item of surface.exports) {
+      assert.match(item.declarationHash, /^sha256:[0-9a-f]{64}$/);
+      assert.match(item.contractHash, /^sha256:[0-9a-f]{64}$/);
+    }
     assert.equal(surface.counts.internal, 0);
     assert.equal(surface.counts.deprecated, 0);
     assert.deepEqual(
@@ -144,43 +241,40 @@ group("Phase 27 public API audit", () => {
     assert.match(readme, /`docs\/API\.md`/);
     const docs = fs.readFileSync(path.join(root, "docs", "API.md"), "utf8");
     assert.match(docs, /2,180 named exports/);
-    assert.match(docs, /does \*\*not\*\* yet compare function parameters/);
+    assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
+    assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
   });
 
   test("passes the reviewed snapshot", () => {
-    const clean = run();
-    assert.equal(clean.status, 0, clean.stderr);
-    assert.match(clean.stdout, /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\)/);
+    assert.equal(cleanResult.status, 0, cleanResult.stderr);
+    assert.match(cleanResult.stdout, /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\)/);
   });
 
   test("rejects a semantic drift with an actionable diff", () => {
-    const stale = snapshot();
-    const versionIndex = stale.exports.findIndex((entry) => entry.name === "VERSION");
-    assert.ok(versionIndex >= 0);
-    stale.exports.splice(versionIndex, 1);
-    stale.counts.total--;
-    stale.counts.public--;
-    stale.counts.value--;
-    const file = temporarySnapshot();
-    fs.writeFileSync(file, `${JSON.stringify(stale, null, 2)}\n`);
-    const drift = run("--snapshot", file);
-    assert.equal(drift.status, 1);
-    assert.match(drift.stderr, /unrecorded exports: VERSION/);
-    assert.match(drift.stderr, /run npm run api:update/i);
+    assert.equal(staleResult.status, 1);
+    assert.match(staleResult.stderr, /unrecorded exports: VERSION/);
+    assert.match(staleResult.stderr, /run npm run api:update/i);
+  });
+
+  test("rejects a class-member declaration change even when the export name is unchanged", () => {
+    assert.equal(directDriftResult.status, 1);
+    assert.match(directDriftResult.stderr, /changed declarations: Transform/);
+  });
+
+  test("rejects an unexported helper declaration change through transitive contracts", () => {
+    assert.equal(transitiveDriftResult.status, 1);
+    assert.doesNotMatch(transitiveDriftResult.stderr, /changed declarations: resolveConfig/);
+    assert.match(transitiveDriftResult.stderr, /changed transitive contracts: resolveConfig/);
   });
 
   test("writes a canonical snapshot only when explicitly requested", () => {
-    const file = temporarySnapshot();
-    fs.writeFileSync(file, "{}\n");
-    const result = run("--write", "--snapshot", file);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /api:update OK — wrote 2,180 exports/);
-    assert.equal(fs.readFileSync(file, "utf8"), fs.readFileSync(snapshotFile, "utf8"));
+    assert.equal(writeResult.status, 0, writeResult.stderr);
+    assert.match(writeResult.stdout, /api:update OK — wrote 2,180 exports/);
+    assert.equal(writtenSnapshotText, fs.readFileSync(snapshotFile, "utf8"));
 
-    const badOption = run("--not-an-api-option");
-    assert.equal(badOption.status, 2);
-    assert.match(badOption.stderr, /unknown option/);
+    assert.equal(badOptionResult.status, 2);
+    assert.match(badOptionResult.stderr, /unknown option/);
   });
 });
 

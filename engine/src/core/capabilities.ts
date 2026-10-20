@@ -1264,7 +1264,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "inProgress",
-    summary: "Root-only @forge/engine API with a deterministic name/kind/stability snapshot and CI drift gate",
+    summary: "Root-only @forge/engine API with deterministic classification and declaration-contract CI drift gates",
     evidence: [
       "engine/api-surface.json",
       "tools/api-audit.mjs",
@@ -1274,7 +1274,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       ".github/workflows/ci.yml",
     ],
     closesWith: "27.1",
-    notes: "The first audit resolves all 2,180 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, and classifies explained @experimental/@deprecated tags. It does not yet diff declaration signatures or members, approve every public candidate for 1.0, or complete API docs/examples/migration/versioning/deprecation/extension policy.",
+    notes: "The audit resolves all 2,180 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies explained @experimental/@deprecated tags, and fingerprints each body-free declaration plus its transitive engine-local type dependencies. It detects but does not judge compatibility, approve every public candidate for 1.0, prove runtime/serialization/shader semantics, or complete API docs/examples/migration/versioning/deprecation/extension policy.",
   },
   {
     id: "editor.tooling",

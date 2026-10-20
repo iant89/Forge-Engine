@@ -3,29 +3,34 @@
  * Phase 27 public-API audit.
  *
  * The only supported runtime entry point is `@forge/engine`. This tool asks TypeScript for the
- * resolved exports of `engine/src/index.ts`, classifies every top-level name, and compares that
- * surface with the reviewed `engine/api-surface.json` snapshot. It deliberately snapshots names,
- * type/value presence and stability — not implementation paths, declaration order or signatures.
+ * resolved exports of `engine/src/index.ts`, classifies every top-level name, emits the declarations
+ * consumers receive, and compares that contract with the reviewed `engine/api-surface.json`
+ * snapshot. It deliberately omits implementation paths and function bodies while fingerprinting
+ * direct declarations and their engine-local type dependencies.
  *
  * Usage:
  *   npm run api:check
  *   npm run api:update
  *   node tools/api-audit.mjs --json
  *   node tools/api-audit.mjs --snapshot /tmp/surface.json [--write]
+ *   node tools/api-audit.mjs --root /tmp/forge-copy
  */
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-export const API_SURFACE_SCHEMA = "forge.api-surface/1";
+export const API_SURFACE_SCHEMA = "forge.api-surface/2";
+export const API_SIGNATURE_FORMAT = "forge.typescript-declaration-signature/1";
 export const API_STABILITIES = Object.freeze(["public", "experimental", "deprecated"]);
 export const API_KINDS = Object.freeze(["type", "value", "type-and-value"]);
 
+const signatureHashPattern = /^sha256:[0-9a-f]{64}$/;
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(here, "..");
-const defaultSnapshot = path.join(defaultRoot, "engine", "api-surface.json");
 const stabilityTags = new Set(["public", "experimental", "deprecated", "internal"]);
 
 export class ApiAuditError extends Error {}
@@ -111,6 +116,235 @@ function formatDiagnostics(diagnostics, root) {
     const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
     return `${path.relative(root, diagnostic.file.fileName)}:${position.line + 1}:${position.character + 1} ${text}`;
   });
+}
+
+function declarationOutputPath(sourceFile, options) {
+  const rootDirectory = options.rootDir;
+  const outputDirectory = options.outDir;
+  if (!rootDirectory || !outputDirectory) return null;
+  const relative = path.relative(rootDirectory, sourceFile);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  const extension = relative.endsWith(".mts") ? ".d.mts" : relative.endsWith(".cts") ? ".d.cts" : ".d.ts";
+  return path.normalize(path.join(outputDirectory, relative.replace(/\.(?:[cm]?ts|tsx)$/i, extension)));
+}
+
+function hashSignature(namespace, text) {
+  return `sha256:${createHash("sha256").update(`${namespace}\n${text}`).digest("hex")}`;
+}
+
+/**
+ * Emit declarations in memory and fingerprint the contract of each package-root symbol.
+ *
+ * A declaration hash covers that symbol's own body-free `.d.ts` declaration. A contract hash also
+ * covers the transitive closure of engine-local declarations referenced by it. The latter is what
+ * catches a change to an unexported helper type without putting implementation paths in the
+ * snapshot. Normal prose comments are intentionally absent; type/member shape is the contract here.
+ */
+function buildDeclarationSignatures(sourceProgram, config, entryPath, root) {
+  const emittedFiles = new Map();
+  const emitResult = sourceProgram.emit(
+    undefined,
+    (fileName, text) => {
+      if (/\.d\.(?:ts|mts|cts)$/i.test(fileName)) emittedFiles.set(path.normalize(fileName), text);
+    },
+    undefined,
+    true,
+  );
+  if (emitResult.emitSkipped || emitResult.diagnostics.length > 0) {
+    const details = formatDiagnostics(emitResult.diagnostics, root).join("\n");
+    throw new ApiAuditError(`could not emit the engine declaration contract${details ? `:\n${details}` : ""}`);
+  }
+
+  const declarationEntryPath = declarationOutputPath(entryPath, config.options);
+  if (!declarationEntryPath || !emittedFiles.has(declarationEntryPath)) {
+    throw new ApiAuditError(`declaration emit did not produce the public entry point for ${entryPath}`);
+  }
+
+  const declarationOptions = {
+    ...config.options,
+    noEmit: true,
+    declaration: false,
+    declarationMap: false,
+    composite: false,
+    incremental: false,
+    tsBuildInfoFile: undefined,
+  };
+  const baseHost = ts.createCompilerHost(declarationOptions, true);
+  const emittedDirectories = new Set();
+  for (const fileName of emittedFiles.keys()) {
+    let directory = path.dirname(fileName);
+    while (!emittedDirectories.has(directory)) {
+      emittedDirectories.add(directory);
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+  }
+  const declarationHost = {
+    ...baseHost,
+    fileExists(fileName) {
+      return emittedFiles.has(path.normalize(fileName)) || baseHost.fileExists(fileName);
+    },
+    directoryExists(directoryName) {
+      return emittedDirectories.has(path.normalize(directoryName)) || baseHost.directoryExists?.(directoryName) === true;
+    },
+    realpath(fileName) {
+      const normalized = path.normalize(fileName);
+      return emittedFiles.has(normalized) ? normalized : (baseHost.realpath?.(fileName) ?? normalized);
+    },
+    readFile(fileName) {
+      return emittedFiles.get(path.normalize(fileName)) ?? baseHost.readFile(fileName);
+    },
+    getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile) {
+      const emitted = emittedFiles.get(path.normalize(fileName));
+      if (emitted !== undefined) {
+        return ts.createSourceFile(fileName, emitted, languageVersion, true, ts.ScriptKind.TS);
+      }
+      return baseHost.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    },
+    writeFile() {},
+  };
+  const declarationProgram = ts.createProgram({
+    rootNames: [declarationEntryPath],
+    options: declarationOptions,
+    host: declarationHost,
+  });
+  const declarationDiagnostics = [
+    ...declarationProgram.getOptionsDiagnostics(),
+    ...declarationProgram.getSyntacticDiagnostics(),
+  ];
+  if (declarationDiagnostics.length > 0) {
+    throw new ApiAuditError(
+      `emitted declaration program has ${declarationDiagnostics.length} configuration/syntax diagnostic(s):\n`
+      + formatDiagnostics(declarationDiagnostics, root).join("\n"),
+    );
+  }
+
+  const declarationEntry = declarationProgram.getSourceFile(declarationEntryPath);
+  if (!declarationEntry) throw new ApiAuditError("could not reload the emitted package declaration entry point");
+  const checker = declarationProgram.getTypeChecker();
+  const moduleSymbol = checker.getSymbolAtLocation(declarationEntry);
+  if (!moduleSymbol) throw new ApiAuditError("could not resolve the emitted declaration entry point as a module");
+  const rootExports = checker.getExportsOfModule(moduleSymbol);
+  const outputPrefix = `${path.normalize(config.options.outDir ?? "")}${path.sep}`;
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  const directTextCache = new Map();
+  const dependencyCache = new Map();
+
+  function resolveAlias(symbol) {
+    let current = symbol;
+    const seen = new Set();
+    while (current && (current.flags & ts.SymbolFlags.Alias) !== 0 && !seen.has(current)) {
+      seen.add(current);
+      current = checker.getAliasedSymbol(current);
+    }
+    return current;
+  }
+
+  function engineDeclarations(symbol) {
+    return (symbol?.declarations ?? []).filter((declaration) => {
+      const fileName = path.normalize(declaration.getSourceFile().fileName);
+      return outputPrefix !== path.sep && fileName.startsWith(outputPrefix);
+    });
+  }
+
+  function isolatedDeclaration(declaration) {
+    if (
+      ts.isVariableDeclaration(declaration)
+      && ts.isVariableDeclarationList(declaration.parent)
+      && ts.isVariableStatement(declaration.parent.parent)
+    ) {
+      const statement = declaration.parent.parent;
+      const list = ts.factory.updateVariableDeclarationList(declaration.parent, [declaration]);
+      return ts.factory.updateVariableStatement(statement, statement.modifiers, list);
+    }
+    return declaration;
+  }
+
+  function canonicalDeclarationText(symbol) {
+    const existing = directTextCache.get(symbol);
+    if (existing !== undefined) return existing;
+    const declarations = engineDeclarations(symbol);
+    const text = declarations.map((declaration) => printer
+      .printNode(ts.EmitHint.Unspecified, isolatedDeclaration(declaration), declaration.getSourceFile())
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .join("\n")
+      .trim())
+      .filter(Boolean)
+      .join("\n");
+    directTextCache.set(symbol, text);
+    return text;
+  }
+
+  function declarationsAreNested(declarations, containers) {
+    return declarations.length > 0 && declarations.every((declaration) => containers.some((container) => (
+      declaration.getSourceFile() === container.getSourceFile()
+      && declaration.pos >= container.pos
+      && declaration.end <= container.end
+    )));
+  }
+
+  function dependenciesOf(symbol) {
+    const existing = dependencyCache.get(symbol);
+    if (existing) return existing;
+    const declarations = engineDeclarations(symbol);
+    const dependencies = new Set();
+    for (const declaration of declarations) {
+      const visit = (node) => {
+        if (ts.isIdentifier(node)) {
+          const referenced = resolveAlias(checker.getSymbolAtLocation(node));
+          if (referenced && referenced !== symbol) {
+            const referencedDeclarations = engineDeclarations(referenced);
+            if (
+              referencedDeclarations.length > 0
+              && !declarationsAreNested(referencedDeclarations, declarations)
+            ) {
+              dependencies.add(referenced);
+            }
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(declaration);
+    }
+    dependencyCache.set(symbol, dependencies);
+    return dependencies;
+  }
+
+  const signatures = new Map();
+  for (const exported of rootExports) {
+    const target = resolveAlias(exported);
+    const directText = target ? canonicalDeclarationText(target) : "";
+    if (!target || !directText) {
+      throw new ApiAuditError(`could not serialize the emitted declaration for ${exported.name}`);
+    }
+    const visited = new Set([target]);
+    const pending = [target];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      for (const dependency of dependenciesOf(current)) {
+        if (visited.has(dependency)) continue;
+        visited.add(dependency);
+        pending.push(dependency);
+      }
+    }
+    const dependencyText = [...visited]
+      .filter((symbol) => symbol !== target)
+      .map((symbol) => canonicalDeclarationText(symbol))
+      .filter(Boolean)
+      .sort(compareText)
+      .join("\n---\n");
+    signatures.set(exported.name, {
+      declarationHash: hashSignature("forge.api-declaration/1", directText),
+      contractHash: hashSignature(
+        "forge.api-contract/1",
+        `${directText}\n--- engine-local dependencies ---\n${dependencyText}`,
+      ),
+    });
+  }
+  return signatures;
 }
 
 function literalVersion(symbol) {
@@ -200,13 +434,18 @@ export function buildApiSurface(root = defaultRoot) {
   if (!moduleSymbol) throw new ApiAuditError("could not resolve the engine public entry point as a TypeScript module");
   const moduleExports = checker.getExportsOfModule(moduleSymbol);
   const failures = validatePackageBoundary(enginePackage, rootPackage, entrySource, moduleExports);
+  const signatures = buildDeclarationSignatures(program, config, entryPath, root);
 
   const exportsList = moduleExports.map((alias) => {
     const target = (alias.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(alias) : alias;
+    const signature = signatures.get(alias.name);
+    if (!signature) failures.push(`${alias.name} is missing from the emitted declaration contract`);
     return {
       name: alias.name,
       kind: symbolKind(alias, target),
       stability: stabilityOf(alias, target, checker, failures),
+      declarationHash: signature?.declarationHash ?? "",
+      contractHash: signature?.contractHash ?? "",
     };
   }).sort((a, b) => compareText(a.name, b.name));
 
@@ -220,6 +459,8 @@ export function buildApiSurface(root = defaultRoot) {
     package: enginePackage.name,
     packageVersion: enginePackage.version,
     entrypoint: "engine/src/index.ts",
+    signatureFormat: API_SIGNATURE_FORMAT,
+    typescriptVersion: ts.version,
     counts: countsFor(exportsList),
     exports: exportsList,
   };
@@ -234,6 +475,10 @@ export function validateRecordedSurface(surface) {
   const failures = [];
   if (!surface || typeof surface !== "object" || Array.isArray(surface)) return ["snapshot root must be an object"];
   if (surface.schema !== API_SURFACE_SCHEMA) failures.push(`snapshot schema must be ${API_SURFACE_SCHEMA}`);
+  if (surface.signatureFormat !== API_SIGNATURE_FORMAT) failures.push(`snapshot signatureFormat must be ${API_SIGNATURE_FORMAT}`);
+  if (typeof surface.typescriptVersion !== "string" || surface.typescriptVersion.length === 0) {
+    failures.push("snapshot typescriptVersion must be a non-empty string");
+  }
   if (!Array.isArray(surface.exports)) return [...failures, "snapshot exports must be an array"];
   let previous = null;
   const names = new Set();
@@ -248,6 +493,8 @@ export function validateRecordedSurface(surface) {
     previous = item.name;
     if (!API_KINDS.includes(item.kind)) failures.push(`${item.name} has unknown kind ${JSON.stringify(item.kind)}`);
     if (!API_STABILITIES.includes(item.stability)) failures.push(`${item.name} has unknown stability ${JSON.stringify(item.stability)}`);
+    if (!signatureHashPattern.test(item.declarationHash ?? "")) failures.push(`${item.name} has an invalid declarationHash`);
+    if (!signatureHashPattern.test(item.contractHash ?? "")) failures.push(`${item.name} has an invalid contractHash`);
   }
   const expectedCounts = countsFor(surface.exports);
   if (JSON.stringify(surface.counts) !== JSON.stringify(expectedCounts)) failures.push("snapshot counts do not match its export rows");
@@ -257,32 +504,56 @@ export function validateRecordedSurface(surface) {
 /** Human-readable semantic differences between a reviewed and current surface. */
 export function diffApiSurfaces(recorded, current) {
   const differences = [];
-  for (const key of ["schema", "package", "packageVersion", "entrypoint"]) {
+  for (const key of ["schema", "package", "packageVersion", "entrypoint", "signatureFormat", "typescriptVersion"]) {
     if (recorded?.[key] !== current[key]) differences.push(`${key}: ${JSON.stringify(recorded?.[key])} -> ${JSON.stringify(current[key])}`);
   }
   const recordedByName = new Map((recorded?.exports ?? []).map((item) => [item.name, item]));
   const currentByName = new Map(current.exports.map((item) => [item.name, item]));
   const unrecorded = current.exports.filter((item) => !recordedByName.has(item.name)).map((item) => item.name);
   const missing = (recorded?.exports ?? []).filter((item) => !currentByName.has(item.name)).map((item) => item.name);
-  const changed = current.exports.flatMap((item) => {
+  const changedClassifications = current.exports.flatMap((item) => {
     const old = recordedByName.get(item.name);
     if (!old || (old.kind === item.kind && old.stability === item.stability)) return [];
     return [`${item.name} (${old.kind}/${old.stability} -> ${item.kind}/${item.stability})`];
   });
+  const changedDeclarations = current.exports
+    .filter((item) => {
+      const old = recordedByName.get(item.name);
+      return old && old.declarationHash !== item.declarationHash;
+    })
+    .map((item) => item.name);
+  const changedDependencies = current.exports
+    .filter((item) => {
+      const old = recordedByName.get(item.name);
+      return old
+        && old.declarationHash === item.declarationHash
+        && old.contractHash !== item.contractHash;
+    })
+    .map((item) => item.name);
   if (unrecorded.length > 0) differences.push(`unrecorded exports: ${unrecorded.join(", ")}`);
   if (missing.length > 0) differences.push(`missing or renamed exports: ${missing.join(", ")}`);
-  if (changed.length > 0) differences.push(`changed classifications: ${changed.join(", ")}`);
+  if (changedClassifications.length > 0) differences.push(`changed classifications: ${changedClassifications.join(", ")}`);
+  if (changedDeclarations.length > 0) differences.push(`changed declarations: ${changedDeclarations.join(", ")}`);
+  if (changedDependencies.length > 0) differences.push(`changed transitive contracts: ${changedDependencies.join(", ")}`);
   return differences;
 }
 
 function parseArgs(argv) {
-  const options = { write: false, json: false, snapshot: defaultSnapshot, help: false };
+  const options = { write: false, json: false, snapshot: null, root: defaultRoot, help: false };
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (argument === "--write") options.write = true;
     else if (argument === "--json") options.json = true;
     else if (argument === "--help" || argument === "-h") options.help = true;
-    else if (argument === "--snapshot") {
+    else if (argument === "--root") {
+      const value = argv[++index];
+      if (!value) throw new ApiAuditError("--root requires a path");
+      options.root = path.resolve(value);
+    } else if (argument.startsWith("--root=")) {
+      const value = argument.slice("--root=".length);
+      if (!value) throw new ApiAuditError("--root requires a path");
+      options.root = path.resolve(value);
+    } else if (argument === "--snapshot") {
       const value = argv[++index];
       if (!value) throw new ApiAuditError("--snapshot requires a path");
       options.snapshot = path.resolve(value);
@@ -295,11 +566,12 @@ function parseArgs(argv) {
     }
   }
   if (options.write && options.json) throw new ApiAuditError("--write and --json cannot be combined");
+  options.snapshot ??= path.join(options.root, "engine", "api-surface.json");
   return options;
 }
 
 function usage() {
-  return "Usage: node tools/api-audit.mjs [--write | --json] [--snapshot PATH]";
+  return "Usage: node tools/api-audit.mjs [--write | --json] [--root PATH] [--snapshot PATH]";
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -317,7 +589,7 @@ export function main(argv = process.argv.slice(2)) {
 
   let current;
   try {
-    current = buildApiSurface(defaultRoot);
+    current = buildApiSurface(options.root);
   } catch (error) {
     console.error(`api:check FAILED — ${error instanceof Error ? error.message : String(error)}`);
     return 1;
@@ -330,7 +602,7 @@ export function main(argv = process.argv.slice(2)) {
   if (options.write) {
     fs.mkdirSync(path.dirname(options.snapshot), { recursive: true });
     fs.writeFileSync(options.snapshot, canonical);
-    console.log(`api:update OK — wrote ${current.counts.total.toLocaleString("en-US")} exports to ${path.relative(defaultRoot, options.snapshot) || options.snapshot}`);
+    console.log(`api:update OK — wrote ${current.counts.total.toLocaleString("en-US")} exports to ${path.relative(options.root, options.snapshot) || options.snapshot}`);
     return 0;
   }
 
@@ -351,12 +623,13 @@ export function main(argv = process.argv.slice(2)) {
   const differences = diffApiSurfaces(recorded, current);
   if (differences.length > 0 || recordedText !== canonicalApiSurface(recorded)) {
     if (recordedText !== canonicalApiSurface(recorded)) differences.push("snapshot JSON formatting is not canonical");
-    console.error(`api:check FAILED — engine/api-surface.json is stale:\n  ${differences.join("\n  ")}\nReview the API change, then run npm run api:update.`);
+    const snapshotLabel = path.relative(options.root, options.snapshot) || options.snapshot;
+    console.error(`api:check FAILED — ${snapshotLabel} is stale:\n  ${differences.join("\n  ")}\nReview the API change, then run npm run api:update.`);
     return 1;
   }
   console.log(
     `api:check OK — ${current.counts.total.toLocaleString("en-US")} exports `
-    + `(${current.counts.public.toLocaleString("en-US")} public, ${current.counts.experimental} experimental, ${current.counts.deprecated} deprecated); root-only package boundary intact.`,
+    + `(${current.counts.public.toLocaleString("en-US")} public, ${current.counts.experimental} experimental, ${current.counts.deprecated} deprecated); root-only boundary and declaration contracts intact.`,
   );
   return 0;
 }
