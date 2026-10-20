@@ -6,13 +6,14 @@
   "type": "module",
   "workspaces": [
     "engine",
+    "editor",
     "packages/selrun"
   ],
   "scripts": {
     "setup": "bash scripts/setup-deps.sh",
     "setup:check": "bash scripts/setup-deps.sh --check",
-    "build": "tsc -b engine --pretty false",
-    "typecheck": "tsc -b engine --pretty false && tsc -p examples/tsconfig.json --noEmit --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false && tsc -p benchmarks/tsconfig.json --noEmit --pretty false",
+    "build": "tsc -b engine editor --pretty false",
+    "typecheck": "tsc -b engine editor --pretty false && tsc -p examples/tsconfig.json --noEmit --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false && tsc -p benchmarks/tsconfig.json --noEmit --pretty false",
     "test": "selrun run --all",
     "test:run": "selrun run --all",
     "test:serial": "selrun serial",

@@ -211,6 +211,11 @@ PHASE 25 - WASM PHYSICS
         and transferable exact state frames landed; the WASM solver, runtime body commands,
         cross-backend tolerance gate and CCD remain)
 
+PHASE 26 - EDITOR
+    [~] IN PROGRESS (`@forge/editor` public-API-only workspace, bounded hierarchy/selection model,
+        copied entity/component inspection and undoable rename/reparent/transform/enabled edits
+        landed; the visual shell, gizmos, creation/deletion and specialist panels remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2750,29 +2755,61 @@ GOAL:
 
 26.1 Scene Hierarchy
 
+    [~] `@forge/editor` now provides a deterministic, bounded root-first hierarchy snapshot with
+        selection, collapse/expand, ancestor-context filtering and undoable rename/reparent. It is a
+        headless document model; no visible tree panel, create/duplicate/delete or drag/drop exists.
+
 26.2 Entity Inspector
+
+    [~] A selected entity exposes copied name, parent/children, authoritative local TRS and component
+        summaries. Validated local transform edits participate in bounded undo/redo. Multi-selection,
+        world-space editing and a visual inspector shell remain.
 
 26.3 Component Inspector
 
+    [~] Registered `editorGroup`, enabled state and bounded scalar/vector fields are listed through
+        public inspection APIs; enabled toggles are undoable. Generic property schemas/widgets and
+        add/remove component commands remain.
+
 26.4 Transform Gizmo
+
+    [ ] No viewport gizmo or picking/manipulation interaction yet.
 
 26.5 Terrain Editor
 
+    [ ] No editor panel yet.
+
 26.6 Material Editor
+
+    [ ] No editor panel yet.
 
 26.7 Particle Editor
 
+    [ ] No editor panel yet.
+
 26.8 Vehicle Inspector
+
+    [ ] No editor panel yet.
 
 26.9 Environment Editor
 
+    [ ] No editor panel yet.
+
 26.10 Streaming Inspector
+
+    [ ] Existing runtime diagnostics are read-only; no editor panel yet.
 
 26.11 Render Graph Viewer
 
+    [ ] Existing runtime diagnostics are read-only; no editor panel yet.
+
 26.12 Asset Browser
 
+    [ ] No browser/import workflow yet.
+
 26.13 Profiler
+
+    [ ] Existing runtime profiler diagnostics are not an editor workspace panel yet.
 
 
 CRITICAL RULE:

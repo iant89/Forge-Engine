@@ -91,6 +91,13 @@ The UI sits beside this graph rather than on it: `ui/**` imports only `core`, `m
 the framework runs headless; `ui/gpu/**` adds `gpu` and `rendering` and implements the renderer's
 `RenderOverlay` contract. `rendering` never imports `ui` (enforced by `npm run lint:arch`).
 
+Phase 26 keeps editor policy above an even harder package boundary. `editor/` builds as
+`@forge/editor`, imports runtime symbols only from the public `@forge/engine` barrel, and is imported
+by no runtime source. Its first DOM-free `EditorSession` reads deterministic bounded hierarchy and
+inspection snapshots and writes through public entity/component/transform APIs; `EditorHistory`
+owns bounded undo/redo. This is the document model beneath a future browser shell, not a runtime
+subsystem or a completed editor. The architecture suite and `lint:arch` check both directions.
+
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
 subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
 uploads the atmosphere presets and the fog mode table); `environment` never imports `rendering`,

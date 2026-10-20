@@ -27,6 +27,7 @@ export const linkedSuites = [
   ["tests/scene/ecs.test.ts", () => import("./scene/ecs.test.ts")],
   ["tests/scene/sceneSave.test.ts", () => import("./scene/sceneSave.test.ts")],
   ["tests/scene/simulationSnapshot.test.ts", () => import("./scene/simulationSnapshot.test.ts")],
+  ["tests/editor/editor.test.ts", () => import("./editor/editor.test.ts")],
   ["tests/replay/replay.test.ts", () => import("./replay/replay.test.ts")],
   ["tests/replay/crossEngine.test.ts", () => import("./replay/crossEngine.test.ts")],
   ["tests/audio/audioSystem.test.ts", () => import("./audio/audioSystem.test.ts")],
@@ -158,4 +159,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(154);
+report(155);

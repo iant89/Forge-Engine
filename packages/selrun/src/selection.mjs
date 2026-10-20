@@ -281,7 +281,7 @@ export function assessChangeConfidence(changedPaths, root = process.cwd()) {
   for (const file of changes) {
     const abs = path.resolve(root, file);
     if (!fs.existsSync(abs)) {
-      if (file.startsWith("engine/src/") || file.startsWith("tools/") || file.startsWith("packages/")) {
+      if (file.startsWith("engine/src/") || file.startsWith("editor/src/") || file.startsWith("tools/") || file.startsWith("packages/")) {
         // If this missing file has a counterpart new file in same subsystem, it's likely a rename — don't fallback
         const missingSub = subsystemForFile(file);
         const hasRenameCounterpart = changes.some((other) => {
@@ -317,7 +317,7 @@ export function mapFileToSubsystem(file) {
 /** Detect production source files not assigned to any subsystem. */
 export function findUnmappedProductionFiles(root = process.cwd()) {
   const unmapped = [];
-  const roots = ["engine/src", "examples/src"];
+  const roots = ["engine/src", "editor/src", "examples/src"];
   const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".wgsl"]);
   for (const sourceRoot of roots) {
     const absoluteRoot = path.resolve(root, sourceRoot);
@@ -381,7 +381,7 @@ export function selectWithImpact(suites, changedPaths, options = {}) {
   // selection confidence is insufficient: fall back rather than infer a narrow scope.
   if (!assessment.fallback) {
     for (const file of changes) {
-      if (!/^(engine|examples)\/src\//.test(file)) continue;
+      if (!/^(engine|editor|examples)\/src\//.test(file)) continue;
       const node = graphInfo.graph.get(file);
       const renameCounterpart = !fs.existsSync(path.resolve(root, file)) && changes.some((other) => other !== file && fs.existsSync(path.resolve(root, other)) && subsystemForFile(other) === subsystemForFile(file));
       if (renameCounterpart) continue;
@@ -442,7 +442,7 @@ export function selectWithImpact(suites, changedPaths, options = {}) {
 
   const transitiveDependents = findTransitiveDependents(changes, graphInfo.reverse);
   const impactedSubsystems = subsystemsForChanges(changes);
-  const aggregators = new Set(["engine/src/index.ts", "engine/src/math/index.ts", "engine/src/scene/components/index.ts"]);
+  const aggregators = new Set(["engine/src/index.ts", "engine/src/math/index.ts", "engine/src/scene/components/index.ts", "editor/src/index.ts"]);
   const dependentInfo = [...transitiveDependents]
     .filter((file) => !aggregators.has(file))
     .map((file) => ({ file, subsystem: subsystemForFile(file) }));

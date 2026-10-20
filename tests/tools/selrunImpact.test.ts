@@ -58,6 +58,7 @@ group("subsystem mapping and smoke floor", () => {
     assert.equal(subsystemForFile("engine/src/rendering/renderer.ts"), "rendering");
     assert.equal(subsystemForFile("engine/src/terrain/pipelineSpec.ts"), "terrain");
     assert.equal(subsystemForFile("engine/src/scene/world.ts"), "scene");
+    assert.equal(subsystemForFile("editor/src/session.ts"), "editor");
     assert.equal(subsystemForFile("tools/browser-check.mjs"), "tools");
     assert.equal(subsystemForFile("package.json"), "config");
     assert.equal(mapFileToSubsystem("engine/src/math/vec.ts"), "math");
@@ -100,11 +101,19 @@ group("subsystem mapping and smoke floor", () => {
     assert.ok(leaf.evidenceCounts.smoke >= 1);
   });
 
+  test("editor source is owned and selects its suite plus the architecture smoke", () => {
+    const selection = selectWithImpact(repoSuites, ["editor/src/session.ts"], { root: repoRoot, graph: repoGraph });
+    assert.equal(selection.fallback, false);
+    assert.ok(selection.suites.some((suite) => suite.file === "tests/editor/editor.test.ts"));
+    assert.ok(selection.suites.some((suite) => suite.file === "tests/engine/architecture.test.ts"));
+  });
+
   test("every subsystem has at least one file and the production source map has no gaps", () => {
     assert.deepEqual(findUnmappedProductionFiles(repoRoot), [], "new production source paths must be mapped before affected selection is trusted");
     assert.ok(Object.keys(SUBSYSTEMS).length >= 15);
     assert.ok(SUBSYSTEMS["math"].includes("engine/src/math/**"));
     assert.ok(SUBSYSTEMS["rendering"].includes("engine/src/rendering/**"));
+    assert.ok(SUBSYSTEMS["editor"].includes("editor/src/**"));
   });
 });
 

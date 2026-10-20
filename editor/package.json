@@ -1,0 +1,31 @@
+{
+  "name": "@forge/editor",
+  "version": "0.1.0",
+  "description": "Public-API-only authoring tools for Forge Engine",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b --pretty false",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@forge/engine": "0.1.0"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.52",
+    "typescript": "^5.7.2"
+  }
+}
