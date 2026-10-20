@@ -26628,6 +26628,40 @@ JSON array below; agents maintain it by hand until then.
   "file": "tests/examples/alpineRescueScene.test.ts",
   "what": "The rear-wheel-lock case stopped calling the private `Vehicle.isRearWheel` with a wheel *index* and now tests the engine's own condition (`w.z < 0 || w.handbrake`), and asserts that at least two wheels matched.",
   "why": "`npm run typecheck` was failing on main (the method is private and takes a `WheelState`). Worse, the call was silently vacuous at runtime: a number has no `.z`, so the condition was always false and the lock was never actually asserted. `npm test` does not typecheck, which is how it shipped."
+},
+{
+  "id": "2149",
+  "date": "2026-10-20T01:07:13Z",
+  "type": "pr-merge",
+  "pr": 137,
+  "branch": "arena/a658d556-forge-engine",
+  "base": "main",
+  "title": "Off-road demo: a two-stroke quad, a forest that culls and stops casting at range, and handlebar-rate input",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Replaces the off-road hill demo's UTV (?scene=offroad) with a 421 cc two-stroke sport quad, fixes the extreme lag when facing the treeline, and fixes the handling. Vehicle: new examples/src/scenes/offroadQuad.ts builds the machine from the mesh kit - spine frame, steering head, double A-arms, swingarm and solid rear axle, nerf bars and pegs, bumper hoop, rear rack, handlebars, lofted tank and beak fenders with arc-strip wings, the two-stroke's finned cylinder, and its expansion chamber lathed onto the pipe's own axis - plus two wheel assemblies (narrow front, wide rear: lathed carcass with chevron lugs, dished rim, inboard disc) built about their own origin with the axle along +X so VehicleSystem can pose them as root entities (left meshes yaw 180 deg so the dish faces outboard). Drivetrain: idle 1900, 46 N.m at 7600, limiter 9500, behind a close-ratio five-speed and a 3.45 final so every upshift lands the crank back inside the band. Sound: VehicleAudioOptions gains strokes?: 2|4 (firingsPerRev = cylinders * 2/strokes, brighter and less gritty, with an expansion-chamber ring at 4x the firing frequency on the whine voice a four-stroke leaves free in forward gear) - no new nodes, so the pinned 12-source graph holds. Lag: the forest was planted with maxDistance 0 (never culled) and both parts of every tree casting, so facing the trees drew ~6705 renderables with thousands of casters per cascade per frame; VegetationModel now has a third ring, shadowDistance (Instance.casting, counted in stats_.casting), Renderer.collectBatches skips the BVH refinement when classifyAABB says Inside, and the demo gives trees lod/max/shadow rings of 16/22/30, 70/105/145 and 26/38/52 m (bushes 45/70/100 + 28/38/48, thinner backdrop scatter, shadow range 40/55/70). Measured on the mock GPU at the spawn, high tier: visible renderables 6705 -> 2813, casters -> 664. Handling: rider input is rate-limited (steer 4.2/s toward lock, 6.5/s back to centre, throttle 5.5/s up and 9/s down, brake 8/s and 10/s) because digital keys gave instant full lock on a 1.28 m wheelbase; VehicleOptions exposes inertias, angularDamping, wheelInertia, suspensionRest/Travel, maxSteerAngle, handbrakeTorque, lsdBias, tcSlip, tcStrength and efficiency with every default unchanged, and the 265 kg quad uses them (78/42/26 kg.m^2, 0.4 rad of lock, 420/520/560 N.m of brakes - car-scale torque locked all four 0.27 m wheels the instant the pedal was touched - and a wider 0.18 TC window). Chase camera tightened to 4.6 m back / 1.9 m up, the cab view is the rider's eye, the overlay shows rpm, and the touch steering control is drawn as handlebars (maxAngle 45, returnRate 14). Also fixes two regressions PR #136 left on main: alpineRescueScene.vehicleState() returned fields the closed DemoSceneHandle shape does not have (npm run typecheck was failing, and npm test does not typecheck), and the Alpine rear-wheel-lock case called the private Vehicle.isRearWheel with an index, so its condition was always false and the lock was never asserted. Tests: a new 15-check suite over the whole off-road demo (tests/examples/offroadHillScene.test.ts - the demo had no coverage at all), the shadow ring in the vegetation suite, the two-stroke in the audio suite, and the light-machine options in the vehicle suite; the selrun catalog is now 153 suites / 1059 coverage claims. Gates green: build, typecheck, lint:arch, selrun check, docs:check, npm test (153/153) and check:wgsl.",
+  "files": [
+    "change-log.md",
+    "docs/AUDIO.md",
+    "docs/VEGETATION.md",
+    "docs/VEHICLES.md",
+    "engine/src/audio/vehicle.ts",
+    "engine/src/population/vegetation.ts",
+    "engine/src/rendering/renderer.ts",
+    "engine/src/vehicles/vehicle.ts",
+    "examples/index.html",
+    "examples/src/scenes/alpineRescueScene.ts",
+    "examples/src/scenes/offroadHillScene.ts",
+    "examples/src/scenes/offroadQuad.ts",
+    "mnemosyne.md",
+    "tests/audio/vehicleAudio.test.ts",
+    "tests/examples/alpineRescueScene.test.ts",
+    "tests/examples/offroadHillScene.test.ts",
+    "tests/full.test.ts",
+    "tests/population/vegetation.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tests/vehicles/vehicles.test.ts"
+  ]
 }
 ]
 ```
