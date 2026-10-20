@@ -203,6 +203,14 @@ group("Mars Showcase — ported terrain integration", () => {
       terrainReadyChunks: 0,
       terrainRoverChunkReady: false,
     });
+    const reference = handle.marsReferenceState();
+    assert.equal(reference.schema, "forge.mars-reference/1");
+    assert.equal(reference.phase, 23);
+    assert.equal(reference.status, "warming");
+    assert.equal(reference.readiness.sixWheelRover, true);
+    assert.equal(reference.readiness.engineTelemetry, false); // Reduced fixture intentionally has no Engine.stats().
+    assert.equal(reference.telemetry.loadedChunks, 0);
+    assert.equal(reference.limitations.erosionCache, "missing");
     assertContains(handle.overlay?.(), "analytic only (no erosion cache)");
   });
 
@@ -357,6 +365,14 @@ group("Mars Showcase — ported terrain integration", () => {
     }
     key("keyup", "KeyW");
     assert.ok(handle.marsState().z - start.z > 6);
+    const reference = handle.marsReferenceState();
+    assert.ok(reference.traversal.distanceMeters > 5);
+    assert.ok(reference.traversal.movingSeconds > 5);
+    assert.equal(reference.traversal.terrainGapFrames, 0);
+    assert.equal(reference.traversal.discontinuities, 0);
+    assert.ok(reference.telemetry.loadedChunks >= terrain.warmUpChunks);
+    handle.resetMarsReferenceTraversal();
+    assertMatchObject(handle.marsReferenceState().traversal, { distanceMeters: 0, visitedChunks: 1 });
     assert.ok(minContact >= 4);
     assert.ok(maxSpeed > 1);
     assert.ok(maxSpeed < 2.5); // Gentle uphill, not the runaway downhill summit spawn.

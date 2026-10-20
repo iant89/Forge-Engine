@@ -2819,3 +2819,29 @@ Working with the software rasterizer (SwiftShader) on this box:
   without weakening the guard.
 * Root `npm run typecheck` now includes `benchmarks/tsconfig.json`; benchmark TypeScript can no longer
   compile only when someone happens to run `npm run bench:build`.
+
+## 2026-10-20 — Phase 23 started: make Mars a measured reference slice, not another demo
+
+* **Reconcile before rebuilding.** `?scene=mars-showcase` already owns streamed seed-1337 terrain,
+  craters/rocks/real LOD, Mars atmosphere/haze/lights, a six-wheel electric rover and dust/debris.
+  Phase 23 starts by naming and testing that workload rather than creating a duplicate scene. The
+  roadmap now checks only what the scene really proves: erosion, solar/weather integration, the wider
+  camera matrix, sustained traversal and Mars replay remain visibly open.
+* **`forge.mars-reference/1` is the validation boundary** (`marsReferenceTelemetry.ts`). It folds the
+  public `Engine.stats()` and `Engine.frameBreakdown()` results together with scene-owned terrain,
+  particles and rover state. The same object drives the HUD and `window.__forge.marsReferenceState()`;
+  browser automation should consume this contract instead of scraping overlay text or re-deriving
+  counters from unrelated APIs.
+* **Unavailable data stays unavailable.** GPU frame time is `null` / HUD `n/a` unless timestamp
+  queries are supported and a result has resolved; reduced mock fixtures without full Engine
+  diagnostics report `available: false`. GPU memory is device texture bytes + buffer bytes only —
+  graph transient/pool figures overlap those allocations and must not be added again.
+* **Continuous driving needs longitudinal evidence, not one pose.** `MarsReferenceTraversalMonitor`
+  accumulates XZ distance, moving time, distinct chunk coordinates, maximum radius and moving-time
+  missing-ready-chunk gaps. A jump larger than one terrain chunk is recorded as a discontinuity and
+  excluded from distance, so a debug placement/origin adjustment cannot masquerade as a successful
+  traverse. Startup warm-up does not count as a streaming gap while the rover is parked.
+* **The new counters are instrumentation, not the Phase 23 exit gate.** Focused tests pin aggregation,
+  fallback and traversal semantics, but no sustained route/soak threshold or real-browser schema arm
+  exists yet. `diagnostics.marsReferenceTelemetry` therefore remains `inProgress`, and generic replay
+  infrastructure does not count as Mars replay until the reference route records, replays and hashes.

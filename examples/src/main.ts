@@ -745,6 +745,25 @@ async function main(): Promise<void> {
       `${lights}\n` +
       `graph ${r.passes} passes (${r.culledPasses} culled)  ${r.transientTextures} transients → ${r.physicalTextures} textures${aliased}\n` +
       `${where}  ${canvas.width}x${canvas.height}  ${health}`;
+    // Phase 23 reference contract: the Mars scene folds public engine diagnostics and its own
+    // streaming/particle/traversal state into one HUD + browser snapshot. GPU time stays explicitly
+    // n/a when timestamp queries are unsupported or have not resolved; it is never estimated.
+    if (activeSceneName === "mars-showcase") {
+      const reference = (currentHandle as MarsShowcaseSceneHandle | null)?.marsReferenceState?.();
+      if (reference) {
+        const ms = (value: number | null): string => value === null ? "n/a" : `${value.toFixed(2)}ms`;
+        const count = (value: number | null): string => value === null ? "n/a" : String(value);
+        const memory = reference.telemetry.gpuMemoryBytes;
+        const fps = reference.telemetry.fps;
+        hud.textContent +=
+          `\nref ${reference.status.toUpperCase()} · fps ${fps === null ? "n/a" : fps.toFixed(1)} · cpu ${ms(reference.telemetry.cpuFrameMs)} gpu ${ms(reference.telemetry.gpuFrameMs)}` +
+          ` · physics ${ms(reference.telemetry.physicsMs)} terrain ${ms(reference.telemetry.terrainMs)} stream ${ms(reference.telemetry.streamingMs)}` +
+          `\nref particles ${reference.telemetry.particleCount} · visible ${count(reference.telemetry.visibleObjects)}` +
+          ` · chunks ${reference.telemetry.loadedChunks} · gpu mem ${memory === null ? "n/a" : `${(memory / 1048576).toFixed(1)}MB`}` +
+          `\ntraverse ${reference.traversal.distanceMeters.toFixed(1)}m / ${reference.traversal.visitedChunks} chunks` +
+          ` · moving ${reference.traversal.movingSeconds.toFixed(1)}s · gaps ${reference.traversal.terrainGapFrames}`;
+      }
+    }
     const extra = currentHandle?.overlay?.();
     if (activeSceneName === "alpine-rescue") {
       if (rescueHud) rescueHud.textContent = extra ?? "";
@@ -986,6 +1005,16 @@ async function main(): Promise<void> {
     marsState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
+    },
+    /** Phase 23: versioned telemetry/streaming/traversal contract; null outside Mars Showcase. */
+    marsReferenceState: () => {
+      const handle = currentHandle as MarsShowcaseSceneHandle | null;
+      return activeSceneName === "mars-showcase" ? handle?.marsReferenceState?.() ?? null : null;
+    },
+    /** Start a fresh continuous-traversal accounting window at the rover's current position. */
+    resetMarsReferenceTraversal: () => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.resetMarsReferenceTraversal?.();
     },
     /** Ported Mars generator inspector (`?scene=mars-generator`): site, fidelity, generation mode. */
     marsGeneratorState: () => {

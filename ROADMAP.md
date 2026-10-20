@@ -196,6 +196,11 @@ PHASE 21 - PROFILER / DEBUG TOOLS
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
     [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
 
+PHASE 23 - MARS REFERENCE VERTICAL SLICE
+    [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
+        versioned telemetry/streaming/traversal contract; erosion, environment breadth, continuous
+        traversal validation, camera modes and integrated deterministic replay remain)
+
 
 ================================================================================
                      CRITICAL ROADMAP CORRECTIONS
@@ -2473,62 +2478,80 @@ This is the primary validation environment for Forge.
 
 23.1 Mars Terrain
 
-    [ ] Large procedural Mars terrain
-    [ ] Craters
+    [x] Large procedural Mars terrain
+    [x] Craters
     [ ] erosion
-    [ ] rocks
-    [ ] LOD
-    [ ] streaming
+    [x] rocks
+    [x] LOD
+    [x] streaming
+
+    As built: Mars Showcase evaluates the deterministic seed-1337 analytic Mars stage over streamed
+    128 m chunks, with crater fields, streamed rock populations, real lower-resolution LOD meshes,
+    skirts and bounded worker generation/upload. The scene and its Phase 23 snapshot both report
+    `hasErosion: false`: the external Stage A erosion cache is still absent and is not implied by the
+    completed terrain checks. (`marsShowcaseScene.ts`, `marsShared.ts`, `marsShowcase.test.ts`)
 
 
 23.2 Mars Environment
 
-    [ ] Mars atmosphere
-    [ ] dust haze
+    [x] Mars atmosphere
+    [x] dust haze
     [ ] solar cycle
     [ ] weather
     [ ] clouds where appropriate
-    [ ] lighting
+    [x] lighting
+
+    As built: the showcase uses the Mars atmosphere, exponential dust haze and shadowed directional
+    lighting. Its sun is static; the separate sky/weather demos do not satisfy this reference slice's
+    solar-cycle, Mars weather or cloud integration requirements.
 
 
 23.3 Rover
 
-    [ ] physics chassis
-    [ ] suspension
-    [ ] wheels
-    [ ] tire model
-    [ ] drivetrain
-    [ ] steering
-    [ ] braking
+    [~] physics chassis (vehicle dynamics are live; full rigid-body terrain/world contact remains a
+        known Phase 6 hardening boundary)
+    [x] suspension
+    [x] wheels
+    [x] tire model
+    [x] drivetrain
+    [x] steering
+    [x] braking
+
+    As built: the six-wheel battery-electric rover uses the shared Vehicle simulation, per-wheel
+    suspension/contact, combined-slip tires, reduction drivetrain, front/rear steering and
+    regenerative/friction braking. This does not upgrade the capability registry's honest partial
+    status for the chassis/contact architecture.
 
 
 23.4 Rover Environment Interaction
 
-    [ ] crater traversal
-    [ ] slope traversal
-    [ ] rock collisions
-    [ ] wheel slip
-    [ ] suspension movement
+    [ ] crater traversal (present in terrain, but no reference-route/soak acceptance gate yet)
+    [x] slope traversal
+    [x] rock collisions
+    [x] wheel slip
+    [x] suspension movement
 
 
 23.5 Particles
 
-    [ ] wheel dust
-    [ ] drifting dust
-    [ ] debris
-    [ ] exhaust
+    [x] wheel dust
+    [x] drifting dust
+    [x] debris
+    [ ] exhaust (the reference rover is battery-electric; roadmap disposition remains explicit)
 
 
 23.6 Streaming
 
-    [ ] continuous terrain traversal
-    [ ] object streaming
-    [ ] asset streaming
+    [~] continuous terrain traversal (distance, visited chunks and moving-time terrain gaps are now
+        measured; a sustained route/soak acceptance gate remains)
+    [x] object streaming
+    [~] asset streaming (live GLB progress and engine asset counters are visible; continuous-run
+        recovery/budget validation remains)
 
 
 23.7 Camera
 
-    [ ] chase
+    [x] chase
     [ ] cockpit
     [ ] free
     [ ] cinematic
@@ -2536,18 +2559,28 @@ This is the primary validation environment for Forge.
 
 23.8 Telemetry HUD
 
+    [~] The Mars HUD and `window.__forge.marsReferenceState()` expose schema
+        `forge.mars-reference/1`; focused tests pin aggregation and unavailable-data semantics. A
+        real-browser assertion and sustained-run thresholds/logging remain before telemetry is a
+        completed validation gate.
+
     Show:
 
-        FPS
-        CPU frame
-        GPU frame
-        physics
-        terrain
-        streaming
-        particle count
-        visible objects
-        loaded chunks
-        GPU memory
+        [x] FPS
+        [x] CPU frame
+        [x] GPU frame (real timestamp value or explicit `n/a`; never estimated)
+        [x] physics
+        [x] terrain
+        [x] streaming
+        [x] particle count
+        [x] visible objects
+        [x] loaded chunks
+        [x] GPU memory
+
+    The same snapshot includes terrain generation/upload queues and cumulative traversal distance,
+    moving time, visited chunks, missing-ready-chunk frames and discontinuities. GPU memory is live
+    buffer + texture allocation; overlapping transient/pool counters are not double-counted.
+    (`marsReferenceTelemetry.ts`, `main.ts`, `marsReferenceTelemetry.test.ts`)
 
 
 23.9 Deterministic Replay
@@ -2555,6 +2588,9 @@ This is the primary validation environment for Forge.
     [ ] record input
     [ ] replay
     [ ] state hashes
+
+    The engine already owns generic recording/session/hash infrastructure, but none of these checks
+    are complete until the Mars reference route is wired to and verified through that infrastructure.
 
 
 EXIT CRITERIA:

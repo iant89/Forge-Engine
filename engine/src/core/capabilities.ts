@@ -94,6 +94,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "20": "verified",
   "21": "inProgress",
   "22": "inProgress",
+  "23": "inProgress",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -309,6 +310,20 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
     closesWith: "22.7",
     notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.2-22.6 workload matrix.",
+  },
+  {
+    id: "diagnostics.marsReferenceTelemetry",
+    phase: "23",
+    status: "inProgress",
+    summary: "Versioned Mars reference-slice snapshot and HUD for frame, subsystem, streaming, particle, memory and continuous-traversal telemetry",
+    evidence: [
+      "tests/examples/marsReferenceTelemetry.test.ts",
+      "tests/examples/marsShowcase.test.ts",
+      "examples/src/scenes/marsReferenceTelemetry.ts",
+      "examples/src/main.ts",
+    ],
+    closesWith: "23.8",
+    notes: "Schema forge.mars-reference/1 aggregates public Engine.stats()/frameBreakdown() data with scene-owned terrain, particle and traversal counters. GPU time is null/n/a without resolved timestamp queries, GPU bytes do not double-count graph pools, and moving-time terrain gaps plus discontinuities remain visible. Focused tests are present; a real-browser contract assertion and sustained traversal thresholds/logging remain before this becomes a completed validation gate.",
   },
   {
     id: "diagnostics.frameTimeline",

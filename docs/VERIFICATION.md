@@ -331,6 +331,21 @@ The material fixture also compares every uploaded mask against the helper applie
 Mars cell, asserts shared four-slice arrays and the dust/rock/sand/crust order, and toggles between
 layered and single materials without changing geometry buffers, ground height or six-wheel contacts.
 
+### `tests/examples/marsReferenceTelemetry.test.ts` — Phase 23's validation contract
+
+Four focused checks pin schema `forge.mars-reference/1`, public engine-stat/frame-breakdown folding,
+particle and loaded-chunk totals, non-overlapping GPU-memory accounting, explicit `null` GPU timing on
+adapters without timestamp results, and honest reduced-host fallbacks. The traversal monitor integrates
+XZ path length, moving time and visited chunk coordinates; counts missing-ready-chunk time only while
+moving; rejects a position jump larger than one terrain chunk as a discontinuity; and resets at the
+current rover position. Mars Showcase exposes the same snapshot through its handle and
+`window.__forge.marsReferenceState()`, and paints the values into the normal HUD.
+
+This starts, but does not finish, the Phase 23 acceptance gate. No focused browser arm yet asserts the
+schema against a real timestamp-capable adapter, and no sustained route/soak threshold converts the
+counters into pass/fail. Erosion remains explicitly `missing`; environment, camera and replay gaps are
+tracked separately in `ROADMAP.md`.
+
 ### `tests/terrain/terrainMaterials.test.ts` — four-layer GPU data, draws and lifetime
 
 Seven tests pin independent array slices and sRGB-filtered mip contents (including a mock storage
