@@ -141,7 +141,7 @@ function temporaryRepository(): string {
   for (const file of ["api-approvals.json", "api-surface.json", "package.json", "tsconfig.json"]) {
     fs.copyFileSync(path.join(root, "engine", file), path.join(directory, "engine", file));
   }
-  for (const file of ["docs/API.md", "tests/core/errors.test.ts"]) {
+  for (const file of ["docs/API.md", "tests/core/errors.test.ts", "tests/core/time.test.ts"]) {
     const destination = path.join(directory, file);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(path.join(root, file), destination);
@@ -293,7 +293,7 @@ group("Phase 27 public API audit", () => {
     );
   });
 
-  test("binds the first explicit approval batch to separately reviewed exact contracts", () => {
+  test("binds the bounded approval batches to separately reviewed exact contracts", () => {
     const ledger = approvals();
     assert.equal(ledger.schema, "forge.api-approvals/1");
     assert.equal(ledger.package, "@forge/engine");
@@ -301,25 +301,34 @@ group("Phase 27 public API audit", () => {
     assert.equal(ledger.signatureFormat, "forge.typescript-declaration-signature/1");
     assert.equal(ledger.policy, "forge.api-approval-policy/1");
     assert.deepEqual(ledger.counts, {
-      approved: 17,
-      pendingPublic: 2_154,
+      approved: 23,
+      pendingPublic: 2_148,
       experimental: 9,
       deprecated: 0,
     });
     assert.deepEqual(
       ledger.reviews.map(({ id, decision }) => ({ id, decision })),
-      [{ id: "core-errors/1", decision: "approved-1.0-candidate" }],
+      [
+        { id: "core-errors/1", decision: "approved-1.0-candidate" },
+        { id: "core-time/1", decision: "approved-1.0-candidate" },
+      ],
     );
     assert.deepEqual(
       ledger.approvals.map((entry) => entry.name),
       [
         "AssetError",
         "CapabilityError",
+        "Clock",
+        "ClockOptions",
         "ForgeError",
         "InlineOnlyError",
         "InternalError",
+        "ManualClock",
         "ObjectDisposedError",
+        "RateLimiter",
         "ResourceLifecycleError",
+        "ScriptedFrame",
+        "TickResult",
         "UnsupportedPlatformError",
         "UsageError",
         "assert",
@@ -332,13 +341,21 @@ group("Phase 27 public API audit", () => {
         "setAssertionsEnabled",
       ],
     );
+    const timeNames = new Set([
+      "Clock",
+      "ClockOptions",
+      "ManualClock",
+      "RateLimiter",
+      "ScriptedFrame",
+      "TickResult",
+    ]);
     for (const approval of ledger.approvals) {
       const current = byName(snapshot(), approval.name);
       assert.equal(current.stability, "public");
       assert.equal(approval.kind, current.kind);
       assert.equal(approval.declarationHash, current.declarationHash);
       assert.equal(approval.contractHash, current.contractHash);
-      assert.equal(approval.review, "core-errors/1");
+      assert.equal(approval.review, timeNames.has(approval.name) ? "core-time/1" : "core-errors/1");
     }
     assert.equal(approvalDriftResult.status, 1);
     assert.match(approvalDriftResult.stderr, /ForgeError approved declarationHash no longer matches/);
@@ -361,7 +378,7 @@ group("Phase 27 public API audit", () => {
     assert.match(docs, /2,180 named exports/);
     assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
     assert.match(docs, /`engine\/api-approvals\.json`/);
-    assert.match(docs, /17\/2,171 public candidates/);
+    assert.match(docs, /23\/2,171 public candidates/);
     assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
   });
@@ -370,7 +387,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(cleanResult.status, 0, cleanResult.stderr);
     assert.match(
       cleanResult.stdout,
-      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 17\/2,171 public candidates approved \(2,154 pending\)/,
+      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 23\/2,171 public candidates approved \(2,148 pending\)/,
     );
   });
 

@@ -3,8 +3,8 @@
 WebGPU-first 3D game and real-time simulation engine for the browser.
 
 > Forge is currently `0.1.x`. Phase 27 has started the API 1.0 audit; the root export surface is
-> machine-pinned through direct/transitive declaration fingerprints and 17 core error/assertion
-> symbols have completed a bounded review. The other 2,154 public candidates, complete reference
+> machine-pinned through direct/transitive declaration fingerprints and 23 core error/assertion and
+> time symbols have completed bounded reviews. The other 2,148 public candidates, complete reference
 > documentation, migration policy, and the 1.0 extension contract are not finished.
 
 ## Import
@@ -43,8 +43,9 @@ The source repository contains the deterministic `engine/api-surface.json` audit
 reviewed `engine/api-approvals.json` ledger, and the full policy in `docs/API.md`. Direct and
 transitive declaration fingerprints detect parameter/member/type changes. Approval rows bind a named
 human review to exact hashes and become stale on contract drift; regenerating the surface cannot
-refresh them. Only the 17 core error/assertion symbols have been approved as 1.0 candidates so far,
-and the gate still does not decide compatibility or prove runtime semantics without separate evidence.
+refresh them. Only the 23 core error/assertion and time symbols have been approved as 1.0 candidates
+so far, and the gate still does not decide compatibility or prove runtime semantics without separate
+evidence.
 
 ## Requirements
 

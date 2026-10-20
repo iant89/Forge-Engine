@@ -2980,3 +2980,25 @@ Working with the software rasterizer (SwiftShader) on this box:
   future change additive or breaking, settle semver/deprecation policy, or approve the remaining
   2,154 public candidates. API 1.0, later Phase 27 documentation/examples/migration/extensions and
   the Phase 27 exit criterion remain open.
+
+## 2026-10-20 — Phase 27.1: approve time only after correcting the behavior the names promise
+
+* **Keep the second decision bounded and coherent.** `core-time/1` reviews exactly the six package-root
+  contracts from `core/time.ts`: `Clock`, `ManualClock`, `RateLimiter`, `ClockOptions`,
+  `ScriptedFrame`, and `TickResult`. The ledger now has 23 approved public candidates and 2,148 still
+  pending; proximity does not approve any other core export.
+* **Runtime review can block approval even when declarations are unchanged.** The catch-up path called
+  a drop event one “dropped step” and discarded a fractional interpolation remainder even when no
+  complete step remained. It now executes at most the configured integral limit, counts/discards only
+  complete overdue steps, and retains the fractional phase. The first implementation applied its
+  floating-point tolerance even when the limit was not exhausted; cross-engine replay and fixed-step
+  environment suites caught the lost near-complete accumulators, so the final drop path is limit-
+  gated. Backward wall-clock samples also keep the last monotonic sample, preventing both wall-time
+  regression and a compensating next-frame spike; reset now clears transient/scheduled state rather
+  than leaking it into a restarted clock.
+* **Bind behavior independently of declaration hashes.** Nine package-root checks cover wall/manual
+  time, clamp/scale/pause behavior, monotonic recovery, catch-up accounting, scripted schedule resume
+  and cancellation, fixed-delta/interpolation/forced-step controls, reset, and rate limiting. Exact
+  direct/transitive hashes still guard the six type contracts, but the runtime suite is the evidence
+  for their meanings. API 1.0, Phase 27.1, later Phase 27 work, and the phase exit criterion remain
+  incomplete.

@@ -5,8 +5,8 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "policy": "forge.api-approval-policy/1",
   "counts": {
-    "approved": 17,
-    "pendingPublic": 2154,
+    "approved": 23,
+    "pendingPublic": 2148,
     "experimental": 9,
     "deprecated": 0
   },
@@ -19,6 +19,16 @@
         "docs/API.md",
         "engine/src/core/errors.ts",
         "tests/core/errors.test.ts"
+      ]
+    },
+    {
+      "id": "core-time/1",
+      "decision": "approved-1.0-candidate",
+      "summary": "Approve the wall, manual and scripted clock contracts plus rate limiting as the second bounded 1.0-candidate review batch; monotonic sampling, fixed-step catch-up/drop accounting, pause/scale/clamping, replay schedules, reset/interpolation and cadence behavior are pinned by the cited suite.",
+      "evidence": [
+        "docs/API.md",
+        "engine/src/core/time.ts",
+        "tests/core/time.test.ts"
       ]
     }
   ],
@@ -36,6 +46,20 @@
       "declarationHash": "sha256:7031c5a5c237b8596ccacbdee83794adea78950834f3afe9a1f7fec18cef2ece",
       "contractHash": "sha256:009ae21722e1f82f4e174e73be3d739cf668a79dca8bc6c77d08523cac485929",
       "review": "core-errors/1"
+    },
+    {
+      "name": "Clock",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:4b3d0600f0eb4dce4c74d21510339307b3dbe3693c0547094a3028d19e0a80b2",
+      "contractHash": "sha256:274d5c35be61f4d7a34f65a7033ff1759b5aa76f6f60e93a2d3a31c3c77db3c1",
+      "review": "core-time/1"
+    },
+    {
+      "name": "ClockOptions",
+      "kind": "type",
+      "declarationHash": "sha256:ee2a06064ea4dffcfdf4e285f989449cdb627604744d965c59b612813e1830ab",
+      "contractHash": "sha256:3d0b29c73d417b663b15fef9306faf5ec49033f81a8648d60325a4f2f373cddb",
+      "review": "core-time/1"
     },
     {
       "name": "ForgeError",
@@ -59,6 +83,13 @@
       "review": "core-errors/1"
     },
     {
+      "name": "ManualClock",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:1bb17097e488ebdb4829e8dd1695e4e096bec6d0ad4f2e2a4917c59fd5e0f7f3",
+      "contractHash": "sha256:ea595f35647f862d402df8a1920a0c95f1c49e464fe7bd4bb9609ca12c484bf0",
+      "review": "core-time/1"
+    },
+    {
       "name": "ObjectDisposedError",
       "kind": "type-and-value",
       "declarationHash": "sha256:2979031c86ee2d3e7273d919e9ad08e20712419e0708c45be0ce998be98d1ea7",
@@ -66,11 +97,32 @@
       "review": "core-errors/1"
     },
     {
+      "name": "RateLimiter",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:fe7c203b96003a72dbd3f63fd8613ac856ee18459bb2f33b729f850e0b382a51",
+      "contractHash": "sha256:d75f6e84be0b1685c6be4afee0af70aabf235fa88f662b3559fdf61e13091f06",
+      "review": "core-time/1"
+    },
+    {
       "name": "ResourceLifecycleError",
       "kind": "type-and-value",
       "declarationHash": "sha256:a64ad7bac18db6567666acd2f8b1ec9f10a4818e0864ca0737e14190c5168425",
       "contractHash": "sha256:3f49875ab81a9bdb93b4a3407c0a828a3eab502d034582a3e55a4ec8286068b0",
       "review": "core-errors/1"
+    },
+    {
+      "name": "ScriptedFrame",
+      "kind": "type",
+      "declarationHash": "sha256:903b55675d5ceb89e3ce7f6eff8b1393c26bf0e43971817130b3d41359519830",
+      "contractHash": "sha256:781ff57ac331b26f55a5ff2ea4eb8ec4fb687aa8612651e8e2d11ff4a55d9d8a",
+      "review": "core-time/1"
+    },
+    {
+      "name": "TickResult",
+      "kind": "type",
+      "declarationHash": "sha256:581ea599ea418db17948652a9be58dcee68797f50ddd62f74bde951acbac1308",
+      "contractHash": "sha256:cac8fce25d4336c977773e46efa760f1df4e3311ccc10bb10e47335ffaf26aef",
+      "review": "core-time/1"
     },
     {
       "name": "UnsupportedPlatformError",

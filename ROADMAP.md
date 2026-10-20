@@ -219,9 +219,9 @@ PHASE 26 - EDITOR
 PHASE 27 - ENGINE API 1.0
     [~] IN PROGRESS (the root-only package boundary and deterministic 2,180-export name/kind/
         stability plus direct/transitive declaration-contract snapshot are CI-gated; a separate
-        exact-contract ledger starts per-symbol review with 17 approved core error/assertion names,
-        while 2,154 public candidates, complete API docs/examples, migration/versioning/deprecation
-        policy and extensions remain)
+        exact-contract ledger continues per-symbol review with 23 approved core error/assertion and
+        time names, while 2,148 public candidates, complete API docs/examples, migration/versioning/
+        deprecation policy and extensions remain)
 
 
 ================================================================================
@@ -2848,8 +2848,9 @@ GOAL:
         stability label, direct declaration and transitive engine-local type contract. CI fails on
         unreviewed additions, removals, renames, classifications or declaration drift; a separate
         `forge.api-approvals/1` ledger fails when an approved exact contract becomes stale.
-    [~] public — all 2,171 current package-root candidates are baselined; the first bounded review
-        approves the 17 error/assertion symbols from `core/errors.ts`, with 2,154 still pending.
+    [~] public — all 2,171 current package-root candidates are baselined; two bounded reviews approve
+        the 17 error/assertion symbols from `core/errors.ts` and six clock/cadence symbols from
+        `core/time.ts`, with 2,148 still pending.
     [~] internal — deep package paths are blocked, any root export tagged `@internal` fails the
         audit, and unexported declaration dependencies feed transitive contract hashes; a complete
         human review still remains.
@@ -2860,8 +2861,8 @@ GOAL:
     [x] Add direct declaration-signature/member and transitive engine-local compatibility drift
         detection using body/comment/path-free TypeScript declaration emit.
     [~] Complete per-symbol approval and decide which detected changes are compatible for 1.0: the
-        separate non-generated ledger, exact-hash stale-approval gate and `core-errors/1` review are
-        complete for 17 names; 2,154 public candidates remain.
+        separate non-generated ledger and exact-hash stale-approval gate are active; `core-errors/1`
+        and `core-time/1` are complete for 23 names, while 2,148 public candidates remain.
 
 
 27.2 API Documentation

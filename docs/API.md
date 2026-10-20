@@ -30,7 +30,7 @@ The public barrel is `engine/src/index.ts`. It currently resolves to **2,180 nam
 2,171 public candidates, 9 experimental exports, and no deprecated top-level exports. That is a
 large pre-1.0 surface. The Phase 27 audit freezes both the names and their emitted TypeScript
 contracts so the surface can be reduced or approved intentionally rather than drifting accidentally.
-The first bounded review approves 17/2,171 public candidates; 2,154 public candidates remain pending.
+The first two bounded reviews approve 23/2,171 public candidates; 2,148 public candidates remain pending.
 
 ## Stability labels
 
@@ -118,8 +118,25 @@ specialized codes `E_USAGE`, `E_CAPABILITY`, `E_ASSET`, `E_RESOURCE_LIFECYCLE`, 
 inheritance; disposal and inline-fallback messages; assertion guard boundaries; and the documented
 report-instead-of-throw behavior when invariant assertions are disabled. `tests/core/errors.test.ts`
 exercises those runtime invariants through `@forge/engine`; declaration and transitive shapes remain
-bound by the approval hashes. This review does not approve unrelated core exports or any experimental
-export.
+bound by the approval hashes.
+
+The second review batch, `core-time/1`, approves six symbols:
+
+- clocks and cadence values: `Clock`, `ManualClock`, and `RateLimiter`;
+- their package-root types: `ClockOptions`, `ScriptedFrame`, and `TickResult`.
+
+The review accepts the variable/fixed clock split, synthetic and scripted schedules, public counters,
+pause/time-scale controls, interpolation state, reset/forced-step controls, and skip-missed-interval
+rate limiting as 1.0 candidates. Runtime scrutiny corrected two behaviors before approval: a backward
+time-source sample no longer moves wall time backwards or poisons the following delta, and catch-up
+now counts and discards only complete overdue fixed steps while retaining the fractional interpolation
+remainder. Reset also clears frame-local, smoothing, drop, and pending-script state while preserving
+clock configuration, scale, and pause. The nine checks in `tests/core/time.test.ts` consume only
+`@forge/engine` and pin clamping, scaling, pausing, catch-up/drop accounting, scripted resume and
+cancellation, fixed-delta bounds, forced steps, reset, and `RateLimiter` cadence. Existing replay tests
+continue to provide subsystem-level use evidence.
+
+Neither bounded review approves unrelated core exports or any experimental export.
 
 Run the gate before committing any public-barrel change:
 
@@ -151,11 +168,11 @@ Approved symbols additionally require a compatibility decision and a deliberate 
 The declaration slice closes the mechanical gap where a root name could keep the same classification
 while its parameters or members changed unnoticed. It is deliberately a **change detector**, not a
 compatibility oracle: additive and breaking declaration edits both require review. The separate
-ledger records the decisions humans have actually made, but only 17 of 2,171 public candidates have
-completed that bounded review; 2,154 remain pending. The hashes also do not prove runtime behavior,
+ledger records the decisions humans have actually made, but only 23 of 2,171 public candidates have
+completed bounded review; 2,148 remain pending. The hashes also do not prove runtime behavior,
 performance, serialization compatibility, shader/buffer ABI compatibility, or the meaning of a
 broadly typed runtime constant whose value changes without changing its emitted type. Runtime claims
-for an approval need separate evidence, as the first error batch does. External ambient-library
+for an approval need separate evidence, as the error and time batches do. External ambient-library
 declarations are named but not recursively copied into the snapshot, and member-level stability/
 deprecation policy remains separate work. Ordinary documentation edits and implementation-body
 changes intentionally do not alter the declaration hashes.

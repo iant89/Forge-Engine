@@ -235,9 +235,9 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
 - [~] Public API audit: the root-only `@forge/engine` boundary and all 2,180 top-level names,
   type/value kinds, stability labels, direct declarations and transitive engine-local type contracts
-  have a deterministic CI-gated snapshot; a separate exact-contract ledger now records 17 approved
-  core error/assertion names and rejects stale approvals. The other 2,154 public candidates, complete
-  docs/examples, migration, versioning and final deprecation windows remain (Phase 27.1–27.6)
+  have a deterministic CI-gated snapshot; a separate exact-contract ledger now records 23 approved
+  core error/assertion and time names and rejects stale approvals. The other 2,148 public candidates,
+  complete docs/examples, migration, versioning and final deprecation windows remain (Phase 27.1–27.6)
 - [ ] Extension API for systems, components, importers, terrain generators, materials, physics shapes, debug visualisers and console commands (Phase 27.7)
 - [ ] Production hardening: device loss and recovery, browser capability negotiation, low-end GPU degradation, memory pressure, and worker/asset/streaming failure recovery (Phase 28.1–28.9)
 - [ ] Forge 1.0 release criteria (Phase 29)
