@@ -29022,6 +29022,36 @@ JSON array below; agents maintain it by hand until then.
   "file": "tests/tools/selrun.test.ts",
   "what": "Advances the catalog contract to 158 linked suites and 1,079 explicit coverage claims.",
   "why": "Keep selrun’s self-audit synchronized with the core-time evidence suite."
+},
+{
+  "id": "2336",
+  "date": "2026-10-21T03:25:21Z",
+  "type": "pr-merge",
+  "pr": 146,
+  "branch": "arena/440c82d0-forge-engine",
+  "base": "main",
+  "title": "Phase 27.1: approve core time contracts",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Continues conservative Phase 27.1 per-symbol review with the bounded core-time/1 decision for Clock, ManualClock, RateLimiter, ClockOptions, ScriptedFrame and TickResult. The manual ledger now binds 23 of 2,171 public candidates to exact direct and transitive declaration hashes, with 2,148 pending; the generated 2,180-export surface remains unchanged. Runtime review corrected backward-source monotonicity, complete-step catch-up/drop accounting with fractional interpolation preserved, and reset of transient/scripted state before approval. Nine package-root checks cover wall/manual/scripted time, pause/scale/clamping, catch-up, interpolation, reset, forced steps and rate limiting; cross-engine replay and fixed-step environment evidence caught and prevented an intermediate over-eager drop. The catalog now has 158 suites and 1,079 explicit coverage claims. API 1.0, Phase 27.1, Phase 27.2–27.7 and the Phase 27 exit criterion remain incomplete. Local verification passed all 158 suites in 225.72 seconds plus API, docs, architecture, catalog, build, package, changelog and diff gates. PR CI passed the CPU gates in 6m31s and the advisory real-WebGPU Chromium/SwiftShader gate in 48m53s.",
+  "files": [
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/API.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/README.md",
+    "engine/api-approvals.json",
+    "engine/src/core/capabilities.ts",
+    "engine/src/core/time.ts",
+    "mnemosyne.md",
+    "tests/core/time.test.ts",
+    "tests/full.test.ts",
+    "tests/tools/apiAudit.test.ts",
+    "tests/tools/selrun.test.ts"
+  ]
 }
 ]
 ```
