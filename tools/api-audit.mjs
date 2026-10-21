@@ -28,7 +28,7 @@ import ts from "typescript";
 export const API_SURFACE_SCHEMA = "forge.api-surface/2";
 export const API_SIGNATURE_FORMAT = "forge.typescript-declaration-signature/1";
 export const API_APPROVAL_SCHEMA = "forge.api-approvals/1";
-export const API_APPROVAL_POLICY = "forge.api-approval-policy/1";
+export const API_APPROVAL_POLICY = "forge.api-approval-policy/2";
 export const API_APPROVAL_DECISION = "approved-1.0-candidate";
 export const API_STABILITIES = Object.freeze(["public", "experimental", "deprecated"]);
 export const API_KINDS = Object.freeze(["type", "value", "type-and-value"]);
@@ -509,6 +509,8 @@ function approvalCountsFor(surface, approvals) {
  * Approval is intentionally separate from `api:update`: a row means a reviewer inspected that
  * exact public declaration and transitive contract under a named review batch. Any subsequent
  * contract or classification drift makes the approval stale until it is reviewed explicitly.
+ * Policy v2 also closes the audit: every public symbol must have a current approval, so a newly
+ * recorded package-root export cannot silently reopen Phase 27.1 as an unreviewed candidate.
  */
 export function validateRecordedApprovals(approvals, surface, root = defaultRoot) {
   const failures = [];
@@ -642,6 +644,12 @@ export function validateRecordedApprovals(approvals, surface, root = defaultRoot
     const expectedCounts = approvalCountsFor(surface, rows);
     if (JSON.stringify(approvals.counts) !== JSON.stringify(expectedCounts)) {
       failures.push("approval ledger counts do not match the current API surface and approval rows");
+    }
+    if (expectedCounts.pendingPublic !== 0) {
+      failures.push(
+        `${API_APPROVAL_POLICY} requires every public export to have a current approval; `
+          + `${expectedCounts.pendingPublic} public export(s) remain pending`,
+      );
     }
   }
   return failures;

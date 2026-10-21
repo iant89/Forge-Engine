@@ -206,17 +206,14 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
 ## Engine API 1.0 (Phase 27)
 
-* **The public API snapshot is a declaration-change detector, not a 1.0 compatibility guarantee.**
-  The audit pins all 2,180 `@forge/engine` export names, type/value kinds and stability labels, plus
-  direct emitted declarations and their transitive engine-local type dependencies; it rejects deep
-  package exports and leaked `@internal` symbols and makes the nine incomplete WASM-physics names
-  experimental. A separate non-generated ledger binds 23 reviewed error/assertion and time symbols
-  to exact hashes and rejects stale approvals, but 2,148 public candidates remain. The gate does not
-  itself decide compatibility, prove uncited runtime semantics or serialization/shader ABIs, or
-  recursively own external ambient types. Comprehensive API reference/examples, migration guidance,
-  final
-  semantic-versioning and deprecation windows, and one supported extension contract also remain.
-  (capability: api.publicSurface)
+* **The public surface audit is complete, but Engine API 1.0 is not.** Phase 27.1 pins all 2,180
+  `@forge/engine` export names and contracts, approves all 2,171 public candidates across 22
+  subsystem reviews, keeps nine exports experimental, rejects stale approvals, and tests complete
+  runtime namespace linkage. The declaration hashes remain change detectors rather than proofs of
+  runtime, serialization, shader-ABI, or performance semantics; focused suites provide the cited
+  behavioral evidence. Comprehensive symbol reference documentation/examples, migration guidance,
+  final semantic-versioning and deprecation windows, one coherent extension contract, and the
+  eventual `1.0.0` release remain Phase 27.2–27.7 work. (capability: api.onePointZero)
 
 ## Vehicles (Phase 6 / 11)
 

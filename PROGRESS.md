@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-20_
+_Last updated: 2026-10-21_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -233,11 +233,14 @@ The scene selector includes these demos. Mars Showcase opens by default.
 ## Road to 1.0 (Phases 23, 27–29)
 
 - [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
-- [~] Public API audit: the root-only `@forge/engine` boundary and all 2,180 top-level names,
+- [x] Public API audit: the root-only `@forge/engine` boundary and all 2,180 top-level names,
   type/value kinds, stability labels, direct declarations and transitive engine-local type contracts
-  have a deterministic CI-gated snapshot; a separate exact-contract ledger now records 23 approved
-  core error/assertion and time names and rejects stale approvals. The other 2,148 public candidates,
-  complete docs/examples, migration, versioning and final deprecation windows remain (Phase 27.1–27.6)
+  have a deterministic CI-gated snapshot; all 2,171 public candidates now have exact approvals
+  across 22 subsystem reviews, policy v2 rejects any pending public addition, and nine experimental
+  exports remain separate (Phase 27.1)
+- [~] Engine API 1.0 completion: comprehensive reference docs/examples, migration guidance, final
+  versioning and deprecation policy remain open; package and exported `VERSION` remain `0.1.0`
+  (Phase 27.2–27.6)
 - [ ] Extension API for systems, components, importers, terrain generators, materials, physics shapes, debug visualisers and console commands (Phase 27.7)
 - [ ] Production hardening: device loss and recovery, browser capability negotiation, low-end GPU degradation, memory pressure, and worker/asset/streaming failure recovery (Phase 28.1–28.9)
 - [ ] Forge 1.0 release criteria (Phase 29)
