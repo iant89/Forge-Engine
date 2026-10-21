@@ -9,21 +9,14 @@ STATUS:
     Active Development
 
 CURRENT CODEBASE BASELINE:
-    Phases 0-5, 7:  IMPLEMENTED / VERIFIED
-    Phase 6:  IMPLEMENTED BUT REQUIRES HARDENING
-                (Reconciled 2026-10-06: the top block previously claimed "Phases 0-7:
-                IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
-                registry's `6: partial`. The registry is right: the open vehicle limitations
-                were box wheel visuals (vehicles.wheelVisuals) plus three intentional model
-                limits — solved longitudinal slip (vehicles.tireModel) and discrete-contact impacts
-                (physics.ccd). Reverse was formerly only a ratio with no control; it is now a safely
-                interlocked manual F/N/R selector on keyboard and touch (vehicles.transmission verified).
-                The remaining limits are not Phase 6 defects — the model itself is pinned by
-                tests/vehicles/vehicles.test.ts and tests/vehicles/vehiclePhysics.test.ts. Phase 16.6
-                closed the visual limitation (tyre assemblies, steered geometry, suspension/damper
-                animation), and no separate Phase 6 hardening work is scheduled for the intentional
-                tire and collision model limits. This note records the
-                interpretation rather than inventing scope.)
+    Phases 0-7:  IMPLEMENTED / VERIFIED
+    Phase 6 hardening (reconciled 2026-10-21): the longitudinal wheel path now integrates
+                angular velocity from drive/brake/tire torque with deterministic TC/ABS control,
+                and JavaScript PhysicsWorld has deterministic time-of-impact sweeps for supported
+                high-speed static/kinematic impacts. The former `vehicles.tireModel` and
+                `physics.ccd` gaps are closed by the focused vehicle/physics suites. Box wheel
+                visuals remain tracked under Phase 16.6; the non-executable WASM solver remains
+                tracked under Phase 25 rather than being implied by the JS CCD result.
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
@@ -127,7 +120,7 @@ PHASE 5 - Physics
     [x]
 
 PHASE 6 - Vehicles
-    [!] IMPLEMENTED BUT REQUIRES HARDENING
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 7 - Particles
     [x]
@@ -2530,8 +2523,8 @@ This is the primary validation environment for Forge.
 
 23.3 Rover
 
-    [~] physics chassis (vehicle dynamics are live; full rigid-body terrain/world contact remains a
-        known Phase 6 hardening boundary)
+    [~] physics chassis (vehicle dynamics and supported high-speed rigid-body CCD are live; the
+        showcase chassis itself remains a kinematic bridge rather than a fully dynamic rover body)
     [x] suspension
     [x] wheels
     [x] tire model

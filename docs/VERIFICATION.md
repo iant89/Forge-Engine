@@ -6,7 +6,7 @@ system scheduler, hierarchy, visibility culling, import boundaries), Phase 4 (te
 worlds: chunks, heightmaps, quadtree LOD, geomorphing, streaming, generators, 10 km+ visible world),
 Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
 Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism),
-Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS),
+Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, torque-integrated wheel angular velocity, TC/ABS, and the JavaScript physics CCD path),
 Phase 7 (particles: CPU simulation as the reference, a compute integrator for the same gravity/drag/life
 step, modules, trails, budgets), Phase 8a (environment I: sun position, single-scattering sky
 pass, fog in the forward shader, day/night cycle), and Phase 8b (environment II: weather state,
@@ -1015,7 +1015,9 @@ heightfield + chassis visible to both) while the default remains single-owner.
 Pins the claims in `docs/VEHICLES.md`: Pacejka is odd and peaks where the sampled slip says it does;
 a constant torque produces `I·α = τ` and the rev limiter holds; upshift and downshift RPM fire;
 an open diff splits equally and an LSD biases toward the slower wheel; aero drag is `½ρCdAv²`;
-static load transfer follows the sign of `ax`. On the chassis: a 1000 kg, μ = 1 stop from 20 m/s
+static load transfer follows the sign of `ax`. Contacting wheel angular velocity is advanced from
+`I·dω/dt = drive − brake − tireForce·radius` with an implicit tire-torque step; TC limits drive
+torque at the control slip and ABS scales brake torque before integration. On the chassis: a 1000 kg, μ = 1 stop from 20 m/s
 lands between 75% and 115% of `v²/(2μg)`; a 12° slope is climbed when μ exceeds `tan θ`; acceleration
 shifts load rearward and braking shifts it forward; a short gearbox upshifts within 2.5 s; TC holds
 peak driven |κ| under 0.35 and at least 0.15 below the same launch with TC off; identical inputs
@@ -1266,7 +1268,11 @@ added the heightfield contract (`collideSphereHeightfield` / `collideBoxHeightfi
 every terrain-physics claim rests on): a sphere's penetration is measured from the sampled height with
 the normal pointing *into* the field, a flat field contacting nothing above the surface, a box
 generating one contact per penetrating corner only (four of eight for a box resting through a plane),
-and a ball settling exactly one radius above a sloped field. It also pins shape-argument validation:
+and a ball settling exactly one radius above a sloped field. The Phase 6 hardening cases then sweep a
+sphere through a thin static wall at 1000 m/s and into a heightfield before the next fixed pose, with
+same-input snapshots matching exactly. The sweep is deterministic and conservative for supported
+sphere/box-vs-static/kinematic targets; dynamic-dynamic and rotational CCD remain outside the path.
+It also pins shape-argument validation:
 `new BoxShape(new Vec3(1, 1, 1))` used to produce NaN half-extents that surfaced much later as NaN
 contacts; it now throws `UsageError` at the constructor, while finite degenerate sizes still clamp.
 

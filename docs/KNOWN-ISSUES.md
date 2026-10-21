@@ -190,20 +190,18 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   frames, but JavaScript still owns body topology and executes every broadphase, contact and solver
   step. `ForgeWasmPhysics` intentionally throws on gameplay calls rather than silently using the JS
   solver. There is no runtime add/remove command queue, worker ownership handshake, JS/WASM tolerance
-  gate, CCD implementation or WASM performance result yet. The fixed body capacity is chosen when
-  memory is created; a state frame applies only to a host world with matching ids, order, body types
-  and shape parameters. (capability: physics.wasmBackend)
+  gate or WASM performance result yet. The JavaScript `PhysicsWorld` has deterministic CCD, but the
+  non-executable WASM seam does not expose that solver. The fixed body capacity is chosen when memory
+  is created; a state frame applies only to a host world with matching ids, order, body types and
+  shape parameters. (capability: physics.wasmBackend)
 
 ## Vehicles (Phase 6 / 11)
 
 Phase 11 connected the raycast car to the physics heightfield and a kinematic chassis collider.
-What remains:
-
-* **Longitudinal slip is solved, not freely integrated, while the tire can balance the demand.**
-  Past the peak, and only when TC/ABS are not clamping, the residual torque spins the wheel. Do not
-  expect a stable explicit-Euler wheel at 120 Hz — that path limit-cycles, which is why it was removed. (capability: vehicles.tireModel)
-* **No continuous collision detection.** High-speed impacts use discrete contacts; tunneling a thin
-  prop at extreme speed is still possible. (capability: physics.ccd)
+Phase 6's longitudinal wheel-torque integration and JavaScript PhysicsWorld continuous-collision
+hardening are now covered by the focused vehicle and physics suites. The remaining vehicle/world
+scope is documented where it belongs: the chassis collider remains kinematic, and the executable
+WASM backend is still a future solver seam.
 
 ## Particles (Phase 12)
 

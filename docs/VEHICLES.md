@@ -37,14 +37,15 @@ The scene `update` writes `vehicle.input` and does not step. A second step would
 `Vehicle.step(dt, ground)` substeps at 1/120 s. Each substep:
 
 1. Samples the ground under each hub. Compression is the spring travel; the force is spring plus damper.
-2. Solves longitudinal slip (`balanceLongitudinal`) so tire torque balances drive minus brake, and
-   stays on the rising face of the Pacejka curve. Explicit Euler on the wheel speed limit-cycles at
-   this rate, which is why the slip is solved rather than integrated. An unaided wheel whose demand
-   exceeds the peak is allowed to spin up on the residual torque, so traction control has a higher
-   slip to compare against. TC clamps a driven wheel to `tcSlip` (0.12). ABS keeps a braking wheel
-   from locking past `absSlip` (the Pacejka peak). An undriven, unbraked wheel is set to free-roll
-   (`ω = vLong / radius`, κ = 0). A **brake only ever removes wheel speed**: the standstill and
-   past-the-peak rules under "What is tested" are what keep a parked car's wheels still.
+2. Integrates each contacting wheel's angular velocity from the torque balance
+   `I · dω/dt = driveTorque − brakeTorque − tireForce · radius`. The tire force is the steady-state
+   Pacejka curve, but `ω` is state: the wheel can build slip, pass the peak when torque exceeds grip,
+   and recover under TC or ABS. Contact steps use a backward-Euler/Newton solve; TC limits drive
+   torque at its configured control slip (rather than assigning a wheel speed), and ABS scales brake
+   torque before the same integration. Airborne wheels keep their free rotational inertia, while a
+   brake only removes wheel speed and cannot wind a stopped wheel backwards. This is the stable
+   integrated path that replaces the old algebraic slip assignment (the private
+   `balanceLongitudinal` method name remains for declaration compatibility).
 3. Lateral force is Pacejka in slip angle, combined with the longitudinal force under a friction
    circle of `μ · normalLoad`.
 4. The chassis integrates the summed forces. Yaw comes from tire-plane moments about the CG.
@@ -313,6 +314,10 @@ Rules of thumb:
   **AABB-only** (axis-aligned bounds), not oriented OBB. Rotated decks / ramps are unsupported for
   wheel rays in Phase 11 — prefer `physicsGroundQuery` (HF) rather than a rotated box collider as
   ground. OBB box rays are intentionally out of scope this phase.
+- `PhysicsWorld` now performs deterministic time-of-impact sweeps for fast dynamic spheres and
+  boxes against static or kinematic planes, boxes, spheres and heightfields. Box sweeps use a
+  conservative bounding sphere, and dynamic-dynamic or fast rotational impacts still use the
+  discrete solver path. `ForgeWasmPhysics` remains a state-ABI seam without an executable solver.
 - The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
   sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
 - Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels
