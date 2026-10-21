@@ -2922,6 +2922,18 @@ Working with the software rasterizer (SwiftShader) on this box:
   inspectors remain read-only diagnostics. Phase 26 and `editor.tooling` stay `inProgress` until the
   Mars exit criterion is met.
 
+## 2026-10-21 — Phase 26 completed: public authoring workspace and specialist adapters
+
+* `@forge/editor` now exports `EditorWorkspace`, an optional DOM shell, deterministic gizmo math and
+  public runtime panel adapters for terrain, material, particles, vehicles, environment, streaming,
+  render graphs, assets and profiling. CRUD, generic fields, multi-selection and world-pose-preserving
+  reparent are bounded undoable authoring commands; the workspace can attach to and save a complete
+  Mars runtime scene without engine-source edits.
+* The viewport remains a host-owned integration seam by design: the editor does not own a renderer,
+  camera, GPU gizmo buffers, simulation loop or scene lifetime. Typecheck, the focused seven-check
+  editor suite, the 159-suite CPU run, docs and architecture gates provide the evidence; the full run
+  exposed and corrected only stale catalog/capability expectation counts.
+
 ## 2026-10-20 — Phase 27 started: freeze the package boundary before promising 1.0
 
 * **The 1.0 audit begins with resolved exports, not a hand-maintained list.** `tools/api-audit.mjs`

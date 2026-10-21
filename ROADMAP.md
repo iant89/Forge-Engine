@@ -212,9 +212,9 @@ PHASE 25 - WASM PHYSICS
         cross-backend tolerance gate and CCD remain)
 
 PHASE 26 - EDITOR
-    [~] IN PROGRESS (`@forge/editor` public-API-only workspace, bounded hierarchy/selection model,
-        copied entity/component inspection and undoable rename/reparent/transform/enabled edits
-        landed; the visual shell, gizmos, creation/deletion and specialist panels remain)
+    [x] COMPLETE (`@forge/editor` public-API-only workspace, optional DOM shell, hierarchy/inspector
+        CRUD and multi-selection, generic fields, world-pose-preserving reparent, deterministic gizmo
+        math, specialist authoring/diagnostic panels and complete-Mars-scene attachment/save workflow)
 
 PHASE 27 - ENGINE API 1.0
     [~] IN PROGRESS (Phase 27.1 is complete: the root-only package boundary and deterministic
@@ -2759,64 +2759,80 @@ GOAL:
 
     Build editor tooling on top of the stable runtime API.
 
+    [x] Exit criterion met by the public-API-only EditorWorkspace: a complete Mars runtime scene can
+        be attached, inspected and modified (and ordinary entities/components can be created,
+        duplicated, reparented and saved) without editing engine source code. The optional DOM shell
+        owns no renderer or simulation loop; a host supplies the viewport integration.
+
 
 26.1 Scene Hierarchy
 
-    [~] `@forge/editor` now provides a deterministic, bounded root-first hierarchy snapshot with
-        selection, collapse/expand, ancestor-context filtering and undoable rename/reparent. It is a
-        headless document model; no visible tree panel, create/duplicate/delete or drag/drop exists.
+    [x] `EditorWorkspace` exposes a deterministic, bounded root-first tree with selection,
+        multi-selection, collapse/expand, ancestor-context filtering, drag/drop-ready reparenting and
+        an optional visible DOM tree.
 
 26.2 Entity Inspector
 
-    [~] A selected entity exposes copied name, parent/children, authoritative local TRS and component
-        summaries. Validated local transform edits participate in bounded undo/redo. Multi-selection,
-        world-space editing and a visual inspector shell remain.
+    [x] The inspector exposes copied name, parent/children and authoritative local TRS; rename,
+        transform, world-pose-preserving reparent and subtree create/duplicate/delete commands are
+        validated and undoable.
 
 26.3 Component Inspector
 
-    [~] Registered `editorGroup`, enabled state and bounded scalar/vector fields are listed through
-        public inspection APIs; enabled toggles are undoable. Generic property schemas/widgets and
-        add/remove component commands remain.
+    [x] Registered `editorGroup`, enabled state and bounded scalar/vector fields are editable through
+        public APIs. Entity creation accepts registered component definitions and generic field edits
+        are undoable without exposing live component objects.
 
 26.4 Transform Gizmo
 
-    [ ] No viewport gizmo or picking/manipulation interaction yet.
+    [x] `editor/src/gizmo.ts` provides deterministic ray/axis picking, translate/rotate/scale drag
+        math and snapping. It returns transform patches for any host viewport to commit through the
+        workspace; camera, pointer capture and GPU drawing remain host-owned.
 
 26.5 Terrain Editor
 
-    [ ] No editor panel yet.
+    [x] The terrain panel adapts `inspectTerrain`; workspace commands edit focus, forward direction
+        and layered-material presentation through `TerrainWorld`'s public API.
 
 26.6 Material Editor
 
-    [ ] No editor panel yet.
+    [x] The material panel lists public `Renderable`/`Material` state and workspace commands edit
+        color, PBR values, opacity, flags, alpha test, tiling and offset with history.
 
 26.7 Particle Editor
 
-    [ ] No editor panel yet.
+    [x] The particle panel adapts `inspectParticles` and workspace commands edit the selected/first
+        CPU emitter's public rate, lifetime, size, drag, burst and cone settings.
 
 26.8 Vehicle Inspector
 
-    [ ] No editor panel yet.
+    [x] The vehicle panel lists public `VehicleComponent` telemetry, input and configuration without
+        duplicating or taking ownership of vehicle simulation.
 
 26.9 Environment Editor
 
-    [ ] No editor panel yet.
+    [x] The environment panel adapts `inspectEnvironment`; workspace scene-settings patches provide
+        undoable public authoring for fog, sky, lighting, post and related scene settings.
 
 26.10 Streaming Inspector
 
-    [ ] Existing runtime diagnostics are read-only; no editor panel yet.
+    [x] The workspace exposes a bounded `inspectStreaming(engine)` snapshot, including queue state,
+        priorities, bytes and failures, while `AssetStreamer` remains runtime-owned.
 
 26.11 Render Graph Viewer
 
-    [ ] Existing runtime diagnostics are read-only; no editor panel yet.
+    [x] The workspace exposes a bounded `inspectRenderGraph(engine.renderer.graph)` snapshot of
+        passes, resources, dependencies and lifetimes; graph construction remains renderer-owned.
 
 26.12 Asset Browser
 
-    [ ] No browser/import workflow yet.
+    [x] The asset panel browses bounded public registry/streamer metadata with kind/state filtering,
+        dependency/dependent links and load bytes; resource ownership remains in the runtime.
 
 26.13 Profiler
 
-    [ ] Existing runtime profiler diagnostics are not an editor workspace panel yet.
+    [x] The profiler panel adapts public scope/frame history, frame breakdown, timeline and report
+        APIs; capture and scheduling remain engine-owned.
 
 
 CRITICAL RULE:

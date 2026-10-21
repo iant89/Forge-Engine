@@ -251,9 +251,11 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [ ] General-purpose scripting VM and visual scripting
 - [x] Audio mixer: spatial voices with a voice limit and occlusion, clip loading, streaming, buses with live effects and smooth fades (Phase 20.1–20.4; `docs/AUDIO.md`)
 - [ ] Simulation-driven audio: environment, weather, vehicle and impact sounds (Phase 20.5–20.8)
-- [~] Editor (Phase 26): `@forge/editor` now has a public-API-only hierarchy/selection/inspection
-  model with bounded undo/redo for rename, reparent, local transform and component-enabled edits;
-  visual shell, gizmos, create/delete, specialist panels and advanced cinematic tooling remain
+- [x] Editor (Phase 26): `@forge/editor` now provides the public-API-only authoring workspace,
+  optional DOM shell, hierarchy/inspector CRUD, multi-selection, generic fields, world-pose-preserving
+  reparent, deterministic transform gizmo math, material/terrain/particle authoring, and vehicle /
+  environment / streaming / render-graph / asset / profiler panel adapters. The host still owns the
+  renderer viewport, camera controls, simulation loop and scene lifetime.
 - [ ] WebGL fallback
 - [ ] Cloud asset service
 - [ ] SDF global illumination, virtual texturing and full real-time GI

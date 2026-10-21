@@ -97,7 +97,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "23": "inProgress",
   "24": "inProgress",
   "25": "inProgress",
-  "26": "inProgress",
+  "26": "verified",
   "27": "inProgress",
 };
 
@@ -1291,18 +1291,22 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   },
   {
     id: "editor.tooling",
-    phase: "26.1",
-    status: "inProgress",
-    summary: "Public-API-only @forge/editor workspace with hierarchy, selection, copied inspection and bounded authoring history",
+    phase: "26",
+    status: "verified",
+    summary: "Public-API-only @forge/editor authoring workspace, optional DOM shell, transform gizmo math and specialist panels",
     evidence: [
       "editor/src/session.ts",
       "editor/src/history.ts",
+      "editor/src/gizmo.ts",
+      "editor/src/panels.ts",
+      "editor/src/workspace.ts",
+      "editor/src/shell.ts",
       "tests/editor/editor.test.ts",
       "tests/engine/architecture.test.ts",
       "docs/EDITOR.md",
     ],
-    closesWith: "26.1",
-    notes: "The document model supports bounded hierarchy/filter/collapse, single selection, copied entity/component inspection, and undoable rename/reparent/local-TRS/component-enabled edits. It has no visual shell, gizmo, create/delete flow, generic property schema or specialist terrain/material/particle/vehicle/environment/asset/profiler panels yet. lint:arch and architecture tests enforce that editor imports only @forge/engine and runtime never imports editor.",
+    closesWith: "26",
+    notes: "The workspace supports bounded hierarchy/filter/collapse, multi-selection, copied entity/component inspection, undoable rename/reparent/local-TRS/component-enabled/generic-field edits, registered-component creation, subtree duplication/deletion, world-pose-preserving reparent, deterministic gizmo math, material/terrain/particle authoring, and vehicle/environment/streaming/render-graph/asset/profiler adapters. A host-owned viewport remains intentionally outside the package; the complete Mars exit workflow attaches the workspace to a runtime scene and saves through public APIs. lint:arch and architecture tests enforce that editor imports only @forge/engine and runtime never imports editor.",
   },
   {
     id: "ui.framework",

@@ -8,6 +8,7 @@
 
 import {
   EventTarget2,
+  Mat4,
   NULL_ENTITY,
   Quat,
   Transform,
@@ -15,6 +16,7 @@ import {
   Vec3,
   entitySlot,
   inspectEntity,
+  summariseEcsFields,
   tryComponentInfoByName,
 } from "@forge/engine";
 import type {
@@ -93,11 +95,9 @@ export interface EditorSelectionChange {
   readonly current: EntityId | null;
 }
 
-export type EditorDocumentChangeKind = "rename" | "reparent" | "transform" | "component";
-
 export interface EditorDocumentChange {
   readonly kind: EditorDocumentChangeKind;
-  readonly entity: EntityId;
+  readonly entity: EntityId | null;
   readonly label: string;
 }
 
@@ -105,6 +105,30 @@ export interface EditorSessionOptions {
   /** Maximum retained undo entries. Defaults to 100. */
   historyLimit?: number;
 }
+
+export interface EditorComponentDefinition {
+  readonly type: string;
+  readonly fields?: Readonly<Record<string, EcsFieldValue>>;
+  readonly enabled?: boolean;
+}
+
+export interface EditorCreateEntityOptions {
+  readonly parent?: EntityId | null;
+  readonly components?: readonly EditorComponentDefinition[];
+}
+
+export interface EditorReparentOptions {
+  /** Keep the entity's world-space pose instead of retaining its local TRS. */
+  readonly preserveWorld?: boolean;
+}
+
+export type EditorDocumentChangeKind =
+  | "rename"
+  | "reparent"
+  | "transform"
+  | "component"
+  | "create"
+  | "delete";
 
 /** Public-API-only authoring session for one live {@link Scene}. The session never owns the scene. */
 export class EditorSession {
@@ -115,6 +139,7 @@ export class EditorSession {
   private selectedId: EntityId | null = null;
   private readonly collapsed = new Set<EntityId>();
   private readonly destroyedSubscription: Disposable;
+  private internalMutationDepth = 0;
   private disposed = false;
 
   constructor(readonly scene: Scene, options: EditorSessionOptions = {}) {
@@ -125,7 +150,7 @@ export class EditorSession {
       if (this.selectedId === id) this.setSelection(null);
       // A command may retain an old parent/component identity. External destruction invalidates that
       // assumption, so fail closed instead of keeping an undo entry that can edit the wrong object.
-      this.history.clear();
+      if (this.internalMutationDepth === 0) this.history.clear();
     });
   }
 
@@ -300,27 +325,29 @@ export class EditorSession {
     return true;
   }
 
-  /** Reparent while retaining local TRS. World-space pose may therefore change under a new parent. */
-  reparentEntity(id: EntityId, parent: EntityId | null): boolean {
+  /** Reparent an entity, optionally retaining its world-space pose. */
+  reparentEntity(id: EntityId, parent: EntityId | null, options: EditorReparentOptions = {}): boolean {
     this.assertActive();
     this.requireEntity(id);
     if (parent !== null) this.requireEntity(parent);
     const previousRaw = this.world.parentOf(id);
     const previous = previousRaw === NULL_ENTITY ? null : previousRaw;
     if (previous === parent) return false;
+    const preserveWorld = options.preserveWorld ?? false;
+    const worldPose = preserveWorld && this.world.hasTransform(id) ? this.captureWorldMatrix(id) : null;
     const label = `Reparent ${this.world.name(id) || `Entity ${entitySlot(id)}`}`;
     this.history.execute({
       label,
       apply: () => {
         this.requireEntity(id);
         if (parent !== null) this.requireEntity(parent);
-        this.world.setParent(id, parent);
+        this.applyReparent(id, parent, worldPose);
         this.emitDocumentChange("reparent", id, label);
       },
       revert: () => {
         this.requireEntity(id);
         if (previous !== null) this.requireEntity(previous);
-        this.world.setParent(id, previous);
+        this.applyReparent(id, previous, worldPose);
         this.emitDocumentChange("reparent", id, label);
       },
     });
@@ -377,6 +404,136 @@ export class EditorSession {
     return true;
   }
 
+  /** Edit scalar/vector fields through a copied, schema-free public component view. */
+  setComponentFields(id: EntityId, type: string, patch: Readonly<Record<string, EcsFieldValue>>): boolean {
+    this.assertActive();
+    const component = this.requireComponent(id, type);
+    const previous = type === "Transform"
+      ? { ...transformState(this.world, id) as unknown as Record<string, EcsFieldValue> }
+      : copyFields(component);
+    const next: Record<string, EcsFieldValue> = { ...previous };
+    for (const [key, value] of Object.entries(patch)) {
+      if (!(key in previous)) throw new UsageError(`Editor component ${type} has no editable field "${key}"`);
+      next[key] = copyFieldValue(value);
+    }
+    if (sameFields(previous, next)) return false;
+    const label = `Edit ${type}`;
+    const resolve = (): Component => {
+      const current = this.requireComponent(id, type);
+      if (current !== component) throw new UsageError(`Editor command target ${type} on entity ${id} was replaced`);
+      return current;
+    };
+    this.history.execute({
+      label,
+      apply: () => {
+        this.applyComponentFields(resolve(), type, next);
+        this.emitDocumentChange("component", id, label);
+      },
+      revert: () => {
+        this.applyComponentFields(resolve(), type, previous);
+        this.emitDocumentChange("component", id, label);
+      },
+    });
+    return true;
+  }
+
+  /** Create an entity and optional registered components as one undoable authoring command. */
+  createEntity(name = "", options: EditorCreateEntityOptions = {}): EntityId {
+    this.assertActive();
+    if (options.parent !== undefined && options.parent !== null) this.requireEntity(options.parent);
+    const definitions = options.components ?? [];
+    const label = `Create ${name || "Entity"}`;
+    let currentId: EntityId | null = null;
+    this.history.execute({
+      label,
+      apply: () => {
+        const entity = this.scene.createEntity(name);
+        currentId = entity.id;
+        try {
+          for (const definition of definitions) this.addDefinedComponent(entity, definition);
+          if (options.parent !== undefined) this.world.setParent(entity.id, options.parent);
+        } catch (error) {
+          this.withInternalMutation(() => this.scene.destroyEntity(entity));
+          currentId = null;
+          throw error;
+        }
+        this.setSelection(entity.id);
+        this.emitDocumentChange("create", entity.id, label);
+      },
+      revert: () => {
+        if (currentId !== null) {
+          this.withInternalMutation(() => this.scene.destroyEntity({ id: currentId! }));
+          this.emitDocumentChange("delete", currentId, label);
+          currentId = null;
+        }
+        this.synchroniseSelection();
+      },
+    });
+    // `apply` ran synchronously, so this is non-null unless a component constructor failed.
+    if (currentId === null) throw new UsageError("Editor create command did not produce an entity");
+    return currentId;
+  }
+
+  /** Duplicate an entity subtree, preserving authoring fields and the local hierarchy. */
+  duplicateEntity(id: EntityId, options: { parent?: EntityId | null } = {}): EntityId {
+    this.assertActive();
+    this.requireEntity(id);
+    if (options.parent !== undefined && options.parent !== null) this.requireEntity(options.parent);
+    const blueprint = this.captureSubtree(id, true);
+    const targetParent = options.parent === undefined ? blueprint.externalParent : options.parent;
+    const label = `Duplicate ${this.world.name(id) || `Entity ${entitySlot(id)}`}`;
+    let currentRoot: EntityId | null = null;
+    this.history.execute({
+      label,
+      apply: () => {
+        const restored = this.restoreSubtree(blueprint, targetParent, false);
+        currentRoot = restored[0] ?? null;
+        if (currentRoot !== null) {
+          this.setSelection(currentRoot);
+          this.emitDocumentChange("create", currentRoot, label);
+        }
+      },
+      revert: () => {
+        if (currentRoot !== null) {
+          this.withInternalMutation(() => this.scene.destroyEntity({ id: currentRoot! }));
+          this.emitDocumentChange("delete", currentRoot, label);
+          currentRoot = null;
+        }
+        this.synchroniseSelection();
+      },
+    });
+    if (currentRoot === null) throw new UsageError("Editor duplicate command did not produce an entity");
+    return currentRoot;
+  }
+
+  /** Delete an entity and its descendants as one undoable command. */
+  deleteEntity(id: EntityId): boolean {
+    this.assertActive();
+    this.requireEntity(id);
+    const blueprint = this.captureSubtree(id, false);
+    const label = `Delete ${this.world.name(id) || `Entity ${entitySlot(id)}`}`;
+    let deletedRoot: EntityId | null = id;
+    this.history.execute({
+      label,
+      apply: () => {
+        if (deletedRoot !== null && this.world.exists(deletedRoot)) {
+          this.withInternalMutation(() => this.scene.destroyEntity({ id: deletedRoot! }));
+          this.emitDocumentChange("delete", deletedRoot, label);
+        }
+        this.synchroniseSelection();
+      },
+      revert: () => {
+        const restored = this.restoreSubtree(blueprint, blueprint.externalParent, true);
+        deletedRoot = restored[0] ?? null;
+        if (deletedRoot !== null) {
+          this.setSelection(deletedRoot);
+          this.emitDocumentChange("create", deletedRoot, label);
+        }
+      },
+    });
+    return true;
+  }
+
   undo(): boolean {
     this.assertActive();
     return this.history.undo();
@@ -397,6 +554,136 @@ export class EditorSession {
     this.documentChanged.clear();
     this.collapsed.clear();
     this.selectedId = null;
+  }
+
+  private withInternalMutation(action: () => void): void {
+    this.internalMutationDepth += 1;
+    try {
+      action();
+    } finally {
+      this.internalMutationDepth -= 1;
+    }
+  }
+
+  private applyReparent(id: EntityId, parent: EntityId | null, worldPose: Mat4 | null): void {
+    this.world.setParent(id, parent);
+    if (worldPose === null || !this.world.hasTransform(id)) return;
+    this.world.updateTransforms([]);
+    const parentWorld = parent === null ? new Mat4() : this.world.getWorldMatrix(parent, new Mat4());
+    if (!parentWorld.invert()) throw new UsageError("Editor cannot preserve pose through a singular parent transform");
+    const local = parentWorld.multiply(worldPose);
+    const position = new Vec3();
+    const rotation = new Quat();
+    const scale = new Vec3();
+    if (!local.decompose(position, rotation, scale)) throw new UsageError("Editor cannot preserve pose through a degenerate parent transform");
+    this.applyTransform(id, {
+      position: [position.x, position.y, position.z],
+      rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+      scale: [scale.x, scale.y, scale.z],
+    });
+  }
+
+  private captureWorldMatrix(id: EntityId): Mat4 {
+    this.world.updateTransforms([]);
+    return this.world.getWorldMatrix(id, new Mat4());
+  }
+
+  private addDefinedComponent(entity: Entity, definition: EditorComponentDefinition): void {
+    const info = tryComponentInfoByName(definition.type);
+    if (!info) throw new UsageError(`Editor component type "${definition.type}" is not registered`);
+    const component = info.create ? info.create({}) : new info.ctor();
+    entity.add(component);
+    if (definition.fields) this.applyComponentFields(component, definition.type, definition.fields);
+    if (definition.enabled !== undefined) component.enabled = definition.enabled;
+  }
+
+  private applyComponentFields(component: Component, type: string, fields: Readonly<Record<string, EcsFieldValue>>): void {
+    if (type === "Transform") {
+      for (const key of Object.keys(fields)) {
+        if (key !== "position" && key !== "rotation" && key !== "scale") throw new UsageError(`Editor component Transform has no editable field "${key}"`);
+      }
+      const current = transformState(this.world, component.entity);
+      const next: EditorTransformState = {
+        position: fields.position ? copyVec3("position", fields.position as EditorVec3) : current.position,
+        rotation: fields.rotation ? copyQuat(fields.rotation as EditorQuat) : current.rotation,
+        scale: fields.scale ? copyVec3("scale", fields.scale as EditorVec3) : current.scale,
+      };
+      this.applyTransform(component.entity, next);
+      return;
+    }
+    const target = component as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(fields)) assignField(target, key, value);
+  }
+
+  private captureSubtree(root: EntityId, clone: boolean): EntityBlueprint {
+    const ids: EntityId[] = [];
+    const visit = (id: EntityId): void => {
+      ids.push(id);
+      for (const child of this.world.childrenOf(id)) visit(child);
+    };
+    visit(root);
+    const indexOf = new Map<EntityId, number>();
+    ids.forEach((id, index) => indexOf.set(id, index));
+    const parent = this.world.parentOf(root);
+    const entries = ids.map((id, index): EntityBlueprintEntry => {
+      const entity = this.requireEntity(id);
+      const types = this.world.componentTypesOf(id);
+      const components = entity.components.map((component, componentIndex) => {
+        const type = types[componentIndex] ?? component.constructor.name;
+        return {
+          type,
+          fields: type === "Transform"
+            ? {
+                position: [...transformState(this.world, id).position],
+                rotation: [...transformState(this.world, id).rotation],
+                scale: [...transformState(this.world, id).scale],
+              }
+            : copyFields(component),
+          enabled: component.enabled,
+          original: clone ? null : component,
+          cloneSource: clone ? component : null,
+        };
+      });
+      const parentId = this.world.parentOf(id);
+      return {
+        name: entity.name,
+        parentIndex: parentId === NULL_ENTITY ? null : (indexOf.get(parentId) ?? null),
+        components,
+        index,
+      };
+    });
+    return {
+      externalParent: parent === NULL_ENTITY ? null : parent,
+      entries,
+    };
+  }
+
+  private restoreSubtree(blueprint: EntityBlueprint, parent: EntityId | null, reuseOriginal: boolean): EntityId[] {
+    const ids: EntityId[] = [];
+    for (const entry of blueprint.entries) {
+      const entity = this.scene.createEntity(entry.name);
+      ids.push(entity.id);
+      for (const component of entry.components) {
+        const info = tryComponentInfoByName(component.type);
+        if (!info) continue;
+        const instance = reuseOriginal && component.original && component.original.entity === NULL_ENTITY
+          ? component.original
+          : info.create
+            ? info.create({})
+            : new info.ctor();
+        entity.add(instance);
+        this.applyComponentFields(instance, component.type, component.fields);
+        instance.enabled = component.enabled;
+        if (component.cloneSource) copyAuthoringObjects(component.cloneSource, instance);
+      }
+    }
+    for (const entry of blueprint.entries) {
+      const child = ids[entry.index];
+      if (child === undefined) continue;
+      const parentId = entry.parentIndex === null ? parent : ids[entry.parentIndex];
+      if (parentId !== undefined && parentId !== null && this.world.exists(parentId)) this.world.setParent(child, parentId);
+    }
+    return ids;
   }
 
   private applyTransform(id: EntityId, state: EditorTransformState): void {
@@ -451,7 +738,7 @@ export class EditorSession {
     return true;
   }
 
-  private emitDocumentChange(kind: EditorDocumentChangeKind, entity: EntityId, label: string): void {
+  private emitDocumentChange(kind: EditorDocumentChangeKind, entity: EntityId | null, label: string): void {
     this.documentChanged.emit({ kind, entity, label });
   }
 
@@ -492,4 +779,64 @@ function sameTransform(a: EditorTransformState, b: EditorTransformState): boolea
 
 function sameTuple(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+interface EntityBlueprint {
+  readonly externalParent: EntityId | null;
+  readonly entries: readonly EntityBlueprintEntry[];
+}
+
+interface EntityBlueprintEntry {
+  readonly index: number;
+  readonly name: string;
+  readonly parentIndex: number | null;
+  readonly components: readonly ComponentBlueprint[];
+}
+
+interface ComponentBlueprint {
+  readonly type: string;
+  readonly fields: Readonly<Record<string, EcsFieldValue>>;
+  readonly enabled: boolean;
+  readonly original: Component | null;
+  readonly cloneSource: Component | null;
+}
+
+function copyFields(component: Component): Record<string, EcsFieldValue> {
+  const fields = summariseEcsFields(component);
+  const out: Record<string, EcsFieldValue> = {};
+  for (const [key, value] of Object.entries(fields)) out[key] = copyFieldValue(value);
+  return out;
+}
+
+function copyFieldValue(value: EcsFieldValue): EcsFieldValue {
+  return Array.isArray(value) ? [...value] : value;
+}
+
+function sameFields(a: Readonly<Record<string, EcsFieldValue>>, b: Readonly<Record<string, EcsFieldValue>>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length || aKeys.some((key) => !(key in b))) return false;
+  return aKeys.every((key) => {
+    const left = a[key];
+    const right = b[key];
+    if (Array.isArray(left) && Array.isArray(right)) return sameTuple(left, right);
+    return left === right;
+  });
+}
+
+function assignField(target: Record<string, unknown>, key: string, value: EcsFieldValue): void {
+  const current = target[key] as { set?: (...values: number[]) => unknown } | unknown;
+  if (Array.isArray(value) && current && typeof current === "object" && typeof (current as { set?: unknown }).set === "function") {
+    (current as { set: (...values: number[]) => unknown }).set(...value);
+  } else {
+    target[key] = copyFieldValue(value);
+  }
+}
+
+function copyAuthoringObjects(source: Component, target: Component): void {
+  const sourceFields = source as unknown as Record<string, unknown>;
+  const targetFields = target as unknown as Record<string, unknown>;
+  for (const key of ["geometry", "material", "boundsOverride", "skin"]) {
+    if (key in sourceFields) targetFields[key] = sourceFields[key];
+  }
 }

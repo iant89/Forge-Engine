@@ -1,72 +1,106 @@
 # Forge Editor
 
-Phase 26 builds authoring tools **above** the runtime. The editor is a separate `@forge/editor`
-workspace and depends only on the public `@forge/engine` package. No file under `engine/src` imports
-editor code; both `npm run lint:arch` and `tests/engine/architecture.test.ts` enforce that direction.
+Phase 26 is the authoring layer above the runtime. `@forge/editor` is a separate workspace that
+imports runtime symbols only from the public `@forge/engine` barrel. The runtime never imports the
+editor; `npm run lint:arch` and `tests/engine/architecture.test.ts` enforce both directions.
 
-## Current Phase 26 slice
+## Workspace quick start
 
-The first slice is a DOM-free document model. It is intentionally usable by a future Forge UI panel,
-a conventional browser DOM shell, or an external host without putting editor policy into the engine.
+`EditorSession` is the small document model. `EditorWorkspace` adds multi-selection, CRUD, gizmo
+commits, material/terrain/particle authoring and specialist panel snapshots. Both are DOM-free and
+can be hosted by Forge UI, the browser DOM, a test, or an external tool.
 
 ```ts
-import { EditorSession } from "@forge/editor";
+import { EditorWorkspace, mountEditorShell } from "@forge/editor";
 import { Scene } from "@forge/engine";
 
-const scene = new Scene({ name: "Workshop" });
-const editor = new EditorSession(scene);
+const scene = new Scene({ name: "Mars authoring" });
+const workspace = new EditorWorkspace(scene, { engine });
+const rover = workspace.createEntity("Perseverance", {
+  components: [{ type: "Transform", fields: { position: [0, 1.2, 0] } }],
+});
+workspace.select(rover);
+workspace.setLocalTransform(rover, { position: [4, 1.2, -3] });
+workspace.setSceneSettings({ fog: { density: 0.0008 } });
+const saved = workspace.save();
 
-const hierarchy = editor.hierarchy({ filter: "camera", limit: 500 });
-editor.select(hierarchy.rows[0]?.id ?? null);
-const selected = editor.inspect();
-
-editor.renameEntity(selected!.id, "Survey Camera");
-editor.setLocalTransform(selected!.id, { position: [0, 2.5, 0] });
-editor.undo();
+// Optional browser host. It owns the scene/engine loop; the shell does not step or dispose them.
+const shell = mountEditorShell({ root: document.querySelector("#editor")!, workspace });
 ```
 
-`EditorSession` never owns or steps the `Scene`. The host remains responsible for scene lifetime,
-rendering, pausing simulation while authoring, saving and loading.
+A host can attach a complete Mars scene produced by the existing public runtime/example factories and
+immediately modify its terrain focus, material values, environment settings, vehicle entities and
+component properties. It can also create/duplicate/delete ordinary scene entities, then save the
+result with `workspace.save()`—no engine source edit is part of that workflow. `EditorWorkspace`
+never owns or steps the scene, pauses simulation, or assumes a renderer; the host remains responsible
+for scene lifetime, the render loop, save/load and any viewport canvas.
 
-### Scene hierarchy
+## Document model
 
-`hierarchy()` returns a bounded plain-data snapshot in deterministic root-first preorder. Rows carry
-entity id, name/fallback label, parent, depth, child count, component names, selection and expansion
-state. Collapse state is editor-local and never modifies the scene. Filtering is case-insensitive:
-entity names use substring matching and component types use exact matching. Matching rows include
-their ancestors for context, even when an ancestor was collapsed.
+`hierarchy()` returns a bounded, copied, deterministic root-first preorder snapshot. Rows include an
+entity id, fallback label, parent, depth, child count, component names, selection, expansion and
+filter-match state. Filtering is case-insensitive: names use substring matching and component types
+use exact matching. Matching rows include ancestors for context. Collapse state and selection are
+editor-local; they do not mutate the scene document.
 
-The model supports single selection, collapse/expand, undoable rename and undoable reparent. Reparent
-retains the entity's **local** transform, so its world pose can change under the new parent. Create,
-duplicate, delete, drag/drop presentation and world-pose-preserving reparent remain future work.
+`inspect()` returns copied name, parent/children, authoritative local position/rotation/scale and
+registered component summaries (`editorGroup`, enabled state and bounded scalar/vector fields).
+`setComponentFields()` edits validated fields without exposing a live component object. Registered
+components can be added when creating an entity; create, duplicate, delete, rename, reparent,
+world-pose-preserving reparent, transform, enabled and generic field edits participate in bounded
+undo/redo. Generational stale entity handles fail closed when the host destroys an entity.
 
-### Entity and component inspection
+## Transform gizmo
 
-`inspect()` returns copied data for the selected entity:
+`gizmo.ts` contains renderer-independent axis picking, translate/rotate/scale drag math and snapping.
+It accepts a world-space ray and hit point and returns an `EditorTransformPatch`; the host can draw
+any visual gizmo it wants and commit the patch through `workspace.setLocalTransform()`. This keeps
+camera projection, GPU buffers, pointer capture and viewport policy out of the editor package while
+making the math deterministic and testable.
 
-- name, parent and direct children,
-- authoritative local position/rotation/scale when a transform slot exists,
-- registered component type and `editorGroup`, enabled state, and bounded scalar/vector fields.
+```ts
+import { beginGizmoDrag, pickGizmoAxis, updateGizmoDrag } from "@forge/editor";
 
-The first editing seam supports validated local transform changes and component enable/disable. It
-does not expose arbitrary live component objects. Generic schema-driven field editors, add/remove
-component operations and specialist component panels belong to later Phase 26 slices.
+const pick = pickGizmoAxis(ray, pivot, { tolerance: 0.12 });
+if (pick) {
+  const drag = beginGizmoDrag("translate", pick.axis, pivot, hitPoint, workspace.inspect()!.transform!);
+  const patch = updateGizmoDrag(drag, nextHitPoint, { snap: 0.25 });
+  workspace.setLocalTransform(workspace.primarySelection!, patch);
+}
+```
 
-### Command history and stale handles
+## Specialist panels
 
-`EditorHistory` is bounded (100 entries by default), clears redo on a new command, and preserves stack
-integrity when an apply/revert callback throws. `EditorSession` records rename, reparent, transform and
-component-enabled changes. Selection itself and expand/collapse view state are not document history.
+`workspace.panel(id)` and `workspace.panels()` return bounded plain-data snapshots. They deliberately
+adapt existing public runtime services rather than duplicate simulation or rendering internals.
 
-Entity ids are generational engine handles. If the host destroys an entity, a selected stale handle
-is cleared and command history is invalidated rather than allowing an old command to target a reused
-slot. Edits validate entity, transform and component identity each time they apply or revert.
+| Panel | Runtime surface | Authoring surface |
+| --- | --- | --- |
+| Terrain | `TerrainWorld` through `inspectTerrain` | focus, forward direction and layered-material visibility via `setTerrain` |
+| Material | public `Material` fields and `Renderable` components | color, PBR values, opacity, flags, tiling and offset via `setMaterial` |
+| Particles | `inspectParticles` plus CPU `ParticleSimulation` | selected/first CPU emitter settings via `setParticles` |
+| Vehicle | `VehicleComponent.vehicle` telemetry/config | inspector snapshot; vehicle simulation remains runtime-owned |
+| Environment | `inspectEnvironment` | validated scene-settings patches via `setSceneSettings` |
+| Streaming | `inspectStreaming(engine)` | diagnostic snapshot; queue control remains `AssetStreamer`-owned |
+| Render Graph | `inspectRenderGraph(engine.renderer.graph)` | diagnostic snapshot; pass construction remains renderer-owned |
+| Assets | public `ResourceRegistry` and `AssetStreamer` metadata | bounded filter, dependency/dependent inventory, load state, `requestAsset()` and `cancelAsset()` |
+| Profiler | public profiler frame/scope APIs and `frameTimeline` | diagnostic snapshot; profiling remains engine-owned |
 
-## Not implemented yet
+Unavailable optional services return `{ available: false, data: null, message }` instead of making a
+host guard every panel. This is important for a headless `Scene` test and for editor startup before an
+engine/renderer is attached.
 
-This slice does **not** provide a visible editor application, viewport docking, transform gizmos,
-entity creation/deletion, generic property widgets, terrain/material/particle/vehicle/environment
-editors, streaming/render-graph views, an asset browser, or a profiler panel. Existing runtime debug
-inspectors remain read-only runtime tools; they are evidence/data sources, not completion of Phase 26.
-The phase remains `inProgress` until a complete Mars scene can be created and modified without editing
-engine source code.
+## Visible shell
+
+`mountEditorShell()` provides a deliberately small browser shell: toolbar undo/redo/create/duplicate/
+delete actions, a filterable hierarchy, copied inspector controls, a viewport slot, and tabs for all
+specialist panels. It is not a renderer or a UI framework. A host can pass its own viewport element,
+replace regions, or use the same workspace with Forge UI. The shell is optional; importing the
+headless package does not require a DOM.
+
+## Public boundary and verification
+
+Editor source imports `@forge/engine` only from its package root. No deep `engine/src` import is
+allowed. The focused suite `tests/editor/editor.test.ts` covers hierarchy/inspection/history, CRUD,
+world-pose-preserving reparent, generic fields, gizmo math, material editing, panel availability and
+scene-settings authoring. Typecheck and architecture checks are run from the repository root.

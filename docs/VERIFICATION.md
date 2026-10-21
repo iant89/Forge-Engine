@@ -284,16 +284,19 @@ approval ledger independently binds all six exact declaration/transitive contrac
 
 ### `tests/editor/editor.test.ts` — Phase 26 editor document model
 
-Four checks exercise `@forge/editor` against a live public `Scene`: deterministic root-first hierarchy
-rows, collapse state, ancestor-context filtering, row limits and single selection; copied selected-
-entity/component metadata and authoritative local TRS; undo/redo for rename, reparent, transform and
-component-enabled edits; finite-transform/cycle/stale-target rejection; host destruction clearing
-selection/history; and bounded exception-safe command stacks. The architecture suite independently
-scans every editor import to require `@forge/engine` or a local editor file and scans every runtime
-import to forbid `@forge/editor`; `lint:arch` enforces the same direction separately.
+Seven checks exercise `@forge/editor` against live public `Scene` objects: deterministic root-first
+hierarchy rows, collapse state, ancestor-context filtering, row limits and selection; copied
+entity/component metadata and authoritative local TRS; undo/redo for rename, reparent, transform,
+enabled and generic field edits; finite-transform/cycle/stale-target rejection; host destruction
+clearing selection/history; bounded exception-safe command stacks; subtree create/duplicate/delete and
+world-pose-preserving reparent; deterministic gizmo picking/translate/scale snapping; and workspace
+material, scene-settings and specialist-panel availability. The architecture suite independently scans
+every editor import to require `@forge/engine` or a local editor file and scans every runtime import
+to forbid `@forge/editor`; `lint:arch` enforces the same direction separately.
 
-These checks prove the headless authoring boundary, not a visible editor. They do not render a tree,
-viewport or gizmo, and do not claim create/delete, generic property editing or any specialist panel.
+These checks prove the public authoring boundary and adapter behavior. The optional browser shell and
+viewport slot remain host integration surfaces: the package does not own a renderer, camera, pointer
+capture, GPU gizmo buffers, simulation loop or scene lifetime.
 
 ### `tests/terrain/terrain.test.ts` — procedural generation, sampling and the streaming budget
 

@@ -93,10 +93,11 @@ the framework runs headless; `ui/gpu/**` adds `gpu` and `rendering` and implemen
 
 Phase 26 keeps editor policy above an even harder package boundary. `editor/` builds as
 `@forge/editor`, imports runtime symbols only from the public `@forge/engine` barrel, and is imported
-by no runtime source. Its first DOM-free `EditorSession` reads deterministic bounded hierarchy and
-inspection snapshots and writes through public entity/component/transform APIs; `EditorHistory`
-owns bounded undo/redo. This is the document model beneath a future browser shell, not a runtime
-subsystem or a completed editor. The architecture suite and `lint:arch` check both directions.
+by no runtime source. `EditorSession` and `EditorWorkspace` read deterministic bounded hierarchy and
+inspection snapshots and write through public entity/component/transform/material/scene APIs;
+`EditorHistory` owns bounded undo/redo. The optional DOM shell and viewport slot are host surfaces,
+not runtime subsystems; the shell does not step a scene or own a renderer. The architecture suite
+and `lint:arch` check both directions.
 
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
 subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
