@@ -3002,3 +3002,26 @@ Working with the software rasterizer (SwiftShader) on this box:
   direct/transitive hashes still guard the six type contracts, but the runtime suite is the evidence
   for their meanings. API 1.0, Phase 27.1, later Phase 27 work, and the phase exit criterion remain
   incomplete.
+
+## 2026-10-21 — Phase 27.1 complete: preserve the full public surface and close the audit
+
+* **Preserving 2,171 names is the compatibility decision, not an accidental bulk default.** The
+  current package-root candidates were resolved to their declaration-owning modules and reviewed in
+  22 coherent subsystem batches: animation, audio, four core slices, debug, environment, GPU, math,
+  particles, physics, population, rendering, replay, resources, scene, scripting, terrain, testing,
+  UI and vehicles. Every public row now binds its kind plus exact direct and transitive hashes to one
+  of those decisions. The review deliberately accepts the future semver cost of low-level GPU/shader
+  helpers, diagnostics, mocks and the broad terrain/environment/rendering/UI surfaces instead of
+  shrinking the root or turning any candidate into a deprecated compatibility alias.
+* **A completed audit must not silently reopen.** `forge.api-approval-policy/2` requires zero pending
+  public exports, so updating the generated surface cannot admit a new public name without a manual
+  exact-contract approval. `tests/tools/apiAudit.test.ts` pins all 2,171 names, all 22 batch counts and
+  evidence, stale direct/transitive hashes, and the zero-pending rule. `tests/core/runtimeApi.test.ts`
+  independently loads the built package and checks every one of the 1,385 runtime-bearing exports and
+  795 type-only declarations, then adds focused config/event/log/pool/platform evidence. Existing
+  subsystem suites remain the behavioral evidence; a declaration hash is still only a drift trigger.
+* **Close Phase 27.1 without pretending to ship Engine 1.0.** The nine WASM-physics exports retain
+  their experimental classification, no export is deprecated, and `api.publicSurface` is verified.
+  Comprehensive symbol documentation/examples, migration guidance, final semver/deprecation policy,
+  a coherent extension API and the release remain Phase 27.2–27.7 under `api.onePointZero`. Package
+  metadata and exported `VERSION` therefore remain `0.1.0`; no later Phase 27 item is claimed here.

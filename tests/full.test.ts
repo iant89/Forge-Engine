@@ -12,6 +12,7 @@ export const linkedSuites = [
   ["tests/docs/capabilities.test.ts", () => import("./docs/capabilities.test.ts")],
   ["tests/core/errors.test.ts", () => import("./core/errors.test.ts")],
   ["tests/core/time.test.ts", () => import("./core/time.test.ts")],
+  ["tests/core/runtimeApi.test.ts", () => import("./core/runtimeApi.test.ts")],
   ["tests/math/bvh.test.ts", () => import("./math/bvh.test.ts")],
   ["tests/math/math.test.ts", () => import("./math/math.test.ts")],
   ["tests/math/detmath.test.ts", () => import("./math/detmath.test.ts")],
@@ -162,4 +163,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(158);
+report(159);

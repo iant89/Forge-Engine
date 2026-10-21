@@ -2,10 +2,11 @@
 
 WebGPU-first 3D game and real-time simulation engine for the browser.
 
-> Forge is currently `0.1.x`. Phase 27 has started the API 1.0 audit; the root export surface is
-> machine-pinned through direct/transitive declaration fingerprints and 23 core error/assertion and
-> time symbols have completed bounded reviews. The other 2,148 public candidates, complete reference
-> documentation, migration policy, and the 1.0 extension contract are not finished.
+> Forge is currently `0.1.x`. Phase 27.1's public API audit is complete: the root export surface is
+> machine-pinned through direct/transitive declaration fingerprints, all 2,171 public candidates
+> have exact approvals across 22 subsystem reviews, and nine exports remain experimental. Complete
+> reference documentation/examples, migration/versioning/deprecation policy, the extension contract,
+> and the `1.0.0` release remain later Phase 27 work.
 
 ## Import
 
@@ -40,12 +41,13 @@ The currently experimental names are the Phase 25 WASM-physics state/memory seam
 ship an executable WASM physics solver; JavaScript physics remains the production backend.
 
 The source repository contains the deterministic `engine/api-surface.json` audit, the separately
-reviewed `engine/api-approvals.json` ledger, and the full policy in `docs/API.md`. Direct and
-transitive declaration fingerprints detect parameter/member/type changes. Approval rows bind a named
-human review to exact hashes and become stale on contract drift; regenerating the surface cannot
-refresh them. Only the 23 core error/assertion and time symbols have been approved as 1.0 candidates
-so far, and the gate still does not decide compatibility or prove runtime semantics without separate
-evidence.
+reviewed `engine/api-approvals.json` ledger, the review record in `docs/API-REVIEW.md`, and the full
+policy in `docs/API.md`. Direct and transitive declaration fingerprints detect
+parameter/member/type changes. Approval rows bind a named human review to exact hashes and become
+stale on contract drift; regenerating the surface cannot refresh them. Policy v2 requires all public
+exports to stay approved, while focused suites supply runtime evidence. The gate detects drift and
+enforces recorded decisions; it does not infer compatibility from hashes or replace the remaining
+Phase 27 documentation and policy work.
 
 ## Requirements
 

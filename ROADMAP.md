@@ -217,11 +217,11 @@ PHASE 26 - EDITOR
         landed; the visual shell, gizmos, creation/deletion and specialist panels remain)
 
 PHASE 27 - ENGINE API 1.0
-    [~] IN PROGRESS (the root-only package boundary and deterministic 2,180-export name/kind/
-        stability plus direct/transitive declaration-contract snapshot are CI-gated; a separate
-        exact-contract ledger continues per-symbol review with 23 approved core error/assertion and
-        time names, while 2,148 public candidates, complete API docs/examples, migration/versioning/
-        deprecation policy and extensions remain)
+    [~] IN PROGRESS (Phase 27.1 is complete: the root-only package boundary and deterministic
+        2,180-export name/kind/stability plus direct/transitive declaration-contract snapshot are
+        CI-gated, and all 2,171 public candidates have exact approvals across 22 subsystem reviews;
+        the nine experimental exports remain separate. Complete API reference docs/examples,
+        migration/versioning/deprecation policy, extensions and the 1.0.0 release remain.)
 
 
 ================================================================================
@@ -2843,26 +2843,26 @@ GOAL:
 
 27.1 Public API Audit
 
-    [~] `@forge/engine` exposes only its package root; TypeScript resolves that barrel into a
+    [x] `@forge/engine` exposes only its package root; TypeScript resolves that barrel into a
         deterministic checked-in `forge.api-surface/2` snapshot of every name, type/value kind,
         stability label, direct declaration and transitive engine-local type contract. CI fails on
-        unreviewed additions, removals, renames, classifications or declaration drift; a separate
+        unreviewed additions, removals, renames, classifications or declaration drift; the separate
         `forge.api-approvals/1` ledger fails when an approved exact contract becomes stale.
-    [~] public — all 2,171 current package-root candidates are baselined; two bounded reviews approve
-        the 17 error/assertion symbols from `core/errors.ts` and six clock/cadence symbols from
-        `core/time.ts`, with 2,148 still pending.
-    [~] internal — deep package paths are blocked, any root export tagged `@internal` fails the
-        audit, and unexported declaration dependencies feed transitive contract hashes; a complete
-        human review still remains.
-    [~] experimental — nine non-executable WASM-physics seam exports carry explained
-        `@experimental` tags.
-    [~] deprecated — the category and explained-tag rule are enforced; there are currently no
-        deprecated top-level exports and no finalized support window.
+    [x] public — preserve and approve all 2,171 current package-root candidates across 22 coherent
+        subsystem reviews. Every row is bound to its exact declaration and transitive contract;
+        `forge.api-approval-policy/2` requires zero pending public exports.
+    [x] internal — deep package paths are blocked, any root export tagged `@internal` fails the
+        audit, and unexported declaration dependencies feed transitive contract hashes.
+    [x] experimental — nine non-executable WASM-physics seam exports carry explained
+        `@experimental` tags and remain outside public approvals.
+    [x] deprecated — the category and explained-tag rule are enforced; there are currently no
+        deprecated top-level exports. Final support windows remain the separate Phase 27.6 task.
     [x] Add direct declaration-signature/member and transitive engine-local compatibility drift
         detection using body/comment/path-free TypeScript declaration emit.
-    [~] Complete per-symbol approval and decide which detected changes are compatible for 1.0: the
-        separate non-generated ledger and exact-hash stale-approval gate are active; `core-errors/1`
-        and `core-time/1` are complete for 23 names, while 2,148 public candidates remain.
+    [x] Complete per-symbol approval and decide which detected contracts are supported 1.0
+        candidates: 2,171/2,171 public names are approved, exact-hash stale approvals fail, complete
+        runtime namespace linkage is tested, and subsystem suites provide behavioral evidence.
+        (`docs/API-REVIEW.md`, `engine/api-approvals.json`, `tests/core/runtimeApi.test.ts`)
 
 
 27.2 API Documentation

@@ -3,6 +3,7 @@
  * @group unit
  * @covers .github/workflows/ci.yml
  * @covers docs/API.md
+ * @covers docs/API-REVIEW.md
  * @covers engine/api-approvals.json
  * @covers engine/api-surface.json
  * @covers engine/package.json
@@ -13,7 +14,7 @@
  * @covers package.json
  * @covers README.md
  * @covers tools/api-audit.mjs
- * @desc Phase 27.1 root-only contracts plus separately reviewed, hash-bound per-symbol approvals
+ * @desc Completed Phase 27.1 root-only inventory with exact approvals for every public candidate
  */
 
 export const suite = {
@@ -22,6 +23,7 @@ export const suite = {
   covers: [
     ".github/workflows/ci.yml",
     "docs/API.md",
+    "docs/API-REVIEW.md",
     "engine/api-approvals.json",
     "engine/api-surface.json",
     "engine/package.json",
@@ -33,7 +35,7 @@ export const suite = {
     "README.md",
     "tools/api-audit.mjs",
   ],
-  desc: "Phase 27.1 root-only contracts plus separately reviewed, hash-bound per-symbol approvals",
+  desc: "Completed Phase 27.1 root-only inventory with exact approvals for every public candidate",
 };
 
 import assert from "node:assert/strict";
@@ -141,7 +143,8 @@ function temporaryRepository(): string {
   for (const file of ["api-approvals.json", "api-surface.json", "package.json", "tsconfig.json"]) {
     fs.copyFileSync(path.join(root, "engine", file), path.join(directory, "engine", file));
   }
-  for (const file of ["docs/API.md", "tests/core/errors.test.ts", "tests/core/time.test.ts"]) {
+  const evidenceFiles = new Set(approvals().reviews.flatMap((review) => review.evidence));
+  for (const file of evidenceFiles) {
     const destination = path.join(directory, file);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(path.join(root, file), destination);
@@ -163,6 +166,7 @@ group("Phase 27 public API audit", () => {
   let directDriftResult = pendingResult();
   let transitiveDriftResult = pendingResult();
   let approvalDriftResult = pendingResult();
+  let incompleteApprovalResult = pendingResult();
   let writeResult = pendingResult();
   let badOptionResult = pendingResult();
   let writtenSnapshotText = "";
@@ -233,6 +237,14 @@ group("Phase 27 public API audit", () => {
       path.join(approvalRepository, "engine", "api-surface.json"),
     );
 
+    const incompleteLedger = approvals();
+    incompleteLedger.approvals.pop();
+    incompleteLedger.counts.approved--;
+    incompleteLedger.counts.pendingPublic++;
+    const incompleteApprovalFile = temporaryApprovalLedger();
+    fs.writeFileSync(incompleteApprovalFile, `${JSON.stringify(incompleteLedger, null, 2)}\n`);
+    incompleteApprovalResult = run("--approvals", incompleteApprovalFile);
+
     const writeFile = temporarySnapshot();
     fs.writeFileSync(writeFile, "{}\n");
     const manualApprovalFile = temporaryApprovalLedger();
@@ -293,73 +305,113 @@ group("Phase 27 public API audit", () => {
     );
   });
 
-  test("binds the bounded approval batches to separately reviewed exact contracts", () => {
+  test("binds every public candidate to a reviewed exact contract", () => {
+    const surface = snapshot();
     const ledger = approvals();
     assert.equal(ledger.schema, "forge.api-approvals/1");
     assert.equal(ledger.package, "@forge/engine");
     assert.equal(ledger.surfaceSchema, "forge.api-surface/2");
     assert.equal(ledger.signatureFormat, "forge.typescript-declaration-signature/1");
-    assert.equal(ledger.policy, "forge.api-approval-policy/1");
+    assert.equal(ledger.policy, "forge.api-approval-policy/2");
     assert.deepEqual(ledger.counts, {
-      approved: 23,
-      pendingPublic: 2_148,
+      approved: 2_171,
+      pendingPublic: 0,
       experimental: 9,
       deprecated: 0,
     });
+
+    const expectedReviewCounts: Record<string, number> = {
+      "animation/1": 41,
+      "audio/1": 121,
+      "core-errors/1": 17,
+      "core-runtime/1": 78,
+      "core-tasks/1": 63,
+      "core-time/1": 6,
+      "debug/1": 100,
+      "environment/1": 236,
+      "gpu/1": 64,
+      "math/1": 98,
+      "particles/1": 86,
+      "physics/1": 41,
+      "population/1": 53,
+      "rendering/1": 243,
+      "replay/1": 28,
+      "resources/1": 66,
+      "scene/1": 123,
+      "scripting/1": 35,
+      "terrain/1": 231,
+      "testing/1": 16,
+      "ui/1": 355,
+      "vehicles/1": 70,
+    };
     assert.deepEqual(
-      ledger.reviews.map(({ id, decision }) => ({ id, decision })),
-      [
-        { id: "core-errors/1", decision: "approved-1.0-candidate" },
-        { id: "core-time/1", decision: "approved-1.0-candidate" },
-      ],
+      ledger.reviews.map((review) => review.id),
+      Object.keys(expectedReviewCounts),
+      "review batches stay sorted and complete",
     );
+    for (const review of ledger.reviews) {
+      assert.equal(review.decision, "approved-1.0-candidate");
+      assert.ok(review.summary.length > 80, `${review.id} has a substantive decision summary`);
+      assert.ok(review.evidence.includes("docs/API-REVIEW.md"));
+      assert.ok(review.evidence.includes("tests/core/runtimeApi.test.ts"));
+      for (const evidence of review.evidence) {
+        assert.equal(fs.statSync(path.join(root, evidence)).isFile(), true, `${review.id}: ${evidence}`);
+      }
+    }
+
     assert.deepEqual(
       ledger.approvals.map((entry) => entry.name),
-      [
-        "AssetError",
-        "CapabilityError",
-        "Clock",
-        "ClockOptions",
-        "ForgeError",
-        "InlineOnlyError",
-        "InternalError",
-        "ManualClock",
-        "ObjectDisposedError",
-        "RateLimiter",
-        "ResourceLifecycleError",
-        "ScriptedFrame",
-        "TickResult",
-        "UnsupportedPlatformError",
-        "UsageError",
-        "assert",
-        "assertDefined",
-        "assertInRange",
-        "assertInt",
-        "assertNever",
-        "assertPositive",
-        "assertionsEnabledValue",
-        "setAssertionsEnabled",
-      ],
+      surface.exports.filter((entry) => entry.stability === "public").map((entry) => entry.name),
+      "all and only public candidates are approved",
     );
-    const timeNames = new Set([
-      "Clock",
-      "ClockOptions",
-      "ManualClock",
-      "RateLimiter",
-      "ScriptedFrame",
-      "TickResult",
-    ]);
+    const reviewCounts: Record<string, number> = {};
     for (const approval of ledger.approvals) {
-      const current = byName(snapshot(), approval.name);
+      const current = byName(surface, approval.name);
       assert.equal(current.stability, "public");
       assert.equal(approval.kind, current.kind);
       assert.equal(approval.declarationHash, current.declarationHash);
       assert.equal(approval.contractHash, current.contractHash);
-      assert.equal(approval.review, timeNames.has(approval.name) ? "core-time/1" : "core-errors/1");
+      reviewCounts[approval.review] = (reviewCounts[approval.review] ?? 0) + 1;
     }
+    assert.deepEqual(reviewCounts, expectedReviewCounts);
+
+    const batchAnchors: Record<string, string> = {
+      AnimationClip: "animation/1",
+      AUDIO_RESOURCE_KIND: "audio/1",
+      AssetError: "core-errors/1",
+      AdaptiveDeviceQuality: "core-runtime/1",
+      BUILTIN_TASK_NAMES: "core-tasks/1",
+      Clock: "core-time/1",
+      DEFAULT_TIMELINE_BUDGET_MS: "debug/1",
+      AtmosphereModel: "environment/1",
+      AddressSpace: "gpu/1",
+      AABB: "math/1",
+      ColorOverLifeModule: "particles/1",
+      BodyType: "physics/1",
+      BushSpecies: "population/1",
+      BINDINGS: "rendering/1",
+      HashSceneStateOptions: "replay/1",
+      AssetDiagnostic: "resources/1",
+      AssetRef: "scene/1",
+      CoroutineBody: "scripting/1",
+      BedProfileOptions: "terrain/1",
+      MockAudioBuffer: "testing/1",
+      AUTO: "ui/1",
+      AeroConfig: "vehicles/1",
+    };
+    for (const [name, review] of Object.entries(batchAnchors)) {
+      assert.equal(ledger.approvals.find((entry) => entry.name === name)?.review, review);
+    }
+
     assert.equal(approvalDriftResult.status, 1);
     assert.match(approvalDriftResult.stderr, /ForgeError approved declarationHash no longer matches/);
     assert.match(approvalDriftResult.stderr, /re-review the symbol before updating its approval/);
+  });
+
+  test("keeps the completed audit closed against a newly pending public export", () => {
+    assert.equal(incompleteApprovalResult.status, 1);
+    assert.match(incompleteApprovalResult.stderr, /forge\.api-approval-policy\/2 requires every public export/);
+    assert.match(incompleteApprovalResult.stderr, /1 public export\(s\) remain pending/);
   });
 
   test("keeps the package, documentation, scripts and CI on the root-only audited contract", () => {
@@ -378,7 +430,7 @@ group("Phase 27 public API audit", () => {
     assert.match(docs, /2,180 named exports/);
     assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
     assert.match(docs, /`engine\/api-approvals\.json`/);
-    assert.match(docs, /23\/2,171 public candidates/);
+    assert.match(docs, /2,171\/2,171 public candidates/);
     assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
   });
@@ -387,7 +439,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(cleanResult.status, 0, cleanResult.stderr);
     assert.match(
       cleanResult.stdout,
-      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 23\/2,171 public candidates approved \(2,148 pending\)/,
+      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 2,171\/2,171 public candidates approved \(0 pending\)/,
     );
   });
 
@@ -399,13 +451,14 @@ group("Phase 27 public API audit", () => {
 
   test("rejects a class-member declaration change even when the export name is unchanged", () => {
     assert.equal(directDriftResult.status, 1);
-    assert.match(directDriftResult.stderr, /changed declarations: Transform/);
+    assert.match(directDriftResult.stderr, /Transform approved declarationHash no longer matches/);
+    assert.match(directDriftResult.stderr, /Transform approved contractHash no longer matches/);
   });
 
   test("rejects an unexported helper declaration change through transitive contracts", () => {
     assert.equal(transitiveDriftResult.status, 1);
-    assert.doesNotMatch(transitiveDriftResult.stderr, /changed declarations: resolveConfig/);
-    assert.match(transitiveDriftResult.stderr, /changed transitive contracts: resolveConfig/);
+    assert.doesNotMatch(transitiveDriftResult.stderr, /resolveConfig approved declarationHash no longer matches/);
+    assert.match(transitiveDriftResult.stderr, /resolveConfig approved contractHash no longer matches/);
   });
 
   test("writes a canonical snapshot only when explicitly requested", () => {
