@@ -93,10 +93,11 @@ the framework runs headless; `ui/gpu/**` adds `gpu` and `rendering` and implemen
 
 Phase 26 keeps editor policy above an even harder package boundary. `editor/` builds as
 `@forge/editor`, imports runtime symbols only from the public `@forge/engine` barrel, and is imported
-by no runtime source. Its first DOM-free `EditorSession` reads deterministic bounded hierarchy and
-inspection snapshots and writes through public entity/component/transform APIs; `EditorHistory`
-owns bounded undo/redo. This is the document model beneath a future browser shell, not a runtime
-subsystem or a completed editor. The architecture suite and `lint:arch` check both directions.
+by no runtime source. `EditorSession` and `EditorWorkspace` read deterministic bounded hierarchy and
+inspection snapshots and write through public entity/component/transform/material/scene APIs;
+`EditorHistory` owns bounded undo/redo. The optional DOM shell and viewport slot are host surfaces,
+not runtime subsystems; the shell does not step a scene or own a renderer. The architecture suite
+and `lint:arch` check both directions.
 
 `core` imports nothing. `engine/src/index.ts` is the only module allowed to see all
 subsystems (composition root). `rendering` additionally imports `environment` (the sky pass
@@ -379,12 +380,14 @@ data: a row binds a named human 1.0-candidate decision to those exact hashes, so
 grant approval and later contract drift makes the decision stale. `npm run api:check` rejects surface
 or approved-contract drift, malformed approval references/counts, a default export, an `@internal`
 leak, unexplained/conflicting stability tags, package/version drift and any package subpath export.
-This is still pre-1.0, but Phase 27.1's audit is complete: all 2,171 public candidates are approved
-across 22 subsystem reviews, the nine experimental exports remain separate, and approval policy v2
-rejects a newly pending public name. Neither hash file proves runtime/serialization/shader semantics;
-complete reference docs, examples, migration/versioning/deprecation policy and extension contracts
-remain later Phase 27 work. See `docs/API.md` and `docs/API-REVIEW.md` for the exact policy, evidence
-and limits.
+Forge 1.0.0 now ships with the Phase 27.1 audit plus the completed consumer contract: 2,187 public
+candidates are approved across 23 subsystem reviews, the nine experimental exports remain separate,
+and approval policy v2 rejects a newly pending public name. `ForgeExtensionRegistry` is the supported
+contract for systems, components, importers, terrain generators, materials, physics shapes, debug
+visualizers and console commands. Neither hash file proves runtime/serialization/shader semantics;
+those claims remain tied to focused tests and subsystem evidence. See `docs/API.md`,
+`docs/API-REFERENCE.md`, `docs/VERSIONING.md`, and `docs/DEPRECATION.md` for the exact policy,
+evidence and limits.
 
 ---
 

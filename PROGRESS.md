@@ -233,15 +233,16 @@ The scene selector includes these demos. Mars Showcase opens by default.
 ## Road to 1.0 (Phases 23, 27–29)
 
 - [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
-- [x] Public API audit: the root-only `@forge/engine` boundary and all 2,180 top-level names,
-  type/value kinds, stability labels, direct declarations and transitive engine-local type contracts
-  have a deterministic CI-gated snapshot; all 2,171 public candidates now have exact approvals
-  across 22 subsystem reviews, policy v2 rejects any pending public addition, and nine experimental
-  exports remain separate (Phase 27.1)
-- [~] Engine API 1.0 completion: comprehensive reference docs/examples, migration guidance, final
-  versioning and deprecation policy remain open; package and exported `VERSION` remain `0.1.0`
-  (Phase 27.2–27.6)
-- [ ] Extension API for systems, components, importers, terrain generators, materials, physics shapes, debug visualisers and console commands (Phase 27.7)
+- [x] Public API audit and release contract: the root-only `@forge/engine` boundary and the
+  2,196-export surface (2,187 public, nine experimental), type/value kinds, stability labels,
+  direct declarations and transitive engine-local type contracts have a deterministic CI-gated
+  snapshot; every public row has an exact approval (Phase 27.1 and 27.7)
+- [x] Engine API 1.0 completion: generated comprehensive reference inventory, reviewed strict-
+  TypeScript examples, 0.x migration guide, semver/release policy, deprecation windows, and
+  version-consistent `1.0.0` package metadata are shipped (Phase 27.2–27.6)
+- [x] Extension API: `ForgeExtensionRegistry` supports systems, components, importers, terrain
+  generators, materials, physics shapes, debug visualizers and console commands with manifest,
+  lookup, snapshot and disposal contracts (Phase 27.7)
 - [ ] Production hardening: device loss and recovery, browser capability negotiation, low-end GPU degradation, memory pressure, and worker/asset/streaming failure recovery (Phase 28.1–28.9)
 - [ ] Forge 1.0 release criteria (Phase 29)
 
@@ -251,9 +252,11 @@ The scene selector includes these demos. Mars Showcase opens by default.
 - [ ] General-purpose scripting VM and visual scripting
 - [x] Audio mixer: spatial voices with a voice limit and occlusion, clip loading, streaming, buses with live effects and smooth fades (Phase 20.1–20.4; `docs/AUDIO.md`)
 - [ ] Simulation-driven audio: environment, weather, vehicle and impact sounds (Phase 20.5–20.8)
-- [~] Editor (Phase 26): `@forge/editor` now has a public-API-only hierarchy/selection/inspection
-  model with bounded undo/redo for rename, reparent, local transform and component-enabled edits;
-  visual shell, gizmos, create/delete, specialist panels and advanced cinematic tooling remain
+- [x] Editor (Phase 26): `@forge/editor` now provides the public-API-only authoring workspace,
+  optional DOM shell, hierarchy/inspector CRUD, multi-selection, generic fields, world-pose-preserving
+  reparent, deterministic transform gizmo math, material/terrain/particle authoring, and vehicle /
+  environment / streaming / render-graph / asset / profiler panel adapters. The host still owns the
+  renderer viewport, camera controls, simulation loop and scene lifetime.
 - [ ] WebGL fallback
 - [ ] Cloud asset service
 - [ ] SDF global illumination, virtual texturing and full real-time GI

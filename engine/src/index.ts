@@ -20,6 +20,24 @@ export * from "./math/index.js";
 // Core
 export { Engine, type EngineOptions, type EngineStats, type GpuMemoryReport, type RenderMode, installEngineErrorBridge } from "./core/engine.js";
 export {
+  FORGE_EXTENSION_API_VERSION,
+  ForgeExtensionRegistry,
+  type ForgeExtension,
+  type ForgeExtensionCategory,
+  type ForgeExtensionContext,
+  type ForgeExtensionDebugVisualizer,
+  type ForgeExtensionImportContext,
+  type ForgeExtensionImporter,
+  type ForgeExtensionManifest,
+  type ForgeExtensionMaterialFactory,
+  type ForgeExtensionPhysicsShapeFactory,
+  type ForgeExtensionRegistration,
+  type ForgeExtensionRegistrySnapshot,
+  type ForgeExtensionRuntimeContext,
+  type ForgeExtensionSystemFactory,
+  type ForgeExtensionTerrainGeneratorFactory,
+} from "./extensions.js";
+export {
   QUALITY_PROFILES,
   resolveConfig,
   describeConfig,
@@ -492,7 +510,7 @@ export { TIMELINE_CATEGORIES, DEFAULT_TIMELINE_FRAMES, DEFAULT_TIMELINE_BUDGET_M
 export { createMockGpu, MockGPUDevice, MockGPUAdapter, type MockGpuOptions } from "./testing/mockGpu.js";
 
 /** The engine's version, kept in one place (the package manifest is the source of truth). */
-export const VERSION = "0.1.0";
+export const VERSION = "1.0.0";
 
 // Audio
 export { AudioSystem, SpatialAudioEmitter, VOICE_STEAL_FADE, AudioVoice, OCCLUSION_CUTOFF, OCCLUSION_FLOOR, AudioStream, rampParam, holdParam, type AudioStreamState, type StreamOptions, EffectRack, FilterEffect, DelayEffect, ConvolutionReverb, CompressorEffect, createThunderBuffer, StormSoundscape, stormSoundLevels, type StormSoundInput, type StormSoundLevels, type ThunderOptions, type AudioSystemOptions, type AudioEffect, type AudioBusName, type AudioClip, type AudioStats, type ListenerTransform, type PlayOptions, type SpatialOptions, VehicleAudio, VehicleSoundAnalyzer, VehicleSoundscape, vehicleSoundLevels, createVehicleSoundLevels, VEHICLE_SURFACE_SOUND, VEHICLE_SOUND_SURFACES, type VehicleAudioOptions, type VehicleSoundAnalyzerOptions, type VehicleSoundscapeOptions, type VehicleSoundLevelOptions, type VehicleSoundLevels, type VehicleSoundState, type VehicleSoundWheel, type VehicleSoundEvent, type VehicleSoundEventKind, type VehicleSoundSurface, type VehicleSurfaceClassifier, type SurfaceSoundProfile, ImpactSoundAnalyzer, ImpactSoundscape, impactVoice, scrapeVoice, impactSize, setImpactMaterial, impactMaterial, IMPACT_MATERIAL_SOUND, IMPACT_MATERIALS, type ImpactMaterial, type ImpactMaterialProfile, type ImpactEvent, type ImpactMode, type ImpactVoice, type ScrapeState, type ScrapeVoice, type ImpactSoundAnalyzerOptions, type ImpactSoundscapeOptions, ParticleSoundAnalyzer, ParticleSoundscape, particleSoundLevels, createParticleSoundLevels, PARTICLE_SOUND, type ParticleSoundKind, type ParticleSoundProfile, type ParticleSoundSource, type ParticleSoundState, type ParticleSoundAnalyzerOptions, type ParticleSoundLevels, type ParticleSoundLevelOptions, type ParticleSoundscapeOptions, toAudioSpace, setAudioListener, setPannerPosition, setPannerOrientation, listenerFromMatrix, pannerAzimuth, equalPowerGains, distanceGain, coneGain, dopplerRatio, airAbsorptionCutoff, propagationDelay, SpatialAudioSource, SpatialAudioSystem, AudioListenerComponent, AudioEmitterComponent, type ListenerPose, type SpatialAudioOptions, type SpatialAudioSystemOptions, AUDIO_RESOURCE_KIND, AudioBank, audioClipDescriptor, proceduralClipDescriptor, audioClipId, decodedAudioBytes, rankAudioSources, type AudioClipSource, type AudioSourceCandidate, type AudioClipOptions, type AudioClipProvider , EnvironmentSoundscape, ambienceLevels, createAmbienceInput, createAmbienceLevels, birdActivity, cricketChirpRate, environmentReverb, createReverbImpulse, type AmbienceInput, type AmbienceLevels, type EnvironmentSoundscapeOptions } from "./audio/index.js";

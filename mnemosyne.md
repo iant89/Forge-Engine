@@ -2922,6 +2922,18 @@ Working with the software rasterizer (SwiftShader) on this box:
   inspectors remain read-only diagnostics. Phase 26 and `editor.tooling` stay `inProgress` until the
   Mars exit criterion is met.
 
+## 2026-10-21 — Phase 26 completed: public authoring workspace and specialist adapters
+
+* `@forge/editor` now exports `EditorWorkspace`, an optional DOM shell, deterministic gizmo math and
+  public runtime panel adapters for terrain, material, particles, vehicles, environment, streaming,
+  render graphs, assets and profiling. CRUD, generic fields, multi-selection and world-pose-preserving
+  reparent are bounded undoable authoring commands; the workspace can attach to and save a complete
+  Mars runtime scene without engine-source edits.
+* The viewport remains a host-owned integration seam by design: the editor does not own a renderer,
+  camera, GPU gizmo buffers, simulation loop or scene lifetime. Typecheck, the focused seven-check
+  editor suite, the 159-suite CPU run, docs and architecture gates provide the evidence; the full run
+  exposed and corrected only stale catalog/capability expectation counts.
+
 ## 2026-10-20 — Phase 27 started: freeze the package boundary before promising 1.0
 
 * **The 1.0 audit begins with resolved exports, not a hand-maintained list.** `tools/api-audit.mjs`
@@ -3025,3 +3037,36 @@ Working with the software rasterizer (SwiftShader) on this box:
   Comprehensive symbol documentation/examples, migration guidance, final semver/deprecation policy,
   a coherent extension API and the release remain Phase 27.2–27.7 under `api.onePointZero`. Package
   metadata and exported `VERSION` therefore remain `0.1.0`; no later Phase 27 item is claimed here.
+
+## 2026-10-21 — Phase 27: release the Engine API 1.0 contract
+
+Phase 27.1's root-only audit was preserved rather than narrowed. The released `@forge/engine` package
+is `1.0.0`, its exported `VERSION` is `1.0.0`, and the root snapshot contains 2,196 exports: 2,187
+public rows with exact approvals across 23 review batches, nine experimental WASM-physics seam exports,
+and no deprecated top-level exports. The package root, engine package, editor dependency, API snapshot,
+and lockfile are checked by `tools/version-check.mjs`; the declaration audit remains a separate drift
+and approval gate.
+
+The extension decision is a host-side `ForgeExtensionRegistry` in `engine/src/extensions.ts`, kept at
+the top-level composition boundary because it intentionally coordinates systems, components, importers,
+terrain generators, materials, physics shapes, debug visualizers and console commands. Install manifests
+use a stable lowercase id, semver version and `apiVersion: "1.0"`; duplicate names fail, catalog
+registrations and attached systems are disposable, and snapshots expose detached metadata. Component
+ids remain process-stable after disposal so hot reload cannot reinterpret saved data. This is an
+install-time component contract, not an invitation to reach into subsystem registries or deep imports.
+
+Consumer work is documented in `docs/API-REFERENCE.md`, `docs/EXAMPLES.md`, `docs/MIGRATION-1.0.md`,
+`docs/VERSIONING.md`, and `docs/DEPRECATION.md`, with strict root-import examples in
+`examples/src/api/`. `tools/api-reference.mjs --check` and the CI version gate keep the prose/index and
+release metadata synchronized. The API reference is an inventory with declaration fingerprints; emitted
+package declarations and focused subsystem tests remain the normative signature and behavior evidence.
+
+Observed validation for this slice: `npm run typecheck` passed; `npm test` passed all 160 isolated
+suites in 222.39 seconds; `npm run test:check`, `npm run lint:arch`, `npm run api:check`,
+`npm run api:reference:check`, `npm run version:check`, `npm run docs:check`, `npm run check:wgsl`,
+and `npm run demo:build` passed. The demo build still reports the existing large-chunk warning. No
+claim is made here for WebKit/mobile rendering, physical-adapter timing fidelity, or soak behavior;
+the browser gate remains separately documented and advisory. On 2026-10-21 the bundled Chromium +
+SwiftShader browser gate was provisioned and launched; its renderer section completed, but the outer
+wait limit expired during the terrain section before the detached process exit code was captured, so
+that attempt is not counted as a full-gate pass.

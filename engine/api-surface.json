@@ -1,19 +1,19 @@
 {
   "schema": "forge.api-surface/2",
   "package": "@forge/engine",
-  "packageVersion": "0.1.0",
+  "packageVersion": "1.0.0",
   "entrypoint": "engine/src/index.ts",
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "typescriptVersion": "5.9.3",
   "counts": {
-    "total": 2180,
-    "public": 2171,
+    "total": 2196,
+    "public": 2187,
     "experimental": 9,
     "deprecated": 0,
     "internal": 0,
-    "type": 795,
-    "value": 1001,
-    "typeAndValue": 384
+    "type": 809,
+    "value": 1002,
+    "typeAndValue": 385
   },
   "exports": [
     {
@@ -2446,6 +2446,13 @@
       "contractHash": "sha256:1c24c748c60a204f51661460f3ca73ad56b643f371d41c68a07f5b66ff729490"
     },
     {
+      "name": "FORGE_EXTENSION_API_VERSION",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:613daac26650faf2df6a2214b0a142512dcfb47cc48364af10d53dab1ac26d9c",
+      "contractHash": "sha256:c1c4f7cd15c7e7a702974011fd2ce5864aa8120a67effcebb25283fd7b72d706"
+    },
+    {
       "name": "FORGE_SKIN",
       "kind": "value",
       "stability": "public",
@@ -2570,6 +2577,111 @@
       "stability": "public",
       "declarationHash": "sha256:e8aa762ae494e1eecdf863d23dda2717a492a4680f4ca04ccb105d7a83a8b80b",
       "contractHash": "sha256:0b543bc0d6c9e4eb8cb4365613c8463a66970f78e9c9d47a42f7efd7ac53befe"
+    },
+    {
+      "name": "ForgeExtension",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f",
+      "contractHash": "sha256:d15a575dd0aa0647c2e026a0b6d7e3b9a709d1e3db283bf4d68e76f70a8e63ca"
+    },
+    {
+      "name": "ForgeExtensionCategory",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:609fe8b84091dec2e1c718b4a9fff0154afd4b5cce0e6dcadbc376140e66584e",
+      "contractHash": "sha256:9a222f54679e6186673f21c2628d7b8135537d91d77b917df18bfb88b32eff99"
+    },
+    {
+      "name": "ForgeExtensionContext",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3",
+      "contractHash": "sha256:624616e49946756fcba6f6a3c60c8d13ed529a3db524917acaea4cee76103701"
+    },
+    {
+      "name": "ForgeExtensionDebugVisualizer",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:70514f1dfe516da8cd20091ced9c26348ab234ef4f41bf1928d37002956a6b13",
+      "contractHash": "sha256:a9410dc01c090bfe6ac7d6d7b202482dc00c3e44117055851b7293efdf09d474"
+    },
+    {
+      "name": "ForgeExtensionImportContext",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:32376ebebc99ff54e68ef28d87e292d4d23e746d802b26c08ed7e1d87299e824",
+      "contractHash": "sha256:7a974f9e42726551b23fce2132f44db28781d680a32b22dd019bd1ee9ef2ac24"
+    },
+    {
+      "name": "ForgeExtensionImporter",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:b75bd233e7312602b4a5b7383ed7258fb4d755e2d0e36384f0822d020587cdb0",
+      "contractHash": "sha256:5f9d119fba64fa67f625b96617b174efe25618156488b5e958f58b296b63b73c"
+    },
+    {
+      "name": "ForgeExtensionManifest",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:1aad80445555617b6f4abc0127ef4154e48f3cd599c42854442f1e723b08d2a0",
+      "contractHash": "sha256:7585c6897d0ebe34f37507a25bb5f576a893506f2d308329f73a5079c002e1cc"
+    },
+    {
+      "name": "ForgeExtensionMaterialFactory",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:1d71149e7fe601bdfcb361f1fccc7aebd3e40895c42906d2f326cc0d9deea946",
+      "contractHash": "sha256:4efbc30169e00885a3c5fda555281d127a216896aae83f819e5b8f8c16663494"
+    },
+    {
+      "name": "ForgeExtensionPhysicsShapeFactory",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:dc6d10755c13c720ed7940af041b98aa22c1752d4f9a3ce79d35a957b30a9109",
+      "contractHash": "sha256:9b842fee25164cf4772ad771f55a810f0390f220237f8e77714c782f70315daa"
+    },
+    {
+      "name": "ForgeExtensionRegistration",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:c98f425060c09c6320bb463c2545e1f45a1553dd3c2d362447fab875b65efdb3",
+      "contractHash": "sha256:7b958a3b0ce737cf48b8394fe2b2c394366fecec01d3157eee47b2a9d32bf813"
+    },
+    {
+      "name": "ForgeExtensionRegistry",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f",
+      "contractHash": "sha256:8a39dc8682e93b7bfe208595bcd512a17209391d923143e42de2c9b88f7a7234"
+    },
+    {
+      "name": "ForgeExtensionRegistrySnapshot",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:ce57b3070fb9ae93d77cbd0469cfb332599a43a7f03133cabe8a26ff915e340d",
+      "contractHash": "sha256:0992d030d08a220b623822c75b4010e421176b54487a149aa138d727244038c0"
+    },
+    {
+      "name": "ForgeExtensionRuntimeContext",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f",
+      "contractHash": "sha256:c461df4346d51181c62c96335f717534a396ca53a8172f5e5f23b3becdb7632a"
+    },
+    {
+      "name": "ForgeExtensionSystemFactory",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059",
+      "contractHash": "sha256:86beea9ffb28d066121679ee56f07b9a11826b16524650d2428d60a1a301b8c9"
+    },
+    {
+      "name": "ForgeExtensionTerrainGeneratorFactory",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:2a6598c357c3c68276c02b5956bed7c96e0a74e5b2820aef4d1eb3d167737742",
+      "contractHash": "sha256:8c42821e8f02db553901596d3e16ab5ca9d50139b6fd38d788ffb33da656b7d9"
     },
     {
       "name": "ForgeJSPhysics",
@@ -9610,8 +9722,8 @@
       "name": "VERSION",
       "kind": "value",
       "stability": "public",
-      "declarationHash": "sha256:11873cc5721f75854fc77c8a040889838226f21a5de58f8f9d43bda4fec91014",
-      "contractHash": "sha256:839471eb7fd5826353c6f6f94653f28e0249fa5c3c303345ce4d131696a1a7ac"
+      "declarationHash": "sha256:84ef0480bba2c60bd42693945a2c4fd545d41a49f471738ae5e9c8260700d8a4",
+      "contractHash": "sha256:00bc13a1faffb321282cfa7130703aa7c3d37ca14a4c986113dd49fd53b0f278"
     },
     {
       "name": "VERTEX_LAYOUT",

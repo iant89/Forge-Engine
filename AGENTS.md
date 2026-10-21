@@ -109,8 +109,8 @@ engine/src/          @forge/engine — the runtime, zero runtime deps, builds wi
                      declarative UI, diagnostics); ui/gpu draws it as the forge.ui overlay pass (docs/UI.md)
 engine/api-surface.json  Phase 27 generated package-root classification + declaration-contract snapshot (docs/API.md)
 engine/api-approvals.json  Manual Phase 27 per-symbol decisions bound to exact reviewed contract hashes
-editor/              @forge/editor — Phase 26 public-API-only hierarchy/inspection/history model;
-                     no visual editor shell or gizmo yet (docs/EDITOR.md)
+editor/              @forge/editor — Phase 26 public-API-only authoring workspace with optional DOM
+                     shell, CRUD/inspection/history, gizmo math and specialist panel adapters (docs/EDITOR.md)
 examples/            Vite demo — scenes: pbr, cubes, terrain, realistic, vehicle-playground, particles, sky, weather, mars-showcase, ui (UI gallery).
                      Also the fixture `check:browser` drives. Orbit keyboard pan is on unless a scene sets `keyboard: false`.
 tests/<area>/        selrun TypeScript suites; `tests/full.test.ts` is the ordered link list

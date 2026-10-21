@@ -1,12 +1,24 @@
 # Phase 27.1 public API review record
 
+> **1.0 status:** The Phase 27.1 review recorded here is now part of the released `@forge/engine`
+> 1.0.0 contract. The final surface is 2,196 exports (2,187 public, 9 experimental, 0 deprecated),
+> including the reviewed 1.0 extension contract. Consumer guidance is in [API-REFERENCE.md](API-REFERENCE.md),
+> [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md), [DEPRECATION.md](DEPRECATION.md),
+> and [EXAMPLES.md](EXAMPLES.md).
+
 This document is the human-readable review record for the `@forge/engine` package-root audit. The exact machine-enforced decisions live in [`engine/api-approvals.json`](../engine/api-approvals.json); the resolved declaration baseline lives in [`engine/api-surface.json`](../engine/api-surface.json).
 
 ## Decision and boundary
 
-Phase 27.1 preserves **all 2,171 current public candidates** as supported Engine API 1.0 candidates. Each candidate has an exact approval row bound to its declaration kind, direct declaration hash, transitive contract hash, and one of the subsystem reviews below. The nine exports already marked experimental remain experimental and are not approvals. There are no deprecated exports and no pending public candidates.
+Phase 27.1 preserved **all 2,171 public candidates** as supported Engine API 1.0 candidates. The
+released surface adds the 16 public extension-contract exports, for **2,187 approved public exports**
+out of 2,196 total across 23 review batches. Each approved row has an exact declaration kind, direct declaration hash,
+transitive contract hash, and subsystem review. The nine exports already marked experimental remain
+experimental and are not approvals. There are no deprecated exports and no pending public candidates.
 
-This closes only the package-root inventory and compatibility-decision work in Phase 27.1. It does **not** claim that the broader Engine API 1.0 effort is complete. Reference documentation, examples, migration/versioning/deprecation guidance, extension contracts, and the eventual `1.0.0` release remain Phase 27.2–27.7 work. The package and exported `VERSION` therefore remain `0.1.0`.
+The later Phase 27 work is now complete: the reference inventory, reviewed examples, 0.x migration
+guide, semver/release policy, deprecation window, coherent extension contract, and `1.0.0` release
+are linked from this record. The approval ledger remains the exact machine-enforced record.
 
 ## Review method
 
@@ -34,6 +46,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `core-time/1` | 6 | clock configuration, frame timing, fixed-step accumulation | clock, replay, and environment timing suites |
 | `debug/1` | 100 | console, profiler/timeline, ECS/GPU/render-graph/physics/particle/environment/terrain/streaming inspectors | twelve focused debug suites |
 | `environment/1` | 236 | atmosphere, clouds, cyclones, day/night, fog, lightning, ocean, snow, solar, water, weather, wind | environment, ocean, snow-melt, and storm-realism suites |
+| `extensions/1` | 16 | the Forge 1.0 systems, components, importers, terrain generators, materials, physics shapes, debug visualizers, and console commands contract | extension contract, API reference, migration, and runnable example suites |
 | `gpu/1` | 64 | constants, formats, layouts, buffer writing, device acquisition, shader cache | GPU fatal/memory and WGSL suites |
 | `math/1` | 98 | scalar/vector/matrix/color/geometry/BVH/noise/RNG/deterministic math/transforms | math, deterministic-math, and BVH suites |
 | `particles/1` | 86 | layouts, components, emitters, CPU/GPU worlds, shaders, precipitation/lightning/vortex visuals | particle and environment suites |
@@ -48,7 +61,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `testing/1` | 16 | supported mock GPU and mock audio helpers | GPU, audio, and runtime namespace suites |
 | `ui/1` | 355 | core tree/context, layout/style/input/text/rendering, data binding, widgets, manager, world space | ten UI suites |
 | `vehicles/1` | 70 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
-| **Total** | **2,171** | **791 type, 998 value, 382 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
+| **Total** | **2,187** | **805 type, 999 value, 383 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
 
@@ -58,6 +71,6 @@ Preserving the complete candidate set is a consequential compatibility choice, n
 - Large implementation-rich terrain, environment, rendering, and UI surfaces remain public. Their nested option/state types are part of the transitive contracts captured by the ledger.
 - Existing naming, including specialized suffixes and narrowly scoped reset/registration helpers, is accepted rather than renamed or hidden during this audit.
 - Mutable engine objects, externally supplied GPU/audio handles, and explicit resource-lifecycle methods remain caller-visible contracts; backend behavior is bounded by the focused evidence and future reference documentation.
-- The breadth of 2,171 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
+- The breadth of 2,187 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
 
-The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. See [`docs/API.md`](API.md) for the current consumer-facing status and the remaining Phase 27 work.
+The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.
