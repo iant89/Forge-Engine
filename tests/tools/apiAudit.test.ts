@@ -4,6 +4,11 @@
  * @covers .github/workflows/ci.yml
  * @covers docs/API.md
  * @covers docs/API-REVIEW.md
+ * @covers docs/API-REFERENCE.md
+ * @covers docs/DEPRECATION.md
+ * @covers docs/EXAMPLES.md
+ * @covers docs/MIGRATION-1.0.md
+ * @covers docs/VERSIONING.md
  * @covers engine/api-approvals.json
  * @covers engine/api-surface.json
  * @covers engine/package.json
@@ -14,6 +19,8 @@
  * @covers package.json
  * @covers README.md
  * @covers tools/api-audit.mjs
+ * @covers tools/api-reference.mjs
+ * @covers tools/version-check.mjs
  * @desc Completed Phase 27.1 root-only inventory with exact approvals for every public candidate
  */
 
@@ -24,6 +31,11 @@ export const suite = {
     ".github/workflows/ci.yml",
     "docs/API.md",
     "docs/API-REVIEW.md",
+    "docs/API-REFERENCE.md",
+    "docs/DEPRECATION.md",
+    "docs/EXAMPLES.md",
+    "docs/MIGRATION-1.0.md",
+    "docs/VERSIONING.md",
     "engine/api-approvals.json",
     "engine/api-surface.json",
     "engine/package.json",
@@ -34,6 +46,8 @@ export const suite = {
     "package.json",
     "README.md",
     "tools/api-audit.mjs",
+    "tools/api-reference.mjs",
+    "tools/version-check.mjs",
   ],
   desc: "Completed Phase 27.1 root-only inventory with exact approvals for every public candidate",
 };
@@ -263,7 +277,7 @@ group("Phase 27 public API audit", () => {
     const surface = snapshot();
     assert.equal(surface.schema, "forge.api-surface/2");
     assert.equal(surface.package, "@forge/engine");
-    assert.equal(surface.packageVersion, "0.1.0");
+    assert.equal(surface.packageVersion, "1.0.0");
     assert.equal(surface.entrypoint, "engine/src/index.ts");
     assert.equal(surface.signatureFormat, "forge.typescript-declaration-signature/1");
     assert.match(surface.typescriptVersion, /^5\.9\./);
@@ -314,7 +328,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(ledger.signatureFormat, "forge.typescript-declaration-signature/1");
     assert.equal(ledger.policy, "forge.api-approval-policy/2");
     assert.deepEqual(ledger.counts, {
-      approved: 2_171,
+      approved: 2_187,
       pendingPublic: 0,
       experimental: 9,
       deprecated: 0,
@@ -329,6 +343,7 @@ group("Phase 27 public API audit", () => {
       "core-time/1": 6,
       "debug/1": 100,
       "environment/1": 236,
+      "extensions/1": 16,
       "gpu/1": 64,
       "math/1": 98,
       "particles/1": 86,
@@ -423,23 +438,30 @@ group("Phase 27 public API audit", () => {
     assert.match(fs.readFileSync(path.join(root, "engine", "README.md"), "utf8"), /package exposes one entry point/);
     assert.equal(rootPackage.scripts["api:check"], "node tools/api-audit.mjs");
     assert.equal(rootPackage.scripts["api:update"], "node tools/api-audit.mjs --write");
+    assert.equal(rootPackage.scripts["api:reference:check"], "node tools/api-reference.mjs --check");
     const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
     assert.match(readme, /npm run api:check/);
     assert.match(readme, /`docs\/API\.md`/);
     const docs = fs.readFileSync(path.join(root, "docs", "API.md"), "utf8");
-    assert.match(docs, /2,180 named exports/);
+    assert.match(docs, /2,196/);
     assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
     assert.match(docs, /`engine\/api-approvals\.json`/);
-    assert.match(docs, /2,171\/2,171 public candidates/);
+    assert.match(docs, /2,187\/2,187 public candidates/);
     assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
+    const versionCheck = spawnSync(process.execPath, [path.join(root, "tools", "version-check.mjs")], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(versionCheck.status, 0, versionCheck.stderr);
+    assert.match(versionCheck.stdout, /version:check OK — .*1\.0\.0/);
   });
 
   test("passes the reviewed snapshot", () => {
     assert.equal(cleanResult.status, 0, cleanResult.stderr);
     assert.match(
       cleanResult.stdout,
-      /api:check OK — 2,180 exports \(2,171 public, 9 experimental, 0 deprecated\); 2,171\/2,171 public candidates approved \(0 pending\)/,
+      /api:check OK — 2,196 exports \(2,187 public, 9 experimental, 0 deprecated\); 2,187\/2,187 public candidates approved \(0 pending\)/,
     );
   });
 
@@ -463,7 +485,7 @@ group("Phase 27 public API audit", () => {
 
   test("writes a canonical snapshot only when explicitly requested", () => {
     assert.equal(writeResult.status, 0, writeResult.stderr);
-    assert.match(writeResult.stdout, /api:update OK — wrote 2,180 exports/);
+    assert.match(writeResult.stdout, /api:update OK — wrote 2,196 exports/);
     assert.equal(writtenSnapshotText, fs.readFileSync(snapshotFile, "utf8"));
     assert.equal(preservedApprovalText, "manual approval data is never generated\n");
 

@@ -217,11 +217,11 @@ PHASE 26 - EDITOR
         math, specialist authoring/diagnostic panels and complete-Mars-scene attachment/save workflow)
 
 PHASE 27 - ENGINE API 1.0
-    [~] IN PROGRESS (Phase 27.1 is complete: the root-only package boundary and deterministic
-        2,180-export name/kind/stability plus direct/transitive declaration-contract snapshot are
-        CI-gated, and all 2,171 public candidates have exact approvals across 22 subsystem reviews;
-        the nine experimental exports remain separate. Complete API reference docs/examples,
-        migration/versioning/deprecation policy, extensions and the 1.0.0 release remain.)
+    [x] COMPLETE (the root-only package boundary, deterministic declaration-contract audit and
+        exact approvals remain CI-gated; the released 1.0.0 surface contains 2,196 exports,
+        including 2,187 approved public exports and nine experimental WASM-physics seam exports.
+        Reference documentation, reviewed examples, 0.x migration guidance, semver/release and
+        deprecation policy, and one extension contract are shipped and typechecked.)
 
 
 ================================================================================
@@ -2864,7 +2864,7 @@ GOAL:
         stability label, direct declaration and transitive engine-local type contract. CI fails on
         unreviewed additions, removals, renames, classifications or declaration drift; the separate
         `forge.api-approvals/1` ledger fails when an approved exact contract becomes stale.
-    [x] public — preserve and approve all 2,171 current package-root candidates across 22 coherent
+    [x] public — preserve and approve all 2,187 current package-root candidates across 23 coherent
         subsystem reviews. Every row is bound to its exact declaration and transitive contract;
         `forge.api-approval-policy/2` requires zero pending public exports.
     [x] internal — deep package paths are blocked, any root export tagged `@internal` fails the
@@ -2876,40 +2876,41 @@ GOAL:
     [x] Add direct declaration-signature/member and transitive engine-local compatibility drift
         detection using body/comment/path-free TypeScript declaration emit.
     [x] Complete per-symbol approval and decide which detected contracts are supported 1.0
-        candidates: 2,171/2,171 public names are approved, exact-hash stale approvals fail, complete
+        candidates: 2,187/2,187 public names are approved, exact-hash stale approvals fail, complete
         runtime namespace linkage is tested, and subsystem suites provide behavioral evidence.
         (`docs/API-REVIEW.md`, `engine/api-approvals.json`, `tests/core/runtimeApi.test.ts`)
 
 
 27.2 API Documentation
 
-    [~] `docs/API.md` and the published package README document the package boundary, stability
-        meanings, audit/update/approval workflow and exact limits of the declaration/approval gates.
-        Comprehensive symbol/reference documentation remains.
+    [x] `docs/API.md`, the generated [`docs/API-REFERENCE.md`](docs/API-REFERENCE.md) and the
+        published package README document the root boundary, every audited export, stability labels,
+        the extension contract, and the exact limits of declaration/approval gates.
 
 27.3 Examples
 
-    [ ] Existing demos are not yet a reviewed 1.0 example set.
+    [x] `docs/EXAMPLES.md` and `examples/src/api/` provide reviewed, root-import-only, strict-
+        TypeScript runnable scene and complete-extension examples.
 
 27.4 Migration Guide
 
-    [ ] No 1.0 migration guide yet.
+    [x] `docs/MIGRATION-1.0.md` documents the 0.x-to-1.0 import, startup, data, extension, and
+        compatibility migration path.
 
 27.5 Versioning Policy
 
-    [ ] Package and exported `VERSION` are checked for equality, but the final semantic-versioning
-        policy and release process remain open.
+    [x] `docs/VERSIONING.md` defines semver, the single version-of-truth rule, API review, release
+        gates, tags, dist-tags, and the supported upgrade path.
 
 27.6 Deprecation Policy
 
-    [~] `@deprecated` exports require an explanation and are tracked by the API snapshot. Minimum
-        support windows, migration requirements and removal rules remain open.
+    [x] `docs/DEPRECATION.md` defines the required since/replacement explanation, minimum two-minor-
+        release and six-month window, migration requirements, emergency exception, and removal rules.
 
 27.7 Extension API
 
-    [ ] Existing subsystem hooks are not yet one supported 1.0 extension contract.
-
-    Support registration of:
+    [x] `ForgeExtensionRegistry` is one supported 1.0 contract, with manifest validation, named
+        disposable registrations, catalog lookup/snapshot, and host system attachment for:
 
         systems
         components

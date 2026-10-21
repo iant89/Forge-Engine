@@ -1,6 +1,12 @@
 # Forge Engine public API
 
-Phase 27 is the API-stabilization phase. Forge is still version `0.1.0`. Phase 27.1 has completed the package-root inventory and compatibility decision: all 2,171 current public candidates are approved as supported Engine API 1.0 candidates, while nine existing exports remain experimental. This does **not** claim that Engine API 1.0 or the `1.0.0` release is complete. Reference documentation, examples, migration guidance, final versioning/deprecation policy, and extension contracts remain Phase 27.2–27.7 work.
+Forge Engine 1.0.0 is the first release covered by the consumer-facing API contract. The package root
+contains **2,196** audited exports: **2,187 public**, **9 experimental**, and **0 deprecated**. All
+2,187 public rows have exact approval entries and the declaration/contract audit is CI-gated. The approval ledger records 2,187/2,187 public candidates with zero pending.
+
+This page explains the boundary and review mechanism. The [complete API reference](API-REFERENCE.md)
+is the searchable export inventory; the emitted package declarations are the normative source for full
+signatures.
 
 ## The package boundary
 
@@ -9,7 +15,8 @@ Application and tool code imports runtime symbols from the package root:
 ```ts
 import { Engine, Scene, Transform, VERSION } from "@forge/engine";
 
-const canvas = document.querySelector("canvas")!;
+const canvas = document.querySelector("canvas");
+if (!(canvas instanceof HTMLCanvasElement)) throw new Error("A canvas is required");
 const engine = await Engine.create({ canvas, autostart: false });
 const scene = new Scene({ name: `Forge ${VERSION} scene` });
 const cameraRig = scene.createEntity("Camera rig");
@@ -18,99 +25,128 @@ engine.setScene(scene);
 engine.start();
 ```
 
-`engine/package.json` exports only `"."`. A path such as `@forge/engine/src/scene/world` or a relative reach into `engine/src` is not public API, even if the source declaration itself uses TypeScript's `export` keyword. Repository architecture gates independently reject those deep imports from the editor, examples, and tests.
-
-The public barrel is `engine/src/index.ts`. It currently resolves to **2,180 named exports**:
-
-- **2,171 public, reviewed 1.0 candidates**;
-- **9 experimental exports**;
-- **0 deprecated exports**.
-
-The approval ledger records 2,171/2,171 public candidates with zero pending. Preserving this broad surface is an explicit compatibility choice. Low-level GPU and shader helpers, diagnostic APIs, mock testing APIs, and the large terrain/environment/rendering/UI declaration sets are included rather than hidden or deferred. The review rationale, subsystem counts, evidence, and deliberately accepted costs are in [`docs/API-REVIEW.md`](API-REVIEW.md).
+`engine/package.json` exports only `"."`. A path such as `@forge/engine/src/scene/world` or a
+relative reach into `engine/src` is not public API, even if the source declaration uses TypeScript's
+`export` keyword. Repository architecture gates reject those deep imports from editor, examples, and
+tests.
 
 ## Stability labels
 
 Every top-level package export has one of these classifications in `engine/api-surface.json`:
 
-| Label | Meaning during the 0.x audit |
+| Label | Meaning in 1.0 |
 | --- | --- |
-| `public` | Intentionally reachable from `@forge/engine` and a supported 1.0 candidate. Every current public row also has an exact approval. |
-| `experimental` | Opt-in, incomplete, or still gathering implementation evidence. It may change or disappear before 1.0. Its declaration carries `@experimental` with a reason. |
-| `deprecated` | Still exported for migration. Its declaration must carry `@deprecated` with an explanation and should name the replacement. No top-level export is in this category today. |
-| internal | Not exported from the package root. An `@internal` declaration leaking through `@forge/engine` fails the audit rather than appearing in the snapshot. |
+| `public` | Approved for the stable 1.0 consumer contract. |
+| `experimental` | Opt-in, incomplete, or still gathering implementation evidence. It may change or disappear before a later compatibility review. Its declaration carries `@experimental` with a reason. |
+| `deprecated` | Still exported during the documented migration window. Its declaration must carry `@deprecated` with an explanation and replacement. No top-level export is currently deprecated. |
+| internal | Not exported from the package root. An `@internal` declaration leaking through `@forge/engine` fails the audit. |
 
-An explicit `@public` tag is allowed but unnecessary: package-root exports default to `public`. Conflicting labels fail the gate. `@experimental` and `@deprecated` tags without explanatory text also fail.
+An explicit `@public` tag is allowed but unnecessary: package-root exports default to `public`. Conflicting
+labels and unexplained experimental/deprecated tags fail the gate.
 
 The nine experimental exports are the Phase 25 WASM-physics seam:
 
 - `PhysicsBackendKind`, `createPhysicsBackend`, `ForgeWasmPhysics`, and `ForgeWasmPhysicsOptions`;
 - `WASM_PHYSICS_LAYOUT`, `WASM_PHYSICS_STATE_SCHEMA`, `WasmPhysicsMemory`, `WasmPhysicsMemoryOptions`, and `WasmPhysicsStateSnapshot`.
 
-Those names expose a versioned memory/state contract, but there is no executable WASM solver yet. The JavaScript physics implementation remains the production backend. Experimental rows are deliberately absent from the public approval ledger.
+Those names expose a versioned memory/state contract, but there is no executable WASM solver yet. The
+JavaScript physics implementation remains the production backend. Experimental rows are deliberately
+outside the normal 1.0 compatibility promise.
 
-## Surface audit
+## Extension contract
 
-The checked-in `engine/api-surface.json` uses schema `forge.api-surface/2` and is generated from TypeScript's resolved module symbols and in-memory declaration emit, not from a regular expression over export statements. Each row records:
+`ForgeExtensionRegistry` is the supported 1.0 host contract for systems, components, importers, terrain
+generators, materials, physics shapes, debug visualizers, and console commands. An extension declares a
+lowercase stable id, a semver version, and `apiVersion: "1.0"`; the host validates the manifest before
+installation. Registration names are normalized and duplicate names fail rather than silently replacing
+another extension. Catalog registrations, attached systems, and attached console commands return disposables. Component ids are
+process-stable and are not reused when an extension token is disposed, so hot reload cannot reinterpret
+saved component data.
 
-- the exported name;
-- whether consumers receive a type, a runtime value, or both;
-- its public/experimental/deprecated classification;
-- a `declarationHash` of that symbol's body-free emitted declaration;
-- a `contractHash` that also covers every engine-local declaration reachable through its types.
+```ts
+import {
+  ForgeExtensionRegistry,
+  type ForgeExtension,
+} from "@forge/engine";
 
-The direct hash detects parameter, return, overload, generic-constraint, class/interface member, modifier, enum, tuple, and inferred exported-type drift. The transitive hash means changing an unexported helper such as an options interface still marks every root contract that depends on it. Both hashes exclude implementation bodies, ordinary prose comments, and source paths. Internal file moves that preserve emitted declarations therefore stay quiet; emitted declaration order remains conservative because overload order can affect TypeScript resolution.
+const pack: ForgeExtension = {
+  manifest: { id: "studio.gameplay", version: "1.0.0", apiVersion: "1.0" },
+  install(context) {
+    context.registerSystem("gameplay", () => ({
+      name: "gameplay",
+      order: 200,
+      enabled: true,
+      update: () => undefined,
+    }));
+    context.registerImporter({ kind: "game-save", import: (input) => input });
+  },
+};
 
-The snapshot also validates that:
+const registry = new ForgeExtensionRegistry();
+const installed = registry.install(pack);
+// Set the scene first, then attach registered systems once for this Engine.
+const attached = registry.attachSystems(engine);
+```
+
+The full registration example is [`docs/EXAMPLES.md`](EXAMPLES.md) and
+[`examples/src/api/extension-pack.ts`](../examples/src/api/extension-pack.ts).
+
+## Surface audit and approvals
+
+The checked-in `engine/api-surface.json` uses schema `forge.api-surface/2` and is generated from
+TypeScript's resolved module symbols and in-memory declaration emit, not from a regular expression over
+export statements. Each row records the exported name, type/value kind, stability classification, a `declarationHash` of that symbol's body-free emitted declaration, and a `contractHash` covering engine-local declaration dependencies.
+
+The direct hash detects parameter, return, overload, generic-constraint, class/interface member,
+modifier, enum, tuple, and inferred exported-type drift. The transitive hash catches an unexported
+helper type changing while a root function's own emitted line remains identical. Both exclude
+implementation bodies, ordinary prose comments, and source paths.
+
+The audit also validates that:
 
 - `@forge/engine` has exactly one package export (`"."`);
 - its JavaScript and type entry points are `dist/index.js` and `dist/index.d.ts`;
-- the root package, engine package, and exported `VERSION` agree;
+- the root package, engine package, exported `VERSION`, and snapshot version agree;
 - no default or `@internal` export leaks into the root;
-- names are unique and deterministically sorted;
-- every direct/transitive fingerprint is canonical and uses the recorded signature format;
-- the pinned TypeScript version that produced the declaration form is recorded;
+- names and fingerprints are unique, sorted, and canonical;
 - stability tags are non-conflicting and explained where required.
 
-## Complete per-symbol approval ledger
+`engine/api-approvals.json` uses schema `forge.api-approvals/1` and policy
+`forge.api-approval-policy/2`. It is separate from the generated surface: `npm run api:update` can
+record what TypeScript emits, but it cannot grant an approval or refresh a stale one. Each approved row
+records its name, kind, direct hash, transitive hash, and named review batch. A declaration or stability
+change therefore forces a human review rather than silently becoming a release contract.
 
-`engine/api-approvals.json` uses schema `forge.api-approvals/1` and policy `forge.api-approval-policy/2`. It is deliberately separate from the generated surface: `npm run api:update` can record what TypeScript emits, but it cannot grant an approval or refresh a stale one.
-
-Each approved row records its name, type/value kind, direct hash, transitive hash, and named review batch. Each batch records an explicit `approved-1.0-candidate` decision plus repository-backed declaration and runtime evidence. The 22 completed batches are:
-
-- animation, audio, debug, environment, GPU, math, particles, physics, population, rendering, replay, resources, scene, scripting, terrain, testing, UI, and vehicles;
-- core errors, core runtime, core tasks, and core time.
-
-The exact per-batch counts total 2,171 and are pinned in the audit test and the review record. `tests/core/runtimeApi.test.ts` also loads the complete generated surface through `@forge/engine`: all 1,385 value-bearing declarations must exist on the runtime namespace, and all 795 type-only declarations must remain runtime-free. Focused subsystem suites provide behavioral evidence for lifecycle, mutation, serialization, determinism, errors, layouts/shaders, and integration.
-
-An approval means the current declaration and cited runtime invariants were inspected and accepted as a **1.0 candidate**. It is not a claim that Forge 1.0 has shipped or that a contract can never change before 1.0. A kind, stability, declaration, or transitive-contract change makes the approval stale. The reviewer must inspect and classify that change before deliberately replacing the hashes; `api:update` alone leaves the stale approval failing.
-
-Policy v2 closes the completed audit against regression: the gate now requires **zero pending public exports**. A new public root export therefore needs a reviewed approval in the same change. Experimental exports remain separate and require an explained `@experimental` declaration tag instead of a public approval.
-
-Run the gate before committing any public-barrel change:
+Run the gates before changing the public barrel:
 
 ```sh
 npm run api:check
+npm run api:reference:check
 ```
 
-A deliberate API change uses this review loop:
+A deliberate API change uses this loop:
 
 ```sh
-# 1. Change engine/src/index.ts or an exported declaration.
-# 2. Add or retain the right JSDoc stability label.
+# change source, tests, and consumer documentation first
 npm run api:update
-# 3. Review engine/api-surface.json as an API diff.
-# 4. Review affected declarations and runtime evidence.
-# 5. Add or refresh api-approvals.json manually for supported public contracts.
+# review engine/api-surface.json, update api-approvals.json after human review
+npm run api:reference
 npm run api:check
-npm run verify
+npm run typecheck
+npm run test
 ```
 
-`api:update` is not an approval mechanism. It only writes the current resolved surface; reviewers must decide whether an addition, removal, rename, kind/stability change, direct declaration change, or transitive type change is appropriate. Hashes identify the affected root contracts; reviewers inspect the source declaration change and dependent names before accepting new surface hashes. CI runs `api:check` and rejects unreviewed surface drift, stale or malformed approvals, and any pending public candidate.
+A generated row is not approval. Hashes identify affected contracts; reviewers inspect source
+declarations, runtime behavior, serialization, shader/resource ABI, and the semver classification.
 
-## What the declaration gate does not prove
+## Release and migration policy
 
-The declaration slice closes the mechanical gap where a root name could keep the same classification while its parameters or members changed unnoticed. It is deliberately a **change detector**, not a compatibility oracle: additive and breaking declaration edits both require review. The separate ledger records the compatibility decisions humans made; it does not infer them from hashes.
+The version source of truth, semver classification, release checklist, and package consistency rules
+are in [VERSIONING.md](VERSIONING.md). The minimum deprecation window and removal process are in
+[DEPRECATION.md](DEPRECATION.md). Consumers moving from the 0.x package should follow
+[MIGRATION-1.0.md](MIGRATION-1.0.md). Reviewed runnable examples are listed in [EXAMPLES.md](EXAMPLES.md).
 
-Hashes also do not prove runtime behavior, performance, serialization compatibility, shader/buffer ABI compatibility, or the meaning of a broadly typed runtime constant whose value changes without changing its emitted type. Runtime namespace linkage covers every value declaration, while focused evidence covers subsystem invariants rather than manufacturing one shallow test per alias or constant. External ambient-library declarations are named but not recursively copied into the snapshot. Ordinary documentation edits and implementation-body changes intentionally do not alter declaration hashes.
-
-Phase 27.2–27.7 remain open: comprehensive symbol reference documentation and examples, a migration guide, final semantic-versioning and deprecation windows, and a supported extension API for systems, components, importers, terrain generators, materials, physics shapes, debug visualizers, and console commands. Existing subsystem-specific registration hooks are not yet one coherent 1.0 extension contract. The package and exported `VERSION` stay at `0.1.0` until the later release work is complete.
+The API audit is a **change detector**, not a compatibility oracle. It does not prove runtime behavior,
+performance, serialization compatibility, shader/buffer ABI compatibility, pixel identity across
+hardware, or external ambient-library contracts. Those claims require the focused tests and browser
+verification gates named by the subsystem documentation.

@@ -98,7 +98,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "24": "inProgress",
   "25": "inProgress",
   "26": "verified",
-  "27": "inProgress",
+  "27": "verified",
 };
 
 const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
@@ -1264,7 +1264,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,171-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,187-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1278,16 +1278,28 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,180 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,171 public candidates have exact approvals across 22 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. This verifies Phase 27.1 only, not reference docs/examples, migration/versioning/deprecation policy, extension contracts, or the 1.0.0 release.",
+    notes: "The audit resolves all 2,196 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,187 public candidates have exact approvals across 23 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",
     phase: "27.2",
-    status: "inProgress",
-    summary: "Complete Engine API 1.0 documentation, examples, migration and compatibility policy, extensions, and release work",
-    evidence: ["docs/API.md", "docs/API-REVIEW.md", "ROADMAP.md"],
-    closesWith: "27.7",
-    notes: "Phase 27.1 is complete, but Phases 27.2–27.7 remain separate: comprehensive symbol reference documentation/examples, migration guidance, final semantic-versioning and deprecation windows, a coherent supported extension contract, and the eventual 1.0.0 release. Package and exported VERSION remain 0.1.0.",
+    status: "verified",
+    summary: "Released Engine API 1.0 with complete reference docs, reviewed examples, migration and compatibility policy, extension contract, and version-consistent package metadata",
+    evidence: [
+      "docs/API-REFERENCE.md",
+      "docs/EXAMPLES.md",
+      "docs/MIGRATION-1.0.md",
+      "docs/VERSIONING.md",
+      "docs/DEPRECATION.md",
+      "engine/src/extensions.ts",
+      "engine/api-surface.json",
+      "engine/api-approvals.json",
+      "tests/core/extensions.test.ts",
+      "tests/docs/capabilities.test.ts",
+      "tests/core/runtimeApi.test.ts",
+      "ROADMAP.md",
+    ],
+    notes: "The package root, engine package, exported VERSION and API snapshot are 1.0.0; the API reference inventory and example files are generated/typechecked, and the 1.0 extension contract covers systems, components, importers, terrain generators, materials, physics shapes, debug visualizers and console commands. Experimental WASM-physics exports remain outside the ordinary stability promise.",
   },
   {
     id: "editor.tooling",

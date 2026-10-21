@@ -4,8 +4,16 @@
  * @covers .github/workflows/ci.yml
  * @covers ROADMAP.md
  * @covers benchmarks/src/lights.bench.ts
+ * @covers docs/API-REFERENCE.md
+ * @covers docs/DEPRECATION.md
+ * @covers docs/EXAMPLES.md
  * @covers docs/KNOWN-ISSUES.md
+ * @covers docs/MIGRATION-1.0.md
  * @covers docs/VERIFICATION.md
+ * @covers docs/VERSIONING.md
+ * @covers engine/src/extensions.ts
+ * @covers examples/src/api/extension-pack.ts
+ * @covers examples/src/api/hello-world.ts
  * @covers engine/src/core/capabilities.ts
  * @covers engine/src/math/bvh.ts
  * @covers engine/src/physics/backend.ts
@@ -61,6 +69,7 @@
  * @covers tests/vehicles/vehicles.test.ts
  * @covers tools/browser-check.mjs
  * @covers tools/browser-mars-workers.mjs
+ * @covers tools/api-reference.mjs
  * @covers tools/docs-check.mjs
  * @covers tools/gpu-env.mjs
  * @covers tools/wgsl-check.mjs
@@ -74,8 +83,16 @@ export const suite = {
     ".github/workflows/ci.yml",
     "ROADMAP.md",
     "benchmarks/src/lights.bench.ts",
+    "docs/API-REFERENCE.md",
+    "docs/DEPRECATION.md",
+    "docs/EXAMPLES.md",
     "docs/KNOWN-ISSUES.md",
+    "docs/MIGRATION-1.0.md",
     "docs/VERIFICATION.md",
+    "docs/VERSIONING.md",
+    "engine/src/extensions.ts",
+    "examples/src/api/extension-pack.ts",
+    "examples/src/api/hello-world.ts",
     "engine/src/core/capabilities.ts",
     "engine/src/math/bvh.ts",
     "engine/src/physics/backend.ts",
@@ -131,6 +148,7 @@ export const suite = {
     "tests/vehicles/vehicles.test.ts",
     "tools/browser-check.mjs",
     "tools/browser-mars-workers.mjs",
+    "tools/api-reference.mjs",
     "tools/docs-check.mjs",
     "tools/gpu-env.mjs",
     "tools/wgsl-check.mjs",
@@ -357,6 +375,23 @@ group("Phase 9.6 — known-issue enforcement", () => {
     });
     assertContains(output, "docs:check OK");
     assertContains(output, "NOT covered by CI");
+  });
+
+  test("keeps the complete 1.0 reference generated and the release policies present", () => {
+    const reference = read("docs/API-REFERENCE.md");
+    assertContains(reference, "# @forge/engine API reference");
+    assertContains(reference, "`ForgeExtensionRegistry`");
+    assertContains(reference, "`VERSION`");
+    assertContains(reference, "| `writeSkyMultiScatteringSignature` |");
+    assert.match(reference, /\| `[^`]+` \| (?:type|value|type-and-value) \| (?:public|experimental|deprecated) \|/);
+    for (const file of ["docs/MIGRATION-1.0.md", "docs/VERSIONING.md", "docs/DEPRECATION.md", "docs/EXAMPLES.md"]) {
+      assert.match(read(file), /1\.0/);
+    }
+    const output = execFileSync(process.execPath, [path.join(root, "tools/api-reference.mjs"), "--check"], {
+      cwd: root,
+      encoding: "utf-8",
+    });
+    assertContains(output, "api:reference:check OK");
   });
 });
 

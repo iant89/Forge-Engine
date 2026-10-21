@@ -1,7 +1,7 @@
 {
   "name": "forge-engine-monorepo",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Forge \u2014 a browser-native WebGPU 3D game & real-time simulation engine",
   "type": "module",
   "workspaces": [
@@ -33,6 +33,9 @@
     "lint:arch": "node tools/lint-arch.mjs",
     "api:check": "node tools/api-audit.mjs",
     "api:update": "node tools/api-audit.mjs --write",
+    "api:reference": "node tools/api-reference.mjs",
+    "api:reference:check": "node tools/api-reference.mjs --check",
+    "version:check": "node tools/version-check.mjs",
     "docs:check": "tsx tools/docs-check.mjs",
     "verify": "npm run typecheck && npm run test && npm run check:wgsl",
     "check:wgsl": "node tools/wgsl-check.mjs",

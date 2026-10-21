@@ -1,6 +1,6 @@
 {
   "name": "@forge/editor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Public-API-only authoring tools for Forge Engine",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@forge/engine": "0.1.0"
+    "@forge/engine": "1.0.0"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.52",

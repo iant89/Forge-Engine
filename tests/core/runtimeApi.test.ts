@@ -95,17 +95,17 @@ group("completed package-root contract", () => {
     const approvals = loadJson<ApprovalFile>("../../engine/api-approvals.json");
 
     assert.deepEqual(surface.counts, {
-      total: 2180,
-      type: 795,
-      value: 1001,
-      typeAndValue: 384,
-      public: 2171,
+      total: 2196,
+      type: 809,
+      value: 1002,
+      typeAndValue: 385,
+      public: 2187,
       experimental: 9,
       deprecated: 0,
       internal: 0,
     });
-    assert.deepEqual(approvals.counts, { approved: 2171, pendingPublic: 0, experimental: 9, deprecated: 0 });
-    assert.equal(new Set(approvals.approvals.map((row) => row.name)).size, 2171);
+    assert.deepEqual(approvals.counts, { approved: 2187, pendingPublic: 0, experimental: 9, deprecated: 0 });
+    assert.equal(new Set(approvals.approvals.map((row) => row.name)).size, 2187);
 
     let valueCount = 0;
     let typeCount = 0;
@@ -119,9 +119,9 @@ group("completed package-root contract", () => {
         assert.equal(exists, true, `${item.name} is a value declaration but is absent at runtime`);
       }
     }
-    assert.equal(valueCount, 1385, "384 type-and-value plus 1,001 value exports, including experiments");
-    assert.equal(typeCount, 795);
-    assert.equal(VERSION, "0.1.0", "Phase 27.1 does not release Engine 1.0");
+    assert.equal(valueCount, 1387, "385 type-and-value plus 1,002 value exports, including experiments");
+    assert.equal(typeCount, 809);
+    assert.equal(VERSION, "1.0.0", "the released Engine API version is 1.0.0");
   });
 });
 
