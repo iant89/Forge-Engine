@@ -379,9 +379,9 @@ data: a row binds a named human 1.0-candidate decision to those exact hashes, so
 grant approval and later contract drift makes the decision stale. `npm run api:check` rejects surface
 or approved-contract drift, malformed approval references/counts, a default export, an `@internal`
 leak, unexplained/conflicting stability tags, package/version drift and any package subpath export.
-This is still pre-1.0: only 17 core error/assertion symbols are approved, 2,154 public candidates
-remain, and neither hash file proves runtime/serialization/shader semantics. See `docs/API.md` for the
-exact policy and limits.
+This is still pre-1.0: only 23 core error/assertion and time symbols are approved, 2,148 public
+candidates remain, and neither hash file proves runtime/serialization/shader semantics. See
+`docs/API.md` for the exact policy and limits.
 
 ---
 

@@ -210,10 +210,11 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   The audit pins all 2,180 `@forge/engine` export names, type/value kinds and stability labels, plus
   direct emitted declarations and their transitive engine-local type dependencies; it rejects deep
   package exports and leaked `@internal` symbols and makes the nine incomplete WASM-physics names
-  experimental. A separate non-generated ledger binds the first 17 reviewed error/assertion symbols
-  to exact hashes and rejects stale approvals, but 2,154 public candidates remain. The gate does not
-  itself decide compatibility, prove runtime semantics or serialization/shader ABIs, or recursively
-  own external ambient types. Comprehensive API reference/examples, migration guidance, final
+  experimental. A separate non-generated ledger binds 23 reviewed error/assertion and time symbols
+  to exact hashes and rejects stale approvals, but 2,148 public candidates remain. The gate does not
+  itself decide compatibility, prove uncited runtime semantics or serialization/shader ABIs, or
+  recursively own external ambient types. Comprehensive API reference/examples, migration guidance,
+  final
   semantic-versioning and deprecation windows, and one supported extension contract also remain.
   (capability: api.publicSurface)
 

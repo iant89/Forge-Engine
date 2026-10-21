@@ -138,7 +138,7 @@ export class Clock {
     return this._fixedStepIndex;
   }
 
-  /** Fixed steps discarded due to `catchUpLimit` — non-zero means the machine can't keep up. */
+  /** Complete fixed steps discarded because `catchUpLimit` was exhausted. */
   get droppedSteps(): number {
     return this._droppedSteps;
   }
@@ -154,10 +154,12 @@ export class Clock {
     if (this.scriptedIndex < this.scripted.length) return this.tickScripted();
     const now = this.timeSource();
     let raw = now - this.lastTime;
-    this.lastTime = now;
-    if (!(raw >= 0)) raw = 0; // clock went backwards (rare: some browsers' performance.now)
+    if (raw >= 0) this.lastTime = now;
+    else raw = 0; // Keep the last monotonic sample when a platform clock moves backwards.
     const clamped = Math.min(raw, this.maxDeltaTime);
-    this._wallClockElapsed = now - this._startWallTime;
+    if (now >= this._startWallTime) {
+      this._wallClockElapsed = Math.max(this._wallClockElapsed, now - this._startWallTime);
+    }
     this._unscaledDeltaTime = clamped;
     this._deltaTime = this._paused ? 0 : clamped * this._timeScale;
     this._smoothedDelta = this._smoothedDelta * 0.9 + clamped * 0.1;
@@ -170,23 +172,27 @@ export class Clock {
       // Scale the accumulator by timeScale so slow-motion also slows simulation smoothly.
       this.accumulator += this._deltaTime;
       const fixed = this.fixedDeltaTime;
-      let dropped = 0;
-      while (this.accumulator >= fixed) {
-        this.accumulator -= fixed;
-        this._fixedTime += fixed;
-        this._fixedStepIndex++;
-        steps++;
-        if (steps >= this.catchUpLimit) {
-          dropped = this.accumulator;
-          this.accumulator = 0;
-          break;
+      const stepLimit = Math.max(0, Math.floor(this.catchUpLimit));
+      if (fixed > 0 && Number.isFinite(fixed)) {
+        while (this.accumulator >= fixed && steps < stepLimit) {
+          this.accumulator -= fixed;
+          this._fixedTime += fixed;
+          this._fixedStepIndex++;
+          steps++;
         }
+        // Discard only complete overdue steps. Keeping the fractional remainder preserves the
+        // interpolation phase, while the counters report steps/time rather than drop events.
+        if (steps >= stepLimit && this.accumulator >= fixed) {
+          const dropped = Math.floor(this.accumulator / fixed + 1e-9);
+          if (dropped > 0) {
+            const droppedTime = dropped * fixed;
+            this.accumulator = Math.max(0, this.accumulator - droppedTime);
+            this._droppedSteps += dropped;
+            this._droppedTime += droppedTime;
+          }
+        }
+        alpha = clamp(this.accumulator / fixed, 0, 1);
       }
-      if (dropped > 0) {
-        this._droppedSteps++;
-        this._droppedTime += dropped;
-      }
-      alpha = clamp(this.accumulator / fixed, 0, 1);
     }
     return { fixedSteps: steps, alpha };
   }
@@ -211,14 +217,17 @@ export class Clock {
   cancelScriptedFrames(): void {
     this.scripted = [];
     this.scriptedIndex = 0;
-    this.lastTime = this.timeSource();
+    const now = this.timeSource();
+    if (now >= this.lastTime) this.lastTime = now;
   }
 
   private tickScripted(): TickResult {
     const f = this.scripted[this.scriptedIndex++]!;
     const now = this.timeSource();
-    this.lastTime = now;
-    this._wallClockElapsed = now - this._startWallTime;
+    if (now >= this.lastTime) this.lastTime = now;
+    if (now >= this._startWallTime) {
+      this._wallClockElapsed = Math.max(this._wallClockElapsed, now - this._startWallTime);
+    }
     this._unscaledDeltaTime = f.dt;
     this._deltaTime = f.dt;
     this._smoothedDelta = this._smoothedDelta * 0.9 + f.dt * 0.1;
@@ -251,17 +260,23 @@ export class Clock {
     this.accumulator = 0;
   }
 
+  /** Reset timing/counters and cancel replay frames while preserving configuration, scale and pause. */
   reset(): void {
     this.lastTime = this.timeSource();
     this._startWallTime = this.lastTime;
     this.accumulator = 0;
+    this._deltaTime = 0;
+    this._unscaledDeltaTime = 0;
     this._elapsedTime = 0;
     this._fixedTime = 0;
     this._frameIndex = 0;
     this._fixedStepIndex = 0;
     this._droppedSteps = 0;
     this._droppedTime = 0;
+    this._smoothedDelta = 1 / 60;
     this._wallClockElapsed = 0;
+    this.scripted = [];
+    this.scriptedIndex = 0;
   }
 
   get interpolationAlpha(): number {
