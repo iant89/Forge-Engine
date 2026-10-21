@@ -29244,6 +29244,37 @@ JSON array below; agents maintain it by hand until then.
   "file": "tools/api-audit.mjs",
   "what": "Advances approval policy to v2 and rejects any ledger that leaves a public package-root export pending.",
   "why": "Make completion durable: api:update cannot silently admit an unreviewed public name."
+},
+{
+  "id": "2353",
+  "date": "2026-10-21T04:33:16Z",
+  "type": "pr-merge",
+  "pr": 147,
+  "branch": "arena/4fd95d6f-forge-engine",
+  "base": "main",
+  "title": "Phase 27.1: complete public API audit",
+  "model": "Arena Agent Mode",
+  "modelVersion": null,
+  "summary": "Completes Phase 27.1 while preserving the full package root: all 2,171 current public candidates now bind 22 coherent subsystem decisions to exact direct and transitive declaration hashes, nine WASM-physics exports remain experimental, and no export is deprecated. Approval policy v2 requires zero pending public names, so regenerating the 2,180-export surface cannot silently reopen the audit. A human review record names the method, batch counts, behavioral evidence and deliberately accepted compatibility costs. Eleven new checks validate all 1,385 runtime-bearing and 795 type-only namespace links plus foundational config, event, logging, pool and platform behavior; the expanded API audit pins all approvals, evidence and stale-contract paths. Phase 27.2\u201327.7 and the Engine API 1.0 release remain open, and package/exported VERSION stay 0.1.0. Local verification passed all 159 suites in 218.26 seconds plus typecheck, API, catalog, docs, WGSL, architecture, demo-build, package and diff gates; the implementation commit passed PR CPU gates in 6m36s.",
+  "files": [
+    "ARCHITECTURE.md",
+    "PROGRESS.md",
+    "ROADMAP.md",
+    "change-log.md",
+    "docs/API.md",
+    "docs/API-REVIEW.md",
+    "docs/KNOWN-ISSUES.md",
+    "docs/VERIFICATION.md",
+    "engine/README.md",
+    "engine/api-approvals.json",
+    "engine/src/core/capabilities.ts",
+    "mnemosyne.md",
+    "tests/core/runtimeApi.test.ts",
+    "tests/full.test.ts",
+    "tests/tools/apiAudit.test.ts",
+    "tests/tools/selrun.test.ts",
+    "tools/api-audit.mjs"
+  ]
 }
 ]
 ```
