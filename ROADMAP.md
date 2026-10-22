@@ -29,10 +29,10 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation and GPU timing; 13.9 cascade assignment,
                 bounded spot/point shadows, contact shadows, adaptive atlas resolution,
                 and shared per-instance culling are covered by focused suites and docs)
-    Phase 14:   IMPLEMENTED / VERIFIED (14.1-14.6: canonical-surface deterministic scatter,
+    Phase 14:   [~] IN PROGRESS (14.1-14.6: canonical-surface deterministic scatter,
                 all six 14.2 types, compact/device-resident storage, GPU LOD/culling, worker-backed
-                population streaming and resident geometry raycasts; focused population and task
-                suites cover the complete phase. Scheduler/custom-stage fallbacks remain documented.)
+                population streaming and resident geometry raycasts are landed; the phase roll-up
+                remains in progress, with scheduler/custom-stage boundaries documented.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
@@ -142,7 +142,7 @@ PHASE 12 - GPU Particles 2.0
     [x]
 
 PHASE 13 - Renderer 2.0
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 14 - World Population
     [~] IN PROGRESS
@@ -820,7 +820,9 @@ GOAL:
 CURRENT STATE:
 
     Implemented and verified. Landed: the depth prepass (13.1) with material-aware
-    coverage and orthographic SSAO, real transient aliasing in every SSAO frame (13.2),
+    coverage, full-resolution depth reuse for transparent intersection fading and the
+    optional HDR depth-aware post haze, plus orthographic SSAO; real transient aliasing
+    in every SSAO frame (13.2),
     clustered lighting (13.3), the GPU cluster fill (13.4), GPU object culling with
     the HiZ pyramid (13.5), indirect rendering (13.6), asynchronous pipeline
     compilation (13.7) and GPU timing (13.8). Phase 13.9 adds conservative
@@ -831,10 +833,12 @@ CURRENT STATE:
     Frame: forge.lights.assign (optional GPU fill) → forge.populationCull.views
     (optional per-instance view/shadow lists) → forge.shadow.<n> →
     forge.shadow.spot.<n> → forge.shadow.point.<n>.<face> (both optional, after
-    cascades) → forge.prepass → forge.contact.depth (optional) → forge.hiz.<n> →
+    cascades) → forge.prepass → forge.depth.resolve / forge.contact.depth
+    (optional full-resolution r32float depth reuse) → forge.hiz.<n> →
     forge.objects.cull → forge.populationCull → forge.ssao → forge.ssao.blur.h →
     forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap
-    (the cull passes exist only on the device path).
+    (the cull passes exist only on the device path; contact.depth is shared by
+    transparent intersection fading and HDR depth-aware post haze when those consumers coexist).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -864,15 +868,19 @@ CURRENT STATE:
         `prepassDraws`; tests/rendering/frame.test.ts, tests/rendering/pipeline.test.ts, check:browser
         pixel identity.)
 
-    [~] Reuse depth for:
+    [x] Reuse depth for:
 
         [x] SSAO            — `forge.ssao` samples the prepass depth.
         [x] particles       — the soft-particle fade samples the same scene depth,
                               which the prepass now lays down (no second depth pass).
         [x] culling         — `forge.objects.cull` + the HiZ pyramid read it (13.5).
-        [ ] transparency    — blended surfaces depth-test against it; no
-                              transparency technique (depth fade, OIT) consumes it.
-        [ ] post processing — no depth-based post effect exists yet.
+        [x] transparency    — `forge.depth.resolve` (or the shared contact resolve)
+                              writes full-resolution `r32float` depth; blended standard
+                              draws use it for a short intersection fade while staying
+                              outside the authoritative prepass.
+        [x] post processing — HDR frames with non-`none` fog bind that resolve to
+                              `forge.tonemap` for optional depth-aware final haze;
+                              default no-fog and LDR output remain unchanged.
 
     [x] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
         (a material-aware fragment stage matches forward alpha coverage; water uses

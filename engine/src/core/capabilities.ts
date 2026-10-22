@@ -83,7 +83,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "10": "partial",
   "11": "verified",
   "12": "verified",
-  "13": "inProgress",
+  "13": "verified",
   "14": "inProgress",
   "15+": "verified",
   "15.5": "inProgress",
@@ -598,10 +598,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.depthReuse",
     phase: "13.1",
-    status: "partial",
-    summary: "The prepass depth feeds SSAO, the soft-particle fade and the object culler's HiZ pyramid; no transparency technique or depth-based post effect consumes it yet",
-    evidence: ["tests/rendering/frame.test.ts", "tests/rendering/objectCulling.test.ts"],
-    closesWith: "13.1",
+    status: "verified",
+    summary: "The stored prepass depth feeds SSAO, soft-particle fade, HiZ culling, transparent intersection fading and optional HDR depth-aware post haze",
+    evidence: ["tests/rendering/frame.test.ts", "tests/rendering/objectCulling.test.ts", "tests/rendering/wgsl.test.ts"],
+    notes: "Transparent and overlay batches remain outside the authoritative prepass, but eligible transparent draws sample the full-resolution r32float resolve for a short intersection fade. HDR frames with non-none fog bind that same resolve to tonemap for an opt-in far-field haze; default no-fog and all LDR frames remain unchanged.",
   },
   {
     id: "rendering.prepassCoverage",

@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + per-instance culling + contact shadows + async pipelines + GPU timing from Phase 13)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + depth reuse + SSAO + clustered lighting + per-instance culling + contact shadows + async pipelines + GPU timing from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -22,7 +22,7 @@ computeCascades() / computeSpotShadow() /    forge.shadow.1   ├─ depth24plus
 collectBatches()   (frustum cull, sort,      forge.populationCull.views (optional) instance/shadow lists →
   instance merge — no allocation)            forge.shadow.*   depth-array layers (directional, spot, point)
 buildClusters()    (local lights into a      forge.prepass     depth24plus "depth" only (clear + store), material coverage
-  16x8x24 view grid; no pass — §4b)          forge.contact.depth (optional) depth → r32float resolve
+  16x8x24 view grid; no pass — §4b)          forge.depth.resolve / forge.contact.depth (optional) depth → r32float reuse
                                             forge.hiz.0..3    depth → the pyramid (r32float, mip chain), ½, ¼, ...
                                             forge.objects.cull  bounds + pyramid → visibility words, 1 per batch (§4d)
                                             forge.ssao        depth → ssao.raw   (rg16float, ½ res)
@@ -50,11 +50,12 @@ options:
 | `settings.renderScale` | the HDR or LDR scene target and depth buffer are allocated at `round(size × scale)`; tonemap or the LDR passthrough resolve upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
-| `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | no pass; the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`), except materials with `fogExempt` (material flag bit 5, a uniform flag rather than a pipeline variant), which also skip aerial perspective — beacons such as the dust-storm checkpoint beams. The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. |
+| `settings.fog.mode` (`none` default, `linear`, `exp2`, `height`) | the standard shader blends every opaque/transparent fragment toward `fog.color` by the transmittance in `WGSL_FOG` (`fogParams` in `PerFrameUniforms`), except materials with `fogExempt` (material flag bit 5, a uniform flag rather than a pipeline variant), which also skip aerial perspective — beacons such as the dust-storm checkpoint beams. The sky pass fogs its own planet ground in every mode and the sky itself in `height` mode only. In HDR, non-`none` fog additionally enables the optional full-resolution depth resolve and a low-strength depth haze in `forge.tonemap`; `none` keeps the default post chain unchanged, and LDR never adds the depth post consumer. |
 | `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | adds `forge.lights.assign` — one compute pass, **first** in the frame — when the fill runs on the device (`RendererOptions.lightCulling`: `"auto"`/`"gpu"`; `"auto"` resolves to `"cpu"` on the mock), and **no pass** on the CPU fill. The local (point/spot) lights are indexed into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b–4c. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 | `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
-| `settings.shadow.contactShadows`, `RendererOptions.contactShadows !== false`, a running prepass and an affect-scene light | adds `forge.contact.depth` after `forge.prepass`: a fullscreen depth-to-`r32float` resolve sampled by the forward shader's short light rays. `contactDistance` and `contactStrength` tune it; the neutral fallback is bound when it is off. |
+| a visible transparent batch or HDR plus non-`none` fog, with the prepass running | adds `forge.depth.resolve` after `forge.prepass` (or reuses `forge.contact.depth` when contact shadows are enabled), writing the stored depth to full-resolution `r32float`. Standard transparent edges and the HDR tonemap haze consume it; the default no-fog and LDR paths do not add the pass. See §4a. |
+| `settings.shadow.contactShadows`, `RendererOptions.contactShadows !== false`, a running prepass and an affect-scene light | adds `forge.contact.depth` after `forge.prepass`: a fullscreen depth-to-`r32float` resolve sampled by the forward shader's short light rays. The same resolve is shared by transparent intersection fading and the optional HDR depth haze when those consumers are active. `contactDistance` and `contactStrength` tune the contact rays; the neutral fallback is bound when it is off. |
 | `RendererOptions.objectCulling` (`"auto"` default / `"cpu"` / `"gpu"`) | `"gpu"` (and `"auto"` on a real device) adds `forge.objects.cull` between `forge.prepass` and the SSAO chain, plus the `forge.hiz.<n>` pyramid when occlusion is on; `"cpu"` (and `"auto"` on the mock) runs the twin and adds no pass. Either way the batches' visibility words are written before `forge.main` reads them. See §4d. |
 | `RendererOptions.populationCulling` (default `true`), resolved GPU object culling and indirect draws, plus an eligible instanced batch | adds `forge.populationCull.views` before shadow/prepass and `forge.populationCull` after object/HiZ culling. The shared per-instance kernels compact ordinary static instanced renderables and population batches; CPU mode and unsupported batch families use their existing fallback. See §4g–§4h. |
 | `RendererOptions.occlusionCulling !== false`, the prepass running, a perspective camera, and a render target the pyramid can shrink into | the cull pass also builds and tests against the HiZ pyramid (`forge.hiz.0..<n>`); off (or orthographic, or a target smaller than a few texels) it is frustum + distance only, and no `forge.hiz` pass exists. |
@@ -177,7 +178,9 @@ optional GPU timing callback fires.
 
 The forward pass writes scene-referred linear radiance into `rgba16float`. Post uses one fullscreen
 triangle, one shader module with four fragment entry points, and one dynamic-offset uniform buffer
-(`PostUniforms`, 48 B; `Renderer` reserves a slot per post draw).
+(`PostUniforms`, 80 B; `Renderer` reserves a slot per post draw). The tonemap entry also binds the
+full-resolution resolved depth and the frame block when the optional fog haze is active; the other
+post entries receive neutral fallback data through the same stable layout.
 
 1. **Prefilter** (`fsPrefilter`, hdr → ½ res): 13-tap downsample with a **Karis average** on each 2×2
    quad so a single hot pixel cannot flash the whole screen, `× exposure`, then a **soft-knee
@@ -311,6 +314,27 @@ to lit — a thin bright seam at grazing face boundaries is the documented cost 
  forward path. `forge.main` then draws prepassed batches with `writeDepth: false` and `less-equal`, so
  each passes on its own stored depth; surfaces that are not eligible keep their normal depth-writing
  forward variant. `DEPTH_VERTEX` (the shadow program, with its polygon offset) is never reused here.
+
+**Full-resolution depth reuse.** WebGPU does not permit the forward shader to sample the depth
+attachment while `forge.main` writes it, so a frame with a transparent batch or a depth-aware HDR
+post consumer records `forge.depth.resolve` immediately after the prepass. The fullscreen pass writes
+the stored `depth24plus` value to an `r32float` texture. When contact shadows are enabled, its
+`forge.contact.depth` resolve is the same resource and serves all three consumers instead of adding a
+second copy. The main pass stores depth whenever any of these consumers, the sky, water grab or soft
+particles needs it.
+
+Standard transparent draws bind the resolve at group 0 binding 12 and use the opaque surface's
+reconstructed view depth to soften only the intersection edge; the normal depth test and back-to-front
+ordering remain authoritative, and transparent/overlay batches are still excluded from the prepass.
+The material flag and the per-draw transparency marker cover both material-authored and renderable
+alpha blending without creating a pipeline variant. A missing/far resolve sample is neutral, so a
+fallback or an off-screen edge cannot darken a fragment.
+
+**Depth-aware post haze.** HDR frames with a non-`none` fog mode bind the same `r32float` view at the
+post group's binding 4 and `PerFrameUniforms` at binding 5. `fsTonemap` reconstructs view depth along
+the camera forward axis and blends a capped, low-strength amount toward the scene fog colour between
+`fog.start` and `fog.end`. This is intentionally opt-in through HDR plus fog; the default no-fog path,
+all LDR paths and bloom passes retain their previous inputs and output.
 
 **SSAO** (`shaders/ssao.ts`, one module, three fragment entry points over the shared fullscreen
 triangle):
@@ -976,11 +1000,13 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
   tests use `shadowMapSize: 256` because the mock device allocates texture storage eagerly.
 * Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles or scenes
   that turn it off — still alias nothing. Orthographic frames can run SSAO and alias the same chain.
-* The prepass depth has four consumers (contact resolve, SSAO, the soft-particle fade and the HiZ
-  pyramid); no transparency technique or depth-based post effect reads it yet.
-* Blended transparent and overlay surfaces are not prepassed because their depth is not authoritative.
-  Material alpha-test/fading coverage and water deformation are prepassed; orthographic cameras use
-  SSAO's camera-forward reconstruction rather than the perspective clip.w path.
+* The prepass depth has direct consumers in SSAO, the soft-particle fade and the HiZ pyramid. A
+  full-resolution `r32float` resolve (`forge.depth.resolve`, or the shared `forge.contact.depth`)
+  additionally feeds transparent intersection fading and the optional HDR fog haze. Blended
+  transparent and overlay surfaces are still not prepassed because their depth is not authoritative;
+  they retain normal depth testing and ordering while sampling the resolve at their edges. Material
+  alpha-test/fading coverage and water deformation are prepassed; orthographic cameras use SSAO's
+  camera-forward reconstruction rather than the perspective clip.w path.
 * SSAO is screen-space and half resolution without temporal accumulation: occluders off screen or
   hidden behind nearer geometry do not count, detail below ~2 px is lost, the kernel is clamped to
   10 % of the frame height (close-ups get a smaller effective radius), and it scales ambient light

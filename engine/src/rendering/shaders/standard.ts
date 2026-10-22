@@ -49,7 +49,7 @@ export const BINDINGS = {
    * one uniform compare per light.
    */
   cloud: { group: 0, binding: 11 },
-  /** Full-resolution prepass depth resolved to r32float for screen-space contact shadows. */
+  /** Full-resolution prepass depth resolved to r32float for contact shadows and transparent depth reuse. */
   contactDepth: { group: 0, binding: 12 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
@@ -413,9 +413,12 @@ const FLAGS_FOG_EXEMPT: u32 = 32u;
 const FLAGS_EMISSIVE_MAP: u32 = 64u;
 const FLAGS_OCCLUSION_MAP: u32 = 128u;
 const FLAGS_ALPHA_TEST: u32 = 256u;
+const FLAGS_TRANSPARENT: u32 = 512u;
 const FLAGS_INSTANCED: u32 = 1u;
 // perFrame.flags bit 5: local lights come from the cluster grid, not from the uniform light list.
 const FLAGS_CLUSTERED: u32 = 32u;
+// perFrame.flags bit 8: the resolved prepass depth is available to transparent intersections.
+const FLAGS_DEPTH_REUSE: u32 = 256u;
 `;
 
 /**
@@ -708,6 +711,36 @@ fn ambientOcclusion(fragCoord: vec2<f32>, viewDepth: f32) -> f32 {
     return 1.0;
   }
   return sum / total;
+}
+
+// Phase 13.1: recover the opaque surface's view depth from the full-resolution prepass resolve.
+// The colour pass cannot sample its writable depth attachment directly, so the renderer publishes
+// this r32float copy between the prepass and the forward pass. Transparent surfaces use it only for
+// the small intersection fade; a surface behind opaque geometry is still rejected by the normal
+// depth test.
+fn resolvedViewDepth(pixel: vec2<f32>, depth: f32) -> f32 {
+  let uv = pixel / max(perFrame.renderExtent, vec2<f32>(1.0));
+  let clip = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+  let worldH = perFrame.invViewProj * clip;
+  let world = worldH.xyz / max(abs(worldH.w), 1e-6);
+  return max(dot(world - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), 0.0);
+}
+
+fn transparentDepthFade(pixel: vec2<f32>, viewDepth: f32) -> f32 {
+  if (((material.flags & FLAGS_TRANSPARENT) == 0u && objectData.distanceFade.w < 0.5) || ((perFrame.flags & FLAGS_DEPTH_REUSE) == 0u)) {
+    return 1.0;
+  }
+  let size = vec2<i32>(textureDimensions(contactDepth));
+  let p = clamp(vec2<i32>(pixel), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
+  let opaqueDepth = textureLoad(contactDepth, p, 0).r;
+  // A clear/far sample means there is no opaque surface to soften against. This also keeps the
+  // 1x1 neutral fallback harmless when a host disables the resolved-depth feature.
+  if (opaqueDepth >= 0.99999) {
+    return 1.0;
+  }
+  let gap = resolvedViewDepth(pixel, opaqueDepth) - viewDepth;
+  let fadeDistance = max(0.12, viewDepth * 0.018);
+  return smoothstep(0.0, fadeDistance, max(gap, 0.0));
 }
 
 // ------------------------------------------------------- clustered (Forward+) lighting (13.3)
@@ -1004,7 +1037,10 @@ ${surfaceSetup}
   if ((uniforms_shadow.flags & 1u) != 0u) {
     color = color * cascadeDebugTint(in.viewDepth);
   }
-  let alpha = albedo.a * material.opacity * in.tint.a;
+  var alpha = albedo.a * material.opacity * in.tint.a;
+  // Blended cards/decal layers retain their ordinary back-to-front ordering, but their edge pixels
+  // now consume the opaque prepass depth instead of cutting a hard seam into the surface below.
+  alpha = alpha * transparentDepthFade(in.clipPos.xy, in.viewDepth);
   if (material.opacity < 0.999 && alpha < 0.004) {
     discard;
   }

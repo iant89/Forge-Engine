@@ -58,9 +58,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   still need multiple fallback draws. `stats.shadowsDrawn`, `shadowInstancesDrawn` and the population
   shadow counters expose the work; world-scale submission remains future work (`docs/RENDERING.md` §4, §4h).
   (roadmap: 24.3)
-* **The prepass depth has four consumers so far.** Contact-shadow resolve, SSAO, the soft-particle
-  fade and the object culler's HiZ pyramid read it; no transparency technique and no depth-based post
-  effect uses it. (`docs/RENDERING.md` §4a) (capability: rendering.depthReuse)
 * **Object culling is still per batch for ordinary non-instanced renderables, and uploads are not
   eliminated.** `forge.objects.cull` drops the *draw* of a batch the frame cannot see — since 13.6
   by writing a zero-instance indirect record — while `collectBatches` and the instance/object arenas
@@ -84,11 +81,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   arena compaction, moving the authoritative verdict to the GPU can increase CPU command work versus
   early CPU rejection; the `gpuDriven*` counters make that transitional cost explicit rather than
   calling it a speedup. (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
-* **Transparent and overlay surfaces remain outside the depth prepass.** Opaque material alpha-test,
-  fading coverage and water now use material-aware/deformed prepass variants, but blended surfaces do
-  not provide authoritative early-Z and are still drawn only by `forge.main`. Orthographic cameras
-  now run SSAO with a constant pixels-per-metre kernel. Blended-depth reuse remains a separate
-  renderer limitation. (capability: rendering.depthReuse)
 * **The cluster grid's preparation and counting pass are still CPU work, every frame.** The *fill*
   (the lists) runs on the device by default — `forge.lights.assign`, one compute pass, no read-back
   (`docs/RENDERING.md` §4c) — and the CPU fallback uploads the lists' used prefix (≈ 43 KB for the

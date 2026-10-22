@@ -2297,21 +2297,21 @@
       "name": "DeveloperConsole",
       "kind": "type-and-value",
       "declarationHash": "sha256:66237f53044e3e25815e950aad291d9444aec685c3a75a75a87815a5a2fccbcb",
-      "contractHash": "sha256:6eb625b68e151d04dae5a2c0312d59818e8619c5bd3f9041cafba8c44ad8baa1",
+      "contractHash": "sha256:7575e5902ddc5ed48372c043af19cb76d81f2643c433af120a1316caeadbd995",
       "review": "debug/1"
     },
     {
       "name": "DeveloperConsoleCommand",
       "kind": "type",
       "declarationHash": "sha256:7800f94d34f92c78537e568cdcf35432887d2bde150f244663c7d8e7eb08eefd",
-      "contractHash": "sha256:242bcd3ac9f81041747d1299a39a36eab24590234871675f5cb03be9cc840a7b",
+      "contractHash": "sha256:06868ac44142d4860aaa052c4a757fff2914f55efcae62401edd5738b60f5098",
       "review": "debug/1"
     },
     {
       "name": "DeveloperConsoleCommandContext",
       "kind": "type",
       "declarationHash": "sha256:df1713924d340938d50cf106f1aca3b827b4cc75207b79165d0c10345cecf25a",
-      "contractHash": "sha256:e02b84469bfc88f54b655aae148f667e9019900b99c848335e2c68e93bb3c9a1",
+      "contractHash": "sha256:fd3fd8a303b3e77357c65adc16437ab4c55c8e299b6568662dc55f94d3fdd5c3",
       "review": "debug/1"
     },
     {
@@ -2325,7 +2325,7 @@
       "name": "DeveloperConsoleHost",
       "kind": "type",
       "declarationHash": "sha256:e5ce67ea5ffd53c6cd741a690dee3b43c8e21dbe8144ffb90fe123b7c00426db",
-      "contractHash": "sha256:f9359b17730802ac85c4f10dccdf58176f4ef57cfa7cc3e2433696f6c6fa8040",
+      "contractHash": "sha256:813ef65c6b9ae30ba1b629d8733b37af6fc423c50d7fc4f2694219e893d105c8",
       "review": "debug/1"
     },
     {
@@ -2605,7 +2605,7 @@
       "name": "Engine",
       "kind": "type-and-value",
       "declarationHash": "sha256:4ffb19284cacf6c21dc15aed5e3b1b1c55b63449ff3663f37c6c7f9c3308119c",
-      "contractHash": "sha256:2db55e24dbb361425c0251aa87e233f2e374f34fee925f2493750d58acfc2fc5",
+      "contractHash": "sha256:c02050dc03a5c7f362c315c22a9150dc9e13fdf1c3f99514579c85221f866d43",
       "review": "core-runtime/1"
     },
     {
@@ -2962,7 +2962,7 @@
       "name": "ForgeExtension",
       "kind": "type",
       "declarationHash": "sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f",
-      "contractHash": "sha256:81c43b3cb35518a5d789020f644fc6be79fc30d1200f27a5232eee393a7a7d67",
+      "contractHash": "sha256:8b1662b141175c9a2a7e4df8b02ed3fb858a499c0c0be92f2226de5eb5f94d74",
       "review": "extensions/1"
     },
     {
@@ -2976,7 +2976,7 @@
       "name": "ForgeExtensionContext",
       "kind": "type",
       "declarationHash": "sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3",
-      "contractHash": "sha256:9fa85bb205b23efb363495cda64e90190ef7abc0fba3ba91a3190ddd2c24f4f1",
+      "contractHash": "sha256:a12865b4e1fe66d2c2a7f305e0709da35ebedaa7ee06febe2256e22464af582e",
       "review": "extensions/1"
     },
     {
@@ -3032,7 +3032,7 @@
       "name": "ForgeExtensionRegistry",
       "kind": "type-and-value",
       "declarationHash": "sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f",
-      "contractHash": "sha256:8d9b5b4b2fbea1a64437fee96a6ff259e44ab3972f70e35ce4134af9109e7280",
+      "contractHash": "sha256:069438b8dd4263ab59865dca5e8dfdc9c6e79b8102b8c40a99c1554969d0bed5",
       "review": "extensions/1"
     },
     {
@@ -3046,14 +3046,14 @@
       "name": "ForgeExtensionRuntimeContext",
       "kind": "type",
       "declarationHash": "sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f",
-      "contractHash": "sha256:00f6f4bcaf1cf98d81ffe104cb093b227c6606e7dc096176db4a02dec78f5603",
+      "contractHash": "sha256:36713ae890da9fcec2e271fcd3b9b573e92e676c8ec91507d0acd1cef467914c",
       "review": "extensions/1"
     },
     {
       "name": "ForgeExtensionSystemFactory",
       "kind": "type",
       "declarationHash": "sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059",
-      "contractHash": "sha256:047873d63605346acb8240f5a3b0d7bb715ecfc760a7cf978e128b61d4d25098",
+      "contractHash": "sha256:98719d89e63ee71c8c67e9af1b52c0c54e68947874413b78c27508e45b578882",
       "review": "extensions/1"
     },
     {
@@ -5733,8 +5733,8 @@
     {
       "name": "POST_BINDINGS",
       "kind": "value",
-      "declarationHash": "sha256:948629848d87c6819b4c9d6a08858e32911f1de8459beda3e4f5f2d465aa37f7",
-      "contractHash": "sha256:b5e359bfc36866d8a06623540432bb250f6b31db85ab5096c1dd317fa583775e",
+      "declarationHash": "sha256:ab133e6cbfc3f2794ae98a6360adf5a54f10461db75669d36ae6c8f395003e95",
+      "contractHash": "sha256:3ed4c86f04c9461289918569b46b42814950e6f15ade5ae87132888b0e2cdb19",
       "review": "rendering/1"
     },
     {
@@ -7042,8 +7042,8 @@
     {
       "name": "Renderer",
       "kind": "type-and-value",
-      "declarationHash": "sha256:3055724145143e65b675c4e1e5a71de97b54a918afb54637aa87431262d87a94",
-      "contractHash": "sha256:101d65becc68dbb326491c773a7fc8cdf96dfbb5058fade0fdefc1b6d0683d3d",
+      "declarationHash": "sha256:459d7d580fab9cf9ec99067cbca9932b14c2238796b11e33361e4db7e8f23ac6",
+      "contractHash": "sha256:f5ae2695e1b6ebc67878cb8f08cfe4f7dab65b3a0500c52a328d402998878a3b",
       "review": "rendering/1"
     },
     {
@@ -12083,7 +12083,7 @@
       "name": "createDeveloperConsole",
       "kind": "value",
       "declarationHash": "sha256:9c0d13402d4cd63a62e0fef82253c46dfdbc3682ff804256ef98b7441738fbb5",
-      "contractHash": "sha256:9a38d8ac5590d0e981a2df13f720ba78e0417a3b9d7f1cb42af62e771af0a189",
+      "contractHash": "sha256:9c0adc579ac36b3e0ac9a6b4afe811731e1016943972584f30c33e895bae6b91",
       "review": "debug/1"
     },
     {

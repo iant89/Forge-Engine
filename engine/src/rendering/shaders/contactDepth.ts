@@ -1,10 +1,11 @@
 /**
- * Full-resolution depth resolve used by screen-space contact shadows (Phase 13.9).
+ * Full-resolution depth resolve used by screen-space contact shadows and Phase 13.1 depth reuse.
  *
  * A depth attachment cannot be sampled while the same render pass is writing depth. This tiny
  * resolve runs after the prepass and publishes the prepass depth as an ordinary r32float texture;
- * the forward pass can then ray-march it while its own depth attachment remains writable for
- * transparent/non-prepassed surfaces.
+ * the forward pass can then sample it for contact rays or transparent intersection fading while its
+ * own depth attachment remains writable for transparent/non-prepassed surfaces. HDR post haze uses
+ * the same view when the graph keeps it live through the tonemap.
  */
 
 export const CONTACT_DEPTH_SHADER = /* wgsl */ `

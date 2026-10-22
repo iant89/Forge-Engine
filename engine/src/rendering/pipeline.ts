@@ -14,7 +14,9 @@
  * between "10k draws is slow" and "10k draws is possible", and it is why the arena is aligned to 256.
  *
  * The post-process chain (group 0 only: `PostUniforms` with a dynamic offset, two textures, a
- * sampler) uses the same factory with `technique: "post"` and an explicit fragment entry point.
+ * sampler, resolved depth and `PerFrameUniforms`) uses the same factory with `technique: "post"`
+ * and an explicit fragment entry point. The last two bindings are neutral fallbacks for bloom and
+ * are consumed by the optional depth-aware tonemap haze.
  * The sky pass (`technique: "sky"`) binds `PerFrameUniforms` + `SkyUniforms` + `CloudUniforms`
  * as its only group and draws a fullscreen triangle on the far plane with depth testing but no
  * depth writes. The water program (`technique: "water"`) reuses the frame + draw groups and adds
@@ -335,6 +337,8 @@ export class PipelineFactory {
         { binding: POST_BINDINGS.source.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: POST_BINDINGS.second.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         { binding: POST_BINDINGS.sampler.binding, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        { binding: POST_BINDINGS.depth.binding, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+        { binding: POST_BINDINGS.perFrame.binding, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } },
       ],
     });
     this.postLayout = d.createPipelineLayout({ bindGroupLayouts: [this.postBindGroupLayout] });

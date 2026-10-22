@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is implemented and covered below: items 13.1–13.8 include indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9 adds per-object cascade assignment, bounded spot shadows (four shared-resolution maps), bounded point shadows (two six-face cubes), opt-in contact shadows, adaptive atlas resolution and shared per-instance culling. Phase 14 (world population) is implemented and covered below: canonical fixed-resolution population surfaces remove terrain-LOD order dependence, scheduler-backed population generation has deterministic inline fallback and real worker parity, GPU population LOD/culling remains covered by the population suite, and resident prototype-geometry raycasts return decoded chunk/type/instance metadata. Phase 10 remains intentionally skipped; the external Mars-generator cache gate is not substituted with a synthetic cache.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is implemented and covered below: items 13.1–13.8 include indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9 adds per-object cascade assignment, bounded spot shadows (four shared-resolution maps), bounded point shadows (two six-face cubes), opt-in contact shadows, adaptive atlas resolution and shared per-instance culling. Phase 14 (world population) has its 14.1–14.6 implementation covered below: canonical fixed-resolution population surfaces remove terrain-LOD order dependence, scheduler-backed population generation has deterministic inline fallback and real worker parity, GPU population LOD/culling remains covered by the population suite, and resident prototype-geometry raycasts return decoded chunk/type/instance metadata. The roadmap retains the Phase 14 roll-up as in progress for its documented remaining boundaries. Phase 10 remains intentionally skipped; the external Mars-generator cache gate is not substituted with a synthetic cache.
 
 ## Setting up
 
@@ -564,7 +564,9 @@ instanced) while adding a material coverage fragment, has `depthCompare: "less"`
 and the forward variant used over prepassed surfaces is `less-equal` with depth writes off. The SSAO
 estimate and both blur directions share one module, bind no vertex buffer and no depth attachment, and
 use different layouts (depth vs AO texture); contact-depth is a fullscreen `r32float` target with a
-single depth-texture binding.
+single depth-texture binding. The post layout also reserves the resolved-depth and per-frame bindings,
+and `PostUniforms` carries the depth range/strength/colour after the original bloom fields (80 bytes,
+with the strict uniform-layout test pinning the offsets).
 
 **Async compilation (13.7):** repeated `getReady()` cache misses share one in-flight `createRenderPipelineAsync`, return no bundle until it resolves, and expose pending/failure counts; a rejection is latched until invalidation and never leaves a pending entry.
 
@@ -1539,6 +1541,11 @@ WebGPU adapter (`google/swiftshader` with Vulkan backing), and asserts that:
   `forge.prepass` (with `prepassDraws >= 1`) and the three `forge.ssao*` passes, in the order
   prepass → estimate → blur.h → blur.v → `forge.main`; `aliasedBytes > 0` with fewer physical than
   transient textures (measured: 11 transients → 10 textures, 921,600 B aliased at 1280×720).
+- **Depth reuse (13.1)**: a transparent batch plus linear fog records `forge.depth.resolve` between
+  `forge.prepass` and `forge.main`, writes full-resolution `r32float`, stores the main depth, sets
+  `perFrame.flags` bit 8, binds the resolve to the post group and makes `forge.tonemap` read it. The
+  focused frame test also checks the no-error command stream and the reconstructed post-depth graph
+  edge; the WGSL/layout suite pins the standard binding and the 80-byte `PostUniforms` extension.
 - **SSAO A/B, per pixel at full resolution**: with the animation frozen, switching SSAO off must drop
   its passes (the prepass stays), and comparing the two frames pixel by pixel, SSAO must darken at
   least 0.1 % of the frame by more than one luma level, brighten **no** pixel by more than one level
@@ -1681,10 +1688,11 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
 * **Render graph semantics.** Validation, culling, live-range aliasing, cross-frame pooling and
   retirement, single-submit recording — all on the mock device, where every allocation is visible.
   Aliasing also happens in the production frame now (the SSAO chain), on the mock and on real WebGPU.
-* **Depth prepass and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the frame without
-  it on real WebGPU; material-aware coverage includes cutout/fading/water paths, and SSAO only ever
-  darkens locally for perspective and orthographic cameras. `docs/RENDERING.md` §4a says how, §9 what
-  it does not do.
+* **Depth prepass, depth reuse and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the
+  frame without it on real WebGPU; material-aware coverage includes cutout/fading/water paths, SSAO
+  only ever darkens locally for perspective and orthographic cameras, transparent intersections use
+  the full-resolution resolve, and HDR fog can opt into the final depth haze. `docs/RENDERING.md` §4a
+  says how, §9 what it does not do.
 * **Contact shadows and adaptive atlas resolution (Phase 13.9).** The mock frame suite verifies the
   opt-in `forge.contact.depth` resolve/order/bind path and the shadow uniform settings; the shadow
   budget suite verifies power-of-two reduction before allocation. A real-device contact-shadow visual

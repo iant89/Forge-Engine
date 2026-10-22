@@ -66,6 +66,8 @@ export const FLAG_FOG_EXEMPT = 32;
 export const FLAG_EMISSIVE_MAP = 64;
 export const FLAG_OCCLUSION_MAP = 128;
 export const FLAG_ALPHA_TEST = 256;
+/** Transparent standard/terrain fragments may soften intersections against the resolved prepass depth. */
+export const FLAG_TRANSPARENT = 512;
 
 /** One sampler per texture slot (null = the shared default sampler). */
 export interface MaterialSamplers {
@@ -264,7 +266,7 @@ export class Material {
   private writeCpu(): void {
     const a = this.accessor;
     if (!a) return;
-    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0) | (this.fogExempt ? FLAG_FOG_EXEMPT : 0) | (this.emissiveMap ? FLAG_EMISSIVE_MAP : 0) | (this.occlusionMap ? FLAG_OCCLUSION_MAP : 0) | (this.alphaTest > 0 ? FLAG_ALPHA_TEST : 0);
+    const flags = (this.albedoMap ? FLAG_ALBEDO : 0) | (this.normalMap ? FLAG_NORMAL : 0) | (this.metallicRoughnessMap ? FLAG_MR : 0) | (this.doubleSided ? FLAG_DOUBLE_SIDED : 0) | (this.technique === "unlit" || this.technique === "emissive" ? FLAG_UNLIT : 0) | (this.fogExempt ? FLAG_FOG_EXEMPT : 0) | (this.emissiveMap ? FLAG_EMISSIVE_MAP : 0) | (this.occlusionMap ? FLAG_OCCLUSION_MAP : 0) | (this.alphaTest > 0 ? FLAG_ALPHA_TEST : 0) | (this.transparent ? FLAG_TRANSPARENT : 0);
     const base = a.struct.field("baseColorFactor", "uniform");
     const f32 = this.cpu!.f32;
     const o = base.offset >> 2;
