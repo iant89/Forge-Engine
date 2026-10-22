@@ -1,7 +1,7 @@
 # Phase 27.1 public API review record
 
 > **1.0 status:** The Phase 27.1 review recorded here is now part of the released `@forge/engine`
-> 1.0.0 contract. The final surface is 2,196 exports (2,187 public, 9 experimental, 0 deprecated),
+> 1.0.0 contract. The current surface is 2,197 exports (2,188 public, 9 experimental, 0 deprecated),
 > including the reviewed 1.0 extension contract. Consumer guidance is in [API-REFERENCE.md](API-REFERENCE.md),
 > [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md), [DEPRECATION.md](DEPRECATION.md),
 > and [EXAMPLES.md](EXAMPLES.md).
@@ -11,14 +11,21 @@ This document is the human-readable review record for the `@forge/engine` packag
 ## Decision and boundary
 
 Phase 27.1 preserved **all 2,171 public candidates** as supported Engine API 1.0 candidates. The
-released surface adds the 16 public extension-contract exports, for **2,187 approved public exports**
-out of 2,196 total across 23 review batches. Each approved row has an exact declaration kind, direct declaration hash,
+released surface adds the 16 public extension-contract exports plus the reviewed Phase 13 contact-depth
+shader export, for **2,188 approved public exports** out of 2,197 total across 23 review batches. Each
+approved row has an exact declaration kind, direct declaration hash,
 transitive contract hash, and subsystem review. The nine exports already marked experimental remain
 experimental and are not approvals. There are no deprecated exports and no pending public candidates.
 
 The later Phase 27 work is now complete: the reference inventory, reviewed examples, 0.x migration
 guide, semver/release policy, deprecation window, coherent extension contract, and `1.0.0` release
 are linked from this record. The approval ledger remains the exact machine-enforced record.
+
+The Phase 13 renderer review update records the current contracts for the contact-shadow settings,
+adaptive shadow policy, material-aware prepass/orthographic SSAO path, contact-depth pipeline,
+public contact-depth shader, and shared per-instance culling extension. The rendering review is backed
+by `tests/rendering/frame.test.ts`, `tests/rendering/pipeline.test.ts`, `tests/rendering/wgsl.test.ts`,
+`docs/RENDERING.md`, and the focused `check:wgsl`/`docs:check` gates.
 
 ## Review method
 
@@ -52,7 +59,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `particles/1` | 86 | layouts, components, emitters, CPU/GPU worlds, shaders, precipitation/lightning/vortex visuals | particle and environment suites |
 | `physics/1` | 41 | body/world/system contracts, broad phase, collision, solver, shapes, WASM memory | physics and vehicle-physics suites |
 | `population/1` | 53 | scatter, LOD/culling, grass/trees/vegetation, settle, wind sway, population world | population, culling, and vegetation suites |
-| `rendering/1` | 243 | geometry/material/mesh, clusters/culling, pipelines, graph, renderer, shadows, uniforms, public WGSL | frame, graph, pipeline, shader, culling, shadow, and rendering suites |
+| `rendering/1` | 244 | geometry/material/mesh, clusters/culling, pipelines, graph, renderer, shadows, uniforms, public WGSL | frame, graph, pipeline, shader, culling, shadow, and rendering suites |
 | `replay/1` | 28 | channel/hash/recording/session contracts | replay and cross-engine replay suites |
 | `resources/1` | 66 | IDs/graphs/registries, glTF/KTX2/textures, streaming, hot reload, validation | asset, glTF, resource, streaming, and texture suites |
 | `scene/1` | 123 | entity/component stores, spaces, scene/world/systems, serialization and snapshots | ECS, coordinate-space, save, and simulation-snapshot suites |
@@ -61,7 +68,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `testing/1` | 16 | supported mock GPU and mock audio helpers | GPU, audio, and runtime namespace suites |
 | `ui/1` | 355 | core tree/context, layout/style/input/text/rendering, data binding, widgets, manager, world space | ten UI suites |
 | `vehicles/1` | 70 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
-| **Total** | **2,187** | **805 type, 999 value, 383 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
+| **Total** | **2,188** | **805 type, 1,000 value, 383 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
 
@@ -71,6 +78,6 @@ Preserving the complete candidate set is a consequential compatibility choice, n
 - Large implementation-rich terrain, environment, rendering, and UI surfaces remain public. Their nested option/state types are part of the transitive contracts captured by the ledger.
 - Existing naming, including specialized suffixes and narrowly scoped reset/registration helpers, is accepted rather than renamed or hidden during this audit.
 - Mutable engine objects, externally supplied GPU/audio handles, and explicit resource-lifecycle methods remain caller-visible contracts; backend behavior is bounded by the focused evidence and future reference documentation.
-- The breadth of 2,187 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
+- The breadth of 2,188 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
 
 The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.

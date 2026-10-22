@@ -49,51 +49,46 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Rendering (Phase 2)
 
-* **Shadow vertex work still repeats across overlapping maps.** The renderer assigns each
-  renderable a conservative mask from its world AABB and submits only assigned instance ranges;
-  adjacent ranges whose masks include the same map are coalesced into one draw. When an object's
-  bounds intersect multiple cascade, spot or point-face frusta, it must still be processed by each
-  map; no per-map GPU compaction is implemented, and non-adjacent assigned runs may need multiple
-  draws. A single-map heuristic is intentionally not used because it could drop valid shadows.
-  `stats.shadowsDrawn` reports draw submissions; `shadowInstancesDrawn` and `shadowInstancesCulled`
-  expose per-map caster work. (`docs/RENDERING.md` §9) (capability: rendering.shadowCascades)
-* **Shadowed-light coverage is bounded.** The highest-priority shadow-casting directional light,
-  up to four spot lights and up to two point lights receive maps; priority combines brightness and
-  local-light influence area rather than scene order. Contact shadows remain deferred. Maps share
-  a resolution that adapts to the configured shadow-memory budget. (capability: rendering.shadows)
-* **The prepass depth has three consumers so far.** SSAO, the soft-particle fade and the object
-  culler's HiZ pyramid read it; no transparency technique and no depth-based post effect uses it.
-  (`docs/RENDERING.md` §9) (capability: rendering.depthReuse)
-* **Object culling is per batch, and the batch still pays for its uploads.** `forge.objects.cull`
-  drops the *draw* of a batch the frame cannot see — since 13.6 by writing a zero-instance indirect
-  record, so a culled batch no longer enters the vertex stage at all — but `collectBatches` and the
-  instance/object arenas still run for every renderable, one visible instance keeps its whole batch,
-  the CPU twin (the mock device's path) has no depth buffer and therefore no occlusion test, and only
-  the first `MAX_CULLED_BATCHES` (8192) batches of a frame are tested — the rest stay visible rather
-  than being wrongly culled, and their records keep the count the CPU uploaded. The device path's
-  counters are one frame late (a readback cannot be known sooner). (`docs/RENDERING.md` §4d, §4e)
-  (capability: rendering.cullCoverage)
-* **The compaction list is produced but not yet consumed by the upload path.** `cull.visibleBatches`
-  names the surviving batches in the device's own order, and the records are one per *batch*, so the
-  instance arena is still written and bound for every renderable — a denser arena (a `firstInstance`
-  offset per slot, one record per visible batch) is the next step that would save the upload and is
-  not scheduled. Records are only written when `Renderer.indirectDraws` is on, the shadow cascades
-  keep their own per-cascade AABB test rather than this pass, and a non-perspective or near-plane-
-  straddling camera still skips the occlusion test. (`docs/RENDERING.md` §4e)
-  (capability: rendering.cullCoverage)
+* **Shadow vertex work still repeats across overlapping maps on the fallback path.** The device
+  path now appends per-instance caster indices in `forge.populationCull.views` for ordinary static
+  instanced batches and population batches, while non-instanced, skinned, transparent and CPU-mode
+  batches retain conservative AABB/range submissions. A caster whose bounds intersect multiple
+  cascade, spot or point-face frusta is intentionally tested/drawn for each map; the renderer cannot
+  use a single-map heuristic without risking a missing shadow, and non-adjacent assigned runs may
+  still need multiple fallback draws. `stats.shadowsDrawn`, `shadowInstancesDrawn` and the population
+  shadow counters expose the work; world-scale submission remains future work (`docs/RENDERING.md` §4, §4h).
+  (roadmap: 24.3)
+* **The prepass depth has four consumers so far.** Contact-shadow resolve, SSAO, the soft-particle
+  fade and the object culler's HiZ pyramid read it; no transparency technique and no depth-based post
+  effect uses it. (`docs/RENDERING.md` §4a) (capability: rendering.depthReuse)
+* **Object culling is still per batch for ordinary non-instanced renderables, and uploads are not
+  eliminated.** `forge.objects.cull` drops the *draw* of a batch the frame cannot see — since 13.6
+  by writing a zero-instance indirect record — while `collectBatches` and the instance/object arenas
+  still run for every renderable. Ordinary eligible static instanced batches additionally use the
+  shared per-instance compactor: visible/occluded lists are batch-local, and shadow map indices are
+  per-map. The CPU twin (the mock device's path) has no depth buffer and therefore no HiZ test, and
+  only the first `MAX_CULLED_BATCHES` (8192) object batches are tested — the rest stay visible rather
+  than being wrongly culled. Device counters are one frame late (a readback cannot be known sooner).
+  (`docs/RENDERING.md` §4d, §4h) (roadmap: 24.3)
+* **The batch compaction list is still a submission handoff, not arena compaction.** `cull.visibleBatches`
+  names surviving object batches in device order, while generic instance culling writes per-batch
+  records and local output buffers; the source arena is still uploaded and bound for every renderable.
+  A future world-scale path can rewrite `firstInstance` and submit only a compacted arena, but that is
+  separate from the completed per-instance visibility contract. Records are only written when
+  `Renderer.indirectDraws` is on, and a non-perspective or near-plane-straddling camera still skips
+  the object HiZ stage. (`docs/RENDERING.md` §4e, §4h) (roadmap: 24.3)
 * **GPU-driven terrain visibility is not GPU-driven terrain submission yet.** Phase 24's first slice
   keeps opted-in streamed tiles in the device cull set (and indirect set when enabled) even when the
   CPU pre-test rejects them, but the CPU still walks each resident renderable, builds its batch,
   submits its prepass and issues one draw/indirect call. Until the visible list drives submission and
   arena compaction, moving the authoritative verdict to the GPU can increase CPU command work versus
-  early CPU rejection; the
-  `gpuDriven*` counters make that transitional cost explicit rather than calling it a speedup.
-  (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
-* **Cutout, fading and water surfaces are not in the depth prepass.** Alpha-tested, `opacity < 1`,
-  transparent and water draws are shaded by `forge.main` exactly as without a prepass: no early-Z
-  saving, and they neither receive nor cast SSAO (the forward shader's bilateral key finds no AO
-  texel for them and leaves them unoccluded). Orthographic cameras run the prepass but not SSAO.
-  (capability: rendering.prepassCoverage)
+  early CPU rejection; the `gpuDriven*` counters make that transitional cost explicit rather than
+  calling it a speedup. (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
+* **Transparent and overlay surfaces remain outside the depth prepass.** Opaque material alpha-test,
+  fading coverage and water now use material-aware/deformed prepass variants, but blended surfaces do
+  not provide authoritative early-Z and are still drawn only by `forge.main`. Orthographic cameras
+  now run SSAO with a constant pixels-per-metre kernel. Blended-depth reuse remains a separate
+  renderer limitation. (capability: rendering.depthReuse)
 * **The cluster grid's preparation and counting pass are still CPU work, every frame.** The *fill*
   (the lists) runs on the device by default — `forge.lights.assign`, one compute pass, no read-back
   (`docs/RENDERING.md` §4c) — and the CPU fallback uploads the lists' used prefix (≈ 43 KB for the
@@ -108,10 +103,11 @@ the honest detail lives; nothing here is hidden behind a green gate.
   scene keeps them. Both are reported (`stats.lightsDropped`, `stats.maxLightsPerCluster`) instead of
   silently dropping a lamp the way the old 16-entry list did. (`docs/RENDERING.md` §4b)
   (capability: rendering.clusterCoverage)
-* **Orthographic cameras are not clustered.** The grid's depth axis is view depth, which an
-  orthographic projection does not put in `clip.w` (the same reason SSAO is perspective-only), so their
-  local lights still go through the fixed 16-entry uniform list and still truncate at
-  `MAX_LIGHTS_PER_FRAME`. (`docs/RENDERING.md` §4b) (capability: rendering.clusterCoverage)
+* **Orthographic cameras are not clustered.** The grid's logarithmic depth axis is not useful for an
+  orthographic projection, so their local lights still go through the fixed 16-entry uniform list and
+  still truncate at `MAX_LIGHTS_PER_FRAME`. SSAO is no longer part of this limitation: its orthographic
+  kernel uses camera-forward depth and a constant pixels-per-metre radius. (`docs/RENDERING.md` §4b)
+  (capability: rendering.clusterCoverage)
 * **Bloom and tone mapping are not compared against reference images.** The browser gate proves
   presence and direction (A/B luminance) and the pass structure; visual quality is an eyeball check
   on `tools/.browser-check.png`. (capability: rendering.postFxVerification)

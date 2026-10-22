@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: items 13.1–13.8 are implemented and covered below, including indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9's per-object cascade assignment, bounded spot shadows (four shared-resolution maps) and bounded point shadows (two six-face cubes) are implemented, while contact shadows and adaptive resolution remain.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is implemented and covered below: items 13.1–13.8 include indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9 adds per-object cascade assignment, bounded spot shadows (four shared-resolution maps), bounded point shadows (two six-face cubes), opt-in contact shadows, adaptive atlas resolution and shared per-instance culling.
 
 ## Setting up
 
@@ -74,7 +74,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run test:check` | The selrun catalog is complete: all 160 suites have matching headers/exported manifests, unique names, repository-backed areas and 1,110 valid coverage claims; `tests/full.test.ts` links every discovered suite exactly once in the declared order. | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core+math/ui with only `ui/gpu/**` also seeing gpu/rendering), AST import parsing across TS/TSX and static, type-query, dynamic and CommonJS forms, `editor/**` using only the public `@forge/engine` API with runtime never importing editor, no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` | passing |
-| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,196 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,187 public candidates across 23 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
+| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,197 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,188 public candidates across 23 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
 | `npm run api:reference:check` | Regenerates the complete consumer-facing root export inventory from the reviewed API snapshot and rejects stale `docs/API-REFERENCE.md`. | passing |
 | `npm run version:check` | Checks root, engine, editor, exported `VERSION`, API snapshot, editor dependency and lockfile metadata are all `1.0.0`. | passing |
 | `npm run docs:check` | The capability registry agrees with the roadmap and known issues, and the 1.0 reference/policy files are covered by focused tests. | passing |
@@ -242,7 +242,7 @@ component` (and disposing either scene cleared the other's components).
 Nine checks parse the deterministic `forge.api-surface/2` snapshot, require sorted unique rows,
 known type/value/stability classifications and canonical direct/transitive SHA-256 fingerprints, pin
 the nine experimental WASM-physics names, and verify the package remains root-only. They separately
-parse `forge.api-approvals/1`, require all 2,187 public names and only those names to match the current
+parse `forge.api-approvals/1`, require all 2,188 public names and only those names to match the current
 kind and both hashes, pin the 23 review batches and their exact counts/evidence, and run an isolated
 source copy where `ForgeError` gains a member to prove a stale approval fails with an explicit
 re-review diagnostic. A second negative ledger proves policy v2 rejects even one newly pending public
@@ -260,8 +260,8 @@ record, not an inference made by the CLI.
 ### `tests/core/runtimeApi.test.ts` — complete public namespace and core-runtime evidence
 
 Eleven checks load the full checked-in surface and approval ledger through the built package. Every
-one of the 1,387 value-bearing exports (public and experimental) must exist on the runtime namespace,
-every one of the 809 type-only declarations must stay runtime-free, and all 2,187 public candidates
+one of the 1,388 value-bearing exports (public and experimental) must exist on the runtime namespace,
+every one of the 809 type-only declarations must stay runtime-free, and all 2,188 public candidates
 must remain approved while `VERSION` is `1.0.0`. The suite also supplies focused runtime evidence
 for configuration normalization/errors/hashing, event ordering and mutation/disposal/error isolation,
 logger rings/scopes/sink isolation, object pools, generational handles, typed buffers/arenas, and the
@@ -540,16 +540,17 @@ transform dropping a light instead of poisoning the grid.
 Identical keys return the identical bundle and count a cache hit without touching the device; every
 axis of the key (technique, colour/depth formats, blending, culling, instancing, depth write,
 additive, fragment entry) yields a distinct pipeline; the four post entry points compile from one
-shader module; the 22 foundation variants (including the two `sky` targets, the three
-`prepass` variants and the three SSAO entry points) pass the mock's validation, with the opt-in
-terrain variants additionally exercised in `terrainMaterials.test`; `invalidate()` drops
-pipelines and the 12 layouts and the next `get` rebuilds them. **Prepass (13.1):** the `prepass`
-pipeline's vertex stage is the *same* shader module and entry point as the forward pipeline's
-(static and instanced — the prepass compiles no module of its own), it has no fragment stage,
-`depthCompare: "less"` and zero depth bias (the shadow program has a positive one and is a different
-module), culls like the forward pipeline, and the forward variant used over prepassed surfaces is
-`less-equal` with depth writes off. The SSAO estimate and both blur directions share one module,
-bind no vertex buffer and no depth attachment, and use different layouts (depth vs AO texture).
+shader module; the foundation variants (including the two `sky` targets, the material-aware
+`prepass` variants, the three SSAO entry points and the contact-depth resolve) pass the mock's
+validation, with the opt-in terrain variants additionally exercised in `terrainMaterials.test`;
+`invalidate()` drops pipelines and the 16 layouts and the next `get` rebuilds them. **Prepass
+(13.1):** the `prepass` pipeline reuses the forward vertex source and entry point (static and
+instanced) while adding a material coverage fragment, has `depthCompare: "less"` and zero depth bias
+(the shadow program has a positive one and is a different module), culls like the forward pipeline,
+and the forward variant used over prepassed surfaces is `less-equal` with depth writes off. The SSAO
+estimate and both blur directions share one module, bind no vertex buffer and no depth attachment, and
+use different layouts (depth vs AO texture); contact-depth is a fullscreen `r32float` target with a
+single depth-texture binding.
 
 **Async compilation (13.7):** repeated `getReady()` cache misses share one in-flight `createRenderPipelineAsync`, return no bundle until it resolves, and expose pending/failure counts; a rejection is latched until invalidation and never leaves a pending entry.
 
@@ -583,6 +584,15 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   light paths, cap the cubes at two (the third light stays unshadowed), support a point-only frame
   with a 12-layer atlas after the sun drops, assign a box under an overhead light to the −Y face
   only (the +Y face draws nothing), and drop the whole cube when no caster reaches the light.
+* **Contact shadows (13.9):** enabling the scene setting inserts `forge.contact.depth` between the
+  material-aware prepass and `forge.main`; the pass resolves depth to `r32float`, the frame group
+  binds that view, and the isolated test asserts the logical graph order, neutral fallback and zero
+  mock validation errors. Contact settings are uploaded in the expanded `ShadowUniforms` block.
+* **Generic instanced culling (13.5 / 13.9):** two ordinary shared geometry/material batches register
+  with the shared population culler, produce `forge.populationCull.views` and `forge.populationCull`,
+  and feed their compacted lists/indirect records without dynamic source-range errors. Source-offset
+  changes recreate the culler bind groups; the shadow-enabled fixture also exercises the per-map
+  caster-index binding.
 * A steady frame creates no textures and no buffers; a resize to an unrelated size creates only the
   frame-sized transients (HDR, depth, new bloom mips), the old shapes are retired after the grace
   period, and the shadow atlas is untouched.
@@ -593,23 +603,28 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   frame group follows the real LUT when MS builds. Disabling the feature clears the bit, underwater
   state suppresses it, and teardown releases the fallback and LUT without mock validation errors.
 * **Depth prepass (13.1)**: `forge.prepass` has no colour target, clears and stores the scene depth
-  and draws the two opaque batches; `forge.main` attaches the *same* depth with `depthLoadOp: "load"`,
-  and every draw it issues for those batches uses a `nodepthwrite` pipeline (read back from the
-  mock's command log: pipeline per draw) while every prepass draw uses the depth-only `prepass`
-  variant. Cutout (`alphaTest`), fading (`opacity < 1`), transparent and overlay batches stay out of
-  the prepass (`prepassDraws` 2 of 6) and keep `depthwrite` pipelines in `forge.main`; a scene with
-  nothing eligible runs no prepass, no SSAO, and `forge.main` clears depth itself. A culled caster
-  reaches the cascades but not the prepass.
+  and draws the eligible opaque, alpha-cutout/fading and water batches; `forge.main` attaches the
+  *same* depth with `depthLoadOp: "load"`, and every prepassed draw it issues uses a `nodepthwrite`
+  pipeline while every prepass draw uses the material-aware `prepass`/water depth variant. Transparent
+  and overlay batches stay out and keep their normal depth state; a scene with nothing eligible runs
+  no prepass, no SSAO, and `forge.main` clears depth itself. A culled caster reaches the cascades but
+  not the prepass.
 * **SSAO (13.1) and aliasing (13.2)**: the estimate and both blur passes each draw one fullscreen
   triangle into a 160×90 `rg16float` target with no depth attachment; the vertical blur's target *is*
   the estimate's physical texture (same label), `aliasedBytes` = 160·90·4 and physical = transient −
-  1. The uploaded `SsaoUniforms` (read back from the mock buffer) carry the radius, `projScale` =
-  ½·180/tan(fov/2), both extents, `invProj[1][1]` = tan(fov/2) and a sample count clamped to 1…32.
-  SSAO off keeps the prepass; intensity 0 computes nothing; prepass off removes both and restores
-  `forge.main`'s own depth clear and writes; an orthographic camera gets the prepass but no SSAO;
-  `RendererOptions.depthPrepass: false` / `ssao: false` veto them whatever the scene asks. A steady
-  SSAO frame creates no texture or buffer, five prepass × SSAO × HDR combinations record no errors,
-  and the fixture's teardown proves the SSAO buffer, AO fallback and pooled AO targets are released.
+  1. The uploaded `SsaoUniforms` (read back from the mock buffer) carry the radius, perspective or
+  orthographic projection mode, both extents, inverse-projection data and a sample count clamped to
+  1…32. SSAO off keeps the prepass; intensity 0 computes nothing; prepass off removes both and
+  restores `forge.main`'s own depth clear and writes; an orthographic camera gets the prepass and the
+  same three SSAO passes with a constant pixels-per-metre kernel. `RendererOptions.depthPrepass: false`
+  / `ssao: false` veto them whatever the scene asks. A steady SSAO frame creates no texture or buffer,
+  five prepass × SSAO × HDR combinations record no errors, and teardown proves the SSAO buffer, AO
+  fallback and pooled AO targets are released.
+* **Contact shadows (13.9)**: enabling `settings.shadow.contactShadows` adds `forge.contact.depth`
+  after `forge.prepass`, resolves the depth attachment to a full-resolution `r32float` target, and
+  places it before `forge.main`; the frame suite checks graph ordering, contact bind path, neutral
+  fallback and zero mock validation errors. `contactDistance` and `contactStrength` are uploaded in
+  `ShadowUniforms`; this focused mock evidence does not claim a real-device visual A/B.
 * **GPU timing (13.8)**: an enabled mock renderer exposes non-zero asynchronous frame/render/compute
   times and a `lights.assign` timestamp in `Renderer.stats.gpuPassTimes`; the matching `Profiler` frame
   record and per-pass scope receive those samples. The graph-specific test verifies `execute()` returns
@@ -1650,14 +1665,20 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   retirement, single-submit recording — all on the mock device, where every allocation is visible.
   Aliasing also happens in the production frame now (the SSAO chain), on the mock and on real WebGPU.
 * **Depth prepass and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the frame without
-  it on real WebGPU; SSAO only ever darkens, locally. `docs/RENDERING.md` §4a says how, §9 what it
-  does not do.
-* **GPU object culling (Phase 13.5).** Frustum, per-batch distance and HiZ occlusion on the device
-  (`forge.objects.cull` + the `forge.hiz.<n>` pyramid), with the CPU twin as the mock device's path and
-  as the reference `tests/rendering/objectCulling.test.ts` pins byte for byte. On real WebGPU the two cullers draw
-  the same frame, the pass belongs to the arm that ran it, and switching the HiZ stage off never
-  darkens a pixel. `docs/RENDERING.md` §4d says how; per-batch granularity, the 8192-batch cap and the
-  CPU path's missing occlusion are `KNOWN-ISSUES.md`.
+  it on real WebGPU; material-aware coverage includes cutout/fading/water paths, and SSAO only ever
+  darkens locally for perspective and orthographic cameras. `docs/RENDERING.md` §4a says how, §9 what
+  it does not do.
+* **Contact shadows and adaptive atlas resolution (Phase 13.9).** The mock frame suite verifies the
+  opt-in `forge.contact.depth` resolve/order/bind path and the shadow uniform settings; the shadow
+  budget suite verifies power-of-two reduction before allocation. A real-device contact-shadow visual
+  A/B is not claimed by the focused evidence.
+* **GPU object and per-instance culling (Phase 13.5 / 13.9).** Frustum, per-batch distance and HiZ
+  occlusion run on the device (`forge.objects.cull` + `forge.hiz.<n>`), while the shared population
+  kernels compact eligible ordinary instanced and population batches for colour and shadow maps. The
+  CPU twin remains the mock device's path and `tests/rendering/objectCulling.test.ts` pins its bytes.
+  On real WebGPU the two object cullers draw the same frame, the pass belongs to the arm that ran it,
+  and switching HiZ off never darkens a pixel. `docs/RENDERING.md` §4d, §4g and §4h say how; the
+  8192-batch cap, CPU path's missing occlusion and non-instanced fallback are `KNOWN-ISSUES.md`.
 * **Cascade math.** Containment, texel snapping and caster back-off are checked numerically,
   independently of the GPU.
 * **`Engine` / `Renderer` / `Scene` at runtime.** Verified both through the mock-device suites and
@@ -1786,11 +1807,11 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   but ASTC/ETC2/HDR/cube/array uploads have not each been exercised on a real adapter; physical-GPU
   and cross-browser coverage is still outstanding. 3D volume KTX2 is deliberately deferred
   (`capability: assets.ktx2Volume`).
-* **Per-instance GPU visibility remains coarse.** The device HiZ pass culls whole colour batches:
-  one visible instance keeps its batch. Phase 13.9 separately assigns CPU-side world-AABB masks and
-  contiguous instance ranges to cascade/spot maps, but those shadow submissions are not driven by
-  the HiZ cull pass. The device does not yet independently compact individual instances across the
-  colour and shadow passes (`capability: rendering.cullCoverage`).
+* **Per-instance GPU visibility is scoped to eligible instanced batches.** Ordinary static instanced
+  renderables and population batches are independently compacted for colour and shadow maps by the
+  shared device kernels. Non-instanced, skinned, water, transparent/overlay and CPU-mode paths keep
+  their conservative per-batch or CPU range behavior; the source arena is not globally rewritten, and
+  the object-level HiZ pass still culls whole batches (`capability: rendering.cullCoverage`).
 * **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the

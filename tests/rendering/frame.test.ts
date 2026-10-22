@@ -311,14 +311,32 @@ group("frame structure", () => {
     await f.dispose();
   });
 
-  test("shadow memory budget reduces the atlas before allocation", async () => {
+  test("adaptive shadow quality toggles the shared atlas before allocation", async () => {
     const f = await fixture({ renderer: { shadowMapSize: 256, shadowMemoryBudget: 4 * 128 * 128 } });
     f.scene.settings.hdr = false;
     f.scene.settings.shadow.cascades = 1;
+    f.scene.settings.shadow.adaptive = false;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assertContains(f.mock.passes[0]!.depthTarget, "256x256x1");
+
+    f.mock.passes.length = 0;
+    f.scene.settings.shadow.adaptive = true;
     f.renderer.renderScene(f.scene);
     assert.deepEqual(f.mock.errors, []);
     assertContains(f.mock.passes[0]!.depthTarget, "128x128x1");
     await f.dispose();
+  });
+
+  test("serializes adaptive and contact-shadow settings without losing their policy", () => {
+    const scene = new Scene({ name: "shadow-settings" });
+    scene.setShadowSettings({ adaptive: false, contactShadows: true, contactDistance: 4.5, contactStrength: 0.35 });
+    const copy = new Scene({ name: "shadow-settings-copy" });
+    copy.applySerialized(JSON.parse(JSON.stringify(scene.serialize())));
+    assert.equal(copy.settings.shadow.adaptive, false);
+    assert.equal(copy.settings.shadow.contactShadows, true);
+    assert.equal(copy.settings.shadow.contactDistance, 4.5);
+    assert.equal(copy.settings.shadow.contactStrength, 0.35);
   });
 
   test("bloom and shadows are individually switchable, and the quality profile caps the scene", async () => {
@@ -985,7 +1003,7 @@ group("depth prepass and SSAO", () => {
     await f.dispose();
   });
 
-  test("transparent, cutout, fading and overlay surfaces stay out of the prepass and keep writing depth", async () => {
+  test("material-aware prepass covers cutout and fading surfaces while transparent and overlays keep depth writes", async () => {
     const f = await fixture();
     f.scene.settings.shadow.enabled = false;
     const box = createBox(f.device, { width: 1, height: 1, depth: 1 });
@@ -1011,14 +1029,14 @@ group("depth prepass and SSAO", () => {
     const s = f.renderer.stats;
     assert.equal(s.culled, 0);
     assert.equal(s.depthPrepass, true);
-    assert.equal(s.prepassDraws, 2); // the ground and the opaque box only
+    assert.equal(s.prepassDraws, 4); // ground, opaque box, alpha-tested cutout and fading material
     const forward = drawPipelines(f, "forge.main");
     assert.equal((forward).length, 6);
-    // The two prepassed surfaces shade without writing depth; the other four draw exactly as they
-    // would with no prepass at all, depth writes included.
-    assert.equal((forward.filter((p) => p.includes("|nodepthwrite|"))).length, 2);
-    assert.equal((forward.filter((p) => p.includes("|depthwrite|"))).length, 4);
-    assert.equal(f.mock.passes.find((p) => p.label === "forge.prepass")!.drawCalls, 2);
+    // The four material-aware prepassed surfaces shade without writing depth; transparent glass and
+    // the overlay draw exactly as they would with no prepass, depth writes included.
+    assert.equal((forward.filter((p) => p.includes("|nodepthwrite|"))).length, 4);
+    assert.equal((forward.filter((p) => p.includes("|depthwrite|"))).length, 2);
+    assert.equal(f.mock.passes.find((p) => p.label === "forge.prepass")!.drawCalls, 4);
 
     // Nothing eligible at all (everything transparent): no prepass pass, and so no SSAO either.
     f.mock.passes.length = 0;
@@ -1034,6 +1052,23 @@ group("depth prepass and SSAO", () => {
     assert.equal(f.mock.passes[0]!.depthLoadOp, "clear");
     box.dispose();
     for (const m of [cutout, fading, glass]) m.dispose();
+    await f.dispose();
+  });
+
+  test("contact shadows resolve prepass depth before the forward pass", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.contactShadows = true;
+    f.scene.settings.ssao.enabled = false;
+    f.scene.settings.postProcessing = false;
+    f.mock.passes.length = 0;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.deepEqual(labels(f), ["forge.shadow.0", "forge.shadow.1", "forge.shadow.2", "forge.prepass", "forge.contact.depth", "forge.main", "forge.tonemap"]);
+    const contact = f.mock.passes.find((p) => p.label === "forge.contact.depth");
+    assert.ok(contact);
+    assert.equal(contact!.colorTargets[0]?.includes(":r32float:"), true);
+    assert.equal(contact!.depthTarget, null);
+    assert.equal(f.renderer.stats.depthPrepass, true);
     await f.dispose();
   });
 
@@ -1116,9 +1151,10 @@ group("depth prepass and SSAO", () => {
     assert.equal(f.renderer.stats.ssao, false);
     f.scene.settings.depthPrepass = true;
 
-    // Orthographic camera: the prepass runs, SSAO does not (its bilateral key is perspective clip.w).
+    // Orthographic camera: the prepass and the signed-projection SSAO path both run; its radius
+    // uses pixels-per-metre rather than perspective clip.w.
     f.camera.setOrthographic(10, 16 / 9, 0.1, 100);
-    assert.deepEqual(run(), ["forge.prepass", "forge.main"]);
+    assert.deepEqual(run(), [...PREPASS_SSAO, "forge.main"]);
     f.camera.setPerspective(Math.PI / 3, 16 / 9, 0.1, 100);
     assert.deepEqual(run(), [...PREPASS_SSAO, "forge.main"]);
 
@@ -1623,6 +1659,25 @@ group("object culling", () => {
     assert.deepEqual(f.mock.errors, []);
     assertContains(f.renderer.passNames, "forge.objects.cull");
     assertContains(f.mock.commandLog.slice(before).filter((e) => e.type === "dispatch").map((e) => e["label"]), "objects.cull");
+    await f.dispose();
+  });
+
+  test("runs ordinary instanced batches through the shared per-instance culler", async () => {
+    const f = await fixture({
+      extraBoxes: [new Vec3(1.8, 0.75, 0)],
+      renderer: { objectCulling: "gpu", populationCulling: true, ssao: false },
+    });
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assertContains(f.renderer.passNames, "forge.populationCull.views");
+    assertContains(f.renderer.passNames, "forge.populationCull");
+    const cullDispatches = f.mock.commandLog.filter((e) => e.type === "dispatch").map((e) => e["label"]);
+    assertContains(cullDispatches, "population.cull.views");
+    assertContains(cullDispatches, "population.cull");
+    // The two boxes share one geometry/material batch, so their source window starts at one aligned
+    // arena offset and the main pass consumes the compacted output through an indirect record.
+    assert.ok(f.renderer.stats.instances >= 3);
+    assert.ok(f.mock.passes.find((p) => p.label === "forge.main")!.drawCalls > 0);
     await f.dispose();
   });
 

@@ -24,11 +24,11 @@ CURRENT CODEBASE BASELINE:
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
-    Phase 13:   IN PROGRESS (13.1-13.8 landed: depth prepass + SSAO, aliasing,
+    Phase 13:   IMPLEMENTED / VERIFIED (13.1-13.8: depth prepass + SSAO, aliasing,
                 clustered lighting, GPU light fill/culling, indirect rendering,
-                async pipeline compilation, GPU timing; 13.9 cascade assignment,
-                bounded spot shadows and bounded point shadows landed;
-                contact/adaptive work remains)
+                async pipeline compilation and GPU timing; 13.9 cascade assignment,
+                bounded spot/point shadows, contact shadows, adaptive atlas resolution,
+                and shared per-instance culling are covered by focused suites and docs)
     Phase 14:   IN PROGRESS (planned 14.1-14.6 population slices implemented, including
                 all six 14.2 types and GPU-selected LOD; capability remains partial for
                 documented follow-ups: per-instance culling, load-order-independent
@@ -821,18 +821,22 @@ GOAL:
 
 CURRENT STATE:
 
-    In progress. Landed: the depth prepass (13.1) with SSAO as its first consumer,
-    real transient aliasing in every SSAO frame (13.2), clustered lighting (13.3),
-    the GPU cluster fill (13.4), GPU object culling with the HiZ pyramid (13.5),
-    indirect rendering (13.6), asynchronous pipeline compilation (13.7) and GPU
-    timing (13.8). Phase 13.9 has conservative per-object cascade assignment,
-    bounded spot shadows (up to four lights) and bounded point shadows (up to two
-    lights, six cube faces each); contact shadows and adaptive resolution remain.
-    Frame: forge.shadow.<n> → forge.shadow.spot.<n> → forge.shadow.point.<n>.<face>
-    (both optional, after cascades) → forge.prepass → forge.hiz.<n> →
-    forge.objects.cull → forge.ssao → forge.ssao.blur.h → forge.ssao.blur.v →
-    forge.main → forge.sky → particles → bloom → forge.tonemap (the cull passes
-    exist only on the device path).
+    Implemented and verified. Landed: the depth prepass (13.1) with material-aware
+    coverage and orthographic SSAO, real transient aliasing in every SSAO frame (13.2),
+    clustered lighting (13.3), the GPU cluster fill (13.4), GPU object culling with
+    the HiZ pyramid (13.5), indirect rendering (13.6), asynchronous pipeline
+    compilation (13.7) and GPU timing (13.8). Phase 13.9 adds conservative
+    per-object cascade assignment, bounded spot shadows (up to four lights), bounded
+    point shadows (up to two lights, six cube faces each), a prepass-depth contact
+    resolve, budget-driven adaptive atlas resolution, and shared per-instance culling
+    for ordinary instanced batches and population batches.
+    Frame: forge.lights.assign (optional GPU fill) → forge.populationCull.views
+    (optional per-instance view/shadow lists) → forge.shadow.<n> →
+    forge.shadow.spot.<n> → forge.shadow.point.<n>.<face> (both optional, after
+    cascades) → forge.prepass → forge.contact.depth (optional) → forge.hiz.<n> →
+    forge.objects.cull → forge.populationCull → forge.ssao → forge.ssao.blur.h →
+    forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap
+    (the cull passes exist only on the device path).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -872,12 +876,14 @@ CURRENT STATE:
                               transparency technique (depth fade, OIT) consumes it.
         [ ] post processing — no depth-based post effect exists yet.
 
-    [ ] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
-        (a fragment stage that discards exactly like forge.main), so they get early-Z
-        and take part in SSAO.
+    [x] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
+        (a material-aware fragment stage matches forward alpha coverage; water uses
+        its deformed vertex path), so eligible surfaces get early-Z. Transparent and
+        overlay surfaces remain intentionally outside the prepass.
 
-    [ ] SSAO for orthographic cameras (the forward pass's bilateral key is clip.w,
-        which only a perspective projection makes view depth).
+    [x] SSAO for orthographic cameras. The uniform carries a projection-mode bit;
+        the kernel uses a constant pixels-per-metre radius and reconstructs view depth
+        along the camera forward axis instead of dividing by clip.w.
 
 
 13.2 Render Graph Aliasing Validation
@@ -999,10 +1005,15 @@ CURRENT STATE:
         The visible-object compaction and indirect draws that consume this buffer
         landed in 13.6.)
 
-    [ ] Per-instance culling inside a batch: one visible instance keeps its batch. (Population batches: done — 14.5 / fe-30, docs/RENDERING.md §4g; renderable batches still per batch.)
+    [x] Per-instance culling inside a batch: one visible instance no longer keeps the
+        whole ordinary instanced batch. The shared two-stage population culler compacts
+        ordinary static instanced renderables as well as population batches; its dynamic
+        source window leaves the frame arena intact and `forge.main` consumes the batch
+        records indirectly.
 
-    [ ] Culling the shadow cascades with the same pass (the cascades still use the
-        CPU's per-cascade AABB test).
+    [x] Culling the shadow cascades with the same pass. Ordinary instanced batches and
+        population batches append per-map caster indices in `forge.populationCull.views`;
+        the CPU range path remains the conservative fallback when the device path is off.
 
 
 13.6 Indirect Rendering
@@ -1098,9 +1109,20 @@ CURRENT STATE:
         clustered light paths. Covered by math/frame/WGSL tests and the PBR browser visual A/B;
         `Renderer.stats.pointShadowMaps` reports the active cube prefix.
 
-    [ ] Contact shadows.
+    [x] Contact shadows.
 
-    [ ] Adaptive shadow resolution.
+        A short, configurable screen-space ray (`contactDistance`, `contactStrength`)
+        samples a full-resolution `r32float` resolve of the prepass depth in the forward
+        shader. The pass is opt-in (`settings.shadow.contactShadows`) and complements,
+        rather than replaces, directional/spot/point atlas shadows; the renderer option
+        can veto it and the neutral fallback keeps the frame bind group stable.
+
+    [x] Adaptive shadow resolution.
+
+        When `settings.shadow.adaptive` is enabled, the complete active depth atlas is
+        reduced by powers of two until it fits `RendererOptions.shadowMemoryBudget`
+        (256 MiB by default), with a 128 px floor. When `adaptive: false`, the renderer
+        retains the requested shared resolution and does not apply the adaptive budget.
 
 
 EXIT CRITERIA:
@@ -1215,8 +1237,9 @@ GOAL:
         Each (chunk, type) submission becomes its own batch with its own conservative bounds, so
         the Phase 13.5 device object culler (frustum, distance, HiZ) and the Phase 13.6 indirect
         records apply to populations unchanged; a type's `maxDistance` is the per-batch distance
-        limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
-        of its instances (per-instance device culling is not built).
+        limit the culler enforces. The shared `forge.populationCull` path now also compacts each
+        eligible population instance for colour, prepass and shadow maps; a CPU/per-batch fallback
+        remains when the device path or indirect draws are off.
 
     [x] Per-instance culling inside a batch (fe-30, GPU-placement Phase A): `forge.populationCull`
         tests every instance of an instanced population batch (frustum, distance, HiZ), merged with
@@ -2638,9 +2661,10 @@ GOAL:
 
 24.3 GPU Visibility Compaction
 
-    [~] The object culler produces a dense visible-batch list and population culling compacts
-        per-instance records. The generic instance arena and CPU submission loop do not consume the
-        visible-batch list yet.
+    [~] The object culler produces a dense visible-batch list; the population culler and the
+        generic instanced-batch extension compact per-instance records and feed indirect draws.
+        The world-scale path still does not rewrite one global instance arena or consume the visible
+        batch list to remove CPU batch assembly.
 
 24.4 Indirect Rendering
 
@@ -3090,8 +3114,8 @@ DO NOT immediately start scripting, editor work, networking, or miscellaneous
 features.
 
 The sequence below is retained from the original plan, not a current queue: terrain workers/LOD,
-vehicle integration, and Phase 13.1–13.8 have since landed. The active Phase 13 remainder is 13.9
-shadow improvements (see the current state at the top of this document).
+vehicle integration, and Phase 13.1–13.9 have since landed. Phase 10 remains intentionally
+skipped/blocked as documented in the current status and known-issues sections.
 
 The original recommended sequence was:
 
@@ -3199,8 +3223,8 @@ CHANGE:
 
     Reason (at the time of this roadmap revision):
         Clustered lighting, depth prepass, GPU culling, indirect rendering,
-        GPU timing and async pipeline creation were unfinished; 13.1–13.8 have
-        since landed, with 13.9 shadow improvements still open.
+        GPU timing and async pipeline creation were unfinished; 13.1–13.9 have
+        since landed and are now covered by focused renderer verification.
 
 
 CHANGE:

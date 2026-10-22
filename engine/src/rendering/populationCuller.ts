@@ -58,6 +58,8 @@ export function popcount32(v: number): number {
 export interface PopulationCullEntry {
   /** Group 1 of both kernels: source, main-view list, HiZ-survivor list, shadow caster indices. */
   group: GPUBindGroup;
+  /** Dynamic source offset in the shared instance buffer (0 for device-resident populations). */
+  sourceOffset: number;
   count: number;
   camera: { x: number; y: number; z: number };
   lodDistance: number;
@@ -177,13 +179,13 @@ export class GpuPopulationCuller {
    * Group 1 for one batch: its source records, its main-view list, its HiZ-survivor list (`null`
    * binds a shared 80-byte placeholder: the batch never occludes) and its shadow caster indices.
    */
-  createInstanceGroup(source: GPUBuffer, compacted: GPUBuffer, occluded: GPUBuffer | null, casterIndices: GPUBuffer): GPUBindGroup {
+  createInstanceGroup(source: GPUBuffer, compacted: GPUBuffer, occluded: GPUBuffer | null, casterIndices: GPUBuffer, sourceSize?: number): GPUBindGroup {
     this.placeholder ??= this.device.device.createBuffer({ label: "population.cull.placeholder", size: InstanceStruct.byteSize("storage"), usage: BufferUsage.STORAGE });
     return this.device.device.createBindGroup({
       label: "population.cull.instances",
       layout: this.ensureInstanceLayout(),
       entries: [
-        { binding: 0, resource: { buffer: source } },
+        { binding: 0, resource: sourceSize === undefined ? { buffer: source } : { buffer: source, size: sourceSize } },
         { binding: 1, resource: { buffer: compacted } },
         { binding: 2, resource: { buffer: occluded ?? this.placeholder } },
         { binding: 3, resource: { buffer: casterIndices } },
@@ -375,7 +377,7 @@ export class GpuPopulationCuller {
     for (let i = 0; i < this.entries.length; i++) {
       const e = this.entries[i]!;
       pass.setBindGroup(0, this.viewGroup, [i * UNIFORM_SLOT]);
-      pass.setBindGroup(1, e.group);
+      pass.setBindGroup(1, e.group, [e.sourceOffset]);
       pass.dispatchWorkgroups(Math.ceil(e.count / POPULATION_CULL_WORKGROUP));
     }
     pass.end();
@@ -404,7 +406,7 @@ export class GpuPopulationCuller {
     for (let i = 0; i < this.entries.length; i++) {
       const e = this.entries[i]!;
       pass.setBindGroup(0, this.frameGroup, [i * UNIFORM_SLOT]);
-      pass.setBindGroup(1, e.group);
+      pass.setBindGroup(1, e.group, [e.sourceOffset]);
       pass.dispatchWorkgroups(Math.ceil(e.count / POPULATION_CULL_WORKGROUP));
     }
     pass.end();
@@ -451,7 +453,11 @@ export class GpuPopulationCuller {
   private ensureInstanceLayout(): GPUBindGroupLayout {
     this.instanceLayout ??= this.device.device.createBindGroupLayout({
       label: "population.cull.instances.layout",
-      entries: [0, 1, 2, 3].map((binding) => ({ binding, visibility: ShaderStage.COMPUTE, buffer: { type: "storage" as const } })),
+      entries: [0, 1, 2, 3].map((binding) => ({
+        binding,
+        visibility: ShaderStage.COMPUTE,
+        buffer: { type: "storage" as const, ...(binding === 0 ? { hasDynamicOffset: true } : {}) },
+      })),
     });
     return this.instanceLayout;
   }
@@ -522,6 +528,8 @@ registerMockComputeKernel(POPULATION_VIEW_CULL_PIPELINE_LABEL, (dispatch) => {
   if (!viewBytes || !popBytes || !args || !statsBytes || !source || !compacted || !indices) return;
   const base = dispatch.dynamicOffset(0) >> 2;
   const { batch, pu } = mockBatch(popBytes, base, dispatch.workgroups);
+  const sourceOffset = dispatch.dynamicOffset(1);
+  const sourceWindow = source.slice(sourceOffset);
   const vf = new Float32Array(viewBytes);
   const mask = pu[base + PCU("shadowMask")]!;
   const shadowPlanes: Float32Array[] = [];
@@ -532,7 +540,7 @@ registerMockComputeKernel(POPULATION_VIEW_CULL_PIPELINE_LABEL, (dispatch) => {
   const stats = emptyPopulationCullStats();
   const argsU32 = new Uint32Array(args);
   const shadowCounts = new Uint32Array(shadowPlanes.length);
-  const listed = cullPopulationViewsOnCpu(new Float32Array(source), new Uint32Array(source), batch, cullPlanesFrom(vf.subarray(0, 16)), shadowPlanes, new Uint32Array(compacted), new Uint32Array(indices), pu[base + PCU("indexStride")]!, shadowCounts, stats);
+  const listed = cullPopulationViewsOnCpu(new Float32Array(sourceWindow), new Uint32Array(sourceWindow), batch, cullPlanesFrom(vf.subarray(0, 16)), shadowPlanes, new Uint32Array(compacted), new Uint32Array(indices), pu[base + PCU("indexStride")]!, shadowCounts, stats);
   argsU32[pu[base + PCU("argsWord")]!] += listed;
   const shadowWord = pu[base + PCU("shadowArgsWord")]!;
   for (let k = 0; k < shadowCounts.length; k++) argsU32[shadowWord + k * DRAW_RECORD_WORDS] += shadowCounts[k]!;
@@ -551,11 +559,16 @@ registerMockComputeKernel(POPULATION_CULL_PIPELINE_LABEL, (dispatch) => {
   if (!cullBytes || !popBytes || !args || !statsBytes || !visibility || !source || !compacted || !occluded) return;
   const base = dispatch.dynamicOffset(0) >> 2;
   const { batch, pu } = mockBatch(popBytes, base, dispatch.workgroups);
+  const sourceOffset = dispatch.dynamicOffset(1);
+  const sourceWindow = source.slice(sourceOffset);
   const argsU32 = new Uint32Array(args);
   const listed = Math.min(argsU32[pu[base + PCU("argsWord")]!]!, batch.count);
   const visible = new Uint32Array(visibility)[pu[base + PCU("visibilityIndex")]!] === 0;
   const stats = emptyPopulationCullStats();
-  const kept = cullPopulationOcclusionOnCpu(new Float32Array(source), new Uint32Array(source), batch, new Uint32Array(compacted), listed, visible, mockCullParams(cullBytes), [], new Uint32Array(occluded), stats);
+  const sourceF32 = new Float32Array(sourceWindow);
+  const sourceU32 = new Uint32Array(sourceWindow);
+  const kept = cullPopulationOcclusionOnCpu(sourceF32, sourceU32, batch, new Uint32Array(compacted), listed, visible, mockCullParams(cullBytes), [], new Uint32Array(occluded), stats);
+  new Uint8Array(source).set(new Uint8Array(sourceWindow), sourceOffset);
   argsU32[pu[base + PCU("argsWordOccluded")]!] += kept;
   addMockStats(statsBytes, stats);
 });

@@ -60,8 +60,14 @@ export interface SceneShadowSettings {
    * `RendererOptions.maxSpotShadows` caps it further. Each slot is one extra depth pass.
    */
   maxSpotShadows: number;
-  /** Reserved for later adaptive shadow work; currently has no effect on map allocation or updates. */
+  /** Allow the renderer to reduce the shared shadow-map resolution to fit its memory budget. */
   adaptive: boolean;
+  /** Screen-space short-range contact shadows from the prepass depth (in addition to shadow maps). */
+  contactShadows: boolean;
+  /** Maximum world-space ray length for contact shadows. */
+  contactDistance: number;
+  /** Contact-shadow darkening (0..1). */
+  contactStrength: number;
   /** Cascade split scheme: 0 = uniform, 1 = logarithmic (practical split blend). */
   splitLambda: number;
   /** Tint surfaces by the cascade that shadows them (red, green, blue, yellow). */
@@ -416,7 +422,7 @@ export function defaultSceneSettings(): SceneSettings {
       heightFalloff: 0.28,
       heightBase: 0,
     },
-    shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, maxSpotShadows: DEFAULT_SPOT_SHADOWS, adaptive: true, splitLambda: 0.6, debugCascades: false },
+    shadow: { enabled: true, cascades: 3, mapSize: 2048, distance: 160, maxSpotShadows: DEFAULT_SPOT_SHADOWS, adaptive: true, contactShadows: false, contactDistance: 2.5, contactStrength: 0.75, splitLambda: 0.6, debugCascades: false },
     sky: defaultSkySettings(),
     clouds: defaultCloudSettings(),
     water: defaultWaterSettings(),
@@ -1107,6 +1113,10 @@ function applySettings(target: SceneSettings, data: Record<string, unknown>, cha
     target.shadow.mapSize = num(shadow["mapSize"], target.shadow.mapSize);
     target.shadow.distance = num(shadow["distance"], target.shadow.distance);
     target.shadow.maxSpotShadows = Math.min(MAX_SPOT_SHADOWS, Math.max(0, Math.floor(num(shadow["maxSpotShadows"], target.shadow.maxSpotShadows))));
+    if (typeof shadow["adaptive"] === "boolean") target.shadow.adaptive = shadow["adaptive"];
+    if (typeof shadow["contactShadows"] === "boolean") target.shadow.contactShadows = shadow["contactShadows"];
+    target.shadow.contactDistance = num(shadow["contactDistance"], target.shadow.contactDistance);
+    target.shadow.contactStrength = num(shadow["contactStrength"], target.shadow.contactStrength);
     target.shadow.splitLambda = num(shadow["splitLambda"], target.shadow.splitLambda);
     if (typeof shadow["debugCascades"] === "boolean") target.shadow.debugCascades = shadow["debugCascades"];
   }

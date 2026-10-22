@@ -232,7 +232,7 @@ fn vertexMain(input: WaterVertexInput, @builtin(instance_index) instanceIndex: u
   out.normal = normalize(cross(tangentZ, tangentX));
   out.crest = select(0.0, crestNum / crestDen, crestDen > 0.0);
   out.clipPos = perFrame.viewProj * vec4<f32>(displaced, 1.0);
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(displaced - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.baseXZ = base.xz;
   out.heightN = y / max(water.shoreC.z * max(shoal, 0.05), 0.01);
   return out;
@@ -252,6 +252,13 @@ fn waterNoise(p: vec2<f32>) -> f32 {
   let c = waterHash(i + vec2<f32>(0.0, 1.0));
   let d = waterHash(i + vec2<f32>(1.0, 1.0));
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Depth-prepass entry: the water vertex deformation is shared with the colour pass, while the
+// fragment does no shading because the prepass has no colour attachment. Keeping this entry in the
+// water module lets screen-space water establish the same early-Z surface before its grab pass.
+@fragment
+fn fragmentDepth() {
 }
 
 @fragment

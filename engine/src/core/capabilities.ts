@@ -525,19 +525,19 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.shadows",
     phase: "2",
-    status: "partial",
-    summary: "Priority-selected directional cascades plus up to four spot maps and two six-face point cubes at memory-budgeted shared resolution",
+    status: "verified",
+    summary: "Priority-selected directional cascades plus up to four spot maps and two six-face point cubes at adaptive, memory-budgeted shared resolution, with opt-in contact shadows",
     evidence: ["tests/rendering/shadows.test.ts", "tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts", "tools/browser-check.mjs"],
     closesWith: "13.9",
   },
   {
     id: "rendering.shadowCascades",
     phase: "2",
-    status: "partial",
-    summary: "Per-object conservative masks and assigned instance ranges across cascade, spot and point-face passes",
+    status: "verified",
+    summary: "Per-object conservative masks and shared GPU per-instance caster lists across cascade, spot and point-face passes",
     evidence: ["tests/rendering/shadows.test.ts", "tests/rendering/frame.test.ts"],
     closesWith: "13.9",
-    notes: "Casters whose bounds overlap multiple cascade/spot/point-face frusta submit to each assigned map; shadowInstancesDrawn/cull stats expose the work. Contact shadows and adaptive resolution remain under 13.9.",
+    notes: "Casters whose bounds overlap multiple cascade/spot/point-face frusta submit to each assigned map; ordinary instanced batches and population batches use forge.populationCull.views to append per-map indices on the device, with the CPU range path as fallback. shadowInstancesDrawn/cull stats and population shadow counters expose the work.",
   },
   {
     id: "rendering.shadowMemory",
@@ -545,7 +545,15 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Shadow atlas resolution adapts by powers of two so all cascade, spot, and point-face layers fit a configurable memory budget",
     evidence: ["tests/rendering/shadows.test.ts", "tests/rendering/frame.test.ts"],
-    notes: "The default budget is 256 MiB with a 128px floor; quality profiles still cap the requested size before budgeting. Resolution is shared across active layers rather than per-light."
+    notes: "The default budget is 256 MiB with a 128px floor; quality profiles still cap the requested size before budgeting. Resolution is shared across active layers rather than per-light. settings.shadow.adaptive controls the policy: false retains the requested shared resolution and skips the adaptive budget."
+  },
+  {
+    id: "rendering.contactShadows",
+    phase: "13.9",
+    status: "verified",
+    summary: "Opt-in short-range screen-space contact shadows from a full-resolution prepass-depth resolve, complementary to atlas shadows",
+    evidence: ["tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts"],
+    notes: "settings.shadow.contactShadows controls the pass; contactDistance/contactStrength tune it and RendererOptions.contactShadows can veto it. A neutral r32float fallback keeps the frame layout valid when the effect is off.",
   },
   {
     id: "rendering.renderScale",
@@ -575,17 +583,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "rendering.depthPrepass",
     phase: "13.1",
     status: "verified",
-    summary: "Depth prepass (forge.prepass): opaque depth first, forge.main shades each visible pixel once without re-writing it",
+    summary: "Material-aware depth prepass (forge.prepass): eligible opaque, cutout, fading and water depth first; forge.main shades each visible pixel once without re-writing it",
     evidence: ["tests/rendering/frame.test.ts", "tests/rendering/pipeline.test.ts", "tools/browser-check.mjs"],
-    notes: "Same vertex module/entry as the forward pass with an @invariant position; real WebGPU frame is pixel-identical with the prepass on or off",
+    notes: "Standard, terrain, skinned and water prepass variants share the forward vertex path where applicable and use the material coverage fragment; real WebGPU frame is pixel-identical with the prepass on or off for eligible surfaces",
   },
   {
     id: "rendering.ssao",
     phase: "13.1",
     status: "verified",
-    summary: "Half-resolution SSAO from the prepass depth: estimate, depth-aware separable blur, bilateral upsample into the ambient term",
+    summary: "Half-resolution SSAO from the prepass depth for perspective and orthographic cameras: estimate, depth-aware separable blur, bilateral upsample into the ambient term",
     evidence: ["tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts", "tools/browser-check.mjs"],
-    notes: "Perspective cameras only; ambient term only, so scenes lit mostly by direct light show little of it",
+    notes: "Orthographic kernels use a constant pixels-per-metre radius and camera-forward view depth; ambient term only, so scenes lit mostly by direct light show little of it",
   },
   {
     id: "rendering.depthReuse",
@@ -598,10 +606,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.prepassCoverage",
     phase: "13.1",
-    status: "partial",
-    summary: "Cutout, fading, transparent and water surfaces stay out of the prepass (no early-Z, no SSAO on or from them); orthographic cameras get no SSAO",
-    evidence: ["tests/rendering/frame.test.ts"],
+    status: "verified",
+    summary: "Material-aware prepass covers opaque, alpha-cutout, fading and water surfaces; transparent and overlay surfaces remain out by design, and orthographic cameras receive SSAO",
+    evidence: ["tests/rendering/frame.test.ts", "tests/rendering/pipeline.test.ts"],
     closesWith: "13.1",
+    notes: "Coverage fragments sample the same material alpha inputs as the forward path; water uses its deformed vertex entry. Blended transparent/overlay surfaces still avoid the prepass because their depth is not authoritative.",
   },
   {
     id: "rendering.clusteredLighting",
@@ -640,10 +649,10 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "rendering.cullCoverage",
     phase: "13.5",
-    status: "partial",
-    summary: "Culling is per batch and skips the upload: a culled batch's instance data is still written to the arena and one visible instance keeps its whole batch, so the compaction list buys a denser instance arena only once the frame rewrites firstInstance; the CPU twin cannot test occlusion, and only the first 8192 batches of a frame are tested",
-    evidence: ["tests/rendering/objectCulling.test.ts", "tests/rendering/frame.test.ts"],
-    notes: "docs/RENDERING.md §4d, docs/KNOWN-ISSUES.md. The cap leaves batches past it visible rather than wrongly culled and their records keep the CPU-seeded count, and the missing occlusion on the CPU path is what keeps the mock device's frames honest; per-instance culling and rewriting the instance arena from the compaction list are roadmap leftovers, not scheduled work",
+    status: "verified",
+    summary: "Per-batch object culling plus shared two-stage per-instance compaction for ordinary static instanced batches and population batches; indirect main and shadow records consume the survivors",
+    evidence: ["tests/rendering/objectCulling.test.ts", "tests/rendering/frame.test.ts", "tests/rendering/wgsl.test.ts"],
+    notes: "docs/RENDERING.md §4d, §4g and §4h. Generic instanced batches bind a dynamic source window into the frame arena, write batch-local visible/occluded lists and per-map caster indices, and keep the CPU per-batch path as fallback. The 8192-batch object-culler cap and CPU twin's missing HiZ test remain intentional limitations.",
     closesWith: "13.6",
   },
   {
@@ -1263,7 +1272,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,187-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,188-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1277,7 +1286,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,196 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,187 public candidates have exact approvals across 23 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,197 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,188 public candidates have exact approvals across 23 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",
