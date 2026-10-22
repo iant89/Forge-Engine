@@ -388,6 +388,60 @@ group("Physics - Heightfield Contacts", () => {
   });
 });
 
+group("Physics - Continuous Collision Detection", () => {
+  test("stops a fast sphere at a thin static wall without tunnelling, deterministically", () => {
+    const makeWorld = (): { world: PhysicsWorld; projectile: RigidBody } => {
+      const world = new PhysicsWorld({ gravity: new Vec3(0, 0, 0), fixedDt: 1 / 60 });
+      world.addBody(new RigidBody({
+        type: "static",
+        shape: new BoxShape(0.01, 2, 2),
+        position: new Vec3(0, 0, 0),
+        restitution: 0,
+      }));
+      const projectile = new RigidBody({
+        shape: new SphereShape(0.1),
+        mass: 1,
+        position: new Vec3(-5, 0, 0),
+        linearVelocity: new Vec3(1000, 0, 0),
+        restitution: 0,
+      });
+      world.addBody(projectile);
+      return { world, projectile };
+    };
+
+    const a = makeWorld();
+    const b = makeWorld();
+    a.world.stepDeterministic(4);
+    b.world.stepDeterministic(4);
+
+    // A discrete 60 Hz step would put the sphere on the far side of the 2 cm wall. CCD stops it at
+    // the conservative front face (radius + half wall thickness) and remains stable on later steps.
+    assert.ok(a.projectile.position.x < -0.09);
+    assert.ok(a.projectile.linearVelocity.x <= 0.01);
+    assert.deepEqual(a.world.snapshot(), b.world.snapshot());
+  });
+
+  test("sweeps a fast body into a heightfield contact before the next fixed pose", () => {
+    const world = new PhysicsWorld({ gravity: new Vec3(0, 0, 0), fixedDt: 1 / 60 });
+    const field = new HeightfieldShape({ sampleHeight: () => 0 });
+    world.addBody(new RigidBody({ type: "static", shape: field, restitution: 0 }));
+    const projectile = new RigidBody({
+      shape: new SphereShape(0.1),
+      mass: 1,
+      position: new Vec3(0, 2, 0),
+      linearVelocity: new Vec3(0, -240, 0),
+      restitution: 0,
+    });
+    world.addBody(projectile);
+
+    world.stepDeterministic(1);
+
+    assert.ok(projectile.position.y >= 0.09);
+    assert.ok(projectile.position.y < 0.2);
+    assert.ok(projectile.linearVelocity.y >= -0.01);
+  });
+});
+
 group("Phase 25 — WASM linear-memory ABI and snapshot transfer", () => {
   const makeWorld = (ballHeight: number): PhysicsWorld => {
     const world = new PhysicsWorld({

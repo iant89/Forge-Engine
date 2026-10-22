@@ -49,6 +49,8 @@ export const BINDINGS = {
    * one uniform compare per light.
    */
   cloud: { group: 0, binding: 11 },
+  /** Full-resolution prepass depth resolved to r32float for screen-space contact shadows. */
+  contactDepth: { group: 0, binding: 12 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
   /** Batch visibility words the object culler wrote (`rendering/objectCulling.ts`): 0 = draw. */
@@ -371,6 +373,7 @@ const STANDARD_BINDINGS = /* wgsl */ `@group(0) @binding(0) var<uniform> perFram
 @group(0) @binding(8) var<storage, read> clusterGrid: ClusterGridBlock;
 @group(0) @binding(9) var<uniform> sky: SkyUniforms;
 @group(0) @binding(${BINDINGS.cloud.binding}) var<uniform> cloud: CloudUniforms;
+@group(0) @binding(${BINDINGS.contactDepth.binding}) var contactDepth: texture_2d<f32>;
 @group(1) @binding(0) var<uniform> objectData: ObjectUniforms;
 @group(1) @binding(1) var<storage, read> instances: array<InstanceData>;
 // The object culler's verdict for this draw's batch (0 = draw, see rendering/objectCulling.ts). Only
@@ -498,7 +501,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
   // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
   out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
@@ -532,7 +535,7 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
   out.clipPos = cullBatch(out.clipPos);
   return out;
@@ -564,7 +567,7 @@ fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
   // still carries the renderable's tint — read it so a lone tinted instance keeps its colour.
   out.tint = select(vec4<f32>(1.0), unpackTint(instances[0].tint), objectData.instanceCount == 1u);
@@ -589,7 +592,7 @@ fn vertexMainInstancedSkinned(input: VertexInput, @builtin(instance_index) insta
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
   out.clipPos = cullBatch(out.clipPos);
   return out;
@@ -630,7 +633,7 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
   out.tangent = input.tangent;
-  out.viewDepth = out.clipPos.w;
+  out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
   out.clipPos = cullBatch(out.clipPos);
   return out;
@@ -723,6 +726,39 @@ fn clusterIndexOf(fragCoord: vec2<f32>, viewDepth: f32) -> i32 {
   return (tz * tiles.y + ty) * tiles.x + tx;
 }
 
+// A short screen-space ray toward a light catches the small gaps shadow maps intentionally blur away.
+// The prepass is resolved to an r32float texture before forge.main, so this lookup does not alias the
+// writable depth attachment. A miss outside the screen is treated as lit; the regular cascade/spot/
+// point map remains the authoritative long-range shadow.
+fn contactShadow(point: vec3<f32>, normal: vec3<f32>, lightDir: vec3<f32>, fragCoord: vec2<f32>) -> f32 {
+  let params = uniforms_shadow.contactParams;
+  if (params.w < 0.5) {
+    return 1.0;
+  }
+  let radius = max(params.x, 1e-3);
+  let bias = max(params.y, 1e-5);
+  let extent = perFrame.renderExtent;
+  var blocked = 0.0;
+  for (var i = 1u; i <= 8u; i = i + 1u) {
+    let t = radius * f32(i) / 8.0;
+    let clip = perFrame.viewProj * vec4<f32>(point + lightDir * t, 1.0);
+    if (clip.w > 1e-5) {
+      let ndc = clip.xyz / clip.w;
+      let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+      if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z >= 0.0 && ndc.z <= 1.0) {
+        let pixel = clamp(vec2<i32>(uv * extent), vec2<i32>(0), vec2<i32>(extent) - vec2<i32>(1));
+        let scene = textureLoad(contactDepth, pixel, 0);
+        // A smaller stored depth is a surface between the receiver and the light sample. Weight
+        // the near steps more heavily so the effect fades continuously instead of popping at radius.
+        if (scene + bias < ndc.z) {
+          blocked = max(blocked, 1.0 - f32(i - 1u) / 8.0);
+        }
+      }
+    }
+  }
+  return 1.0 - clamp(params.z * blocked, 0.0, 1.0);
+}
+
 // Everything one light evaluation needs that is not the light itself.
 struct SurfaceShading {
   worldPos: vec3<f32>,
@@ -741,7 +777,7 @@ struct SurfaceShading {
 // accumulate through this single function, so a frame is bit-identical whichever path supplied the
 // light — that is what turns "clustering on vs off" into a pixel comparison instead of a judgement
 // call, and it is why the body is not allowed to grow a second copy.
-fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
+fn lightContribution(L: LightUniforms, s: SurfaceShading, fragCoord: vec2<f32>) -> vec3<f32> {
   let N = s.normal;
   let V = s.view;
   var lightDir: vec3<f32>;
@@ -777,6 +813,10 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading) -> vec3<f32> {
       power = power * spotShadowAttenuation(s.worldPos, N, L.shadowIndex);
     }
   }
+  // Contact rays are deliberately short and complementary to the atlas maps. They also work for
+  // unshadowed local lights, where the map has no slot but a nearby blocker still needs a grounding
+  // term.
+  power = power * contactShadow(s.worldPos, N, lightDir, fragCoord);
   let H = normalize(V + lightDir);
   let nl = max(dot(N, lightDir), 0.0);
   let nv = max(dot(N, V), 0.0);
@@ -915,7 +955,7 @@ ${surfaceSetup}
     // (they reach every pixel, so there is nothing to cull); with it off it holds everything the
     // fixed 16-entry list can carry, exactly as before.
     for (var i = 0i; i < lights.count; i = i + 1i) {
-      color = color + lightContribution(lights.lights[i], surface);
+      color = color + lightContribution(lights.lights[i], surface, in.clipPos.xy);
     }
     if ((perFrame.flags & FLAGS_CLUSTERED) != 0u) {
       // Local lights from this fragment's cluster alone. The list is in light order — the CPU
@@ -931,7 +971,7 @@ ${surfaceSetup}
         let index = i32(clusterGrid.indices[base + k]);
         // A stale or corrupt index must cost a light, not read another one's record.
         if (index >= 0i && index < limit) {
-          color = color + lightContribution(clusterLights.lights[index], surface);
+          color = color + lightContribution(clusterLights.lights[index], surface, in.clipPos.xy);
         }
       }
     }
@@ -993,6 +1033,34 @@ ${surfaceSetup}
 }
 
 export const STANDARD_FRAGMENT_BODY = createStandardFragmentBody();
+
+/**
+ * Depth-prepass fragment. It deliberately has no colour output target, but keeps the same alpha
+ * decisions as `fragmentMain`: MASK materials discard below the cutoff and fading materials discard
+ * fragments that contribute no useful coverage. The vertex entry is the standard module's own entry,
+ * so `@invariant` keeps the depth value identical to the forward draw. Material bindings are used
+ * here even though the old opaque prepass did not need group 2; that is what makes cutout and fade
+ * coverage participate in early-Z and every depth consumer (13.1).
+ */
+export const STANDARD_PREPASS_FRAGMENT = /* wgsl */ `
+@fragment
+fn fragmentDepth(in: VertexOutput) {
+  let uv = in.uv * material.tiling + material.offset;
+  var albedoAlpha = material.baseColorFactor.a;
+  if ((material.flags & FLAGS_ALBEDO) != 0u) {
+    albedoAlpha = albedoAlpha * textureSample(albedoMap, materialSampler, uv).a;
+  }
+  // Match fragmentMain: alpha-test is the material alpha, while the fading discard also includes
+  // the per-instance tint alpha. Keeping those decisions separate prevents an instanced tint from
+  // punching a hole in a cutout surface that the forward pass would keep.
+  if ((material.flags & FLAGS_ALPHA_TEST) != 0u && albedoAlpha * material.opacity < material.alphaCutoff) {
+    discard;
+  }
+  if (material.opacity < 0.999 && albedoAlpha * material.opacity * in.tint.a < 0.004) {
+    discard;
+  }
+}
+`;
 
 /** @deprecated kept so external demos keep compiling; use `STANDARD_FRAGMENT_BODY`. */
 export const STANDARD_FRAGMENT = STANDARD_DEFINES + STANDARD_FRAGMENT_BODY;

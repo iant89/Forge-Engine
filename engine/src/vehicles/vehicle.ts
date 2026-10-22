@@ -715,14 +715,31 @@ export class Vehicle {
       const hub = this.hubVelocity(w);
       const heading = this.yaw + w.steerAngle;
       hubLong[i] = hub.x * DMath.sin(heading) + hub.z * DMath.cos(heading);
-      this.balanceLongitudinal(w, shares[i] ?? 0, brake, handbrake, parkingBrake, hubLong[i]!, dt);
+      // Read the state before applying this step's torques. TC/ABS are torque controllers now,
+      // rather than clamps on an algebraically solved wheel speed.
+      w.kappa = wheelSlip(w.omega, hubLong[i]!, c.wheelRadius, c.slipReference);
       if (w.driven) peakDrivenSlip = Math.max(peakDrivenSlip, Math.abs(w.kappa));
     }
-    // TC scale is applied on top of the slip clamp: a wheel already held at `tcSlip` is not cut,
-    // but a wheel that the clamp did not catch (TC off, or slip still rising) is.
+    // TC reduces the torque that will be integrated when the driven wheels are already beyond the
+    // requested slip. This leaves wheel inertia visible: a wheel can spin up, the controller can
+    // bring it back down, and the result is not an instantaneous equilibrium assignment.
     const tcScale = c.tcEnabled ? tractionControlScale(peakDrivenSlip, c.tcSlip, c.tcStrength) : 1;
     if (tcScale !== 1) {
       for (let i = 0; i < shares.length; i++) shares[i] = (shares[i] ?? 0) * tcScale;
+    }
+    for (let i = 0; i < this.wheels.length; i++) {
+      const w = this.wheels[i]!;
+      if (!w.inContact) continue;
+      const absScale = c.absEnabled ? absBrakeScale(w.kappa, c.absSlip, c.absStrength) : 1;
+      this.balanceLongitudinal(
+        w,
+        shares[i] ?? 0,
+        brake * absScale,
+        handbrake,
+        parkingBrake,
+        hubLong[i]!,
+        dt,
+      );
     }
 
     let fx = 0;
@@ -784,14 +801,6 @@ export class Vehicle {
       const vLat = hub.x * wrx + hub.z * wrz;
       const ref = Math.max(Math.abs(vLong), c.slipReference);
       w.alpha = DMath.atan2(vLat, ref);
-      // A brake that has already blown past the ABS slip is scaled down; the slip solve has already
-      // held κ on the rising face, so this only trims a request the clamp did not fully catch.
-      const absScale = c.absEnabled ? absBrakeScale(w.kappa, c.absSlip, c.absStrength) : 1;
-      if (absScale !== 1 && brake > 0) {
-        // Re-balance with the cut brake so the force and the wheel speed agree.
-        this.balanceLongitudinal(w, shares[i] ?? 0, brake * absScale, handbrake, parkingBrake, vLong, dt);
-      }
-
       const D = this.mu * w.normalLoad;
       let longF = pacejka(w.kappa, { ...c.longitudinal, D });
       let latF = -pacejka(w.alpha, { ...c.lateral, D });
@@ -891,7 +900,7 @@ export class Vehicle {
     // Static friction: a held brake under the standstill speed is a *park* — it holds the pose, not
     // just the velocity. Zeroing the velocity alone still lets the substep's gravity impulse move
     // the car by a·dt² before it is zeroed (1.7 cm/s of creep on a 12° slope under a full brake),
-    // and `balanceLongitudinal` has already locked the wheels for the same condition.
+    // and the wheel integrator has already locked the wheels for the same condition.
     const parked = holdBrake > 0.5 && this.speed < STATIC_HOLD_SPEED && contactCount > 0;
     const prevX = this.position.x;
     const prevZ = this.position.z;
@@ -1292,26 +1301,18 @@ export class Vehicle {
   }
 
   /**
-   * Quasi-static longitudinal slip. A Pacejka tire at 120 Hz is too stiff to integrate explicitly:
-   * wheel speed jumps past the peak and the force reverses on the next step. Solve for the slip
-   * whose tire torque balances drive minus brake, and stay on the rising face.
+   * Integrate one wheel's longitudinal angular velocity from torque balance.
    *
-   * TC and ABS tighten that clamp. An unaided wheel whose demand exceeds the peak is allowed to
-   * spin up, so traction control has a higher slip to compare against.
+   * `I * dω/dt = driveTorque - brakeTorque - tireForce * radius` is solved with a small
+   * backward-Euler/Newton iteration. The tire force still comes from the steady-state Pacejka
+   * curve, but wheel speed is now state: it can build slip, overshoot the peak, recover under TC,
+   * and lock under brake torque instead of being assigned the slip that balances the demand.
+   * The implicit step is important because the tire stiffness is much higher than a 120 Hz wheel
+   * can integrate explicitly without a limit cycle.
    *
-   * A brake only ever removes wheel speed. Two consequences are load-bearing, and both are about
-   * `spin` — the odometer `VehicleSystem` rotates the visual wheels from:
-   *
-   * - **At a standstill the wheels lock** (`ω = 0`) with the slip the ground actually sees. Solving
-   *   there instead hands back the wheel speed implied by the *holding* slip (`κ·slipReference / r`,
-   *   4.7 rad/s for a car parked in gear: the residual solve lands on κ = 0.4, well past the peak),
-   *   and `spin` integrates it for as long as the brake is held: a parked car whose four wheels
-   *   visibly keep turning. The tire force is what holds the car, and it is not the wheel's rotation
-   *   that produces it.
-   * - **Past the peak the wheel locks instead of reversing.** Brake torque the tire cannot transmit
-   *   drags a wheel to a stop; it cannot spin it backwards, which is what the residual-torque
-   *   branch would otherwise do (and what used to leave a car creeping at ~0.4 m/s with the brake
-   *   fully on: a backwards-spinning wheel has a huge |κ|, and the force there is nearly zero).
+   * At a standstill the explicit park hold keeps `ω = 0`; while rolling, a brake only removes wheel
+   * speed. If the brake demand exceeds the tire's rising-side reaction, the wheel locks rather than
+   * taking the mirrored Pacejka branch, which would turn an over-braked wheel into propulsion.
    */
   private balanceLongitudinal(
     w: WheelState,
@@ -1328,95 +1329,153 @@ export class Vehicle {
     const peakSlip = Math.max(0.05, c.absSlip);
     if (this.rearWheelLock && this.isRearWheel(w)) {
       w.omega = 0;
-      w.kappa = clamp((0 - vLong) / ref, -peakSlip, peakSlip);
+      w.kappa = wheelSlip(0, vLong, r, c.slipReference);
       return;
     }
+
     const brakeTorque = this.brakeTorqueAt(w, brake, handbrake, parkingBrake);
-
-    if (!w.driven && brakeTorque < 1) {
-      w.omega = vLong / r;
-      w.kappa = 0;
-      return;
-    }
-
-    const brakeDominant = brakeTorque > 1 && Math.abs(brakeTorque) >= Math.abs(driveTorque);
+    // Negative motor torque is regenerative braking, not a drive request that should make the
+    // one-way mechanical-brake clamp fire. It still participates in the torque equation and the
+    // low-speed park hold, but must be allowed to settle on the braking-slip root first.
+    const brakeDominant = brakeTorque > 1 && (driveTorque <= 0 || brakeTorque >= Math.abs(driveTorque));
     if (brakeDominant && w.inContact && this.speed < STATIC_HOLD_SPEED) {
       w.omega = 0;
-      w.kappa = (0 - vLong) / ref;
+      w.kappa = wheelSlip(0, vLong, r, c.slipReference);
       return;
-    }
-
-    let demand = driveTorque;
-    if (brakeTorque > 0) {
-      const oppose = Math.abs(vLong) > 0.25 ? Math.sign(vLong) : Math.abs(w.omega) > 0.25 ? Math.sign(w.omega) : 1;
-      demand -= brakeTorque * oppose;
     }
 
     const D = this.mu * Math.max(0, w.normalLoad);
-    if (D < 1) {
-      // Unloaded / airborne wheel: free dynamics, but the brake still only removes speed.
-      w.omega = stepWheelSpeed(w.omega, demand, driveTorque, brakeTorque, c.wheelInertia, dt);
-      w.kappa = (w.omega * r - vLong) / ref;
-      return;
-    }
-
-    const peakF = Math.abs(pacejka(peakSlip, { ...c.longitudinal, D }));
-    const demandF = demand / r;
-    // ABS modulates the foot brake only: the handbrake and the parking brake are mechanical and
-    // a released hydraulic circuit must not free a locked wheel.
-    const absActive = c.absEnabled && brake * c.maxBrakeTorque > 1 && Math.abs(vLong) > 0.4;
-    // Only *positive* drive torque is traction-controlled. Regenerative braking arrives here as
-    // negative drive torque, and treating that as "aided" skipped the past-the-grip branch for a
-    // braking wheel — which then solved (see below) to the mirrored clamp and drove the vehicle
-    // forward while the brake was held.
-    const aided = (c.tcEnabled && w.driven && driveTorque > 1) || absActive;
-    if (Math.abs(demandF) > peakF && !aided) {
-      const excess = demand - Math.sign(demand || 1) * peakF * r;
-      w.omega = stepWheelSpeed(w.omega, excess, driveTorque, brakeTorque, c.wheelInertia, dt);
-      w.kappa = (w.omega * r - vLong) / ref;
-      return;
-    }
-
-    // The demand picks the face of the slip axis: a drive demand solves on the forward-force face
-    // (κ ≥ 0), a brake demand on the braking face (κ ≤ 0). Both faces are monotone, so the root
-    // for any demand inside the grip limit is unique there, and a demand *past* the limit lands
-    // on that face's clamp — peak grip, in the demand's own direction.
-    //
-    // Solving across zero instead is what shipped: a full-brake demand the tire cannot deliver
-    // walked off the peak (where dF < 0) with a step to the far clamp and stopped there, so the
-    // tire held peak *forward* force with the brake pinned — the reported "brake on a slope and
-    // the speed climbs drastically" (and, with the throttle pinned in traffic, an alternating
-    // full-drive/full-brake limit cycle that pinned the rover near standstill). A bracketed
-    // Newton (bisecting whenever a step would leave the bracket) cannot do either.
-    const side = demandF >= 0 ? 1 : -1;
-    const endLo = Math.min(0, side * peakSlip);
-    const endHi = Math.max(0, side * peakSlip);
-    let lo = endLo;
-    let hi = endHi;
-    let kappa = clamp((w.omega * r - vLong) / ref, endLo, endHi);
     const coeff = { ...c.longitudinal, D };
-    for (let n = 0; n < 12; n++) {
-      const F = pacejka(kappa, coeff);
-      const err = F - demandF;
-      if (Math.abs(err) < 1) break;
-      if (err > 0) hi = kappa;
-      else lo = kappa;
-      const dF = pacejkaDerivative(kappa, coeff);
-      let next = Math.abs(dF) > 1e-2 ? kappa - err / dF : (lo + hi) * 0.5;
-      if (!(next > lo && next < hi)) next = (lo + hi) * 0.5;
-      kappa = next;
+    // TC is a torque controller, not an algebraic slip assignment. Limit the drive torque to the
+    // force available at the configured control slip; the wheel can still move toward that slip
+    // through its inertia and can spin beyond it when TC is disabled.
+    const tcForce = c.tcEnabled && w.driven && driveTorque > 0
+      ? Math.abs(pacejka(Math.min(Math.max(c.tcSlip, 0), peakSlip), coeff))
+      : Infinity;
+    const appliedDrive = Math.min(driveTorque, tcForce * r);
+    // A locked/slipping wheel can briefly have an ω sign opposite to the chassis. Brake torque
+    // must still oppose the ground-contact motion in that case; choosing ω first would make the
+    // next substep apply a full pad torque in the propulsive direction and alternate wheel spin.
+    const brakeDirection = Math.sign(vLong) || Math.sign(w.omega) || Math.sign(appliedDrive) || 1;
+    const signedBrake = brakeTorque * brakeDirection;
+    // Only a positive drive torque is opposed by the mechanical-brake anti-reversal clamp. With
+    // regen, both terms are braking torque and the implicit wheel solve must retain its signed root.
+    const appliedBrakeDominant = brakeTorque > 1 && appliedDrive >= 0 && brakeTorque >= appliedDrive;
+    if (D < 1) {
+      // An unloaded wheel has no tire reaction. It still has real rotational inertia and a brake
+      // can only remove spin; it cannot wind the wheel backwards.
+      w.omega = stepWheelSpeed(w.omega, appliedDrive - signedBrake, appliedDrive, brakeTorque, c.wheelInertia, dt);
+      w.kappa = wheelSlip(w.omega, vLong, r, c.slipReference);
+      return;
     }
-    if (c.tcEnabled && w.driven && driveTorque > 1) kappa = Math.min(kappa, c.tcSlip);
-    if (c.tcEnabled && w.driven && driveTorque < -1) kappa = Math.max(kappa, -c.tcSlip);
-    if (absActive) {
-      const sign = Math.sign(vLong) || 1;
-      const lockSlip = -sign * c.absSlip;
-      kappa = sign > 0 ? Math.max(kappa, lockSlip) : Math.min(kappa, lockSlip);
+
+    const oldOmega = w.omega;
+    const residualAtSlip = (kappa: number): number => {
+      const omegaAtSlip = (vLong + kappa * ref) / r;
+      const force = pacejka(kappa, coeff);
+      return omegaAtSlip - oldOmega -
+        (dt / c.wheelInertia) * (appliedDrive - signedBrake - force * r);
+    };
+    let omega = oldOmega + ((appliedDrive - signedBrake) / c.wheelInertia) * dt;
+    let brakingRootSolved = false;
+    // A high brake torque can move a wheel across the whole tire curve in one 120 Hz step. Newton
+    // then starts from the wrong side of the peak and may settle on the descending root (or cross
+    // zero and trigger the lock clamp), making a small pad torque look like a full-μ skid. Bracket
+    // the physically relevant, rising-side braking root explicitly. This is still an integrated
+    // solve: the previous angular velocity and wheel inertia remain in the residual; only the
+    // stiff tire branch is bracketed for numerical stability.
+    const direction = Math.sign(oldOmega) || Math.sign(vLong) || 1;
+    const netTorque = appliedDrive - signedBrake;
+    if (netTorque * direction < 0) {
+      const brakeSlip = -direction * peakSlip;
+      const zeroSlip = 0;
+      let lo = Math.min(brakeSlip, zeroSlip);
+      let hi = Math.max(brakeSlip, zeroSlip);
+      let flo = residualAtSlip(lo);
+      let fhi = residualAtSlip(hi);
+      if (flo * fhi <= 0) {
+        for (let iteration = 0; iteration < 14; iteration++) {
+          const mid = (lo + hi) * 0.5;
+          const fm = residualAtSlip(mid);
+          if (Math.abs(fm) < 1e-5) {
+            lo = hi = mid;
+            break;
+          }
+          if (flo * fm <= 0) {
+            hi = mid;
+            fhi = fm;
+          } else {
+            lo = mid;
+            flo = fm;
+          }
+        }
+        const slip = (lo + hi) * 0.5;
+        omega = (vLong + slip * ref) / r;
+        brakingRootSolved = true;
+      } else {
+        // No rising-side root means the requested torque exceeds the tire's transmittable
+        // reaction. The wheel locks rather than taking a mirrored, propulsive root.
+        omega = 0;
+      }
     }
-    w.kappa = kappa;
-    // The demand is past the peak with ABS not modulating it: the tire slides and the wheel is
-    // dragged to a stop (a skid), so `ω = 0` and κ is the ground slip, not the solved stand-off.
-    w.omega = brakeDominant && !absActive && Math.abs(demandF) > peakF ? 0 : (vLong + kappa * ref) / r;
+    if (c.tcEnabled && w.driven && driveTorque > 0 && !brakingRootSolved) {
+      // The controlled solution is bracketed on the rising side of the tire curve. A free Newton
+      // step can jump to the distant, descending Pacejka branch; bisection keeps TC on the physical
+      // low-slip root while still solving the wheel's torque/inertia equation against its previous ω.
+      let lo = 0;
+      let hi = Math.min(Math.max(c.tcSlip, 0.01), peakSlip);
+      let flo = residualAtSlip(lo);
+      let fhi = residualAtSlip(hi);
+      if (flo * fhi <= 0) {
+        for (let iteration = 0; iteration < 14; iteration++) {
+          const mid = (lo + hi) * 0.5;
+          const fm = residualAtSlip(mid);
+          if (Math.abs(fm) < 1e-5) {
+            lo = hi = mid;
+            break;
+          }
+          if (flo * fm <= 0) {
+            hi = mid;
+            fhi = fm;
+          } else {
+            lo = mid;
+            flo = fm;
+          }
+        }
+        omega = (vLong + ((lo + hi) * 0.5) * ref) / r;
+      } else {
+        // A wheel already above the controller's bracket is cut to the controller boundary; its
+        // next dynamic step will return through the same torque equation rather than being reset.
+        omega = (vLong + (fhi <= 0 ? hi : lo) * ref) / r;
+      }
+    } else {
+      for (let iteration = 0; iteration < 8; iteration++) {
+        const kappa = wheelSlip(omega, vLong, r, c.slipReference);
+        const force = pacejka(kappa, coeff);
+        const residual = omega - oldOmega -
+          (dt / c.wheelInertia) * (appliedDrive - signedBrake - force * r);
+        if (Math.abs(residual) < 1e-4) break;
+        const slope = pacejkaDerivative(kappa, coeff);
+        const derivative = 1 + (dt / c.wheelInertia) * slope * r * r / ref;
+        const next = Math.abs(derivative) > 0.15 ? omega - residual / derivative :
+          omega - residual * 0.25;
+        if (!Number.isFinite(next)) break;
+        omega = next;
+      }
+    }
+
+    // A brake that exceeds the available drive torque can lock a rotating wheel, but it cannot
+    // make that wheel spin in the opposite direction. Reverse drive remains able to release it.
+    if (!brakingRootSolved && appliedBrakeDominant && (oldOmega === 0 || oldOmega * omega <= 0)) omega = 0;
+    w.omega = f32(omega);
+    w.kappa = wheelSlip(w.omega, vLong, r, c.slipReference);
+
+    // Keep diagnostics bounded when a caller supplies an extreme torque or a very large frame
+    // hitch despite the normal 1/120 s internal substep.
+    if (!Number.isFinite(w.omega) || Math.abs(w.kappa) > 1000) {
+      w.omega = clamp(w.omega || 0, -1000 / Math.max(r, 1e-3), 1000 / Math.max(r, 1e-3));
+      w.kappa = clamp(wheelSlip(w.omega, vLong, r, c.slipReference), -peakSlip * 8, peakSlip * 8);
+    }
   }
 
   /** Keep a fully compressed wheel from tunneling. Lift is along vehicle up, not world Y. */
@@ -1505,6 +1564,11 @@ const WALL_IMPACT_SPEED = 1;
  * be pushed backwards by its own regeneration.
  */
 const REGEN_FADE_SPEED = 0.5;
+
+/** Longitudinal slip κ = (wheel surface speed − hub speed) / a bounded speed reference. */
+function wheelSlip(omega: number, vLong: number, radius: number, slipReference: number): number {
+  return (omega * radius - vLong) / Math.max(Math.abs(vLong), slipReference);
+}
 
 /**
  * Free-wheel speed step (`I·dω = torque`) with the brake as a one-way constraint: it can hold a

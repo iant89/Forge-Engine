@@ -183,6 +183,7 @@ group("four-layer terrain materials", () => {
     const ordinary = new Material();
     cleanup.push(() => { scene.dispose(); renderer.dispose(); tile.dispose(); ordinary.dispose(); helper.dispose(); });
     renderer.renderScene(scene);
+    assert.deepEqual(gpu.mock.errors, []);
     assert.equal(renderer.stats.drawCalls, 1);
     assert.equal(renderer.stats.prepassDraws, 1);
     assert.ok(renderer.stats.shadowsDrawn > 0);

@@ -251,7 +251,7 @@ group("17.4 snow reads white (fe-36 v2)", () => {
 
 group("17.4 shading contract", () => {
   test("PerFrame carries the surface vector and the shader gates it on flags bit7", () => {
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 256);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 288);
     assertContains(STANDARD_FRAGMENT_BODY, "fn weatherSurface(");
     assertContains(STANDARD_FRAGMENT_BODY, "(perFrame.flags & 128u) == 0u");
     assertContains(STANDARD_FRAGMENT_BODY, "ws.puddle");

@@ -44,6 +44,7 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "viewProj", type: mat4x4, comment: "column-major, z in [0,1]" },
   { name: "invViewProj", type: mat4x4 },
   { name: "cameraPosRender", type: vec3, comment: "relative to the coordinate-space origin" },
+  { name: "cameraForwardRender", type: vec4, comment: "xyz forward axis; w = 1 for orthographic view-depth reconstruction" },
   { name: "exposure", type: f32 },
   { name: "time", type: vec4, comment: "(seconds, delta, frame index, pad)" },
   { name: "fogColor", type: vec3 },
@@ -129,6 +130,7 @@ export const ShadowUniforms = new StructDef("ShadowUniforms", [
   { name: "size", type: i32 },
   { name: "count", type: i32, comment: "active directional cascade prefix (0..MAX_CASCADES)" },
   { name: "flags", type: u32, comment: "bit0 tint fragments by cascade (debug)" },
+  { name: "contactParams", type: vec4, comment: "screen-space contact shadow radius, depth bias, strength, enabled" },
 ]);
 
 /**
@@ -301,7 +303,7 @@ export const SsaoUniforms = new StructDef("SsaoUniforms", [
   { name: "radius", type: f32, comment: "world-space sampling radius" },
   { name: "bias", type: f32, comment: "ignore occluders closer than this to the tangent plane" },
   { name: "intensity", type: f32 },
-  { name: "projScale", type: f32, comment: "depth-texture pixels per metre at view depth 1 (perspective only)" },
+  { name: "projScale", type: f32, comment: "pixels per metre; negative means orthographic (positive means perspective at view depth 1)" },
   { name: "depthSize", type: vec2, comment: "depth prepass extent in pixels" },
   { name: "aoSize", type: vec2, comment: "AO target extent in pixels (half resolution)" },
   { name: "sampleCount", type: u32 },

@@ -1,4 +1,4 @@
-# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + object culling + async pipelines + GPU timing from Phase 13)
+# Rendering — as built (Phase 2, sky + fog from Phase 8a, depth prepass + SSAO + clustered lighting + per-instance culling + contact shadows + async pipelines + GPU timing from Phase 13)
 
 This is the description of what the renderer *does today*, not of where the design wants it to end
 up (that is `ARCHITECTURE.md` §4–§5). Everything here is exercised by `npm test` on the mock device
@@ -19,10 +19,13 @@ computeCascades() / computeSpotShadow() /    forge.shadow.1   ├─ depth24plus
   computePointShadow() (engine/src/          forge.shadow.2  ─┘
   rendering/shadows.ts)                      forge.shadow.spot.<n> (optional, after cascades)
                                              forge.shadow.point.<n>.<face> (optional, six layers per cube)
-collectBatches()   (frustum cull, sort,      forge.prepass     depth24plus "depth" only (clear + store), no fragment stage
-  instance merge — no allocation)            forge.hiz.0..3    depth → the pyramid (r32float, mip chain), ½, ¼, ... of the target
-buildClusters()    (local lights into a      forge.objects.cull  bounds + pyramid → visibility words, 1 per batch (§4d)
-  16x8x24 view grid; no pass — §4b)          forge.ssao        depth → ssao.raw   (rg16float, ½ res)
+collectBatches()   (frustum cull, sort,      forge.populationCull.views (optional) instance/shadow lists →
+  instance merge — no allocation)            forge.shadow.*   depth-array layers (directional, spot, point)
+buildClusters()    (local lights into a      forge.prepass     depth24plus "depth" only (clear + store), material coverage
+  16x8x24 view grid; no pass — §4b)          forge.contact.depth (optional) depth → r32float resolve
+                                            forge.hiz.0..3    depth → the pyramid (r32float, mip chain), ½, ¼, ...
+                                            forge.objects.cull  bounds + pyramid → visibility words, 1 per batch (§4d)
+                                            forge.ssao        depth → ssao.raw   (rg16float, ½ res)
 classifyPrepass()  (which batches lay        forge.ssao.blur.h ssao.raw  → ssao.blur
   down depth; state + front-to-back sort)    forge.ssao.blur.v ssao.blur → ssao.result (same memory as ssao.raw)
 buildClusters()    (local lights into a      forge.main        rgba16float "hdr" + depth (load) + ssao.result
@@ -43,7 +46,7 @@ options:
 | `settings.shadow.enabled`, the highest-priority shadow-casting directional light, an intersecting `Renderable.castShadow` batch, `RendererOptions.shadows !== false` | one `forge.shadow.<i>` pass per active cascade, up to `min(4, settings.shadow.cascades, RendererOptions.shadowCascades)`. |
 | `settings.shadow.enabled`, a valid `Light.kind = "spot"` with `castShadow`, and an intersecting caster | one `forge.shadow.spot.<i>` pass for each selected spot slot, up to `settings.shadow.maxSpotShadows` (default 4, ceiling `MAX_SPOT_SHADOWS` = 8, capped by `RendererOptions.maxSpotShadows`). Only spots whose cone touches the camera frustum within `shadow.distance` compete; they rank by brightness × influence area ÷ squared camera distance. |
 | `settings.shadow.enabled`, a valid `Light.kind = "point"` with `castShadow`, and an intersecting caster | six `forge.shadow.point.<p>.<face>` passes per selected point light (face order +x −x +y −y +z −z), up to two lights. Each light occupies six consecutive atlas layers after the spot maps. |
-| `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256) | common edge size of every cascade, spot and point-face layer in the shared depth array. `EngineConfig.shadowMapSize`/`shadowCascades` feed these options; all maps use the same per-frame resolution. |
+| `settings.shadow.mapSize` capped by `RendererOptions.shadowMapSize` (floor 256), `settings.shadow.adaptive` and optional `RendererOptions.shadowMemoryBudget` | common edge size of every cascade, spot and point-face layer in the shared depth array. Adaptive mode halves the requested power-of-two size until all active layers fit the budget (default 256 MiB, floor 128); `adaptive: false` retains the requested shared resolution. |
 | `settings.renderScale` | the HDR or LDR scene target and depth buffer are allocated at `round(size × scale)`; tonemap or the LDR passthrough resolve upsamples to the swapchain. |
 | `settings.toneMapping` | `aces` / `filmic` / `reinhard` / `none`, applied in `forge.tonemap` (HDR) or in-shader (LDR). |
 | `settings.skyEnabled` (default `true`; `setSky()` sets it, `setBackgroundColor()` clears it) and `RendererOptions.sky !== false`; `settings.sky.quality` capped by `RendererOptions.skyQuality` (`EngineConfig.skyQuality`: minimal/low → `low`, medium → `medium`, high/ultra → `high`) | adds `forge.sky` directly after `forge.main`: one fullscreen triangle emitted at z = 1 into the same colour target (`loadOp: "load"`), depth-tested `less-equal` against the scene depth, which the pass **loads explicitly** (`depthLoadOp: "load"`, `depthStoreOp: "store"`, pipeline `depthWriteEnabled: false`) so only pixels no geometry covered are shaded and there is no overdraw behind terrain. The spec's `depthReadOnly` attach implies the same load, but that implicit load is the one primitive no sandbox check can exercise — on iOS Safari it returned without the main pass's depth and the sky's fogged planet ground painted a flat beige disc over the whole scene — so the renderer uses the portable explicit spelling. `forge.main` stores its depth (instead of discarding it) only while this pass exists. Parameters come from `settings.sky` (+ a one-frame `setSkyOverride`), uploaded as `SkyUniforms` (128 B). Off: the clear colour is the background. |
@@ -51,9 +54,11 @@ options:
 | `settings.clusteredLighting` (default `true`) and `RendererOptions.clusteredLighting !== false` (`EngineConfig.clusteredLighting`: off on minimal/low), a perspective camera, at least one local light | adds `forge.lights.assign` — one compute pass, **first** in the frame — when the fill runs on the device (`RendererOptions.lightCulling`: `"auto"`/`"gpu"`; `"auto"` resolves to `"cpu"` on the mock), and **no pass** on the CPU fill. The local (point/spot) lights are indexed into a 16×8×24 view-space grid and the fragment stage walks only its own cluster's list (`perFrame.flags` bit 5), which lifts the frame's light cap from 16 to 256. Off — or on an orthographic camera — every light goes through the fixed 16-entry uniform list, as before. See §4b–4c. |
 | `settings.shadow.debugCascades` | tints receivers red/green/blue/yellow by the cascade that shadowed them (flag bit 0 of `ShadowUniforms.flags`). |
 | `settings.depthPrepass` (default `true`) and `RendererOptions.depthPrepass !== false` (`EngineConfig.depthPrepass`: off on minimal/low, on for medium/high/ultra), and at least one eligible batch | adds `forge.prepass` before `forge.main`: the eligible batches' depth, cleared and stored; `forge.main` then **loads** it (`depthLoadOp: "load"`) and draws those batches with depth writes off. See §4a. |
+| `settings.shadow.contactShadows`, `RendererOptions.contactShadows !== false`, a running prepass and an affect-scene light | adds `forge.contact.depth` after `forge.prepass`: a fullscreen depth-to-`r32float` resolve sampled by the forward shader's short light rays. `contactDistance` and `contactStrength` tune it; the neutral fallback is bound when it is off. |
 | `RendererOptions.objectCulling` (`"auto"` default / `"cpu"` / `"gpu"`) | `"gpu"` (and `"auto"` on a real device) adds `forge.objects.cull` between `forge.prepass` and the SSAO chain, plus the `forge.hiz.<n>` pyramid when occlusion is on; `"cpu"` (and `"auto"` on the mock) runs the twin and adds no pass. Either way the batches' visibility words are written before `forge.main` reads them. See §4d. |
+| `RendererOptions.populationCulling` (default `true`), resolved GPU object culling and indirect draws, plus an eligible instanced batch | adds `forge.populationCull.views` before shadow/prepass and `forge.populationCull` after object/HiZ culling. The shared per-instance kernels compact ordinary static instanced renderables and population batches; CPU mode and unsupported batch families use their existing fallback. See §4g–§4h. |
 | `RendererOptions.occlusionCulling !== false`, the prepass running, a perspective camera, and a render target the pyramid can shrink into | the cull pass also builds and tests against the HiZ pyramid (`forge.hiz.0..<n>`); off (or orthographic, or a target smaller than a few texels) it is frustum + distance only, and no `forge.hiz` pass exists. |
-| `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, a perspective camera, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
+| `settings.ssao.enabled` (default `true`), `RendererOptions.ssao !== false` (`EngineConfig.ssao`: same profiles), the prepass running, `radius > 0` and `intensity > 0` | adds `forge.ssao`, `forge.ssao.blur.h`, `forge.ssao.blur.v` between `forge.prepass` and `forge.main`, which reads the result (`perFrame.flags` bit 4). Perspective and orthographic cameras are supported; `radius` (1 m), `intensity` (1), `bias` (0.02 m), `samples` (12, clamped 1–32) are uploaded as `SsaoUniforms` (112 B). See §4a. |
 
 A scene with no camera clears the swapchain in a single `forge.clear` pass and still counts as a
 rendered frame, so the HUD keeps ticking while a scene loads.
@@ -252,8 +257,9 @@ light upload, so even reversed user values yield a valid soft-edge interval. Slo
   order no longer decides. `Renderer.spotShadowLights()` returns the lights holding slots.
 
 `Light.castShadow = false`, a degenerate direction, a range at or below `1e-4` m or `settings.shadow.enabled = false` excludes a map. All cascade and spot maps share one
-`depth24plus` 2d-array and the same frame resolution (`settings.shadow.mapSize` capped by
-`RendererOptions.shadowMapSize`); per-light/adaptive resolution is not part of this step.
+`depth24plus` 2d-array and the same frame resolution. `settings.shadow.adaptive` and
+`RendererOptions.shadowMemoryBudget` apply the shared atlas budget before allocation; there is no
+per-light resolution because every active layer must share one array.
 
 Directional cascades occupy array layers `[0, count)`, then spot slot `i` occupies `count + i` and
 uses `LightUniforms.shadowIndex = i`. The same index survives both the fixed uniform light list and
@@ -262,7 +268,8 @@ for spot slots, so a spot-only frame works without inventing a directional casca
 `forge.shadow.spot.<i>` after any active cascade passes, fits each spot frustum independently, and
 uses those masks to retain off-screen casters while avoiding draws into unrelated maps. Spot sampling
 uses the corresponding matrix, per-light depth/normal bias and a 3×3 PCF; `Renderer.stats.spotShadowMaps`
-reports the active spot-map prefix. Contact and adaptive-resolution shadows remain future 13.9 items.
+reports the active spot-map prefix. Contact shadows are a separate full-resolution prepass-depth
+resolve; they do not consume atlas layers.
 
 ### Point-light shadows (Phase 13.9)
 
@@ -289,25 +296,21 @@ return lit (the analytic attenuation is already zero there). PCF taps crossing a
 to lit — a thin bright seam at grazing face boundaries is the documented cost of that simplicity.
 `Renderer.stats.pointShadowMaps` reports the active point-cube prefix.
 
-## 4a. Depth prepass and SSAO (Phase 13.1, 13.2)
+## 4a. Depth prepass, SSAO and contact resolve (Phase 13.1, 13.2, 13.9)
 
 **Which batches are prepassed.** After `collectBatches`, `classifyPrepass` flags every batch that is
-drawn in view (not shadow-only), not `transparent` or `overlay`, not water, and whose material is
-opaque (`!material.transparent`), not alpha-tested and fully opaque (`opacity ≥ 0.999`) — surfaces
-whose `forge.main` fragment can never be discarded. They are sorted by pipeline state (instanced ×
-double-sided: at most four prepass pipelines), then front to back. No eligible batch, no pass.
+ drawn in view (not shadow-only), not `transparent` or `overlay`, and with a material path whose depth
+ coverage is authoritative. Standard and terrain batches use a material-aware fragment entry that
+ samples the same alpha inputs as `forge.main` and discards alpha-test/fading fragments at the same
+ cutoff. Water uses its deformed vertex path with an empty depth fragment, so its screen-space height
+ participates in early-Z. Blended transparent and overlay surfaces remain outside the prepass. The
+ eligible list is sorted by pipeline state and then front to back; no eligible batch, no pass.
 
-**Why the depths match exactly.** The prepass pipelines are the *standard* module's own
-`vertexMain` / `vertexMainInstanced` in a depth-only pipeline (`technique: "prepass"`: no fragment
-stage, `depthCompare: "less"`, no depth bias, same cull mode). The layout is just the per-frame block
-plus the draw group (`prepass.layout`), so the same `ShaderCache` entry serves both passes, and the
-clip position is `@invariant` — WGSL's guarantee that the same data through the same control flow
-yields bit-identical positions in *different* pipelines. `forge.main` then draws the prepassed
-batches with `writeDepth: false` and `less-equal`, so each passes exactly on its own depth, and
-early-Z survives the forward shader's `discard` because nothing is written. Everything else (cutout,
-fading, transparent, water, overlays) is drawn exactly as without a prepass, depth writes included.
-The real-WebGPU gate proves it: with SSAO off, the frame is pixel-identical with the prepass on or off.
-`DEPTH_VERTEX` (the shadow program, with its polygon offset) is never reused here.
+**Why the depths match.** Standard, terrain and skinned prepass variants reuse the forward vertex
+ module and entry, including `@invariant` position, while water uses the same deformation code as its
+ forward path. `forge.main` then draws prepassed batches with `writeDepth: false` and `less-equal`, so
+ each passes on its own stored depth; surfaces that are not eligible keep their normal depth-writing
+ forward variant. `DEPTH_VERTEX` (the shadow program, with its polygon offset) is never reused here.
 
 **SSAO** (`shaders/ssao.ts`, one module, three fragment entry points over the shared fullscreen
 triangle):
@@ -316,7 +319,8 @@ triangle):
   turned into a view-space position through `SsaoUniforms.invProj`; the normal is rebuilt from the
   neighbouring depth texels (per axis the neighbour on the same surface, oriented toward the camera).
   A 12-tap spiral (interleaved-gradient rotation per pixel) of radius `radius` metres, projected with
-  `projScale = ½·height·proj[1][1]` and clamped to 10 % of the frame height, accumulates for each tap
+  `projScale = ½·height·proj[1][1]` for perspective cameras and a negative pixels-per-metre value for
+  orthographic cameras; the radius is clamped to 10 % of the frame height, and each tap accumulates
   its cosine above the tangent plane `(v·n − bias)/|v|`, less a 0.1 angle bias, times the falloff
   `1 − |v|²/r²`; visibility = `1 − 2·intensity·Σ/N`. Output: (visibility, view depth); pixels without
   geometry carry the sky key 65 000.
@@ -324,7 +328,8 @@ triangle):
   dropped when their view depth differs from the centre's by more than 10 % (`sharpness` 10), so
   occlusion never bleeds across a silhouette.
 * `forge.main` (`ambientOcclusion()` in `standard.ts`, group 0 binding 5): a 2×2 bilateral
-  `textureLoad` of the result against the fragment's own view depth (`clip.w`); texels from another
+  `textureLoad` of the result against the fragment's own view depth; perspective uses clip-space w,
+  while orthographic surfaces reconstruct depth along the camera-forward axis. Texels from another
   surface get no weight, and a fragment no texel agrees with is unoccluded. The visibility scales the
   **ambient term only** — direct light already has shadow maps. With SSAO off the binding holds a
   1×1 "unoccluded" texel and the shader skips it (`perFrame.flags` bit 4).
@@ -334,6 +339,28 @@ SAO's own `(r² − v·v)³/(v·v)` weighting was tried first and all but ignore
 radius — on the PBR fixture it darkened 0.04 % of the frame. Because only ambient light is occluded,
 how much SSAO shows depends on the lighting: the PBR fixture (strong sun and point lights, floating
 spheres) darkens ~0.4 % of its pixels by up to ~5 levels, which is what `check:browser` measures.
+
+## 4a.1. Screen-space contact shadows (Phase 13.9)
+
+Contact shadows are an opt-in complement to the long-range shadow atlas. When the prepass is active,
+`settings.shadow.contactShadows` is true, the option veto is not set, and the scene has an affect-scene
+light, the graph inserts `forge.contact.depth` after `forge.prepass`. Its fullscreen triangle samples
+the stored `depth24plus` attachment and writes the non-linear depth value to a full-resolution
+`r32float` texture. The pass is deliberately separate: WebGPU cannot sample a depth attachment while
+that attachment is being written by `forge.main`, and the main pass still needs to depth-test transparent
+or water geometry.
+
+`standard.ts` samples that resolve along up to eight points from the shaded surface toward each
+light. A blocker closer to the camera than the sample reduces that light's contribution with a
+near-weighted falloff; misses outside the screen are lit, and atlas PCF remains authoritative for
+long-range shadows. `contactDistance` (default 2.5 m) and `contactStrength` (default 0.75, clamped to
+0…1) are uploaded in `ShadowUniforms.contactParams`. A 1×1 depth fallback (value 1) is always bound
+when the feature is off, so the forward bind group layout is stable. The default is off because the
+extra full-resolution pass and eight texture loads per light are not free.
+
+The contact path does not add shadow-array layers and works for directional, point and spot lights,
+including lights without an atlas slot. It is a screen-space approximation: off-screen blockers cannot
+contribute and geometry hidden by a nearer surface is not independently visible to the ray.
 
 ## 4b. Clustered (Forward+) lighting (Phase 13.3)
 
@@ -562,11 +589,12 @@ them; `Renderer.dispose` releases the culler. Switching `objectCulling` to `"cpu
 and clears the reference — a disposed culler records nothing, so keeping it would leave later frames
 with no pass at all and draw them through a stale buffer.
 
-**What this does not do.** The batches and their instance data are still built and uploaded for every
-renderable; culling here saves the *draw*, not the upload or the batch assembly. Compaction and
-GPU-generated indirect draws are Phase 13.6, and they consume exactly this buffer. Culling is
-per-batch, so one visible instance keeps its whole batch, and a camera that is neither perspective nor
-free of the near plane simply skips the occlusion test.
+**What this does not do.** The batches and their source instance data are still built and uploaded for
+every renderable; the object-level culler saves the draw, not the upload or batch assembly. Eligible
+static instanced batches take the shared per-instance path described in §4h, where batch-local visible,
+occluded and shadow-index buffers are consumed by indirect records. Non-instanced, skinned, transparent,
+water and CPU-mode batches retain the conservative per-batch/range path. A camera that is neither
+perspective nor free of the near plane simply skips the object-level occlusion test.
 
 ## 4e. Indirect draws and compaction (Phase 13.6)
 
@@ -614,9 +642,10 @@ the demo, `setIndirectDraws`) picks between `drawIndexedIndirect` / `drawIndirec
 `batch.cullIndex * DRAW_RECORD_BYTES` and one direct draw per batch with the visibility word doing the
 work (13.5's path, kept as the A/B arm and the fallback). A direct-submission frame sets no
 `CULL_FLAG_RECORDS`, so the pass leaves the record buffer untouched — nothing pays for a command
-nobody reads. The shadow and prepass loops are untouched: they draw their own geometry with their own
-culling and would need records of their own. The pointer is the whole
-difference — the same batches, the same visibility words, the same pixels — which is what
+nobody reads. Eligible ordinary instanced and population batches also use this device culler for their
+prepass and shadow records; non-instanced/skinned/CPU fallback draws retain their conservative range
+machinery. The pointer is the whole difference — the same batches, the same visibility words, the same
+pixels — which is what
 `check:browser` asserts: `indirectDraws === batches` on one arm, `0` on the other, and zero pixels
 between them.
 
@@ -671,7 +700,14 @@ own instanced batch:
   `instances`.
 
 Device-resident buffers (14.3), GPU-selected LOD (14.4) and per-instance device culling (§4g) are
-built; what remains is in `docs/KNOWN-ISSUES.md` § World population.
+built; ordinary renderable instancing now shares the kernels in §4h. Population streaming uses a
+fixed-resolution canonical terrain surface, and the `population.chunk` task can reconstruct that
+surface and scatter on a TaskScheduler worker before transferring the SoA arrays back. The same
+`PopulationWorld` object participates in scene picking: resident geometry-backed instances are
+triangle-raycast with their exact YTRS transform, and `RayHit.tag` decodes through
+`PopulationWorld.raycastInfo()`. Unsupported custom/live Stage A terrain pipelines and hosts without
+a scheduler use the deterministic inline fallback; evicted chunks and CPU-only types without
+prototype geometry remain outside the raycast query.
 
 ## 4g. Per-instance population culling (GPU-placement Phase A)
 
@@ -787,6 +823,35 @@ tier scale moving the cull distance and the fade end together on both paths (moc
 `check:browser` the high tier's ×1.5 distance drawing more (pixels filled in), the fade band changing
 pixels, and faded casters casting the same shadows on the device lists as on the CPU assignment.
 
+## 4h. Generic instanced-batch culling (Phase 13.5 / 13.9)
+
+Population batches already use the per-instance kernels described in §4g. The same kernels now accept
+ordinary static instanced renderables (`count > 1`) when the device culler, indirect draws and
+`populationCulling` are enabled. LOD, skinned, water, transparent, overlay and singleton batches keep
+their existing paths because their vertex/material state or source ownership is different.
+
+**Source and outputs.** The source records remain in the shared frame instance arena. Each eligible
+batch registers a dynamic source offset and a binding size equal to the remaining arena window, so the
+same bind group layout can address a nonzero slice without exposing adjacent batches. The culler owns
+batch-local `visible` and `occluded` storage buffers (80 bytes per source instance, 256-byte aligned)
+and a padded per-map `u32` caster-index buffer. Changing an arena offset recreates the affected bind
+groups before encoding; this avoids both stale source windows and dynamic-range validation errors.
+
+**Frame order.** `forge.populationCull.views` runs before the first shadow pass and the depth prepass.
+Its main-view survivors feed both the prepass and `forge.main`; for each cascade, spot slot and point
+face in the batch's conservative shadow mask, the same dispatch appends source indices to that map's
+range. After `forge.objects.cull` and HiZ, `forge.populationCull` writes the next-frame flags and,
+when occlusion is enabled, filters the main list into the second output. `forge.main` consumes the
+appropriate indirect record, while shadow passes bind the map's index range and use
+`DEPTH_CULLED_VERTEX` to fetch the original source instance.
+
+The prepass and colour paths therefore share the same camera-view population, with the one-frame flag
+lag already described in §4g. If a pipeline or views pass cannot be recorded, the renderer falls back
+to the complete source/range draw rather than risking a missing caster. CPU object-culling mode does
+not add these compute passes. `tests/rendering/frame.test.ts` pins the ordinary instanced-batch path,
+its views/cull passes and zero mock validation errors; `tests/population/populationCull.test.ts` remains
+the reference for the kernel twins.
+
 ## 5. Conventions
 
 The rules every module above assumes (pinned by `tests/math/math.test.ts`; the long form is `AGENTS.md`
@@ -855,12 +920,11 @@ Showcase with layering on/off; this scoped command does not claim the full brows
 `PipelineFactory.get(key)` returns a `{ pipeline, key, topology }` bundle; identical keys are identical
 objects and never touch the device. The key covers everything that changes the GPU pipeline:
 `technique` (`standard` / `unlit` / `depth` / `prepass` / `debug` / `post` / `sky` / `water` /
-`ssao` / `terrain`), `colorFormat` (`null` for depth-only), `depthFormat` (`null` for post and SSAO),
+`ssao` / `contactDepth` / `terrain`), `colorFormat` (`null` for depth-only), `depthFormat` (`null` for post and SSAO),
 `transparent` (blend + no depth write), `doubleSided`, `instanced`, `writeDepth`, `additive` (bloom
-upsample) and `fragmentEntry` (post and SSAO entry points). Bind group layouts — twelve of them
-(frame, shadow-pass frame, prepass frame, draw, material, blit, post, sky, water, SSAO estimate,
-SSAO blur, terrain material) — are created once and shared; `stats()` reports `{ pipelines, creates, cacheHits,
-layouts }`. `prepass` compiles the standard module's vertex entries with no fragment stage (see §4a). The `sky` technique forces
+upsample) and `fragmentEntry` (post and SSAO entry points). Bind group layouts are created once and shared (frame, shadow-pass frame, prepass frame, draw,
+material, blit, post, sky, water, contact-depth, SSAO estimate, SSAO blur, terrain material); `stats()` reports `{ pipelines, creates, cacheHits,
+layouts }`. `prepass` compiles the shared standard/terrain vertex entries with a material coverage fragment (see §4a); the water depth variant uses its deformed vertex path. The `sky` technique forces
 `depthWriteEnabled: false` (its pass loads and stores the scene depth explicitly but never writes
 it — see the WebKit note on `forge.sky` above) and binds one group:
 `PerFrameUniforms` (vertex + fragment, for `invViewProj`) and `SkyUniforms`. `invalidate()` drops pipelines *and* layouts, which is
@@ -894,28 +958,29 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 
 ## 9. Limitations (honest list)
 
-* Shadow assignment is conservative per renderable, not a single-map heuristic: an object's AABB can
-  intersect multiple cascade, spot or point-face frusta, in which case it must be processed by each
-  corresponding map. Adjacent ranges assigned to the same map coalesce into one draw, but separated
-  runs may still require multiple submissions; overlapping maps repeat vertex work, and there is no
-  per-map GPU compaction. Off-screen caster coverage is preserved.
-* Only the highest-priority shadow-casting directional light, up to `shadow.maxSpotShadows` (default four, at most eight) in-view spot lights and up to two point lights
-  cast. Contact shadows and per-light resolution are not implemented yet. Point cube faces are
-  sampled by dominant axis because WebGPU has no depth-cube comparison sampling. Each 90° face uses
-  a two-texel projection guard band, so the 3×3 PCF footprint stays inside overlapping face data at
-  cube boundaries instead of producing a bright seam.
+* Shadow assignment is conservative per renderable or per source instance: an AABB can intersect
+  multiple cascade, spot or point-face frusta, in which case it must be processed by each corresponding
+  map. Eligible static instanced and population batches compact per-map caster indices on the device;
+  non-instanced, skinned and CPU-mode paths use adjacent range coalescing, and separated runs may still
+  require multiple submissions. Off-screen caster coverage is preserved.
+* Only the highest-priority shadow-casting directional light, up to `shadow.maxSpotShadows` (default
+  four, at most eight) in-view spot lights and up to two point lights cast atlas shadows. Contact rays
+  are opt-in, short-range and screen-space, so off-screen blockers cannot contribute. Point cube faces
+  are sampled by dominant axis because WebGPU has no depth-cube comparison sampling. Each 90° face
+  uses a two-texel projection guard band, so the 3×3 PCF footprint stays inside overlapping face data
+  at cube boundaries instead of producing a bright seam.
 * At 2048², one `depth24plus` layer costs about 16 MiB: three cascades alone are ≈48 MiB, three
   cascades plus four spots ≈112 MiB, and one point cube adds six more layers (≈96 MiB). The hard
   four-cascade/eight-spot/two-point-cube maximum is twenty-four layers ≈384 MiB (before the memory
   budget halves the resolution); the 4096² ultra profile scales that worst case to ≈1.5 GiB. All maps use the shared `settings.shadow.mapSize` resolution;
   tests use `shadowMapSize: 256` because the mock device allocates texture storage eagerly.
-* Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles, orthographic
-  cameras, scenes that turn it off — still alias nothing.
-* The prepass depth has two consumers (SSAO, the soft-particle fade); no culling, transparency
-  technique or post effect reads it yet (roadmap 13.1 / 13.5).
-* Cutout, fading, transparent and water surfaces are not prepassed: no early-Z saving for them, and
-  they neither receive nor cast SSAO. Orthographic cameras get the prepass but no SSAO (the bilateral
-  key is `clip.w`).
+* Only the SSAO chain aliases (see §2): frames without SSAO — the minimal/low profiles or scenes
+  that turn it off — still alias nothing. Orthographic frames can run SSAO and alias the same chain.
+* The prepass depth has four consumers (contact resolve, SSAO, the soft-particle fade and the HiZ
+  pyramid); no transparency technique or depth-based post effect reads it yet.
+* Blended transparent and overlay surfaces are not prepassed because their depth is not authoritative.
+  Material alpha-test/fading coverage and water deformation are prepassed; orthographic cameras use
+  SSAO's camera-forward reconstruction rather than the perspective clip.w path.
 * SSAO is screen-space and half resolution without temporal accumulation: occluders off screen or
   hidden behind nearer geometry do not count, detail below ~2 px is lost, the kernel is clamped to
   10 % of the frame height (close-ups get a smaller effective radius), and it scales ambient light
@@ -928,13 +993,13 @@ check:wgsl` enforces the uniform layout rules WebKit applies. New shader modules
 * Local lights are capped at 256 per frame (`MAX_CLUSTERED_LIGHTS`) and each cluster at 32
   (`MAX_LIGHTS_PER_CLUSTER`), where the least influential lose; `stats.lightsDropped` reports either
   case. The cluster buffers cost ≈ 428 KB of VRAM from the first frame whether or not a scene clusters.
-* Orthographic cameras are never clustered — the grid's depth axis is view depth, which an orthographic
-  projection does not put in `clip.w`, the same reason SSAO is perspective-only — so their local lights
-  still go through the fixed 16-entry uniform list.
+* Orthographic cameras are never clustered — the grid's logarithmic depth axis is not useful for
+  an orthographic projection — so their local lights still go through the fixed 16-entry uniform list.
+  This does not disable orthographic SSAO.
 * The cluster block preserves assigned spot and point `shadowIndex` values, but unselected spots and
   point lights still use −1. Only the `shadow.maxSpotShadows` most important in-view spot lights and two
-  highest-priority point lights receive maps; contact shadows remain roadmap 13.9 work, while shared
-  map resolution adapts to the configured memory budget.
+  highest-priority point lights receive atlas maps; contact shadows are the separate opt-in screen-space
+  complement, while shared map resolution adapts to the configured memory budget.
 * `renderScale` scales both HDR and LDR scene/depth targets; HDR tonemaps to the swapchain while LDR uses a color-preserving bilinear resolve.
 * The graph builds one command buffer and submits it. The engine-level `renderTimeMs` remains a CPU
   submission-side measurement; optional GPU timestamps are reported separately in `Renderer.stats`

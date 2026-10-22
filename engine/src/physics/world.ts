@@ -17,6 +17,22 @@ import { SweepAndPruneBroadphase, type BroadphaseStats } from "./broadphase.js";
 import { UsageError } from "../core/errors.js";
 import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
 
+/** Small temporal/spatial guards used by the JS continuous-collision path. */
+const CCD_TIME_EPS = 1e-8;
+const CCD_PENETRATION_EPS = 1e-5;
+const MAX_CCD_IMPACTS = 8;
+
+interface CcdHit {
+  bodyA: RigidBody;
+  bodyB: RigidBody;
+  time: number;
+  point: Vec3;
+  /** Contact normal from the moving body A toward the obstacle B. */
+  normal: Vec3;
+  indexA: number;
+  indexB: number;
+}
+
 export interface RaycastFilter {
   /** Skip these rigid bodies (e.g. the casting vehicle chassis). */
   excludeBodies?: ReadonlyArray<RigidBody> | null;
@@ -264,41 +280,73 @@ export class PhysicsWorld {
 
   private fixedStep(dt: number): void {
     const n = this.bodies.length;
-
-    // 1. Integrate external forces & gravity to velocities
-    for (let i = 0; i < n; i++) {
-      this.bodies[i]!.integrateVelocity(dt, this.gravity);
-    }
-
-    // 2. Broadphase & Narrowphase: generate contact manifolds
-    const manifolds: ContactManifold[] = [];
-
-    // Keep every proxy current (including externally moved kinematics) before generating candidates.
+    let remaining = dt;
+    let firstSegment = true;
+    let impacts = 0;
     for (const body of this.bodies) body.updateAABB();
-    // The sweep-and-prune index reduces pair checks; candidate order is restored to insertion order,
-    // preserving deterministic manifold/solver ordering from the original nested loop.
-    const pairs = this.broadphase.query(this.bodies);
-    for (const pair of pairs) {
-      const bA = this.bodies[pair.a]!;
-      const bB = this.bodies[pair.b]!;
-      const manifold = collideBodies(bA, bB);
-      if (manifold && manifold.contacts.length > 0) manifolds.push(manifold);
+
+    // A fixed step normally remains one integrate/solve/integrate pass. When a fast dynamic body
+    // has a time-of-impact with an immovable collider, split only that step at the impact. This
+    // keeps ordinary scenes on the old deterministic path while preventing a thin wall from being
+    // skipped by a single large position update.
+    while (remaining > CCD_TIME_EPS && impacts < MAX_CCD_IMPACTS) {
+      const hit = findCcdHit(this.bodies, remaining);
+      const segmentDt = hit ? Math.min(remaining, Math.max(hit.time, CCD_TIME_EPS)) : remaining;
+      const finalSegment = !hit || remaining - segmentDt <= CCD_TIME_EPS;
+
+      // 1. Integrate external forces & gravity to velocities for this temporal segment.
+      for (let i = 0; i < n; i++) {
+        this.bodies[i]!.integrateVelocity(segmentDt, this.gravity);
+      }
+
+      if (hit) {
+        // Move to the event before solving its impact. The regular discrete manifold may be absent
+        // for a conservative bounding-sphere sweep, so a synthetic event contact is added below
+        // when the narrowphase has not produced the pair.
+        for (let i = 0; i < n; i++) {
+          integratePositionSegment(this.bodies[i]!, segmentDt, !finalSegment, !firstSegment);
+        }
+        firstSegment = false;
+
+        // Move an infinitesimal distance into the obstacle. Exact touching is intentionally not a
+        // persistent narrowphase contact in this engine; this nudge makes the next segment's normal
+        // contact stable without changing the measurable impact pose.
+        hit.bodyA.position.x += hit.normal.x * CCD_PENETRATION_EPS;
+        hit.bodyA.position.y += hit.normal.y * CCD_PENETRATION_EPS;
+        hit.bodyA.position.z += hit.normal.z * CCD_PENETRATION_EPS;
+        hit.bodyA.updateAABB();
+
+        const manifolds = collectManifolds(this.bodies, this.broadphase);
+        if (!hasManifoldPair(manifolds, hit.bodyA, hit.bodyB)) {
+          const impact = new ContactManifold(hit.bodyA, hit.bodyB);
+          impact.addContact(hit.point, hit.normal, CCD_PENETRATION_EPS);
+          manifolds.push(impact);
+        }
+        solveManifolds(manifolds, this.solver, this.contactListener, segmentDt);
+
+        remaining -= segmentDt;
+        impacts++;
+      } else {
+        // 2–3. The ordinary path: contacts at the segment start, then position integration.
+        const manifolds = collectManifolds(this.bodies, this.broadphase);
+        solveManifolds(manifolds, this.solver, this.contactListener, segmentDt);
+        for (let i = 0; i < n; i++) {
+          integratePositionSegment(this.bodies[i]!, segmentDt, false, !firstSegment);
+        }
+        firstSegment = false;
+        remaining = 0;
+      }
     }
 
-    // 3. Solve velocity & position constraints
-    const listener = this.contactListener;
-    if (listener) {
-      CLOSING.length = manifolds.length;
-      for (let i = 0; i < manifolds.length; i++) CLOSING[i] = closingSpeed(manifolds[i]!);
-    }
-    this.solver.solve(manifolds, dt);
-    if (listener) {
-      for (let i = 0; i < manifolds.length; i++) listener(fillReport(manifolds[i]!, CLOSING[i]!, dt));
-    }
-
-    // 4. Integrate velocities to positions and update AABBs
-    for (let i = 0; i < n; i++) {
-      this.bodies[i]!.integratePosition(dt);
+    // Avoid dropping a tiny remainder if the impact budget is exhausted or the remaining time is
+    // below the event epsilon. It is still deterministic; the cap only limits pathological stacks.
+    if (remaining > 0) {
+      for (let i = 0; i < n; i++) this.bodies[i]!.integrateVelocity(remaining, this.gravity);
+      const manifolds = collectManifolds(this.bodies, this.broadphase);
+      solveManifolds(manifolds, this.solver, this.contactListener, remaining);
+      for (let i = 0; i < n; i++) {
+        integratePositionSegment(this.bodies[i]!, remaining, false, !firstSegment);
+      }
     }
 
     this.time += dt;
@@ -394,6 +442,392 @@ export class PhysicsWorld {
 
   private static readonly rayScratch = new RayHit();
   private static readonly rayAabbScratch = new RayHit();
+}
+
+/**
+ * Run the legacy public position integrator while preserving fixed-step bookkeeping across CCD
+ * segments. Keeping this policy outside RigidBody avoids changing its public API for an internal
+ * temporal split.
+ */
+function integratePositionSegment(
+  body: RigidBody,
+  dt: number,
+  preserveForces: boolean,
+  preservePrevious: boolean,
+): void {
+  if (body.invMass === 0) {
+    body.integratePosition(dt);
+    return;
+  }
+
+  const fx = body.force.x;
+  const fy = body.force.y;
+  const fz = body.force.z;
+  const tx = body.torque.x;
+  const ty = body.torque.y;
+  const tz = body.torque.z;
+  const px = body.prevPosition.x;
+  const py = body.prevPosition.y;
+  const pz = body.prevPosition.z;
+  const qx = body.prevRotation.x;
+  const qy = body.prevRotation.y;
+  const qz = body.prevRotation.z;
+  const qw = body.prevRotation.w;
+
+  body.integratePosition(dt);
+
+  if (preserveForces) {
+    body.force.set(fx, fy, fz);
+    body.torque.set(tx, ty, tz);
+  }
+  if (preservePrevious) {
+    body.prevPosition.set(px, py, pz);
+    body.prevRotation.set(qx, qy, qz, qw);
+  }
+}
+
+/** Refresh the deterministic broadphase and produce narrowphase manifolds in insertion order. */
+function collectManifolds(
+  bodies: readonly RigidBody[],
+  broadphase: SweepAndPruneBroadphase,
+): ContactManifold[] {
+  const manifolds: ContactManifold[] = [];
+  for (const body of bodies) body.updateAABB();
+  // The sweep-and-prune index reduces pair checks; candidate order is restored to insertion order,
+  // preserving deterministic manifold/solver ordering from the original nested loop.
+  const pairs = broadphase.query(bodies);
+  for (const pair of pairs) {
+    const bA = bodies[pair.a]!;
+    const bB = bodies[pair.b]!;
+    const manifold = collideBodies(bA, bB);
+    if (manifold && manifold.contacts.length > 0) manifolds.push(manifold);
+  }
+  return manifolds;
+}
+
+/** Solve a manifold batch and synchronously publish the existing contact-report view. */
+function solveManifolds(
+  manifolds: ContactManifold[],
+  solver: SequentialImpulseSolver,
+  listener: ((report: ContactReport) => void) | null,
+  dt: number,
+): void {
+  if (listener) {
+    CLOSING.length = manifolds.length;
+    for (let i = 0; i < manifolds.length; i++) CLOSING[i] = closingSpeed(manifolds[i]!);
+  }
+  solver.solve(manifolds, dt);
+  if (listener) {
+    for (let i = 0; i < manifolds.length; i++) listener(fillReport(manifolds[i]!, CLOSING[i]!, dt));
+  }
+}
+
+/** Find the earliest supported dynamic-vs-static/kinematic impact in the remaining interval. */
+function findCcdHit(bodies: readonly RigidBody[], maxDt: number): CcdHit | null {
+  let best: CcdHit | null = null;
+  for (let i = 0; i < bodies.length; i++) {
+    const bodyA = bodies[i]!;
+    if (bodyA.invMass === 0) continue;
+    const speedSq = bodyA.linearVelocity.lengthSq();
+    if (speedSq <= 1e-16) continue;
+    const speed = Math.sqrt(speedSq);
+    if (speed * maxDt <= Math.max(1e-4, ccdTravelThreshold(bodyA, speed))) continue;
+
+    for (let j = 0; j < bodies.length; j++) {
+      if (i === j) continue;
+      const bodyB = bodies[j]!;
+      if (bodyB.invMass !== 0) continue;
+      // Existing penetration is handled by the ordinary solver. This also prevents an event at
+      // t=0 from retriggering after a zero-restitution impact.
+      if (collideBodies(bodyA, bodyB)) continue;
+
+      const radius = ccdBoundingRadius(bodyA);
+      if (!(radius > 0)) continue;
+      if (!(bodyB.shape instanceof PlaneShape) && !sweptAabbMayOverlap(bodyA, bodyB, maxDt)) continue;
+      const hit = sweepBodyAgainst(bodyA, bodyB, maxDt, radius);
+      if (!hit || hit.time <= CCD_TIME_EPS || hit.time > maxDt + CCD_TIME_EPS) continue;
+      if (!best || hit.time < best.time - CCD_TIME_EPS ||
+          (Math.abs(hit.time - best.time) <= CCD_TIME_EPS && (i < best.indexA ||
+            (i === best.indexA && j < best.indexB)))) {
+        hit.indexA = i;
+        hit.indexB = j;
+        best = hit;
+      }
+    }
+  }
+  return best;
+}
+
+function hasManifoldPair(manifolds: readonly ContactManifold[], bodyA: RigidBody, bodyB: RigidBody): boolean {
+  return manifolds.some((m) =>
+    (m.bodyA === bodyA && m.bodyB === bodyB) || (m.bodyA === bodyB && m.bodyB === bodyA));
+}
+
+/** Conservative radius used for shape sweeps. Unsupported shapes stay on the existing discrete path. */
+function sweptAabbMayOverlap(bodyA: RigidBody, bodyB: RigidBody, maxDt: number): boolean {
+  const dx = (bodyA.linearVelocity.x - bodyB.linearVelocity.x) * maxDt;
+  const dy = (bodyA.linearVelocity.y - bodyB.linearVelocity.y) * maxDt;
+  const dz = (bodyA.linearVelocity.z - bodyB.linearVelocity.z) * maxDt;
+  const minX = Math.min(bodyA.aabb.min.x, bodyA.aabb.min.x + dx);
+  const maxX = Math.max(bodyA.aabb.max.x, bodyA.aabb.max.x + dx);
+  const minY = Math.min(bodyA.aabb.min.y, bodyA.aabb.min.y + dy);
+  const maxY = Math.max(bodyA.aabb.max.y, bodyA.aabb.max.y + dy);
+  const minZ = Math.min(bodyA.aabb.min.z, bodyA.aabb.min.z + dz);
+  const maxZ = Math.max(bodyA.aabb.max.z, bodyA.aabb.max.z + dz);
+  return minX <= bodyB.aabb.max.x && maxX >= bodyB.aabb.min.x &&
+    minY <= bodyB.aabb.max.y && maxY >= bodyB.aabb.min.y &&
+    minZ <= bodyB.aabb.max.z && maxZ >= bodyB.aabb.min.z;
+}
+
+function ccdBoundingRadius(body: RigidBody): number {
+  const shape = body.shape;
+  if (shape instanceof SphereShape) return shape.radius;
+  if (shape instanceof BoxShape) {
+    const { x, y, z } = shape.halfExtents;
+    return Math.sqrt(x * x + y * y + z * z);
+  }
+  return 0;
+}
+
+/** Do not turn ordinary slow resting motion into a time-of-impact event; discrete contact handles it. */
+function ccdTravelThreshold(body: RigidBody, speed: number): number {
+  const shape = body.shape;
+  if (shape instanceof SphereShape) return shape.radius * 0.5;
+  if (shape instanceof BoxShape && speed > 0) {
+    const direction = new Vec3(
+      body.linearVelocity.x / speed,
+      body.linearVelocity.y / speed,
+      body.linearVelocity.z / speed,
+    );
+    return ccdPlaneSupport(body, direction) * 0.5;
+  }
+  return ccdBoundingRadius(body) * 0.5;
+}
+
+function ccdPlaneSupport(body: RigidBody, normal: Vec3): number {
+  const shape = body.shape;
+  if (shape instanceof SphereShape) return shape.radius;
+  if (shape instanceof BoxShape) {
+    const x = new Vec3(1, 0, 0);
+    const y = new Vec3(0, 1, 0);
+    const z = new Vec3(0, 0, 1);
+    body.rotation.rotateVector(x, x);
+    body.rotation.rotateVector(y, y);
+    body.rotation.rotateVector(z, z);
+    return shape.halfExtents.x * Math.abs(normal.dot(x)) +
+      shape.halfExtents.y * Math.abs(normal.dot(y)) +
+      shape.halfExtents.z * Math.abs(normal.dot(z));
+  }
+  return ccdBoundingRadius(body);
+}
+
+function makeCcdHit(
+  bodyA: RigidBody,
+  bodyB: RigidBody,
+  time: number,
+  point: Vec3,
+  normal: Vec3,
+): CcdHit {
+  return { bodyA, bodyB, time, point, normal, indexA: -1, indexB: -1 };
+}
+
+/** Sweep a supported dynamic primitive against one immovable collider. */
+function sweepBodyAgainst(bodyA: RigidBody, bodyB: RigidBody, maxDt: number, radiusA: number): CcdHit | null {
+  const target = bodyB.shape;
+  if (target instanceof PlaneShape) {
+    const n = target.normal;
+    const signedDistance = bodyA.position.x * n.x + bodyA.position.y * n.y + bodyA.position.z * n.z + target.constant;
+    const support = ccdPlaneSupport(bodyA, n);
+    const relativeVelocity = new Vec3(
+      bodyA.linearVelocity.x - bodyB.linearVelocity.x,
+      bodyA.linearVelocity.y - bodyB.linearVelocity.y,
+      bodyA.linearVelocity.z - bodyB.linearVelocity.z,
+    );
+    const normalSpeed = relativeVelocity.dot(n);
+    if (signedDistance - support <= CCD_PENETRATION_EPS || normalSpeed >= -1e-9) return null;
+    const time = (signedDistance - support) / -normalSpeed;
+    if (time < 0 || time > maxDt) return null;
+    const normal = new Vec3(-n.x, -n.y, -n.z);
+    const point = new Vec3(
+      bodyA.position.x + normal.x * support,
+      bodyA.position.y + normal.y * support,
+      bodyA.position.z + normal.z * support,
+    );
+    return makeCcdHit(bodyA, bodyB, time, point, normal);
+  }
+
+  if (target instanceof SphereShape) {
+    const relativePosition = new Vec3(
+      bodyB.position.x - bodyA.position.x,
+      bodyB.position.y - bodyA.position.y,
+      bodyB.position.z - bodyA.position.z,
+    );
+    const relativeVelocity = new Vec3(
+      bodyA.linearVelocity.x - bodyB.linearVelocity.x,
+      bodyA.linearVelocity.y - bodyB.linearVelocity.y,
+      bodyA.linearVelocity.z - bodyB.linearVelocity.z,
+    );
+    const radius = radiusA + target.radius;
+    // The separation vector is B - A, while `relativeVelocity` is A - B. The future vector is
+    // therefore `relativePosition - relativeVelocity * t`.
+    const a = relativeVelocity.dot(relativeVelocity);
+    const approach = relativePosition.dot(relativeVelocity);
+    const b = -2 * approach;
+    const c = relativePosition.dot(relativePosition) - radius * radius;
+    const discriminant = b * b - 4 * a * c;
+    if (!(a > 1e-12) || discriminant < 0 || approach <= 0) return null;
+    const time = (-b - Math.sqrt(discriminant)) / (2 * a);
+    if (time < 0 || time > maxDt) return null;
+    const ax = bodyA.position.x + bodyA.linearVelocity.x * time;
+    const ay = bodyA.position.y + bodyA.linearVelocity.y * time;
+    const az = bodyA.position.z + bodyA.linearVelocity.z * time;
+    const bx = bodyB.position.x + bodyB.linearVelocity.x * time;
+    const by = bodyB.position.y + bodyB.linearVelocity.y * time;
+    const bz = bodyB.position.z + bodyB.linearVelocity.z * time;
+    const normal = new Vec3(bx - ax, by - ay, bz - az);
+    if (normal.lengthSq() <= 1e-12) normal.set(1, 0, 0);
+    else normal.normalize();
+    const point = new Vec3(ax + normal.x * radiusA, ay + normal.y * radiusA, az + normal.z * radiusA);
+    return makeCcdHit(bodyA, bodyB, time, point, normal);
+  }
+
+  if (target instanceof BoxShape) {
+    const inverseRotation = bodyB.rotation.clone().conjugate();
+    const localPosition = new Vec3(
+      bodyA.position.x - bodyB.position.x,
+      bodyA.position.y - bodyB.position.y,
+      bodyA.position.z - bodyB.position.z,
+    );
+    const localVelocity = new Vec3(
+      bodyA.linearVelocity.x - bodyB.linearVelocity.x,
+      bodyA.linearVelocity.y - bodyB.linearVelocity.y,
+      bodyA.linearVelocity.z - bodyB.linearVelocity.z,
+    );
+    inverseRotation.rotateVector(localPosition, localPosition);
+    inverseRotation.rotateVector(localVelocity, localVelocity);
+    const ex = target.halfExtents.x + radiusA;
+    const ey = target.halfExtents.y + radiusA;
+    const ez = target.halfExtents.z + radiusA;
+    const slab = sweepPointAabb(localPosition, localVelocity, -ex, ex, -ey, ey, -ez, ez, maxDt);
+    if (!slab) return null;
+    const localNormal = new Vec3();
+    if (slab.axis === 0) localNormal.set(slab.sign, 0, 0);
+    else if (slab.axis === 1) localNormal.set(0, slab.sign, 0);
+    else localNormal.set(0, 0, slab.sign);
+    const normal = new Vec3();
+    bodyB.rotation.rotateVector(localNormal, normal).normalize();
+    const ax = bodyA.position.x + bodyA.linearVelocity.x * slab.time;
+    const ay = bodyA.position.y + bodyA.linearVelocity.y * slab.time;
+    const az = bodyA.position.z + bodyA.linearVelocity.z * slab.time;
+    const point = new Vec3(ax + normal.x * radiusA, ay + normal.y * radiusA, az + normal.z * radiusA);
+    return makeCcdHit(bodyA, bodyB, slab.time, point, normal);
+  }
+
+  if (target instanceof HeightfieldShape) {
+    return sweepAgainstHeightfield(bodyA, bodyB, target, maxDt, radiusA);
+  }
+
+  return null;
+}
+
+interface SlabHit {
+  time: number;
+  axis: 0 | 1 | 2;
+  sign: number;
+}
+
+function sweepPointAabb(
+  position: Vec3,
+  velocity: Vec3,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  minZ: number,
+  maxZ: number,
+  maxDt: number,
+): SlabHit | null {
+  const mins = [minX, minY, minZ];
+  const maxs = [maxX, maxY, maxZ];
+  const points = [position.x, position.y, position.z];
+  const speeds = [velocity.x, velocity.y, velocity.z];
+  let entry = 0;
+  let exit = maxDt;
+  let axis: 0 | 1 | 2 = 0;
+  let sign = 0;
+
+  for (let i = 0; i < 3; i++) {
+    const p = points[i]!;
+    const v = speeds[i]!;
+    const lo = mins[i]!;
+    const hi = maxs[i]!;
+    if (Math.abs(v) <= 1e-12) {
+      if (p < lo || p > hi) return null;
+      continue;
+    }
+    const tLo = (lo - p) / v;
+    const tHi = (hi - p) / v;
+    const near = Math.min(tLo, tHi);
+    const far = Math.max(tLo, tHi);
+    if (near > entry) {
+      entry = near;
+      axis = i as 0 | 1 | 2;
+      sign = v > 0 ? 1 : -1;
+    }
+    exit = Math.min(exit, far);
+    if (entry > exit) return null;
+  }
+
+  if (entry < 0 || entry > maxDt || sign === 0) return null;
+  return { time: entry, axis, sign };
+}
+
+function sweepAgainstHeightfield(
+  bodyA: RigidBody,
+  bodyB: RigidBody,
+  heightfield: HeightfieldShape,
+  maxDt: number,
+  radius: number,
+): CcdHit | null {
+  const vx = bodyA.linearVelocity.x - bodyB.linearVelocity.x;
+  const vy = bodyA.linearVelocity.y - bodyB.linearVelocity.y;
+  const vz = bodyA.linearVelocity.z - bodyB.linearVelocity.z;
+  const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  const gapAt = (time: number): number => {
+    const x = bodyA.position.x + vx * time;
+    const y = bodyA.position.y + vy * time;
+    const z = bodyA.position.z + vz * time;
+    return y - radius - heightfield.sampleHeight(x, z);
+  };
+  const startGap = gapAt(0);
+  if (startGap <= CCD_PENETRATION_EPS || !(speed > 0)) return null;
+  const samples = Math.max(16, Math.min(96, Math.ceil((speed * maxDt) / Math.max(radius * 0.5, 0.05))));
+  let previousTime = 0;
+  let previousGap = startGap;
+  for (let i = 1; i <= samples; i++) {
+    const time = (i / samples) * maxDt;
+    const gap = gapAt(time);
+    if (gap <= 0 && previousGap > 0) {
+      let lo = previousTime;
+      let hi = time;
+      for (let iteration = 0; iteration < 14; iteration++) {
+        const mid = (lo + hi) * 0.5;
+        if (gapAt(mid) > 0) lo = mid;
+        else hi = mid;
+      }
+      const hitTime = hi;
+      const x = bodyA.position.x + vx * hitTime;
+      const y = bodyA.position.y + vy * hitTime;
+      const z = bodyA.position.z + vz * hitTime;
+      const terrainNormal = heightfield.sampleNormal(x, z);
+      const normal = new Vec3(-terrainNormal.x, -terrainNormal.y, -terrainNormal.z);
+      const point = new Vec3(x + normal.x * radius, y + normal.y * radius, z + normal.z * radius);
+      return makeCcdHit(bodyA, bodyB, hitTime, point, normal);
+    }
+    previousTime = time;
+    previousGap = gap;
+  }
+  return null;
 }
 
 /** Scratch for heightfield raycast normals (avoids per-hit Vec3 alloc in default sampler). */

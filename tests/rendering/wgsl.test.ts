@@ -9,6 +9,7 @@
  * @covers engine/src/rendering/shaders/post.ts
  * @covers engine/src/rendering/shaders/sky.ts
  * @covers engine/src/rendering/shaders/ssao.ts
+ * @covers engine/src/rendering/shaders/contactDepth.ts
  * @covers engine/src/rendering/shaders/standard.ts
  * @covers engine/src/rendering/shaders/terrain.ts
  * @covers engine/src/rendering/shaders/water.ts
@@ -28,6 +29,7 @@ export const suite = {
     "engine/src/rendering/shaders/post.ts",
     "engine/src/rendering/shaders/sky.ts",
     "engine/src/rendering/shaders/ssao.ts",
+    "engine/src/rendering/shaders/contactDepth.ts",
     "engine/src/rendering/shaders/standard.ts",
     "engine/src/rendering/shaders/terrain.ts",
     "engine/src/rendering/shaders/water.ts",
@@ -49,6 +51,8 @@ export const suite = {
 import assert from "node:assert/strict";
 import { assertContains, assertNotContains, assertThrows, finish, group, test } from "selrun";
 import {
+  CONTACT_DEPTH_SHADER,
+
   BLIT_SHADER,
   Material,
   CLUSTER_COUNT,
@@ -110,15 +114,15 @@ group("generated uniform structs are legal in every browser's uniform address sp
   });
 
   test("keeps the byte layout the CPU writers depend on", () => {
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 272);
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 256);
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("flags"), 224);
-    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("fogParams"), 240);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.byteSize("uniform"), 304);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("surfaceWeather"), 288);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("flags"), 256);
+    assert.equal(RENDERING_STRUCTS.PerFrameUniforms.offsetOf("fogParams"), 272);
     assert.equal(RENDERING_STRUCTS.LightUniforms.byteSize("uniform"), 80);
     assert.equal(RENDERING_STRUCTS.LightUniforms.offsetOf("spotAngles"), 48);
     assert.equal(RENDERING_STRUCTS.LightBlock.byteSize("uniform"), 1296);
     assert.equal(RENDERING_STRUCTS.LightBlock.offsetOf("lights"), 16);
-    assert.equal(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform"), 1776);
+    assert.equal(RENDERING_STRUCTS.ShadowUniforms.byteSize("uniform"), 1792);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("cascadeTexelWorld"), 272);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotViewProj"), 288);
     assert.equal(RENDERING_STRUCTS.ShadowUniforms.offsetOf("spotParams"), 800);
@@ -187,6 +191,7 @@ group("generated uniform structs are legal in every browser's uniform address sp
       BLIT_SHADER,
       POST_SHADER,
       SSAO_SHADER,
+      CONTACT_DEPTH_SHADER,
       SKY_SHADER,
       WATER_SHADER,
       // Includes the billboard whose reversed-edge smoothstep a strict Tint rejected (PR #32

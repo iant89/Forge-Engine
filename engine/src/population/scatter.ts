@@ -35,6 +35,71 @@ export interface PopulationSurfaceSampler {
 }
 
 /**
+ * A fixed-resolution, deterministic surface grid used by population placement. Unlike a resident
+ * terrain tile, this grid is generated at the same resolution for every LOD/load order. Keeping the
+ * interpolation and normal calculation here gives inline and worker scatter the exact same
+ * acceptance decisions without shipping a Heightmap/terrain object across the task boundary.
+ */
+export interface PopulationSurfaceGrid {
+  readonly originX: number;
+  readonly originZ: number;
+  readonly size: number;
+  readonly resolution: number;
+  readonly heights: Float32Array;
+}
+
+/** Bilinear surface sampler shared by the main-thread and worker population paths. */
+export class GridPopulationSurfaceSampler implements PopulationSurfaceSampler {
+  readonly originX: number;
+  readonly originZ: number;
+  readonly size: number;
+  readonly resolution: number;
+  readonly heights: Float32Array;
+  private readonly cellSize: number;
+
+  constructor(grid: PopulationSurfaceGrid) {
+    this.originX = grid.originX;
+    this.originZ = grid.originZ;
+    this.size = grid.size;
+    this.resolution = Math.max(2, Math.floor(grid.resolution));
+    if (grid.heights.length < this.resolution * this.resolution) {
+      throw new RangeError(
+        `population surface: heights has ${grid.heights.length} entries, expected ${this.resolution * this.resolution}`,
+      );
+    }
+    this.heights = grid.heights;
+    this.cellSize = this.size / (this.resolution - 1);
+  }
+
+  private sampleGrid(i: number, j: number): number {
+    const ci = Math.max(0, Math.min(this.resolution - 1, i));
+    const cj = Math.max(0, Math.min(this.resolution - 1, j));
+    return this.heights[cj * this.resolution + ci]!;
+  }
+
+  heightAt(worldX: number, worldZ: number): number {
+    const lx = Math.max(0, Math.min(this.resolution - 1, (worldX - this.originX) / this.cellSize));
+    const lz = Math.max(0, Math.min(this.resolution - 1, (worldZ - this.originZ) / this.cellSize));
+    const i = Math.floor(lx);
+    const j = Math.floor(lz);
+    const fx = lx - i;
+    const fz = lz - j;
+    const h00 = this.sampleGrid(i, j);
+    const h10 = this.sampleGrid(i + 1, j);
+    const h01 = this.sampleGrid(i, j + 1);
+    const h11 = this.sampleGrid(i + 1, j + 1);
+    return (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
+  }
+
+  normalYAt(worldX: number, worldZ: number): number {
+    const eps = Math.max(0.01, this.cellSize * 0.25);
+    const dx = (this.heightAt(worldX + eps, worldZ) - this.heightAt(worldX - eps, worldZ)) / (2 * eps);
+    const dz = (this.heightAt(worldX, worldZ + eps) - this.heightAt(worldX, worldZ - eps)) / (2 * eps);
+    return 1 / Math.hypot(1, dx, dz);
+  }
+}
+
+/**
  * Placement rules and appearance parameters for one population type (Phase 14.2 types are built
  * from this: rocks and boulders ship in the terrain demo; vegetation/debris/decals/props remain
  * roadmap work). Pure data — the geometry/material pairing lives on `PopulationType` in `world.ts`.

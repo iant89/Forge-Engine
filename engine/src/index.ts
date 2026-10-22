@@ -489,6 +489,7 @@ export { MULTI_SCATTERING_SHADER, MS_BINDINGS, MS_ENTRY, MS_WORKGROUP, MS_LUT_TE
 export { GpuMultiScattering, MS_SUN_EPSILON, writeSkyMultiScatteringSignature, skyMultiScatteringSignatureChanged } from "./rendering/skyMultiScattering.js";
 export { POST_SHADER, POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_NO_TONEMAP, POST_FLAG_PASSTHROUGH } from "./rendering/shaders/post.js";
 export { SSAO_SHADER, SSAO_BINDINGS, SSAO_SKY_KEY, type SsaoEntryPoint } from "./rendering/shaders/ssao.js";
+export { CONTACT_DEPTH_SHADER } from "./rendering/shaders/contactDepth.js";
 export { SKY_SHADER, SKY_BINDINGS } from "./rendering/shaders/sky.js";
 export { WGSL_CLOUD } from "./rendering/shaders/cloudLayer.js";
 export { WATER_SHADER, WATER_BINDINGS, WATER_GRAB_SHADER } from "./rendering/shaders/water.js";

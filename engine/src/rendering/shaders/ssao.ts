@@ -123,7 +123,9 @@ fn fsSsao(in: FullscreenOut) -> @location(0) vec4<f32> {
   let n = reconstructNormal(p, c);
   let radius = ssao.radius;
   let r2 = radius * radius;
-  var screenRadius = ssao.projScale * radius / max(c.z, 1e-4);
+  let orthographic = ssao.projScale < 0.0;
+  let pixelsPerMetre = abs(ssao.projScale);
+  var screenRadius = select(pixelsPerMetre * radius / max(c.z, 1e-4), pixelsPerMetre * radius, orthographic);
   if (screenRadius < 1.0) {
     // The whole kernel fits inside one pixel: nothing resolvable can occlude.
     return vec4<f32>(1.0, c.z, 0.0, 1.0);

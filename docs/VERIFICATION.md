@@ -6,7 +6,7 @@ system scheduler, hierarchy, visibility culling, import boundaries), Phase 4 (te
 worlds: chunks, heightmaps, quadtree LOD, geomorphing, streaming, generators, 10 km+ visible world),
 Phase 5 (physics: fixed timestep, rigid bodies, broad/narrowphase, sequential impulse solver,
 Coulomb friction, bounce restitution, 3-box vertical stacking, 15/30/60/144 Hz trajectory determinism),
-Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, TC/ABS),
+Phase 6 (vehicles: Pacejka, suspension, engine/transmission/diff, aero, ground query, torque-integrated wheel angular velocity, TC/ABS, and the JavaScript physics CCD path),
 Phase 7 (particles: CPU simulation as the reference, a compute integrator for the same gravity/drag/life
 step, modules, trails, budgets), Phase 8a (environment I: sun position, single-scattering sky
 pass, fog in the forward shader, day/night cycle), and Phase 8b (environment II: weather state,
@@ -16,7 +16,7 @@ automated check, so nothing in `ROADMAP.md` has to be taken on faith. `docs/VEHI
 `docs/PARTICLES.md` and `docs/ENVIRONMENT.md` describe what those phases actually do; this file says
 which assertion proves each part. Phase 9 (engine hardening: worker execution, resource eviction,
 resource statistics, the coordinate-space API, the capability registry and the known-issue gate) is
-built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is in progress: items 13.1–13.8 are implemented and covered below, including indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9's per-object cascade assignment, bounded spot shadows (four shared-resolution maps) and bounded point shadows (two six-face cubes) are implemented, while contact shadows and adaptive resolution remain.
+built and covered below. Phase 10 (streaming) and Phase 11 (vehicle physics) are implemented; Phase 12 is an honest GPU-particle subset (see below and `ROADMAP.md`). Phase 13 (renderer 2.0) is implemented and covered below: items 13.1–13.8 include indirect rendering, asynchronous pipeline compilation and GPU timing; 13.9 adds per-object cascade assignment, bounded spot shadows (four shared-resolution maps), bounded point shadows (two six-face cubes), opt-in contact shadows, adaptive atlas resolution and shared per-instance culling. Phase 14 (world population) is implemented and covered below: canonical fixed-resolution population surfaces remove terrain-LOD order dependence, scheduler-backed population generation has deterministic inline fallback and real worker parity, GPU population LOD/culling remains covered by the population suite, and resident prototype-geometry raycasts return decoded chunk/type/instance metadata. Phase 10 remains intentionally skipped; the external Mars-generator cache gate is not substituted with a synthetic cache.
 
 ## Setting up
 
@@ -69,16 +69,16 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | Command | Checks | Status |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc -b engine editor` (strict mode, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), the examples project, and the tests project; test sources are typechecked in addition to being run by selrun (the first strict test typecheck found 37 stale errors, including assertions that had been comparing `undefined` to `undefined`) | passing |
-| `npm test` | 160 linked suites ran in the full isolated suite catalog; the complete run passed all 160 suites in 226.13 seconds, including the 1.0 extension contract suite, API approval/reference checks, editor, rendering, terrain, physics, replay, examples and DOM controls. Expected diagnostic GPU/worker failure paths remain covered by their tests. | passing |
+| `npm test` | 160 linked suites ran in the full isolated suite catalog; the complete run passed all 160 suites in 323.70 seconds, including the 1.0 extension contract suite, API approval/reference checks, editor, rendering, terrain, physics, replay, examples and DOM controls. Expected diagnostic GPU/worker failure paths remain covered by their tests. | passing |
 | `npm run test:affected` | Selects suites for the working-tree change set: production files match explicit many-to-many `@covers` claims; changed test files are selected directly, and changed test-only helpers follow static-import closure. The default change set includes staged, unstaged, deleted, renamed, and untracked paths. `--base REF` compares exactly `REF...HEAD`, excluding working-tree changes; PR CI uses this mode, while pushes to `main` run the full suite | passing |
-| `npm run test:check` | The selrun catalog is complete: all 160 suites have matching headers/exported manifests, unique names, repository-backed areas and 1,110 valid coverage claims; `tests/full.test.ts` links every discovered suite exactly once in the declared order. | passing |
+| `npm run test:check` | The selrun catalog is complete: all 160 suites have matching headers/exported manifests, unique names, repository-backed areas and 1,113 valid coverage claims; `tests/full.test.ts` links every discovered suite exactly once in the declared order. | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core+math/ui with only `ui/gpu/**` also seeing gpu/rendering), AST import parsing across TS/TSX and static, type-query, dynamic and CommonJS forms, `editor/**` using only the public `@forge/engine` API with runtime never importing editor, no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` | passing |
-| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,196 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,187 public candidates across 23 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
+| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,210 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,201 public candidates across 24 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
 | `npm run api:reference:check` | Regenerates the complete consumer-facing root export inventory from the reviewed API snapshot and rejects stale `docs/API-REFERENCE.md`. | passing |
 | `npm run version:check` | Checks root, engine, editor, exported `VERSION`, API snapshot, editor dependency and lockfile metadata are all `1.0.0`. | passing |
 | `npm run docs:check` | The capability registry agrees with the roadmap and known issues, and the 1.0 reference/policy files are covered by focused tests. | passing |
-| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 9.1 module-worker GLB round-trip (zero inline fallback), then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera — now with the Phase 14 population check that the streamed disc actually draws its rock/boulder population (`populationInstances > 100` in ≥ 4 batches) while the entity count stays under 400, proving the instances did not regress into per-rock entities — scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors — Phase 17.1's arm on that same scene: both `forge.sky.ms.table` and `forge.sky.ms.lut` are in the frame's pass list, the table read back off the device (`Renderer.readMultiScatteringLut()`) matches the CPU twin of the same frame (`multiScatteringReference()`) within 15 % at twelve sampled daylight texels with an exactly zero nadir column, turning `sky.multiScattering` off darkens the noon mean by >5 % and turning it back on restores it, and the device's own timestamp samples for the two passes are printed (a real measurement: `sky.ms.table` 0.10 ms, `sky.ms.lut` 35 ms on SwiftShader, which is a software rasteriser, not a gate; and the table's *conditional* rebuild — four half-hour sun steps must each record the two passes exactly once, read on the frame the counter moved, and a still sun must record neither) — Phase 17.2's geometry arm on the same sky scene: at frozen noon with custom fog and MS disabled, the opt-in flag is false off/true on and 41,658/468,000 pixels change (max channel delta 17) with zero GPU errors — plus the Phase 8b weather scene: overcast noon darker than clear noon from storm lighting attenuation, a pinned overcast night hiding the clear night's stars (counted per pixel in the sky band, not a frame mean), the sky pass gone underwater, and a triggered strike registered (the strike is registered by the call itself, not behind `AudioContext.resume()`, which a headless autoplay policy can leave pending forever — that chain made this arm fail on CI with `strikes=0` while passing locally, and it was fixed rather than relaxed) — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — the Phase 16.5 skinned arm: one skinned batch with four joint matrices and no fallback, every
+| `npm run check:browser` | Headless Chromium + SwiftShader: the landing-page selector defaults to Mars Showcase, `?scene=pbr` still selects the PBR fixture, then the Phase 9.1 module-worker GLB round-trip (zero inline fallback), then the Phase 2 chain (3 cascades → HDR forward → 5-mip bloom → tonemap), bloom/shadow A/B, LDR fallback, cascade debug, resize, Phase 4 terrain camera — the Phase 14 population path is verified by CPU/mock/worker suites; this sandbox does not claim its browser arm because the Playwright Chromium executable is missing — scene switching, the Phase 7 compute integrator executed on that device (`gpuError ≈ 2.5e-7`), the vehicle playground plus particle fountain loaded with zero GPU errors, and the Phase 8a sky scene: `forge.sky` compiled and run on the real adapter directly after `forge.main`, noon brighter than 01:00 by > 2×, the pass gone when the sky is switched off, and the Mars preset presenting with zero GPU errors — Phase 17.1's arm on that same scene: both `forge.sky.ms.table` and `forge.sky.ms.lut` are in the frame's pass list, the table read back off the device (`Renderer.readMultiScatteringLut()`) matches the CPU twin of the same frame (`multiScatteringReference()`) within 15 % at twelve sampled daylight texels with an exactly zero nadir column, turning `sky.multiScattering` off darkens the noon mean by >5 % and turning it back on restores it, and the device's own timestamp samples for the two passes are printed (a real measurement: `sky.ms.table` 0.10 ms, `sky.ms.lut` 35 ms on SwiftShader, which is a software rasteriser, not a gate; and the table's *conditional* rebuild — four half-hour sun steps must each record the two passes exactly once, read on the frame the counter moved, and a still sun must record neither) — Phase 17.2's geometry arm on the same sky scene: at frozen noon with custom fog and MS disabled, the opt-in flag is false off/true on and 41,658/468,000 pixels change (max channel delta 17) with zero GPU errors — plus the Phase 8b weather scene: overcast noon darker than clear noon from storm lighting attenuation, a pinned overcast night hiding the clear night's stars (counted per pixel in the sky band, not a frame mean), the sky pass gone underwater, and a triggered strike registered (the strike is registered by the call itself, not behind `AudioContext.resume()`, which a headless autoplay policy can leave pending forever — that chain made this arm fail on CI with `strikes=0` while passing locally, and it was fixed rather than relaxed) — the sky scene's on-screen buttons at a desktop width (panel shown with the hint hidden, `+1h` scrubbing the clock, `Pause` stopping it and the second tap restarting it, `Mars` swapping the planet and back, each button marking itself pressed), and the weather scene's buttons at phone width: panel shown with the hint hidden, each button moving the state its key moves and marking itself pressed, the clock frozen by Pause and running again after it, and the panel still shown when the window returns to a desktop width (the buttons are the interface on every device; only the vehicle demo keeps its keyboard) — the storm preset spawning live rain (`weatherState().rainDrops > 0`) — the Phase 16.5 skinned arm: one skinned batch with four joint matrices and no fallback, every
 skinned pipeline compiled, and two deterministic poses of the same uploaded mesh differing in
 8,859/468,000 pixels (max 211/255; the focused 1280×720 mode measured 16,974/921,600), which is the
 palette deforming the vertices on the real device (details in the `check:browser:skinning` row) — and the Mars Showcase: the Perseverance GLB loading with its 6 wheels found, the wheels settling to ≥4 in terrain contact, `W` driving the rover > 0.5 m — held until the chassis' own fixed clock has run two seconds of throttle, because SwiftShader presents this scene at well under 1 fps and `Clock` admits at most five fixed steps per presented frame, so a wall-clock window measures the rasteriser through the drive tune rather than the drivetrain (the log reports throttle seconds and presented frames next to the distance) — with the speed, kick dust and thrown rock chips that prove the drivetrain, and the robotic arm: `R` starting the unfold with the elbow joint leaving its stowed angle, then stowing back to all-zero joints with the thumbsticks hidden (the full 6 s unfold, the thumbstick jogging, the joint limits and the ground guard are covered by `tests/examples/roverArm.test.ts`, `tests/controls/armTouch.test.ts` and `tests/controls/vehicleTouch.test.ts`, because the showcase presents well under 1 fps on SwiftShader), the vehicle playground's parking brake: `P` latching it with the pad's P/PARK lamp lit, full throttle not moving the latched car (wheels locked), a second `P` releasing it and `W` driving the car > 0.5 m (this section resumes the demo loop the pixel A/Bs froze and asserts `animating()`, because a frozen loop applies no input at all and a parked car looks the same as a car that cannot move) — the Phase 13.5 object culling A/B (identical picture between the device culler and the CPU twin, the pass present in one arm only, the HiZ stage off without darkening a pixel) and the Phase 13.6 indirect arm that follows it (`indirectDraws === batches` with the pass's counter identities on a real device, the same picture with the records off and `indirectDraws` back to 0, and a 1 m draw distance that makes the device, not the CPU, zero records), plus startup through the non-blocking 13.7 pipeline path and optional 13.8 timestamp-query reporting (this SwiftShader adapter reported frame/render/compute and per-pass samples), and the Phase 10.9 site inspector (the volcano preset loads with `workers` + `layered` material mode at 128 m / 32 m skirts and zero GPU errors, and the `?scene=mars-generator&marssite=0,0` deep link — a real navigation, not `loadScene` — reports `lat 0 lon 0` and leaves at least one resident tile whose weight mask is a genuine two-channel blend (the zero/zero inspector now frames the known rock/crust rim at tile (-1,2), because the site's primary geology label is crater floor, and a non-dominant channel carrying >= 25 % of the tile-wide mask mass is required; the volcano arm also requires a locally varying within-tile mask), which is what proves the port's splat reaches the tiles rather than a flat colour), and the 13.9 per-object cascade submissions plus the spot-shadow A/B: on the PBR fixture the spot map/pass appears, disappears when only the spotlight's `castShadow` flag is disabled (directional cascades stay active), and returns when re-enabled; the full-resolution comparison measured 13,464 pixels darker with spot shadows, none brighter, maximum 11 luma levels, with zero GPU errors through that arm — and the point-shadow A/B that follows the same shape for the two orbiting point lights' six-face cubes: the `forge.shadow.point.*` passes appear, disappear when the point lights' `castShadow` flags are disabled (directional cascades stay active), return when re-enabled, and the comparison must darken monotonically with zero GPU errors. The frame suite separately checks spot/point-map counts/layers and range/`firstInstance` ownership because the browser A/B checks rendered output | this local run (real Chromium + SwiftShader) passed the pbr fixture, every rendering A/B (spot/point shadows, bloom, SSAO, prepass, clustered lighting, object/indirect-culling A/Bs, LDR, cascade tint, resize), and the expanded six-type terrain population + GPU-LOD arm: **1,339 instances in 125 batches, 48 GPU-LOD batches, 64 entities, zero GPU errors**. The browser gate's new assertion observed `forge.populationLod` on the real WebGPU adapter; the run was deliberately stopped after this required arm, so later vehicle/sky/Mars input arms are not claimed. The initial fixed 2.5 s frame-start wait was changed to wait up to 15 s for real frame progress because SwiftShader intermittently exceeded that limit. A fresh full run then passed the PBR/render A/B, terrain, compute, vehicle, particles, sky, weather and Mars Showcase load/contact arms, but stopped at the rover-drive threshold: 0.434 m in 45 s versus >0.5 m (max speed 0.61 m/s, four contacts and kick dust); no HGA/arm pass is claimed. The full `check:browser` gate is therefore not green on this run; this is a timing-sensitive SwiftShader result, not a pass. The CI advisory WebGPU job remains authoritative for a complete sweep and now requires a population LOD batch/pass. Phase 15.3 streaming was verified on the same real device with a targeted probe (8 procedural textures streamed through the engine's `AssetStreamer` under a 100 KB/frame upload budget with a priority mix and a mid-queue cancel): the three 85 KB priority-9 textures admitted exactly one per frame, the 20 KB smalls packed at the concurrency cap on later frames, the cancelled load never reached the GPU (no registry entry, `cancelled: 1`, `failed: 0`), all 7 admitted textures came up ready on the real adapter, and the run finished with zero GPU errors and zero console errors — the full gate's sweep stall makes the probe the targeted evidence for this slice. In the Phase 10.9 site-inspector run the two new arms passed on the same adapter before that threshold (volcano: 11 chunks / 11 splat tiles, `workers` + `layered`, zero GPU errors; the `?marssite=0,0` navigation: 13 tiles, best-mixed tile 0.458 rock / 0.542 crust, zero GPU errors), and the run then stopped at the same pre-existing rover-drive threshold (0.303 m in 45 s, threshold > 0.5 m). After the 2026-10-06 fix budgeting every showcase wait on the scene's own clock (the W-drive arm holds W until `engine.clock.fixedTime` has advanced two simulated seconds and reports throttle seconds and presented frames; the HGA and arm polls renew their timeout while the state keeps improving), a fresh full run on this same box passed every arm end to end — drive `dz=0.55 m` at `maxSpeed=1.00 m/s` in `throttle=1.00 s over 12 presented frames`, HGA `phase=deploying az=168.0° el=12.0°`, arm unfolded and stowed back to all-zero joints, showcase screenshot inspected — i.e. `check:browser passed (real WebGPU, headless Chromium + SwiftShader)`. The 0.434 m / 0.303 m stops recorded above were measured with the pre-fix 45 s wall-clock drive budget on the same slow adapter. A re-run on 2026-10-07 after the rover speed/traction changes passed again end to end — drive `dz=0.52 m` at `maxSpeed=1.13 m/s` in `throttle=0.92 s over 11 presented frames` (`contact=6`, kick dust 115, rock chips 27), HGA `phase=deploying az=168.0° el=12.0°`, arm unfolded to `[0,0,-9.4,9.4,0]` and stowed back to all-zero joints, plus the terrain, compute, vehicle (parking brake latched then released for 0.52 m), particle, sky and weather arms with zero GPU errors and the showcase screenshot inspected. The first 2026-10-09 full rerun after the veneer work exceeded a 30-minute shell wait after logging the Mars showcase drive, so that invocation had no final status. A managed background rerun completed the entire current-source gate with exit 0 (`check:browser passed (real WebGPU, headless Chromium + SwiftShader) — gpu: adapter ok (google / swiftshader)`). The Mars generator measured volcano 11 tiles / max within-tile runner-up 0.229 and crater 15 tiles / rim `[0.204, 0.368, 0.155, 0.273]` / best mixed `[0.318, 0, 0.089, 0.592]`; 30/30 native Mars worker jobs returned, the rover drove 0.52 m over 11 frames, the HGA began deploying, and the arm unfolded and stowed back to all-zero joints, with zero GPU errors. That was the full all-scenes result for the source at that time. On 2026-10-12, after Phase 17.2 and again after Phase 17.3, only focused `check:browser:environment` was rerun; the full sweep has not yet been rerun. The 17.3 run is the environment row below.
@@ -242,8 +242,8 @@ component` (and disposing either scene cleared the other's components).
 Nine checks parse the deterministic `forge.api-surface/2` snapshot, require sorted unique rows,
 known type/value/stability classifications and canonical direct/transitive SHA-256 fingerprints, pin
 the nine experimental WASM-physics names, and verify the package remains root-only. They separately
-parse `forge.api-approvals/1`, require all 2,187 public names and only those names to match the current
-kind and both hashes, pin the 23 review batches and their exact counts/evidence, and run an isolated
+parse `forge.api-approvals/1`, require all 2,201 public names and only those names to match the current
+kind and both hashes, pin the 24 review batches and their exact counts/evidence, and run an isolated
 source copy where `ForgeError` gains a member to prove a stale approval fails with an explicit
 re-review diagnostic. A second negative ledger proves policy v2 rejects even one newly pending public
 candidate. The ledger is not written by `--write`.
@@ -260,8 +260,8 @@ record, not an inference made by the CLI.
 ### `tests/core/runtimeApi.test.ts` — complete public namespace and core-runtime evidence
 
 Eleven checks load the full checked-in surface and approval ledger through the built package. Every
-one of the 1,387 value-bearing exports (public and experimental) must exist on the runtime namespace,
-every one of the 809 type-only declarations must stay runtime-free, and all 2,187 public candidates
+one of the 1,396 value-bearing exports (public and experimental) must exist on the runtime namespace,
+every one of the 814 type-only declarations must stay runtime-free, and all 2,201 public candidates
 must remain approved while `VERSION` is `1.0.0`. The suite also supplies focused runtime evidence
 for configuration normalization/errors/hashing, event ordering and mutation/disposal/error isolation,
 logger rings/scopes/sink isolation, object pools, generational handles, typed buffers/arenas, and the
@@ -342,6 +342,20 @@ debris, rosette vegetation, decals, mineral spires) together; the primitive suit
 winding and the rosette's finite, non-degenerate front/back attributes. `composeYTRS` is additionally
 pinned bit-exact against `setCompose` + `Quat.fromAxisAngle` in `tests/math/math.test.ts`, and the rock
 primitive's determinism, envelope and normals are pinned here (including the pole-vertex normal borrow).
+
+The final Phase 14 group in this suite closes the remaining integration seams. A coarse-resolution and
+a fine-resolution resident terrain tile produce identical population SoA positions, scales, rotations,
+and tints because placement samples the fixed 65×65 canonical population surface rather than whichever
+render LOD arrived first. `executePopulationChunk` and the installed `population.chunk` handler produce
+matching surface and entry arrays through the scheduler, and a `PopulationWorld` update consumes the
+scheduled result with incremented scheduled/completed counters. The separate real-worker case in
+`tests/core/tasks.test.ts` sends the same payload through a shipping `node:worker_threads` worker and
+compares surface heights, positions, scales, rotations, tints, and counts bit-for-bit with the inline
+reference while asserting no failure or inline fallback. Finally, a resident box prototype is queried
+through the scene raycast seam; the hit is triangle-exact, carries a finite distance/point, and
+`PopulationWorld.raycastInfo()` decodes `{ chunkKey, typeId, instanceIndex }` from the hit tag. These
+checks prove deterministic resident/query behavior, not browser/WebGPU population pixels or a live
+external Mars-generator cache.
 
 ### `tests/terrain/marsTerrain.test.ts` — the ported Mars generator (`docs/MARS-TERRAIN.md`)
 
@@ -540,16 +554,17 @@ transform dropping a light instead of poisoning the grid.
 Identical keys return the identical bundle and count a cache hit without touching the device; every
 axis of the key (technique, colour/depth formats, blending, culling, instancing, depth write,
 additive, fragment entry) yields a distinct pipeline; the four post entry points compile from one
-shader module; the 22 foundation variants (including the two `sky` targets, the three
-`prepass` variants and the three SSAO entry points) pass the mock's validation, with the opt-in
-terrain variants additionally exercised in `terrainMaterials.test`; `invalidate()` drops
-pipelines and the 12 layouts and the next `get` rebuilds them. **Prepass (13.1):** the `prepass`
-pipeline's vertex stage is the *same* shader module and entry point as the forward pipeline's
-(static and instanced — the prepass compiles no module of its own), it has no fragment stage,
-`depthCompare: "less"` and zero depth bias (the shadow program has a positive one and is a different
-module), culls like the forward pipeline, and the forward variant used over prepassed surfaces is
-`less-equal` with depth writes off. The SSAO estimate and both blur directions share one module,
-bind no vertex buffer and no depth attachment, and use different layouts (depth vs AO texture).
+shader module; the foundation variants (including the two `sky` targets, the material-aware
+`prepass` variants, the three SSAO entry points and the contact-depth resolve) pass the mock's
+validation, with the opt-in terrain variants additionally exercised in `terrainMaterials.test`;
+`invalidate()` drops pipelines and the 16 layouts and the next `get` rebuilds them. **Prepass
+(13.1):** the `prepass` pipeline reuses the forward vertex source and entry point (static and
+instanced) while adding a material coverage fragment, has `depthCompare: "less"` and zero depth bias
+(the shadow program has a positive one and is a different module), culls like the forward pipeline,
+and the forward variant used over prepassed surfaces is `less-equal` with depth writes off. The SSAO
+estimate and both blur directions share one module, bind no vertex buffer and no depth attachment, and
+use different layouts (depth vs AO texture); contact-depth is a fullscreen `r32float` target with a
+single depth-texture binding.
 
 **Async compilation (13.7):** repeated `getReady()` cache misses share one in-flight `createRenderPipelineAsync`, return no bundle until it resolves, and expose pending/failure counts; a rejection is latched until invalidation and never leaves a pending entry.
 
@@ -583,6 +598,15 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   light paths, cap the cubes at two (the third light stays unshadowed), support a point-only frame
   with a 12-layer atlas after the sun drops, assign a box under an overhead light to the −Y face
   only (the +Y face draws nothing), and drop the whole cube when no caster reaches the light.
+* **Contact shadows (13.9):** enabling the scene setting inserts `forge.contact.depth` between the
+  material-aware prepass and `forge.main`; the pass resolves depth to `r32float`, the frame group
+  binds that view, and the isolated test asserts the logical graph order, neutral fallback and zero
+  mock validation errors. Contact settings are uploaded in the expanded `ShadowUniforms` block.
+* **Generic instanced culling (13.5 / 13.9):** two ordinary shared geometry/material batches register
+  with the shared population culler, produce `forge.populationCull.views` and `forge.populationCull`,
+  and feed their compacted lists/indirect records without dynamic source-range errors. Source-offset
+  changes recreate the culler bind groups; the shadow-enabled fixture also exercises the per-map
+  caster-index binding.
 * A steady frame creates no textures and no buffers; a resize to an unrelated size creates only the
   frame-sized transients (HDR, depth, new bloom mips), the old shapes are retired after the grace
   period, and the shadow atlas is untouched.
@@ -593,23 +617,28 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   frame group follows the real LUT when MS builds. Disabling the feature clears the bit, underwater
   state suppresses it, and teardown releases the fallback and LUT without mock validation errors.
 * **Depth prepass (13.1)**: `forge.prepass` has no colour target, clears and stores the scene depth
-  and draws the two opaque batches; `forge.main` attaches the *same* depth with `depthLoadOp: "load"`,
-  and every draw it issues for those batches uses a `nodepthwrite` pipeline (read back from the
-  mock's command log: pipeline per draw) while every prepass draw uses the depth-only `prepass`
-  variant. Cutout (`alphaTest`), fading (`opacity < 1`), transparent and overlay batches stay out of
-  the prepass (`prepassDraws` 2 of 6) and keep `depthwrite` pipelines in `forge.main`; a scene with
-  nothing eligible runs no prepass, no SSAO, and `forge.main` clears depth itself. A culled caster
-  reaches the cascades but not the prepass.
+  and draws the eligible opaque, alpha-cutout/fading and water batches; `forge.main` attaches the
+  *same* depth with `depthLoadOp: "load"`, and every prepassed draw it issues uses a `nodepthwrite`
+  pipeline while every prepass draw uses the material-aware `prepass`/water depth variant. Transparent
+  and overlay batches stay out and keep their normal depth state; a scene with nothing eligible runs
+  no prepass, no SSAO, and `forge.main` clears depth itself. A culled caster reaches the cascades but
+  not the prepass.
 * **SSAO (13.1) and aliasing (13.2)**: the estimate and both blur passes each draw one fullscreen
   triangle into a 160×90 `rg16float` target with no depth attachment; the vertical blur's target *is*
   the estimate's physical texture (same label), `aliasedBytes` = 160·90·4 and physical = transient −
-  1. The uploaded `SsaoUniforms` (read back from the mock buffer) carry the radius, `projScale` =
-  ½·180/tan(fov/2), both extents, `invProj[1][1]` = tan(fov/2) and a sample count clamped to 1…32.
-  SSAO off keeps the prepass; intensity 0 computes nothing; prepass off removes both and restores
-  `forge.main`'s own depth clear and writes; an orthographic camera gets the prepass but no SSAO;
-  `RendererOptions.depthPrepass: false` / `ssao: false` veto them whatever the scene asks. A steady
-  SSAO frame creates no texture or buffer, five prepass × SSAO × HDR combinations record no errors,
-  and the fixture's teardown proves the SSAO buffer, AO fallback and pooled AO targets are released.
+  1. The uploaded `SsaoUniforms` (read back from the mock buffer) carry the radius, perspective or
+  orthographic projection mode, both extents, inverse-projection data and a sample count clamped to
+  1…32. SSAO off keeps the prepass; intensity 0 computes nothing; prepass off removes both and
+  restores `forge.main`'s own depth clear and writes; an orthographic camera gets the prepass and the
+  same three SSAO passes with a constant pixels-per-metre kernel. `RendererOptions.depthPrepass: false`
+  / `ssao: false` veto them whatever the scene asks. A steady SSAO frame creates no texture or buffer,
+  five prepass × SSAO × HDR combinations record no errors, and teardown proves the SSAO buffer, AO
+  fallback and pooled AO targets are released.
+* **Contact shadows (13.9)**: enabling `settings.shadow.contactShadows` adds `forge.contact.depth`
+  after `forge.prepass`, resolves the depth attachment to a full-resolution `r32float` target, and
+  places it before `forge.main`; the frame suite checks graph ordering, contact bind path, neutral
+  fallback and zero mock validation errors. `contactDistance` and `contactStrength` are uploaded in
+  `ShadowUniforms`; this focused mock evidence does not claim a real-device visual A/B.
 * **GPU timing (13.8)**: an enabled mock renderer exposes non-zero asynchronous frame/render/compute
   times and a `lights.assign` timestamp in `Renderer.stats.gpuPassTimes`; the matching `Profiler` frame
   record and per-pass scope receive those samples. The graph-specific test verifies `execute()` returns
@@ -1015,7 +1044,9 @@ heightfield + chassis visible to both) while the default remains single-owner.
 Pins the claims in `docs/VEHICLES.md`: Pacejka is odd and peaks where the sampled slip says it does;
 a constant torque produces `I·α = τ` and the rev limiter holds; upshift and downshift RPM fire;
 an open diff splits equally and an LSD biases toward the slower wheel; aero drag is `½ρCdAv²`;
-static load transfer follows the sign of `ax`. On the chassis: a 1000 kg, μ = 1 stop from 20 m/s
+static load transfer follows the sign of `ax`. Contacting wheel angular velocity is advanced from
+`I·dω/dt = drive − brake − tireForce·radius` with an implicit tire-torque step; TC limits drive
+torque at the control slip and ABS scales brake torque before integration. On the chassis: a 1000 kg, μ = 1 stop from 20 m/s
 lands between 75% and 115% of `v²/(2μg)`; a 12° slope is climbed when μ exceeds `tan θ`; acceleration
 shifts load rearward and braking shifts it forward; a short gearbox upshifts within 2.5 s; TC holds
 peak driven |κ| under 0.35 and at least 0.15 below the same launch with TC off; identical inputs
@@ -1266,7 +1297,11 @@ added the heightfield contract (`collideSphereHeightfield` / `collideBoxHeightfi
 every terrain-physics claim rests on): a sphere's penetration is measured from the sampled height with
 the normal pointing *into* the field, a flat field contacting nothing above the surface, a box
 generating one contact per penetrating corner only (four of eight for a box resting through a plane),
-and a ball settling exactly one radius above a sloped field. It also pins shape-argument validation:
+and a ball settling exactly one radius above a sloped field. The Phase 6 hardening cases then sweep a
+sphere through a thin static wall at 1000 m/s and into a heightfield before the next fixed pose, with
+same-input snapshots matching exactly. The sweep is deterministic and conservative for supported
+sphere/box-vs-static/kinematic targets; dynamic-dynamic and rotational CCD remain outside the path.
+It also pins shape-argument validation:
 `new BoxShape(new Vec3(1, 1, 1))` used to produce NaN half-extents that surfaced much later as NaN
 contacts; it now throws `UsageError` at the constructor, while finite degenerate sizes still clamp.
 
@@ -1299,9 +1334,12 @@ back to the event's `filename:line` when there is no `message`.
 
 The real-thread Mars cases compare the transferred height/slope/splat **bytes** against the original
 live pipelines, not two uses of the same reconstruction routine; custom settings and a subsequent
-scatter stage are included, and no worker failure or inline fallback is allowed. A delayed-bootstrap
-regression posts a Mars task and cancels it before handlers are ready, then submits a replacement to
-the same single-worker pool. Before the acknowledgement fix it timed out with `1 queued / 0 running`:
+scatter stage are included, and no worker failure or inline fallback is allowed. The same real pool
+also runs `population.chunk`: canonical surface heights and every population SoA array match
+`executePopulationChunk` bit-for-bit, proving the population handler is actually executed off the main
+thread rather than merely reporting a worker-capable scheduler. A delayed-bootstrap regression posts a
+Mars task and cancels it before handlers are ready, then submits a replacement to the same single-worker
+pool. Before the acknowledgement fix it timed out with `1 queued / 0 running`:
 the discarded result left the slot busy forever. The `cancelled` message now releases that slot only
 after the handler finishes, and a protocol test asserts no premature acknowledgement or late result.
 
@@ -1644,14 +1682,20 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   retirement, single-submit recording — all on the mock device, where every allocation is visible.
   Aliasing also happens in the production frame now (the SSAO chain), on the mock and on real WebGPU.
 * **Depth prepass and SSAO (Phase 13.1).** The prepass frame is pixel-identical to the frame without
-  it on real WebGPU; SSAO only ever darkens, locally. `docs/RENDERING.md` §4a says how, §9 what it
-  does not do.
-* **GPU object culling (Phase 13.5).** Frustum, per-batch distance and HiZ occlusion on the device
-  (`forge.objects.cull` + the `forge.hiz.<n>` pyramid), with the CPU twin as the mock device's path and
-  as the reference `tests/rendering/objectCulling.test.ts` pins byte for byte. On real WebGPU the two cullers draw
-  the same frame, the pass belongs to the arm that ran it, and switching the HiZ stage off never
-  darkens a pixel. `docs/RENDERING.md` §4d says how; per-batch granularity, the 8192-batch cap and the
-  CPU path's missing occlusion are `KNOWN-ISSUES.md`.
+  it on real WebGPU; material-aware coverage includes cutout/fading/water paths, and SSAO only ever
+  darkens locally for perspective and orthographic cameras. `docs/RENDERING.md` §4a says how, §9 what
+  it does not do.
+* **Contact shadows and adaptive atlas resolution (Phase 13.9).** The mock frame suite verifies the
+  opt-in `forge.contact.depth` resolve/order/bind path and the shadow uniform settings; the shadow
+  budget suite verifies power-of-two reduction before allocation. A real-device contact-shadow visual
+  A/B is not claimed by the focused evidence.
+* **GPU object and per-instance culling (Phase 13.5 / 13.9).** Frustum, per-batch distance and HiZ
+  occlusion run on the device (`forge.objects.cull` + `forge.hiz.<n>`), while the shared population
+  kernels compact eligible ordinary instanced and population batches for colour and shadow maps. The
+  CPU twin remains the mock device's path and `tests/rendering/objectCulling.test.ts` pins its bytes.
+  On real WebGPU the two object cullers draw the same frame, the pass belongs to the arm that ran it,
+  and switching HiZ off never darkens a pixel. `docs/RENDERING.md` §4d, §4g and §4h say how; the
+  8192-batch cap, CPU path's missing occlusion and non-instanced fallback are `KNOWN-ISSUES.md`.
 * **Cascade math.** Containment, texel snapping and caster back-off are checked numerically,
   independently of the GPU.
 * **`Engine` / `Renderer` / `Scene` at runtime.** Verified both through the mock-device suites and
@@ -1780,11 +1824,11 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   but ASTC/ETC2/HDR/cube/array uploads have not each been exercised on a real adapter; physical-GPU
   and cross-browser coverage is still outstanding. 3D volume KTX2 is deliberately deferred
   (`capability: assets.ktx2Volume`).
-* **Per-instance GPU visibility remains coarse.** The device HiZ pass culls whole colour batches:
-  one visible instance keeps its batch. Phase 13.9 separately assigns CPU-side world-AABB masks and
-  contiguous instance ranges to cascade/spot maps, but those shadow submissions are not driven by
-  the HiZ cull pass. The device does not yet independently compact individual instances across the
-  colour and shadow passes (`capability: rendering.cullCoverage`).
+* **Per-instance GPU visibility is scoped to eligible instanced batches.** Ordinary static instanced
+  renderables and population batches are independently compacted for colour and shadow maps by the
+  shared device kernels. Non-instanced, skinned, water, transparent/overlay and CPU-mode paths keep
+  their conservative per-batch or CPU range behavior; the source arena is not globally rewritten, and
+  the object-level HiZ pass still culls whole batches (`capability: rendering.cullCoverage`).
 * **Terrain streaming quality.** The browser gate proves the terrain camera can move and stays above
   the surface, and the unit suites cover chunk generation, LOD selection, the resident-chunk budget
   and elevation queries; nobody asserts *how much* of the world is resident, how the boundary of the

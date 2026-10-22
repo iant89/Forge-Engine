@@ -3070,3 +3070,22 @@ the browser gate remains separately documented and advisory. On 2026-10-21 the b
 SwiftShader browser gate was provisioned and launched; its renderer section completed, but the outer
 wait limit expired during the terrain section before the detached process exit code was captured, so
 that attempt is not counted as a full-gate pass.
+
+## 2026-10-22 — Phase 14: close canonical population generation and resident queries
+
+Phase 14 is now implemented and verified without creating ECS entities per instance. `TerrainWorld`
+exposes a fixed-resolution canonical population surface; coarse-first and fine-first resident tiles
+produce identical population SoA data. `PopulationWorld` submits the same serialized surface/scatter
+body through `TaskScheduler`, transfers typed-array results from real workers, and retains a
+deterministic inline fallback for unavailable schedulers and unsupported custom/live stages. Resident
+prototype geometry is queried through the scene raycast seam and returns decodable
+`{ chunkKey, typeId, instanceIndex }` metadata. GPU LOD/culling and device-resident buffer behavior
+remain covered by the existing population suites.
+
+The public API surface is now 2,210 exports (2,201 public, 9 experimental) with a new `population/2`
+approval batch for the canonical sampling, population task and raycast declarations. `npm run api:check`,
+`npm run api:reference:check`, `npm run docs:check`, `npm run typecheck`, `npm run check:wgsl`,
+`npm test` (160 suites), and the affected fallback run (160 suites) passed. Focused population (37
+checks), real-worker task (30 checks), runtime API (11 checks), API audit (9 checks), and selrun catalog
+(8 checks) runs also passed. Browser Chromium prerequisites and the real upstream Mars Stage A cache
+remain unavailable; no browser or external-cache fidelity claim is made, and Phase 10 remains skipped.

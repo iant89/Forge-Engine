@@ -477,9 +477,12 @@ group("skinned pipeline variants", () => {
     // The prepass compiles the skinned module's own entry point (so its depths match the colour
     // pass), and the shadow pass has a depth-only skinned module.
     const prepass = desc({ ...base, technique: "prepass", colorFormat: null, skinned: true });
-    assert.equal(prepass.vertex.module, skinned.vertex.module);
+    // The prepass shares the skinned vertex source and entry, then adds the material coverage
+    // fragment so alpha-tested/fading surfaces lay down the same authoritative depth.
+    assert.notEqual(prepass.vertex.module, skinned.vertex.module);
     assert.equal(prepass.vertex.entryPoint, "vertexMainSkinned");
-    assert.equal(prepass.fragment, undefined);
+    assert.equal(prepass.fragment?.module, prepass.vertex.module);
+    assert.equal(prepass.fragment?.entryPoint, "fragmentDepth");
     const shadow = desc({ ...base, technique: "depth", colorFormat: null, skinned: true });
     assert.notEqual(shadow.vertex.module, skinned.vertex.module);
     assert.equal(shadow.vertex.entryPoint, "vertexMainSkinned");

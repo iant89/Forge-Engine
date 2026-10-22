@@ -14,7 +14,9 @@
  * @covers engine/src/terrain/mars/stage.ts
  * @covers engine/src/terrain/pipelineSpec.ts
  * @covers engine/src/terrain/tasks.ts
- * @desc Phase 9.1 — worker execution
+ * @covers engine/src/population/scatter.ts
+ * @covers engine/src/population/tasks.ts
+ * @desc Phase 9.1 / Phase 14.6 — worker execution
  */
 
 export const suite = {
@@ -33,9 +35,11 @@ export const suite = {
     "engine/src/terrain/mars/config.ts",
     "engine/src/terrain/mars/stage.ts",
     "engine/src/terrain/pipelineSpec.ts",
-    "engine/src/terrain/tasks.ts"
+    "engine/src/terrain/tasks.ts",
+    "engine/src/population/scatter.ts",
+    "engine/src/population/tasks.ts"
   ],
-  desc: "Phase 9.1 — worker execution",
+  desc: "Phase 9.1 / Phase 14.6 — worker execution",
 };
 /**
  * Phase 9.1 — worker execution.
@@ -73,7 +77,9 @@ import {
   createPipelineFromSpec,
   createWorldCell,
   describePipeline,
+  executePopulationChunk,
   generateTerrainCell,
+  installPopulationTaskHandlers,
   installTerrainTaskHandlers,
   installWorkerScope,
   listTaskHandlers,
@@ -81,6 +87,8 @@ import {
   terrainCellPayload,
   type BvhTaskPayload,
   type BvhTaskResult,
+  type PopulationChunkTaskPayload,
+  type PopulationChunkTaskResult,
   type TaskStats,
   type TerrainCellTaskPayload,
   type TerrainCellTaskResult,
@@ -426,6 +434,37 @@ group("Phase 9.1 — real worker threads", () => {
       assert.deepEqual([...fromWorker.heights], [...inlineCell.heights]);
       assert.equal(i, i); // keep the index (and the ordering) explicit
     }
+  });
+
+  test("generates a canonical population chunk on a real worker, bit-for-bit equal to inline", async () => {
+    installPopulationTaskHandlers();
+    const payload: PopulationChunkTaskPayload = {
+      seed: 7,
+      cx: -3,
+      cz: 5,
+      size: 64,
+      surfaceResolution: 65,
+      pipeline: describePipeline(testPipeline()),
+      types: [{ id: 1, label: "worker-rocks", densityGrid: 5, scaleMin: 0.5, scaleMax: 1.5, slopeLimit: 0.6 }],
+      settlePhysics: false,
+    };
+    const before = scheduler.stats;
+    const fromWorker = await scheduler.submit<PopulationChunkTaskPayload, PopulationChunkTaskResult>({
+      name: "population.chunk",
+      key: "population:worker:-3,5",
+      payload,
+      priority: TaskPriority.High,
+    });
+    const inline = executePopulationChunk(payload);
+    assert.deepEqual([...fromWorker.surfaceHeights], [...inline.surfaceHeights]);
+    assert.equal(fromWorker.entries.length, inline.entries.length);
+    assert.deepEqual([...fromWorker.entries[0]!.positions], [...inline.entries[0]!.positions]);
+    assert.deepEqual([...fromWorker.entries[0]!.scales], [...inline.entries[0]!.scales]);
+    assert.deepEqual([...fromWorker.entries[0]!.rotations], [...inline.entries[0]!.rotations]);
+    assert.deepEqual([...fromWorker.entries[0]!.tints], [...inline.entries[0]!.tints]);
+    assert.equal(fromWorker.entries[0]!.count, inline.entries[0]!.count);
+    assert.equal(scheduler.stats.inlineFallbacks, before.inlineFallbacks);
+    assert.equal(scheduler.stats.failed, before.failed);
   });
 
   test("generates analytic Mars cells on real workers without fallback, byte-identical to live pipelines", async () => {

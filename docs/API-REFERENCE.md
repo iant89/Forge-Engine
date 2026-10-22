@@ -11,7 +11,7 @@
 import { Engine, Scene, VERSION } from "@forge/engine";
 ```
 
-Only `@forge/engine` is supported. The current reviewed surface contains 2,196 exports: 2,187 public, 9 experimental, and 0 deprecated. The snapshot is for package version `1.0.0` and uses declaration-contract fingerprints; a hash is not a substitute for reading the signature and behavior documentation.
+Only `@forge/engine` is supported. The current reviewed surface contains 2,210 exports: 2,201 public, 9 experimental, and 0 deprecated. The snapshot is for package version `1.0.0` and uses declaration-contract fingerprints; a hash is not a substitute for reading the signature and behavior documentation.
 
 ## Start here
 
@@ -113,7 +113,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `AudioVoice` | type-and-value | public | `sha256:f0022fff9730943b6556c59c74d8756add24476cd412e1ee108444e0d72d1809` | `sha256:293dc4199442bb8d193364efbf645a0be91d2ffb9c4daa063d10c3d463850e02` |
 | `AxisLike` | type | public | `sha256:26cdaac26dfa9e5f79f476b84c46741c69211ad16ad2eb58f7b50df4d1d8b733` | `sha256:7657a6fda2da51addb05d3077a59fda5f3fab2a487ebaed13ce41a529550bfb8` |
 | `BASE_OPTION_KEYS` | value | public | `sha256:5a3536f373be348ab3229bea083ff2f8c8f27718c6ee15595073ee0a7780bd03` | `sha256:45d7d49799c420a738defb7f54c6240c09b831df049a270ab5b811457cda7948` |
-| `BINDINGS` | value | public | `sha256:6981de30a2aa8279a0c01774bbc8ef1fc446da3592fe86d2d146eefcfa88ed48` | `sha256:eda2c0bf92da0cd56656b3c804012a1a376121455fc092cf9316740201a1076f` |
+| `BINDINGS` | value | public | `sha256:10cbe947f90ac2f50ed37691d788e8620d2e69e131eb6dd0278e478e0ad0e58a` | `sha256:bae189e2ac345326ed329c557dce64d89ab4846a0270a1146677a3bc9d1d8224` |
 | `BLACK` | value | public | `sha256:1aef229e3e67d84ffff8a9f375d2fba40afc63f7af67d67a91ea4b3aa05e9f04` | `sha256:707ebf5bae45e171509622ae172ea6554c3aed37537876fb787873471cff3106` |
 | `BLIT_SHADER` | value | public | `sha256:04422324ffc88279bbd6432f3657433652f0465cfcea7f052ac204bc1ac39f92` | `sha256:3c23d730a5e8dbbab3ef75331acb279cca0677425def90a9ad7b20e3159876d3` |
 | `BODY_CRUSH_MAX` | value | public | `sha256:afaf824e1ad0f5728c0174bfb96d655140159ded5ed9b3c4f65717824371e970` | `sha256:3626a7fc6a7b8fbfd694d6a5978192499eebcba2f2b6054761fa28f2941682bb` |
@@ -170,6 +170,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `CLUSTER_SLICES` | value | public | `sha256:117efb81aab5112481bbcb2a86a306fdecfbca8deced2a7e5dd455550e94a33e` | `sha256:207b067cd176fac5c50f301d6cb6fa81af614c7fad33968c90d06fcf91f90363` |
 | `CLUSTER_TILES_X` | value | public | `sha256:358759be2590ee9a5ae463d7798436e3b6104a2244fb67775d9990fd0370bd9d` | `sha256:d03d19761094bd8239f841ca2ef684751f057379cfddf4a4dfb4859455f99385` |
 | `CLUSTER_TILES_Y` | value | public | `sha256:d770ec8a216a0a54cf24806fd2378888bb13d63674c7a6e2a2a0012deba8cac8` | `sha256:9156599464e5542c40d9f839c87b3966e3899d8065688ad0c44edc5719924959` |
+| `CONTACT_DEPTH_SHADER` | value | public | `sha256:185a59cb14fae47ee737873b96f0cc5c8771d00d2e05bf31f5c90314c7079ae7` | `sha256:212208cebd6f01f5910e28c5153050d2e0001cf3d78dc326547ca6740004e0e8` |
 | `COPY_BUFFER_ALIGNMENT` | value | public | `sha256:060f2ce59e133bdc33bf68f45b2407460e1bea1156323cd32c86228dfc642ec4` | `sha256:1bc7517c8b6d035125add583384648151e7fcdf24d2d80107892a6fdd001ab1f` |
 | `COPY_BYTES_PER_ROW_ALIGNMENT` | value | public | `sha256:5e1cc2aaec95f1fca7516c6048bd810d90ef00ebdbcdc480c61d21b60f5191c0` | `sha256:3dc919be4d2823b1c3e89baf5835ba01e6e19c30d0a9cea64da685bd7540461d` |
 | `CULL_FLAG_DISTANCE` | value | public | `sha256:276136f73738efd6be68cbe1f5d453efeb6330e6cc26dacb19d79141d70a15f5` | `sha256:625ff6ec36960764aa404451ba100b7d4a9444badeae8f402d719355242949d1` |
@@ -261,7 +262,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `CycloneObserverSample` | type | public | `sha256:39a509955b95e96cdaf7c228bcf3fcbac1119e290fe1ea5a612a88d5cfa826ec` | `sha256:4a8381eac5321094bcd9eb8e6ab81cfe9b099fdf1c64df1e2b87605b6754ffa9` |
 | `CyclonePhase` | type | public | `sha256:c6f67626ff4832fb0659d48908161ee0017fd46a36cb1dee399825eb65a5691a` | `sha256:e5c17cb88c947fd3f94a258d2b3ebb66c8b7b2de8de8a8da099ef473b99bb3eb` |
 | `CycloneState` | type | public | `sha256:a4cd78da117f63360ae32a4ddf7f997507f424c934b6a811c84ef6c46537d9fa` | `sha256:a4a784c0d40a5c7aa19644045b1292aff091a7cd13ac5086d405b30ff99e4242` |
-| `CycloneSystem` | type-and-value | public | `sha256:45985e9e3a2deb3d34338e8f3da8290a7998fdc905da69dc130e597cc3420115` | `sha256:5b2ad2ed334895b690573c2325c31721dd8fb65cd6038cdbccf346089c7d68f7` |
+| `CycloneSystem` | type-and-value | public | `sha256:45985e9e3a2deb3d34338e8f3da8290a7998fdc905da69dc130e597cc3420115` | `sha256:11af0cb5769ff98bf0e42b4e41941ebac1be243170ab1d65ab257a158aa5ceb8` |
 | `CycloneSystemOptions` | type | public | `sha256:747a7204e592ba89cc94df9f5f11be845c5db63dea50df0aaeb6cbf1b134f6e8` | `sha256:467d738ec4a5faf3e81712ba5c4e123924f681a081d16c944f836c8333a149c9` |
 | `CycloneTrack` | type-and-value | public | `sha256:79cb9a4e63a2655c599b2d5502abaae1b9c3e91f35809354e288fd0844325fa7` | `sha256:485f11babd1fedf700b724630e9c569f7509e51418f7ee531d7ffd2cb5c46688` |
 | `CycloneWind` | type | public | `sha256:64dc7eb94e63728a0fb8fd87d84329ccdec4437cf111aa07b4b677f7a0f397b3` | `sha256:e642392c7a413b4038cf9f9b3a81a1b00484fbbc39182591fef907574c22e53c` |
@@ -294,11 +295,11 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `DRAW_RECORD_BYTES` | value | public | `sha256:6203c4c09ceb67ddaf6ab06f63d5bd87a45c05b8f63971b37588ff779883d59f` | `sha256:73b0ca74defa3e3161299e6934799e4e98dcc531492829297cceb56ca6d75de9` |
 | `DRAW_RECORD_INSTANCES` | value | public | `sha256:239e992ee1708032af1c1d0106ae3695fc2da7b1c98bb826d3ddbd8b974cd5d9` | `sha256:6f59c29fa5dc3bfa9a115ce5fcea6c5999eb0157c375708b077aef970a5da341` |
 | `DRAW_RECORD_WORDS` | value | public | `sha256:addb8d38034ddcf19587912aab9f8416164f489d6963953424bd7b43d9b91a65` | `sha256:1b5bf31e469b91f8bc914b4b7a4f1f47a820f63b8d96912ddb6a1356a5922ddf` |
-| `DayNightCycle` | type-and-value | public | `sha256:42ccf4d2e8621882e53ecdcfd3ecd52511eeb6aa2f007a81b593d1132cd7acc1` | `sha256:1712f64e5a4fa78719ba661f5bcb2ea007c56ade1f769e950580ccdf9ef301dd` |
+| `DayNightCycle` | type-and-value | public | `sha256:42ccf4d2e8621882e53ecdcfd3ecd52511eeb6aa2f007a81b593d1132cd7acc1` | `sha256:6379b12d8dc14f39f4ca1908d6b2b48ece1a829c55c16ab40f67eeef1b3b1aec` |
 | `DayNightDebugInfo` | type | public | `sha256:3d7883bbb51a2a022e1d84c944ea6e8a3e4dda0baffb345621d3ada0fa76fcea` | `sha256:ab69a253de268bac9d8114c25ed5e666e4155c69775ce6eac254c9ee22f49a64` |
-| `DayNightOptions` | type | public | `sha256:2efe56daa957ece8cb7ff866e6f597a0175e351c8a101877596622f1ec50add0` | `sha256:3714fa57e06dfdfb021a93184be969864809971fb8649d38bf6c77c5bd5d3bb1` |
-| `DayNightSchedule` | type | public | `sha256:de430b687110ab806b6820e1de1c943c5c7bfa87515c9e0d6d7cdcc540578f45` | `sha256:182cb71f9ec2b3793d6edb34453c0da57ef21ba07217fcd0c0f2e5b274c3dc37` |
-| `DayNightScheduleState` | type | public | `sha256:9364451a069787d114a3ffb895ed13d7c406ed238247e6e70ec5e48dd0a36a24` | `sha256:bfa33d39136b95426fa2e3bcfd6a9e16c7ee66f5924e3286e3c70880a60f1d5a` |
+| `DayNightOptions` | type | public | `sha256:2efe56daa957ece8cb7ff866e6f597a0175e351c8a101877596622f1ec50add0` | `sha256:ff100b481ffc948635edd1bbaf6e1ba02719ba8f704ce3e1cb8e9ceb1b8b98c9` |
+| `DayNightSchedule` | type | public | `sha256:de430b687110ab806b6820e1de1c943c5c7bfa87515c9e0d6d7cdcc540578f45` | `sha256:38c7581afd564cf6e0dfe945311a0604e3d8735b9072919d39268b8f63a51f6c` |
+| `DayNightScheduleState` | type | public | `sha256:9364451a069787d114a3ffb895ed13d7c406ed238247e6e70ec5e48dd0a36a24` | `sha256:c3b6656d211ddea8e7d3bab7867cc6421cd706588ef931752cebd90dba64f3ed` |
 | `DebugOverlayOptions` | type | public | `sha256:63c52261cb9e673a6f318632dfd7f571d95625325cada91e59384d56ab5c515e` | `sha256:cab0bd53f0bbf1707bf795753a685e79884296d4db8d481ddc3d5a95913b2dec` |
 | `DecodeGltfMeshOptions` | type | public | `sha256:91dbcd1993425efc56b782f5b671235fa9cb83641ebafb3c220242cb7eb5abe9` | `sha256:9adb7e436b6424ef01e43b476f577704202cdb0bfef01a7a537dc06c7bfdf547` |
 | `DecodedAnimationChannel` | type | public | `sha256:82afee0d3b2489d7e9813f8a7d63bcd454add76d5483e7a955eaebdab2cfc438` | `sha256:51c9f868fdd94381313b956b72599ce3d142e754db1d277a3bb05c5739f7cd25` |
@@ -322,11 +323,11 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `DetailNoiseGenerator` | type-and-value | public | `sha256:49b67cf057d463afd611e060ba698f152567e5dd1d9939dcfe3b426a86fa2c0d` | `sha256:12d9c057ce2b63db50d668a0097d2a79a58a02c7db2f0fef9ef0335abadfa09d` |
 | `DetailNoiseOptions` | type | public | `sha256:9055c1c109858e8e7ec6694a38b7ec2e24be5157a038aa1e4c8ca28b69d5eeea` | `sha256:e4a29b950cac63181b665fb4d5f6d8a9ab58a63bb2631f7ce4bdca9c7be65eb9` |
 | `DeterministicMath` | type | public | `sha256:ad4f8374864c3073b8f2ae85c6e2c55b05abf9c246e93d58971239ad083a2cb0` | `sha256:6e1cc8478d38d2b603aa9fa74c4f9b11faaa3f5337d864258afd3ecc848223f0` |
-| `DeveloperConsole` | type-and-value | public | `sha256:66237f53044e3e25815e950aad291d9444aec685c3a75a75a87815a5a2fccbcb` | `sha256:437fa4a4857f4725974e757bf949df08def09c8cdf7344246a00ff6e23156ee4` |
-| `DeveloperConsoleCommand` | type | public | `sha256:7800f94d34f92c78537e568cdcf35432887d2bde150f244663c7d8e7eb08eefd` | `sha256:a4e56a26735578c8bb65aec26271a1dee43ee482657e3a1b4d910f468ee571a3` |
-| `DeveloperConsoleCommandContext` | type | public | `sha256:df1713924d340938d50cf106f1aca3b827b4cc75207b79165d0c10345cecf25a` | `sha256:373daf7a7768d562803244a05b971c4c41641082a1e418d27a1bf6272e15d065` |
+| `DeveloperConsole` | type-and-value | public | `sha256:66237f53044e3e25815e950aad291d9444aec685c3a75a75a87815a5a2fccbcb` | `sha256:6eb625b68e151d04dae5a2c0312d59818e8619c5bd3f9041cafba8c44ad8baa1` |
+| `DeveloperConsoleCommand` | type | public | `sha256:7800f94d34f92c78537e568cdcf35432887d2bde150f244663c7d8e7eb08eefd` | `sha256:242bcd3ac9f81041747d1299a39a36eab24590234871675f5cb03be9cc840a7b` |
+| `DeveloperConsoleCommandContext` | type | public | `sha256:df1713924d340938d50cf106f1aca3b827b4cc75207b79165d0c10345cecf25a` | `sha256:e02b84469bfc88f54b655aae148f667e9019900b99c848335e2c68e93bb3c9a1` |
 | `DeveloperConsoleEntry` | type | public | `sha256:ad44eb8d11a42c85f602951309b3321dead3bfa3fe9e0cb1d1e41efc7a6fc8f4` | `sha256:dcf9ab2803b58188a8b8c8b9d3e046dd16fab7935947de73b2467ae4188f1d2a` |
-| `DeveloperConsoleHost` | type | public | `sha256:e5ce67ea5ffd53c6cd741a690dee3b43c8e21dbe8144ffb90fe123b7c00426db` | `sha256:1313f9528ef88cb5880e6cb13ac08f7aa1252612c5af43c6381f3862ea63b6b9` |
+| `DeveloperConsoleHost` | type | public | `sha256:e5ce67ea5ffd53c6cd741a690dee3b43c8e21dbe8144ffb90fe123b7c00426db` | `sha256:f9359b17730802ac85c4f10dccdf58176f4ef57cfa7cc3e2433696f6c6fa8040` |
 | `DeveloperConsoleOptions` | type | public | `sha256:c03c5d60252bf2e5f12cf8f665732af2c9be8968fa58041788cb4d36fec6af20` | `sha256:ffd5e756cec6c5a780cf9610198b8068f6f7ac4d11b1e695aa7539bf5d3d214b` |
 | `DeviceCapabilityHints` | type | public | `sha256:5a1ae9c402e889e314407ca1f9bf97b00e2281b21c8fc3c71ba6302a6230bff6` | `sha256:3d242a657c4460aa2fbf33e269791951f31781e5699435a50a940f8321c61032` |
 | `DeviceCaps` | type | public | `sha256:cb1fffc7934032c1886d2377fb603cdc83e94ed122238ed31a34f2ec4e17d6cc` | `sha256:e388405bce1977bc5ca22569fa0845e72f02467380c5c984823bea522ffa9ec5` |
@@ -366,7 +367,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ElectricMotor` | type-and-value | public | `sha256:12cb276b97734f567b7060bdd89877f6eaf81dedd0cd35fc717d3af5d164c0fe` | `sha256:668a8d7d53f99ebac4038fe6fc2709d5abba79a84659ab5b1a15f1e34c2c65ba` |
 | `ElectricMotorOptions` | type | public | `sha256:cb4371b881dc875559c29444976a346bf8d9ad870b530e516dfe7f84429d4936` | `sha256:0ad02cf91463c2c7f010822994ab703c442d94b59ed911e7c63f6d7112029e4b` |
 | `EmitterOptions` | type | public | `sha256:4cf3f4fe84121ad3457a1563b097c7afb455c1989bb1799652cd3d6e563571e4` | `sha256:2d7368d9786f537267b34d3953f54725011ee4223e3bb787a8de1faa634fb6a7` |
-| `Engine` | type-and-value | public | `sha256:4ffb19284cacf6c21dc15aed5e3b1b1c55b63449ff3663f37c6c7f9c3308119c` | `sha256:5606ee7512e321e6644b7a04a431910d55c378542d4295a0b680bdd7561977b5` |
+| `Engine` | type-and-value | public | `sha256:4ffb19284cacf6c21dc15aed5e3b1b1c55b63449ff3663f37c6c7f9c3308119c` | `sha256:2db55e24dbb361425c0251aa87e233f2e374f34fee925f2493750d58acfc2fc5` |
 | `EngineConfig` | type | public | `sha256:cd73a91b89abcf90cd7994589c11630f317e339a73e54b47c97c100fd05f7fc9` | `sha256:6e4a1878b874bd67e1b9e195a7584171e2b6a5d96af79241f3bf628fad0de00d` |
 | `EngineConfigExtras` | type | public | `sha256:b504184c934ff208bee50b3bd92d9afeb7ab5933b65f537afba5518673b439c2` | `sha256:01201a224fa68796f4b3246e2603801472c52fdd44bc6a867da6b9c2f2709e4e` |
 | `EngineLimits` | type | public | `sha256:ea8a1bd0e70c2e8f91444f512996a9cd1b46d4b2602beb7bdc3a6b29e4901045` | `sha256:9176a5c41fa2a23285c30e18ba05a4b96f95207b96212a302b0beb71bef1474e` |
@@ -417,20 +418,20 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `FocusManager` | type-and-value | public | `sha256:91f165540005b071bc0c75d12e191a26739a5b9a83eeff17e32c29c7e8c263f4` | `sha256:850304253c8c7f59f3aa3b3505f4d7e86591157bf0fbf56e0790b4cd2475c921` |
 | `FogMode` | type | public | `sha256:b17d2a2e7fb1faa8168f950af24c153a26cf570fe0c5fad9b3415568bee807bf` | `sha256:9e50e44ce562bbafcb9ec8a7595055fd3445aa184c5870eaf341e3da34046b49` |
 | `ForgeError` | type-and-value | public | `sha256:e8aa762ae494e1eecdf863d23dda2717a492a4680f4ca04ccb105d7a83a8b80b` | `sha256:0b543bc0d6c9e4eb8cb4365613c8463a66970f78e9c9d47a42f7efd7ac53befe` |
-| `ForgeExtension` | type | public | `sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f` | `sha256:d15a575dd0aa0647c2e026a0b6d7e3b9a709d1e3db283bf4d68e76f70a8e63ca` |
+| `ForgeExtension` | type | public | `sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f` | `sha256:81c43b3cb35518a5d789020f644fc6be79fc30d1200f27a5232eee393a7a7d67` |
 | `ForgeExtensionCategory` | type | public | `sha256:609fe8b84091dec2e1c718b4a9fff0154afd4b5cce0e6dcadbc376140e66584e` | `sha256:9a222f54679e6186673f21c2628d7b8135537d91d77b917df18bfb88b32eff99` |
-| `ForgeExtensionContext` | type | public | `sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3` | `sha256:624616e49946756fcba6f6a3c60c8d13ed529a3db524917acaea4cee76103701` |
-| `ForgeExtensionDebugVisualizer` | type | public | `sha256:70514f1dfe516da8cd20091ced9c26348ab234ef4f41bf1928d37002956a6b13` | `sha256:a9410dc01c090bfe6ac7d6d7b202482dc00c3e44117055851b7293efdf09d474` |
+| `ForgeExtensionContext` | type | public | `sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3` | `sha256:9fa85bb205b23efb363495cda64e90190ef7abc0fba3ba91a3190ddd2c24f4f1` |
+| `ForgeExtensionDebugVisualizer` | type | public | `sha256:70514f1dfe516da8cd20091ced9c26348ab234ef4f41bf1928d37002956a6b13` | `sha256:11814182908c6d0a9f0c08d7be6894dc0ec8b6162d529cf8ef17d4dced25e303` |
 | `ForgeExtensionImportContext` | type | public | `sha256:32376ebebc99ff54e68ef28d87e292d4d23e746d802b26c08ed7e1d87299e824` | `sha256:7a974f9e42726551b23fce2132f44db28781d680a32b22dd019bd1ee9ef2ac24` |
 | `ForgeExtensionImporter` | type | public | `sha256:b75bd233e7312602b4a5b7383ed7258fb4d755e2d0e36384f0822d020587cdb0` | `sha256:5f9d119fba64fa67f625b96617b174efe25618156488b5e958f58b296b63b73c` |
 | `ForgeExtensionManifest` | type | public | `sha256:1aad80445555617b6f4abc0127ef4154e48f3cd599c42854442f1e723b08d2a0` | `sha256:7585c6897d0ebe34f37507a25bb5f576a893506f2d308329f73a5079c002e1cc` |
 | `ForgeExtensionMaterialFactory` | type | public | `sha256:1d71149e7fe601bdfcb361f1fccc7aebd3e40895c42906d2f326cc0d9deea946` | `sha256:4efbc30169e00885a3c5fda555281d127a216896aae83f819e5b8f8c16663494` |
 | `ForgeExtensionPhysicsShapeFactory` | type | public | `sha256:dc6d10755c13c720ed7940af041b98aa22c1752d4f9a3ce79d35a957b30a9109` | `sha256:9b842fee25164cf4772ad771f55a810f0390f220237f8e77714c782f70315daa` |
 | `ForgeExtensionRegistration` | type | public | `sha256:c98f425060c09c6320bb463c2545e1f45a1553dd3c2d362447fab875b65efdb3` | `sha256:7b958a3b0ce737cf48b8394fe2b2c394366fecec01d3157eee47b2a9d32bf813` |
-| `ForgeExtensionRegistry` | type-and-value | public | `sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f` | `sha256:8a39dc8682e93b7bfe208595bcd512a17209391d923143e42de2c9b88f7a7234` |
+| `ForgeExtensionRegistry` | type-and-value | public | `sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f` | `sha256:8d9b5b4b2fbea1a64437fee96a6ff259e44ab3972f70e35ce4134af9109e7280` |
 | `ForgeExtensionRegistrySnapshot` | type | public | `sha256:ce57b3070fb9ae93d77cbd0469cfb332599a43a7f03133cabe8a26ff915e340d` | `sha256:0992d030d08a220b623822c75b4010e421176b54487a149aa138d727244038c0` |
-| `ForgeExtensionRuntimeContext` | type | public | `sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f` | `sha256:c461df4346d51181c62c96335f717534a396ca53a8172f5e5f23b3becdb7632a` |
-| `ForgeExtensionSystemFactory` | type | public | `sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059` | `sha256:86beea9ffb28d066121679ee56f07b9a11826b16524650d2428d60a1a301b8c9` |
+| `ForgeExtensionRuntimeContext` | type | public | `sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f` | `sha256:00f6f4bcaf1cf98d81ffe104cb093b227c6606e7dc096176db4a02dec78f5603` |
+| `ForgeExtensionSystemFactory` | type | public | `sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059` | `sha256:047873d63605346acb8240f5a3b0d7bb715ecfc760a7cf978e128b61d4d25098` |
 | `ForgeExtensionTerrainGeneratorFactory` | type | public | `sha256:2a6598c357c3c68276c02b5956bed7c96e0a74e5b2820aef4d1eb3d167737742` | `sha256:8c42821e8f02db553901596d3e16ab5ca9d50139b6fd38d788ffb33da656b7d9` |
 | `ForgeJSPhysics` | type-and-value | public | `sha256:1d7f5f6a0835dbf29d66ad06f256d754c70bfb2407723267ff87f37bdb535d76` | `sha256:bfd108ada147aeb9ee7b94ac7411ae93b85beee6212ae388ead57cfa457876e4` |
 | `ForgeJSPhysicsOptions` | type | public | `sha256:8cc4127cab5222490e6e80106b0f8ea23bbab640ea50e6f0ec03913c5b2b3b64` | `sha256:2bcf19f69ef08492d02a7e24e1ebad0d4e92e3a37de719cc92204b4bf3f289cf` |
@@ -472,11 +473,11 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `GpuParticleModulesConfig` | type | public | `sha256:4a7d692efd7951649c0ea2ca6797ee1b1ea25973e5b4fe12ce7929ca882e83bd` | `sha256:bb3400b638f51acb6b81a0ea32db4cf896a2f57eadaaebac7635c1a11dccf6bd` |
 | `GpuParticleSystem` | type-and-value | public | `sha256:6a574a85ef04ab6445f5c56aceef06e7fc3f59451bc5571c6e9f5f424dd017d4` | `sha256:1ed7115a5d7bda6d1efafe040333bdb84bf0342e47bd25e9fd208c10c9feb08d` |
 | `GpuParticleSystemOptions` | type | public | `sha256:6163bd201c195317dced2e3f63bfba546859a1122053e803348d01ed29af2bc5` | `sha256:6a8c88fd6cee3b562cd0446e2dd060e01ddaa0edbcf7b48fc5a8aec2dde86ef6` |
-| `GpuParticleWorld` | type-and-value | public | `sha256:b52cd89fb46e4b6d425c730218a1bcb668f709d0beb329ef566ed5167c688762` | `sha256:f1d53949ec34e8305ce7e3e8da249d10fe0d26a010569f033aa514332e25fb42` |
+| `GpuParticleWorld` | type-and-value | public | `sha256:b52cd89fb46e4b6d425c730218a1bcb668f709d0beb329ef566ed5167c688762` | `sha256:51c8b846da9fd76a091d2ed08cb5acef1e97387a553671687a5c2e8e2b699846` |
 | `GpuParticleWorldOptions` | type | public | `sha256:9e0fe8fd1b1bb4ead7a076e60be2cb3d296d578ced16fe9a137f637affbfc7b9` | `sha256:01ca01742e357064b6fa9770a64751733c2bdd027353dc01d5f0b590f812b09d` |
 | `GpuPassKind` | type | public | `sha256:18799d66b2a4139ad82eaee31e68faf8e70d2a10f1d5aaf14b7b29ac1e6d3b48` | `sha256:1b07ac6d018c438baafff41103fb2fa8700fcf8443fd0bd1b2071c23c8deb81d` |
 | `GpuPassTime` | type | public | `sha256:12747cf5967069bafad335e5f8668a6410cac861380efac6276de21f2349dbda` | `sha256:e95dd070dd5ddfba85a7ab7fb3baad634cce2f2b1fa18502d8e023c868f2682f` |
-| `GpuPopulationCuller` | type-and-value | public | `sha256:df602e22e7b0737496a1cfdc4948ecee242276a9b2b9f021b84e9355f700a844` | `sha256:f66a727e8e5391b6a1bd9b3c13d74fcc5317d8664596e2cf3c05527a1d343527` |
+| `GpuPopulationCuller` | type-and-value | public | `sha256:2fd4d4557888fe0d11b90c1f0a351da073cb0085f4e525e1401ee45faa5e4957` | `sha256:5c77c2a9416a011483f0c61809235e66302db73b74910b129ebc697fb4e00da4` |
 | `GpuResourceGroup` | type | public | `sha256:b25784554427c4927336f8ecabe8532c4f2ce8721792378772ac603c722adc4c` | `sha256:4e9a08d25e2cefa88f998fbc34c6da7750b805c3c35664c7830d84c6614546bb` |
 | `GpuResourceInspectOptions` | type | public | `sha256:128f2a39da01eb231757cf41c386f8f59563ae9df5d06b80166acf81c25244a0` | `sha256:af07b775edc8cacc6edfe8b5c02822201a734c866307e2e47749f15cace81a47` |
 | `GpuResourceRecord` | type | public | `sha256:d55f29d17ee46d1dba0296bef02d5536599de5b21bd3f54763c18acb1189415a` | `sha256:9d00434609041db9225bb1a70579170e1955d3d638b0f4f2bfda7da345dfec08` |
@@ -494,6 +495,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `Grid` | type-and-value | public | `sha256:61ef5559fce993675be90113f8551129ae94525beeb15f0cf56250d392a55b0c` | `sha256:35ae00bc9f311b50aeb8ba0ba1179ca2be035df41c7332d286b233de3e59d7c4` |
 | `GridLayout` | type-and-value | public | `sha256:9bb043bc43cded22649820bed6f4f2b97c51e0f4f09f042c2774ff207dcd4dbf` | `sha256:6d8b1266a6127f5f0ec8497ccdd70a7c457f5d211df75665f8e8b657310ffa79` |
 | `GridOptions` | type | public | `sha256:c7728b4d19cbff5330b609d230e73a8593dd0ff51475dcee27df5b33156a0daf` | `sha256:89357073892dbdd68ac372abd8dec70873dcc8350038f4e8104bb2665cca4e4d` |
+| `GridPopulationSurfaceSampler` | type-and-value | public | `sha256:2453deda77fe3f786a188fb1b0c15c002ef0316642566e2c9b3e94ad1fa505d8` | `sha256:def0746128a8d2ac29cab07cc55f78be85452fd4573457f865dc0f6e15ea600f` |
 | `GridWidgetOptions` | type | public | `sha256:64688419a288511b6ada81c57200adafd2fa7e26c3a13c5ed66368879edc45c0` | `sha256:d8c8fc488a87ab1c8879b575a4d256ff450a1cc2387c693f6a3ee8ea6055971d` |
 | `GroundMoistureField` | type-and-value | public | `sha256:e2ad4bb24f971c0ba33999937372d9576fb1b73670c80d95858f384a1761e8ed` | `sha256:c84f033caa61c5a9dbd49d84cbe2791dba454651a79005c6d5643b7ee9b3bea6` |
 | `GroundMoistureFieldOptions` | type | public | `sha256:79600c23ffcb28b2b37076117cba8d108e76f50f73060144072efb175d7dc269` | `sha256:a02fb5210441fe226735be08be9c2b9be63f819a92dfdade94a9a4aaf7b16363` |
@@ -602,13 +604,13 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `LightBlock` | value | public | `sha256:fdd92e9a619d20f90665496843a691fe7ce181006fd3b6c050e0805bb5b7efb5` | `sha256:ffe358af8f994956e2d0d19bec5dd57480c5c0e12912e62adebe82012f232789` |
 | `LightUniforms` | value | public | `sha256:945c21d963a4984b557e6efc67e4bf67728e864ab245e527da0301d60853a3ed` | `sha256:8987bfef43a0234563680ebd5cf899a9a29f80b538d2f4014a03d6d7891765cd` |
 | `LightningBolt` | type | public | `sha256:cdeb894393690c7ece2f22674d9d6544f6e846032f7d2a9cced61d19674afce6` | `sha256:e51b621e57fda21afa7a584538f13068a8463c0faff9d8b9b85d2a6f3bd85045` |
-| `LightningBoltVisual` | type-and-value | public | `sha256:79168e4a8055b7c828ef856b7cdbba57ed353d631d896034970585546c50aad5` | `sha256:7bac64643e9e1446b09f577b8f32cc89991067f912e3d978dd803362b50d7a7c` |
-| `LightningBoltVisualOptions` | type | public | `sha256:509cba220f417ebc75570f06ab383198acdc6a17a4de4a95c8e81027b05792d1` | `sha256:510b15ff530dfcb1526e22b52675731603403fa927f6852b95af4643117d120b` |
+| `LightningBoltVisual` | type-and-value | public | `sha256:79168e4a8055b7c828ef856b7cdbba57ed353d631d896034970585546c50aad5` | `sha256:dd2a93b2e8f558cd229822eecb5d8b4a72baab18e8d77539f89098b4abc9d8a3` |
+| `LightningBoltVisualOptions` | type | public | `sha256:509cba220f417ebc75570f06ab383198acdc6a17a4de4a95c8e81027b05792d1` | `sha256:6dd6e83517091e4ce5b3711c9ce239541714a45aad265a6dc68e2c0793392b60` |
 | `LightningDebugInfo` | type | public | `sha256:e5189d11210f3e560fe99add3e60fcc341878e8720c5923ce02f2997f728e451` | `sha256:32832344a71d6f3696a08dde32c606c77f44519dcda7e38b84a899a6b6bb284a` |
 | `LightningOptions` | type | public | `sha256:a011b11ce5914d44e93b6c29304d2e90245ed28f45cee1f836f340bbfa0c8ead` | `sha256:3751cc9b68488acb6d5ac7ea73657de39e5d25e57e041ac32545a21ecc378fc0` |
 | `LightningStrike` | type | public | `sha256:5c66df8cb0c4a19e165acd012ddfd17ba39df4cf8cc3343e19ac07cf6b2b224b` | `sha256:f1538d8fd80108e1760db5cdfb73456970326592f3b017bef4c2d28b7537ed08` |
 | `LightningStrikeDebugInfo` | type | public | `sha256:87a7d5d905d71ee4613b9d5648da4d6be7f51d704591f1d42d6ff8917759a166` | `sha256:0a28833c46fb3e80a8042ae29269446ad5caecb758b831a3307d18339c7afd91` |
-| `LightningSystem` | type-and-value | public | `sha256:fa4e8ae6f38e72cb8ff25a70b0838123b845e2520b68b8802b2b873ce8182579` | `sha256:8f806a8b4f4ba021418780990544ebccd3322a35ca19b6524ccffbaf866e1986` |
+| `LightningSystem` | type-and-value | public | `sha256:fa4e8ae6f38e72cb8ff25a70b0838123b845e2520b68b8802b2b873ce8182579` | `sha256:45e0debe2704fe3bc07bac1dbe910a4e07e976c436da24b24f85c6bfdc647181` |
 | `ListBox` | type-and-value | public | `sha256:415927176cdfc05c335f7d7b0bdcc7c762bd6c00e8715ad2935d2a0c98bba5ff` | `sha256:f9838dc65267370bdce03c28df1615f1523223abf8fe08c22648e8a388e9e1c9` |
 | `ListBoxOptions` | type | public | `sha256:57afb9e418c94eebd0d71ffcec0b2a7efa06b46a8ebd068f9361ed05b6041a55` | `sha256:eef6ba77a54527669aedf7e9dfa3fc7411335ad19d5bdc331ea038611cedb1d3` |
 | `ListItem` | type-and-value | public | `sha256:9207ce3e3150fb24c79dad0cee300b27df354c5cde80e4f16c40f78984462c3f` | `sha256:a5a906547326dee126d12baff872879e664e6eea8d0e2825232faa31e297f783` |
@@ -798,6 +800,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PARTICLE_WORKGROUP` | value | public | `sha256:fc11cbb110d95733921e85aee36f14c41a4264e170b9a17087ea3aa710c03e2c` | `sha256:87250bad328462a8727734916673f683b48b1a4cb1dbe93dbe28fa886e179cfa` |
 | `POINT_SHADOW_FACES` | value | public | `sha256:01bcf1950cd71f747fbe1e6d9c94f143694521bb4200aa44a9957a2820f4f1fb` | `sha256:85f5aa385ff5fad500d3b4331cb075dea9c885f1cd7102542fdcdc341f3343b1` |
 | `POPULATION_CHUNK_LEVEL` | value | public | `sha256:881f6f1f3a2b1d66b18a2ec5c4ad0b775663b0134e7caa700a4aff7312aad20e` | `sha256:6c94baec713118dd8cfa72bed7bc7d11d25f39fd34d205f1467ac558fbfe384f` |
+| `POPULATION_CHUNK_TASK` | value | public | `sha256:f94d01b6f8259c148475609ab442d929f0d6e1f0cbb45ff87f92291ee879d0e8` | `sha256:4d54859deb6a6c973a91e6e5377a7e21960beaa02726aa125cd409e375bd61f1` |
 | `POPULATION_CULL_PIPELINE_LABEL` | value | public | `sha256:1871a79bde6bb8c286c4298434054cb24e94c6edef391a0a083de86db114a1ba` | `sha256:4f177baf10bf57c297af3d2ac958010a972ee7511573746a35180a4c30acd30b` |
 | `POPULATION_CULL_SHADER` | value | public | `sha256:4d2dfafd70ca01e29139371b66cfcc1fb2bf3a5fd395e1339b97cca178565722` | `sha256:2e21b7145ab9bd7eb12639339424cf89b846e5648d21da7e9d0e3a3d7abd86da` |
 | `POPULATION_CULL_WORKGROUP` | value | public | `sha256:215dabc6571d786dd71ee3cb0b81418ca177ea7f1cd694694a9eda45863868f7` | `sha256:b32e21e0625f6c9fce90de1ec650449c98b87dc64c72bde0adae802af184fa56` |
@@ -806,6 +809,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `POPULATION_INSTANCE_FLOATS` | value | public | `sha256:054474d3da06f9d2266b58a04cebf6dff169d188d7da86b73367cb7692ab3b2e` | `sha256:5394390942fdfc1e282ea73b048067d021a2ba18a7ade9d9ccea5866a0a48d92` |
 | `POPULATION_LOD_SHADER` | value | public | `sha256:30160417cf4e776dcdb19796342e9ef3b9adebfb6d463d0b7f63b059c466965a` | `sha256:bb84b9bc6220c8c6aa854b47bc999caac0d4b838ef7d8060bf764d599de855e3` |
 | `POPULATION_SHADOW_INDEX_ALIGN` | value | public | `sha256:55fadf254d1b3d9936fcc38b9038c4d13fe97a92b361d23f7fd6ea2402fc96e6` | `sha256:a0b81a5421e94827d2af23418efcb83baca8b69a52ea1aa19a47725d17fb4baf` |
+| `POPULATION_SURFACE_RESOLUTION` | value | public | `sha256:feaae84ac9b194f36473dbaf1596976623fa2928486acc6c1b4926854add91c2` | `sha256:aa862e68a3c0d24d2d599f3039361ca3918cc99b976fe7adb3ae30811fbf0cb0` |
+| `POPULATION_TASK_NAMES` | value | public | `sha256:4fcbb28b0491523e046ff0e0cc1b43eaaebd0076eba7618ae6202bea089fb9eb` | `sha256:ca7e420bebd14f3b450e138b0a4c04a60ba732ba6dd030eb66b4594b5ca79802` |
 | `POPULATION_VIEW_CULL_PIPELINE_LABEL` | value | public | `sha256:0ca182e0408ae3866d19ace1c987ad0a8202c84e3edfb98a6d6bee45a4dc2305` | `sha256:02775da79872dc70959553b2fe21cdffa2df22e5a098ba0150f2428082bab741` |
 | `POPULATION_VIEW_CULL_SHADER` | value | public | `sha256:b1c5e7c0f50ca5cf26000a1986cb9cc50301c53a4241e0c8f1b92ace5b1864ae` | `sha256:b757fd4b3eb8209504f114e5bd6f3969462a2413de251fd64b2c1bbb9f504c62` |
 | `POP_CULL_DISTANCE` | value | public | `sha256:20fbafd4d4107a0a00d1e3fff56653b4077431146eedcb47a88e9ddda6b75aa2` | `sha256:facb45d3fa6144f5f900ca1630a2f8ed93b65a7df6f3b2e65fe0ed50b786b822` |
@@ -864,7 +869,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ParticleSoundscapeOptions` | type | public | `sha256:40c0f633ba70cac56c13e3ae7f109907055461fc845fd33604fcbf2255dd7769` | `sha256:cc9c8eaa1f9b52017ce825d50b2061a0a03f28223f9c66475c1b07f9bb62475f` |
 | `ParticleSystem` | type-and-value | public | `sha256:ed9114352f1638b33f606c942e2f679832a00cf7f720b790c0734d8f0c39a8bc` | `sha256:23fb59a4ecd3ada5df5670bcac2578b5e42039d9e02522dd78b26960ff113d34` |
 | `ParticleTrails` | type-and-value | public | `sha256:834a7796d8fb7b7fcd7d1a7bff8101fa126a90f07b9ad79142772d162617ee85` | `sha256:9a41524e2c04c6e2df40458c4483387af11c49ae506827c16c78c4c2869df73d` |
-| `ParticleWorld` | type-and-value | public | `sha256:35f75028f6f04ce5689214ceaba0f4385d9e3c45471e06f71e6509809f60e49b` | `sha256:4bbe6d9fa57c272387f2363f65548b0447abc4436fac807efac1958c5203075c` |
+| `ParticleWorld` | type-and-value | public | `sha256:35f75028f6f04ce5689214ceaba0f4385d9e3c45471e06f71e6509809f60e49b` | `sha256:53761c9e449bb0bda28f88789e962228802a6ff5d6877ee1f82b4645d8b5dd1d` |
 | `ParticleWorldDebugInfo` | type | public | `sha256:55cd5c3c1d1095684cb3d8f99e129cd3d63eeb478308778deb4f2e4a96226a11` | `sha256:208d014edb4c521b3e953fa65432fb2f46e8966bc6771eff31eba834182595df` |
 | `PerFrameUniforms` | value | public | `sha256:59b33a064e88277908a1e8f88760b67e2cdea62d5533406e8d5ee9667fe616f2` | `sha256:1673b92437df68eca53881c701f71f7738af72375198219bf52618a41f977d9e` |
 | `PhysicsBackend` | type | public | `sha256:ca856d0c3d2407b2605afd2e92609eeaa78fbe75056fc3c0259c96d6a545e363` | `sha256:6ef5b006e7620dab31d60bfec731ba7fb47f2434336b48f1a5d3f7deb17abaf9` |
@@ -880,9 +885,9 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PhysicsWorldOptions` | type | public | `sha256:aa65a742209a4d64e9ef91e7f0d90f52e975e9f322180a85eeb4eb0c5ffddd81` | `sha256:d53e3fe591bc9f31b8c8867c7f80a57f25a78c2884bfd2837c8a804dfcc6f1e2` |
 | `PhysicsWorldSnapshot` | type | public | `sha256:2358870ca24eae42acf7d92183230dd7fc693d37db1861b898520f0950b1663d` | `sha256:00cea606d54e43309cc290d18d5fcd6c153029a3361eab514458f8eade55f047` |
 | `PickResult` | type | public | `sha256:2c9fbbc3cc74e2186f70ed60f75cd785f0291a5b98715b74743c9b980b7ba969` | `sha256:679e5bec618300cfc9ce70595041650a7082e84897d4597163142bb08257f4fc` |
-| `PipelineFactory` | type-and-value | public | `sha256:430a4ae2f8b8d4568b1ff6ee58c6e896768d617feb7151d95d05106672a71cc2` | `sha256:5603f2876f95d15875e5f8debe1e5d898a662832cc7fef0e84508749d077731c` |
+| `PipelineFactory` | type-and-value | public | `sha256:eef4e322e0eef67ee07cac5b31dd8efcde2169094cb930bf1498f348be44ace4` | `sha256:3ad599e29cd9eccc57e6e7bffb03f8cb3ab7a420a029ce6189b4d083dd04af26` |
 | `PipelineFactoryOptions` | type | public | `sha256:5fae2d949e5bedfe7e374b3b169de3bb7528ff7f153450ba4589aff98727fc68` | `sha256:3e5e02d111987fec9c0bf54d17f6e1bc3bb3f082581bf5a977e8373d9bdc59f0` |
-| `PipelineKeyOptions` | type | public | `sha256:608b89612fd8cc9e9a3b46623bc9084f3dcfb2aa3b64c9446a2e1cf7a6ebf406` | `sha256:06b333811e34305c177b88149dccb0f26f271ffa078800214f20ffe98f1acddb` |
+| `PipelineKeyOptions` | type | public | `sha256:caf2e2143caeb6a27dc495a16056aeb6e7aaa7bb3b02f53623f21255aa878b40` | `sha256:3751760c4ba594c0d50801adcf5f9610b93b17fed57088b8d10ab4bc9755bea2` |
 | `Placement` | type | public | `sha256:36cbea339d51c6cb9c675ab04a864717f571a5b671e4bf5dd14e616646776d2f` | `sha256:b82209519d352bad39b3628579f4f2f3cedba8da033519fd7d74ed3a235e7853` |
 | `Plane` | type-and-value | public | `sha256:83e4c5dd991505d3d39f49ff0be1d9c25ee065367573cbeee4a4688dddbb4341` | `sha256:7a0029de14676cffeb939d30ef4d5e42493f88f99ebf6e3426e82d5d8c5b01bd` |
 | `PlaneLike` | type | public | `sha256:6059df5b4fb7b34310094d303478f55768ba5f56ec9a87cb5d37169abb4fcabb` | `sha256:eb84c0cbb4b50b1c8ab74f00f29fa88c938864c96f7106f3f2f5048e0e765843` |
@@ -898,6 +903,9 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PointerType` | type | public | `sha256:b056bb7f14e1c7646923c479c9a3c2ca3b54bd47f169646b46964fe29121fe26` | `sha256:e280cb11872b204d8799d9eb693c05fe79b663cf8a67d0d9f2110d982b6239dc` |
 | `PoolOptions` | type | public | `sha256:2b910f029934766bdd95935d17a7ba94a068d38acad5d195c8e1f35e5f433647` | `sha256:81a6bd7d8c86399e27a16dc2dffe1f946d0e0fb831af20c242dc1868c3768156` |
 | `Poolable` | type | public | `sha256:2bfdd5bc9728cad6245355cce81a63ed65008c31f764790e41a80ca4ed6cb343` | `sha256:93abfaea9538dd338bed5e7060a84e89fa9254b6f1f05b23f34a7f65e26f1b09` |
+| `PopulationChunkTaskEntry` | type | public | `sha256:5c435f738e5533f60be1fb190744a63643657e9c8d1174d8d155846645eaa56e` | `sha256:95addcdcca9238121c48918a814d00839acc51d3c943da515dda8121baff25dd` |
+| `PopulationChunkTaskPayload` | type | public | `sha256:0fe840f7c208f72e7e71568671713e0b56c448e8d8fcceee348979043971199d` | `sha256:340fd9d16503584c10b9a0645d9c52beb843c415284486fa683e839bb7dc45e9` |
+| `PopulationChunkTaskResult` | type | public | `sha256:7ef5f4b79e1aeb16de112c73afd90006f1348c1cbe0d71af820dea85595ba077` | `sha256:5c73303b0b6a228f4a0668d815d567d67c949bc9ef330f9a2eb490e96f164978` |
 | `PopulationCollector` | type | public | `sha256:244f655e95b3950b53f1b73a9dc1063c073b04acbfabdc09ec583f5119ca0c8c` | `sha256:31e39165579a6987a14d8e0e3e2f615c7bea7fa227ec7bdbca83d7259522e352` |
 | `PopulationCullBatch` | type | public | `sha256:c0740901c8c97ff43f85a027eeecbf4683e6d6b688d82f52a3ef94c807873fb2` | `sha256:bfdc7a8d0eb44d12d830eaef59fa85b444ee95ef7fae8a62092ed735bc8f9de9` |
 | `PopulationCullStats` | type | public | `sha256:fd176b220d2399482ae1ea852c6082766cbde7853f1d08a90882571134f4ce0e` | `sha256:3ee3618d89455ed241a0f8201c51fcb35b9e1e0fd6dc564bb078bcbdd76a4c56` |
@@ -907,18 +915,20 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PopulationLodWindow` | type | public | `sha256:cc443d00471073ca93d9c496a1a94c0fd94dfca63fc329a9a8aafe76da0b930d` | `sha256:531306646da010207b0b5b9a32058cf3f34b9d6c0db32b42897d658ca1a278b5` |
 | `PopulationLodWindowSource` | type | public | `sha256:1c4cfb088baa60cb8057ab3884031af30a62568c08b7eca29e4da2d4bc2981c6` | `sha256:02c410983eaac793546940cee6d17849392eef0c3b70b397ed60577d4caaa7b8` |
 | `PopulationPhysicsSettlingOptions` | type | public | `sha256:8fe77449b8f5d6206e306940f9402fdec5cebf9066e9418175870147a0b55fb8` | `sha256:f153d32bcc0b821c98c38a1ab25df38325bb247657671363cb73153c58c0b1e1` |
+| `PopulationRaycastInfo` | type | public | `sha256:05b54a7d047885b6f036ccf06476d9169c55b91de0778c61f8bcd8e2a27c123e` | `sha256:2d7697da6e8a0a9872e57e8499c60ae8d7461ce7ae65b14a0dac28081557715a` |
 | `PopulationShadowCulling` | type | public | `sha256:01146fa36ee0e47b79f514149ec1b684f16bf84d4a82786322ff6bb9471fe639` | `sha256:c42e5c191cfaaa55f72ccaae410ff8faee8dfe2d940c05b2d7ab0e389680a5b2` |
 | `PopulationSource` | type | public | `sha256:ed6683be68fc24df6317c429909ef2995cb934adac1725734f798d69b6f03965` | `sha256:258ae6e58a1b854a51bbbd1de78c1f756338923d6f2c6c11ffbb7afe5007cb5a` |
 | `PopulationSubmission` | type | public | `sha256:785861e03f709226096919981c0a9e8f06b6dd8b557a9bdda83f44144b79aded` | `sha256:3f697c3eafade36d6a02ecb9da699535288e88876224b461c637e1246255311c` |
+| `PopulationSurfaceGrid` | type | public | `sha256:fb88f5eda558b3d5c256ab1ea115bb40bd192ef628119a290116f293181e5f6c` | `sha256:ea7ba3548644df403c8dd917531ad75a2ae0799bd163fd6bf55f7b30709ef97f` |
 | `PopulationSurfaceSampler` | type | public | `sha256:a75b37bb9f714318a077e7bc5b95e9a43dc3fad0679c662a288c15050ad5fcbb` | `sha256:3779ac2b02645cc5c483826f92b745a86562969a1a9c3ed31c542c72b9dd1998` |
 | `PopulationType` | type | public | `sha256:e6d1e52e50c4078e0a4fcdaf5aec44896e56e391bfd81428fceeb1c47da719c0` | `sha256:4050297be975bc2c2cb480e891d618316bc07f464e4cf26a8677f5ce13cdaeb3` |
 | `PopulationTypeSpec` | type | public | `sha256:6fcccd976ed7958e23730da09d737df5835435397a9505b94803c43533491e19` | `sha256:71501577ce622ac5b4cb59d57c1f5ea728fea7e501ffdf7ad8490a4a25b98f0f` |
-| `PopulationWorld` | type-and-value | public | `sha256:7728f455a5d8feea02953435f55f382ac48364899aca8733fd01f94ff7147869` | `sha256:77d568433b45d453990fe1f913a57207137bc47291e649942dd8edc61440e6a7` |
-| `PopulationWorldOptions` | type | public | `sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e` | `sha256:91069f5e80c6e8b8f8206fa852ae3d71eeca6f46ca7558edb0f71ec05a113054` |
+| `PopulationWorld` | type-and-value | public | `sha256:26ba3d8c5b44b394a165cd1d2f0a097e831427d0b8eab0b8dda5671f429b5d9b` | `sha256:c661004b526b1fc0ddcfc0fb484b033e81422079205eaf8ac5a3a12fe4a28dcf` |
+| `PopulationWorldOptions` | type | public | `sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e` | `sha256:4c32f57cc5e3bc5843bc2f6f27c0387e71fa8a211faf7ccf484f407d95bca24b` |
 | `Popup` | type-and-value | public | `sha256:e1404fa19a28da1ba1817d9cbe49bff6c37ad34011027f7e5685c752dd2f21c6` | `sha256:4d4f76080f8c36a5ada0a2b24b0af65622dc76bcab561204502b02b906be1745` |
 | `PostUniforms` | value | public | `sha256:4aed2e14997471a348f5fe7385e71ca2a35df4febb30d9e32a697d088cedf8fe` | `sha256:3920c691e1e3316d66d4536e440bd3a1dd6544c92953d24e83082f389d7dceb7` |
 | `PrecipitationDrive` | type | public | `sha256:cc0ada22903b1449ca8b57f49d8a4252cceb10e04ffc88fecf5f54135a59a7e8` | `sha256:e3c8ba7b0a67619d4c6ea0e1c0d1a5e3880ac083bc23b7900cec329ed7b77b6f` |
-| `PrecipitationField` | type-and-value | public | `sha256:4260ece92b22774a41f7fa07d5c4ba6c939eb1240feec9145956355d83e7a9a6` | `sha256:aec71a3373890a8093b34f092edeea5620d4738c2bd8282be7bd76c293bd007b` |
+| `PrecipitationField` | type-and-value | public | `sha256:4260ece92b22774a41f7fa07d5c4ba6c939eb1240feec9145956355d83e7a9a6` | `sha256:3e43b8f5328de0b12f081392e136a93e22b9ce7fce43a0c3473ae0c776a4b7f4` |
 | `PrecipitationFieldOptions` | type | public | `sha256:fdfc708ee8885c73afccfc427213ce214b46082c125e7b741a1aa4307802407d` | `sha256:d76703ca0d8762bd625597e1a215d1901329f900898770d44daef71e210095af` |
 | `PrimitiveKind` | type-and-value | public | `sha256:fd2e47ee0c4cf1c52abfe81f6e01e13c739a7dca776e1796f09f52fd6d85cd06` | `sha256:4e92d4d1ffce19364cf76c3105eac36408a2b0ca2636543829620a5eff66b205` |
 | `ProfileCategory` | type | public | `sha256:fe5a3eb1f60d1cd737c91f6a290ad226c188bcb32a66dd478b61616dcac4665d` | `sha256:75ebdb972786fd10d5c54b0d6940e7206cdb294e3d43ac1fdf9edf90518e343d` |
@@ -960,7 +970,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `Ray` | type-and-value | public | `sha256:4d3c9366a4c07cef3728efde5e0861977bbbc55ce8df752dd37a4e535b4de5eb` | `sha256:71049153b9cc2ccd63cc7175749feb29d036ede05bc46b05f069f0ebe5d18ff6` |
 | `RayHit` | type-and-value | public | `sha256:ab4b96f64bc4f38939f693b3e384b3e6497b1c5fe52eb7ae171605ee617020a9` | `sha256:ff6107176107f10314dcaec9ceb62cf0cdf2029e129157efec7c5d56cf8182ef` |
 | `RaycastFilter` | type | public | `sha256:e433acf790deefd859528c41a542de945fc67f70dcabaf647385dc303f25cddb` | `sha256:c83a70d824b7af98199c64035935bf907120e49b11af5b7e7dc4f997d8680065` |
-| `RaycastResult` | type | public | `sha256:8efeb4700eac75c5bef9c7001ba5560c11b3fe9ddaa93b9b0ec8a0346eeba514` | `sha256:8501e477480fb1301ee10f3ea6574693026114e3c638d23332457ffebf740cc3` |
+| `RaycastResult` | type | public | `sha256:8efeb4700eac75c5bef9c7001ba5560c11b3fe9ddaa93b9b0ec8a0346eeba514` | `sha256:c833a3456d9a22b01ce9be32b0cad842f4e8e97f88b5463789c999f1abd19312` |
 | `RealisticHeightGenerator` | type-and-value | public | `sha256:b50bbaac82f44f315963df0eb6de6d0b3d788c35eeb759b22ddd41efd2adf1be` | `sha256:b9f00bee1f677c5a5a04d192cef40358296bfc1ae6e873078fbe1ca14ab1458f` |
 | `RealisticHeightOptions` | type | public | `sha256:fae317ca50391c33938688c4bc0e48c24a0ba98e1e28fe671c6dc12a90b6e46d` | `sha256:f4d448ebc232416e9920385b6a42fe0f14168172d3c77f1f2cd7940867cc5a52` |
 | `RealisticMaterialPreset` | type | public | `sha256:6a01ef47fe403728011d4d1ba92a4d9530b5013831bdfd197c8d2b5a8515e46f` | `sha256:9e22565ab613cc714ff393656cbc2a023cc683950dbcf0fb0efc32770fcf86be` |
@@ -994,8 +1004,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `RenderSpace` | type | public | `sha256:b3ace4581359091f000a5370a5d1592bc3ac71b753430c7ef6b5542518ad1fed` | `sha256:3b87e935d27041e357e184a0870b350c62ce3bd37828e4b9187e630766826c3a` |
 | `RenderStats` | type | public | `sha256:831ead504871b17b7b465f1ae6b1f6f5955dea8148b2d22e252d83dd68ada8f0` | `sha256:16a8bed25f6c05f0d72e4e330c001579209eae4c7ddc0715f5eb9c590f6aefee` |
 | `Renderable` | type-and-value | public | `sha256:6116a096266e6b0196366e24edf853f0f74189442cd84b86894d0d8a5a679a8b` | `sha256:e491ac4e0696e31122be29a5c8c4ffec6e6d3fc204423b864ba8d6d813a43fc9` |
-| `Renderer` | type-and-value | public | `sha256:60f80a16e1c2bed0304231728e06b3d66c3d056bfcea016c4b7babbe2014c293` | `sha256:798bde1e456841d5c3fa3b47de631d3c567a87811fb9ac84ba164273d56dc75e` |
-| `RendererOptions` | type | public | `sha256:9278fece20fefbafb5ad9bb2503fac2f7bf2372bec91fa666b22b4ca2378aa0d` | `sha256:1d479e33b212fdcda8d115f9277ec6fe29d3bd4a6b017719c38003b564886987` |
+| `Renderer` | type-and-value | public | `sha256:3055724145143e65b675c4e1e5a71de97b54a918afb54637aa87431262d87a94` | `sha256:101d65becc68dbb326491c773a7fc8cdf96dfbb5058fade0fdefc1b6d0683d3d` |
+| `RendererOptions` | type | public | `sha256:85439f7426a829078728657614b486eb44fc5d92a5a4be1a45aee320974e4a27` | `sha256:ff7c26e86725e298a6d0365303d2e08fc30af1b4dd52242e4a931d919443af82` |
 | `RenderingStorageStructName` | type | public | `sha256:2a89147755d3c1f1e3ad1b2eda175e84d1944e764426278908eaf21fc6e9ac8b` | `sha256:e89d53ba1faf9105772d87056e09c1b6bfc533fa105483d021fc02b1530730ac` |
 | `RenderingStructName` | type | public | `sha256:d7d085af6c125f440ed56e55945d21f778171d49477675429288b5ea4c11536f` | `sha256:4115bd11c99605bec31b0c33d28273b3b406182b5b319537d22f6bca435d5ab3` |
 | `ReplayChannel` | type | public | `sha256:d754d07a79ea51321e03e6badfc2f6cf2bcf1e4ac7f092a5c4796ff872a7b643` | `sha256:f84799f51f626df79eb43e7aef9bd17f823b09c84af128822ea5ea5507033792` |
@@ -1005,9 +1015,9 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ReplayDivergenceKind` | type | public | `sha256:6f7a1dd83e2bd58b05bd0153bb4155994333e786afbbbade5f5bdcad08a80e88` | `sha256:a84766025ee0be3ce4afa899e898eded49b73ca2b48e8ce821f39dcf7df03c18` |
 | `ReplayFrameRecord` | type | public | `sha256:8328bd129a0b1524fd3928e3512cfd1846f81d09b1bfc16336b4778d79e7eab6` | `sha256:ebb3df6d0c2f8364a46d6e51582080ccf47ceadfe4dd4a647e548cc0a36018d8` |
 | `ReplayHashRecord` | type | public | `sha256:d92575faa22b4029ef6002ca4f6f53c480f40c9da2be5a9ba57523931e1d82dc` | `sha256:f1f42236599e3e19e3e39d6d81fd5626037b0fd439c38d597603ba5f9c011a4e` |
-| `ReplayPlayer` | type-and-value | public | `sha256:cd23c88ed198370bad11c0dde81de1b3c05feaa1b51e245bb502961649c6a2a9` | `sha256:a0b6ede7438798c4fdad9fa6054386a2beb887a2c9ba51489063f0d036af3bee` |
+| `ReplayPlayer` | type-and-value | public | `sha256:cd23c88ed198370bad11c0dde81de1b3c05feaa1b51e245bb502961649c6a2a9` | `sha256:84632951960cb783c13aa2f03bf6202429c9f711694e350aaf8e61d222a21bb0` |
 | `ReplayPlayerOptions` | type | public | `sha256:9287c847f501b6e7d7741573734bcbbc477698422d7e870740e72baf87bc9534` | `sha256:d2f2f456b97ed25dbf72fd981b19e1c43675f8fd0346c6d0a349493feb9952a4` |
-| `ReplayRecorder` | type-and-value | public | `sha256:45be635078c9dcb6c0057ee709a2daf308bd2a00d66d7f968f8c951811da975b` | `sha256:4cdd36735d3d18deabe696e85586604d8d79b27491db70d53486949ab3084d75` |
+| `ReplayRecorder` | type-and-value | public | `sha256:45be635078c9dcb6c0057ee709a2daf308bd2a00d66d7f968f8c951811da975b` | `sha256:e2b68bd120f836cb4f4d990b56cb7198ce05ee3c25654f2ca99513e4727aedfa` |
 | `ReplayRecorderOptions` | type | public | `sha256:25c3e08b244527aa541733bd3b2e2b2ecf970e9bafa59fcd0f41787635ae2be9` | `sha256:e0e01cb1600a8cf2d56dffa4cced5d14559187f2b84bf49557047ce2663c8433` |
 | `ReplayRecording` | type | public | `sha256:82f5c4115479e53d2bcc76f8091c95a1dfd1914fbad3da0fd42c3e3c184e31a1` | `sha256:155ca1a267243083e8912103edf43699a114a11e0c21d5419d195756a2a45b51` |
 | `ReplayResult` | type | public | `sha256:5f5aa965b762e72d44627f3fd649ce378c2e54f0e3d00ff7bcdeb5e5fda2d845` | `sha256:e540da57018c3b33f909d5ba26d93947bc42038333c4a1f913e6c08467b5ef7b` |
@@ -1075,12 +1085,12 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ScatterInstance` | type | public | `sha256:197b97a7c42a4f6b9297ccb6dccf8a2c188a2f5ebb26a5ecc491b32e854c36a8` | `sha256:29a158bfd5386baf5adc59415d849bf83d0b3c5d567ac60941098e08c95a7811` |
 | `ScatterTaskPayload` | type | public | `sha256:472c2fdb18decf8768503255855460c6b08518c5ba422fab128dd07fed5e3e84` | `sha256:3cd28547d9e605911720ba12307529da0eb1243b249692117385af438dd1a4a5` |
 | `ScatterTaskResult` | type | public | `sha256:a131ee658abd3dba7b0293428fd90bb2ff4e8ecf998028bc84b79a2fdf45844d` | `sha256:e6035185bcc942608bf76feae4c5f25af90dbe3448bf5d0d1776f4df403ddc1c` |
-| `Scene` | type-and-value | public | `sha256:470ce2fd638d9a4dd5cc87433dee154d08e9498ec77afab2dc3ad8405229992e` | `sha256:adbee485e8c50144024b84b8890c0e70af86953395412330614a1d118717789b` |
+| `Scene` | type-and-value | public | `sha256:470ce2fd638d9a4dd5cc87433dee154d08e9498ec77afab2dc3ad8405229992e` | `sha256:85e239dd6be17fa57f8c980e358c82146b12a4d9567d45a7d47efcdebe44be8c` |
 | `SceneCloudSettings` | type | public | `sha256:05a396202b9908e9f82d5ff42442d0ac8ecff3ac248f8325945969228ec94913` | `sha256:7e1ec826d2035b17d143ccf10d1395678347b5241671f7c2213268c9a2c0083d` |
 | `SceneFogSettings` | type | public | `sha256:ff3875775a479ede2b507e86e9b716fc4742f055de49f6d798b199aaf30fce90` | `sha256:101f8a38d0de1c6bc101b1375b18fa1d4ea22b0808bfc45d475fe8056aa13c2a` |
 | `SceneLoadOptions` | type | public | `sha256:b60061ab38ea356a8b7b055e87ea53205407012ac3668ac6d3ac2d8b23981ede` | `sha256:30f1790f57df15708d9ad2da3287e5679181c77e5d11aa5c53ed8089a1bef1ca` |
 | `SceneLoadReport` | type | public | `sha256:548895414d5746d4db8e5ef68d9e63517460b891b098fe7808e6d1360319ad69` | `sha256:a266eeafc377d87b82dc31071b7df1b94a433af778559f0f13515150a7329bcb` |
-| `SceneObject` | type-and-value | public | `sha256:565957b41afaa1c22d20dd2a38938ad60721a2266dd9179e5b9d8fb46e8f1d44` | `sha256:86193e186bb7c2aa77a1f3a279b50ebb21439677b31e8c846f5a59adb8846169` |
+| `SceneObject` | type-and-value | public | `sha256:565957b41afaa1c22d20dd2a38938ad60721a2266dd9179e5b9d8fb46e8f1d44` | `sha256:6251a5a04b0439b0221fd2176211194c715d513957f9e08d7162085f4290faff` |
 | `SceneSave` | type | public | `sha256:49cd0ac66a2639757f68edab349e7ad27f239ebbe7fcc2d9d572de4747786b95` | `sha256:0bbd2d5ff419e1566eb6a322addabcc728a915de09f9e6992dc37bd8d295809d` |
 | `SceneSaveComponent` | type | public | `sha256:605a5d8962b9ac562edd384ab5e0541b17e4ddc099f672af124015ea3ebe01a6` | `sha256:bafd3c9e5fbe6cba7e9ae7d606be79ed900f9f6b76057f31e6896b790098fc42` |
 | `SceneSaveEntity` | type | public | `sha256:f09acc7388464b30484495a3ee997d4859b425b9f12ab07b35ddc52ae28ec341` | `sha256:c077b66860b69007ff013f5148b5bb10016525520ce372301efed3aa750dfc2b` |
@@ -1088,8 +1098,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `SceneSaveObject` | type | public | `sha256:4db841e5b0f9e3bed5397c8bba53e3101b7d1070023c07f7da4ec0e53c038cce` | `sha256:1ac6ed9cfa3c2d52ac6e8bf710b27ffc79dd7f3ee6fecb75c94065183c0b334c` |
 | `SceneSaveOptions` | type | public | `sha256:4fa0a3a98d4a407329050a5816acf94dfa5a45ae025b0518ead259880ee9c101` | `sha256:ab220d786c95c7919fa2943fadc4fd099d465610a73f217b9f64d8feb7abdf76` |
 | `SceneSaveReport` | type | public | `sha256:d7d2bcb2eaff91a36384dcdc6259603d3f228efce2bd02fe3a5b8d149f60d32b` | `sha256:8eda5ae06cc42599a304bfd8dc20797a36eee4997cdbdf5444fcbc0c35374e24` |
-| `SceneSettings` | type | public | `sha256:940adb232f7917f680d63af4135295c90081f8e45c42cb2f054259ebbd2ca500` | `sha256:994cd255488743c8894d06268e75e33c1ac5f147748f979335e264e9c47aa2d8` |
-| `SceneShadowSettings` | type | public | `sha256:833b6368023f6307c70fda6fdc129f891a3e52ec0514f94401d5420de76e569f` | `sha256:574206118b8a7e9014801aeba6025f337d2d3ec42e5c6a4ad02e9b6d17bc91b5` |
+| `SceneSettings` | type | public | `sha256:940adb232f7917f680d63af4135295c90081f8e45c42cb2f054259ebbd2ca500` | `sha256:705a1f4cc9b140c250f19ee43a30c6dbda9d308a6c850a267b3a96ef762e595f` |
+| `SceneShadowSettings` | type | public | `sha256:a41529b91bc1c990f67eb38aa3939da718e55ab81401f72ade93303cbf190f5a` | `sha256:488a9688f9e0ba26ff46ef7f949df7b43c8dda127aa6836beb096993d89c8f7c` |
 | `SceneSkySettings` | type | public | `sha256:e192d564a0b2d7a0460bd371bbde466d3a35e9c1c9ad55a1f1c94cd7659cfacb` | `sha256:9ea9d514a0752c5c1be76b8b4b14e9ca716beb265564c23cded234575bf5a885` |
 | `SceneSnapshot` | type | public | `sha256:06f2e1d27aeb4303eba97252a437433af4af4724e9328de1a82385283fcf5f30` | `sha256:db60f9aa97285ef814ccce7c79d6f0bfbb5b2523e5a4061f13fc60de05c38e70` |
 | `SceneSsaoSettings` | type | public | `sha256:62f173ca6a26e82fbb13940889c3214b36a63e4e84f62042eaf6f0153228d7ec` | `sha256:c17653c3e04e0d11dac1dcc0555baffe182258069e4ededae8ff7634190f9455` |
@@ -1151,8 +1161,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `SnowCover` | type-and-value | public | `sha256:73124613f1ad75401d1f755fadd6d43459bd21b42f3486e3960f7c4e7f07af94` | `sha256:fafc662379a54128721b8c2f04ed46e520fd806fbad843b0ab66554b4bc2d8e0` |
 | `SnowCoverOptions` | type | public | `sha256:388187b590403936cad246e24947825f6880f70a98cb31940f2a377dbc2a9b50` | `sha256:a6e1d53d7642b91de29a56712d01bcefa320666bb4d851a862851e93fcb7b989` |
 | `SnowCoverTarget` | type | public | `sha256:de07784589398fa2c8b4a3118cb163434a0e28fba4112741bdadb05d4d493aed` | `sha256:28237c9e6d89171ecfa87b56aed8f5cd739ced7dc97bd76c8571c5b7e0ed1660` |
-| `SnowMeltSystem` | type-and-value | public | `sha256:adf521478895d35563799d606c34bc8eee22052d5f04698388920757b3287fbb` | `sha256:cd48b94de1031777baf8a9bb228453c2ba3a89b8975fd5d32cb4c95fb591bbd8` |
-| `SnowMeltSystemOptions` | type | public | `sha256:a5d62ca61d23bcfde9fe5bb43d4e33b79296f8fbad93d54a0d8671b5da702d27` | `sha256:d4b93625f887f910b137aa3e410b4ff8f8461f59d8db50e1cc58b2c3034564af` |
+| `SnowMeltSystem` | type-and-value | public | `sha256:adf521478895d35563799d606c34bc8eee22052d5f04698388920757b3287fbb` | `sha256:aafcd3ca75d69fbb02dddeee4fcdb8ee6b7735bde95d300c3bf0ad29689d6eb6` |
+| `SnowMeltSystemOptions` | type | public | `sha256:a5d62ca61d23bcfde9fe5bb43d4e33b79296f8fbad93d54a0d8671b5da702d27` | `sha256:b6919ac44dbec2178a4950b9dc37a1e3a1d740e061c33b0dca904330666b1844` |
 | `SnowPose` | type | public | `sha256:011af07fd4bd6078945a780a36a341fb1d5f90307eb40693db97e4c2c5cf8d5e` | `sha256:78dd3f52c5aebe92d173fa7cead6ab9bd1547ccd8075f808edaa48668168a116` |
 | `SnowShape` | type | public | `sha256:6ff38289f417f6daea733693600b7605552464b8283f40e9b4005e39fe770405` | `sha256:9a0ada395b2680f0caed05c5d3c4aa66421efac87d271efb002adbc39701e50c` |
 | `SoilName` | type | public | `sha256:5578f29688ca01a6d702ae1f833bedaa718c9bf6fb37368d29435de8ba3f020a` | `sha256:95896d4e730732478bc12b98fedd5980797a6d355dac9c236dd66b529ddc212f` |
@@ -1185,7 +1195,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `StackOptions` | type | public | `sha256:5d25371914578679f0750f182597b6ac8a0415fd5a9b815e5bc7460432c7e0f3` | `sha256:bd731079b444cf91a24e41dd96c8aa2ba3cf4c4c06834a4506d88697477749a7` |
 | `StatDisplay` | type-and-value | public | `sha256:01d80cf0b96e60aee4a24556c9be50d1ed9c09937185768d674c56b3457c1089` | `sha256:4d71ea38892879532106037315dde5e68c4b7277d59a1fd815c9f4c9d9df9b58` |
 | `StateHash` | type | public | `sha256:12fe6f35f7394f1eaed49e17e282b7e54d6856b284adeb207a1a72f6eb224581` | `sha256:9b5507d1ed67cf456e086c5eb923acc8046221090dfab085c1193e5e6b2281d2` |
-| `StateHashContributor` | type | public | `sha256:2ea6a1b39cf754cd786d8bdd178be6229a5a170265e65d2d07f7281be4bc51e8` | `sha256:5d9ed6139da986f00d977652e1ee9450e0b361172f078905af29115a41f3f6d3` |
+| `StateHashContributor` | type | public | `sha256:2ea6a1b39cf754cd786d8bdd178be6229a5a170265e65d2d07f7281be4bc51e8` | `sha256:d92d57288245fc5c48cfdb16ffc78d7abdecbdd0bf52a4d069a223991376b34b` |
 | `StateHasher` | type-and-value | public | `sha256:9adcf6cd35fcfd189a00cf8c7ae666c8b08773971e445518d359d6ae85dd0749` | `sha256:436b102200f94396a54f3088e08d6b362833c582f8da8c39fc0364d5fa9278ef` |
 | `StateRecord` | type | public | `sha256:2b22fa539585be9b72c81e7a99f7f485a058dd4a4d8ca40d9a56991a76e86e86` | `sha256:62bb7b43a11b06d7c34e8845c95b94f508224858f45d83b5a1d3a8478f7cf46e` |
 | `StateRegistry` | type-and-value | public | `sha256:85db4f43afdc2a81866bd05c7e67e92091e87af37eeb78e2b9291a8d8f37567b` | `sha256:546477bc41d54ae1d97a106c48940011aca2f736c345f883873c00b335adbe99` |
@@ -1200,7 +1210,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `StreamedLoad` | type | public | `sha256:4049c0b244d51c231c0abb45db18359a085de3e560cbf4e58f66f8adace74e31` | `sha256:c867f99030128c5816ce482899739b46bc72d269b28d2e2d4d36a38160809dd7` |
 | `StreamedLoadDebugRecord` | type | public | `sha256:4f99ba72e7b35829bc56f9937e35703981f74c78b3beee73991d22ac8a397ecd` | `sha256:af95398580291359b3a4776dbdf152b0940dbe9de928c53d97f87b91768b788d` |
 | `StreamerOptions` | type | public | `sha256:9be891a9e09f2586c9d6b59b8b20711fea91e8f59a2fcf918602382ff56bbadc` | `sha256:661020d1c59833c00f6892c9b2e06d73f10c57d110b12415f3456d47073b90d3` |
-| `StreamingDebugEngine` | type | public | `sha256:9636ecdd23c056cc89810e373039238505ba47a80ef294872c18f99d889fbd85` | `sha256:b6efe69cb88d5c715814ab2f3229592947d94dda483f8392d78777f0043b0e1d` |
+| `StreamingDebugEngine` | type | public | `sha256:9636ecdd23c056cc89810e373039238505ba47a80ef294872c18f99d889fbd85` | `sha256:4a2fab567058d74d41291cf2a47ec9ff6457cd7ab880fa37e799b718fbc604d2` |
 | `StreamingDebugOptions` | type | public | `sha256:d121c296505ec50ff594c236bac03560cdd41d8b77459e30d475d3b6db437163` | `sha256:4751f0169d7fbbfbc90fb645be94473ea8263634c1cdd6f8a13a079950944bbf` |
 | `StreamingDebugSnapshot` | type | public | `sha256:53f8d1a0d27d041c6dcf63720988bf72bc69c754b618b8b5f36980ec51232a1d` | `sha256:679341e75b68565c043eaaf8005e01ae9e9dfe497d9fba2f1bc9d9e720e8a881` |
 | `StreamingObjectDebugInfo` | type | public | `sha256:76e9ba3a2b843d3fd958eb25ed5750da76d6de7977ea1ec3bc1c27eeb377c7d3` | `sha256:06c44f4f0389095a3d3b9d69f52c4c644fa368af70565715b5d63269b6647872` |
@@ -1283,7 +1293,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `TerrainSurfaceLayer` | type | public | `sha256:ad148bf663e4095d166eae8399de2137ec04a9aceb42091ccb1603cf1b4040eb` | `sha256:d6b98c756800b9d36f9599cd1a5ade17f7ebbe231e696cf9d40ccfbc82e8b74e` |
 | `TerrainTile` | type-and-value | public | `sha256:b5ac075da292b711e5a5ca91981256541b822883dd16a33203889fa0ee2b3aff` | `sha256:c4e0fe722c4593245fcdc8c5d4097e88f385dab62aa62015f523a1586bea90a2` |
 | `TerrainTileOptions` | type | public | `sha256:afc185a96bdd0630fb69049012250c7a95fb47add9d500419cb999948712b8d8` | `sha256:bd556f63fac10b38374f5ed18cde132e8ddbfe2fa5540eaa338f385df416e0a4` |
-| `TerrainWorld` | type-and-value | public | `sha256:cdb4830399d3b123a88b3ecd1b68a569649b0604643aeec8f74fe55cb798fadd` | `sha256:66cdd1583bdb7622eea21205f9f03a6a053c97a2ad5ac8188aab077dfbb3cdf9` |
+| `TerrainWorld` | type-and-value | public | `sha256:38f5cfd4998d52fbce7b92ad23b1df7ba4fa8ee659a1fe09167e9a5ac1282372` | `sha256:b69208846f62b609dcecb089787e0c32bfb97609bfb84bc59a98ee30c7f9f70e` |
 | `TerrainWorldOptions` | type | public | `sha256:8efedd12bdd9a66d5e769523dfa0a45ea5c6b668d013ced6d02538ab342a9877` | `sha256:6fd08851f6aa8544e90ba0fb81d727c07e6ef0765abb92e13d0e44abd326ae37` |
 | `TextAlign` | type | public | `sha256:082a5f3c38aa69e2a19b381d938a69dcd500790008bf270fcb6d3c02744ada2b` | `sha256:fd999ee9ecdbc5ea352aa9b378fef6b86df0cc65afc3e1e028f3db6339139618` |
 | `TextArea` | type-and-value | public | `sha256:96a5ce37035d7c56b43b4242370dee3b938f74eb61d669dc87eac0e9ac4d6790` | `sha256:17c08c2734f0047cec275a4406ada3bdfe346042e3d0a1bcf8347cd5d4d26c3f` |
@@ -1328,7 +1338,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `TimerOptions` | type | public | `sha256:1e38bdc931874a1e4ee6582d6b0cd2638335dab60665af97e671ff54c7d2ad2e` | `sha256:3465194557f48d25c1097a71ebed0ff0af581d3260e31e0f18f08dbc46531a28` |
 | `TireMarkStyle` | type | public | `sha256:4f808ad67a6488b782a2b14cfe6ed6bde81b2338a1482008cd4b945f4a9fee59` | `sha256:25335273177cf5a62630620940b339395d1c237a33f011d2cfeaf5b496602c0e` |
 | `TireSurface` | type | public | `sha256:52275ecf10bb1d1773c3c735b394dd6f4e8efeeeb25c5dcd84c653740d7f0627` | `sha256:a679aea8b75f0bc2bf258c734452620e156e9ce760bc661f7242c5dca1c7045a` |
-| `TireTrackLayer` | type-and-value | public | `sha256:2c0145a372fca19881db504e6285b22cb9fa4d9292278c94efaacf320d0aa56c` | `sha256:cc554ac3a161d579a31013b67be6b0700e9ac3ef6e3254b6c545db97539e40cd` |
+| `TireTrackLayer` | type-and-value | public | `sha256:2c0145a372fca19881db504e6285b22cb9fa4d9292278c94efaacf320d0aa56c` | `sha256:8765063bfc298e3aa48ba2d82ec058915ac93e7a25d72bb30fc5dc7675b5b26e` |
 | `TireTrackLayerOptions` | type | public | `sha256:87c5d17554bb235cd025772c98953b9506b61cf975e123eb8f8cd94faaf5af82` | `sha256:1b449d643fd6e50913f76aa591ef5877ce98b74e124ee6b7b0dec69e3ecbda33` |
 | `TireTrackMap` | type-and-value | public | `sha256:e7b59e41ff13f1b095400d5fe1f39185f0892e59173d6231284bd46ccb869c11` | `sha256:14f5dee71ac6ffb0f682c02fc45c06b6a743e117c6f96fed68f813ce46a6e552` |
 | `TireTrackMapOptions` | type | public | `sha256:9c65268e99688816398e97f8733bd1c51c7c4e2166e4bb17d6860f99181aaed6` | `sha256:467def2e30cafed88a4f734917e0309380f2e85d8e83f9b7fcbc7a67c0639ca5` |
@@ -1451,7 +1461,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `Vec3Like` | type | public | `sha256:d51f6b0d8c3bb39ed0c7505d4ee8c6605299dce15cb4f97a76cb2cbcaa6cdff3` | `sha256:3d49d3c18654c6c24facbf5666ca5e40b2ec78562fcdd2334129854670943422` |
 | `Vec3Ops` | type | public | `sha256:2bb50ed81317533704247b158e9d102e89b0e409ab34a2922668868b981803a2` | `sha256:a323f392047d8367df0a91bd7eeb9376948d1bbab80ef2dc1a7ddce246ae3614` |
 | `Vec4` | type-and-value | public | `sha256:07463ce0253cc6b6cf75a676436711a9090bc68161a25b60ee0ac0d040c7bb82` | `sha256:6bcf1b77061be8742efe82743dabf9e427a892a9a85fe1c22ad42b7ce82e629f` |
-| `VegetationField` | type-and-value | public | `sha256:920bb558d69823cefc3e9f3019867973ca50e96218590b78296cd3d49bc0a301` | `sha256:a2b087f6ac91fcc66b8c09aa529a7b4e9873defa0ccc187333ff5f371aab1250` |
+| `VegetationField` | type-and-value | public | `sha256:920bb558d69823cefc3e9f3019867973ca50e96218590b78296cd3d49bc0a301` | `sha256:b5dc8d0266e2e62219b545ba4d4fbe6e8f22235f1d3f6fc4c757862a459f12d8` |
 | `VegetationFieldOptions` | type | public | `sha256:25962d0f5bfa8428ccf46fa2887fdf60a291a2090914832da886257c7d2f5c76` | `sha256:6c73b2f393b0f7bf70711076d8134c69901c24f177e775f4a1d89ee41e41eae7` |
 | `VegetationModel` | type | public | `sha256:2233a959b65c10eb3afad117b1dace1ddf5cb7940a261006414444b3543e03ec` | `sha256:b43baf05ef69271bd6bfea5742c07c985182b9e8dfba5fa6248754dfa51e180d` |
 | `VegetationPart` | type | public | `sha256:9e3a822deba17b15e618294133a87d9662a4a6b8340737f89503897bb1789584` | `sha256:b747464fa5fe8eab6e063bb5238a566175726f6b264a4784828ff43062b45bdd` |
@@ -1486,7 +1496,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `VirtualizedOptions` | type | public | `sha256:54e5944baf56385f4f5b32f2d52a321f710b51482fdd23f7db3151a010c41b33` | `sha256:de7b168d5c209b2e7da0eb356269e37018c5b05caaa4f1b54e5144bf67781888` |
 | `VortexColumnColors` | type | public | `sha256:ac48c11dd0ee0ba5ab553cb6e82e557173e89e4512fe4190ac9dc34896afc347` | `sha256:d8d9de8ce9dbefacba7a2fbf724239befbe95c8e6886482dd328a93004a9ff1b` |
 | `VortexColumnOptions` | type | public | `sha256:8ddcf2f8ba740e1fa5a4594da1a0ce1ebda3fef8dc6305d3e5ee04ebf7b68863` | `sha256:006fc1a406ba554affc5d4bee61f3de773e7706b7fcc65cc22613a8f1475b67a` |
-| `VortexColumnParticles` | type-and-value | public | `sha256:f4f1dd3ef6ccaf48a21728fc1cc84d2e1a0927291ce56ad7e12e7256e3b007c2` | `sha256:4783a0de92e73928ca5597bb73d76d6b3cf791d60b17760539beb0db890f2d46` |
+| `VortexColumnParticles` | type-and-value | public | `sha256:f4f1dd3ef6ccaf48a21728fc1cc84d2e1a0927291ce56ad7e12e7256e3b007c2` | `sha256:32c10d54f9474da27db04f98c7a0db6975d7642b83ae676cfae78e4c2a9b64ad` |
 | `VortexColumnPose` | type | public | `sha256:afacadfaf8682ad20358f21debaaad9299d0ac9a9ed4d73023b581b737d47e6a` | `sha256:797d165a80656b9952370799628a29e951c258d792b0f40372a8b7651295a03f` |
 | `WALL_NORMAL_Y` | value | public | `sha256:2402b8b8b378aac013d41d220c737b50b3a421caa25cf21fda0b7f95446fdc04` | `sha256:559b2d7f2c8372272d8980d2d531ff05dcb3ebe78275579ec584c82fa06af033` |
 | `WASM_PHYSICS_LAYOUT` | value | experimental | `sha256:1162fe6cfc9444c00b61fe03aa1e99fde254090717d9621df6b859a4d5869769` | `sha256:1d5a9671a0d560402aa7f62500c51c2a483c1c08db60684ea3cccf916254452d` |
@@ -1515,22 +1525,22 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `WaterGridSource` | type | public | `sha256:3f1e4579f7dbae68241765c7d16cd1545d7daf3d6c3bc25dd767dc04110b7216` | `sha256:25aab0cdf58c343cb69889840f3404cdf6136bce5f23d1d9788177f080d95b53` |
 | `WaterSample` | type | public | `sha256:bd950fe326a45ab31f538e3540240243646614066784becd047683a1828126b1` | `sha256:e722afd8605ea0ce96ddd1a4e3cd67d1f9c5f4012251ac7a9d70b7c76cf5896c` |
 | `WaterShoreSettings` | type | public | `sha256:e3f4c78f1f594b20f050cdc72fda0f369b9900baaadeab21be72ce8bcaa92f8b` | `sha256:bc24e97781fa5a11fa85d1850d9b1267c8e28aa53f1725a60fd283138f41ac71` |
-| `WaterSurface` | type-and-value | public | `sha256:81a16ba6624df7b816e0ce90e88da599d6a18d602dfd3c786dfff6c70d8a378f` | `sha256:2f9bcd1f7cf6eaaa36099698af90f6fc4bac204accb7ec5d1ff79578aad0177a` |
+| `WaterSurface` | type-and-value | public | `sha256:81a16ba6624df7b816e0ce90e88da599d6a18d602dfd3c786dfff6c70d8a378f` | `sha256:25a248dc0074f1bb0072656033a10ef9239953b21cd35d8f2e22f9eed0771b29` |
 | `WaterSurfaceOptions` | type | public | `sha256:547981500fb870d6460407fa3cf37ae6ea78edcb25d0022ac0aeb0b63f2b7d4c` | `sha256:b8177541612e83c7a88e4f95f5bccce6811f21e174e9ab4974b7e949907a9e6a` |
 | `WaterUniforms` | value | public | `sha256:ef71822024c32867b5712097d63e668bbf02b2041de29ee2cae78d39bbdad3a6` | `sha256:84de7105faaf444e5bb1a360c0e1341ee8879b0eb4aad6418135f233897fa52e` |
 | `WaterWaveParams` | type | public | `sha256:24ab2f604fa9c7fa2e39ece38a51078edd19e5f8944e93d3dbb36403df36001e` | `sha256:777b5bf3b813e6608a9ba77880580489cf3f7f62dea5f87a2826aacfb1e24f07` |
 | `Waterspout` | type | public | `sha256:4e340319ac16b52967efa267b544e7782a87d11d7c512cffd7a87e84f6ffd483` | `sha256:3afe762bf808abe36224444d5250ed1e76cb11062b57d11a7a70140a98aeae44` |
 | `WaterspoutFunnelSample` | type | public | `sha256:a5ea5c870ac93c4f7b80165a5fefd02490c45c268c29755d38ba92a61c4f356f` | `sha256:bb62f9e941c225bc0783a143aa3664407bcc7ebcc57ad3039b22b9a951c73135` |
-| `WaterspoutSystem` | type-and-value | public | `sha256:c5e4249d127a849544a365ea6abadebeefcb50dfb918270a9d699ddbe5ef114f` | `sha256:8c60f178c29eaa72f5f3cea4ad36b76b094b0caa985162a015f33e55493cba6d` |
+| `WaterspoutSystem` | type-and-value | public | `sha256:c5e4249d127a849544a365ea6abadebeefcb50dfb918270a9d699ddbe5ef114f` | `sha256:80abb0e2efda067ccabd242b7ff24bfde5c349588c04e2d84c141bb0f5226d65` |
 | `WaterspoutSystemOptions` | type | public | `sha256:dbf15ce5d38be6e1775a5a0be02a158b1e44162a2bfbd1b715c67dbf26ee3f9f` | `sha256:25229deb7537c1357f32db193d1c210098abfcf522164ffdb56bd3cc73bfa7eb` |
-| `WaterspoutVisual` | type-and-value | public | `sha256:310091eb1efdd76db958ccd318a1cf004df8e91f1ed81ad5ae4b04cb29bfb993` | `sha256:b71de6e0459b1771e58ee1451ae7fd7edc8ab7829135ab30aa60416561e24b70` |
-| `WaterspoutVisualOptions` | type | public | `sha256:7d28e849bdb3ed990d0ba9db1636cdb3dacb7e785dc403eeef55d25241c24179` | `sha256:d3bec200c5c2247bf04cef209ef090ba2277f9e6ed54681c4794eb0399f593d8` |
+| `WaterspoutVisual` | type-and-value | public | `sha256:310091eb1efdd76db958ccd318a1cf004df8e91f1ed81ad5ae4b04cb29bfb993` | `sha256:d8beef87f64bb49c96abb1ad66aaf9d71fcfec0f34a252db3197cb038c96dde9` |
+| `WaterspoutVisualOptions` | type | public | `sha256:7d28e849bdb3ed990d0ba9db1636cdb3dacb7e785dc403eeef55d25241c24179` | `sha256:40f765749d2a68b35e8a421922f9e1e6529ccf98919a45bc4bde646d54714508` |
 | `WeatherChannel` | type | public | `sha256:e994cbeb05955955d880e579de52c28b277a523173a0ddc6e9e7340d8a36163e` | `sha256:6c3a86c14c5fc9e7d2e016bd1c072d34beb413a543e1b23d9549b457c7d90060` |
 | `WeatherDebugInfo` | type | public | `sha256:4d342184b65111af4bc8d2543549d81cfb084f9ad0f40b874a7934be344f195d` | `sha256:9d66dc346b6c2e4c4a4e6205edc8be7f47b76a807bf5f3cfd2c8ab5c012a69b9` |
 | `WeatherOptions` | type | public | `sha256:667c162f8db9122edcf8c1cbe384e94ff04a8063fa06c56d36baac5c89c52feb` | `sha256:1f888d78e47c65e6243e80ab89bbeea65ed72723a879cef3f18684bf176cb9e9` |
 | `WeatherPresetName` | type | public | `sha256:76c75c8261f098edeafdb942b865723511d5f05b877f95578b8574bd59c27512` | `sha256:12aa746d24e67987d30be853da65c292047b8a4c02fd7967d89b44141d6f7909` |
 | `WeatherState` | type | public | `sha256:9d406d33a9faf20677aacbfc79deb542711ea1c271e65c34cd918b40b56b1bf0` | `sha256:570c750dea0d606076b51ec45d29abf2ead21a3ef2b3bf8000224fbbbc0b046f` |
-| `WeatherSystem` | type-and-value | public | `sha256:06ef70ba330267f4e571dfefc826cf1f44bd3c1127a4bde85a11222ac9bf4df7` | `sha256:56856572c72f417beedf2f5d478fcbbd2e398c12b28781b58423431b1f3ea68b` |
+| `WeatherSystem` | type-and-value | public | `sha256:06ef70ba330267f4e571dfefc826cf1f44bd3c1127a4bde85a11222ac9bf4df7` | `sha256:4e0b8e9055c5c1df013242889717727081af1a442dc745ac163d6aa2f6812a67` |
 | `WeatherTimeConstants` | type | public | `sha256:4ac53b5753659242eb9bf8224647a9843132bdda7db06348bbebfa3950e279ca` | `sha256:203a02c2539794ad9d89ec082ab121185284dcfc51018f7c3292b1b16b73e8ed` |
 | `WgslIssue` | type | public | `sha256:f6225fbae3c44737f81a4ca606fcf968317124e7bf08b2a5acb5052ad571f7b4` | `sha256:f46b73bdf103197dfd6093634c87870ff59199ec8835b104e31d10420bc73e89` |
 | `WheelLoadInput` | type | public | `sha256:2583dd7e5a14a8fe975eb7b52a3f96bdae8490bdebbc6c11ed2a64ad74ef38b4` | `sha256:92e5ee2e60435aa382b3156144da78e2e4998c3a30337e126f0c15fcd9d2bab2` |
@@ -1541,7 +1551,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `WheelTelemetry` | type | public | `sha256:2104c8b5744a899f97ed3b7213e3b06ac721edb9530ab4f7ae4db03334df093e` | `sha256:d5527e2a49ccea1274577a75321106d4d68b816ac6988b369429b9348e3d6d89` |
 | `WheelTorqueInput` | type | public | `sha256:afdbeced3286f04664708292b25cda1912d8052ef31653108489f5793208a2c4` | `sha256:0cf35784eacfe88f0a89115c617f1ad00cfa0e1c1f3618b404eb198c61de6979` |
 | `WindBlownDrive` | type | public | `sha256:972e1401ecfc10ff22317fb4650a6d6c5a3de6a17581d200b99c0249e4a3e322` | `sha256:ef4f8259f47d17487f872d6fc698dce51c26de627585a7e0a2ef425632952222` |
-| `WindBlownField` | type-and-value | public | `sha256:3e150388dd2c8fe7b56d04abb29fd31c129c4e35be7bcd245d93baeaf3e7a785` | `sha256:e99ade87cca086fc8eebfdbf03e5c5386185c53840efae195cb50be2ca65566f` |
+| `WindBlownField` | type-and-value | public | `sha256:3e150388dd2c8fe7b56d04abb29fd31c129c4e35be7bcd245d93baeaf3e7a785` | `sha256:e77b831d6af0448125ae48f9610a3c480fd4e71b6f14c88dec3c8d4e24529025` |
 | `WindBlownFieldOptions` | type | public | `sha256:2c5c1ae86bbcc143771b37df844783e1c9ba2daac3badcec7ff4998b33da2d11` | `sha256:06efc9c2b62a6fbd7517bc0e0609d4869d3b96490ff93ccad79f7997b20cf741` |
 | `WindBlownLook` | type | public | `sha256:52afe98920f01d2ef587b690f44da7ea51a2cf6fcaf6217d30e211b650fd4be5` | `sha256:d43755bf944087ef74684bb4d17619ee13668108f2cb65f43e62e0550eca266a` |
 | `WindBlownMaterial` | type | public | `sha256:829d0954e467b2fcf0373904c0dcdbc6d572143ad4bc1c94715baa75d1349733` | `sha256:2d5423b0e70a7d269b309ee52d578b3b5eeec0ac85602b07b7d96209d6031d91` |
@@ -1577,7 +1587,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ambienceSoundInput` | value | public | `sha256:74bb676c53dad3585af2e0b235a4c4a1117c59d7105f6d8892d424c68f603b2a` | `sha256:7db747554d8903e981a0933dd35018291fe17065c766bad80f481548699084df` |
 | `analyticGravity` | value | public | `sha256:a0186847280ad6a467bc7307d8344a02488aff5b8affff0e23b4eed27ee27553` | `sha256:67298c419e05a4011844f4669eeb41687feeffb64032cde779df17e1032552e1` |
 | `applyBodyDamage` | value | public | `sha256:8dce27595937c4666e4b557cb3a8002a72705b442ea75c499b6839ff64679b49` | `sha256:c79176f3bb3870b86d3572210adea4cafda65a849b383dbb6b21a59c876fa10c` |
-| `applyOceanState` | value | public | `sha256:84cc43b8aada2c6e9bb144c834ad8673b75c28e437f8cf0e7c35c0dd60208205` | `sha256:e3c7ef9b89749aeb75b81086d7489416f9bdc4a1840d9069fdc9261ffe70f239` |
+| `applyOceanState` | value | public | `sha256:84cc43b8aada2c6e9bb144c834ad8673b75c28e437f8cf0e7c35c0dd60208205` | `sha256:45bf6e89b23948994ec47a8c5d4973444782007c4cc99152758a06b76f391a1f` |
 | `applyRoverImpactDamage` | value | public | `sha256:7b3fd6bb34439073336bca17d90a2ac629b238ac882edbb89954eef8232f5763` | `sha256:89687a9a2ff0a5a33cab82b83f5acc2e4218def970518e822933b564d00e6a60` |
 | `applyWheelDamage` | value | public | `sha256:82bcf9723e835bdd4c23c96264cd790062eeb197a28381409e95c54981f5cc07` | `sha256:caec8be8a7cff8a9c12a5a8865989828d8aa4c661200d0dfc3a533fcdd04cca4` |
 | `approachExponential` | value | public | `sha256:bb28a3db3e834f92fd723aae27e9bd3c5d4ad3406cc704ee6cd7d3ee48c3fd73` | `sha256:545ff04bb8b043bfc1c2c50dcf88275bba31bfbf5d76781706dd19e310b8822c` |
@@ -1628,7 +1638,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `capabilityMarker` | value | public | `sha256:d3dc9691a5135e0342359ecd92e84090ab83a318fb32b4eee23af6695d9783fd` | `sha256:b6a0881d1736b4330f610f4d4a0c97c844192b71affa274eb492f58643675b42` |
 | `capabilityRegistry` | value | public | `sha256:4f42dcf060ec492ff2ec7f098cf571811de9a75f06ced08ecdb328ef598be49f` | `sha256:9fbccccf8d9639d905a50045e2b19e4e35673f86149c0ec5124d5d46be3246e0` |
 | `capabilityStatus` | value | public | `sha256:d790e85021a9772c3a6dc88c33c48bbcfae039efa86a1d8d9cc1f6d3cc4140ca` | `sha256:6798fb9db8bb61367fd6f156b0c4e18cbf5256a9f35e17f291c833b03084ac44` |
-| `captureSceneSnapshot` | value | public | `sha256:177ae7f5be485ae704a686e42cb0b99acd72f2a7221cd9c48d713e1430e56c63` | `sha256:6ca127f9f847625d02292773706963869aa638dda72e5ee79e0b6cd7c1fef31a` |
+| `captureSceneSnapshot` | value | public | `sha256:177ae7f5be485ae704a686e42cb0b99acd72f2a7221cd9c48d713e1430e56c63` | `sha256:9912b1cc61cb24d18bf337fc132a227eecf6020151627457542bab1d6bdd70c4` |
 | `captureState` | value | public | `sha256:7a1ff6c1dd142d75884f86f4dd763493eb5f2bd3350dbb1be3340b2bf1661266` | `sha256:6f4fb1dadf05df74fed4f0718d059cebe6bd59c3934f198b575bf7184123a83b` |
 | `cellFromResult` | value | public | `sha256:4b5842179bf6c256cf62de1552aa535cb837238b372a286654d89f24d720c86c` | `sha256:2e4b2fe00e5843268a58bfd2021a0d6e4265ca953ae86e5f988c90a806a8d694` |
 | `cellular2` | value | public | `sha256:071ef6996c6a1d6f867246aaa4f804a96d9334886dbb07f133a654c4013fe43d` | `sha256:5dd60ebb68166749540c68aae736168578123526e1051237145fc31ee2ae2b5f` |
@@ -1719,7 +1729,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `createClip` | value | public | `sha256:a4300580d498efde664d51a3bdf99c6d270d53dc517dd8ca48f1439be0d24a1e` | `sha256:95eb10a0f25bc5b1455f1bfb07ed9f376d81fb30b330b3bb6276ed70bf045eb5` |
 | `createCycloneState` | value | public | `sha256:4f644c3ec88fce9eaeb13b620bb8e6518b44796534947d48b415e2bdc4dbc317` | `sha256:357b28a55531712420d6c2e8755e94514963753e8918036144a355123b63ead4` |
 | `createCylinder` | value | public | `sha256:0d00af81377dd1ff2a9790094bca19a14881e66fa1cf0a05da7817f8b3da0fe1` | `sha256:bd2304e416f4fd52be715b6b0e9e6163bf3cc156b8c06b104fed69497aba8b43` |
-| `createDeveloperConsole` | value | public | `sha256:9c0d13402d4cd63a62e0fef82253c46dfdbc3682ff804256ef98b7441738fbb5` | `sha256:8d085869614c330fbdc78ac990953f4f51e4386573267da33c1ddc7bfa990aa3` |
+| `createDeveloperConsole` | value | public | `sha256:9c0d13402d4cd63a62e0fef82253c46dfdbc3682ff804256ef98b7441738fbb5` | `sha256:9a38d8ac5590d0e981a2df13f720ba78e0417a3b9d7f1cb42af62e771af0a189` |
 | `createGrassBermTextures` | value | public | `sha256:aed844bc0b1b71a1e5b910fe41356d638b1a2d485b73096fbe714b0026d45371` | `sha256:afcdf84f817db11cfe99506a75ecd24105b553799882f068d0f34d161bbb8c4b` |
 | `createGravelRoadTextures` | value | public | `sha256:e98845306b2878f07b043052cddd60540e16755203e7d4d59906aac94ce1dd6b` | `sha256:ea2da1dec0db0572520302b10e6b511b7b871840f02f43ef30587eede2bc7650` |
 | `createIdentitySkinningData` | value | public | `sha256:91dae7b66d9a5a561a6208fe9d5f0e1f0903ececfce8fa9ea923011de87164ec` | `sha256:3c6837e221727b1f72b0164b98675d4b453ce6f17e5aef34fccefbc13f4189ab` |
@@ -1789,7 +1799,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `defaultCloudLayerParams` | value | public | `sha256:23bf42c2b01d98cd1de25e0ab23011c72638de82fb3ae99485da14ffc0b2899b` | `sha256:4126df7c2c78a92d1f93422ac13e798902e9ac14fd6ad711db33b81383af74c1` |
 | `defaultCloudSettings` | value | public | `sha256:6f2d60580f41850571586c4560e0a24791fff30589a1c165aa6befa4102241c8` | `sha256:b20ace5ec3494a47478ba0a1bc2d82a99d6645847742c9a88b9c747e721a55e7` |
 | `defaultGltfImageDecoder` | value | public | `sha256:2b18ffa7335e9d7c7ff0dd701cb7a892e0a8b554b492257f9e0ef28dc2573788` | `sha256:12cada46178e78dcb43124b51371d1fe0e6ce11b5f9e4124cf9a10a96020c593` |
-| `defaultSceneSettings` | value | public | `sha256:f0fbcf50fed58d0d5d21d916ccdd9aa908049d20772afcae9a1b0bf2b934d713` | `sha256:0cbc3676df7714c70209d353f836d97d6ce9e23234f03dbafc2aedad632306c5` |
+| `defaultSceneSettings` | value | public | `sha256:f0fbcf50fed58d0d5d21d916ccdd9aa908049d20772afcae9a1b0bf2b934d713` | `sha256:05d5abb557260914dbb6c75c33555e5f51b8e5d5c2d65bcef740fe62b64e0457` |
 | `defaultSkySettings` | value | public | `sha256:07b6c861bf5bec70c42379307028d5957862039f719f02689f8e5e1656f6732e` | `sha256:1d55de2d79833b9c4c631a53579ee1e4082fa57207a419b232539d5cae986b96` |
 | `defaultWaterSettings` | value | public | `sha256:3a9b7fb5d9cccee5c22c66e92ef8342cee44b5b05e3c7dc79e6fc1b68c642d2e` | `sha256:0d64ca73699326bb31b8e8b6320145971de06f2be9afa27388621d9ee874628b` |
 | `defaultWaterShore` | value | public | `sha256:3311eb281da299b893b524849a59fb1bf7e51dfd07635bbb8874663a14161672` | `sha256:652d3c876b418468fe51a1c6a65db979a19dc739c23faef8c826b3096ec46976` |
@@ -1815,10 +1825,10 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `distanceGain` | value | public | `sha256:be19a86fd8b1dea370a453648b6355862ebc8756b6677406cee6b2fef8b1e6d8` | `sha256:7999ad14d8258669ab462eb34a3d1903a022e00a33a5942b5540315dd490c10b` |
 | `distributeWheelLoads` | value | public | `sha256:e97595cec5955b7fce163e0d9722f11f93755761e089c2f3a9cb53f7ebe8d94b` | `sha256:4617052a5c67729b9441b5ed6d5d087a95665f1f13748477f22d673850422394` |
 | `dopplerRatio` | value | public | `sha256:8a6573ca2c696e7e4d546e5397fecd91d83c4f53b6a8e5c526601283783202ab` | `sha256:c563812049f15252abf9b3de01f808ee6e3c6d1f315d0d5e7f645e1fafb547a0` |
-| `drawEnvironmentDebug` | value | public | `sha256:ee544dda3e07c945001d0163e62944f3c3309a47933354666643796958607c44` | `sha256:a73011b295e01138346db00f88dba7f3316e55cd139a057c7be10bd621df02cd` |
-| `drawParticleDebug` | value | public | `sha256:dc652b2db7a4246abf3c7e44640f3dca0860d1ccbeb0c253c7fbf5ee0bf060af` | `sha256:636304660273243bdfe2e52d7808c7a24d932e52f67c365ef49149a5f29ffae2` |
+| `drawEnvironmentDebug` | value | public | `sha256:ee544dda3e07c945001d0163e62944f3c3309a47933354666643796958607c44` | `sha256:1df044d4e623a0dbb167491caceecb058999acf213c42c27e5b0b005f6573cd9` |
+| `drawParticleDebug` | value | public | `sha256:dc652b2db7a4246abf3c7e44640f3dca0860d1ccbeb0c253c7fbf5ee0bf060af` | `sha256:025a6e3cf445f5341613664453130e5682712c14db2ae1528cdc1edda367181d` |
 | `drawPhysicsDebug` | value | public | `sha256:99809bcdaa16d7ae1941ee0221af9b3a44685ad081b76eecfee25a5bad7cfb46` | `sha256:7c35244ab81a64ef50c63d165e9ebbb4d6e966daf1d5d8864c5e752bd865bd69` |
-| `drawTerrainDebug` | value | public | `sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33` | `sha256:f6211a9283d97460fc4100da594de8691e72ec150a2b585f01878c8b50c733ec` |
+| `drawTerrainDebug` | value | public | `sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33` | `sha256:e5c9177b1f9fa01ed229c285dcab90dc81441ca72bf92c15b8ceca080f6b1642` |
 | `elevationAzimuthOf` | value | public | `sha256:908cc30e4300cf20ffbace607b73b11c479504b9540ced13135ed91e254e5f24` | `sha256:a0706d14a73862ed0a2498c0de4b16eea0dd7a1678eaeb07ae1e0aaa937c94ef` |
 | `emptyPopulationCullStats` | value | public | `sha256:f992cfb5163c9442aef83f2ba45658654bafd1382379f72d187eb95df89588a2` | `sha256:b7033aaecfe295f5512dd22ecdd6d953928ebe58ab1e49fa80a9b58db51a0dcb` |
 | `encodeFloat64ToPair` | value | public | `sha256:55d7e170e3a9cb4de4a066dd6bc83dcca6749cf7aa636996da5b75a1582513db` | `sha256:c115bf177dfa728ebf231ed5191382de22e6ae9ad35cf0098835ba925ca1c061` |
@@ -1826,10 +1836,11 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `encodeNumber` | value | public | `sha256:80f6be725652f3b06e6a3d113803af8e2e38228a03abe0e8f4bf225fc82af1d1` | `sha256:9af2c8d87c393b47cfb086d685c4501c55832aa25c4152861f0b116c178f3640` |
 | `entityGeneration` | value | public | `sha256:b0eb2657d4de550a0e6ab8101a9f463f7d4e43f692ca2b5a1af532e876981063` | `sha256:9bb409b2468612878f84707e7e0168383d7be0e6bec1088fb502c8c1cb67298c` |
 | `entitySlot` | value | public | `sha256:996c6b785984e9f07bb05f2d2e24a1790c7f5c4c4e2053fb260987c758479306` | `sha256:6942d8601cc3cf397b5912964b7f984d46a526816c1fc38a449cf17cfbdd519f` |
-| `environmentDebugLines` | value | public | `sha256:dfb6941f61655a0ed6f331125ddc046bc341b9ec5db54e427c79221fe4d13d89` | `sha256:d07a62d900c3d5b72d5fd675c6f6074383ecd413d0927552e31a7b77b7ea23c0` |
+| `environmentDebugLines` | value | public | `sha256:dfb6941f61655a0ed6f331125ddc046bc341b9ec5db54e427c79221fe4d13d89` | `sha256:b79600d220bd4b685b0512879298fba201c78699d3c77165c074873afad36081` |
 | `environmentReverb` | value | public | `sha256:82dae8d15546a7f06b3320528cc3cc10fce6a42de51dd72120e7eb144103adc1` | `sha256:0dab07b7cd50fe42ef3a18305c635bf0658b50df451cf854e954aa08bb781dba` |
 | `equalPowerGains` | value | public | `sha256:4c40e1d3368b66a469853b81aa912a8b92a6ce32ebbe680a914a6abd3e79bc92` | `sha256:0abfbcf7854a870c394797e9f0b8c546ba16b74169e5812ccb09dedfe99eea4f` |
 | `estimateTileBytes` | value | public | `sha256:3f1c729ea624c5c6a3d9bfd12caffd680611d0fbb033129d798969316a16e572` | `sha256:d9bcddac68a78ac5f15f41cbd187e3060f47598f16cbd8bb2cb67e995d3ce5f5` |
+| `executePopulationChunk` | value | public | `sha256:e62e67207e4621eb79b5fd685f92284030a26376e496dea2e9d4a2dbe0f88f5c` | `sha256:7a1f41deb8448c1a040cdc4aaea1186a73f6065105fe36dd75831a7da20a035f` |
 | `executeTerrainCell` | value | public | `sha256:2499f810bcabf164329af700a13b98af26bf81bc7c48b3e5c381883fb669ebb9` | `sha256:f8be893cb5ae19c84cf3a5aaa778348bd8946d3749b5f9ab4c8d22703e249aaf` |
 | `f32` | value | public | `sha256:cbdd62f37475c9044bf793caeca927ea05d70aa098a0f311f10e1a1c2773505d` | `sha256:6cbef9c926c737bfa50b5f2a47b102f088cc2e6af90a47921d2503284614851a` |
 | `fbm2` | value | public | `sha256:c1f2f1525888f94aa550ffb86765d57b644e057409135b353bb290304cb7944a` | `sha256:3e838054b27cefd3f2809411450933237b780afc38730367fed94c168567700b` |
@@ -1837,8 +1848,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `fetchMarsFaceFields` | value | public | `sha256:c175d97e30df4ba6fa54d4f2e9961ec55b606e4f4dac7855471784d84a9bad25` | `sha256:bc6b78386fee75428b00d9f11b1602d3336e2790c4d6cd084f23ecc591d8312a` |
 | `fieldsChannel` | value | public | `sha256:b7c2ee910b285236a7b984fa215e0a91bd352b337d98ba57ee7554893150ea0d` | `sha256:b69b425d6c7e2af029c40011affe54cb6fb1af6a151b82e5532e59e3ff44db0a` |
 | `fillJointPalette` | value | public | `sha256:01a0394b6a5b731608a0797530aa8964c1af60a93474400628f846b42180fe49` | `sha256:189e4fc80c90b17ac445d9147af43af64c9f78e868f05aabaf8d55ce181140de` |
-| `findGpuParticleWorld` | value | public | `sha256:de5aac682512aa1557276be4e5c158d97d13a6ef45dc137f19c4e9f9c6cd61af` | `sha256:2384e380ccd4f0f72b1b3ef7a19c7eef191e01d42f110a64b6bff497a3714ef7` |
-| `findGpuParticleWorlds` | value | public | `sha256:26dec10cf42bb557eb9ecc25c695439744cdacbffec29b5ab4199017dc3f60fc` | `sha256:33f2396556d3ef4a3d7cd1b9fa9e4d05cf6fba7ed6e320de10148ca57d68f690` |
+| `findGpuParticleWorld` | value | public | `sha256:de5aac682512aa1557276be4e5c158d97d13a6ef45dc137f19c4e9f9c6cd61af` | `sha256:6e4a27066f25bf56aa8ad9572ae578a8a947ecb16a4d744be17f522ec201cc8f` |
+| `findGpuParticleWorlds` | value | public | `sha256:26dec10cf42bb557eb9ecc25c695439744cdacbffec29b5ab4199017dc3f60fc` | `sha256:b12d83af34d107d50edd8e5b27f1ebd41581749849c9f98bae850513378d7fc2` |
 | `fitShadowMapSize` | value | public | `sha256:db703b6e9a1ab474996ca5a2a9660e063d7dfbbd82d521796ae6a9e3dfdd44cd` | `sha256:a36dad79bb6db366c97f7763f0a35ae923d6a805dacf6a09805036676eccb9f9` |
 | `fixedStorageArrayIssues` | value | public | `sha256:e185c056e12a22a3f2cee09816caf3b0e1d457a3f4ac01c8c9a1ffa980421bbf` | `sha256:50a8baef8591fceb1ae6fcef6701a5ac95d7cca4228a19dbaaaa5496a8e161d5` |
 | `flashDuration` | value | public | `sha256:9b5b16ff476b59598042784359c4fc69048f46d079417b63dd70c6328f8a08ad` | `sha256:c6cdf943a5eaf52d3b8b3d62306c3532a3210fdc2235c76a4c96c051ab3ee454` |
@@ -1864,6 +1875,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `generateBush` | value | public | `sha256:50e452bc8575277b7b6a8c27db800a27eaf643f4e615e496b0d0ec65975d0ff6` | `sha256:c5991e13511d9d9fe8873e2ec88457e21869158da0b5b128426054d8d14ae620` |
 | `generateHeightfield` | value | public | `sha256:c927eca97814a6443e051896cfef964f985af3247afd482fdfe4cac44c4b5cbd` | `sha256:79d9b5a921f59be5d250ddf7c69fbcf4cc725634740c8235681c90c534f662e3` |
 | `generateNoiseTile` | value | public | `sha256:349297f44aca6055980bc951b5963793d2a775784f1c21bfbe3e4c05df2a4286` | `sha256:c22755c31193060a3cf046a85c2d8184ce6dba560cfe302ceaffb8dae8affb89` |
+| `generatePopulationChunk` | value | public | `sha256:a8353f3592d57d23aa2e0f1a38cda4fb527eb99a460160e96ecfe1c5f836e910` | `sha256:3c3a0acd371c6c198502ff69e480047568a057e79a8c42a4cd8470b18514fe1f` |
 | `generateTerrainCell` | value | public | `sha256:8318ad240231a16e5cbbe828f1f83f7a9660856aa778968c31e8119211e122de` | `sha256:3eff5c7f1069b9e99b015e4ba98bf68ba914c91b2e12efdc4fde1077cf8e4c9f` |
 | `generateTree` | value | public | `sha256:5646179080d4c7acfca2376bd6b58166b8f4176486dfe66d04faec61431e83a7` | `sha256:f6c3be528d50abfe801d28f0516e680baf3d3e007e0af32ab8fb948ca244324e` |
 | `geomorphHeight` | value | public | `sha256:7fc5ac872de888c829efd27251f23bde656262a54a303cfaad80b46274f21b8c` | `sha256:28bd28e8b669af8ce61d9824e999362075aaaf82fd5584bc6f7046198545c6c9` |
@@ -1890,7 +1902,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `hashContent` | value | public | `sha256:c24ffa0e2f8dc57c4d316802e4cf2b66b5f4b8ffafd8796fdef3856daa9d61b7` | `sha256:d2b1b0f6161cbdb33db0fee6b24d350c4184792ab9563bfb425ac5810c6072e8` |
 | `hashPipelineSpec` | value | public | `sha256:cf68d40028825abe238b9f428fdb9d0456e343e02f831d8e976572eb952cdddd` | `sha256:7d93cd75b4a09b72d9fcbcf5658db6198752fa27af762bc12986a5b7079f334b` |
 | `hashSceneSnapshot` | value | public | `sha256:15caf63edeb737a04524485732ed9cc7bfa820a94d22306f49b38ba392e176b7` | `sha256:25be26b12e064967fd31cd665a77ad9ed6e14fb2a3643966e961275703c5156e` |
-| `hashSceneState` | value | public | `sha256:a91943f565959903d9ab829f04b75ef41a270767325b7f8d8cac139f9ba56d2c` | `sha256:4a81f36fe8f39454c6627c50eb929b22284433a78d9291b51914fceb8145952a` |
+| `hashSceneState` | value | public | `sha256:a91943f565959903d9ab829f04b75ef41a270767325b7f8d8cac139f9ba56d2c` | `sha256:7ea32fe7fec6aa2f81e1ea3d20d8c2de8986806e008e26e660df9ff03d9965e8` |
 | `hashState` | value | public | `sha256:d399e3575ffa0416d432676bc6edd84aa9b6edaef68b33f4a14158c8c4339470` | `sha256:7675e55172b4c33d7f54e8b3cbff8062d04901961a5ea2328c0ead356c7a60ed` |
 | `heightFogOpticalDepth` | value | public | `sha256:cc0148ba761c04ac1cca0eb21e128e847404e3183bf58f028beff2e520b922da` | `sha256:31e2638d7089d844be2351bee14eb5375f0a052dec9abeccbb73351d3bd700f1` |
 | `heightFunctionGround` | value | public | `sha256:0bdaae06926a845bda2a073f2470e92e6f6302b22679ce018be4cf7e03aad66d` | `sha256:867004d482287f087006338c54ec550aa93718855fc0d75e124e81ce19c6155b` |
@@ -1909,16 +1921,17 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `insetsEqual` | value | public | `sha256:be650456ed7f1eac658ffaf38db75843e17689851f72b89df2f34de7d9c75d72` | `sha256:eb7ef9a66bdb08fb3ab9c5be96a394f36093178517ca88a8c2f2707abe94c3e2` |
 | `inspectEcs` | value | public | `sha256:9afe5d995389c76a5e42aa0f3f06fb31e5608189ac170b3bbd1c8df814b4fb45` | `sha256:4139ee40f8f8d5109a2754d50196b11ef495566685d1461c6d29ba8c991f4908` |
 | `inspectEntity` | value | public | `sha256:24720e7497136d89462449562e1a586e9433b822ea8bc0daf3daa3e082ece2cb` | `sha256:36d3c4fbe3550e41f9e07693cf07f56278e413bcc685aa4dfd424b462a4d4c00` |
-| `inspectEnvironment` | value | public | `sha256:14c1ba17df6174501c63aa798d02c0eb658bcc2cf817dd41f53da87541d1c6e8` | `sha256:d0912be94ffa7413e853d8c243bc81684cac18a62e9dd2e0dfda76cab259564b` |
+| `inspectEnvironment` | value | public | `sha256:14c1ba17df6174501c63aa798d02c0eb658bcc2cf817dd41f53da87541d1c6e8` | `sha256:5ad187f6339064e8184a9ea565e2c54ade539d2c87306d4425ce72e364c5f20e` |
 | `inspectGpuResources` | value | public | `sha256:bfd90450eed8fe1a0b1746059e6e6c5e018ebb9e3f112fe78119ffbb03176661` | `sha256:ac6a4b096834e6ddb17702172d3777a9531a0b81c5dd0b92c8f13cc998fbdb78` |
-| `inspectParticles` | value | public | `sha256:ef746321a58c440c1c1507267e645d1bec4eb00800ebce810ec65f9b6417291c` | `sha256:5324df9392b9e898756274325eaacea8a7e1a45f9ade5d5c5cb38114082cf930` |
+| `inspectParticles` | value | public | `sha256:ef746321a58c440c1c1507267e645d1bec4eb00800ebce810ec65f9b6417291c` | `sha256:cc5af793af0f2609b33177aa0043338d823fb9cdb135779a6529b151d0779ad3` |
 | `inspectRenderGraph` | value | public | `sha256:c7f40b94b207070ac4919325e4dd13b9c7772bfe0dbe5c8691d2c59ba6db10b5` | `sha256:bdd062ed677a8b03fde0d5434299923bfd720fc4c0e185f9275fb4242897d516` |
-| `inspectStreaming` | value | public | `sha256:c3e41b6abe2815242ba5c83946e7abbed368809e0557ce5750a9990abd3254e8` | `sha256:647f469299f01f482a97238e55d986e89b8e27c4fc51ce10dd541a4a3085c9b6` |
-| `inspectTerrain` | value | public | `sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777` | `sha256:0f94266d2287ad90f502ed092d0b365aff5626dea44390303e98aa6ea30efc47` |
+| `inspectStreaming` | value | public | `sha256:c3e41b6abe2815242ba5c83946e7abbed368809e0557ce5750a9990abd3254e8` | `sha256:0e944290a4f334d95b0b07eafc3554ba0441cdb5f1625fb2fa96b0e8325f76d4` |
+| `inspectTerrain` | value | public | `sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777` | `sha256:6e8a540886e65e64ad8ff358e07dde702641f8af71ec2ded0b91ac83070153f6` |
 | `installEngineErrorBridge` | value | public | `sha256:a159dfbb5301265cbc9f85b0afec706c1797826bd3cb17b453523f54d40d3e4c` | `sha256:c13f979bce271dd7b6ddb27b988a95024dca4717c16a79041ddd0c4bac1a1cb8` |
+| `installPopulationTaskHandlers` | value | public | `sha256:3e52f42f46577af374044fb7a6ccf15b7f1ac94539ee6290aa6786728e9f6ff8` | `sha256:b4d527cab1a06463f20dbe10502d8360bd290361db9e5d0dbef37301a328a279` |
 | `installTerrainTaskHandlers` | value | public | `sha256:dba3477c8c0f5e0615ab3449c4bebfbc813c7add726c881ffec0ea60209cd7f8` | `sha256:23643c3e72779aa0a41b0bc8af6b2947fd547a22e0b9ec6f061aa9b4cce95065` |
 | `installWorkerScope` | value | public | `sha256:5e4d1e573579f1d83d8c5a99aed86b72adb393809eac1e0a8b42e5f310bd5126` | `sha256:e6123c2f10d8921b61ca8357e9cbe6ae5b65ffdffcfe934ab2293681595366b0` |
-| `instantiateGltfScene` | value | public | `sha256:990ebe6ac634de8eb13e4816909a0da0af02021aa8f46fba5f98950d22282ecf` | `sha256:8a5887e64c290ac8059b800d71d0fbdadbff6f0d24de11970d4191c6120d3a46` |
+| `instantiateGltfScene` | value | public | `sha256:990ebe6ac634de8eb13e4816909a0da0af02021aa8f46fba5f98950d22282ecf` | `sha256:c2a6e6672c3c2171136ddfb22d205551769560b495a76235056e66c4d418c0b0` |
 | `integrateParticle` | value | public | `sha256:cda55a28802f167374d543095a6f9c16c5f9577aa620fea944943e09d8955d0d` | `sha256:2d5681f80f20d0b8aa133332fcbd6e2de765e2b5078d329101d2b35a1b5800dd` |
 | `intersectionFoam` | value | public | `sha256:0fb0cf1d93c18225db54f5f2c065a7d3dbf23af7683b425cbc5fbb58fe274c8b` | `sha256:8dd6337bbb166bec45b91c2243a6e586b3e004bd2a2614f7d3c4d3424c25691e` |
 | `inverseLerp` | value | public | `sha256:102438fe3b72ff908d67ef1390692e2ea133212f97b2d0e33807b14e64ecc0bb` | `sha256:ec101488d0d04ae07e148c114a2a43bb5564e3fdecd63312558595debe124cc5` |
@@ -1954,7 +1967,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `loadGltfMesh` | value | public | `sha256:ab1c9d9f36559e497d51aa85f7ff1a3d179a18edc50957d340b1dc8f526f8cca` | `sha256:eb9cd6071fb24851f5dfd9120dbba524a3bbca5bd10743bfc3dacf90336fd867` |
 | `loadGltfTextures` | value | public | `sha256:706e04b7e177611253b6a8d9db1e8b6d7fbfe714caba95518e1ab5d3db54cf5e` | `sha256:01e876a4a88cf24d23964f0f2bf7edefe9fb0a476c304431ed336d3c1e3988d6` |
 | `loadKtx2Texture` | value | public | `sha256:5398e9a116198e3078213ba591210d9e8239da59ab396e33d5cfa91561cbe4d2` | `sha256:d0d6faeaebaa494eff67749222c91cee3e1267208c3dd87ea468d457f8fdcf16` |
-| `loadScene` | value | public | `sha256:c3a5ac0d3e366ecd552b1a403bc1cec32e2c7df4cd6c1a80da3d60082ee73379` | `sha256:1549ff0ea62e6006e93104bd1fbd6338802ff7ee8a4c9c46af025e5e31a1e535` |
+| `loadScene` | value | public | `sha256:c3a5ac0d3e366ecd552b1a403bc1cec32e2c7df4cd6c1a80da3d60082ee73379` | `sha256:f62b69cbaa95ee0bd197206f58d80723535552c4431d42f4c8811a285de0b8aa` |
 | `makeEntityId` | value | public | `sha256:17247dc15f3d2f55a3c8f01a2560f0c69b42647c40823f7f645c99d06a27ea70` | `sha256:2e5566234d7673e44b8319fdd2b8947e2db9828622039f789b7bd7d4a7ba0fb7` |
 | `makeHandle` | value | public | `sha256:e2c1344b40c338df97a028e7d6b352c58836217ea391db1bad892cd58c2bad62` | `sha256:33185ef7033bdc800090f2383325fc47419021982fc22c6855da63cfbb123250` |
 | `marsAngularDistanceMeters` | value | public | `sha256:f439ab26cbfa7c1afa0141d9831d383d3f5efdc90a0b4ba1ac916b20b0f7e9fc` | `sha256:8658a000aa8045889e481a7e1a5c3392a6220ec6873eee0f66b8073b69752f9a` |
@@ -2015,7 +2028,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `parseLength` | value | public | `sha256:70c11a6dba5ecd06635276b117f70743977d669ed729ef2fe46caf4b62fb159d` | `sha256:15563502866c123ef6832eb0c5e5f9dea6c726fe0cc8dcd371b47b901514fea8` |
 | `parseLogLevel` | value | public | `sha256:e5aca8f4e766aee0e320000b118204781fe8767f151f67e5223079f4f921996f` | `sha256:851f08ebc23518f7bb2feb3a3caeb53e54aa7b42e5c82402ba5f6731432b7cdf` |
 | `parseTrack` | value | public | `sha256:e0fcde4e9a3b2b4cb223ac1a25ab3b021d76e34c602dd8ac8baa9decf2c90886` | `sha256:875fa1cdc31d41a8ff89727b77ffa999209d77716e43e7b3cf2e06f5971435bd` |
-| `particleDebugLines` | value | public | `sha256:28cd22552c75552a2489f54336d820674d42b0ff518db4a8174eaeaf40682b34` | `sha256:30fc9d6667fc3f1af5b7c4a1f3b1e7fbe6b5ae97ce1bf1844aa75fb408f96760` |
+| `particleDebugLines` | value | public | `sha256:28cd22552c75552a2489f54336d820674d42b0ff518db4a8174eaeaf40682b34` | `sha256:2f455cfe947c24d8af65bb133b9f13b7090ccac2ae6de74a07ddb539e8c48e08` |
 | `particleSoundLevels` | value | public | `sha256:82ae88342a23a8e616d95d7b048856c579acbc04344a2f2bb074e81c1679abc0` | `sha256:dbdef1a3383cc39bdfc95c5b2676131d776604ec52ad7d72df8c565936733ee1` |
 | `perlin2` | value | public | `sha256:dfd9092523c30c99c95e7c46a652c85114a2a4de3c9b853b9fd6921c89234b25` | `sha256:1889b6ce994dbab2bc7c35275203c32cd44a854d4e81cd595de5765c4d3c2e84` |
 | `perlin3` | value | public | `sha256:86e2ba3333e6e543bff1ca51409fa3f244383c74bcaeea57f30f96e5c988b397` | `sha256:914de3864ce382fdce37c0982565d9321d4c000d135a8596a3bc4b83356b65a6` |
@@ -2057,7 +2070,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `registerBuiltinTaskHandlers` | value | public | `sha256:2238027a3ab00e8b715d073f01a7c195617a77ac96d2e5e1ffe4e8cf9495237e` | `sha256:48491545d8c47737665ecaad7588dd0bc3bf2ecf5dcf7f64eb426edd6ad84e93` |
 | `registerComponent` | value | public | `sha256:827e94cf23dedd0915a0cf0cc63119edbbe74a91f1bccde2c77ffabd343785f2` | `sha256:ed4f9ac7109dbbaaa7953472e4b5cbc71046190c798f9ae040b46fd1a9f04f3e` |
 | `registerSceneSaveMigration` | value | public | `sha256:3f523c9fe1d995283f8d0880b2f2a57b5df83dba964b57f849bb1378b565215e` | `sha256:2f09a3e28d84ab4a20fcba32d7b83010668f3a52a97dc3aee3a8cb0c8d6d202b` |
-| `registerStateHashContributor` | value | public | `sha256:211c64fddcd307c3f3b3dd9bb99b557591500bd51101978b6faadac17852e469` | `sha256:11fd953489e72285d45fdd054f053f069cc253a2b93942152749e3e5ba1d94bf` |
+| `registerStateHashContributor` | value | public | `sha256:211c64fddcd307c3f3b3dd9bb99b557591500bd51101978b6faadac17852e469` | `sha256:e2109481af652040d1199d4c9ae7413e7fd12d498f57f10653985e533f0f1606` |
 | `registerTaskHandler` | value | public | `sha256:0a1e22a524a85f9ac6fe6cbd008fb8f57ca7e30080f73e59fb0c88c180736775` | `sha256:7f11d206e3d936010ed5c3db72c4ca64ec4d071a5728e92f01d7e38ca78e0c9f` |
 | `registerTaskResultTransfer` | value | public | `sha256:d10b31f3f853493243695ccf8aa0a0459ee91bbdc6467c9db4a92c120bd87a2e` | `sha256:364ced681a9b4f88e457cced188ec0453b2e3ca3a58c4aa6d415e2448c51c1f7` |
 | `relativeLuminance` | value | public | `sha256:47fc81a28370e6b92b5770cc5ac0d0b739de2f7ffecb63dee301e4bfbd41825a` | `sha256:8607a457640f530aac8ae1b3f7d7d99851cb70d226dbc0d412fe0260cc118ae5` |
@@ -2071,7 +2084,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `resolveLength` | value | public | `sha256:feee70c650104f82adab7920c0a537e10ab0697506791b4a58d56b22f8e792cb` | `sha256:51ffb735b84d938998fc7f3100e10620b46e358a916e0fb2a41c356b263c7d43` |
 | `resolvePopulationTypeSpec` | value | public | `sha256:75c3715fbaae9a179416ea8ea55b58703cff2a7b0f6817f0c9d89196250870c9` | `sha256:93ed91cba092185f7c978627cd8a1c8fcf20f4e070e3cd0defd8d2ad2ae9e7ba` |
 | `resolveTerrainBudgets` | value | public | `sha256:2ebe58c332d249b056d424baa7fa0c0f8b5cdbd92e5601c89a66d40faad8bf28` | `sha256:2b028be5ae2890873d3ee9e78fe65158f93339a4f91b298dd0895cca027cbd5e` |
-| `restoreSceneSnapshot` | value | public | `sha256:86e48d8a1c229fa6a705ae25408debbf8ee557027519b0e775451c39feb30513` | `sha256:e1744be9f3e4700cb26a1c7f1f450d7ab21c295fc818af356f9f77b4d8741b33` |
+| `restoreSceneSnapshot` | value | public | `sha256:86e48d8a1c229fa6a705ae25408debbf8ee557027519b0e775451c39feb30513` | `sha256:0087441f5dd9abcc8bf5417c4a05956c9b0d53d4a136a0fc6f3c098302347885` |
 | `restoreState` | value | public | `sha256:c64c08a07cabb9d7c83a0f79639409ae696615ead735842a1a2c2e73760b06f2` | `sha256:671c9a2e5b902d65a5489cbe9dedd5393015aa8385ad243606009400bb492ae0` |
 | `reversedSmoothstepIssues` | value | public | `sha256:c946151464acdba960a27de043b727e09919817fc56717f053ba34b653cd2ed2` | `sha256:da5fa3e6c33bff334c04a3eac8d46385a73d9dd7fdb9e7b40050c7bd4e06d9de` |
 | `rgba` | value | public | `sha256:b10200bae72ed4b54d390838b2fa23f2cf836348de4d8dd24dc79218fc05c215` | `sha256:2a16f0694b94b6b5ce1de3e66c79b4d836cf8ac9f321b49149419c12d2c2a084` |
@@ -2087,9 +2100,9 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `sampleCone` | value | public | `sha256:bcfa1b7e31a427ff6f9ea6fcbd49ceb01543308ae20b97d40f1fa9cfd28bfb67` | `sha256:5f6e484ee12357a197e22d3781a7f925b839b3a21f10cdf303e3e5fba68083e7` |
 | `sampleGerstner` | value | public | `sha256:35ff9c10dcf013a729515672655ee43626c6124d88610648221e01ae11a4949f` | `sha256:44b44cd8a4befa39c2ed8f74f14ed5bc55bed2d7a0b4d94c02743fc37d579833` |
 | `sampleMarsGlobalFields` | value | public | `sha256:05b1885ce741b707b8cbae02197d9a580f0f0a03d6f3dd6c2893c167ec5783df` | `sha256:6e0872143239eb85c4b2ada1180c72d70ec384bf37cef193b2dc812c4ebb8545` |
-| `sampleMeltEnvironment` | value | public | `sha256:2933fe98631c6a879903b3a2746042c1855e6d098b751db168a4e5bb06b843c6` | `sha256:83c1cfed75f52d4bce10c57d68e9e7978f176039c681c20a73c625534751532f` |
+| `sampleMeltEnvironment` | value | public | `sha256:2933fe98631c6a879903b3a2746042c1855e6d098b751db168a4e5bb06b843c6` | `sha256:b85b1fa91bf09c27448580bdc4c680ec54b59bf9dcb32e44caf1f7e744e9c544` |
 | `sampleWater` | value | public | `sha256:781ead46d1fc42e0e1b60eeed65855a19be879ee14bc90879a19ede0da62eb68` | `sha256:fb626302b6e1fe97447de23edacbbb7f20fef90a0e6486e77e05d400aa1eaf5b` |
-| `saveScene` | value | public | `sha256:1c85e6e7348f273d4e04e896d013892e9dde090b010a4d27eced89287a5d6d4a` | `sha256:ed3b1027a21a39a9a0f2dbd9484f6390c022782c7da8a3f51ebac761d8ad42d6` |
+| `saveScene` | value | public | `sha256:1c85e6e7348f273d4e04e896d013892e9dde090b010a4d27eced89287a5d6d4a` | `sha256:1c55707c65c55450729120d019401da446734503236975da1ba7d80a4aca40f9` |
 | `scatterAlongTrack` | value | public | `sha256:f3bcc9109d58fdfa3f302167422c55e8c09e486fbf937a634f86552025b8bf1b` | `sha256:a3671484325d8ec2d3b42959a4d4c3c9a2ebeab21a4ee3f3771d89a50196208e` |
 | `scatterPoints` | value | public | `sha256:0e1a3dc27a0736487e5790275961af7234c31f21eebcfa3a0b0cd65a6ea2994a` | `sha256:d16c7911490dd75bb34b0d16834647137f1e9f04c10d0838dc940fadb52a795e` |
 | `scatterPopulationChunk` | value | public | `sha256:f6684155146131457ff711ef99761e0472a3f582645dd48d478a54b411a249ef` | `sha256:ab9abfef42263056c154ab608340396bbee015497411ff734866babca90f89ce` |
@@ -2160,7 +2173,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `terrainCacheKey` | value | public | `sha256:0e507f07e762a842b1ff373ba2ea8d6e454b651409d0364edac64dbafa7e1ef8` | `sha256:c60bcb5c51a7d7be6626c48f50826c849d59da918b54c3474706b04e0bfc1c8f` |
 | `terrainCellKey` | value | public | `sha256:0fe7c4b2034897d2b4396abf9d1fc77ed23b1e1d51c85ed91ea1f9c22731aacf` | `sha256:ab23c5546de003cfebce36bfdcaa9cce42510ef714d4cbbf7814a0b2e248e690` |
 | `terrainCellPayload` | value | public | `sha256:f707b3c80720de7e134cf8df060782c198cc1ef9f07dbc3e9ba01a765276c91f` | `sha256:7cf38afa882771dda7a4441cab5a88ba22aed21897a31cf0723de0932d3dc27f` |
-| `terrainDebugLines` | value | public | `sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837` | `sha256:a50f67ee5296ae235005d8794b5cc644687ceb8618c3a99321773754253ba6a6` |
+| `terrainDebugLines` | value | public | `sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837` | `sha256:f223cd4a8a2ddca9f2c2a6339f5cffd23a0d965729745159042aeae970a9f7b1` |
 | `terrainOptionsFromState` | value | public | `sha256:a2eaa0a8bd0fe5935402ce9b32dbbc9ccac88d0e6cdb6397872ff7541d613763` | `sha256:0873aaf5e6a6950eafc8f0496f5e6543564d8e443e31971ba0676d26dbd1fb10` |
 | `terrainToWorld` | value | public | `sha256:c5f4354ec40d6e909046c13bff4a25d251ece6269e3b8a6cc764c805585aa704` | `sha256:236daec7dad82fb8516744eabfc8a843c297bce332fee3c273c3f83cce9691cc` |
 | `textureSizeBytes` | value | public | `sha256:94ce24565d864c3c1dfa67e2bc099f85859a170d847988b838c1097b65bbd585` | `sha256:ec34f2f603b8475dabbee2e4943ca3849661d584e63f25a5f80d4634e54a5d5f` |
@@ -2179,6 +2192,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `tractionControlScale` | value | public | `sha256:51cc35341ed9688edba9008c8f9e6dce1a4e82a2f49120d9b730fd41078fb277` | `sha256:51b47cf8f1416faf570b623b6e25a824c3804e8cc4d8e90fc1eb2547fd888e57` |
 | `transferablesForAnimations` | value | public | `sha256:5f42259a9553b7d9a1d0af680fbe42fbe2961a22a786130a8dc8809d05beb43b` | `sha256:7d0f39001d346b570b8bc70b11d5480c806b4692aaf58f9c93df6c1d7ce87ea3` |
 | `transferablesForGltfMesh` | value | public | `sha256:e5f134d87a483f29c2c841105264fd3239dc655b6b1a066612ca977a99cb9597` | `sha256:4160702a9c3cb12d244d0a80df475b7377f81446781eb2ff4dbecd7bd0d43cc2` |
+| `transferablesForPopulationChunk` | value | public | `sha256:e79025c70a5292f33206bdef53935ce6e634f00d01a38a40624e3294d13f45b8` | `sha256:57c3e0e904cb99c058cca447f99dc9c6d2c1d146caa63bd526230d5593c9af0c` |
 | `transferablesForTerrainCell` | value | public | `sha256:8a70dee8e9da882315431aee68f00824f594e372ee30370fd26fda3e91588d8a` | `sha256:2e88f94acefc8e1146c3e6f1e3b5dadefe2ae4be5389d60eb8f2ee08c877b3dd` |
 | `triangleCount` | value | public | `sha256:8afae831b5cc109ddde1d6004eb26514fa8cfff73aba089ff5d858fb47937b9e` | `sha256:b23759a18893acfbf2a8168b326e7f18a33ee60d185d9a63910ad497ebb0a269` |
 | `tryComponentInfoByName` | value | public | `sha256:cb768c37b24de6c4d776c0d72422b1251c3e39cee594b5625a6911ea1fe7bbf9` | `sha256:ff41f1591e4f0b55c5e3384e2e8233f489b503fdc0edaf7ad8f0fe79f76bfc36` |

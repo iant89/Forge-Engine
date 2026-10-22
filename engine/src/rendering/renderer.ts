@@ -34,7 +34,7 @@ import { Vec3 } from "../math/vec.js";
 import { AABB, Frustum, PlaneTest } from "../math/geometry.js";
 import { alignUp } from "../math/scalar.js";
 import { packColorRGBA } from "../math/color.js";
-import { PipelineFactory, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
+import { PipelineFactory, type PipelineKeyOptions, type PostEntryPoint, type SsaoEntryPoint } from "./pipeline.js";
 import { PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, ObjectUniforms, InstanceStruct, PopulationLodUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES } from "./uniforms.js";
 import { BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { MS_LUT_TEXTURE_FORMAT } from "./shaders/multiScattering.js";
@@ -125,6 +125,8 @@ export interface RendererOptions {
   waterScreenSpace?: boolean;
   /** `false` never runs the SSAO passes, whatever `scene.settings.ssao.enabled` says. */
   ssao?: boolean;
+  /** `false` disables the short-range screen-space contact-shadow pass, whatever the scene asks. */
+  contactShadows?: boolean;
   /**
    * `false` keeps the fixed uniform light list whatever `scene.settings.clusteredLighting` says:
    * every fragment walks the same ≤16 lights, and lights past that cap are dropped.
@@ -462,6 +464,10 @@ interface Batch {
   popCull: boolean;
   /** Its base record in the population culler's draw records this frame (-1 = per-batch path). */
   popCullSlot: number;
+  /** Generic renderable-batch instance cull record (null for population batches and singletons). */
+  genericCull: GenericInstanceCullRecord | null;
+  /** Its base record in the shared population culler's draw records (-1 = not generic-culled). */
+  genericCullSlot: number;
   /** Shadow-map bits whose casters `forge.populationCull.views` culls for this batch (0 = CPU ranges only). */
   popShadowMask: number;
   /**
@@ -538,6 +544,30 @@ interface PopulationDeviceRecord {
   cullGroup: GPUBindGroup | null;
   /** The cull pass has written bits into `buffer` since its last upload (bit 1 may be stale). */
   instanceCulled: boolean;
+}
+
+/**
+ * Generic renderable batches use the same two-stage population kernel, but source their records from
+ * the frame instance arena through a dynamic offset. The output buffers are batch-local so a visible
+ * subset can be drawn without rewriting the shared arena (13.5); the population path keeps its
+ * longer-lived equivalent in `PopulationDeviceRecord`.
+ */
+interface GenericInstanceCullRecord {
+  count: number;
+  sourceOffset: number;
+  sourceBuffer: GPUBuffer;
+  objectBuffer: GPUBuffer;
+  visibilityBuffer: GPUBuffer;
+  shadowMask: number;
+  indexStride: number;
+  compacted: GPUBuffer;
+  occluded: GPUBuffer;
+  casterIndices: GPUBuffer;
+  cullGroup: GPUBindGroup;
+  compactedGroup: GPUBindGroup;
+  occludedGroup: GPUBindGroup;
+  shadowGroup: GPUBindGroup;
+  slot: number;
 }
 const TONE_MAP_MODE: Record<string, number> = { none: 0, reinhard: 1, aces: 2, filmic: 3 };
 /**
@@ -857,6 +887,9 @@ export class Renderer implements RenderFrameContext {
   private frameBindGroupView: GPUTextureView | null = null;
   private frameBindGroupAoView: GPUTextureView | null = null;
   private frameBindGroupMsTexture: GPUTexture | null = null;
+  private frameBindGroupContactDepthView: GPUTextureView | null = null;
+  private contactDepthFallback: GPUTexture | null = null;
+  private contactDepthFallbackView: GPUTextureView | null = null;
   private cascadeBindGroup: GPUBindGroup | null = null;
   private prepassBindGroup: GPUBindGroup | null = null;
   private ssaoBuffer: GPUBuffer | null = null;
@@ -990,6 +1023,7 @@ export class Renderer implements RenderFrameContext {
   private readonly invProjection = new Mat4();
   private readonly viewProj = new Mat4();
   private readonly invViewProj = new Mat4();
+  private frameCameraOrthographic = false;
   private readonly lastCameraPos = new Vec3();
   private readonly lastCameraWorld = new Double3();
   private lost = false;
@@ -1279,6 +1313,7 @@ export class Renderer implements RenderFrameContext {
       return;
     }
     const camera = cameraHit.camera;
+    this.frameCameraOrthographic = camera.orthographic;
     const settings = scene.settings;
 
     // 1. Camera.
@@ -1322,7 +1357,12 @@ export class Renderer implements RenderFrameContext {
     let spotShadowCount = shadowsWanted ? this.prepareSpotShadows(scene, lights, shadowSize, shadowDistance) : 0;
     let pointShadowCount = shadowsWanted ? this.preparePointShadows(scene, lights, shadowSize) : 0;
     const shadowLayers = cascadeCount + spotShadowCount + pointShadowCount * POINT_SHADOW_FACES;
-    shadowSize = fitShadowMapSize(requestedShadowSize, shadowLayers, this.options.shadowMemoryBudget);
+    // Adaptive shadow quality is a frame-level policy: when enabled, the complete active atlas is
+    // reduced by powers of two until it fits the configured budget. Turning it off deliberately
+    // retains the requested shared resolution; the host budget is the policy's input, not an
+    // unconditional hidden cap, so the scene setting has observable runtime behavior.
+    const shadowBudget = settings.shadow.adaptive ? this.options.shadowMemoryBudget : Number.POSITIVE_INFINITY;
+    shadowSize = fitShadowMapSize(requestedShadowSize, shadowLayers, shadowBudget);
     if (shadowsWanted && shadowSize !== requestedShadowSize) {
       spotShadowCount = this.prepareSpotShadows(scene, lights, shadowSize, shadowDistance);
       pointShadowCount = this.preparePointShadows(scene, lights, shadowSize);
@@ -1354,9 +1394,14 @@ export class Renderer implements RenderFrameContext {
     this.stats.spotShadowMaps = activeSpotCount;
     this.stats.pointShadowMaps = activePointCount;
     const prepass = this.classifyPrepass(settings.depthPrepass && this.options.depthPrepass !== false) > 0;
-    // SSAO keys its bilateral passes on clip.w, which only a perspective projection makes view depth.
+    // SSAO reconstructs view-space depth through the inverse projection. Perspective and orthographic
+    // cameras share that path; `projScale` carries the projection mode so an ortho kernel uses a
+    // constant pixels-per-metre radius instead of dividing by view depth.
     const ssaoSettings = settings.ssao;
-    const ssao = prepass && ssaoSettings.enabled && this.options.ssao !== false && !camera.orthographic && ssaoSettings.radius > 0 && ssaoSettings.intensity > 0;
+    const ssao = prepass && ssaoSettings.enabled && this.options.ssao !== false && ssaoSettings.radius > 0 && ssaoSettings.intensity > 0;
+    // Contact rays consume the full-resolution prepass only when explicitly enabled. They are
+    // independent of atlas allocation, so unshadowed point/spot lights still get grounded contact.
+    const contact = prepass && settings.shadow.contactShadows && this.options.contactShadows !== false && lights.some((l) => l.affectScene && (l.kind === "directional" || l.kind === "point" || l.kind === "spot"));
 
     // 4. Uniforms.
     const hdr = settings.hdr;
@@ -1368,10 +1413,10 @@ export class Renderer implements RenderFrameContext {
     const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
     const aerialPerspective = Boolean(skySettings?.aerialPerspective && !underwater);
     this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered, aerialPerspective);
-    if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight);
+    if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight, camera.orthographic);
     this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, activePointCount, clustered);
     if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
-    this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, activePointCount, shadowSize, shadowDistance);
+    this.writeShadowUniforms(scene, sun, activeCascadeCount, activeSpotCount, activePointCount, shadowSize, shadowDistance, contact);
     if (skySettings) this.writeSky(skySettings);
     else this.pendingSky = null;
     this.writeClouds(scene, skySettings, lights);
@@ -1403,6 +1448,9 @@ export class Renderer implements RenderFrameContext {
     this.ensureArenas();
     this.uploadArenas();
     this.prepareObjectCulling(camera, renderWidth, renderHeight, prepass);
+    // Ordinary instanced renderables join the same device per-instance path as populations once the
+    // object culler's visibility buffer and the shared arena exist.
+    this.queueGenericInstanceCulling();
     // After prepareObjectCulling: whether this frame occludes is decided there.
     if (this.populationCuller && this.populationCuller.batchCount > 0) this.populationCuller.setViews(this.viewProj.m, this.populationShadowView);
     this.populationCuller?.upload(this.populationOcclusionEnabled && this.cullOcclusion);
@@ -1421,6 +1469,7 @@ export class Renderer implements RenderFrameContext {
       underwater,
       prepass,
       ssao,
+      contact,
     });
     this.stats.aerialPerspective = aerialPerspective;
     this.finishFrame();
@@ -1473,7 +1522,7 @@ export class Renderer implements RenderFrameContext {
 
   private buildFrame(
     scene: Scene,
-    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; pointShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean },
+    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; pointShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean; contact: boolean },
   ): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
@@ -1553,7 +1602,7 @@ export class Renderer implements RenderFrameContext {
       width: frame.renderWidth,
       height: frame.renderHeight,
       format: this.device.depthFormat,
-      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || this.cullOcclusion || this.frameWaterScreenSpace > 0 ? TextureUsage.TEXTURE_BINDING : 0),
+      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || frame.contact || this.cullOcclusion || this.frameWaterScreenSpace > 0 ? TextureUsage.TEXTURE_BINDING : 0),
     });
     const waterScreenSpace = frame.hdr && this.frameWaterScreenSpace > 0;
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
@@ -1569,6 +1618,21 @@ export class Renderer implements RenderFrameContext {
         name: "forge.prepass",
         depth: { texture: sceneDepth, depthClearValue: 1 },
         execute: (ctx) => this.executePrepass(ctx),
+      });
+    }
+    let contactDepth: RenderGraphHandle | null = null;
+    if (frame.contact) {
+      contactDepth = g.createTexture("contact.depth", {
+        width: frame.renderWidth,
+        height: frame.renderHeight,
+        format: "r32float",
+        usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
+      });
+      g.addPass({
+        name: "forge.contact.depth",
+        reads: [sceneDepth],
+        color: [{ texture: contactDepth, clearValue: [1, 0, 0, 1] }],
+        execute: (ctx) => this.executeContactDepthPass(ctx, sceneDepth),
       });
     }
 
@@ -1615,6 +1679,7 @@ export class Renderer implements RenderFrameContext {
     const mainReads: RenderGraphHandle[] = [];
     if (shadowAtlas !== null) mainReads.push(shadowAtlas);
     if (aoResult !== null) mainReads.push(aoResult);
+    if (contactDepth !== null) mainReads.push(contactDepth);
     g.addPass({
       name: "forge.main",
       reads: mainReads,
@@ -1622,7 +1687,7 @@ export class Renderer implements RenderFrameContext {
       // Loads the prepass depth when there is one. The sky pass depth-tests against this buffer
       // (and soft particles sample it), so it must survive the pass when either runs.
       depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles || waterScreenSpace ? "store" : "discard" },
-      execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas, aoResult),
+      execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas, aoResult, contactDepth),
     });
     if (frame.sky) {
       // Sky: fullscreen triangle on the far plane into the same colour target; the depth buffer is
@@ -2057,6 +2122,12 @@ export class Renderer implements RenderFrameContext {
       const b = this.batchPool[i]!;
       if (!b.castShadow || b.overlay || b.transparent) continue;
       if (!b.geometry.vertexBuffer) continue;
+      if (b.genericCullSlot >= 0 && this.populationViewsRecorded && b.genericCull && (b.genericCull.shadowMask & shadowBit) !== 0) {
+        lastState = -1;
+        currentPipeline = null;
+        this.drawGenericShadow(pass, b, shadowBit);
+        continue;
+      }
       if ((b.popShadowMask & shadowBit) !== 0) {
         // Device-culled casters (§4g): this map's range of the batch's caster-index list.
         lastState = -1;
@@ -2134,12 +2205,36 @@ export class Renderer implements RenderFrameContext {
       return;
     }
     const local = popcount32(b.popShadowMask & (shadowBit - 1));
-    pass.setBindGroup(1, rec.shadowGroup!, [b.objectOffset, local * rec.indexStride * 4]);
+    pass.setBindGroup(1, rec.shadowGroup!, [b.objectOffset, 0, local * rec.indexStride * 4]);
     const offset = culler!.shadowRecordOffset(b.popCullSlot, local);
     if (b.geometry.indexBuffer) pass.drawIndexedIndirect(culler!.argsBuffer!, offset);
     else pass.drawIndirect(culler!.argsBuffer!, offset);
     // Counted in `shadowsDrawn`, not `indirectDraws` (that one is forge.main's) nor
     // `shadowInstancesDrawn` (the count lives on the device: `populationShadowInstancesDrawn`).
+    this.stats.shadowsDrawn++;
+    this.stats.populationShadowDraws++;
+  }
+
+  /** Device-cull one ordinary renderable batch's caster indices for one cascade/spot/point face. */
+  private drawGenericShadow(pass: GPURenderPassEncoder, b: Batch, shadowBit: number): void {
+    const rec = b.genericCull!;
+    const culler = this.populationCuller!;
+    const listed = this.populationViewsRecorded && culler.argsBuffer !== null;
+    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod: false, casterIndices: listed })?.pipeline;
+    if (!pipeline) return;
+    pass.setPipeline(pipeline);
+    pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+    if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
+    if (!listed) {
+      pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      this.submitShadowRange(pass, b, 0, b.count);
+      return;
+    }
+    const local = popcount32(rec.shadowMask & (shadowBit - 1));
+    pass.setBindGroup(1, rec.shadowGroup, [b.objectOffset, rec.sourceOffset, local * rec.indexStride * 4]);
+    const offset = culler.shadowRecordOffset(rec.slot, local);
+    if (b.geometry.indexBuffer) pass.drawIndexedIndirect(culler.argsBuffer!, offset);
+    else pass.drawIndirect(culler.argsBuffer!, offset);
     this.stats.shadowsDrawn++;
     this.stats.populationShadowDraws++;
   }
@@ -2156,14 +2251,14 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * `forge.prepass`: depth only, state-sorted then front to back. The pipelines are the standard
-   * module's own vertex entry points with no fragment stage, so each depth written here is exactly
-   * the one `forge.main` computes for the same draw (`@invariant` position, same module, same entry).
+   * `forge.prepass`: depth only, state-sorted then front to back. Standard, terrain and water
+   * surfaces share their colour-pass vertex entries; a tiny fragment entry now performs the same
+   * alpha coverage decision instead of pretending every fragment is opaque. Water uses its own
+   * deformed vertex module so screen-space water can establish early-Z before its grab pass.
    */
   private executePrepass(ctx: RenderGraphPassContext): void {
     this.syncGraphEpoch();
     const pass = ctx.beginRenderPass();
-    pass.setBindGroup(0, this.ensurePrepassBindGroup());
     const depthFormat = this.device.depthFormat;
     let lastState = -1;
     let currentPipeline: GPURenderPipeline | null = null;
@@ -2171,34 +2266,44 @@ export class Renderer implements RenderFrameContext {
     for (let i = 0; i < list.length; i++) {
       const b = list[i]!;
       const state = prepassState(b);
-      const skinned = b.skin !== null;
       if (state !== lastState) {
         lastState = state;
-        // LOD batches always draw instanced (see the shadow pass above).
-        currentPipeline = this.pipelines.getReady({ technique: "prepass", colorFormat: null, depthFormat, transparent: false, doubleSided: b.material.doubleSided, instanced: b.count > 1 || b.lodHiTriangles > 0, lod: b.lodHiTriangles > 0, skinned })?.pipeline ?? null;
+        currentPipeline = this.pipelines.getReady(prepassPipelineOptions(b, depthFormat))?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
+      const kind = prepassKind(b);
+      // Water's vertex stage uses the full frame layout; its depth fragment is empty, so fallback
+      // shadow/AO views are sufficient. Standard and terrain coverage fragments only read perFrame.
+      pass.setBindGroup(0, kind === "water"
+        ? this.ensureFrameBindGroup(this.ensureShadowFallback(), this.ensureAoFallback())
+        : this.ensurePrepassBindGroup());
       // A per-instance batch draws the views pass's main-view list — the very list forge.main draws
       // (or a superset of it, on a frame that occludes) with the same bits (§4g).
+      const genericArgs = b.genericCullSlot >= 0 && this.populationViewsRecorded && b.genericCull ? this.populationCuller!.argsBuffer : null;
       const listArgs = b.popCullSlot >= 0 && this.populationViewsRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
-      if (listArgs) {
-        pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
+      const cullArgs = genericArgs ?? listArgs;
+      if (cullArgs) {
+        if (genericArgs) pass.setBindGroup(1, b.genericCull!.compactedGroup, [b.objectOffset, 0]);
+        else pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
         pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-        const offset = this.populationCuller!.listRecordOffset(b.popCullSlot);
+        if (kind === "water") pass.setBindGroup(2, this.ensureWaterBindGroup());
+        else pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
+        const offset = this.populationCuller!.listRecordOffset(genericArgs ? b.genericCullSlot : b.popCullSlot);
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
-          pass.drawIndexedIndirect(listArgs, offset);
+          pass.drawIndexedIndirect(cullArgs, offset);
         } else {
-          pass.drawIndirect(listArgs, offset);
+          pass.drawIndirect(cullArgs, offset);
         }
         this.stats.prepassDraws++;
         continue;
       }
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(2, kind === "water" ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-      if (skinned) this.bindSkinning(pass, b, true);
+      if (b.skin !== null) this.bindSkinning(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         pass.drawIndexed(b.indexCount, b.count, b.indexStart);
@@ -2206,6 +2311,24 @@ export class Renderer implements RenderFrameContext {
         pass.draw(b.indexCount, b.count);
       }
       this.stats.prepassDraws++;
+    }
+    pass.end();
+  }
+
+  /** Resolve the prepass depth before forge.main so contact rays never alias a writable attachment. */
+  private executeContactDepthPass(ctx: RenderGraphPassContext, source: RenderGraphHandle): void {
+    this.syncGraphEpoch();
+    const pipeline = this.pipelines.getReady({ technique: "contactDepth", colorFormat: "r32float", depthFormat: null, transparent: false, doubleSided: true, instanced: false });
+    const pass = ctx.beginRenderPass();
+    if (pipeline) {
+      pass.setPipeline(pipeline.pipeline);
+      pass.setBindGroup(0, this.device.device.createBindGroup({
+        label: "contact.depth.group",
+        layout: this.pipelines.bindGroupLayouts.contactDepth,
+        entries: [{ binding: 0, resource: ctx.view(source, { aspect: "depth-only" }) }],
+      }));
+      pass.draw(3);
+      this.stats.drawCalls++;
     }
     pass.end();
   }
@@ -2228,15 +2351,16 @@ export class Renderer implements RenderFrameContext {
     pass.end();
   }
 
-  private executeMainPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null, ao: RenderGraphHandle | null): void {
+  private executeMainPass(ctx: RenderGraphPassContext, colorFormat: GPUTextureFormat, shadowAtlas: RenderGraphHandle | null, ao: RenderGraphHandle | null, contactDepth: RenderGraphHandle | null): void {
     this.syncGraphEpoch();
     // The culler's records when the frame submits through them (Phase 13.6): the verdict is a word in
     // the record the device reads, so a culled batch's draw runs nothing at all.
     const records = this.indirectDrawsEnabled ? this.drawRecords : null;
     const shadowView = shadowAtlas !== null ? ctx.view(shadowAtlas, { dimension: "2d-array" }) : this.ensureShadowFallback();
     const aoView = ao !== null ? ctx.view(ao) : this.ensureAoFallback();
+    const contactDepthView = contactDepth !== null ? ctx.view(contactDepth) : this.ensureContactDepthFallback();
     const pass = ctx.beginRenderPass();
-    pass.setBindGroup(0, this.ensureFrameBindGroup(shadowView, aoView));
+    pass.setBindGroup(0, this.ensureFrameBindGroup(shadowView, aoView, contactDepthView));
     const sorted = this.sortedBatches;
     sorted.length = 0;
     for (let i = 0; i < this.batchCount; i++) {
@@ -2255,16 +2379,7 @@ export class Renderer implements RenderFrameContext {
       const batchInstanced = b.count > 1 || b.lodHiTriangles > 0;
       const batchLod = b.lodHiTriangles > 0;
       const batchSkinned = b.skin !== null;
-      const prepassReady = b.prepass && this.pipelines.getReady({
-        technique: "prepass",
-        colorFormat: null,
-        depthFormat: this.device.depthFormat,
-        transparent: false,
-        doubleSided: b.material.doubleSided,
-        instanced: batchInstanced,
-        lod: batchLod,
-        skinned: batchSkinned,
-      }) !== null;
+      const prepassReady = b.prepass && this.pipelines.getReady(prepassPipelineOptions(b, this.device.depthFormat)) !== null;
       const mainPipelineOptions = {
         technique: isWater ? "water" as const : b.material.technique === "terrain" ? "terrain" as const : b.material.technique === "unlit" ? "unlit" as const : "standard" as const,
         colorFormat,
@@ -2285,22 +2400,35 @@ export class Renderer implements RenderFrameContext {
       if (!pipeline && prepassReady) pipeline = this.pipelines.getReady({ ...mainPipelineOptions, writeDepth: true });
       if (!pipeline) continue;
       pass.setPipeline(pipeline.pipeline);
-      // Population batches bind their own chunk buffer through their own group (Phase 14.3); a
-      // per-instance batch binds its compacted survivors and draws the count the cull pass appended.
-      // The HiZ survivors on a frame whose cull pass ran and occludes; otherwise the views pass's list.
+      // Population and ordinary instanced batches share the same two-stage compaction. The HiZ
+      // survivors use record B when this frame's cull pass occludes; otherwise both paths draw the
+      // camera-view list A produced before the prepass.
+      const genericArgs = b.genericCullSlot >= 0 && this.populationViewsRecorded && b.genericCull ? this.populationCuller!.argsBuffer : null;
       const popArgs = b.popCullSlot >= 0 && this.populationViewsRecorded && b.population?.compactedGroup ? this.populationCuller!.argsBuffer : null;
+      const cullArgs = genericArgs ?? popArgs;
+      const genericOccluded = genericArgs !== null && this.populationCullRecorded && this.populationCuller!.occludesThisFrame;
       const popOccluded = popArgs !== null && this.populationCullRecorded && this.populationCuller!.occludesThisFrame && b.population!.occludedGroup !== null;
-      const popOffset = popArgs ? (popOccluded ? this.populationCuller!.mainRecordOffset(b.popCullSlot) : this.populationCuller!.listRecordOffset(b.popCullSlot)) : 0;
-      pass.setBindGroup(1, popArgs ? (popOccluded ? b.population!.occludedGroup! : b.population!.compactedGroup!) : b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      const cullOffset = cullArgs
+        ? (genericOccluded || popOccluded
+          ? this.populationCuller!.mainRecordOffset(genericArgs !== null ? b.genericCullSlot : b.popCullSlot)
+          : this.populationCuller!.listRecordOffset(genericArgs !== null ? b.genericCullSlot : b.popCullSlot))
+        : 0;
+      if (genericArgs) {
+        pass.setBindGroup(1, genericOccluded ? b.genericCull!.occludedGroup : b.genericCull!.compactedGroup, [b.objectOffset, 0]);
+      } else if (popArgs) {
+        pass.setBindGroup(1, popOccluded ? b.population!.occludedGroup! : b.population!.compactedGroup!, [b.objectOffset, 0]);
+      } else {
+        pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      }
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (batchSkinned) this.bindSkinning(pass, b, false);
-      if (popArgs) {
+      if (cullArgs) {
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
-          pass.drawIndexedIndirect(popArgs, popOffset);
+          pass.drawIndexedIndirect(cullArgs, cullOffset);
         } else {
-          pass.drawIndirect(popArgs, popOffset);
+          pass.drawIndirect(cullArgs, cullOffset);
         }
         this.stats.indirectDraws++;
       } else if (b.geometry.indexBuffer) {
@@ -2484,6 +2612,8 @@ export class Renderer implements RenderFrameContext {
     if (!this.invViewProj.invert()) this.invViewProj.setIdentity(); // singular view (degenerate camera) → harmless fallback
     a.setMat4("invViewProj", this.invViewProj.m);
     a.setVec3("cameraPosRender", this.lastCameraPos.x, this.lastCameraPos.y, this.lastCameraPos.z);
+    this.cameraWorld.transformDirection(FORWARD_Z, this.scratchDir);
+    a.setVec4("cameraForwardRender", this.scratchDir.x, this.scratchDir.y, this.scratchDir.z, this.frameCameraOrthographic ? 1 : 0);
     a.setF32("exposure", settings.exposure);
     const ctx = this.currentFrameContext;
     a.setVec4("time", ctx?.elapsed ?? 0, ctx?.dt ?? 0, ctx?.frame ?? 0, 0);
@@ -2515,7 +2645,7 @@ export class Renderer implements RenderFrameContext {
   }
 
   /** SSAO parameters for the frame: the inverse projection plus the settings, clamped to sane ranges. */
-  private writeSsao(s: SceneSsaoSettings, renderWidth: number, renderHeight: number): void {
+  private writeSsao(s: SceneSsaoSettings, renderWidth: number, renderHeight: number, orthographic: boolean): void {
     this.invProjection.copyFrom(this.projection);
     if (!this.invProjection.invert()) this.invProjection.setIdentity();
     const a = this.ssaoAccessor;
@@ -2523,8 +2653,10 @@ export class Renderer implements RenderFrameContext {
     a.setF32("radius", s.radius);
     a.setF32("bias", Math.max(0, s.bias));
     a.setF32("intensity", s.intensity);
-    // Pixels per metre at view depth 1: NDC y = m[5]·y/z, and NDC spans half the target height.
-    a.setF32("projScale", 0.5 * renderHeight * this.projection.m[5]!);
+    // Perspective: pixels per metre at view depth 1. Orthographic: pixels per metre everywhere;
+    // the negative sign is a compact projection-mode bit that preserves the public uniform layout.
+    const pixelsPerMetre = 0.5 * renderHeight * Math.abs(this.projection.m[5]!);
+    a.setF32("projScale", orthographic ? -pixelsPerMetre : pixelsPerMetre);
     a.setVec2("depthSize", renderWidth, renderHeight);
     a.setVec2("aoSize", Math.max(1, renderWidth >> 1), Math.max(1, renderHeight >> 1));
     a.setU32("sampleCount", Math.max(1, Math.min(32, Math.round(Number.isFinite(s.samples) ? s.samples : 12))));
@@ -2923,7 +3055,7 @@ export class Renderer implements RenderFrameContext {
     this.lightCuller.record(graph, this.clusterGrid, ranges, this.clusterGridBuffer!, "forge.lights");
   }
 
-  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, spotShadowCount: number, pointShadowCount: number, size: number, shadowDistance: number): void {
+  private writeShadowUniforms(scene: Scene, sun: Light | null, cascadeCount: number, spotShadowCount: number, pointShadowCount: number, size: number, shadowDistance: number, contact = false): void {
     const a = this.shadowAccessor;
     const splits = [1e9, 1e9, 1e9, 1e9];
     const texels = [0, 0, 0, 0];
@@ -2989,6 +3121,8 @@ export class Renderer implements RenderFrameContext {
     a.setI32("size", size);
     a.setI32("count", cascadeCount);
     a.setU32("flags", scene.settings.shadow.debugCascades ? 1 : 0);
+    const contactSettings = scene.settings.shadow;
+    a.setVec4("contactParams", Math.max(0.1, contactSettings.contactDistance), 0.0015, Math.min(1, Math.max(0, contactSettings.contactStrength)), contact ? 1 : 0);
     const q = this.device.device.queue;
     q.writeBuffer(this.shadowBuffer!, 0, gpuSource(this.shadowBytes.bytes.subarray(0, this.shadowBytes.byteLength)));
     const layerCount = cascadeCount + spotShadowCount + pointShadowCount * POINT_SHADOW_FACES;
@@ -3785,6 +3919,8 @@ export class Renderer implements RenderFrameContext {
         maxDistance: 0,
         popCull: false,
         popCullSlot: -1,
+        genericCull: null,
+        genericCullSlot: -1,
         popShadowMask: 0,
         bounds: new AABB(),
         shadowRanges: [],
@@ -3807,6 +3943,9 @@ export class Renderer implements RenderFrameContext {
     b.lodUniformOffset = -1;
     b.popCull = false;
     b.popCullSlot = -1;
+    // `genericCull` is retained with the pooled batch object so its output buffers can be reused;
+    // queueGenericInstanceCull replaces it only when the batch's count or arena buffer changes.
+    b.genericCullSlot = -1;
     b.popShadowMask = 0;
     // A recycled slot must not keep the previous frame's skin either: a batch drawn through the
     // skinned entry point without a palette would read another frame's joints.
@@ -3925,10 +4064,25 @@ export class Renderer implements RenderFrameContext {
     return this.aerialMsFallback;
   }
 
+  /** 1×1 neutral depth resolved texture used when contact shadows are disabled. */
+  private ensureContactDepthFallback(): GPUTextureView {
+    if (!this.contactDepthFallback) {
+      this.contactDepthFallback = this.device.createTexture({
+        label: "contact.depth.fallback",
+        size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+        format: "r32float",
+        usage: TextureUsage.TEXTURE_BINDING | TextureUsage.COPY_DST,
+      });
+      this.device.device.queue.writeTexture({ texture: this.contactDepthFallback }, gpuSource(new Float32Array([1])), { bytesPerRow: 256, rowsPerImage: 1 }, { width: 1, height: 1, depthOrArrayLayers: 1 });
+      this.contactDepthFallbackView = this.contactDepthFallback.createView({ label: "contact.depth.fallback.view" });
+    }
+    return this.contactDepthFallbackView!;
+  }
+
   /** The frame group depends on its graph views and the LUT texture bound for aerial perspective. */
-  private ensureFrameBindGroup(shadowView: GPUTextureView, aoView: GPUTextureView): GPUBindGroup {
+  private ensureFrameBindGroup(shadowView: GPUTextureView, aoView: GPUTextureView, contactDepthView = this.ensureContactDepthFallback()): GPUBindGroup {
     const msTexture = this.skyMultiScattering?.lut ?? this.ensureAerialMsFallback();
-    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView && this.frameBindGroupMsTexture === msTexture) return this.frameBindGroup;
+    if (this.frameBindGroup && this.frameBindGroupView === shadowView && this.frameBindGroupAoView === aoView && this.frameBindGroupContactDepthView === contactDepthView && this.frameBindGroupMsTexture === msTexture) return this.frameBindGroup;
     const { frame } = this.pipelines.bindGroupLayouts;
     this.frameBindGroup = this.device.device.createBindGroup({
       label: "perframe.bindgroup",
@@ -3947,10 +4101,12 @@ export class Renderer implements RenderFrameContext {
         { binding: BINDINGS.sky.binding, resource: { buffer: this.skyBuffer! } },
         { binding: BINDINGS.multiScattering.binding, resource: msTexture.createView({ label: "sky.ms.lut.frame-view", dimension: "2d" }) },
         { binding: BINDINGS.cloud.binding, resource: { buffer: this.cloudBuffer! } },
+        { binding: BINDINGS.contactDepth.binding, resource: contactDepthView },
       ],
     });
     this.frameBindGroupView = shadowView;
     this.frameBindGroupAoView = aoView;
+    this.frameBindGroupContactDepthView = contactDepthView;
     this.frameBindGroupMsTexture = msTexture;
     return this.frameBindGroup;
   }
@@ -4200,6 +4356,7 @@ export class Renderer implements RenderFrameContext {
     const flags = (lod ? POP_CULL_LOD : 0) | (b.maxDistance > 0 ? POP_CULL_DISTANCE : 0);
     return this.populationCuller!.add({
       group: b.population!.cullGroup!,
+      sourceOffset: 0,
       count: b.count,
       camera: this.populationCamPos,
       lodDistance: b.lodDistance,
@@ -4212,6 +4369,102 @@ export class Renderer implements RenderFrameContext {
       indexStride: b.population!.indexStride,
       indexCount: b.indexCount,
       first: b.geometry.indexBuffer ? b.indexStart : 0,
+    });
+  }
+
+  /**
+   * Extend the population culler's two dispatches to ordinary instanced renderable batches. The
+   * source is the frame arena window selected by a dynamic offset; survivors get batch-local output
+   * buffers and therefore remain drawable without a CPU compaction/upload. Population submissions
+   * already own this path and are skipped here. The same shadow mask makes the views pass cull each
+   * renderable's cascade/spot/point caster against the light frusta instead of repeating the CPU
+   * AABB loop (13.5).
+   */
+  private queueGenericInstanceCulling(): void {
+    if (!this.populationCullingActive()) return;
+    const culler = this.populationCuller ??= new GpuPopulationCuller(this.device, this.pipelines.shaders);
+    if (!culler.ensurePipeline()) return;
+    const d = this.device.device;
+    for (let i = 0; i < this.batchCount; i++) {
+      const b = this.batchPool[i]!;
+      if (b.population || b.count <= 1 || b.transparent || b.overlay || b.skin !== null || b.material.technique === "water" || b.lodHiTriangles > 0 || !this.instanceBuffer || !this.objectBuffer || !this.visibilityBuffer) continue;
+      const geometryBounds = b.geometry.bounds;
+      const c = geometryBounds.getCenter(this.scratchVec);
+      const radius = Math.hypot(geometryBounds.max.x - c.x, geometryBounds.max.y - c.y, geometryBounds.max.z - c.z);
+      let shadowMask = 0;
+      for (let r = 0; r < b.shadowRangeCount; r++) shadowMask |= b.shadowRanges[r]!.shadowMask;
+      const indexStride = Math.max(POPULATION_SHADOW_INDEX_ALIGN, alignUp(b.count, POPULATION_SHADOW_INDEX_ALIGN));
+      const bytes = alignUp(b.count * INSTANCE_STRIDE, 256);
+      let rec = b.genericCull;
+      const shadowCapacityChanged = rec !== null && (rec.indexStride !== indexStride || popcount32(shadowMask) > popcount32(rec.shadowMask));
+      if (!rec || rec.count !== b.count || rec.sourceBuffer !== this.instanceBuffer || shadowCapacityChanged) {
+        rec?.compacted.destroy();
+        rec?.occluded.destroy();
+        rec?.casterIndices.destroy();
+        const compacted = d.createBuffer({ label: "instance.cull.visible", size: bytes, usage: BufferUsage.STORAGE });
+        const occluded = d.createBuffer({ label: "instance.cull.occluded", size: bytes, usage: BufferUsage.STORAGE });
+        const casterIndices = d.createBuffer({ label: "instance.cull.shadow.indices", size: indexStride * 4 * Math.max(1, popcount32(shadowMask)), usage: BufferUsage.STORAGE });
+        rec = {
+          count: b.count,
+          sourceOffset: b.instanceOffset,
+          sourceBuffer: this.instanceBuffer,
+          objectBuffer: this.objectBuffer,
+          visibilityBuffer: this.visibilityBuffer,
+          shadowMask,
+          indexStride,
+          compacted,
+          occluded,
+          casterIndices,
+          cullGroup: culler.createInstanceGroup(this.instanceBuffer, compacted, occluded, casterIndices, this.instanceBufferCapacity - b.instanceOffset),
+          compactedGroup: this.createPopulationGroup(compacted, bytes),
+          occludedGroup: this.createPopulationGroup(occluded, bytes),
+          shadowGroup: this.createGenericShadowGroup(this.instanceBuffer, casterIndices, indexStride, b.instanceOffset),
+          slot: -1,
+        };
+        b.genericCull = rec;
+      } else {
+        const sourceOffsetChanged = rec.sourceOffset !== b.instanceOffset;
+        rec.sourceOffset = b.instanceOffset;
+        rec.shadowMask = shadowMask;
+        if (sourceOffsetChanged || rec.objectBuffer !== this.objectBuffer || rec.visibilityBuffer !== this.visibilityBuffer) {
+          rec.objectBuffer = this.objectBuffer;
+          rec.visibilityBuffer = this.visibilityBuffer;
+          rec.cullGroup = culler.createInstanceGroup(this.instanceBuffer, rec.compacted, rec.occluded, rec.casterIndices, this.instanceBufferCapacity - b.instanceOffset);
+          rec.compactedGroup = this.createPopulationGroup(rec.compacted, bytes);
+          rec.occludedGroup = this.createPopulationGroup(rec.occluded, bytes);
+          rec.shadowGroup = this.createGenericShadowGroup(this.instanceBuffer, rec.casterIndices, indexStride, b.instanceOffset);
+        }
+      }
+      rec.slot = culler.add({
+        group: rec.cullGroup,
+        sourceOffset: rec.sourceOffset,
+        count: b.count,
+        camera: this.populationCamPos,
+        lodDistance: 0,
+        localCenter: { x: c.x, y: c.y, z: c.z },
+        localRadius: radius,
+        visibilityIndex: i,
+        flags: b.maxDistance > 0 ? POP_CULL_DISTANCE : 0,
+        maxDistance: b.maxDistance,
+        shadowMask,
+        indexStride,
+        indexCount: b.indexCount,
+        first: b.geometry.indexBuffer ? b.indexStart : 0,
+      });
+      b.genericCullSlot = rec.slot;
+    }
+  }
+
+  /** Group 1 of a generic batch's device-culled shadow draws. */
+  private createGenericShadowGroup(source: GPUBuffer, indices: GPUBuffer, indexStride: number, sourceOffset: number): GPUBindGroup {
+    return this.device.device.createBindGroup({
+      label: "instance.cull.shadow.group",
+      layout: this.pipelines.bindGroupLayouts.populationShadow,
+      entries: [
+        { binding: 0, resource: { buffer: this.objectBuffer!, size: ObjectUniforms.byteSize("uniform") } },
+        { binding: 1, resource: { buffer: source, size: this.instanceBufferCapacity - sourceOffset } },
+        { binding: 2, resource: { buffer: indices, size: indexStride * 4 } },
+      ],
     });
   }
 
@@ -4679,6 +4932,12 @@ export class Renderer implements RenderFrameContext {
     this.objectCuller = null;
     this.populationCuller?.dispose();
     this.populationCuller = null;
+    for (const b of this.batchPool) {
+      b.genericCull?.compacted.destroy();
+      b.genericCull?.occluded.destroy();
+      b.genericCull?.casterIndices.destroy();
+      b.genericCull = null;
+    }
     for (const rec of this.populationDevice.values()) this.destroyPopulationRecord(rec);
     this.populationDevice.clear();
     this.visibilityBuffer?.destroy();
@@ -4691,7 +4950,7 @@ export class Renderer implements RenderFrameContext {
     this.visibleList = null;
     this.visibilityBytes = 0;
     this.visibilityWords = new Uint32Array(0);
-    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.populationLodBuffer, this.debugBuffer, this.overlayBuffer, this.aerialMsFallback]) b?.destroy();
+    for (const b of [this.frameBuffer, this.lightBuffer, this.clusterBuffer, this.clusterLightBuffer, this.clusterGridBuffer, this.shadowBuffer, this.cascadeBuffer, this.postBuffer, this.skyBuffer, this.cloudBuffer, this.waterBuffer, this.ssaoBuffer, this.objectBuffer, this.instanceBuffer, this.populationLodBuffer, this.debugBuffer, this.overlayBuffer, this.aerialMsFallback, this.contactDepthFallback]) b?.destroy();
     this.populationLodBuffer = null;
     this.populationLodBufferCapacity = 0;
     this.frameBuffer = null;
@@ -4709,6 +4968,9 @@ export class Renderer implements RenderFrameContext {
     this.cloudBuffer = null;
     this.waterBuffer = null;
     this.ssaoBuffer = null;
+    this.contactDepthFallback = null;
+    this.contactDepthFallbackView = null;
+    this.frameBindGroupContactDepthView = null;
     this.skyBindGroup = null;
     this.waterBindGroup = null;
     this.waterBindGroupViews = [null, null];
@@ -4741,6 +5003,7 @@ export class Renderer implements RenderFrameContext {
     this.frameBindGroup = null;
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
+    this.frameBindGroupContactDepthView = null;
     this.frameBindGroupMsTexture = null;
     this.cascadeBindGroup = null;
     this.drawBindGroup = null;
@@ -4752,20 +5015,46 @@ export class Renderer implements RenderFrameContext {
 }
 
 /**
- * Surfaces the depth prepass may lay down: opaque, depth-tested, drawn by the standard program, and
- * never discarding a fragment the prepass would keep (no cutout, full opacity). Everything else —
- * transparent and overlay draws, water, fading materials — is drawn by `forge.main` exactly as
- * without a prepass, depth writes included.
+ * Surfaces the depth prepass may lay down. Opaque, cutout, fading and water surfaces all use a
+ * coverage fragment now; a fully transparent material is the only useful rejection. Blended depth
+ * is intentionally conservative: its alpha coverage establishes early-Z just as its historical
+ * depth-writing forward variant did, while the colour pass still controls blending.
  */
 function isPrepassEligible(b: Batch): boolean {
   const m = b.material;
-  return !b.shadowOnly && !b.transparent && !b.overlay && b.geometry.vertexBuffer !== null && m.technique !== "water" && !m.transparent && !(m.alphaTest > 0) && m.opacity >= 0.999;
+  return !b.shadowOnly && !b.overlay && !b.transparent && b.geometry.vertexBuffer !== null &&
+    (m.technique === "water" || m.opacity > 0.004 || m.alphaTest > 0);
 }
 
-/** Prepass pipeline variant: instancing × culling × population LOD (eight pipelines at most). */
+type PrepassKind = "standard" | "terrain" | "water";
+
+function prepassKind(b: Batch): PrepassKind {
+  if (b.material.technique === "water") return "water";
+  if (b.material.technique === "terrain") return "terrain";
+  return "standard";
+}
+
+/** Pipeline variant: surface family × instancing × culling × population LOD × skinning. */
 function prepassState(b: Batch): number {
   const lod = b.lodHiTriangles > 0;
-  return (b.count > 1 || lod ? 1 : 0) | (b.material.doubleSided ? 2 : 0) | (lod ? 4 : 0) | (b.skin ? 8 : 0);
+  const family = prepassKind(b) === "water" ? 2 : prepassKind(b) === "terrain" ? 1 : 0;
+  return family * 32 + (b.count > 1 || lod ? 1 : 0) | (b.material.doubleSided ? 2 : 0) | (lod ? 4 : 0) | (b.skin ? 8 : 0);
+}
+
+function prepassPipelineOptions(b: Batch, depthFormat: GPUTextureFormat): PipelineKeyOptions {
+  const kind = prepassKind(b);
+  const common = {
+    colorFormat: null,
+    depthFormat,
+    transparent: false,
+    doubleSided: b.material.doubleSided,
+    instanced: b.count > 1 || b.lodHiTriangles > 0,
+    lod: b.lodHiTriangles > 0,
+    skinned: b.skin !== null,
+    writeDepth: true,
+  } as const;
+  if (kind === "water") return { ...common, technique: "water", fragmentEntry: "fragmentDepth" };
+  return { ...common, technique: "prepass", terrain: kind === "terrain" };
 }
 
 /** Fewest pipeline switches first, then front to back (`depthSort` is −distance², so larger is nearer). */

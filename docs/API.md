@@ -1,8 +1,8 @@
 # Forge Engine public API
 
 Forge Engine 1.0.0 is the first release covered by the consumer-facing API contract. The package root
-contains **2,196** audited exports: **2,187 public**, **9 experimental**, and **0 deprecated**. All
-2,187 public rows have exact approval entries and the declaration/contract audit is CI-gated. The approval ledger records 2,187/2,187 public candidates with zero pending.
+contains **2,210** audited exports: **2,201 public**, **9 experimental**, and **0 deprecated**. All
+2,201 public rows have exact approval entries and the declaration/contract audit is CI-gated. The approval ledger records 2,201/2,201 public candidates with zero pending.
 
 This page explains the boundary and review mechanism. The [complete API reference](API-REFERENCE.md)
 is the searchable export inventory; the emitted package declarations are the normative source for full

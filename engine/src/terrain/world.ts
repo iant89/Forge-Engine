@@ -95,6 +95,12 @@ interface CompletedGeneration {
 }
 
 const SAMPLED_CELL_CACHE_SIZE = 12;
+/**
+ * Population placement uses one canonical grid instead of whichever terrain LOD happened to arrive
+ * first. It is deliberately independent of the resident tile resolution; a larger authored base
+ * resolution is retained when a world was configured with one.
+ */
+export const POPULATION_SURFACE_RESOLUTION = 65;
 
 /** Remesh when baked geomorph alpha drifts beyond this (avoids LOD seam cracks). */
 const GEOMORPH_REMESH_EPSILON = 0.08;
@@ -153,6 +159,9 @@ export class TerrainWorld extends SceneObject {
   }
 
   private readonly sampledCells = new Map<string, Heightmap>();
+  /** Canonical, LOD-independent surfaces used by Phase 14 population placement. */
+  private readonly populationSurfaces = new Map<string, Heightmap>();
+  readonly populationSurfaceResolution: number;
   private readonly completed: CompletedGeneration[] = [];
   private horizonEntityId: EntityId | null = null;
   private horizonGeometry: Geometry | null = null;
@@ -180,6 +189,7 @@ export class TerrainWorld extends SceneObject {
     this.seed = options.seed ?? 1234;
     this.chunkSize = options.chunkSize ?? 256;
     this.chunkResolution = options.chunkResolution ?? 33;
+    this.populationSurfaceResolution = Math.max(POPULATION_SURFACE_RESOLUTION, this.chunkResolution);
     this.viewDistance = options.viewDistance ?? 1024;
     this.maxLOD = options.maxLOD ?? 4;
     this.budgets = resolveTerrainBudgets(options);
@@ -841,6 +851,77 @@ export class TerrainWorld extends SceneObject {
     return this.focusPosition.y;
   }
 
+  /**
+   * Return the fixed-resolution surface used for population acceptance. This intentionally does not
+   * return the resident tile: a chunk first becoming ready at LOD 3 must make the same scatter
+   * decisions as one first becoming ready at LOD 0. The result is cached with the terrain pipeline
+   * identity and is safe to share with a worker task as plain height samples.
+   */
+  getPopulationSurface(cx: number, cz: number): Heightmap {
+    const key = chunkCoordKey(cx, cz);
+    const cached = this.populationSurfaces.get(key);
+    if (cached) {
+      this.populationSurfaces.delete(key);
+      this.populationSurfaces.set(key, cached);
+      return cached;
+    }
+
+    const resolution = this.populationSurfaceResolution;
+    const cacheKey = terrainCacheKey({
+      seed: this.seed,
+      chunkX: cx,
+      chunkZ: cz,
+      generatorVersion: TERRAIN_GENERATOR_VERSION,
+      generatorSettings: this.pipelineHash,
+      resolution,
+    });
+    const cachedCell = this.cache.get(cacheKey);
+    let heights: Float32Array;
+    if (cachedCell) {
+      heights = cachedCell.heights;
+    } else {
+      const cell = createWorldCell(cx, cz, this.chunkSize, resolution, this.seed);
+      this.pipeline.execute(cell);
+      heights = cell.heights;
+      let minHeight = Infinity;
+      let maxHeight = -Infinity;
+      for (const h of heights) {
+        if (h < minHeight) minHeight = h;
+        if (h > maxHeight) maxHeight = h;
+      }
+      this.cache.set(cacheKey, {
+        cx,
+        cz,
+        seed: this.seed,
+        size: this.chunkSize,
+        resolution,
+        heights: cell.heights,
+        slopes: cell.slopes,
+        biomes: cell.biomes,
+        scatters: cell.scatters,
+        minHeight: Number.isFinite(minHeight) ? minHeight : 0,
+        maxHeight: Number.isFinite(maxHeight) ? maxHeight : 0,
+        bytes: cell.heights.byteLength + cell.slopes.byteLength + cell.biomes.byteLength,
+        pipelineHash: this.pipelineHash,
+      });
+    }
+
+    const surface = new Heightmap({
+      originX: cx * this.chunkSize,
+      originZ: cz * this.chunkSize,
+      size: this.chunkSize,
+      resolution,
+      heights,
+    });
+    this.populationSurfaces.set(key, surface);
+    while (this.populationSurfaces.size > SAMPLED_CELL_CACHE_SIZE) {
+      const oldest = this.populationSurfaces.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.populationSurfaces.delete(oldest);
+    }
+    return surface;
+  }
+
   getHeightAt(worldX: number, worldZ: number): number {
     return this.surfaceAt(worldX, worldZ).getHeight(worldX, worldZ);
   }
@@ -974,6 +1055,7 @@ export class TerrainWorld extends SceneObject {
     this.chunks.clear();
     this.activeEntities.clear();
     this.sampledCells.clear();
+    this.populationSurfaces.clear();
     this.completed.length = 0;
     this.lastScheduler = undefined;
     if (this.horizonGeometry) {

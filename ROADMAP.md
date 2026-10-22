@@ -9,21 +9,14 @@ STATUS:
     Active Development
 
 CURRENT CODEBASE BASELINE:
-    Phases 0-5, 7:  IMPLEMENTED / VERIFIED
-    Phase 6:  IMPLEMENTED BUT REQUIRES HARDENING
-                (Reconciled 2026-10-06: the top block previously claimed "Phases 0-7:
-                IMPLEMENTED / VERIFIED", which contradicted the state block's [!] and the
-                registry's `6: partial`. The registry is right: the open vehicle limitations
-                were box wheel visuals (vehicles.wheelVisuals) plus three intentional model
-                limits — solved longitudinal slip (vehicles.tireModel) and discrete-contact impacts
-                (physics.ccd). Reverse was formerly only a ratio with no control; it is now a safely
-                interlocked manual F/N/R selector on keyboard and touch (vehicles.transmission verified).
-                The remaining limits are not Phase 6 defects — the model itself is pinned by
-                tests/vehicles/vehicles.test.ts and tests/vehicles/vehiclePhysics.test.ts. Phase 16.6
-                closed the visual limitation (tyre assemblies, steered geometry, suspension/damper
-                animation), and no separate Phase 6 hardening work is scheduled for the intentional
-                tire and collision model limits. This note records the
-                interpretation rather than inventing scope.)
+    Phases 0-7:  IMPLEMENTED / VERIFIED
+    Phase 6 hardening (reconciled 2026-10-21): the longitudinal wheel path now integrates
+                angular velocity from drive/brake/tire torque with deterministic TC/ABS control,
+                and JavaScript PhysicsWorld has deterministic time-of-impact sweeps for supported
+                high-speed static/kinematic impacts. The former `vehicles.tireModel` and
+                `physics.ccd` gaps are closed by the focused vehicle/physics suites. Box wheel
+                visuals remain tracked under Phase 16.6; the non-executable WASM solver remains
+                tracked under Phase 25 rather than being implied by the JS CCD result.
     Phase 8a:   IMPLEMENTED / VERIFIED
     Phase 8b:   IMPLEMENTED / VERIFIED
     Phase 9:    IMPLEMENTED / VERIFIED (worker-backed mesh decoding, BVH picking/frustum refinement,
@@ -31,17 +24,15 @@ CURRENT CODEBASE BASELINE:
     Phase 10:   IMPLEMENTED BUT REQUIRES HARDENING
     Phase 11:   IMPLEMENTED / VERIFIED
     Phase 12:   IMPLEMENTED / VERIFIED (honest subset — see Phase 12 checkboxes)
-    Phase 13:   IN PROGRESS (13.1-13.8 landed: depth prepass + SSAO, aliasing,
+    Phase 13:   IMPLEMENTED / VERIFIED (13.1-13.8: depth prepass + SSAO, aliasing,
                 clustered lighting, GPU light fill/culling, indirect rendering,
-                async pipeline compilation, GPU timing; 13.9 cascade assignment,
-                bounded spot shadows and bounded point shadows landed;
-                contact/adaptive work remains)
-    Phase 14:   IN PROGRESS (planned 14.1-14.6 population slices implemented, including
-                all six 14.2 types and GPU-selected LOD; capability remains partial for
-                documented follow-ups: per-instance culling, load-order-independent
-                surface sampling, worker generation and population raycast)
-                (2026-10-06 reconcile: those four follow-ups now carry [ ] checkboxes under
-                14.1, 14.5 and 14.6, so the [~] is backed by items, not only prose.)
+                async pipeline compilation and GPU timing; 13.9 cascade assignment,
+                bounded spot/point shadows, contact shadows, adaptive atlas resolution,
+                and shared per-instance culling are covered by focused suites and docs)
+    Phase 14:   IMPLEMENTED / VERIFIED (14.1-14.6: canonical-surface deterministic scatter,
+                all six 14.2 types, compact/device-resident storage, GPU LOD/culling, worker-backed
+                population streaming and resident geometry raycasts; focused population and task
+                suites cover the complete phase. Scheduler/custom-stage fallbacks remain documented.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
@@ -127,7 +118,7 @@ PHASE 5 - Physics
     [x]
 
 PHASE 6 - Vehicles
-    [!] IMPLEMENTED BUT REQUIRES HARDENING
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 7 - Particles
     [x]
@@ -550,8 +541,8 @@ CURRENT PROBLEMS (addressed in this phase):
 
             (2026-10-09 update: the coarse-LOD material-mask mismatch is closed by pointwise
             planet-space geology + splat sampling in `MarsTerrainStage`; 14.1's separate
-            "Load-order-independent surface sampling" remains open for population placement, not
-            Mars terrain. The first sentence above is still a blocker, not work — the fidelity check
+            "Load-order-independent surface sampling" is implemented for population placement;
+            Mars terrain's separate Stage A fidelity blocker remains open. The first sentence above is still a blocker, not work — the fidelity check
             needs the upstream generator's ~30 MB `cache/global/` fields, which this repository
             deliberately does not ship; `check:mars-port` stays a synthetic-cache smoke test until
             a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
@@ -828,18 +819,22 @@ GOAL:
 
 CURRENT STATE:
 
-    In progress. Landed: the depth prepass (13.1) with SSAO as its first consumer,
-    real transient aliasing in every SSAO frame (13.2), clustered lighting (13.3),
-    the GPU cluster fill (13.4), GPU object culling with the HiZ pyramid (13.5),
-    indirect rendering (13.6), asynchronous pipeline compilation (13.7) and GPU
-    timing (13.8). Phase 13.9 has conservative per-object cascade assignment,
-    bounded spot shadows (up to four lights) and bounded point shadows (up to two
-    lights, six cube faces each); contact shadows and adaptive resolution remain.
-    Frame: forge.shadow.<n> → forge.shadow.spot.<n> → forge.shadow.point.<n>.<face>
-    (both optional, after cascades) → forge.prepass → forge.hiz.<n> →
-    forge.objects.cull → forge.ssao → forge.ssao.blur.h → forge.ssao.blur.v →
-    forge.main → forge.sky → particles → bloom → forge.tonemap (the cull passes
-    exist only on the device path).
+    Implemented and verified. Landed: the depth prepass (13.1) with material-aware
+    coverage and orthographic SSAO, real transient aliasing in every SSAO frame (13.2),
+    clustered lighting (13.3), the GPU cluster fill (13.4), GPU object culling with
+    the HiZ pyramid (13.5), indirect rendering (13.6), asynchronous pipeline
+    compilation (13.7) and GPU timing (13.8). Phase 13.9 adds conservative
+    per-object cascade assignment, bounded spot shadows (up to four lights), bounded
+    point shadows (up to two lights, six cube faces each), a prepass-depth contact
+    resolve, budget-driven adaptive atlas resolution, and shared per-instance culling
+    for ordinary instanced batches and population batches.
+    Frame: forge.lights.assign (optional GPU fill) → forge.populationCull.views
+    (optional per-instance view/shadow lists) → forge.shadow.<n> →
+    forge.shadow.spot.<n> → forge.shadow.point.<n>.<face> (both optional, after
+    cascades) → forge.prepass → forge.contact.depth (optional) → forge.hiz.<n> →
+    forge.objects.cull → forge.populationCull → forge.ssao → forge.ssao.blur.h →
+    forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap
+    (the cull passes exist only on the device path).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -879,12 +874,14 @@ CURRENT STATE:
                               transparency technique (depth fade, OIT) consumes it.
         [ ] post processing — no depth-based post effect exists yet.
 
-    [ ] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
-        (a fragment stage that discards exactly like forge.main), so they get early-Z
-        and take part in SSAO.
+    [x] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
+        (a material-aware fragment stage matches forward alpha coverage; water uses
+        its deformed vertex path), so eligible surfaces get early-Z. Transparent and
+        overlay surfaces remain intentionally outside the prepass.
 
-    [ ] SSAO for orthographic cameras (the forward pass's bilateral key is clip.w,
-        which only a perspective projection makes view depth).
+    [x] SSAO for orthographic cameras. The uniform carries a projection-mode bit;
+        the kernel uses a constant pixels-per-metre radius and reconstructs view depth
+        along the camera forward axis instead of dividing by clip.w.
 
 
 13.2 Render Graph Aliasing Validation
@@ -1006,10 +1003,15 @@ CURRENT STATE:
         The visible-object compaction and indirect draws that consume this buffer
         landed in 13.6.)
 
-    [ ] Per-instance culling inside a batch: one visible instance keeps its batch. (Population batches: done — 14.5 / fe-30, docs/RENDERING.md §4g; renderable batches still per batch.)
+    [x] Per-instance culling inside a batch: one visible instance no longer keeps the
+        whole ordinary instanced batch. The shared two-stage population culler compacts
+        ordinary static instanced renderables as well as population batches; its dynamic
+        source window leaves the frame arena intact and `forge.main` consumes the batch
+        records indirectly.
 
-    [ ] Culling the shadow cascades with the same pass (the cascades still use the
-        CPU's per-cascade AABB test).
+    [x] Culling the shadow cascades with the same pass. Ordinary instanced batches and
+        population batches append per-map caster indices in `forge.populationCull.views`;
+        the CPU range path remains the conservative fallback when the device path is off.
 
 
 13.6 Indirect Rendering
@@ -1105,9 +1107,20 @@ CURRENT STATE:
         clustered light paths. Covered by math/frame/WGSL tests and the PBR browser visual A/B;
         `Renderer.stats.pointShadowMaps` reports the active cube prefix.
 
-    [ ] Contact shadows.
+    [x] Contact shadows.
 
-    [ ] Adaptive shadow resolution.
+        A short, configurable screen-space ray (`contactDistance`, `contactStrength`)
+        samples a full-resolution `r32float` resolve of the prepass depth in the forward
+        shader. The pass is opt-in (`settings.shadow.contactShadows`) and complements,
+        rather than replaces, directional/spot/point atlas shadows; the renderer option
+        can veto it and the neutral fallback keeps the frame bind group stable.
+
+    [x] Adaptive shadow resolution.
+
+        When `settings.shadow.adaptive` is enabled, the complete active depth atlas is
+        reduced by powers of two until it fits `RendererOptions.shadowMemoryBudget`
+        (256 MiB by default), with a 128 px floor. When `adaptive: false`, the renderer
+        retains the requested shared resolution and does not apply the adaptive budget.
 
 
 EXIT CRITERIA:
@@ -1143,11 +1156,11 @@ GOAL:
         and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
         never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population/population.test.ts.
 
-    [ ] Load-order-independent surface sampling (follow-up, added 2026-10-06 to make the phase's
-        remaining work checkable — the baseline block names all four of these): acceptance samples
-        must come from a resolution-independent surface, so the same chunk scatters the same
-        instances whichever LOD its tile first became ready at (docs/KNOWN-ISSUES.md
-        § World population "Placement depends on the tile resolution…").
+    [x] Load-order-independent surface sampling: acceptance samples come from TerrainWorld's
+        fixed-resolution canonical surface rather than the resident tile's first-ready LOD, so the
+        same chunk scatters the same instances in every load order. Inline and worker generation use
+        the same bilinear grid sampler; tests/population/population.test.ts compares coarse-first and
+        fine-first resident tiles bit-for-bit.
 
 
 14.2 Population Types
@@ -1222,8 +1235,9 @@ GOAL:
         Each (chunk, type) submission becomes its own batch with its own conservative bounds, so
         the Phase 13.5 device object culler (frustum, distance, HiZ) and the Phase 13.6 indirect
         records apply to populations unchanged; a type's `maxDistance` is the per-batch distance
-        limit the culler enforces. Per-chunk granularity only — a partially visible chunk draws all
-        of its instances (per-instance device culling is not built).
+        limit the culler enforces. The shared `forge.populationCull` path now also compacts each
+        eligible population instance for colour, prepass and shadow maps; a CPU/per-batch fallback
+        remains when the device path or indirect draws are off.
 
     [x] Per-instance culling inside a batch (fe-30, GPU-placement Phase A): `forge.populationCull`
         tests every instance of an instanced population batch (frustum, distance, HiZ), merged with
@@ -1253,14 +1267,15 @@ GOAL:
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
         Zero ECS entities are created — pinned by tests/population/population.test.ts.
 
-    [ ] Population generation on workers (follow-up, added 2026-10-06): the scatter pass is
-        main-thread inline, budgeted by `generationsPerFrame`; moving it behind `TaskScheduler`
-        needs the heightmap samples available off-thread, like terrain cells in 10.2
-        (docs/KNOWN-ISSUES.md § World population "Population generation is main-thread inline").
+    [x] Population generation on workers: `population.chunk` reconstructs the canonical terrain
+        surface from the serialized pipeline and runs the same scatter/settling body on TaskScheduler
+        workers, transferring typed-array results back to PopulationWorld. Unsupported custom/live
+        Stage A pipelines and unavailable schedulers use the deterministic inline fallback. Covered by
+        tests/population/population.test.ts and the task worker protocol suites.
 
-    [ ] Population raycast (follow-up, added 2026-10-06): picking and debug tools cannot hit
-        population instances today; add a deterministic spatial query over the instance blocks
-        (docs/KNOWN-ISSUES.md § World population "Population rendering has no raycast…").
+    [x] Population raycast: PopulationWorld implements the SceneObject raycast seam and tests each
+        resident instance's prototype geometry through its YTRS matrix, returning the nearest triangle
+        point/normal and a decodable chunk/type/instance tag. Covered by tests/population/population.test.ts.
 
 
 EXIT CRITERIA:
@@ -2530,8 +2545,8 @@ This is the primary validation environment for Forge.
 
 23.3 Rover
 
-    [~] physics chassis (vehicle dynamics are live; full rigid-body terrain/world contact remains a
-        known Phase 6 hardening boundary)
+    [~] physics chassis (vehicle dynamics and supported high-speed rigid-body CCD are live; the
+        showcase chassis itself remains a kinematic bridge rather than a fully dynamic rover body)
     [x] suspension
     [x] wheels
     [x] tire model
@@ -2645,9 +2660,10 @@ GOAL:
 
 24.3 GPU Visibility Compaction
 
-    [~] The object culler produces a dense visible-batch list and population culling compacts
-        per-instance records. The generic instance arena and CPU submission loop do not consume the
-        visible-batch list yet.
+    [~] The object culler produces a dense visible-batch list; the population culler and the
+        generic instanced-batch extension compact per-instance records and feed indirect draws.
+        The world-scale path still does not rewrite one global instance arena or consume the visible
+        batch list to remove CPU batch assembly.
 
 24.4 Indirect Rendering
 
@@ -3097,8 +3113,8 @@ DO NOT immediately start scripting, editor work, networking, or miscellaneous
 features.
 
 The sequence below is retained from the original plan, not a current queue: terrain workers/LOD,
-vehicle integration, and Phase 13.1–13.8 have since landed. The active Phase 13 remainder is 13.9
-shadow improvements (see the current state at the top of this document).
+vehicle integration, and Phase 13.1–13.9 have since landed. Phase 10 remains intentionally
+skipped/blocked as documented in the current status and known-issues sections.
 
 The original recommended sequence was:
 
@@ -3206,8 +3222,8 @@ CHANGE:
 
     Reason (at the time of this roadmap revision):
         Clustered lighting, depth prepass, GPU culling, indirect rendering,
-        GPU timing and async pipeline creation were unfinished; 13.1–13.8 have
-        since landed, with 13.9 shadow improvements still open.
+        GPU timing and async pipeline creation were unfinished; 13.1–13.9 have
+        since landed and are now covered by focused renderer verification.
 
 
 CHANGE:

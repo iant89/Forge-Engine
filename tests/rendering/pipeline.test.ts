@@ -138,6 +138,7 @@ group("PipelineFactory cache", () => {
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsSsao" },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurH" },
       { ...base, technique: "ssao", colorFormat: "rg16float", depthFormat: null, doubleSided: true, fragmentEntry: "fsBlurV" },
+      { ...base, technique: "contactDepth", colorFormat: "r32float", depthFormat: null, doubleSided: true },
     ];
     const bundles = variants.map((v) => factory.get(v));
     assert.equal(new Set(bundles.map((b) => b.key)).size, variants.length);
@@ -166,21 +167,23 @@ group("PipelineFactory cache", () => {
     const prepass = desc({ ...base, technique: "prepass", colorFormat: null });
     const prepassInstanced = desc({ ...base, technique: "prepass", colorFormat: null, instanced: true });
     const prepassInstancedLod = desc({ ...base, technique: "prepass", colorFormat: null, instanced: true, lod: true });
-    // Same module, same entry point as the forward pass (+ @invariant position): the prepass depth is
-    // bit-identical to what forge.main computes, so its less-equal test passes on exactly that value.
-    assert.equal(prepass.vertex.module, forward.vertex.module);
+    // The prepass now carries a material-aware coverage fragment, so it has a distinct module while
+    // retaining the exact forward vertex entry (+ @invariant position). Its depth is still bit-identical
+    // to what forge.main computes, so the less-equal test passes on exactly that value.
+    assert.notEqual(prepass.vertex.module, forward.vertex.module);
     assert.equal(prepass.vertex.entryPoint, forward.vertex.entryPoint);
-    assert.equal(prepassInstanced.vertex.module, forwardInstanced.vertex.module);
+    assert.equal(prepass.fragment?.module, prepass.vertex.module);
+    assert.equal(prepass.fragment?.entryPoint, "fragmentDepth");
+    assert.notEqual(prepassInstanced.vertex.module, forwardInstanced.vertex.module);
     assert.equal(prepassInstanced.vertex.entryPoint, "vertexMainInstanced");
-    // LOD forward + prepass use the same merged-buffer vertex module and entry point; shadow has
-    // its own depth module but uses the matching LOD-aware entry.
-    assert.equal(prepassInstancedLod.vertex.module, forwardInstancedLod.vertex.module);
+    // LOD forward + prepass use the same merged-buffer vertex entry; the coverage fragment gives
+    // the prepass its own module, while shadow has its own depth module and matching LOD entry.
+    assert.notEqual(prepassInstancedLod.vertex.module, forwardInstancedLod.vertex.module);
     assert.equal(prepassInstancedLod.vertex.entryPoint, "vertexMainInstancedLod");
     assert.equal(shadowLod.vertex.entryPoint, "vertexMainInstancedLod");
     // ...not the shadow program, which is a different shader with a polygon offset.
     assert.notEqual(shadow.vertex.module, forward.vertex.module);
-    assert.equal(factory.shaders.stats().created, 4); // standard static/instanced/LOD + depth: prepass compiles nothing
-    assert.equal(prepass.fragment, undefined);
+    assert.equal(factory.shaders.stats().created, 7); // forward standard/depth plus three material-aware prepass modules
     assertMatchObject(prepass.depthStencil, { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less", depthBias: 0, depthBiasSlopeScale: 0 });
     assert.ok((shadow.depthStencil?.depthBias ?? 0) > 0);
     assertMatchObject(prepass.primitive, { cullMode: "back", frontFace: forward.primitive!.frontFace });
@@ -194,6 +197,10 @@ group("PipelineFactory cache", () => {
     assert.equal(ssao.fragment!.entryPoint, "fsSsao");
     assert.equal(blur.fragment!.entryPoint, "fsBlurH");
     assert.equal(ssao.depthStencil, undefined);
+    const contact = desc({ ...base, technique: "contactDepth", colorFormat: "r32float", depthFormat: null, doubleSided: true });
+    assert.equal(contact.depthStencil, undefined);
+    assert.equal(Array.from(contact.fragment?.targets ?? [])[0]?.format, "r32float");
+    assert.deepEqual(contact.vertex.buffers, []);
     assert.deepEqual(ssao.vertex.buffers, []);
     assert.notEqual(ssao.layout, blur.layout); // the estimate binds depth, the blurs bind the AO texture
     assert.deepEqual(device.mock.errors, []);
