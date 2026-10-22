@@ -84,7 +84,7 @@ export const ROADMAP_PHASE_STATUS: Record<string, CapabilityStatus> = {
   "11": "verified",
   "12": "verified",
   "13": "verified",
-  "14": "inProgress",
+  "14": "verified",
   "15+": "verified",
   "15.5": "inProgress",
   "16": "inProgress",
@@ -1042,7 +1042,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     summary:
       "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following a canonical terrain surface through worker-backed streaming, GPU-selected LOD/culling, and resident population raycasts",
     evidence: ["tests/population/population.test.ts", "tests/population/populationCull.test.ts", "tests/rendering/pipeline.test.ts", "tests/math/math.test.ts", "tests/rendering/primitives.test.ts"],
-    notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented and verified. Placement uses TerrainWorld's fixed-resolution canonical surface; population.chunk runs the same surface reconstruction and scatter body through TaskScheduler with deterministic inline fallback; PopulationWorld.raycast covers resident geometry-backed instances. Remaining resident-only/query and scheduler fallback boundaries are documented in docs/KNOWN-ISSUES.md § World population.",
+    notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented and verified. Placement uses TerrainWorld's fixed-resolution canonical surface; population.chunk runs the same surface reconstruction and scatter body through TaskScheduler with deterministic inline fallback; PopulationWorld.raycast covers resident geometry-backed instances. Intentional resident-only/query and scheduler fallback boundaries are documented in docs/KNOWN-ISSUES.md § World population and tracked separately from the completed phase contract.",
   },
   {
     id: "world.interactiveTerrain",

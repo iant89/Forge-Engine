@@ -264,17 +264,20 @@ WASM backend is still a future solver seam.
   batch (no visible difference: that list is already frustum-tested per instance). The mock device runs
   the CPU twins without HiZ. The distance fade is a scale-down about the instance pivot, not a dither:
   a half-buried rock sinks as it shrinks, and a very large prototype visibly shrinks rather than
-  dissolving. (roadmap: 14)
+  dissolving. Broader world-scale visibility compaction remains tracked under GPU-driven world work.
+  (roadmap: 24.3)
 * **Population raycasts are resident and prototype-geometry only.** `PopulationWorld.raycast()`
   uses the resident chunk/type blocks and each type's CPU triangle geometry, so evicted chunks and
   CPU-only population types without a geometry/material submission cannot be picked. The returned
   `RayHit.tag` decodes through `PopulationWorld.raycastInfo()` while the hit is current; this is a
-  deliberate query boundary, not an ECS entity fallback. (roadmap: 14)
+  deliberate query boundary, not an ECS entity fallback. Broader interactive/query coverage remains
+  tracked with the near-field population proxy work. (roadmap: 15.5)
 * **Worker generation has a deterministic inline fallback.** With an engine `TaskScheduler`, the
   complete canonical-surface + scatter job runs through `population.chunk` on the worker path. A
   scheduler that is unavailable/disposed, an unsupported custom terrain stage, or a live Mars Stage A
   field cache falls back to the same pure inline body; the fallback preserves placement but does not
-  provide off-main-thread performance. (roadmap: 14)
+  provide off-main-thread performance. Broader worker failure/recovery policy remains tracked separately.
+  (roadmap: 28.7)
 
 ## Scripting (Phase 18)
 

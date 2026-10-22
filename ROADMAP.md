@@ -145,7 +145,7 @@ PHASE 13 - Renderer 2.0
     [x] IMPLEMENTED / VERIFIED
 
 PHASE 14 - World Population
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 15+
     [x] IMPLEMENTED / VERIFIED
