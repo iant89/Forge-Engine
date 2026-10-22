@@ -29,12 +29,10 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation and GPU timing; 13.9 cascade assignment,
                 bounded spot/point shadows, contact shadows, adaptive atlas resolution,
                 and shared per-instance culling are covered by focused suites and docs)
-    Phase 14:   IN PROGRESS (planned 14.1-14.6 population slices implemented, including
-                all six 14.2 types and GPU-selected LOD; capability remains partial for
-                documented follow-ups: per-instance culling, load-order-independent
-                surface sampling, worker generation and population raycast)
-                (2026-10-06 reconcile: those four follow-ups now carry [ ] checkboxes under
-                14.1, 14.5 and 14.6, so the [~] is backed by items, not only prose.)
+    Phase 14:   IMPLEMENTED / VERIFIED (14.1-14.6: canonical-surface deterministic scatter,
+                all six 14.2 types, compact/device-resident storage, GPU LOD/culling, worker-backed
+                population streaming and resident geometry raycasts; focused population and task
+                suites cover the complete phase. Scheduler/custom-stage fallbacks remain documented.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
@@ -543,8 +541,8 @@ CURRENT PROBLEMS (addressed in this phase):
 
             (2026-10-09 update: the coarse-LOD material-mask mismatch is closed by pointwise
             planet-space geology + splat sampling in `MarsTerrainStage`; 14.1's separate
-            "Load-order-independent surface sampling" remains open for population placement, not
-            Mars terrain. The first sentence above is still a blocker, not work — the fidelity check
+            "Load-order-independent surface sampling" is implemented for population placement;
+            Mars terrain's separate Stage A fidelity blocker remains open. The first sentence above is still a blocker, not work — the fidelity check
             needs the upstream generator's ~30 MB `cache/global/` fields, which this repository
             deliberately does not ship; `check:mars-port` stays a synthetic-cache smoke test until
             a human run supplies the real cache (docs/MARS-TERRAIN.md §5–6,
@@ -1158,11 +1156,11 @@ GOAL:
         and `maxPerChunk` rules rejecting candidates after every random draw so the stream position
         never depends on acceptance. Bit-for-bit reproducibility pinned by tests/population/population.test.ts.
 
-    [ ] Load-order-independent surface sampling (follow-up, added 2026-10-06 to make the phase's
-        remaining work checkable — the baseline block names all four of these): acceptance samples
-        must come from a resolution-independent surface, so the same chunk scatters the same
-        instances whichever LOD its tile first became ready at (docs/KNOWN-ISSUES.md
-        § World population "Placement depends on the tile resolution…").
+    [x] Load-order-independent surface sampling: acceptance samples come from TerrainWorld's
+        fixed-resolution canonical surface rather than the resident tile's first-ready LOD, so the
+        same chunk scatters the same instances in every load order. Inline and worker generation use
+        the same bilinear grid sampler; tests/population/population.test.ts compares coarse-first and
+        fine-first resident tiles bit-for-bit.
 
 
 14.2 Population Types
@@ -1269,14 +1267,15 @@ GOAL:
         LOD remesh re-anchors Y positions to the new heightmap without re-scattering XZ placement.
         Zero ECS entities are created — pinned by tests/population/population.test.ts.
 
-    [ ] Population generation on workers (follow-up, added 2026-10-06): the scatter pass is
-        main-thread inline, budgeted by `generationsPerFrame`; moving it behind `TaskScheduler`
-        needs the heightmap samples available off-thread, like terrain cells in 10.2
-        (docs/KNOWN-ISSUES.md § World population "Population generation is main-thread inline").
+    [x] Population generation on workers: `population.chunk` reconstructs the canonical terrain
+        surface from the serialized pipeline and runs the same scatter/settling body on TaskScheduler
+        workers, transferring typed-array results back to PopulationWorld. Unsupported custom/live
+        Stage A pipelines and unavailable schedulers use the deterministic inline fallback. Covered by
+        tests/population/population.test.ts and the task worker protocol suites.
 
-    [ ] Population raycast (follow-up, added 2026-10-06): picking and debug tools cannot hit
-        population instances today; add a deterministic spatial query over the instance blocks
-        (docs/KNOWN-ISSUES.md § World population "Population rendering has no raycast…").
+    [x] Population raycast: PopulationWorld implements the SceneObject raycast seam and tests each
+        resident instance's prototype geometry through its YTRS matrix, returning the nearest triangle
+        point/normal and a decodable chunk/type/instance tag. Covered by tests/population/population.test.ts.
 
 
 EXIT CRITERIA:

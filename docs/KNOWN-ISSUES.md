@@ -272,23 +272,17 @@ WASM backend is still a future solver seam.
   batch (no visible difference: that list is already frustum-tested per instance). The mock device runs
   the CPU twins without HiZ. The distance fade is a scale-down about the instance pivot, not a dither:
   a half-buried rock sinks as it shrinks, and a very large prototype visibly shrinks rather than
-  dissolving. (capability: world.population)
-* **Placement depends on the tile resolution the chunk first became ready at.** Slope/height
-  acceptance samples the resident tile's heightmap at whatever LOD was live when the chunk was
-  populated; a chunk that first appears at a coarse LOD may keep slightly different instances than
-  one that appeared at LOD 0. XZ placement, scale, rotation and tint are stable forever after (an
-  LOD remesh re-anchors Y to the new surface instead of re-scattering), and the same warm-up
-  sequence is bit-for-bit reproducible — but "same chunk, any load order" is not guaranteed until
-  placement samples a resolution-independent surface. (capability: world.population)
-* **Population generation is main-thread inline.** Populating a chunk is one bounded scatter pass
-  per type over the resident heightmap (budgeted by `generationsPerFrame`), not a `TaskScheduler`
-  job — unlike terrain cells, which generate in workers. Moving it behind a task needs the
-  heightmap samples available off-thread. (capability: world.population)
-* **Population rendering has no raycast or per-instance visibility.** All six Phase 14.2 types
-  (rocks, boulders, debris, rosette vegetation, decals, mineral spires) now draw as batches, but
-  picking/debug tools cannot hit them and the device culls only whole chunk/type bounds (noted
-  above). Placement still depends on the tile LOD at first readiness, and generation is inline on
-  the main thread (noted above). (capability: world.population)
+  dissolving. (roadmap: 14)
+* **Population raycasts are resident and prototype-geometry only.** `PopulationWorld.raycast()`
+  uses the resident chunk/type blocks and each type's CPU triangle geometry, so evicted chunks and
+  CPU-only population types without a geometry/material submission cannot be picked. The returned
+  `RayHit.tag` decodes through `PopulationWorld.raycastInfo()` while the hit is current; this is a
+  deliberate query boundary, not an ECS entity fallback. (roadmap: 14)
+* **Worker generation has a deterministic inline fallback.** With an engine `TaskScheduler`, the
+  complete canonical-surface + scatter job runs through `population.chunk` on the worker path. A
+  scheduler that is unavailable/disposed, an unsupported custom terrain stage, or a live Mars Stage A
+  field cache falls back to the same pure inline body; the fallback preserves placement but does not
+  provide off-main-thread performance. (roadmap: 14)
 
 ## Scripting (Phase 18)
 

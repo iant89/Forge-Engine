@@ -20,7 +20,7 @@
 
 import { SceneObject } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
-import { AABB } from "../math/geometry.js";
+import { AABB, RayHit, type Ray } from "../math/geometry.js";
 import { Mat4, composeYTRS } from "../math/mat.js";
 import { Vec3 } from "../math/vec.js";
 import type { Geometry } from "../rendering/geometry.js";
@@ -28,6 +28,7 @@ import type { Material } from "../rendering/material.js";
 import type { TerrainWorld } from "../terrain/world.js";
 import type { TerrainTile } from "../terrain/chunk.js";
 import {
+  GridPopulationSurfaceSampler,
   resolvePopulationTypeSpec,
   scatterPopulationChunk,
   type PopulationSurfaceSampler,
@@ -44,6 +45,14 @@ import {
   type PopulationSource,
   type PopulationSubmission,
 } from "../scene/population.js";
+import { TaskPriority, TaskCancelledError, type TaskScheduler } from "../core/tasks/scheduler.js";
+import { describePipeline, type TerrainPipelineSpec } from "../terrain/pipelineSpec.js";
+import {
+  POPULATION_CHUNK_TASK,
+  installPopulationTaskHandlers,
+  type PopulationChunkTaskPayload,
+  type PopulationChunkTaskResult,
+} from "./tasks.js";
 
 /** A population type spec paired with what draws it. Geometry/material are owned by the caller. */
 export interface PopulationType extends PopulationTypeSpec {
@@ -104,6 +113,35 @@ interface ChunkRecord {
   readonly types: readonly TypeRecord[];
   /** The tile the Y positions are anchored to; a remesh replaces it. */
   tileRef: TerrainTile | null;
+  /** Canonical surface data used for this chunk's placement acceptance. */
+  readonly surfaceHeights: Float32Array;
+  readonly surfaceResolution: number;
+}
+
+interface PendingPopulationTask {
+  readonly taskKey: string;
+  readonly scheduler: TaskScheduler;
+}
+
+interface PopulationCompletion {
+  readonly key: string;
+  readonly tile: TerrainTile;
+  readonly result: PopulationChunkTaskResult;
+}
+
+/** Metadata for a hit returned by `PopulationWorld.raycast`. */
+export interface PopulationRaycastInfo {
+  readonly chunkKey: string;
+  readonly typeId: number;
+  readonly instanceIndex: number;
+}
+
+function populationRaycastTag(chunkKey: string, typeId: number, instanceIndex: number): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < chunkKey.length; i++) hash = Math.imul(hash ^ chunkKey.charCodeAt(i), 16777619);
+  hash = Math.imul(hash ^ typeId, 16777619);
+  hash = Math.imul(hash ^ instanceIndex, 16777619);
+  return (hash >>> 0) || 1;
 }
 
 /**
@@ -135,6 +173,18 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
 
   private readonly populated = new Map<string, ChunkRecord>();
   private readonly pending: string[] = [];
+  private readonly pendingTasks = new Map<string, PendingPopulationTask>();
+  private readonly completed: PopulationCompletion[] = [];
+  /** Undefined means not attempted; null means the pipeline is intentionally inline-only. */
+  private populationPipelineSpec: TerrainPipelineSpec | null | undefined;
+  private populationTaskEpoch = 0;
+  readonly generationStats = {
+    scheduled: 0,
+    inline: 0,
+    completed: 0,
+    cancelled: 0,
+    failed: 0,
+  };
   /**
    * Y-settling rate (1/s) toward re-anchored targets. 8 converges 99% in ~0.6 s — fast enough that
    * a remeshed chunk's rocks never visibly float, slow enough that a meter-scale LOD height
@@ -145,6 +195,11 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   private readonly generationsPerFrame: number;
   private readonly scratchMatrix = new Mat4();
   private readonly scratchWorldBox = new AABB();
+  private readonly raycastMatrix = new Mat4();
+  private readonly raycastWorldBox = new AABB();
+  private readonly raycastRange = new Float32Array(2);
+  private readonly raycastHit = new RayHit();
+  private readonly raycastTags = new Map<number, PopulationRaycastInfo>();
   /** @see {@link PopulationWorldOptions.settleSnapDistance} */
   readonly settleSnapDistance: number;
 
@@ -185,15 +240,25 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
 
   // ------------------------------------------------------------------ streaming
 
-  override update(_context: SystemContext, dt: number): void {
+  override update(context: SystemContext, dt: number): void {
+    // Promise callbacks run after the previous frame; consume them before diffing terrain, otherwise
+    // a completed task could be queued a second time for one microtask-sized window.
+    this.drainCompletions();
     this.diffChunks();
-    this.processPending();
+    this.processPending(context);
     this.reanchorRemeshed();
     this.settleAnchoredY(dt);
   }
 
-  /** Enqueue newly ready terrain chunks; drop records for evicted ones. */
+  /** Enqueue newly ready terrain chunks; drop records for evicted ones and cancel stale jobs. */
   private diffChunks(): void {
+    for (const [key, pending] of this.pendingTasks) {
+      if (this.terrain.chunks.has(key)) continue;
+      pending.scheduler.cancel(pending.taskKey);
+      this.pendingTasks.delete(key);
+      this.pendingSet.delete(key);
+      this.generationStats.cancelled++;
+    }
     for (const [key, chunk] of this.terrain.chunks) {
       if (this.populated.has(key) || this.pendingSet.has(key)) continue;
       if (chunk.state === "ready" && chunk.tile) {
@@ -210,17 +275,114 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
     }
   }
 
-  private processPending(): void {
+  private pipelineSpec(): TerrainPipelineSpec | null {
+    if (this.populationPipelineSpec !== undefined) return this.populationPipelineSpec;
+    try {
+      this.populationPipelineSpec = describePipeline(this.terrain.pipeline);
+    } catch {
+      // Custom stages and live Mars Stage A field caches are deliberately inline-only. The caller
+      // still gets deterministic placement; only the worker optimization is unavailable.
+      this.populationPipelineSpec = null;
+    }
+    return this.populationPipelineSpec;
+  }
+
+  private processPending(context: SystemContext): void {
     let budget = this.generationsPerFrame;
+    const scheduler = context.services.get<TaskScheduler>("tasks");
+    if (scheduler) installPopulationTaskHandlers();
     while (budget > 0 && this.pending.length > 0) {
       const key = this.pending.shift()!;
-      this.pendingSet.delete(key);
       const chunk = this.terrain.chunks.get(key);
       // The chunk may have been evicted (or is mid-regeneration) while queued; it re-enqueues
       // itself on a later frame if it becomes ready again.
-      if (!chunk || chunk.state !== "ready" || !chunk.tile) continue;
+      if (!chunk || chunk.state !== "ready" || !chunk.tile) {
+        this.pendingSet.delete(key);
+        continue;
+      }
+      if (scheduler && this.scheduleChunk(key, chunk.cx, chunk.cz, scheduler)) {
+        budget--;
+        continue;
+      }
       this.populateChunk(key, chunk.cx, chunk.cz, chunk.tile);
+      this.pendingSet.delete(key);
+      this.generationStats.inline++;
       budget--;
+    }
+  }
+
+  private scheduleChunk(key: string, cx: number, cz: number, scheduler: TaskScheduler): boolean {
+    const pipeline = this.pipelineSpec();
+    if (!pipeline) return false;
+    const taskKey = `population.chunk:${cx},${cz}:${++this.populationTaskEpoch}`;
+    const payload: PopulationChunkTaskPayload = {
+      seed: this.seed,
+      cx,
+      cz,
+      size: this.terrain.chunkSize,
+      surfaceResolution: this.terrain.populationSurfaceResolution,
+      pipeline,
+      types: this.types.map((type) => ({ ...type })),
+      settlePhysics: this.settlePhysics === true ? {} : this.settlePhysics || false,
+    };
+    try {
+      const promise = scheduler.submit<PopulationChunkTaskPayload, PopulationChunkTaskResult>({
+        name: POPULATION_CHUNK_TASK,
+        key: taskKey,
+        payload,
+        priority: TaskPriority.Normal,
+      });
+      this.pendingTasks.set(key, { taskKey, scheduler });
+      this.pendingSet.add(key);
+      this.generationStats.scheduled++;
+      promise
+        .then((result) => {
+          const current = this.pendingTasks.get(key);
+          if (!current || current.taskKey !== taskKey) return;
+          this.pendingTasks.delete(key);
+          const chunk = this.terrain.chunks.get(key);
+          if (!chunk || chunk.state !== "ready" || !chunk.tile) {
+            this.pendingSet.delete(key);
+            return;
+          }
+          this.completed.push({ key, tile: chunk.tile, result });
+        })
+        .catch((error: unknown) => {
+          const current = this.pendingTasks.get(key);
+          if (!current || current.taskKey !== taskKey) return;
+          this.pendingTasks.delete(key);
+          this.pendingSet.delete(key);
+          if (error instanceof TaskCancelledError) {
+            this.generationStats.cancelled++;
+            return;
+          }
+          this.generationStats.failed++;
+          const chunk = this.terrain.chunks.get(key);
+          if (chunk?.state === "ready" && chunk.tile) {
+            // A worker/CSP failure must not leave a streamed chunk without its population.
+            this.populateChunk(key, chunk.cx, chunk.cz, chunk.tile);
+            this.generationStats.inline++;
+          }
+        });
+      return true;
+    } catch {
+      // Queue overflow or a scheduler that was disposed: direct generation is the safe fallback.
+      return false;
+    }
+  }
+
+  private drainCompletions(): void {
+    while (this.completed.length > 0) {
+      const completion = this.completed.shift()!;
+      if (this.populated.has(completion.key)) continue;
+      const chunk = this.terrain.chunks.get(completion.key);
+      if (!chunk || chunk.state !== "ready" || !chunk.tile) {
+        this.pendingSet.delete(completion.key);
+        continue;
+      }
+      this.populateChunkFromResult(completion.key, chunk.cx, chunk.cz, completion.tile, completion.result);
+      this.pendingSet.delete(completion.key);
+      this.generationStats.completed++;
     }
   }
 
@@ -301,18 +463,76 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
   }
 
   private populateChunk(key: string, cx: number, cz: number, tile: TerrainTile): void {
-    const sampler = new HeightmapSampler(tile);
+    const surface = this.terrain.getPopulationSurface(cx, cz);
+    const sampler = new GridPopulationSurfaceSampler({
+      originX: surface.originX,
+      originZ: surface.originZ,
+      size: surface.size,
+      resolution: surface.resolution,
+      heights: surface.heights,
+    });
+    this.populateChunkWithSampler(key, cx, cz, tile, sampler, surface.heights, surface.resolution);
+  }
+
+  private populateChunkFromResult(
+    key: string,
+    cx: number,
+    cz: number,
+    tile: TerrainTile,
+    result: PopulationChunkTaskResult,
+  ): void {
+    const sampler = new GridPopulationSurfaceSampler({
+      originX: cx * this.terrain.chunkSize,
+      originZ: cz * this.terrain.chunkSize,
+      size: this.terrain.chunkSize,
+      resolution: result.surfaceResolution,
+      heights: result.surfaceHeights,
+    });
+    this.populateChunkWithSampler(key, cx, cz, tile, sampler, result.surfaceHeights, result.surfaceResolution, result);
+  }
+
+  private populateChunkWithSampler(
+    key: string,
+    cx: number,
+    cz: number,
+    tile: TerrainTile,
+    sampler: PopulationSurfaceSampler,
+    surfaceHeights: Float32Array,
+    surfaceResolution: number,
+    generated?: PopulationChunkTaskResult,
+  ): void {
     const chunkSize = this.terrain.chunkSize;
+    const entries = new Map((generated?.entries ?? []).map((entry) => [entry.typeId, entry]));
     const types: TypeRecord[] = this.types.map((spec, index) => {
       const input = this.typeInputs[index]!;
       const block = new PopulationInstanceBlock(spec.maxPerChunk);
-      scatterPopulationChunk(spec, this.seed, cx, cz, chunkSize, sampler, block);
-      if (this.settlePhysics) {
-        const settleOpts = typeof this.settlePhysics === "object" ? this.settlePhysics : undefined;
-        settlePopulationBlockWithPhysics(block, spec, sampler, settleOpts);
+      const entry = entries.get(spec.id);
+      if (entry) {
+        if (
+          entry.count < 0 ||
+          entry.count > block.capacity ||
+          entry.positions.length < entry.count * 3 ||
+          entry.scales.length < entry.count * 3 ||
+          entry.rotations.length < entry.count ||
+          entry.tints.length < entry.count
+        ) {
+          throw new Error(`population task returned an invalid ${spec.label} block for ${key}`);
+        }
+        block.positions.set(entry.positions.subarray(0, entry.count * 3));
+        block.scales.set(entry.scales.subarray(0, entry.count * 3));
+        block.rotations.set(entry.rotations.subarray(0, entry.count));
+        block.tints.set(entry.tints.subarray(0, entry.count));
+        block.count = entry.count;
+        block.markModified();
+      } else {
+        scatterPopulationChunk(spec, this.seed, cx, cz, chunkSize, sampler, block);
+        if (this.settlePhysics) {
+          const settleOpts = typeof this.settlePhysics === "object" ? this.settlePhysics : undefined;
+          settlePopulationBlockWithPhysics(block, spec, sampler, settleOpts);
+        }
       }
-      // Freshly scattered instances start exactly on their anchor: settling only ever kicks in
-      // after a remesh re-anchor moves the targets.
+      // Freshly scattered or worker-returned instances start exactly on their anchor: settling only
+      // ever kicks in after a remesh re-anchor moves the targets.
       block.snapAllY();
       const geometry = input.geometry ?? null;
       const material = input.material ?? null;
@@ -331,7 +551,15 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
       if (submission) this.buildBounds({ spec, block, submission }, submission);
       return { spec, block, submission };
     });
-    this.populated.set(key, { key, cx, cz, types, tileRef: tile });
+    this.populated.set(key, {
+      key,
+      cx,
+      cz,
+      types,
+      tileRef: tile,
+      surfaceHeights,
+      surfaceResolution,
+    });
   }
 
   /** Union of the instances' transformed geometry bounds — the submission's conservative bounds. */
@@ -363,6 +591,61 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
       }
     }
     if (first) submission.bounds.setFrom(Vec3.zero, Vec3.zero);
+  }
+
+  // ------------------------------------------------------------------ picking
+
+  /**
+   * Raycast resident population geometry without creating ECS entities. The query uses the same
+   * prototype geometry and per-instance YTRS matrices as the renderer, so non-uniformly scaled
+   * rocks and decals return triangle-accurate points and normals. `RayHit.tag` is a stable hash for
+   * the chunk/type/instance tuple; call `raycastInfo(tag)` immediately after the query to decode it.
+   */
+  override raycast(ray: Ray, hit: RayHit): boolean {
+    hit.reset();
+    this.raycastTags.clear();
+    let found = false;
+    let closest = ray.maxDistance;
+    for (const record of this.populated.values()) {
+      for (const type of record.types) {
+        const geometry = type.submission?.geometry;
+        if (!geometry) continue;
+        const block = type.block;
+        for (let index = 0; index < block.count; index++) {
+          const p = index * 3;
+          if (block.scales[p] === 0 || block.scales[p + 1] === 0 || block.scales[p + 2] === 0) continue;
+          composeYTRS(
+            block.positions[p]!,
+            block.positions[p + 1]!,
+            block.positions[p + 2]!,
+            block.scales[p]!,
+            block.scales[p + 1]!,
+            block.scales[p + 2]!,
+            block.rotations[index]!,
+            this.raycastMatrix.m,
+            0,
+          );
+          geometry.bounds.transformByMatrix(this.raycastMatrix, this.raycastWorldBox);
+          this.raycastRange[0] = 0;
+          this.raycastRange[1] = closest;
+          if (!this.raycastWorldBox.intersectsRay(ray.origin, ray.invDirection, this.raycastRange)) continue;
+          this.raycastHit.reset();
+          if (!geometry.raycast(ray, this.raycastMatrix, this.raycastHit) || this.raycastHit.distance >= closest) continue;
+          closest = this.raycastHit.distance;
+          hit.copyFrom(this.raycastHit);
+          const tag = populationRaycastTag(record.key, type.spec.id, index);
+          hit.tag = tag;
+          this.raycastTags.set(tag, { chunkKey: record.key, typeId: type.spec.id, instanceIndex: index });
+          found = true;
+        }
+      }
+    }
+    return found;
+  }
+
+  /** Decode the most recent `RayHit.tag` produced by this population world. */
+  raycastInfo(tag: number): PopulationRaycastInfo | null {
+    return this.raycastTags.get(tag) ?? null;
   }
 
   // ------------------------------------------------------------------ submission
@@ -414,15 +697,24 @@ export class PopulationWorld extends SceneObject implements PopulationSource {
     }
     return {
       chunks: this.populated.size,
-      pending: this.pending.length,
+      pending: this.pending.length + this.pendingTasks.size,
       types: this.types.length,
       instances,
+      generationScheduled: this.generationStats.scheduled,
+      generationInline: this.generationStats.inline,
+      generationCompleted: this.generationStats.completed,
+      generationCancelled: this.generationStats.cancelled,
+      generationFailed: this.generationStats.failed,
     };
   }
 
   override dispose(): void {
+    for (const pending of this.pendingTasks.values()) pending.scheduler.cancel(pending.taskKey);
+    this.pendingTasks.clear();
+    this.completed.length = 0;
     this.populated.clear();
     this.pending.length = 0;
     this.pendingSet.clear();
+    this.raycastTags.clear();
   }
 }

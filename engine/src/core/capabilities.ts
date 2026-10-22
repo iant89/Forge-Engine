@@ -1038,12 +1038,11 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
   {
     id: "world.population",
     phase: "14.1",
-    status: "partial",
+    status: "verified",
     summary:
-      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following terrain streaming with per-chunk device culling and GPU-selected object LOD",
-    evidence: ["tests/population/population.test.ts", "tests/rendering/pipeline.test.ts", "tests/math/math.test.ts", "tests/rendering/primitives.test.ts", "tools/browser-check.mjs"],
-    closesWith: "14.5",
-    notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented; capability remains partial for per-instance culling, load-order-independent surface sampling, worker generation and population raycast follow-ups — see docs/KNOWN-ISSUES.md § World population",
+      "Deterministic per-chunk scatter into compact SoA instance blocks, drawn as instanced batches with zero ECS entities, following a canonical terrain surface through worker-backed streaming, GPU-selected LOD/culling, and resident population raycasts",
+    evidence: ["tests/population/population.test.ts", "tests/population/populationCull.test.ts", "tests/rendering/pipeline.test.ts", "tests/math/math.test.ts", "tests/rendering/primitives.test.ts"],
+    notes: "All planned 14.1-14.6 slices and all six 14.2 population types are implemented and verified. Placement uses TerrainWorld's fixed-resolution canonical surface; population.chunk runs the same surface reconstruction and scatter body through TaskScheduler with deterministic inline fallback; PopulationWorld.raycast covers resident geometry-backed instances. Remaining resident-only/query and scheduler fallback boundaries are documented in docs/KNOWN-ISSUES.md § World population.",
   },
   {
     id: "world.interactiveTerrain",
@@ -1272,7 +1271,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,188-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,201-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1286,7 +1285,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,197 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,188 public candidates have exact approvals across 23 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,210 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,201 public candidates have exact approvals across 24 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",

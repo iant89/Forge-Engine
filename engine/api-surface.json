@@ -6,14 +6,14 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "typescriptVersion": "5.9.3",
   "counts": {
-    "total": 2197,
-    "public": 2188,
+    "total": 2210,
+    "public": 2201,
     "experimental": 9,
     "deprecated": 0,
     "internal": 0,
-    "type": 809,
-    "value": 1003,
-    "typeAndValue": 385
+    "type": 814,
+    "value": 1010,
+    "typeAndValue": 386
   },
   "exports": [
     {
@@ -3125,6 +3125,13 @@
       "contractHash": "sha256:89357073892dbdd68ac372abd8dec70873dcc8350038f4e8104bb2665cca4e4d"
     },
     {
+      "name": "GridPopulationSurfaceSampler",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:2453deda77fe3f786a188fb1b0c15c002ef0316642566e2c9b3e94ad1fa505d8",
+      "contractHash": "sha256:def0746128a8d2ac29cab07cc55f78be85452fd4573457f865dc0f6e15ea600f"
+    },
+    {
       "name": "GridWidgetOptions",
       "kind": "type",
       "stability": "public",
@@ -5253,6 +5260,13 @@
       "contractHash": "sha256:6c94baec713118dd8cfa72bed7bc7d11d25f39fd34d205f1467ac558fbfe384f"
     },
     {
+      "name": "POPULATION_CHUNK_TASK",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:f94d01b6f8259c148475609ab442d929f0d6e1f0cbb45ff87f92291ee879d0e8",
+      "contractHash": "sha256:4d54859deb6a6c973a91e6e5377a7e21960beaa02726aa125cd409e375bd61f1"
+    },
+    {
       "name": "POPULATION_CULL_PIPELINE_LABEL",
       "kind": "value",
       "stability": "public",
@@ -5307,6 +5321,20 @@
       "stability": "public",
       "declarationHash": "sha256:55fadf254d1b3d9936fcc38b9038c4d13fe97a92b361d23f7fd6ea2402fc96e6",
       "contractHash": "sha256:a0b81a5421e94827d2af23418efcb83baca8b69a52ea1aa19a47725d17fb4baf"
+    },
+    {
+      "name": "POPULATION_SURFACE_RESOLUTION",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:feaae84ac9b194f36473dbaf1596976623fa2928486acc6c1b4926854add91c2",
+      "contractHash": "sha256:aa862e68a3c0d24d2d599f3039361ca3918cc99b976fe7adb3ae30811fbf0cb0"
+    },
+    {
+      "name": "POPULATION_TASK_NAMES",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:4fcbb28b0491523e046ff0e0cc1b43eaaebd0076eba7618ae6202bea089fb9eb",
+      "contractHash": "sha256:ca7e420bebd14f3b450e138b0a4c04a60ba732ba6dd030eb66b4594b5ca79802"
     },
     {
       "name": "POPULATION_VIEW_CULL_PIPELINE_LABEL",
@@ -5953,6 +5981,27 @@
       "contractHash": "sha256:93abfaea9538dd338bed5e7060a84e89fa9254b6f1f05b23f34a7f65e26f1b09"
     },
     {
+      "name": "PopulationChunkTaskEntry",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:5c435f738e5533f60be1fb190744a63643657e9c8d1174d8d155846645eaa56e",
+      "contractHash": "sha256:95addcdcca9238121c48918a814d00839acc51d3c943da515dda8121baff25dd"
+    },
+    {
+      "name": "PopulationChunkTaskPayload",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:0fe840f7c208f72e7e71568671713e0b56c448e8d8fcceee348979043971199d",
+      "contractHash": "sha256:340fd9d16503584c10b9a0645d9c52beb843c415284486fa683e839bb7dc45e9"
+    },
+    {
+      "name": "PopulationChunkTaskResult",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:7ef5f4b79e1aeb16de112c73afd90006f1348c1cbe0d71af820dea85595ba077",
+      "contractHash": "sha256:5c73303b0b6a228f4a0668d815d567d67c949bc9ef330f9a2eb490e96f164978"
+    },
+    {
       "name": "PopulationCollector",
       "kind": "type",
       "stability": "public",
@@ -6016,6 +6065,13 @@
       "contractHash": "sha256:f153d32bcc0b821c98c38a1ab25df38325bb247657671363cb73153c58c0b1e1"
     },
     {
+      "name": "PopulationRaycastInfo",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:05b54a7d047885b6f036ccf06476d9169c55b91de0778c61f8bcd8e2a27c123e",
+      "contractHash": "sha256:2d7697da6e8a0a9872e57e8499c60ae8d7461ce7ae65b14a0dac28081557715a"
+    },
+    {
       "name": "PopulationShadowCulling",
       "kind": "type",
       "stability": "public",
@@ -6035,6 +6091,13 @@
       "stability": "public",
       "declarationHash": "sha256:785861e03f709226096919981c0a9e8f06b6dd8b557a9bdda83f44144b79aded",
       "contractHash": "sha256:3f697c3eafade36d6a02ecb9da699535288e88876224b461c637e1246255311c"
+    },
+    {
+      "name": "PopulationSurfaceGrid",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:fb88f5eda558b3d5c256ab1ea115bb40bd192ef628119a290116f293181e5f6c",
+      "contractHash": "sha256:ea7ba3548644df403c8dd917531ad75a2ae0799bd163fd6bf55f7b30709ef97f"
     },
     {
       "name": "PopulationSurfaceSampler",
@@ -6061,15 +6124,15 @@
       "name": "PopulationWorld",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:7728f455a5d8feea02953435f55f382ac48364899aca8733fd01f94ff7147869",
-      "contractHash": "sha256:2e9658219763473d03fccc7f902cb8e1f4f471590dfbd1861c49d00d89787056"
+      "declarationHash": "sha256:26ba3d8c5b44b394a165cd1d2f0a097e831427d0b8eab0b8dda5671f429b5d9b",
+      "contractHash": "sha256:c661004b526b1fc0ddcfc0fb484b033e81422079205eaf8ac5a3a12fe4a28dcf"
     },
     {
       "name": "PopulationWorldOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e",
-      "contractHash": "sha256:9c67c6f1f6d9a38b195c3206c8fd7a763ce8ece33f22908eb4422b46bde84612"
+      "contractHash": "sha256:4c32f57cc5e3bc5843bc2f6f27c0387e71fa8a211faf7ccf484f407d95bca24b"
     },
     {
       "name": "Popup",
@@ -8651,8 +8714,8 @@
       "name": "TerrainWorld",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:cdb4830399d3b123a88b3ecd1b68a569649b0604643aeec8f74fe55cb798fadd",
-      "contractHash": "sha256:b69aba75a287389789578df9f2383357ea8b6019745e1e2eaae0e05e8cd9fc52"
+      "declarationHash": "sha256:38f5cfd4998d52fbce7b92ad23b1df7ba4fa8ee659a1fe09167e9a5ac1282372",
+      "contractHash": "sha256:b69208846f62b609dcecb089787e0c32bfb97609bfb84bc59a98ee30c7f9f70e"
     },
     {
       "name": "TerrainWorldOptions",
@@ -12397,7 +12460,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33",
-      "contractHash": "sha256:2f2859dddcfab5ba83212d5a7a57fc38b11b290206f210c73874fcec1199e420"
+      "contractHash": "sha256:e5c9177b1f9fa01ed229c285dcab90dc81441ca72bf92c15b8ceca080f6b1642"
     },
     {
       "name": "elevationAzimuthOf",
@@ -12475,6 +12538,13 @@
       "stability": "public",
       "declarationHash": "sha256:3f1c729ea624c5c6a3d9bfd12caffd680611d0fbb033129d798969316a16e572",
       "contractHash": "sha256:d9bcddac68a78ac5f15f41cbd187e3060f47598f16cbd8bb2cb67e995d3ce5f5"
+    },
+    {
+      "name": "executePopulationChunk",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:e62e67207e4621eb79b5fd685f92284030a26376e496dea2e9d4a2dbe0f88f5c",
+      "contractHash": "sha256:7a1f41deb8448c1a040cdc4aaea1186a73f6065105fe36dd75831a7da20a035f"
     },
     {
       "name": "executeTerrainCell",
@@ -12713,6 +12783,13 @@
       "stability": "public",
       "declarationHash": "sha256:349297f44aca6055980bc951b5963793d2a775784f1c21bfbe3e4c05df2a4286",
       "contractHash": "sha256:c22755c31193060a3cf046a85c2d8184ce6dba560cfe302ceaffb8dae8affb89"
+    },
+    {
+      "name": "generatePopulationChunk",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:a8353f3592d57d23aa2e0f1a38cda4fb527eb99a460160e96ecfe1c5f836e910",
+      "contractHash": "sha256:3c3a0acd371c6c198502ff69e480047568a057e79a8c42a4cd8470b18514fe1f"
     },
     {
       "name": "generateTerrainCell",
@@ -13069,7 +13146,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777",
-      "contractHash": "sha256:d32fa5fd6b2ed676556cbad6b1011c1d0c5ffdda3e51543bfcf7c1d05a0d5df1"
+      "contractHash": "sha256:6e8a540886e65e64ad8ff358e07dde702641f8af71ec2ded0b91ac83070153f6"
     },
     {
       "name": "installEngineErrorBridge",
@@ -13077,6 +13154,13 @@
       "stability": "public",
       "declarationHash": "sha256:a159dfbb5301265cbc9f85b0afec706c1797826bd3cb17b453523f54d40d3e4c",
       "contractHash": "sha256:c13f979bce271dd7b6ddb27b988a95024dca4717c16a79041ddd0c4bac1a1cb8"
+    },
+    {
+      "name": "installPopulationTaskHandlers",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:3e52f42f46577af374044fb7a6ccf15b7f1ac94539ee6290aa6786728e9f6ff8",
+      "contractHash": "sha256:b4d527cab1a06463f20dbe10502d8360bd290361db9e5d0dbef37301a328a279"
     },
     {
       "name": "installTerrainTaskHandlers",
@@ -14791,7 +14875,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837",
-      "contractHash": "sha256:8f518ed44b6f7e7a8bbbdd28fcd7ddb754d8b4bf9a4e80d04ba56f9fd7ae6c9b"
+      "contractHash": "sha256:f223cd4a8a2ddca9f2c2a6339f5cffd23a0d965729745159042aeae970a9f7b1"
     },
     {
       "name": "terrainOptionsFromState",
@@ -14918,6 +15002,13 @@
       "stability": "public",
       "declarationHash": "sha256:e5f134d87a483f29c2c841105264fd3239dc655b6b1a066612ca977a99cb9597",
       "contractHash": "sha256:4160702a9c3cb12d244d0a80df475b7377f81446781eb2ff4dbecd7bd0d43cc2"
+    },
+    {
+      "name": "transferablesForPopulationChunk",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:e79025c70a5292f33206bdef53935ce6e634f00d01a38a40624e3294d13f45b8",
+      "contractHash": "sha256:57c3e0e904cb99c058cca447f99dc9c6d2c1d146caa63bd526230d5593c9af0c"
     },
     {
       "name": "transferablesForTerrainCell",

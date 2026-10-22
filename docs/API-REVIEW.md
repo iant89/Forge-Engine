@@ -1,10 +1,10 @@
 # Phase 27.1 public API review record
 
 > **1.0 status:** The Phase 27.1 review recorded here is now part of the released `@forge/engine`
-> 1.0.0 contract. The current surface is 2,197 exports (2,188 public, 9 experimental, 0 deprecated),
-> including the reviewed 1.0 extension contract. Consumer guidance is in [API-REFERENCE.md](API-REFERENCE.md),
-> [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md), [DEPRECATION.md](DEPRECATION.md),
-> and [EXAMPLES.md](EXAMPLES.md).
+> 1.0.0 contract. The current surface is 2,210 exports (2,201 public, 9 experimental, 0 deprecated),
+> including the reviewed 1.0 extension contract and the Phase 14 population additions. Consumer guidance is in
+> [API-REFERENCE.md](API-REFERENCE.md), [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md),
+> [DEPRECATION.md](DEPRECATION.md), and [EXAMPLES.md](EXAMPLES.md).
 
 This document is the human-readable review record for the `@forge/engine` package-root audit. The exact machine-enforced decisions live in [`engine/api-approvals.json`](../engine/api-approvals.json); the resolved declaration baseline lives in [`engine/api-surface.json`](../engine/api-surface.json).
 
@@ -12,14 +12,17 @@ This document is the human-readable review record for the `@forge/engine` packag
 
 Phase 27.1 preserved **all 2,171 public candidates** as supported Engine API 1.0 candidates. The
 released surface adds the 16 public extension-contract exports plus the reviewed Phase 13 contact-depth
-shader export, for **2,188 approved public exports** out of 2,197 total across 23 review batches. Each
-approved row has an exact declaration kind, direct declaration hash,
-transitive contract hash, and subsystem review. The nine exports already marked experimental remain
-experimental and are not approvals. There are no deprecated exports and no pending public candidates.
+shader export, for **2,188 approved public exports**. Phase 14 adds a separately reviewed population
+batch of 13 canonical sampling, worker-task, and resident-raycast exports, for **2,201 approved public
+exports** out of 2,210 total across 24 review batches. Each approved row has an exact declaration kind,
+direct declaration hash, transitive contract hash, and subsystem review. The nine exports already marked
+experimental remain experimental and are not approvals. There are no deprecated exports and no pending
+public candidates.
 
 The later Phase 27 work is now complete: the reference inventory, reviewed examples, 0.x migration
 guide, semver/release policy, deprecation window, coherent extension contract, and `1.0.0` release
-are linked from this record. The approval ledger remains the exact machine-enforced record.
+are linked from this record. The Phase 14 review is backed by the canonical population, scheduler, worker,
+and raycast evidence listed below. The approval ledger remains the exact machine-enforced record.
 
 The Phase 13 renderer review update records the current contracts for the contact-shadow settings,
 adaptive shadow policy, material-aware prepass/orthographic SSAO path, contact-depth pipeline,
@@ -59,6 +62,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `particles/1` | 86 | layouts, components, emitters, CPU/GPU worlds, shaders, precipitation/lightning/vortex visuals | particle and environment suites |
 | `physics/1` | 41 | body/world/system contracts, broad phase, collision, solver, shapes, WASM memory | physics and vehicle-physics suites |
 | `population/1` | 53 | scatter, LOD/culling, grass/trees/vegetation, settle, wind sway, population world | population, culling, and vegetation suites |
+| `population/2` | 13 | canonical population surface sampling, worker task payloads/results, deterministic task handlers, and resident population raycast metadata | population, task/worker, runtime namespace, and terrain/world suites |
 | `rendering/1` | 244 | geometry/material/mesh, clusters/culling, pipelines, graph, renderer, shadows, uniforms, public WGSL | frame, graph, pipeline, shader, culling, shadow, and rendering suites |
 | `replay/1` | 28 | channel/hash/recording/session contracts | replay and cross-engine replay suites |
 | `resources/1` | 66 | IDs/graphs/registries, glTF/KTX2/textures, streaming, hot reload, validation | asset, glTF, resource, streaming, and texture suites |
@@ -68,7 +72,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `testing/1` | 16 | supported mock GPU and mock audio helpers | GPU, audio, and runtime namespace suites |
 | `ui/1` | 355 | core tree/context, layout/style/input/text/rendering, data binding, widgets, manager, world space | ten UI suites |
 | `vehicles/1` | 70 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
-| **Total** | **2,188** | **805 type, 1,000 value, 383 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
+| **Total** | **2,201** | **814 type, 1,010 value, 386 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
 
@@ -78,6 +82,6 @@ Preserving the complete candidate set is a consequential compatibility choice, n
 - Large implementation-rich terrain, environment, rendering, and UI surfaces remain public. Their nested option/state types are part of the transitive contracts captured by the ledger.
 - Existing naming, including specialized suffixes and narrowly scoped reset/registration helpers, is accepted rather than renamed or hidden during this audit.
 - Mutable engine objects, externally supplied GPU/audio handles, and explicit resource-lifecycle methods remain caller-visible contracts; backend behavior is bounded by the focused evidence and future reference documentation.
-- The breadth of 2,188 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
+- The breadth of 2,201 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
 
-The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.
+The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. The Phase 14 population review specifically covers the new public names `GridPopulationSurfaceSampler`, `POPULATION_CHUNK_TASK`, `POPULATION_SURFACE_RESOLUTION`, `POPULATION_TASK_NAMES`, `PopulationChunkTaskEntry`, `PopulationChunkTaskPayload`, `PopulationChunkTaskResult`, `PopulationRaycastInfo`, `PopulationSurfaceGrid`, `executePopulationChunk`, `generatePopulationChunk`, `installPopulationTaskHandlers`, and `transferablesForPopulationChunk`. Their exact declaration and transitive hashes are recorded under `population/2` in the approval ledger. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.

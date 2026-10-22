@@ -328,7 +328,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(ledger.signatureFormat, "forge.typescript-declaration-signature/1");
     assert.equal(ledger.policy, "forge.api-approval-policy/2");
     assert.deepEqual(ledger.counts, {
-      approved: 2_188,
+      approved: 2_201,
       pendingPublic: 0,
       experimental: 9,
       deprecated: 0,
@@ -349,6 +349,7 @@ group("Phase 27 public API audit", () => {
       "particles/1": 86,
       "physics/1": 41,
       "population/1": 53,
+      "population/2": 13,
       "rendering/1": 244,
       "replay/1": 28,
       "resources/1": 66,
@@ -443,10 +444,10 @@ group("Phase 27 public API audit", () => {
     assert.match(readme, /npm run api:check/);
     assert.match(readme, /`docs\/API\.md`/);
     const docs = fs.readFileSync(path.join(root, "docs", "API.md"), "utf8");
-    assert.match(docs, /2,197/);
+    assert.match(docs, /2,210/);
     assert.match(docs, /a `declarationHash` of that symbol's body-free emitted declaration/);
     assert.match(docs, /`engine\/api-approvals\.json`/);
-    assert.match(docs, /2,188\/2,188 public candidates/);
+    assert.match(docs, /2,201\/2,201 public candidates/);
     assert.match(docs, /a \*\*change detector\*\*, not a\s+compatibility oracle/);
     assert.match(fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"), /Public API surface\s+run: npm run api:check/);
     const versionCheck = spawnSync(process.execPath, [path.join(root, "tools", "version-check.mjs")], {
@@ -461,7 +462,7 @@ group("Phase 27 public API audit", () => {
     assert.equal(cleanResult.status, 0, cleanResult.stderr);
     assert.match(
       cleanResult.stdout,
-      /api:check OK — 2,197 exports \(2,188 public, 9 experimental, 0 deprecated\); 2,188\/2,188 public candidates approved \(0 pending\)/,
+      /api:check OK — 2,210 exports \(2,201 public, 9 experimental, 0 deprecated\); 2,201\/2,201 public candidates approved \(0 pending\)/,
     );
   });
 
@@ -485,7 +486,7 @@ group("Phase 27 public API audit", () => {
 
   test("writes a canonical snapshot only when explicitly requested", () => {
     assert.equal(writeResult.status, 0, writeResult.stderr);
-    assert.match(writeResult.stdout, /api:update OK — wrote 2,197 exports/);
+    assert.match(writeResult.stdout, /api:update OK — wrote 2,210 exports/);
     assert.equal(writtenSnapshotText, fs.readFileSync(snapshotFile, "utf8"));
     assert.equal(preservedApprovalText, "manual approval data is never generated\n");
 

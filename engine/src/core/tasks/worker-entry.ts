@@ -18,5 +18,7 @@ installWorkerScope(self as unknown as Parameters<typeof installWorkerScope>[0], 
   installHandlers: async () => {
     const { installTerrainTaskHandlers } = await import("../../terrain/tasks.js");
     installTerrainTaskHandlers();
+    const { installPopulationTaskHandlers } = await import("../../population/tasks.js");
+    installPopulationTaskHandlers();
   },
 });

@@ -95,17 +95,17 @@ group("completed package-root contract", () => {
     const approvals = loadJson<ApprovalFile>("../../engine/api-approvals.json");
 
     assert.deepEqual(surface.counts, {
-      total: 2197,
-      type: 809,
-      value: 1003,
-      typeAndValue: 385,
-      public: 2188,
+      total: 2210,
+      type: 814,
+      value: 1010,
+      typeAndValue: 386,
+      public: 2201,
       experimental: 9,
       deprecated: 0,
       internal: 0,
     });
-    assert.deepEqual(approvals.counts, { approved: 2188, pendingPublic: 0, experimental: 9, deprecated: 0 });
-    assert.equal(new Set(approvals.approvals.map((row) => row.name)).size, 2188);
+    assert.deepEqual(approvals.counts, { approved: 2201, pendingPublic: 0, experimental: 9, deprecated: 0 });
+    assert.equal(new Set(approvals.approvals.map((row) => row.name)).size, 2201);
 
     let valueCount = 0;
     let typeCount = 0;
@@ -119,8 +119,8 @@ group("completed package-root contract", () => {
         assert.equal(exists, true, `${item.name} is a value declaration but is absent at runtime`);
       }
     }
-    assert.equal(valueCount, 1388, "385 type-and-value plus 1,003 value exports, including experiments");
-    assert.equal(typeCount, 809);
+    assert.equal(valueCount, 1396, "386 type-and-value plus 1,010 value exports, including experiments");
+    assert.equal(typeCount, 814);
     assert.equal(VERSION, "1.0.0", "the released Engine API version is 1.0.0");
   });
 });

@@ -12,6 +12,8 @@ export {
   POPULATION_CHUNK_LEVEL,
   scatterPopulationChunk,
   resolvePopulationTypeSpec,
+  GridPopulationSurfaceSampler,
+  type PopulationSurfaceGrid,
   type PopulationSurfaceSampler,
   type PopulationTypeSpec,
   type ResolvedPopulationTypeSpec,
@@ -20,7 +22,18 @@ export {
   settlePopulationBlockWithPhysics,
   type PopulationPhysicsSettlingOptions,
 } from "./settle.js";
-export { PopulationWorld, type PopulationType, type PopulationWorldOptions } from "./world.js";
+export {
+  POPULATION_CHUNK_TASK,
+  POPULATION_TASK_NAMES,
+  executePopulationChunk,
+  generatePopulationChunk,
+  installPopulationTaskHandlers,
+  transferablesForPopulationChunk,
+  type PopulationChunkTaskEntry,
+  type PopulationChunkTaskPayload,
+  type PopulationChunkTaskResult,
+} from "./tasks.js";
+export { PopulationWorld, type PopulationRaycastInfo, type PopulationType, type PopulationWorldOptions } from "./world.js";
 export {
   buildLodGeometry,
   unindexedLodWindow,

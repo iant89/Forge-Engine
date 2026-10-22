@@ -101,6 +101,7 @@ import {
   SceneObject,
   SystemScratch,
   TerrainWorld,
+  TaskScheduler,
   Vec3,
   boxGeometrySource,
   buildLodGeometry,
@@ -109,6 +110,9 @@ import {
   createRock,
   discGeometrySource,
   createWorldCell,
+  describePipeline,
+  executePopulationChunk,
+  installPopulationTaskHandlers,
   isPopulationSource,
   populationLodIndex,
   resolvePopulationTypeSpec,
@@ -118,6 +122,8 @@ import {
   settlePopulationBlockWithPhysics,
   unpackColor,
   unindexedLodWindow,
+  type PopulationChunkTaskPayload,
+  type PopulationChunkTaskResult,
   type PopulationCollector,
   type PopulationLodWindow,
   type PopulationSource,
@@ -1256,6 +1262,140 @@ group("Population - renderer over streamed terrain", () => {
     await device.dispose();
     assert.deepEqual(mock.outstanding.buffers, []);
     assert.deepEqual(mock.outstanding.textures, []);
+  });
+});
+
+group("Population - canonical surface, workers, and raycast (14.1/14.6)", () => {
+  function streamingFixture() {
+    const scene = new Scene({ name: "population-canonical" });
+    const terrain = new TerrainWorld({
+      seed: 991,
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 96,
+      maxChunksLoaded: 30,
+      maxGenerationsPerFrame: 64,
+      horizonSkirt: false,
+    });
+    scene.add(terrain);
+    const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 20, -40));
+    scene.world.addComponent(cameraEntity.id, new Camera());
+    const population = new PopulationWorld({
+      terrain,
+      types: [{ id: 1, label: "rocks", densityGrid: 4, scaleMin: 0.5, scaleMax: 1.5 }],
+      generationsPerFrame: 64,
+    });
+    scene.add(population);
+    const ctx = createMockContext(scene.world);
+    terrain.focusPosition.set(0, 0, 0);
+    return { scene, terrain, population, ctx };
+  }
+
+  test("uses one canonical surface when the resident tile arrives at different LOD resolutions", () => {
+    const a = streamingFixture();
+    const b = streamingFixture();
+    a.terrain.update(a.ctx, 0.016);
+    b.terrain.update(b.ctx, 0.016);
+    const pipelineA = GeneratorPipeline.createDefault(991);
+    const pipelineB = GeneratorPipeline.createDefault(991);
+    const coarse = createWorldCell(0, 0, 64, 3, 991);
+    const fine = createWorldCell(0, 0, 64, 17, 991);
+    pipelineA.execute(coarse);
+    pipelineB.execute(fine);
+    a.terrain.chunks.get("0:0")!.applyCell(coarse);
+    b.terrain.chunks.get("0:0")!.applyCell(fine);
+    a.population.update(a.ctx, 0.016);
+    b.population.update(b.ctx, 0.016);
+    const blockA = a.population.chunkPopulation("0:0", 1)!;
+    const blockB = b.population.chunkPopulation("0:0", 1)!;
+    assert.deepEqual([...blockA.positions], [...blockB.positions]);
+    assert.deepEqual([...blockA.scales], [...blockB.scales]);
+    assert.deepEqual([...blockA.rotations], [...blockB.rotations]);
+    assert.deepEqual([...blockA.tints], [...blockB.tints]);
+    assert.equal(a.terrain.populationSurfaceResolution, 65);
+    assert.equal(a.terrain.getPopulationSurface(0, 0).resolution, 65);
+    a.scene.dispose();
+    b.scene.dispose();
+  });
+
+  test("runs the same canonical scatter body through the scheduler and the inline reference", async () => {
+    const fixture = streamingFixture();
+    fixture.terrain.update(fixture.ctx, 0.016);
+    const payload: PopulationChunkTaskPayload = {
+      seed: fixture.terrain.seed,
+      cx: 0,
+      cz: 0,
+      size: fixture.terrain.chunkSize,
+      surfaceResolution: fixture.terrain.populationSurfaceResolution,
+      pipeline: describePipeline(fixture.terrain.pipeline),
+      types: [{ id: 1, label: "rocks", densityGrid: 4, scaleMin: 0.5, scaleMax: 1.5 }],
+      settlePhysics: false,
+    };
+    const direct = executePopulationChunk(payload);
+    installPopulationTaskHandlers();
+    const scheduler = new TaskScheduler({ inline: true });
+    const scheduled = await scheduler.submit<PopulationChunkTaskPayload, PopulationChunkTaskResult>({
+      name: "population.chunk",
+      key: "test:population:0",
+      payload,
+    });
+    assert.deepEqual([...scheduled.surfaceHeights], [...direct.surfaceHeights]);
+    assert.deepEqual([...scheduled.entries[0]!.positions], [...direct.entries[0]!.positions]);
+    assert.deepEqual([...scheduled.entries[0]!.scales], [...direct.entries[0]!.scales]);
+    assert.equal(scheduled.entries[0]!.count, direct.entries[0]!.count);
+
+    const context = {
+      ...fixture.ctx,
+      services: {
+        engineConfig: {},
+        get: <T>(key: string): T | undefined => key === "tasks" ? scheduler as unknown as T : undefined,
+      },
+    };
+    fixture.population.update(context, 0.016);
+    await scheduler.drain();
+    fixture.population.update(context, 0.016);
+    const block = fixture.population.chunkPopulation("0:0", 1)!;
+    assert.deepEqual([...block.positions], [...direct.entries[0]!.positions]);
+    assert.ok(fixture.population.generationStats.scheduled >= 1);
+    assert.ok(fixture.population.generationStats.completed >= 1);
+    scheduler.dispose();
+    fixture.scene.dispose();
+  });
+
+  test("raycasts resident population triangles and decodes the hit instance", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const geometry = Geometry.create(device, boxGeometrySource({ width: 1.2, height: 1.2, depth: 1.2 }));
+    const material = new Material({ label: "population-raycast" });
+    const scene = new Scene({ name: "population-raycast" });
+    const terrain = new TerrainWorld({ seed: 991, chunkSize: 64, chunkResolution: 9, viewDistance: 96, maxChunksLoaded: 30, horizonSkirt: false });
+    scene.add(terrain);
+    const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 20, -40));
+    scene.world.addComponent(cameraEntity.id, new Camera());
+    const population = new PopulationWorld({
+      terrain,
+      types: [{ id: 7, label: "ray-rock", densityGrid: 2, scaleMin: 1, scaleMax: 1, geometry, material }],
+      generationsPerFrame: 64,
+    });
+    scene.add(population);
+    const ctx = createMockContext(scene.world);
+    terrain.focusPosition.set(0, 0, 0);
+    terrain.update(ctx, 0.016);
+    population.update(ctx, 0.016);
+    const block = population.chunkPopulation("0:0", 7)!;
+    const origin = new Vec3(block.positions[0]!, block.positions[0 * 3 + 1]! + 5, block.positions[2]!);
+    const results = scene.raycast(origin, new Vec3(0, -1, 0), 20);
+    const result = results.find((entry) => entry.object === population)!;
+    assert.ok(result);
+    assert.ok(result.hit.isValid);
+    assert.ok(result.distance > 0 && result.distance < 10);
+    const info = population.raycastInfo(result.hit.tag);
+    assert.deepEqual(info, { chunkKey: "0:0", typeId: 7, instanceIndex: 0 });
+    assertCloseTo(result.hit.point.x, origin.x, 5);
+    assertCloseTo(result.hit.point.z, origin.z, 5);
+    scene.dispose();
+    geometry.dispose();
+    material.dispose();
+    await device.dispose();
   });
 });
 

@@ -700,8 +700,14 @@ own instanced batch:
   `instances`.
 
 Device-resident buffers (14.3), GPU-selected LOD (14.4) and per-instance device culling (§4g) are
-built; ordinary renderable instancing now shares the kernels in §4h. Population-specific generation,
-streaming and raycast follow-ups remain in `docs/KNOWN-ISSUES.md` § World population.
+built; ordinary renderable instancing now shares the kernels in §4h. Population streaming uses a
+fixed-resolution canonical terrain surface, and the `population.chunk` task can reconstruct that
+surface and scatter on a TaskScheduler worker before transferring the SoA arrays back. The same
+`PopulationWorld` object participates in scene picking: resident geometry-backed instances are
+triangle-raycast with their exact YTRS transform, and `RayHit.tag` decodes through
+`PopulationWorld.raycastInfo()`. Unsupported custom/live Stage A terrain pipelines and hosts without
+a scheduler use the deterministic inline fallback; evicted chunks and CPU-only types without
+prototype geometry remain outside the raycast query.
 
 ## 4g. Per-instance population culling (GPU-placement Phase A)
 
