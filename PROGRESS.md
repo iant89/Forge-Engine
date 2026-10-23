@@ -183,7 +183,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
 - [x] Phase 22.1 core matrix: 100k ECS entities, allocation-free Vec3/Mat4 kernels, inline task dispatch/deduplication, and ResourceRegistry load/cache/eviction paths, all with correctness/accounting and catastrophe guards
-- [x] Benchmark snapshot schema 1 (`npm run bench -- --json PATH`): operation counts, timings, guard results and exact host metadata; the first audited baseline is in `PERFORMANCE.md`
+- [x] Benchmark snapshot schema 2 (`npm run bench -- --json PATH`): stable metric IDs, operation counts, timings, repeated raw samples, guard results and exact host metadata; same-host comparison and the audited baseline are stored in `benchmarks/history/` and `PERFORMANCE.md`
 - [x] Frame profiler (Phase 21.1): CPU/GPU frame records, per-scope EWMAs, the categorised `Engine.frameBreakdown()` (simulation, physics, terrain, streaming, rendering, particles, scripting, audio) and the drawn frame timeline — a category-stacked column per frame against the budget line with a lane chart of the selected frame's scopes, in the demo's floating Profiler panel (hover to select, tap to pin)
 - [x] Timeline scrub and zoom (Phase 21.1 follow-up): the retained profiler window responds to wheel, keyboard and pointer drag, preserves frame-number selection while it moves, and remains bounded; the GPU marker is still the frame total and per-pass device times stay in the text report
 - [x] ECS Inspector (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested, and the demo's floating Inspector window browses them — entity list, component populations, a filter and a per-entity detail pane
@@ -199,7 +199,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Phase 22.4 physics matrix: deterministic broadphase pruning, supported narrowphase manifold generation, sequential-impulse/stability workloads, raycast and heightfield queries, and vehicle fleets
 - [x] Phase 22.5 particle matrix: deterministic CPU setup/integration and strict mock-GPU allocation/prepare coverage at 10K, 100K, 500K and 1M, with analytic, storage-shape, zero-entity and zero-live-buffer guards
 - [x] Phase 22.6 world matrix: public EntityWorld creation/attachment, transform composition and frustum visibility coverage at 10K, 100K, 500K and 1M, with shape, digest, typed-storage and teardown guards
-- [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
+- [x] Phase 22.7 automatic same-host regression detection: repeated samples, stable metric manifests, host compatibility, stored raw history and statistically significant timing rejection
 
 ## Testing & CI (Phases 0, 2, 9, 28)
 

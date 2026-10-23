@@ -45,13 +45,13 @@ CURRENT CODEBASE BASELINE:
                 deterministic push/roll/break and rover obstacle response, persistent deformation and
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core,
-                22.2 rendering, 22.3 terrain and 22.4 physics matrices cover ECS, math, scheduling, resources,
-                renderer submission, terrain generation/erosion/LOD/streaming/mesh construction, deterministic
-                broadphase/narrowphase/solver/query/vehicle workloads, and the runner emits a versioned
-                host-described JSON snapshot; particle/world scale sweeps and automatic historical comparison
-                remain. Phases 23 through 28 remain NOT STARTED ([ ]). Phase 29 is a roll-up (see the status
-                block; `docs:check` verifies the phase keys directly).
+                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is IMPLEMENTED / VERIFIED ([x]): its 22.1 core,
+                22.2 rendering, 22.3 terrain, 22.4 physics, 22.5 particle and 22.6 world matrices cover
+                ECS, math, scheduling, resources, renderer submission, terrain generation/erosion/LOD/streaming/
+                mesh construction, deterministic broadphase/narrowphase/solver/query/vehicle workloads, and
+                the runner emits schema-2 host-described snapshots with stable IDs, repeated raw samples,
+                stored history and same-host statistical rejection. Phases 23 through 28 remain NOT STARTED ([ ]).
+                Phase 29 is a roll-up (see the status block; `docs:check` verifies the phase keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics, 22.5 particles and
-        22.6 world matrices are implemented and guarded; automatic historical comparison remains)
+    [x] COMPLETE (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics, 22.5 particles,
+        22.6 world matrices and 22.7 same-host regression recording/comparison are implemented and guarded)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2510,7 +2510,7 @@ GOAL:
     solving plus a fixed-step resting-contact stability workload, physics-world raycasts and registered
     heightfield samples, and several fixed-step vehicle fleets. Guards cover pair/contact shape,
     deterministic state digests, finite/stable solver and vehicle state, query hits, and the benchmark
-    catastrophe bound; automatic same-host historical comparison remains Phase 22.7 work.
+    catastrophe bound; repeated same-host statistical comparison is enforced by the Phase 22.7 history runner.
 
 
 22.5 Particles
@@ -2546,16 +2546,19 @@ GOAL:
 22.7 Regression Recording
 
     [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
-        operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
-    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.6
-        baselines are recorded; stable metric IDs, repeated samples and an automatic same-host
-        comparator/history remain).
-    [ ] Fail automatically on a statistically significant regression against comparable history.
+        stable metric IDs, operation counts, timings, repeated raw samples, guard results, total run
+        time and exact Node/OS/CPU/memory metadata.
+    [x] Store raw repeated benchmark history in `benchmarks/history/benchmark-history.json` and retain
+        an audited human-readable baseline in `PERFORMANCE.md`; only matching host fingerprints and
+        metric manifests are comparable.
+    [x] Fail automatically when a comparable timing regresses by at least 15% with a z-score of 3 or
+        greater; changed operation counts or metric shape require an intentional baseline record.
 
 
 EXIT CRITERIA:
 
-    Significant CPU, GPU or memory regressions are detectable automatically.
+    Significant CPU, GPU or memory regressions are detectable automatically through the versioned
+    snapshot, shape guards and same-host timing policy.
 
 
 ================================================================================

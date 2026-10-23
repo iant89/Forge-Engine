@@ -72,6 +72,7 @@ export const linkedSuites = [
   ["tests/benchmarks/terrain.test.ts", () => import("./benchmarks/terrain.test.ts")],
   ["tests/benchmarks/physics.test.ts", () => import("./benchmarks/physics.test.ts")],
   ["tests/benchmarks/world.test.ts", () => import("./benchmarks/world.test.ts")],
+  ["tests/benchmarks/history.test.ts", () => import("./benchmarks/history.test.ts")],
   ["tests/rendering/clusters.test.ts", () => import("./rendering/clusters.test.ts")],
   ["tests/rendering/frame.test.ts", () => import("./rendering/frame.test.ts")],
   ["tests/rendering/lightCulling.test.ts", () => import("./rendering/lightCulling.test.ts")],
@@ -169,4 +170,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(165);
+report(166);

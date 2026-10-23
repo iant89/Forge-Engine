@@ -7,10 +7,12 @@ npm run build
 npm run bench -- --json /tmp/forge-bench.json
 ```
 
-The JSON file is schema-versioned and records every result, every shape/correctness check, total run
-time, and the Node/OS/CPU/memory identity. Do not compare timings from unlike hosts as if they were a
-regression. `npm run bench` currently enforces algorithmic shape, correctness, and deliberately broad
-catastrophe bounds; automatic comparison against comparable repeated history is still Phase 22.7 work.
+The JSON file is schema-versioned and records stable metric IDs, every result, every shape/correctness
+check, repeated raw samples, total run time, and the Node/OS/CPU/memory identity. Do not compare timings
+from unlike hosts as if they were a regression. `npm run bench` enforces algorithmic shape, correctness,
+deliberately broad catastrophe bounds, and—when the host fingerprint and metric manifest match—the
+Phase 22.7 repeated-sample policy: a timing regression must exceed both 15% and z=3. Use
+`--record benchmarks/history/benchmark-history.json` only when intentionally accepting a new baseline.
 
 ## 2026-10-20 — Phase 22.1 baseline
 
@@ -58,10 +60,10 @@ future comparator has an initial reference rather than a selectively reported re
 
 ### Interpretation
 
-This is one run, not a confidence interval. It establishes the workload definitions and a traceable
-starting measurement. Phase 22.7 still needs stable metric IDs, repeated samples with variance, stored
-raw history, host-compatibility rules, and an automatic comparison policy. Until those land, use this
-table to investigate large changes, not to reject a change over a few percentage points.
+This historical entry is one run, not a confidence interval; it establishes the workload definitions
+and a traceable starting measurement. The current Phase 22.7 runner uses schema-2 snapshots, stable
+metric IDs, three raw samples, host-compatibility rules and a checked-in same-host comparator. This
+older schema-1 entry remains human-readable provenance and is not itself a rejection baseline.
 
 ## 2026-10-23 — Phase 22.2 rendering baseline
 
@@ -98,8 +100,8 @@ snapshot was written to `/tmp/forge-bench-22.2.json` during validation and is in
 tracked in Git.
 
 This is a mock/CPU baseline, not a real-device GPU timing claim. The browser gate remains the
-real-WebGPU evidence for shader compilation and device execution; same-host statistical comparison
-and automatic rejection remain Phase 22.7 work.
+real-WebGPU evidence for shader compilation and device execution; the current schema-2 runner compares
+repeated timings only when the stored host and metric manifest are compatible.
 
 ## 2026-10-23 — Phase 22.3 terrain baseline
 
@@ -134,8 +136,8 @@ chunks, and returned to the original view with 12 cache hits; and the 65×65 ski
 4,485 vertices and 26,112 indices, matching the exact grid-plus-four-edge-skirts topology.
 
 This is a CPU baseline, not a real-device GPU timing claim. The browser gate remains the evidence for
-terrain shader compilation and device execution; same-host statistical comparison and automatic
-rejection remain Phase 22.7 work.
+terrain shader compilation and device execution; the current schema-2 runner compares repeated timings
+only when the stored host and metric manifest are compatible.
 
 ## 2026-10-23 — Phase 22.4 physics baseline
 
@@ -176,8 +178,8 @@ normal impulse and the resting-contact pass held maximum penetration to 0.0118 m
 -0.644 to 0.618; and the largest deterministic fleet maintained 256 wheel contacts.
 
 This is a CPU/API baseline, not a real-device physics timing claim. The benchmark guards establish
-shape, finite-state, determinism and catastrophe bounds; stable metric IDs, repeated same-host
-comparison and automatic rejection remain Phase 22.7 work.
+shape, finite-state, determinism and catastrophe bounds; the current schema-2 runner compares
+repeated timings only when the stored host and metric manifest are compatible.
 
 ## 2026-10-23 — Phase 22.5 particle baseline
 
@@ -221,8 +223,9 @@ Each preparation row emitted deterministically with zero GPU simulation steps an
 all rows had zero mock validation errors and returned live bytes to the device baseline after disposal.
 These are strict mock-device allocation and
 command/uniform-preparation measurements only: the mock does not execute WGSL, so they are not GPU
-shader-throughput claims. Real browser/device timing remains the authoritative GPU gate. Stable metric
-IDs, repeated same-host comparison and automatic rejection remain Phase 22.7 work.
+shader-throughput claims. Real browser/device timing remains the authoritative GPU gate. The current
+schema-2 runner compares repeated rows only when the stored host and metric manifest are compatible.
+
 
 ## 2026-10-23 — Phase 22.6 world-scale object baseline
 
@@ -258,5 +261,23 @@ repeatable state digest. Typed transform storage measured 2,228,224 / 17,825,792
 objects and components.
 
 This is a CPU/ECS baseline, not a GPU-driven rendering throughput claim. GPU instance generation and
-complete visibility compaction remain Phase 24 work; stable metric IDs, repeated same-host comparison
-and automatic rejection remain Phase 22.7 work.
+complete visibility compaction remain Phase 24 work; the current schema-2 runner compares repeated
+rows only when the stored host and metric manifest are compatible.
+
+## 2026-10-23 — Phase 22.7 regression baseline and policy
+
+**Source:** `arena/fa9d54d2-forge-engine`, Phase 22.7 change
+**UTC start:** 2026-10-23 18:34:40.232Z
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 2; three independent samples, 99 stable metrics, 37,650.83 ms total; all
+correctness and shape guards passed
+**Raw history:** `benchmarks/history/benchmark-history.json` (one retained three-sample baseline)
+
+The runner assigns deterministic `forge.benchmark.*` IDs from each workload name, stores all three raw
+sample rows and median aggregate rows, and compares only a matching platform, architecture, CPU model,
+logical CPU count, memory size and Node major version. A comparable run fails only when a timing row is
+at least 15% slower than the stored median and its z-score is at least 3; missing history or an unlike
+host is reported as `SKIPPED`, while metric-manifest or operation-count drift is `INCOMPATIBLE` and
+requires an explicit `--record` update. A same-host three-sample validation began at
+`2026-10-23T18:35:22.935Z` and passed all 99 comparisons with no regressions.
