@@ -10,19 +10,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   worlds, and draws their bounds; a GPU world's particle buffer is not read back, so it gets counters
   and emitter settings with no particle rows and no overlay. (capability: diagnostics.particleDebugger)
 
-## Benchmarks (Phase 22)
-
-* **The benchmark history is not compared automatically, and the world-scale matrix is incomplete.**
-  Phases 22.1–22.5 now measure the core, rendering, terrain, physics and particle workloads with
-  correctness, work-shape and catastrophe guards: ECS/math/scheduler/resources, mock draw/graph
-  submission, culling, clustered-light coverage, shadow fitting, GPU allocation accounting,
-  deterministic terrain generation/erosion/LOD, budgeted streaming/cache reuse, mesh topology,
-  broadphase/narrowphase/solver/query coverage, deterministic vehicle fleets, and CPU/mock-GPU
-  particle capacity bands through 1M. The runner can write a schema-1 JSON snapshot with exact host
-  metadata, and `PERFORMANCE.md` records measured baselines. There are no stable metric IDs, stored
-  repeated-sample variance or same-host regression policy yet, so ordinary timing drift does not fail
-  CI automatically; Phase 22.6 world-object sweeps remain open. (capability: diagnostics.benchmarkRegression)
-
 ## Rendering (Phase 2)
 
 * **Shadow vertex work still repeats across overlapping maps on the fallback path.** The device

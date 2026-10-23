@@ -1,0 +1,3057 @@
+{
+  "historySchemaVersion": 1,
+  "entries": [
+    {
+      "schemaVersion": 2,
+      "metricSchemaVersion": 1,
+      "startedAt": "2026-10-23T18:34:40.232Z",
+      "elapsedMs": 37650.83223,
+      "sampleCount": 3,
+      "host": {
+        "node": "v22.22.3",
+        "platform": "linux",
+        "arch": "x64",
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.60GHz",
+        "logicalCpus": 2,
+        "totalMemoryBytes": 4131278848
+      },
+      "results": [
+        {
+          "name": "100k entity creation + component attach",
+          "count": 100000,
+          "durationMs": 198.7893380000005,
+          "opsPerSec": 503045,
+          "metricId": "forge.benchmark.100k-entity-creation-component-attach"
+        },
+        {
+          "name": "100k transform update (world matrix composition)",
+          "count": 100000,
+          "durationMs": 16.572035000000028,
+          "opsPerSec": 6034262,
+          "metricId": "forge.benchmark.100k-transform-update-world-matrix-composition"
+        },
+        {
+          "name": "100k entity frustum culling & bounds query",
+          "count": 100000,
+          "durationMs": 61.27457099999992,
+          "opsPerSec": 1631998,
+          "metricId": "forge.benchmark.100k-entity-frustum-culling-and-bounds-query"
+        },
+        {
+          "name": "math Vec3 cross + normalize",
+          "count": 1000000,
+          "durationMs": 57.27662800000002,
+          "opsPerSec": 17459128,
+          "metricId": "forge.benchmark.math-vec3-cross-normalize"
+        },
+        {
+          "name": "math Mat4 multiply",
+          "count": 250000,
+          "durationMs": 14.187459999997373,
+          "opsPerSec": 17621195,
+          "metricId": "forge.benchmark.math-mat4-multiply"
+        },
+        {
+          "name": "scheduler inline dispatch",
+          "count": 8192,
+          "durationMs": 36.960517999999865,
+          "opsPerSec": 221642,
+          "metricId": "forge.benchmark.scheduler-inline-dispatch"
+        },
+        {
+          "name": "scheduler deduplicated subscribers",
+          "count": 4096,
+          "durationMs": 1.0872140000028594,
+          "opsPerSec": 3767428,
+          "metricId": "forge.benchmark.scheduler-deduplicated-subscribers"
+        },
+        {
+          "name": "resources unique load + acquire",
+          "count": 10000,
+          "durationMs": 49.16309000000001,
+          "opsPerSec": 203405,
+          "metricId": "forge.benchmark.resources-unique-load-acquire"
+        },
+        {
+          "name": "resources cached acquire + release",
+          "count": 10000,
+          "durationMs": 2.921361999999135,
+          "opsPerSec": 3423061,
+          "metricId": "forge.benchmark.resources-cached-acquire-release"
+        },
+        {
+          "name": "resources handle release + LRU eviction",
+          "count": 10000,
+          "durationMs": 17.027805,
+          "opsPerSec": 587275,
+          "metricId": "forge.benchmark.resources-handle-release-lru-eviction"
+        },
+        {
+          "name": "particles CPU setup 10,000",
+          "count": 10000,
+          "durationMs": 0.8372849999996106,
+          "opsPerSec": 11943364.565237226,
+          "metricId": "forge.benchmark.particles-cpu-setup-10-000"
+        },
+        {
+          "name": "particles CPU integrate 10,000 × 30",
+          "count": 300000,
+          "durationMs": 8.24370799999997,
+          "opsPerSec": 36391390.86440241,
+          "metricId": "forge.benchmark.particles-cpu-integrate-10-000-x-30"
+        },
+        {
+          "name": "particles CPU setup 100,000",
+          "count": 100000,
+          "durationMs": 0.8223180000004504,
+          "opsPerSec": 121607455.99627544,
+          "metricId": "forge.benchmark.particles-cpu-setup-100-000"
+        },
+        {
+          "name": "particles CPU integrate 100,000 × 30",
+          "count": 3000000,
+          "durationMs": 83.80741400000079,
+          "opsPerSec": 35796355.67803072,
+          "metricId": "forge.benchmark.particles-cpu-integrate-100-000-x-30"
+        },
+        {
+          "name": "particles CPU setup 500,000",
+          "count": 500000,
+          "durationMs": 15.401091000000179,
+          "opsPerSec": 32465232.49554166,
+          "metricId": "forge.benchmark.particles-cpu-setup-500-000"
+        },
+        {
+          "name": "particles CPU integrate 500,000 × 30",
+          "count": 15000000,
+          "durationMs": 435.5734489999995,
+          "opsPerSec": 34437360.75841486,
+          "metricId": "forge.benchmark.particles-cpu-integrate-500-000-x-30"
+        },
+        {
+          "name": "particles CPU setup 1,000,000",
+          "count": 1000000,
+          "durationMs": 34.476110999999946,
+          "opsPerSec": 29005591.726978764,
+          "metricId": "forge.benchmark.particles-cpu-setup-1-000-000"
+        },
+        {
+          "name": "particles CPU integrate 1,000,000 × 30",
+          "count": 30000000,
+          "durationMs": 1069.876225,
+          "opsPerSec": 28040626.8491479,
+          "metricId": "forge.benchmark.particles-cpu-integrate-1-000-000-x-30"
+        },
+        {
+          "name": "particles mock GPU allocate 10,000",
+          "count": 10000,
+          "durationMs": 7.7576719999997295,
+          "opsPerSec": 1289046.507766808,
+          "metricId": "forge.benchmark.particles-mock-gpu-allocate-10-000"
+        },
+        {
+          "name": "particles mock GPU prepare 10,000 × 3",
+          "count": 3,
+          "durationMs": 0.12478600000031292,
+          "opsPerSec": 24041.158463228865,
+          "metricId": "forge.benchmark.particles-mock-gpu-prepare-10-000-x-3"
+        },
+        {
+          "name": "particles mock GPU allocate 100,000",
+          "count": 100000,
+          "durationMs": 7.50611200000094,
+          "opsPerSec": 13322476.403228126,
+          "metricId": "forge.benchmark.particles-mock-gpu-allocate-100-000"
+        },
+        {
+          "name": "particles mock GPU prepare 100,000 × 3",
+          "count": 3,
+          "durationMs": 0.08743999999933294,
+          "opsPerSec": 34309.240622402634,
+          "metricId": "forge.benchmark.particles-mock-gpu-prepare-100-000-x-3"
+        },
+        {
+          "name": "particles mock GPU allocate 500,000",
+          "count": 500000,
+          "durationMs": 71.05917899999986,
+          "opsPerSec": 7036388.6416419335,
+          "metricId": "forge.benchmark.particles-mock-gpu-allocate-500-000"
+        },
+        {
+          "name": "particles mock GPU prepare 500,000 × 3",
+          "count": 3,
+          "durationMs": 0.11152100000253995,
+          "opsPerSec": 26900.76308436683,
+          "metricId": "forge.benchmark.particles-mock-gpu-prepare-500-000-x-3"
+        },
+        {
+          "name": "particles mock GPU allocate 1,000,000",
+          "count": 1000000,
+          "durationMs": 116.43246499999987,
+          "opsPerSec": 8588669.835341897,
+          "metricId": "forge.benchmark.particles-mock-gpu-allocate-1-000-000"
+        },
+        {
+          "name": "particles mock GPU prepare 1,000,000 × 3",
+          "count": 3,
+          "durationMs": 0.13933199999883072,
+          "opsPerSec": 21531.306519860304,
+          "metricId": "forge.benchmark.particles-mock-gpu-prepare-1-000-000-x-3"
+        },
+        {
+          "name": "world objects setup 10,000",
+          "count": 10000,
+          "durationMs": 16.867599000001064,
+          "opsPerSec": 592852.6045704174,
+          "metricId": "forge.benchmark.world-objects-setup-10-000"
+        },
+        {
+          "name": "world objects transform 10,000",
+          "count": 10000,
+          "durationMs": 2.8851359999971464,
+          "opsPerSec": 3466041.1155695575,
+          "metricId": "forge.benchmark.world-objects-transform-10-000"
+        },
+        {
+          "name": "world objects cull 10,000",
+          "count": 10000,
+          "durationMs": 8.645816000000195,
+          "opsPerSec": 1156628.8248558347,
+          "metricId": "forge.benchmark.world-objects-cull-10-000"
+        },
+        {
+          "name": "world objects setup 100,000",
+          "count": 100000,
+          "durationMs": 139.1074920000001,
+          "opsPerSec": 718868.542321214,
+          "metricId": "forge.benchmark.world-objects-setup-100-000"
+        },
+        {
+          "name": "world objects transform 100,000",
+          "count": 100000,
+          "durationMs": 15.289957999997569,
+          "opsPerSec": 6540240.332904506,
+          "metricId": "forge.benchmark.world-objects-transform-100-000"
+        },
+        {
+          "name": "world objects cull 100,000",
+          "count": 100000,
+          "durationMs": 48.20355900000004,
+          "opsPerSec": 2074535.6167580886,
+          "metricId": "forge.benchmark.world-objects-cull-100-000"
+        },
+        {
+          "name": "world objects setup 500,000",
+          "count": 500000,
+          "durationMs": 639.9068079999997,
+          "opsPerSec": 781363.7763328817,
+          "metricId": "forge.benchmark.world-objects-setup-500-000"
+        },
+        {
+          "name": "world objects transform 500,000",
+          "count": 500000,
+          "durationMs": 32.92558800000188,
+          "opsPerSec": 15185757.654501764,
+          "metricId": "forge.benchmark.world-objects-transform-500-000"
+        },
+        {
+          "name": "world objects cull 500,000",
+          "count": 500000,
+          "durationMs": 212.30593000000226,
+          "opsPerSec": 2355092.012738385,
+          "metricId": "forge.benchmark.world-objects-cull-500-000"
+        },
+        {
+          "name": "world objects setup 1,000,000",
+          "count": 1000000,
+          "durationMs": 1521.1083080000026,
+          "opsPerSec": 657415.3824160155,
+          "metricId": "forge.benchmark.world-objects-setup-1-000-000"
+        },
+        {
+          "name": "world objects transform 1,000,000",
+          "count": 1000000,
+          "durationMs": 106.57548900000256,
+          "opsPerSec": 9383020.51797272,
+          "metricId": "forge.benchmark.world-objects-transform-1-000-000"
+        },
+        {
+          "name": "world objects cull 1,000,000",
+          "count": 1000000,
+          "durationMs": 525.5299960000011,
+          "opsPerSec": 1902840.9560089086,
+          "metricId": "forge.benchmark.world-objects-cull-1-000-000"
+        },
+        {
+          "name": "16 lights, spread rig: fill (CPU)",
+          "count": 922,
+          "durationMs": 0.015095854166626552,
+          "opsPerSec": 61076372,
+          "metricId": "forge.benchmark.16-lights-spread-rig-fill-cpu"
+        },
+        {
+          "name": "16 lights, dense rig: fill (CPU)",
+          "count": 49152,
+          "durationMs": 0.2387477111110962,
+          "opsPerSec": 205874225,
+          "metricId": "forge.benchmark.16-lights-dense-rig-fill-cpu"
+        },
+        {
+          "name": "16 lights, dense rig: count (CPU, stays)",
+          "count": 16,
+          "durationMs": 0.0333499555555237,
+          "opsPerSec": 479761,
+          "metricId": "forge.benchmark.16-lights-dense-rig-count-cpu-stays"
+        },
+        {
+          "name": "64 lights, spread rig: fill (CPU)",
+          "count": 3536,
+          "durationMs": 0.023407628985433554,
+          "opsPerSec": 151061861,
+          "metricId": "forge.benchmark.64-lights-spread-rig-fill-cpu"
+        },
+        {
+          "name": "64 lights, dense rig: fill (CPU)",
+          "count": 98304,
+          "durationMs": 8.627699651165194,
+          "opsPerSec": 11393999,
+          "metricId": "forge.benchmark.64-lights-dense-rig-fill-cpu"
+        },
+        {
+          "name": "64 lights, dense rig: count (CPU, stays)",
+          "count": 64,
+          "durationMs": 0.04370869230768175,
+          "opsPerSec": 1464240,
+          "metricId": "forge.benchmark.64-lights-dense-rig-count-cpu-stays"
+        },
+        {
+          "name": "256 lights, spread rig: fill (CPU)",
+          "count": 7749,
+          "durationMs": 0.5779338888887313,
+          "opsPerSec": 13408108,
+          "metricId": "forge.benchmark.256-lights-spread-rig-fill-cpu"
+        },
+        {
+          "name": "256 lights, dense rig: fill (CPU)",
+          "count": 98304,
+          "durationMs": 58.60046669565196,
+          "opsPerSec": 1677529,
+          "metricId": "forge.benchmark.256-lights-dense-rig-fill-cpu"
+        },
+        {
+          "name": "256 lights, dense rig: count (CPU, stays)",
+          "count": 256,
+          "durationMs": 0.08524374999994204,
+          "opsPerSec": 3003153,
+          "metricId": "forge.benchmark.256-lights-dense-rig-count-cpu-stays"
+        },
+        {
+          "name": "object cull 512 batches (cpu twin, frustum+distance+hiz)",
+          "count": 512,
+          "durationMs": 0.43799399999988964,
+          "opsPerSec": 1168965.7849197227,
+          "metricId": "forge.benchmark.object-cull-512-batches-cpu-twin-frustum-distance-hiz"
+        },
+        {
+          "name": "object cull 2048 batches (cpu twin, frustum+distance+hiz)",
+          "count": 2048,
+          "durationMs": 1.0662095000006957,
+          "opsPerSec": 1920823.2528397692,
+          "metricId": "forge.benchmark.object-cull-2048-batches-cpu-twin-frustum-distance-hiz"
+        },
+        {
+          "name": "object cull 8192 batches (cpu twin, frustum+distance+hiz)",
+          "count": 8192,
+          "durationMs": 3.986109999998007,
+          "opsPerSec": 2055136.4613631074,
+          "metricId": "forge.benchmark.object-cull-8192-batches-cpu-twin-frustum-distance-hiz"
+        },
+        {
+          "name": "hiz pyramid 1280x720 (cpu twin, 4 levels)",
+          "count": 921600,
+          "durationMs": 20.355097999999998,
+          "opsPerSec": 45276126.89459909,
+          "metricId": "forge.benchmark.hiz-pyramid-1280x720-cpu-twin-4-levels"
+        },
+        {
+          "name": "draw submission 16 batches (mock frame)",
+          "count": 16,
+          "durationMs": 2.164915999997902,
+          "opsPerSec": 7390.586978901493,
+          "metricId": "forge.benchmark.draw-submission-16-batches-mock-frame"
+        },
+        {
+          "name": "draw submission 64 batches (mock frame)",
+          "count": 64,
+          "durationMs": 2.0980169999966165,
+          "opsPerSec": 30504.99590808998,
+          "metricId": "forge.benchmark.draw-submission-64-batches-mock-frame"
+        },
+        {
+          "name": "draw submission 256 batches (mock frame)",
+          "count": 256,
+          "durationMs": 4.348351000000548,
+          "opsPerSec": 58872.89227570812,
+          "metricId": "forge.benchmark.draw-submission-256-batches-mock-frame"
+        },
+        {
+          "name": "render graph compile + submit 10 declared passes",
+          "count": 10,
+          "durationMs": 29.141326000004483,
+          "opsPerSec": 343.1552840113885,
+          "metricId": "forge.benchmark.render-graph-compile-submit-10-declared-passes"
+        },
+        {
+          "name": "render graph compile + submit 34 declared passes",
+          "count": 34,
+          "durationMs": 106.07023900000058,
+          "opsPerSec": 320.5423153614259,
+          "metricId": "forge.benchmark.render-graph-compile-submit-34-declared-passes"
+        },
+        {
+          "name": "render graph compile + submit 66 declared passes",
+          "count": 66,
+          "durationMs": 209.0428350000002,
+          "opsPerSec": 315.7247652137895,
+          "metricId": "forge.benchmark.render-graph-compile-submit-66-declared-passes"
+        },
+        {
+          "name": "shadow cascade fit ×4",
+          "count": 1024,
+          "durationMs": 1.6441049999993993,
+          "opsPerSec": 622831.2668597043,
+          "metricId": "forge.benchmark.shadow-cascade-fit-x-4"
+        },
+        {
+          "name": "spot shadow fit",
+          "count": 256,
+          "durationMs": 0.3303620000006049,
+          "opsPerSec": 774907.5256825279,
+          "metricId": "forge.benchmark.spot-shadow-fit"
+        },
+        {
+          "name": "point shadow fit ×6 faces",
+          "count": 1536,
+          "durationMs": 0.23839800000132527,
+          "opsPerSec": 6443007.072171165,
+          "metricId": "forge.benchmark.point-shadow-fit-x-6-faces"
+        },
+        {
+          "name": "GPU allocation accounting (32 textures + buffers/frame)",
+          "count": 2048,
+          "durationMs": 0.2848259999991569,
+          "opsPerSec": 7190354.813135254,
+          "metricId": "forge.benchmark.gpu-allocation-accounting-32-textures-buffers-frame"
+        },
+        {
+          "name": "terrain generation 33×33",
+          "count": 1089,
+          "durationMs": 1.9283719999948516,
+          "opsPerSec": 564725.0634228807,
+          "metricId": "forge.benchmark.terrain-generation-33-x-33"
+        },
+        {
+          "name": "terrain generation 65×65",
+          "count": 4225,
+          "durationMs": 6.126448999999411,
+          "opsPerSec": 689632.7709575981,
+          "metricId": "forge.benchmark.terrain-generation-65-x-65"
+        },
+        {
+          "name": "terrain generation 129×129",
+          "count": 16641,
+          "durationMs": 21.800531000000774,
+          "opsPerSec": 763330.0308143599,
+          "metricId": "forge.benchmark.terrain-generation-129-x-129"
+        },
+        {
+          "name": "terrain thermal erosion 65×65",
+          "count": 12675,
+          "durationMs": 0.5410960000008345,
+          "opsPerSec": 23424678.800028928,
+          "metricId": "forge.benchmark.terrain-thermal-erosion-65-x-65"
+        },
+        {
+          "name": "terrain hydraulic erosion 65×65",
+          "count": 21125,
+          "durationMs": 6.3725220000014815,
+          "opsPerSec": 3315014.055658825,
+          "metricId": "forge.benchmark.terrain-hydraulic-erosion-65-x-65"
+        },
+        {
+          "name": "terrain LOD selection + resolution/geomorph",
+          "count": 896,
+          "durationMs": 0.5616709999994782,
+          "opsPerSec": 1595239.918031788,
+          "metricId": "forge.benchmark.terrain-lod-selection-resolution-geomorph"
+        },
+        {
+          "name": "terrain streaming cold update",
+          "count": 12,
+          "durationMs": 5.5108670000045095,
+          "opsPerSec": 2177.5158064947277,
+          "metricId": "forge.benchmark.terrain-streaming-cold-update"
+        },
+        {
+          "name": "terrain streaming resident update",
+          "count": 4,
+          "durationMs": 0.07470699999976205,
+          "opsPerSec": 53542.50605716654,
+          "metricId": "forge.benchmark.terrain-streaming-resident-update"
+        },
+        {
+          "name": "terrain streaming camera move + return",
+          "count": 24,
+          "durationMs": 6.966037000001961,
+          "opsPerSec": 3445.2874711967856,
+          "metricId": "forge.benchmark.terrain-streaming-camera-move-return"
+        },
+        {
+          "name": "terrain mesh generation 17×17 + skirts",
+          "count": 357,
+          "durationMs": 0.2787289999978384,
+          "opsPerSec": 1280813.98061475,
+          "metricId": "forge.benchmark.terrain-mesh-generation-17-x-17-skirts"
+        },
+        {
+          "name": "terrain mesh generation 33×33 + skirts",
+          "count": 1221,
+          "durationMs": 0.9189079999996466,
+          "opsPerSec": 1328751.082807495,
+          "metricId": "forge.benchmark.terrain-mesh-generation-33-x-33-skirts"
+        },
+        {
+          "name": "terrain mesh generation 65×65 + skirts",
+          "count": 4485,
+          "durationMs": 3.5763890000016545,
+          "opsPerSec": 1254058.2134655723,
+          "metricId": "forge.benchmark.terrain-mesh-generation-65-x-65-skirts"
+        },
+        {
+          "name": "physics broadphase pair generation + pruning 128 bodies",
+          "count": 128,
+          "durationMs": 0.27262899999914225,
+          "opsPerSec": 469502.5107395131,
+          "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-128-bodies"
+        },
+        {
+          "name": "physics broadphase pair generation + pruning 512 bodies",
+          "count": 512,
+          "durationMs": 2.720978000004834,
+          "opsPerSec": 188167.63678320457,
+          "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-512-bodies"
+        },
+        {
+          "name": "physics broadphase pair generation + pruning 2048 bodies",
+          "count": 2048,
+          "durationMs": 3.539612999997189,
+          "opsPerSec": 578594.3265553681,
+          "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-2048-bodies"
+        },
+        {
+          "name": "physics narrowphase sphere-sphere manifold generation",
+          "count": 512,
+          "durationMs": 0.5862659999984317,
+          "opsPerSec": 873323.7131291422,
+          "metricId": "forge.benchmark.physics-narrowphase-sphere-sphere-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase sphere-box manifold generation",
+          "count": 512,
+          "durationMs": 0.6348389999984647,
+          "opsPerSec": 806503.696214691,
+          "metricId": "forge.benchmark.physics-narrowphase-sphere-box-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase box-box manifold generation",
+          "count": 512,
+          "durationMs": 1.1897759999992559,
+          "opsPerSec": 430333.1047191406,
+          "metricId": "forge.benchmark.physics-narrowphase-box-box-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase sphere-plane manifold generation",
+          "count": 512,
+          "durationMs": 0.2816449999991164,
+          "opsPerSec": 1817891.317089266,
+          "metricId": "forge.benchmark.physics-narrowphase-sphere-plane-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase box-plane manifold generation",
+          "count": 512,
+          "durationMs": 0.7448549999971874,
+          "opsPerSec": 687382.1079296417,
+          "metricId": "forge.benchmark.physics-narrowphase-box-plane-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase sphere-heightfield manifold generation",
+          "count": 512,
+          "durationMs": 0.298889000001509,
+          "opsPerSec": 1713010.5156008254,
+          "metricId": "forge.benchmark.physics-narrowphase-sphere-heightfield-manifold-generation"
+        },
+        {
+          "name": "physics narrowphase box-heightfield manifold generation",
+          "count": 512,
+          "durationMs": 2.8006060000006983,
+          "opsPerSec": 182817.57591031096,
+          "metricId": "forge.benchmark.physics-narrowphase-box-heightfield-manifold-generation"
+        },
+        {
+          "name": "physics sequential-impulse solver contact batch",
+          "count": 256,
+          "durationMs": 0.5044750000015483,
+          "opsPerSec": 507458.24867280695,
+          "metricId": "forge.benchmark.physics-sequential-impulse-solver-contact-batch"
+        },
+        {
+          "name": "physics fixed-step resting-contact stability",
+          "count": 2880,
+          "durationMs": 25.4244460000009,
+          "opsPerSec": 113276.80453685788,
+          "metricId": "forge.benchmark.physics-fixed-step-resting-contact-stability"
+        },
+        {
+          "name": "physics spatial raycasts (256 colliders)",
+          "count": 512,
+          "durationMs": 12.025105999997322,
+          "opsPerSec": 42577.58725786817,
+          "metricId": "forge.benchmark.physics-spatial-raycasts-256-colliders"
+        },
+        {
+          "name": "physics heightfield queries (256 colliders)",
+          "count": 4096,
+          "durationMs": 0.6414939999995113,
+          "opsPerSec": 6385094.794344328,
+          "metricId": "forge.benchmark.physics-heightfield-queries-256-colliders"
+        },
+        {
+          "name": "physics vehicle simulation 8 vehicles × 120 steps",
+          "count": 960,
+          "durationMs": 25.054763000000094,
+          "opsPerSec": 38316.06788697209,
+          "metricId": "forge.benchmark.physics-vehicle-simulation-8-vehicles-x-120-steps"
+        },
+        {
+          "name": "physics vehicle simulation 32 vehicles × 120 steps",
+          "count": 3840,
+          "durationMs": 103.40500199999951,
+          "opsPerSec": 37135.53431390116,
+          "metricId": "forge.benchmark.physics-vehicle-simulation-32-vehicles-x-120-steps"
+        },
+        {
+          "name": "physics vehicle simulation 64 vehicles × 120 steps",
+          "count": 7680,
+          "durationMs": 212.98977000000014,
+          "opsPerSec": 36058.06983124117,
+          "metricId": "forge.benchmark.physics-vehicle-simulation-64-vehicles-x-120-steps"
+        },
+        {
+          "name": "UI build + layout (1000 buttons)",
+          "count": 1000,
+          "durationMs": 52.86550499999794,
+          "opsPerSec": 18916,
+          "metricId": "forge.benchmark.ui-build-layout-1000-buttons"
+        },
+        {
+          "name": "UI steady frame (update + render)",
+          "count": 300,
+          "durationMs": 0.32027199999720324,
+          "opsPerSec": 936704,
+          "metricId": "forge.benchmark.ui-steady-frame-update-render"
+        },
+        {
+          "name": "UI hover sweep (restyle + repaint)",
+          "count": 300,
+          "durationMs": 130.74032600000282,
+          "opsPerSec": 2295,
+          "metricId": "forge.benchmark.ui-hover-sweep-restyle-repaint"
+        },
+        {
+          "name": "UI local text change (layout boundary)",
+          "count": 300,
+          "durationMs": 98.06641200000013,
+          "opsPerSec": 3059,
+          "metricId": "forge.benchmark.ui-local-text-change-layout-boundary"
+        },
+        {
+          "name": "UI viewport resize (full relayout)",
+          "count": 60,
+          "durationMs": 201.74912600000243,
+          "opsPerSec": 297,
+          "metricId": "forge.benchmark.ui-viewport-resize-full-relayout"
+        },
+        {
+          "name": "UI draw-list rebuild (1000 buttons)",
+          "count": 200,
+          "durationMs": 60.18021899999803,
+          "opsPerSec": 3323,
+          "metricId": "forge.benchmark.ui-draw-list-rebuild-1000-buttons"
+        },
+        {
+          "name": "UI virtualized scroll (100k rows)",
+          "count": 600,
+          "durationMs": 66.45551200000045,
+          "opsPerSec": 9029,
+          "metricId": "forge.benchmark.ui-virtualized-scroll-100k-rows"
+        },
+        {
+          "name": "UI text layout (cache miss)",
+          "count": 800,
+          "durationMs": 12.788275000002614,
+          "opsPerSec": 62557,
+          "metricId": "forge.benchmark.ui-text-layout-cache-miss"
+        },
+        {
+          "name": "UI text layout (cache hit)",
+          "count": 800,
+          "durationMs": 0.6671019999994314,
+          "opsPerSec": 1199217,
+          "metricId": "forge.benchmark.ui-text-layout-cache-hit"
+        }
+      ],
+      "checks": {
+        "core": [
+          "math: 1,000,000 vector kernels in 67.47 ms; 250,000 matrix multiplies in 14.19 ms",
+          "scheduler: 8,192 unique tasks in 31.42 ms; 4,096 subscribers shared one task (4,095 hits)",
+          "resources: 10,000 loads / hits / evictions, 625 KiB peak, zero entries left"
+        ],
+        "ecs": [
+          "100,000 entities: create 140.95 ms, transform 6.39 ms, cull 58.37 ms"
+        ],
+        "particles": [
+          "CPU: 4 capacity bands through 1,000,000, largest integration 1116.01 ms with analytic error 2.67e-7",
+          "mock GPU: 4 capacity bands through 1,000,000, largest allocation 132000768 bytes, zero ECS entities and zero live buffers after teardown"
+        ],
+        "world": [
+          "objects: 4 capacity bands through 1,000,000, largest setup 1521.11 ms",
+          "transforms/cull: 77.49 ms / 705.44 ms, 279,292 visible and 720,708 culled",
+          "teardown: 142,606,336 typed-storage bytes measured before disposal, zero live ECS objects after every band"
+        ],
+        "lights": [
+          "dense 256 lights → 98304 entries (3072 clusters × cap 32)",
+          "fill follows coverage: dense 100× the spread rig at 256 lights (7749 vs 98304 entries)",
+          "count stays flat: 0.066 ms (spread) vs 0.085 ms (dense) at 256 lights",
+          "CPU fill of the worst case: 57.74 ms (0.578 ms for the demo-shaped rig)"
+        ],
+        "culling": [
+          "per-batch cost 0.520µs at 2048 → 0.487µs at 8192 (0.94x, linear within the guard)",
+          "frustum 2.00 ms vs frustum+distance 2.05 ms at 8192 batches (1.02x)",
+          "cpu twin at the 8192-batch cap: 3.99 ms/frame (frustum 2.00, distance 2.05, occluded 2174)",
+          "pyramid 1280x720 / 4 levels: 20.33 ms/frame on the CPU (5.1x the cull it feeds) — the device reduces it in-frame, the twin cannot"
+        ],
+        "rendering": [
+          "draw submission: 256 batches → 256 draw calls in 4.35 ms",
+          "render graph: 66 declared / 65 executed, 2 physical textures for 64 transients, 57139200 bytes aliased",
+          "shadow fits: 256 cascade/spot/point iterations, atlas 512px / 10485760 bytes within 16777216 bytes",
+          "GPU memory: 2048 allocations, peak 655360 bytes, zero remaining"
+        ],
+        "terrain": [
+          "generation: 3 deterministic grids, largest 129×129 in 21.10 ms (399384 bytes)",
+          "erosion: thermal 0.54 ms + hydraulic 6.15 ms at 65×65",
+          "LOD: 896 selected chunks across levels 0/1/2/3/4 (3/5/9/17/33 grid resolutions), 216 transition samples",
+          "streaming: cold 12 chunks, resident 0.07 ms, moved 12, return cache hits 12, 12/12 resident",
+          "mesh: largest 65×65 source has 4485 vertices / 26112 indices in 3.58 ms"
+        ],
+        "physics": [
+          "broadphase: 3 body counts, largest 2048 generated 1984 pairs from 191005 axis candidates (2096128 possible)",
+          "narrowphase: 7 supported shape pairs, 8,192 contacts generated deterministically",
+          "solver: 64 bodies / 256 contacts, total normal impulse 181.124 in 0.50 ms",
+          "stability: 32 bodies × 90 fixed steps, max penetration 0.0118 m, max speed 0.050 m/s",
+          "queries: 512 raycasts hit in 12.00 ms; 4096 heightfield samples ranged -0.644..0.618 in 0.13 ms",
+          "vehicles: 3 fleet sizes, largest 64 vehicles × 120 steps in 212.55 ms, 256 wheel contacts"
+        ],
+        "ui": [
+          "steady frame: 0 measures, 0 style resolves, draw list rebuilt: false",
+          "local text change: 1.0 measures/frame vs 2015 for a full relayout",
+          "1000 buttons → 1222 instances in 1 batch(es)",
+          "virtualized 100k rows: 37 elements instantiated",
+          "text layout: 11.3 ms for 800 misses, 0.61 ms for 800 hits"
+        ]
+      },
+      "samples": [
+        {
+          "sampleIndex": 0,
+          "startedAt": "2026-10-23T18:34:40.232Z",
+          "elapsedMs": 13800.702115,
+          "results": [
+            {
+              "name": "100k entity creation + component attach",
+              "count": 100000,
+              "durationMs": 218.696366,
+              "opsPerSec": 457255,
+              "metricId": "forge.benchmark.100k-entity-creation-component-attach"
+            },
+            {
+              "name": "100k transform update (world matrix composition)",
+              "count": 100000,
+              "durationMs": 16.572035000000028,
+              "opsPerSec": 6034262,
+              "metricId": "forge.benchmark.100k-transform-update-world-matrix-composition"
+            },
+            {
+              "name": "100k entity frustum culling & bounds query",
+              "count": 100000,
+              "durationMs": 71.50073199999997,
+              "opsPerSec": 1398587,
+              "metricId": "forge.benchmark.100k-entity-frustum-culling-and-bounds-query"
+            },
+            {
+              "name": "math Vec3 cross + normalize",
+              "count": 1000000,
+              "durationMs": 57.27662800000002,
+              "opsPerSec": 17459128,
+              "metricId": "forge.benchmark.math-vec3-cross-normalize"
+            },
+            {
+              "name": "math Mat4 multiply",
+              "count": 250000,
+              "durationMs": 18.18519600000002,
+              "opsPerSec": 13747446,
+              "metricId": "forge.benchmark.math-mat4-multiply"
+            },
+            {
+              "name": "scheduler inline dispatch",
+              "count": 8192,
+              "durationMs": 38.243210999999974,
+              "opsPerSec": 214208,
+              "metricId": "forge.benchmark.scheduler-inline-dispatch"
+            },
+            {
+              "name": "scheduler deduplicated subscribers",
+              "count": 4096,
+              "durationMs": 7.553148999999962,
+              "opsPerSec": 542290,
+              "metricId": "forge.benchmark.scheduler-deduplicated-subscribers"
+            },
+            {
+              "name": "resources unique load + acquire",
+              "count": 10000,
+              "durationMs": 49.16309000000001,
+              "opsPerSec": 203405,
+              "metricId": "forge.benchmark.resources-unique-load-acquire"
+            },
+            {
+              "name": "resources cached acquire + release",
+              "count": 10000,
+              "durationMs": 12.778396999999984,
+              "opsPerSec": 782571,
+              "metricId": "forge.benchmark.resources-cached-acquire-release"
+            },
+            {
+              "name": "resources handle release + LRU eviction",
+              "count": 10000,
+              "durationMs": 17.027805,
+              "opsPerSec": 587275,
+              "metricId": "forge.benchmark.resources-handle-release-lru-eviction"
+            },
+            {
+              "name": "particles CPU setup 10,000",
+              "count": 10000,
+              "durationMs": 1.1584389999999303,
+              "opsPerSec": 8632306.060138343,
+              "metricId": "forge.benchmark.particles-cpu-setup-10-000"
+            },
+            {
+              "name": "particles CPU integrate 10,000 × 30",
+              "count": 300000,
+              "durationMs": 14.784562999999935,
+              "opsPerSec": 20291435.059663333,
+              "metricId": "forge.benchmark.particles-cpu-integrate-10-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 100,000",
+              "count": 100000,
+              "durationMs": 2.9818159999999807,
+              "opsPerSec": 33536609.904836733,
+              "metricId": "forge.benchmark.particles-cpu-setup-100-000"
+            },
+            {
+              "name": "particles CPU integrate 100,000 × 30",
+              "count": 3000000,
+              "durationMs": 89.32907,
+              "opsPerSec": 33583692.29635996,
+              "metricId": "forge.benchmark.particles-cpu-integrate-100-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 500,000",
+              "count": 500000,
+              "durationMs": 15.401091000000179,
+              "opsPerSec": 32465232.49554166,
+              "metricId": "forge.benchmark.particles-cpu-setup-500-000"
+            },
+            {
+              "name": "particles CPU integrate 500,000 × 30",
+              "count": 15000000,
+              "durationMs": 461.584028,
+              "opsPerSec": 32496791.6784157,
+              "metricId": "forge.benchmark.particles-cpu-integrate-500-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 54.67373999999995,
+              "opsPerSec": 18290316.338337213,
+              "metricId": "forge.benchmark.particles-cpu-setup-1-000-000"
+            },
+            {
+              "name": "particles CPU integrate 1,000,000 × 30",
+              "count": 30000000,
+              "durationMs": 1069.876225,
+              "opsPerSec": 28040626.8491479,
+              "metricId": "forge.benchmark.particles-cpu-integrate-1-000-000-x-30"
+            },
+            {
+              "name": "particles mock GPU allocate 10,000",
+              "count": 10000,
+              "durationMs": 5.091433000000052,
+              "opsPerSec": 1964083.5890406293,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-10-000"
+            },
+            {
+              "name": "particles mock GPU prepare 10,000 × 3",
+              "count": 3,
+              "durationMs": 0.6736079999996036,
+              "opsPerSec": 4453.628816762516,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-10-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 100,000",
+              "count": 100000,
+              "durationMs": 10.875674999999774,
+              "opsPerSec": 9194831.58516617,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-100-000"
+            },
+            {
+              "name": "particles mock GPU prepare 100,000 × 3",
+              "count": 3,
+              "durationMs": 0.14336499999990338,
+              "opsPerSec": 20925.60945838958,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-100-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 500,000",
+              "count": 500000,
+              "durationMs": 90.41484900000023,
+              "opsPerSec": 5530065.08919789,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-500-000"
+            },
+            {
+              "name": "particles mock GPU prepare 500,000 × 3",
+              "count": 3,
+              "durationMs": 0.33282099999996717,
+              "opsPerSec": 9013.854294050843,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-500-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 1,000,000",
+              "count": 1000000,
+              "durationMs": 125.08895900000016,
+              "opsPerSec": 7994310.672934761,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-1-000-000"
+            },
+            {
+              "name": "particles mock GPU prepare 1,000,000 × 3",
+              "count": 3,
+              "durationMs": 0.21309299999984432,
+              "opsPerSec": 14078.360152619709,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-1-000-000-x-3"
+            },
+            {
+              "name": "world objects setup 10,000",
+              "count": 10000,
+              "durationMs": 27.130341000000044,
+              "opsPerSec": 368591.01770965516,
+              "metricId": "forge.benchmark.world-objects-setup-10-000"
+            },
+            {
+              "name": "world objects transform 10,000",
+              "count": 10000,
+              "durationMs": 5.0502080000001115,
+              "opsPerSec": 1980116.4625298164,
+              "metricId": "forge.benchmark.world-objects-transform-10-000"
+            },
+            {
+              "name": "world objects cull 10,000",
+              "count": 10000,
+              "durationMs": 8.53476499999988,
+              "opsPerSec": 1171678.4234832642,
+              "metricId": "forge.benchmark.world-objects-cull-10-000"
+            },
+            {
+              "name": "world objects setup 100,000",
+              "count": 100000,
+              "durationMs": 139.1074920000001,
+              "opsPerSec": 718868.542321214,
+              "metricId": "forge.benchmark.world-objects-setup-100-000"
+            },
+            {
+              "name": "world objects transform 100,000",
+              "count": 100000,
+              "durationMs": 18.78851500000019,
+              "opsPerSec": 5322400.413231115,
+              "metricId": "forge.benchmark.world-objects-transform-100-000"
+            },
+            {
+              "name": "world objects cull 100,000",
+              "count": 100000,
+              "durationMs": 48.20355900000004,
+              "opsPerSec": 2074535.6167580886,
+              "metricId": "forge.benchmark.world-objects-cull-100-000"
+            },
+            {
+              "name": "world objects setup 500,000",
+              "count": 500000,
+              "durationMs": 767.2854480000001,
+              "opsPerSec": 651647.9640051768,
+              "metricId": "forge.benchmark.world-objects-setup-500-000"
+            },
+            {
+              "name": "world objects transform 500,000",
+              "count": 500000,
+              "durationMs": 36.13541600000008,
+              "opsPerSec": 13836840.843343243,
+              "metricId": "forge.benchmark.world-objects-transform-500-000"
+            },
+            {
+              "name": "world objects cull 500,000",
+              "count": 500000,
+              "durationMs": 451.49077099999977,
+              "opsPerSec": 1107442.349026444,
+              "metricId": "forge.benchmark.world-objects-cull-500-000"
+            },
+            {
+              "name": "world objects setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 1620.1124769999997,
+              "opsPerSec": 617241.0954156242,
+              "metricId": "forge.benchmark.world-objects-setup-1-000-000"
+            },
+            {
+              "name": "world objects transform 1,000,000",
+              "count": 1000000,
+              "durationMs": 154.2253640000008,
+              "opsPerSec": 6484017.765067455,
+              "metricId": "forge.benchmark.world-objects-transform-1-000-000"
+            },
+            {
+              "name": "world objects cull 1,000,000",
+              "count": 1000000,
+              "durationMs": 438.190748,
+              "opsPerSec": 2282111.1686274125,
+              "metricId": "forge.benchmark.world-objects-cull-1-000-000"
+            },
+            {
+              "name": "16 lights, spread rig: fill (CPU)",
+              "count": 922,
+              "durationMs": 0,
+              "opsPerSec": 922000000000,
+              "metricId": "forge.benchmark.16-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: fill (CPU)",
+              "count": 49152,
+              "durationMs": 0.17136047058832926,
+              "opsPerSec": 286833946,
+              "metricId": "forge.benchmark.16-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: count (CPU, stays)",
+              "count": 16,
+              "durationMs": 0.11117452941176881,
+              "opsPerSec": 143918,
+              "metricId": "forge.benchmark.16-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "64 lights, spread rig: fill (CPU)",
+              "count": 3536,
+              "durationMs": 0.0229207898550787,
+              "opsPerSec": 154270425,
+              "metricId": "forge.benchmark.64-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 8.596589500000185,
+              "opsPerSec": 11435233,
+              "metricId": "forge.benchmark.64-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: count (CPU, stays)",
+              "count": 64,
+              "durationMs": 0.04296950000000586,
+              "opsPerSec": 1489429,
+              "metricId": "forge.benchmark.64-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "256 lights, spread rig: fill (CPU)",
+              "count": 7749,
+              "durationMs": 0.579953781609157,
+              "opsPerSec": 13361410,
+              "metricId": "forge.benchmark.256-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 59.34762860869511,
+              "opsPerSec": 1656410,
+              "metricId": "forge.benchmark.256-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: count (CPU, stays)",
+              "count": 256,
+              "durationMs": 0.08689039130434179,
+              "opsPerSec": 2946241,
+              "metricId": "forge.benchmark.256-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "object cull 512 batches (cpu twin, frustum+distance+hiz)",
+              "count": 512,
+              "durationMs": 1.482680999999502,
+              "opsPerSec": 345320.40270305745,
+              "metricId": "forge.benchmark.object-cull-512-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 2048 batches (cpu twin, frustum+distance+hiz)",
+              "count": 2048,
+              "durationMs": 1.5442860000002838,
+              "opsPerSec": 1326179.2180979582,
+              "metricId": "forge.benchmark.object-cull-2048-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 8192 batches (cpu twin, frustum+distance+hiz)",
+              "count": 8192,
+              "durationMs": 3.9380649999993693,
+              "opsPerSec": 2080209.4429628032,
+              "metricId": "forge.benchmark.object-cull-8192-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "hiz pyramid 1280x720 (cpu twin, 4 levels)",
+              "count": 921600,
+              "durationMs": 27.351216000000022,
+              "opsPerSec": 33695028.40385595,
+              "metricId": "forge.benchmark.hiz-pyramid-1280x720-cpu-twin-4-levels"
+            },
+            {
+              "name": "draw submission 16 batches (mock frame)",
+              "count": 16,
+              "durationMs": 2.435378000000128,
+              "opsPerSec": 6569.822015308982,
+              "metricId": "forge.benchmark.draw-submission-16-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 64 batches (mock frame)",
+              "count": 64,
+              "durationMs": 2.8710380000011355,
+              "opsPerSec": 22291.58931368191,
+              "metricId": "forge.benchmark.draw-submission-64-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 256 batches (mock frame)",
+              "count": 256,
+              "durationMs": 6.626870999998573,
+              "opsPerSec": 38630.59956954875,
+              "metricId": "forge.benchmark.draw-submission-256-batches-mock-frame"
+            },
+            {
+              "name": "render graph compile + submit 10 declared passes",
+              "count": 10,
+              "durationMs": 29.337110999998913,
+              "opsPerSec": 340.865192895114,
+              "metricId": "forge.benchmark.render-graph-compile-submit-10-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 34 declared passes",
+              "count": 34,
+              "durationMs": 107.01202700000067,
+              "opsPerSec": 317.7212968781517,
+              "metricId": "forge.benchmark.render-graph-compile-submit-34-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 66 declared passes",
+              "count": 66,
+              "durationMs": 209.0428350000002,
+              "opsPerSec": 315.7247652137895,
+              "metricId": "forge.benchmark.render-graph-compile-submit-66-declared-passes"
+            },
+            {
+              "name": "shadow cascade fit ×4",
+              "count": 1024,
+              "durationMs": 3.0758420000001934,
+              "opsPerSec": 332916.9703775212,
+              "metricId": "forge.benchmark.shadow-cascade-fit-x-4"
+            },
+            {
+              "name": "spot shadow fit",
+              "count": 256,
+              "durationMs": 0.6504469999999856,
+              "opsPerSec": 393575.49500575097,
+              "metricId": "forge.benchmark.spot-shadow-fit"
+            },
+            {
+              "name": "point shadow fit ×6 faces",
+              "count": 1536,
+              "durationMs": 3.383107999999993,
+              "opsPerSec": 454020.38598826976,
+              "metricId": "forge.benchmark.point-shadow-fit-x-6-faces"
+            },
+            {
+              "name": "GPU allocation accounting (32 textures + buffers/frame)",
+              "count": 2048,
+              "durationMs": 0.3042889999996987,
+              "opsPerSec": 6730443.7557783155,
+              "metricId": "forge.benchmark.gpu-allocation-accounting-32-textures-buffers-frame"
+            },
+            {
+              "name": "terrain generation 33×33",
+              "count": 1089,
+              "durationMs": 2.9693530000004102,
+              "opsPerSec": 366746.5606143323,
+              "metricId": "forge.benchmark.terrain-generation-33-x-33"
+            },
+            {
+              "name": "terrain generation 65×65",
+              "count": 4225,
+              "durationMs": 6.838563999999678,
+              "opsPerSec": 617819.7645002955,
+              "metricId": "forge.benchmark.terrain-generation-65-x-65"
+            },
+            {
+              "name": "terrain generation 129×129",
+              "count": 16641,
+              "durationMs": 24.093878000001496,
+              "opsPerSec": 690673.3735432281,
+              "metricId": "forge.benchmark.terrain-generation-129-x-129"
+            },
+            {
+              "name": "terrain thermal erosion 65×65",
+              "count": 12675,
+              "durationMs": 5.802991999998994,
+              "opsPerSec": 2184218.0723327203,
+              "metricId": "forge.benchmark.terrain-thermal-erosion-65-x-65"
+            },
+            {
+              "name": "terrain hydraulic erosion 65×65",
+              "count": 21125,
+              "durationMs": 21.446336000000883,
+              "opsPerSec": 985016.741321181,
+              "metricId": "forge.benchmark.terrain-hydraulic-erosion-65-x-65"
+            },
+            {
+              "name": "terrain LOD selection + resolution/geomorph",
+              "count": 896,
+              "durationMs": 0.5616709999994782,
+              "opsPerSec": 1595239.918031788,
+              "metricId": "forge.benchmark.terrain-lod-selection-resolution-geomorph"
+            },
+            {
+              "name": "terrain streaming cold update",
+              "count": 12,
+              "durationMs": 15.848011000000042,
+              "opsPerSec": 757.1928111357298,
+              "metricId": "forge.benchmark.terrain-streaming-cold-update"
+            },
+            {
+              "name": "terrain streaming resident update",
+              "count": 4,
+              "durationMs": 0.14558799999940675,
+              "opsPerSec": 27474.791878563476,
+              "metricId": "forge.benchmark.terrain-streaming-resident-update"
+            },
+            {
+              "name": "terrain streaming camera move + return",
+              "count": 24,
+              "durationMs": 14.706611999998131,
+              "opsPerSec": 1631.9190307055799,
+              "metricId": "forge.benchmark.terrain-streaming-camera-move-return"
+            },
+            {
+              "name": "terrain mesh generation 17×17 + skirts",
+              "count": 357,
+              "durationMs": 0.4665899999999965,
+              "opsPerSec": 765125.6992220208,
+              "metricId": "forge.benchmark.terrain-mesh-generation-17-x-17-skirts"
+            },
+            {
+              "name": "terrain mesh generation 33×33 + skirts",
+              "count": 1221,
+              "durationMs": 1.5542999999997846,
+              "opsPerSec": 785562.6326964995,
+              "metricId": "forge.benchmark.terrain-mesh-generation-33-x-33-skirts"
+            },
+            {
+              "name": "terrain mesh generation 65×65 + skirts",
+              "count": 4485,
+              "durationMs": 5.926629000001412,
+              "opsPerSec": 756753.9658714812,
+              "metricId": "forge.benchmark.terrain-mesh-generation-65-x-65-skirts"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 128 bodies",
+              "count": 128,
+              "durationMs": 0.3728870000013558,
+              "opsPerSec": 343267.5314492986,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-128-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 512 bodies",
+              "count": 512,
+              "durationMs": 3.708434000000125,
+              "opsPerSec": 138063.66784469745,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-512-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 2048 bodies",
+              "count": 2048,
+              "durationMs": 4.232395999999426,
+              "opsPerSec": 483886.6684498043,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-2048-bodies"
+            },
+            {
+              "name": "physics narrowphase sphere-sphere manifold generation",
+              "count": 512,
+              "durationMs": 1.713662000000113,
+              "opsPerSec": 298775.3711058343,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-sphere-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-box manifold generation",
+              "count": 512,
+              "durationMs": 1.4315600000009,
+              "opsPerSec": 357651.7924499694,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-box manifold generation",
+              "count": 512,
+              "durationMs": 3.2291999999997643,
+              "opsPerSec": 158553.20203147447,
+              "metricId": "forge.benchmark.physics-narrowphase-box-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-plane manifold generation",
+              "count": 512,
+              "durationMs": 0.590766999999687,
+              "opsPerSec": 866669.9392489278,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-plane manifold generation",
+              "count": 512,
+              "durationMs": 2.512201000001369,
+              "opsPerSec": 203805.34837766606,
+              "metricId": "forge.benchmark.physics-narrowphase-box-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 1.3259600000001228,
+              "opsPerSec": 386135.32836582744,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 2.8006060000006983,
+              "opsPerSec": 182817.57591031096,
+              "metricId": "forge.benchmark.physics-narrowphase-box-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics sequential-impulse solver contact batch",
+              "count": 256,
+              "durationMs": 4.875957999998718,
+              "opsPerSec": 52502.503097866575,
+              "metricId": "forge.benchmark.physics-sequential-impulse-solver-contact-batch"
+            },
+            {
+              "name": "physics fixed-step resting-contact stability",
+              "count": 2880,
+              "durationMs": 28.545820999999705,
+              "opsPerSec": 100890.42455636605,
+              "metricId": "forge.benchmark.physics-fixed-step-resting-contact-stability"
+            },
+            {
+              "name": "physics spatial raycasts (256 colliders)",
+              "count": 512,
+              "durationMs": 12.821667000000161,
+              "opsPerSec": 39932.40504530289,
+              "metricId": "forge.benchmark.physics-spatial-raycasts-256-colliders"
+            },
+            {
+              "name": "physics heightfield queries (256 colliders)",
+              "count": 4096,
+              "durationMs": 0.7424630000004981,
+              "opsPerSec": 5516773.226406234,
+              "metricId": "forge.benchmark.physics-heightfield-queries-256-colliders"
+            },
+            {
+              "name": "physics vehicle simulation 8 vehicles × 120 steps",
+              "count": 960,
+              "durationMs": 28.763648000000103,
+              "opsPerSec": 33375.4605813559,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-8-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 32 vehicles × 120 steps",
+              "count": 3840,
+              "durationMs": 103.40500199999951,
+              "opsPerSec": 37135.53431390116,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-32-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 64 vehicles × 120 steps",
+              "count": 7680,
+              "durationMs": 212.98977000000014,
+              "opsPerSec": 36058.06983124117,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-64-vehicles-x-120-steps"
+            },
+            {
+              "name": "UI build + layout (1000 buttons)",
+              "count": 1000,
+              "durationMs": 55.119095000000016,
+              "opsPerSec": 18143,
+              "metricId": "forge.benchmark.ui-build-layout-1000-buttons"
+            },
+            {
+              "name": "UI steady frame (update + render)",
+              "count": 300,
+              "durationMs": 0.4741790000007313,
+              "opsPerSec": 632672,
+              "metricId": "forge.benchmark.ui-steady-frame-update-render"
+            },
+            {
+              "name": "UI hover sweep (restyle + repaint)",
+              "count": 300,
+              "durationMs": 157.1042010000001,
+              "opsPerSec": 1910,
+              "metricId": "forge.benchmark.ui-hover-sweep-restyle-repaint"
+            },
+            {
+              "name": "UI local text change (layout boundary)",
+              "count": 300,
+              "durationMs": 111.26030600000013,
+              "opsPerSec": 2696,
+              "metricId": "forge.benchmark.ui-local-text-change-layout-boundary"
+            },
+            {
+              "name": "UI viewport resize (full relayout)",
+              "count": 60,
+              "durationMs": 238.48279000000002,
+              "opsPerSec": 252,
+              "metricId": "forge.benchmark.ui-viewport-resize-full-relayout"
+            },
+            {
+              "name": "UI draw-list rebuild (1000 buttons)",
+              "count": 200,
+              "durationMs": 61.33978799999932,
+              "opsPerSec": 3261,
+              "metricId": "forge.benchmark.ui-draw-list-rebuild-1000-buttons"
+            },
+            {
+              "name": "UI virtualized scroll (100k rows)",
+              "count": 600,
+              "durationMs": 110.85326800000075,
+              "opsPerSec": 5413,
+              "metricId": "forge.benchmark.ui-virtualized-scroll-100k-rows"
+            },
+            {
+              "name": "UI text layout (cache miss)",
+              "count": 800,
+              "durationMs": 31.376949000001332,
+              "opsPerSec": 25496,
+              "metricId": "forge.benchmark.ui-text-layout-cache-miss"
+            },
+            {
+              "name": "UI text layout (cache hit)",
+              "count": 800,
+              "durationMs": 0.7678569999989122,
+              "opsPerSec": 1041861,
+              "metricId": "forge.benchmark.ui-text-layout-cache-hit"
+            }
+          ],
+          "checks": {
+            "core": [
+              "math: 1,000,000 vector kernels in 57.28 ms; 250,000 matrix multiplies in 18.19 ms",
+              "scheduler: 8,192 unique tasks in 38.24 ms; 4,096 subscribers shared one task (4,095 hits)",
+              "resources: 10,000 loads / hits / evictions, 625 KiB peak, zero entries left"
+            ],
+            "ecs": [
+              "100,000 entities: create 218.70 ms, transform 16.57 ms, cull 71.50 ms"
+            ],
+            "particles": [
+              "CPU: 4 capacity bands through 1,000,000, largest integration 1069.88 ms with analytic error 2.67e-7",
+              "mock GPU: 4 capacity bands through 1,000,000, largest allocation 132000768 bytes, zero ECS entities and zero live buffers after teardown"
+            ],
+            "world": [
+              "objects: 4 capacity bands through 1,000,000, largest setup 1620.11 ms",
+              "transforms/cull: 154.23 ms / 438.19 ms, 279,292 visible and 720,708 culled",
+              "teardown: 142,606,336 typed-storage bytes measured before disposal, zero live ECS objects after every band"
+            ],
+            "lights": [
+              "dense 256 lights → 98304 entries (3072 clusters × cap 32)",
+              "fill follows coverage: dense 102× the spread rig at 256 lights (7749 vs 98304 entries)",
+              "count stays flat: 0.065 ms (spread) vs 0.087 ms (dense) at 256 lights",
+              "CPU fill of the worst case: 59.35 ms (0.580 ms for the demo-shaped rig)"
+            ],
+            "culling": [
+              "per-batch cost 0.754µs at 2048 → 0.481µs at 8192 (0.64x, linear within the guard)",
+              "frustum 2.06 ms vs frustum+distance 1.91 ms at 8192 batches (0.93x)",
+              "cpu twin at the 8192-batch cap: 3.94 ms/frame (frustum 2.06, distance 1.91, occluded 2174)",
+              "pyramid 1280x720 / 4 levels: 27.35 ms/frame on the CPU (6.9x the cull it feeds) — the device reduces it in-frame, the twin cannot"
+            ],
+            "rendering": [
+              "draw submission: 256 batches → 256 draw calls in 6.63 ms",
+              "render graph: 66 declared / 65 executed, 2 physical textures for 64 transients, 57139200 bytes aliased",
+              "shadow fits: 256 cascade/spot/point iterations, atlas 512px / 10485760 bytes within 16777216 bytes",
+              "GPU memory: 2048 allocations, peak 655360 bytes, zero remaining"
+            ],
+            "terrain": [
+              "generation: 3 deterministic grids, largest 129×129 in 24.09 ms (399384 bytes)",
+              "erosion: thermal 5.80 ms + hydraulic 21.45 ms at 65×65",
+              "LOD: 896 selected chunks across levels 0/1/2/3/4 (3/5/9/17/33 grid resolutions), 216 transition samples",
+              "streaming: cold 12 chunks, resident 0.15 ms, moved 12, return cache hits 12, 12/12 resident",
+              "mesh: largest 65×65 source has 4485 vertices / 26112 indices in 5.93 ms"
+            ],
+            "physics": [
+              "broadphase: 3 body counts, largest 2048 generated 1984 pairs from 191005 axis candidates (2096128 possible)",
+              "narrowphase: 7 supported shape pairs, 8,192 contacts generated deterministically",
+              "solver: 64 bodies / 256 contacts, total normal impulse 181.124 in 4.88 ms",
+              "stability: 32 bodies × 90 fixed steps, max penetration 0.0118 m, max speed 0.050 m/s",
+              "queries: 512 raycasts hit in 12.82 ms; 4096 heightfield samples ranged -0.644..0.618 in 0.74 ms",
+              "vehicles: 3 fleet sizes, largest 64 vehicles × 120 steps in 212.99 ms, 256 wheel contacts"
+            ],
+            "ui": [
+              "steady frame: 0 measures, 0 style resolves, draw list rebuilt: false",
+              "local text change: 1.0 measures/frame vs 2015 for a full relayout",
+              "1000 buttons → 1222 instances in 1 batch(es)",
+              "virtualized 100k rows: 37 elements instantiated",
+              "text layout: 31.4 ms for 800 misses, 0.77 ms for 800 hits"
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sampleIndex": 1,
+          "startedAt": "2026-10-23T18:34:54.033Z",
+          "elapsedMs": 11839.673185,
+          "results": [
+            {
+              "name": "100k entity creation + component attach",
+              "count": 100000,
+              "durationMs": 198.7893380000005,
+              "opsPerSec": 503045,
+              "metricId": "forge.benchmark.100k-entity-creation-component-attach"
+            },
+            {
+              "name": "100k transform update (world matrix composition)",
+              "count": 100000,
+              "durationMs": 19.074491999999736,
+              "opsPerSec": 5242604,
+              "metricId": "forge.benchmark.100k-transform-update-world-matrix-composition"
+            },
+            {
+              "name": "100k entity frustum culling & bounds query",
+              "count": 100000,
+              "durationMs": 61.27457099999992,
+              "opsPerSec": 1631998,
+              "metricId": "forge.benchmark.100k-entity-frustum-culling-and-bounds-query"
+            },
+            {
+              "name": "math Vec3 cross + normalize",
+              "count": 1000000,
+              "durationMs": 56.25452399999995,
+              "opsPerSec": 17776348,
+              "metricId": "forge.benchmark.math-vec3-cross-normalize"
+            },
+            {
+              "name": "math Mat4 multiply",
+              "count": 250000,
+              "durationMs": 13.999628999999914,
+              "opsPerSec": 17857616,
+              "metricId": "forge.benchmark.math-mat4-multiply"
+            },
+            {
+              "name": "scheduler inline dispatch",
+              "count": 8192,
+              "durationMs": 36.960517999999865,
+              "opsPerSec": 221642,
+              "metricId": "forge.benchmark.scheduler-inline-dispatch"
+            },
+            {
+              "name": "scheduler deduplicated subscribers",
+              "count": 4096,
+              "durationMs": 0.8048380000000179,
+              "opsPerSec": 5089223,
+              "metricId": "forge.benchmark.scheduler-deduplicated-subscribers"
+            },
+            {
+              "name": "resources unique load + acquire",
+              "count": 10000,
+              "durationMs": 51.02635099999861,
+              "opsPerSec": 195977,
+              "metricId": "forge.benchmark.resources-unique-load-acquire"
+            },
+            {
+              "name": "resources cached acquire + release",
+              "count": 10000,
+              "durationMs": 2.921361999999135,
+              "opsPerSec": 3423061,
+              "metricId": "forge.benchmark.resources-cached-acquire-release"
+            },
+            {
+              "name": "resources handle release + LRU eviction",
+              "count": 10000,
+              "durationMs": 19.503717000001416,
+              "opsPerSec": 512723,
+              "metricId": "forge.benchmark.resources-handle-release-lru-eviction"
+            },
+            {
+              "name": "particles CPU setup 10,000",
+              "count": 10000,
+              "durationMs": 0.8372849999996106,
+              "opsPerSec": 11943364.565237226,
+              "metricId": "forge.benchmark.particles-cpu-setup-10-000"
+            },
+            {
+              "name": "particles CPU integrate 10,000 × 30",
+              "count": 300000,
+              "durationMs": 8.24370799999997,
+              "opsPerSec": 36391390.86440241,
+              "metricId": "forge.benchmark.particles-cpu-integrate-10-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 100,000",
+              "count": 100000,
+              "durationMs": 0.8223180000004504,
+              "opsPerSec": 121607455.99627544,
+              "metricId": "forge.benchmark.particles-cpu-setup-100-000"
+            },
+            {
+              "name": "particles CPU integrate 100,000 × 30",
+              "count": 3000000,
+              "durationMs": 83.80741400000079,
+              "opsPerSec": 35796355.67803072,
+              "metricId": "forge.benchmark.particles-cpu-integrate-100-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 500,000",
+              "count": 500000,
+              "durationMs": 18.62974799999938,
+              "opsPerSec": 26838795.67238465,
+              "metricId": "forge.benchmark.particles-cpu-setup-500-000"
+            },
+            {
+              "name": "particles CPU integrate 500,000 × 30",
+              "count": 15000000,
+              "durationMs": 417.0638829999989,
+              "opsPerSec": 35965713.195069544,
+              "metricId": "forge.benchmark.particles-cpu-integrate-500-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 34.476110999999946,
+              "opsPerSec": 29005591.726978764,
+              "metricId": "forge.benchmark.particles-cpu-setup-1-000-000"
+            },
+            {
+              "name": "particles CPU integrate 1,000,000 × 30",
+              "count": 30000000,
+              "durationMs": 935.2025240000003,
+              "opsPerSec": 32078613.166788235,
+              "metricId": "forge.benchmark.particles-cpu-integrate-1-000-000-x-30"
+            },
+            {
+              "name": "particles mock GPU allocate 10,000",
+              "count": 10000,
+              "durationMs": 9.503244999999879,
+              "opsPerSec": 1052272.1449357695,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-10-000"
+            },
+            {
+              "name": "particles mock GPU prepare 10,000 × 3",
+              "count": 3,
+              "durationMs": 0.12478600000031292,
+              "opsPerSec": 24041.158463228865,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-10-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 100,000",
+              "count": 100000,
+              "durationMs": 7.50611200000094,
+              "opsPerSec": 13322476.403228126,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-100-000"
+            },
+            {
+              "name": "particles mock GPU prepare 100,000 × 3",
+              "count": 3,
+              "durationMs": 0.07836300000053598,
+              "opsPerSec": 38283.373530613695,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-100-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 500,000",
+              "count": 500000,
+              "durationMs": 47.44060300000092,
+              "opsPerSec": 10539495.039723469,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-500-000"
+            },
+            {
+              "name": "particles mock GPU prepare 500,000 × 3",
+              "count": 3,
+              "durationMs": 0.10620299999936833,
+              "opsPerSec": 28247.789610630993,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-500-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 1,000,000",
+              "count": 1000000,
+              "durationMs": 116.43246499999987,
+              "opsPerSec": 8588669.835341897,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-1-000-000"
+            },
+            {
+              "name": "particles mock GPU prepare 1,000,000 × 3",
+              "count": 3,
+              "durationMs": 0.0972810000021127,
+              "opsPerSec": 30838.49878120956,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-1-000-000-x-3"
+            },
+            {
+              "name": "world objects setup 10,000",
+              "count": 10000,
+              "durationMs": 16.867599000001064,
+              "opsPerSec": 592852.6045704174,
+              "metricId": "forge.benchmark.world-objects-setup-10-000"
+            },
+            {
+              "name": "world objects transform 10,000",
+              "count": 10000,
+              "durationMs": 2.8851359999971464,
+              "opsPerSec": 3466041.1155695575,
+              "metricId": "forge.benchmark.world-objects-transform-10-000"
+            },
+            {
+              "name": "world objects cull 10,000",
+              "count": 10000,
+              "durationMs": 8.645816000000195,
+              "opsPerSec": 1156628.8248558347,
+              "metricId": "forge.benchmark.world-objects-cull-10-000"
+            },
+            {
+              "name": "world objects setup 100,000",
+              "count": 100000,
+              "durationMs": 112.42823799999678,
+              "opsPerSec": 889456.2592006722,
+              "metricId": "forge.benchmark.world-objects-setup-100-000"
+            },
+            {
+              "name": "world objects transform 100,000",
+              "count": 100000,
+              "durationMs": 15.289957999997569,
+              "opsPerSec": 6540240.332904506,
+              "metricId": "forge.benchmark.world-objects-transform-100-000"
+            },
+            {
+              "name": "world objects cull 100,000",
+              "count": 100000,
+              "durationMs": 53.769240000001446,
+              "opsPerSec": 1859799.394598051,
+              "metricId": "forge.benchmark.world-objects-cull-100-000"
+            },
+            {
+              "name": "world objects setup 500,000",
+              "count": 500000,
+              "durationMs": 621.3212480000002,
+              "opsPerSec": 804736.6826894673,
+              "metricId": "forge.benchmark.world-objects-setup-500-000"
+            },
+            {
+              "name": "world objects transform 500,000",
+              "count": 500000,
+              "durationMs": 32.92558800000188,
+              "opsPerSec": 15185757.654501764,
+              "metricId": "forge.benchmark.world-objects-transform-500-000"
+            },
+            {
+              "name": "world objects cull 500,000",
+              "count": 500000,
+              "durationMs": 212.30593000000226,
+              "opsPerSec": 2355092.012738385,
+              "metricId": "forge.benchmark.world-objects-cull-500-000"
+            },
+            {
+              "name": "world objects setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 1440.538779999999,
+              "opsPerSec": 694184.7133056708,
+              "metricId": "forge.benchmark.world-objects-setup-1-000-000"
+            },
+            {
+              "name": "world objects transform 1,000,000",
+              "count": 1000000,
+              "durationMs": 106.57548900000256,
+              "opsPerSec": 9383020.51797272,
+              "metricId": "forge.benchmark.world-objects-transform-1-000-000"
+            },
+            {
+              "name": "world objects cull 1,000,000",
+              "count": 1000000,
+              "durationMs": 525.5299960000011,
+              "opsPerSec": 1902840.9560089086,
+              "metricId": "forge.benchmark.world-objects-cull-1-000-000"
+            },
+            {
+              "name": "16 lights, spread rig: fill (CPU)",
+              "count": 922,
+              "durationMs": 0.015095854166626552,
+              "opsPerSec": 61076372,
+              "metricId": "forge.benchmark.16-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: fill (CPU)",
+              "count": 49152,
+              "durationMs": 0.2387477111110962,
+              "opsPerSec": 205874225,
+              "metricId": "forge.benchmark.16-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: count (CPU, stays)",
+              "count": 16,
+              "durationMs": 0.0333499555555237,
+              "opsPerSec": 479761,
+              "metricId": "forge.benchmark.16-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "64 lights, spread rig: fill (CPU)",
+              "count": 3536,
+              "durationMs": 0.023407628985433554,
+              "opsPerSec": 151061861,
+              "metricId": "forge.benchmark.64-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 8.743199307690539,
+              "opsPerSec": 11243482,
+              "metricId": "forge.benchmark.64-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: count (CPU, stays)",
+              "count": 64,
+              "durationMs": 0.04370869230768175,
+              "opsPerSec": 1464240,
+              "metricId": "forge.benchmark.64-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "256 lights, spread rig: fill (CPU)",
+              "count": 7749,
+              "durationMs": 0.5739033030296758,
+              "opsPerSec": 13502275,
+              "metricId": "forge.benchmark.256-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 58.60046669565196,
+              "opsPerSec": 1677529,
+              "metricId": "forge.benchmark.256-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: count (CPU, stays)",
+              "count": 256,
+              "durationMs": 0.08490530434795326,
+              "opsPerSec": 3015124,
+              "metricId": "forge.benchmark.256-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "object cull 512 batches (cpu twin, frustum+distance+hiz)",
+              "count": 512,
+              "durationMs": 0.43799399999988964,
+              "opsPerSec": 1168965.7849197227,
+              "metricId": "forge.benchmark.object-cull-512-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 2048 batches (cpu twin, frustum+distance+hiz)",
+              "count": 2048,
+              "durationMs": 1.0662095000006957,
+              "opsPerSec": 1920823.2528397692,
+              "metricId": "forge.benchmark.object-cull-2048-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 8192 batches (cpu twin, frustum+distance+hiz)",
+              "count": 8192,
+              "durationMs": 4.108754000000772,
+              "opsPerSec": 1993791.791866454,
+              "metricId": "forge.benchmark.object-cull-8192-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "hiz pyramid 1280x720 (cpu twin, 4 levels)",
+              "count": 921600,
+              "durationMs": 20.355097999999998,
+              "opsPerSec": 45276126.89459909,
+              "metricId": "forge.benchmark.hiz-pyramid-1280x720-cpu-twin-4-levels"
+            },
+            {
+              "name": "draw submission 16 batches (mock frame)",
+              "count": 16,
+              "durationMs": 2.164915999997902,
+              "opsPerSec": 7390.586978901493,
+              "metricId": "forge.benchmark.draw-submission-16-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 64 batches (mock frame)",
+              "count": 64,
+              "durationMs": 2.0980169999966165,
+              "opsPerSec": 30504.99590808998,
+              "metricId": "forge.benchmark.draw-submission-64-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 256 batches (mock frame)",
+              "count": 256,
+              "durationMs": 4.314448999997694,
+              "opsPerSec": 59335.502633160526,
+              "metricId": "forge.benchmark.draw-submission-256-batches-mock-frame"
+            },
+            {
+              "name": "render graph compile + submit 10 declared passes",
+              "count": 10,
+              "durationMs": 28.817082999998092,
+              "opsPerSec": 347.016386079072,
+              "metricId": "forge.benchmark.render-graph-compile-submit-10-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 34 declared passes",
+              "count": 34,
+              "durationMs": 106.05224699999962,
+              "opsPerSec": 320.5966960794345,
+              "metricId": "forge.benchmark.render-graph-compile-submit-34-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 66 declared passes",
+              "count": 66,
+              "durationMs": 206.6744469999976,
+              "opsPerSec": 319.3428164827787,
+              "metricId": "forge.benchmark.render-graph-compile-submit-66-declared-passes"
+            },
+            {
+              "name": "shadow cascade fit ×4",
+              "count": 1024,
+              "durationMs": 1.5831030000008468,
+              "opsPerSec": 646830.9389846727,
+              "metricId": "forge.benchmark.shadow-cascade-fit-x-4"
+            },
+            {
+              "name": "spot shadow fit",
+              "count": 256,
+              "durationMs": 0.3303620000006049,
+              "opsPerSec": 774907.5256825279,
+              "metricId": "forge.benchmark.spot-shadow-fit"
+            },
+            {
+              "name": "point shadow fit ×6 faces",
+              "count": 1536,
+              "durationMs": 0.23796600000059698,
+              "opsPerSec": 6454703.613105009,
+              "metricId": "forge.benchmark.point-shadow-fit-x-6-faces"
+            },
+            {
+              "name": "GPU allocation accounting (32 textures + buffers/frame)",
+              "count": 2048,
+              "durationMs": 0.2848259999991569,
+              "opsPerSec": 7190354.813135254,
+              "metricId": "forge.benchmark.gpu-allocation-accounting-32-textures-buffers-frame"
+            },
+            {
+              "name": "terrain generation 33×33",
+              "count": 1089,
+              "durationMs": 1.8377509999991162,
+              "opsPerSec": 592572.1166798569,
+              "metricId": "forge.benchmark.terrain-generation-33-x-33"
+            },
+            {
+              "name": "terrain generation 65×65",
+              "count": 4225,
+              "durationMs": 6.126448999999411,
+              "opsPerSec": 689632.7709575981,
+              "metricId": "forge.benchmark.terrain-generation-65-x-65"
+            },
+            {
+              "name": "terrain generation 129×129",
+              "count": 16641,
+              "durationMs": 21.800531000000774,
+              "opsPerSec": 763330.0308143599,
+              "metricId": "forge.benchmark.terrain-generation-129-x-129"
+            },
+            {
+              "name": "terrain thermal erosion 65×65",
+              "count": 12675,
+              "durationMs": 0.5335679999989225,
+              "opsPerSec": 23755172.72404941,
+              "metricId": "forge.benchmark.terrain-thermal-erosion-65-x-65"
+            },
+            {
+              "name": "terrain hydraulic erosion 65×65",
+              "count": 21125,
+              "durationMs": 6.3725220000014815,
+              "opsPerSec": 3315014.055658825,
+              "metricId": "forge.benchmark.terrain-hydraulic-erosion-65-x-65"
+            },
+            {
+              "name": "terrain LOD selection + resolution/geomorph",
+              "count": 896,
+              "durationMs": 0.6424449999976787,
+              "opsPerSec": 1394671.9174454429,
+              "metricId": "forge.benchmark.terrain-lod-selection-resolution-geomorph"
+            },
+            {
+              "name": "terrain streaming cold update",
+              "count": 12,
+              "durationMs": 4.821207000000868,
+              "opsPerSec": 2489.0032724166044,
+              "metricId": "forge.benchmark.terrain-streaming-cold-update"
+            },
+            {
+              "name": "terrain streaming resident update",
+              "count": 4,
+              "durationMs": 0.05071999999927357,
+              "opsPerSec": 78864.35331343237,
+              "metricId": "forge.benchmark.terrain-streaming-resident-update"
+            },
+            {
+              "name": "terrain streaming camera move + return",
+              "count": 24,
+              "durationMs": 6.966037000001961,
+              "opsPerSec": 3445.2874711967856,
+              "metricId": "forge.benchmark.terrain-streaming-camera-move-return"
+            },
+            {
+              "name": "terrain mesh generation 17×17 + skirts",
+              "count": 357,
+              "durationMs": 0.25968099999954575,
+              "opsPerSec": 1374763.6523296833,
+              "metricId": "forge.benchmark.terrain-mesh-generation-17-x-17-skirts"
+            },
+            {
+              "name": "terrain mesh generation 33×33 + skirts",
+              "count": 1221,
+              "durationMs": 0.9189079999996466,
+              "opsPerSec": 1328751.082807495,
+              "metricId": "forge.benchmark.terrain-mesh-generation-33-x-33-skirts"
+            },
+            {
+              "name": "terrain mesh generation 65×65 + skirts",
+              "count": 4485,
+              "durationMs": 3.563305000003311,
+              "opsPerSec": 1258662.9547557204,
+              "metricId": "forge.benchmark.terrain-mesh-generation-65-x-65-skirts"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 128 bodies",
+              "count": 128,
+              "durationMs": 0.27262899999914225,
+              "opsPerSec": 469502.5107395131,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-128-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 512 bodies",
+              "count": 512,
+              "durationMs": 0.31826100000034785,
+              "opsPerSec": 1608742.5100764479,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-512-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 2048 bodies",
+              "count": 2048,
+              "durationMs": 3.539612999997189,
+              "opsPerSec": 578594.3265553681,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-2048-bodies"
+            },
+            {
+              "name": "physics narrowphase sphere-sphere manifold generation",
+              "count": 512,
+              "durationMs": 0.5862659999984317,
+              "opsPerSec": 873323.7131291422,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-sphere-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-box manifold generation",
+              "count": 512,
+              "durationMs": 0.6348389999984647,
+              "opsPerSec": 806503.696214691,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-box manifold generation",
+              "count": 512,
+              "durationMs": 1.1897759999992559,
+              "opsPerSec": 430333.1047191406,
+              "metricId": "forge.benchmark.physics-narrowphase-box-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-plane manifold generation",
+              "count": 512,
+              "durationMs": 0.2816449999991164,
+              "opsPerSec": 1817891.317089266,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-plane manifold generation",
+              "count": 512,
+              "durationMs": 0.7448549999971874,
+              "opsPerSec": 687382.1079296417,
+              "metricId": "forge.benchmark.physics-narrowphase-box-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 0.298889000001509,
+              "opsPerSec": 1713010.5156008254,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 3.309482000000571,
+              "opsPerSec": 154706.99039907503,
+              "metricId": "forge.benchmark.physics-narrowphase-box-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics sequential-impulse solver contact batch",
+              "count": 256,
+              "durationMs": 0.47962399999960326,
+              "opsPerSec": 533751.438627366,
+              "metricId": "forge.benchmark.physics-sequential-impulse-solver-contact-batch"
+            },
+            {
+              "name": "physics fixed-step resting-contact stability",
+              "count": 2880,
+              "durationMs": 25.4244460000009,
+              "opsPerSec": 113276.80453685788,
+              "metricId": "forge.benchmark.physics-fixed-step-resting-contact-stability"
+            },
+            {
+              "name": "physics spatial raycasts (256 colliders)",
+              "count": 512,
+              "durationMs": 12.025105999997322,
+              "opsPerSec": 42577.58725786817,
+              "metricId": "forge.benchmark.physics-spatial-raycasts-256-colliders"
+            },
+            {
+              "name": "physics heightfield queries (256 colliders)",
+              "count": 4096,
+              "durationMs": 0.6414939999995113,
+              "opsPerSec": 6385094.794344328,
+              "metricId": "forge.benchmark.physics-heightfield-queries-256-colliders"
+            },
+            {
+              "name": "physics vehicle simulation 8 vehicles × 120 steps",
+              "count": 960,
+              "durationMs": 25.026092000000062,
+              "opsPerSec": 38359.96447227948,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-8-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 32 vehicles × 120 steps",
+              "count": 3840,
+              "durationMs": 121.39087399999698,
+              "opsPerSec": 31633.349966654787,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-32-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 64 vehicles × 120 steps",
+              "count": 7680,
+              "durationMs": 216.61331299999802,
+              "opsPerSec": 35454.88452965063,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-64-vehicles-x-120-steps"
+            },
+            {
+              "name": "UI build + layout (1000 buttons)",
+              "count": 1000,
+              "durationMs": 52.86550499999794,
+              "opsPerSec": 18916,
+              "metricId": "forge.benchmark.ui-build-layout-1000-buttons"
+            },
+            {
+              "name": "UI steady frame (update + render)",
+              "count": 300,
+              "durationMs": 0.32027199999720324,
+              "opsPerSec": 936704,
+              "metricId": "forge.benchmark.ui-steady-frame-update-render"
+            },
+            {
+              "name": "UI hover sweep (restyle + repaint)",
+              "count": 300,
+              "durationMs": 130.74032600000282,
+              "opsPerSec": 2295,
+              "metricId": "forge.benchmark.ui-hover-sweep-restyle-repaint"
+            },
+            {
+              "name": "UI local text change (layout boundary)",
+              "count": 300,
+              "durationMs": 98.06641200000013,
+              "opsPerSec": 3059,
+              "metricId": "forge.benchmark.ui-local-text-change-layout-boundary"
+            },
+            {
+              "name": "UI viewport resize (full relayout)",
+              "count": 60,
+              "durationMs": 197.60793999999805,
+              "opsPerSec": 304,
+              "metricId": "forge.benchmark.ui-viewport-resize-full-relayout"
+            },
+            {
+              "name": "UI draw-list rebuild (1000 buttons)",
+              "count": 200,
+              "durationMs": 60.18021899999803,
+              "opsPerSec": 3323,
+              "metricId": "forge.benchmark.ui-draw-list-rebuild-1000-buttons"
+            },
+            {
+              "name": "UI virtualized scroll (100k rows)",
+              "count": 600,
+              "durationMs": 66.45551200000045,
+              "opsPerSec": 9029,
+              "metricId": "forge.benchmark.ui-virtualized-scroll-100k-rows"
+            },
+            {
+              "name": "UI text layout (cache miss)",
+              "count": 800,
+              "durationMs": 12.788275000002614,
+              "opsPerSec": 62557,
+              "metricId": "forge.benchmark.ui-text-layout-cache-miss"
+            },
+            {
+              "name": "UI text layout (cache hit)",
+              "count": 800,
+              "durationMs": 0.6671019999994314,
+              "opsPerSec": 1199217,
+              "metricId": "forge.benchmark.ui-text-layout-cache-hit"
+            }
+          ],
+          "checks": {
+            "core": [
+              "math: 1,000,000 vector kernels in 56.25 ms; 250,000 matrix multiplies in 14.00 ms",
+              "scheduler: 8,192 unique tasks in 36.96 ms; 4,096 subscribers shared one task (4,095 hits)",
+              "resources: 10,000 loads / hits / evictions, 625 KiB peak, zero entries left"
+            ],
+            "ecs": [
+              "100,000 entities: create 198.79 ms, transform 19.07 ms, cull 61.27 ms"
+            ],
+            "particles": [
+              "CPU: 4 capacity bands through 1,000,000, largest integration 935.20 ms with analytic error 2.67e-7",
+              "mock GPU: 4 capacity bands through 1,000,000, largest allocation 132000768 bytes, zero ECS entities and zero live buffers after teardown"
+            ],
+            "world": [
+              "objects: 4 capacity bands through 1,000,000, largest setup 1440.54 ms",
+              "transforms/cull: 106.58 ms / 525.53 ms, 279,292 visible and 720,708 culled",
+              "teardown: 142,606,336 typed-storage bytes measured before disposal, zero live ECS objects after every band"
+            ],
+            "lights": [
+              "dense 256 lights → 98304 entries (3072 clusters × cap 32)",
+              "fill follows coverage: dense 102× the spread rig at 256 lights (7749 vs 98304 entries)",
+              "count stays flat: 0.067 ms (spread) vs 0.085 ms (dense) at 256 lights",
+              "CPU fill of the worst case: 58.60 ms (0.574 ms for the demo-shaped rig)"
+            ],
+            "culling": [
+              "per-batch cost 0.521µs at 2048 → 0.502µs at 8192 (0.96x, linear within the guard)",
+              "frustum 2.11 ms vs frustum+distance 2.08 ms at 8192 batches (0.99x)",
+              "cpu twin at the 8192-batch cap: 4.11 ms/frame (frustum 2.11, distance 2.08, occluded 2174)",
+              "pyramid 1280x720 / 4 levels: 20.36 ms/frame on the CPU (5.0x the cull it feeds) — the device reduces it in-frame, the twin cannot"
+            ],
+            "rendering": [
+              "draw submission: 256 batches → 256 draw calls in 4.31 ms",
+              "render graph: 66 declared / 65 executed, 2 physical textures for 64 transients, 57139200 bytes aliased",
+              "shadow fits: 256 cascade/spot/point iterations, atlas 512px / 10485760 bytes within 16777216 bytes",
+              "GPU memory: 2048 allocations, peak 655360 bytes, zero remaining"
+            ],
+            "terrain": [
+              "generation: 3 deterministic grids, largest 129×129 in 21.80 ms (399384 bytes)",
+              "erosion: thermal 0.53 ms + hydraulic 6.37 ms at 65×65",
+              "LOD: 896 selected chunks across levels 0/1/2/3/4 (3/5/9/17/33 grid resolutions), 216 transition samples",
+              "streaming: cold 12 chunks, resident 0.05 ms, moved 12, return cache hits 12, 12/12 resident",
+              "mesh: largest 65×65 source has 4485 vertices / 26112 indices in 3.56 ms"
+            ],
+            "physics": [
+              "broadphase: 3 body counts, largest 2048 generated 1984 pairs from 191005 axis candidates (2096128 possible)",
+              "narrowphase: 7 supported shape pairs, 8,192 contacts generated deterministically",
+              "solver: 64 bodies / 256 contacts, total normal impulse 181.124 in 0.48 ms",
+              "stability: 32 bodies × 90 fixed steps, max penetration 0.0118 m, max speed 0.050 m/s",
+              "queries: 512 raycasts hit in 12.03 ms; 4096 heightfield samples ranged -0.644..0.618 in 0.64 ms",
+              "vehicles: 3 fleet sizes, largest 64 vehicles × 120 steps in 216.61 ms, 256 wheel contacts"
+            ],
+            "ui": [
+              "steady frame: 0 measures, 0 style resolves, draw list rebuilt: false",
+              "local text change: 1.0 measures/frame vs 2015 for a full relayout",
+              "1000 buttons → 1222 instances in 1 batch(es)",
+              "virtualized 100k rows: 37 elements instantiated",
+              "text layout: 12.8 ms for 800 misses, 0.67 ms for 800 hits"
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sampleIndex": 2,
+          "startedAt": "2026-10-23T18:35:05.873Z",
+          "elapsedMs": 12008.474515,
+          "results": [
+            {
+              "name": "100k entity creation + component attach",
+              "count": 100000,
+              "durationMs": 140.9508769999993,
+              "opsPerSec": 709467,
+              "metricId": "forge.benchmark.100k-entity-creation-component-attach"
+            },
+            {
+              "name": "100k transform update (world matrix composition)",
+              "count": 100000,
+              "durationMs": 6.39273399999729,
+              "opsPerSec": 15642759,
+              "metricId": "forge.benchmark.100k-transform-update-world-matrix-composition"
+            },
+            {
+              "name": "100k entity frustum culling & bounds query",
+              "count": 100000,
+              "durationMs": 58.36501999999746,
+              "opsPerSec": 1713355,
+              "metricId": "forge.benchmark.100k-entity-frustum-culling-and-bounds-query"
+            },
+            {
+              "name": "math Vec3 cross + normalize",
+              "count": 1000000,
+              "durationMs": 67.46788600000218,
+              "opsPerSec": 14821867,
+              "metricId": "forge.benchmark.math-vec3-cross-normalize"
+            },
+            {
+              "name": "math Mat4 multiply",
+              "count": 250000,
+              "durationMs": 14.187459999997373,
+              "opsPerSec": 17621195,
+              "metricId": "forge.benchmark.math-mat4-multiply"
+            },
+            {
+              "name": "scheduler inline dispatch",
+              "count": 8192,
+              "durationMs": 31.415281000001414,
+              "opsPerSec": 260765,
+              "metricId": "forge.benchmark.scheduler-inline-dispatch"
+            },
+            {
+              "name": "scheduler deduplicated subscribers",
+              "count": 4096,
+              "durationMs": 1.0872140000028594,
+              "opsPerSec": 3767428,
+              "metricId": "forge.benchmark.scheduler-deduplicated-subscribers"
+            },
+            {
+              "name": "resources unique load + acquire",
+              "count": 10000,
+              "durationMs": 45.999236999999994,
+              "opsPerSec": 217395,
+              "metricId": "forge.benchmark.resources-unique-load-acquire"
+            },
+            {
+              "name": "resources cached acquire + release",
+              "count": 10000,
+              "durationMs": 1.786046000001079,
+              "opsPerSec": 5598960,
+              "metricId": "forge.benchmark.resources-cached-acquire-release"
+            },
+            {
+              "name": "resources handle release + LRU eviction",
+              "count": 10000,
+              "durationMs": 11.000929999998334,
+              "opsPerSec": 909014,
+              "metricId": "forge.benchmark.resources-handle-release-lru-eviction"
+            },
+            {
+              "name": "particles CPU setup 10,000",
+              "count": 10000,
+              "durationMs": 0.0604959999982384,
+              "opsPerSec": 165300185.14102077,
+              "metricId": "forge.benchmark.particles-cpu-setup-10-000"
+            },
+            {
+              "name": "particles CPU integrate 10,000 × 30",
+              "count": 300000,
+              "durationMs": 7.677827999999863,
+              "opsPerSec": 39073550.488498226,
+              "metricId": "forge.benchmark.particles-cpu-integrate-10-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 100,000",
+              "count": 100000,
+              "durationMs": 0.8096170000026177,
+              "opsPerSec": 123515192.98591392,
+              "metricId": "forge.benchmark.particles-cpu-setup-100-000"
+            },
+            {
+              "name": "particles CPU integrate 100,000 × 30",
+              "count": 3000000,
+              "durationMs": 80.04573200000232,
+              "opsPerSec": 37478575.37238729,
+              "metricId": "forge.benchmark.particles-cpu-integrate-100-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 500,000",
+              "count": 500000,
+              "durationMs": 11.482067000000825,
+              "opsPerSec": 43546166.382757045,
+              "metricId": "forge.benchmark.particles-cpu-setup-500-000"
+            },
+            {
+              "name": "particles CPU integrate 500,000 × 30",
+              "count": 15000000,
+              "durationMs": 435.5734489999995,
+              "opsPerSec": 34437360.75841486,
+              "metricId": "forge.benchmark.particles-cpu-integrate-500-000-x-30"
+            },
+            {
+              "name": "particles CPU setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 31.425694999998086,
+              "opsPerSec": 31821094.171507135,
+              "metricId": "forge.benchmark.particles-cpu-setup-1-000-000"
+            },
+            {
+              "name": "particles CPU integrate 1,000,000 × 30",
+              "count": 30000000,
+              "durationMs": 1116.005505000001,
+              "opsPerSec": 26881587.828726683,
+              "metricId": "forge.benchmark.particles-cpu-integrate-1-000-000-x-30"
+            },
+            {
+              "name": "particles mock GPU allocate 10,000",
+              "count": 10000,
+              "durationMs": 7.7576719999997295,
+              "opsPerSec": 1289046.507766808,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-10-000"
+            },
+            {
+              "name": "particles mock GPU prepare 10,000 × 3",
+              "count": 3,
+              "durationMs": 0.08760500000062166,
+              "opsPerSec": 34244.62074058229,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-10-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 100,000",
+              "count": 100000,
+              "durationMs": 7.15368799999851,
+              "opsPerSec": 13978803.660436522,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-100-000"
+            },
+            {
+              "name": "particles mock GPU prepare 100,000 × 3",
+              "count": 3,
+              "durationMs": 0.08743999999933294,
+              "opsPerSec": 34309.240622402634,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-100-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 500,000",
+              "count": 500000,
+              "durationMs": 71.05917899999986,
+              "opsPerSec": 7036388.6416419335,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-500-000"
+            },
+            {
+              "name": "particles mock GPU prepare 500,000 × 3",
+              "count": 3,
+              "durationMs": 0.11152100000253995,
+              "opsPerSec": 26900.76308436683,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-500-000-x-3"
+            },
+            {
+              "name": "particles mock GPU allocate 1,000,000",
+              "count": 1000000,
+              "durationMs": 111.671832,
+              "opsPerSec": 8954809.660505973,
+              "metricId": "forge.benchmark.particles-mock-gpu-allocate-1-000-000"
+            },
+            {
+              "name": "particles mock GPU prepare 1,000,000 × 3",
+              "count": 3,
+              "durationMs": 0.13933199999883072,
+              "opsPerSec": 21531.306519860304,
+              "metricId": "forge.benchmark.particles-mock-gpu-prepare-1-000-000-x-3"
+            },
+            {
+              "name": "world objects setup 10,000",
+              "count": 10000,
+              "durationMs": 10.707095000001573,
+              "opsPerSec": 933960.1451185902,
+              "metricId": "forge.benchmark.world-objects-setup-10-000"
+            },
+            {
+              "name": "world objects transform 10,000",
+              "count": 10000,
+              "durationMs": 0.5323079999980109,
+              "opsPerSec": 18786116.308673486,
+              "metricId": "forge.benchmark.world-objects-transform-10-000"
+            },
+            {
+              "name": "world objects cull 10,000",
+              "count": 10000,
+              "durationMs": 13.54388900000049,
+              "opsPerSec": 738340.3688556247,
+              "metricId": "forge.benchmark.world-objects-cull-10-000"
+            },
+            {
+              "name": "world objects setup 100,000",
+              "count": 100000,
+              "durationMs": 140.39997999999832,
+              "opsPerSec": 712250.8137109507,
+              "metricId": "forge.benchmark.world-objects-setup-100-000"
+            },
+            {
+              "name": "world objects transform 100,000",
+              "count": 100000,
+              "durationMs": 6.4998149999992165,
+              "opsPerSec": 15385053.266902529,
+              "metricId": "forge.benchmark.world-objects-transform-100-000"
+            },
+            {
+              "name": "world objects cull 100,000",
+              "count": 100000,
+              "durationMs": 41.51414999999906,
+              "opsPerSec": 2408817.2346056043,
+              "metricId": "forge.benchmark.world-objects-cull-100-000"
+            },
+            {
+              "name": "world objects setup 500,000",
+              "count": 500000,
+              "durationMs": 639.9068079999997,
+              "opsPerSec": 781363.7763328817,
+              "metricId": "forge.benchmark.world-objects-setup-500-000"
+            },
+            {
+              "name": "world objects transform 500,000",
+              "count": 500000,
+              "durationMs": 30.89766899999813,
+              "opsPerSec": 16182450.527255964,
+              "metricId": "forge.benchmark.world-objects-transform-500-000"
+            },
+            {
+              "name": "world objects cull 500,000",
+              "count": 500000,
+              "durationMs": 182.77016100000037,
+              "opsPerSec": 2735676.31206496,
+              "metricId": "forge.benchmark.world-objects-cull-500-000"
+            },
+            {
+              "name": "world objects setup 1,000,000",
+              "count": 1000000,
+              "durationMs": 1521.1083080000026,
+              "opsPerSec": 657415.3824160155,
+              "metricId": "forge.benchmark.world-objects-setup-1-000-000"
+            },
+            {
+              "name": "world objects transform 1,000,000",
+              "count": 1000000,
+              "durationMs": 77.48554200000217,
+              "opsPerSec": 12905633.414811399,
+              "metricId": "forge.benchmark.world-objects-transform-1-000-000"
+            },
+            {
+              "name": "world objects cull 1,000,000",
+              "count": 1000000,
+              "durationMs": 705.4431369999984,
+              "opsPerSec": 1417548.6974792161,
+              "metricId": "forge.benchmark.world-objects-cull-1-000-000"
+            },
+            {
+              "name": "16 lights, spread rig: fill (CPU)",
+              "count": 922,
+              "durationMs": 0.015493783115959989,
+              "opsPerSec": 59507739,
+              "metricId": "forge.benchmark.16-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: fill (CPU)",
+              "count": 49152,
+              "durationMs": 0.24237753921578603,
+              "opsPerSec": 202791068,
+              "metricId": "forge.benchmark.16-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "16 lights, dense rig: count (CPU, stays)",
+              "count": 16,
+              "durationMs": 0.03255596078437806,
+              "opsPerSec": 491461,
+              "metricId": "forge.benchmark.16-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "64 lights, spread rig: fill (CPU)",
+              "count": 3536,
+              "durationMs": 0.025178478571398863,
+              "opsPerSec": 140437397,
+              "metricId": "forge.benchmark.64-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 8.627699651165194,
+              "opsPerSec": 11393999,
+              "metricId": "forge.benchmark.64-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "64 lights, dense rig: count (CPU, stays)",
+              "count": 64,
+              "durationMs": 0.044010348837155315,
+              "opsPerSec": 1454203,
+              "metricId": "forge.benchmark.64-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "256 lights, spread rig: fill (CPU)",
+              "count": 7749,
+              "durationMs": 0.5779338888887313,
+              "opsPerSec": 13408108,
+              "metricId": "forge.benchmark.256-lights-spread-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: fill (CPU)",
+              "count": 98304,
+              "durationMs": 57.74332725000189,
+              "opsPerSec": 1702430,
+              "metricId": "forge.benchmark.256-lights-dense-rig-fill-cpu"
+            },
+            {
+              "name": "256 lights, dense rig: count (CPU, stays)",
+              "count": 256,
+              "durationMs": 0.08524374999994204,
+              "opsPerSec": 3003153,
+              "metricId": "forge.benchmark.256-lights-dense-rig-count-cpu-stays"
+            },
+            {
+              "name": "object cull 512 batches (cpu twin, frustum+distance+hiz)",
+              "count": 512,
+              "durationMs": 0.25379428571458057,
+              "opsPerSec": 2017381.9066036814,
+              "metricId": "forge.benchmark.object-cull-512-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 2048 batches (cpu twin, frustum+distance+hiz)",
+              "count": 2048,
+              "durationMs": 1.0640170000006037,
+              "opsPerSec": 1924781.2769897832,
+              "metricId": "forge.benchmark.object-cull-2048-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "object cull 8192 batches (cpu twin, frustum+distance+hiz)",
+              "count": 8192,
+              "durationMs": 3.986109999998007,
+              "opsPerSec": 2055136.4613631074,
+              "metricId": "forge.benchmark.object-cull-8192-batches-cpu-twin-frustum-distance-hiz"
+            },
+            {
+              "name": "hiz pyramid 1280x720 (cpu twin, 4 levels)",
+              "count": 921600,
+              "durationMs": 20.32924600000115,
+              "opsPerSec": 45333702.98140659,
+              "metricId": "forge.benchmark.hiz-pyramid-1280x720-cpu-twin-4-levels"
+            },
+            {
+              "name": "draw submission 16 batches (mock frame)",
+              "count": 16,
+              "durationMs": 1.2818439999973634,
+              "opsPerSec": 12482.018092710898,
+              "metricId": "forge.benchmark.draw-submission-16-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 64 batches (mock frame)",
+              "count": 64,
+              "durationMs": 2.034479999994801,
+              "opsPerSec": 31457.669773191945,
+              "metricId": "forge.benchmark.draw-submission-64-batches-mock-frame"
+            },
+            {
+              "name": "draw submission 256 batches (mock frame)",
+              "count": 256,
+              "durationMs": 4.348351000000548,
+              "opsPerSec": 58872.89227570812,
+              "metricId": "forge.benchmark.draw-submission-256-batches-mock-frame"
+            },
+            {
+              "name": "render graph compile + submit 10 declared passes",
+              "count": 10,
+              "durationMs": 29.141326000004483,
+              "opsPerSec": 343.1552840113885,
+              "metricId": "forge.benchmark.render-graph-compile-submit-10-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 34 declared passes",
+              "count": 34,
+              "durationMs": 106.07023900000058,
+              "opsPerSec": 320.5423153614259,
+              "metricId": "forge.benchmark.render-graph-compile-submit-34-declared-passes"
+            },
+            {
+              "name": "render graph compile + submit 66 declared passes",
+              "count": 66,
+              "durationMs": 209.55437099999835,
+              "opsPerSec": 314.9540602997039,
+              "metricId": "forge.benchmark.render-graph-compile-submit-66-declared-passes"
+            },
+            {
+              "name": "shadow cascade fit ×4",
+              "count": 1024,
+              "durationMs": 1.6441049999993993,
+              "opsPerSec": 622831.2668597043,
+              "metricId": "forge.benchmark.shadow-cascade-fit-x-4"
+            },
+            {
+              "name": "spot shadow fit",
+              "count": 256,
+              "durationMs": 0.2820500000016182,
+              "opsPerSec": 907640.4892697439,
+              "metricId": "forge.benchmark.spot-shadow-fit"
+            },
+            {
+              "name": "point shadow fit ×6 faces",
+              "count": 1536,
+              "durationMs": 0.23839800000132527,
+              "opsPerSec": 6443007.072171165,
+              "metricId": "forge.benchmark.point-shadow-fit-x-6-faces"
+            },
+            {
+              "name": "GPU allocation accounting (32 textures + buffers/frame)",
+              "count": 2048,
+              "durationMs": 0.26435700000001816,
+              "opsPerSec": 7747099.566116499,
+              "metricId": "forge.benchmark.gpu-allocation-accounting-32-textures-buffers-frame"
+            },
+            {
+              "name": "terrain generation 33×33",
+              "count": 1089,
+              "durationMs": 1.9283719999948516,
+              "opsPerSec": 564725.0634228807,
+              "metricId": "forge.benchmark.terrain-generation-33-x-33"
+            },
+            {
+              "name": "terrain generation 65×65",
+              "count": 4225,
+              "durationMs": 6.072270999997272,
+              "opsPerSec": 695785.8106138376,
+              "metricId": "forge.benchmark.terrain-generation-65-x-65"
+            },
+            {
+              "name": "terrain generation 129×129",
+              "count": 16641,
+              "durationMs": 21.0960849999974,
+              "opsPerSec": 788819.3472865723,
+              "metricId": "forge.benchmark.terrain-generation-129-x-129"
+            },
+            {
+              "name": "terrain thermal erosion 65×65",
+              "count": 12675,
+              "durationMs": 0.5410960000008345,
+              "opsPerSec": 23424678.800028928,
+              "metricId": "forge.benchmark.terrain-thermal-erosion-65-x-65"
+            },
+            {
+              "name": "terrain hydraulic erosion 65×65",
+              "count": 21125,
+              "durationMs": 6.154914999999164,
+              "opsPerSec": 3432216.366920237,
+              "metricId": "forge.benchmark.terrain-hydraulic-erosion-65-x-65"
+            },
+            {
+              "name": "terrain LOD selection + resolution/geomorph",
+              "count": 896,
+              "durationMs": 0.09677799999917625,
+              "opsPerSec": 9258302.506846871,
+              "metricId": "forge.benchmark.terrain-lod-selection-resolution-geomorph"
+            },
+            {
+              "name": "terrain streaming cold update",
+              "count": 12,
+              "durationMs": 5.5108670000045095,
+              "opsPerSec": 2177.5158064947277,
+              "metricId": "forge.benchmark.terrain-streaming-cold-update"
+            },
+            {
+              "name": "terrain streaming resident update",
+              "count": 4,
+              "durationMs": 0.07470699999976205,
+              "opsPerSec": 53542.50605716654,
+              "metricId": "forge.benchmark.terrain-streaming-resident-update"
+            },
+            {
+              "name": "terrain streaming camera move + return",
+              "count": 24,
+              "durationMs": 5.913624000000709,
+              "opsPerSec": 4058.4250875600346,
+              "metricId": "forge.benchmark.terrain-streaming-camera-move-return"
+            },
+            {
+              "name": "terrain mesh generation 17×17 + skirts",
+              "count": 357,
+              "durationMs": 0.2787289999978384,
+              "opsPerSec": 1280813.98061475,
+              "metricId": "forge.benchmark.terrain-mesh-generation-17-x-17-skirts"
+            },
+            {
+              "name": "terrain mesh generation 33×33 + skirts",
+              "count": 1221,
+              "durationMs": 0.895356000000902,
+              "opsPerSec": 1363703.3760859033,
+              "metricId": "forge.benchmark.terrain-mesh-generation-33-x-33-skirts"
+            },
+            {
+              "name": "terrain mesh generation 65×65 + skirts",
+              "count": 4485,
+              "durationMs": 3.5763890000016545,
+              "opsPerSec": 1254058.2134655723,
+              "metricId": "forge.benchmark.terrain-mesh-generation-65-x-65-skirts"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 128 bodies",
+              "count": 128,
+              "durationMs": 0.2339330000031623,
+              "opsPerSec": 547165.2139641251,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-128-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 512 bodies",
+              "count": 512,
+              "durationMs": 2.720978000004834,
+              "opsPerSec": 188167.63678320457,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-512-bodies"
+            },
+            {
+              "name": "physics broadphase pair generation + pruning 2048 bodies",
+              "count": 2048,
+              "durationMs": 3.533730999995896,
+              "opsPerSec": 579557.4139634223,
+              "metricId": "forge.benchmark.physics-broadphase-pair-generation-pruning-2048-bodies"
+            },
+            {
+              "name": "physics narrowphase sphere-sphere manifold generation",
+              "count": 512,
+              "durationMs": 0.20623199999681674,
+              "opsPerSec": 2482640.9093055534,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-sphere-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-box manifold generation",
+              "count": 512,
+              "durationMs": 0.27466200000344543,
+              "opsPerSec": 1864109.3416401881,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-box manifold generation",
+              "count": 512,
+              "durationMs": 1.0609919999988051,
+              "opsPerSec": 482567.2578121009,
+              "metricId": "forge.benchmark.physics-narrowphase-box-box-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-plane manifold generation",
+              "count": 512,
+              "durationMs": 0.13423899999907007,
+              "opsPerSec": 3814092.7748534093,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-plane manifold generation",
+              "count": 512,
+              "durationMs": 0.7064820000014151,
+              "opsPerSec": 724717.685657914,
+              "metricId": "forge.benchmark.physics-narrowphase-box-plane-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase sphere-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 0.18243000000074971,
+              "opsPerSec": 2806555.9392528418,
+              "metricId": "forge.benchmark.physics-narrowphase-sphere-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics narrowphase box-heightfield manifold generation",
+              "count": 512,
+              "durationMs": 0.8001910000020871,
+              "opsPerSec": 639847.2364706234,
+              "metricId": "forge.benchmark.physics-narrowphase-box-heightfield-manifold-generation"
+            },
+            {
+              "name": "physics sequential-impulse solver contact batch",
+              "count": 256,
+              "durationMs": 0.5044750000015483,
+              "opsPerSec": 507458.24867280695,
+              "metricId": "forge.benchmark.physics-sequential-impulse-solver-contact-batch"
+            },
+            {
+              "name": "physics fixed-step resting-contact stability",
+              "count": 2880,
+              "durationMs": 24.77332100000058,
+              "opsPerSec": 116254.09447525961,
+              "metricId": "forge.benchmark.physics-fixed-step-resting-contact-stability"
+            },
+            {
+              "name": "physics spatial raycasts (256 colliders)",
+              "count": 512,
+              "durationMs": 12.001060999995389,
+              "opsPerSec": 42662.89455575609,
+              "metricId": "forge.benchmark.physics-spatial-raycasts-256-colliders"
+            },
+            {
+              "name": "physics heightfield queries (256 colliders)",
+              "count": 4096,
+              "durationMs": 0.1285680000000866,
+              "opsPerSec": 31858627.34115208,
+              "metricId": "forge.benchmark.physics-heightfield-queries-256-colliders"
+            },
+            {
+              "name": "physics vehicle simulation 8 vehicles × 120 steps",
+              "count": 960,
+              "durationMs": 25.054763000000094,
+              "opsPerSec": 38316.06788697209,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-8-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 32 vehicles × 120 steps",
+              "count": 3840,
+              "durationMs": 101.86003199999686,
+              "opsPerSec": 37698.790434310074,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-32-vehicles-x-120-steps"
+            },
+            {
+              "name": "physics vehicle simulation 64 vehicles × 120 steps",
+              "count": 7680,
+              "durationMs": 212.55179299999872,
+              "opsPerSec": 36132.36986431842,
+              "metricId": "forge.benchmark.physics-vehicle-simulation-64-vehicles-x-120-steps"
+            },
+            {
+              "name": "UI build + layout (1000 buttons)",
+              "count": 1000,
+              "durationMs": 38.304552999994485,
+              "opsPerSec": 26107,
+              "metricId": "forge.benchmark.ui-build-layout-1000-buttons"
+            },
+            {
+              "name": "UI steady frame (update + render)",
+              "count": 300,
+              "durationMs": 0.30949099999998,
+              "opsPerSec": 969334,
+              "metricId": "forge.benchmark.ui-steady-frame-update-render"
+            },
+            {
+              "name": "UI hover sweep (restyle + repaint)",
+              "count": 300,
+              "durationMs": 111.16786600000341,
+              "opsPerSec": 2699,
+              "metricId": "forge.benchmark.ui-hover-sweep-restyle-repaint"
+            },
+            {
+              "name": "UI local text change (layout boundary)",
+              "count": 300,
+              "durationMs": 89.1909469999955,
+              "opsPerSec": 3364,
+              "metricId": "forge.benchmark.ui-local-text-change-layout-boundary"
+            },
+            {
+              "name": "UI viewport resize (full relayout)",
+              "count": 60,
+              "durationMs": 201.74912600000243,
+              "opsPerSec": 297,
+              "metricId": "forge.benchmark.ui-viewport-resize-full-relayout"
+            },
+            {
+              "name": "UI draw-list rebuild (1000 buttons)",
+              "count": 200,
+              "durationMs": 57.73720499999763,
+              "opsPerSec": 3464,
+              "metricId": "forge.benchmark.ui-draw-list-rebuild-1000-buttons"
+            },
+            {
+              "name": "UI virtualized scroll (100k rows)",
+              "count": 600,
+              "durationMs": 62.24684100000013,
+              "opsPerSec": 9639,
+              "metricId": "forge.benchmark.ui-virtualized-scroll-100k-rows"
+            },
+            {
+              "name": "UI text layout (cache miss)",
+              "count": 800,
+              "durationMs": 11.289672000006249,
+              "opsPerSec": 70861,
+              "metricId": "forge.benchmark.ui-text-layout-cache-miss"
+            },
+            {
+              "name": "UI text layout (cache hit)",
+              "count": 800,
+              "durationMs": 0.6131119999990915,
+              "opsPerSec": 1304819,
+              "metricId": "forge.benchmark.ui-text-layout-cache-hit"
+            }
+          ],
+          "checks": {
+            "core": [
+              "math: 1,000,000 vector kernels in 67.47 ms; 250,000 matrix multiplies in 14.19 ms",
+              "scheduler: 8,192 unique tasks in 31.42 ms; 4,096 subscribers shared one task (4,095 hits)",
+              "resources: 10,000 loads / hits / evictions, 625 KiB peak, zero entries left"
+            ],
+            "ecs": [
+              "100,000 entities: create 140.95 ms, transform 6.39 ms, cull 58.37 ms"
+            ],
+            "particles": [
+              "CPU: 4 capacity bands through 1,000,000, largest integration 1116.01 ms with analytic error 2.67e-7",
+              "mock GPU: 4 capacity bands through 1,000,000, largest allocation 132000768 bytes, zero ECS entities and zero live buffers after teardown"
+            ],
+            "world": [
+              "objects: 4 capacity bands through 1,000,000, largest setup 1521.11 ms",
+              "transforms/cull: 77.49 ms / 705.44 ms, 279,292 visible and 720,708 culled",
+              "teardown: 142,606,336 typed-storage bytes measured before disposal, zero live ECS objects after every band"
+            ],
+            "lights": [
+              "dense 256 lights → 98304 entries (3072 clusters × cap 32)",
+              "fill follows coverage: dense 100× the spread rig at 256 lights (7749 vs 98304 entries)",
+              "count stays flat: 0.066 ms (spread) vs 0.085 ms (dense) at 256 lights",
+              "CPU fill of the worst case: 57.74 ms (0.578 ms for the demo-shaped rig)"
+            ],
+            "culling": [
+              "per-batch cost 0.520µs at 2048 → 0.487µs at 8192 (0.94x, linear within the guard)",
+              "frustum 2.00 ms vs frustum+distance 2.05 ms at 8192 batches (1.02x)",
+              "cpu twin at the 8192-batch cap: 3.99 ms/frame (frustum 2.00, distance 2.05, occluded 2174)",
+              "pyramid 1280x720 / 4 levels: 20.33 ms/frame on the CPU (5.1x the cull it feeds) — the device reduces it in-frame, the twin cannot"
+            ],
+            "rendering": [
+              "draw submission: 256 batches → 256 draw calls in 4.35 ms",
+              "render graph: 66 declared / 65 executed, 2 physical textures for 64 transients, 57139200 bytes aliased",
+              "shadow fits: 256 cascade/spot/point iterations, atlas 512px / 10485760 bytes within 16777216 bytes",
+              "GPU memory: 2048 allocations, peak 655360 bytes, zero remaining"
+            ],
+            "terrain": [
+              "generation: 3 deterministic grids, largest 129×129 in 21.10 ms (399384 bytes)",
+              "erosion: thermal 0.54 ms + hydraulic 6.15 ms at 65×65",
+              "LOD: 896 selected chunks across levels 0/1/2/3/4 (3/5/9/17/33 grid resolutions), 216 transition samples",
+              "streaming: cold 12 chunks, resident 0.07 ms, moved 12, return cache hits 12, 12/12 resident",
+              "mesh: largest 65×65 source has 4485 vertices / 26112 indices in 3.58 ms"
+            ],
+            "physics": [
+              "broadphase: 3 body counts, largest 2048 generated 1984 pairs from 191005 axis candidates (2096128 possible)",
+              "narrowphase: 7 supported shape pairs, 8,192 contacts generated deterministically",
+              "solver: 64 bodies / 256 contacts, total normal impulse 181.124 in 0.50 ms",
+              "stability: 32 bodies × 90 fixed steps, max penetration 0.0118 m, max speed 0.050 m/s",
+              "queries: 512 raycasts hit in 12.00 ms; 4096 heightfield samples ranged -0.644..0.618 in 0.13 ms",
+              "vehicles: 3 fleet sizes, largest 64 vehicles × 120 steps in 212.55 ms, 256 wheel contacts"
+            ],
+            "ui": [
+              "steady frame: 0 measures, 0 style resolves, draw list rebuilt: false",
+              "local text change: 1.0 measures/frame vs 2015 for a full relayout",
+              "1000 buttons → 1222 instances in 1 batch(es)",
+              "virtualized 100k rows: 37 elements instantiated",
+              "text layout: 11.3 ms for 800 misses, 0.61 ms for 800 hits"
+            ]
+          },
+          "passed": true
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

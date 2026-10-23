@@ -1036,6 +1036,11 @@ async function main(): Promise<void> {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
       return handle?.marsState?.() ?? null;
     },
+    /** Mars showcase: scrub the deterministic solar clock (hours), without changing the rover route. */
+    setMarsSolarTime: (hours: number) => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsSolarTime?.(hours);
+    },
     /** Phase 23: versioned telemetry/streaming/traversal contract; null outside Mars Showcase. */
     marsReferenceState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;

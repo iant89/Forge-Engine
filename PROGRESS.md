@@ -183,7 +183,7 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Engine statistics through `engine.stats()` for renderer, culling, shadows, streaming and resources
 - [x] Benchmarks for ECS, particles, lights and culling (`npm run bench`)
 - [x] Phase 22.1 core matrix: 100k ECS entities, allocation-free Vec3/Mat4 kernels, inline task dispatch/deduplication, and ResourceRegistry load/cache/eviction paths, all with correctness/accounting and catastrophe guards
-- [x] Benchmark snapshot schema 1 (`npm run bench -- --json PATH`): operation counts, timings, guard results and exact host metadata; the first audited baseline is in `PERFORMANCE.md`
+- [x] Benchmark snapshot schema 2 (`npm run bench -- --json PATH`): stable metric IDs, operation counts, timings, repeated raw samples, guard results and exact host metadata; same-host comparison and the audited baseline are stored in `benchmarks/history/` and `PERFORMANCE.md`
 - [x] Frame profiler (Phase 21.1): CPU/GPU frame records, per-scope EWMAs, the categorised `Engine.frameBreakdown()` (simulation, physics, terrain, streaming, rendering, particles, scripting, audio) and the drawn frame timeline — a category-stacked column per frame against the budget line with a lane chart of the selected frame's scopes, in the demo's floating Profiler panel (hover to select, tap to pin)
 - [x] Timeline scrub and zoom (Phase 21.1 follow-up): the retained profiler window responds to wheel, keyboard and pointer drag, preserves frame-number selection while it moves, and remains bounded; the GPU marker is still the frame total and per-pass device times stay in the text report
 - [x] ECS Inspector (Phase 21.2): bounded, read-only system/entity/component snapshots are public and tested, and the demo's floating Inspector window browses them — entity list, component populations, a filter and a per-entity detail pane
@@ -198,8 +198,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Phase 22.3 terrain matrix: deterministic multi-resolution generation, thermal/hydraulic erosion, multi-level LOD/geomorph selection, budgeted TerrainWorld streaming/cache return, and skirted mesh-source construction with exact topology guards
 - [x] Phase 22.4 physics matrix: deterministic broadphase pruning, supported narrowphase manifold generation, sequential-impulse/stability workloads, raycast and heightfield queries, and vehicle fleets
 - [x] Phase 22.5 particle matrix: deterministic CPU setup/integration and strict mock-GPU allocation/prepare coverage at 10K, 100K, 500K and 1M, with analytic, storage-shape, zero-entity and zero-live-buffer guards
-- [ ] World-scale benchmark matrix, including 10K, 100K, 500K and 1M objects (Phase 22.6)
-- [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
+- [x] Phase 22.6 world matrix: public EntityWorld creation/attachment, transform composition and frustum visibility coverage at 10K, 100K, 500K and 1M, with shape, digest, typed-storage and teardown guards
+- [x] Phase 22.7 automatic same-host regression detection: repeated samples, stable metric manifests, host compatibility, stored raw history and statistically significant timing rejection
 
 ## Testing & CI (Phases 0, 2, 9, 28)
 
@@ -236,7 +236,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 
 ## Road to 1.0 (Phases 23, 27–29)
 
-- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
+- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API; its fixed-step Mars solar cycle now drives the reference sun, ambient and horizon fog. Sustained continuous-drive validation, Stage A erosion, weather/cloud breadth, camera modes and integrated replay remain (Phase 23)
 - [x] Public API audit and release contract: the root-only `@forge/engine` boundary and the
   2,196-export surface (2,187 public, nine experimental), type/value kinds, stability labels,
   direct declarations and transitive engine-local type contracts have a deterministic CI-gated
